@@ -76,7 +76,7 @@ static int is_release(const struct win_event *e) {
 static int coalesces(const struct win_event *old, const struct win_event *ev) {
     if (old->type != ev->type) return 0;
     switch (ev->type) {
-    case WIN_EV_SCREEN: case WIN_EV_FONT: case WIN_EV_SETTING: return 1;
+    case WIN_EV_SCREEN: case WIN_EV_FONT: case WIN_EV_SETTING: case WIN_EV_VT: return 1;
     case WIN_EV_FSWATCH: return old->a == ev->a;
     default: return 0;
     }
@@ -169,7 +169,7 @@ static int enqueue(const struct win_event *ev, int edge) {
         }
         for (int i = 0; i < q.count; i++)
             if (coalesces(&q.ring[(q.head + i) % WIN_EVENT_QUEUE_MAX], ev)) { remove_at(i); break; }
-        // The reserve covers the kernel's four notice types; more notices
+        // The reserve covers the kernel's five notice types; more notices
         // than that means a new kind that does not coalesce -- said, and
         // refused rather than written past the ring.
         if (q.count - q.ninput >= WIN_INPUT_NOTICE_RESERVE) {
@@ -318,9 +318,32 @@ void win_input_drain_keys(void) {
     }
 }
 
+// THE DESKTOP'S VT IS NOT ON SCREEN (win_input_set_hidden()): the pointer
+// is not the compositor's to have. Clicks and the wheel are read and
+// DROPPED, so the desktop does not act on what was done at a text VT --
+// except a RELEASE of a button it was told went down, which it is owed
+// (a drag in progress at the switch would otherwise stay held). Motion is
+// left alone: the first poll back reports where the pointer now is. Keys
+// still drain, since what the keyboard queues meanwhile is releases.
+static int g_hidden;
+
+void win_input_set_hidden(int hidden) { g_hidden = hidden ? 1 : 0; }
+
 void win_input_poll(void) {
     int pid = win_server_compositor_pid();
     if (!pid) return;
+    if (g_hidden) {
+        uint8_t e, held = 0;
+        int ex, ey, x, y;
+        while (mouse_try_get_button_edge(&e, &ex, &ey)) {}
+        (void)mouse_get_wheel_delta();
+        mouse_get_state(&x, &y, &held);
+        uint8_t keep = g_last_buttons & held;   // releases only
+        if (keep != g_last_buttons && input_room() >= 2)
+            g_last_buttons = push_button_edge(g_last_x, g_last_y, g_last_buttons, keep);
+        win_input_drain_keys();
+        return;
+    }
 
     // THE DEVICE HAS TO BE STARTED, and this is the only place that can:
     // a ring-3 compositor cannot touch hardware, and a mouse nobody

@@ -407,6 +407,10 @@ int keyboard_try_get_key(int *out_code, int *out_down, uint8_t *out_mods);
 // owed releases included, either way. win_role.c calls it on every role
 // change, so a restarted or replacement compositor starts clean.
 void keyboard_events_attach(int on);
+// The desktop's virtual terminal left the screen (1) or came back (0):
+// presses stop joining the streams above, releases still do
+// (kernel/tty/vt.c's).
+void keyboard_desktop_hidden(int hidden);
 int keyboard_events_attached(void);
 
 // EVERY KEY'S EDGES, BY POSITION: the evdev keycode (abi/input_keys.h),

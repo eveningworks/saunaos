@@ -2007,6 +2007,9 @@ int wm_client_handle_event(const struct win_event *ev) {
         // And every client's, which the kernel told only this process.
         broadcast_state(WIN_EV_FONT, 0, 0, WM_PEND_FONT);
         break;
+    case WIN_EV_VT:
+        wm_vt_shown(ev->a);
+        break;
     case WIN_EV_SCREEN:
         wm_screen_changed();
         broadcast_state(WIN_EV_SCREEN, screen_w, screen_h, WM_PEND_SCREEN);

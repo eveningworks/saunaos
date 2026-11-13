@@ -176,10 +176,18 @@ static uint8_t  kev_delivered[KEY_DOWN_MAX];   // this key's press is queued
 static uint32_t kev_code[KEY_DOWN_MAX];        // ...as this code: its release's
 static uint8_t  phys_held[PHYS_KEYCODES / 8];  // `phys`'s owed set, and its repeat filter
 static int g_attached;                         // a compositor reads these streams
+// THE DESKTOP'S VT IS NOT ON SCREEN (keyboard_desktop_hidden()): no PRESS
+// joins either stream -- the keys are the text VT's -- while a release of
+// a key whose press was queued still does, or the compositor would hold
+// Ctrl and Alt down from the Ctrl+Alt+F2 that hid it.
+static int g_desk_hidden;
+
+void keyboard_desktop_hidden(int hidden) { g_desk_hidden = hidden ? 1 : 0; }
 
 // A character with no key of its own (a dead key's accent; a key past
 // the tracked range): down and up together, or neither.
 static void kev_synthetic(uint32_t code) {
+    if (g_desk_hidden) return;
     uint64_t f = irq_save();
     if (er_admits(&kev, 1)) {
         er_put(&kev, code, 1);
@@ -194,7 +202,7 @@ static void kev_synthetic(uint32_t code) {
 // the release must still say 'w', or a client that saw 'w' go down holds
 // it forever.
 static void kev_press(uint16_t keycode, uint32_t code) {
-    if (!code) return;
+    if (!code || g_desk_hidden) return;
     if (keycode >= KEY_DOWN_MAX) { kev_synthetic(code); return; }
     uint64_t f = irq_save();
     int repeat = kev_delivered[keycode];
@@ -235,7 +243,7 @@ int keyboard_try_get_key(int *out_code, int *out_down, uint8_t *out_mods) {
 // leaves its bit clear, so its release is dropped. A keycode past the
 // bitmap is left out rather than wrapped.
 static void phys_push(uint16_t keycode, int down) {
-    if (!g_attached || keycode >= PHYS_KEYCODES) return;
+    if (!g_attached || keycode >= PHYS_KEYCODES || (down && g_desk_hidden)) return;
     uint8_t bit = (uint8_t)(1u << (keycode & 7));
     uint64_t f = irq_save();
     int held = (phys_held[keycode >> 3] & bit) != 0;

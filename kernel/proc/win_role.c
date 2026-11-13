@@ -55,6 +55,7 @@ static uint64_t g_comp_pml4 = 0;
 // framebuffer grant: cleared in win_server_set_compositor(), the one
 // place the role changes hands or dies.
 static int g_hw_cursor_armed = 0;
+static int g_desk_hidden;   // the desktop's VT is not on screen
 
 int win_server_hw_cursor_armed(void) { return g_hw_cursor_armed; }
 
@@ -309,7 +310,9 @@ int win_server_request(int pid, struct win_request_msg *req) {
             return 0;
         case WIN_FB_CURSOR_SHOW: {
             if (!gfx_hw_cursor_available()) return -1;
-            gfx_hw_cursor_show(1);
+            // Behind a text VT the plane stays off; armed, it comes on
+            // with the desktop (win_server_desktop_shown()).
+            if (!g_desk_hidden) gfx_hw_cursor_show(1);
             // Armed LAST, and the plane is put where the pointer
             // already is -- waiting for the next event would show the
             // sprite at its previous position for one human-visible
@@ -406,6 +409,23 @@ void win_server_setting_changed(uint32_t generation) {
     broadcast(WIN_EV_SETTING, (int32_t)(generation & 0x7FFFFFFFu), 0);
 }
 void win_server_fswatch_fired(int id) { broadcast(WIN_EV_FSWATCH, id, 0); }
+
+// The desktop's VT left the screen or came back (kernel/tty/vt.c). The
+// cursor PLANE is the kernel's to hide -- it would otherwise sit over the
+// text VT -- and goes back where the pointer is now; the rest is the
+// compositor's, told by WIN_EV_VT.
+void win_server_desktop_shown(int on) {
+    g_desk_hidden = !on;
+    if (g_hw_cursor_armed) {
+        if (on) {
+            int mx, my;
+            mouse_get_state(&mx, &my, 0);
+            gfx_hw_cursor_move(mx, my);
+        }
+        gfx_hw_cursor_show(on);
+    }
+    broadcast(WIN_EV_VT, on ? 1 : 0, 0);
+}
 
 static int g_dying_code;   // win_server_client_died()'s, for the hold decision
 

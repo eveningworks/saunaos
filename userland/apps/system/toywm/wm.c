@@ -992,6 +992,23 @@ static void poll_desktop_entries(void) {
 
 // ---- main loop ----
 
+int wm_vt_hidden;
+
+void wm_vt_shown(int on) {
+    wm_vt_hidden = !on;
+    if (!on) {
+        wm_logf("wm: another virtual terminal has the screen\n");
+        return;
+    }
+    // What is on screen is the frame before the switch, or the text VT's
+    // where that buffer was the console's: everything is redrawn.
+    wm_render_reset();
+    wm_hwcursor_invalidate();
+    wm_damage_rect(0, 0, screen_w, screen_h);
+    WM_REDRAW();
+    wm_logf("wm: back on screen\n");
+}
+
 // WIN_EV_SCREEN. Unlike the font, the screen's size IS cached in
 // places: the grant and the back buffer, the pointer's seed, the icon
 // grid's rows, every window's position, and a maximized window's size.
@@ -2095,7 +2112,8 @@ void wm_run(void) {
         // THE IDLE CLOCK, once every input source has been read. Any of
         // them resets it and stops a running saver; a quiet machine
         // starts one after the configured minutes (wm_idle.h).
-        wm_idle_poll(mouse_moved || buttons != prev_buttons || any_key || wheel_seen);
+        wm_idle_poll(mouse_moved || buttons != prev_buttons || any_key || wheel_seen ||
+                     wm_vt_hidden);
 
         prev_mx = mx; prev_my = my; prev_buttons = buttons;
 
@@ -2127,7 +2145,12 @@ void wm_run(void) {
         int cursor_moved = mouse_moved || wm_cursor_shape_changed(mx, my);
         if (!(redraw_pending || overlay_close_frame() || g_cursor_owed)) g_owed_ns = 0;
         else if (!g_owed_ns) g_owed_ns = frame_now;
-        if ((redraw_pending || overlay_close_frame()) && frame_due) {
+        if (wm_vt_hidden) {
+            // Nothing reaches the screen: drop what is owed rather than
+            // pace frames into a scratch page. wm_vt_shown() owes a full one.
+            redraw_pending = 0;
+            g_cursor_owed = 0;
+        } else if ((redraw_pending || overlay_close_frame()) && frame_due) {
             redraw_pending = 0;
             g_cursor_owed = 0;   // the frame draws the cursor where it is
             g_last_frame_ns = frame_now;
@@ -2166,7 +2189,8 @@ void wm_run(void) {
         // sys_notify_ready() is a no-op for anything init does not
         // supervise, so this is correct whether the desktop was started
         // as a service or by hand from the shell. See rt/sys.h.
-        if (rendered && !announced_ready) {
+        // Behind a text VT from the start, it is as ready as it can be.
+        if ((rendered || wm_vt_hidden) && !announced_ready) {
             announced_ready = 1;
             sys_notify_ready();
         }

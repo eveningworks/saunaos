@@ -202,6 +202,15 @@
 // produce no character and so have never produced an ordinary key event
 // at all. Nothing else changes: a modifier still rides with the key it
 // modified, and an app that only reads `mods` is unaffected.
+// THE DESKTOP'S VIRTUAL TERMINAL LEFT THE SCREEN (a = 0) OR CAME BACK
+// (a = 1) -- Ctrl+Alt+F2..F4 and F1 (kernel/vt.h). To the compositor
+// only. While away, its scanouts are a scratch page (what it draws lands
+// nowhere and a present is a no-op), its pointer and key presses go to
+// the text VT, and the hardware cursor is hidden; releases of keys it saw
+// pressed still arrive. Back, the scanouts and the rotation are as they
+// were, and the next frame must be a FULL one. logind's PauseDevice and
+// ResumeDevice, which a Wayland compositor gets on a VT switch.
+#define WIN_EV_VT        49
 #define WIN_EV_SCREEN    32 // a: width, b: height. THE SCREEN CHANGED
                            // SIZE (`config set resolution`). The
                            // compositor re-maps its framebuffer grant

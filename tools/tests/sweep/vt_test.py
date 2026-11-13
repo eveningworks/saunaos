@@ -34,6 +34,15 @@ the others would not catch:
    Shift+PageDown returns to the identical live screen; on VT2 it shows
    VT2's few lines, not VT1's boot log.
 
+6. **THE DESKTOP ON VT1** (a third boot, graphical). Ctrl+Alt+F2 takes
+   the screen from a running compositor, which is TOLD (`wm: another
+   virtual terminal has the screen`); a line typed there runs; a
+   right-click and a Super tap made at VT2 open nothing on the desktop
+   (the pointer and key presses are VT2's); Ctrl+Alt+F1 brings the
+   desktop back as it was -- the frame equals the one before the switch
+   outside the taskbar clock -- and a Super tap opens the Start menu
+   again, so presses reach it once more and no Ctrl or Alt was left held.
+
 Every frame compared is a SETTLED one (QMPSession.screenshot()), and
 every wait is on the state asserted -- a log line, a process gone, a
 frame that changed -- never a fixed sleep.
@@ -162,6 +171,62 @@ def type_text(q, text):
         q.send_key("spc" if ch == " " else ch)
 
 
+def desktop_phase(sock, port, scratch, w):
+    dbg = DebugConsole(sock)
+    flow = ShellFlow(qmp_port=port)
+    q = flow.session
+    scr = Screen(q, scratch)
+    seen = {}
+    if not poll(lambda: "toywm is ready" in dmesg(dbg), 60.0, step=1.0):
+        check("the desktop came up", False)
+        return
+    # THE POINTER IS PARKED, and put back before the return: the frames
+    # are compared whole, and its sprite alone makes two differ.
+    park = (w - 200, 40)
+    q.goto(*park)
+    dbg.settle()
+    d0 = scr.grab()
+    h = d0.size[1]
+    # Everything but the taskbar clock, which may tick during the round trip.
+    def desktop_same(img):
+        return (same(img, d0, (0, 0, w, h - 50)) and
+                same(img, d0, (0, h - 50, w - 160, h)))
+
+    check("Ctrl+Alt+F2 leaves the desktop", switch(q, dbg, 2, seen))
+    check("the compositor is told it lost the screen",
+          bool(poll(lambda: "wm: another virtual terminal has the screen" in dmesg(dbg), 10.0)))
+    prompt = (0, 3 * CELL_H, w, 4 * CELL_H)
+    poll(lambda: lit(scr.grab(), prompt) > 0, 15.0, step=0.5)
+    vt2 = scr.grab()
+    check("VT2 is on screen, not the desktop",
+          not same(vt2, d0) and lit(vt2, (0, 0, w, CELL_H)) > 0 and lit(vt2, prompt) > 0)
+    flow.type_command("touch /vtdesk.txt")
+    q.send_key("ret")
+    check("a command typed on VT2 runs over the desktop",
+          bool(poll(lambda: "vtdesk.txt" in (dbg.send("sh ls /") or ""), 15.0, step=0.5)))
+    dbg.send("sh rm /vtdesk.txt")
+
+    print("what is done at VT2 is VT2's")
+    q.goto(w // 2, h // 3)
+    q.click("right")
+    q.send_key("meta_l")
+    q.goto(*park)
+
+    check("Ctrl+Alt+F1 brings the desktop back", switch(q, dbg, 1, seen))
+    check("the compositor is told it has the screen again",
+          bool(poll(lambda: "wm: back on screen" in dmesg(dbg), 10.0)))
+    poll(lambda: desktop_same(scr.grab()), 15.0, step=0.5)
+    check("the desktop comes back as it was", desktop_same(scr.grab()))
+    dbg.settle()
+    menu, ctx = dbg.menu() or {}, dbg.ctxmenu() or {}
+    check("a right-click and Super at VT2 opened nothing on the desktop",
+          not menu.get("open") and not ctx.get("open"), f"menu {menu.get('open')}, context {ctx.get('open')}")
+    q.send_key("meta_l")
+    check("Super opens the Start menu again after the round trip",
+          bool(poll(lambda: (dbg.menu() or {}).get("open"), 10.0)))
+    q.send_key("esc")
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -287,6 +352,16 @@ def main():
               f"{lit(hist2)} lit pixels on VT2's history, {lit(hist)} on VT1's")
         q.combo(["shift", "pgdn"])
         scr.changed_from(hist2, timeout=4.0)
+
+        print("third boot -- the desktop on VT1")
+        dbg.send("sh config set system.default_target graphical")
+        dbg.close()
+        flow.session.close()
+        vm_run(args.disk, args.instance, "stop")
+        if not vm_mod.started_ok(vm_run(args.disk, args.instance, "start")):
+            print("vt_test: the graphical boot never became ready")
+            return 2
+        desktop_phase(sock, port, scratch, w)
     finally:
         if not args.keep:
             vm_run(args.disk, args.instance, "stop")

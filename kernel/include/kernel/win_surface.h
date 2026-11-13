@@ -52,6 +52,12 @@ int win_surface_hold_frame(int pid);
 // there is no holder.
 int win_surface_remode(void);
 
+// The desktop's virtual terminal left the screen (1) or came back (0):
+// every scanout mapping goes to a scratch page and back, and the display
+// to buffer 0 (the console's) and back to the compositor's last frame.
+// Also true for a grant or lease made while hidden. kernel/tty/vt.c's.
+void win_surface_set_hidden(int hidden);
+
 // Publishes a region the holder has written. Clamped to the screen; an
 // empty or fully off-screen rect is a no-op rather than an error.
 //

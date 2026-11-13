@@ -385,6 +385,21 @@ comes with them.
   hands the scanout to the console; switching back re-grants it and asks
   for a full repaint, the path a mode change already takes. The
   keyboard's bypass follows the active VT.
+
+  **BUILT 2026-11-13.** Leaving VT1 HIDES the desktop whether or not a
+  compositor runs, so one that starts behind a text VT stays there:
+  every scanout mapping (holder, lessee, stale lessee) goes to the
+  scratch frame, presents become no-ops, the display flips to buffer 0
+  (the console's), the cursor plane goes off, the pointer and key
+  PRESSES stop reaching it -- releases of keys it saw pressed still do,
+  or Ctrl and Alt would stay held from the Ctrl+Alt+F2 itself -- and it
+  gets `WIN_EV_VT` 0. Coming back re-maps the scanouts, flips to the
+  compositor's last frame and sends `WIN_EV_VT` 1; toywm draws a full
+  frame. Not the mode-change path: `WIN_EV_SCREEN` re-lays every window
+  out and closes the menus, and nothing about the screen changed. While
+  hidden toywm draws nothing and its idle clock stands still, or the
+  screen would go dark under a text VT. A hung desktop cannot refuse:
+  the kernel does all of it.
 - **D -- a shell on first use, and scrollback per VT.** The kernel tells
   init that VT n became active with nobody on it, and init starts
   `/bin/tosh` there with the VT's tty as 0/1/2 (a service descriptor of

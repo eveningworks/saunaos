@@ -34,8 +34,12 @@
 // and a refused release is logged.
 #define WIN_INPUT_MAX 32                             // raw input's share
 #define WIN_INPUT_FSWATCH_NAMED 16                   // watch notices queued by id
-// FONT, SCREEN, SETTING, the named watches, and the overflow notice.
-#define WIN_INPUT_NOTICE_RESERVE (3 + WIN_INPUT_FSWATCH_NAMED + 1)
+// FONT, SCREEN, SETTING, VT, the named watches, and the overflow notice.
+// The desktop's virtual terminal left the screen (1) or came back (0):
+// win_input_poll() drops the pointer meanwhile. kernel/tty/vt.c's.
+void win_input_set_hidden(int hidden);
+
+#define WIN_INPUT_NOTICE_RESERVE (4 + WIN_INPUT_FSWATCH_NAMED + 1)
 #define WIN_EVENT_QUEUE_MAX (WIN_INPUT_MAX + WIN_INPUT_NOTICE_RESERVE)
 
 // Polls the mouse and keyboard and queues WIN_EV_RAW_*. A no-op with no

@@ -378,6 +378,7 @@ KTEST("win_input", "a full queue of releases sheds nothing, and every notice sti
     n.type = WIN_EV_FONT;    took += win_input_push(&n);
     n.type = WIN_EV_SCREEN;  took += win_input_push(&n);
     n.type = WIN_EV_SETTING; took += win_input_push(&n);
+    n.type = WIN_EV_VT;      took += win_input_push(&n);
     for (int w = 1; w <= WATCHES; w++) {
         n.type = WIN_EV_FSWATCH;
         n.a = w;
@@ -393,7 +394,7 @@ KTEST("win_input", "a full queue of releases sheds nothing, and every notice sti
     win_server_set_compositor(0, 0);
     KTEST_ASSERT_EQ(pushed_ups, WIN_INPUT_MAX);
     KTEST_ASSERT(!took_press);
-    KTEST_ASSERT_EQ(took, 3 + WATCHES);           // no notice refused
+    KTEST_ASSERT_EQ(took, 4 + WATCHES);           // no notice refused
     KTEST_ASSERT_EQ(full, WIN_EVENT_QUEUE_MAX);
     KTEST_ASSERT_EQ(ups, WIN_INPUT_MAX);          // every release survived
     KTEST_ASSERT_EQ(notices, WIN_INPUT_NOTICE_RESERVE);
@@ -475,6 +476,7 @@ KTEST("win_input", "at the full ring, a release still evicts a press rather than
     n.type = WIN_EV_FONT;    win_input_push(&n);
     n.type = WIN_EV_SCREEN;  win_input_push(&n);
     n.type = WIN_EV_SETTING; win_input_push(&n);
+    n.type = WIN_EV_VT;      win_input_push(&n);
     for (int w = 1; w <= WIN_INPUT_FSWATCH_NAMED + 1; w++) { n.type = WIN_EV_FSWATCH; n.a = w; win_input_push(&n); }
     for (int i = 0; i < WIN_INPUT_MAX; i++) {
         struct win_event press = key_event(i);

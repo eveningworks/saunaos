@@ -467,11 +467,12 @@ void vga_present(void) {
     // compositor -- the log keeps collecting in the back buffer.
     splash_poll();
     if (splash_active()) return;
-    // THE DESKTOP OWNS THE SCREEN. Without this, any ring-3 process
-    // writing to fd 1 blits the text console over the whole desktop --
-    // DOOM's startup banner was the visible case, `dmesg` covers 100% of
-    // the screen, and it is not the writer's fault in either.
-    if (win_server_any()) return;
+    // THE DESKTOP OWNS THE SCREEN -- while ITS VT, VT1, is shown. Without
+    // this, any ring-3 process writing to fd 1 blits the text console over
+    // the whole desktop -- DOOM's startup banner was the visible case,
+    // `dmesg` covers 100% of the screen, and it is not the writer's fault
+    // in either. A text VT on screen has hidden the desktop (kernel/vt.h).
+    if (win_server_any() && vc_shown(VC_KERNEL)) return;
     // Both modes, in the one place, so no caller has to know which is
     // live. Double-buffered, gfx_present() blits the dirty box and
     // publishes it; drawing straight at the display it is a no-op and
@@ -1135,7 +1136,7 @@ void vga_reflow(void) {
     // top two thirds of it, and the console the user cannot see is the one
     // that does not need clearing. Same reasoning as the suspended keyboard
     // reader (win_server_set_compositor()); see docs/conventions/gui.md.
-    if (!win_server_any()) {
+    if (!win_server_any() || !vc_shown(VC_KERNEL)) {
         vc_redraw(g_fg);
         vga_present();
     }

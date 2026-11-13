@@ -349,6 +349,12 @@ extern int title_hover_kind;
 extern int title_tab_idx;
 
 extern int redraw_pending;
+// ANOTHER VIRTUAL TERMINAL HAS THE SCREEN (WIN_EV_VT, Ctrl+Alt+F2..F4):
+// the scanouts are a scratch page, so no frame is drawn, and the idle
+// clock stands still -- the person is busy at the text VT. Coming back
+// owes a FULL frame. wm.c's wm_vt_shown().
+extern int wm_vt_hidden;
+void wm_vt_shown(int on);
 // ASK FOR A FRAME, SAYING WHERE: every site does it through this, so a
 // frame that ends up a FULL-SCREEN repaint (no damage reported) is
 // charged to the sites that asked for it -- `gui frames` lists them, the

@@ -37,6 +37,13 @@ static int      g_span_count;
 static uint64_t g_span_pages;
 static uint64_t g_scratch;     // the frame a padded page points at
 
+// THE DESKTOP'S VT IS NOT ON SCREEN (win_surface_set_hidden()): every
+// mapping of the scanouts -- holder, lessee, stale lessee -- points at
+// g_scratch, presents are no-ops, and the display shows buffer 0, which
+// the console draws into. g_front and g_back stay what the compositor
+// last had, so coming back is a re-map and a flip to its last frame.
+static int      g_hidden;
+
 static int      g_lessee;      // pid the grant is LEASED to, or 0
 static uint64_t g_lessee_pml4;
 // An EX-lessee whose mapping is still in place: the lease ended but the
@@ -89,6 +96,55 @@ static void unmap_scanouts(uint64_t pml4, int count, uint64_t pages) {
     for (int b = 0; b < count; b++)
         for (uint64_t i = 0; i < pages; i++)
             vmm_unmap_user_page(pml4, WIN_FB_VADDR + (uint64_t)b * WIN_FB_BUFFER_STRIDE + i * 4096);
+}
+
+static int scratch_frame(void) {
+    if (!g_scratch) {
+        g_scratch = pmm_alloc_frame(PMM_ZONE_DMA32);
+        if (g_scratch) k_memset((void *)(uintptr_t)g_scratch, 0, 4096);
+    }
+    return g_scratch != 0;
+}
+
+// The same span, every page on the scratch frame: stores land nowhere and
+// nothing faults. Without the frame the pages are left unmapped -- the
+// holder then faults, which is still better than drawing over a VT.
+static void map_scratch(uint64_t pml4, int count, uint64_t pages) {
+    int have = scratch_frame();
+    for (int b = 0; b < count; b++)
+        for (uint64_t i = 0; i < pages; i++) {
+            uint64_t va = WIN_FB_VADDR + (uint64_t)b * WIN_FB_BUFFER_STRIDE + i * 4096;
+            vmm_unmap_user_page(pml4, va);
+            if (have) vmm_map_user_borrowed(pml4, va, g_scratch, 1, 0, VMM_MT_WC);
+        }
+}
+
+void win_surface_set_hidden(int hidden) {
+    hidden = hidden ? 1 : 0;
+    if (hidden == g_hidden) return;
+    g_hidden = hidden;
+    if (!g_holder) return;
+    // One piece: a mapping owner could exit mid-walk otherwise (lease()).
+    scheduler_preempt_disable();
+    uint64_t phys = gfx_framebuffer_phys();
+    if (hidden) {
+        if (g_pml4) map_scratch(g_pml4, g_count, g_pages);
+        if (g_lessee_pml4) map_scratch(g_lessee_pml4, g_count, g_pages);
+        if (g_stale_pml4) map_scratch(g_stale_pml4, g_count, g_pages);
+        display_flip(0);
+    } else {
+        // A stale lessee stays on scratch: it unmaps at its next present.
+        if (g_pml4) {
+            unmap_scanouts(g_pml4, g_count, g_pages);
+            map_scanouts(g_pml4, phys, g_count, g_pages);
+        }
+        if (g_lessee_pml4) {
+            unmap_scanouts(g_lessee_pml4, g_count, g_pages);
+            map_scanouts(g_lessee_pml4, phys, g_count, g_pages);
+        }
+        display_flip(g_front);   // its last frame, until the full one it owes
+    }
+    scheduler_preempt_enable();
 }
 
 // The buffer nobody should be drawing into: neither the last flipped
@@ -164,15 +220,12 @@ int win_surface_grant(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
     if (count > 3) count = 3;
 
     if (!map_scanouts(pml4, phys, count, pages)) return 0;
+    if (g_hidden) map_scratch(pml4, count, pages);   // a desktop starting behind a text VT
 
     // Pad up to the high-water mark -- see g_span_pages.
     if ((int)count > g_span_count) g_span_count = count;
     if (pages > g_span_pages) g_span_pages = pages;
-    if (!g_scratch) {
-        g_scratch = pmm_alloc_frame(PMM_ZONE_DMA32);
-        if (g_scratch) k_memset((void *)(uintptr_t)g_scratch, 0, 4096);
-    }
-    if (g_scratch) {
+    if (scratch_frame()) {
         for (int b = 0; b < g_span_count; b++) {
             uint64_t base = WIN_FB_VADDR + (uint64_t)b * WIN_FB_BUFFER_STRIDE;
             uint64_t from = b < count ? pages : 0;
@@ -187,7 +240,7 @@ int win_surface_grant(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
     g_count  = count;
     // Buffer 0 is what is on screen at grant time (the console's, and
     // the one a previous holder was flipped back to on revoke).
-    display_flip(0);
+    if (!g_hidden) display_flip(0);
     g_front  = 0;
     g_back   = count > 1 ? 1 : 0;
     if (out_count) *out_count = count;
@@ -205,6 +258,7 @@ int win_surface_grant(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
 
 int win_surface_hold_frame(int pid) {
     if (!g_holder || g_holder != pid) return 0;
+    if (g_hidden) return 0;   // a text VT has the screen: nothing to hold
     struct display_surface surf;
     display_scanout_at(g_front, &surf);
     // 45% darker: the frame reads as "not live" and the card stands out.
@@ -252,6 +306,11 @@ int win_surface_present(int pid, int x, int y, int w, int h, int *out_back) {
     // two presenters flipping one set of buffers would each hand the
     // other a live one to draw into.
     if (pid != (g_lessee ? g_lessee : g_holder)) return 0;
+    // HIDDEN: what it drew is on scratch. Its back stays its back.
+    if (g_hidden) {
+        if (out_back) *out_back = g_back;
+        return 1;
+    }
 
     // The holder drew into g_back; ask for it on screen. The next back
     // buffer is the one that is neither that nor the one being scanned
@@ -291,6 +350,7 @@ int win_surface_lease(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
     // kernel is preemptible in a syscall -- so the walk is one piece.
     scheduler_preempt_disable();
     int ok = map_scanouts(pml4, phys, g_count, g_pages);
+    if (ok && g_hidden) map_scratch(pml4, g_count, g_pages);
     scheduler_preempt_enable();
     if (!ok) return 0;
     if (g_stale == pid) { g_stale = 0; g_stale_pml4 = 0; } // the same pages, mapped again

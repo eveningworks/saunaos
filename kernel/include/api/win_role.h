@@ -43,6 +43,9 @@ void win_server_font_changed(void);
 // The screen's size changed (WIN_EV_SCREEN, a = w, b = h). One caller:
 // screen_set_mode().
 void win_server_screen_changed(int w, int h);
+// The desktop's virtual terminal left the screen (0) or came back (1):
+// the cursor plane, and WIN_EV_VT to the compositor. kernel/tty/vt.c's.
+void win_server_desktop_shown(int on);
 // WIN_EV_SETTING (a = the registry generation) and WIN_EV_FSWATCH
 // (a = a watch id): pushed configuration -- see abi/win_proto.h. The
 // first from setting.c's generation bump, the second from fswatch.c.
