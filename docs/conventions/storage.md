@@ -98,7 +98,9 @@ this the obvious way), not from how much history it accumulated.
   LATER, at the flush, so `blkdev_flush()`, `ata_flush_now()` and the block
   device's flush op all RETURN A STATUS and TFS3's `txn_commit()` checks
   it -- barrier 1 failing ABANDONS the transaction rather than
-  overwriting targets. A failed write-back keeps its line dirty rather
+  overwriting targets, and ANY failed barrier then takes the volume
+  read-only and fails every later sync (a drive may drop its cache on a
+  failed flush; `txn_barrier()`). A failed write-back keeps its line dirty rather
   than dropping it. **Fault injection sits at the public entry AND on
   the write-back path**, because with a cache in front "the drive
   refused this write" no longer happens during the caller's `write()` at

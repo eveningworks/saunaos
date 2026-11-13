@@ -823,12 +823,19 @@ static int remove_locked(const char *point, const char **why) {
         }
     }
 
-    // Flush before forgetting the mount: a write-back cache's failure
-    // surfaces at the flush, and after this the volume has no owner to
-    // report it to. A gone disk has nothing left to write to.
+    // COMMIT, THEN FLUSH, before forgetting the mount -- Linux's
+    // sync_filesystem() ahead of kill_sb. The backend's sync lands what
+    // it still has staged while its state exists; flushing first and
+    // committing in state_free() left a failed last commit unreported.
+    // Like Linux, a failure is logged and the unmount goes ahead: after
+    // this the volume has no owner to report it to. A gone disk has
+    // nothing left to write to.
     const struct block_device *dev = m->dev;
     int gone = (m->flags & MNT_GONE) != 0;
-    if (dev && !gone) blkdev_flush(dev);
+    if (!gone && m->state && m->fs->sync && !m->fs->sync(m->state))
+        klog_printf(KLOG_ERR "fs: %s: its last changes could not be committed before the unmount\n", m->point);
+    if (dev && !gone && !blkdev_flush(dev))
+        klog_printf(KLOG_ERR "fs: %s: the flush before the unmount FAILED -- the last writes may be lost\n", m->point);
     if (m->fs->umount && !gone) m->fs->umount(m->state, dev);
     // AFTER umount(), which is the last thing that may write: state_free
     // drops the caches this mount is holding, and a sync into a freed

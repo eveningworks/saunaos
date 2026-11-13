@@ -1212,19 +1212,26 @@ KTEST("tfs3", "a commit that arrives during the thread's commit waits for it") {
 
 // ---- an op's rollback log across a dropped lock -----------------------
 //
-// A device whose flush sleeps like SLOW_DEV's and FAILS for one pid: the
-// op under test fails its own commit, and nobody else's does.
+// A device whose flush sleeps like SLOW_DEV's, and whose JOURNAL IMAGE
+// writes fail for one pid: the op under test fails its own commit, and
+// nobody else's does. A failed write, not a failed flush -- a failed flush
+// stops the volume (txn_barrier()), and these test the abort that unwinds.
 static volatile int g_fail_pid = -1;   // the KTEST body itself may be pid 0
 
-static int failpid_flush(const struct block_device *self) {
-    slow_flush(self);
-    return scheduler_current_pid() != g_fail_pid;
+static int in_journal_images(uint64_t lba, int n) {
+    return lba < (uint64_t)(T3_V3_JDATA + T3_V3_JSLOTS) * T3_SPB &&
+           lba + (uint64_t)n > (uint64_t)T3_V3_JDATA * T3_SPB;
+}
+
+static int failpid_write(const struct block_device *self, uint64_t lba, int n, const void *b) {
+    if (scheduler_current_pid() == g_fail_pid && in_journal_images(lba, n)) return 0;
+    return v0_write(self, lba, n, b);
 }
 
 static const struct block_device FAILPID_DEV = {
     .name = "t3failpid", .sector_count = vol_count, .read_sectors = v0_read,
-    .write_sectors = v0_write, .max_sectors_per_xfer = vol_xfer,
-    .caps = BLK_CAP_FLUSH, .flush = failpid_flush,
+    .write_sectors = failpid_write, .max_sectors_per_xfer = vol_xfer,
+    .caps = BLK_CAP_FLUSH, .flush = slow_flush,
 };
 
 // An fs call in a kernel thread, so the test can run a second one beside it.
@@ -1663,7 +1670,9 @@ KTEST("tfs3", "a stepped write on a full volume runs its step again after a batc
 }
 
 // A device that refuses to read one sector or to write another (and
-// counts the reads it refused), and one whose flush can be made to fail.
+// counts the reads it refused), and one whose journal image writes can be
+// made to fail -- a commit that aborts and unwinds (a failed FLUSH stops
+// the volume instead, txn_barrier()).
 static volatile uint64_t g_bad_lba = ~0ull, g_bad_write_lba = ~0ull;
 static volatile uint32_t g_bad_reads;
 static volatile int g_flush_fails;
@@ -1678,7 +1687,11 @@ static int fault_write(const struct block_device *self, uint64_t lba, int n, con
     if (g_bad_write_lba >= lba && g_bad_write_lba < lba + (uint64_t)n) return 0;
     return vol_rw(0, lba, n, 0, b);
 }
-static int failflush_flush(const struct block_device *self) { (void)self; return !g_flush_fails; }
+static int failjw_write(const struct block_device *self, uint64_t lba, int n, const void *b) {
+    if (g_flush_fails && in_journal_images(lba, n)) return 0;
+    return v0_write(self, lba, n, b);
+}
+static int okflush(const struct block_device *self) { (void)self; return 1; }
 
 static const struct block_device FAULT_DEV = {
     .name = "t3fault", .sector_count = vol_count, .read_sectors = fault_read,
@@ -1686,8 +1699,8 @@ static const struct block_device FAULT_DEV = {
 };
 static const struct block_device FAILFLUSH_DEV = {
     .name = "t3failflush", .sector_count = vol_count, .read_sectors = v0_read,
-    .write_sectors = v0_write, .max_sectors_per_xfer = vol_xfer,
-    .caps = BLK_CAP_FLUSH, .flush = failflush_flush,
+    .write_sectors = failjw_write, .max_sectors_per_xfer = vol_xfer,
+    .caps = BLK_CAP_FLUSH, .flush = okflush,
 };
 
 // A table fsck cannot read hides what it maps, which then looks leaked: a
@@ -2600,6 +2613,7 @@ KTEST("tfs3", "a name holding '/' is not listed, and fsck reports it") {
 // Writes and flushes in order: what reached the device after what.
 static volatile uint32_t g_ord_seq, g_ord_hdr, g_ord_flush;
 static volatile int g_ord_fail_after = -1;   // flushes that succeed before they fail
+static volatile int g_ord_fail_nth = -1;     // ...or before ONE fails, and the rest succeed
 // A cleared header (byte 4 zero) can be made to fail, or to vanish as a
 // device cache would lose it; two blocks' writes are stamped with the
 // sequence number, and with the last flush before them.
@@ -2633,6 +2647,8 @@ static int ord_flush(const struct block_device *self) {
     (void)self;
     if (g_ord_fail_after == 0) return 0;
     if (g_ord_fail_after > 0) g_ord_fail_after--;
+    if (g_ord_fail_nth == 0) { g_ord_fail_nth = -1; return 0; }
+    if (g_ord_fail_nth > 0) g_ord_fail_nth--;
     g_ord_flush = ++g_ord_seq;
     return 1;
 }
@@ -2688,6 +2704,36 @@ KTEST("tfs3", "a commit whose barrier fails after its header stops the volume") 
 
     KTEST_ASSERT(!wrote);
     KTEST_ASSERT(!committed_on_disk || ro);
+}
+
+// ONE FAILED FLUSH STOPS THE VOLUME, even before the commit point: a drive
+// may drop its volatile cache when a flush fails, so what was written
+// before it -- data an inode is about to name -- may be gone, and a retry
+// that succeeds would commit pointers to it. jbd2 aborts and ext4 goes
+// read-only for the same reason. The write is rolled back, and sync says so.
+KTEST("tfs3", "one failed flush rolls the commit back, stops the volume, and fails sync") {
+    struct t3_state *sbi = join_mount_on(&SEQ_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 0);
+    del_fill();
+    int ready = fs_write_range(JOIN_POINT "/a", 0, g_del_buf, T3_BLOCK) == 1 && fs_sync_path(JOIN_POINT);
+    g_ord_fail_nth = 0;   // the next flush fails; every one after it succeeds
+    int wrote = ready && fs_write_range(JOIN_POINT "/b", 0, g_del_buf, 2 * T3_BLOCK) == 1;
+    g_ord_fail_nth = -1;
+    int gone = !fs_exists(JOIN_POINT "/b");
+    int ro = sbi->readonly;
+    int synced = fs_sync_path(JOIN_POINT);
+    int again = fs_write_range(JOIN_POINT "/c", 0, g_del_buf, T3_BLOCK) == 1;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(ready);
+    KTEST_ASSERT(!wrote);
+    KTEST_ASSERT(gone);       // rolled back
+    KTEST_ASSERT(ro);         // ...and stopped, though the retry's flush would succeed
+    KTEST_ASSERT(!synced);
+    KTEST_ASSERT(!again);
 }
 
 KTEST("tfs3", "a commit that aborts re-arms the writeback timer") {

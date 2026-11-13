@@ -2894,6 +2894,21 @@ option (ext4's `errors=panic`) and was declined: it loses the machine
 for a fault the next mount can repair, and it makes the fault-injected
 test kill the guest it is running in.
 
+**A failed FLUSH stops the volume on either side of the commit point
+(2026-11-13).** Before it, a failure used to roll back and keep writing,
+which is right for a failed WRITE -- the retry writes the images again --
+but not for a failed flush: a drive may drop its volatile cache then, so
+data written before the barrier may be gone while the retry's flush
+succeeds, and the retry commits an inode naming blocks that were never
+written. jbd2 aborts on journal I/O errors and ext4's default is
+`errors=remount-ro`; so every barrier failure now latches the volume
+(`sbi->lost`), takes it read-only under the lock, and fails every later
+sync. Declined: keep writing but report the error to later syncs
+(Linux's errseq) -- it tells a program its data may be gone without
+stopping the commit that points at it. The cost is a transient flush
+error stopping a USB stick until it is remounted, and the system disk
+until reboot. Found by the crash-consistency audit.
+
 **Why one wrapper instead of sixteen edited call sites.** The three-way
 answer is `txn_commit_raw()`'s; `txn_commit()` keeps the int contract
 every caller already has and consumes the third outcome in one place --

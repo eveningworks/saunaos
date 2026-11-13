@@ -582,6 +582,11 @@ struct t3_state {
     // commit COMMITTED, so its targets cannot be freed at all -- they leak
     // -- until a later header lands over it (an atomic, as above).
     uint32_t jclear_lost;
+    // STICKY: durability can no longer be promised -- a flush failed (a
+    // drive may drop its cache then, taking writes before it), or an error
+    // took the volume read-only and dropped staged work. sync() fails while
+    // it is set; it is set by txn_barrier() and t3_vol_go_readonly().
+    int lost;
 };
 
 // The volume's size in 4 KiB blocks, SATURATED at what a 32-bit block

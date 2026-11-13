@@ -130,6 +130,7 @@ int t3_vol_read_sectors(struct t3_state *sbi, uint64_t lba, int count, void *buf
 // ENFORCEMENT, because at init() time -- a failed replay -- there is
 // no mount entry yet to flag.
 void t3_vol_go_readonly(struct t3_state *sbi, const char *why) {
+    __atomic_store_n(&sbi->lost, 1, __ATOMIC_RELEASE);
     if (sbi->readonly) return;
     sbi->readonly = 1;
     klog_printf("tfs3: %s -- the volume is read-only until the next boot "
@@ -1754,6 +1755,7 @@ static void tfs3_state_free(void *st) {
 static int tfs3_sync(void *st) {
     struct t3_state *sbi = st;
     if (!sbi) return 1;
+    if (__atomic_load_n(&sbi->lost, __ATOMIC_ACQUIRE)) return 0;   // nothing it says can be durable now
     if (!t3_txn_flush_deferred(sbi)) return 0;
     return __atomic_load_n(&sbi->dev_writes, __ATOMIC_ACQUIRE) == sbi->fenced_writes
         ? FS_SYNC_FENCED : 1;

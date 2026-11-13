@@ -28,6 +28,7 @@
 #include "string.h"
 #include "fault_inject.h"
 #include "block_cache.h"
+#include "mount.h"   // fs_exclusive_begin() -- no commit in the fault window
 
 // Built from the configured directory rather than spelled out
 // (api/tmppath.h), so moving scratch is a setting rather than a grep.
@@ -210,10 +211,14 @@ KTEST("atac", "a failed write-back is REPORTED, not swallowed") {
     if (ata_cache_dirty() == 0)
         KTEST_SKIP("nothing dirty to fail -- the fs flushed it already");
 
+    // NO FILESYSTEM COMMIT INSIDE THE WINDOW: a root commit's barrier
+    // failing there would take the root read-only (txn_barrier()).
+    fs_exclusive_begin();
     fault_fail_next_ata_writes(64);
     uint32_t written = 0, pending = 0;
     int ok = ata_sync(&written, &pending);
     fault_fail_next_ata_writes(0);
+    fs_exclusive_end();
 
     // Unconditional, and this is the assertion the whole file exists
     // for: a drive that refused every write must NOT produce a

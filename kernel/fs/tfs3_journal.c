@@ -345,7 +345,14 @@ static int txn_barrier(struct t3_state *sbi) {
     if (!storage_sync_strict()) return 1;
     uint32_t covered = __atomic_load_n(&sbi->dev_writes, __ATOMIC_ACQUIRE);
     uint32_t cleared = __atomic_load_n(&sbi->jclear_gen, __ATOMIC_ACQUIRE);
-    if (!blkdev_flush(sbi->vol.dev)) return 0;
+    if (!blkdev_flush(sbi->vol.dev)) {
+        // ANY FAILED BARRIER STOPS THE VOLUME (the caller, under the lock:
+        // stop_if_lost()). A drive may drop its volatile cache when a flush
+        // fails, so data written before it may be gone; a retry whose flush
+        // succeeds would commit pointers to it. jbd2 aborts likewise.
+        __atomic_store_n(&sbi->lost, 1, __ATOMIC_RELEASE);
+        return 0;
+    }
     __atomic_store_n(&sbi->fenced_writes, covered, __ATOMIC_RELEASE);   // a gap writes it too
     __atomic_store_n(&sbi->jclear_fenced, cleared, __ATOMIC_RELEASE);
     return 1;
@@ -553,8 +560,16 @@ static void cundo_free(struct t3_state *sbi) {
     sbi->cown = 0;
 }
 
+// Under the lock, after a commit: a barrier that failed in it (or in a
+// gap) takes the volume read-only, as a failure past the commit point does.
+static void stop_if_lost(struct t3_state *sbi) {
+    if (__atomic_load_n(&sbi->lost, __ATOMIC_ACQUIRE))
+        t3_vol_go_readonly(sbi, "a flush failed, so writes before it may not be on the disk");
+}
+
 static void commit_finish(struct t3_state *sbi) {
     if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) != 2) return;
+    stop_if_lost(sbi);
     enum t3_commit r = (enum t3_commit)sbi->commit_result;
     if (sbi->commit_out) { *sbi->commit_out = (int)r; sbi->commit_out = 0; }
     __atomic_store_n(&sbi->committing, 0, __ATOMIC_RELEASE);
@@ -826,6 +841,7 @@ int t3_txn_commit(struct t3_state *sbi) {
         sbi->txn_deferred = 0;
         r = txn_commit_raw(sbi);
     }
+    stop_if_lost(sbi);
     if (r == T3_COMMIT_ABORTED) {
         // Nothing landed. This handle's work comes off, so its caller can
         // roll back what it allocated; what earlier ops staged is KEPT
