@@ -387,6 +387,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `virtio_gpu_test.py` -- the virtio GPU, end to end
 - `virtio_input_test.py` -- virtio keyboard, mouse and tablet
 - `vnc_test.py` -- /bin/remoted's VNC server, end to end, from a VNC client written here
+- `vt_test.py` -- Virtual terminals on Ctrl+Alt+F1..F4, on a `text` boot
 - `w16_install_test.py` -- `w16 --install` and its dialog, in a guest, from disks with no Microsoft file
 - `w16_sound_test.py` -- a Win16 program's sounds, judged on the HOST
 

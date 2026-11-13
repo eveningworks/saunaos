@@ -1401,10 +1401,11 @@ uint64_t scheduler_test_vruntime(int idx);
 // interrupt-driven into a ring buffer (kernel/kernel/serial.h), so the
 // bytes are already safe; only the line assembly is deferred.
 //
-// Console UPKEEP is not here on purpose (vga_cursor_tick(),
-// vga_present()): those belong to whoever owns the screen, and the GUI
-// desktop owns it while it is up. This is idle work that is safe
-// wherever the kernel is idle.
+// The cursor's BLINK is not here on purpose (vga_cursor_tick()): it
+// belongs to whoever reads the console. The console's tail PRESENT is
+// (vga_idle()), because vga_present() itself refuses while the desktop
+// owns the screen, and without it a program that printed and then slept
+// left its last characters in the back buffer.
 // The machine's time, split where the scheduler already bills it: total
 // nanoseconds charged to scheduled processes, and total charged to
 // nobody. A caller takes two samples and divides the deltas -- see

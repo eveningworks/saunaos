@@ -10,6 +10,7 @@
 #include "string.h" // k_tolower() -- the Ctrl-key fold
 #include "input.h" // INPUT_KEY_* -- the evdev keycodes everything above the wire uses
 #include "tty.h" // the console terminal -- keys go to its line discipline
+#include "vt.h"  // Ctrl+Alt+F1..F4, and which VT a key is typed at
 #include "keyboard_tap.h" // the rolling key log /bin/kbd reads
 #include "irqflags.h"     // irq_save() -- keyboard_events_attach() races IRQ1
 #include "kutf8.h"        // keyboard_read_line()'s erase takes a whole character
@@ -298,6 +299,13 @@ static void emit(uint32_t c, int synthetic) {
     // the character it turned into on one line. Here rather than at the
     // ~20 call sites for the reason `emitting_keycode` is here.
     kbdtap_produced(c);
+    // A TEXT VT ON SCREEN (2-4) TYPES AT ITS OWN TERMINAL, whatever holds
+    // VT1: the keys go where the eyes are.
+    struct tty *vt = vt_input_tty();
+    if (vt != tty_console()) {
+        tty_input(vt, c, current_mods());
+        return;
+    }
     if (g_attached) {
         if (synthetic) kev_synthetic(c);
         else kev_press(emitting_keycode, c);
@@ -305,6 +313,30 @@ static void emit(uint32_t c, int synthetic) {
         tty_input(tty_console(), c, current_mods());
     }
     // else: a held screen with no compositor yet -- the key goes nowhere
+}
+
+// CTRL+ALT+F1..F4 SWITCH VIRTUAL TERMINALS, caught here AHEAD OF BOTH
+// STREAMS -- before phys_push(), so a compositor never sees the key --
+// which is what lets a hung desktop be left (Windows' secure attention
+// sequence; Wayland on Linux leaves the switch to the compositor and
+// cannot). Either Alt, so AltGr layouts are not locked out. A key whose
+// press switched has its release (and its autorepeats) swallowed too: a
+// client never sees half a key. The switch itself is the `vt` thread's
+// (vt.h).
+static uint8_t g_vt_keys;   // bit n: F<n>'s press was taken
+
+static int vt_key(uint16_t keycode, int down) {
+    if (keycode < INPUT_KEY_F1 || keycode >= INPUT_KEY_F1 + VGA_VC_COUNT) return 0;
+    uint8_t bit = (uint8_t)(1u << (keycode - INPUT_KEY_F1 + 1));
+    if (!down) {
+        if (!(g_vt_keys & bit)) return 0;
+        g_vt_keys &= (uint8_t)~bit;
+        return 1;
+    }
+    if (!(g_vt_keys & bit) && !(ctrl_pressed && (alt_pressed || altgr_pressed))) return 0;
+    g_vt_keys |= bit;
+    vt_request_switch(keycode - INPUT_KEY_F1 + 1);
+    return 1;
 }
 
 // Defined below, beneath keyboard_key_event() which is its public face.
@@ -512,6 +544,7 @@ static void key_event_body(uint16_t keycode, int down, uint16_t wire, int extend
         }
         caps_held = down;
     }
+    if (vt_key(keycode, down)) return;
     phys_push(keycode, down);
     if (mod_code) {
         // A modifier produces NO code in the byte stream, so the tap
@@ -572,8 +605,19 @@ static void key_event_body(uint16_t keycode, int down, uint16_t wire, int extend
     case INPUT_KEY_RIGHT:    emit(shift_pressed ? KEY_SHIFT_ARROW_RIGHT : KEY_ARROW_RIGHT, 0); return;
     case INPUT_KEY_HOME:     emit(shift_pressed ? KEY_SHIFT_HOME : KEY_HOME, 0); return;
     case INPUT_KEY_END:      emit(shift_pressed ? KEY_SHIFT_END : KEY_END, 0); return;
-    case INPUT_KEY_PAGEUP:   emit(KEY_PAGE_UP, 0); return;
-    case INPUT_KEY_PAGEDOWN: emit(KEY_PAGE_DOWN, 0); return;
+    // SHIFT+PAGEUP/PAGEDOWN SCROLL A TEXT VT'S HISTORY, here in the
+    // driver as on a Linux VT, so they work under any program -- a ring-3
+    // shell reads keys the kernel's PageUp (keyboard_getchar_mods())
+    // never sees. On the desktop they are the window's.
+    case INPUT_KEY_PAGEUP:
+    case INPUT_KEY_PAGEDOWN:
+        if (shift_pressed && vt_text_shown()) {
+            int page = vga_rows() > 2 ? (int)vga_rows() - 2 : 1; // two lines of overlap
+            vt_request_scroll(keycode == INPUT_KEY_PAGEUP ? -page : page);
+            return;
+        }
+        emit(keycode == INPUT_KEY_PAGEUP ? KEY_PAGE_UP : KEY_PAGE_DOWN, 0);
+        return;
     case INPUT_KEY_DELETE:   emit(KEY_DELETE, 0); return;
     // THE WHOLE FUNCTION ROW. It was four -- F2/F3 (the file manager),
     // F10 (the menu bar) and F4 (Alt+F4) -- added one per caller; Doom

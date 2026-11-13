@@ -258,12 +258,13 @@ void vga_cursor_hide(void);
 
 // ---- scrollback ----
 //
-// The console keeps the last few hundred output lines (see vga.c's
-// scrollback section) so anything that scrolled off -- the boot
-// messages, the tail of a long command -- can be read back.
-// keyboard_getchar() drives these from PageUp/PageDown, so they work
-// wherever the kernel is waiting for a keypress; nothing else needs to
-// call them.
+// Each virtual terminal keeps the last few hundred output lines (see
+// vga.c's scrollback section) so anything that scrolled off -- the boot
+// messages, the tail of a long command -- can be read back. These act on
+// the VT ON SCREEN. Shift+PageUp/PageDown drive them from the keyboard
+// driver (through the `vt` thread, kernel/vt.h) under any program, and
+// keyboard_getchar() from plain PageUp/PageDown where the kernel shell
+// reads the keys.
 //
 // Any new output snaps the view back to the bottom first, so the live
 // console and the history can't interleave on screen.

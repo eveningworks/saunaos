@@ -5,9 +5,22 @@
 //     linear RGB framebuffer GRUB handed us (see gfx.c / multiboot.c)
 // Every other file in the kernel just calls vga_write()/vga_putc()/etc and
 // doesn't need to know which backend is actually active.
+//
+// **THERE ARE VGA_VC_COUNT SCREENS, AND ONE OF THEM IS SHOWN** -- the
+// virtual consoles behind Ctrl+Alt+F1..F4 (kernel/vt.h). Each `struct vc`
+// owns everything that describes ONE screen: the cursor, the colours,
+// the ANSI parser, the scrolling region, its scrollback, and a GRID of
+// cells -- Linux's vc_screenbuf -- because the pixels hold only the
+// screen on display, and a hidden screen must be redrawable when it is
+// switched to. Every write updates the grid; only the shown vc's also
+// reaches the pixels (`vc_put()` and friends, "the screen" below). VT1
+// is the kernel's console and tty0's: everything the kernel itself
+// prints lands there, whichever VT is on screen.
 
 #include "clockevent.h" // clockevent_idle_wake_at_tick() -- the blink is due at a time
 #include "vga.h"
+#include "vt.h"        // vga_vc_*() -- the screens behind Ctrl+Alt+Fn
+#include "heap.h"      // a vc's grid and scrollback
 #include "scheduler.h" // scheduler_preempt_disable() -- vga_putc_console()
 #include "ansi.h"
 #include "kutf8.h"     // the console decodes UTF-8 onto its Latin-1 font
@@ -18,6 +31,7 @@
 #include "display.h"   // display_power_set() -- a panic lights the screen
 #include "timer.h"
 #include "klog.h"
+#include "kfmt.h"     // klog_printf()
 #include "knum.h"
 #include "string.h"
 #include <stddef.h>
@@ -56,10 +70,10 @@ static int fb_mode = 0;
 // The trap, if you edit this: presenting is now a SEPARATE step from
 // drawing, so anything that puts text on screen and then stops without
 // reaching a flush point leaves that text in RAM only. The flush points
-// are vga_present() from the keyboard's idle loop (the physical shell's
-// "output is over, waiting for a human" moment), the throttled present
-// at the end of each vga_putc(), and the explicit call on the panic
-// path. A new path that prints and then halts needs its own.
+// are vga_present() from the kernel's idle work (vga_idle(), so the tail
+// of any burst), the throttled present at the end of each vga_putc(),
+// and the explicit call on the panic path. A new path that prints and
+// then halts with interrupts off needs its own.
 //
 // There is deliberately NO "console has drawn something" flag here.
 // gfx.c already tracks the dirty bounding box, and gfx_present() returns
@@ -69,33 +83,86 @@ static int fb_mode = 0;
 // set, nothing ever shown). Present unconditionally and let gfx.c decide.
 static uint64_t fb_last_present_tick;
 
-static size_t row;
-static size_t col;
+// The SCREEN's geometry, which every vc shares: the font and the mode
+// are the machine's, not a terminal's. 80x25 on the legacy backend.
 static size_t console_cols;
 static size_t console_rows;
 
-static uint8_t legacy_color;
 static uint16_t *buf = VGA_MEM;
-
-static enum vga_color cur_fg = VGA_LIGHT_GREY;
-static enum vga_color cur_bg = VGA_BLACK;
 
 // The console's OWN background, as opposed to whatever colour a caller
 // has temporarily set. A cell nobody has written to belongs to the
 // console, so blank space introduced by a scroll is painted with this
-// rather than with cur_bg -- see fb_scroll_if_needed(). Same reasoning
-// cursor_hide() already spells out for the cursor cell.
+// rather than with the current background -- see line_feed(). Same
+// reasoning cursor_hide() already spells out for the cursor cell.
 #define CONSOLE_DEFAULT_BG VGA_BLACK
 
 // ---- output sink redirection (see vga.h's struct vga_sink comment) ----
+// The KERNEL's writer only (vga_putc() and friends): a terminal's output
+// never goes through it, see vga_putc_console().
 static const struct vga_sink *active_sink = 0;
 
-// A line feed -- inside DECSTBM's scrolling region for tty0's output
-// (`raw`), over the whole screen for the kernel's own; see "the scrolling
-// region" below. Both backends' putc call it for a '\n' and for a wrap.
-static void line_feed(int raw);
-static struct ansi_region g_region;
-static size_t g_region_rows; // what it was set against; 0 = the whole screen
+// ---- the virtual consoles ------------------------------------------
+//
+// Scrollback ring: logical output LINES, see "Scrollback" below. VT1's
+// is the static arrays further down, because the kernel prints before
+// anything could ask for a VT; the others are allocated on first use.
+struct vc_sb {
+    char     *chars;     // lines * cols
+    uint8_t  *attrs;     // lines * cols
+    uint16_t *len;       // used columns per line
+    uint32_t lines, cols;
+    uint32_t total;      // lines ever completed (monotonic)
+    uint32_t cur_len;    // columns used in the line being written
+    uint32_t view;       // 0 = live; N = showing N lines further back
+};
+
+struct vc {
+    int      num;                 // 1..VGA_VC_COUNT, what Ctrl+Alt+Fn names
+    size_t   row, col;            // THE cursor -- there is no second one to keep in step
+    enum vga_color fg, bg;
+    // console_rows * console_cols cells, each the font byte | attr << 8 --
+    // the 0xB8000 layout. NULL until the vc is first used; reallocated
+    // (blank) when the geometry changes, see vga_reflow().
+    uint16_t *grid;
+    size_t   grid_rows, grid_cols;
+    // A sequence arrives one byte at a time, so `ESC [ 3 1 m` is five
+    // calls with the decision made on the last -- state per screen.
+    struct ansi_parser ansi;
+    int      ansi_armed;
+    struct ansi_region region;
+    size_t   region_rows;         // what it was set against; 0 = the whole screen
+    size_t   saved_row, saved_col;
+    struct kutf8_stream u8;       // a sequence split across two writes draws once
+    int      cursor_suppressed;   // DECTCEM -- see cursor_draw()
+    struct vc_sb sb;
+};
+
+static struct vc g_vc[VGA_VC_COUNT];
+static struct vc *g_fg = &g_vc[0];   // the one on screen
+#define VC_KERNEL (&g_vc[0])         // VT1: the kernel's console and tty0's
+
+static int vc_shown(const struct vc *v) { return v == g_fg; }
+
+static struct vc *vc_at(int n) {
+    return n >= 1 && n <= VGA_VC_COUNT ? &g_vc[n - 1] : NULL;
+}
+
+static void vc_reset(struct vc *v) {
+    v->row = v->col = 0;
+    v->fg = VGA_LIGHT_GREY;
+    v->bg = VGA_BLACK;
+    v->ansi_armed = 0;
+    v->region_rows = 0;
+    v->saved_row = v->saved_col = 0;
+    k_memset(&v->u8, 0, sizeof v->u8);
+    v->cursor_suppressed = 0;
+}
+
+// A line feed -- inside DECSTBM's scrolling region for a terminal's
+// output (`raw`), over the whole screen for the kernel's own; see "the
+// scrolling region" below. putc calls it for a '\n' and for a wrap.
+static void line_feed(struct vc *v, int raw);
 
 static uint32_t palette_rgb(enum vga_color c) {
     switch (c) {
@@ -119,11 +186,17 @@ static uint32_t palette_rgb(enum vga_color c) {
     return gfx_rgb(170, 170, 170);
 }
 
-// ---- legacy 0xB8000 backend ----
-
 static inline uint8_t make_color(enum vga_color fg, enum vga_color bg) {
     return fg | (bg << 4);
 }
+
+static inline uint8_t vc_attr(const struct vc *v) { return make_color(v->fg, v->bg); }
+
+// What a cell nobody has written holds, and what a scroll brings in.
+#define BLANK_ATTR make_color(VGA_LIGHT_GREY, CONSOLE_DEFAULT_BG)
+#define CELL(ch, attr) ((uint16_t)(uint8_t)(ch) | (uint16_t)((uint16_t)(attr) << 8))
+
+// ---- legacy 0xB8000 backend ----
 
 static uint8_t box_cp437(char c);
 
@@ -134,67 +207,11 @@ static inline uint16_t make_entry(char c, uint8_t clr) {
 }
 
 static void legacy_update_cursor(void) {
-    uint16_t pos = (uint16_t)(row * VGA_WIDTH + col);
+    uint16_t pos = (uint16_t)(g_fg->row * VGA_WIDTH + g_fg->col);
     outb(0x3D4, 0x0F);
     outb(0x3D5, (uint8_t)(pos & 0xFF));
     outb(0x3D4, 0x0E);
     outb(0x3D5, (uint8_t)((pos >> 8) & 0xFF));
-}
-
-static void legacy_clear(void) {
-    for (size_t y = 0; y < VGA_HEIGHT; y++)
-        for (size_t x = 0; x < VGA_WIDTH; x++)
-            buf[y * VGA_WIDTH + x] = make_entry(' ', legacy_color);
-    row = 0;
-    col = 0;
-    legacy_update_cursor();
-}
-
-static void legacy_scroll_if_needed(void) {
-    if (row < VGA_HEIGHT) return;
-    for (size_t y = 1; y < VGA_HEIGHT; y++)
-        for (size_t x = 0; x < VGA_WIDTH; x++)
-            buf[(y - 1) * VGA_WIDTH + x] = buf[y * VGA_WIDTH + x];
-    // The scrolled-in row is blank, so it gets the console's own colours
-    // rather than whatever legacy_color happens to be -- see
-    // fb_scroll_if_needed() for the artifact this avoids.
-    uint8_t blank = make_color(VGA_LIGHT_GREY, CONSOLE_DEFAULT_BG);
-    for (size_t x = 0; x < VGA_WIDTH; x++)
-        buf[(VGA_HEIGHT - 1) * VGA_WIDTH + x] = make_entry(' ', blank);
-    row = VGA_HEIGHT - 1;
-}
-
-// `raw`: a '\n' is a bare LINE FEED (the tty's bytes, ONLCR already
-// applied by the discipline) rather than the kernel's own newline, which
-// also returns the carriage -- see vga_putc_console().
-static void legacy_putc(char c, int raw) {
-    if (c == '\n') {
-        if (!raw) col = 0;
-        line_feed(raw);
-    } else if (c == '\r') {
-        col = 0;
-    } else {
-        buf[row * VGA_WIDTH + col] = make_entry(c, legacy_color);
-        col++;
-        if (col >= VGA_WIDTH) {
-            col = 0;
-            line_feed(raw);
-        }
-    }
-    legacy_scroll_if_needed();
-    legacy_update_cursor();
-}
-
-static void legacy_backspace(void) {
-    if (col == 0) {
-        if (row == 0) return;
-        row--;
-        col = VGA_WIDTH - 1;
-    } else {
-        col--;
-    }
-    buf[row * VGA_WIDTH + col] = make_entry(' ', legacy_color);
-    legacy_update_cursor();
 }
 
 // ---- blinking cursor (framebuffer mode only) ----
@@ -204,34 +221,15 @@ static void legacy_backspace(void) {
 // blink, not whether); the framebuffer backend draws its own console
 // text pixel-by-pixel and has no such hardware to lean on, so it needs
 // this. Kept deliberately simple: a solid block the size of one glyph
-// cell at the current (row, col), toggled on a timer.
+// cell at the shown vc's (row, col), toggled on a timer.
 //
 // cursor_on_screen tracks whether that block is currently painted, so
-// cursor_hide() is a safe no-op when there's nothing to erase. It's
-// always painted at the *current* (row, col) -- the cell the next
-// character will land in -- which is guaranteed blank whenever the
-// cursor is shown (nothing else writes there without going through
-// fb_putc()/fb_backspace(), both of which hide the cursor first).
-//
-// cursor_hide() erases using a hardcoded VGA_BLACK, not the live
-// cur_bg -- a blank cell (nothing drawn there yet, only the cursor
-// ever touched it) is always conceptually part of the console's plain
-// page background, which is black, regardless of whatever transient
-// text color happens to be active via vga_set_color() at the moment.
-// Using live cur_bg here looks right for ordinary typing (bg is
-// almost always black anyway) but breaks for a colored diagnostic
-// banner: idt.c's panic handler prints white-on-red, and its trailing
-// newline leaves the cursor auto-painted red on an otherwise-blank
-// line purely because cur_bg happened to be red right then -- no red
-// TEXT was ever actually meant to occupy that cell. Erasing with
-// live cur_bg either leaves that red block behind (if a later
-// vga_set_color() already moved cur_bg on, e.g. to
-// ring3_test.c's own light-green-on-black follow-up) or is a
-// silent no-op (erasing red with still-red cur_bg repaints the same
-// red) -- both were confirmed live via `ring3test`. Hardcoding black
-// sidesteps needing to track "what color was this blank cell really
-// supposed to be" at all: it's always black, full stop.
+// cursor_hide() is a safe no-op when there's nothing to erase. It is the
+// SCREEN's cursor, one for all the vcs: only the shown vc draws it, and
+// it is put back where it was PAINTED (cursor_r/c), so a vc whose
+// position moved meanwhile cannot make it restore the wrong cell.
 static int cursor_on_screen = 0;
+static size_t cursor_r, cursor_c;
 static uint64_t cursor_last_toggle_tick = 0;
 
 // The cursor SAVES THE PIXELS IT COVERS and puts them back when it
@@ -283,27 +281,28 @@ const char *const VGA_CURSOR_STYLE_NAMES[VGA_CURSOR_STYLE_COUNT] = {
 // terminal cursor rate.
 #define CURSOR_BLINK_TICKS 50
 
-// Paints the cursor at (row, col) in the active style, saving whatever
-// it covers first. A no-op if the cursor is already on screen -- saving
-// then would capture the cursor's own pixels and "restore" them later.
-// DECTCEM (`ESC[?25l`) sets this. A full-screen program hides the
-// cursor for the whole time it is painting, and a blinking block left
-// wandering across its output is the difference between a drawn screen
-// and a flickering one.
+// Paints the cursor at the shown vc's (row, col) in the active style,
+// saving whatever it covers first. A no-op if the cursor is already on
+// screen -- saving then would capture the cursor's own pixels and
+// "restore" them later.
 //
-// Checked in cursor_draw() rather than at each call site, because the
-// cursor is drawn from four places (after a putc, after a move, on the
-// blink tick, on resume) and one of them would eventually be missed.
-static int cursor_suppressed = 0;
-
+// The vc's `cursor_suppressed` is DECTCEM (`ESC[?25l`). A full-screen
+// program hides the cursor for the whole time it is painting, and a
+// blinking block left wandering across its output is the difference
+// between a drawn screen and a flickering one. Checked here rather than
+// at each call site, because the cursor is drawn from several places
+// (after a putc, after a move, on the blink tick, on resume) and one of
+// them would eventually be missed.
 static void cursor_draw(void) {
-    if (cursor_on_screen || cursor_suppressed) return;
+    struct vc *v = g_fg;
+    if (cursor_on_screen || v->cursor_suppressed) return;
+    if (v->row >= console_rows || v->col >= console_cols) return;
 
     int w = (int)CELL_W, h = (int)CELL_H;
     if (w > CURSOR_SAVE_W || h > CURSOR_SAVE_H || w <= 0 || h <= 0) {
         return; // can't save it, so don't paint it -- see CURSOR_SAVE_W
     }
-    int x0 = (int)(col * CELL_W), y0 = (int)(row * CELL_H);
+    int x0 = (int)(v->col * CELL_W), y0 = (int)(v->row * CELL_H);
 
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
@@ -312,8 +311,10 @@ static void cursor_draw(void) {
     }
     cursor_save_w = w;
     cursor_save_h = h;
+    cursor_r = v->row;
+    cursor_c = v->col;
 
-    uint32_t color = palette_rgb(cur_fg);
+    uint32_t color = palette_rgb(v->fg);
     switch (cursor_style) {
     case VGA_CURSOR_UNDERLINE: {
         int thick = h >= 20 ? 3 : 2;
@@ -350,9 +351,9 @@ static void cursor_draw(void) {
         // colour exactly. Antialiased glyph edges don't, so they get
         // the glyph treatment, which is the right side to err on: it
         // keeps the character's outline crisp.
-        uint32_t bg_pixel = palette_rgb(cur_bg);
-        uint32_t tint = (cur_bg <= VGA_DARK_GREY) ? palette_rgb(VGA_WHITE)
-                                                   : palette_rgb(VGA_BLACK);
+        uint32_t bg_pixel = palette_rgb(v->bg);
+        uint32_t tint = (v->bg <= VGA_DARK_GREY) ? palette_rgb(VGA_WHITE)
+                                                  : palette_rgb(VGA_BLACK);
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 uint32_t under = cursor_save[y * CURSOR_SAVE_W + x];
@@ -369,7 +370,7 @@ static void cursor_draw(void) {
 
 static void cursor_hide(void) {
     if (!cursor_on_screen) return;
-    int x0 = (int)(col * CELL_W), y0 = (int)(row * CELL_H);
+    int x0 = (int)(cursor_c * CELL_W), y0 = (int)(cursor_r * CELL_H);
     for (int y = 0; y < cursor_save_h; y++) {
         for (int x = 0; x < cursor_save_w; x++) {
             gfx_put_pixel(x0 + x, y0 + y, cursor_save[y * CURSOR_SAVE_W + x]);
@@ -383,6 +384,19 @@ static void cursor_show_and_reset_blink(void) {
     cursor_draw();
     cursor_last_toggle_tick = coarse_ticks(); // full interval before the next auto-toggle,
                                             // so it doesn't flicker right after typing
+}
+
+// Around anything that moves a vc's cursor or draws under it: the
+// screen's cursor comes off first and goes back on at the new place --
+// for the SHOWN vc only, since a hidden one has nothing painted.
+static void vc_cursor_off(const struct vc *v) {
+    if (fb_mode && vc_shown(v)) cursor_hide();
+}
+
+static void vc_cursor_on(const struct vc *v) {
+    if (!vc_shown(v)) return;
+    if (fb_mode) cursor_show_and_reset_blink(); // reappear solid at the new position
+    else legacy_update_cursor();
 }
 
 enum vga_cursor_style vga_cursor_style(void) { return cursor_style; }
@@ -406,9 +420,6 @@ int vga_cursor_style_parse(const char *name, enum vga_cursor_style *out) {
 
 // ---- framebuffer text-console backend ----
 
-// Publishes everything the console has drawn since the last present.
-// Cheap when nothing changed, so callers on an idle path can call it
-// unconditionally -- only the dirty bounding box is blitted.
 // Publishes the console's back buffer. TWO ENTRY POINTS, and the
 // difference is who owns the screen.
 //
@@ -431,10 +442,18 @@ static void present_now(void) {
     fb_last_present_tick = coarse_ticks();
 }
 
+static void vc_redraw(struct vc *v);
+
 void vga_present_force(void) {
     if (!fb_mode) return;
     display_power_set(1);   // ...and an idle-dark screen comes back to show it
     splash_end(1);   // a panic is the log's, splash or not
+    // ...AND THE KERNEL'S CONSOLE: a panic is printed on VT1, so a text VT
+    // on screen gives way to it. Allocates nothing, so it is safe here.
+    if (!vc_shown(VC_KERNEL)) {
+        g_fg = VC_KERNEL;
+        vc_redraw(g_fg);
+    }
     present_now();
 }
 
@@ -465,30 +484,18 @@ void vga_present(void) {
 // command dumping hundreds of scrolling lines pays for one full-screen
 // blit per tick rather than one per line, while still animating instead
 // of appearing to freeze until it finishes. The tail of the burst is
-// caught by vga_present() from the idle loop, so nothing relies on this
-// firing on the last line.
+// caught by vga_present() from the idle work (vga_idle()), so nothing
+// relies on this firing on the last line.
 static void fb_present_throttled(void) {
     if (coarse_ticks() == fb_last_present_tick) return;
     vga_present();
 }
 
-static void fb_clear(void) {
-    gfx_clear(palette_rgb(cur_bg));
-    row = 0;
-    col = 0;
-    cursor_on_screen = 0; // whatever was drawn is gone along with everything else
-    vga_present(); // a clear is a visible event in its own right, not part of a burst
-}
-
-static void fb_scroll_if_needed(void) {
-    if (row < console_rows) return;
-    // CONSOLE_DEFAULT_BG, not cur_bg: the row scrolling in is blank, and
-    // filling it with a transient colour paints a full-width band that
-    // no text asked for and that later text on that row only partly
-    // repaints. That is what left ragged red stripes across the lines
-    // after a panic banner.
-    gfx_scroll_up(CELL_H, palette_rgb(CONSOLE_DEFAULT_BG));
-    row = console_rows - 1;
+void vga_idle(void) {
+    // THE TAIL OF THE LAST BURST: a program that printed and then went to
+    // sleep or to compute left its last characters within a tick of the
+    // throttled present above, and nothing else would show them.
+    vga_present();
 }
 
 // ---- line drawing ---------------------------------------------------
@@ -561,94 +568,243 @@ static void cell_draw(int x, int y, char c, uint32_t fg, uint32_t bg) {
         }
 }
 
-static void fb_putc(char c, int raw) {
-    cursor_hide(); // erase before row/col move -- see cursor_hide()'s comment
-    if (c == '\n') {
-        if (!raw) col = 0; // legacy_putc() on `raw`
-        line_feed(raw);
-    } else if (c == '\r') {
-        col = 0;
+// ---- the screen: the SHOWN vc's cells as pixels (or 0xB8000) ---------
+//
+// Called only for the shown vc -- vc_put() and friends below decide.
+// The fb backend draws into the back buffer; presenting is separate.
+
+static void scr_cell(size_t r, size_t c, uint16_t cell) {
+    char ch = (char)(cell & 0xFF);
+    uint8_t a = (uint8_t)(cell >> 8);
+    if (fb_mode)
+        cell_draw((int)(c * CELL_W), (int)(r * CELL_H), ch,
+                  palette_rgb((enum vga_color)(a & 0x0F)),
+                  palette_rgb((enum vga_color)(a >> 4)));
+    else
+        buf[r * VGA_WIDTH + c] = make_entry(ch, a);
+}
+
+// Cells c0..c1 of row r, blank in attribute `a`.
+static void scr_blank(size_t r, size_t c0, size_t c1, uint8_t a) {
+    if (fb_mode) {
+        // One rect rather than one per cell: the whole point of erasing
+        // is that it is cheaper than printing spaces.
+        gfx_fill_rect((int)(c0 * CELL_W), (int)(r * CELL_H),
+                      (int)((c1 - c0 + 1) * CELL_W), (int)CELL_H,
+                      palette_rgb((enum vga_color)(a >> 4)));
+        return;
+    }
+    for (size_t x = c0; x <= c1; x++) buf[r * VGA_WIDTH + x] = make_entry(' ', a);
+}
+
+// Rows s->top..s->bot move by s->n (up when positive); the uncovered
+// ones are blank in `a`. The WHOLE screen moving up is gfx_scroll_up(),
+// which also carries the strip below the last whole row.
+static void scr_shift(const struct ansi_shift *s, uint8_t a) {
+    int n = s->n > 0 ? s->n : -s->n, keep = s->bot - s->top + 1 - n;
+    if (fb_mode) {
+        uint32_t bg = palette_rgb((enum vga_color)(a >> 4));
+        if (s->top == 0 && s->bot == (int)console_rows - 1 && s->n > 0)
+            gfx_scroll_up(n * (int)CELL_H, bg);
+        else
+            gfx_scroll_band(s->top * (int)CELL_H, (s->bot - s->top + 1) * (int)CELL_H,
+                            s->n * (int)CELL_H, bg);
+        return;
+    }
+    uint16_t blank = make_entry(' ', a);
+    if (s->n > 0) {
+        for (int r = s->top; r < s->top + keep; r++)
+            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = buf[(r + n) * VGA_WIDTH + x];
+        for (int r = s->bot - n + 1; r <= s->bot; r++)
+            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = blank;
     } else {
-        cell_draw((int)(col * CELL_W), (int)(row * CELL_H), c,
-                  palette_rgb(cur_fg), palette_rgb(cur_bg));
-        col++;
-        if (col >= console_cols) {
-            col = 0;
-            line_feed(raw);
+        for (int r = s->bot; r >= s->top + n; r--)
+            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = buf[(r - n) * VGA_WIDTH + x];
+        for (int r = s->top; r < s->top + n; r++)
+            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = blank;
+    }
+}
+
+static void scr_clear(uint8_t a) {
+    if (fb_mode) {
+        gfx_clear(palette_rgb((enum vga_color)(a >> 4)));
+        cursor_on_screen = 0; // whatever was drawn is gone along with everything else
+        return;
+    }
+    for (size_t i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++) buf[i] = make_entry(' ', a);
+}
+
+// ---- a vc's cells: the grid always, the screen when shown -----------
+
+// The grid matches the screen, or it is not used: a vc whose grid is
+// from before a geometry change (or that has none) draws without one.
+static int vc_has_grid(const struct vc *v) {
+    return v->grid && v->grid_rows == console_rows && v->grid_cols == console_cols;
+}
+
+// A blank grid of the screen's size, replacing whatever was there.
+static int vc_grid_alloc(struct vc *v) {
+    size_t n = console_rows * console_cols;
+    uint16_t *g = n ? kmalloc(n * sizeof *g) : NULL;
+    if (!g) return 0;
+    for (size_t i = 0; i < n; i++) g[i] = CELL(' ', BLANK_ATTR);
+    if (v->grid) kfree(v->grid);
+    v->grid = g;
+    v->grid_rows = console_rows;
+    v->grid_cols = console_cols;
+    return 1;
+}
+
+static void vc_put(struct vc *v, size_t r, size_t c, char ch, uint8_t a) {
+    if (r >= console_rows || c >= console_cols) return;
+    uint16_t cell = CELL(ch, a);
+    if (vc_has_grid(v)) v->grid[r * console_cols + c] = cell;
+    if (vc_shown(v)) scr_cell(r, c, cell);
+}
+
+// Cells c0..c1 (inclusive) of row r.
+static void vc_blank(struct vc *v, size_t r, size_t c0, size_t c1, uint8_t a) {
+    if (r >= console_rows || c0 > c1 || c0 >= console_cols) return;
+    if (c1 >= console_cols) c1 = console_cols - 1;
+    if (vc_has_grid(v))
+        for (size_t c = c0; c <= c1; c++) v->grid[r * console_cols + c] = CELL(' ', a);
+    if (vc_shown(v)) scr_blank(r, c0, c1, a);
+}
+
+static void vc_shift(struct vc *v, const struct ansi_shift *s, uint8_t a) {
+    if (vc_has_grid(v)) {
+        size_t w = console_cols;
+        int n = s->n > 0 ? s->n : -s->n;
+        if (n > s->bot - s->top + 1) n = s->bot - s->top + 1;
+        uint16_t *g = v->grid;
+        if (s->n > 0) {
+            for (int r = s->top; r + n <= s->bot; r++)
+                k_memcpy(&g[(size_t)r * w], &g[(size_t)(r + n) * w], w * sizeof *g);
+            for (int r = s->bot - n + 1; r <= s->bot; r++)
+                for (size_t c = 0; c < w; c++) g[(size_t)r * w + c] = CELL(' ', a);
+        } else {
+            for (int r = s->bot; r - n >= s->top; r--)
+                k_memcpy(&g[(size_t)r * w], &g[(size_t)(r - n) * w], w * sizeof *g);
+            for (int r = s->top; r < s->top + n; r++)
+                for (size_t c = 0; c < w; c++) g[(size_t)r * w + c] = CELL(' ', a);
         }
     }
-    fb_scroll_if_needed();
-    cursor_show_and_reset_blink(); // reappear solid at the new position right away
+    if (vc_shown(v)) scr_shift(s, a);
 }
 
-static void fb_backspace(void) {
-    cursor_hide();
-    if (col == 0) {
-        if (row == 0) return;
-        row--;
-        col = console_cols - 1;
-    } else {
-        col--;
+// The whole screen again, from the grid -- a switch, a return from the
+// scrollback, the desktop going away. A blank default cell is the clear
+// already, so only what was written is drawn.
+static void vc_redraw(struct vc *v) {
+    scr_clear(BLANK_ATTR);
+    if (vc_has_grid(v)) {
+        for (size_t r = 0; r < console_rows; r++)
+            for (size_t c = 0; c < console_cols; c++) {
+                uint16_t cell = v->grid[r * console_cols + c];
+                if (cell != CELL(' ', BLANK_ATTR)) scr_cell(r, c, cell);
+            }
     }
-    gfx_draw_char((int)(col * CELL_W), (int)(row * CELL_H), ' ',
-                  palette_rgb(cur_fg), palette_rgb(cur_bg));
-    cursor_show_and_reset_blink();
+    vc_cursor_on(v);
 }
 
+static void vc_clear(struct vc *v) {
+    vc_cursor_off(v);
+    if (vc_has_grid(v))
+        for (size_t i = 0; i < console_rows * console_cols; i++)
+            v->grid[i] = CELL(' ', vc_attr(v));
+    if (vc_shown(v)) scr_clear(vc_attr(v));
+    v->row = v->col = 0;
+    v->region_rows = 0; // a cleared console scrolls as a whole again
+    vc_cursor_on(v);
+}
+
+// `raw`: a '\n' is a bare LINE FEED (a terminal's bytes, ONLCR already
+// applied by the discipline) rather than the kernel's own newline, which
+// also returns the carriage -- see vga_putc_console().
+static void vc_putc(struct vc *v, char c, int raw) {
+    vc_cursor_off(v); // erase before row/col move -- see cursor_hide()
+    if (c == '\n') {
+        if (!raw) v->col = 0;
+        line_feed(v, raw);
+    } else if (c == '\r') {
+        v->col = 0;
+    } else {
+        vc_put(v, v->row, v->col, c, vc_attr(v));
+        v->col++;
+        if (v->col >= console_cols) {
+            v->col = 0;
+            line_feed(v, raw);
+        }
+    }
+    vc_cursor_on(v);
+}
+
+static void vc_backspace(struct vc *v) {
+    vc_cursor_off(v);
+    if (v->col == 0) {
+        if (v->row == 0) { vc_cursor_on(v); return; }
+        v->row--;
+        v->col = console_cols - 1;
+    } else {
+        v->col--;
+    }
+    vc_put(v, v->row, v->col, ' ', vc_attr(v));
+    vc_cursor_on(v);
+}
 
 // ---------------------------------------------------------------------
 // Scrollback
 //
-// The framebuffer console draws glyphs straight into the framebuffer and
-// scrolls by blitting pixels upward (fb_scroll_if_needed() ->
-// gfx_scroll_up()). Nothing keeps what scrolled off, which is why the
-// boot messages -- and the output of anything longer than a screen --
-// used to be simply gone. The GUI Terminal has had scrollback since its
+// The console draws glyphs into the back buffer and scrolls by moving
+// pixels. Nothing keeps what scrolled off, which is why the boot
+// messages -- and the output of anything longer than a screen -- used
+// to be simply gone. The GUI Terminal has had scrollback since its
 // text_scrollback widget existed; the physical console never did.
 //
-// This is a ring of logical output LINES, recorded at vga_putc() level
-// so it works the same for both backends. It stores the character and
-// its colour per cell (one byte each), because output here is routinely
-// multi-coloured within a line -- a green prompt then grey input, `ls`'s
-// per-type colouring -- and replaying it in a single colour would be a
-// visibly worse copy of what you saw.
+// This is a ring of logical output LINES per vc, recorded at the
+// putc level so it works the same for both backends. It stores the
+// character and its colour per cell (one byte each), because output
+// here is routinely multi-coloured within a line -- a green prompt then
+// grey input, `ls`'s per-type colouring -- and replaying it in a single
+// colour would be a visibly worse copy of what you saw.
 //
-// Sized as a fixed .bss array rather than a heap allocation for the same
-// reason the free-block bitmap is: it must work before heap_init(), and
-// its size is a compile-time constant either way. 256 lines x 512 cols
-// x 2 bytes = 256KB. 512 columns covers the widest this console gets at
-// the largest mode display.c will now ask for (3840px / the 8pt font's
-// cell width is 480); a narrower screen or a wider font just leaves the
-// tail of each row unused.
+// VT1's is a fixed .bss array rather than a heap allocation: the
+// kernel's console must work whatever the heap does, and its size is a
+// compile-time constant either way. 256 lines x 512 cols x 2 bytes =
+// 256KB. 512 columns covers the widest this console gets at the largest
+// mode display.c will now ask for (3840px / the 8pt font's cell width is
+// 480); a narrower screen or a wider font just leaves the tail of each
+// row unused. VT2-4's are allocated when the VT is first used, as wide
+// as the screen is then, and widened by vga_reflow() when a smaller
+// font makes the screen wider (sb_fit()).
 //
 // It was 256, sized against a 1280px screen, and the failure it produced
-// was quiet by design: sb_record_char() simply stops recording past
-// SB_COLS, so scrollback of a wide console showed correct lines with
-// their right-hand ends missing. Raise it alongside DISPLAY_MAX_W.
+// was quiet by design: sb_record_attr() simply stops recording past the
+// ring's width, so scrollback of a wide console showed correct lines
+// with their right-hand ends missing. Raise it alongside DISPLAY_MAX_W.
 #define SB_LINES 256
 #define SB_COLS  512
 
-static char sb_char[SB_LINES][SB_COLS];
-static uint8_t sb_attr[SB_LINES][SB_COLS];
-static uint16_t sb_len[SB_LINES];      // used columns per line
-static uint32_t sb_total;              // lines ever completed (monotonic)
-static uint32_t sb_cur_len;            // columns used in the line being written
-static uint32_t sb_view;               // 0 = live; N = showing N lines further back
-static int sb_recording = 1;           // suppressed while redrawing, so a redraw can't record itself
+static char sb1_char[SB_LINES * SB_COLS];
+static uint8_t sb1_attr[SB_LINES * SB_COLS];
+static uint16_t sb1_len[SB_LINES];
 
-static char *sb_line_chars(uint32_t line) { return sb_char[line % SB_LINES]; }
-static uint8_t *sb_line_attrs(uint32_t line) { return sb_attr[line % SB_LINES]; }
-
-// Oldest line still retained. Everything before it has been overwritten.
-static uint32_t sb_oldest(void) {
-    return sb_total >= SB_LINES ? sb_total - SB_LINES + 1 : 0;
+static char *sb_line_chars(struct vc_sb *b, uint32_t line) {
+    return b->chars + (size_t)(line % b->lines) * b->cols;
+}
+static uint8_t *sb_line_attrs(struct vc_sb *b, uint32_t line) {
+    return b->attrs + (size_t)(line % b->lines) * b->cols;
 }
 
-static void sb_start_line(void) {
-    sb_total++;
-    sb_cur_len = 0;
-    uint32_t idx = sb_total % SB_LINES;
-    sb_len[idx] = 0;
+// Oldest line still retained. Everything before it has been overwritten.
+static uint32_t sb_oldest(const struct vc_sb *b) {
+    return b->total >= b->lines ? b->total - b->lines + 1 : 0;
+}
+
+static void sb_start_line(struct vc_sb *b) {
+    b->total++;
+    b->cur_len = 0;
+    b->len[b->total % b->lines] = 0;
 }
 
 // Records one character into the current scrollback line. Wrapping is
@@ -656,37 +812,76 @@ static void sb_start_line(void) {
 // the alternative (unbounded logical lines re-wrapped at display time)
 // would be more faithful to the text but would not reproduce the screen
 // after a `fontsize` change, and reproducing the screen is the point.
-static void sb_record_attr(char c, uint8_t attr) {
-    if (!sb_recording) return;
-    if (c == '\n') { sb_start_line(); return; }
-    if (c == '\r') { sb_cur_len = 0; return; }
+static void sb_record_attr(struct vc *v, char c, uint8_t attr) {
+    struct vc_sb *b = &v->sb;
+    if (!b->chars) return;
+    if (c == '\n') { sb_start_line(b); return; }
+    if (c == '\r') { b->cur_len = 0; return; }
 
-    if (sb_cur_len >= SB_COLS) return; // beyond what's retained; the screen wraps and starts a new line
-    uint32_t idx = sb_total % SB_LINES;
-    sb_line_chars(sb_total)[sb_cur_len] = c;
-    sb_line_attrs(sb_total)[sb_cur_len] = attr;
-    sb_cur_len++;
-    if (sb_cur_len > sb_len[idx]) sb_len[idx] = (uint16_t)sb_cur_len;
+    if (b->cur_len >= b->cols) return; // beyond what's retained; the screen wraps and starts a new line
+    uint32_t idx = b->total % b->lines;
+    sb_line_chars(b, b->total)[b->cur_len] = c;
+    sb_line_attrs(b, b->total)[b->cur_len] = attr;
+    b->cur_len++;
+    if (b->cur_len > b->len[idx]) b->len[idx] = (uint16_t)b->cur_len;
 }
 
-static void sb_record(char c) { sb_record_attr(c, make_color(cur_fg, cur_bg)); }
+static void sb_record(struct vc *v, char c) { sb_record_attr(v, c, vc_attr(v)); }
 
-static void sb_record_backspace(void) {
-    if (!sb_recording || sb_cur_len == 0) return;
-    sb_cur_len--;
-    uint32_t idx = sb_total % SB_LINES;
-    if (sb_len[idx] > sb_cur_len) sb_len[idx] = (uint16_t)sb_cur_len;
+static void sb_record_backspace(struct vc *v) {
+    struct vc_sb *b = &v->sb;
+    if (!b->chars || b->cur_len == 0) return;
+    b->cur_len--;
+    uint32_t idx = b->total % b->lines;
+    if (b->len[idx] > b->cur_len) b->len[idx] = (uint16_t)b->cur_len;
 }
 
-// Repaints the whole screen from the ring, ending `back` lines above the
-// newest. Used for both directions of scrolling and for returning to
-// live.
-static void sb_repaint(uint32_t back) {
+// A ring of `lines` x `cols`, keeping what `old` held (its lines, cut to
+// the new width). 0 when there is no memory -- the old one stays.
+static int sb_alloc(struct vc_sb *b, uint32_t lines, uint32_t cols) {
+    char *ch = kmalloc((size_t)lines * cols);
+    uint8_t *at = kmalloc((size_t)lines * cols);
+    uint16_t *len = kzalloc((size_t)lines * sizeof *len);
+    if (!ch || !at || !len) {
+        if (ch) kfree(ch);
+        if (at) kfree(at);
+        if (len) kfree(len);
+        return 0;
+    }
+    struct vc_sb n = { .chars = ch, .attrs = at, .len = len, .lines = lines, .cols = cols,
+                       .total = b->total, .cur_len = b->cur_len, .view = 0 };
+    if (b->chars) {
+        for (uint32_t line = sb_oldest(b); line <= b->total; line++) {
+            uint32_t w = b->len[line % b->lines];
+            if (w > cols) w = cols;
+            k_memcpy(sb_line_chars(&n, line), sb_line_chars(b, line), w);
+            k_memcpy(sb_line_attrs(&n, line), sb_line_attrs(b, line), w);
+            n.len[line % lines] = (uint16_t)w;
+        }
+        if (n.cur_len > cols) n.cur_len = cols;
+        kfree(b->chars);
+        kfree(b->attrs);
+        kfree(b->len);
+    }
+    *b = n;
+    return 1;
+}
+
+// A VT2-4 ring at least as wide as the screen. VT1's is static and
+// always SB_COLS wide.
+static void sb_fit(struct vc *v) {
+    if (v == VC_KERNEL || !v->sb.chars || v->sb.cols >= console_cols) return;
+    if (!sb_alloc(&v->sb, v->sb.lines, (uint32_t)console_cols))
+        klog_printf("console: no memory to widen tty%d's scrollback\n", v->num);
+}
+
+// Paints history: `rows` lines ENDING `back` lines above the newest. The
+// live screen (back 0) is the grid's, not this -- see vga_scroll_forward().
+static void sb_repaint(struct vc *v, uint32_t back) {
+    struct vc_sb *b = &v->sb;
     uint32_t rows = (uint32_t)console_rows;
-    if (rows == 0) return;
+    if (rows == 0 || !b->chars) return;
 
-    enum vga_color saved_fg = cur_fg, saved_bg = cur_bg;
-    sb_recording = 0;
     cursor_hide();
 
     // The window is `rows` lines ENDING at (total - back), clamped so it
@@ -694,65 +889,34 @@ static void sb_repaint(uint32_t back) {
     // DOWNWARD from that start, so scrolling to the very top shows a
     // full screen of history rather than one line stranded at the top
     // with blankness under it.
-    uint32_t oldest = sb_oldest();
-    uint32_t newest = sb_total - back;
+    uint32_t oldest = sb_oldest(b);
+    uint32_t newest = b->total - back;
     uint32_t first = (newest + 1 >= rows) ? newest + 1 - rows : 0;
     if (first < oldest) first = oldest;
     uint32_t last_possible = first + rows - 1;
-    if (newest < last_possible) newest = last_possible > sb_total ? sb_total : last_possible;
+    if (newest < last_possible) newest = last_possible > b->total ? b->total : last_possible;
 
-    if (fb_mode) gfx_clear(palette_rgb(saved_bg));
-    else legacy_clear();
-    row = 0;
-    col = 0;
-
-    for (uint32_t line = first; line <= newest && row < rows; line++) {
-        uint32_t idx = line % SB_LINES;
-        uint32_t len = sb_len[idx];
-        for (uint32_t i = 0; i < len && i < (uint32_t)console_cols; i++) {
-            uint8_t attr = sb_line_attrs(line)[i];
-            cur_fg = (enum vga_color)(attr & 0x0F);
-            cur_bg = (enum vga_color)((attr >> 4) & 0x0F);
-            if (fb_mode) {
-                cell_draw((int)(i * CELL_W), (int)(row * CELL_H), sb_line_chars(line)[i],
-                          palette_rgb(cur_fg), palette_rgb(cur_bg));
-            } else {
-                buf[row * console_cols + i] = make_entry(sb_line_chars(line)[i], attr);
-            }
-        }
-        row++;
-        col = 0;
-    }
-
-    cur_fg = saved_fg;
-    cur_bg = saved_bg;
-    sb_recording = 1;
-
-    if (back == 0) {
-        // Back to live: the cursor belongs where output will continue.
-        if (row > 0) row--;
-        col = sb_len[sb_total % SB_LINES] < console_cols ? sb_len[sb_total % SB_LINES] : 0;
-        cursor_show_and_reset_blink();
+    scr_clear(make_color(VGA_LIGHT_GREY, v->bg));
+    size_t r = 0;
+    for (uint32_t line = first; line <= newest && r < rows; line++, r++) {
+        uint32_t len = b->len[line % b->lines];
+        for (uint32_t i = 0; i < len && i < (uint32_t)console_cols; i++)
+            scr_cell(r, i, CELL(sb_line_chars(b, line)[i], sb_line_attrs(b, line)[i]));
     }
 
     // A repaint is a whole new screen and it is the direct answer to a
     // PageUp/PageDown keypress, so it publishes immediately rather than
-    // waiting for the idle loop -- this is not part of an output burst.
+    // waiting for the idle work -- this is not part of an output burst.
     vga_present();
 }
 
+// Scrolling acts on the SHOWN vc: it is the one the keys are pressed at.
 void vga_scroll_back(int lines) {
-    if (lines <= 0 || console_rows == 0) return;
-    uint32_t available = sb_total - sb_oldest();
-    // How far back the view may go: to the oldest line still retained.
-    //
-    // This deliberately does NOT subtract console_rows. The obvious
-    // formula ("only scroll if there's more history than fits a screen")
-    // is wrong here because vga_clear() wipes the screen without
-    // discarding history -- and boot does exactly that, via
-    // vga_reflow() when the persisted font size loads. After a clear the
-    // screen shows three lines while the ring holds thirty, and the
-    // subtracting version concluded there was nothing to scroll to.
+    struct vc *v = g_fg;
+    struct vc_sb *b = &v->sb;
+    if (lines <= 0 || console_rows == 0 || !b->chars) return;
+    uint32_t available = b->total - sb_oldest(b);
+    if (available == 0) return;   // no line completed yet: nothing behind the screen
     // How far back the view may go. When there's more history than fits,
     // that's "until the oldest line reaches the top of the screen".
     //
@@ -766,36 +930,47 @@ void vga_scroll_back(int lines) {
     uint32_t limit = available > (uint32_t)console_rows
                          ? available - (uint32_t)console_rows + 1
                          : 1;
-    uint32_t want = sb_view + (uint32_t)lines;
+    uint32_t want = b->view + (uint32_t)lines;
     if (want > limit) want = limit;
-    if (want == sb_view) return;
-    sb_view = want;
-    sb_repaint(sb_view);
+    if (want == b->view) return;
+    b->view = want;
+    sb_repaint(v, b->view);
 }
 
 void vga_scroll_forward(int lines) {
-    if (lines <= 0 || sb_view == 0) return;
-    sb_view = (uint32_t)lines >= sb_view ? 0 : sb_view - (uint32_t)lines;
-    sb_repaint(sb_view);
+    struct vc *v = g_fg;
+    struct vc_sb *b = &v->sb;
+    if (lines <= 0 || b->view == 0) return;
+    b->view = (uint32_t)lines >= b->view ? 0 : b->view - (uint32_t)lines;
+    if (b->view) { sb_repaint(v, b->view); return; }
+    // BACK TO LIVE IS THE GRID, not the ring's last lines: the ring is a
+    // record of the byte stream, and a cursor-addressed screen is not.
+    vc_redraw(v);
+    vga_present();
 }
 
 int vga_scrolled_back(void) {
-    return sb_view != 0;
+    return g_fg->sb.view != 0;
 }
 
 // Any new output snaps the view back to the bottom first -- otherwise
 // writes would land on a screen showing history, and the two would
-// interleave into nonsense.
-static void sb_snap_to_live(void) {
-    if (sb_view == 0) return;
-    sb_view = 0;
-    sb_repaint(0);
+// interleave into nonsense. A hidden vc only forgets where it was.
+static void sb_snap_to_live(struct vc *v) {
+    if (v->sb.view == 0) return;
+    v->sb.view = 0;
+    if (vc_shown(v)) vc_redraw(v);
 }
 
 // ---- public API ----
 
 void vga_init(void) {
-    legacy_color = make_color(VGA_LIGHT_GREY, VGA_BLACK);
+    for (int i = 0; i < VGA_VC_COUNT; i++) {
+        g_vc[i].num = i + 1;
+        vc_reset(&g_vc[i]);
+    }
+    VC_KERNEL->sb = (struct vc_sb){ .chars = sb1_char, .attrs = sb1_attr, .len = sb1_len,
+                                    .lines = SB_LINES, .cols = SB_COLS };
 
     if (gfx_init()) {
         fb_mode = 1;
@@ -807,7 +982,16 @@ void vga_init(void) {
         gfx_set_double_buffered(1);
         console_cols = (size_t)gfx_width() / CELL_W;
         console_rows = (size_t)gfx_height() / CELL_H;
-        fb_clear();
+    } else {
+        fb_mode = 0;
+        console_cols = VGA_WIDTH;
+        console_rows = VGA_HEIGHT;
+    }
+    // The heap is up (kernel.c): VT1's grid exists from its first line.
+    if (!vc_grid_alloc(VC_KERNEL)) klog_write("console: no memory for the screen grid\n");
+    vc_clear(VC_KERNEL);
+    if (fb_mode) {
+        vga_present(); // a clear is a visible event in its own right, not part of a burst
         // klog_write(), not vga_write() -- serial_init() has already run
         // by the time kernel.c calls vga_init() (see kernel.c's ordering),
         // so this reaches dmesg fine even though the physical console
@@ -818,8 +1002,6 @@ void vga_init(void) {
         klog_write_dec((uint32_t)gfx_height());
         klog_write(")\n");
     } else {
-        fb_mode = 0;
-        legacy_clear();
         klog_write("vga: no linear framebuffer from GRUB -- legacy text-mode console\n");
     }
 }
@@ -839,9 +1021,8 @@ void vga_clear(void) {
         if (active_sink->clear) active_sink->clear(active_sink->ctx);
         return;
     }
-    if (fb_mode) fb_clear();
-    else legacy_clear();
-    g_region_rows = 0; // a cleared console scrolls as a whole again
+    vc_clear(VC_KERNEL);
+    if (vc_shown(VC_KERNEL)) vga_present();
 }
 
 void vga_resume(void) {
@@ -850,10 +1031,11 @@ void vga_resume(void) {
     // back buffer still holds its last frame, which has nothing to do
     // with the console's idea of where text is. Re-enable (a no-op if it
     // is already on -- but it also resets the dirty box, which is right:
-    // nothing of the console's is pending) and repaint from scrollback,
-    // so the screen and this file's row/col agree again.
+    // nothing of the console's is pending) and repaint the shown vc from
+    // its grid, which kept every write while the desktop had the screen.
     gfx_set_double_buffered(1);
-    sb_repaint(0);
+    g_fg->sb.view = 0;
+    vc_redraw(g_fg);
     // _force, so this does not depend on the caller having already
     // cleared the compositor registration. It has (win_server.c's
     // compositor_gone() runs after), but a repaint whose whole point is
@@ -930,23 +1112,41 @@ int vga_hold_expired(void) {
 
 void vga_reflow(void) {
     if (!fb_mode) return; // legacy 80x25 text mode has no variable cell size
+    scheduler_preempt_disable();
+    cursor_hide();
     console_cols = (size_t)gfx_width() / CELL_W;
     console_rows = (size_t)gfx_height() / CELL_H;
-    // THE CLEAR IS SKIPPED WHILE A COMPOSITOR OWNS THE SCREEN. Recomputing
-    // the geometry is always right; painting is not -- fb_clear() ends in
-    // vga_present(), which blits the console's whole buffer over whatever
-    // the desktop has on screen. `fontsize` at a running desktop wiped the
+    // EVERY vc STARTS AGAIN BLANK at the new size, as the console always
+    // has on a font change; the history is kept (and widened).
+    for (int i = 0; i < VGA_VC_COUNT; i++) {
+        struct vc *v = &g_vc[i];
+        if (!v->grid && v != VC_KERNEL) continue;   // never used
+        if (!vc_grid_alloc(v))
+            klog_printf("console: no memory for tty%d's grid at the new size\n", v->num);
+        v->row = v->col = 0;
+        v->region_rows = 0;
+        v->sb.view = 0;
+        sb_fit(v);
+    }
+    // THE REDRAW IS SKIPPED WHILE A COMPOSITOR OWNS THE SCREEN. Recomputing
+    // the geometry is always right; painting is not -- it ends in a
+    // present, which blits the console's whole buffer over whatever the
+    // desktop has on screen. `fontsize` at a running desktop wiped the
     // top two thirds of it, and the console the user cannot see is the one
     // that does not need clearing. Same reasoning as the suspended keyboard
     // reader (win_server_set_compositor()); see docs/conventions/gui.md.
-    if (!win_server_any()) fb_clear();
+    if (!win_server_any()) {
+        vc_redraw(g_fg);
+        vga_present();
+    }
+    scheduler_preempt_enable();
 }
 
 uint32_t vga_rows(void) {
     if (active_sink) {
         return active_sink->rows ? active_sink->rows(active_sink->ctx) : 24;
     }
-    return (uint32_t)(fb_mode ? console_rows : VGA_HEIGHT);
+    return (uint32_t)console_rows;
 }
 
 // Current console width in text columns -- 80 in legacy 80x25 text
@@ -959,15 +1159,14 @@ uint32_t vga_rows(void) {
 // vga_rows()'s comment) -- 80 is a sane default for the same reason.
 uint32_t vga_cols(void) {
     if (active_sink) return 80;
-    return (uint32_t)(fb_mode ? console_cols : VGA_WIDTH);
+    return (uint32_t)console_cols;
 }
 
-// Called from keyboard_getchar()'s wait loop (see keyboard.c) on every
-// wake-up, but only actually does anything (a fill_rect) once every
-// CURSOR_BLINK_TICKS, toggling the cursor block on/off -- and asks a
-// tickless idle to wake for that moment. A
-// plain no-op in legacy text mode, where the hardware cursor already
-// blinks on its own.
+// Called from the idle loops on every wake-up, but only actually does
+// anything (a fill_rect) once every CURSOR_BLINK_TICKS, toggling the
+// cursor block on/off -- and asks a tickless idle to wake for that
+// moment. A plain no-op in legacy text mode, where the hardware cursor
+// already blinks on its own.
 void vga_cursor_tick(void) {
     // A sink owns its own cursor presentation (or has none) -- nothing
     // for the physical console's blink logic to do while one's active.
@@ -983,12 +1182,13 @@ void vga_cursor_tick(void) {
     // used to be suppressed off the append point, because the old
     // erase-to-black hide would have eaten the character underneath.
     if (cursor_on_screen) cursor_hide();
-    else cursor_draw();
+    else if (!g_fg->sb.view) cursor_draw();
     vga_present(); // the blink is its own event, not part of an output burst
 }
 
 // Repositions the insertion point without erasing anything -- see
-// vga.h for the contract and why a line editor needs it.
+// vga.h for the contract and why a line editor needs it. The kernel's
+// console, VT1, like every other vga_* the kernel writes through.
 //
 // Works in text-cell space (one flat index over rows*cols) rather than
 // per-row bookkeeping, so wrapping across a row boundary is just
@@ -997,33 +1197,29 @@ void vga_cursor_tick(void) {
 void vga_cursor_move(int delta) {
     if (active_sink) return; // a sink owns its own cursor -- see vga_cursor_tick()
     if (delta == 0) return;
-    sb_snap_to_live(); // moving the cursor is an edit; don't do it while scrolled back
+    struct vc *v = VC_KERNEL;
+    sb_snap_to_live(v); // moving the cursor is an edit; don't do it while scrolled back
 
-    uint32_t cols = fb_mode ? console_cols : VGA_WIDTH;
-    uint32_t rows = fb_mode ? console_rows : VGA_HEIGHT;
+    uint32_t cols = (uint32_t)console_cols, rows = (uint32_t)console_rows;
     if (cols == 0 || rows == 0) return;
 
-    if (fb_mode) cursor_hide(); // restores whatever it covered, so moving
-                                 // off a character no longer eats it
+    vc_cursor_off(v); // restores whatever it covered, so moving off a character no longer eats it
 
-    long target = (long)row * (long)cols + (long)col + delta;
+    long target = (long)v->row * (long)cols + (long)v->col + delta;
     if (target < 0) target = 0;
     long last = (long)rows * (long)cols - 1;
     if (target > last) target = last;
 
-    row = (size_t)(target / (long)cols);
-    col = (size_t)(target % (long)cols);
+    v->row = (size_t)(target / (long)cols);
+    v->col = (size_t)(target % (long)cols);
 
-    if (fb_mode) {
-        cursor_draw();
-    } else {
-        legacy_update_cursor(); // real hardware cursor; nothing to erase
-    }
+    if (vc_shown(v) && fb_mode) cursor_draw();
+    else if (vc_shown(v)) legacy_update_cursor(); // real hardware cursor; nothing to erase
 }
 
-// Public wrapper around cursor_hide() -- every vga_putc()/fb_putc()
-// call unconditionally repaints the cursor solid at the new (row, col)
-// after drawing (see fb_putc()'s own comment), which is exactly the
+// Public wrapper around cursor_hide() -- every vga_putc() call
+// unconditionally repaints the cursor solid at the new (row, col)
+// after drawing (see vc_putc()), which is exactly the
 // interactive-typing behavior wanted at a shell prompt but looks like
 // a stray block hovering past a program's own output when nothing is
 // actually waiting for a keystroke -- e.g. `stress`'s progress bar,
@@ -1038,8 +1234,13 @@ void vga_cursor_move(int delta) {
 // legacy text mode's hardware cursor isn't under this kind of
 // per-character software control.
 void vga_cursor_hide(void) {
-    if (!fb_mode) return;
+    if (!fb_mode || !vc_shown(VC_KERNEL)) return;
     cursor_hide();
+}
+
+static void vc_set_color(struct vc *v, enum vga_color fg, enum vga_color bg) {
+    v->fg = fg;
+    v->bg = bg;
 }
 
 void vga_set_color(enum vga_color fg, enum vga_color bg) {
@@ -1047,90 +1248,66 @@ void vga_set_color(enum vga_color fg, enum vga_color bg) {
         if (active_sink->set_color) active_sink->set_color(active_sink->ctx, fg, bg);
         return;
     }
-    cur_fg = fg;
-    cur_bg = bg;
-    legacy_color = make_color(fg, bg);
+    vc_set_color(VC_KERNEL, fg, bg);
 }
 
 enum vga_color vga_current_fg(void) {
-    return cur_fg;
+    return VC_KERNEL->fg;
 }
 
 uint32_t vga_color_rgb(enum vga_color c) {
     return palette_rgb(c);
 }
 
-// ANSI ESCAPES ARE PARSED HERE, IN FRONT OF EVERYTHING ELSE -- before
-// the sink check below, so a GUI Terminal's scrollback gets the COLOUR
-// rather than the escape bytes, and both surfaces behave the same
-// without either of them knowing what an escape is. One parser, because
-// there is one console; a per-terminal one is the TTY milestone's job.
-//
-// The state it carries is why colour cannot simply be re-derived per
-// call: a sequence arrives one byte at a time through vga_putc(), so
-// `ESC [ 3 1 m` is five separate calls with the decision made on the
-// last one.
-static struct ansi_parser g_ansi;
-static int g_ansi_armed;
-
 // --- ANSI cursor and erase ------------------------------------------
 //
-// The console's own row/col ARE the terminal cursor -- there is no
-// second position to keep in step, which is what makes this small.
+// ANSI ESCAPES ARE PARSED IN FRONT OF EVERYTHING ELSE (vc_emit()) --
+// before the sink check, so a sink gets the COLOUR rather than the
+// escape bytes. One parser per vc: a sequence is state, and two
+// terminals writing at once must not finish each other's.
 //
-// WHAT THIS DOES NOT FIX, stated because it is the reason cursor
-// movement was swallowed until now: the SCROLLBACK records the byte
-// stream (sb_record(), called from the printing path), so a program
-// that paints a screen by moving the cursor leaves a history that is
-// not a transcript of anything. Real terminals have the same problem
-// and answer it with an alternate screen buffer, which this console
-// does not have. Erasing does not touch the history either -- `ESC[2J`
-// clears the SCREEN, and a terminal that threw away scrollback on it
-// would be losing the user's data on a program's say-so. That is also
-// why ED mode 3 ("and the scrollback") is treated as mode 2.
+// The vc's own row/col ARE the terminal cursor -- there is no second
+// position to keep in step, which is what makes this small.
+//
+// WHAT THE GRID FIXES AND THE SCROLLBACK DOES NOT: the grid is the
+// screen, so a program that paints by moving the cursor is redrawn
+// exactly on a switch or a return from history. The SCROLLBACK still
+// records the byte stream (sb_record()), so such a program leaves a
+// history that is not a transcript of anything. Real terminals have the
+// same problem and answer it with an alternate screen buffer, which this
+// console does not have. Erasing does not touch the history either --
+// `ESC[2J` clears the SCREEN, and a terminal that threw away scrollback
+// on it would be losing the user's data on a program's say-so. That is
+// also why ED mode 3 ("and the scrollback") is treated as mode 2.
 //
 // Every op snaps to live first: moving or erasing is an edit, and doing
 // one while the user is scrolled back would paint into a view of the
 // past. vga_cursor_move() already had that rule.
 
-// Clamps a 1-based ANSI coordinate to the console and stores it.
-static void ansi_goto(size_t r, size_t c) {
-    size_t rows = fb_mode ? console_rows : VGA_HEIGHT;
-    size_t cols = fb_mode ? console_cols : VGA_WIDTH;
-    if (rows == 0 || cols == 0) return;
-    if (r >= rows) r = rows - 1;
-    if (c >= cols) c = cols - 1;
-    row = r;
-    col = c;
+// Clamps a 0-based coordinate to the screen and stores it.
+static void ansi_goto(struct vc *v, size_t r, size_t c) {
+    if (console_rows == 0 || console_cols == 0) return;
+    if (r >= console_rows) r = console_rows - 1;
+    if (c >= console_cols) c = console_cols - 1;
+    v->row = r;
+    v->col = c;
 }
 
 // Blanks an inclusive span of cells, in reading order from (r0,c0) to
 // (r1,c1). Uses the CURRENT background, so erasing after a colour
 // change paints what the program asked for rather than the default --
 // which is how a full-screen program gets a coloured backdrop.
-static void erase_span(size_t r0, size_t c0, size_t r1, size_t c1) {
-    size_t rows = fb_mode ? console_rows : VGA_HEIGHT;
-    size_t cols = fb_mode ? console_cols : VGA_WIDTH;
+static void erase_span(struct vc *v, size_t r0, size_t c0, size_t r1, size_t c1) {
+    size_t rows = console_rows, cols = console_cols;
     if (rows == 0 || cols == 0) return;
     if (r0 >= rows) return;
     if (r1 >= rows) r1 = rows - 1;
     if (c1 >= cols) c1 = cols - 1;
-
     for (size_t r = r0; r <= r1; r++) {
         size_t from = (r == r0) ? c0 : 0;
         size_t to = (r == r1) ? c1 : cols - 1;
         if (from > to || from >= cols) continue;
-        if (fb_mode) {
-            // One rect per row rather than one per cell: the whole
-            // point of erasing is that it is cheaper than printing
-            // spaces, and gfx_fill_rect is the call that makes it so.
-            gfx_fill_rect((int)(from * CELL_W), (int)(r * CELL_H),
-                          (int)((to - from + 1) * CELL_W), (int)CELL_H,
-                          palette_rgb(cur_bg));
-        } else {
-            for (size_t x = from; x <= to; x++)
-                buf[r * VGA_WIDTH + x] = make_entry(' ', legacy_color);
-        }
+        vc_blank(v, r, from, to, vc_attr(v));
     }
 }
 
@@ -1140,94 +1317,54 @@ static void erase_span(size_t r0, size_t c0, size_t r1, size_t c1) {
 // DL, SU, SD or RI moves) and this only moves them. Kept for the row
 // count it was set against: a font change that alters the grid puts it
 // back to the whole screen, as a resize does in xterm.
-static size_t screen_rows(void) { return fb_mode ? console_rows : VGA_HEIGHT; }
-
-static struct ansi_region *console_region(void) {
-    if (g_region_rows != screen_rows()) {
-        g_region_rows = screen_rows();
-        ansi_region_reset(&g_region, (int)g_region_rows);
+static struct ansi_region *vc_region(struct vc *v) {
+    if (v->region_rows != console_rows) {
+        v->region_rows = console_rows;
+        ansi_region_reset(&v->region, (int)v->region_rows);
     }
-    return &g_region;
+    return &v->region;
 }
 
-// Rows s->top..s->bot move by s->n; the uncovered ones are painted `bg`.
-// Nothing is recorded in the scrollback, which is a stream -- see above.
-static void shift_rows(const struct ansi_shift *s, enum vga_color bg) {
-    int n = s->n > 0 ? s->n : -s->n, keep = s->bot - s->top + 1 - n;
-    if (fb_mode) {
-        gfx_scroll_band(s->top * (int)CELL_H, (s->bot - s->top + 1) * (int)CELL_H,
-                        s->n * (int)CELL_H, palette_rgb(bg));
-        return;
-    }
-    uint16_t blank = make_entry(' ', make_color(cur_fg, bg));
-    if (s->n > 0) {
-        for (int r = s->top; r < s->top + keep; r++)
-            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = buf[(r + n) * VGA_WIDTH + x];
-        for (int r = s->bot - n + 1; r <= s->bot; r++)
-            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = blank;
-    } else {
-        for (int r = s->bot; r >= s->top + n; r--)
-            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = buf[(r - n) * VGA_WIDTH + x];
-        for (int r = s->top; r < s->top + n; r++)
-            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = blank;
-    }
-}
-
-// Down a row; on the region's bottom row the REGION scrolls instead. The
-// whole screen scrolling is the old path, by the whole surface (and in
-// the console's own colour, fb_scroll_if_needed()).
+// Down a row; on the region's bottom row the REGION scrolls instead,
+// with the rows coming in in the console's own colour.
 //
 // **THE KERNEL'S OWN TEXT IGNORES THE REGION** (`raw` 0), where Linux's
 // printk honours it: a program that set one and died would otherwise
 // trap every later klog line -- and a panic banner -- in its rows, or
 // below them on a last row that never scrolls.
-static void line_feed(int raw) {
-    size_t rows = screen_rows();
-    int r = (int)row, c = (int)col;
+static void line_feed(struct vc *v, int raw) {
+    int r = (int)v->row, c = (int)v->col;
     struct ansi_shift s;
     struct ansi_region whole;
-    ansi_region_reset(&whole, (int)rows);
-    if (!ansi_region_op(raw ? console_region() : &whole, (int)rows, ANSI_OP_LINEFEED, 1,
-                        &r, &c, &s)) {
-        row = (size_t)r;
-        return;
-    }
-    if (s.top == 0 && s.bot == (int)rows - 1) {
-        row = rows;
-        if (fb_mode) fb_scroll_if_needed();
-        else legacy_scroll_if_needed();
-        return;
-    }
-    shift_rows(&s, CONSOLE_DEFAULT_BG);
+    ansi_region_reset(&whole, (int)console_rows);
+    if (ansi_region_op(raw ? vc_region(v) : &whole, (int)console_rows, ANSI_OP_LINEFEED, 1,
+                       &r, &c, &s))
+        vc_shift(v, &s, BLANK_ATTR);
+    v->row = (size_t)r;
 }
 
-static size_t g_saved_row, g_saved_col;
+static void vc_ansi_ctrl(struct vc *v, const struct ansi_parser *p) {
+    sb_snap_to_live(v);
+    vc_cursor_off(v); // erase it before row/col move, as vga_cursor_move() does
 
-static void vga_ansi_ctrl(const struct ansi_parser *p) {
-    if (active_sink) return;  // a logger has no cursor -- see vga_sink
-
-    sb_snap_to_live();
-    if (fb_mode) cursor_hide();   // erase it before row/col move, as
-                                   // vga_cursor_move() does
-
-    size_t rows = fb_mode ? console_rows : VGA_HEIGHT;
-    size_t cols = fb_mode ? console_cols : VGA_WIDTH;
+    size_t rows = console_rows, cols = console_cols;
     size_t n = p->a;
+    size_t row = v->row, col = v->col;
 
     switch (p->op) {
-    case ANSI_OP_MOVE_TO: ansi_goto(p->a - 1, p->b - 1); break;
-    case ANSI_OP_UP:      ansi_goto(row > n ? row - n : 0, col); break;
-    case ANSI_OP_DOWN:    ansi_goto(row + n, col); break;
-    case ANSI_OP_RIGHT:   ansi_goto(row, col + n); break;
-    case ANSI_OP_LEFT:    ansi_goto(row, col > n ? col - n : 0); break;
-    case ANSI_OP_COLUMN:  ansi_goto(row, p->a - 1); break;
-    case ANSI_OP_ROW:     ansi_goto(p->a - 1, col); break;
+    case ANSI_OP_MOVE_TO: ansi_goto(v, p->a - 1, p->b - 1); break;
+    case ANSI_OP_UP:      ansi_goto(v, row > n ? row - n : 0, col); break;
+    case ANSI_OP_DOWN:    ansi_goto(v, row + n, col); break;
+    case ANSI_OP_RIGHT:   ansi_goto(v, row, col + n); break;
+    case ANSI_OP_LEFT:    ansi_goto(v, row, col > n ? col - n : 0); break;
+    case ANSI_OP_COLUMN:  ansi_goto(v, row, p->a - 1); break;
+    case ANSI_OP_ROW:     ansi_goto(v, p->a - 1, col); break;
 
     case ANSI_OP_ERASE_DISPLAY:
-        if (p->a == 0)      erase_span(row, col, rows - 1, cols - 1);
-        else if (p->a == 1) erase_span(0, 0, row, col);
+        if (p->a == 0)      erase_span(v, row, col, rows - 1, cols - 1);
+        else if (p->a == 1) erase_span(v, 0, 0, row, col);
         else {
-            erase_span(0, 0, rows - 1, cols - 1);
+            erase_span(v, 0, 0, rows - 1, cols - 1);
             // ED 2 does NOT home the cursor -- that is `ESC[H` and
             // programs send both. Clearing and homing together is a
             // common shortcut and it breaks anything that erases, then
@@ -1236,23 +1373,23 @@ static void vga_ansi_ctrl(const struct ansi_parser *p) {
         break;
 
     case ANSI_OP_ERASE_LINE:
-        if (p->a == 0)      erase_span(row, col, row, cols - 1);
-        else if (p->a == 1) erase_span(row, 0, row, col);
-        else                erase_span(row, 0, row, cols - 1);
+        if (p->a == 0)      erase_span(v, row, col, row, cols - 1);
+        else if (p->a == 1) erase_span(v, row, 0, row, col);
+        else                erase_span(v, row, 0, row, cols - 1);
         break;
 
-    case ANSI_OP_SAVE:    g_saved_row = row; g_saved_col = col; break;
-    case ANSI_OP_RESTORE: ansi_goto(g_saved_row, g_saved_col); break;
+    case ANSI_OP_SAVE:    v->saved_row = row; v->saved_col = col; break;
+    case ANSI_OP_RESTORE: ansi_goto(v, v->saved_row, v->saved_col); break;
 
     case ANSI_OP_HIDE:
-        // cursor_hide() above already took it off the screen; the flag
+        // vc_cursor_off() above already took it off the screen; the flag
         // is what stops the next draw putting it back.
-        cursor_suppressed = 1;
+        v->cursor_suppressed = 1;
         break;
 
     case ANSI_OP_MARGINS:
         // A region that took homes the cursor, as a VT100 does.
-        if (ansi_region_set(console_region(), (int)rows, p->a, p->b)) { row = 0; col = 0; }
+        if (ansi_region_set(vc_region(v), (int)rows, p->a, p->b)) { v->row = 0; v->col = 0; }
         break;
     case ANSI_OP_INSERT_LINES: case ANSI_OP_DELETE_LINES:
     case ANSI_OP_SCROLL_UP: case ANSI_OP_SCROLL_DOWN:
@@ -1260,36 +1397,33 @@ static void vga_ansi_ctrl(const struct ansi_parser *p) {
         // In the CURRENT background, as an erase is (erase_span()).
         int r = (int)row, c = (int)col;
         struct ansi_shift s;
-        if (ansi_region_op(console_region(), (int)rows, p->op, p->a, &r, &c, &s))
-            shift_rows(&s, cur_bg);
-        row = (size_t)r;
-        col = (size_t)c;
+        if (ansi_region_op(vc_region(v), (int)rows, p->op, p->a, &r, &c, &s))
+            vc_shift(v, &s, vc_attr(v));
+        v->row = (size_t)r;
+        v->col = (size_t)c;
         break;
     }
     case ANSI_OP_SHOW:
-        cursor_suppressed = 0;
+        v->cursor_suppressed = 0;
         break;
     default: break;
     }
 
-    if (fb_mode) {
-        cursor_show_and_reset_blink();
-        vga_present();  // a cursor-addressed program paints in bursts and
-                         // may never emit a newline, so nothing else would
-                         // push this to the screen
-    } else {
-        legacy_update_cursor();
-    }
+    vc_cursor_on(v);
+    // A cursor-addressed program paints in bursts and may never emit a
+    // newline, so nothing else would push this to the screen.
+    if (fb_mode && vc_shown(v)) vga_present();
 }
 
 // THE PHYSICAL CONSOLE, whatever sink is installed. A sink redirects the
 // KERNEL SHELL's own output for the length of a command; ring-3 output
 // to the console is somebody else's, and while the serial debug console
 // ran a command it landed in that command's reply -- a leftover job's
-// output inside the next answer. PREEMPTION off across the swap -- not
-// interrupts, since a scroll is megabytes of copying -- so the kernel
-// shell cannot print while the sink is lifted; an IRQ that echoes comes
-// through here too, and nests.
+// output inside the next answer. So a terminal's bytes never consult
+// the sink (vc_emit()'s `sink` is NULL for them). PREEMPTION off, so
+// the kernel shell cannot print in the middle -- not interrupts, since
+// a scroll is megabytes of copying; an IRQ that echoes comes through
+// here too, and nests.
 //
 // **AND ITS '\n' IS A BARE LINE FEED** -- xterm's and the VT100's: down a
 // row, same column. What reaches here is tty0's output, which the line
@@ -1298,43 +1432,48 @@ static void vga_ansi_ctrl(const struct ansi_parser *p) {
 // writers -- vga_write(), the ring-0 shell, a panic -- reach vga_putc()
 // instead and keep the newline that returns the carriage too, which is
 // how Linux's vt_console_print() treats a printk next to the tty's path.
-static void vga_emit(char c, int raw);
+static void vc_emit(struct vc *v, char c, int raw, const struct vga_sink *sink);
 
 void vga_putc_console(char c) {
     scheduler_preempt_disable();
-    const struct vga_sink *s = active_sink;
-    active_sink = 0;
-    vga_emit(c, 1);
-    active_sink = s;
+    vc_emit(VC_KERNEL, c, 1, NULL);
     scheduler_preempt_enable();
 }
 
-static void console_draw(char c, int raw);
-static struct kutf8_stream g_console_u8;
+void vga_vc_write(int n, const char *s, unsigned len) {
+    struct vc *v = vc_at(n);
+    if (!v) return;
+    scheduler_preempt_disable();
+    for (unsigned i = 0; i < len; i++) vc_emit(v, s[i], 1, NULL);
+    scheduler_preempt_enable();
+}
 
-void vga_putc(char c) { vga_emit(c, 0); }
+static void console_draw(struct vc *v, char c, int raw);
 
-static void vga_emit(char c, int raw) {
-    if (!g_ansi_armed) { ansi_init(&g_ansi, cur_fg, cur_bg); g_ansi_armed = 1; }
-    switch (ansi_feed(&g_ansi, c)) {
+void vga_putc(char c) { vc_emit(VC_KERNEL, c, 0, active_sink); }
+
+static void vc_emit(struct vc *v, char c, int raw, const struct vga_sink *sink) {
+    if (!v->ansi_armed) { ansi_init(&v->ansi, v->fg, v->bg); v->ansi_armed = 1; }
+    switch (ansi_feed(&v->ansi, c)) {
     case ANSI_PASS:
         break;
     case ANSI_SGR:
-        vga_set_color(g_ansi.fg, g_ansi.bg);
+        if (sink) { if (sink->set_color) sink->set_color(sink->ctx, v->ansi.fg, v->ansi.bg); }
+        else vc_set_color(v, v->ansi.fg, v->ansi.bg);
         return;
     case ANSI_CTRL:
-        vga_ansi_ctrl(&g_ansi);
+        if (!sink) vc_ansi_ctrl(v, &v->ansi);   // a logger has no cursor -- see vga_sink
         return;
     case ANSI_EATEN:
     default:
         return;
     }
 
-    if (active_sink) {
+    if (sink) {
         if (c == '\b') {
-            if (active_sink->backspace) active_sink->backspace(active_sink->ctx);
+            if (sink->backspace) sink->backspace(sink->ctx);
         } else {
-            if (active_sink->putc) active_sink->putc(active_sink->ctx, c);
+            if (sink->putc) sink->putc(sink->ctx, c);
         }
         return;
     }
@@ -1346,12 +1485,12 @@ static void vga_emit(char c, int raw) {
     // does. A character the font has is drawn; anything past it is ONE
     // `?`; a byte that is not UTF-8 is its Latin-1 letter (the transition
     // rule). A sink above gets the BYTES: what it carries is a transcript,
-    // not a screen. One decoder for every writer, so a sequence split
-    // across two writes still draws once; allocation-free, as this runs
-    // from the keyboard IRQ's echo too.
+    // not a screen. One decoder per vc, so a sequence split across two
+    // writes still draws once; allocation-free, as this runs from the
+    // keyboard IRQ's echo too.
     uint32_t cps[2];
-    int n = kutf8_stream_feed(&g_console_u8, (unsigned char)c, cps);
-    for (int i = 0; i < n; i++) console_draw(vga_console_glyph(cps[i]), raw);
+    int n = kutf8_stream_feed(&v->u8, (unsigned char)c, cps);
+    for (int i = 0; i < n; i++) console_draw(v, (char)vga_console_glyph(cps[i]), raw);
 }
 
 int vga_console_glyph(uint32_t cp) {
@@ -1361,35 +1500,39 @@ int vga_console_glyph(uint32_t cp) {
     return '?';
 }
 
+static void vc_backspace_rec(struct vc *v) {
+    sb_snap_to_live(v);
+    sb_record_backspace(v);
+    vc_backspace(v);
+}
+
 // One cell's worth of output, already decoded to the font's own byte.
 // `raw`: see vga_putc_console().
-static void console_draw(char c, int raw) {
+static void console_draw(struct vc *v, char c, int raw) {
     // '\b' is a control code, not a printable glyph -- keyboard_read_line()
     // (the kernel's own line reader) never sends it through here, it calls
-    // vga_backspace() directly. But SYS_WRITE (syscall.c) forwards
-    // whatever bytes a ring-3 process hands it straight through vga_putc()
-    // one byte at a time, with no such special-casing of its own -- so a
-    // process that writes a literal '\b' (see userland/echo.c) needs this
-    // to actually erase-and-move-back instead of drawing font_ttf's glyph
-    // for character 8, which is neither of those things (see gfx_draw_char).
+    // vga_backspace() directly. But a terminal's output carries whatever
+    // bytes a ring-3 process hands it, one byte at a time, with no such
+    // special-casing of its own -- so a process that writes a literal
+    // '\b' (see userland/echo.c) needs this to actually erase-and-move-back
+    // instead of drawing font_ttf's glyph for character 8, which is
+    // neither of those things (see gfx_draw_char).
     if (c == '\b') {
-        vga_backspace();
+        vc_backspace_rec(v);
         return;
     }
-    sb_snap_to_live();
+    sb_snap_to_live(v);
 
     // A BARE LINE FEED keeps the column, so the scrollback's new line
     // starts with as many blanks as the screen's does -- or a transcript
     // of a program that turned ONLCR off would not look like its screen.
     if (c == '\n' && raw) {
-        size_t at = col;
-        sb_record('\n');
+        size_t at = v->col;
+        sb_record(v, '\n');
         // The console's own colours: nothing was painted in those cells.
-        for (size_t i = 0; i < at; i++)
-            sb_record_attr(' ', make_color(VGA_LIGHT_GREY, CONSOLE_DEFAULT_BG));
-        if (fb_mode) fb_putc(c, 1);
-        else legacy_putc(c, 1);
-        fb_present_throttled();
+        for (size_t i = 0; i < at; i++) sb_record_attr(v, ' ', BLANK_ATTR);
+        vc_putc(v, c, 1);
+        if (vc_shown(v)) fb_present_throttled();
         return;
     }
 
@@ -1400,24 +1543,22 @@ static void console_draw(char c, int raw) {
     // ragged highlight whose right edge depends on the text length.
     //
     // Done here, in the one funnel, so the padding goes through
-    // sb_record() as well -- a fix applied inside fb_putc() alone would
-    // look right until the user pressed PageUp and the line redrew from
+    // sb_record() as well -- a fix applied in the putc alone would look
+    // right until the user pressed PageUp and the line redrew from
     // scrollback without it.
     //
     // The padding REPLACES the newline: writing to the last column wraps
     // (col back to 0, row++), which is the same move, so emitting '\n'
     // as well would leave a blank line behind.
-    if (c == '\n' && cur_bg != CONSOLE_DEFAULT_BG) {
+    if (c == '\n' && v->bg != CONSOLE_DEFAULT_BG) {
         // The count is computed ONCE, before any space is written.
         // Looping on `col < width` instead does not terminate: writing
         // the last column wraps col back to 0, which satisfies the
         // condition again, and the console fills solid.
-        size_t width = fb_mode ? console_cols : VGA_WIDTH;
-        size_t pad = width - col;
+        size_t pad = console_cols - v->col;
         for (size_t i = 0; i < pad; i++) {
-            sb_record(' ');
-            if (fb_mode) fb_putc(' ', 0);
-            else legacy_putc(' ', 0);
+            sb_record(v, ' ');
+            vc_putc(v, ' ', 0);
         }
         // The screen's line break came from the wrap above, but
         // scrollback's has to be recorded explicitly -- sb_record('\n')
@@ -1425,15 +1566,14 @@ static void console_draw(char c, int raw) {
         // accumulates into ONE scrollback line, and a PageUp/PageDown
         // round trip redraws the banner as a single stripe with four of
         // its five lines missing.
-        sb_record('\n');
-        fb_present_throttled();
+        sb_record(v, '\n');
+        if (vc_shown(v)) fb_present_throttled();
         return;
     }
 
-    sb_record(c);
-    if (fb_mode) fb_putc(c, raw);
-    else legacy_putc(c, raw);
-    fb_present_throttled();
+    sb_record(v, c);
+    vc_putc(v, c, raw);
+    if (vc_shown(v)) fb_present_throttled();
 }
 
 void vga_backspace(void) {
@@ -1441,10 +1581,7 @@ void vga_backspace(void) {
         if (active_sink->backspace) active_sink->backspace(active_sink->ctx);
         return;
     }
-    sb_snap_to_live();
-    sb_record_backspace();
-    if (fb_mode) fb_backspace();
-    else legacy_backspace();
+    vc_backspace_rec(VC_KERNEL);
 }
 
 void vga_write(const char *s) {
@@ -1482,4 +1619,49 @@ void vga_write_hex(uint64_t n) {
     k_htoa(n, buf, sizeof buf, 0); // 0 = shortest form, no leading zeros
     vga_write("0x");
     vga_write(buf);
+}
+
+// ---- switching ------------------------------------------------------
+//
+// kernel/tty/vt.c decides WHEN (a keypress, deferred to idle work); this
+// only moves the screen.
+
+int vga_vc_shown(void) { return g_fg->num; }
+
+int vga_vc_prepare(int n) {
+    struct vc *v = vc_at(n);
+    if (!v) return 0;
+    if (!vc_has_grid(v) && !vc_grid_alloc(v)) return 0;
+    if (!v->sb.chars && !sb_alloc(&v->sb, SB_LINES, (uint32_t)console_cols))
+        klog_printf("console: no memory for tty%d's scrollback -- it has none\n", n);
+    return 1;
+}
+
+int vga_vc_show(int n) {
+    struct vc *v = vc_at(n);
+    if (!v || !vc_has_grid(v)) return 0;
+    if (v == g_fg) return 1;
+    scheduler_preempt_disable();
+    if (fb_mode) cursor_hide();   // the old screen's, wherever it was painted
+    g_fg = v;
+    v->sb.view = 0;               // a switch shows the screen, not where its history was left
+    vc_redraw(v);
+    scheduler_preempt_enable();
+    vga_present();
+    return 1;
+}
+
+void vga_vc_clear(int n) {
+    struct vc *v = vc_at(n);
+    if (!v) return;
+    scheduler_preempt_disable();
+    vc_reset(v);
+    vc_clear(v);
+    scheduler_preempt_enable();
+    if (vc_shown(v)) vga_present();
+}
+
+void vga_vc_size(uint16_t *rows, uint16_t *cols) {
+    *rows = (uint16_t)console_rows;
+    *cols = (uint16_t)console_cols;
 }

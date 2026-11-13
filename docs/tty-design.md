@@ -356,6 +356,28 @@ comes with them.
   Text VTs 2-4 are ttys on a vc driver. `Ctrl+Alt+Fn` in `keyboard.c`
   switches, redrawing the screen from the target's grid. Testable on a
   text boot with no desktop in the picture.
+
+  **BUILT 2026-11-13.** `vga.c` keeps four `struct vc`, each with its
+  grid (the 0xB8000 layout, font byte | attribute), cursor, colours,
+  ANSI parser, region, UTF-8 decoder and scrollback; every write
+  updates the grid and only the SHOWN vc's reaches the pixels. VT1 is
+  the kernel's console and tty0's, so the kernel's own text lands there
+  whichever VT is shown (picked 2026-11-13; Linux prints on the
+  foreground VT). VT2-4 are ttys named `vt2`..`vt4` (`kernel/tty/vt.c`),
+  created on the first switch. Three things the plan did not say:
+  - **The switch is a KERNEL THREAD's** (`vt`): the keyboard IRQ only
+    records the request, because a switch redraws a whole screen and
+    the first one to a VT allocates. Linux defers its own to a
+    workqueue. A kernel thread runs with interrupts off, so a key's
+    echo cannot land in the middle of a redraw.
+  - **Shift+PageUp/PageDown scroll the shown VT's history from the
+    keyboard driver**, as on a Linux VT: the kernel shell's own
+    PageUp only works where IT reads the keys, and a ring-3 shell's
+    reader never sees it.
+  - **Back to live is the GRID**, not the scrollback's last lines: the
+    ring records the byte stream, which cannot rebuild a
+    cursor-addressed screen (`vt_test.py` went red with the old
+    repaint).
 - **C -- the desktop on F1.** Switching away from it points the
   compositor's grant at the scratch frame (its stores land nowhere) and
   hands the scanout to the console; switching back re-grants it and asks
@@ -452,8 +474,10 @@ plus `#\n#` under `OPOST` on and off. Each went red on a deliberately
 broken build (ONLCR emitting a bare LF, both renderers returning the
 carriage, a line feed ignoring the region).
 
-**Found on the way, not fixed:** the console does not present the tail
-of a ring-3 write while nobody reads the console (`docs/bugs.md`).
+**Found on the way, fixed with stage B of the virtual terminals:** the
+console did not present the tail of a ring-3 write while nobody read the
+console -- `ESC[0A`'s check failed every run. `vga_idle()`, from
+`scheduler_idle()`, is the deferred present that answers it.
 
 ## The controlling terminal -- **BUILT 2026-11-11**
 

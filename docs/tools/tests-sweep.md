@@ -870,6 +870,22 @@ report is ON only after `enter_gui()`").
   cause, the zombie count -- while all twenty-eight other checks stay
   green, which is what says the new one is measuring something none of
   them could.
+- **`vt_test.py`** -- the virtual terminals on `Ctrl+Alt+F1..F4`, on a
+  `text` boot (`docs/tty-design.md`, "The virtual terminals"). Boots twice,
+  like `console_shell_test.py`: the first sets the target and the US
+  layout. Every check reads SETTLED frames and waits on the state it
+  asserts (the `vt: ttyN shown` log line, a process gone, a frame that
+  changed). The load-bearing one is **VT1 coming back EXACTLY**:
+  `/tests/ansiregion` paints numbered rows with cursor moves and a
+  scrolling region, and only the console's cell GRID can put them back
+  -- rebuilding the screen from the scrollback stream, the console's
+  only record before VTs, went red here (and on Shift+PageDown's
+  return to the identical live screen). The rest: keys typed on VT2
+  change VT2 and not VT1, a program writing to tty0 while VT2 is shown
+  leaves VT2's frame alone and its line is on VT1 afterwards, and
+  Shift+PageUp shows each VT's OWN history -- VT2's few lines, not VT1's
+  boot log.
+
 - **`console_shell_test.py`** -- a `text` boot reaches a RING-3 shell
   prompt and the kernel shell is not involved (`docs/init-design.md`'s
   stage 4). Eleven checks: init is what started `/bin/tosh`, an idle

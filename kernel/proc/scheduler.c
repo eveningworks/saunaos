@@ -88,6 +88,7 @@
 // syscall.c) is completely untouched by this file, exactly as before --
 // only the mechanism that used to keep it that way (a flag flipped
 // off) changed to a different one (an empty table).
+#include "vt.h"         // vga_idle() -- the console's tail, from the idle work
 #include "uaddr.h" // uaddr_is_user() -- a thread pointer ring 3 may hold
 #include "sandbox.h"   // slot_free() drops the slot's reference
 #include "sched_internal.h"
@@ -2061,6 +2062,10 @@ void scheduler_idle(void) {
     // Free memory back to a hypervisor (page_report.h). One compare
     // without a reporter, which is every machine but a VM with a balloon.
     page_report_idle();
+    // The console's last output burst onto the screen: a program that
+    // printed and then slept leaves its tail in the back buffer otherwise.
+    // Only a PRESENT, which refuses while the desktop owns the screen.
+    vga_idle();
 }
 
 // Interrupts off around each bill: a tick that rotates bills too, and

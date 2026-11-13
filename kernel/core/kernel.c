@@ -44,6 +44,7 @@
 #include "mouse_config.h"
 #include "keyboard_config.h"
 #include "tty.h"    // tty_init() -- the console terminal, before input arrives
+#include "vt.h"     // vt_start()
 #include "apps.h"
 #include "scheduler.h"
 #include "syscalls.h"   // uheap_fault_init() -- demand paging for ring-3 heaps
@@ -457,6 +458,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
 
     // AFTER init, which must be pid 1: a kernel thread takes a slot too.
     fs_threads_start();
+    vt_start();   // Ctrl+Alt+F1..F4's switch is a kernel thread's work
 
     // Boot is over; stop putting kernel log lines on top of whatever the
     // shell or the GUI draws. `dmesg`, the serial port and the console's
