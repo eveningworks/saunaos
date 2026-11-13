@@ -8959,3 +8959,24 @@ drag (`step.py p28 drag 440 267 440 336 --wait 4`; on this machine
 `wb_walk.py SIDE try drag 440 267 440 336`): both show the tip and a
 flashing outline at Write's left; they differ in the pointer's shape over
 the border, and in Write's caption after a click on the outline.
+
+## `w16_gui_test` fails the same 15 checks every run, all of them on the Retro Launcher's window, since one of 53b40ef5..804c96b7
+
+Found 2026-11-13 by the virtual-terminals round's `gui_regress.py`, and
+measured as not that round's: the same 15 checks fail with the tree at
+804c96b7, the commit before it.
+
+Repro: `python3 tools/runners/gui_regress.py -k w16 --logs DIR`. The
+first failure is `...and Show its calls opens its calls window`, with
+`windows ['File Manager', 'GDI test - calls']` -- the calls window of
+gdi.exe rather than fault.exe -- and every later failure needs a Retro
+Launcher window (`--show`, the Sound page, the Why? link, the details
+panel's rows, the toolbar). `retrolauncher` spawned by hand on a fresh
+image opens and lays out normally.
+
+Between the last recorded pass (8488ad23) and 804c96b7 are the
+2026-11-12 audit commits: user-address checks (53b40ef5), zeroing what
+crosses to ring 3 (91a47be5), the data limit (6892b142), unveil holding
+in any case (2e8a3163) and refusing what a USB device says (80cdb960).
+Bisecting those five is the next step.
+
