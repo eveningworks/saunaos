@@ -52,6 +52,19 @@ static uint64_t g_lessee_pml4;
 // -- unmapping at once put DOOM's next store on a non-present page.
 static int      g_stale;
 static uint64_t g_stale_pml4;
+static int      g_stale_count;   // the geometry it was MAPPED with: a grant
+static uint64_t g_stale_pages;   // since may have changed g_count/g_pages
+static int      g_remoding;      // from win_surface_remode_prepare() to _remode()
+
+// EVERY CHANGE TO THE GRANT, THE LEASE AND THEIR MAPPINGS IS ONE GUARDED
+// STEP, each public entry below a wrapper over its _locked body. With
+// interrupts on in syscalls, a test of g_stale or g_lessee and the
+// page-table walk after it were two steps a process's exit could run
+// between -- an unmap of a cleared (0) address space read physical page 0
+// as tables. Nothing under the guard sleeps: page-table writes, a frame
+// for a table, the display's flip and flush.
+static void wlock(void) { scheduler_preempt_disable(); }
+static void wunlock(void) { scheduler_preempt_enable(); }
 
 int win_surface_holder(void) { return g_holder; }
 int win_surface_lessee(void) { return g_lessee; }
@@ -119,18 +132,16 @@ static void map_scratch(uint64_t pml4, int count, uint64_t pages) {
         }
 }
 
-void win_surface_set_hidden(int hidden) {
+static void set_hidden_locked(int hidden) {
     hidden = hidden ? 1 : 0;
     if (hidden == g_hidden) return;
     g_hidden = hidden;
     if (!g_holder) return;
-    // One piece: a mapping owner could exit mid-walk otherwise (lease()).
-    scheduler_preempt_disable();
     uint64_t phys = gfx_framebuffer_phys();
     if (hidden) {
         if (g_pml4) map_scratch(g_pml4, g_count, g_pages);
         if (g_lessee_pml4) map_scratch(g_lessee_pml4, g_count, g_pages);
-        if (g_stale_pml4) map_scratch(g_stale_pml4, g_count, g_pages);
+        if (g_stale_pml4) map_scratch(g_stale_pml4, g_stale_count, g_stale_pages);
         display_flip(0);
     } else {
         // A stale lessee stays on scratch: it unmaps at its next present.
@@ -144,7 +155,12 @@ void win_surface_set_hidden(int hidden) {
         }
         display_flip(g_front);   // its last frame, until the full one it owes
     }
-    scheduler_preempt_enable();
+}
+
+void win_surface_set_hidden(int hidden) {
+    wlock();
+    set_hidden_locked(hidden);
+    wunlock();
 }
 
 // The buffer nobody should be drawing into: neither the last flipped
@@ -191,9 +207,11 @@ static int free_back(void) {
     return 0;
 }
 
-int win_surface_grant(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
-                      uint32_t *out_pitch, uint32_t *out_bpp,
-                      int *out_count, int *out_back) {
+static void revoke_locked(int pid);
+
+static int grant_locked(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
+                        uint32_t *out_pitch, uint32_t *out_bpp,
+                        int *out_count, int *out_back) {
     uint64_t phys = gfx_framebuffer_phys();
     uint32_t pitch = gfx_framebuffer_pitch();
     int height = gfx_height();
@@ -207,7 +225,7 @@ int win_surface_grant(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
     // deregister first. Revoke any previous grant, including another
     // process's: the role is single, so a grant to a new pid means the
     // old one is no longer the compositor.
-    if (g_holder) win_surface_revoke(g_holder);
+    if (g_holder) revoke_locked(g_holder);
 
     uint64_t size = (uint64_t)pitch * (uint64_t)height;
     uint64_t pages = (size + 4095) / 4096;
@@ -256,6 +274,15 @@ int win_surface_grant(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
     return 1;
 }
 
+int win_surface_grant(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
+                      uint32_t *out_pitch, uint32_t *out_bpp,
+                      int *out_count, int *out_back) {
+    wlock();
+    int ok = grant_locked(pid, pml4, out_w, out_h, out_pitch, out_bpp, out_count, out_back);
+    wunlock();
+    return ok;
+}
+
 int win_surface_hold_frame(int pid) {
     if (!g_holder || g_holder != pid) return 0;
     if (g_hidden) return 0;   // a text VT has the screen: nothing to hold
@@ -266,9 +293,24 @@ int win_surface_hold_frame(int pid) {
     return vga_hold_begin();
 }
 
-void win_surface_revoke(int pid) {
+// Under wlock(). The lessee and an ex-lessee go onto the scratch frame and
+// are forgotten: with the holder gone nobody sends the unmap the lease's
+// two phases wait for, and the scanouts they map may be freed (a mode
+// change) or redrawn by the console. Scratch is never freed, so the
+// mapping is harmless for good -- the next lease of that space maps over it.
+static void lessees_to_scratch(void) {
+    if (g_lessee_pml4) map_scratch(g_lessee_pml4, g_count, g_pages);
+    if (g_stale_pml4) map_scratch(g_stale_pml4, g_stale_count, g_stale_pages);
+    if (g_lessee) klog_printf("win_surface: lease from pid %d ended with the grant\n", g_lessee);
+    g_lessee = 0;
+    g_lessee_pml4 = 0;
+    g_stale = 0;
+    g_stale_pml4 = 0;
+}
+
+static void revoke_locked(int pid) {
     if (!g_holder || g_holder != pid) return;
-    win_surface_lease_end(0);
+    lessees_to_scratch();
     // The whole span, padding included: a padded page is a real mapping.
     // None left when the holder's address space has already gone.
     for (int b = 0; g_pml4 && b < g_span_count; b++)
@@ -286,28 +328,48 @@ void win_surface_revoke(int pid) {
     g_back   = 0;
 }
 
-int win_surface_remode(void) {
-    if (!g_holder || !g_pml4) return 1;   // no holder, or one whose tables are gone
-    // A lessee's mapping is the OLD geometry; the compositor learns of
-    // the mode change (WIN_EV_SCREEN) and re-leases if it still wants to.
-    win_surface_lease_end(0);
-    int pid = g_holder;
-    uint64_t pml4 = g_pml4;
-    uint32_t w, h, pitch, bpp;
-    int count, back;
-    // grant() revokes the old mapping first and pads the span, so the
-    // holder keeps a present page under every address it ever had.
-    return win_surface_grant(pid, pml4, &w, &h, &pitch, &bpp, &count, &back);
+void win_surface_revoke(int pid) {
+    wlock();
+    revoke_locked(pid);
+    wunlock();
 }
 
-int win_surface_present(int pid, int x, int y, int w, int h, int *out_back) {
+void win_surface_remode_prepare(void) {
+    wlock();
+    g_remoding = 1;
+    if (g_holder && g_pml4) map_scratch(g_pml4, g_count, g_pages);
+    lessees_to_scratch();
+    wunlock();
+}
+
+int win_surface_remode(void) {
+    wlock();
+    g_remoding = 0;
+    int ok = 1;
+    if (g_holder && g_pml4) {   // else no holder, or one whose tables are gone
+        // A lessee was put on scratch by the prepare; the compositor
+        // learns of the mode (WIN_EV_SCREEN) and re-leases if it wants to.
+        // grant() revokes the old mapping first and pads the span, so the
+        // holder keeps a present page under every address it ever had.
+        int pid = g_holder;
+        uint64_t pml4 = g_pml4;
+        uint32_t w, h, pitch, bpp;
+        int count, back;
+        ok = grant_locked(pid, pml4, &w, &h, &pitch, &bpp, &count, &back);
+    }
+    wunlock();
+    return ok;
+}
+
+static int present_locked(int pid, int x, int y, int w, int h, int *out_back) {
     if (!g_holder) return 0;
     // The lessee presents while the lease stands, and ONLY the lessee:
     // two presenters flipping one set of buffers would each hand the
     // other a live one to draw into.
     if (pid != (g_lessee ? g_lessee : g_holder)) return 0;
-    // HIDDEN: what it drew is on scratch. Its back stays its back.
-    if (g_hidden) {
+    // HIDDEN: what it drew is on scratch. Its back stays its back. So
+    // while the mode changes: every buffer is on scratch then.
+    if (g_hidden || g_remoding) {
         if (out_back) *out_back = g_back;
         return 1;
     }
@@ -338,22 +400,29 @@ int win_surface_present(int pid, int x, int y, int w, int h, int *out_back) {
     return 1;
 }
 
+int win_surface_present(int pid, int x, int y, int w, int h, int *out_back) {
+    wlock();
+    int ok = present_locked(pid, x, y, w, h, out_back);
+    wunlock();
+    return ok;
+}
+
 // --- the lease ---------------------------------------------------------
 
-int win_surface_lease(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
-                      uint32_t *out_pitch, uint32_t *out_bpp,
-                      int *out_count, int *out_back) {
-    if (!g_holder || g_lessee || pid <= 0 || pid == g_holder || !pml4) return 0;
+static int lease_locked(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
+                        uint32_t *out_pitch, uint32_t *out_bpp,
+                        int *out_count, int *out_back) {
+    if (!g_holder || g_lessee || g_remoding || pid <= 0 || pid == g_holder || !pml4) return 0;
     uint64_t phys = gfx_framebuffer_phys();
     if (!phys) return 0;
     // The lessee could exit while its tables are being written -- the
     // kernel is preemptible in a syscall -- so the walk is one piece.
-    scheduler_preempt_disable();
+    // A stale mapping of this space at an older geometry goes first.
+    if (g_stale == pid && g_stale_pml4 == pml4) unmap_scanouts(pml4, g_stale_count, g_stale_pages);
     int ok = map_scanouts(pml4, phys, g_count, g_pages);
     if (ok && g_hidden) map_scratch(pml4, g_count, g_pages);
-    scheduler_preempt_enable();
     if (!ok) return 0;
-    if (g_stale == pid) { g_stale = 0; g_stale_pml4 = 0; } // the same pages, mapped again
+    if (g_stale == pid) { g_stale = 0; g_stale_pml4 = 0; } // the same space, mapped again
 
 
     g_lessee      = pid;
@@ -371,15 +440,47 @@ int win_surface_lease(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
     return 1;
 }
 
-void win_surface_lease_end(int *out_back) {
+int win_surface_lease(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
+                      uint32_t *out_pitch, uint32_t *out_bpp,
+                      int *out_count, int *out_back) {
+    wlock();
+    int ok = lease_locked(pid, pml4, out_w, out_h, out_pitch, out_bpp, out_count, out_back);
+    wunlock();
+    return ok;
+}
+
+// THE LOOKUP AND THE LEASE ARE ONE STEP: an address space read with
+// nothing held could be torn down before the walk into it. A process past
+// scheduler_exit_drop_space() answers 0 here, and one leased between its
+// teardown's first win_surface_space_gone() and that is caught by the
+// second (syscall.c).
+int win_surface_lease_pid(int pid, uint32_t *out_w, uint32_t *out_h,
+                          uint32_t *out_pitch, uint32_t *out_bpp,
+                          int *out_count, int *out_back) {
+    wlock();
+    uint64_t pml4 = scheduler_pid_pml4(pid);
+    int ok = pml4 && lease_locked(pid, pml4, out_w, out_h, out_pitch, out_bpp, out_count, out_back);
+    wunlock();
+    return ok;
+}
+
+static void stale_unmap_locked(void) {
+    if (g_stale && g_stale_pml4) unmap_scanouts(g_stale_pml4, g_stale_count, g_stale_pages);
+    g_stale = 0;
+    g_stale_pml4 = 0;
+}
+
+static void lease_end_locked(int *out_back) {
     if (out_back) *out_back = g_back;
     if (!g_lessee) return;
     // The display comes back NOW; the pages stay mapped until the
     // client has presented from its own buffer (win_surface_lease_unmap),
     // because it may be in the middle of a frame into these.
-    if (g_stale && g_stale != g_lessee) win_surface_lease_unmap(g_stale);
+    if (g_stale && g_stale != g_lessee) stale_unmap_locked();
     g_stale = g_lessee;
     g_stale_pml4 = g_lessee_pml4;
+    g_stale_count = g_count;
+    g_stale_pages = g_pages;
     klog_printf("win_surface: lease from pid %d ended\n", g_lessee);
     g_lessee = 0;
     g_lessee_pml4 = 0;
@@ -387,20 +488,25 @@ void win_surface_lease_end(int *out_back) {
     if (out_back) *out_back = g_back;
 }
 
-void win_surface_lease_unmap(int pid) {
-    if (!g_stale || g_stale != pid) return;
-    // g_stale_pml4 set means the space is ALIVE: its teardown clears it
-    // (win_surface_space_gone) before a page of it is freed.
-    scheduler_preempt_disable();
-    unmap_scanouts(g_stale_pml4, g_count, g_pages);
-    scheduler_preempt_enable();
-    g_stale = 0;
-    g_stale_pml4 = 0;
+void win_surface_lease_end(int *out_back) {
+    wlock();
+    lease_end_locked(out_back);
+    wunlock();
 }
 
-void win_surface_space_gone(uint64_t pml4) {
+void win_surface_lease_unmap(int pid) {
+    // The test and the unmap are one step: an exit between them cleared
+    // g_stale_pml4, and the walk then read physical page 0 as a PML4.
+    wlock();
+    if (g_stale && g_stale == pid) stale_unmap_locked();
+    wunlock();
+}
+
+static void client_gone_locked(int pid);
+
+static void space_gone_locked(uint64_t pml4) {
     if (!pml4) return;
-    if (g_lessee && g_lessee_pml4 == pml4) win_surface_client_gone(g_lessee);
+    if (g_lessee && g_lessee_pml4 == pml4) client_gone_locked(g_lessee);
     if (g_stale && g_stale_pml4 == pml4) { g_stale = 0; g_stale_pml4 = 0; }
     // THE HOLDER'S mappings die with its tables, which are freed next --
     // but the grant is the ROLE's and is revoked later, when the exit
@@ -410,7 +516,13 @@ void win_surface_space_gone(uint64_t pml4) {
     if (g_holder && g_pml4 == pml4) g_pml4 = 0;
 }
 
-void win_surface_client_gone(int pid) {
+void win_surface_space_gone(uint64_t pml4) {
+    wlock();
+    space_gone_locked(pml4);
+    wunlock();
+}
+
+static void client_gone_locked(int pid) {
     if (g_stale && g_stale == pid) { g_stale = 0; g_stale_pml4 = 0; }
     if (!g_lessee || g_lessee != pid) return;
     klog_printf("win_surface: lessee pid %d is gone -- back to the compositor\n", pid);
@@ -419,4 +531,10 @@ void win_surface_client_gone(int pid) {
     // What it left on screen stays until the compositor's next present;
     // the buffer being scanned is one of the shared three either way.
     g_back = free_back();
+}
+
+void win_surface_client_gone(int pid) {
+    wlock();
+    client_gone_locked(pid);
+    wunlock();
 }

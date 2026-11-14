@@ -6235,7 +6235,12 @@ the numbers after the trap gate are ambiguous.
 - `QUERY_FSINFO` read a mount slot with nothing pinned and described a share whose state an unmount had freed. The slot's backend and state are read once, and `userfs_describe()` finds the state in its own table by address before touching it.
 - A dead daemon's pid stayed its share's server, so a later process given that pid could take the share's requests (a sign-in's password among them) and answer them. The server is its address space now: its exit drops it (`userfs_space_gone()`), failing queued calls with `-ENOTCONN`.
 
-**Still to fix, in this order:** the window server (a mode change or a revoke leaving the lessee mapped onto freed scanout frames; the lease and grant publishing outside the guard), storage (an AHCI timeout reusing a live slot; virtio-blk's timeout and discard buffers; xHCI's command ring unserialised).
+**The window server's kernel side, FIXED 2026-11-14** (`kernel/proc/win_surface.c`):
+- Revoking the holder (a compositor's death or re-registration) left the lessee mapped onto the scanouts, untracked once `g_count` was cleared. A revoke puts the lessee and an ex-lessee on the scratch frame now. KTEST `winshare`'s new check: red (still on the framebuffer) before, green after.
+- A mode change freed the old scanouts first and re-mapped the holder after, with ring 3 free to run in between (the call is preemptible); the lessee stayed on the freed frames until the compositor's next lease. `win_surface_remode_prepare()` puts everyone on scratch before the driver runs, presents are no-ops until `win_surface_remode()`. KTEST `winshare`'s mode-change checks.
+- The lease looked its lessee's address space up and published it outside any guard, the deferred unmap tested `g_stale` and then walked a table an exit had cleared (physical page 0 read as a PML4), and grant raced a VT hide. Every grant and lease entry is one guarded step now, FB_LEASE looks the space up inside it (`win_surface_lease_pid()`), an exiting process is dropped again once no lookup can find it, and a stale lessee is unmapped with the geometry it was mapped with. Fixed BY SHAPE; `fullscreen_test` 24/24, `modeset_test` 18/18, `compositor_death_test` 11/11.
+
+**Still to fix:** storage (an AHCI timeout reusing a live slot; virtio-blk's timeout and discard buffers; xHCI's command ring unserialised).
 
 ### The removable-media parsers audited
 

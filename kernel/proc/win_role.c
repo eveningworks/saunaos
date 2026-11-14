@@ -265,11 +265,10 @@ int win_server_request(int pid, struct win_request_msg *req) {
         }
         int lessee = req->a;
         if (req->b == 1) { win_surface_lease_unmap(lessee); return 0; }
-        uint64_t pml4 = scheduler_pid_pml4(lessee);
-        if (lessee == pid || !pml4) return -1;
+        if (lessee == pid) return -1;
         uint32_t w = 0, h = 0, pitch = 0, bpp = 0;
         int count = 1;
-        if (!win_surface_lease(lessee, pml4, &w, &h, &pitch, &bpp, &count, &back)) return -1;
+        if (!win_surface_lease_pid(lessee, &w, &h, &pitch, &bpp, &count, &back)) return -1;
         req->a = (int32_t)w;
         req->b = (int32_t)h;
         req->c = (int32_t)pitch;

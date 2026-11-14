@@ -50,6 +50,12 @@ int win_surface_hold_frame(int pid);
 // After a mode change: re-grants the current holder (if any) at the new
 // geometry, keeping every address it had mapped. 1 on success or when
 // there is no holder.
+// THE MODE CHANGE IS TWO CALLS AROUND THE DRIVER'S: _prepare() first puts
+// the holder and any lessee on the scratch frame (the driver frees the old
+// scanouts, and a preempted set_mode lets ring 3 run), presents become
+// no-ops; _remode() after maps the new ones. Always paired, even when the
+// driver refuses the mode.
+void win_surface_remode_prepare(void);
 int win_surface_remode(void);
 
 // The desktop's virtual terminal left the screen (1) or came back (0):
@@ -83,6 +89,11 @@ int win_surface_holder(void);
 int win_surface_lease(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
                       uint32_t *out_pitch, uint32_t *out_bpp,
                       int *out_count, int *out_back);
+// The same for a pid, its address space looked up in the same guarded
+// step -- what FB_LEASE uses (win_role.c).
+int win_surface_lease_pid(int pid, uint32_t *out_w, uint32_t *out_h,
+                          uint32_t *out_pitch, uint32_t *out_bpp,
+                          int *out_count, int *out_back);
 // Ends the lease -- the holder presents again -- and answers in
 // `*out_back` the buffer it should draw into next. The lessee's pages
 // stay MAPPED until win_surface_lease_unmap(): it may be mid-frame.

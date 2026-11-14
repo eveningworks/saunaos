@@ -64,6 +64,9 @@ static void release_process_state(uint64_t pml4_phys) {
 void syscall_process_exit_cleanup(uint64_t pml4_phys) {
     release_process_state(pml4_phys);
     scheduler_exit_drop_space();   // a switch back must not load what is freed next
+    // AGAIN, now no lookup can find this space: a lease granted between
+    // the first call and the drop would otherwise outlive the tables.
+    win_surface_space_gone(pml4_phys);
 
     // CR3 first -- see vmm_destroy_address_space()'s comment for why
     // freeing the frame CR3 still points at, before switching away from

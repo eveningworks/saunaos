@@ -61,11 +61,30 @@ KTEST("winshare", "the framebuffer grant can be leased to one other process") {
     win_surface_space_gone(as2);
     win_surface_lease_unmap(lessee);   // forgotten: must NOT unmap
     KTEST_ASSERT(vmm_user_phys(as2, WIN_FB_VADDR) != 0);
-    // Revoking the holder ends a lease too.
+    // Revoking the holder ends a lease too -- and takes the lessee OFF the
+    // scanouts at once: nobody will send the unmap its two phases wait for,
+    // and a mode change would free the frames under it.
+    uint64_t fb = vmm_user_phys(as1, WIN_FB_VADDR);
     KTEST_ASSERT(win_surface_lease(lessee, as2, &w, &h, &pitch, &bpp, &count, &back));
     win_surface_revoke(holder);
     KTEST_ASSERT_EQ(win_surface_lessee(), 0);
     KTEST_ASSERT_EQ(win_surface_holder(), 0);
+    KTEST_ASSERT(vmm_user_phys(as2, WIN_FB_VADDR) != fb);
+
+    // A MODE CHANGE: between the prepare and the remode the driver may
+    // free the scanouts, so neither space maps one; after it the holder
+    // has them again and the lessee does not.
+    KTEST_ASSERT(win_surface_grant(holder, as1, &w, &h, &pitch, &bpp, &count, &back));
+    KTEST_ASSERT(win_surface_lease(lessee, as2, &w, &h, &pitch, &bpp, &count, &back));
+    win_surface_remode_prepare();
+    KTEST_ASSERT(vmm_user_phys(as1, WIN_FB_VADDR) != fb);
+    KTEST_ASSERT(vmm_user_phys(as2, WIN_FB_VADDR) != fb);
+    KTEST_ASSERT_EQ(win_surface_lessee(), 0);
+    KTEST_ASSERT(win_surface_present(holder, 0, 0, 8, 8, &back));   // a no-op meanwhile
+    KTEST_ASSERT(win_surface_remode());
+    KTEST_ASSERT_EQ(vmm_user_phys(as1, WIN_FB_VADDR), fb);
+    KTEST_ASSERT(vmm_user_phys(as2, WIN_FB_VADDR) != fb);
+    win_surface_revoke(holder);
 
     vmm_destroy_address_space(as1);
     vmm_destroy_address_space(as2);

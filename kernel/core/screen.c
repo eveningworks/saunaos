@@ -1,9 +1,9 @@
-// See screen.h. THE INVARIANT: this runs inside one syscall (or at
-// boot, before the desktop), so nothing in ring 3 runs between the
-// driver freeing the old framebuffer and win_surface_remode() mapping
-// the new one -- and win_surface keeps every address the holder ever
-// had mapped, so a blit the compositor was preempted in the middle of
-// lands on a page either way.
+// See screen.h. THE INVARIANT: no ring-3 mapping reaches the old
+// scanouts once the driver may free them -- win_surface_remode_prepare()
+// puts the holder and any lessee on the scratch frame first, because this
+// call is preemptible (interrupts are on in syscalls) and ring 3 runs
+// while the driver works. win_surface keeps every address the holder ever
+// had mapped, so a blit it was preempted in lands on a page either way.
 #include "screen.h"
 #include "display.h"
 #include "gfx.h"
@@ -29,9 +29,13 @@ int screen_set_mode(uint32_t w, uint32_t h) {
     if (!display_has(DISPLAY_CAP_MODESET) || !screen_mode_listed(w, h)) return 0;
 
     struct display_mode m = { .width = w, .height = h, .bpp = 32 };
+    // The holder and a lessee off the scanouts FIRST: the driver frees the
+    // old ones, and this call is preemptible -- ring 3 runs in between.
+    win_surface_remode_prepare();
     if (!display_set_mode(&m)) {
         klog_printf(KLOG_ERR "screen: the driver refused %ux%u -- keeping %dx%d\n",
                     w, h, gfx_width(), gfx_height());
+        win_surface_remode();   // the old scanouts, mapped again
         return 0;
     }
     // Bottom-up from here: the surface moved, so everything that cached
@@ -39,6 +43,7 @@ int screen_set_mode(uint32_t w, uint32_t h) {
     display_refresh_write_combining();
     if (!gfx_remode()) {
         klog_write(KLOG_ERR "screen: gfx could not adopt the new surface\n");
+        win_surface_remode();   // ends the prepare's no-op presents
         return 0;
     }
     vga_reflow();
