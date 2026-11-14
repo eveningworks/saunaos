@@ -1,6 +1,7 @@
 // See base/uworker.h.
 #include <pthread.h>
 #include "base/uworker.h"
+#include <sys/resource.h>   // PRIO_PROCESS
 #include "rt/sys.h"
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -9,8 +10,19 @@ static struct uworker_job *g_head, *g_tail;
 static int g_started;     // 1 running, -1 could not start (jobs run inline)
 static int g_pending;     // jobs not IDLE
 
+// THE WORKER YIELDS THE CPU TO ITS PROGRAM'S OWN THREAD: nice 10, a
+// weight below the frame thread's (CFS gives ~1.25x a step). Parked
+// between jobs it wakes with a sleeper's credit, and without the lower
+// weight its decode outran the compositor's frame under load -- a 3 s
+// frame spent waiting for the CPU while its own worker ran. Linux's
+// compositors do the same from the other side (KWin's and Mutter's main
+// thread at a real-time priority).
+#define UWORKER_NICE 10
+
 static void *worker(void *arg) {
     (void)arg;
+    // `who` 0 is the calling THREAD here (its own slot), as Linux applies nice.
+    sys_setpriority(PRIO_PROCESS, 0, UWORKER_NICE);
     for (;;) {
         pthread_mutex_lock(&g_lock);
         while (!g_head) pthread_cond_wait(&g_cond, &g_lock);
