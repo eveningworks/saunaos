@@ -114,8 +114,15 @@ uint64_t virtio_blk_sector_count(void) { return g_capacity; }
 // The one request path. `data` may be NULL for a FLUSH.
 static int request_locked(uint32_t type, uint64_t sector, void *data, uint32_t len, int device_writes);
 
+// A REQUEST THAT NEVER COMPLETED LEAVES THE DEVICE HOLDING ITS BUFFERS --
+// the caller's, the header and the status byte -- and virtio has no
+// per-request abort. So the device is reset (which takes every buffer back)
+// and is dead from then on: never a buffer handed back while a late
+// completion could still write it.
+static int g_dead;
+
 static int do_request(uint32_t type, uint64_t sector, void *data, uint32_t len, int device_writes) {
-    if (!g_present) return 0;
+    if (!g_present || g_dead) return 0;
     kmutex_lock(&g_blk_lock);
     int r = request_locked(type, sector, data, len, device_writes);
     kmutex_unlock(&g_blk_lock);
@@ -180,7 +187,13 @@ static int request_locked(uint32_t type, uint64_t sector, void *data, uint32_t l
                     type == VIRTIO_BLK_T_FLUSH ? "FLUSH (a journal barrier)" :
                     type == VIRTIO_BLK_T_DISCARD ? "discard" : "request",
                     (unsigned long long)sector);
-        return 0;   // virtqueue_poll() logged, and leaked the chain
+        g_dead = 1;
+        if (virtio_reset(&g_dev))
+            klog_write(KLOG_ERR "virtio-blk: device reset -- no more I/O on it\n");
+        else
+            klog_write(KLOG_ERR "virtio-blk: the device would not reset and may still write "
+                       "the request's buffers -- no more I/O on it\n");
+        return 0;
     }
     if (g_status != VIRTIO_BLK_S_OK) {
         klog_printf(KLOG_ERR "virtio-blk: request type %u at sector %llu failed, status %u\n",
@@ -223,10 +236,16 @@ int virtio_blk_discard(uint64_t lba, uint32_t count) {
     if (lba >= g_capacity || count > g_capacity - lba) return 0;
     if (count > g_max_discard) return 0;
 
+    // The ONE static segment is filled under the request lock: a second
+    // discard rewrote it while the first's chain still pointed at it.
+    if (g_dead) return 0;
+    kmutex_lock(&g_blk_lock);
     g_discard.sector = lba;
     g_discard.num_sectors = count;
     g_discard.flags = 0;
-    return do_request(VIRTIO_BLK_T_DISCARD, 0, &g_discard, sizeof g_discard, 0);
+    int r = request_locked(VIRTIO_BLK_T_DISCARD, 0, &g_discard, sizeof g_discard, 0);
+    kmutex_unlock(&g_blk_lock);
+    return r;
 }
 
 static const struct pci_match virtio_blk_matches[] = {

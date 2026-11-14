@@ -3191,6 +3191,19 @@ a lookup that will use it takes the reference in the same guarded step,
 and a create allocates its frames first and publishes under the guard,
 asking the name and the data limit again there.
 
+## A TIMED-OUT DMA COMMAND IS TAKEN BACK BEFORE ITS BUFFER IS REUSED, OR THE DEVICE IS DEAD
+
+A command that did not complete in time is still the DEVICE's: it may yet
+read or write the buffers it was given, and the next caller fills the same
+bounce buffer, table or status byte. So a timeout is never "log and return
+0". The driver takes the command back first -- AHCI stops the port
+(COMRESET if the engine will not stop), virtio resets the device
+(`virtio_reset()`; there is no per-request abort), xHCI cancels the
+endpoint -- and only a command confirmed gone frees its buffers; one that
+cannot be taken back marks the device dead (`drive_dead()`, virtio-blk's
+`g_dead`, usb-storage's `dma_pinned`). NVMe's `nvme_fail()` was the first.
+From audit area 6 (`docs/roadmap-details.md`).
+
 ## WHAT CROSSES TO RING 3 IS ZEROED FIRST, AND WHAT COMES BACK IS CHECKED AS A USER ADDRESS
 
 Rules from the syscall-boundary audit (`docs/roadmap-details.md`, "The

@@ -107,7 +107,7 @@ static void xfer_done(void *ctx, uint64_t phys, uint32_t bytes, int ok) {
 // itself, which the single-consumer guard in xhci_service() allows.
 // 1 done, 0 failed (*stalled says whether the endpoint halted), -1 timed
 // out -- after which the endpoint has been cancelled, so the buffer is
-// the driver's again.
+// the driver's again (a cancel that failed is 0 and a device that is done).
 static int xfer(struct ums *u, uint8_t ep, uint64_t phys, uint32_t len, uint32_t *got,
                 int *stalled) {
     *stalled = 0;
@@ -121,7 +121,17 @@ static int xfer(struct ums *u, uint8_t ep, uint64_t phys, uint32_t len, uint32_t
     int parked = 1;
     while (!__atomic_load_n(&u->done, __ATOMIC_ACQUIRE)) {
         if (u->unplugged || clocksource_now_ns() >= deadline) {
-            xhci_cancel_endpoint(u->slot, ep);
+            // A CANCEL THE CONTROLLER DID NOT CONFIRM leaves the TD live on
+            // the buffer: it is never reused (nor freed at unbind), and the
+            // device takes no more transfers.
+            if (xhci_cancel_endpoint(u->slot, ep) < 0) {
+                u->dma_pinned = 1;
+                if (!u->unplugged)
+                    klog_printf(KLOG_ERR "usb-storage: slot %d: a timed-out transfer could not be "
+                                "cancelled -- no more I/O on this device\n", (int)u->slot);
+                u->unplugged = 1;
+                return 0;
+            }
             return u->unplugged ? 0 : -1;
         }
         if (parked) {

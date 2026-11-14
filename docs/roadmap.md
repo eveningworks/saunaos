@@ -265,8 +265,8 @@ only expensive part of it.
 - [x] ~~tfs3 crash consistency and the flush path audited~~ DONE 2026-11-13 -- 10 fixed, 5 proven red first; `tfs3crash`
 - [ ] The crash explorer through a crash DURING replay, and on a volume of several groups
 - [ ] AHCI fails a command on every PxIS error bit, not TFES alone -- an interface or host-bus error could read as done
-- [ ] A timed-out AHCI or virtio-blk command's buffer is not reused while the device may still read it
-- [ ] Storage waits, userfs, shared memory, the window server's kernel side and signal delivery audited -- all but storage fixed
+- [x] ~~A timed-out AHCI or virtio-blk command's buffer is not reused while the device may still read it~~ DONE 2026-11-14
+- [x] ~~Storage waits, userfs, shared memory, the window server's kernel side and signal delivery audited~~ DONE 2026-11-14
 - [x] ~~System Update keeps the running kernel when it is kernel.old~~ DONE 2026-11-14 -- GRUB's `kernel=previous` word
 - [x] ~~System Update reads grub.cfg's timeout with ubootcfg, and refuses a kernel when no previous-kernel entry exists~~ DONE 2026-11-14
 - [x] ~~grub.cfg falls back to the previous kernel by itself (`set fallback`)~~ DONE 2026-11-14 -- added on the first kernel update

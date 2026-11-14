@@ -218,6 +218,12 @@ uint16_t virtio_pci_type(const struct pci_device *d);
 // 1 on success. 0 after setting FAILED and logging why.
 int virtio_begin(struct virtio_device *d, uint64_t wanted);
 
+// Resets the device and waits for it to agree: 1 when it has, and then it
+// owns no buffer any more (virtio 1.x 2.1: a reset device has stopped
+// using every queue). What a driver does with a request that never
+// completed -- there is no per-request abort.
+int virtio_reset(struct virtio_device *d);
+
 // status |= DRIVER_OK. Call after every queue is set up: the spec
 // forbids using a queue before this.
 void virtio_driver_ok(struct virtio_device *d);

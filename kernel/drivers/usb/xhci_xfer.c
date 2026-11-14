@@ -170,7 +170,16 @@ int xhci_selftest_cmd_recovery(void);   // below cmd_submit; see its comment
 // Enqueues one command, rings doorbell 0 and waits for its Command
 // Completion event. Returns the completion code; `out_slot` receives
 // the slot id the controller assigned, when the command allocates one.
+static int cmd_submit_locked(struct xhci_hc *hc, uint64_t param, uint32_t control, uint8_t *out_slot);
+
 static int cmd_submit(struct xhci_hc *hc, uint64_t param, uint32_t control, uint8_t *out_slot) {
+    kmutex_lock(&hc->cmd_lock);
+    int cc = cmd_submit_locked(hc, param, control, out_slot);
+    kmutex_unlock(&hc->cmd_lock);
+    return cc;
+}
+
+static int cmd_submit_locked(struct xhci_hc *hc, uint64_t param, uint32_t control, uint8_t *out_slot) {
     // A CONTROLLER THAT HAS BEEN GIVEN UP ON IS NOT ASKED AGAIN. Without
     // this the driver keeps queueing commands nothing will answer, at a
     // spin apiece, for the life of the boot -- which is how one dead
@@ -1141,8 +1150,9 @@ static void note_port_change(struct xhci_hc *hc) {
 // while an interrupt drains the other.
 void xhci_service_hc(struct xhci_hc *hc) {
     if (!hc->present || !hc->running) return;
-    if (hc->in_service) return;
-    hc->in_service = 1;
+    // ONE CONSUMER, claimed in one step: a test and a later store let two
+    // threads (now preemptible in syscalls) both drain the event ring.
+    if (__atomic_exchange_n(&hc->in_service, 1, __ATOMIC_ACQUIRE)) return;
 
     struct xhci_trb ev;
     int drained = 0;
@@ -1286,7 +1296,7 @@ void xhci_service_hc(struct xhci_hc *hc) {
             }
         }
     }
-    hc->in_service = 0;
+    __atomic_store_n(&hc->in_service, 0, __ATOMIC_RELEASE);
     if (drained) {
         // Advancing ERDP is what tells the controller the slots are
         // reusable. A driver that never does it appears to work on QEMU

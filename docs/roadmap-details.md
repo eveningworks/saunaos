@@ -6217,7 +6217,7 @@ the numbers after the trap gate are ambiguous.
 
 ### Storage waits, userfs, shared memory, the window server's kernel side and signal delivery audited
 
-**Started 2026-11-14, the sixth area**: the code left unaudited when interrupts went on inside syscalls by default. Read-only reviewers by area, each challenged by a skeptic: 23 reported, 22 stand (one, a usb-storage cancel failure, unsure). The maintainer's picks: all 22, area by area; one sleeping lock per address space (Linux's `mmap_lock`); an FXSAVE area in the signal frame; a timed-out disk command resets the device, retries once, then the device is dead.
+**DONE 2026-11-14, the sixth area**: the code left unaudited when interrupts went on inside syscalls by default. Read-only reviewers by area, each challenged by a skeptic: 23 reported, 22 stand (one, a usb-storage cancel failure, unsure). The maintainer's picks: all 22, area by area; one sleeping lock per address space (Linux's `mmap_lock`); an FXSAVE area in the signal frame; a timed-out disk command resets the device, retries once, then the device is dead.
 
 **Shared memory and mmap, FIXED 2026-11-14** (`docs/conventions/kernel.md`, the address space's lock):
 - The data limit counted shm only when the object came SECOND: an object made first let a later anonymous map or heap grow past `RLIMIT_DATA`. `mm_data_allows()` counts the process's objects itself now. `mmlimit_test`'s `shmfirst` probe: red (child exit 1) with the count removed, green with it.
@@ -6240,7 +6240,13 @@ the numbers after the trap gate are ambiguous.
 - A mode change freed the old scanouts first and re-mapped the holder after, with ring 3 free to run in between (the call is preemptible); the lessee stayed on the freed frames until the compositor's next lease. `win_surface_remode_prepare()` puts everyone on scratch before the driver runs, presents are no-ops until `win_surface_remode()`. KTEST `winshare`'s mode-change checks.
 - The lease looked its lessee's address space up and published it outside any guard, the deferred unmap tested `g_stale` and then walked a table an exit had cleared (physical page 0 read as a PML4), and grant raced a VT hide. Every grant and lease entry is one guarded step now, FB_LEASE looks the space up inside it (`win_surface_lease_pid()`), an exiting process is dropped again once no lookup can find it, and a stale lessee is unmapped with the geometry it was mapped with. Fixed BY SHAPE; `fullscreen_test` 24/24, `modeset_test` 18/18, `compositor_death_test` 11/11.
 
-**Still to fix:** storage (an AHCI timeout reusing a live slot; virtio-blk's timeout and discard buffers; xHCI's command ring unserialised).
+**Storage, FIXED 2026-11-14, all by shape** (QEMU completes every command, so no gate test reaches a timeout; `ahci_test` 19/19, `nvme_test` 15/15, `virtio_boot_test` 11/11, `usb_storage_test` 12/12):
+- An AHCI command that timed out stayed issued, and the next caller filled the same bounce buffer and command table under it -- one LBA's data could land at another, or a read return another sector's bytes. A timeout now takes the port back (stop; COMRESET if the engine will not stop), retries once, and a port that cannot be taken back makes the drive dead -- libata's error handler's shape, the maintainer's pick. An NCQ round that cannot be stopped does the same.
+- virtio-blk handed a timed-out request's buffers back while the device could still write them, and its one discard segment was filled outside the request lock. A timeout resets the device (`virtio_reset()`, which takes every buffer back) and retires it; the segment is filled under the lock.
+- xHCI's command ring had no lock, so two threads' commands took each other's completion and slot id; and the event drain's one-consumer guard was a test and a store. A per-controller `cmd_lock` from arming to completion; the guard is an atomic exchange.
+- usb-storage ignored a failed endpoint cancel and reused the buffer the TD still pointed at (the skeptic's one "unsure"). The buffer is pinned and the device takes no more I/O.
+
+Proven red first: 4 (the shm-first data limit, the FPU frame, the ignored SIGCHLD, the revoked lessee). The other 18 are fixed by shape, like a third of the earlier areas'. A throttled QEMU drive (`throttling.bps-write`) could push an AHCI command past its timeout and turn the first storage finding red; not built.
 
 ### The removable-media parsers audited
 

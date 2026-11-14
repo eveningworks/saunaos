@@ -198,6 +198,7 @@ struct drive {
     // the wait channel a command waiter parks on.
     volatile int irq_fired;
     volatile uint32_t irq_status;  // PxIS as the handler saw it, accumulated
+    int dead;                      // a command the HBA would not give back: no more I/O
     uint64_t cmd_sleeps;           // waits that parked rather than polled
 
     struct ncq_table *ncq;
@@ -268,13 +269,29 @@ static int wait_clear(volatile uint8_t *p, uint32_t reg, uint32_t mask, uint64_t
 
 // ---- port bring-up ---------------------------------------------------
 
-static void port_stop(volatile uint8_t *p) {
+// 1 when the command engine STOPPED (PxCMD.CR clear): only then are the
+// command slots, their tables and the bounce buffer the driver's again.
+static int port_stop(volatile uint8_t *p) {
     uint32_t cmd = px_r(p, PX_CMD);
     px_w(p, PX_CMD, cmd & ~PXCMD_ST);
-    wait_clear(p, PX_CMD, PXCMD_CR, WAIT_TICKS);
+    int stopped = wait_clear(p, PX_CMD, PXCMD_CR, WAIT_TICKS);
     cmd = px_r(p, PX_CMD);
     px_w(p, PX_CMD, cmd & ~PXCMD_FRE);
     wait_clear(p, PX_CMD, PXCMD_FR, WAIT_TICKS);
+    return stopped;
+}
+
+// COMRESET (AHCI 1.3.1 10.4.2, for an engine that will not stop): DET=1
+// for at least 1 ms, then 0, and the link back up (SSTS.DET = 3).
+static void port_comreset(volatile uint8_t *p) {
+    uint32_t sctl = px_r(p, PX_SCTL) & ~0xFu;
+    px_w(p, PX_SCTL, sctl | 1u);
+    uint64_t t0 = coarse_ticks();
+    for (uint64_t g = 0; g < (uint64_t)POLL_LIMIT && coarse_ticks() - t0 < 2; g++) cpu_relax();
+    px_w(p, PX_SCTL, sctl);
+    t0 = coarse_ticks();
+    for (uint64_t g = 0; g < (uint64_t)POLL_LIMIT && coarse_ticks() - t0 <= WAIT_TICKS; g++)
+        if ((px_r(p, PX_SSTS) & 0xFu) == 3u) break;
 }
 
 // Starts the engine. Refuses while the drive is busy: PxCMD.ST set with
@@ -297,11 +314,28 @@ static int port_start(volatile uint8_t *p) {
 // UNEXERCISED BY ANY TEST HERE, and deliberately said out loud: the
 // bounds check refuses a bad LBA before the drive ever sees one, and
 // QEMU produces no media errors. See docs/roadmap.md.
-static void port_recover(volatile uint8_t *p) {
-    port_stop(p);
+// 1 when the port is the driver's again -- the engine stopped, by a
+// COMRESET if not otherwise -- and 0 when the HBA may still be moving data
+// through our buffers: the caller must then never reuse them (the drive
+// is marked dead). A port that stops but will not restart fails its next
+// command by timeout, which is safe.
+static int port_recover(volatile uint8_t *p) {
+    int stopped = port_stop(p);
+    if (!stopped) {
+        port_comreset(p);
+        stopped = port_stop(p);
+    }
     px_w(p, PX_SERR, px_r(p, PX_SERR));
     px_w(p, PX_IS, px_r(p, PX_IS));
+    if (!stopped) return 0;
     if (!port_start(p)) klog_write(KLOG_ERR "ahci: the port would not restart after an error\n");
+    return 1;
+}
+
+static void drive_dead(struct drive *d, const char *why) {
+    d->dead = 1;
+    klog_printf(KLOG_ERR "ahci: port %d: %s -- the controller kept the command, so the "
+                "drive takes no more I/O\n", port_of(d), why);
 }
 
 // ---- issuing one command --------------------------------------------
@@ -458,10 +492,10 @@ static int wait_command(struct drive *d) {
 
 // Issues slot 0 and waits. `bytes` is how much data the PRDT should
 // describe; `write` says which way it moves. Returns 1 on success.
-static int run_command(struct drive *d, uint8_t command, uint8_t features, uint64_t lba,
-                       uint16_t count, uint32_t bytes, int write) {
-    if (!d->preg) return 0;
-
+// One attempt at slot 0. 1 done, 0 failed, -1 TIMED OUT -- the slot then
+// still belongs to the HBA until port_recover() says otherwise.
+static int run_once(struct drive *d, uint8_t command, uint8_t features, uint64_t lba,
+                    uint16_t count, uint32_t bytes, int write) {
     int prdtl = build_prdt(d, bytes);
     if (prdtl < 0) return 0;
 
@@ -487,14 +521,14 @@ static int run_command(struct drive *d, uint8_t command, uint8_t features, uint6
     if (!wait_command(d)) {
         klog_printf(KLOG_ERR "ahci: port %d: command 0x%x timed out (tfd 0x%x, is 0x%x)\n",
                     port_of(d), command, px_r(d->preg, PX_TFD), px_r(d->preg, PX_IS));
-        return 0;
+        return -1;
     }
     kmb();
 
     if (d->irq_status & PXIS_TFES) {
         klog_printf(KLOG_ERR "ahci: port %d: command 0x%x refused (tfd 0x%x)\n",
                     port_of(d), command, px_r(d->preg, PX_TFD));
-        port_recover(d->preg);
+        if (!port_recover(d->preg)) drive_dead(d, "the port would not stop after an error");
         return 0;
     }
     if (px_r(d->preg, PX_TFD) & PXTFD_ERR) {
@@ -503,6 +537,29 @@ static int run_command(struct drive *d, uint8_t command, uint8_t features, uint6
         return 0;
     }
     return 1;
+}
+
+// Issues slot 0 and waits. `bytes` is how much data the PRDT should
+// describe; `write` says which way it moves. Returns 1 on success.
+//
+// A TIMEOUT IS NOT A FAILURE YOU CAN WALK AWAY FROM: the command is still
+// issued, and the HBA may yet move data through the slot's tables and the
+// bounce buffer the next caller fills -- one LBA's bytes landing at
+// another. So the port is taken back first (libata's error handler: stop,
+// COMRESET if it will not), the command retried once, and a port that
+// cannot be taken back is a dead drive, never a reused buffer.
+static int run_command(struct drive *d, uint8_t command, uint8_t features, uint64_t lba,
+                       uint16_t count, uint32_t bytes, int write) {
+    if (!d->preg || d->dead) return 0;
+    for (int attempt = 0; attempt < 2; attempt++) {
+        int rc = run_once(d, command, features, lba, count, bytes, write);
+        if (rc >= 0) return rc;
+        if (!port_recover(d->preg)) { drive_dead(d, "a timed-out command would not stop"); return 0; }
+        if (attempt == 0)
+            klog_printf(KLOG_WARN "ahci: port %d: port reset, retrying command 0x%x once\n",
+                        port_of(d), command);
+    }
+    return 0;
 }
 
 // ---- NCQ: several commands in flight ------------------------------
@@ -636,6 +693,7 @@ static int ncq_wait(struct drive *d, uint32_t mask) {
 // of repeating the round's good transfers, which is only ever correct
 // for a transfer that has not been acknowledged to anyone yet.
 static int ncq_round(struct drive *d, struct blk_io *io, int n) {
+    if (d->dead) return 0;
     uint32_t mask = 0;
     for (int t = 0; t < n; t++) { ncq_build(d, t, &io[t]); mask |= 1u << t; }
     if (!wait_clear(d->preg, PX_TFD, PXTFD_BSY | PXTFD_DRQ, WAIT_TICKS)) return 0;
@@ -657,7 +715,9 @@ static int ncq_round(struct drive *d, struct blk_io *io, int n) {
                 "replaying it one command at a time\n", port_of(d), n,
                 st < 0 ? "failed" : "timed out",
                 px_r(d->preg, PX_SACT), px_r(d->preg, PX_CI), px_r(d->preg, PX_TFD));
-    port_recover(d->preg);                // clearing ST drops every tag
+    // Clearing ST drops every tag. One that cannot be dropped may still
+    // DMA straight into a caller's buffer: the drive is dead then.
+    if (!port_recover(d->preg)) drive_dead(d, "an NCQ round would not stop");
     d->ncq_fallbacks++;
     return 0;
 }

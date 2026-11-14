@@ -17,6 +17,7 @@
 #include "xhci.h"
 #include "xhci_regs.h"
 #include "xhci_ring.h"
+#include "kmutex.h"   // cmd_lock
 #include "pci.h"
 #include "lapic.h"
 #include "pci_internal.h"
@@ -373,6 +374,11 @@ struct xhci_hc {
     // -- the event drain reads it from interrupt context.
     struct xhci_slot *slots;
     struct xhci_ep eps[MAX_EPS];
+    // ONE COMMAND AT A TIME, from arming cmd_done to its completion:
+    // since interrupts are on in syscalls, two threads (a stick's
+    // recovery, a claim from ring 3, a sound unbind) reached cmd_submit()
+    // at once and took each other's completion and slot id.
+    struct kmutex cmd_lock;
     volatile struct xhci_completion cmd_done;
     volatile struct xhci_completion xfer_done;
     volatile uint8_t in_service;     // xhci_service_hc()'s one-consumer guard

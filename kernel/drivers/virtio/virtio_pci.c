@@ -280,12 +280,11 @@ static void write_driver_features(struct virtio_device *d, uint64_t f) {
     mmio_w32(d->common, VIRTIO_COMMON_GF, (uint32_t)(f >> 32));
 }
 
-int virtio_begin(struct virtio_device *d, uint64_t wanted) {
+int virtio_reset(struct virtio_device *d) {
     if (!d || !d->common) return 0;
-
-    // 1. Reset, and WAIT for it. Writing 0 asks; reading 0 back is the
-    //    device agreeing. Skipping the read-back works on QEMU and
-    //    hangs on hardware, which is the worst possible split.
+    // Writing 0 asks; reading 0 back is the device agreeing. Skipping the
+    // read-back works on QEMU and hangs on hardware, which is the worst
+    // possible split.
     mmio_w8(d->common, VIRTIO_COMMON_STATUS, 0);
     uint32_t start = coarse_ticks();
     while (mmio_r8(d->common, VIRTIO_COMMON_STATUS) != 0) {
@@ -294,6 +293,14 @@ int virtio_begin(struct virtio_device *d, uint64_t wanted) {
             return 0;
         }
     }
+    return 1;
+}
+
+int virtio_begin(struct virtio_device *d, uint64_t wanted) {
+    if (!d || !d->common) return 0;
+
+    // 1. Reset, and WAIT for it.
+    if (!virtio_reset(d)) return 0;
 
     // 2. Announce ourselves.
     status_set(d, VIRTIO_STATUS_ACKNOWLEDGE);
