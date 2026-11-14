@@ -11,7 +11,8 @@
 ;
 ;   a left click:  SetClassWord(hwnd, GCW_HCURSOR, cursor 2) -- an
 ;                  inverting square, from the next move on
-;   a right click: SetCursor(NULL) -- no pointer until the next move
+;   a right click: SetCursor(NULL) at its release -- no pointer until the
+;                  next mouse message, which asks WM_SETCURSOR again
 ;   a key:         GlobalLock(cursor 1), its black block's XOR bits set --
 ;                  so it turns white -- and SetCursor(cursor 1), as
 ;                  Paintbrush draws its brush into a cursor
@@ -86,7 +87,7 @@
 %define WM_PAINT       0x000F
 %define WM_KEYDOWN     0x0100
 %define WM_LBUTTONDOWN 0x0201
-%define WM_RBUTTONDOWN 0x0204
+%define WM_RBUTTONUP   0x0205
 %define WS_OVERLAPPEDWINDOW 0x00CF0000
 %define COLOR_WINDOW   5
 %define BLACK_BRUSH    4
@@ -183,7 +184,7 @@ wndproc:
     je .paint
     cmp ax, WM_LBUTTONDOWN
     je .left
-    cmp ax, WM_RBUTTONDOWN
+    cmp ax, WM_RBUTTONUP
     je .right
     cmp ax, WM_KEYDOWN
     je .key

@@ -364,10 +364,10 @@ static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_
         g_last.y = cy;
     }
     int disabled = to && (to->style & WS_DISABLED);
-    uint16_t hc = to && !nc && to->cls >= 0 && to->cls < w->ncls ? w->cls[to->cls].cursor : W16_CURSOR_BASE;
-    int shape = hc ? w16_cursor_shape(hc) : -1;  // a class with none: the program's SetCursor
-    if (held) shape = -1;                        // no WM_SETCURSOR under a capture, as in 3.1
-    if (shape >= 0) w->cursor_now = hc;
+    // A client area's shape is the program's (WM_SETCURSOR as it takes this message); a child's
+    // frame is w16's, the arrow. Nothing under a capture, as in 3.1.
+    int shape = to && nc && !held ? w16_cursor_shape(W16_CURSOR_BASE) : -1;
+    if (shape >= 0) w->cursor_now = W16_CURSOR_BASE;
     pthread_mutex_unlock(&w->lock);
     if (!hwnd || disabled) return WIN_CURSOR_DEFAULT;
     if (nc && ht > 1) {                          // a captioned child's frame

@@ -638,7 +638,10 @@ the palette, whose mapping is not yet measured.
    on black, its dialogs at the same scale (`docs/decisions/gui.md`); w16
    maximizes a main window toywm cannot size, through WM_GETMINMAXINFO. Its
    own pointer only: LoadCursor of a cursor the module lacks is NULL, as on
-   3.1, and SCI's SetCursor(NULL) hides SaunaOS's. Setup's menu matches
+   3.1, and SCI answers WM_SETCURSOR with SetCursor(NULL) -- which w16 now
+   sends, as 3.1's input did, for each mouse message a program takes from
+   its queue outside a capture; DefWindowProc's answer is the class cursor,
+   which w16 had applied itself on every move, over SCI's. Setup's menu matches
    3.11's side by side: DefDlgProc erases with the CTLCOLOR_DLG brush the
    dialog answers, and a static draws in the text colour WM_CTLCOLOR set
    (`samples/fullscr.asm` checks all of it). Its speed is the CPU's: 20 MIPS under KVM

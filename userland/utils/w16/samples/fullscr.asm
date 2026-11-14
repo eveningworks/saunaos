@@ -7,6 +7,8 @@
 ;     one at its (600,440), so both corners of the picture can be found
 ;   - LoadCursor(hInst, "NOSUCH") is NULL (Cursor=0): the module has no such cursor, and 3.1 answered
 ;     none, which SetCursor then hides -- Sierra's SCI draws its own pointer so
+;   - over it SaunaOS shows no pointer: its class cursor is the arrow, but it answers WM_SETCURSOR
+;     with SetCursor(NULL), as SCI does -- 3.1 asked the window before applying a class cursor
 ;   - a click lands where it was made in the picture: WM_LBUTTONDOWN's point (ClickX=, ClickY=)
 ;   - then DIALOG 100, whose procedure answers WM_CTLCOLOR with LTGRAY_BRUSH for the dialog itself
 ;     (CTLCOLOR_DLG) and its static, and sets the static's text red: 3.1's DefDlgProc erased with
@@ -35,6 +37,7 @@
 %define WM_COMMAND     0x0111
 %define WM_INITDIALOG  0x0110
 %define WM_CTLCOLOR    0x0019
+%define WM_SETCURSOR   0x0020
 %define CW_USEDEFAULT  0x8000
 %define WS_POPUP_MAX   0x8100          ; WS_POPUP | WS_MAXIMIZE, the high word
 %define SW_SHOWMAXIMIZED 3
@@ -58,6 +61,11 @@ start:
     push word 0x0000
     W16_CALL "GDI", 66
     mov [wc_hbr], ax
+    push word 0                     ; LoadCursor(NULL, IDC_ARROW): the class cursor
+    push word 0
+    push word 0x7F00
+    W16_CALL "USER", 173
+    mov [wc_hcur], ax
     push ds
     push word wc
     W16_CALL "USER", 57             ; RegisterClass
@@ -174,6 +182,8 @@ wndproc:
     je .click
     cmp ax, WM_KEYDOWN
     je .key
+    cmp ax, WM_SETCURSOR
+    je .setcursor
     cmp ax, WM_DESTROY
     je .destroy
     jmp .default
@@ -227,6 +237,12 @@ wndproc:
     push word [bp+14]
     W16_CALL "USER", 53             ; DestroyWindow
     jmp .zero
+.setcursor:
+    push word 0
+    W16_CALL "USER", 69             ; SetCursor(NULL): no pointer over it, and TRUE -- handled
+    mov ax, 1
+    xor dx, dx
+    jmp .ret
 .destroy:
     push word 0
     W16_CALL "USER", 6              ; PostQuitMessage
@@ -316,7 +332,7 @@ wc:
             dw 0, 0
 wc_hInstance: dw 0
             dw 0
-            dw 0
+wc_hcur:    dw 0
 wc_hbr:     dw 0
             dd 0
             W16_FARPTR mainclass, 2

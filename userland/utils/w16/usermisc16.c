@@ -593,22 +593,27 @@ static int api_FindWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// The pointer takes it now, until it next moves over a window, whose class cursor it then takes
-// (WM_SETCURSOR's default).
-// SetCursor(hCursor) -> HCURSOR
-// Windows: Changes the mouse pointer's shape now -- an hourglass while busy; returns the old one.
-// w16: The same: Windows' own cursors in SaunaOS's shape for them, a program's own as drawn (LoadCursor
-// says which); NULL takes the pointer away until a window's class cursor brings it back.
-static int api_SetCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
-    (void)ordinal;
-    uint16_t h = w16_arg16(a);
+// The pointer takes h now; the old one. Its next move asks the window under it (WM_SETCURSOR), whose
+// default puts the class cursor back.
+uint16_t w16_set_cursor(struct w16 *w, uint16_t h) {
     pthread_mutex_lock(&w->lock);
-    c->r[R_AX] = w->cursor_now;
+    uint16_t old = w->cursor_now;
     w->cursor_now = h;
     pthread_mutex_unlock(&w->lock);
     w16_cursor_refresh(w, h);            // its bits may be new: Paintbrush draws its brush into one
     w16_task_post_arg(w, W16_POST_CURSOR, w16_cursor_shape(h));
+    return old;
+}
+
+// SetCursor(hCursor) -> HCURSOR
+// Windows: Changes the mouse pointer's shape now -- an hourglass while busy; returns the old one.
+// w16: The same: Windows' own cursors in SaunaOS's shape for them, a program's own as drawn (LoadCursor
+// says which); NULL takes the pointer away until a window's class cursor brings it back -- unless the
+// program answers WM_SETCURSOR itself, as Sierra's SCI does to keep it hidden over its own.
+static int api_SetCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    c->r[R_AX] = w16_set_cursor(w, w16_arg16(a));
     return 2;
 }
 

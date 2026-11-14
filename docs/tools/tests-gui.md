@@ -2509,7 +2509,8 @@ runs first**: a `doom1.wad` with one
   (`gui state`'s cursor shape 14 and `image`), its inverting pixels
   black over white and white over black, the black and white ones
   unchanged; SetClassWord(GCW_HCURSOR) switches it from the next move,
-  SetCursor(NULL) hides the pointer, and bits the program GlobalLocks and
+  SetCursor(NULL) at a right click's release hides the pointer (each mouse
+  message asks WM_SETCURSOR, so the press's would not last), and bits the program GlobalLocks and
   rewrites show at its next SetCursor. The inversion broken
   (`wm_render.c`'s XOR) or the re-read skipped (`w16_cursor_refresh()`)
   each turn their check red. `retro_round` (2026-11-01, Retro Launcher's

@@ -134,7 +134,7 @@ file is involved.
 25. **A fullscreen main window** (`fullscreen`, fullscr.exe, the shape of Sierra's games and Setup): a
    captionless WS_POPUP shown maximized fills SaunaOS's screen, its 640 x 480 scaled by the largest
    quarter step that fits and centred on black (its green and yellow corners where that puts them); a
-   cursor the module lacks is NULL; a click lands at its point in the picture; and a dialog over it
+   cursor the module lacks is NULL; no pointer over it, as it answers WM_SETCURSOR; a click lands at its point in the picture; and a dialog over it
    is drawn at the picture's scale, grey from its WM_CTLCOLOR brush (CTLCOLOR_DLG), its static red.
 
 Every colour is compared with a tolerance of 0: the client buffer is
@@ -1410,6 +1410,9 @@ def fullscreen(dbg, qmp, res, tmp):
               poll(lambda: "Cursor=0" in sh(dbg, f"cat {FULLSCR_INI}"), 4), sh(dbg, f"cat {FULLSCR_INI}")[-200:])
     x, y = at(300, 200)
     dbg.warp_cursor(qmp, x, y)
+    NONE = 13                               # wm_internal.h's WM_CURSOR_NONE
+    res.check("over it no pointer: it answers WM_SETCURSOR with SetCursor(NULL), its class arrow unused",
+              poll(lambda: dbg.cursor_shape() == NONE, 4), f"shape {dbg.cursor_shape()}")
     qmp.click()
     poll(lambda: "ClickY" in sh(dbg, f"cat {FULLSCR_INI}"), 6)
     ini = sh(dbg, f"cat {FULLSCR_INI}")

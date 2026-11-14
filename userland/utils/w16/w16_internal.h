@@ -993,14 +993,15 @@ int w16_key_due(int *key, unsigned *mods, uint16_t *dlg);
 // The wheel, which 3.1 never had: three WM_VSCROLL lines a notch (+ up) to the window under the
 // pointer with a vertical scroll bar, or its nearest parent with one (input16.c).
 void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches);
-// The pointer's shape there (WIN_CURSOR_*): the class cursor of the window under it,
-// or -1 to leave it as it is: while a window holds the capture (a scroll bar's drag), or
-// over a class with no cursor, whose program calls SetCursor itself (Write's I-beam).
+// The pointer's shape there (WIN_CURSOR_*): the arrow over a child's frame, or -1 to leave it as it
+// is -- over a client area, whose shape is the program's: WM_SETCURSOR as it takes the message
+// (user16.c), whose default is the class cursor.
 int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y);
 // A cursor handle (LoadCursor's) as a WIN_CURSOR_* shape -- or, for the
 // program's own, WIN_CURSOR_IMAGE(its index), which w16.c defines with
 // toywm the first time it is shown. NULL is WIN_CURSOR_NONE: no pointer.
 int w16_cursor_shape(uint16_t hcursor);
+uint16_t w16_set_cursor(struct w16 *w, uint16_t h);   // SetCursor: the old one
 int w16_vk_of(int key);                           // a key's VK_* code, 0 for none
 void w16_dlgwin_redraw_all(struct w16 *w);       // every open dialog shows its buffer again
 

@@ -258,7 +258,7 @@ static int register_class(struct w16 *w, struct w16_args *a) {
     if (!k.name) return -1;
     if (k.cls_extra && !(k.extra = calloc(k.cls_extra, 1))) { free(k.name); free(k.menu); return 4; }
     if (g_w16_trace) {
-        fprintf(g_w16_trace, "  RegisterClass %s style %04x\n", k.name, k.style);
+        fprintf(g_w16_trace, "  RegisterClass %s style %04x cursor %04x\n", k.name, k.style, k.cursor);
         fflush(g_w16_trace);
     }
     if (w16_class_find(w, k.name) >= 0 || !(k.atom = w16_atom_add(w, k.name)) || class_add(w, &k) < 0) {
@@ -793,9 +793,23 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
     return 1;
 }
 
+// A mouse message taken from the queue first asks the window under the pointer for its shape
+// (WM_SETCURSOR, wParam that window, lParam its hit code and the message), as 3.1's input did -- not
+// under a capture. DefWindowProc's answer is the class cursor; a program may answer itself.
+static void ask_cursor(struct w16 *w, const struct w16_msg *m) {
+    if (m->message < WM_MOUSEMOVE || m->message > 0x0209) return;
+    pthread_mutex_lock(&w->lock);
+    int held = w->capture != 0;
+    pthread_mutex_unlock(&w->lock);
+    if (held || !w16_wnd_get(w, m->hwnd)) return;
+    w16_send(w, m->hwnd, WM_SETCURSOR, m->hwnd, (uint32_t)m->message << 16 | HTCLIENT);
+}
+
 int w16_get_msg(struct w16 *w, struct w16_msg *m, int wait_ms) {
     struct msg_filter f = { 0 };
-    return next_message(w, &f, 1, wait_ms, m);
+    int got = next_message(w, &f, 1, wait_ms, m);
+    if (got) ask_cursor(w, m);
+    return got;
 }
 
 // A TRACKING LOOP'S MESSAGES: the mouse's for hwnd, and the button let go over its frame -- a quick
@@ -872,6 +886,7 @@ static int get_message(struct w16 *w, struct w16_args *a) {
     f.max = w16_arg16(a);
     struct w16_msg m;
     if (!next_message(w, &f, 1, -1, &m)) return -1;    // the program faulted meanwhile
+    ask_cursor(w, &m);
     press_activates(w, &m);
     caption_press(w, &m);
     if (put_msg(w, lpmsg, &m) < 0) return -1;
@@ -891,6 +906,7 @@ static int peek_message(struct w16 *w, struct w16_args *a) {
     uint16_t flags = w16_arg16(a);
     struct w16_msg m;
     int got = next_message(w, &f, flags & 1, 0, &m);
+    if (got && (flags & 1)) ask_cursor(w, &m);
     if (got && (flags & 1)) press_activates(w, &m);
     if (got) caption_press(w, &m);
     if (got && put_msg(w, lpmsg, &m) < 0) return -1;
@@ -1298,6 +1314,16 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
         w16_screen_offset(w, x, &dx, &dy);
         int cx = (int16_t)lp - dx, cy = (int16_t)(lp >> 16) - dy;
         return cx >= 0 && cy >= 0 && cx < x->cw && cy < x->ch ? HTCLIENT : 0;
+    }
+    case WM_SETCURSOR: {                         // a child's parent first, then wParam's class cursor
+        if (x->kind == W16_K_CHILD && x->parent && w16_wnd_get(w, x->parent) &&
+            w16_send(w, x->parent, WM_SETCURSOR, wp, lp))
+            return 1;
+        struct w16_wnd *u = w16_wnd_get(w, wp);
+        uint16_t hc = u && u->cls >= 0 && u->cls < w->ncls ? w->cls[u->cls].cursor : 0;
+        if ((uint16_t)lp != HTCLIENT || !hc) return 0;
+        w16_set_cursor(w, hc);
+        return 1;
     }
     case WM_NCLBUTTONDBLCLK:                     // on a caption: maximize or restore, as w16's own caption does
         if (wp == HTCAPTION && x->kind != W16_K_CHILD && (x->style & WS_MAXIMIZEBOX))
