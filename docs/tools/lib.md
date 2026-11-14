@@ -33,7 +33,9 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `docs/testing.md`
 
 - **`vm.py`** -- start a headless VM and run shell commands against it,
-  getting text back; `start` is ready once init logs `startup finished`,
+  getting text back; every disk it attaches says `werror=report,rerror=report`,
+  so a host write that fails (a full `/tmp`) reaches the guest as a logged
+  I/O error instead of QEMU's default silent pause; `start` is ready once init logs `startup finished`,
   not when the console first answers (`docs/testing.md`), `--virtio-disk` likewise -- and `--extra-disk PATH
   --extra-disk-kind virtio|ahci|nvme` puts that second disk on the
   controller a test needs; `--usb xhci|xhci+mouse` attaches an xHCI

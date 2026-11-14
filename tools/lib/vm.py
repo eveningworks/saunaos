@@ -269,15 +269,20 @@ def cmd_start(args):
     # Makefile's DISK= axis is its interactive twin.
     # discard=unmap turns the guest's TRIM into a hole punch in the
     # backing file -- see kernel/drivers/ata.c's ata_trim().
+    # werror=report,rerror=report: a host write that fails -- a full /tmp
+    # under the image -- reaches the guest as an I/O error it logs. QEMU's
+    # default (werror=enospc) PAUSES the guest instead, silently, and a
+    # paused guest fails GUI checks as if the code were broken (a window
+    # that never opens, a frame "waiting for the CPU"; 2026-11-14).
     if getattr(args, "disk_kind", "ide") == "ahci":
         cmd += ["-device", "ich9-ahci,id=ahci",
-                "-drive", f"file={args.disk},format={_disk_format(args.disk)},if=none,id=sata0,discard=unmap",
+                "-drive", f"file={args.disk},format={_disk_format(args.disk)},if=none,id=sata0,discard=unmap,werror=report,rerror=report",
                 "-device", "ide-hd,drive=sata0,bus=ahci.0"]
     elif getattr(args, "disk_kind", "ide") == "nvme":
-        cmd += ["-drive", f"file={args.disk},format={_disk_format(args.disk)},if=none,id=nvm0,discard=unmap",
+        cmd += ["-drive", f"file={args.disk},format={_disk_format(args.disk)},if=none,id=nvm0,discard=unmap,werror=report,rerror=report",
                 "-device", "nvme,serial=saunaos-nvme0,drive=nvm0"]
     else:
-        cmd += ["-drive", f"file={args.disk},format={_disk_format(args.disk)},if=ide,discard=unmap"]
+        cmd += ["-drive", f"file={args.disk},format={_disk_format(args.disk)},if=ide,discard=unmap,werror=report,rerror=report"]
     if args.kvm:
         # Matches `make run KVM=1`'s flags, so what this measures is what
         # that target actually does. Off by default because /dev/kvm
@@ -329,14 +334,14 @@ def cmd_start(args):
         # Without it QEMU advertises max_discard_sectors as ZERO, the
         # driver correctly reports that it cannot discard, and the whole
         # TRIM path is silently untestable through this tool.
-        cmd += ["-drive", f"file={extra},format=raw,if=none,id=vblk,discard=unmap",
+        cmd += ["-drive", f"file={extra},format=raw,if=none,id=vblk,discard=unmap,werror=report,rerror=report",
                 "-device", "virtio-blk-pci,drive=vblk,disable-legacy=on"]
     elif extra and kind == "ahci":
         cmd += ["-device", "ich9-ahci,id=ahcix",
-                "-drive", f"file={extra},format=raw,if=none,id=satax,discard=unmap",
+                "-drive", f"file={extra},format=raw,if=none,id=satax,discard=unmap,werror=report,rerror=report",
                 "-device", "ide-hd,drive=satax,bus=ahcix.0"]
     elif extra and kind == "nvme":
-        cmd += ["-drive", f"file={extra},format=raw,if=none,id=nvmx,discard=unmap",
+        cmd += ["-drive", f"file={extra},format=raw,if=none,id=nvmx,discard=unmap,werror=report,rerror=report",
                 "-device", "nvme,serial=saunaos-nvmex,drive=nvmx"]
     # virtio input devices, off by default so every existing test keeps
     # the PS/2 pair it was written against. With this the guest gets a

@@ -523,6 +523,33 @@ def acquire_run_lock():
 _RAN = []
 
 
+# What one running guest's image costs where the copies go: the sparse
+# copy plus what a tool writes, measured at 130-300 MiB a guest on
+# 2026-11-14, with room on top.
+GUEST_IMAGE_MIB = 512
+
+
+def space_guard(jobs, where):
+    """Jobs that fit in `where`'s free space, or 0 to refuse.
+
+    THE COPIES LIVE IN /tmp, USUALLY RAM-BACKED, AND A FULL ONE DOES NOT
+    FAIL AS A FULL DISK: a guest whose image cannot grow is paused or gets
+    I/O errors mid-test, and the suite reports GUI bugs that are not there
+    (2026-11-14: apps whose windows never opened, in two runs). So the run
+    shrinks to what fits, saying so, or refuses."""
+    free_mib = shutil.disk_usage(where).free // (1024 * 1024)
+    fits = int(free_mib // GUEST_IMAGE_MIB)
+    if fits >= jobs:
+        return jobs
+    if fits < 1:
+        print(f"gui_regress: {where} has {free_mib} MiB free -- not enough for one guest's "
+              f"image ({GUEST_IMAGE_MIB} MiB). Free some space first.")
+        return 0
+    print(f"gui_regress: {where} has {free_mib} MiB free, room for {fits} guest(s) at "
+          f"{GUEST_IMAGE_MIB} MiB each -- running {fits} at a time instead of {jobs}.")
+    return fits
+
+
 def main():
     run_id = test_history.new_id("gui_regress")
     os.environ[test_history.PARENT_ENV] = run_id     # each tool's row names this run
@@ -641,6 +668,9 @@ def run():
         return 2
 
     jobs = max(1, min(args.jobs, len(picked)))
+    jobs = space_guard(jobs, tempfile.gettempdir())
+    if not jobs:
+        return 2
     print(f"gui_regress: {len(picked)} tool(s), each on its own copy of "
           f"{'a fresh image' if fresh_dir else os.path.basename(disk)}, {jobs} at a time\n")
 

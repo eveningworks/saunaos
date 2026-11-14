@@ -87,7 +87,12 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   pass/fail table -- and records a row per tool, under the script's
   name, plus one for the run in the local test history
   (`test_history.py`), each with its output: `--logs` is no longer the
-  only copy of a run that has scrolled away. This is the standard check
+  only copy of a run that has scrolled away. **It runs only as many
+  guests as the temp directory has room for** (`GUEST_IMAGE_MIB` each,
+  `space_guard()`), saying so, and refuses with none: the copies sit in
+  a RAM-backed `/tmp`, and one that filled up on 2026-11-14 paused
+  guests mid-test -- apps whose windows never opened, read as GUI bugs
+  in two full runs. This is the standard check
   after touching `apps/ui/`, `userland/`, or anything the WM draws.
   Tools are **STARTED longest-first** (`pick_order()`), because a
   parallel run cannot end before its slowest member does and `forcequit`
