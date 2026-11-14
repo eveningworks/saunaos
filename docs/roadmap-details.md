@@ -6230,7 +6230,12 @@ the numbers after the trap gate are ambiguous.
 - The raise tested the target's state and rewound its trapframe with interrupts on, so a wake in between left a re-issued syscall with the wake's value in RAX -- another call. One step with interrupts off now. Fixed BY SHAPE.
 - Delivery at syscall entry failed any call without `SA_RESTART` with `-EINTR`, including one that never waited -- a SYS_SIGRETURN so failed ran into the restorer's `ud2`. Only a call a signal wake rewound may fail now (`SIG_FRESH_SYSCALL`). Fixed BY SHAPE; `signal_test`'s EINTR and SA_RESTART checks still green.
 
-**Still to fix, in this order:** userfs (a waiter missing its mount's removal after a reply landed; `QUERY_FSINFO` describing a mount being freed; a dead daemon's pid reused as the server), the window server (a mode change or a revoke leaving the lessee mapped onto freed scanout frames; the lease and grant publishing outside the guard), storage (an AHCI timeout reusing a live slot; virtio-blk's timeout and discard buffers; xHCI's command ring unserialised).
+**userfs, FIXED 2026-11-14, all by shape** (`smb_test` 25/25 against Samba on loopback, KTEST and the userland suite green):
+- A caller waiting with the mount's lock dropped missed the mount's removal when the daemon's reply had already finished its request, and went on with freed state (a listing asked for its next page). The failed retake of the lock is read before the done test, and a listing stops when its mount went.
+- `QUERY_FSINFO` read a mount slot with nothing pinned and described a share whose state an unmount had freed. The slot's backend and state are read once, and `userfs_describe()` finds the state in its own table by address before touching it.
+- A dead daemon's pid stayed its share's server, so a later process given that pid could take the share's requests (a sign-in's password among them) and answer them. The server is its address space now: its exit drops it (`userfs_space_gone()`), failing queued calls with `-ENOTCONN`.
+
+**Still to fix, in this order:** the window server (a mode change or a revoke leaving the lessee mapped onto freed scanout frames; the lease and grant publishing outside the guard), storage (an AHCI timeout reusing a live slot; virtio-blk's timeout and discard buffers; xHCI's command ring unserialised).
 
 ### The removable-media parsers audited
 

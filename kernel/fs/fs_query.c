@@ -43,8 +43,14 @@ static int fsinfo_fill(int index, void *out) {
 
     const struct mount *m = mount_at(index);
     if (!m) return index == 0 ? 1 : 0; // the not-mounted case: flags stay 0
+    // NOTHING PINS THE SLOT: an unmount may clear it meanwhile (its
+    // memory stays, zeroed), so the backend and its state are read ONCE
+    // and a backend gone already is a mount that went.
+    const struct fs_ops *fs = __atomic_load_n(&m->fs, __ATOMIC_ACQUIRE);
+    void *state = m->state;
+    if (!fs) return index == 0 ? 1 : 0;
 
-    k_strlcpy(f->name, m->fs->name, sizeof f->name);
+    k_strlcpy(f->name, fs->name, sizeof f->name);
     k_strlcpy(f->point, m->point, sizeof f->point);
     // The device TABLE's name ("usb1", "ata0p3"), not the driver's stem a
     // whole-disk mount would otherwise report ("usb").
@@ -65,10 +71,9 @@ static int fsinfo_fill(int index, void *out) {
             k_strlcpy(f->source + sizeof f->source - 4, "...", 4);
         }
     }
-    if (m->fs == &userfs_ops) {
+    struct userfs_describe d;
+    if (fs == &userfs_ops && userfs_describe(state, &d)) {
         // The share's own type ("smb"), not the bridge's.
-        struct userfs_describe d;
-        userfs_describe(m->state, &d);
         f->flags |= QUERY_FS_REMOTE;
         k_strlcpy(f->name, d.type, sizeof f->name);
         k_strlcpy(f->source, d.source, sizeof f->source);

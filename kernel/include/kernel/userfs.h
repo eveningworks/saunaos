@@ -20,6 +20,11 @@ struct userfs_describe {
 // `st` is a userfs mount's state (struct mount's). Always 1.
 int userfs_describe(const void *st, struct userfs_describe *out);
 
+// The process with address space `pml4` is gone: the shares it served
+// have no server (their queued calls fail -ENOTCONN), until a process
+// mounts the point again.
+void userfs_space_gone(uint64_t pml4);
+
 // The handle table's ceiling (klimit.h), and a KTEST seam: takes up to
 // `n` handle slots as a mount would, without mounting, gives them all
 // back, and returns how many it got.

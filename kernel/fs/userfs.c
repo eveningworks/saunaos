@@ -76,7 +76,8 @@ struct ufs_req {
 
 struct ufs_mount {
     int handle;                 // 1-based index into g_tab
-    int owner;                  // the serving process (tgid)
+    int owner;                  // the serving process (tgid); 0 once it is gone
+    uint64_t owner_mm;          // ...and its address space: userfs_space_gone()'s key
     char point[256];
     char type[16];
     char source[128];
@@ -181,6 +182,10 @@ static int32_t wait_for(void *st, struct ufs_req *r, int *gone) {
             }
         }
         kmutex_lock(&g_lock);
+        // BEFORE the done test: an unmount can free the state after the
+        // daemon's reply finished `r` with a real result, and only the
+        // failed retake of the lock says so.
+        if (w < 0) st = NULL;
         if (r->done) {
             // -ENODEV is an unmount finishing it: the state is freed.
             if (gone && (r->result == -ENODEV || !st)) *gone = 1;
@@ -198,7 +203,6 @@ static int32_t wait_for(void *st, struct ufs_req *r, int *gone) {
             return r->result;
         }
         kmutex_unlock(&g_lock);
-        if (w < 0) st = NULL;    // the mount went away; the request finishes regardless
     }
 }
 
@@ -381,10 +385,12 @@ static void u_list(void *st, const char *dir, fs_list_cb cb, void *ctx) {
         r->msg.offset = next;
         r->msg.len = r->cap = LIST_BUF;
         r->buf = buf;
-        int32_t n = call(st, r, NULL);
+        int gone;
+        int32_t n = call(st, r, &gone);
         uint32_t got = r->got, more = r->flags & USERFS_LIST_MORE;
         kfree(r);
         if (n <= 0) break;
+        if (gone) more = 0;   // this page's names are ours; there is no mount to ask again
         // The daemon's bytes: every length is checked before it is used.
         uint32_t off = 0;
         for (int32_t i = 0; i < n; i++) {
@@ -470,9 +476,37 @@ const struct fs_ops userfs_ops = {
     .disk_usage = u_disk_usage,
 };
 
-int userfs_describe(const void *st, struct userfs_describe *out) {
-    const struct ufs_mount *um = st;
+// `st` MAY ALREADY BE FREED: a query reads the mount table with nothing
+// pinned, and an unmount frees the state (u_state_free()) after taking it
+// out of g_tab under g_lock. So it is looked for in g_tab by address --
+// never dereferenced until found there -- and 0 means "no such share".
+// THE SERVER IS A PROCESS, NOT A NUMBER: pids are reused, and a later
+// process given a dead daemon's pid was taken for its server -- it could
+// TAKE the share's requests (a sign-in's password among them) and answer
+// with any bytes it liked. Its address space going drops it here (the
+// process-exit hook beside shm_process_gone()); FUSE ties the same thing
+// to the /dev/fuse descriptor dying with its process.
+void userfs_space_gone(uint64_t pml4) {
+    if (!pml4) return;
     kmutex_lock(&g_lock);
+    for (int i = 0; i < g_tab_cap; i++) {
+        struct ufs_mount *um = g_tab[i];
+        if (!um || um->owner_mm != pml4) continue;
+        um->owner = 0;
+        um->owner_mm = 0;
+        um->st.state = USERFS_ST_NO_SERVER;
+        while (um->head) finish(um->head, -ENOTCONN);
+        scheduler_wake(&um->take_chan, 0);
+    }
+    kmutex_unlock(&g_lock);
+}
+
+int userfs_describe(const void *st, struct userfs_describe *out) {
+    const struct ufs_mount *um = 0;
+    kmutex_lock(&g_lock);
+    for (int i = 0; i < g_tab_cap && !um; i++)
+        if (g_tab[i] && g_tab[i] == st) um = g_tab[i];
+    if (!um) { kmutex_unlock(&g_lock); return 0; }
     k_strlcpy(out->type, um->type, sizeof out->type);
     k_strlcpy(out->source, um->source, sizeof out->source);
     k_strlcpy(out->note, um->st.note, sizeof out->note);
@@ -504,6 +538,7 @@ static int64_t op_mount(struct syscall_ctx *c) {
         if (!um || k_strcmp(um->point, m.point)) continue;
         if (owner_alive(um) && um->owner != me) { kmutex_unlock(&g_lock); return -EBUSY; }
         um->owner = me;
+        um->owner_mm = c->pml4;
         k_strlcpy(um->type, m.type, sizeof um->type);
         k_strlcpy(um->source, m.source, sizeof um->source);
         um->st.state = USERFS_ST_IDLE;
@@ -523,6 +558,7 @@ static int64_t op_mount(struct syscall_ctx *c) {
     struct ufs_mount *um = kzalloc(sizeof *um);
     if (!um) return -ENOMEM;
     um->owner = me;
+    um->owner_mm = c->pml4;
     um->handle = slot + 1;
     k_strlcpy(um->point, m.point, sizeof um->point);
     k_strlcpy(um->type, m.type, sizeof um->type);

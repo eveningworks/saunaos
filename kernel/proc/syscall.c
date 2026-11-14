@@ -13,6 +13,7 @@
 // 16 KiB per-process kernel stack. It is 96 bytes now.
 #include "sandbox.h"
 #include "syscall.h"
+#include "userfs.h"   // userfs_space_gone()
 #include "mmap.h" // mmap_release_regions -- the region list is allocated
 #include "syscall_stall.h"
 #include "syscalls.h"
@@ -52,6 +53,7 @@ static void release_process_state(uint64_t pml4_phys) {
     win_syscall_release(pml4_phys);
     sound_process_gone(pml4_phys);
     shm_process_gone(pml4_phys);
+    userfs_space_gone(pml4_phys);   // a dead daemon serves no share
     futex_wakeword_release(pml4_phys);
     mmap_release_regions(pml4_phys); // the region LIST, not the mappings
     dev_claim_space_gone(pml4_phys); // a claimed device, left UNBOUND
