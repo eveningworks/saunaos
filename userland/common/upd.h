@@ -38,6 +38,13 @@
 // directory: init loads every file in /etc/services.d, so a `.new`
 // beside a descriptor would start the service twice.
 #define UPD_NEW_DIR "/var/lib/update/new"
+// ONE RUN AT A TIME: a write lock on this file (fcntl, apt's
+// lock-frontend), held for a check, an apply or an add. The GUI and the
+// CLI stage under the same .upd names.
+#define UPD_LOCK_PATH "/var/lib/update/lock"
+// The kernel is staged on the ROOT and copied into /boot only inside its
+// install, so /boot is writable for that copy and two renames.
+#define UPD_KERNEL_STAGED "/var/lib/update/kernel.upd"
 
 // What the manifest says to do with a file. KERNEL lines come in two
 // forms, the ELF and the gzipped image, and the machine's own GRUB
@@ -98,6 +105,7 @@ struct upd_plan {
     char    *manifest;            // the raw text, recorded once applied
     int      staged_for_boot;     // an earlier run already staged an update (restart pending)
     int      kernel_blocked;      // the kernel changed and may not be installed: nothing will be
+    char     blocked_why[160];    // why, in a sentence: "GRUB shows no menu ..."
     // This build is OLDER than the one the machine runs (upd_build_cmp()):
     // installing it goes back. A caller asks before it does.
     int      behind;

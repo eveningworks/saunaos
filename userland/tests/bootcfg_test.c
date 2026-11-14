@@ -274,5 +274,47 @@ int main(void) {
     other = c;
     utest_check(ubootcfg_video_missing(&c) == 0 && ubootcfg_add_video(&c) == 0 &&
                 !strcmp(c.text, other.text), "a second pass changes nothing");
+
+    // --- the previous kernel: its word and `set fallback` ------------------
+    static const char PREV[] =
+        "set timeout=5\n"
+        "set default=0\n"
+        "menuentry \"SaunaOS\" {\n"
+        "    multiboot2 /kernel.bin bootpart=$bootpart\n"
+        "    boot\n"
+        "}\n"
+        "menuentry \"SaunaOS (previous kernel)\" {\n"
+        "    multiboot2 /boot/kernel.old bootpart=$bootpart\n"
+        "    boot\n"
+        "}\n";
+    utest_check(ubootcfg_parse(&c, PREV, (int)sizeof PREV - 1) == 0 && c.fallback == -1,
+                "a file without `set fallback` has none");
+    utest_check(ubootcfg_previous(&c) == 1, "the entry booting .../kernel.old is the previous kernel");
+    utest_checkf(ubootcfg_previous_missing(&c) == 2, "its word and the fallback are missing (got %d)",
+                 ubootcfg_previous_missing(&c));
+    utest_checkf(ubootcfg_add_previous(&c) == 2, "both are added (%s)", c.why ? c.why : "");
+    utest_check(strstr(c.text, "set default=0\nset fallback=1\n") && c.fallback == 1,
+                "`set fallback=1` names it, beside the default");
+    utest_check(strstr(c.text, "multiboot2 /boot/kernel.old bootpart=$bootpart kernel=previous\n") &&
+                !strstr(c.text, "kernel.bin bootpart=$bootpart kernel=previous"),
+                "the word goes on the kernel.old entry only");
+    other = c;
+    utest_check(ubootcfg_previous_missing(&c) == 0 && ubootcfg_add_previous(&c) == 0 &&
+                !strcmp(c.text, other.text), "a second pass changes nothing");
+    utest_check(ubootcfg_copy(&c, 0, "SaunaOS (copy)") == 1 && c.fallback == 2 &&
+                ubootcfg_previous(&c) == 2 && strstr(c.text, "set fallback=2\n"),
+                "a copy above it renumbers the fallback with it");
+    utest_check(ubootcfg_remove(&c, 2) < 0 && c.why && strstr(c.why, "falls back"),
+                "the fallback entry cannot be removed");
+    utest_check(ubootcfg_remove(&c, 1) == 0 && c.fallback == 1 && !strcmp(c.text, other.text),
+                "removing the copy gives back the bytes, fallback and all");
+    utest_check(ubootcfg_previous_booted("bootpart=ab12 kernel=previous") &&
+                ubootcfg_previous_booted("kernel=previous video=1280x720") &&
+                !ubootcfg_previous_booted("kernel=previously") &&
+                !ubootcfg_previous_booted("xkernel=previous") && !ubootcfg_previous_booted(""),
+                "the word is matched whole");
+    utest_check(ubootcfg_parse(&c, FIXTURE, (int)sizeof FIXTURE - 1) == 0 &&
+                ubootcfg_previous_missing(&c) == 2,
+                "a kernel.old entry with no words still counts (the first fixture)");
     return utest_end();
 }

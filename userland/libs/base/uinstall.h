@@ -62,6 +62,11 @@ struct uinstall_plan {
     int nparts;
     struct uinstall_part part[3];
     int boot, root;               // indexes into `part`
+    // THE DISK AS IT WAS CHOSEN -- model, size, table -- so the install
+    // can tell, just before it erases, that a stick swapped under the same
+    // name is not that disk (uinstall_disk_print()).
+    uint64_t seen;
+    char model[48];
 };
 
 // --- what goes on the disk: the optional components ---------------------
@@ -129,9 +134,20 @@ uint64_t uinstall_root_need(uint64_t bytes);
 
 // Why `d` cannot take an install, as a sentence, or NULL when it can: the
 // disk the system runs from, a live image, sectors that are not 512
-// bytes, or too small for the layout and `need` bytes of root (0 to
-// check the layout only).
+// bytes, MBR on a disk past 2 TiB, or too small for the layout and `need`
+// bytes of root (0 to check the layout only).
 const char *uinstall_refusal(const struct udisk *d, uint64_t esp_mib, int mbr, uint64_t need);
+
+// Can an ESP of `esp_mib` hold two kernels of `kernel` bytes (System
+// Update keeps the previous one beside the new) with room to grow, and a
+// UEFI loader of `efi` bytes? NULL, or why not. uinstall_plan() asks it
+// with the payload's own sizes.
+const char *uinstall_esp_refusal(uint64_t esp_mib, uint64_t kernel, uint64_t efi);
+
+// A fingerprint of what identifies a disk to the person who chose it:
+// model, size, sector size, table kind and GUID, and every partition's
+// place and type. Mount points are left out -- the install unmounts.
+uint64_t uinstall_disk_print(const struct udisk *d);
 
 // Lay `disk` out. NULL, or why not (uinstall_refusal()'s sentences, and
 // "no such disk").

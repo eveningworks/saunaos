@@ -154,16 +154,35 @@ failed or cancelled download changes nothing. Then:
   libraries in by path, so replacing one live would mix old code and
   new -- Windows applies in-use files at boot for the same reason.
 
-**The kernel** is written to `/boot` straight away, with the running one
-kept as `kernel.old` -- the GRUB rescue entry, *SaunaOS (previous
-kernel)*. So `update` **refuses to install anything** while
-`/boot/grub/grub.cfg` has `set timeout=0`: with no menu, a new
-kernel that fails to boot could not be undone. A VM built with plain
-`make iso` is in that state; `make iso MENU=1` gives it a menu. `install`
-gives every target a 3-second one; a machine installed before it did needs
-`bootcfg timeout 3` once. The
+**The kernel** is downloaded to `/var/lib/update/kernel.upd` on the
+root, checked, then copied into `/boot` -- which is writable only for
+that copy and two renames -- with the running one kept as `kernel.old`,
+the GRUB rescue entry *SaunaOS (previous kernel)*. **After a rescue boot
+the running kernel IS `kernel.old`**: GRUB says so with the entry's
+`kernel=previous` word (`docs/boot-flags.md`), and `update` then keeps
+`kernel.old` and replaces only `kernel.bin`, the kernel that failed. The
+first kernel install on a machine whose `grub.cfg` predates this adds the
+word and `set fallback=` (the previous-kernel entry), so a `kernel.bin`
+that GRUB cannot load -- missing after a power cut mid-swap -- boots
+`kernel.old` with nobody at the menu. A kernel that loads and then
+panics still needs a person at the menu.
+
+So `update` **refuses to install anything** while GRUB could not offer
+the previous kernel: `/boot/grub/grub.cfg` has `set timeout=0` (no menu)
+or a timeout that is not a plain number, or has no entry booting
+`kernel.old`. A VM built with plain `make iso` has no menu; `make iso
+MENU=1` gives it one. `install` gives every target a 3-second one; a
+machine installed before it did needs `bootcfg timeout 3` once. The
 gzipped kernel is sent instead of the ELF when this machine's GRUB
 records `gzio` (`/etc/grub-core.modules`).
+
+**Room is checked before anything is fetched**: each volume needs the
+new files' whole size free beside the old ones (`/boot` the new
+kernel's, less the `kernel.old` it replaces), or the run stops with
+`not enough room on /boot: ...`. **One run at a time**: a second
+`update` -- or System Update, or Software adding a component -- while
+one runs is refused, naming its pid (a lock on `/var/lib/update/lock`,
+dropped when that run exits however it ends).
 
 A second `update` before the restart says an update is already staged
 and installs nothing. A boot that cannot apply the list whole -- a line

@@ -217,6 +217,8 @@ int main(void) {
     add("fixtram", 171 * MIB, 0, 512);
     add("fixt4k", 512 * MIB, 1, 4096);
     add("fixttiny", 40 * MIB, 1, 512);
+    add("fixtbig", 3ull * 1024 * 1024 * MIB, 1, 512);   // 3 TiB
+    add("fixt2t", 1ull << 32, 1, 512);                  // exactly 2 TiB
     struct udisk *sys = add("fixtsys", 512 * MIB, 1, 512);
     sys->system = 1;
 
@@ -254,6 +256,32 @@ int main(void) {
     utest_check(!uinstall_plan(&p, &g_scan, "fixt0", 64, 0, uinstall_root_need(131ull * 1024 * 1024)),
                 "a 131 MiB system fits on 512 MiB");
     utest_check(uinstall_plan(&p, &g_scan, "fixt0", 4, 0, 0) != 0, "an ESP under 8 MiB is refused");
+    why = uinstall_plan(&p, &g_scan, "fixtbig", 64, 1, 0);
+    utest_check(why && strstr(why, "2 TiB"), "MBR past 2 TiB is refused, saying why");
+    utest_check(!uinstall_plan(&p, &g_scan, "fixtbig", 64, 0, 0), "...and GPT takes the same disk");
+    utest_check(!uinstall_plan(&p, &g_scan, "fixt2t", 64, 1, 0), "MBR on exactly 2 TiB fits");
+    utest_check(!uinstall_esp_refusal(64, 3u << 20, 1u << 20), "a 64 MiB ESP holds two 3 MiB kernels");
+    why = uinstall_esp_refusal(8, 3u << 20, 1u << 20);
+    utest_check(why && strstr(why, "too small"), "an 8 MiB ESP does not, with room to grow");
+
+    // The disk re-check: same name, a different table or model.
+    struct udisk *f0 = udisk_named(&g_scan, "fixt0");
+    uint64_t print0 = uinstall_disk_print(f0);
+    utest_check(!uinstall_plan(&p, &g_scan, "fixt0", 64, 0, 0) && p.seen == print0,
+                "the plan records the disk as it was chosen");
+    f0->nparts = 1;
+    f0->parts[0].start = 2048;
+    f0->parts[0].count = 4096;
+    uint64_t print1 = uinstall_disk_print(f0);
+    f0->parts[0].count = 8192;
+    uint64_t print2 = uinstall_disk_print(f0);
+    f0->nparts = 0;
+    snprintf(f0->model, sizeof f0->model, "Another stick");
+    uint64_t print3 = uinstall_disk_print(f0);
+    memset(f0->model, 0, sizeof f0->model);
+    utest_check(print1 != print0 && print2 != print1 && print3 != print0 &&
+                uinstall_disk_print(f0) == print0,
+                "a partition, its size or the model changes the fingerprint; putting it back restores it");
     utest_check(uinstall_plan(&p, &g_scan, "nosuch", 64, 0, 0) != 0, "a disk that is not there is refused");
     utest_check(p.nparts == 0, "...and a refused plan lays out nothing");
 

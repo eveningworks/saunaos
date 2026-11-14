@@ -527,9 +527,10 @@ static void refresh(struct uapp *a) {
         break;
     case V_BLOCKED:
         title = "The kernel cannot be updated";
-        snprintf(g_detail_text, sizeof g_detail_text,
-                 "GRUB on this machine shows no menu, so the previous kernel could not be "
-                 "chosen if a new one failed. Nothing will be installed.");
+        // upd.c's sentence, capitalised: "GRUB has no entry for ..."
+        snprintf(g_detail_text, sizeof g_detail_text, "%s. Nothing will be installed.",
+                 g_plan.blocked_why[0] ? g_plan.blocked_why : "The previous kernel could not be "
+                 "chosen if a new one failed");
         uui_progress_set(&g_bar, 0);
         break;
     case V_CANCELLED:

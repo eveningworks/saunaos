@@ -20,7 +20,10 @@
 - `default <entry>`, `timeout <seconds>`, `rename <entry> <title>`.
 - `copy <entry> <title> [words]` -- a new entry right after `<entry>`,
   with its body, then the words applied to the copy.
-- `remove <entry>` -- refused for the default entry and the last one.
+- `remove <entry>` -- refused for the default entry, the one `set
+  fallback=` names (the previous kernel, which System Update needs), and
+  the last one. A numbered default or fallback follows the entries as
+  they move.
 - `try <entry> [words]` -- a trial: a copy titled `<title> (trial)` with
   the words, chosen for **the next boot only**; it offers to restart.
   `try --keep` moves the trial's words to its entry and removes it;

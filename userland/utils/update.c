@@ -205,8 +205,7 @@ int main(int argc, char **argv) {
     if (p.staged_for_boot)
         printf("update: an update is already staged -- restart to finish it\n");
     if (p.kernel_blocked)
-        printf("update: nothing can be installed until GRUB shows a menu "
-               "(docs/commands/update.md)\n");
+        printf("update: nothing can be installed: %s (docs/commands/update.md)\n", p.blocked_why);
     if (!p.changed && !p.removals) {
         printf("update: up to date\n");
         upd_plan_free(&p);

@@ -300,6 +300,9 @@ const char *uinstall_refusal(const struct udisk *d, uint64_t esp_mib, int mbr, u
                  (unsigned long long)d->block_size);
         return why;
     }
+    // MBR's LBAs and counts are 32 bits: the root would end past what the
+    // table can say, and wrap.
+    if (mbr && d->sectors > (1ull << 32)) return "MBR cannot reach past 2 TiB -- choose GPT";
     uint64_t root = root_sectors(d->sectors, esp_mib, mbr);
     if (!root) return "Too small for the boot partitions";
     if (need && root * SECTOR_BYTES < need) {
@@ -311,6 +314,48 @@ const char *uinstall_refusal(const struct udisk *d, uint64_t esp_mib, int mbr, u
     return 0;
 }
 
+const char *uinstall_esp_refusal(uint64_t esp_mib, uint64_t kernel, uint64_t efi) {
+    static char why[96];
+    // Two kernels, each with half again to grow; the loader; a MiB for
+    // grub/ and its .bak/.new copies. FAT32 keeps about 5% for its tables.
+    uint64_t need = 2 * (kernel + kernel / 2) + efi + (1ull << 20);
+    uint64_t room = esp_mib * 1024 * 1024 / 20 * 19;
+    if (need <= room) return 0;
+    char n[16];
+    human_size_iec(n, sizeof n, need + need / 19 + 1);
+    snprintf(why, sizeof why, "The boot partition is too small for the kernel -- it needs %s", n);
+    return why;
+}
+
+static uint64_t fnv(uint64_t h, const void *data, size_t n) {
+    const unsigned char *b = data;
+    for (size_t i = 0; i < n; i++) h = (h ^ b[i]) * 0x100000001b3ull;
+    return h;
+}
+
+uint64_t uinstall_disk_print(const struct udisk *d) {
+    uint64_t h = 0xcbf29ce484222325ull;
+    h = fnv(h, d->model, sizeof d->model);   // zero-filled past the name: udisk_add()
+    h = fnv(h, &d->sectors, sizeof d->sectors);
+    h = fnv(h, &d->block_size, sizeof d->block_size);
+    h = fnv(h, &d->kind, sizeof d->kind);
+    h = fnv(h, d->guid, sizeof d->guid);
+    h = fnv(h, &d->nparts, sizeof d->nparts);
+    for (int i = 0; i < d->nparts && i < UDISK_PARTS_MAX; i++) {
+        const struct udisk_part *q = &d->parts[i];
+        h = fnv(h, &q->start, sizeof q->start);
+        h = fnv(h, &q->count, sizeof q->count);
+        h = fnv(h, &q->mbr_type, sizeof q->mbr_type);
+        h = fnv(h, q->type_guid, sizeof q->type_guid);
+    }
+    return h;
+}
+
+static uint64_t payload_size(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 ? (uint64_t)st.st_size : 0;
+}
+
 const char *uinstall_plan(struct uinstall_plan *p, struct udisk_scan *s, const char *disk,
                           uint64_t esp_mib, int mbr, uint64_t need) {
     memset(p, 0, sizeof *p);
@@ -318,7 +363,11 @@ const char *uinstall_plan(struct uinstall_plan *p, struct udisk_scan *s, const c
     if (!d) return "There is no such disk (a WHOLE disk, as `lsblk` names it)";
     if (esp_mib < UINSTALL_ESP_MIN) return "The boot partition must be at least 8 MiB";
     const char *why = uinstall_refusal(d, esp_mib, mbr, need);
+    if (!why) why = uinstall_esp_refusal(esp_mib, payload_size(UINSTALL_PAYLOAD "/kernel.bin"),
+                                         payload_size(UINSTALL_PAYLOAD "/bootx64.efi"));
     if (why) return why;
+    p->seen = uinstall_disk_print(d);
+    snprintf(p->model, sizeof p->model, "%s", d->model);
 
     snprintf(p->disk, sizeof p->disk, "%s", disk);
     p->sectors = d->sectors;
@@ -740,6 +789,25 @@ static int run(struct run *r, unsigned flags) {
                      fs.device, fs.point);
                 return 0;
             }
+        }
+    }
+
+    // THE DISK IS LOOKED AT AGAIN JUST BEFORE IT IS ERASED: a stick
+    // pulled and another plugged in takes the same name, and the plan was
+    // made against the first.
+    {
+        static struct udisk_scan s;
+        udisk_scan(&s);
+        const struct udisk *d = udisk_named(&s, p->disk);
+        const char *gone = !d ? "is gone"
+                         : uinstall_disk_print(d) != p->seen ? "is not the disk that was chosen -- its "
+                           "model, size or partitions changed; choose it again" : 0;
+        if (gone) {
+            snprintf(r->prog->error, sizeof r->prog->error, "%s%s%s%s %s. Nothing was changed",
+                     p->disk, p->model[0] ? " (" : "", p->model, p->model[0] ? ")" : "", gone);
+            r->prog->errors++;
+            line(r, "%s", r->prog->error);
+            return 0;
         }
     }
 

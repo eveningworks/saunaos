@@ -110,6 +110,7 @@ int ubootcfg_parse(struct ubootcfg *c, const char *text, int len) {
     c->text[len] = 0;
     c->len = len;
     c->timeout = c->timeout_line = c->def = c->default_line = -1;
+    c->fallback = c->fallback_line = -1;
     c->open_line = c->stray_line = c->quote_line = -1;
 
     for (int off = 0; off < len; ) {
@@ -160,6 +161,13 @@ int ubootcfg_parse(struct ubootcfg *c, const char *text, int len) {
                 c->default_line = ln;
                 memcpy(c->defspec, v, sizeof v);
             }
+        } else if (depth == 0 && !strncmp(p, "set fallback=", 13)) {
+            char v[UBOOTMENU_TITLE];
+            const char *q = p + 13;
+            if (gword(&q, end, v, sizeof v) && !strchr(v, '$')) {
+                c->fallback_line = ln;
+                memcpy(c->fallspec, v, sizeof v);
+            }
         }
 
         char q = 0;
@@ -191,6 +199,7 @@ int ubootcfg_parse(struct ubootcfg *c, const char *text, int len) {
 
     c->oneshot = strstr(c->text, "next_entry") != 0;
     c->def = c->defspec[0] ? ubootcfg_find(c, c->defspec) : (c->count ? 0 : -1);
+    c->fallback = c->fallspec[0] ? ubootcfg_find(c, c->fallspec) : -1;
     return 0;
 }
 
@@ -429,12 +438,20 @@ int ubootcfg_set_timeout(struct ubootcfg *c, int seconds) {
     return set_line(c, c->timeout_line, "timeout", v);
 }
 
-// A numeric default moves with the entries; a titled one needs nothing.
+// A numeric default (or fallback) moves with the entries; a titled one
+// needs nothing.
 static int renumber_default(struct ubootcfg *c, int was) {
     if (!all_digits(c->defspec) || was < 0 || was == c->def) return 0;
     char v[16];
     snprintf(v, sizeof v, "%d", was);
     return set_line(c, c->default_line, "default", v);
+}
+
+static int renumber_fallback(struct ubootcfg *c, int was) {
+    if (!c->fallspec[0] || !all_digits(c->fallspec) || was < 0 || was == c->fallback) return 0;
+    char v[16];
+    snprintf(v, sizeof v, "%d", was);
+    return set_line(c, c->fallback_line, "fallback", v);
 }
 
 int ubootcfg_copy(struct ubootcfg *c, int e, const char *title) {
@@ -453,9 +470,10 @@ int ubootcfg_copy(struct ubootcfg *c, int e, const char *title) {
     n += b - a;
     if (block[n - 1] != '\n') block[n++] = '\n';
     block[n] = 0;
-    int def = c->def;
+    int def = c->def, fb = c->fallback;
     if (splice(c, en->end + 1, 0, block) < 0) return -1;
     if (renumber_default(c, def > e ? def + 1 : def) < 0) return -1;
+    if (renumber_fallback(c, fb > e ? fb + 1 : fb) < 0) return -1;
     return e + 1;
 }
 
@@ -463,15 +481,79 @@ int ubootcfg_remove(struct ubootcfg *c, int e) {
     if (!valid_entry(c, e)) return -1;
     if (c->count <= 1) { c->why = "the last entry cannot be removed"; return -1; }
     if (e == c->def) { c->why = "that is the default entry -- make another one the default first"; return -1; }
+    // System Update refuses a kernel with no previous-kernel entry left.
+    if (e == c->fallback) {
+        c->why = "that is the entry GRUB falls back to, the previous kernel -- updates need it";
+        return -1;
+    }
     if (c->entry[e].end < 0) { c->why = "the entry is never closed"; return -1; }
     int first = c->entry[e].line, last = c->entry[e].end;
     // Take one blank line with it, so a copy-then-remove leaves no trace.
     char l[4];
     ubootcfg_line(c, first - 1, l, sizeof l);
     if (first > 0 && !l[0]) first--;
-    int def = c->def;
+    int def = c->def, fb = c->fallback;
     if (splice(c, first, last - first + 1, "") < 0) return -1;
-    return renumber_default(c, def > e ? def - 1 : def);
+    if (renumber_default(c, def > e ? def - 1 : def) < 0) return -1;
+    return renumber_fallback(c, fb > e ? fb - 1 : fb);
+}
+
+// --- the previous kernel ---------------------------------------------------
+
+static int boots_old(const struct ubootcfg_entry *en) {
+    size_t n = strlen(en->kernel);
+    return en->boot >= 0 && n >= 10 && !strcmp(en->kernel + n - 10, "kernel.old") &&
+           (n == 10 || en->kernel[n - 11] == '/');
+}
+
+static int has_word(const struct ubootcfg_entry *en, const char *w) {
+    for (int k = 0; k < en->nwords; k++)
+        if (!strcmp(en->word[k], w)) return 1;
+    return 0;
+}
+
+int ubootcfg_previous(const struct ubootcfg *c) {
+    for (int e = 0; e < c->count; e++)
+        if (boots_old(&c->entry[e])) return e;
+    return -1;
+}
+
+static int wants_previous(const struct ubootcfg *c, int e) {
+    const struct ubootcfg_entry *en = &c->entry[e];
+    return boots_old(en) && en->plain && !has_word(en, UBOOTCFG_PREVIOUS);
+}
+
+int ubootcfg_previous_missing(const struct ubootcfg *c) {
+    int n = c->fallback_line < 0 && ubootcfg_previous(c) >= 0;
+    for (int e = 0; e < c->count; e++) n += wants_previous(c, e);
+    return n;
+}
+
+int ubootcfg_add_previous(struct ubootcfg *c) {
+    int added = 0;
+    for (int e = 0; e < c->count; e++) {
+        if (!wants_previous(c, e)) continue;
+        const char *op[] = { "+" UBOOTCFG_PREVIOUS };
+        if (ubootcfg_edit_words(c, e, op, 1) < 0) return -1;
+        added++;
+    }
+    int prev = ubootcfg_previous(c);
+    if (c->fallback_line < 0 && prev >= 0) {
+        // Beside `set default=`, which is where a reader looks for it.
+        char line[32];
+        snprintf(line, sizeof line, "set fallback=%d\n", prev);
+        int at = c->default_line >= 0 ? c->default_line + 1 : c->entry[0].line;
+        if (splice(c, at, 0, line) < 0) return -1;
+        added++;
+    }
+    return added;
+}
+
+int ubootcfg_previous_booted(const char *cmdline) {
+    size_t wl = strlen(UBOOTCFG_PREVIOUS);
+    for (const char *p = cmdline; p && (p = strstr(p, UBOOTCFG_PREVIOUS)) != 0; p += wl)
+        if ((p == cmdline || p[-1] == ' ') && (p[wl] == 0 || p[wl] == ' ')) return 1;
+    return 0;
 }
 
 // --- bootpart= --------------------------------------------------------------

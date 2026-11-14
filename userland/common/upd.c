@@ -18,6 +18,8 @@
 #include "common/upd.h"
 #include "base/ubootlayout.h"
 #include "base/ucomponent.h"
+#include "base/ubootcfg.h"
+#include "base/human.h"
 #include "version.h"     // SAUNAOS_BUILD_ID, generated -- tools/build/gen_version.sh
 
 #define MANIFEST_MAX (1024u * 1024u)
@@ -138,7 +140,8 @@ static int file_contains(const char *path, const char *needle) {
 }
 
 static void staged_name(const struct upd_file *f, char *out, size_t cap) {
-    snprintf(out, cap, "%s%s", f->path, UPDATE_STAGED_SUFFIX);
+    if (f->flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ)) snprintf(out, cap, "%s", UPD_KERNEL_STAGED);
+    else snprintf(out, cap, "%s%s", f->path, UPDATE_STAGED_SUFFIX);
 }
 
 // ---- /boot ----------------------------------------------------------------
@@ -711,6 +714,31 @@ static void apply_components(struct upd_plan *p, const struct upd_hooks *h) {
 
 // ---- deciding -------------------------------------------------------------
 
+static int lock_take(struct upd_plan *p, const struct upd_hooks *h);   // one run at a time, below
+static void lock_drop(void);
+
+static struct ubootcfg g_cfg;   // static: 40 KiB, and the ring-3 frame budget is 2 KiB
+
+// THE UNDO FOR A KERNEL THAT WILL NOT BOOT IS THE PREVIOUS-KERNEL ENTRY,
+// so a kernel is refused when GRUB could not offer it: no menu (timeout
+// 0, or one this cannot read), or no entry booting kernel.old. NULL, or
+// why not. An unset timeout is GRUB waiting for a choice: fine.
+static const char *kernel_refusal(void) {
+    static char why[160];
+    int rc = ubootcfg_load(&g_cfg, GRUB_CFG);
+    if (rc < 0) {
+        snprintf(why, sizeof why, "%s could not be read%s", GRUB_CFG, rc == -2 ? " (too big)" : "");
+        return why;
+    }
+    if (g_cfg.timeout == 0) return "GRUB on this machine shows no menu (`set timeout=0`), so the "
+                                   "previous kernel could not be chosen if a new one failed";
+    if (g_cfg.timeout == -2) return "GRUB's timeout is not a plain number, so whether it shows a "
+                                    "menu cannot be told";
+    if (ubootcfg_previous(&g_cfg) < 0) return "GRUB has no entry for the previous kernel "
+                                              "(kernel.old), so it could not be chosen if a new one failed";
+    return 0;
+}
+
 static void compare_kernel(struct upd_plan *p, const struct upd_hooks *h) {
     unsigned want = kernel_variant();
     uint64_t have_size = 0;
@@ -724,21 +752,18 @@ static void compare_kernel(struct upd_plan *p, const struct upd_hooks *h) {
         if ((f->flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ)) && have &&
             f->crc == have_crc && f->size == have_size) current = 1;
     }
-    int refuse = !current && file_contains(GRUB_CFG, "set timeout=0");
+    const char *refuse = current ? 0 : kernel_refusal();
     for (int i = 0; i < p->count; i++) {
         struct upd_file *f = &p->files[i];
         if (!(f->flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ))) continue;
         if (!(f->flags & want) || !have) { f->change = UPD_IGNORED; continue; }
         if (current) { f->change = UPD_SAME; continue; }
         f->change = UPD_CHANGED;
-        if (refuse) {
-            // The rescue entry is the undo for a kernel that will not
-            // boot, and a zero timeout means nobody can pick it. And the
-            // REST waits too: a userland newer than its kernel is how a
-            // flashed laptop once came up with no network (remote.py).
-            say(h, "kernel: cannot update -- %s has `set timeout=0`, so the previous "
-                   "kernel could not be chosen if this one failed. Nothing will be installed.",
-                GRUB_CFG);
+        if (refuse && !p->kernel_blocked) {
+            // And the REST waits too: a userland newer than its kernel is
+            // how a flashed laptop once came up with no network (remote.py).
+            say(h, "kernel: cannot update -- %s. Nothing will be installed.", refuse);
+            snprintf(p->blocked_why, sizeof p->blocked_why, "%s", refuse);
             p->kernel_blocked = 1;
         }
     }
@@ -748,8 +773,10 @@ static int check_run(const char *base, struct upd_plan *p, const struct upd_hook
 
 // The log stays open for upd_apply() after a check that succeeded.
 int upd_check(const char *base, struct upd_plan *p, const struct upd_hooks *h) {
+    if (lock_take(p, h) != 0) return -1;
     int rc = check_run(base, p, h);
     if (rc != 0) log_close();
+    lock_drop();
     return rc;
 }
 
@@ -886,7 +913,10 @@ static int fetch_one(struct upd_plan *p, int idx, const struct upd_hooks *h) {
     struct upd_file *f = &p->files[idx];
     char tmp[UPD_PATH_MAX + 8];
     staged_name(f, tmp, sizeof tmp);
-    if (mkdir_parents(f->path) != 0) { say(h, "%s: cannot create its directory", f->path); return -1; }
+    if (mkdir_parents(f->path) != 0 || mkdir_parents(tmp) != 0) {
+        say(h, "%s: cannot create its directory", f->path);
+        return -1;
+    }
 
     struct fetch_ctx c;
     char url[UPD_URL_MAX + UPD_PATH_MAX + 8];
@@ -965,15 +995,63 @@ static void discard_staged(struct upd_plan *p) {
     }
 }
 
-// FAT32 has no atomic replace, so this is delete-then-rename, in the
-// order that keeps a bootable kernel reachable at every step: the
-// running kernel becomes kernel.old (the GRUB rescue entry) BEFORE the
-// new one takes its name.
-static int install_kernel(struct upd_file *f, const struct upd_hooks *h) {
+// Did this boot come from the previous-kernel entry (base/ubootcfg.h)?
+static int booted_previous(void) {
+    static char cmd[4096];
+    return ubootcfg_cmdline(cmd, sizeof cmd) >= 0 && ubootcfg_previous_booted(cmd);
+}
+
+// `src` copied to `dst`, which must then match the manifest's crc. 0, or
+// -1 with `dst` gone.
+static int copy_checked(const char *src, const char *dst, const struct upd_file *f) {
+    static unsigned char buf[32768];
+    int in = open(src, O_RDONLY);
+    int out = in >= 0 ? open(dst, O_WRONLY | O_CREAT | O_TRUNC) : -1;
+    long n = -1;
+    if (out >= 0) {
+        while ((n = read(in, buf, sizeof buf)) > 0) {
+            long w = 0;
+            for (long off = 0; off < n; off += w)
+                if ((w = write(out, buf + off, (size_t)(n - off))) <= 0) { n = -1; break; }
+            if (n < 0) break;
+        }
+    }
+    if (in >= 0) close(in);
+    if (out >= 0) close(out);
+    uint32_t crc;
+    if (n != 0 || file_crc(dst, &crc) != 0 || crc != f->crc) { unlink(dst); return -1; }
+    return 0;
+}
+
+// FAT32 has no atomic replace, so the kernel goes in by delete-then-rename
+// in the order that keeps a bootable kernel at every step, and a cut
+// between the two leaves no kernel.bin -- which GRUB's `set fallback`
+// turns into a boot of kernel.old with nobody at the menu.
+//
+// WHICH KERNEL IS KEPT DEPENDS ON WHICH ONE IS RUNNING. Normally kernel.bin
+// is, and it becomes kernel.old. After a rescue boot kernel.old is the one
+// that works: it stays, and the kernel.bin that sent the machine there is
+// what is replaced -- rotating it would delete the only good kernel.
+static int install_kernel_rw(struct upd_file *f, const struct upd_hooks *h, int previous) {
     char tmp[UPD_PATH_MAX + 8];
-    staged_name(f, tmp, sizeof tmp);
-    unlink(KERNEL_OLD);
+    snprintf(tmp, sizeof tmp, "%s%s", KERNEL_PATH, UPDATE_STAGED_SUFFIX);
+    if (!previous) unlink(KERNEL_OLD);   // room first: kernel.bin is running and stays
+    if (copy_checked(UPD_KERNEL_STAGED, tmp, f) != 0) {
+        say(h, "kernel: could not copy it into %s intact -- not installing", tmp);
+        return -1;
+    }
+    if (previous) {
+        unlink(KERNEL_PATH);
+        if (sys_rename(tmp, KERNEL_PATH) != 0) {
+            say(h, "kernel: could not rename %s into place -- GRUB falls back to %s", tmp, KERNEL_OLD);
+            return -1;
+        }
+        say(h, "kernel: installed; this boot runs the previous kernel, so %s is kept and the "
+               "kernel that sent it there is replaced", KERNEL_OLD);
+        return 0;
+    }
     if (sys_rename(KERNEL_PATH, KERNEL_OLD) != 0) {
+        unlink(tmp);
         say(h, "kernel: could not keep the running kernel as %s -- not installing", KERNEL_OLD);
         return -1;
     }
@@ -984,6 +1062,135 @@ static int install_kernel(struct upd_file *f, const struct upd_hooks *h) {
     }
     say(h, "kernel: installed; the running kernel is kept as %s", KERNEL_OLD);
     return 0;
+}
+
+// grub.cfg gains the previous-kernel word and `set fallback` first
+// (ubootcfg_save() opens its own /boot window), then /boot is writable
+// for the copy and the renames only.
+static int install_kernel(struct upd_file *f, const struct upd_hooks *h, int previous) {
+    if (ubootcfg_load(&g_cfg, GRUB_CFG) == 0 && ubootcfg_previous_missing(&g_cfg) > 0) {
+        const char *why = 0;
+        if (ubootcfg_add_previous(&g_cfg) < 0) why = g_cfg.why;
+        else if (ubootcfg_save(&g_cfg, GRUB_CFG, &why) == 0) why = 0;
+        else if (!why) why = "?";
+        if (why) {
+            say(h, "kernel: could not give %s its previous-kernel fallback (%s) -- not installing",
+                GRUB_CFG, why);
+            return -1;
+        }
+        say(h, "kernel: %s now falls back to the previous kernel by itself", GRUB_CFG);
+    }
+    if (boot_mount(1) != 0) {
+        say(h, "kernel: could not mount /boot read-write -- not installing");
+        return -1;
+    }
+    int rc = install_kernel_rw(f, h, previous);
+    sys_sync();
+    boot_mount(0);
+    if (rc == 0) unlink(UPD_KERNEL_STAGED);
+    return rc;
+}
+
+// ---- one run at a time ------------------------------------------------------
+
+static int g_lock_fd = -1;
+
+// Released by closing the descriptor, or by the process exiting -- so a
+// crashed run never leaves the lock held. Only this descriptor may be
+// open on the file: closing ANY descriptor on it drops a POSIX lock.
+static int lock_take(struct upd_plan *p, const struct upd_hooks *h) {
+    mkdir_parents(UPD_LOCK_PATH);
+    int fd = open(UPD_LOCK_PATH, O_RDWR | O_CREAT);
+    if (fd < 0) { set_error(p, h, "cannot open " UPD_LOCK_PATH); return -1; }
+    struct flock fl;
+    memset(&fl, 0, sizeof fl);
+    fl.l_type = F_WRLCK;
+    fl.l_whence = SEEK_SET;
+    if (fcntl(fd, F_SETLK, &fl) == 0) { g_lock_fd = fd; return 0; }
+    struct flock who = fl;
+    int pid = fcntl(fd, F_GETLK, &who) == 0 && who.l_type != F_UNLCK ? (int)who.l_pid : 0;
+    close(fd);
+    char msg[96];
+    if (pid) snprintf(msg, sizeof msg, "another update is running (pid %d) -- wait for it to finish", pid);
+    else snprintf(msg, sizeof msg, "another update is running -- wait for it to finish");
+    set_error(p, h, msg);
+    return -1;
+}
+
+static void lock_drop(void) {
+    if (g_lock_fd >= 0) close(g_lock_fd);
+    g_lock_fd = -1;
+}
+
+// ---- room for it ------------------------------------------------------------
+
+struct vol_need { char point[64]; uint64_t free, need, freed; };
+
+// The mounted volume `path` lies on: the longest point prefixing it.
+static struct vol_need *vol_of(struct vol_need *v, int n, const char *path) {
+    struct vol_need *best = 0;
+    size_t bl = 0;
+    for (int i = 0; i < n; i++) {
+        size_t l = strlen(v[i].point);
+        int under = !strcmp(v[i].point, "/") ||
+                    (!strncmp(path, v[i].point, l) && (path[l] == '/' || !path[l]));
+        if (under && l >= bl) { best = &v[i]; bl = l; }
+    }
+    return best;
+}
+
+// ROOM FOR THE NEW FILES BESIDE THE OLD ONES, checked before anything is
+// fetched: each is staged next to the file it replaces, so a volume needs
+// the whole new size free (rounded to a block, plus a margin). The kernel
+// is staged on the root and then copied to /boot, where an ordinary
+// install frees kernel.old first. NULL, or why not.
+static const char *space_refusal(const struct upd_plan *p, int kernel, int previous) {
+    static char why[200];
+    struct vol_need *v = 0;
+    int n = 0, cap = 0;
+    struct query_fsinfo fs;
+    for (int i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++) {
+        if (!(fs.flags & QUERY_FS_MOUNTED) || !fs.total_bytes) continue;
+        if (n == cap) {
+            int nc = cap ? cap * 2 : 8;
+            struct vol_need *g = realloc(v, (size_t)nc * sizeof *v);
+            if (!g) { free(v); return 0; }   // cannot tell: the fetch finds out
+            v = g;
+            cap = nc;
+        }
+        memset(&v[n], 0, sizeof v[n]);
+        snprintf(v[n].point, sizeof v[n].point, "%s", fs.point);
+        v[n].free = fs.total_bytes > fs.used_bytes ? fs.total_bytes - fs.used_bytes : 0;
+        n++;
+    }
+    for (int i = 0; i < p->count; i++) {
+        const struct upd_file *f = &p->files[i];
+        if (!wanted(f)) continue;
+        uint64_t sz = (f->size + 4095) & ~4095ull;
+        struct vol_need *at = vol_of(v, n, is_kernel(f) ? UPD_KERNEL_STAGED : f->path);
+        if (at) at->need += sz;
+    }
+    if (kernel >= 0) {
+        struct vol_need *b = vol_of(v, n, KERNEL_PATH);
+        uint64_t old = 0;
+        if (b) {
+            b->need += (p->files[kernel].size + 4095) & ~4095ull;
+            if (!previous && exists(KERNEL_OLD, &old) == 1) b->freed += old;
+        }
+    }
+    const char *refusal = 0;
+    for (int i = 0; i < n && !refusal; i++) {
+        uint64_t need = v[i].need > v[i].freed ? v[i].need - v[i].freed : 0;
+        if (!v[i].need || need + (1u << 20) <= v[i].free) continue;
+        char a[16], b[16];
+        human_size_iec(a, sizeof a, need + (1u << 20));
+        human_size_iec(b, sizeof b, v[i].free);
+        snprintf(why, sizeof why, "not enough room on %s: the update needs %s there and %s is free",
+                 v[i].point, a, b);
+        refusal = why;
+    }
+    free(v);
+    return refusal;
 }
 
 // DURABLE BEFORE IT RETURNS: the kernel's rename follows at once, and
@@ -1017,8 +1224,10 @@ static int write_pending(struct upd_plan *p, const struct upd_hooks *h) {
 static int apply_run(struct upd_plan *p, const struct upd_hooks *h);
 
 int upd_apply(struct upd_plan *p, const struct upd_hooks *h) {
+    if (lock_take(p, h) != 0) { log_close(); return -1; }
     int rc = apply_run(p, h);
     log_close();
+    lock_drop();
     return rc;
 }
 
@@ -1053,10 +1262,9 @@ static int apply_run(struct upd_plan *p, const struct upd_hooks *h) {
         else if (!strncmp(f->path, "/lib/", 5)) libs++;
     }
     int at_boot = libs || kernel >= 0;
-    if (kernel >= 0 && boot_mount(1) != 0) {
-        set_error(p, h, "could not mount /boot read-write for the kernel");
-        return -1;
-    }
+    int previous = kernel >= 0 && booted_previous();
+    const char *full = space_refusal(p, kernel, previous);
+    if (full) { set_error(p, h, full); return -1; }
 
     say(h, "fetching %d files", p->changed);
     for (int i = 0; i < p->count; i++) {
@@ -1064,7 +1272,6 @@ static int apply_run(struct upd_plan *p, const struct upd_hooks *h) {
         if (cancelled(h) || fetch_one(p, i, h) != 0) {
             p->failed = 1;
             discard_staged(p);
-            if (kernel >= 0) boot_mount(0);
             set_error(p, h, cancelled(h) ? "cancelled -- nothing was changed"
                                          : "a download failed -- nothing was changed");
             return -1;
@@ -1075,7 +1282,6 @@ static int apply_run(struct upd_plan *p, const struct upd_hooks *h) {
     if (at_boot) {
         if (write_pending(p, h) != 0) {
             discard_staged(p);
-            if (kernel >= 0) boot_mount(0);
             set_error(p, h, "could not record the update for the next boot");
             return -1;
         }
@@ -1117,7 +1323,7 @@ static int apply_run(struct upd_plan *p, const struct upd_hooks *h) {
     }
     if (kernel >= 0) {
         struct upd_file *f = &p->files[kernel];
-        if (install_kernel(f, h) == 0) {
+        if (install_kernel(f, h, previous) == 0) {
             f->status = UPD_INSTALLED;
             p->kernel_installed = 1;
         } else {
@@ -1135,7 +1341,6 @@ static int apply_run(struct upd_plan *p, const struct upd_hooks *h) {
     }
     if (!p->failed && !p->no_record) write_record(p, h);
     sys_sync();
-    if (kernel >= 0) boot_mount(0);
 
     say(h, "done: %d file%s %s, %d stale %s%s", p->changed, p->changed == 1 ? "" : "s",
         p->at_boot ? "staged, restart to finish" : "updated", p->removals,
@@ -1227,10 +1432,12 @@ static int fetch_own_build(const char *base, struct upd_plan *p, const struct up
 }
 
 int upd_component_check(const char *base, struct upd_plan *p, const struct upd_hooks *h) {
+    if (lock_take(p, h) != 0) return -1;
     log_open();
     int rc = fetch_own_build(base, p, h, "checking");
     if (rc == 0) say(h, "the server has this machine's build: %d files", p->count);
     log_close();
+    lock_drop();
     return rc;
 }
 
@@ -1282,9 +1489,11 @@ static int add_run(const char *base, const char *const *ids, int n, struct upd_p
 
 int upd_component_add(const char *base, const char *const *ids, int n, struct upd_plan *p,
                       const struct upd_hooks *h) {
+    if (lock_take(p, h) != 0) return -1;
     log_open();
     int rc = add_run(base, ids, n, p, h);
     log_close();
+    lock_drop();
     return rc;
 }
 

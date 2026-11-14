@@ -2478,6 +2478,18 @@ report is ON only after `enter_gui()`").
   target to 50 bytes after the first cut, so a check that cannot see a
   torn file goes red. ~20 minutes; run it after touching `upd.c` or
   `pending_replace.c`.
+- **`update_kernel_test.py`** -- `/bin/update`'s kernel install, over six
+  boots of one image whose grub.cfg is first made old-style on the host
+  (menu, no `set fallback`, no `kernel=previous`): a second `update`
+  while one runs is refused naming its pid; with `/boot` filled from the
+  host a kernel update is refused before fetching; an install adds the
+  fallback and the word and keeps the running kernel as `kernel.old`; a
+  rescue boot (`bootcfg default 1`) then installs a third kernel and
+  keeps `kernel.old` byte for byte; and with `kernel.bin` deleted on the
+  host the machine boots the previous kernel by itself. Two twin kernels
+  (one boot message changed) tell the boots apart through `dmesg`.
+  Needs mtools; ~10 minutes. Seen red with the rescue branch removed
+  (kernel.old became the failed kernel) and with the lock disabled.
 - **`update_test.py`** -- `/bin/update` end to end, in its own guests,
   against `update_server.py`'s handler run IN-PROCESS on an ephemeral
   loopback port (so two runs cannot clash, and nothing leaves the

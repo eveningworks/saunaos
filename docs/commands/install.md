@@ -15,11 +15,14 @@
 - `--disk NAME` -- the target disk, named as `lsblk` names it. The disk
   this machine is running from is refused. Without it, at a terminal,
   `install` asks (below); anywhere else it lists the disks it could use.
-- `--esp MIB` -- size of the FAT32 `/boot` partition; 64 by default,
-  and anything under 8 MiB is refused.
+- `--esp MIB` -- size of the FAT32 `/boot` partition; 64 by default.
+  Anything under 8 MiB is refused, and so is one too small for two
+  kernels the size of this build's, each with half again to grow (System
+  Update keeps the previous one beside the new) and the UEFI loader.
 - `--mbr` -- write an MBR table instead of GPT, for firmware that will
   not boot a GPT disk in legacy/CSM mode. Refused before anything is
-  erased on a build that staged no `core-msdos.img`.
+  erased on a build that staged no `core-msdos.img`, and on a disk past
+  2 TiB, which MBR's 32-bit sector numbers cannot reach.
 - `--ask-all` -- the new machine's First-boot setup asks every page,
   including the ones this session already set (below).
 - `--without ID,...` -- leave these optional components out, by the ids
@@ -137,6 +140,11 @@ at a terminal, say what the copy carries:
 
 The room a disk must have follows the choice, so a disk refused as too
 small for everything may take the system with less.
+
+**The disk is looked at again just before it is erased**: its model,
+size, table and partitions must still be what they were when it was
+chosen, or the install stops with nothing changed -- a stick pulled and
+another plugged in takes the same name.
 
 ## The installer window
 

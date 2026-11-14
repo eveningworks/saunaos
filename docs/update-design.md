@@ -220,7 +220,21 @@ design said "keep `kernel.old`"; that copy is only an undo if GRUB can
 be asked for it, and an image built with `set timeout=0` cannot. Refusing
 the kernel alone would install a userland newer than its kernel, which
 is how a flashed laptop once came up with no network. So nothing is
-installed, and the window says why.
+installed, and the window says why. The same holds when grub.cfg has no
+entry booting `kernel.old`, or a timeout it cannot read (ubootcfg parses
+the file; a substring match read `set timeout=05` as no menu).
+
+**The kept kernel is the RUNNING one, which a rescue boot makes
+`kernel.old`.** Rotating blindly after a rescue boot moved the kernel
+that failed into `kernel.old` and deleted the one that works. A
+multiboot2 command line does not name its file, so GRUB's
+previous-kernel entry says it with a `kernel=previous` word
+(systemd-boot's `LoaderEntrySelected` shape: the bootloader reports what
+it booted), and on such a boot `kernel.bin` alone is replaced. The kernel
+is staged on the root and copied into `/boot` inside a short writable
+window, and `set fallback=` turns a cut between the delete and the rename
+-- no `kernel.bin` at all -- into a boot of `kernel.old`. A kernel that
+loads and panics is not caught; that is boot counting (roadmap).
 
 **Release notes are commit trailers, cut by the CLIENT.** `GET
 <channel>/notes` is one line per commit, newest first -- `<sha>

@@ -52,6 +52,9 @@ struct ubootcfg {
     int def;              // the entry `set default=` names, -1 when none
     int default_line;
     char defspec[UBOOTMENU_TITLE];
+    int fallback;         // the entry `set fallback=` names, -1 when none
+    int fallback_line;
+    char fallspec[UBOOTMENU_TITLE];
     int oneshot;          // the next_entry stanza is present
     int open_line;        // a `{` never closed, else -1
     int stray_line;       // a `}` closing nothing, else -1
@@ -111,6 +114,24 @@ int ubootcfg_trial_source(const struct ubootcfg *c, int t);  // -1 not a trial
 // Keep: the source takes the trial's kernel and words (less the mark),
 // and the trial goes.
 int ubootcfg_keep(struct ubootcfg *c, int t);
+
+// --- the previous kernel ---------------------------------------------------
+//
+// THE ENTRY THAT BOOTS kernel.old CARRIES UBOOTCFG_PREVIOUS, and GRUB falls
+// back to it: a multiboot2 command line does not name the file it came
+// from, so the word is how System Update knows a rescue boot is running
+// the previous kernel -- and must keep it (systemd-boot's
+// LoaderEntrySelected, the bootloader saying which entry it booted).
+#define UBOOTCFG_PREVIOUS "kernel=previous"
+// The first entry booting a `kernel.old`, or -1.
+int ubootcfg_previous(const struct ubootcfg *c);
+// What ubootcfg_add_previous() would add: each kernel.old entry without
+// the word, plus a missing `set fallback=`.
+int ubootcfg_previous_missing(const struct ubootcfg *c);
+// Add them: how many, or -1 (c->why).
+int ubootcfg_add_previous(struct ubootcfg *c);
+// Did this boot come from a kernel.old entry? Whole words only.
+int ubootcfg_previous_booted(const char *cmdline);
 
 // The running kernel's command line (QUERY_CMDLINE). Its length, or -1
 // when GRUB passed none.

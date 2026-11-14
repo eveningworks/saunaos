@@ -377,6 +377,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `trash_test.py` -- lib/utrash through /bin/trash: the Recycle Bin, checked as text
 - `uefi_boot_test.py` -- A UEFI boot off the disk's own loader, and the screen size it can reach
 - `update_cut_test.py` -- /bin/update cut off by power at a random moment: every file is old or new
+- `update_kernel_test.py` -- /bin/update's kernel install: the running kernel kept, GRUB's fallback, one run at a time
 - `update_test.py` -- /bin/update end to end: fetch, verify, install live, and stage for boot
 - `usb_audio_test.py` -- USB Audio Class 1.0 playback, end to end,
 - `usb_desktop_test.py` -- USB sticks on the desktop: the tray's USB drives flyout, the File

@@ -1451,15 +1451,24 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
             print("remote: that kernel is already installed -- syncing the "
                   "userland anyway")
 
+        # A RESCUE BOOT RUNS kernel.old (GRUB's previous-kernel entry says
+        # `kernel=previous`, base/ubootcfg.h): rotating would copy the
+        # kernel that failed over the one that works.
+        rescue = not kernel_current and any(
+            "this boot's words:" in ln and "kernel=previous" in ln.split()
+            for ln in sess.run("bootcfg list", timeout).splitlines())
         if kernel_current:
             print("remote: leaving /boot alone -- the kernel already matches")
+        elif rescue:
+            print(f"remote: this boot runs {BOOT_DIR}/kernel.old -- keeping it, "
+                  "replacing kernel.bin only")
         else:
             print(f"remote: rotating the running kernel to {BOOT_DIR}/kernel.old")
         # ITS OWN TIMEOUT, not --timeout. This copies ~5 MB through the
         # guest's filesystem and took longer than the 15s default on a
         # real laptop, which aborted the flash before it had sent a byte
         # -- and left the rescue slot holding a partial copy.
-        if not kernel_current:
+        if not kernel_current and not rescue:
             sess.run(f"cp {BOOT_DIR}/kernel.bin {BOOT_DIR}/kernel.old",
                      max(timeout, ROTATE_TIMEOUT))
     finally:
