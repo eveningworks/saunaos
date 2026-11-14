@@ -2199,11 +2199,14 @@ default and holds a bootloader.
 **Updating the machine's own kernel is HALF done.** `/bin/update`
 (2026-09-30) writes `/boot/kernel.bin` with the running kernel kept
 as `kernel.old` -- GRUB's *previous kernel* entry -- and refuses while
-`grub.cfg` has `set timeout=0`, since the undo is then unreachable. What
-is still missing: nothing verifies the image is a KERNEL (the crc32 only
-proves it arrived as the server sent it), and nothing notices a kernel
-that fails to boot and falls back by itself; that is A/B slots with a
-boot counter, `docs/update-design.md` stage 5.
+GRUB could not offer that entry (no menu, or no such entry), since the
+undo is then unreachable. Since 2026-11-14 a rescue boot keeps
+`kernel.old` (the `kernel=previous` word) and `set fallback=` boots it
+when `kernel.bin` cannot be loaded. What is still missing: nothing
+verifies the image is a KERNEL (the crc32 only proves it arrived as the
+server sent it), and nothing notices a kernel that LOADS and then fails;
+that is boot counting (roadmap) or A/B slots, `docs/update-design.md`
+stage 5.
 
 ### Observability
 

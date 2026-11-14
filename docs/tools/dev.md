@@ -286,7 +286,9 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   machine, and with no timeout GRUB draws no menu, so it cannot be
   picked and a bad kernel needs a USB stick. Fixing that is a one-line
   edit to `/boot/grub/grub.cfg` and deliberately not something
-  this does for you -- see `docs/conventions/build.md`.
+  this does for you -- see `docs/conventions/build.md`. On a rescue
+  boot (`kernel=previous` among the boot words) it keeps `kernel.old`
+  and replaces `kernel.bin` only, as System Update does.
 
   **`sync` sends only what differs, and ASKS the machine rather than
   remembering.** It uploads a manifest of `<crc32> <size> <path>` and
