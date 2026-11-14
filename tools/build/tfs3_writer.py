@@ -448,6 +448,41 @@ class Tfs3Image:
                     return blk
         raise SystemExit("image is out of free blocks")
 
+    def alloc_blocks(self, n, prefer_group=0):
+        """n blocks, the ones n alloc_block() calls would pick (first fit,
+        the preferred group first) -- but each group's bitmap read and
+        written ONCE and its free count bumped once: alloc_block() per
+        block rescans the bitmap from its start, which made a 600 MB file
+        quadratic."""
+        out = []
+        gc = self.sb["gc"]
+        order = list(range(prefer_group, gc)) + list(range(0, prefer_group))
+        for g in order:
+            if len(out) == n:
+                break
+            base = self.group_base(g)
+            start = self.data_start(g) - base
+            span = self.group_span(g)
+            end = span - (BACKUP_BLOCKS if self.is_backup_group(g) else 0)
+            bitmap = bytearray(self.read_block(base))
+            took = 0
+            i = start
+            while i < end and len(out) < n:
+                if not i & 7 and i + 8 <= end and bitmap[i >> 3] == 0xFF:
+                    i += 8                                # a full byte: nothing free in it
+                    continue
+                if not (bitmap[i >> 3] >> (i & 7)) & 1:
+                    bitmap[i >> 3] |= 1 << (i & 7)
+                    out.append(base + i)
+                    took += 1
+                i += 1
+            if took:
+                self.write_block(base, bytes(bitmap))
+                self.bump_gdt(g, dblocks=-took)
+        if len(out) < n:
+            raise SystemExit("image is out of free blocks")
+        return out
+
     def alloc_inode(self, prefer_group=0):
         gc = self.sb["gc"]
         ipg = self.sb["ipg"]
@@ -525,10 +560,16 @@ class Tfs3Image:
 
     def read_file_data(self, ino):
         node = self.read_inode(ino)
-        data = b""
-        for blk in self.file_blocks(node, holes=True):
-            data += self.read_block(blk) if blk else bytes(BLOCK)
-        return data[:node["size"]]
+        blocks = self.file_blocks(node, holes=True)
+        data = bytearray()
+        i = 0
+        while i < len(blocks):                            # each run of consecutive blocks (or of holes) at once
+            j = i + 1
+            while j < len(blocks) and (blocks[j] == blocks[j - 1] + 1 if blocks[i] else not blocks[j]):
+                j += 1
+            data += self.read_bytes(blocks[i] * BLOCK, (j - i) * BLOCK) if blocks[i] else bytes((j - i) * BLOCK)
+            i = j
+        return bytes(data[:node["size"]])
 
     # -- directories --
 
@@ -890,10 +931,15 @@ def write_file(img, data, dst):
                          f"what TFS3's block map can address ({MAX_WRITE_BLOCKS})")
     pg = parent // img.sb["ipg"]
     ino = img.alloc_inode(prefer_group=pg)
-    blocks = [img.alloc_block(prefer_group=pg) for _ in range(nblocks)]
-    for i, blk in enumerate(blocks):
-        chunk = data[i * BLOCK:(i + 1) * BLOCK]
-        img.write_block(blk, chunk + b"\x00" * (BLOCK - len(chunk)))
+    blocks = img.alloc_blocks(nblocks, prefer_group=pg)
+    i = 0
+    while i < nblocks:                                    # each run of consecutive blocks in one write
+        j = i + 1
+        while j < nblocks and blocks[j] == blocks[j - 1] + 1:
+            j += 1
+        chunk = data[i * BLOCK:j * BLOCK]
+        img.write_bytes(blocks[i] * BLOCK, chunk + b"\x00" * ((j - i) * BLOCK - len(chunk)))
+        i = j
     ptrs = [0] * 15
     for i in range(min(nblocks, 12)):
         ptrs[i] = blocks[i]
