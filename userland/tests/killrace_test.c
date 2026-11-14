@@ -12,8 +12,8 @@
 // that stopped moving.
 //
 // **WHAT A BROKEN VERSION WOULD STILL PASS: every run with interrupts
-// off in syscalls**, and many with them on. Evidence on an image built
-// with KCMDLINE="syscall_irq=on", red there with the lock held longer by
+// off in syscalls** (`syscall_irq=off`), and many with them on.
+// Evidence at the default boot, red there with the lock held longer by
 // hand (docs/roadmap-details.md, "Interruptible syscalls").
 //
 // It must be SPAWNED, not `run` -- it has children and a thread.

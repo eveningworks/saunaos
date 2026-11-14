@@ -326,7 +326,7 @@ static int desc_claim(const struct fd_ops *ops) {
 }
 
 // FINDING A FREE DESCRIPTION AND TAKING IT IS ONE STEP. A thread can be
-// preempted inside a syscall (syscall_irq=on), and a second open landing
+// preempted inside a syscall (unless syscall_irq=off), and a second open landing
 // between the refs test and the store took the same slot: two
 // descriptors on one description, each open's path and mode overwriting
 // the other's (tests/fdrace_test). The guard nests with the heap's.

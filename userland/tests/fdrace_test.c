@@ -18,9 +18,9 @@
 // inside the syscall.
 //
 // **WHAT A BROKEN VERSION WOULD STILL PASS: every run with interrupts
-// off in syscalls**, which is the default boot. The claim is atomic
-// there by construction, so this is evidence only on an image built with
-// KCMDLINE="syscall_irq=on" (docs/boot-flags.md).
+// off in syscalls** (`syscall_irq=off`). The claim is atomic there by
+// construction, so this is evidence only at the default boot
+// (docs/boot-flags.md).
 //
 // It must be SPAWNED, not `run` -- threads need a scheduler slot.
 #include <stdint.h>

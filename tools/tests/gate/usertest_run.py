@@ -165,17 +165,17 @@ TESTS = [
     ("fsrace_test", None, None, None),
     # Opens at once, each on its own description: the pool's claim was
     # a test and a later set. SPAWNED: it runs four threads. Evidence
-    # only on an image built with KCMDLINE="syscall_irq=on".
+    # only with interrupts on in syscalls (not at syscall_irq=off).
     ("fdrace_test", None, None, None),
     # A wake landing between a park's "was I woken?" and the park: a
     # waitpid() beside a zombie, a sync that waits out the disk deadline.
-    # SPAWNED: it has children and a watchdog thread. Evidence only on
-    # an image built with KCMDLINE="syscall_irq=on".
+    # SPAWNED: it has children and a watchdog thread. Evidence only with
+    # interrupts on in syscalls (not at syscall_irq=off).
     ("wakerace_test", None, None, None),
     # The interrupts-in-syscalls audit's windows, one test each (each
-    # header says which). SPAWNED: children or threads. Evidence only on
-    # an image built with KCMDLINE="syscall_irq=on"; readref_test's
-    # window is open without it too.
+    # header says which). SPAWNED: children or threads. Evidence only with
+    # interrupts on in syscalls (not at syscall_irq=off); readref_test's
+    # window is open at the flag too.
     ("exitrace_test", None, None, None),
     ("grouprace_test", None, None, None),
     ("killrace_test", None, None, None),

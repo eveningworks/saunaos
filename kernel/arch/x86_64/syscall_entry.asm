@@ -48,7 +48,7 @@ section .bss
 align 8
 ; Ring 3's RSP for the two instructions between arriving and having a
 ; stack to push it on. One CPU, IF clear until the frame is built (even
-; with syscall_irq=on): nothing else can be here.
+; with interrupts on in syscalls): nothing else can be here.
 syscall_user_rsp: resq 1
 
 section .text
@@ -82,7 +82,7 @@ syscall_entry:
     push r14
     push r15
 
-    ; syscall_irq=on: interrupts from here, on the kernel stack with the
+    ; Interrupts from here (unless syscall_irq=off), on the kernel stack with the
     ; whole frame pushed -- never earlier (idt.c's syscall_insn_init()).
     ; The cli below covers the way out either way.
     cmp byte [rel g_syscall_irq], 0

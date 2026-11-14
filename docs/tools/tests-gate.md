@@ -67,7 +67,7 @@ it is saved.
   since the table is only printed at the end.
   **`--kvm` boots the guest under KVM** (`vm.py --kvm`) -- the gate is
   TCG, and a race whose window depends on speed can be green there
-  alone; the `syscall_irq=on` soak runs the race tests both ways.
+  alone; the interrupts-in-syscalls soak ran the race tests both ways.
   **`--transcript PATH` keeps every test's captured output, passed or
   not.** A `/tests` program's stdout and stderr go to the CONSOLE, which
   the harness reads over the debug console -- they are NOT on the serial

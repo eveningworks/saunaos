@@ -3129,7 +3129,8 @@ the first process.
 
 A table of reusable slots (open-file descriptions, and anything shaped
 like them) is claimed by finding a slot marked free and marking it used.
-With `syscall_irq=on` a thread can be preempted inside a syscall, so a
+A thread can be preempted inside a syscall (the default since
+2026-11-14; not at `syscall_irq=off`), so a
 test and a later store are two steps: a second caller scanning from the
 same hint takes the same slot. In `fd_desc_alloc()` that put two
 descriptors on one description -- each open's path and mode overwriting
@@ -3183,8 +3184,8 @@ rule.
 
 ## A WAIT ARMS BEFORE IT TESTS, AND AN ARM NEVER OUTLIVES ITS CALL
 
-A ring-3 wait tests its condition and parks. With `syscall_irq=on` a
-waker can run between the two -- another thread after a preemption, or an
+A ring-3 wait tests its condition and parks. With interrupts on inside
+a syscall (the default) a waker can run between the two -- another thread after a preemption, or an
 interrupt -- and its wake finds nobody parked and is dropped
 (`tests/parkrace_test`: a futex turn and a thread join, both hung).
 
@@ -3216,8 +3217,8 @@ never waits.
 ## AN EXIT GIVES ITS TABLES UP BEFORE IT FREES THEM, AND SWITCHES WITH INTERRUPTS ALREADY OFF
 
 Three rules for the path that ends a process or thread
-(`kernel/proc/sched_exit.c`), each from a window that was reached at
-`syscall_irq=on`:
+(`kernel/proc/sched_exit.c`), each from a window that was reached with
+interrupts on inside a syscall (the default since 2026-11-14):
 
 - **`sched_switch_begin()` before `scheduler_preempt_enable()`** where a
   ZOMBIE (or freed) slot switches away. A tick between them rotated the

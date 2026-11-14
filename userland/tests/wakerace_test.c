@@ -16,11 +16,10 @@
 // to tell from a slow host.
 //
 // **WHAT A BROKEN VERSION WOULD STILL PASS: every run with interrupts
-// off in syscalls**, the default boot, where nothing can land between
-// the test and the park -- and nearly every run with them on, because
-// the gap is a few instructions. It is evidence on an image built with
-// KCMDLINE="syscall_irq=on", and it went red there only with the gap
-// widened by hand (docs/roadmap-details.md, "Interruptible syscalls").
+// off in syscalls** (`syscall_irq=off`), where nothing can land
+// between the test and the park -- and nearly every run with them on,
+// because the gap is a few instructions. It is evidence at the default
+// boot, and it went red there only with the gap widened by hand (docs/roadmap-details.md, "Interruptible syscalls").
 //
 // It must be SPAWNED, not `run` -- a child needs a parent with a pid.
 #include <stdio.h>

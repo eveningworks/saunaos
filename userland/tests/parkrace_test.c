@@ -12,9 +12,9 @@
 //   join    threads that exit at once, joined one by one
 //
 // **WHAT A BROKEN VERSION WOULD STILL PASS: every run with interrupts
-// off in syscalls**, and nearly every one with them on. Evidence on an
-// image built with KCMDLINE="syscall_irq=on", red there with the gap
-// widened by hand (docs/roadmap-details.md, "Interruptible syscalls").
+// off in syscalls** (`syscall_irq=off`), and nearly every one with them
+// on. Evidence at the default boot, red there with the gap widened by
+// hand (docs/roadmap-details.md, "Interruptible syscalls").
 //
 // It must be SPAWNED, not `run` -- it has children and threads.
 #include <stdint.h>

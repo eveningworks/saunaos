@@ -13,10 +13,9 @@
 // stopped moving.
 //
 // **WHAT A BROKEN VERSION WOULD STILL PASS: every run with interrupts
-// off in syscalls**, the default boot, and nearly every run with them
-// on -- the window is a few instructions. Evidence on an image built
-// with KCMDLINE="syscall_irq=on", red there with the window widened by
-// hand (docs/roadmap-details.md, "Interruptible syscalls").
+// off in syscalls** (`syscall_irq=off`), and nearly every run with
+// them on -- the window is a few instructions. Evidence at the default
+// boot, red there with the window widened by hand (docs/roadmap-details.md, "Interruptible syscalls").
 //
 // It must be SPAWNED, not `run` -- it has children and threads.
 #include <stdio.h>
