@@ -86,7 +86,14 @@ may.
   being destroyed is forgotten first (`win_surface_space_gone()` from
   `release_process_state()`, before a page is freed) so the deferred
   unmap never writes a dying space's tables, and the page-table walks
-  hold the preemption guard.
+  hold the preemption guard. Every grant, lease, present, hide and
+  teardown entry is a `_locked` body under that guard, and
+  `WIN_REQ_FB_LEASE` finds its lessee's space inside the guarded step
+  (`win_surface_lease_pid()`). A revoke, and `win_surface_remode_prepare()`
+  before `screen_set_mode()`'s driver call, put the holder, the lessee and
+  any ex-lessee on the scratch frame and forget the lessees; presents are
+  no-ops until `win_surface_remode()`, which runs on every path after the
+  prepare, a refused mode change included (2026-11-14).
 - `WIN_EV_SCANOUT {on, pitch, count | back << 8}` tells the client;
   `uapp` switches its surface to the leased buffer (`pitch / 4` pixels
   wide, clipped to the window -- a padded stride with no surface-type

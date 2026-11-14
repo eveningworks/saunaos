@@ -3637,7 +3637,8 @@ hundred times that.
 **Decoding is on a thread, displaying on the main one.**
 `uvid_play_tick()` only picks, from frames the decoder already copied
 into slots of their own, the one due now; the decoder parks by sleeping,
-because a condition variable spins here (`media/uthumb.c`'s measurement).
+because a condition variable spun here when this was decided (`media/uthumb.c`'s
+measurement; it parks on a futex since d9369aa9).
 **Paused is what is on screen**: a slow machine's decoder runs behind
 the clock, and before this rule it caught up behind a pause, so the
 picture moved while paused (found by `video_test.py` under TCG).

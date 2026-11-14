@@ -137,7 +137,7 @@ static void *preview_main(void *arg) {
         strlcpy(path, g_pv_path, sizeof path);
         g_pv_want = -1;
         pthread_mutex_unlock(&g_pv_lock);
-        if (want < 0) { sys_sleep_ms(15); continue; }   // parked by sleeping: a cond var spins here
+        if (want < 0) { sys_sleep_ms(15); continue; }   // parked by sleeping (from when a cond var spun)
         if (strcmp(path, open_path)) {
             uvid_close(v);
             v = 0;

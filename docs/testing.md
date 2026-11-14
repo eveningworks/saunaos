@@ -717,6 +717,8 @@ gui notify [--json]      notifications: the history newest first (each row's rec
 gui spawn PATH [args]    run a ring-3 binary directly -- no Terminal in the loop
 gui watchdog [<ms>|off]  slow-frame threshold, plus how often it fired and
                          what frame work waited on (disk, lock, the CPU)
+gui frameio              what the WM's own thread read -- config files and icon
+                         decodes -- refreshes, the worker's queue, the wallpaper
 gui pingtimeout [<ticks>] not-responding timeout -- a TEST LEVER, see below
 gui evline [<events>]    the input backlog's cap per client -- a TEST LEVER
 gui kill PID             end a process -- `gui spawn`'s counterpart

@@ -5095,10 +5095,12 @@ block under `g_lock` and calls `uapp_post()`; every widget, every draw
 and every decision happens on the main thread. A conflict is posted the
 same way and the worker then BLOCKS until the main thread answers.
 
-**The wait is `sys_sleep_ms(30)`, not a condition variable**, because
-`pthread_cond_wait` in `userland/libs/libc/pthread.c` spins on `sys_yield()`
--- a worker parked on one burns a core for as long as a person takes to
-read a dialog.
+**The wait is `sys_sleep_ms(30)`, a poll of two ints, not a condition
+variable.** It was chosen while `pthread_cond_wait` spun on `sys_yield()`
+(until d9369aa9), when a worker parked on one burned a core for as long
+as a person took to read a dialog; the condition variable parks on a
+futex now, so this call site may move onto one when `fm_jobs.c` is next
+touched.
 
 **A no-answer sentinel of `-1` is TRUTHY**, so `while (!answer)` falls
 through instantly and the copy proceeds while the question is still on

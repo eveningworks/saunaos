@@ -239,7 +239,8 @@ static int thumb_produce(struct thumb_job *j) {
 // scheduler slot. Measured: filemanager_test.py went from 1 failure to
 // 22 with a thread per decode and back with this.
 //
-// IT PARKS BY SLEEPING: pthread_cond_wait spins on sys_yield() here. The
+// IT PARKS BY SLEEPING (chosen while pthread_cond_wait spun; it parks on a
+// futex since d9369aa9). The
 // back-off is what keeps an idle app off the CPU while a drain still
 // streams -- a fixed slow poll would be the rate limit this replaced.
 #define THUMB_POLL_MS 5

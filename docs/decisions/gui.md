@@ -6279,11 +6279,11 @@ without asking -- is what `/bin/cp` does, and it is why the GUI could not
 use it.
 
 **The handshake is two ints and a sleep, not a condition variable.**
-`pthread_cond_wait` in `userland/libs/libc/pthread.c` spins on `sys_yield()`,
-so a worker parked on one burns a core for as long as the person takes
-to read the dialog. The worker polls `sys_sleep_ms(30)` instead. That is
-the wrong primitive in general and the right one here; when the
-condition variable learns to block, this is one of the call sites to
+`pthread_cond_wait` in `userland/libs/libc/pthread.c` spun on
+`sys_yield()` when this was decided, so a worker parked on one burned a
+core for as long as the person took to read the dialog. The worker polls
+`sys_sleep_ms(30)` instead. The condition variable parks on a futex since
+d9369aa9, so the premise is gone and this is one of the call sites to
 revisit.
 
 **Apply-to-all is per DECISION, not global.** Overwrite-all and skip-all

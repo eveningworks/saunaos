@@ -566,9 +566,9 @@ static int worker_conflict(void *ctx, const char *src, const char *dst,
 
     // PARKED BY SLEEPING, not by pthread_cond_wait, and not by yielding.
     // This wait lasts as long as a person takes to read a dialog --
-    // seconds, sometimes minutes -- and cond_wait spins on sys_yield()
-    // (userland/libs/libc/pthread.c), which would burn a scheduler slot the
-    // whole time. 30 ms is invisible to a human and costs nothing.
+    // seconds, sometimes minutes -- chosen while cond_wait spun on
+    // sys_yield() (it parks on a futex since d9369aa9, so a condition
+    // variable would do now). 30 ms is invisible to a human and costs nothing.
     // `< 0` IS THE WAIT, not `!answer`. -1 is the no-answer sentinel and
     // it is TRUTHY, so `!g_conflict_answer` fell through instantly: the
     // worker never waited, read -1 as a decision, and overwrote the file

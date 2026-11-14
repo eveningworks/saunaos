@@ -275,8 +275,10 @@ foreground group. That is a roadmap item, not an oversight.
 
 `SYS_SIGACTION` to register one, a signal frame pushed onto the user
 stack, and `SYS_SIGRETURN` to unwind it. This is the stage with the
-genuinely hard part in it: the frame must be restored exactly, and a
-handler that faults must not corrupt the interrupted state.
+genuinely hard part in it: the frame must be restored exactly -- FPU/SSE
+state included, which the frame carries as an FXSAVE image since
+2026-11-14 (`docs/conventions/kernel.md`) -- and a handler that faults
+must not corrupt the interrupted state.
 
 **WHAT LANDED, and the five places it differs from the plan above.**
 The one-paragraph plan was right about the shape and silent about

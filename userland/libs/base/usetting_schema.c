@@ -1,7 +1,8 @@
 // See base/usetting_schema.h.
 //
-// NOTHING IS CACHED EXCEPT THE DIRECTORY LISTING, and the split is
-// deliberate: a GET or a SET names one setting, so it opens one file and
+// NO PARSED SCHEMA IS KEPT HERE but one entry and the directory listing
+// (the file's BYTES may come from uconf's per-process cache, base/uconf.h),
+// and the split is deliberate: a GET or a SET names one setting, so it opens one file and
 // parses it, the way the kernel's setting_text.c reads its own files
 // once per lookup. What that leaves expensive is ENUMERATION -- walking
 // the directory to reach index N, N times, is quadratic -- so the NAMES
