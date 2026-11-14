@@ -2,7 +2,9 @@
 // 3.x program is made of (8086 to 386 integer instructions, 286
 // protected-mode segment loads). The 386's part is what a compiler's /G3
 // put in 16-bit segments: 32-bit registers, operand and address sizes
-// (the 66 and 67 prefixes, SIB), FS and GS, and its 0F instructions.
+// (the 66 and 67 prefixes, SIB), FS and GS, and its 0F instructions --
+// and 32-bit SEGMENTS (the D and B bits), for the Watcom Win386 programs
+// whose 32-bit flat code runs in selectors DPMI made (dpmi16.c).
 // docs/w16-design.md says why it is emulated rather than run natively.
 //
 // THE PROGRAM IS UNTRUSTED. A segment register holds a SELECTOR into
@@ -24,6 +26,8 @@
 
 #define CPU16_MAX_DESC 8192          // an LDT's worth
 #define CPU16_OWNER_TILE 0xFFFE      // a descriptor's owner: the 2nd or later 64 KiB of a huge block
+#define CPU16_OWNER_ALLOC 0xFFFB     // ...a selector the program made itself (AllocSelector, DPMI 0000h),
+                                     // the only kind it may free or re-point
 
 enum cpu16_reg { R_AX, R_CX, R_DX, R_BX, R_SP, R_BP, R_SI, R_DI };
 enum cpu16_sreg { S_ES, S_CS, S_SS, S_DS, S_FS, S_GS };
@@ -48,10 +52,16 @@ enum cpu16_kind {
     D_SENTINEL,      // the return address of cpu16_call_far()
 };
 
+#define CPU16_DF_BIG 0x01    // the D bit (code: 32-bit operands, addresses, EIP) and B bit (stack: ESP)
+#define CPU16_DF_LIN 0x02    // the base was SET as a linear address (`lin`): accesses go through the
+                             // arena modulo 2^32 (lin16.c), `base` is not used
+
 struct cpu16_desc {
-    uint8_t *base;   // host memory, at least limit+1 bytes
+    uint8_t *base;   // host memory, at least limit+1 bytes (unless CPU16_DF_LIN)
     uint32_t limit;  // the highest valid offset
+    uint32_t lin;    // the linear base, when CPU16_DF_LIN
     uint8_t kind;    // enum cpu16_kind
+    uint8_t flags;   // CPU16_DF_*
     uint16_t owner;  // the NE segment number, for fault reports; 0 none
 };
 
@@ -74,8 +84,10 @@ enum cpu16_fault {
 // real x87's.
 struct cpu16_x87 {
     uint8_t img[108];        // the state; its pointer fields are the host's, unused
-    uint16_t fip, fcs, fop;  // the last non-control instruction, as a 387 keeps it
-    uint16_t fdp, fds;       // ... and its memory operand
+    uint32_t fip;            // the last non-control instruction, as a 387 keeps it
+    uint16_t fcs, fop;
+    uint32_t fdp;            // ... and its memory operand
+    uint16_t fds;
     uint8_t ready;           // 0: FNINIT's state, made on first use
 };
 
@@ -89,19 +101,26 @@ struct cpu16;
 typedef int (*cpu16_thunk_fn)(struct cpu16 *c, uint16_t sel, uint16_t off);
 // INT n. Return 0 when handled, negative after setting a fault.
 typedef int (*cpu16_int_fn)(struct cpu16 *c, uint8_t n);
+// IN or OUT of `size` bytes (1, 2 or 4) at `port`: an IN sets *val. Return 0, or negative after
+// setting a fault. Without one, port I/O is a fault.
+typedef int (*cpu16_io_fn)(struct cpu16 *c, uint16_t port, unsigned size, int out, uint32_t *val);
 
 struct cpu16 {
     uint16_t r[8];
     uint16_t rh[8];              // the 386's high words: EAX is rh[R_AX] << 16 | r[R_AX], so a 16-bit
                                  // write -- the API side's included -- keeps them, as a 386 does
-    uint16_t ip, flags;
+    uint32_t ip;                 // EIP: 16 bits unless CS is a 32-bit segment
+    uint8_t cs32;                // CS's D bit, as the instruction being run found it (cpu16.c keeps it)
+    uint16_t flags;
     uint16_t sreg[CPU16_SREGS];
     struct cpu16_desc *desc;     // CPU16_MAX_DESC entries; selector = index << 3 | 7
     cpu16_thunk_fn thunk;
     cpu16_int_fn intr;
+    cpu16_io_fn io;
     void *user;
     int fault;
-    uint16_t fault_cs, fault_ip;
+    uint16_t fault_cs;
+    uint32_t fault_ip;
     uint16_t fault_r[8], fault_sreg[CPU16_SREGS];  // the registers AS THE FAULT FOUND THEM: the
                                                    // calls it unwinds through restore r and sreg
     char fault_why[96];
@@ -111,7 +130,25 @@ struct cpu16 {
     uint64_t steps;
     void (*tick)(struct cpu16 *c);   // every CPU16_TICK_STEPS instructions, when set
     struct cpu16_x87 x87;
+    // The linear arena (lin16.c), or NULL: the CPU runs without one (the host check).
+    uint8_t *lin;
+    uint32_t lin_size, lin_origin;
+
+    // THE 386'S DESCRIPTOR CACHE, in w16's shape (cpu16.c). Each segment register's descriptor
+    // is found once, when the register's value changes, not on every access -- the entry is
+    // still read live, so a limit or base w16 changes takes effect at once. CS's bytes are a
+    // FETCH WINDOW: [fetch_lo, fetch_lo + fetch_n) of the segment at fetch_host, rebuilt when CS
+    // or desc_gen changes; whoever changes a descriptor in place calls cpu16_desc_changed().
+    const struct cpu16_desc *segc[CPU16_SREGS];
+    uint16_t segc_sel[CPU16_SREGS];
+    const uint8_t *fetch_host;
+    uint32_t fetch_lo, fetch_n, fetch_gen, desc_gen;
+    uint16_t fetch_sel;
+    uint16_t sentinel;           // cpu16_call_far()'s return selector, 0 until the first call
 };
+
+// A descriptor was changed in place (its base, limit or kind): CS's fetch window is rebuilt.
+static inline void cpu16_desc_changed(struct cpu16 *c) { c->desc_gen++; }
 
 // Selectors.
 static inline uint16_t cpu16_sel(unsigned index) { return (uint16_t)(index << 3 | 7); }
@@ -125,6 +162,13 @@ uint16_t cpu16_alloc(struct cpu16 *c, uint8_t kind, uint8_t *base, uint32_t limi
 // The first has owner `owner`, the others `tail_owner`. 0 when no run of n is free.
 uint16_t cpu16_alloc_run(struct cpu16 *c, unsigned n, uint8_t kind, uint8_t *base, uint32_t size, uint16_t owner,
                          uint16_t tail_owner);
+
+// A selector's LINEAR base (lin16.c): 0, or -1 for one that has no memory in the arena.
+int cpu16_linear_base(struct cpu16 *c, uint16_t sel, uint32_t *out);
+// Set it, as DPMI 0007h does: from then on the selector reaches the arena at that linear address.
+void cpu16_set_linear_base(struct cpu16 *c, uint16_t sel, uint32_t lin);
+// The host bytes [lin, lin+len) of the arena, or NULL when they are not all inside it.
+uint8_t *cpu16_linear_ptr(struct cpu16 *c, uint32_t lin, uint32_t len);
 
 // Load a segment register as a mov would: checked against the table.
 int cpu16_load_sreg(struct cpu16 *c, int s, uint16_t sel);
@@ -147,6 +191,7 @@ void cpu16_push(struct cpu16 *c, uint16_t v);
 uint16_t cpu16_pop(struct cpu16 *c);
 uint16_t cpu16_arg(struct cpu16 *c, unsigned byte_off);   // SS:SP+4+byte_off
 uint8_t *cpu16_ptr(struct cpu16 *c, uint16_t sel, uint16_t off, uint32_t len, int write);
+uint8_t *cpu16_ptr32(struct cpu16 *c, uint16_t sel, uint32_t off, uint32_t len, int write);   // a 32-bit offset
 // A NUL-terminated string at sel:off, at most cap-1 bytes copied; -1 bad.
 int cpu16_str(struct cpu16 *c, uint16_t sel, uint16_t off, char *out, unsigned cap);
 
@@ -170,8 +215,11 @@ const char *cpu16_fault_name(int kind);
 
 // One ESC instruction (opcode D8-DF and its ModRM byte), for cpu16.c:
 // `seg` is the memory operand's segment register (-1 for a register
-// form), `off` its offset, `cs:ip` where the instruction began.
-void cpu16_x87_op(struct cpu16 *c, uint8_t op, uint8_t modrm, int seg, uint16_t off, uint16_t cs, uint16_t ip);
+// form), `off` its offset, `cs:ip` where the instruction began; `o32` the
+// operand size, which picks FLDENV/FNSTENV/FRSTOR/FNSAVE's 16-bit (14/94
+// bytes) or 32-bit (28/108) protected-mode layout.
+void cpu16_x87_op(struct cpu16 *c, uint8_t op, uint8_t modrm, int seg, uint32_t off, uint16_t cs, uint32_t ip,
+                  int o32);
 // Does this ESC instruction wait (check for a pending exception first)?
 int cpu16_x87_waits(uint8_t op, uint8_t modrm);
 // The unmasked exceptions pending (X87_*), 0 when none.

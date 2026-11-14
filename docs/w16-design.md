@@ -63,6 +63,8 @@ LOUDLY and by name (below), never as a silent zero.
   |   cpu16.c    the interpreter: 8086 to 386 integer,   |
   |              a selector table instead of an LDT      |
   |   cpu16_x87.c  the 387, on the host's own x87        |
+  |   lin16.c    the linear arena all of it lives in     |
+  |   dpmi16.c   INT 31h: descriptors, linear memory     |
   |   win87em16.c  WIN87EM: _fpMath, the FP exceptions   |
   |   kernel16.c user16.c gdi16.c  the API, in C         |
   |   file16.c   drives C: and Z:, the file calls        |
@@ -93,6 +95,15 @@ LOUDLY and by name (below), never as a silent zero.
   checks it, so a bad selector is a #GP the interpreter raises, which
   ends the program with a crash report naming CS:IP -- never a host
   fault.
+- **One linear address space** (`lin16.c`, since 2026-11-14). Every byte
+  a selector reaches is allocated from one reserved arena, so each
+  selector has the 32-bit LINEAR base enhanced mode gave it: linear
+  `0x80000000 + n` is the arena's byte n. A descriptor whose base was
+  SET as a linear address (DPMI 0007h) reaches the arena modulo 2^32, as
+  a 386's segment wrapped, and `mem()` bounds every such access to the
+  arena -- a 4 GiB flat selector still cannot touch w16's own memory.
+  The arena is reserved, not committed (pages arrive on touch), and
+  never moves, so host pointers into it stay good.
 - **Imports are thunk selectors.** A FAR_ADDR relocation to
   `USER.41` (CreateWindow) points at a reserved selector whose offset
   names the function; a far call into it leaves the interpreter loop
@@ -406,10 +417,14 @@ the palette, whose mapping is not yet measured.
    **since 2026-11-01 the 386's**, what a compiler's /G3 put in 16-bit
    segments: 32-bit registers (their high words kept apart, so the API
    side's 16-bit writes keep them), the 66 and 67 prefixes with SIB, FS
-   and GS, and the 386's 0F instructions. A host
+   and GS, and the 386's 0F instructions; **since 2026-11-14 32-bit
+   SEGMENTS** too -- CS's D bit (32-bit operands, addresses and EIP) and
+   SS's B bit (ESP) -- and the 486's BSWAP, XADD and CMPXCHG, for the
+   Watcom Win386 programs below. A host
    build runs the test programs; a **foreign check** compares it with
    the real CPU running the same code in a 16-bit LDT segment on the
-   Linux host (`modify_ldt`), undefined flags masked.
+   Linux host (`modify_ldt`), undefined flags masked -- and again in a
+   32-bit one.
 2. **A first window.** The toywm additions above; KERNEL's task
    start-up, USER's classes, CreateWindow, the message loop and
    DefWindowProc, GDI's BeginPaint/TextOut; the L3 frame. A NASM
@@ -595,9 +610,39 @@ the palette, whose mapping is not yet measured.
    Calculator and `samples/shapes.asm` run on both; both views of
    Calculator then match real 3.11 to the pixel, and seven calculations'
    displays -- sin, pi, log, 100!, log 0, a root, 1000! -- read the same.
+   **Lighthouse, 2026-11-14** (Sierra's 1996 adventure, the user's own
+   CDs, never in the repo): its Windows 3.1 build is a WATCOM WIN386
+   program -- a 16-bit NE supervisor that asks DPMI for 32-bit flat
+   segments and runs Sierra's SCI3 interpreter in them, calling Windows
+   through its own 16-bit glue. Open Watcom's `shootgal` sample built
+   for win386 was the smaller first step. It took the linear arena
+   (`lin16.c`) and 32-bit segments in the CPU above; DPMI's descriptor
+   and memory calls (`dpmi16.c`, Wine's krnl386 `int31.c` the shape);
+   KERNEL's selector calls (AllocSelector, the CS/DS aliases,
+   PrestoChangoSelector, Get/SetSelectorBase and Limit) and its
+   first-megabyte selectors (`__F000H`'s BIOS date, which Watcom's
+   start-up reads to tell a PC from a PC-98); IN and OUT answered as an
+   AT's CMOS clock, PIT and VGA status, any other port an empty bus
+   (`io16.c`). Sierra's Setup installs it from the CD image: VER's
+   version calls, BeginDeferWindowPos, RedrawWindow, GetFileTitle,
+   waveOutGetDevCaps, INI files read on any drive (its LANGUAGE.INF
+   names the product), and DOS's find state kept IN THE DTA, as DOS kept
+   it, so a search inside a search no longer ends the outer one (Setup
+   copied one `*.pat` of three). The game then draws its title, follows
+   the mouse and plays its intro: waveOutReset now ends a pause, as the
+   API's documentation says (the next waveOutWrite starts playing) --
+   SCI opens, pauses, resets and writes without a restart, and waited
+   on its first sound forever. Its speed is the CPU's: 20 MIPS under KVM
+   before the descriptor cache, ~29 after (`tools/bench/cpu16_bench.py`
+   on the host: 51 -> 89). Setup's Program Manager group, a CD change
+   for disc 2 and the speed are on the roadmap.
 
 ## Not planned
 
 - Running DOS programs (V86 mode, a DOS API) -- a different layer.
 - Shipping any Microsoft file. Programs and fonts are the user's own.
-- 32-bit Windows (Win32s, PE): another API, another project.
+- 32-bit Windows (Win32s, PE): another API, another project. **A Watcom
+  Win386 program is not one**: it is an NE whose 16-bit supervisor builds
+  32-bit flat segments through DPMI (`dpmi16.c`) and calls the Win16 API
+  for its 32-bit code, so it runs on w16 as it ran on 3.1 in enhanced
+  mode (stage 4, Lighthouse).

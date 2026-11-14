@@ -593,9 +593,53 @@ static char *ds_dx_path(struct cpu16 *c) {
     return s;
 }
 
-// The DTA a find writes into, and the folder and pattern it walks.
+// The DTA a find writes into. A SEARCH LIVES IN ITS DTA, as DOS kept it in the DTA's 21 reserved
+// bytes: a program may start a second search (in another DTA, or to check one file) while walking a
+// first, and Sierra's Setup does, copying `*.pat`. w16 keeps there a tag, the pattern, the next
+// entry's index and the attributes; the folder, which does not fit, is an index into the folders
+// searched so far (each kept once, the list grown as programs search new ones).
 static uint32_t g_dta;
-static struct { char host[1024], pattern[16]; int next; uint16_t attr; } g_find;
+static char **g_find_dirs;
+static unsigned g_find_ndirs;
+
+#define FIND_TAG 0xF6                            // byte 0 of a DTA w16's find wrote
+#define FIND_DONE 0xFFFF                         // its next index once the search has ended
+
+struct find { const char *host; char pattern[13]; unsigned next; uint8_t attr; };
+
+static int find_dir_id(const char *host) {
+    for (unsigned i = 0; i < g_find_ndirs; i++)
+        if (!strcmp(g_find_dirs[i], host)) return (int)i;
+    char **g = realloc(g_find_dirs, sizeof *g * (g_find_ndirs + 1));
+    if (!g) return -1;
+    g_find_dirs = g;
+    if (!(g[g_find_ndirs] = strdup(host))) return -1;
+    return (int)g_find_ndirs++;
+}
+
+// The search the DTA holds, into *f; -1 when it holds none (never a find's, or written over).
+static int find_load(const uint8_t *dta, struct find *f) {
+    unsigned id = (unsigned)(dta[13] | dta[14] << 8);
+    if (dta[0] != FIND_TAG || id >= g_find_ndirs) return -1;
+    memcpy(f->pattern, dta + 1, 12);
+    f->pattern[12] = 0;
+    f->host = g_find_dirs[id];
+    f->next = (unsigned)(dta[15] | dta[16] << 8);
+    f->attr = dta[17];
+    return 0;
+}
+
+static void find_store(uint8_t *dta, int dir_id, const char *pattern, unsigned next, uint8_t attr) {
+    memset(dta, 0, 21);
+    dta[0] = FIND_TAG;
+    size_t n = strlen(pattern);
+    memcpy(dta + 1, pattern, n < 12 ? n : 12);
+    dta[13] = (uint8_t)dir_id;
+    dta[14] = (uint8_t)(dir_id >> 8);
+    dta[15] = (uint8_t)next;
+    dta[16] = (uint8_t)(next >> 8);
+    dta[17] = attr;
+}
 
 static int match83(const char *pat, const char *name) {
     for (; *pat; pat++, name++) {
@@ -682,32 +726,35 @@ static int find_label(struct cpu16 *c, char d) {
     memset(p, 0, 43);
     p[21] = 0x08;
     snprintf((char *)p + 30, 13, "%.8s%s%s", label, strlen(label) > 8 ? "." : "", strlen(label) > 8 ? label + 8 : "");
-    g_find.next = -1;                            // a find-next after it: no more
+    p[0] = FIND_TAG;                             // a find-next after it: no more
+    p[13] = p[14] = 0xFF;
     dos_ok(c);
     return 0;
 }
 
 static int find_next(struct cpu16 *c) {
-    if (g_find.next < 0) return dos_err(c, 18);
-    DIR *d = opendir(g_find.host);
+    uint8_t *p = cpu16_ptr(c, (uint16_t)(g_dta >> 16), (uint16_t)g_dta, 43, 1);
+    if (!p) return -1;
+    struct find f;
+    if (find_load(p, &f) < 0 || f.next == FIND_DONE) return dos_err(c, 18);
+    int dir_id = p[13] | p[14] << 8;
+    DIR *d = opendir(f.host);
     if (!d) return dos_err(c, 18);
     struct dirent *de;
-    int i = 0;
+    unsigned i = 0;
+    // "*.*" matches every name, with a dot or without, as DOS's did.
+    int all = !strcmp(f.pattern, "*.*") || !strcmp(f.pattern, "*");
     while ((de = readdir(d))) {
-        if (i++ < g_find.next) continue;
-        g_find.next = i;
-        // "*.*" matches every name, with a dot or without, as DOS's did.
-        int all = !strcmp(g_find.pattern, "*.*") || !strcmp(g_find.pattern, "*");
-        if (!all && !match83(g_find.pattern, de->d_name)) continue;
+        if (i++ < f.next) continue;
+        if (!all && !match83(f.pattern, de->d_name)) continue;
         char path[1100];
         struct stat st;
-        snprintf(path, sizeof path, "%s/%s", strcmp(g_find.host, "/") ? g_find.host : "", de->d_name);
+        snprintf(path, sizeof path, "%s/%s", strcmp(f.host, "/") ? f.host : "", de->d_name);
         if (stat(path, &st) != 0) continue;
         int dir = S_ISDIR(st.st_mode);
-        if (dir && !(g_find.attr & 0x10)) continue;
-        uint8_t *p = cpu16_ptr(c, (uint16_t)(g_dta >> 16), (uint16_t)g_dta, 43, 1);
-        if (!p) { closedir(d); return -1; }
-        memset(p, 0, 43);
+        if (dir && !(f.attr & 0x10)) continue;
+        find_store(p, dir_id, f.pattern, i, f.attr);
+        memset(p + 21, 0, 43 - 21);
         p[21] = dir ? 0x10 : 0x20;
         struct tm *tm = localtime(&st.st_mtime);
         uint16_t t = tm ? (uint16_t)(tm->tm_hour << 11 | tm->tm_min << 5 | tm->tm_sec / 2) : 0;
@@ -722,6 +769,7 @@ static int find_next(struct cpu16 *c) {
         return 0;
     }
     closedir(d);
+    p[15] = p[16] = 0xFF;                        // FIND_DONE: a later find-next says the same
     return dos_err(c, 18);                       // no more files
 }
 
@@ -821,7 +869,8 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
                 free(dos);
                 return find_label(c, d);
             }
-            snprintf(g_find.pattern, sizeof g_find.pattern, "%s", sl ? sl + 1 : drive ? dos + 2 : dos);
+            char pattern[13];
+            snprintf(pattern, sizeof pattern, "%s", sl ? sl + 1 : drive ? dos + 2 : dos);
             if (sl) {
                 *sl = 0;
                 if (!dos[0] || (drive && !dos[2])) snprintf(folder, sizeof folder, "%s\\", dos);
@@ -832,9 +881,11 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
             e = w16_dos_path(folder, host, sizeof host, 0, 0, 0);
             free(dos);
             if (e) return dos_err(c, e);
-            snprintf(g_find.host, sizeof g_find.host, "%s", host);
-            g_find.next = 0;
-            g_find.attr = c->r[R_CX];
+            int id = find_dir_id(host);
+            uint8_t *p = cpu16_ptr(c, (uint16_t)(g_dta >> 16), (uint16_t)g_dta, 43, 1);
+            if (!p) return -1;
+            if (id < 0) return dos_err(c, 8);    // out of memory
+            find_store(p, id, pattern, 0, (uint8_t)c->r[R_CX]);
             return find_next(c);
         }
         e = w16_dos_path(dos, host, sizeof host, ah == 0x39, full, sizeof full);

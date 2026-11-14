@@ -1389,22 +1389,16 @@ static void frame_changed(struct w16 *w, struct w16_wnd *x) {
 }
 
 // The z-order is the creation order (wnd16.c) and stays.
-// SetWindowPos(hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags) -> BOOL
-// Windows: Moves, sizes, shows or hides a window, and changes its place in the stacking order; each
-// SWP_NO* flag keeps one of them as it is. HWND_TOPMOST keeps it above every window that is not.
-// w16: Moves and sizes as MoveWindow does, keeping what an SWP_NO* flag says to; SWP_FRAMECHANGED
-// redraws the frame a style change made and resizes the client inside it. The stacking order of a
-// program's windows stays their creation order; toywm stacks its top-level windows, and
-// HWND_TOPMOST and HWND_NOTOPMOST on the main window are its Always on Top.
-static int api_SetWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    (void)ordinal;
-    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    uint16_t after = w16_arg16(a);
-    int16_t nx = (int16_t)w16_arg16(a), ny = (int16_t)w16_arg16(a);
-    int16_t nw = (int16_t)w16_arg16(a), nh = (int16_t)w16_arg16(a);
-    uint16_t flags = w16_arg16(a);
-    w->cpu.r[R_AX] = x != 0;
-    if (!x) return 14;
+// One SetWindowPos: what the call and a DeferWindowPos batch both carry.
+struct window_pos {
+    uint16_t hwnd, after;
+    int16_t x, y, cx, cy;
+    uint16_t flags;
+};
+
+static void set_window_pos(struct w16 *w, struct w16_wnd *x, const struct window_pos *p) {
+    uint16_t after = p->after, flags = p->flags;
+    int16_t nx = p->x, ny = p->y, nw = p->cx, nh = p->cy;
     if (x == &w->win && !(flags & SWP_NOZORDER) && (after == HWND_TOPMOST || after == HWND_NOTOPMOST))
         w16_task_post_arg(w, W16_POST_ABOVE, after == HWND_TOPMOST);
     if (flags & SWP_NOMOVE) { nx = (int16_t)x->x; ny = (int16_t)x->y; }
@@ -1426,7 +1420,107 @@ static int api_SetWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
         else if (!show && was && x->kind == W16_K_CHILD) w16_invalidate(w, w16_wnd_get(w, x->parent), 1);
         if (x == &w->win) w16_task_post(w, W16_POST_PAINT);
     }
+}
+
+// SetWindowPos(hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags) -> BOOL
+// Windows: Moves, sizes, shows or hides a window, and changes its place in the stacking order; each
+// SWP_NO* flag keeps one of them as it is. HWND_TOPMOST keeps it above every window that is not.
+// w16: Moves and sizes as MoveWindow does, keeping what an SWP_NO* flag says to; SWP_FRAMECHANGED
+// redraws the frame a style change made and resizes the client inside it. The stacking order of a
+// program's windows stays their creation order; toywm stacks its top-level windows, and
+// HWND_TOPMOST and HWND_NOTOPMOST on the main window are its Always on Top.
+static int api_SetWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct window_pos p = { .hwnd = w16_arg16(a), .after = w16_arg16(a) };
+    p.x = (int16_t)w16_arg16(a);
+    p.y = (int16_t)w16_arg16(a);
+    p.cx = (int16_t)w16_arg16(a);
+    p.cy = (int16_t)w16_arg16(a);
+    p.flags = w16_arg16(a);
+    struct w16_wnd *x = w16_wnd_get(w, p.hwnd);
+    w->cpu.r[R_AX] = x != 0;
+    if (x) set_window_pos(w, x, &p);
     return 14;
+}
+
+// A DeferWindowPos batch: its moves kept until EndDeferWindowPos makes them, in the order given.
+// Few are open at once (a program begins, defers and ends in one go), so a list searched by handle.
+static struct dwp {
+    uint16_t handle;
+    struct window_pos *e;
+    unsigned n, cap;
+} *g_dwp;
+static unsigned g_ndwp;
+static uint16_t g_dwp_next = 1;
+
+static struct dwp *dwp_get(uint16_t h) {
+    for (unsigned i = 0; i < g_ndwp; i++)
+        if (g_dwp[i].handle == h) return &g_dwp[i];
+    return 0;
+}
+
+// BeginDeferWindowPos(nNumWindows) -> HDWP
+// Windows: Starts a batch of window moves that EndDeferWindowPos makes together; nNumWindows is a
+// hint of how many. NULL when out of memory.
+// w16: The same: the batch is kept host-side and grows past the hint.
+static int api_BeginDeferWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    struct dwp *g = realloc(g_dwp, sizeof *g * (g_ndwp + 1));
+    w->cpu.r[R_AX] = 0;
+    if (!g) return 2;
+    g_dwp = g;
+    if (!g_dwp_next) g_dwp_next = 1;
+    g_dwp[g_ndwp] = (struct dwp){ .handle = g_dwp_next++ };
+    w->cpu.r[R_AX] = g_dwp[g_ndwp++].handle;
+    return 2;
+}
+
+// DeferWindowPos(hWinPosInfo, hWnd, hWndInsertAfter, x, y, cx, cy, uFlags) -> HDWP
+// Windows: Adds one SetWindowPos to a batch: the batch's handle back, or NULL (and the batch ended)
+// on a bad window or no memory.
+// w16: The same; the move is SetWindowPos's when EndDeferWindowPos makes it.
+static int api_DeferWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    struct window_pos p = { .hwnd = w16_arg16(a), .after = w16_arg16(a) };
+    p.x = (int16_t)w16_arg16(a);
+    p.y = (int16_t)w16_arg16(a);
+    p.cx = (int16_t)w16_arg16(a);
+    p.cy = (int16_t)w16_arg16(a);
+    p.flags = w16_arg16(a);
+    struct dwp *d = dwp_get(h);
+    w->cpu.r[R_AX] = 0;
+    if (!d || !w16_wnd_get(w, p.hwnd)) return 16;
+    if (d->n == d->cap) {
+        unsigned cap = d->cap ? d->cap * 2 : 4;
+        struct window_pos *e = realloc(d->e, sizeof *e * cap);
+        if (!e) return 16;
+        d->e = e;
+        d->cap = cap;
+    }
+    d->e[d->n++] = p;
+    w->cpu.r[R_AX] = h;
+    return 16;
+}
+
+// EndDeferWindowPos(hWinPosInfo) -> BOOL
+// Windows: Makes every move of a batch, then frees it.
+// w16: The same, one after another in the order deferred; a window destroyed since is skipped.
+static int api_EndDeferWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct dwp *d = dwp_get(w16_arg16(a));
+    w->cpu.r[R_AX] = d != 0;
+    if (!d) return 2;
+    struct dwp batch = *d;
+    *d = g_dwp[--g_ndwp];                        // off the list first: a move's messages may begin another
+    for (unsigned i = 0; i < batch.n; i++) {
+        struct w16_wnd *x = w16_wnd_get(w, batch.e[i].hwnd);
+        if (x) set_window_pos(w, x, &batch.e[i]);
+        if (w->cpu.fault) break;
+    }
+    free(batch.e);
+    return 2;
 }
 
 // What CreateWindow and MoveWindow take off again (w16_frame_fit under the desktop's frame), so the
@@ -1925,6 +2019,52 @@ static int api_UpdateWindow(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 2;
 }
 
+#define RDW_INVALIDATE  0x0001
+#define RDW_ERASE       0x0004
+#define RDW_VALIDATE    0x0008
+#define RDW_UPDATENOW   0x0100
+#define RDW_ERASENOW    0x0200
+
+// RedrawWindow(hWnd, lprcUpdate, hrgnUpdate, fuRedraw) -> BOOL
+// Windows: InvalidateRect, ValidateRect and UpdateWindow in one: a rectangle, a region or the whole
+// client area (when both are NULL) marked as needing paint (RDW_INVALIDATE, erased with RDW_ERASE)
+// or as painted (RDW_VALIDATE), then painted at once with RDW_UPDATENOW or RDW_ERASENOW.
+// w16: The same; the frame flags draw nothing more, w16 draws a window's frame itself.
+static int api_RedrawWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    int16_t r[4];
+    int have = far_rect(w, w16_arg32(a), r);
+    uint16_t hrgn = w16_arg16(a), flags = w16_arg16(a);
+    if (have < 0) return -1;
+    w->cpu.r[R_AX] = 1;
+    if (!x) return 10;                               // the desktop: SaunaOS's, not the program's
+    struct urgn g;
+    urgn_init(&g);
+    if (have) {
+        if (r[2] > r[0] && r[3] > r[1]) urgn_set_rect(&g, r[0], r[1], r[2] - r[0], r[3] - r[1]);
+    } else if (hrgn && w16_gdi_region_copy(w, hrgn, &g) < 0) {
+        urgn_free(&g);
+    }
+    int whole = !have && !hrgn;
+    if (flags & RDW_INVALIDATE) {
+        if (whole) w16_invalidate(w, x, (flags & RDW_ERASE) != 0);
+        for (int i = 0; i < g.n; i++)
+            w16_invalidate_rect(w, x, g.r[i].x, g.r[i].y, g.r[i].x + g.r[i].w, g.r[i].y + g.r[i].h,
+                                (flags & RDW_ERASE) != 0);
+    } else if (flags & RDW_VALIDATE) {
+        if (whole) w16_validate_rect(w, x, 0);
+        for (int i = 0; i < g.n; i++) {
+            int16_t rc[4] = { (int16_t)g.r[i].x, (int16_t)g.r[i].y, (int16_t)(g.r[i].x + g.r[i].w),
+                              (int16_t)(g.r[i].y + g.r[i].h) };
+            w16_validate_rect(w, x, rc);
+        }
+    }
+    urgn_free(&g);
+    if (flags & (RDW_UPDATENOW | RDW_ERASENOW)) update(w, x, 0);
+    return 10;
+}
+
 // InvalidateRect(hWnd, lpRect, bErase) -> void
 // Windows: Marks part of a window as needing paint -- all of it with no rectangle, erased first if
 // asked -- so WM_PAINT comes for it; the parts accumulate into its update region.
@@ -2282,7 +2422,11 @@ const struct w16_api g_user_api[] = {
     { 232, api_SetWindowPos },
     { 243, api_GetDialogBaseUnits },
     { 249, api_GetAsyncKeyState },
+    { 259, api_BeginDeferWindowPos },
+    { 260, api_DeferWindowPos },
+    { 261, api_EndDeferWindowPos },
     { 277, api_GetDlgCtrlID },
+    { 290, api_RedrawWindow },
     { 334, api_GetQueueStatus },
     { 403, api_UnregisterClass },
     { 404, api_GetClassInfo },

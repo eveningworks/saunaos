@@ -9,6 +9,11 @@
 //
 // Built -no-pie: the far call's return address and the stack the 16-bit
 // code saves are 32-bit, so the code and that stack live below 4 GiB.
+//
+// `32` as the third argument runs the same cases in a 32-BIT code segment
+// with a 32-bit stack (the D and B bits, what a Win386 program's flat code
+// runs in): the generator's 66 and 67 then mean the opposite, so it emits
+// each where the case wants the 16-bit size.
 #define _GNU_SOURCE
 #include <asm/ldt.h>
 #include <cpuid.h>
@@ -37,6 +42,7 @@ static uint8_t *g_code, *g_data, *g_stack, *g_lowstack;
 static uint8_t g_idata[0x10000], g_istack[0x10000], g_icode[0x10000];
 static struct cpu16_desc g_desc[CPU16_MAX_DESC];
 static uint64_t g_saved_rsp;
+static int g_use32;                  // the cases run in a 32-bit code segment and stack
 static uint32_t g_rng = 1;
 
 static uint32_t rnd(void) {
@@ -53,10 +59,10 @@ static void *low_map(size_t n) {
     return p;
 }
 
-static void set_ldt(int entry, void *base, int code) {
+static void set_ldt(int entry, void *base, int code, int big) {
     struct user_desc d = {
         .entry_number = (unsigned)entry, .base_addr = (unsigned)(uintptr_t)base, .limit = 0xFFFF,
-        .seg_32bit = 0, .contents = code ? MODIFY_LDT_CONTENTS_CODE : MODIFY_LDT_CONTENTS_DATA,
+        .seg_32bit = (unsigned)big, .contents = code ? MODIFY_LDT_CONTENTS_CODE : MODIFY_LDT_CONTENTS_DATA,
         .read_exec_only = 0, .limit_in_pages = 0, .seg_not_present = 0, .useable = 1,
     };
     if (syscall(SYS_modify_ldt, 1, &d, sizeof d) != 0) { perror("modify_ldt"); exit(3); }
@@ -73,9 +79,53 @@ static unsigned emit(uint8_t *p, unsigned at, const uint8_t *b, unsigned n) {
 // high word 0), set DS=ES=GS=data, load the 32-bit registers and the
 // flags, run the test, store them, restore the host's stack and `o32
 // retf` back to 64-bit mode.
+// The same in a 32-bit segment: 67 keeps each memory operand's 16-bit
+// address, and the operand sizes are the other way round.
+static const uint8_t g_pro32[] = {
+    0x66, 0xB8, SEL(E_STACK) & 0xFF, SEL(E_STACK) >> 8,     // mov ax, stack
+    0x8E, 0xD8,                                             // mov ds, ax
+    0x67, 0x89, 0x26, SAVE_AREA & 0xFF, SAVE_AREA >> 8,     // mov [save], esp
+    0x67, 0x8C, 0x16, (SAVE_AREA + 4) & 0xFF, (SAVE_AREA + 4) >> 8,   // mov [save+4], ss
+    0x8E, 0xD0,                                             // mov ss, ax
+    0xBC, TEST_SP & 0xFF, TEST_SP >> 8, 0, 0,               // mov esp, TEST_SP
+    0x68, SEL(E_DATA) & 0xFF, SEL(E_DATA) >> 8, 0, 0, 0x1F, // push data; pop ds
+    0x68, SEL(E_DATA) & 0xFF, SEL(E_DATA) >> 8, 0, 0, 0x07, // push data; pop es
+    0x68, SEL(E_DATA) & 0xFF, SEL(E_DATA) >> 8, 0, 0, 0x0F, 0xA9,   // push data; pop gs
+    0x66, 0x36, 0x67, 0xFF, 0x36, 0x20, 0xFF,               // push word [ss:IN+0x20]
+    0x66, 0x9D,                                             // popf (a word)
+    0x36, 0x67, 0xA1, 0x00, 0xFF,                           // mov eax, [ss:IN]
+    0x36, 0x67, 0x8B, 0x0E, 0x04, 0xFF,                     // mov ecx, [ss:IN+4]
+    0x36, 0x67, 0x8B, 0x16, 0x08, 0xFF,                     // mov edx
+    0x36, 0x67, 0x8B, 0x1E, 0x0C, 0xFF,                     // mov ebx
+    0x36, 0x67, 0x8B, 0x2E, 0x14, 0xFF,                     // mov ebp
+    0x36, 0x67, 0x8B, 0x36, 0x18, 0xFF,                     // mov esi
+    0x36, 0x67, 0x8B, 0x3E, 0x1C, 0xFF,                     // mov edi
+};
+static const uint8_t g_epi32[] = {
+    0x36, 0x67, 0xA3, 0x40, 0xFF,                           // mov [ss:OUT], eax
+    0x36, 0x67, 0x89, 0x0E, 0x44, 0xFF,                     // ecx
+    0x36, 0x67, 0x89, 0x16, 0x48, 0xFF,                     // edx
+    0x36, 0x67, 0x89, 0x1E, 0x4C, 0xFF,                     // ebx
+    0x36, 0x67, 0x89, 0x26, 0x50, 0xFF,                     // esp
+    0x36, 0x67, 0x89, 0x2E, 0x54, 0xFF,                     // ebp
+    0x36, 0x67, 0x89, 0x36, 0x58, 0xFF,                     // esi
+    0x36, 0x67, 0x89, 0x3E, 0x5C, 0xFF,                     // edi
+    0x66, 0x9C,                                             // pushf (a word)
+    0x66, 0x36, 0x67, 0x8F, 0x06, 0x60, 0xFF,               // pop word [ss:OUT+0x20]
+    0x36, 0x67, 0x0F, 0xB2, 0x26, SAVE_AREA & 0xFF, SAVE_AREA >> 8,   // lss esp, [ss:save]
+    0xCB,                                                   // retf (32-bit)
+};
+
 static unsigned build_native(const uint8_t *test, unsigned len) {
     uint8_t *p = g_code;
     unsigned a = 0;
+    if (g_use32) {
+        a = emit(p, a, g_pro32, sizeof g_pro32);
+        unsigned at = a;
+        a = emit(p, a, test, len);
+        emit(p, a, g_epi32, sizeof g_epi32);
+        return at;
+    }
     const uint8_t pro[] = {
         0xB8, SEL(E_STACK) & 0xFF, SEL(E_STACK) >> 8,     // mov ax, stack
         0x8E, 0xD8,                                       // mov ds, ax
@@ -501,8 +551,8 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
         in->rh[R_BX] = in->rh[R_SI] = in->rh[R_DI] = in->rh[R_BP] = 0;
         if (kind == 9 || kind == 11) in->rh[R_CX] = (uint16_t)(rnd() % 2);   // ECX counts under 67
     }
-    if (g_o32) b[n++] = 0x66;
-    if (g_a32) b[n++] = 0x67;
+    if (g_o32 != g_use32) b[n++] = 0x66;              // in a 32-bit segment, 66 asks for the WORD
+    if (g_a32 != g_use32) b[n++] = 0x67;
     if (rnd() % 8 == 0) b[n++] = 0x65;
     return n + gen_body(b + n, undef, in, kind);
 }
@@ -515,6 +565,7 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
 static unsigned gen_x87(uint8_t *b) {
     unsigned n = 0;
     g_a32 = 0;
+    if (g_use32) b[n++] = 0x67;                           // 16-bit addresses; the environment's layout is 32-bit
     if (rnd() % 8 == 0) b[n++] = rnd() & 1 ? 0x26 : 0x36;
     b[n++] = (uint8_t)(0xD8 + rnd() % 8);
     if (rnd() & 1) b[n++] = (uint8_t)(0xC0 + rnd() % 64);
@@ -636,7 +687,7 @@ static int fuzz_int(struct cpu16 *c, uint8_t n) {
 }
 
 static int fuzz(unsigned cases) {
-    static uint8_t code[0x400], data[0x300], stack[0x200];
+    static uint8_t code[0x400], data[0x300], stack[0x200], arena[0x1000];
     unsigned faults = 0, exits = 0, budget = 0;
     for (unsigned k = 0; k < cases; k++) {
         struct cpu16 c;
@@ -648,19 +699,30 @@ static int fuzz(unsigned cases) {
         for (unsigned i = 0; i < sizeof code; i++) code[i] = (uint8_t)rnd();
         for (unsigned i = 0; i < sizeof data; i++) data[i] = (uint8_t)rnd();
         // Small segments with odd limits, so the limit checks are what holds.
-        g_desc[1] = (struct cpu16_desc){ code, sizeof code - 1, D_CODE, 1 };
-        g_desc[2] = (struct cpu16_desc){ data, sizeof data - 1 - (rnd() % 64), D_DATA, 2 };
-        g_desc[3] = (struct cpu16_desc){ stack, sizeof stack - 1, D_DATA, 3 };
-        g_desc[4] = (struct cpu16_desc){ 0, 0xFFFF, D_THUNK, 0 };
-        g_desc[5] = (struct cpu16_desc){ code, sizeof code - 1, D_CODE, 1 };
+        g_desc[1] = (struct cpu16_desc){ .base = code, .limit = sizeof code - 1, .kind = D_CODE, .owner = 1 };
+        g_desc[2] = (struct cpu16_desc){ .base = data, .limit = sizeof data - 1 - (rnd() % 64), .kind = D_DATA, .owner = 2 };
+        g_desc[3] = (struct cpu16_desc){ .base = stack, .limit = sizeof stack - 1, .kind = D_DATA, .owner = 3 };
+        g_desc[4] = (struct cpu16_desc){ .base = 0, .limit = 0xFFFF, .kind = D_THUNK, .owner = 0 };
+        g_desc[5] = (struct cpu16_desc){ .base = code, .limit = sizeof code - 1, .kind = D_CODE, .owner = 1 };
+        // Half the cases in 32-bit segments, and a FLAT selector: a linear base anywhere, a 4 GiB limit,
+        // over a small arena -- only the arena bound keeps it in.
+        c.lin = arena;
+        c.lin_size = sizeof arena;
+        c.lin_origin = 0x80000000u;
+        g_desc[6] = (struct cpu16_desc){ .lin = 0x80000000u + rnd() % 0x2000 - 0x800, .limit = 0xFFFFFFFFu,
+                                         .kind = D_DATA, .flags = CPU16_DF_LIN, .owner = 6 };
+        if (rnd() & 1) {
+            g_desc[1].flags = g_desc[5].flags = CPU16_DF_BIG;
+            if (rnd() & 1) g_desc[3].flags = CPU16_DF_BIG;
+        }
         for (int i = 0; i < 8; i++) { c.r[i] = (uint16_t)rnd(); c.rh[i] = (uint16_t)rnd(); }
         c.r[R_SP] = (uint16_t)(rnd() % 0x220);
         c.sreg[S_CS] = SEL(1);
-        c.sreg[S_DS] = SEL(rnd() % 6);
-        c.sreg[S_ES] = SEL(rnd() % 6);
+        c.sreg[S_DS] = SEL(rnd() % 7);
+        c.sreg[S_ES] = SEL(rnd() % 7);
         c.sreg[S_SS] = SEL(3);
-        c.sreg[S_FS] = SEL(rnd() % 6);
-        c.sreg[S_GS] = SEL(rnd() % 6);
+        c.sreg[S_FS] = SEL(rnd() % 7);
+        c.sreg[S_GS] = SEL(rnd() % 7);
         c.ip = (uint16_t)(rnd() % sizeof code);
         c.flags = (uint16_t)(rnd() & 0x0FD5);
         cpu16_run(&c, 2000);
@@ -688,9 +750,10 @@ int main(int argc, char **argv) {
     g_data = low_map(0x10000);
     g_stack = low_map(0x10000);
     g_lowstack = low_map(0x10000);
-    set_ldt(E_CODE, g_code, 1);
-    set_ldt(E_DATA, g_data, 0);
-    set_ldt(E_STACK, g_stack, 0);
+    g_use32 = argc > 3 && !strcmp(argv[3], "32");
+    set_ldt(E_CODE, g_code, 1, g_use32);
+    set_ldt(E_DATA, g_data, 0, 0);
+    set_ldt(E_STACK, g_stack, 0, g_use32);
 
     unsigned bad = 0, skipped = 0, ran = 0;
     for (unsigned k = 0; k < cases && bad < 20; k++) {
@@ -722,6 +785,10 @@ int main(int argc, char **argv) {
         memset(g_istack, 0, sizeof g_istack);
         for (unsigned i = 0; i < CMP_STACK; i++) g_istack[i] = (uint8_t)(i * 7);
         memcpy(g_istack + TEST_SP - 2, &in.flags, 2);    // where the native prologue's popf took them from
+        if (g_use32) {                                    // ...under the dword its `push data` left
+            uint16_t sel = SEL(E_DATA);
+            memcpy(g_istack + TEST_SP - 4, &sel, 2);
+        }
         memcpy(g_stack, g_istack, 0x10000);
 
         // The interpreter.
@@ -731,9 +798,10 @@ int main(int argc, char **argv) {
         c.desc = g_desc;
         memset(g_icode, 0x90, sizeof g_icode);
         memcpy(g_icode, test, len);
-        g_desc[E_CODE] = (struct cpu16_desc){ g_icode, 0xFFFF, D_CODE, 1 };
-        g_desc[E_DATA] = (struct cpu16_desc){ g_idata, 0xFFFF, D_DATA, 2 };
-        g_desc[E_STACK] = (struct cpu16_desc){ g_istack, 0xFFFF, D_DATA, 3 };
+        g_desc[E_CODE] = (struct cpu16_desc){ .base = g_icode, .limit = 0xFFFF, .kind = D_CODE, .owner = 1 };
+        g_desc[E_DATA] = (struct cpu16_desc){ .base = g_idata, .limit = 0xFFFF, .kind = D_DATA, .owner = 2 };
+        g_desc[E_STACK] = (struct cpu16_desc){ .base = g_istack, .limit = 0xFFFF, .kind = D_DATA, .owner = 3 };
+        if (g_use32) g_desc[E_CODE].flags = g_desc[E_STACK].flags = CPU16_DF_BIG;
         memcpy(c.r, in.r, sizeof c.r);
         memcpy(c.rh, in.rh, sizeof c.rh);
         c.flags = in.flags;

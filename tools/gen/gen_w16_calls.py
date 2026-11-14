@@ -20,8 +20,9 @@ STAND-IN (task16.c's PARTLY) adds `Why:`, `Notice:` and `Whole:` (why only
 that, what a program may notice, what would make it whole). A field runs
 until the next field or signature; a bare `//` starts a new paragraph.
 Comment text above the first signature is the code's own and not shown.
-KERNEL's constants (module16.c's KERNEL_EQUATES) are documented the same
-way in the block above that table, with `// __AHSHIFT = 3` signatures.
+KERNEL's constants (module16.c's KERNEL_EQUATES, and the selectors in
+KERNEL_SELECTORS after it) are documented the same way in the block above
+KERNEL_EQUATES, with `// __AHSHIFT = 3` signatures.
 
 A call w16 does NOT answer may have a block in userland/utils/w16/missing16.c,
 which holds no code: `// MODULE.ORD Name(args) -> T`, then `Windows:`,
@@ -185,6 +186,10 @@ def equates():
     lines = src.split("\n")
     i = next(k for k, ln in enumerate(lines) if "KERNEL_EQUATES[] = {" in ln)
     body = re.search(r"KERNEL_EQUATES\[\] = \{(.*?)\n\};", src, re.S).group(1)
+    # The selector constants (__A000H...) in the table after it, documented in the same block.
+    sels = re.search(r"KERNEL_SELECTORS\[\] = \{(.*?)\n\};", src, re.S)
+    if sels:
+        body += sels.group(1)
     return [(int(o), v) for o, v in re.findall(r"\{ (\d+), (\w+) \}", body)], comment_above(lines, i), i + 1
 
 

@@ -1095,7 +1095,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: the launcher's Run with trace -- open the trace beside the stop, in Log Viewer or Notepad~~ DONE 2026-11-01 -- Log Viewer
 - [x] ~~w16: a program's missing calls in a window of their own, with names and kinds for every Win16 DLL~~ DONE 2026-10-19
 - [x] ~~w16: what each missing call is, and why it is missing~~ DONE 2026-10-23 -- What?; the 431 that 3.11's own programs import written
-- [x] ~~w16: KERNEL's constants (`__WINFLAGS`, `__AHSHIFT`...) answered from the spec's values~~ DONE 2026-10-19 -- the selector ones remain
+- [x] ~~w16: KERNEL's constants (`__WINFLAGS`, `__AHSHIFT`...) answered from the spec's values~~ DONE 2026-10-19 -- selectors 2026-11-14
 - [x] ~~Stage 3: the standard controls (BUTTON, EDIT, LISTBOX, STATIC) and file I/O~~ DONE 2026-10-19 -- Notepad is complete
 - [ ] w16: a combo box's list reaching past its dialog's edge -- it opens upward when it cannot open down
 - [ ] w16: the last pixels from real 3.11 -- the menu bar's title spacing, a list box's top, Switch To... on the control menu, Fonts
@@ -1137,6 +1137,11 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: Hearts over the network -- DDEML and WinExec("NETDDE.EXE") are stand-ins; a player finds no dealer
 - [x] ~~w16: the 386's instructions -- 32-bit registers, 66/67, FS/GS, the 0F set~~ DONE 2026-11-01 -- in cpu16_hostcheck
 - [x] ~~w16: WinG, waveOut with ADPCM, MSCDEX and CD drives, boxes before the main window~~ DONE 2026-11-01 -- DK's encyclopaedia starts
+- [x] ~~w16: Watcom Win386 programs -- 32-bit segments, DPMI, one linear arena~~ DONE 2026-11-14 -- Lighthouse installs, its intro plays
+- [ ] w16: Lighthouse playable -- its rooms, at the CPU's speed (~29 MIPS under KVM), on the ASUS too
+- [ ] w16: a JIT for 32-bit code -- hot blocks translated to x86-64; needs executable memory in a sandboxed process
+- [ ] w16: an installer's Program Manager groups as Retro Launcher entries -- PROGMAN's DDE (CreateGroup, AddItem) answered
+- [ ] w16: changing CDs -- Lighthouse's disc 2; a CD drive is one image or folder for a whole run
 - [ ] w16: wave input -- waveInOpen answers that there is no device; recording over a capture stream
 - [x] ~~w16: MCI -- DK's videos (AVIVideo, Indeo 3.2 in lib/uvid)~~ DONE 2026-11-05 -- `mci16.c`'s AVIVideo device over `uvid_play`
 - [ ] w16: MCI's other devices -- waveaudio, sequencer, cdaudio answer MCIERR_DEVICE_NOT_INSTALLED (Media Player, Sound Recorder)

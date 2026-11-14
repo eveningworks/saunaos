@@ -85,16 +85,71 @@ const char *w16_thunk_module(struct w16 *w, uint16_t sel) {
 // or enhanced mode, a coprocessor.
 // w16: 0x0425 -- protected mode, a 386, enhanced mode, a coprocessor -- what 3.1 said on the
 // machines its programs expected.
+// __0000H = selector
+// __0040H = selector
+// __A000H = selector
+// __B000H = selector
+// __B800H = selector
+// __C000H = selector
+// __D000H = selector
+// __E000H = selector
+// __F000H = selector
+// __ROMBIOS = selector
+// Windows: KERNEL's selectors to the first megabyte of the PC: __0040H the BIOS data area, __A000H
+// to __B800H video memory, __C000H to __F000H the ROMs (__ROMBIOS the BIOS's own, F000).
+// w16: Selectors to 64 KB of memory each, made at load: zero but for F000's BIOS date at FFF5 and
+// model byte (an AT's), what Watcom's start-up reads to tell an IBM PC from an NEC PC-98. Nothing
+// behind them is hardware: writing to video memory shows nothing.
 static const struct { uint16_t ordinal, value; } KERNEL_EQUATES[] = {
     { 113, 3 },        // __AHSHIFT: a huge pointer's selector step is 1 << 3
     { 114, 8 },        // __AHINCR
     { 178, 0x0425 },   // __WINFLAGS: protected mode, a 386, enhanced mode, a coprocessor
 };
 
+// KERNEL's selectors (documented above): each ordinal's real-mode segment. A program imports one as a
+// constant too, and reads the PC through it; one selector per segment, made on first use.
+static const struct { uint16_t ordinal, segment; } KERNEL_SELECTORS[] = {
+    { 173, 0xF000 },   // __ROMBIOS
+    { 174, 0xA000 },   // __A000H
+    { 179, 0xD000 },   // __D000H
+    { 181, 0xB000 },   // __B000H
+    { 182, 0xB800 },   // __B800H
+    { 183, 0x0000 },   // __0000H
+    { 190, 0xE000 },   // __E000H
+    { 193, 0x0040 },   // __0040H
+    { 194, 0xF000 },   // __F000H
+    { 195, 0xC000 },   // __C000H
+};
+
+static int is_kernel(const char *module) { return same(module, "KERNEL") || same(module, "KRNL386"); }
+
 int w16_kernel_equate(const char *module, unsigned ordinal, uint16_t *value) {
-    if (!same(module, "KERNEL") && !same(module, "KRNL386")) return 0;
+    if (!is_kernel(module)) return 0;
     for (unsigned i = 0; i < sizeof KERNEL_EQUATES / sizeof KERNEL_EQUATES[0]; i++)
         if (KERNEL_EQUATES[i].ordinal == ordinal) { *value = KERNEL_EQUATES[i].value; return 1; }
+    for (unsigned i = 0; i < sizeof KERNEL_SELECTORS / sizeof KERNEL_SELECTORS[0]; i++)
+        if (KERNEL_SELECTORS[i].ordinal == ordinal) { *value = 0; return 1; }
+    return 0;
+}
+
+// The selector behind one of KERNEL_SELECTORS, made on first use: 0 for another ordinal.
+static uint16_t kernel_selector(struct w16 *w, const char *module, unsigned ordinal) {
+    if (!is_kernel(module)) return 0;
+    for (unsigned i = 0; i < sizeof KERNEL_SELECTORS / sizeof KERNEL_SELECTORS[0]; i++) {
+        if (KERNEL_SELECTORS[i].ordinal != ordinal) continue;
+        unsigned k = KERNEL_SELECTORS[i].segment >> 12;   // 0 to F: one per 64 KiB of the megabyte
+        if (KERNEL_SELECTORS[i].segment == 0x0040) k = 16;
+        if (w->bios_sel[k]) return w->bios_sel[k];
+        uint8_t *mem = lin16_alloc(0x10000, 0);
+        if (!mem) return 0;
+        if (KERNEL_SELECTORS[i].segment == 0xF000) {
+            memcpy(mem + 0xFFF5, "01/01/92", 8);   // the BIOS date
+            mem[0xFFFE] = 0xFC;                    // the model: an AT
+        }
+        w->bios_sel[k] = cpu16_alloc(&w->cpu, D_DATA, mem, 0xFFFF, 0);
+        if (!w->bios_sel[k]) lin16_free(mem);
+        return w->bios_sel[k];
+    }
     return 0;
 }
 
@@ -145,6 +200,8 @@ static int import_target(struct w16 *w, const struct w16_image *im, unsigned mod
             snprintf(msg, sizeof msg, "imports %s.%s, a name w16 does not know", mod, fn);
             return fail(im->path, why, cap, msg);
         }
+        uint16_t bios = kernel_selector(w, mod, ord);
+        if (bios) { *sel = *off = bios; return 0; }        // a selector constant: its value either way
         if (w16_kernel_equate(mod, ord, off)) { *sel = *off; return 0; }
         *sel = w16_thunk_sel(w, mod);
         *off = (uint16_t)ord;
@@ -234,12 +291,12 @@ int w16_load_segments(struct w16 *w, const struct w16_image *im, uint32_t dgroup
             want = 0x10000;
         }
         if (want == 0) want = 16;
-        uint8_t *mem = calloc(1, 0x10000);   // a whole segment: a later resize needs no move
+        uint8_t *mem = lin16_alloc(0x10000, 0);   // a whole segment: a later resize needs no move
         if (!mem) return fail(im->path, why, cap, "out of memory");
         if (s->file_off) memcpy(mem, im->ne->img + s->file_off, s->length);
         int data = (s->flags & NE_SEG_DATA) != 0;
         im->seg_sel[n] = cpu16_alloc(&w->cpu, data ? D_DATA : D_CODE, mem, want - 1, (uint16_t)n);
-        if (!im->seg_sel[n]) { free(mem); return fail(im->path, why, cap, "too many segments"); }
+        if (!im->seg_sel[n]) { lin16_free(mem); return fail(im->path, why, cap, "too many segments"); }
     }
     return 0;
 }

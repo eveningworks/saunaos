@@ -66,10 +66,12 @@ static uint32_t global_bytes(struct w16 *w, const struct cpu16_desc *d) {
 // the block's end (cpu16_alloc_run's rule).
 static void global_place(struct cpu16_desc *d, uint8_t *mem, uint32_t cap, unsigned tiles) {
     for (unsigned k = 0; k < tiles; k++) {
-        d[k].kind = D_DATA;
-        d[k].base = mem + (size_t)k * 0x10000;
-        d[k].limit = cap - (uint32_t)k * 0x10000 - 1;
-        d[k].owner = k ? GLOBAL_TILE : GLOBAL_OWNER;
+        d[k] = (struct cpu16_desc){
+            .base = mem + (size_t)k * 0x10000,
+            .limit = cap - (uint32_t)k * 0x10000 - 1,
+            .kind = D_DATA,
+            .owner = k ? GLOBAL_TILE : GLOBAL_OWNER,
+        };
     }
 }
 
@@ -83,12 +85,12 @@ uint16_t w16_global_alloc(struct w16 *w, uint32_t size, const void *init) {
     uint32_t cap = size ? size : 1;
     unsigned tiles = tiles_for(cap);
     if (!tiles) return 0;
-    uint8_t *mem = calloc(1, cap);
+    uint8_t *mem = lin16_alloc(cap, 0);
     if (!mem) return 0;
     if (init) memcpy(mem, init, size);
     uint16_t sel = tiles > 1 ? cpu16_alloc_run(&w->cpu, tiles, D_DATA, mem, cap, GLOBAL_OWNER, GLOBAL_TILE)
                              : cpu16_alloc(&w->cpu, D_DATA, mem, cap - 1, GLOBAL_OWNER);
-    if (!sel) free(mem);
+    if (!sel) lin16_free(mem);
     return sel;
 }
 
@@ -103,8 +105,9 @@ uint8_t *w16_global_ptr(struct w16 *w, uint16_t h, uint32_t *size) {
 static void global_block_free(struct w16 *w, struct cpu16_desc *d) {
     uint16_t sel = global_sel(w, d);
     unsigned tiles = global_tiles(w, d);
-    free(d->base);
+    lin16_free(d->base);
     memset(d, 0, sizeof *d * tiles);
+    cpu16_desc_changed(&w->cpu);
     for (unsigned i = 1; i < CPU16_MAX_DESC; i++)
         if (w->desc[i].kind == D_DATA && w->desc[i].owner == GLOBAL_FWD && w->desc[i].limit == sel)
             memset(&w->desc[i], 0, sizeof w->desc[i]);
@@ -143,9 +146,10 @@ static uint16_t global_realloc(struct w16 *w, uint16_t h, uint32_t size, uint16_
         unsigned want = tiles_for(size), first = cpu16_index(h);
         int room = want && want <= CPU16_MAX_DESC - first;
         for (unsigned k = 1; room && k < want; k++) room = w->desc[first + k].kind == D_FREE;
-        uint8_t *mem = room ? calloc(1, size) : 0;
+        uint8_t *mem = room ? lin16_alloc(size, 0) : 0;
         if (mem) {
             global_place(desc_at(w, h), mem, size, want);
+            cpu16_desc_changed(&w->cpu);
             return h;
         }
         uint16_t n = w16_global_alloc(w, size, 0);
@@ -161,10 +165,7 @@ static uint16_t global_realloc(struct w16 *w, uint16_t h, uint32_t size, uint16_
     if (!size && (flags & GMEM_MOVEABLE)) {
         global_block_free(w, d);                 // the block, and the handle's forward to it if it moved
         struct cpu16_desc *hd = desc_at(w, h);
-        hd->kind = D_DATA;                       // a far pointer through it faults: no base
-        hd->base = 0;
-        hd->limit = 0;
-        hd->owner = GLOBAL_GONE;
+        *hd = (struct cpu16_desc){ .kind = D_DATA, .owner = GLOBAL_GONE };   // a far pointer through it faults
         return h;
     }
     uint32_t cap = size ? size : 1, old = global_bytes(w, d);
@@ -173,11 +174,12 @@ static uint16_t global_realloc(struct w16 *w, uint16_t h, uint32_t size, uint16_
     int room = want <= CPU16_MAX_DESC - first;
     for (unsigned k = have; room && k < want; k++) room = w->desc[first + k].kind == D_FREE;
     if (room) {
-        uint8_t *mem = realloc(d->base, cap);
+        uint8_t *mem = lin16_realloc(d->base, cap);
         if (!mem) return 0;
-        if (cap > old) memset(mem + old, 0, cap - old);
+        if (cap > old) memset(mem + old, 0, cap - old);   // a shrunk block keeps its bytes in the arena
         if (want < have) memset(d + want, 0, sizeof *d * (have - want));
         global_place(d, mem, cap, want);
+        cpu16_desc_changed(&w->cpu);
         return h;
     }
     uint16_t n = w16_global_alloc(w, cap, 0);
@@ -185,10 +187,7 @@ static uint16_t global_realloc(struct w16 *w, uint16_t h, uint32_t size, uint16_
     memcpy(w16_global_ptr(w, n, 0), d->base, old < cap ? old : cap);
     global_block_free(w, d);                     // the old block, and a forward to it
     struct cpu16_desc *hd = desc_at(w, h);
-    hd->kind = D_DATA;                           // a handle only: a far pointer through it faults
-    hd->base = 0;
-    hd->limit = n;
-    hd->owner = GLOBAL_FWD;
+    *hd = (struct cpu16_desc){ .kind = D_DATA, .limit = n, .owner = GLOBAL_FWD };   // a handle only: a far pointer faults
     return h;
 }
 
@@ -810,6 +809,156 @@ static int api_GlobalNotify(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 4;
 }
 
+// --- selectors ------------------------------------------------------------------------------
+//
+// A selector the program makes (AllocSelector, an alias) is CPU16_OWNER_ALLOC's: the only kind
+// FreeSelector, SetSelectorBase and SetSelectorLimit change, as DPMI's own are (dpmi16.c). Its base
+// is a linear address in w16's arena (lin16.c), so a copy reaches the same bytes as its original.
+
+static struct cpu16_desc *sel_desc(struct w16 *w, uint16_t sel) {
+    struct cpu16_desc *d = desc_at(w, sel);
+    return d && (d->kind == D_DATA || d->kind == D_CODE) ? d : 0;
+}
+
+static struct cpu16_desc *own_desc(struct w16 *w, uint16_t sel) {
+    struct cpu16_desc *d = sel_desc(w, sel);
+    return d && d->owner == CPU16_OWNER_ALLOC ? d : 0;
+}
+
+// A new program-made selector: a copy of `src` as `kind` (D_DATA or D_CODE), or a blank data one. 0 none.
+static uint16_t alias_of(struct w16 *w, const struct cpu16_desc *src, uint8_t kind) {
+    uint16_t sel = cpu16_alloc(&w->cpu, D_DATA, 0, 0, CPU16_OWNER_ALLOC);
+    if (!sel) return 0;
+    struct cpu16_desc *d = desc_at(w, sel);
+    if (src) {
+        uint32_t lin;
+        *d = *src;
+        if (!(src->flags & CPU16_DF_LIN) && cpu16_linear_base(&w->cpu, cpu16_sel((unsigned)(src - w->desc)), &lin) == 0) {
+            d->lin = lin;                        // the same bytes, by address: a later move of the block
+            d->flags |= CPU16_DF_LIN;            // leaves the alias where Windows would have
+            d->base = 0;
+        }
+        d->kind = kind;
+    } else {
+        *d = (struct cpu16_desc){ .kind = D_DATA, .flags = CPU16_DF_LIN };
+    }
+    d->owner = CPU16_OWNER_ALLOC;
+    cpu16_desc_changed(&w->cpu);
+    return sel;
+}
+
+// AllocSelector(wSelector) -> WORD
+// Windows: A new selector: a copy of wSelector's descriptor, or a blank one when wSelector is 0 --
+// for SetSelectorBase and SetSelectorLimit to point. 0 when none is left.
+// w16: The same.
+static int api_AllocSelector(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t src = w16_arg16(a);
+    const struct cpu16_desc *d = src ? sel_desc(w, src) : 0;
+    w->cpu.r[R_AX] = src && !d ? 0 : alias_of(w, d, d ? d->kind : D_DATA);
+    return 2;
+}
+
+// AllocCStoDSAlias(wSelector) -> WORD
+// AllocDStoCSAlias(wSelector) -> WORD
+// Windows: A data selector for a code segment, so code can be read or patched through it -- or a code
+// selector for a data segment, so code built there can run (how a driver, or Win386's supervisor,
+// makes a thunk). 0 for a bad selector.
+// w16: The same: both reach the same bytes, by linear address.
+static int api_AllocAlias(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    const struct cpu16_desc *d = sel_desc(w, w16_arg16(a));
+    w->cpu.r[R_AX] = d ? alias_of(w, d, ordinal == 171 ? D_CODE : D_DATA) : 0;
+    return 2;
+}
+
+// FreeSelector(wSelector) -> WORD
+// Windows: Gives back a selector AllocSelector (or an alias call) made: 0, or the selector when it
+// was not one.
+// w16: The same.
+static int api_FreeSelector(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t sel = w16_arg16(a);
+    struct cpu16_desc *d = own_desc(w, sel);
+    if (d) memset(d, 0, sizeof *d);
+    cpu16_desc_changed(&w->cpu);
+    w->cpu.r[R_AX] = d ? 0 : sel;
+    return 2;
+}
+
+// PrestoChangoSelector(wSrc, wDst) -> WORD
+// Windows: Makes wDst the other kind of wSrc -- a data selector for a code segment, or a code one
+// for data -- over the same bytes; wDst back, or 0.
+// w16: The same, for a wDst the program made.
+static int api_PrestoChangoSelector(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t src = w16_arg16(a), dst = w16_arg16(a);
+    const struct cpu16_desc *s = sel_desc(w, src);
+    struct cpu16_desc *d = own_desc(w, dst);
+    w->cpu.r[R_AX] = 0;
+    if (!s || !d) return 4;
+    uint32_t lin;
+    if (cpu16_linear_base(&w->cpu, src, &lin) < 0) return 4;
+    *d = (struct cpu16_desc){ .lin = lin, .limit = s->limit, .kind = s->kind == D_CODE ? D_DATA : D_CODE,
+                              .flags = (uint8_t)(CPU16_DF_LIN | (s->flags & CPU16_DF_BIG)), .owner = CPU16_OWNER_ALLOC };
+    cpu16_desc_changed(&w->cpu);
+    w->cpu.r[R_AX] = dst;
+    return 4;
+}
+
+// GetSelectorBase(wSelector) -> DWORD
+// Windows: The linear address a selector starts at.
+// w16: The same: an address in w16's linear arena (lin16.c), 0x80000000 and up; 0 for a bad selector.
+static int api_GetSelectorBase(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t sel = w16_arg16(a);
+    uint32_t lin = 0;
+    if (!sel_desc(w, sel) || cpu16_linear_base(&w->cpu, sel, &lin) < 0) lin = 0;
+    w->cpu.r[R_AX] = (uint16_t)lin;
+    w->cpu.r[R_DX] = (uint16_t)(lin >> 16);
+    return 2;
+}
+
+// SetSelectorBase(wSelector, dwBase) -> WORD
+// Windows: Points a selector at a linear address; the selector back, or 0.
+// w16: The same, for a selector the program made: it then reaches w16's arena at that address,
+// and nothing outside it.
+static int api_SetSelectorBase(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t sel = w16_arg16(a);
+    uint32_t base = w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    if (!own_desc(w, sel)) return 6;
+    cpu16_set_linear_base(&w->cpu, sel, base);
+    w->cpu.r[R_AX] = sel;
+    return 6;
+}
+
+// GetSelectorLimit(wSelector) -> DWORD
+// Windows: The last offset a selector reaches.
+// w16: The same; 0 for a bad selector.
+static int api_GetSelectorLimit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    const struct cpu16_desc *d = sel_desc(w, w16_arg16(a));
+    uint32_t lim = d ? d->limit : 0;
+    w->cpu.r[R_AX] = (uint16_t)lim;
+    w->cpu.r[R_DX] = (uint16_t)(lim >> 16);
+    return 2;
+}
+
+// SetSelectorLimit(wSelector, dwLimit) -> WORD
+// Windows: Sets the last offset a selector reaches: 0, or the selector when it cannot.
+// w16: The same, for a selector the program made.
+static int api_SetSelectorLimit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t sel = w16_arg16(a);
+    uint32_t lim = w16_arg32(a);
+    struct cpu16_desc *d = own_desc(w, sel);
+    if (d) d->limit = lim;
+    cpu16_desc_changed(&w->cpu);
+    w->cpu.r[R_AX] = d ? 0 : sel;
+    return 6;
+}
+
 // GetFreeSpace(wFlags) -> DWORD
 // Windows: The bytes of global memory a GlobalAlloc could get now, discardable blocks counted.
 // w16: 16 MB, as GlobalCompact says (W16_FREE_MEMORY).
@@ -881,8 +1030,17 @@ const struct w16_api g_kernel_mem_api[] = {
     { 164, api_GlobalLRUNewest },
     { 168, api_DirectResAlloc },
     { 169, api_GetFreeSpace },
+    { 170, api_AllocAlias },
+    { 171, api_AllocAlias },
+    { 175, api_AllocSelector },
+    { 176, api_FreeSelector },
+    { 177, api_PrestoChangoSelector },
     { 184, api_GlobalDOSAlloc },
     { 185, api_GlobalDOSAlloc },
+    { 186, api_GetSelectorBase },
+    { 187, api_SetSelectorBase },
+    { 188, api_GetSelectorLimit },
+    { 189, api_SetSelectorLimit },
     { 191, api_GlobalPageLock },
     { 192, api_GlobalPageLock },
     { 310, api_LocalHandleDelta },

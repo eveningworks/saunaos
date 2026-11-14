@@ -3,6 +3,21 @@
 One entry per tool in `tools/bench/`: what it does, why it exists, and the traps it
 encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` finds a tool.
 
+- **`cpu16_bench.py`** -- how fast w16's CPU (`userland/utils/w16/cpu16.c`)
+  runs 32-bit code, ON THE HOST: `tools/w16/bench32.c` -- an LZSS
+  decompressor, a transparent blit, a CRC and a sort, what a 1990s
+  game's 32-bit code spends its time in -- compiled `-m32 -march=i486`
+  into a flat blob and run by `tools/w16/cpu16_bench.c` in a FLAT
+  segment (code, data and stack one base, a Win386 program's shape).
+  Prints MIPS, best of `--runs`; `--rev REV` times another revision's
+  `cpu16.c` for a before/after on one host; `--perf` adds `perf`'s
+  hottest functions (`cycles:u`, which a `perf_event_paranoid` of 2
+  allows). Each run's checksum must equal the same C compiled for the
+  host, so a speed-up that broke an instruction is a FAIL, not a number.
+  The host's default `-march` reaches a `-m32` build: without `i486` the
+  blob holds SSE the CPU does not have. A measurement, so in no runner.
+  The i7-11700, 2026-11-14: 51 -> 89 MIPS with the descriptor cache, the
+  fetch window and one-store flags.
 - **`vblank_pacing.py`** -- whether toywm's frames land on the vblank,
   on a machine whose display says where the beam is (Intel; it SKIPS
   (77) elsewhere): drags a Notepad window by its title bar with `guictl

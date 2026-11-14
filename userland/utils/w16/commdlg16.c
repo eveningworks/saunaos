@@ -954,6 +954,33 @@ static int api_CommDlgExtendedError(struct w16 *w, unsigned ordinal, struct w16_
     return 0;
 }
 
+// GetFileTitle(lpszFile, lpszTitle, cbBuf) -> int
+// Windows: A path's file name -- what follows its last \, / or : -- copied to lpszTitle: 0 when it
+// fits, the bytes it needs (its NUL counted) when cbBuf is too small, negative for a path that names
+// no file (one ending in a separator).
+// w16: The same.
+static int api_GetFileTitle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t file = w16_arg32(a), title = w16_arg32(a);
+    uint16_t cap = w16_arg16(a);
+    char *s = w16_far_strdup(w, file);
+    if (!s) return -1;
+    const char *t = s;
+    for (const char *p = s; *p; p++)
+        if (*p == '\\' || *p == '/' || *p == ':') t = p + 1;
+    size_t n = strlen(t);
+    if (!n) w->cpu.r[R_AX] = 0xFFFF;
+    else if (n + 1 > cap) w->cpu.r[R_AX] = (uint16_t)(n + 1);
+    else {
+        uint8_t *d = cpu16_ptr(&w->cpu, (uint16_t)(title >> 16), (uint16_t)title, (uint32_t)n + 1, 1);
+        if (!d) { free(s); return -1; }
+        memcpy(d, t, n + 1);
+        w->cpu.r[R_AX] = 0;
+    }
+    free(s);
+    return 10;
+}
+
 // --- Font (ChooseFont) ---------------------------------------------------------------------
 
 #define CF_ENABLEHOOK           0x00000008
@@ -1425,5 +1452,6 @@ const struct w16_api g_commdlg_api[] = {
     { 15, api_ChooseFont },
     { 20, api_PrintDlg },
     { 26, api_CommDlgExtendedError },
+    { 27, api_GetFileTitle },
 };
 const unsigned g_commdlg_api_n = sizeof g_commdlg_api / sizeof g_commdlg_api[0];

@@ -16,6 +16,7 @@
 // without a wave device (DK's encyclopaedias) runs anyway.
 #include "w16_internal.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "media/uadpcm.h"
@@ -194,6 +195,11 @@ static void tell(struct w16 *w, uint16_t msg, uint32_t p1) {
 
 static void set_flags(struct w16 *w, uint32_t hdr, uint32_t set, uint32_t clear) {
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(hdr >> 16), (uint16_t)(hdr + 16), 4, 1);
+    if (g_w16_trace) {
+        fprintf(g_w16_trace, "  wave: header %04x:%04x %s%s\n", (unsigned)(hdr >> 16), (unsigned)(hdr & 0xFFFF),
+                set == WHDR_DONE ? "done" : "queued", p ? "" : " -- its selector reaches nothing now");
+        fflush(g_w16_trace);
+    }
     if (!p) { w->cpu.fault = 0; return; }        // a header gone: nothing to tell it
     uint32_t f = ((uint32_t)p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24 | set) & ~clear;
     for (int i = 0; i < 4; i++) p[i] = (uint8_t)(f >> 8 * i);
@@ -243,6 +249,37 @@ static int take_format(struct w16 *w, uint32_t far) {
     g_wo.bits = bits;
     g_wo.rate = rate;
     return 0;
+}
+
+// waveOutGetDevCaps(uDeviceID, lpCaps, uSize) -> UINT
+// Windows: A wave output device's WAVEOUTCAPS -- its maker and product ids, driver version, name, the
+// standard formats it plays (WAVE_FORMAT_1M08 to 4S16), its channels and what it supports beyond
+// playing (volume, pitch, rate) -- the first uSize bytes of it.
+// w16: The one device waveOutOpen opens (or WAVE_MAPPER's, the same): every standard format, stereo,
+// nothing beyond playing, named "SaunaOS sound". MMSYSERR_NODRIVER when the `sounds` setting is Off.
+static int api_waveOutGetDevCaps(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct cpu16 *c = &w->cpu;
+    uint16_t dev = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    uint16_t size = w16_arg16(a);
+    c->r[R_DX] = 0;
+    if (g_w16_prefs.sounds == W16_SOUNDS_OFF) { c->r[R_AX] = MMSYSERR_NODRIVER; return 8; }
+    if (dev != 0 && dev != 0xFFFF) { c->r[R_AX] = MMSYSERR_BADDEVICEID; return 8; }
+    uint8_t caps[48] = { 0 };
+    caps[0] = 1;                                 // wMid: MM_MICROSOFT, as the mapper's own said
+    caps[4] = 0x00; caps[5] = 0x03;              // vDriverVersion 3.00
+    memcpy(caps + 6, "SaunaOS sound", 13);       // szPname[32]
+    caps[38] = 0xFF; caps[39] = 0x0F;            // dwFormats: WAVE_FORMAT_1M08 .. 4S16
+    caps[42] = 2;                                // wChannels
+    uint16_t n = size < sizeof caps ? size : (uint16_t)sizeof caps;
+    if (n) {
+        uint8_t *p = cpu16_ptr(c, (uint16_t)(far >> 16), (uint16_t)far, n, 1);
+        if (!p) return -1;
+        memcpy(p, caps, n);
+    }
+    c->r[R_AX] = 0;
+    return 8;
 }
 
 // waveOutOpen(lphWaveOut, uDeviceID, lpFormat, dwCallback, dwInstance, dwFlags) -> UINT
@@ -398,7 +435,8 @@ static int api_waveOutPause(struct w16 *w, unsigned ordinal, struct w16_args *a)
 
 // waveOutReset(hWaveOut) -> UINT
 // Windows: Stops playing and returns every queued buffer, WHDR_DONE, its callback told, the position
-// back to 0.
+// back to 0. A PAUSE ENDS WITH IT: the next waveOutWrite starts playing (waveOutRestart cannot), and
+// Sierra's games open, pause, reset, then write without ever restarting.
 // w16: The same; what the sound daemon holds is dropped with it.
 static int api_waveOutReset(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -413,7 +451,8 @@ static int api_waveOutReset(struct w16 *w, unsigned ordinal, struct w16_args *a)
         g_wo.fed_at = 0;
         g_wo.queued = g_wo.pushed = g_wo.clock_base = 0;
         for (int i = 0; i < g_wo.nq; i++) g_wo.q[i].end = 0;
-        g_wo.clock_ms = g_wo.paused ? 0 : w16_now_ms();
+        g_wo.paused = 0;
+        g_wo.clock_ms = w16_now_ms();
     }
     pthread_mutex_unlock(&g_wo.lock);
     if (!r) w16_wave_service(w);
@@ -464,6 +503,7 @@ static int api_waveInOpen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 }
 
 const struct w16_api g_wave_api[] = {
+    { 402, api_waveOutGetDevCaps },
     { 404, api_waveOutOpen },
     { 405, api_waveOutClose },
     { 406, api_waveOutPrepareHeader },

@@ -85,7 +85,8 @@ static void ready(struct cpu16_x87 *x) {
     memset(x->img, 0, sizeof x->img);
     wr16(x->img, IMG_CW, CW_INIT);
     wr16(x->img, IMG_TW, 0xFFFF);
-    x->fip = x->fcs = x->fop = x->fdp = x->fds = 0;
+    x->fip = x->fdp = 0;
+    x->fcs = x->fop = x->fds = 0;
     x->ready = 1;
 }
 
@@ -173,7 +174,8 @@ void cpu16_x87_init(struct cpu16 *c) {
     struct cpu16_x87 *x = &c->x87;
     ready(x);
     host_run(x->img, stub_of(0xDB, 0xE3), 0);
-    x->fip = x->fcs = x->fop = x->fdp = x->fds = 0;
+    x->fip = x->fdp = 0;
+    x->fcs = x->fop = x->fds = 0;
 }
 
 int cpu16_x87_exec(struct cpu16 *c, uint8_t op, uint8_t modrm, uint8_t *mem) {
@@ -199,10 +201,10 @@ void cpu16_x87_save(struct cpu16 *c, uint8_t out[108]) {
     ready(x);
     memcpy(out, x->img, 108);
     memset(out + 12, 0, IMG_REGS - 12);
-    wr16(out, 12, x->fip);
+    wr16(out, 12, (uint16_t)x->fip);
     wr16(out, 16, x->fcs);
     wr16(out, 18, x->fop);
-    wr16(out, 20, x->fdp);
+    wr16(out, 20, (uint16_t)x->fdp);
     wr16(out, 24, x->fds);
 }
 
@@ -218,14 +220,36 @@ void cpu16_x87_load(struct cpu16 *c, const uint8_t in[108]) {
     settle(x->img);
 }
 
+static void wr32le(uint8_t *p, unsigned at, uint32_t v) { wr16(p, at, (uint16_t)v); wr16(p, at + 2, (uint16_t)(v >> 16)); }
+static uint32_t rd32le(const uint8_t *p, unsigned at) { return rd16(p, at) | (uint32_t)rd16(p, at + 2) << 16; }
+
+// The 32-bit protected-mode environment: CW SW TW, IP, CS with the opcode
+// above it, DP, DS -- a dword each; the reserved high words (CW's, SW's,
+// TW's and DS's) are ones, as a 387's FNSTENV writes them.
+static void env_out32(struct cpu16_x87 *x, uint8_t *p) {
+    memset(p, 0, 28);
+    wr16(p, 2, 0xFFFF);
+    wr16(p, 6, 0xFFFF);
+    wr16(p, 10, 0xFFFF);
+    wr16(p, 0, rd16(x->img, IMG_CW));
+    wr16(p, 4, rd16(x->img, IMG_SW));
+    wr16(p, 8, rd16(x->img, IMG_TW));
+    wr32le(p, 12, x->fip);
+    wr16(p, 16, x->fcs);
+    wr16(p, 18, x->fop);
+    wr32le(p, 20, x->fdp);
+    wr16(p, 24, x->fds);
+    wr16(p, 26, 0xFFFF);
+}
+
 // The 16-bit protected-mode environment: CW SW TW IP CS DP DS, a word each.
 static void env_out(struct cpu16_x87 *x, uint8_t *p) {
     wr16(p, 0, rd16(x->img, IMG_CW));
     wr16(p, 2, rd16(x->img, IMG_SW));
     wr16(p, 4, rd16(x->img, IMG_TW));
-    wr16(p, 6, x->fip);
+    wr16(p, 6, (uint16_t)x->fip);
     wr16(p, 8, x->fcs);
-    wr16(p, 10, x->fdp);
+    wr16(p, 10, (uint16_t)x->fdp);
     wr16(p, 12, x->fds);
 }
 
@@ -245,7 +269,22 @@ static void env_in(struct cpu16_x87 *x, const uint8_t *p) {
     x->fds = rd16(p, 12);
 }
 
-void cpu16_x87_op(struct cpu16 *c, uint8_t op, uint8_t modrm, int seg, uint16_t off, uint16_t cs, uint16_t ip) {
+// The 32-bit layout's: the same, from env_out32()'s places.
+static void env_in32(struct cpu16_x87 *x, const uint8_t *p) {
+    uint8_t e[14];
+    wr16(e, 0, rd16(p, 0));
+    wr16(e, 2, rd16(p, 4));
+    wr16(e, 4, rd16(p, 8));
+    env_in(x, e);
+    x->fip = rd32le(p, 12);
+    x->fcs = rd16(p, 16);
+    x->fop = rd16(p, 18) & 0x7FF;
+    x->fdp = rd32le(p, 20);
+    x->fds = rd16(p, 24);
+}
+
+void cpu16_x87_op(struct cpu16 *c, uint8_t op, uint8_t modrm, int seg, uint32_t off, uint16_t cs, uint32_t ip,
+                  int o32) {
     struct cpu16_x87 *x = &c->x87;
     ready(x);
     unsigned reg = (modrm >> 3) & 7;
@@ -257,7 +296,8 @@ void cpu16_x87_op(struct cpu16 *c, uint8_t op, uint8_t modrm, int seg, uint16_t 
     unsigned len = 0;
     if (modrm < 0xC0) {
         len = MEM[op - 0xD8][reg].len;
-        p = cpu16_ptr(c, c->sreg[seg], off, len, !reads_only(op, reg));
+        if (o32 && MEM[op - 0xD8][reg].how == X) len += 14;     // 28 and 108: the 32-bit environment
+        p = cpu16_ptr32(c, c->sreg[seg], off, len, !reads_only(op, reg));
         if (!p) return;
     }
     if (op == 0xDF && modrm == 0xE0) {                   // FNSTSW AX: the stub's AX is the buffer's
@@ -269,16 +309,17 @@ void cpu16_x87_op(struct cpu16 *c, uint8_t op, uint8_t modrm, int seg, uint16_t 
         return;
     }
     if (p && MEM[op - 0xD8][reg].how == X) {
-        if (op == 0xD9 && reg == 4) env_in(x, p);       // FLDENV
+        unsigned regs = o32 ? 28 : 14;
+        if (op == 0xD9 && reg == 4) o32 ? env_in32(x, p) : env_in(x, p);      // FLDENV
         else if (op == 0xD9) {                           // FNSTENV, then every exception masked
-            env_out(x, p);
+            o32 ? env_out32(x, p) : env_out(x, p);
             wr16(x->img, IMG_CW, rd16(x->img, IMG_CW) | 0x3F);
         } else if (reg == 4) {                           // FRSTOR
-            env_in(x, p);
-            memcpy(x->img + IMG_REGS, p + 14, 80);
+            o32 ? env_in32(x, p) : env_in(x, p);
+            memcpy(x->img + IMG_REGS, p + regs, 80);
         } else {                                         // FNSAVE, then FNINIT
-            env_out(x, p);
-            memcpy(p + 14, x->img + IMG_REGS, 80);
+            o32 ? env_out32(x, p) : env_out(x, p);
+            memcpy(p + regs, x->img + IMG_REGS, 80);
             cpu16_x87_init(c);
             return;
         }

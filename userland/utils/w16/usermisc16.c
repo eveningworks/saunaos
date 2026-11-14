@@ -2663,6 +2663,22 @@ static int api_AnsiToOem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
+// AnsiToOemBuff(lpAnsiStr, lpOemStr, nLength) -> void
+// OemToAnsiBuff(lpOemStr, lpAnsiStr, nLength) -> void
+// Windows: AnsiToOem and OemToAnsi over a buffer of nLength bytes (64 KB for 0), NULs and all.
+// w16: Copies the bytes as they are, as AnsiToOem does; the two may overlap.
+static int api_AnsiToOemBuff(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t src = w16_arg32(a), dst = w16_arg32(a);
+    uint16_t n16 = w16_arg16(a);
+    uint32_t n = n16 ? n16 : 0x10000;
+    const uint8_t *s = cpu16_ptr(&w->cpu, (uint16_t)(src >> 16), (uint16_t)src, n, 0);
+    uint8_t *d = s ? cpu16_ptr(&w->cpu, (uint16_t)(dst >> 16), (uint16_t)dst, n, 1) : 0;
+    if (!d) return -1;
+    memmove(d, s, n);
+    return 10;
+}
+
 // GetKBCodePage() -> int
 // Windows: The OEM code page the keyboard's layout is for -- 437 on a US setup.
 // w16: 437: a program's keys are mapped by the US layout (VkKeyScan, MapVirtualKey), 3.1's default.
@@ -2754,6 +2770,8 @@ const struct w16_api g_keyboard_api[] = {
     { 131, api_MapVirtualKey },
     { 132, api_GetKBCodePage },
     { 133, api_GetKeyNameText },
+    { 134, api_AnsiToOemBuff },
+    { 135, api_AnsiToOemBuff },
 };
 const unsigned g_keyboard_api_n = sizeof g_keyboard_api / sizeof g_keyboard_api[0];
 const unsigned g_user_misc_api_n = sizeof g_user_misc_api / sizeof g_user_misc_api[0];

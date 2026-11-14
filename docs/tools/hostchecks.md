@@ -819,7 +819,12 @@ the rest in the sweep. Each stays a standalone script with its own
   and out as 32 bits (high words random), and every family runs under
   the 66 prefix (dwords) and the 67 prefix (32-bit addresses, SIB with a
   scale), with a GS override, plus the 386's 0F set (near jcc, setcc,
-  movzx/movsx, bt*, shld/shrd, bsf/bsr, imul r,rm, push gs). TWO HOST
+  movzx/movsx, bt*, shld/shrd, bsf/bsr, imul r,rm, push gs). ALL OF IT
+  AGAIN IN 32-BIT SEGMENTS (the D and B bits a Win386 program's flat
+  code runs with; the driver's third argument `32`): the code and stack
+  descriptors are 32-bit in the LDT and in w16's table, the prologue and
+  epilogue are re-encoded for them, and the generator emits 66 and 67
+  where a case wants the 16-bit size. TWO HOST
   TRAPS, both found on the i7-11700 (the Ryzen hid them): no register
   survives compatibility mode (R8-R15 and the high halves are undefined
   after it, so the driver reloads from memory), and a test that leaves
@@ -839,7 +844,11 @@ the rest in the sweep. Each stays a standalone script with its own
   FLDENV's turning of the registers for a
   new TOP and the x87's stores (the oracle goes red each time -- a broken
   address the CPU then faults on ends the driver, which counts as red) and `mem()`'s limit
-  check (the fuzz goes red). A host without `modify_ldt` prints SKIPPED,
+  check (the fuzz goes red); in 32-bit mode, CS's D bit ignored and a
+  B-bit stack that still moves SP. Half the fuzz runs in 32-bit segments,
+  with a FLAT selector (a linear base, a 4 GiB limit) over a small arena:
+  only the arena bound keeps its wrap modulo 2^32 in, and ASan watches
+  it. A host without `modify_ldt` prints SKIPPED,
   never PASS. In `ondemand_sweep.py`.
 - **`ugfx_text_hostcheck.py`** -- compiles the real
   `userland/libs/ui/ugfx_text.c` and `userland/libs/ui/uui_textbox.c` with the

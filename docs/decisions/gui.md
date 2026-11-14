@@ -12196,6 +12196,38 @@ then running the instruction again.
 that w16's x87 is only as good as the host's: under QEMU's TCG it has no stack fault
 (`docs/testing.md`, "What the emulator does and does not model").
 
+## A Win16 program's memory is one linear arena, and a 32-bit selector reaches only it
+
+Chosen 2026-11-14 for Lighthouse, a Watcom Win386 program. Until then a
+w16 selector was a host pointer and a limit: no selector had a LINEAR
+address, so DPMI could not hand out memory by address and a Win386
+supervisor -- which turns a 16:16 pointer into a flat one by subtracting
+selector bases, and sets a data selector's limit to 4 GiB -- had nothing
+to compute with.
+
+**What others do.** Windows 3.1 in enhanced mode gave every selector a
+32-bit linear base in one address space, and a flat selector reached all
+of it. Wine runs 16-bit code natively in LDT entries over its own process
+memory and answers INT 31h itself (krnl386's `int31.c`). otvdm emulates
+the CPU, with the guest's memory in the host's address space.
+
+**w16 keeps one reserved arena** (`lin16.c`) and allocates every byte a
+selector can reach from it -- NE segments, the global heap, the PSP,
+DPMI's blocks -- so a selector's linear base is `0x80000000` plus its
+offset in the arena. A descriptor whose base was SET as an address
+(DPMI 0007h, SetSelectorBase) reaches the arena modulo 2^32, as a 386's
+segment wrapped, and every access is bounded to the arena: a 4 GiB flat
+selector still cannot reach w16's own memory, which is the sandbox's
+point (`cpu16.h`, "THE PROGRAM IS UNTRUSTED"). The arena is an anonymous
+mapping that is reserved, not committed, and NEVER MOVES -- a host
+pointer into it stays good -- so its size is fixed (it logs when full).
+
+**Rejected.** A software page table (linear -> host per 64 KiB) would let
+memory live anywhere, at a lookup on every access the interpreter makes.
+Native LDT segments are route W2, rejected in `docs/w16-design.md` for
+the kernel surface. Host addresses as linear ones (the whole heap below
+4 GiB) would let a flat selector read w16's own data.
+
 ## Always on Top is a stacking layer, and the window table stays activation order
 
 **Decided 2026-10-21.** A window can be kept above the rest: the window

@@ -20,8 +20,9 @@
 struct insn {
     int seg;            // segment override, or -1
     int rep;            // 0, 0xF2 (REPNE) or 0xF3 (REP/REPE)
-    int o32, a32;       // 66 and 67: 32-bit operands, 32-bit addresses
-    uint16_t cs, ip;    // the instruction's own address, for faults
+    int o32, a32;       // 32-bit operands, 32-bit addresses: CS's D bit, flipped by 66 and 67
+    uint16_t cs;        // the instruction's own address, for faults
+    uint32_t ip;
 };
 
 struct modrm {
@@ -57,10 +58,8 @@ const char *cpu16_fault_name(int kind) {
 uint16_t cpu16_alloc(struct cpu16 *c, uint8_t kind, uint8_t *base, uint32_t limit, uint16_t owner) {
     for (unsigned i = 1; i < CPU16_MAX_DESC; i++)
         if (c->desc[i].kind == D_FREE) {
-            c->desc[i].kind = kind;
-            c->desc[i].base = base;
-            c->desc[i].limit = limit;
-            c->desc[i].owner = owner;
+            c->desc[i] = (struct cpu16_desc){ .base = base, .limit = limit, .kind = kind, .owner = owner };
+            cpu16_desc_changed(c);
             return cpu16_sel(i);
         }
     return 0;
@@ -74,12 +73,14 @@ uint16_t cpu16_alloc_run(struct cpu16 *c, unsigned n, uint8_t kind, uint8_t *bas
         if (run < n) continue;
         unsigned first = i + 1 - n;
         for (unsigned k = 0; k < n; k++) {
-            struct cpu16_desc *d = &c->desc[first + k];
-            d->kind = kind;
-            d->base = base + (size_t)k * 0x10000;
-            d->limit = size - (uint32_t)k * 0x10000 - 1;   // to the block's end (cpu16.h)
-            d->owner = k ? tail_owner : owner;
+            c->desc[first + k] = (struct cpu16_desc){
+                .base = base + (size_t)k * 0x10000,
+                .limit = size - (uint32_t)k * 0x10000 - 1,   // to the block's end (cpu16.h)
+                .kind = kind,
+                .owner = k ? tail_owner : owner,
+            };
         }
+        cpu16_desc_changed(c);
         return cpu16_sel(first);
     }
     return 0;
@@ -91,20 +92,74 @@ static const struct cpu16_desc *desc_of(struct cpu16 *c, uint16_t sel) {
     return &c->desc[i];
 }
 
+uint8_t *cpu16_linear_ptr(struct cpu16 *c, uint32_t lin, uint32_t len) {
+    uint32_t rel = lin - c->lin_origin;
+    if (!c->lin || len == 0 || rel >= c->lin_size || c->lin_size - rel < len) return 0;
+    return c->lin + rel;
+}
+
+int cpu16_linear_base(struct cpu16 *c, uint16_t sel, uint32_t *out) {
+    const struct cpu16_desc *d = desc_of(c, sel);
+    if (!d || !c->lin) return -1;
+    if (d->flags & CPU16_DF_LIN) { *out = d->lin; return 0; }
+    if (!d->base || d->base < c->lin || d->base >= c->lin + c->lin_size) return -1;
+    *out = c->lin_origin + (uint32_t)(d->base - c->lin);
+    return 0;
+}
+
+void cpu16_set_linear_base(struct cpu16 *c, uint16_t sel, uint32_t lin) {
+    unsigned i = cpu16_index(sel);
+    if (i == 0 || i >= CPU16_MAX_DESC) return;
+    c->desc[i].lin = lin;
+    c->desc[i].flags |= CPU16_DF_LIN;
+    c->desc[i].base = 0;
+    cpu16_desc_changed(c);
+}
+
+// The host bytes of [off, off+size) in a data or code segment, or NULL: past
+// its limit, or (a linear one) outside the arena. A linear base wraps modulo
+// 2^32 as a 386's did -- a flat selector reaches below its base with a large
+// offset -- and the arena bounds what it can reach.
+static uint8_t *seg_bytes(struct cpu16 *c, const struct cpu16_desc *d, uint32_t off, uint32_t size) {
+    if ((uint64_t)off + size - 1 > d->limit) return 0;
+    if (d->flags & CPU16_DF_LIN) return cpu16_linear_ptr(c, d->lin + off, size);
+    return d->base ? d->base + off : 0;
+}
+
+// A segment register's descriptor, found again only when the register's value changed (cpu16.h's
+// descriptor cache). The entry itself is read live by every access.
+static inline const struct cpu16_desc *seg_desc(struct cpu16 *c, int s) {
+    uint16_t sel = c->sreg[s];
+    if (c->segc_sel[s] != sel || !c->segc[s]) {
+        c->segc[s] = desc_of(c, sel);
+        c->segc_sel[s] = sel;
+    }
+    return c->segc[s];
+}
+
+static uint8_t *mem_slow(struct cpu16 *c, int s, const struct cpu16_desc *d, uint32_t off, unsigned size, int write);
+
 // A checked pointer to `size` bytes at sreg:off. On failure: the fault
 // is set and a scratch buffer comes back, so the caller need not check.
-static uint8_t *mem(struct cpu16 *c, int s, uint32_t off, unsigned size, int write) {
-    const struct cpu16_desc *d = desc_of(c, c->sreg[s]);
-    int kind = s == S_SS ? FAULT_SS : FAULT_GP;
-    if (!d || !d->base) {
-        cpu16_set_fault(c, kind, "memory access through a null or unusable selector");
-        return g_dummy;
+// The common case -- a data or code segment, in its limit -- answers here;
+// anything else, a fault included, is mem_slow()'s.
+static inline uint8_t *mem(struct cpu16 *c, int s, uint32_t off, unsigned size, int write) {
+    const struct cpu16_desc *d = seg_desc(c, s);
+    if (d && (d->kind == D_DATA || (d->kind == D_CODE && !write)) && (uint64_t)off + size - 1 <= d->limit) {
+        if (!(d->flags & CPU16_DF_LIN)) {
+            if (d->base) return d->base + off;
+        } else {
+            uint32_t rel = d->lin + off - c->lin_origin;
+            if (c->lin && rel < c->lin_size && c->lin_size - rel >= size) return c->lin + rel;
+        }
     }
-    if ((uint64_t)off + size - 1 > d->limit) {
-        char why[96];
-        snprintf(why, sizeof why, "offset %04x+%u past the segment limit %04x", (unsigned)off, size,
-                 (unsigned)d->limit);
-        cpu16_set_fault(c, kind, why);
+    return mem_slow(c, s, d, off, size, write);
+}
+
+static uint8_t *mem_slow(struct cpu16 *c, int s, const struct cpu16_desc *d, uint32_t off, unsigned size, int write) {
+    int kind = s == S_SS ? FAULT_SS : FAULT_GP;
+    if (!d || (!d->base && !(d->flags & CPU16_DF_LIN))) {
+        cpu16_set_fault(c, kind, "memory access through a null or unusable selector");
         return g_dummy;
     }
     if (write && d->kind != D_DATA) {
@@ -115,25 +170,39 @@ static uint8_t *mem(struct cpu16 *c, int s, uint32_t off, unsigned size, int wri
         cpu16_set_fault(c, kind, "data access through a call gate selector");
         return g_dummy;
     }
-    return d->base + off;
+    uint8_t *p = seg_bytes(c, d, off, size);
+    if (!p) {
+        char why[96];
+        if ((uint64_t)off + size - 1 > d->limit)
+            snprintf(why, sizeof why, "offset %04x+%u past the segment limit %04x", (unsigned)off, size,
+                     (unsigned)d->limit);
+        else
+            snprintf(why, sizeof why, "linear address %08x outside w16's memory", (unsigned)(d->lin + off));
+        cpu16_set_fault(c, kind, why);
+        return g_dummy;
+    }
+    return p;
+}
+
+uint8_t *cpu16_ptr32(struct cpu16 *c, uint16_t sel, uint32_t off, uint32_t len, int write) {
+    const struct cpu16_desc *d = desc_of(c, sel);
+    uint8_t *p = d && (d->kind == D_DATA || (d->kind == D_CODE && !write)) && len ? seg_bytes(c, d, off, len) : 0;
+    if (!p) cpu16_set_fault(c, FAULT_API, "a Windows call was passed a bad pointer");
+    return p;
 }
 
 uint8_t *cpu16_ptr(struct cpu16 *c, uint16_t sel, uint16_t off, uint32_t len, int write) {
-    const struct cpu16_desc *d = desc_of(c, sel);
-    if (!d || !d->base || (d->kind != D_DATA && d->kind != D_CODE) || (write && d->kind != D_DATA)
-        || len == 0 || (uint64_t)off + len - 1 > d->limit) {   // a huge block's limit reaches its end
-        cpu16_set_fault(c, FAULT_API, "a Windows call was passed a bad pointer");
-        return 0;
-    }
-    return d->base + off;
+    return cpu16_ptr32(c, sel, off, len, write);   // a huge block's limit reaches its end
 }
 
 int cpu16_str(struct cpu16 *c, uint16_t sel, uint16_t off, char *out, unsigned cap) {
     const struct cpu16_desc *d = desc_of(c, sel);
-    if (!d || !d->base || (d->kind != D_DATA && d->kind != D_CODE)) return -1;
+    if (!d || (d->kind != D_DATA && d->kind != D_CODE)) return -1;
     unsigned n = 0;
     for (uint32_t o = off; o <= d->limit; o++) {
-        char ch = (char)d->base[o];
+        const uint8_t *p = seg_bytes(c, d, o, 1);
+        if (!p) return -1;
+        char ch = (char)*p;
         if (!ch) { out[n] = 0; return (int)n; }
         if (n + 1 < cap) out[n++] = ch;
     }
@@ -168,25 +237,40 @@ static void wrw(struct cpu16 *c, int s, uint32_t off, int w, uint32_t v) {
     else wr8(c, s, off, (uint8_t)v);
 }
 
+// The stack pointer as SS's B bit has it: ESP in a 32-bit stack segment, SP
+// (its high word kept) in a 16-bit one.
+static int ss_big(struct cpu16 *c) {
+    const struct cpu16_desc *d = desc_of(c, c->sreg[S_SS]);
+    return d && (d->flags & CPU16_DF_BIG);
+}
+static uint32_t sp_get(struct cpu16 *c) {
+    return ss_big(c) ? (uint32_t)c->rh[R_SP] << 16 | c->r[R_SP] : c->r[R_SP];
+}
+static void sp_set(struct cpu16 *c, uint32_t v) {
+    if (ss_big(c)) c->rh[R_SP] = (uint16_t)(v >> 16);
+    c->r[R_SP] = (uint16_t)v;
+}
+static void sp_add(struct cpu16 *c, int32_t d) { sp_set(c, sp_get(c) + (uint32_t)d); }
+
 void cpu16_push(struct cpu16 *c, uint16_t v) {
-    c->r[R_SP] -= 2;
-    wr16(c, S_SS, c->r[R_SP], v);
+    sp_add(c, -2);
+    wr16(c, S_SS, sp_get(c), v);
 }
 
 uint16_t cpu16_pop(struct cpu16 *c) {
-    uint16_t v = rd16(c, S_SS, c->r[R_SP]);
-    c->r[R_SP] += 2;
+    uint16_t v = rd16(c, S_SS, sp_get(c));
+    sp_add(c, 2);
     return v;
 }
 
 static void push32(struct cpu16 *c, uint32_t v) {
-    c->r[R_SP] -= 4;
-    wr32(c, S_SS, c->r[R_SP], v);
+    sp_add(c, -4);
+    wr32(c, S_SS, sp_get(c), v);
 }
 
 static uint32_t pop32(struct cpu16 *c) {
-    uint32_t v = rd32(c, S_SS, c->r[R_SP]);
-    c->r[R_SP] += 4;
+    uint32_t v = rd32(c, S_SS, sp_get(c));
+    sp_add(c, 4);
     return v;
 }
 
@@ -201,8 +285,8 @@ static void pushw(struct cpu16 *c, int w, uint32_t v) {
 // and what recent ones do.
 static void push_sreg(struct cpu16 *c, int w, uint16_t sel) {
     if (w == 2) {
-        c->r[R_SP] -= 4;
-        wr16(c, S_SS, c->r[R_SP], sel);
+        sp_add(c, -4);
+        wr16(c, S_SS, sp_get(c), sel);
     } else {
         cpu16_push(c, sel);
     }
@@ -210,24 +294,64 @@ static void push_sreg(struct cpu16 *c, int w, uint16_t sel) {
 static uint32_t popw(struct cpu16 *c, int w) { return w == 2 ? pop32(c) : cpu16_pop(c); }
 
 uint16_t cpu16_arg(struct cpu16 *c, unsigned byte_off) {
-    return rd16(c, S_SS, (uint16_t)(c->r[R_SP] + 4 + byte_off));
+    uint32_t at = sp_get(c) + 4 + byte_off;
+    return rd16(c, S_SS, ss_big(c) ? at : (uint16_t)at);
 }
 
-static uint8_t fetch8(struct cpu16 *c) {
-    uint8_t v = rd8(c, S_CS, c->ip);
-    c->ip++;
+// IP advances as CS's D bit says: 16 bits wrap, 32 do not.
+static void ip_add(struct cpu16 *c, unsigned n) { c->ip = c->cs32 ? c->ip + n : (uint16_t)(c->ip + n); }
+
+// CS's fetch window (cpu16.h): the offsets [fetch_lo, fetch_lo + fetch_n] whose bytes are
+// fetch_host[0..fetch_n], inside the segment's limit and (a linear one) the arena. Outside it a
+// fetch goes the checked way, mem(), and faults as it always did. Built at the start of an
+// instruction whenever CS or a descriptor changed; CS's D bit comes with it.
+static void fetch_window(struct cpu16 *c) {
+    const struct cpu16_desc *d = desc_of(c, c->sreg[S_CS]);
+    c->fetch_sel = c->sreg[S_CS];
+    c->fetch_gen = c->desc_gen;
+    c->fetch_host = 0;
+    c->cs32 = d && (d->flags & CPU16_DF_BIG);
+    if (!d || d->kind != D_CODE) return;
+    if (!(d->flags & CPU16_DF_LIN)) {
+        if (!d->base) return;
+        c->fetch_host = d->base;
+        c->fetch_lo = 0;
+        c->fetch_n = d->limit;
+        return;
+    }
+    if (!c->lin) return;
+    uint32_t rel0 = d->lin - c->lin_origin;            // the arena byte offset 0 lands on, modulo 2^32
+    uint32_t lo = rel0 < c->lin_size ? 0 : (uint32_t)0 - rel0;   // the first offset inside the arena
+    if (lo > d->limit) return;
+    uint64_t hi = (uint64_t)lo + (rel0 < c->lin_size ? c->lin_size - rel0 : c->lin_size) - 1;
+    if (hi > d->limit) hi = d->limit;
+    c->fetch_host = c->lin + (rel0 < c->lin_size ? rel0 : 0);
+    c->fetch_lo = lo;
+    c->fetch_n = (uint32_t)(hi - lo);
+}
+
+static inline uint8_t fetch8(struct cpu16 *c) {
+    uint32_t k = c->ip - c->fetch_lo;
+    uint8_t v = c->fetch_host && k <= c->fetch_n ? c->fetch_host[k] : rd8(c, S_CS, c->ip);
+    ip_add(c, 1);
     return v;
 }
 
-static uint16_t fetch16(struct cpu16 *c) {
-    uint16_t v = rd16(c, S_CS, c->ip);
-    c->ip += 2;
+static inline uint16_t fetch16(struct cpu16 *c) {
+    uint32_t k = c->ip - c->fetch_lo;
+    uint16_t v;
+    if (c->fetch_host && (uint64_t)k + 1 <= c->fetch_n) v = (uint16_t)(c->fetch_host[k] | c->fetch_host[k + 1] << 8);
+    else v = rd16(c, S_CS, c->ip);
+    ip_add(c, 2);
     return v;
 }
 
-static uint32_t fetch32(struct cpu16 *c) {
-    uint32_t v = rd32(c, S_CS, c->ip);
-    c->ip += 4;
+static inline uint32_t fetch32(struct cpu16 *c) {
+    uint32_t k = c->ip - c->fetch_lo;
+    uint32_t v;
+    if (c->fetch_host && (uint64_t)k + 3 <= c->fetch_n) memcpy(&v, c->fetch_host + k, 4);
+    else v = rd32(c, S_CS, c->ip);
+    ip_add(c, 4);
     return v;
 }
 
@@ -280,53 +404,61 @@ static void reg_set(struct cpu16 *c, int r, int w, uint32_t v) {
     else set8(c, r, (uint8_t)v);
 }
 
-static int parity(uint8_t v) {
-    v ^= v >> 4;
-    v ^= v >> 2;
-    v ^= v >> 1;
-    return !(v & 1);
+// PF for each low byte: set for an even number of ones.
+static const uint8_t PARITY[256] = {
+#define P2(n) n, n ^ F_PF, n ^ F_PF, n
+#define P4(n) P2(n), P2(n ^ F_PF), P2(n ^ F_PF), P2(n)
+#define P6(n) P4(n), P4(n ^ F_PF), P4(n ^ F_PF), P4(n)
+    P6(F_PF), P6(0), P6(0), P6(F_PF)
+#undef P2
+#undef P4
+#undef P6
+};
+
+static inline void setf(struct cpu16 *c, uint16_t f, int on) {
+    c->flags = (uint16_t)((c->flags & ~f) | (on ? f : 0));
 }
 
-static void setf(struct cpu16 *c, uint16_t f, int on) {
-    if (on) c->flags |= f;
-    else c->flags &= (uint16_t)~f;
-}
-
-static void szp(struct cpu16 *c, uint32_t v, int w) {
-    setf(c, F_ZF, (v & wmask(w)) == 0);
-    setf(c, F_SF, (v & wsign(w)) != 0);
-    setf(c, F_PF, parity((uint8_t)v));
+// ZF SF PF from a result, in one store.
+static inline void szp(struct cpu16 *c, uint32_t v, int w) {
+    uint16_t f = (uint16_t)(c->flags & ~(F_ZF | F_SF | F_PF));
+    if (!(v & wmask(w))) f |= F_ZF;
+    if (v & wsign(w)) f |= F_SF;
+    c->flags = (uint16_t)(f | PARITY[v & 0xFF]);
 }
 
 // The eight ALU ops of 00-3F and group 1: add or adc sbb and sub xor cmp.
+// The six arithmetic flags are made together and stored once.
 static uint32_t alu(struct cpu16 *c, int op, uint32_t a, uint32_t b, int w) {
     uint32_t mask = wmask(w), sign = wsign(w);
     uint64_t r;
     uint32_t cf = c->flags & F_CF ? 1 : 0;
+    uint16_t f = 0;
     a &= mask;
     b &= mask;
     switch (op) {
     case 0: case 2:                                       // add, adc
         if (op == 0) cf = 0;
         r = (uint64_t)a + b + cf;
-        setf(c, F_CF, r > mask);
-        setf(c, F_OF, ((a ^ (uint32_t)r) & (b ^ (uint32_t)r) & sign) != 0);
-        setf(c, F_AF, ((a ^ b ^ (uint32_t)r) & 0x10) != 0);
+        if (r > mask) f |= F_CF;
+        if ((a ^ (uint32_t)r) & (b ^ (uint32_t)r) & sign) f |= F_OF;
+        if ((a ^ b ^ (uint32_t)r) & 0x10) f |= F_AF;
         break;
     case 3: case 5: case 7:                               // sbb, sub, cmp
         if (op != 3) cf = 0;
         r = (uint64_t)a - b - cf;
-        setf(c, F_CF, (uint64_t)a < (uint64_t)b + cf);
-        setf(c, F_OF, ((a ^ b) & (a ^ (uint32_t)r) & sign) != 0);
-        setf(c, F_AF, ((a ^ b ^ (uint32_t)r) & 0x10) != 0);
+        if ((uint64_t)a < (uint64_t)b + cf) f |= F_CF;
+        if ((a ^ b) & (a ^ (uint32_t)r) & sign) f |= F_OF;
+        if ((a ^ b ^ (uint32_t)r) & 0x10) f |= F_AF;
         break;
     default:                                              // or, and, xor
         r = op == 1 ? (a | b) : op == 4 ? (a & b) : (a ^ b);
-        setf(c, F_CF | F_OF | F_AF, 0);
         break;
     }
     uint32_t v = (uint32_t)r & mask;
-    szp(c, v, w);
+    if (!v) f |= F_ZF;
+    if (v & sign) f |= F_SF;
+    c->flags = (uint16_t)((c->flags & ~(F_CF | F_PF | F_AF | F_ZF | F_SF | F_OF)) | f | PARITY[v & 0xFF]);
     return v;
 }
 
@@ -515,7 +647,9 @@ static void far_return(struct cpu16 *c, unsigned pop);
 
 // Transfer to SEL:OFF. A thunk runs here: its C function, then the
 // Pascal return. A sentinel ends the cpu16_call_far() that pushed it.
-static void far_jump(struct cpu16 *c, uint16_t sel, uint16_t off) {
+// The offset is 32 bits only into a 32-bit code segment, or one whose
+// limit is past 64 KiB; anything else must fit 16.
+static void far_jump(struct cpu16 *c, uint16_t sel, uint32_t off) {
     const struct cpu16_desc *d = desc_of(c, sel);
     if (!d) {
         char why[64];
@@ -527,12 +661,15 @@ static void far_jump(struct cpu16 *c, uint16_t sel, uint16_t off) {
         if (off > d->limit) { cpu16_set_fault(c, FAULT_GP, "far transfer past the code segment"); return; }
         c->sreg[S_CS] = sel;
         c->ip = off;
+        c->cs32 = (d->flags & CPU16_DF_BIG) != 0;
         return;
     }
+    if (off > 0xFFFF) { cpu16_set_fault(c, FAULT_GP, "a 32-bit far transfer into Windows"); return; }
     if (d->kind == D_THUNK) {
         c->sreg[S_CS] = sel;
         c->ip = off;
-        int n = c->thunk ? c->thunk(c, sel, off) : -1;
+        c->cs32 = 0;
+        int n = c->thunk ? c->thunk(c, sel, (uint16_t)off) : -1;
         if (n < 0) {
             cpu16_set_fault(c, FAULT_API, "an imported function failed");
             return;
@@ -544,35 +681,35 @@ static void far_jump(struct cpu16 *c, uint16_t sel, uint16_t off) {
         if (off != c->depth) { cpu16_set_fault(c, FAULT_GP, "return to a stale callback frame"); return; }
         c->sreg[S_CS] = sel;
         c->ip = off;
+        c->cs32 = 0;
         return;
     }
     cpu16_set_fault(c, FAULT_GP, "far transfer to a data segment");
 }
 
-// A 66-prefixed far transfer: a 32-bit offset, which in a 16-bit code
-// segment must still fit in 16 bits. A Windows call is entered through a
-// 16-bit frame only (its Pascal return pops one).
+// A Windows call is entered and left through a 16-bit frame only (its Pascal
+// return pops one), so a 32-bit frame's transfer into a thunk is a fault.
 static void far_jump32(struct cpu16 *c, uint16_t sel, uint32_t off) {
     const struct cpu16_desc *d = desc_of(c, sel);
-    if (off > 0xFFFF || (d && d->kind != D_CODE)) {
-        cpu16_set_fault(c, FAULT_GP, d && d->kind == D_THUNK ? "a 32-bit far transfer into Windows"
-                                                             : "32-bit far transfer past the code segment");
+    if (d && d->kind != D_CODE) {
+        cpu16_set_fault(c, FAULT_GP, d->kind == D_THUNK ? "a 32-bit far transfer into Windows"
+                                                        : "32-bit far transfer to a data segment");
         return;
     }
-    far_jump(c, sel, (uint16_t)off);
+    far_jump(c, sel, off);
 }
 
 static void far_return(struct cpu16 *c, unsigned pop) {
     uint16_t ip = cpu16_pop(c);
     uint16_t cs = cpu16_pop(c);
-    c->r[R_SP] = (uint16_t)(c->r[R_SP] + pop);
+    sp_add(c, (int32_t)pop);
     if (!c->fault) far_jump(c, cs, ip);
 }
 
 static void far_return32(struct cpu16 *c, unsigned pop) {
     uint32_t ip = pop32(c);
     uint16_t cs = (uint16_t)pop32(c);
-    c->r[R_SP] = (uint16_t)(c->r[R_SP] + pop);
+    sp_add(c, (int32_t)pop);
     if (!c->fault) far_jump32(c, cs, ip);
 }
 
@@ -584,15 +721,17 @@ static void far_call(struct cpu16 *c, struct insn *in, uint16_t sel, uint32_t of
         return;
     }
     cpu16_push(c, c->sreg[S_CS]);
-    cpu16_push(c, c->ip);
+    cpu16_push(c, (uint16_t)c->ip);
     if (!c->fault) far_jump(c, sel, (uint16_t)off);
 }
 
-// A near transfer: a 16-bit target wraps; a 66-prefixed one past the
-// segment's 64 KiB is a fault, as in a 16-bit code segment on a 386.
+// A near transfer: a 16-bit operand size truncates the target to 16 bits
+// (in either kind of segment, as a 386 does); past CS's limit is a fault.
 static void jump_near(struct cpu16 *c, const struct insn *in, uint32_t target) {
-    if (in->o32 && target > 0xFFFF) { cpu16_set_fault(c, FAULT_GP, "near transfer past the code segment"); return; }
-    c->ip = (uint16_t)target;
+    if (!in->o32) target &= 0xFFFF;
+    const struct cpu16_desc *d = seg_desc(c, S_CS);
+    if (!d || target > d->limit) { cpu16_set_fault(c, FAULT_GP, "near transfer past the code segment"); return; }
+    c->ip = target;
 }
 
 static void interrupt(struct cpu16 *c, uint8_t n) {
@@ -860,6 +999,31 @@ static void op_0f(struct cpu16 *c, struct insn *in) {
         rm_set(c, &m, 0, (uint32_t)cond(c, op & 0x0F));
         return;
     }
+    if (op >= 0xC8 && op <= 0xCF) {                       // bswap (486); a word's is undefined, kept as is
+        if (w == 2) {
+            uint32_t v = get32(c, op & 7);
+            set32(c, op & 7, v >> 24 | (v >> 8 & 0xFF00) | (v << 8 & 0xFF0000) | v << 24);
+        }
+        return;
+    }
+    if (op == 0xB0 || op == 0xB1) {                       // cmpxchg (486)
+        int cw = op & 1 ? w : 0;
+        decode_modrm(c, in, &m);
+        uint32_t v = rm_get(c, &m, cw);
+        alu(c, 7, reg_get(c, R_AX, cw), v, cw);
+        if (c->flags & F_ZF) rm_set(c, &m, cw, reg_get(c, m.reg, cw));
+        else { rm_set(c, &m, cw, v); reg_set(c, R_AX, cw, v); }   // the 486 writes the old value back
+        return;
+    }
+    if (op == 0xC0 || op == 0xC1) {                       // xadd (486)
+        int xw = op & 1 ? w : 0;
+        decode_modrm(c, in, &m);
+        uint32_t d = rm_get(c, &m, xw), s = reg_get(c, m.reg, xw);
+        uint32_t sum = alu(c, 0, d, s, xw);
+        reg_set(c, m.reg, xw, d);
+        rm_set(c, &m, xw, sum);
+        return;
+    }
     // dispatch-ok: one case per 0F opcode, a set the 386 fixed in 1985.
     switch (op) {
     case 0x00:                                            // sldt str lldt ltr verr verw
@@ -886,7 +1050,9 @@ static void op_0f(struct cpu16 *c, struct insn *in) {
         if (!d || (d->kind != D_DATA && d->kind != D_CODE)) { setf(c, F_ZF, 0); return; }
         setf(c, F_ZF, 1);
         if (op == 0x03) reg_set(c, m.reg, w, d->limit);
-        else reg_set(c, m.reg, w, d->kind == D_CODE ? 0xFA00 : 0xF200);   // present, DPL 3, code/data
+        else reg_set(c, m.reg, w, (d->kind == D_CODE ? 0xFA00u : 0xF200u)    // present, DPL 3, code/data
+                                      | (d->flags & CPU16_DF_BIG ? 0x400000u : 0)   // D/B
+                                      | (d->limit > 0xFFFFF ? 0x800000u : 0));      // G
         return;
     }
     case 0x06: case 0x20: case 0x21: case 0x22: case 0x23: case 0x24: case 0x26:
@@ -950,21 +1116,29 @@ static void op_0f(struct cpu16 *c, struct insn *in) {
     }
 }
 
+// The prefix bytes: segment overrides, 66, 67, REP/REPNE and LOCK.
+static const uint8_t IS_PREFIX[256] = {
+    [0x26] = 1, [0x2E] = 1, [0x36] = 1, [0x3E] = 1, [0x64] = 1, [0x65] = 1, [0x66] = 1, [0x67] = 1,
+    [0xF0] = 1, [0xF2] = 1, [0xF3] = 1,
+};
+
 static void step(struct cpu16 *c) {
-    struct insn in = { .seg = -1, .cs = c->sreg[S_CS], .ip = c->ip };
+    if (c->fetch_sel != c->sreg[S_CS] || c->fetch_gen != c->desc_gen) fetch_window(c);
+    struct insn in = { .seg = -1, .cs = c->sreg[S_CS], .ip = c->ip, .o32 = c->cs32, .a32 = c->cs32 };
     struct modrm m;
     uint8_t op;
     for (;;) {
         op = fetch8(c);
         if (c->fault) return;
+        if (!IS_PREFIX[op]) break;                        // most instructions have none
         if (op == 0x26) in.seg = S_ES;
         else if (op == 0x2E) in.seg = S_CS;
         else if (op == 0x36) in.seg = S_SS;
         else if (op == 0x3E) in.seg = S_DS;
         else if (op == 0x64) in.seg = S_FS;
         else if (op == 0x65) in.seg = S_GS;
-        else if (op == 0x66) in.o32 = 1;
-        else if (op == 0x67) in.a32 = 1;
+        else if (op == 0x66) in.o32 = !c->cs32;
+        else if (op == 0x67) in.a32 = !c->cs32;
         else if (op == 0xF2 || op == 0xF3) in.rep = op;
         else if (op == 0xF0) continue;
         else break;
@@ -1062,14 +1236,22 @@ static void step(struct cpu16 *c) {
         reg_set(c, m.reg, wd, imul2(c, a, b, wd));
         return;
     }
+    case 0xE4: case 0xE5: case 0xE6: case 0xE7: case 0xEC: case 0xED: case 0xEE: case 0xEF: {
+        uint16_t port = op & 0x08 ? c->r[R_DX] : fetch8(c);
+        int w = osz(&in, op & 1), out = (op & 0x02) != 0;
+        uint32_t v = out ? reg_get(c, R_AX, w) : 0;
+        if (!c->io) { cpu16_set_fault(c, FAULT_HLT, "port I/O"); return; }
+        if (c->fault || c->io(c, port, wbits(w) / 8, out, &v) < 0) return;
+        if (!out) reg_set(c, R_AX, w, v);
+        return;
+    }
     case 0x6C: case 0x6D: case 0x6E: case 0x6F:
-    case 0xE4: case 0xE5: case 0xE6: case 0xE7: case 0xEC: case 0xED: case 0xEE: case 0xEF:
-        cpu16_set_fault(c, FAULT_HLT, "port I/O");
+        cpu16_set_fault(c, FAULT_HLT, "string port I/O");
         return;
     case 0x70: case 0x71: case 0x72: case 0x73: case 0x74: case 0x75: case 0x76: case 0x77:
     case 0x78: case 0x79: case 0x7A: case 0x7B: case 0x7C: case 0x7D: case 0x7E: case 0x7F: {
         int8_t d = (int8_t)fetch8(c);
-        if (cond(c, op & 0x0F)) jump_near(c, &in, (uint32_t)(c->ip + d));
+        if (cond(c, op & 0x0F)) jump_near(c, &in, c->ip + (uint32_t)(int32_t)d);
         return;
     }
     case 0x80: case 0x81: case 0x82: case 0x83: {
@@ -1185,7 +1367,7 @@ static void step(struct cpu16 *c) {
     case 0xC2: {
         uint16_t n = fetch16(c);
         jump_near(c, &in, popw(c, wd));
-        c->r[R_SP] += n;
+        sp_add(c, n);
         return;
     }
     case 0xC3: jump_near(c, &in, popw(c, wd)); return;
@@ -1199,22 +1381,23 @@ static void step(struct cpu16 *c) {
         rm_set(c, &m, w, fetchw(c, w));
         return;
     }
-    case 0xC8: {                                          // enter
+    case 0xC8: {                                          // enter: the frame pointer is EBP in a 32-bit stack
         uint16_t size = fetch16(c);
         unsigned level = fetch8(c) & 31, step_bytes = wd == 2 ? 4 : 2;
+        int sw = ss_big(c) ? 2 : 1;
         pushw(c, wd, reg_get(c, R_BP, wd));
-        uint16_t frame = c->r[R_SP];
+        uint32_t frame = sp_get(c);
         for (unsigned i = 1; i < level; i++) {
-            c->r[R_BP] = (uint16_t)(c->r[R_BP] - step_bytes);
-            pushw(c, wd, rdw(c, S_SS, c->r[R_BP], wd));
+            reg_set(c, R_BP, sw, reg_get(c, R_BP, sw) - step_bytes);
+            pushw(c, wd, rdw(c, S_SS, reg_get(c, R_BP, sw), wd));
         }
         if (level) pushw(c, wd, frame);
         reg_set(c, R_BP, wd, frame);
-        c->r[R_SP] -= size;
+        sp_add(c, -(int32_t)size);
         return;
     }
     case 0xC9:                                            // leave
-        c->r[R_SP] = c->r[R_BP];
+        sp_set(c, reg_get(c, R_BP, ss_big(c) ? 2 : 1));
         reg_set(c, R_BP, wd, popw(c, wd));
         return;
     case 0xCA:
@@ -1262,14 +1445,13 @@ static void step(struct cpu16 *c) {
     case 0xD8: case 0xD9: case 0xDA: case 0xDB: case 0xDC: case 0xDD: case 0xDE: case 0xDF: {
         decode_modrm(c, &in, &m);
         if (c->fault) return;
-        if (m.mod != 3 && m.off > 0xFFFF) { cpu16_set_fault(c, FAULT_GP, "x87 operand past a 16-bit segment"); return; }
         uint8_t b = (uint8_t)(m.mod << 6 | m.reg << 3 | m.rm);
         if (cpu16_x87_waits(op, b) && cpu16_x87_pending(c)) {   // the coprocessor's IRQ 13, before it runs
             c->ip = in.ip;
             interrupt(c, 0x75);
             return;
         }
-        cpu16_x87_op(c, op, b, m.mod == 3 ? -1 : m.seg, (uint16_t)m.off, in.cs, in.ip);
+        cpu16_x87_op(c, op, b, m.mod == 3 ? -1 : m.seg, m.off, in.cs, in.ip, in.o32);
         return;
     }
     case 0xE0: case 0xE1: case 0xE2: {                    // loopnz loopz loop: CX, or ECX under 67
@@ -1277,12 +1459,12 @@ static void step(struct cpu16 *c) {
         idx_add(c, &in, R_CX, -1);
         int zf = (c->flags & F_ZF) != 0;
         if (idx_get(c, &in, R_CX) && (op == 0xE2 || (op == 0xE1 ? zf : !zf)))
-            jump_near(c, &in, (uint32_t)(c->ip + d));
+            jump_near(c, &in, c->ip + (uint32_t)(int32_t)d);
         return;
     }
     case 0xE3: {                                          // jcxz, jecxz
         int8_t d = (int8_t)fetch8(c);
-        if (!idx_get(c, &in, R_CX)) jump_near(c, &in, (uint32_t)(c->ip + d));
+        if (!idx_get(c, &in, R_CX)) jump_near(c, &in, c->ip + (uint32_t)(int32_t)d);
         return;
     }
     case 0xE8: {
@@ -1303,7 +1485,7 @@ static void step(struct cpu16 *c) {
         else far_jump(c, sel, (uint16_t)off);
         return;
     }
-    case 0xEB: { int8_t d = (int8_t)fetch8(c); jump_near(c, &in, (uint32_t)(c->ip + d)); return; }
+    case 0xEB: { int8_t d = (int8_t)fetch8(c); jump_near(c, &in, c->ip + (uint32_t)(int32_t)d); return; }
     case 0xF4: cpu16_set_fault(c, FAULT_HLT, "hlt"); return;
     case 0xF5: c->flags ^= F_CF; return;
     case 0xF6: case 0xF7:
@@ -1357,8 +1539,7 @@ int cpu16_run(struct cpu16 *c, uint64_t max_steps) {
     uint64_t until = max_steps ? c->steps + max_steps : 0;
     unsigned depth = c->depth;
     while (!c->fault && !c->exited) {
-        const struct cpu16_desc *d = desc_of(c, c->sreg[S_CS]);
-        if (d && d->kind == D_SENTINEL && c->ip == depth) return 0;
+        if (c->sentinel && c->sreg[S_CS] == c->sentinel && c->ip == depth) return 0;
         if (until && c->steps >= until) { cpu16_set_fault(c, FAULT_LIMIT, "step budget"); break; }
         step(c);
         if (!(++c->steps & (CPU16_TICK_STEPS - 1)) && c->tick) c->tick(c);
@@ -1367,11 +1548,13 @@ int cpu16_run(struct cpu16 *c, uint64_t max_steps) {
 }
 
 int cpu16_call_far(struct cpu16 *c, uint16_t sel, uint16_t off) {
-    static uint16_t sentinel;
-    if (!sentinel || desc_of(c, sentinel) == 0 || desc_of(c, sentinel)->kind != D_SENTINEL)
-        sentinel = cpu16_alloc(c, D_SENTINEL, 0, 0xFFFF, 0);
+    if (!c->sentinel || desc_of(c, c->sentinel) == 0 || desc_of(c, c->sentinel)->kind != D_SENTINEL)
+        c->sentinel = cpu16_alloc(c, D_SENTINEL, 0, 0xFFFF, 0);
+    uint16_t sentinel = c->sentinel;
     if (!sentinel) { cpu16_set_fault(c, FAULT_API, "no selector for a callback"); return -1; }
-    uint16_t cs = c->sreg[S_CS], ip = c->ip;
+    uint16_t cs = c->sreg[S_CS];
+    uint32_t ip = c->ip;
+    uint8_t cs32 = c->cs32;
     c->depth++;
     cpu16_push(c, sentinel);
     cpu16_push(c, (uint16_t)c->depth);
@@ -1380,5 +1563,6 @@ int cpu16_call_far(struct cpu16 *c, uint16_t sel, uint16_t off) {
     c->depth--;
     c->sreg[S_CS] = cs;
     c->ip = ip;
+    c->cs32 = cs32;
     return r;
 }

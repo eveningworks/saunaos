@@ -78,7 +78,7 @@ replace `dirname(dirname(__file__))`, whose depth is now per folder.
 | Diagnose | `panic_resolve.py` (**never hand-roll `nm`**), `acpi_dump.py`, `aml_walk.py`, `QMPSession.hmp()` (**the one oracle the guest cannot fake**), `pixel_probe.py`, `iso_guard.py` |
 | Does it actually SOUND right? | `audio_loopback_test.py` -- records the G6 back on line in; needs the cable patched in |
 | Check an implementation against a FOREIGN one | `libc_diff.py`, `uimg_codec_hostcheck.py`, `usnd_hostcheck.py`, `midi_hostcheck.py` (vs FluidSynth), `hash_hostcheck.py`, `divti3_hostcheck.py`, `regex_hostcheck.py`, `umd_hostcheck.py`, `ugfx_text_hostcheck.py`, `utext_hostcheck.py`, `utween_hostcheck.py`, `term_scheme_hostcheck.py`, `teapot_hostcheck.py` (vs a float surface) |
-| Measure | `idle_cpu.py` (quote DIFFERENCES only), `timer_bench.py` (a timer configuration, idle and under load), `sys_bench.py` (a syscall, a context switch, read/write by size), `loc.py`, `dup_scan.py` (copy-paste; a REPORT, never a gate), `ping_rtt.py`, `latency_under_io.py`, `fs_isolation.py`, `frame_balance.py` |
+| Measure | `idle_cpu.py` (quote DIFFERENCES only), `timer_bench.py` (a timer configuration, idle and under load), `sys_bench.py` (a syscall, a context switch, read/write by size), `cpu16_bench.py` (w16's CPU on 32-bit code, MIPS on the host), `loc.py`, `dup_scan.py` (copy-paste; a REPORT, never a gate), `ping_rtt.py`, `latency_under_io.py`, `fs_isolation.py`, `frame_balance.py` |
 | Disk images, from the host | `seed_disk.py`, `install_grub.py` (also `boot_medium()`), `tfs3_writer.py`, `mkpart_test.py`, `fetch_wad.py`, `fetch_soundfont.py` |
 | Generated data | `gen_version.sh`/`set_version.sh`, `gen_kconfig.sh`, `genttf.py`, `gen_kbs.py`, `gen_cursors.py`, `gen_icons.py`, `gen_imgdata.py`, `gen_audio.py`, `gen_music.py`, `gen_sf2.py`, `gen_mp3_tables.py`, `gen_signames.py`, `gen_bootwords.py`, `genrelocs.py`, `gen_syms.py`, `build_conf.py`, `gen_modalias.py`, `gen_decisions_index.py`, `gen_commands_index.py`, `gen_next_up.py`, `fetch_ca_bundle.py` |
 | The repo itself | `backup_repo.sh` -- run before ANY change to the repo's identity or history |
@@ -545,6 +545,7 @@ Full entries: [`docs/tools/dev.md`](tools/dev.md).
 Full entries: [`docs/tools/bench.md`](tools/bench.md).
 
 - `boot_rate.py` -- Reboot a bare-metal machine N times and count how often something appears
+- `cpu16_bench.py` -- How fast w16's CPU runs 32-bit code, on the host: MIPS on a fixed workload
 - `host_latency.py` -- Holds this HOST's CPUs out of their deep idle states while a guest's
 - `idle_cpu.py` -- how much CPU does SaunaOS burn doing NOTHING?
 - `sys_bench.py` -- What a system call, a context switch and a read or write cost, on one build

@@ -682,14 +682,21 @@ static int mscdex(struct cpu16 *c) {
 }
 
 // INT 21h: the DOS calls a Windows program still makes. 4Ch ends it.
-// INT 75h: the coprocessor's exception (win87em16.c).
+// INT 75h: the coprocessor's exception (win87em16.c). INT 31h: DPMI (dpmi16.c).
 int w16_int(struct cpu16 *c, uint8_t n) {
     if (n == 0x75) return w16_fpu_irq(c->user);
+    if (n == 0x31) return w16_dpmi(c);
     if (n == 0x2F) return multiplex(c);
     if (n != 0x21) return -1;
     if (g_w16_trace) {
-        fprintf(g_w16_trace, "INT 21h AX=%04x BX=%04x CX=%04x DX=%04x\n", c->r[R_AX], c->r[R_BX], c->r[R_CX],
-                c->r[R_DX]);
+        // The calls that take a path at DS:DX show it: what a program looked for is most of a trace's worth.
+        static const uint8_t PATH_AT_DSDX[] = { 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x41, 0x43, 0x4E, 0x56, 0x5B };
+        char path[80] = "";
+        for (unsigned i = 0; i < sizeof PATH_AT_DSDX; i++)
+            if (PATH_AT_DSDX[i] == c->r[R_AX] >> 8 && cpu16_str(c, c->sreg[S_DS], c->r[R_DX], path, sizeof path) < 0)
+                path[0] = 0;
+        fprintf(g_w16_trace, "INT 21h AX=%04x BX=%04x CX=%04x DX=%04x%s%s%s\n", c->r[R_AX], c->r[R_BX], c->r[R_CX],
+                c->r[R_DX], path[0] ? " \"" : "", path, path[0] ? "\"" : "");
         fflush(g_w16_trace);
     }
     switch (c->r[R_AX] >> 8) {

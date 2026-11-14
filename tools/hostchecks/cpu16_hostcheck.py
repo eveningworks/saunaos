@@ -20,14 +20,19 @@ pusha/popa, enter/leave, jcc/loop/jcxz, imul by an immediate, xlat; the
 386's part of them -- every family under the 66 prefix (dwords, with the
 registers' high words random) and the 67 prefix (32-bit addresses, SIB
 with a scale), a GS override, and its 0F instructions: near jcc, setcc,
-movzx/movsx, bt/bts/btr/btc, shld/shrd, bsf/bsr, imul r,rm, push gs; and
+movzx/movsx, bt/bts/btr/btc, shld/shrd, bsf/bsr, imul r,rm, push gs; all
+of it again in a 32-BIT code segment with a 32-bit stack (the D and B
+bits a Win386 program's flat code runs with), where 66 and 67 ask for
+the 16-bit sizes; and
 the x87 (cpu16_x87.c): one random ESC instruction in every register and
 memory form on a random FPU state -- numbers at float's and double's
 edges, zeros, denormals, infinities, NaNs, empty registers, every
 rounding and precision control, unmasked exceptions -- compared as both
-FNSAVE images, the 387's instruction and operand pointers included. Not
-covered here: far transfers, segment loads and interrupts, which the
-NE samples exercise.
+FNSAVE images, the 387's instruction and operand pointers included. The fuzz
+runs half its cases in 32-bit segments, with a FLAT selector (a linear
+base, a 4 GiB limit) over a small arena, so ASan sees any access the
+modulo-2^32 wrap lets out. Not covered here: far transfers, segment loads
+and interrupts, which the NE samples exercise.
 
 POSITIVE CONTROL (--positive-control): in a COPY of cpu16.c, ADC loses its
 carry-in, SAR stops sign-extending, a SIB byte's scale is ignored and a
@@ -65,7 +70,7 @@ ROOT = hostcheck.ROOT
 SEEDS = (1, 2, 3)
 CASES = 200000
 
-FUZZ_CONTROL = ("    if ((uint64_t)off + size - 1 > d->limit) {", "    if (0) {")
+FUZZ_CONTROL = ("    if ((uint64_t)off + size - 1 > d->limit) return 0;\n", "    if (0) return 0;\n")
 
 CPU = "userland/utils/w16/cpu16.c"
 X87 = "userland/utils/w16/cpu16_x87.c"
@@ -81,7 +86,13 @@ CONTROLS = [
      "10 * ((i + top - top0) & 7)", "10 * ((i + 0 * (top - top0)) & 7)"),
     ("x87 a store never reaches memory", X87,
      "    if (len && !reads_only(op, reg)) memcpy(p, buf, len);\n", "\n"),
+    # The 32-bit segments, run in mode 32: the D bit ignored, a B-bit stack still moving SP.
+    ("32-bit code decoded as 16-bit", CPU, ".o32 = c->cs32, .a32 = c->cs32 }", ".o32 = 0, .a32 = 0 }", "32"),
+    ("32-bit stack moves SP only", CPU,
+     "    return ss_big(c) ? (uint32_t)c->rh[R_SP] << 16 | c->r[R_SP] : c->r[R_SP];",
+     "    return c->r[R_SP];", "32"),
 ]
+MODES = ("16", "32")   # the cases in 16-bit segments, then in 32-bit ones (cpu16_check.c)
 
 
 def build(tmp, edits=(), apply=False, where=CPU):
@@ -96,8 +107,8 @@ def build(tmp, edits=(), apply=False, where=CPU):
                              tool="cpu16_hostcheck")
 
 
-def run(exe, cases, seed):
-    r = subprocess.run([exe, str(cases), str(seed)], capture_output=True, text=True)
+def run(exe, cases, seed, mode="16"):
+    r = subprocess.run([exe, str(cases), str(seed), mode], capture_output=True, text=True)
     return r.returncode, r.stdout
 
 
@@ -110,10 +121,10 @@ def main():
 
     if args.positive_control:
         red = []
-        for name, where, before, after in CONTROLS:
+        for name, where, before, after, *mode in CONTROLS:
             with tempfile.TemporaryDirectory() as tmp:
                 exe = build(tmp, edits=[(before, after)], apply=True, where=where)
-                rc, out = run(exe, 50000, 7)
+                rc, out = run(exe, 50000, 7, mode[0] if mode else "16")
                 if rc == 3:
                     print("cpu16_hostcheck: SKIPPED -- the host kernel has no modify_ldt")
                     return 0
@@ -145,16 +156,17 @@ def main():
     fails = 0
     with tempfile.TemporaryDirectory() as tmp:
         exe = build(tmp)
-        for seed in SEEDS:
-            rc, out = run(exe, args.cases, seed)
-            if rc == 3:
-                print("cpu16_hostcheck: SKIPPED -- the host kernel has no modify_ldt")
-                return 0
-            last = out.strip().splitlines()[-1] if out.strip() else "(no output)"
-            if rc:
-                fails += 1
-                print(out[-4000:])
-            print(f"  {'ok  ' if rc == 0 else 'FAIL'} seed {seed}: {last}")
+        for mode in MODES:
+            for seed in SEEDS:
+                rc, out = run(exe, args.cases, seed, mode)
+                if rc == 3:
+                    print("cpu16_hostcheck: SKIPPED -- the host kernel has no modify_ldt")
+                    return 0
+                last = out.strip().splitlines()[-1] if out.strip() else "(no output)"
+                if rc:
+                    fails += 1
+                    print(out[-4000:])
+                print(f"  {'ok  ' if rc == 0 else 'FAIL'} {mode}-bit seed {seed}: {last}")
         # Random bytes as code under ASan/UBSan: fault or finish, never escape.
         asan = hostcheck.compile(tmp, "cpu16_fuzz",
                                  [os.path.join(ROOT, "tools", "w16", "cpu16_check.c"),

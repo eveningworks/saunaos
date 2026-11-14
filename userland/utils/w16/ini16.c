@@ -37,11 +37,12 @@ static int ieqs(const char *a, const char *b) {
     return n == strlen(b) && ieq(a, b, n);
 }
 
-// FILE -> a host path below drive C:; 0 when it names another drive.
+// FILE -> a host path: below drive C:, or through file16.c for another drive; 0 when it names none.
 static int host_path(const char *file, char *out, size_t cap) {
     char rel[160];
     if (file[0] && file[1] == ':') {
-        if (file[0] != 'C' && file[0] != 'c') return 0;
+        if (file[0] != 'C' && file[0] != 'c')              // another drive (a CD's own INF): file16.c's mapping
+            return w16_dos_path(file, out, cap, 0, 0, 0) == 0;
         snprintf(rel, sizeof rel, "%s", file + 2);
     } else if (strchr(file, '\\') || strchr(file, '/')) {
         snprintf(rel, sizeof rel, "%s", file);            // relative to C:'s root
@@ -139,12 +140,15 @@ uint64_t w16_ini_version(const char *file) {
 int w16_ini_get(const char *file, const char *sec, const char *key, char *out, size_t cap) {
     char path[256];
     size_t len;
-    if (!host_path(file, path, sizeof path)) return 0;
-    char *text = slurp(path, &len);
-    if (!text) return 0;
+    char *text = host_path(file, path, sizeof path) ? slurp(path, &len) : 0;
     struct lookup l = { sec, key, out, cap, 0 };
-    walk(text, find_fn, &l);
+    if (text) walk(text, find_fn, &l);
     free(text);
+    if (g_w16_trace) {
+        if (l.found) fprintf(g_w16_trace, "  ini %s [%s] %s -> \"%s\"\n", file, sec, key, out);
+        else fprintf(g_w16_trace, "  ini %s [%s] %s -> %s\n", file, sec, key, text ? "not there" : "no such file");
+        fflush(g_w16_trace);
+    }
     return l.found;
 }
 

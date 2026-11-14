@@ -41,6 +41,8 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
     struct cpu16 *c = &w->cpu;
     memset(c, 0, sizeof *c);
     c->desc = w->desc;
+    // Every byte the program reaches lives in the linear arena (lin16.c), so each selector has a linear base.
+    if (lin16_init(c) < 0) return load_fail(path, "cannot reserve its memory");
 
     // Segments: data copied in, the rest zero, DGROUP grown by heap+stack;
     // then every relocation bound (module16.c).
@@ -54,8 +56,8 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
     // NUL-TERMINATED AND WITH NO SPACE BEFORE IT, unlike DOS's tail: a
     // program's lpCmdLine is this very address (InitTask's ES:BX), and
     // Notepad opens it as a file name as it stands. Wine lays it out so.
-    uint8_t *psp = calloc(1, 256);
-    w->sysmem = calloc(1, SYSDATA_SIZE);
+    uint8_t *psp = lin16_alloc(256, 0);
+    w->sysmem = lin16_alloc(SYSDATA_SIZE, 0);
     if (!psp || !w->sysmem) return load_fail(path, "out of memory");
     w->sys_top = 4;   // OFFSET 0 IS NEVER HANDED OUT: w16_sys_push()'s callers read 0 as no room
     psp[0] = 0xCD; psp[1] = 0x20;
@@ -75,7 +77,7 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
     for (size_t i = 0; base[i] && pl < sizeof dospath - 1; i++)
         dospath[pl++] = base[i] >= 'a' && base[i] <= 'z' ? (char)(base[i] - 32) : base[i];
     dospath[pl] = 0;
-    uint8_t *env = calloc(1, 256);
+    uint8_t *env = lin16_alloc(256, 0);
     if (!env) return load_fail(path, "out of memory");
     memcpy(env, vars, sizeof vars - 1);
     memcpy(env + sizeof vars - 1, dospath, pl + 1);
@@ -106,6 +108,7 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
     c->user = w;
     c->thunk = 0;                    // set by the task thread
     c->intr = w16_int;
+    c->io = w16_port_io;
     w16_local_init(w);               // InitTask's job on Windows: the heap after the stack
 
     pthread_mutex_init(&w->lock, 0);
@@ -267,14 +270,14 @@ uint32_t w16_arg32(struct w16_args *a) {
     return (uint32_t)cpu16_arg(a->c, a->pos) | (uint32_t)cpu16_arg(a->c, a->pos + 2) << 16;
 }
 
-// Where the program is when it has run a while without calling Windows -- a loop
-// of its own shows in the trace as one line every CPU16_TICK_STEPS instructions.
+// Where the program is, every CPU16_TICK_STEPS instructions: a loop of its own shows as the same
+// place again and again, and the milliseconds between lines are the interpreter's speed.
 static uint64_t g_last_call_steps;
 
 static void trace_tick(struct cpu16 *c) {
-    if (c->steps - g_last_call_steps < CPU16_TICK_STEPS) return;
-    fprintf(g_w16_trace, "  ... running at %04x:%04x, %llu instructions since the last call\n", c->sreg[S_CS],
-            c->ip, (unsigned long long)(c->steps - g_last_call_steps));
+    fprintf(g_w16_trace, "  ... running at %04x:%04x, %llu instructions since the last call, at %llu ms\n",
+            c->sreg[S_CS], (unsigned)c->ip, (unsigned long long)(c->steps - g_last_call_steps),
+            (unsigned long long)w16_now_ms());
     fflush(g_w16_trace);
 }
 

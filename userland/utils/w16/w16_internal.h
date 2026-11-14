@@ -7,6 +7,9 @@
 //   kernel16.c        KERNEL (and INT 21h), user16.c USER, gdi16.c GDI
 //   usermisc16.c      USER's rectangles, timers, capture, wsprintf
 //   mem16.c           KERNEL's global and local heaps
+//   lin16.c           the linear arena every selector's memory comes from
+//   dpmi16.c          INT 31h, DPMI: descriptors and linear memory (Win386 programs)
+//   io16.c            IN and OUT: the CMOS clock, the PIT, VGA status; other ports empty
 //   res16.c           resources: FindResource, LoadResource, LoadString
 //   blit16.c          GDI's pixel work: raster ops, lines, DIBs
 //   frame16.c         the Windows 3.1 caption and frame (main thread)
@@ -48,6 +51,7 @@
 #include <stdint.h>
 
 #include "cpu16.h"
+#include "lin16.h"
 #include "ne.h"
 #include "w16_names.h"
 #include "base/urgn.h"
@@ -465,6 +469,7 @@ struct w16 {
     int ndlls;
     struct { uint16_t sel; char name[16]; } *thunks;   // a Windows module's thunk selector each
     int nthunks;
+    uint16_t bios_sel[17];                       // KERNEL's __0000H..__F000H (by segment >> 12), __0040H (16)
     uint16_t *res_sel;                           // a loaded resource's global block, by index;
     int res_cap;                                 // grown to the module's resources (res16.c)
     struct w16_gdiobj *gdi[W16_GDI_SLOTS / W16_GDI_BLOCK];   // gdi16.c: blocks, NULL until used
@@ -602,6 +607,8 @@ int w16_kernel(struct w16 *w, unsigned ordinal, struct w16_args *a);
 int w16_user(struct w16 *w, unsigned ordinal, struct w16_args *a);
 int w16_gdi(struct w16 *w, unsigned ordinal, struct w16_args *a);
 int w16_int(struct cpu16 *c, uint8_t n);
+int w16_dpmi(struct cpu16 *c);                   // INT 31h (dpmi16.c)
+int w16_port_io(struct cpu16 *c, uint16_t port, unsigned size, int out, uint32_t *val);   // IN/OUT (io16.c)
 
 // Scratch in the sysdata segment for a structure w16 hands the program
 // (a CREATESTRUCT, a PAINTSTRUCT): `len` zeroed bytes, their offset.

@@ -723,67 +723,10 @@
 // Why: Not written yet: as GetExeVersion, for any module.
 // By: GDI.EXE, USER.EXE
 
-// KERNEL.170 AllocCStoDSAlias(wSelector) -> WORD
-// Windows: A data selector for a code segment, so code can be read or patched through it.
-// Why: Not written yet: w16's CPU has selectors and could alias one.
-// By: 8514.DRV, KBDHP.DRV, KEYBOARD.DRV, OLECLI.DLL, SUPERVGA.DRV, SVGA256.DRV, and 4 more
-
-// KERNEL.171 AllocDStoCSAlias(wSelector) -> WORD
-// Windows: A code selector for a data segment, so generated code there can run -- how a driver
-// builds a thunk.
-// Why: Not written yet, as AllocCStoDSAlias.
-// By: CPWIN386.CPL, LMOUSE.DRV, MOUSE.DRV, MSC3BC2.DRV, MSCMOUSE.DRV, NCDW.DLL, and 1 more
-
-// KERNEL.173 __ROMBIOS = selector
-// Windows: KERNEL's constant: a selector to the PC's ROM BIOS at F000:0000.
-// Why: A driver's: w16 has no BIOS to show a program.
-// By: HPSYSTEM.DRV, KBDBE.DLL, KBDBR.DLL, KBDCA.DLL, KBDDA.DLL, KBDFC.DLL, and 18 more
-
-// KERNEL.174 __A000H = selector
-// Windows: KERNEL's constant: a selector to the VGA's video memory at A000:0000.
-// Why: A display driver's: w16 draws through toywm, with no video memory to map.
-// By: SUPERVGA.DRV, SVGA256.DRV, V7VGA.DRV, VGA.DRV, XGA.DRV
-
-// KERNEL.175 AllocSelector(wSelector) -> WORD
-// Windows: A new selector -- a copy of one, or a blank one when wSelector is 0.
-// Why: Not written yet: w16's CPU keeps a table of selectors and could hand one out.
-// By: 8514.DRV, CPWIN386.CPL, DMCOLOR.DLL, GDI.EXE, NDDENB.DLL, SUPERVGA.DRV, and 8 more
-
-// KERNEL.176 FreeSelector(wSelector) -> WORD
-// Windows: Gives back a selector AllocSelector made.
-// Why: Not written yet, as AllocSelector.
-// By: CPWIN386.CPL, DMCOLOR.DLL, GDI.EXE, KBDHP.DRV, KEYBOARD.DRV, NCDW.DLL, and 12 more
-
-// KERNEL.177 PrestoChangoSelector(wSrc, wDst) -> WORD
-// Windows: Makes wDst the code or data alias of wSrc's segment.
-// Why: Not written yet, as AllocCStoDSAlias.
-// By: 8514.DRV, DMCOLOR.DLL, GDI.EXE, SUPERVGA.DRV, SVGA256.DRV, V7VGA.DRV, and 2 more
-
 // KERNEL.180 LongPtrAdd(dwLongPtr, dwAdd) -> void
 // Windows: Adds to a far pointer, moving its selector when the offset passes 64 KB.
 // Why: Windows' own: GDI's. A program steps a huge pointer with __AHINCR, which w16 answers.
 // By: GDI.EXE, WINFILE.EXE
-
-// KERNEL.186 GetSelectorBase(wSelector) -> DWORD
-// Windows: The linear address a selector starts at.
-// Why: Not written yet: w16's selectors have bases, but host addresses, not 32-bit linear ones a
-// program could use.
-// By: GDI.EXE, SNDBLST.DRV, SNDBLST2.DRV, TIMER.DRV, VER.DLL
-
-// KERNEL.187 SetSelectorBase(wSelector, dwBase) -> WORD
-// Windows: Points a selector at a linear address.
-// Why: As GetSelectorBase: a program's linear address names nothing in w16.
-// By: CPWIN386.CPL, GDI.EXE, NDDENB.DLL, VER.DLL, WFWSETUP.DLL, WINSETUP.EXE
-
-// KERNEL.189 SetSelectorLimit(wSelector, dwLimit) -> WORD
-// Windows: Sets the last byte a selector reaches.
-// Why: Not written yet: with the base unchangeable, a limit alone means little.
-// By: CPWIN386.CPL, VER.DLL, WFWSETUP.DLL, WINSETUP.EXE
-
-// KERNEL.193 __0040H = selector
-// Windows: KERNEL's constant: a selector to the BIOS data area at 0040:0000.
-// Why: A driver's: w16 has no BIOS data area.
-// By: COMM.DRV, HPSYSTEM.DRV, SYSTEM.DRV
 
 // KERNEL.197 GlobalFix(hMem) -> void
 // Windows: Fixes a block in linear memory so it does not move.
@@ -928,16 +871,6 @@
 // Why: A driver's: there are no DOS sessions.
 // By: SUPERVGA.DRV, V7VGA.DRV, VGA.DRV
 
-// KEYBOARD.134 AnsiToOemBuff(lpAnsiStr, lpOemStr, nLength) -> void
-// Windows: Converts a buffer of the given length from the Windows code page to the DOS one.
-// Why: Not written yet: AnsiToOem is there; this is the same with a length.
-// By: FRAMEWRK.DLL, USER.EXE, WFWSETUP.DLL
-
-// KEYBOARD.135 OemToAnsiBuff(lpOemStr, lpAnsiStr, nLength) -> void
-// Windows: Converts a buffer of the given length from the DOS code page to the Windows one.
-// Why: Not written yet, as AnsiToOemBuff.
-// By: FRAMEWRK.DLL, MSSCHED.DLL, NDDEAPI.DLL, USER.EXE, WFWNET.DRV, WFWSETUP.DLL
-
 // --- LZEXPAND --------------------------------------------------------------------------------
 
 // --- MMSYSTEM --------------------------------------------------------------------------------
@@ -1028,12 +961,6 @@
 // Windows: How many auxiliary audio devices (a CD's audio line, a mixer input) there are.
 // Why: Not written yet: w16 would answer 0.
 // By: MPLAYER.EXE
-
-// MMSYSTEM.402 waveOutGetDevCaps(uDeviceID, lpCaps, uSize) -> UINT
-// Windows: A wave output device's name and the formats it plays.
-// Why: waveOut is not answered yet: sndPlaySound and MessageBeep play through soundd; a program's
-// own stream of buffers is the next step.
-// By: MCIWAVE.DRV
 
 // MMSYSTEM.420 waveOutGetID(hWaveOut, lpuDeviceID) -> UINT
 // Windows: The device number an open output was opened on.
@@ -1506,32 +1433,10 @@
 // Why: Not written yet: w16 keeps it (SetCursor's answer), so it is a few lines.
 // By: WFWSETUP.DLL
 
-// USER.259 BeginDeferWindowPos(nNumWindows) -> HDWP
-// Windows: Starts a batch of window moves made all at once by EndDeferWindowPos.
-// Why: Not written yet: a batch of SetWindowPos calls, which w16 answers one at a time.
-// By: FRAMEWRK.DLL
-
-// USER.260 DeferWindowPos(hWinPosInfo, hWnd, hWndInsertAfter, x, y, cx, cy, wFlags) -> HDWP
-// Windows: Adds one window's move to a batch.
-// Why: Not written yet, as BeginDeferWindowPos.
-// By: FRAMEWRK.DLL
-
-// USER.261 EndDeferWindowPos(hWinPosInfo) -> void
-// Windows: Makes every move in a batch at once.
-// Why: Not written yet, as BeginDeferWindowPos.
-// By: FRAMEWRK.DLL
-
 // USER.284 GetFreeSystemResources(fuSysResource) -> UINT
 // Windows: The percentage of USER's or GDI's heap still free -- About boxes' "System Resources".
 // Why: Not written yet: w16's heaps grow, so it would answer a constant high figure.
 // By: SHELL.DLL
-
-// USER.290 RedrawWindow(hWnd, lprcUpdate, hrgnUpdate, flags) -> BOOL
-// Windows: Invalidates, validates or repaints part of a window, with flags for erasing and
-// children.
-// Why: Not written yet: w16 paints whole windows; this would map onto its InvalidateRect and
-// UpdateWindow.
-// By: WINPOPUP.EXE
 
 // USER.319 ScrollWindowEx(hWnd, dx, dy, prcScroll, prcClip, hrgnUpdate, prcUpdate, flags) -> int
 // Windows: ScrollWindow with a region and rectangle back for what was uncovered, and flags for
@@ -1697,17 +1602,6 @@
 
 // --- VER -------------------------------------------------------------------------------------
 
-// VER.6 GetFileVersionInfoSize(lpszFileName, lpdwHandle) -> DWORD
-// Windows: How big a file's VERSIONINFO resource is.
-// Why: Not written yet: a file's resources are read already (GetFileResource), so the version calls
-// are small.
-// By: DRIVERS.CPL, WFWSETUP.DLL, WINFILE.EXE, WINSETUP.EXE
-
-// VER.7 GetFileVersionInfo(lpszFileName, dwHandle, cbBuf, lpvData) -> BOOL
-// Windows: Reads a file's VERSIONINFO resource.
-// Why: As GetFileVersionInfoSize.
-// By: DRIVERS.CPL, WFWSETUP.DLL, WINFILE.EXE, WINSETUP.EXE
-
 // VER.9 VerInstallFile(fuFlags, szSrcFileName, szDestFileName, szSrcDir, szDestDir, szCurDir, szTmpFile, lpuTmpFileLen) -> DWORD
 // Windows: Copies a file into place if it is newer, expanding it on the way.
 // Why: As GetFileVersionInfoSize.
@@ -1717,8 +1611,3 @@
 // Windows: The name of a language from its id (0x0409 is English (United States)).
 // Why: Not written yet: a table of 3.1's language names.
 // By: WINFILE.EXE
-
-// VER.11 VerQueryValue(lpvBlock, lpszSubBlock, lplpBuffer, lpcb) -> BOOL
-// Windows: One value from a VERSIONINFO block -- its fixed part, or a string such as CompanyName.
-// Why: As GetFileVersionInfoSize.
-// By: WFWSETUP.DLL, WINFILE.EXE, WINSETUP.EXE

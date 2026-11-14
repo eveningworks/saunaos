@@ -155,9 +155,142 @@ static int api_GetFileResource(struct w16 *w, unsigned ordinal, struct w16_args 
     return 24;
 }
 
+// --- version information --------------------------------------------------------------
+//
+// A file's VERSIONINFO resource (RT_VERSION, 16) is a tree of blocks, each
+// { WORD wLength; WORD wValueLength; char szKey[]; value; children }, the
+// value and every child aligned to 4 bytes from the block's start -- Win16's
+// form, ANSI keys and values. "\" is the root's VS_FIXEDFILEINFO,
+// "\StringFileInfo\040904E4\ProductVersion" a string.
+
+#define RT_VERSION 16
+
+// The file's first RT_VERSION resource: 0 and the whole file in *img (the caller frees it), or -1.
+static int version_resource(struct w16 *w, uint32_t file, unsigned char **img, struct ne_resource *r) {
+    char dos[260], host[512];
+    size_t n = 0;
+    *img = 0;
+    if (far_str(w, file, dos, sizeof dos) < 0 || w16_dos_path(dos, host, sizeof host, 0, 0, 0) != 0 ||
+        ufile_slurp(host, 0, img, &n) != UFILE_OK)
+        return -1;
+    struct ne_module *m = malloc(sizeof *m);
+    int found = 0;
+    if (m && ne_parse(*img, (uint32_t)n, m) == 0)
+        for (unsigned i = 0; !found && ne_resource_at(m, i, r) == 0; i++) found = r->type == RT_VERSION && r->len >= 4;
+    free(m);
+    if (!found) { free(*img); *img = 0; return -1; }
+    return 0;
+}
+
+// GetFileVersionInfoSize(lpszFileName, lpdwHandle) -> DWORD
+// Windows: How many bytes a file's version information takes -- the buffer GetFileVersionInfo
+// needs; 0 when the file has none. *lpdwHandle is set to 0, a value only GetFileVersionInfo reads.
+// w16: The same, from the file's RT_VERSION resource (ne.c's resource table).
+static int api_GetFileVersionInfoSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t file = w16_arg32(a), handle = w16_arg32(a);
+    unsigned char *img;
+    struct ne_resource r;
+    uint32_t len = version_resource(w, file, &img, &r) == 0 ? r.len : 0;
+    free(img);
+    uint8_t *h = handle ? cpu16_ptr(&w->cpu, (uint16_t)(handle >> 16), (uint16_t)handle, 4, 1) : 0;
+    if (h) memset(h, 0, 4);
+    w->cpu.r[R_AX] = (uint16_t)len;
+    w->cpu.r[R_DX] = (uint16_t)(len >> 16);
+    return 8;
+}
+
+// GetFileVersionInfo(lpszFileName, dwHandle, dwLen, lpvData) -> BOOL
+// Windows: A file's version information, the first dwLen bytes of it, into lpvData.
+// w16: The same.
+static int api_GetFileVersionInfo(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t file = w16_arg32(a);
+    w16_arg32(a);
+    uint32_t len = w16_arg32(a), data = w16_arg32(a);
+    unsigned char *img;
+    struct ne_resource r;
+    int ok = 0;
+    if (version_resource(w, file, &img, &r) == 0) {
+        uint32_t n = len < r.len ? len : r.len;
+        uint8_t *p = n ? cpu16_ptr(&w->cpu, (uint16_t)(data >> 16), (uint16_t)data, n, 1) : 0;
+        if (p) { memcpy(p, img + r.off, n); ok = 1; }
+        free(img);
+    }
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return 16;
+}
+
+static uint16_t rd16le(const uint8_t *b, uint32_t at) { return (uint16_t)(b[at] | b[at + 1] << 8); }
+static uint32_t align4(uint32_t v) { return (v + 3) & ~3u; }
+
+// The node at `at` (inside b[0..n)) reached by `path` ("A\B", "" for the node itself): its value's
+// offset and length. 1, or 0 when a step is not there or a block runs outside the buffer.
+static int vq_find(const uint8_t *b, uint32_t n, uint32_t at, const char *path, uint32_t *val, uint16_t *vlen) {
+    if (at + 4 > n) return 0;
+    uint32_t len = rd16le(b, at), end = at + len;
+    if (len < 4 || end > n) return 0;
+    uint32_t k = at + 4;
+    while (k < end && b[k]) k++;
+    if (k >= end) return 0;
+    uint32_t v = align4(k + 1);
+    uint16_t vl = rd16le(b, at + 2);
+    while (*path == '\\') path++;
+    if (!*path) {
+        if (v + vl > end) return 0;
+        *val = v;
+        *vlen = vl;
+        return 1;
+    }
+    size_t step = strcspn(path, "\\");
+    for (uint32_t c = align4(v + vl); c + 4 <= end;) {
+        uint32_t clen = rd16le(b, c);
+        if (clen < 4) break;
+        const char *key = (const char *)b + c + 4;
+        const char *nul = memchr(key, 0, end - c - 4);
+        if (nul && (size_t)(nul - key) == step && !strncasecmp(key, path, step))
+            return vq_find(b, n, c, path + step, val, vlen);
+        c = align4(c + clen);
+    }
+    return 0;
+}
+
+// VerQueryValue(lpvBlock, lpszSubBlock, lplpBuffer, lpcb) -> BOOL
+// Windows: A value inside version information GetFileVersionInfo read: "\" the VS_FIXEDFILEINFO,
+// "\VarFileInfo\Translation" the languages, "\StringFileInfo\<lang+charset>\<name>" a string.
+// *lplpBuffer points INTO lpvBlock, *lpcb is the value's length. FALSE when it is not there.
+// w16: The same, keys compared without case as Windows did.
+static int api_VerQueryValue(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct cpu16 *c = &w->cpu;
+    uint32_t block = w16_arg32(a), sub = w16_arg32(a), out = w16_arg32(a), lenp = w16_arg32(a);
+    char path[128];
+    w->cpu.r[R_AX] = 0;
+    if (far_str(w, sub, path, sizeof path) < 0) return -1;
+    const uint8_t *hd = cpu16_ptr(c, (uint16_t)(block >> 16), (uint16_t)block, 4, 0);
+    if (!hd) return -1;
+    uint16_t total = rd16le(hd, 0);
+    const uint8_t *b = total >= 4 ? cpu16_ptr(c, (uint16_t)(block >> 16), (uint16_t)block, total, 0) : 0;
+    if (!b) { c->fault = 0; return 16; }   // a block that says it runs past its memory: not found
+    uint32_t val;
+    uint16_t vl;
+    if (!vq_find(b, total, 0, path, &val, &vl)) return 16;
+    uint8_t *o = out ? cpu16_ptr(c, (uint16_t)(out >> 16), (uint16_t)out, 4, 1) : 0;
+    uint8_t *l = lenp ? cpu16_ptr(c, (uint16_t)(lenp >> 16), (uint16_t)lenp, 2, 1) : 0;
+    if ((out && !o) || (lenp && !l)) return -1;
+    uint32_t far = block + val;                  // inside the block, so inside its segment
+    if (o) { o[0] = (uint8_t)far; o[1] = (uint8_t)(far >> 8); o[2] = (uint8_t)(far >> 16); o[3] = (uint8_t)(far >> 24); }
+    if (l) { l[0] = (uint8_t)vl; l[1] = (uint8_t)(vl >> 8); }
+    w->cpu.r[R_AX] = 1;
+    return 16;
+}
+
 const struct w16_api g_ver_api[] = {
     { 2, api_GetFileResourceSize },
     { 3, api_GetFileResource },
+    { 6, api_GetFileVersionInfoSize },
+    { 7, api_GetFileVersionInfo },
     { 8, api_VerFindFile },
+    { 11, api_VerQueryValue },
 };
 const unsigned g_ver_api_n = sizeof g_ver_api / sizeof g_ver_api[0];
