@@ -776,7 +776,14 @@ int sys_spawn(struct syscall_ctx *c) {
         // spawn (kernel/sandbox.h): the child is narrowed before it runs.
         int sb_arm = (arm < 0 || !(msg.flags & SPAWN_SANDBOX)) ? 0
                    : sandbox_arm_spawn(msg.promises);
-        int stop_arm = (arm < 0 || sb_arm < 0 || !(msg.flags & SPAWN_STOPPED)) ? 0
+        // THE CHILD IS HELD UNTIL ITS SESSION, TERMINAL AND FOREGROUND
+        // GROUP ARE SET BELOW: it is READY once the spawn returns, and a
+        // syscall can be preempted, so it could otherwise run first and
+        // find itself in the old session (tests/ctty_test). Held by the
+        // SPAWN_STOPPED mechanism, released after them unless that was
+        // asked for too.
+        int hold = (msg.flags & (SPAWN_SETSID | SPAWN_FOREGROUND)) != 0;
+        int stop_arm = (arm < 0 || sb_arm < 0 || !((msg.flags & SPAWN_STOPPED) || hold)) ? 0
                      : scheduler_arm_spawn_stopped();
         if (arm < 0)
             spawn_rc = arm;
@@ -793,10 +800,10 @@ int sys_spawn(struct syscall_ctx *c) {
         scheduler_disarm_spawn_stopped();
         if (pid > 0) spawn_rc = pid;
         // SPAWN_FOREGROUND: the child's group in front of OUR fd 0,
-        // before the child can possibly read -- it is this syscall
-        // that creates it, so there is no window. Failure is a
-        // no-op by contract (not a terminal, not the owner): the
-        // after-the-fact tcsetpgrp this replaces behaved the same.
+        // before the child can possibly read -- it is held (above)
+        // until this is done. Failure is a no-op by contract (not a
+        // terminal, not the owner): the after-the-fact tcsetpgrp this
+        // replaces behaved the same.
         // BEFORE the foreground line below, which reads the child's
         // group: a session leader leads a group of its own, so the two
         // flags together would otherwise put the OLD group in front.
@@ -830,6 +837,7 @@ int sys_spawn(struct syscall_ctx *c) {
         }
         if (pid > 0 && (msg.flags & SPAWN_FOREGROUND))
             tty_set_fg_pgid(fd_tty(pml4, 0), scheduler_pgid(pid));
+        if (pid > 0 && hold && !(msg.flags & SPAWN_STOPPED)) scheduler_continue(pid);
     }
     // A sentinel's description was made for this spawn and its first
     // reference is OURS: the child took its own through fd_set_desc(),

@@ -3100,12 +3100,14 @@ AGAINST TIMEOUTS to tell them apart -- and note QEMU may never park at
 all, so this is a hardware measurement: `lscodec` reads 34/34/0 on the
 ASUS and 0/0 in QEMU, both correct.
 
-## A SYSCALL HANDLER RUNS WITH INTERRUPTS OFF, AND A WAIT ON `coarse_ticks()` THERE NEVER ENDS
+## A SYSCALL HANDLER MAY RUN WITH INTERRUPTS OFF, AND A WAIT ON `coarse_ticks()` THERE NEVER ENDS
 
-`context_switch.asm` re-enables interrupts on the way OUT of a syscall
-and nothing does so on the way in, so every handler -- and everything a
+Interrupts are on inside a syscall by default since 2026-11-14, but
+`syscall_irq=off` turns them off for the whole call, and so does any
+region a handler runs under `cli` -- so every handler, and everything a
 handler calls, which includes every `sound_device.start()`/`stop()`,
-every setting's `apply`, every fd release -- runs with IF clear. A
+every setting's `apply`, every fd release, must still work with IF
+clear. A
 tick deadline in that context is not a deadline wherever the clocksource
 is the tick itself (the PIT source: `clocksource=pit`, or a machine with
 neither an invariant TSC nor an ACPI PM timer) -- `coarse_ticks()` stands
@@ -3181,6 +3183,19 @@ rule.
   32-bit index (`tests/mmlimit_test`, `tests/bigoff_test`).
 - **A zero count is answered with 0 at the call**, before an op that
   rounds a buffer up sees it (`tests/zerolen_test`).
+
+## A SPAWNED CHILD IS HELD UNTIL THE SPAWN HAS FINISHED SETTING IT UP
+
+`scheduler_spawn_group()` leaves the child READY, and the syscall that
+called it can be preempted, so anything `sys_spawn()` does to the child
+AFTER -- `SPAWN_SETSID`'s session and controlling terminal,
+`SPAWN_FOREGROUND`'s foreground group -- can land after the child has
+already run and asked (`tests/ctty_test`: `getsid()` answered the
+parent's session). Such a spawn arms `SPAWN_STOPPED`'s hold and
+`scheduler_continue()`s the child once the steps are done. A new
+after-the-spawn step joins that `hold`, or is applied in the spawn
+itself before the child is marked READY, as the sandbox and the trace
+arms are.
 
 ## A WAIT ARMS BEFORE IT TESTS, AND AN ARM NEVER OUTLIVES ITS CALL
 
