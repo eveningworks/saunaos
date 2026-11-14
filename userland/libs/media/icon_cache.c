@@ -6,6 +6,7 @@
 #include "base/ulog.h"
 #include "string.h"
 #include "kfmt.h"
+#include <stdlib.h>   // realloc, for a batch
 
 #define ICON_DIR       "/usr/share/icons"
 #define ICON_NAME_MAX  24
@@ -33,6 +34,7 @@ static struct icon_entry g_cache[ICON_CACHE_MAX];
 static int g_count;
 static unsigned long long g_clock;   // monotonic, for `used`
 static int g_evictions;              // reported by `gui icons`
+static unsigned long g_inline;       // decodes icon_get() did itself
 
 void icon_cache_invalidate(void) {
     for (int i = 0; i < g_count; i++) uimg_free(&g_cache[i].img);
@@ -48,6 +50,29 @@ static struct icon_entry *find(const char *name, int size) {
         if (g_cache[i].size == size && k_strcmp(g_cache[i].name, name) == 0)
             return &g_cache[i];
     return NULL;
+}
+
+// The file for `name`, decoded and scaled into *out: 0, or -1 (logged).
+// Touches no cache state, so any thread may call it.
+static int decode(const char *name, int size, struct uimg *out) {
+    char path[64];
+    k_snprintf(path, sizeof path, "%s/%s.qoi", ICON_DIR, name);
+    struct uimg master;
+    if (uimg_load(path, &master) < 0) {
+        // Logged ONCE per (name, size), because the entry is kept as a
+        // negative result -- an icon that is missing must not produce a
+        // line per repaint.
+        ulogf("icons: %s not loaded -- %s\n", path, uimg_last_error());
+        return -1;
+    }
+    int rc = uimg_scale(&master, size, size, out);
+    uimg_free(&master);
+    if (rc < 0) {
+        ulogf("icons: %s could not be scaled to %d -- %s\n", path, size,
+                uimg_last_error());
+        return -1;
+    }
+    return 0;
 }
 
 const struct uimg *icon_get(const char *name, int size) {
@@ -81,30 +106,90 @@ const struct uimg *icon_get(const char *name, int size) {
     }
 
     e = &g_cache[g_count++];
+    // CLEARED: after an eviction this slot still holds a copy of the entry
+    // moved down, its pixels included -- a failed decode left that alias
+    // behind, freed twice at the next eviction.
+    k_memset(e, 0, sizeof *e);
     e->used = ++g_clock;
     k_strlcpy(e->name, name, sizeof e->name);
     e->size = size;
     e->missing = 1;
 
-    char path[64];
-    k_snprintf(path, sizeof path, "%s/%s.qoi", ICON_DIR, name);
-
-    struct uimg master;
-    if (uimg_load(path, &master) < 0) {
-        // Logged ONCE per (name, size), because the entry is kept as a
-        // negative result -- an icon that is missing must not produce a
-        // line per repaint.
-        ulogf("icons: %s not loaded -- %s\n", path, uimg_last_error());
-        return NULL;
-    }
-
-    int rc = uimg_scale(&master, size, size, &e->img);
-    uimg_free(&master);
-    if (rc < 0) {
-        ulogf("icons: %s could not be scaled to %d -- %s\n", path, size,
-                uimg_last_error());
-        return NULL;
-    }
-    e->missing = 0;
-    return &e->img;
+    g_inline++;
+    if (decode(name, size, &e->img) == 0) e->missing = 0;
+    return e->missing ? NULL : &e->img;
 }
+
+// ---- batches -------------------------------------------------------------
+
+struct icon_batch_item {
+    char name[ICON_NAME_MAX];
+    int size;
+    int rc;               // decode()'s answer, once decoded
+    struct uimg img;
+};
+
+int icon_batch_add(struct icon_batch *b, const char *name, int size) {
+    if (!b || !name || !name[0] || size <= 0) return 0;
+    for (int i = 0; i < b->n; i++)
+        if (b->items[i].size == size && k_strcmp(b->items[i].name, name) == 0) return 1;
+    if (b->n == b->cap) {
+        int cap = b->cap ? 2 * b->cap : 32;
+        struct icon_batch_item *g = realloc(b->items, (size_t)cap * sizeof *g);
+        if (!g) return 0;
+        b->items = g;
+        b->cap = cap;
+    }
+    struct icon_batch_item *it = &b->items[b->n++];
+    k_memset(it, 0, sizeof *it);
+    k_strlcpy(it->name, name, sizeof it->name);
+    it->size = size;
+    it->rc = -1;
+    return 1;
+}
+
+int icon_cache_sizes(int *out, int max) {
+    int n = 0;
+    for (int i = 0; i < g_count; i++) {
+        int seen = 0;
+        for (int k = 0; k < n; k++) seen |= out[k] == g_cache[i].size;
+        if (!seen && n < max) out[n++] = g_cache[i].size;
+    }
+    return n;
+}
+
+void icon_batch_decode(struct icon_batch *b) {
+    for (int i = 0; b && i < b->n; i++)
+        b->items[i].rc = decode(b->items[i].name, b->items[i].size, &b->items[i].img);
+}
+
+void icon_cache_install(struct icon_batch *b) {
+    for (int i = 0; b && i < b->n; i++) {
+        struct icon_batch_item *it = &b->items[i];
+        struct icon_entry *e = find(it->name, it->size);
+        if (!e) {
+            if (g_count >= ICON_CACHE_MAX) continue;   // never evicts for a prefetch
+            e = &g_cache[g_count++];
+            k_memset(e, 0, sizeof *e);
+            k_strlcpy(e->name, it->name, sizeof e->name);
+            e->size = it->size;
+            e->used = ++g_clock;
+        } else {
+            uimg_free(&e->img);
+        }
+        e->missing = it->rc != 0;
+        e->img = it->img;           // the batch's pixels move into the cache
+        k_memset(&it->img, 0, sizeof it->img);
+    }
+    icon_batch_free(b);
+}
+
+void icon_batch_free(struct icon_batch *b) {
+    if (!b) return;
+    for (int i = 0; i < b->n; i++) uimg_free(&b->items[i].img);
+    free(b->items);
+    b->items = 0;
+    b->n = b->cap = 0;
+}
+
+unsigned long icon_cache_inline_decodes(void) { return g_inline; }

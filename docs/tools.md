@@ -174,6 +174,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `folder_options_test.py` -- the desktop follows Folder Options, and
 - `forcequit_test.py` -- not-responding detection and force quit
 - `frame_pacing_test.py` -- The compositor composes at most one frame per refresh, and a lone
+- `frameio_test.py` -- The desktop's thread reads no config file, decodes no icon and no
 - `fullscreen_test.py` -- the fullscreen state and the display lease
 - `gfxdemo_test.py` -- drive the Shapes demo and assert it really draws
 - `glass_test.py` -- Transparency (userland/apps/system/toywm/wm_glass.c): the taskbar, Start, menus and

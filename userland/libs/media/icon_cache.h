@@ -36,9 +36,38 @@
 // such file (or it could not be decoded, which is logged once).
 const struct uimg *icon_get(const char *name, int size);
 
-// Drops everything. Called when the .desktop entries reload, since that
-// is when an app -- and its icon file -- can have appeared or changed.
+// Drops everything -- the next draw of each icon decodes it again, on
+// the caller's thread. A program that owes frames refreshes through a
+// batch instead (below).
 void icon_cache_invalidate(void);
+
+// A BATCH OF ICONS DECODED OFF THE CACHE'S THREAD: built where the cache
+// lives, decoded anywhere (icon_batch_decode() touches nothing but the
+// batch), then installed where the cache lives -- replacing an entry's
+// pixels in place, so what is on screen changes only once the new ones
+// are ready. The compositor decodes a new app list's icons on its reload
+// worker this way rather than dropping the cache.
+struct icon_batch_item;
+struct icon_batch {
+    struct icon_batch_item *items;
+    int n, cap;
+};
+
+// Adds (name, size) once. 0 when memory ran out (the icon then decodes
+// at its first draw, as without a batch).
+int icon_batch_add(struct icon_batch *b, const char *name, int size);
+
+// The sizes the cache holds entries at, up to `max` -- what a batch for
+// new names should decode them at.
+int icon_cache_sizes(int *out, int max);
+
+void icon_batch_decode(struct icon_batch *b);
+void icon_cache_install(struct icon_batch *b);   // and empties *b
+void icon_batch_free(struct icon_batch *b);
+
+// Decodes done by icon_get() itself, on its caller's thread, since start:
+// what a test reads to see that a reload decoded nothing on the frame.
+unsigned long icon_cache_inline_decodes(void);
 
 // How many entries are live, for `gui icons` and for a test that wants
 // to prove the cache is a cache rather than a decode per frame.

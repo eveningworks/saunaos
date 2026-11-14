@@ -37,8 +37,18 @@ void wm_watch_init(void);
 void wm_watch_fired(int id);
 void wm_watch_setting(void);
 
-// The topic's counter. Compare for equality only.
+// The topic's counter, as PUBLISHED: it moves a refresh after the event,
+// once the worker has re-read the config files the cache holds (wm_watch.c).
+// Compare for equality only.
 uint64_t wm_watch_gen(enum wm_topic t);
+
+// Once a frame, before any config poller: takes a finished refresh and
+// publishes, or starts one for counters that moved. wm_setting_generation()
+// (wm_conf.h) is published by the same step.
+void wm_watch_poll(void);
+
+// Refreshes published since start, and the files the last one read.
+void wm_watch_refresh_stats(unsigned long *refreshes, int *last_read);
 
 // The sum a config poller reading SETTINGS and a hand-editable /etc
 // file compares -- the usual pair.

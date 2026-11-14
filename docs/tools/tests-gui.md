@@ -1687,6 +1687,18 @@ from the default (a sound card, a USB mouse, `--reboot`).
   with it run inline. Counted from the WM's `N desktop entries` line:
   `gui apps` stops printing at a couple of hundred rows. In
   `gui_regress.py`; ~5 minutes more for the bulk part.
+- **`frameio_test.py`** -- nothing the desktop does on a change waits
+  on the disk from the WM's own thread. COUNTED, not timed, from `gui
+  frameio`: config files the WM's thread read (an unrelated `/etc` write
+  and a real setting change, each after a warm-up change, since a file
+  never read before is a cold read), icons `icon_get()` decoded itself
+  across an app-list reload, and no slow frame in `wallpaper` across a
+  wallpaper change with the watchdog at 60 ms. Each check first shows the
+  change reached the code (a refresh published and re-read files, the
+  entry loaded, the new stem is shown). Red under the positive control
+  (8 cache slots, publish without refresh, the cache dropped on reload,
+  an inline decode): 35 and 130 reads, 13 decodes, a 70 ms frame. In
+  `gui_regress.py`; ~1 minute.
 - **`settings_gallery_test.py`** -- System Settings' cursor theme
   gallery (5 checks), from the app's own `settings: gallery` lines: a
   card per theme with a painter, the Amber tile carrying amber ink while

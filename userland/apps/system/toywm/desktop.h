@@ -51,6 +51,8 @@ void desktop_draw_icons(void);
 // counter that moves whenever that picture would change.
 struct ugfx_surface;
 void desktop_draw_background_into(struct ugfx_surface *dst);
+// The wallpaper stem last installed (or found missing): `gui frameio`.
+const char *desktop_wallpaper_shown(void);
 uint32_t desktop_background_gen(void);
 // The background changed under it -- a live frame arrived or went away
 // (wm_background.c): moves the counter above and repaints.

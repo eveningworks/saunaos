@@ -27,12 +27,5 @@ int wm_conf_unset(const char *path, const char *key) {
     return uconf_unset(path, key);
 }
 
-uint32_t wm_setting_generation(void) {
-    struct setting_msg msg;
-    for (unsigned i = 0; i < sizeof msg; i++) ((uint8_t *)&msg)[i] = 0;
-    // Any op fills `generation`; COUNT is the cheapest and has no
-    // arguments to get wrong.
-    msg.op = SETTING_OP_COUNT;
-    if (sys_setting(&msg) != 0) return 0;
-    return msg.generation;
-}
+// wm_setting_generation() is in wm_watch.c: it is published with the
+// topics, a config refresh after the change.

@@ -36,6 +36,7 @@
 #include "base/ufolderopts.h" // the File Manager's options, which the desktop follows
 #include "base/ufiletype.h"
 #include "base/utrash.h"       // the bin's limits, kept by `trash expire`
+#include "base/uworker.h"      // the wallpaper's decode, off the frame
 #include "base/ucomponent.h"   // the GPL switch: a launcher it hides
 #include "base/uappentry.h"    // a launcher's program, for it
 #include "kpath.h"
@@ -611,6 +612,22 @@ static uint32_t g_background_gen;   // desktop_background_gen()
 // back costs no decode) but is not drawn.
 static int g_plain_only;
 static uint32_t g_plain_rgb = 0x183c5a;   // `desktop.background_colour`
+// The decode in flight, and the stem last installed (or found missing).
+struct wall_job {
+    struct uworker_job job;   // first: the worker hands this pointer back
+    char name[SETTING_ABI_VALUE_MAX];
+    char path[80];
+    struct uimg img;
+    int rc;
+    const char *err;
+    uint64_t ticks;
+};
+static struct wall_job wall_job;
+static char g_wall_shown[SETTING_ABI_VALUE_MAX];
+static int g_wall_tried;
+static void wall_run(struct uworker_job *j);
+static void wall_install(void);
+static void wall_poll(void);
 
 // Reads the two settings and reloads only when something actually
 // changed -- so this is safe to call on a generation bump, which fires
@@ -682,40 +699,85 @@ static void wallpaper_reload(void) {
     // thread that owes the next frame.
     if (!name_changed && wallpaper_loaded) return;
 
-    uui_image_set(&wallpaper_view, NULL);
-    if (wallpaper_loaded) {
-        uimg_free(&wallpaper_src);
-        wallpaper_loaded = 0;
-    }
     if (!name[0] || k_strcmp(name, "none") == 0) {
+        uui_image_set(&wallpaper_view, NULL);
+        if (wallpaper_loaded) {
+            uimg_free(&wallpaper_src);
+            wallpaper_loaded = 0;
+        }
+        g_wall_shown[0] = '\0';   // a stem chosen again decodes again
         wm_logf("desktop: no wallpaper");
         return;
     }
+    // THE FIRST PICTURE IS DECODED HERE, before the desktop's first frame
+    // (a plain-colour flash between the splash and the picture otherwise);
+    // every later one on the worker, the old picture shown meanwhile.
+    if (!wallpaper_loaded && !g_wall_tried) {
+        g_wall_tried = 1;
+        k_strlcpy(wall_job.name, name, sizeof wall_job.name);
+        wall_run(&wall_job.job);
+        wall_install();
+    }
+}
 
-    // A NAME, not a path -- the same rule a font face and a cursor theme
-    // follow (kernel/lib/wallpaper_config.c says why).
+// THE DECODE, on the worker (base/uworker.h): the stem tried in each
+// format until one loads. Touches nothing but its job.
+static void wall_run(struct uworker_job *j) {
+    struct wall_job *w = (struct wall_job *)j;
     // THE FIRST FORMAT THAT LOADS: the value is the stem, as a ChoiceDir
     // in stem mode lists it, so the file may be any of these.
     static const char *const EXT[] = { "jpg", "gif", "png", "qoi" };
-    char path[80];
     uint64_t t0 = sys_ticks();
-    int rc = -1;
-    for (unsigned e = 0; e < sizeof EXT / sizeof EXT[0] && rc < 0; e++) {
-        k_snprintf(path, sizeof path, "%s/%s.%s", WALLPAPER_DIR, name, EXT[e]);
-        rc = uimg_load(path, &wallpaper_src);   // a GIF's first frame: a picture is a still
+    w->rc = -1;
+    for (unsigned e = 0; e < sizeof EXT / sizeof EXT[0] && w->rc < 0; e++) {
+        k_snprintf(w->path, sizeof w->path, "%s/%s.%s", WALLPAPER_DIR, w->name, EXT[e]);
+        w->rc = uimg_load(w->path, &w->img);   // a GIF's first frame: a picture is a still
     }
-    if (rc < 0) {
+    // uimg_last_error() is one process-wide pointer: read it at once.
+    w->err = w->rc < 0 ? uimg_last_error() : "";
+    w->ticks = sys_ticks() - t0;
+}
+
+// On the WM's thread: the finished decode replaces the picture -- if it
+// is still the one asked for.
+static void wall_install(void) {
+    struct wall_job *w = &wall_job;
+    if (k_strcmp(w->name, wallpaper_name) != 0) {   // superseded: the next poll asks again
+        if (w->rc >= 0) uimg_free(&w->img);
+        return;
+    }
+    k_strlcpy(g_wall_shown, w->name, sizeof g_wall_shown);
+    if (w->rc < 0) {
         // NOT fatal and NOT silent: the desktop falls back to its plain
         // colour and says why, because a background that quietly does
         // not appear is indistinguishable from a compositor bug.
-        wm_logf("desktop: wallpaper %s not shown -- %s", path, uimg_last_error());
+        uui_image_set(&wallpaper_view, NULL);
+        if (wallpaper_loaded) { uimg_free(&wallpaper_src); wallpaper_loaded = 0; }
+        wm_logf("desktop: wallpaper %s not shown -- %s", w->path, w->err);
+        desktop_background_changed();
         return;
     }
+    uui_image_set(&wallpaper_view, NULL);
+    if (wallpaper_loaded) uimg_free(&wallpaper_src);
+    wallpaper_src = w->img;
+    k_memset(&w->img, 0, sizeof w->img);
     wallpaper_loaded = 1;
     uui_image_set(&wallpaper_view, &wallpaper_src);
-    wm_logf("desktop: wallpaper %s %dx%d mode %s in %u ticks", name,
-            wallpaper_src.w, wallpaper_src.h, mode,
-            (unsigned)(sys_ticks() - t0));
+    desktop_background_changed();
+    wm_logf("desktop: wallpaper %s %dx%d mode %s in %u ticks", w->name,
+            wallpaper_src.w, wallpaper_src.h, wallpaper_mode, (unsigned)w->ticks);
+}
+
+// Every frame: take a finished decode, and ask for the picture the
+// settings name when it is not the one shown.
+static void wall_poll(void) {
+    if (uworker_take(&wall_job.job)) wall_install();
+    if (uworker_busy(&wall_job.job)) return;
+    if (!wallpaper_name[0] || k_strcmp(wallpaper_name, "none") == 0) return;
+    if (k_strcmp(wallpaper_name, g_wall_shown) == 0) return;
+    k_strlcpy(wall_job.name, wallpaper_name, sizeof wall_job.name);
+    wall_job.job.run = wall_run;
+    uworker_submit(&wall_job.job);
 }
 
 // `desktop.icon_size`, the same way: the registry knows the words, the
@@ -884,6 +946,7 @@ void desktop_poll_config(void) {
         if (!g_expire_due) expire_soon(EXPIRE_SETTLE);
     }
     expire_poll();
+    wall_poll();
     if (gen == seen_gen) return;
     seen_gen = gen;
     folder_opts_reload(0);
@@ -925,6 +988,8 @@ void desktop_draw_background_into(struct ugfx_surface *dst) {
 }
 
 uint32_t desktop_background_gen(void) { return g_background_gen; }
+
+const char *desktop_wallpaper_shown(void) { return g_wall_shown; }
 
 void desktop_background_changed(void) {
     g_background_gen++;
@@ -1418,7 +1483,9 @@ int desktop_drag_active(void) { return drag.active || sel.armed; }
 void desktop_entries_changed(void) {
     g_hover = -1;
     start_store_load();     // an entry that just arrived has history to find
-    icon_cache_invalidate(); // an entry's artwork can have arrived with it
+    // The icon cache is NOT dropped: an app list's new artwork arrives
+    // decoded with the list (wm_apps_worker.c), and dropping it here made
+    // every visible icon decode again on the frame.
     if (!desktop_files_reload()) desktop_files_parse();   // same names: re-read the launchers
     positions_loaded = 0;   // re-read from DESKTOP_CONF_PATH, keyed by name
     rb_clear(&sel);         // indices into a table that just changed

@@ -1,12 +1,16 @@
 // Pushed configuration for the compositor -- see wm_watch.h.
 #include "apps/system/toywm/wm_watch.h"
 #include "apps/system/toywm/wm_log.h"
+#include "apps/system/toywm/wm_conf.h"   // wm_setting_generation(), defined here
 #include "wm_internal.h"   // wm_render_reset()
 #include <string.h>
 #include "rt/sys.h"
 #include "base/udclick.h"
 #include "ui/utheme.h"
 #include "base/udirs.h"
+#include "base/uconf.h"
+#include "base/uworker.h"
+#include "setting_abi.h"   // SETTING_OP_COUNT
 
 static const char *PATH[WM_TOPIC_COUNT] = {
     [WM_TOPIC_SETTINGS] = 0,                    // an event, not a path
@@ -19,9 +23,41 @@ static const char *PATH[WM_TOPIC_COUNT] = {
 };
 
 static int g_id[WM_TOPIC_COUNT];         // the kernel's watch id, > 0
-static uint64_t g_gen[WM_TOPIC_COUNT];
+static uint64_t g_gen[WM_TOPIC_COUNT];   // moved by the events, at once
+
+// WHAT THE POLLERS SEE LAGS THE EVENTS BY ONE REFRESH. A change moves
+// g_gen at once; the worker then re-reads every config file the cache
+// holds (uconf_cache_refresh()), and only then are the sampled counters
+// published -- so the pollers' re-reads, all on this thread, are answered
+// from memory instead of each waiting out the disk and the volume lock.
+// dconf's shape: a change costs the reader nothing but a memory read.
+static uint64_t g_pub[WM_TOPIC_COUNT], g_want[WM_TOPIC_COUNT];
+static uint32_t g_kgen_pub, g_kgen_want;   // the settings registry's own generation
+static struct uworker_job g_refresh;
+static int g_refreshed;                    // files the last refresh read
+static unsigned long g_refreshes;
+static int g_primed;
+
+static uint64_t raw_gen(enum wm_topic t) {
+    if (PATH[t] && g_id[t] <= 0) return sys_fs_generation();   // the fallback
+    return g_gen[t];
+}
+
+static uint32_t raw_kgen(void) {
+    struct setting_msg msg;
+    memset(&msg, 0, sizeof msg);
+    msg.op = SETTING_OP_COUNT;   // any op fills `generation`; COUNT has no arguments
+    return sys_setting(&msg) == 0 ? msg.generation : 0;
+}
+
+static void refresh_run(struct uworker_job *j) {
+    (void)j;
+    // uconf only: usetting_schema's own state is unlocked, this thread's.
+    g_refreshed = uconf_cache_refresh();
+}
 
 void wm_watch_init(void) {
+    uconf_count_thread();   // `gui frameio` counts this thread's reads: the frame's
     // The personal folders before anything lists them (base/udirs.h):
     // the old lower-case layout moved across once, then any missing made.
     int moved = udir_migrate();
@@ -53,8 +89,10 @@ void wm_watch_fired(int id) {
         if (g_id[t] > 0 && (g_id[t] == id || id == WIN_FSWATCH_OVERFLOW)) g_gen[t]++;
 }
 
-void wm_watch_setting(void) {
-    g_gen[WM_TOPIC_SETTINGS]++;
+void wm_watch_setting(void) { g_gen[WM_TOPIC_SETTINGS]++; }
+
+// On the publish of a settings change, with the cache refreshed.
+static void settings_published(void) {
     udclick_reload();   // the compositor's own clicks: title bars, desktop icons
     // Its corners and scrollbars, and the theme (ui/utheme.h). A theme
     // that changed repaints everything: every frame and the taskbar are
@@ -67,6 +105,37 @@ void wm_watch_setting(void) {
 
 uint64_t wm_watch_gen(enum wm_topic t) {
     if (t < 0 || t >= WM_TOPIC_COUNT) return 0;
-    if (PATH[t] && g_id[t] <= 0) return sys_fs_generation();   // the fallback
-    return g_gen[t];
+    if (!g_primed) return raw_gen(t);
+    return g_pub[t];
+}
+
+uint32_t wm_setting_generation(void) { return g_primed ? g_kgen_pub : raw_kgen(); }
+
+void wm_watch_poll(void) {
+    if (!g_primed) {
+        g_primed = 1;
+        for (int t = 0; t < WM_TOPIC_COUNT; t++) g_pub[t] = raw_gen(t);
+        g_kgen_pub = raw_kgen();
+        return;
+    }
+    if (uworker_take(&g_refresh)) {
+        int settings = g_want[WM_TOPIC_SETTINGS] != g_pub[WM_TOPIC_SETTINGS];
+        for (int t = 0; t < WM_TOPIC_COUNT; t++) g_pub[t] = g_want[t];
+        g_kgen_pub = g_kgen_want;
+        g_refreshes++;
+        if (settings) settings_published();
+    }
+    if (uworker_busy(&g_refresh)) return;
+    int moved = 0;
+    for (int t = 0; t < WM_TOPIC_COUNT; t++) moved |= (g_want[t] = raw_gen(t)) != g_pub[t];
+    g_kgen_want = raw_kgen();
+    moved |= g_kgen_want != g_kgen_pub;
+    if (!moved) return;
+    g_refresh.run = refresh_run;
+    uworker_submit(&g_refresh);
+}
+
+void wm_watch_refresh_stats(unsigned long *refreshes, int *last_read) {
+    *refreshes = g_refreshes;
+    *last_read = g_refreshed;
 }

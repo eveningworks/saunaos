@@ -54,6 +54,20 @@ uint32_t uconf_cache_set_cap(uint32_t bytes);
 unsigned long long uconf_cache_cap_hits(void);
 int uconf_cache_cap_said(void);
 
+// Re-reads every cached file whose generation moved, so the next
+// uconf_load() of it is answered from memory -- for a worker thread to
+// run when a change notification arrives, before the thread that owes a
+// frame asks (toywm's config refresh). Returns how many it read.
+int uconf_cache_refresh(void);
+
+// Files read from disk through the cache (each miss and each refresh) by
+// the thread that last called uconf_count_thread() -- a compositor names
+// its frame thread -- and how many paths are cached: what a test asks to
+// prove a frame read nothing.
+void uconf_count_thread(void);
+unsigned long long uconf_thread_reads(void);
+int uconf_cache_slots(void);
+
 // One key from a file -- a uconf_load() and a parse per call. Prefer
 // uconf_load() + etc_config_buf_get() when asking several questions.
 int uconf_get(const char *path, const char *key, char *out, uint32_t out_size);

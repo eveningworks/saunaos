@@ -43,6 +43,10 @@
 #include <stdlib.h> // setenv() -- `gui simd`
 #include "rt/sys.h"
 #include "base/ugrow.h"   // `gui input`'s steps
+#include "base/uconf.h"   // `gui frameio`
+#include "base/uworker.h"
+#include "media/icon_cache.h"
+#include "apps/system/toywm/wm_watch.h"
 #include "apps/system/toywm/wm_rawin.h"
 
 // ---------------------------------------------------------------------
@@ -2537,6 +2541,7 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  idle [start|stop|screenoff]  the idle clock, the screensaver and the screen, as JSON\r\n");
     dbg_out_write(o, "  icons                 how many app icons are decoded and cached\r\n");
     dbg_out_write(o, "  watchdog [<ms>|off]   slow-frame threshold, and how often it fired\r\n");
+    dbg_out_write(o, "  frameio               config reads and icon decodes on the WM's thread, the worker's queue\r\n");
     dbg_out_write(o, "  latency [reset] [--json]  frame work, wake overshoot and ping, as distributions\r\n");
     dbg_out_write(o, "  network [--json]      the tray's network item: state, address, panel rect\r\n");
     dbg_out_write(o, "  remote [--json]       the tray's remote-activity item: sessions and what they did\r\n");
@@ -2836,6 +2841,20 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
         dbg_out_printf(o, "  %u slow frame(s) so far; slowest frame %u ms\r\n",
                        wmwd_slow_frames(), wmwd_peak_ms());
         emit_waits(o);
+        return 1;
+    }
+
+    // WHAT THE WM'S OWN THREAD READ (wm_watch.c, base/uworker.h): config
+    // files from disk, icons decoded by icon_get() itself -- monotonic
+    // counters a test differences across a change.
+    if (k_strcmp(sub, "frameio") == 0) {
+        unsigned long refreshes;
+        int last;
+        wm_watch_refresh_stats(&refreshes, &last);
+        dbg_out_printf(o, "{\"conf_reads\":%llu,\"icon_decodes\":%lu,\"refreshes\":%lu,"
+                       "\"refresh_read\":%d,\"conf_cached\":%d,\"pending\":%d,\"wallpaper\":\"%s\"}\r\n",
+                       uconf_thread_reads(), icon_cache_inline_decodes(), refreshes, last,
+                       uconf_cache_slots(), uworker_pending(), desktop_wallpaper_shown());
         return 1;
     }
 

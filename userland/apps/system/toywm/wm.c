@@ -32,6 +32,7 @@
 #include "wm_anim.h"   // wm_damage_window_rect(): a window's rect plus its shadow
 #include "wm_idle.h"
 #include "wm_apps_worker.h"
+#include "base/uworker.h"
 #include "wm_background.h"
 #include "wm_dnd.h"
 #include "wm_geometry.h"
@@ -920,9 +921,11 @@ static void install_desktop_entries(void) {
     }
 
     struct gui_apps_set set;
+    struct icon_batch icons;
     uint32_t build_ms = 0;
-    if (!wm_apps_reload_take(&set, &build_ms)) return;
+    if (!wm_apps_reload_take(&set, &icons, &build_ms)) return;
     uint64_t t0 = sys_monotonic_ns();
+    icon_cache_install(&icons);   // first: no frame draws a new entry undecoded
     gui_apps_install(&set);
     // desktop_entries_changed() rebuilds the icon layout (no I/O of its
     // own); the read itself ran on the worker. Timed in two halves
@@ -1520,6 +1523,11 @@ void wm_run(void) {
         // by editing /etc/saunaos.conf. One generation compare per frame
         // and no I/O unless it moved -- the same trick the `.desktop`
         // reload above uses.
+        // The config pollers below see a change once the worker has
+        // re-read the files they will ask for (wm_watch.c).
+        wmwd_phase("config_refresh");
+        wm_watch_poll();
+
         wmwd_phase("cursor_theme");
         cursor_theme_poll();
 
@@ -2169,7 +2177,8 @@ void wm_run(void) {
             }
         }
         if (!rendered && (redraw_pending || overlay_close_frame())) g_frames_paced++;
-        wm_debug_sync_frame(redraw_pending || overlay_close_frame());
+        // A job still on the worker (a refresh, a decode) is owed as well.
+        wm_debug_sync_frame(redraw_pending || overlay_close_frame() || uworker_pending());
         wm_debug_waits_frame();
 
         // THE DESKTOP IS USABLE AT ITS FIRST COMPOSITED FRAME, and that

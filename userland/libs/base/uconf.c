@@ -91,25 +91,31 @@ static int read_whole(const char *path, struct etc_config_buf *buf) {
 // (UCONF_CACHE_BYTES): eight 1 MiB files would otherwise be 8 MiB of
 // every process that read them. A new document evicts the least
 // recently used until it fits, and one over the whole cap is not kept;
-// the first time either happens it is said, once a process.
-#define UCONF_SLOTS 8
-#define UCONF_PATH_MAX 96   // longer paths are simply not cached
+// the first time either happens it is said, once a process. THE SLOT
+// TABLE GROWS -- a reader of settings touches one /etc/settings.d file
+// per setting, and the compositor's sixty-odd thrashed a fixed eight, so
+// every lookup was a read again.
 #define UCONF_CACHE_BYTES (256u * 1024u)
 
 struct uconf_slot {
-    char path[UCONF_PATH_MAX];
-    long long gen;          // 0 = empty
+    char *path;             // malloc'd; NULL = empty
+    long long gen;
     uint32_t stamp;         // LRU: the smallest goes
     uint32_t size;
     int valid;              // 0: the file was missing, and that is cached
     char *data;             // malloc'd at size + 1 when valid
 };
 
-static struct uconf_slot g_slots[UCONF_SLOTS];
+static struct uconf_slot *g_slots;
+static int g_nslots, g_capslots;
 static uint32_t g_stamp, g_bytes, g_cap = UCONF_CACHE_BYTES;
 static unsigned long long g_cap_hits;
 static int g_cap_said;               // times the cap was reported: 0 or 1
 static volatile int g_lock;          // a process may ask from two threads (webcontent)
+// Reads by ONE named thread (uconf_count_thread()): no __thread here --
+// libbase.so is built for local-exec TLS, which a shared object cannot use.
+static volatile int g_count_tid;
+static unsigned long long g_tid_reads;
 
 static void lock(void) {
     while (__atomic_exchange_n(&g_lock, 1, __ATOMIC_ACQUIRE)) sys_yield();
@@ -127,10 +133,21 @@ uint32_t uconf_cache_set_cap(uint32_t bytes) {
 
 unsigned long long uconf_cache_cap_hits(void) { return g_cap_hits; }
 int uconf_cache_cap_said(void) { return g_cap_said; }
+void uconf_count_thread(void) { g_count_tid = sys_gettid(); }
+unsigned long long uconf_thread_reads(void) { return g_tid_reads; }
+
+int uconf_cache_slots(void) {
+    lock();
+    int n = 0;
+    for (int i = 0; i < g_nslots; i++) n += g_slots[i].path != 0;
+    unlock();
+    return n;
+}
 
 static void drop_slot(struct uconf_slot *s) {
     if (s->valid) g_bytes -= s->size;
     free(s->data);
+    free(s->path);
     memset(s, 0, sizeof *s);
 }
 
@@ -154,9 +171,9 @@ static void say_cap(const char *path, uint32_t size) {
 static int cache_get(const char *path, long long gen, struct etc_config_buf *buf) {
     int hit = 0;
     lock();
-    for (int i = 0; i < UCONF_SLOTS; i++) {
+    for (int i = 0; i < g_nslots; i++) {
         struct uconf_slot *s = &g_slots[i];
-        if (s->gen == gen && !strcmp(s->path, path)) {
+        if (s->path && s->gen == gen && !strcmp(s->path, path)) {
             // A copy the caller frees: the slot may be dropped while the
             // caller still parses, and the caller may be another thread.
             if (s->valid && !etc_config_buf_copy(buf, s->data, s->size, &uconf_mem)) break;
@@ -167,6 +184,28 @@ static int cache_get(const char *path, long long gen, struct etc_config_buf *buf
     }
     unlock();
     return hit;
+}
+
+// Under the lock: the path's slot, else an empty one, else a new one;
+// NULL only when the table could not grow (the LRU is reused then).
+static struct uconf_slot *slot_for(const char *path) {
+    for (int i = 0; i < g_nslots; i++)
+        if (g_slots[i].path && !strcmp(g_slots[i].path, path)) return &g_slots[i];   // its stale copy
+    for (int i = 0; i < g_nslots; i++)
+        if (!g_slots[i].path) return &g_slots[i];
+    if (g_nslots == g_capslots) {
+        int cap = g_capslots ? 2 * g_capslots : 16;
+        struct uconf_slot *g = realloc(g_slots, (size_t)cap * sizeof *g);
+        if (g) { g_slots = g; g_capslots = cap; }
+    }
+    if (g_nslots < g_capslots) {
+        memset(&g_slots[g_nslots], 0, sizeof g_slots[0]);
+        return &g_slots[g_nslots++];
+    }
+    struct uconf_slot *v = g_nslots ? &g_slots[0] : 0;
+    for (int i = 1; i < g_nslots; i++)
+        if (g_slots[i].stamp < v->stamp) v = &g_slots[i];
+    return v;
 }
 
 static void cache_put(const char *path, long long gen, const struct etc_config_buf *buf) {
@@ -185,28 +224,27 @@ static void cache_put(const char *path, long long gen, const struct etc_config_b
         memcpy(copy, buf->data, size);
         copy[size] = '\0';
     }
+    char *name = strdup(path);
+    if (!name) { free(copy); return; }
     int say = 0;
     lock();
-    struct uconf_slot *v = 0;
-    for (int i = 0; i < UCONF_SLOTS && !v; i++)
-        if (g_slots[i].gen && !strcmp(g_slots[i].path, path)) v = &g_slots[i];   // its stale copy
-    for (int i = 0; i < UCONF_SLOTS && !v; i++)
-        if (!g_slots[i].gen) v = &g_slots[i];
-    if (!v) {
-        v = &g_slots[0];
-        for (int i = 1; i < UCONF_SLOTS; i++)
-            if (g_slots[i].stamp < v->stamp) v = &g_slots[i];
+    struct uconf_slot *v = slot_for(path);
+    if (!v) { unlock(); free(copy); free(name); return; }
+    // A slot already holding a NEWER copy (another thread read the file
+    // after this one sampled its generation) is left alone.
+    if (v->path && v->gen > gen && !strcmp(v->path, path)) {
+        unlock(); free(copy); free(name); return;
     }
     drop_slot(v);
     while (g_bytes + size > g_cap) {
         struct uconf_slot *o = 0;
-        for (int i = 0; i < UCONF_SLOTS; i++)
+        for (int i = 0; i < g_nslots; i++)
             if (g_slots[i].valid && (!o || g_slots[i].stamp < o->stamp)) o = &g_slots[i];
         if (!o) break;
         drop_slot(o);
         say |= note_cap_hit();
     }
-    strlcpy(v->path, path, sizeof v->path);
+    v->path = name;
     v->gen = gen;
     v->stamp = ++g_stamp;
     v->valid = buf->valid;
@@ -217,6 +255,13 @@ static void cache_put(const char *path, long long gen, const struct etc_config_b
     if (say) say_cap(path, size);
 }
 
+static void load_and_put(const char *path, long long gen, struct etc_config_buf *buf) {
+    if (g_count_tid && sys_gettid() == g_count_tid)
+        __atomic_add_fetch(&g_tid_reads, 1, __ATOMIC_RELAXED);
+    read_whole(path, buf);
+    if (gen > 0) cache_put(path, gen, buf);
+}
+
 int uconf_load(const char *path, struct etc_config_buf *buf) {
     if (!buf) return 0;
     buf->data = 0;
@@ -225,12 +270,38 @@ int uconf_load(const char *path, struct etc_config_buf *buf) {
     buf->mem = 0;
     if (!path) return 0;
 
-    long long gen = strlen(path) < UCONF_PATH_MAX ? sys_fs_generation_of(path) : 0;
+    long long gen = sys_fs_generation_of(path);
     if (gen > 0 && cache_get(path, gen, buf)) return buf->valid;
-
-    read_whole(path, buf);
-    if (gen > 0) cache_put(path, gen, buf);
+    load_and_put(path, gen, buf);
     return buf->valid;
+}
+
+int uconf_cache_refresh(void) {
+    int n = 0;
+    for (int i = 0;; i++) {
+        // One path at a time, copied out: the read happens with no lock
+        // held, and the table may grow or shuffle meanwhile.
+        char *path = 0;
+        long long had = 0;
+        lock();
+        if (i < g_nslots && g_slots[i].path) {
+            path = strdup(g_slots[i].path);
+            had = g_slots[i].gen;
+        }
+        int more = i < g_nslots;
+        unlock();
+        if (!more) break;
+        if (!path) continue;
+        long long gen = sys_fs_generation_of(path);
+        if (gen > 0 && gen != had) {
+            struct etc_config_buf buf = { 0 };
+            load_and_put(path, gen, &buf);
+            etc_config_buf_free(&buf);
+            n++;
+        }
+        free(path);
+    }
+    return n;
 }
 
 // A per-key read: a load, one parse, a free.
