@@ -195,12 +195,20 @@ struct k_sigaction {
 // kernel, and SYS_SIGRETURN kills rather than guesses.
 #define SIGFRAME_MAGIC 0x5349474652414d31ULL
 
+// THE FPU/SSE STATE RIDES IN THE FRAME, as Linux's fpstate does: every
+// XMM register is caller-saved, so any C handler may change them, and
+// sigreturn has to hand the interrupted code back its own. An FXSAVE
+// image; the kernel copies it through an aligned buffer, so its place
+// here need not be 16-byte aligned. MXCSR is masked on the way back.
+#define SIGFRAME_FPSTATE_SIZE 512
+
 struct sigframe {
     uint64_t restorer_ret;                 // the handler's return address
     uint64_t regs[SIGFRAME_TF_SLOTS];      // the interrupted trapframe
     uint32_t blocked;                      // the mask to put back
     int32_t  sig;                          // which signal this frame is for
     uint64_t magic;                        // SIGFRAME_MAGIC
+    uint8_t  fpstate[SIGFRAME_FPSTATE_SIZE]; // the interrupted FXSAVE image
 };
 
 // THE RED ZONE IS REAL AND MUST BE SKIPPED. SysV reserves the 128 bytes

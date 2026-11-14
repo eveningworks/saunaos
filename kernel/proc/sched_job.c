@@ -4,6 +4,7 @@
 // has the map.
 
 #include "sched_internal.h"
+#include "irqflags.h"   // the raise: its test and act are one step
 #include "syscalls.h" // the fd table: a child inherits its parent's descriptors
 #include "remote_log.h" // a session created from a socket is a REMOTE session
 #include "proc_info.h"   // the creator's name
@@ -450,10 +451,22 @@ void sched_signal_answer_park(struct sched_process *p, uint64_t *tf, int reason)
     }
 }
 
-int scheduler_signal_raise(int pid, int sig) {
-    struct sched_process *p = live_slot(pid);
-    if (!p || !SIGNAL_VALID(sig)) return 0;
+static int raise_locked(struct sched_process *p, int sig);
 
+// THE TEST OF THE TARGET'S STATE AND WHAT IS DONE ABOUT IT ARE ONE STEP,
+// with interrupts off as block_common()'s park is: from a syscall they are
+// on now, and an IRQ waking the target in between left this rewinding a
+// frame whose RAX already held the wake's value -- re-issued, it was some
+// other syscall.
+int scheduler_signal_raise(int pid, int sig) {
+    uint64_t f = irq_save();
+    struct sched_process *p = live_slot(pid);
+    int rc = (p && SIGNAL_VALID(sig)) ? raise_locked(p, sig) : 0;
+    irq_restore(f);
+    return rc;
+}
+
+static int raise_locked(struct sched_process *p, int sig) {
     // DROPPED, not queued -- POSIX's rule for SIG_IGN, and the thing
     // that makes `pending != 0` mean "must die" with no policy lookup.
     // Still a successful delivery: the caller asked for an action and

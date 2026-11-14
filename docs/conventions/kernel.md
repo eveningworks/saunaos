@@ -2363,6 +2363,21 @@ RIP OVER the pending `syscall` for `-EINTR` and leaves it for
 `SA_RESTART`. `signal_test`'s "without it: the interrupted read fails
 with EINTR" is the check, and only the full suite reaches the window.
 
+**A SIGNAL FRAME CARRIES THE FPU STATE, ONLY AN INTERRUPTED CALL MAY
+FAIL WITH `-EINTR`, AND DELIVERY ASKS THE DISPOSITION AGAIN** (audit
+area 6, 2026-11-14; `tests/sigstate_test`). `struct sigframe` ends in an
+FXSAVE image: every XMM register is caller-saved, so any C handler may
+change them; the handler starts from the clean state and sigreturn
+restores the image with MXCSR masked to the CPU's MXCSR_MASK (a reserved
+bit would fault the kernel's FXRSTOR). At syscall entry, a call no signal
+wake rewound (`SIG_FRESH_SYSCALL`) has never waited and is made again
+after the handler whatever `SA_RESTART` says; only the rewound one
+(`syscall_reissue` set) takes `-EINTR`. And `signal_deliver_pending()`
+drops a signal whose disposition is NOW `SIG_IGN` or an ignoring
+`SIG_DFL` -- a SIGCHLD left pending under a block and a handler killed
+the process when it was reset to the default. `scheduler_signal_raise()`
+tests the target and acts with interrupts off, as a park does.
+
 ## A CHILD'S DEATH RAISES SIGCHLD, AND THE NOTIFICATION HAS ONE HOME.
 
 `notify_parent()` in `kernel/proc/sched_exit.c`. Every death goes through

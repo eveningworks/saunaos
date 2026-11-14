@@ -491,9 +491,13 @@ static void isr_dispatch_body(uint64_t *regs) {
         // may pass it: the syscall has not run yet, so the frame saved
         // here can be rewound over the `syscall` and the call made
         // again after the handler returns. See kernel/signal.h.
+        // A call a signal wake rewound is the interrupted one, and may
+        // fail with -EINTR; any other has never waited (signal.h).
+        int reissued = sig_pid && scheduler_syscall_reissue_pending(sig_pid);
         if (sig_pid) scheduler_syscall_entered(sig_pid); // the re-issue window is closed
         if (sig_pid && scheduler_signal_deliverable(sig_pid) &&
-            signal_deliver_pending(sig_pid, regs, SIG_AT_SYSCALL_ENTRY)) {
+            signal_deliver_pending(sig_pid, regs,
+                                   reissued ? SIG_AT_SYSCALL_ENTRY : SIG_FRESH_SYSCALL)) {
             sig_pid = 0; // acted on; the check at the bottom must not repeat it
         } else {
             // A ring-3 SYSCALL (syscall_entry.asm) -- not a hardware IRQ,

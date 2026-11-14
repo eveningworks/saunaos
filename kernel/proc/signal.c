@@ -38,6 +38,8 @@
 #include "uaddr.h"  // UADDR_STACK_* -- where a frame is allowed to land
 #include "gdt.h"    // SEL_USER_CODE/SEL_USER_DATA -- reimposed on sigreturn
 #include "crash_report.h" // a core-dumping signal's report
+#include "fpu.h"      // the frame's FPU state
+#include "string.h"
 
 // Does `sig`'s DEFAULT action terminate the process?
 //
@@ -200,9 +202,26 @@ static int frame_fits(int pid, uint64_t sp) {
 //
 // `restartable` says the interrupted trap is a syscall that has NOT RUN
 // YET, which is the only situation in which SA_RESTART means anything.
+_Static_assert(SIGFRAME_FPSTATE_SIZE == FPU_STATE_SIZE, "the frame holds one FXSAVE image");
+
+// The CPU's MXCSR_MASK, from the template fpu_init() captured: an image
+// from ring 3 with a bit outside it would #GP the kernel's FXRSTOR.
+static uint32_t mxcsr_mask(void) {
+    uint8_t t[FPU_STATE_SIZE] __attribute__((aligned(FPU_STATE_ALIGN)));
+    fpu_init_state(t);
+    uint32_t m;
+    k_memcpy(&m, t + 28, sizeof m);
+    return m ? m : 0xFFBF;   // 0 means the CPU predates the field: the SDM's default
+}
+
 static int push_signal_frame(int pid, int sig, const struct k_sigaction *act,
                              uint64_t *regs, int restartable) {
     struct sigframe f;
+    // The live registers are this thread's (eager switching, fpu.h): pid
+    // is the current one, push's every caller checks.
+    uint8_t fp[FPU_STATE_SIZE] __attribute__((aligned(FPU_STATE_ALIGN)));
+    fpu_save(fp);
+    k_memcpy(f.fpstate, fp, sizeof f.fpstate);
 
     for (int i = 0; i < SIGFRAME_TF_SLOTS; i++) f.regs[i] = regs[i];
 
@@ -217,7 +236,9 @@ static int push_signal_frame(int pid, int sig, const struct k_sigaction *act,
     // again from scratch. Without the flag the call fails instead, with
     // the -EINTR abi/errno.h has always promised and nothing had ever
     // been in a position to observe.
-    if (restartable == SIG_AT_SYSCALL_ENTRY) {
+    if (restartable == SIG_FRESH_SYSCALL) {
+        f.regs[SCHED_TF_RIP] -= SYSCALL_INSN_LEN;   // never waited: made again
+    } else if (restartable == SIG_AT_SYSCALL_ENTRY) {
         if (act->flags & SA_RESTART) f.regs[SCHED_TF_RIP] -= SYSCALL_INSN_LEN;
         else f.regs[SCHED_TF_RAX] = (uint64_t)(int64_t)-EINTR;
     } else if (restartable == SIG_BEFORE_REISSUE) {
@@ -256,6 +277,9 @@ static int push_signal_frame(int pid, int sig, const struct k_sigaction *act,
         return 0;
     }
     if (!vmm_copy_to_user(vmm_current_pml4(), sp, &f, sizeof f)) return 0;
+    // The handler starts with a clean FPU, as a new function call would.
+    fpu_init_state(fp);
+    fpu_restore(fp);
 
     // BLOCK THE SIGNAL BEING HANDLED. POSIX's default, and load bearing
     // rather than tidy: without it a signal arriving during its own
@@ -308,6 +332,16 @@ int signal_restore_frame(int pid, uint64_t *regs) {
     regs[SCHED_TF_SS]     = SEL_USER_DATA;
     regs[SCHED_TF_RFLAGS] = (f.regs[SCHED_TF_RFLAGS] & RFLAGS_USER_MASK) |
                             RFLAGS_FORCED;
+
+    // The FPU state the frame carries, MXCSR's reserved bits cleared: they
+    // are ring 3's to write, and set they would fault the FXRSTOR here.
+    uint8_t fp[FPU_STATE_SIZE] __attribute__((aligned(FPU_STATE_ALIGN)));
+    k_memcpy(fp, f.fpstate, sizeof fp);
+    uint32_t mxcsr;
+    k_memcpy(&mxcsr, fp + 24, sizeof mxcsr);
+    mxcsr &= mxcsr_mask();
+    k_memcpy(fp + 24, &mxcsr, sizeof mxcsr);
+    fpu_restore(fp);
 
     // scheduler_signal_set_blocked() forces SIGKILL and SIGSTOP out of
     // whatever this says, so a frame edited to make the process
@@ -422,6 +456,15 @@ int signal_deliver_pending(int pid, uint64_t *regs, int at_syscall_entry) {
 
     struct k_sigaction act;
     if (!scheduler_signal_action(pid, sig, &act)) return 0;
+
+    // WHAT THE DISPOSITION SAYS NOW, not what it said when the signal
+    // was sent: one left pending under a handler or a block, and then
+    // ignored -- SIG_IGN, or a SIG_DFL whose action is to ignore
+    // (SIGCHLD, SIGWINCH, SIGCONT) -- is dropped. Its default action is
+    // not "terminate". Stops keep their own path below.
+    if (act.handler == SIG_IGN ||
+        (act.handler == SIG_DFL && !default_terminates(sig) && !SIGNAL_STOPS(sig)))
+        return 0;
 
     // A HANDLER CAN ONLY BE GIVEN TO THE PROCESS THAT IS ABOUT TO RUN,
     // because building the frame writes its user stack and this code

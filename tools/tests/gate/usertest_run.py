@@ -182,6 +182,10 @@ TESTS = [
     ("parkrace_test", None, None, None),
     ("readref_test", None, None, None),
     ("pagerace_test", None, None, None),
+    # Audit area 6: a handler keeps the interrupted code's FPU state, and a
+    # pending signal whose disposition went back to an ignoring SIG_DFL is
+    # dropped. SPAWNED: each probe is a child.
+    ("sigstate_test", None, None, None),
     # Delay accounting (abi/proc_info.h's delay_*_ns): the disk and the
     # runqueue fill, a sleep and a record-lock wait do not. SPAWNED: a
     # thread and a child.

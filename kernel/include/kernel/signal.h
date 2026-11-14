@@ -90,6 +90,12 @@ int signal_send_group(int pgid, int sig);
 #define SIG_TRAP_DONE        0
 #define SIG_AT_SYSCALL_ENTRY 1
 #define SIG_BEFORE_REISSUE   2
+// FRESH_SYSCALL: at entry too, but of a call no signal interrupted -- it
+// was never waiting, so it is re-run after the handler whatever SA_RESTART
+// says (Linux returns -EINTR only from a call that slept). With interrupts
+// on in syscalls a signal can be left pending on the way out of one call
+// and found at the next, SYS_SIGRETURN among them.
+#define SIG_FRESH_SYSCALL    3
 int signal_deliver_pending(int pid, uint64_t *regs, int at_syscall_entry);
 
 // A SYNCHRONOUS fault, offered to the process that caused it. Returns 1
