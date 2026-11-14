@@ -953,6 +953,29 @@ static void move_track(struct w16 *w, struct w16_wnd *x) {
 // at the foot of that screen (dlgwin16.c draws it), and Restore puts back the place and size it had.
 #define ICONIC_W 72
 #define ICONIC_H 54
+
+// WHERE AND HOW BIG A MAXIMIZED WINDOW GOES, asked as 3.1 asked (WM_GETMINMAXINFO): the screen with the
+// frame off its edges unless the program says otherwise. mmi[2..3] the size, mmi[4..5] the place;
+// 0 after a fault.
+static int max_info(struct w16 *w, struct w16_wnd *x, int16_t mmi[10]) {
+    uint16_t h = x->hwnd;
+    int f = w16_border_of(x->style);
+    int16_t m[10] = { 0, 0, (int16_t)(W16_SCREEN_W + 2 * f), (int16_t)(W16_SCREEN_H + 2 * f), (int16_t)-f, (int16_t)-f,
+                      (int16_t)(2 * f + 3 * (W16_CAPTION + 1)), (int16_t)(2 * f + W16_CAPTION),
+                      (int16_t)(W16_SCREEN_W + 2 * f), (int16_t)(W16_SCREEN_H + 2 * f) };
+    uint16_t at = w16_sys_push(w, sizeof m);
+    if (w->cpu.fault) return 0;
+    memcpy(w->sysmem + at, m, sizeof m);
+    w16_send(w, h, 0x0024, 0, (uint32_t)w->sysdata << 16 | at);   // WM_GETMINMAXINFO
+    memcpy(m, w->sysmem + at, sizeof m);
+    w16_sys_pop(w, at);
+    if (w->cpu.fault) return 0;
+    if (m[2] <= 0) m[2] = W16_SCREEN_W;
+    if (m[3] <= 0) m[3] = W16_SCREEN_H;
+    memcpy(mmi, m, sizeof m);
+    return 1;
+}
+
 static void popup_state(struct w16 *w, struct w16_wnd *x, unsigned sc) {
     if (!w16_popup_framed(x)) return;
     uint16_t h = x->hwnd;                        // by handle across a send: the program may destroy it
@@ -973,18 +996,9 @@ static void popup_state(struct w16 *w, struct w16_wnd *x, unsigned sc) {
         // WHERE AND HOW BIG, asked first as 3.1 asked (WM_GETMINMAXINFO): the screen with the frame off its
         // edges unless the program says otherwise -- the Windows Tutorial keeps its Write window above its
         // own button bar, frame and all.
-        int f = w16_border_of(x->style);
-        int16_t mmi[10] = { 0, 0, (int16_t)(W16_SCREEN_W + 2 * f), (int16_t)(W16_SCREEN_H + 2 * f), (int16_t)-f, (int16_t)-f,
-                            (int16_t)(2 * f + 3 * (W16_CAPTION + 1)), (int16_t)(2 * f + W16_CAPTION),
-                            (int16_t)(W16_SCREEN_W + 2 * f), (int16_t)(W16_SCREEN_H + 2 * f) };
-        uint16_t at = w16_sys_push(w, sizeof mmi);
-        if (w->cpu.fault) return;
-        memcpy(w->sysmem + at, mmi, sizeof mmi);
-        w16_send(w, h, 0x0024, 0, (uint32_t)w->sysdata << 16 | at);   // WM_GETMINMAXINFO
-        memcpy(mmi, w->sysmem + at, sizeof mmi);
-        w16_sys_pop(w, at);
-        if (!(x = w16_wnd_get(w, h))) return;
-        w16_dlg_resize(w, x, mmi[4], mmi[5], mmi[2] > 0 ? mmi[2] : W16_SCREEN_W, mmi[3] > 0 ? mmi[3] : W16_SCREEN_H);
+        int16_t mmi[10];
+        if (!max_info(w, x, mmi) || !(x = w16_wnd_get(w, h))) return;
+        w16_dlg_resize(w, x, mmi[4], mmi[5], mmi[2], mmi[3]);
     }
     else if (sc == SC_MINIMIZE) w16_dlg_resize(w, x, 2, W16_SCREEN_H - ICONIC_H - 2, ICONIC_W, ICONIC_H);
     else w16_dlg_resize(w, x, x->rest_x, x->rest_y, x->rest_w, x->rest_h);
@@ -1303,6 +1317,28 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
 // The main window takes the size now, on this thread, so the program's
 // next GetClientRect sees it; the main thread then gives the toywm
 // surface the same size. The position is the compositor's.
+static int move_main(struct w16 *w, int nw, int nh);
+
+// THE MAIN WINDOW MAXIMIZED BY w16, as 3.1's USER did it, when toywm cannot: a window with no thick
+// frame (Sierra's Setup backdrop, Lighthouse's game window -- popups shown SW_SHOWMAXIMIZED) takes the
+// size WM_GETMINMAXINFO gives, the program's screen; Restore puts back the size it had. Covering the
+// screen, it goes fullscreen (w16.c).
+static void main_maximize(struct w16 *w, int on) {
+    struct w16_wnd *win = &w->win;
+    if (on == win->self_max) return;
+    if (on) {
+        int16_t mmi[10];
+        win->rest_w = win->w;
+        win->rest_h = win->h;
+        if (!max_info(w, win, mmi)) return;
+        win->self_max = 1;
+        move_main(w, mmi[2], mmi[3]);
+    } else {
+        win->self_max = 0;
+        move_main(w, win->rest_w, win->rest_h);
+    }
+}
+
 static int move_main(struct w16 *w, int nw, int nh) {
     struct w16_wnd *win = &w->win;
     int fw = nw, fh = nh;
@@ -1818,8 +1854,11 @@ int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd) {
     if (x == &w->win) {
         // SW_SHOWMINIMIZED, SW_MINIMIZE and SW_SHOWMINNOACTIVE; SW_MAXIMIZE;
         // SW_RESTORE -- toywm's to do, as the frame's buttons are.
+        // A window toywm cannot size is maximized by w16 itself (main_maximize()).
         if (cmd == 2 || cmd == 6 || cmd == 7) w16_task_post_arg(w, W16_POST_SYSCMD, SC_MINIMIZE);
+        else if (cmd == 3 && !(x->style & WS_THICKFRAME)) main_maximize(w, 1);
         else if (cmd == 3) w16_task_post_arg(w, W16_POST_SYSCMD, SC_MAXIMIZE);
+        else if ((cmd == 1 || cmd == 9) && x->self_max) main_maximize(w, 0);
         else if (cmd == 9) w16_task_post_arg(w, W16_POST_SYSCMD, SC_RESTORE);
     }
     if (x->kind == W16_K_CHILD && w16_child_framed(x)) {
@@ -2110,7 +2149,9 @@ int w16_cursor_shape(uint16_t h) {
 // w16: Windows' own cursors are SaunaOS's pointer shapes standing for them (arrow, I-beam,
 // hourglass, cross, sizes); a program's own cursor resource is drawn as it is, its inverting
 // pixels inverting what is under them, at the program's scale -- and its handle is a global block
-// in 3.1's layout, whose bits a program may lock and rewrite. An icon from the program's
+// in 3.1's layout, whose bits a program may lock and rewrite. A cursor the module does not have is
+// NULL, as on 3.1 -- SetCursor(NULL) then hides the pointer, which is how Sierra's SCI hides it to
+// draw its own; one it has but w16 cannot read is drawn as the arrow. An icon from the program's
 // resources is drawn as it is, its handle a block too; Windows' own icons are handles that draw
 // nothing yet.
 static int api_LoadCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
@@ -2118,16 +2159,19 @@ static int api_LoadCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t inst = w16_arg16(a);
     uint32_t name = w16_arg32(a);
     uint16_t own = 0;
+    int absent = 0;
     if (inst) {
         char s[32] = "";
         if ((name >> 16) && cpu16_str(c, (uint16_t)(name >> 16), (uint16_t)name, s, sizeof s) < 0) return -1;
         const struct ne_module *m = w16_module_of(w, inst);
         uint16_t id = (name >> 16) ? 0 : (uint16_t)name;
         own = ordinal == 174 ? w16_icon_handle(w, m, id, s[0] ? s : 0) : w16_cursor_handle(w, m, id, s[0] ? s : 0);
+        struct ne_resource r;
+        absent = !own && m && ne_resource_find(m, 12, 0, id, s[0] ? s : 0, &r) < 0;   // RT_GROUP_CURSOR
     }
     if (ordinal == 174) c->r[R_AX] = own ? own : (uint16_t)(0x4000 | ordinal);
     else if (!inst && !(name >> 16) && (name & 0xFF00) == 0x7F00) c->r[R_AX] = (uint16_t)(CURSOR_BASE | (name & 0xFF));
-    else c->r[R_AX] = own ? own : CURSOR_OWN;
+    else c->r[R_AX] = own ? own : absent ? 0 : CURSOR_OWN;
     return 6;
 }
 

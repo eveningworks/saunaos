@@ -26,7 +26,8 @@ int w16_down(int v) { return v * 4 / g_w16_q; }
 struct tap { int a, b, w; };
 
 static void taps(struct tap *t, int src, int dst) {
-    int n = (g_w16_q + 3) / 4;                   // Sharp's whole pre-scale: 2 for 1.25-2x, 3 for 2.5-3x
+    int q = src ? (dst * 4 + src / 2) / src : 4;  // the scale in quarters, from the sizes
+    int n = (q + 3) / 4;                         // Sharp's whole pre-scale: 2 for 1.25-2x, 3 for 2.5-3x
     for (int i = 0; i < dst; i++) {
         double u = (i + 0.5) * src / dst;        // the pixel centre, in source pixels
         int a, b;
@@ -107,8 +108,8 @@ void w16_scale_blit(struct ugfx_surface *dst, int dx, int dy, const uint32_t *sr
 // already made for this size.
 static void scale_part(struct w16_scaler *sc, const uint32_t *cur, int X0, int Y0, int X1, int Y1) {
     int w = sc->w, W = sc->W;
-    if (g_w16_q % 4 == 0) {                      // a whole step: every pixel a square, exactly
-        int k = g_w16_q / 4;
+    if (sc->q % 4 == 0) {                        // a whole step: every pixel a square, exactly
+        int k = sc->q / 4;
         for (int Y = Y0; Y < Y1; Y++) {
             const uint32_t *in = cur + (size_t)(Y / k) * w;
             uint32_t *o = sc->out + (size_t)Y * W;
@@ -148,9 +149,14 @@ static int changed(const uint32_t *cur, const uint32_t *prev, int w, int h, int 
 
 void w16_scaler_show(struct w16_scaler *sc, struct ugfx_surface *dst, int dx, int dy, const uint32_t *cur,
                      int w, int h) {
-    int W = w16_up(w), H = w16_up(h);
+    w16_scaler_show_q(sc, dst, dx, dy, cur, w, h, g_w16_q);
+}
+
+void w16_scaler_show_q(struct w16_scaler *sc, struct ugfx_surface *dst, int dx, int dy, const uint32_t *cur,
+                       int w, int h, int q) {
+    int W = (w * q + 2) / 4, H = (h * q + 2) / 4;
     if (W <= 0 || H <= 0) return;
-    int fresh = sc->w != w || sc->h != h || sc->q != g_w16_q || sc->method != g_w16_method || !sc->out;
+    int fresh = sc->w != w || sc->h != h || sc->q != q || sc->method != g_w16_method || !sc->out;
     if (fresh) {
         w16_scaler_free(sc);
         sc->prev = malloc((size_t)w * h * 4);
@@ -158,7 +164,7 @@ void w16_scaler_show(struct w16_scaler *sc, struct ugfx_surface *dst, int dx, in
         sc->tx = malloc(sizeof *sc->tx * (size_t)W);
         sc->ty = malloc(sizeof *sc->ty * (size_t)H);
         if (!sc->prev || !sc->out || !sc->tx || !sc->ty) { w16_scaler_free(sc); return; }
-        sc->w = w; sc->h = h; sc->W = W; sc->H = H; sc->q = g_w16_q; sc->method = g_w16_method;
+        sc->w = w; sc->h = h; sc->W = W; sc->H = H; sc->q = q; sc->method = g_w16_method;
         taps(sc->tx, w, W);
         taps(sc->ty, h, H);
     }
@@ -166,8 +172,8 @@ void w16_scaler_show(struct w16_scaler *sc, struct ugfx_surface *dst, int dx, in
     if (fresh || changed(cur, sc->prev, w, h, &x0, &y0, &x1, &y1)) {
         // Every screen pixel whose taps can reach the change: a blend reads
         // its neighbour, so a pixel past each side, scaled, and one more.
-        int X0 = (x0 - 1) * g_w16_q / 4 - 1, X1 = (x1 + 1) * g_w16_q / 4 + 2;
-        int Y0 = (y0 - 1) * g_w16_q / 4 - 1, Y1 = (y1 + 1) * g_w16_q / 4 + 2;
+        int X0 = (x0 - 1) * q / 4 - 1, X1 = (x1 + 1) * q / 4 + 2;
+        int Y0 = (y0 - 1) * q / 4 - 1, Y1 = (y1 + 1) * q / 4 + 2;
         scale_part(sc, cur, X0 < 0 ? 0 : X0, Y0 < 0 ? 0 : Y0, X1 > W ? W : X1, Y1 > H ? H : Y1);
         for (int y = y0; y < y1; y++)
             memcpy(sc->prev + (size_t)y * w + x0, cur + (size_t)y * w + x0, (size_t)(x1 - x0) * 4);

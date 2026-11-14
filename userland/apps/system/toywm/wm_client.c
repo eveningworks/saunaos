@@ -1541,7 +1541,7 @@ static void req_set_pointer(int from, struct wmchan_msg *m) {
 
 static void req_fullscreen(int from, struct wmchan_msg *m) {
     int idx = find_client_window(from, m->window);
-    if (idx >= 0) wm_set_fullscreen(idx, m->a);
+    if (idx >= 0) wm_set_fullscreen(idx, m->a, 1);
 }
 
 static void req_cursor(int from, struct wmchan_msg *m) {

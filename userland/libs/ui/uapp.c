@@ -957,7 +957,9 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         // restored as a proposal, so one bad value (a `gui resize`, a
         // font change moving the natural size) reopens the app that way
         // for ever, with the layout adrift in the extra room.
-        if (!(d->flags & WIN_HINT_RESIZABLE)) {
+        // A FULLSCREEN one it asked for takes the screen's size whatever its flags: it draws its own
+        // picture into it (w16 fits a Win16 game's 640 x 480 there), as a secondary window does.
+        if (!(d->flags & WIN_HINT_RESIZABLE) && !a->fullscreen) {
             // **REFUSING SILENTLY IS NOT ENOUGH.** The WM has already
             // moved its frame to the size it proposed, so a client that
             // just ignores the event leaves a window drawn at its real

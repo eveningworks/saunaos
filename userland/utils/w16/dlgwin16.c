@@ -525,15 +525,17 @@ static void on_close(struct uapp_window *u) {
 // one covering the screen, nor w16's own boxes, which have no place of the program's.
 static int placed(struct uapp *a, const struct w16_wnd *d, int *px, int *py) {
     if (!a || !uapp_has_toplevel(a) || d->fullscreen || !d->placed) return 0;
-    *px = w16_up(d->x);
-    *py = w16_up(d->y);
+    int ox, oy;
+    w16_full_origin(&ox, &oy);                   // over a fullscreen main window: where its picture is
+    *px = ox + w16_up(d->x);
+    *py = oy + w16_up(d->y);
     return 1;
 }
 
 // The person sized a framed popup's frame: the task gives it that size (W16_WM_SIZED), its client
 // area what the frame leaves, and the program hears WM_SIZE.
-// A FULLSCREEN popup is resizable too (toywm makes only such a one fullscreen) and hears the screen's
-// size here: it keeps the program's, centred on black.
+// A FULLSCREEN popup is resizable too and hears the screen's size here: it keeps the program's,
+// centred on black.
 static void on_resize(struct uapp_window *u, int width, int height) {
     pthread_mutex_lock(&g_w16.lock);
     struct w16_wnd *d = w16_wnd_get(&g_w16, hwnd_of(u));
@@ -550,8 +552,10 @@ static void on_placed(struct uapp_window *u, int x, int y) {
     pthread_mutex_lock(&g_w16.lock);
     struct w16_wnd *d = w16_wnd_get(&g_w16, h);
     if (d) {
-        d->x = w16_down(x);
-        d->y = w16_down(y);
+        int ox, oy;
+        w16_full_origin(&ox, &oy);
+        d->x = w16_down(x - ox);
+        d->y = w16_down(y - oy);
         d->placed = 1;
     }
     pthread_mutex_unlock(&g_w16.lock);
@@ -572,7 +576,7 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
         .title = d->text && d->text[0] ? d->text : "Dialog",
         .w = w16_up(dw),
         .h = w16_up(dh),
-        // toywm makes only a resizable window fullscreen; none is shadowed, as 3.1 shadowed none
+        // a fullscreen one resizable, so it hears the screen's size; none is shadowed, as 3.1 shadowed none
         .flags = (modal ? UAPP_WIN_MODAL : 0) | UAPP_WIN_NO_DECOR | UAPP_WIN_NO_SHADOW | (full || sizable ? UAPP_WIN_RESIZABLE : 0),
         .min_w = sizable ? w16_up(2 * W16_FRAME + 3 * (W16_CAPTION + 1)) : 0,   // as small as 3.1 let one be
         .min_h = sizable ? w16_up(2 * W16_FRAME + W16_CAPTION) : 0,
@@ -655,6 +659,14 @@ void w16_dlgwin_redraw(struct w16 *w, uint16_t hwnd) {
     struct uapp_window *u = d ? d->uwin : 0;
     pthread_mutex_unlock(&w->lock);
     if (u) uapp_window_redraw(u);
+}
+
+int w16_dlgwin_any_open(struct w16 *w) {   // under the w16 lock
+    for (int i = 0; i < w->nwnds; i++) {
+        struct w16_wnd *d = w->wnds[i];
+        if (d && d->used && d->kind == W16_K_DIALOG && d->uwin) return 1;
+    }
+    return 0;
 }
 
 void w16_dlgwin_redraw_all(struct w16 *w) {

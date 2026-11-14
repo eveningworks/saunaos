@@ -257,8 +257,54 @@ static void unwarp(int *x, int *y) {
     *y = g_fx_y + sy;
 }
 
+// FULLSCREEN: a main window with no caption that covers the program's 640 x 480 screen -- a game's, a
+// setup's backdrop -- fills SaunaOS's, as it filled 3.1's: its picture scaled by the largest quarter
+// step that fits (the 4:3 kept: 2.25x on a 1080-line panel), centred on black. THE PROGRAM'S SCALE
+// BECOMES THAT FIT while no dialog has a window of its own, so the dialogs it opens over the picture
+// are drawn and placed at the picture's scale (Sierra's Setup); it is put back on leaving. With a
+// dialog already open only this window's picture and pointer go through g_full_q.
+static int g_full, g_full_q = 4, g_full_ox, g_full_oy, g_prog_q;
+
+void w16_full_origin(int *ox, int *oy) {
+    *ox = g_full ? g_full_ox : 0;
+    *oy = g_full ? g_full_oy : 0;
+}
+
+static int covers_screen(void) {   // under the w16 lock
+    const struct w16_wnd *win = &g_w16.win;
+    return !(win->style & WS_CAPTION) && win->w >= W16_SCREEN_W && win->h >= W16_SCREEN_H && !g_w16_desktop_frame;
+}
+
+// The fit for a screen of sw x sh, and where the window's picture sits on it.
+static void full_fit(int sw, int sh) {
+    int q = sw * 4 / W16_SCREEN_W < sh * 4 / W16_SCREEN_H ? sw * 4 / W16_SCREEN_W : sh * 4 / W16_SCREEN_H;
+    g_full_q = q < 1 ? 1 : q;
+    g_full_ox = (sw - (g_w16.win.w * g_full_q + 2) / 4) / 2;
+    g_full_oy = (sh - (g_w16.win.h * g_full_q + 2) / 4) / 2;
+}
+
+// Into or out of fullscreen as the window now does or does not cover the screen.
+static void update_full(struct uapp *a) {
+    pthread_mutex_lock(&g_w16.lock);
+    int want = covers_screen(), ww = w16_up(g_w16.win.w), wh = w16_up(g_w16.win.h);
+    pthread_mutex_unlock(&g_w16.lock);
+    if (want == g_full) return;
+    g_full = want;
+    if (want) g_prog_q = g_w16_q;
+    else if (g_prog_q) g_w16_q = g_prog_q;
+    if (!want) ww = w16_up(g_w16.win.w), wh = w16_up(g_w16.win.h);
+    uapp_set_fullscreen(a, want);
+    if (!want) uapp_resize(a, ww, wh);
+    uapp_redraw(a);
+}
+
 // Window pixels to the program's 1x.
 static void to_w16(int *x, int *y) {
+    if (g_full) {
+        *x = (*x - g_full_ox) * 4 / g_full_q;
+        *y = (*y - g_full_oy) * 4 / g_full_q;
+        return;
+    }
     unwarp(x, y);
     *x = w16_down(*x);
     *y = w16_down(*y);
@@ -466,6 +512,7 @@ static void on_open(struct uapp *a) {
     free(title);
     if (ww != uapp_width(a) || wh != uapp_height(a)) uapp_resize(a, ww, wh);
     if (pending) do_syscmd(a, pending);   // ShowWindow(SW_MAXIMIZE) before the window was up
+    update_full(a);                       // a game's window, the screen's size from the start
     if (above) uapp_set_above(a, above - 1);   // Clock's saved Always on Top, set at start
 }
 
@@ -479,7 +526,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     struct w16_wnd *win = &g_w16.win;
     pthread_mutex_lock(&g_w16.lock);
     struct ugfx_surface vs, *out = s;
-    if (g_w16_q != 4) {
+    if (g_w16_q != 4 || g_full) {
         if (g_virt_w != win->w || g_virt_h != win->h) {
             free(g_virt);
             g_virt = calloc((size_t)win->w * win->h + 1, 4);
@@ -510,9 +557,15 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
         w16_caret_draw(&g_w16, out, win, cx, cy);
     }
     static struct w16_scaler sc;
-    if (out != s) w16_scaler_show(&sc, s, 0, 0, g_virt, win->w, win->h);
+    if (g_full && out != s) {
+        full_fit(s->w, s->h);
+        ugfx_fill_rect(s, 0, 0, s->w, s->h, 0);      // black round the picture
+        w16_scaler_show_q(&sc, s, g_full_ox, g_full_oy, g_virt, win->w, win->h, g_full_q);
+    } else if (out != s) {
+        w16_scaler_show(&sc, s, 0, 0, g_virt, win->w, win->h);
+    }
     pthread_mutex_unlock(&g_w16.lock);
-    draw_effect(s, cx, cy, cw, ch);
+    if (!g_full) draw_effect(s, cx, cy, cw, ch);
     w16_menu_draw(&g_menu);
     w16_menu_draw(&g_bar);
     w16_msgbox_draw(&g_box);
@@ -845,6 +898,14 @@ static void on_focus(struct uapp *a, int focused) {
 
 static void on_resize(struct uapp *a, int w, int h) {
     struct w16_wnd *win = &g_w16.win;
+    if (g_full) {                        // the screen's size: the window keeps its own, drawn fitted
+        pthread_mutex_lock(&g_w16.lock);
+        full_fit(w, h);
+        if (!w16_dlgwin_any_open(&g_w16)) g_w16_q = g_full_q;   // the dialogs to come at the picture's scale
+        pthread_mutex_unlock(&g_w16.lock);
+        uapp_redraw(a);
+        return;
+    }
     w = w16_down(w);
     h = w16_down(h);
     pthread_mutex_lock(&g_w16.lock);
@@ -952,7 +1013,8 @@ static int on_user(struct uapp *a, int code, int arg) {
         pthread_mutex_lock(&g_w16.lock);
         int ww = g_w16.win.w, wh = g_w16.win.h;
         pthread_mutex_unlock(&g_w16.lock);
-        uapp_resize(a, w16_up(ww), w16_up(wh));
+        if (!g_full) uapp_resize(a, w16_up(ww), w16_up(wh));
+        update_full(a);
         return 1;
     }
     case W16_POST_MENU_SHOW: {                  // arg: the bar's window << 16 | the title

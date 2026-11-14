@@ -238,8 +238,9 @@ static void text_box(struct ugfx_surface *s, int x, int y, int w, int h, const c
 // the parent's class background.
 // WM_CTLCOLOR(hdc, MAKELONG(hwnd, CTLCOLOR_*)) to a control's parent before
 // it paints: the brush the parent answers is its background (MFC greys its
-// dialogs so); 0 leaves it the default. Sent here, before the paint takes
-// `lock`, because the answer is the program's code.
+// dialogs so), and the text colour it set on that DC the text's (Sierra's
+// Setup draws its web-page line red so); 0 leaves both the default. Sent
+// here, before the paint takes `lock`, because the answer is the program's code.
 static void ask_ctl_color(struct w16 *w, struct w16_wnd *x) {
     x->has_ctl_bg = 0;
     if (x->kind != W16_K_CHILD || !x->parent) return;
@@ -249,6 +250,7 @@ static void ask_ctl_color(struct w16 *w, struct w16_wnd *x) {
     uint32_t br = w16_send(w, x->parent, WM_CTLCOLOR, dc, (uint32_t)type << 16 | x->hwnd);
     if (!(x = w16_wnd_get(w, h)) || w->cpu.fault || !(br & 0xFFFF)) return;
     x->ctl_bg = w16_brush_px(w, (uint16_t)br);
+    x->ctl_fg = w16_colorref_px(w16_gdi_text_color(w, dc));
     x->has_ctl_bg = 1;
 }
 
@@ -620,7 +622,7 @@ uint32_t w16_button_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_
 
 static void paint_static(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s, int ox, int oy) {
     uint32_t bg = w16_parent_bg(w, x), black = w16_rgb(0x000000), grey = w16_rgb(0x808080);
-    uint32_t white = w16_rgb(0xFFFFFF);
+    uint32_t white = w16_rgb(0xFFFFFF), ink = x->has_ctl_bg ? x->ctl_fg : black;
     unsigned t = x->style & SS_TYPE;
     switch (t) {
     case SS_ICON:
@@ -639,8 +641,8 @@ static void paint_static(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *
     ugfx_fill_rect(s, ox, oy, x->cw, x->ch, bg);
     int align = t == SS_CENTER ? 1 : t == SS_RIGHT ? 2 : 0;
     int wrap = t != SS_SIMPLE && t != SS_LEFTNOWORDWRAP;
-    text_box(s, ox, oy, x->cw, x->ch, x->text ? x->text : "", align, !(x->style & SS_NOPREFIX), wrap, black, bg);
-    if (x->style & WS_DISABLED) w16_gray_text(s, ox, oy, x->cw, x->ch, black, bg);
+    text_box(s, ox, oy, x->cw, x->ch, x->text ? x->text : "", align, !(x->style & SS_NOPREFIX), wrap, ink, bg);
+    if (x->style & WS_DISABLED) w16_gray_text(s, ox, oy, x->cw, x->ch, ink, bg);
 }
 
 uint32_t w16_static_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t wp, uint32_t lp) {

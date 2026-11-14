@@ -904,7 +904,7 @@ void wm_client_send_resize(struct window *win, int w, int h);
 void wm_client_send_scanout(struct window *win, int on, uint32_t pitch, int count, int back);
 
 // Fullscreen: enter or leave, for a resizable window (wm_input.c).
-void wm_set_fullscreen(int i, int on);
+void wm_set_fullscreen(int i, int on, int asked);   // asked: the client's own request
 int  window_has_chrome(const struct window *win);
 
 // wm_scanout.c -- the lease policy. Called once per rendered frame;

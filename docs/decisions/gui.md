@@ -12309,11 +12309,39 @@ scale, so the picture is the size it was in Paintbrush's own window and
 pixel-exact; V2's fractional step blurs a pixel-art picture through the
 smoothing; V3 is not what 3.1 showed. The popup is a toywm window of its
 own on the dialogs' machinery (`w16_popup_new`), asked for fullscreen
-with `uapp_window_set_fullscreen()`; toywm makes only a resizable window
-fullscreen, so it opens resizable. Any other second top-level window is
+with `uapp_window_set_fullscreen()`, and opens resizable (toywm then made
+only such a one fullscreen). Any other second top-level window is
 an ordinary toywm window, framed as its style says -- since 2026-11-03 one
 that is no dialog is framed as the main window is, menu bar and caption
 buttons included (`w16_popup_framed()`, docs/w16-design.md).
+
+## A Win16 main window that covers the screen goes fullscreen, fitted to the screen at 4:3
+
+Asked for 2026-11-14 for Lighthouse ("fullscreen but correct aspect
+ratio"). A Sierra game or setup makes its MAIN window a captionless
+`WS_POPUP` shown `SW_SHOWMAXIMIZED` -- on 3.1 the whole 640 x 480 screen.
+Under w16 that was a 640 x 480 box in a corner of a 1920 x 1080 desktop.
+
+**What others do.** DOSBox scales a full-screen game to the display
+keeping 4:3 (`aspect=true`), black at the sides. Wine runs a maximized
+popup as a window the size of its virtual desktop, unscaled. KWin and
+Mutter centre a fixed-size client that asks to be fullscreen on black.
+
+**SaunaOS fits it, which View Picture's popup deliberately does not**
+(the entry above, V1). There the picture is the user's own pixel art,
+and its pixel-exact size was the point; here it is the program's whole
+world, and filling the screen is the point. So: the largest QUARTER step
+that keeps 4:3 (2.25x on a 1080-line panel, 1.5x on 720), centred on
+black, through the program's scaling method (Sharp by default, which
+blurs only the seams). The program's scale BECOMES that step while no
+dialog has a window of its own, so its dialogs open over the picture at
+the picture's scale, placed from its origin (Sierra's Setup); it is put
+back on leaving. Two smaller changes made it possible: w16 maximizes a
+main window toywm cannot size itself, through WM_GETMINMAXINFO as 3.1's
+USER did, and toywm and uapp honour a client's OWN fullscreen request
+whatever its flags -- the window menu's toggle stays for resizable
+windows. Integer steps only (2x, with wider bars) were not taken: the
+user asked for the screen filled.
 
 ## Windows 3.11's 16-colour dither, measured rather than looked up
 

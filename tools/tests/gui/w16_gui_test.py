@@ -131,6 +131,11 @@ file is involved.
    in frames and ms and through MCI_STATUS, drawn where MCI_PUT said, played with notify to its end,
    sought while stopped (its frame drawn at a new destination); an unknown device's error and text;
    "where window", a binary open of "type!element", MCI_WINDOW's text, one notification for a waited play.
+25. **A fullscreen main window** (`fullscreen`, fullscr.exe, the shape of Sierra's games and Setup): a
+   captionless WS_POPUP shown maximized fills SaunaOS's screen, its 640 x 480 scaled by the largest
+   quarter step that fits and centred on black (its green and yellow corners where that puts them); a
+   cursor the module lacks is NULL; a click lands at its point in the picture; and a dialog over it
+   is drawn at the picture's scale, grey from its WM_CTLCOLOR brush (CTLCOLOR_DLG), its static red.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -160,6 +165,8 @@ HELLO_TITLE = "Hello (Win16)"
 INI = "/home/Win16/WINDOWS/GDITEST.INI"
 GDI_CONF = "/etc/win16/usr_share_w16_gdi.exe.conf"
 POPUP_TITLE = "Popup test"
+FULLSCR_TITLE = "Fullscreen test"
+FULLSCR_INI = "/home/Win16/WINDOWS/FULLSCR.INI"
 HELLO_CONF = "/etc/win16/usr_share_w16_hello.exe.conf"
 LAST = "/var/lib/win16/usr_share_w16_{}.exe.last"   # what the launcher's "Last run" reads
 FAULT_TITLE = "Fault (Win16)"
@@ -1372,6 +1379,66 @@ def popup_window(dbg, qmp, res, tmp):
     dbg.close_window(POPUP_TITLE)
 
 
+def fullscreen(dbg, qmp, res, tmp):
+    """fullscr.exe: a captionless main window shown SW_SHOWMAXIMIZED takes 3.1's whole screen, and
+    SaunaOS shows it fullscreen at the largest quarter-step scale that keeps 4:3, centred on black."""
+    sh(dbg, f"rm {FULLSCR_INI}")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/fullscr.exe", FULLSCR_TITLE)
+    res.check("fullscr.exe opens its main window", win is not None, "no window")
+    if not win:
+        return
+    im = shot(qmp, f"{tmp}/w16_fullscr.png")
+    sw, shh = im.size
+    poll(lambda: (lambda w: w and w["w"] == sw and w["h"] == shh)(dbg.window(FULLSCR_TITLE)), 6)
+    win = dbg.window(FULLSCR_TITLE)
+    res.check("a captionless window shown maximized covers SaunaOS's whole screen",
+              win is not None and win["w"] == sw and win["h"] == shh, f"{win and (win['w'], win['h'])} on {sw}x{shh}")
+    dbg.settle(0.5)
+    im = shot(qmp, f"{tmp}/w16_fullscr.png")
+    q = min(sw * 4 // 640, shh * 4 // 480)
+    ox, oy = (sw - (640 * q + 2) // 4) // 2, (shh - (480 * q + 2) // 4) // 2
+    at = lambda x, y: (ox + x * q // 4, oy + y * q // 4)       # the picture's (x, y) on the screen
+    px = im.getpixel
+    res.check(f"...its 640 x 480 at {q / 4}x, centred: green at its (20,20), yellow at (620,460), blue between",
+              px(at(20, 20)) == GREEN and px(at(620, 460)) == YELLOW and px(at(320, 240)) == BLUE,
+              f"q {q} origin ({ox},{oy}): {px(at(20, 20))} {px(at(620, 460))} {px(at(320, 240))}")
+    res.check("...and black round it",
+              (ox < 3 or px((ox - 3, shh // 2)) == BLACK) and (oy < 3 or px((sw // 2, oy - 3)) == BLACK)
+              and (ox < 3 or px((sw - 3, shh // 2)) == BLACK),
+              f"left {px((max(ox - 3, 0), shh // 2))} top {px((sw // 2, max(oy - 3, 0)))} right {px((sw - 3, shh // 2))}")
+    res.check("LoadCursor of a cursor the module lacks is NULL, as 3.1 answered",
+              poll(lambda: "Cursor=0" in sh(dbg, f"cat {FULLSCR_INI}"), 4), sh(dbg, f"cat {FULLSCR_INI}")[-200:])
+    x, y = at(300, 200)
+    dbg.warp_cursor(qmp, x, y)
+    qmp.click()
+    poll(lambda: "ClickY" in sh(dbg, f"cat {FULLSCR_INI}"), 6)
+    ini = sh(dbg, f"cat {FULLSCR_INI}")
+    cx = re.search(r"ClickX=(\d+)", ini)
+    cy = re.search(r"ClickY=(\d+)", ini)
+    res.check("a click lands at its point in the picture (300,200), to a scaled pixel",
+              cx and cy and abs(int(cx.group(1)) - 300) <= 1 and abs(int(cy.group(1)) - 200) <= 1, ini[-200:])
+    poll(lambda: dbg.window("Colours") is not None, 6)
+    dlg = dbg.window("Colours")
+    res.check("its dialog opens", dlg is not None, f"{[w['title'] for w in dbg.windows()]}")
+    if dlg:
+        dbg.settle(0.5)
+        im = shot(qmp, f"{tmp}/w16_fullscr_dlg.png")
+        c = dlg["content"]
+        grey = im.getpixel((c["x"] + c["w"] * 17 // 20, c["y"] + c["h"] * 3 // 4))   # right of OK, below the static
+        reds = sum(1 for xx in range(c["x"], c["x"] + c["w"]) for yy in range(c["y"], c["y"] + c["h"] // 2)
+                   if im.getpixel((xx, yy)) == RED)
+        res.check("...grey: DefDlgProc erases with the CTLCOLOR_DLG brush its procedure answers",
+                  grey == (192, 199, 200), f"{grey}")             # LTGRAY_BRUSH: VGA's light grey, as 3.11 shows it
+        res.check("...its static's text red, the colour WM_CTLCOLOR set on the DC", reds > 20, f"{reds} red pixels")
+        res.check("...placed over the picture, not from the screen's corner",
+                  dlg["x"] >= ox and dlg["y"] >= oy and dlg["x"] + dlg["w"] <= sw - ox + 1, f"{dlg['x']},{dlg['y']} {dlg['w']} wide, picture from {ox},{oy}")
+        dbg.key("ret")
+        poll(lambda: dbg.window("Colours") is None, 4)
+    dbg.key("x")
+    if not poll(lambda: dbg.window(FULLSCR_TITLE) is None, 4):
+        dbg.close_window(FULLSCR_TITLE)
+
+
 def groups(dbg, res):
     """`w16 --groups` (grp16.c): with a Program Manager on drive C: -- any file named PROGMAN.EXE will
     do -- each of Retro Launcher's folders becomes a group file, RL1.GRP for the first (the samples),
@@ -2577,6 +2644,7 @@ def main():
               ("open_dialog", lambda: open_dialog(dbg, res)), ("probe", lambda: probe(dbg, res)),
               ("shapes", lambda: shapes(dbg, qmp, res, TMP)), ("own_cursor", lambda: own_cursor(dbg, qmp, res, TMP)),
               ("popup_window", lambda: popup_window(dbg, qmp, res, TMP)),
+              ("fullscreen", lambda: fullscreen(dbg, qmp, res, TMP)),
               ("mdi", lambda: mdi(dbg, qmp, res, TMP)), ("groups", lambda: groups(dbg, res)),
               ("placed_popup", lambda: placed_popup(dbg, qmp, res, TMP)),
               ("fullwin", lambda: fullwin(dbg, qmp, res, TMP)), ("ownact", lambda: ownact(dbg, qmp, res, TMP)),

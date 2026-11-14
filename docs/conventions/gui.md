@@ -567,8 +567,10 @@ this the obvious way), not from how much history it accumulated.
   taskbar and everything under it -- and the taskbar takes no clicks --
   but until the adoption the desktop is still drawn under the old
   buffer. A client asks with `uapp_set_fullscreen()`
-  (`WIN_REQ_FULLSCREEN`); the window menu offers it for any resizable
-  window, and **Alt+Space reaches that menu in fullscreen**, which has
+  (`WIN_REQ_FULLSCREEN`), honoured whatever its flags -- a fixed-size
+  client then draws its own picture into the screen-sized buffer, as w16
+  fits a Win16 game's 640 x 480 there; the window menu offers it only
+  for a resizable window, and **Alt+Space reaches that menu in fullscreen**, which has
   no title bar and hides the taskbar. Never persisted (`wm_geometry_save()` stores the saved rect).
   See `docs/scanout-design.md`.
 - **A FULLSCREEN CLIENT MAY BE LEASED THE DISPLAY'S OWN SCANOUTS, AND
@@ -1319,10 +1321,10 @@ this the obvious way), not from how much history it accumulated.
   `component.mk`) with no Makefile edit, and
   the setting's choice list IS that directory (`choice_dir`), so
   dropping one in gives it a row in System Settings. Three things bite.
-  **A saver must declare `UAPP_RESIZABLE` and a non-zero `w`/`h`**: the
-  compositor refuses fullscreen to a window that is not resizable, and
-  `uapp_open()` refuses a window with no size at all -- the symptom of
-  either is a saver that quietly stays a small box in the corner.
+  **A saver must declare a non-zero `w`/`h`**: `uapp_open()` refuses a
+  window with no size at all, and the symptom is a saver that quietly
+  stays a small box in the corner. (`UAPP_RESIZABLE` is no longer what
+  gets it fullscreen: a client's own request is honoured either way.)
   **It is KILLED, never asked**, because `wm_request_close()` may be
   refused and this is the one window where that must not be possible.
   And **the timeout of zero is the enable**, so there is no second

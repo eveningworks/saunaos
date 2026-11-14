@@ -632,7 +632,16 @@ the palette, whose mapping is not yet measured.
    the mouse and plays its intro: waveOutReset now ends a pause, as the
    API's documentation says (the next waveOutWrite starts playing) --
    SCI opens, pauses, resets and writes without a restart, and waited
-   on its first sound forever. Its speed is the CPU's: 20 MIPS under KVM
+   on its first sound forever. It runs FULLSCREEN: a captionless main
+   window covering the 640 x 480 (Lighthouse's, Setup's backdrop) is fitted
+   to SaunaOS's screen at the largest quarter step that keeps 4:3, centred
+   on black, its dialogs at the same scale (`docs/decisions/gui.md`); w16
+   maximizes a main window toywm cannot size, through WM_GETMINMAXINFO. Its
+   own pointer only: LoadCursor of a cursor the module lacks is NULL, as on
+   3.1, and SCI's SetCursor(NULL) hides SaunaOS's. Setup's menu matches
+   3.11's side by side: DefDlgProc erases with the CTLCOLOR_DLG brush the
+   dialog answers, and a static draws in the text colour WM_CTLCOLOR set
+   (`samples/fullscr.asm` checks all of it). Its speed is the CPU's: 20 MIPS under KVM
    before the descriptor cache, ~29 after (`tools/bench/cpu16_bench.py`
    on the host: 51 -> 89). Setup's Program Manager group, a CD change
    for disc 2 and the speed are on the roadmap.

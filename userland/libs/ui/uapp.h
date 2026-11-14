@@ -680,7 +680,8 @@ int uapp_launch(struct uapp *a, char *const argv[]);
 // where choosing the program is the library's job and starting it is
 // FULLSCREEN: the whole screen, no chrome, no taskbar, until asked
 // again with `on` = 0 or the window closes. The compositor answers
-// with a resize proposal; the app adopts it as it adopts any other.
+// with a resize proposal; the app adopts it as it adopts any other --
+// a fixed-size app too, which then draws its own picture into it.
 // ASKED IN on_open, before the window has been shown, the first frame
 // waits for that proposal, so the window first appears fullscreen.
 // With UAPP_SCANOUT the compositor may also lend the display's buffers

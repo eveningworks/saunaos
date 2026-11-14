@@ -1964,6 +1964,12 @@ int w16_gdi_scroll(struct w16 *w, uint16_t hdc, int dx, int dy, const int16_t *s
     return 1;
 }
 
+// A DC's text colour (a COLORREF), as GetTextColor answers; 0 for a bad DC.
+uint32_t w16_gdi_text_color(struct w16 *w, uint16_t hdc) {
+    struct w16_gdiobj *o = obj(w, hdc, GDI_DC);
+    return o ? o->text : 0;
+}
+
 // SetTextColor's work for w16's own drawing on a program's DC: the COLORREF it had.
 uint32_t w16_gdi_swap_text_color(struct w16 *w, uint16_t hdc, uint32_t cr) {
     struct w16_gdiobj *o = obj(w, hdc, GDI_DC);

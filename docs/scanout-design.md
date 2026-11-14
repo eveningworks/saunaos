@@ -51,9 +51,9 @@ may.
 
 ## Stage 1 -- the fullscreen state (BUILT)
 
-- `WIN_REQ_FULLSCREEN` on the client channel (`wm_client.c`), or the
-  window menu's "Fullscreen"/"Exit Fullscreen" for any resizable
-  window. `wm_set_fullscreen()` (`wm_input.c`) saves the rect, sets
+- `WIN_REQ_FULLSCREEN` on the client channel (`wm_client.c`), for any
+  window the client owns, or the window menu's "Fullscreen"/"Exit
+  Fullscreen" for any resizable window. `wm_set_fullscreen()` (`wm_input.c`) saves the rect, sets
   `x = y = 0`, proposes the screen's size, and brings the window to the
   front; leaving lands on the maximized or the saved rect (`fs_prev`).
 - A FLAG beside `enum window_state`, not a fourth state, so every

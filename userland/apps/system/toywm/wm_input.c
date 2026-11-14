@@ -721,11 +721,14 @@ static void ctx_toggle_maximize_window(void *ctx) {
 // state stays what it was -- fs_prev remembers it -- so leaving lands
 // back on the maximized or the saved rect. A client is PROPOSED the
 // size, as for maximize; the lease (wm_scanout.c) waits until it has
-// adopted it.
-void wm_set_fullscreen(int i, int on) {
+// adopted it. `asked`: the client's own request, which a window that is
+// not resizable gets too -- it draws its picture into the proposal, as a
+// Wayland client may (a Win16 game centred on black); the person's toggle
+// stays for resizable windows.
+void wm_set_fullscreen(int i, int on, int asked) {
     if (i < 0 || i >= window_count) return;
     struct window *w = &windows[i];
-    if (!w->resizable || w->popup) return;
+    if ((!w->resizable && !asked) || w->popup) return;
     on = on ? 1 : 0;
     if (w->fullscreen == on) return;
     int is_client = wm_client_is_client_window(w);
@@ -767,7 +770,7 @@ void wm_set_fullscreen(int i, int on) {
 
 static void ctx_toggle_fullscreen_window(void *ctx) {
     int i = ctx_target(ctx);
-    if (i >= 0) wm_set_fullscreen(i, !windows[i].fullscreen);
+    if (i >= 0) wm_set_fullscreen(i, !windows[i].fullscreen, 0);
 }
 
 // Launching DISMISSES the Start menu, which is what a left-click on the

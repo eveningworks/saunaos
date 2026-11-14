@@ -81,6 +81,7 @@ void ne_print_info(const struct ne_module *m);
 #define WM_ERASEBKGND    0x0014
 #define WM_SHOWWINDOW    0x0018
 #define WM_CTLCOLOR      0x0019
+#define CTLCOLOR_DLG     4                // WM_CTLCOLOR's lParam high word: the dialog's own background
 #define WM_SETCURSOR     0x0020
 #define WM_MOUSEACTIVATE 0x0021
 #define WM_SETFONT       0x0030
@@ -352,6 +353,7 @@ struct w16_wnd {
     // showed one) or maximized (the screen): the place and size Restore puts back.
     int iconic;
     int rest_x, rest_y, rest_w, rest_h;
+    int self_max;                 // the main window maximized by w16 itself, toywm unable (user16.c)
     int need_size;                // an overlapped window's first WM_SIZE waits for its first show
     int inval, erase;             // a pending WM_PAINT, and whether it erases
     int upd_all;                  // ...of all the client area; else of `upd`, client pixels --
@@ -368,6 +370,7 @@ struct w16_wnd {
     uint16_t font;                // the HFONT a built-in control draws in (WM_SETFONT); 0 the System font
     int has_ctl_bg;               // its parent answered WM_CTLCOLOR before this paint...
     uint32_t ctl_bg;              // ...with this brush's colour, a pixel
+    uint32_t ctl_fg;              // ...and set this text colour on the DC it was given, a pixel
 
     // A dialog's -- or a main window made from a DIALOG template (`dlg`),
     // the dialog manager's as much as a dialog's; the rest under `lock`.
@@ -1211,6 +1214,7 @@ int w16_gdi_scroll(struct w16 *w, uint16_t hdc, int dx, int dy, const int16_t *s
 void w16_gdi_region_set(struct w16 *w, uint16_t hrgn, const int16_t rc[4]);
 int w16_gdi_region_copy(struct w16 *w, uint16_t hrgn, struct urgn *out);   // -1 not a region
 uint32_t w16_gdi_swap_text_color(struct w16 *w, uint16_t hdc, uint32_t colorref);   // the old one
+uint32_t w16_gdi_text_color(struct w16 *w, uint16_t hdc);                          // a COLORREF
 // meta16.c: a metafile's bytes (a METAHEADER and its records) drawn into a
 // DC through w16's own GDI calls. 0 when it is no metafile or a record is malformed.
 int w16_play_wmf(struct w16 *w, uint16_t hdc, const uint8_t *bytes, uint32_t len);
@@ -1432,7 +1436,13 @@ struct w16_scaler {
 };
 void w16_scaler_show(struct w16_scaler *sc, struct ugfx_surface *dst, int dx, int dy, const uint32_t *cur,
                      int w, int h);
+// The same at `q` quarters rather than the program's scale (a fullscreen main window's fit).
+void w16_scaler_show_q(struct w16_scaler *sc, struct ugfx_surface *dst, int dx, int dy, const uint32_t *cur,
+                       int w, int h, int q);
 void w16_scaler_free(struct w16_scaler *sc);
+// Where a fullscreen main window's picture starts on the screen (w16.c); 0, 0 when it is not fullscreen.
+void w16_full_origin(int *ox, int *oy);
+int w16_dlgwin_any_open(struct w16 *w);         // a dialog has a toywm window of its own; under `lock`
 
 // The control-menu box drawn at (x, y): grey, its bar outlined; navy while
 // its menu is open. The main window's frame and a dialog's share it.

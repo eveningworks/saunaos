@@ -626,10 +626,15 @@ uint32_t w16_dialog_proc(struct w16 *w, struct w16_wnd *d, uint16_t msg, uint16_
     if (!d) return r;
     if (r && msg != WM_ACTIVATE && msg != WM_SETFOCUS) return r;
     switch (msg) {
-    case WM_ERASEBKGND:
+    case WM_ERASEBKGND: {
         if (d->kind != W16_K_DIALOG) break;      // a class of the program's: its own brush
-        w16_gdi_fill(w, wp, 0, 0, d->cw, d->ch, COLOR_WINDOW + 1);
+        // WM_CTLCOLOR with CTLCOLOR_DLG to the dialog itself, as 3.1's DefDlgProc asked: the brush
+        // it answers is the background (Sierra's Setup greys its menu so), none the window colour.
+        uint32_t br = w16_send(w, h, WM_CTLCOLOR, wp, (uint32_t)CTLCOLOR_DLG << 16 | h);
+        if (!(d = w16_wnd_get(w, h)) || w->cpu.fault) return 1;
+        w16_gdi_fill(w, wp, 0, 0, d->cw, d->ch, (br & 0xFFFF) ? (uint16_t)br : COLOR_WINDOW + 1);
         return 1;
+    }
     case WM_CLOSE:
         command(w, d, IDCANCEL);
         return 0;
