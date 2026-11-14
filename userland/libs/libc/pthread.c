@@ -309,6 +309,15 @@ static int cancel_now(void) {
     return __atomic_load_n(&self->cancel_pending, __ATOMIC_ACQUIRE) && !self->cancel_disabled;
 }
 
+// A WAITER PARKS ON THE GENERATION WORD (a futex), it does not spin: a
+// yield loop kept an idle worker thread READY for ever, taking a share of
+// the CPU from everything else -- the compositor's frames came out twice
+// as slow under load once it had one. The generation is read BEFORE the
+// unlock, so a signal in between makes the futex wait return at once.
+// Parked at most CANCEL_POLL_MS at a time: a cancel sets a flag, wakes
+// nobody, and is noticed on the next turn.
+#define CANCEL_POLL_MS 100
+
 int pthread_cond_wait(pthread_cond_t *c, pthread_mutex_t *m) {
     if (!c || !m) return EINVAL;
     unsigned seen = __atomic_load_n(&c->generation, __ATOMIC_ACQUIRE);
@@ -316,7 +325,7 @@ int pthread_cond_wait(pthread_cond_t *c, pthread_mutex_t *m) {
     if (rc) return rc;
     while (__atomic_load_n(&c->generation, __ATOMIC_ACQUIRE) == seen) {
         if (cancel_now()) { pthread_mutex_lock(m); pthread_testcancel(); }
-        sys_yield();
+        sys_futex_wait((volatile uint32_t *)&c->generation, seen, CANCEL_POLL_MS);
     }
     return pthread_mutex_lock(m);
 }
@@ -326,7 +335,7 @@ static int ts_reached(const struct timespec *now, const struct timespec *t) {
            (now->tv_sec == t->tv_sec && now->tv_nsec >= t->tv_nsec);
 }
 
-// pthread_cond_wait() with a deadline, checked between yields. The mutex
+// pthread_cond_wait() with a deadline, checked each time the wait returns. The mutex
 // is held again on BOTH returns, as POSIX requires -- a caller retests
 // its predicate either way.
 int pthread_cond_timedwait(pthread_cond_t *c, pthread_mutex_t *m,
@@ -340,11 +349,17 @@ int pthread_cond_timedwait(pthread_cond_t *c, pthread_mutex_t *m,
     while (__atomic_load_n(&c->generation, __ATOMIC_ACQUIRE) == seen) {
         if (cancel_now()) { pthread_mutex_lock(m); pthread_testcancel(); }
         struct timespec now;
-        if (clock_gettime(c->clock, &now) == 0 && ts_reached(&now, abstime)) {
+        if (clock_gettime(c->clock, &now) != 0) { sys_yield(); continue; }
+        if (ts_reached(&now, abstime)) {
             timed_out = 1;
             break;
         }
-        sys_yield();
+        // Parked until the deadline or the cancel poll, whichever is first
+        // (at least 1 ms: 0 would mean no deadline at all).
+        int64_t left = (int64_t)(abstime->tv_sec - now.tv_sec) * 1000 +
+                       (abstime->tv_nsec - now.tv_nsec) / 1000000;
+        int ms = left < 1 ? 1 : left > CANCEL_POLL_MS ? CANCEL_POLL_MS : (int)left;
+        sys_futex_wait((volatile uint32_t *)&c->generation, seen, ms);
     }
     rc = pthread_mutex_lock(m);
     return rc ? rc : timed_out ? ETIMEDOUT : 0;
@@ -358,6 +373,7 @@ int pthread_cond_timedwait(pthread_cond_t *c, pthread_mutex_t *m,
 int pthread_cond_signal(pthread_cond_t *c) {
     if (!c) return EINVAL;
     __atomic_add_fetch(&c->generation, 1, __ATOMIC_RELEASE);
+    sys_futex_wake((volatile uint32_t *)&c->generation, 0);   // every waiter: see above
     return 0;
 }
 

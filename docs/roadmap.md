@@ -237,6 +237,7 @@ only expensive part of it.
 - [ ] **NEXT** A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first
 - [x] ~~`/dev/null`~~ DONE 2026-11-11 -- with `/dev/zero` and `/dev/[u]random`, found by name in `sys_open()`
 - [ ] A `/dev` that lists and `stat()`s -- the devices are names `sys_open()` knows, so `ls /dev` is empty and `stat("/dev/null")` ENOENT
+- [ ] tolibc's mutex, rwlock and stdio locks park on a futex -- they spin on `sys_yield()` while held, as the condvar did
 - [ ] **NEXT** `execl`/`execlp` in tolibc
 - [ ] **NEXT** The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob
 - [x] ~~`brk`-style growable per-process heap~~ DONE -- `SYS_SBRK` reserves and `uheap_fault()` maps on touch; the heap is per process
