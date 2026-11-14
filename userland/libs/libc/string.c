@@ -63,6 +63,11 @@ void *memchr(const void *s, int c, size_t n) {
     return 0;
 }
 
+size_t strnlen(const char *s, size_t max) {
+    const char *nul = memchr(s, 0, max);
+    return nul ? (size_t)(nul - s) : max;
+}
+
 // One shared scan under strspn/strcspn/strpbrk: the only difference is
 // whether a hit ends the span or continues it.
 static int in_set(char c, const char *set) {

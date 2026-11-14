@@ -95,6 +95,8 @@ int memcmp(const void *a, const void *b, size_t n);
 
 // --- the toolkit's, under C's names (libc/string.c) -----------------
 size_t strlen(const char *s);
+// The length, but never past `max`: the string need not be terminated within it (POSIX.1-2008).
+size_t strnlen(const char *s, size_t max);
 int    strcmp(const char *a, const char *b);
 int    strncmp(const char *a, const char *b, size_t n);
 // The kernel has no k_strcpy any more (api/string.h), so this one is

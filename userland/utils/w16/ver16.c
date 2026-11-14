@@ -247,8 +247,8 @@ static int vq_find(const uint8_t *b, uint32_t n, uint32_t at, const char *path, 
         uint32_t clen = rd16le(b, c);
         if (clen < 4) break;
         const char *key = (const char *)b + c + 4;
-        const char *nul = memchr(key, 0, end - c - 4);
-        if (nul && (size_t)(nul - key) == step && !strncasecmp(key, path, step))
+        size_t room = end - c - 4;
+        if (strnlen(key, room) < room && strnlen(key, room) == step && !strncasecmp(key, path, step))
             return vq_find(b, n, c, path + step, val, vlen);
         c = align4(c + clen);
     }

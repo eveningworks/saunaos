@@ -81,12 +81,6 @@ static unsigned c_ushort(struct cur *c) {
 
 // --- growing arrays -------------------------------------------------------------------
 
-// tolibc has no strnlen.
-static size_t hlp_strnlen(const char *s, size_t max) {
-    const char *z = memchr(s, 0, max);
-    return z ? (size_t)(z - s) : max;
-}
-
 static int grow(void **arr, int *cap_or_n, int n, size_t elt) {
     // `cap_or_n` here is the capacity; n the count in use.
     if (n < *cap_or_n) return 1;
@@ -793,7 +787,7 @@ static int add_page(struct uhlp *h, struct view rec, uint32_t ref, uint32_t offs
     // The topic's own macros follow its title, one NUL-terminated string each.
     size_t tl = strlen(pg->title);
     for (size_t at = tl + 1; at < tsize;) {
-        size_t ml = hlp_strnlen((char *)t + at, tsize - at);
+        size_t ml = strnlen((char *)t + at, tsize - at);
         if (ml && (pg->nmacro % 8) == 0) {
             char **m = realloc(pg->macro, (size_t)(pg->nmacro + 8) * sizeof *m);
             if (!m) break;
@@ -1462,7 +1456,7 @@ static int browse_paragraph(struct build *b, struct view rec, struct pstate *st,
                 open = 1; \
             } } while (0)
         while (text < text_end && f.at < f.v.n && !f.bad) {
-            size_t tl = hlp_strnlen((char *)text, (size_t)(text_end - text));
+            size_t tl = strnlen((char *)text, (size_t)(text_end - text));
             if (tl) {
                 NEED_PARA();
                 struct uhlp_run *r = new_run(b, UHLP_RUN_TEXT, st->font, st->link);
@@ -1535,7 +1529,7 @@ static int browse_paragraph(struct build *b, struct view rec, struct pstate *st,
                 lk->kind = UHLP_LINK_MACRO;
                 lk->colour = !(cmd & 4);
                 size_t avail = f.v.n > f.at + 3 ? f.v.n - (f.at + 3) : 0;
-                lk->macro = pool_add(b, (const char *)f.v.p + f.at + 3, hlp_strnlen((const char *)f.v.p + f.at + 3, ml < avail ? ml : avail));
+                lk->macro = pool_add(b, (const char *)f.v.p + f.at + 3, strnlen((const char *)f.v.p + f.at + 3, ml < avail ? ml : avail));
                 st->link = b->d->nlink - 1;
                 f.at += 3 + ml;
                 break;
@@ -1563,14 +1557,14 @@ static int browse_paragraph(struct build *b, struct view rec, struct pstate *st,
                 size_t avail = f.v.n > f.at + 8 ? f.v.n - (f.at + 8) : 0;
                 if (ltype == 1) { if (avail) lk->window = (unsigned char)*ptr; }
                 else if (ltype == 6) {
-                    size_t nl = hlp_strnlen(ptr, avail);
+                    size_t nl = strnlen(ptr, avail);
                     for (int w = h->nwin - 1; w >= 0; w--)
                         if (strlen(h->win[w].name) == nl && !memcmp(ptr, h->win[w].name, nl)) { lk->window = w; break; }
                     ptr += nl + 1;
                     avail = avail > nl + 1 ? avail - nl - 1 : 0;
                 }
                 if (ltype == 4 || ltype == 6) {
-                    size_t nl = hlp_strnlen(ptr, avail);
+                    size_t nl = strnlen(ptr, avail);
                     lk->file = pool_add(b, ptr, nl);
                 }
                 st->link = b->d->nlink - 1;

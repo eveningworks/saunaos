@@ -632,8 +632,7 @@ static int find_load(const uint8_t *dta, struct find *f) {
 static void find_store(uint8_t *dta, int dir_id, const char *pattern, unsigned next, uint8_t attr) {
     memset(dta, 0, 21);
     dta[0] = FIND_TAG;
-    size_t n = strlen(pattern);
-    memcpy(dta + 1, pattern, n < 12 ? n : 12);
+    memcpy(dta + 1, pattern, strnlen(pattern, 12));
     dta[13] = (uint8_t)dir_id;
     dta[14] = (uint8_t)(dir_id >> 8);
     dta[15] = (uint8_t)next;

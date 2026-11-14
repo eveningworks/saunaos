@@ -57,6 +57,10 @@ int main(void) {
 
     // --- the inline wrappers -----------------------------------------
     utest_check(strlen("") == 0 && strlen("abc") == 3, "strlen");
+    // strnlen reads no further than max: an unterminated buffer is fine.
+    const char unterminated[3] = { 'x', 'y', 'z' };
+    utest_check(strnlen("abc", 10) == 3 && strnlen("abc", 2) == 2 && strnlen(unterminated, 3) == 3 &&
+                strnlen("", 0) == 0, "strnlen");
     utest_check(strcmp("a", "a") == 0 && strcmp("a", "b") < 0, "strcmp");
     utest_check(strncmp("abcd", "abzz", 2) == 0, "strncmp");
     utest_check(strchr("a/b", '/') != 0 && strrchr("a/b/c", '/')[1] == 'c', "strchr/strrchr");
