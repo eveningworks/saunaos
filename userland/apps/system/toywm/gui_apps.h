@@ -435,8 +435,26 @@ const char *gui_app_cat_label_for(const char *key);
 int gui_app_shows_in(const struct gui_app *app, unsigned surface);
 
 // Scans the desktop-entry directory and fills the registry. Called once
-// as the desktop starts, before anything draws a menu.
+// as the desktop starts, before anything draws a menu; a later reload
+// goes through the worker (wm_apps_worker.h).
 void gui_apps_load(void);
+
+// A registry BUILT BUT NOT INSTALLED -- the reload's two halves, so the
+// disk half can run off the WM's thread. gui_apps_build() touches no
+// shared state and may run on any thread; gui_apps_install() swaps the
+// set in and must run on the WM's, where every reader of the registry is.
+struct gui_apps_set {
+    struct gui_app_entry *entries;
+    struct gui_app *apps;
+    int count;
+    int view_gpl;      // the GPL switch it was built with
+    int hid;           // entries hidden by it
+};
+// 0, or -1 when memory ran out (logged; *s is then empty).
+int gui_apps_build(struct gui_apps_set *s);
+// Takes ownership of *s and empties it; the old registry is freed.
+void gui_apps_install(struct gui_apps_set *s);
+void gui_apps_set_free(struct gui_apps_set *s);
 // The GPL switch moved since the last gui_apps_load(): reload, whatever
 // the directory says.
 int gui_apps_view_stale(void);

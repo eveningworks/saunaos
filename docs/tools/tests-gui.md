@@ -1675,12 +1675,18 @@ from the default (a sound card, a USB mouse, `--reboot`).
   is not a guarantee that what follows it has arrived. In
   `gui_regress.py`.
 - **`desktop_entries_test.py`** -- the `.desktop` entry system: the
-  `ShowIn=` key and live reload, 13 checks. Its reusable lesson is in the
+  `ShowIn=` key and live reload. Its reusable lesson is in the
   ShowIn checks: they assert an entry is **LOADED but filtered** (`gui
   apps` versus `gui menu`), never just "absent from the menu" -- the
   first version asserted only absence and passed with the filter
   disabled outright, because `write` truncates and the check was racing
-  the transient invalid file. In `gui_regress.py`.
+  the transient invalid file. Then 200 bulk entries (dash scripts; each
+  console line under the 128-byte `DBG_LINE_MAX`) make one reload read
+  past the watchdog's threshold, set to 80 ms for it, and no slow frame
+  may name `desktop_entries` -- the reload runs on toywm's worker; red
+  with it run inline. Counted from the WM's `N desktop entries` line:
+  `gui apps` stops printing at a couple of hundred rows. In
+  `gui_regress.py`; ~5 minutes more for the bulk part.
 - **`settings_gallery_test.py`** -- System Settings' cursor theme
   gallery (5 checks), from the app's own `settings: gallery` lines: a
   card per theme with a painter, the Amber tile carrying amber ink while

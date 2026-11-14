@@ -31,6 +31,7 @@
 #include "wm_glass.h"
 #include "wm_anim.h"   // wm_damage_window_rect(): a window's rect plus its shadow
 #include "wm_idle.h"
+#include "wm_apps_worker.h"
 #include "wm_background.h"
 #include "wm_dnd.h"
 #include "wm_geometry.h"
@@ -902,6 +903,40 @@ void close_window(int idx) {
 // every write anywhere moved; under a disk-heavy program that put a
 // directory read on the render path every 500 ms, queued behind the
 // program's disk wait for the filesystem lock.
+// A finished reload goes in only when nothing points into the registry.
+static void install_desktop_entries(void) {
+    // Never mid-interaction. The selection, the armed click and the drag
+    // are all REGISTRY INDICES, and an install renumbers them; an open
+    // Start menu would have its rows move under the cursor between press
+    // and release. Deferring costs nothing -- the result waits.
+    if (start_menu_open || desktop_drag_active()) return;
+
+    // And never while a window still POINTS INTO the registry.
+    // struct window::app is a pointer into gui_app_registry[] (wm.h),
+    // which an install frees. Only a kernel-space app's window held one;
+    // a ring-3 client's is 0 (wm_client.c), which is every window today.
+    for (int i = 0; i < window_count; i++) {
+        if (windows[i].app) return;
+    }
+
+    struct gui_apps_set set;
+    uint32_t build_ms = 0;
+    if (!wm_apps_reload_take(&set, &build_ms)) return;
+    uint64_t t0 = sys_monotonic_ns();
+    gui_apps_install(&set);
+    // desktop_entries_changed() rebuilds the icon layout (no I/O of its
+    // own); the read itself ran on the worker. Timed in two halves
+    // because a slow one is worth a line naming WHICH.
+    desktop_entries_changed();
+    uint32_t layout_ms = (uint32_t)((sys_monotonic_ns() - t0) / 1000000u);
+    if (build_ms + layout_ms >= 100) {
+        wm_logf("wm: desktop reload took %u ms (read %u ms on the worker, layout %u ms)\n",
+                build_ms + layout_ms, build_ms, layout_ms);
+    }
+    wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
+    WM_REDRAW();
+}
+
 static void poll_desktop_entries(void) {
     static uint64_t seen_gen;
     static uint64_t quiet_until;
@@ -915,6 +950,8 @@ static void poll_desktop_entries(void) {
         seen_gen = wm_watch_gen(WM_TOPIC_APPS);
         return;
     }
+
+    install_desktop_entries();
 
     // THE GPL SWITCH (software.show_gpl) changes what the registry shows
     // with no file in the directory changing: a settings change asks it,
@@ -930,64 +967,21 @@ static void poll_desktop_entries(void) {
     uint64_t gen = wm_watch_gen(WM_TOPIC_APPS);
     if (gen == seen_gen && !view_due) return; // the common case, and it is free
 
-    // Never mid-interaction. The selection, the armed click and the drag
-    // are all REGISTRY INDICES, and a reload renumbers them; an open
-    // Start menu would have its rows move under the cursor between press
-    // and release. Deferring costs nothing -- the generation stays
-    // changed, so this fires as soon as the interaction ends.
-    if (start_menu_open || desktop_drag_active()) return;
-
-    // And never while a window still POINTS INTO the registry.
-    // struct window::app is a pointer into gui_app_registry[] (wm.h),
-    // and gui_apps_load() rewrites that array in place -- re-parsing
-    // every entry and re-sorting the structs. Reloading underneath an
-    // open window would silently rebind it to whatever entry landed in
-    // that slot, so its callbacks would belong to a different app.
-    //
-    // Only a kernel-space app's window holds one; a ring-3 client's is 0
-    // (wm_client.c), which is every window a user is likely to have open
-    // today. So this defers rather than disables, and it disappears
-    // entirely with the last builtin in M41's stage 4.
-    for (int i = 0; i < window_count; i++) {
-        if (windows[i].app) return;
-    }
+    // One reload at a time; a change that came in meanwhile keeps the
+    // generation unseen, so it is asked for once this one is in.
+    if (wm_apps_reload_busy()) return;
 
     uint64_t now = sys_ticks();
     if (now < quiet_until) return;
     quiet_until = now + 50; // ~500ms at the PIT's 100Hz
 
-    seen_gen = gen;
-
     // A change in the directory is not necessarily a new entry (and the
-    // fallback, when the watch was refused, is the global generation).
-    // Ask the cheap question first -- one directory listing, no file
-    // reads -- before re-reading every entry, which froze the desktop
-    // for 2.5 s under KVM.
-    static uint64_t seen_fp;
-    static int fp_primed;
-    uint64_t fp = gui_apps_dir_fingerprint();
-    if (fp_primed && fp == seen_fp && !view_due) return;
-    fp_primed = 1;
-    seen_fp = fp;
+    // fallback, when the watch was refused, is the global generation):
+    // the worker asks the directory's fingerprint before re-reading
+    // every entry, which froze the desktop for 2.5 s under KVM.
+    seen_gen = gen;
+    wm_apps_reload_request(view_due);
     view_due = 0;
-
-    // Timed in two halves because they fail differently: gui_apps_load()
-    // re-reads and re-parses every .desktop file (disk), while
-    // desktop_entries_changed() rebuilds the icon layout (no I/O of its
-    // own). A reload that takes hundreds of milliseconds is worth a line
-    // naming WHICH -- the watchdog can only see the phase as a whole.
-    uint64_t t0 = sys_ticks();
-    gui_apps_load();
-    uint64_t t1 = sys_ticks();
-    desktop_entries_changed();
-    uint64_t t2 = sys_ticks();
-    if ((t2 - t0) * 10 >= 100) {
-        wm_logf("wm: desktop reload took %u ms (parse %u ms, layout %u ms)\n",
-                    (uint32_t)((t2 - t0) * 10), (uint32_t)((t1 - t0) * 10),
-                    (uint32_t)((t2 - t1) * 10));
-    }
-    wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
-    WM_REDRAW();
 }
 
 // ---- main loop ----

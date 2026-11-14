@@ -38,6 +38,7 @@ RUNNER = {"name": "entries", "covers": "ShowIn= and live .desktop reload"}
 
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -146,6 +147,71 @@ def wait_for_reload(dbg, want, present, timeout=6.0):
             return True
         time.sleep(0.25)
     return False
+
+
+BULK = 200
+THRESHOLD_MS = 80    # under the watchdog's default 150, so a reload of ~150 ms is clearly over it
+
+
+def dash_script(dbg, path, lines):
+    """A dash script on the guest, then run in the background. Each line
+    with its command must fit the debug console's 128-byte line
+    (DBG_LINE_MAX), or it is cut."""
+    assert all(len(f"sh append {path} {ln}") < 128 for ln in lines), lines
+    dbg.send(f"sh write {path} {lines[0]}")
+    for ln in lines[1:]:
+        dbg.send(f"sh append {path} {ln}")
+    dbg.send(f"sh spawn /bin/dash {path}")
+
+
+_seen = []
+
+
+def entry_count(dbg):
+    """Rows in the registry, from the WM's own "N desktop entries" line
+    after each reload -- `gui apps` stops printing at a couple of hundred
+    rows, and the bulk entries are copies of About, so they cannot be
+    told apart by name."""
+    _seen.extend(dbg.logs())   # consumed: each line is kept once, here
+    for ln in reversed(_seen):
+        m = re.search(r"wm: (\d+) desktop entries from", ln)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def bulk_check(dbg):
+    dbg.send(f"gui watchdog {THRESHOLD_MS}")
+    before = sum(1 for ln in dbg.send("gui apps").splitlines() if "show_in=" in ln)
+    dbg.logs(clear=True)
+    _seen.clear()
+    # Made in /tmp first, then copied in one by one: `cp` takes one source.
+    dash_script(dbg, "/tmp/bulk.sh", [
+        "i=0", f"d={ENTRY_DIR}", "mkdir /tmp/bulk",
+        f"while [ $i -lt {BULK} ]; do cp $d/about.desktop /tmp/bulk/zzbulk$i.desktop; i=$((i+1)); done",
+        "for f in /tmp/bulk/*; do cp $f $d/; done",
+    ])
+    deadline = time.time() + 600
+    n = 0
+    while time.time() < deadline:
+        n = (entry_count(dbg) or before) - before
+        if n >= BULK:
+            break
+        time.sleep(2)   # sleep-ok: the copy is a guest job with no completion event
+    check(f"{BULK} more entries are loaded", n >= BULK, f"{n}")
+    entry_count(dbg)
+    lines = list(_seen)
+    reads = [int(m.group(1)) for m in (re.search(r"read (\d+) ms on the worker", ln) for ln in lines) if m]
+    check(f"a reload read for longer than the {THRESHOLD_MS} ms threshold",
+          reads and max(reads) > THRESHOLD_MS, f"reads {reads}")
+    slow = [ln.strip() for ln in lines if "SLOW FRAME" in ln and "'desktop_entries'" in ln]
+    check("...and no frame was slow in 'desktop_entries'", not slow, "; ".join(slow)[:300])
+    dash_script(dbg, "/tmp/unbulk.sh", [f"for f in {ENTRY_DIR}/zzbulk*; do rm $f; done", "rm -r /tmp/bulk"])
+    deadline = time.time() + 600
+    while time.time() < deadline and (entry_count(dbg) or 0) > before:
+        time.sleep(2)   # sleep-ok: as above
+    check("...and they go again", entry_count(dbg) == before)
+    dbg.send("gui watchdog 150")   # the default back, for whatever runs next
 
 
 def main():
@@ -310,6 +376,17 @@ def main():
     dbg.send(f"sh rm {TEST_FILE}")
     removed = wait_for_reload(dbg, TEST_NAME, present=False)
     check("deleting an entry removes it live", removed)
+
+    # --- a slow reload holds no frame ----------------------------------
+    #
+    # Two hundred more entries make one reload read for a few hundred ms
+    # under TCG. That read ran inside a frame (its 'desktop_entries'
+    # phase) and now runs on toywm's worker thread (wm_apps_worker.h), so
+    # a reload that READ for longer than the watchdog's threshold must
+    # leave no slow frame naming the phase. The first half is what makes
+    # the second mean anything: a reload too quick to be slow would pass
+    # on the old code too.
+    bulk_check(dbg)
 
     final = menu_labels(dbg)
     check("the desktop is back exactly as it started", final == baseline,

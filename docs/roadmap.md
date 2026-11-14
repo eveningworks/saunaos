@@ -73,7 +73,7 @@ and job control is what a terminal on that TTY makes possible.
 - [ ] Journal commits off the volume lock -- fslock stage 5; 5a-5c BUILT 2026-11-01, 5d's evidence taken 2026-11-11 except the Lenovo's run
 - [x] ~~Let a create join the deferred transaction under `batched`, as a write does~~ DONE 2026-10-31 -- handles, fslock stage 5b
 - [x] ~~**Interruptible syscalls**~~ DONE 2026-11-14 -- the default; `syscall_irq=off` opts out
-- [ ] Bound how long a frame can block on I/O -- measured since 2026-11-12 (delay accounting); the moves next
+- [ ] Bound how long a frame can block on I/O -- measured since 2026-11-12; the app-list reload moved to a worker 2026-11-14
 
 ### Signals & process control
 **Needs:** nothing -- every stage of `docs/signals-design.md` is BUILT.

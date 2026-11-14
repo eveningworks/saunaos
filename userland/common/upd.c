@@ -321,7 +321,7 @@ static char *read_whole(const char *path) {
     FILE *fp = fopen(path, "r");
     if (!fp) return 0;
     struct growbuf b = { 0 };
-    char chunk[4096];
+    static char chunk[4096];   // static: the ring-3 frame budget is 2 KiB
     size_t n;
     while ((n = fread(chunk, 1, sizeof chunk, fp)) > 0) {
         if (grow_sink(&b, chunk, n) != 0) { free(b.p); fclose(fp); return 0; }

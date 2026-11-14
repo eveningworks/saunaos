@@ -147,38 +147,39 @@ static unsigned parse_show_in(const struct etc_config_buf *cfg, const char *file
 // Every value of one entry, back to back, before they are copied into
 // the entry's own allocation. No value can be longer than the file, so
 // three files' worth holds them all -- the AppId default and the key
-// repeat Exec's path. Grown to the largest entry read, never shrunk:
-// the WM is one event loop and reads entries one at a time.
-static char *g_vals;
-static unsigned g_vals_cap, g_used;
+// repeat Exec's path. Grown to the largest entry read, never shrunk.
+// ONE PER THREAD THAT READS: the WM's own (gui_app_read_entry()) and each
+// build's, which may be the reload worker's.
+struct vals { char *p; unsigned cap, used; };
+static struct vals g_wm_vals;
 
-static int vals_reserve(uint32_t file_size) {
+static int vals_reserve(struct vals *v, uint32_t file_size) {
     uint64_t want = 3ull * ((uint64_t)file_size + 1) + 64;   // + put()'s short defaults
-    if (want <= g_vals_cap) return 1;
+    if (want <= v->cap) return 1;
     if (want > 0xFFFFFFFFull) return 0;
-    char *g = realloc(g_vals, (size_t)want);
+    char *g = realloc(v->p, (size_t)want);
     if (!g) {
         wm_logf("wm: out of memory reading a %u-byte desktop entry\n", (unsigned)file_size);
         return 0;
     }
-    g_vals = g;
-    g_vals_cap = (unsigned)want;
+    v->p = g;
+    v->cap = (unsigned)want;
     return 1;
 }
 
-// The value of `key` stored in g_vals; its offset, or -1 when absent.
-static int val(const struct etc_config_buf *cfg, const char *key) {
-    unsigned at = g_used;
-    if (!entry_get(cfg, key, g_vals + at, (uint32_t)(g_vals_cap - at))) return -1;
-    g_used = at + (unsigned)k_strlen(g_vals + at) + 1;
+// The value of `key` stored in v; its offset, or -1 when absent.
+static int val(struct vals *v, const struct etc_config_buf *cfg, const char *key) {
+    unsigned at = v->used;
+    if (!entry_get(cfg, key, v->p + at, (uint32_t)(v->cap - at))) return -1;
+    v->used = at + (unsigned)k_strlen(v->p + at) + 1;
     return (int)at;
 }
 
-static int put(const char *v) {
-    unsigned at = g_used, n = (unsigned)k_strlen(v);
-    if (at + n + 1 > g_vals_cap) return -1;
-    k_memcpy(g_vals + at, v, n + 1);
-    g_used = at + n + 1;
+static int put(struct vals *v, const char *s) {
+    unsigned at = v->used, n = (unsigned)k_strlen(s);
+    if (at + n + 1 > v->cap) return -1;
+    k_memcpy(v->p + at, s, n + 1);
+    v->used = at + n + 1;
     return (int)at;
 }
 
@@ -187,63 +188,67 @@ void gui_app_entry_free(struct gui_app_entry *e) {
     k_memset(e, 0, sizeof *e);
 }
 
-static int read_entry(const struct etc_config_buf *cfg, const char *path,
+static int read_entry(struct vals *v, const struct etc_config_buf *cfg, const char *path,
                       struct gui_app_entry *e);
 
-int gui_app_read_entry(const char *path, struct gui_app_entry *e) {
+static int read_entry_with(struct vals *v, const char *path, struct gui_app_entry *e) {
     k_memset(e, 0, sizeof *e);
     // ONE read, many questions: etc_config_get() re-reads the whole file
     // per key, and a reload runs on every filesystem change.
     struct etc_config_buf cfg;
     if (!wm_conf_load(path, &cfg)) return 0;
-    int ok = vals_reserve(cfg.size) && read_entry(&cfg, path, e);
+    int ok = vals_reserve(v, cfg.size) && read_entry(v, &cfg, path, e);
     etc_config_buf_free(&cfg);
     return ok;
 }
 
-static int read_entry(const struct etc_config_buf *cfg, const char *path,
+int gui_app_read_entry(const char *path, struct gui_app_entry *e) {
+    return read_entry_with(&g_wm_vals, path, e);
+}
+
+static int read_entry(struct vals *v, const struct etc_config_buf *cfg, const char *path,
                       struct gui_app_entry *e) {
     const char *file = k_path_basename(path);
 
     char nodisplay[8], raw[16];
     if (entry_get(cfg, "NoDisplay", nodisplay, sizeof nodisplay) && nodisplay[0] == '1')
         return 0;
-    g_used = 0;
-    int name = val(cfg, "Name"), exec = val(cfg, "Exec");
+    v->used = 0;
+    int name = val(v, cfg, "Name"), exec = val(v, cfg, "Exec");
     if (name < 0 || exec < 0) return 0;
     // Every app is a ring-3 binary now; the retired `builtin:` form is
     // refused LOUDLY rather than shown as a row that does nothing.
-    if (k_strncmp(g_vals + exec, "builtin:", 8) == 0) {
+    if (k_strncmp(v->p + exec, "builtin:", 8) == 0) {
         wm_logf("wm: %s uses the retired builtin: form -- ignored\n", file);
         return 0;
     }
-    int cat = val(cfg, "Category");
-    if (cat < 0) cat = put("utility");
+    int cat = val(v, cfg, "Category");
+    if (cat < 0) cat = put(v, "utility");
     // OPTIONAL, and empty is a normal answer: an app with nothing to
     // say about itself shows its name alone rather than a placeholder.
-    int comment = val(cfg, "Comment");
-    if (comment < 0) comment = put("");
-    int handles = val(cfg, "Handles");
-    if (handles < 0) handles = put("");
+    int comment = val(v, cfg, "Comment");
+    if (comment < 0) comment = put(v, "");
+    int handles = val(v, cfg, "Handles");
+    if (handles < 0) handles = put(v, "");
     // A one-character Icon= is a GLYPH, anything longer is a NAME. Both
     // are kept; drawing prefers the file and falls back to the character.
-    int icon = val(cfg, "Icon");
-    if (icon < 0) icon = put("");
-    e->glyph = g_vals[icon];
-    if (g_vals[icon] && !g_vals[icon + 1]) icon = put("");
+    int icon = val(v, cfg, "Icon");
+    if (icon < 0) icon = put(v, "");
+    e->glyph = v->p[icon];
+    if (v->p[icon] && !v->p[icon + 1]) icon = put(v, "");
     // AppId defaults to the basename of Exec, which is right everywhere
     // but Shapes -- see gui_apps.h on why the entry gets to say.
-    int appid = val(cfg, "AppId");
-    if (appid < 0) appid = put(k_path_basename(g_vals + exec));
-    unsigned room = g_vals_cap - g_used;
-    int key = (int)g_used;
-    unsigned klen = (unsigned)wm_app_key(g_vals + exec, g_vals + appid, g_vals + key, (int)room);
+    int appid = val(v, cfg, "AppId");
+    if (appid < 0) appid = put(v, k_path_basename(v->p + exec));
+    unsigned room = v->cap - v->used;
+    int key = (int)v->used;
+    unsigned klen = (unsigned)wm_app_key(v->p + exec, v->p + appid, v->p + key, (int)room);
     if (cat < 0 || comment < 0 || handles < 0 || icon < 0 || appid < 0 || klen >= room) return 0;
-    g_used += klen + 1;
+    v->used += klen + 1;
 
-    e->mem = malloc(g_used);
+    e->mem = malloc(v->used);
     if (!e->mem) return 0;
-    k_memcpy(e->mem, g_vals, g_used);
+    k_memcpy(e->mem, v->p, v->used);
     e->name = e->mem + name;
     e->exec = e->mem + exec;
     e->category = e->mem + cat;
@@ -282,10 +287,8 @@ static int read_entry(const struct etc_config_buf *cfg, const char *path,
 // change is the right trade against freezing the desktop on every
 // unrelated write. fs_stat()'s mtime would close it at the price of a
 // stat per entry, which is the same shape of cost again.
-static uint64_t g_fp;
-
-static void fingerprint_cb(const char *name, uint32_t size, int is_dir) {
-    if (is_dir) return;
+static uint64_t fingerprint_step(uint64_t fp, const char *name, uint32_t size, int is_dir) {
+    if (is_dir) return fp;
     // FNV-1a over the name, then fold in the size. Order-independent
     // addition would collide on a swap; this is order-DEPENDENT, which
     // is fine because fs_list() walks in stable table order.
@@ -295,16 +298,16 @@ static void fingerprint_cb(const char *name, uint32_t size, int is_dir) {
         h *= 1099511628211ULL;
     }
     h ^= (uint64_t)size * 2654435761ULL;
-    g_fp = (g_fp * 31) + h;
+    return (fp * 31) + h;
 }
 
 uint64_t gui_apps_dir_fingerprint(void) {
-    g_fp = 1;
+    uint64_t fp = 1;
     struct ulist_entry *ents;
     int n = ulistdir(DESKTOP_DIR, &ents);
-    for (int i = 0; i < n; i++) fingerprint_cb(ents[i].name, ents[i].size, (int)ents[i].is_dir);
+    for (int i = 0; i < n; i++) fp = fingerprint_step(fp, ents[i].name, ents[i].size, (int)ents[i].is_dir);
     free(ents);
-    return g_fp;
+    return fp;
 }
 
 static int is_entry_file(const struct ulist_entry *d) {
@@ -331,45 +334,54 @@ int gui_apps_view_stale(void) {
     return g_view_gpl >= 0 && ucomponent_show_gpl() != g_view_gpl;
 }
 
-void gui_apps_load(void) {
+int gui_apps_build(struct gui_apps_set *s) {
+    k_memset(s, 0, sizeof *s);
     // HIDDEN, NOT GONE: an entry whose file, or whose program, lies in a
     // GPL-licensed optional component while the switch is off. Asked once
     // per reload; the files stay and the command line still runs them.
-    static struct ucomponent_view view;
-    ucomponent_view_load(&view);
-    g_view_gpl = ucomponent_show_gpl();
+    struct ucomponent_view *view = calloc(1, sizeof *view);
+    if (!view) {
+        wm_logf("wm: no memory to reload " DESKTOP_DIR "\n");
+        return -1;
+    }
+    ucomponent_view_load(view);
+    s->view_gpl = ucomponent_show_gpl();
     struct ulist_entry *ents;
     int n = ulistdir(DESKTOP_DIR, &ents);
     struct gui_app_entry *entries = n > 0 ? malloc(sizeof *entries * (size_t)n) : 0;
     struct gui_app *apps = n > 0 ? malloc(sizeof *apps * (size_t)n) : 0;
     if (n > 0 && (!entries || !apps)) {
-        // Out of memory: keep the registry that is already there.
+        // Out of memory: the registry that is already there stays.
         wm_logf("wm: no memory to reload " DESKTOP_DIR "\n");
         free(entries);
         free(apps);
         free(ents);
-        return;
+        ucomponent_view_free(view);
+        free(view);
+        return -1;
     }
 
+    struct vals v = { 0 };
     int count = 0;
     for (int i = 0; i < n; i++) {
         if (!is_entry_file(&ents[i])) continue;
         char path[sizeof DESKTOP_DIR + sizeof ents[i].name + 1];
         k_snprintf(path, sizeof path, "%s/%s", DESKTOP_DIR, ents[i].name);
-        if (ucomponent_view_hides(&view, path)) continue;
+        if (ucomponent_view_hides(view, path)) continue;
         uint64_t t = sys_ticks();
-        if (gui_app_read_entry(path, &entries[count])) {
-            if (ucomponent_view_hides_exec(&view, entries[count].exec)) gui_app_entry_free(&entries[count]);
+        if (read_entry_with(&v, path, &entries[count])) {
+            if (ucomponent_view_hides_exec(view, entries[count].exec)) gui_app_entry_free(&entries[count]);
             else count++;
         }
         uint64_t d = sys_ticks() - t;
         if (d * 10 >= 100)
             wm_logf("wm: entry %s took %u ms\n", ents[i].name, (uint32_t)(d * 10));
     }
+    free(v.p);
     free(ents);
-    int hid = view.hiding;
-    ucomponent_view_free(&view);
-    if (hid) wm_logf("wm: GPL-licensed apps hidden (software.show_gpl=off)\n");
+    s->hid = view->hiding;
+    ucomponent_view_free(view);
+    free(view);
 
     for (int i = 1; i < count; i++)
         for (int j = i; j > 0 && entry_before(&entries[j], &entries[j - 1]); j--) {
@@ -395,14 +407,31 @@ void gui_apps_load(void) {
         a->show_in = e->show_in;
         a->exec_path = e->exec;
     }
+    s->entries = entries;
+    s->apps = apps;
+    s->count = count;
+    return 0;
+}
 
+void gui_apps_set_free(struct gui_apps_set *s) {
+    for (int i = 0; i < s->count; i++) gui_app_entry_free(&s->entries[i]);
+    free(s->entries);
+    free(s->apps);
+    k_memset(s, 0, sizeof *s);
+}
+
+void gui_apps_install(struct gui_apps_set *s) {
     for (int i = 0; i < gui_app_registry_count; i++) gui_app_entry_free(&g_entries[i]);
     free(g_entries);
     free(gui_app_registry);
-    g_entries = entries;
-    gui_app_registry = apps;
-    gui_app_registry_count = count;
+    g_entries = s->entries;
+    gui_app_registry = s->apps;
+    gui_app_registry_count = s->count;
+    g_view_gpl = s->view_gpl;
+    int count = s->count, hid = s->hid;
+    k_memset(s, 0, sizeof *s);
 
+    if (hid) wm_logf("wm: GPL-licensed apps hidden (software.show_gpl=off)\n");
     if (count == 0) {
         // No entries: a disk without /usr/wm, or a RAM-only boot with
         // nothing seeded. Say so -- an empty Start menu with no
@@ -412,6 +441,11 @@ void gui_apps_load(void) {
     } else {
         wm_logf("wm: %d desktop entries from " DESKTOP_DIR "\n", count);
     }
+}
+
+void gui_apps_load(void) {
+    struct gui_apps_set s;
+    if (gui_apps_build(&s) == 0) gui_apps_install(&s);
 }
 
 // --- per-surface views of the registry (see gui_apps.h) ---------------
