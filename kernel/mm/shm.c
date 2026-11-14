@@ -105,12 +105,20 @@ static struct kslots g_maps = KSLOTS_INIT(sizeof(struct shm_map));
 
 static struct shm_object *obj(int i) { return kslots_at(&g_objs, i); }
 
+// THE TABLES' LOCK IS THE PREEMPTION GUARD: nothing done under it sleeps
+// (kslots and kmalloc nest the guard), and since interrupts are on inside
+// syscalls an index looked up and used later, unguarded, could name a
+// slot freed and reused in between. A bare index is never held across a
+// gap: a lookup that will use the object takes its reference first.
+static void tlock(void) { scheduler_preempt_disable(); }
+static void tunlock(void) { scheduler_preempt_enable(); }
+
 // --- objects ---------------------------------------------------------
 
 // What the live objects `pid` created hold, in bytes. Its own data limit
 // pays for them (sys_shm_open()): its frames are allocated at creation
 // and live as long as any descriptor, wherever the pages are mapped.
-static uint64_t created_bytes(int pid) {
+static uint64_t created_bytes(int pid) {   // under tlock()
     uint64_t n = 0;
     for (int i = 0; i < kslots_cap(&g_objs); i++) {
         struct shm_object *o = obj(i);
@@ -119,18 +127,17 @@ static uint64_t created_bytes(int pid) {
     return n;
 }
 
-static int name_ok(const char *n);
-static int obj_create(const char *name, uint64_t npages, int pid,
-                      uint64_t pml4);
-
-static void obj_free(int idx) {
-    struct shm_object *o = obj(idx);
-    for (uint32_t i = 0; i < o->npages; i++)
-        if (o->frames[i]) pmm_free_frame(o->frames[i]);
-    kfree(o->frames);
-    k_memset(o, 0, sizeof *o);
-    kslots_free(&g_objs, idx);
+uint64_t shm_created_bytes(int pid) {
+    tlock();
+    uint64_t n = created_bytes(pid);
+    tunlock();
+    return n;
 }
+
+static int name_ok(const char *n);
+static int obj_create(const char *name, uint64_t npages, int pid, uint64_t pml4,
+                      int anon, int pub, struct sched_mm *charge);
+
 
 // May `pid` open object `i`? The creator always may; a public object is
 // open to everyone; otherwise the creator must have said so.
@@ -145,13 +152,22 @@ static int may_open(int i, int pid) {
     return o->pub || o->creator == pid || granted_to(i, pid);
 }
 
-int shm_lookup(const char *name) {
+static int lookup_locked(const char *name) {
     if (!name || !name[0]) return -1;
     for (int i = 0; i < kslots_cap(&g_objs); i++) {
         struct shm_object *o = obj(i);
         if (o && o->refs && !o->unlinked && !o->anon && !k_strcmp(o->name, name)) return i;
     }
     return -1;
+}
+
+// AN INDEX WITH NO REFERENCE, for a caller that only asks "is there one?"
+// or holds the object some other way (a KTEST, strace's own ring).
+int shm_lookup(const char *name) {
+    tlock();
+    int i = lookup_locked(name);
+    tunlock();
+    return i;
 }
 
 // A NAMED object owned by `owner_pid`, created on that process's behalf.
@@ -168,8 +184,7 @@ int shm_lookup(const char *name) {
 int shm_create_named(const char *name, uint64_t npages, int owner_pid) {
     if (!name || !name[0] || !name_ok(name)) return -EINVAL;
     if (!npages || npages > SHM_PAGES_MAX) return -EINVAL;
-    if (shm_lookup(name) >= 0) return -EEXIST;
-    return obj_create(name, npages, owner_pid, 0);
+    return obj_create(name, npages, owner_pid, 0, 0, 0, 0);
 }
 
 // Takes a name out of the namespace, for a caller standing in for a
@@ -177,8 +192,10 @@ int shm_create_named(const char *name, uint64_t npages, int owner_pid) {
 // object a real client would have replaced. The frames go with the last
 // holder, exactly as SYS_SHM_UNLINK leaves them.
 void shm_unlink_named(const char *name) {
-    int idx = shm_lookup(name);
+    tlock();
+    int idx = lookup_locked(name);
     if (idx >= 0) obj(idx)->unlinked = 1;
+    tunlock();
 }
 
 // An object with no name, for a kernel subsystem that maps both sides
@@ -186,67 +203,105 @@ void shm_unlink_named(const char *name) {
 // caller. The reference returned is the caller's to shm_put().
 int shm_create_anon(uint64_t npages) {
     if (!npages || npages > SHM_PAGES_MAX) return -EINVAL;
-    int idx = obj_create("", npages, 0, 0);
-    if (idx >= 0) obj(idx)->anon = 1;
-    return idx;
+    return obj_create("", npages, 0, 0, 1, 0, 0);
 }
 
 void shm_get(int idx) {
+    tlock();
     struct shm_object *o = obj(idx);
     if (o && o->refs) o->refs++;
+    tunlock();
+}
+
+// Under tlock(). The frames are freed AFTER the unlock: free_frames()
+// is a long loop, and the slot is already out of every lookup.
+static uint64_t *put_locked(int idx, uint32_t *npages) {
+    struct shm_object *o = obj(idx);
+    if (!o || !o->refs || --o->refs) return 0;
+    uint64_t *frames = o->frames;
+    *npages = o->npages;
+    k_memset(o, 0, sizeof *o);
+    kslots_free(&g_objs, idx);
+    return frames;
+}
+
+static void free_frames(uint64_t *frames, uint32_t npages) {
+    if (!frames) return;
+    for (uint32_t i = 0; i < npages; i++)
+        if (frames[i]) pmm_free_frame(frames[i]);
+    kfree(frames);
 }
 
 void shm_put(int idx) {
-    struct shm_object *o = obj(idx);
-    if (!o || !o->refs) return;
-    if (--o->refs == 0) obj_free(idx);
+    uint32_t n = 0;
+    tlock();
+    uint64_t *frames = put_locked(idx, &n);
+    tunlock();
+    free_frames(frames, n);
 }
 
 int shm_creator(int idx) {
+    tlock();
     struct shm_object *o = obj(idx);
-    return o && o->refs ? o->creator : 0;
+    int c = o && o->refs ? o->creator : 0;
+    tunlock();
+    return c;
 }
 
 uint64_t shm_total_bytes(void) {
     uint64_t pages = 0;
+    tlock();
     for (int i = 0; i < kslots_cap(&g_objs); i++) {
         struct shm_object *o = obj(i);
         if (o && o->refs) pages += o->npages;
     }
+    tunlock();
     return pages * 4096;
 }
 
 uint64_t shm_npages(int idx) {
+    tlock();
     struct shm_object *o = obj(idx);
-    return o && o->refs ? o->npages : 0;
+    uint64_t n = o && o->refs ? o->npages : 0;
+    tunlock();
+    return n;
 }
 
 uint64_t shm_frame(int idx, uint64_t page) {
+    tlock();
     struct shm_object *o = obj(idx);
-    if (!o || !o->refs || page >= o->npages) return 0;
-    return o->frames[page];
+    uint64_t f = (!o || !o->refs || page >= o->npages) ? 0 : o->frames[page];
+    tunlock();
+    return f;
 }
 
 // --- the mapping table -----------------------------------------------
 
+// THE CALLER HOLDS A REFERENCE on `idx` (a held descriptor, a parent's
+// mapping): this takes the mapping's own. -ENOENT if the object is gone.
 int shm_map_add(uint64_t pml4, int idx, uint64_t base, uint64_t npages) {
+    tlock();
+    struct shm_object *o = obj(idx);
+    if (!o || !o->refs) { tunlock(); return -ENOENT; }
     int i = kslots_alloc(&g_maps);
-    if (i < 0) return -ENOMEM;
+    if (i < 0) { tunlock(); return -ENOMEM; }
     struct shm_map *m = kslots_at(&g_maps, i);
     m->idx = idx;
     m->base = base;
     m->npages = npages;
     m->pml4 = pml4;
-    shm_get(idx);
+    o->refs++;
+    tunlock();
     return 0;
 }
 
-// Drops mapping `i` and the reference it held.
-static void map_drop(int i, struct shm_map *m) {
+// Under tlock(): drops mapping `i` and the reference it held; the frames,
+// if that was the last, are the caller's to free after the unlock.
+static uint64_t *map_drop(int i, struct shm_map *m, uint32_t *npages) {
     int idx = m->idx;
     k_memset(m, 0, sizeof *m);
     kslots_free(&g_maps, i);
-    shm_put(idx);
+    return put_locked(idx, npages);
 }
 
 // Every mapping of `pml4` that STARTS inside the range. munmap refuses
@@ -255,17 +310,30 @@ static void map_drop(int i, struct shm_map *m) {
 // frames split between two entries and is refused at the syscall.
 void shm_unmap_range(uint64_t pml4, uint64_t base, uint64_t npages) {
     uint64_t end = base + npages * 4096ULL;
-    for (int i = 0; i < kslots_cap(&g_maps); i++) {
-        struct shm_map *m = kslots_at(&g_maps, i);
-        if (!m || m->pml4 != pml4 || m->base < base || m->base >= end) continue;
-        map_drop(i, m);
+    for (int i = 0;; i++) {
+        uint32_t n = 0;
+        uint64_t *frames = 0;
+        tlock();
+        int more = i < kslots_cap(&g_maps);
+        struct shm_map *m = more ? kslots_at(&g_maps, i) : 0;
+        if (m && m->pml4 == pml4 && m->base >= base && m->base < end) frames = map_drop(i, m, &n);
+        tunlock();
+        free_frames(frames, n);
+        if (!more) break;
     }
 }
 
 void shm_process_gone(uint64_t pml4) {
-    for (int i = 0; i < kslots_cap(&g_maps); i++) {
-        struct shm_map *m = kslots_at(&g_maps, i);
-        if (m && m->pml4 == pml4) map_drop(i, m);
+    for (int i = 0;; i++) {
+        uint32_t n = 0;
+        uint64_t *frames = 0;
+        tlock();
+        int more = i < kslots_cap(&g_maps);
+        struct shm_map *m = more ? kslots_at(&g_maps, i) : 0;
+        if (m && m->pml4 == pml4) frames = map_drop(i, m, &n);
+        tunlock();
+        free_frames(frames, n);
+        if (!more) break;
     }
     // A DEAD CREATOR'S NAME GOES WITH IT, and the reason is a deadlock
     // rather than tidiness: a server holds a reference to each client's
@@ -277,10 +345,12 @@ void shm_process_gone(uint64_t pml4) {
     // first, and the new client's ring is read by nobody (docs/bugs.md).
     //
     // The frames still go at the last reference; only the name goes now.
+    tlock();
     for (int i = 0; i < kslots_cap(&g_objs); i++) {
         struct shm_object *o = obj(i);
         if (o && o->refs && o->creator_mm == pml4) o->unlinked = 1;
     }
+    tunlock();
 }
 
 // --- the syscalls ----------------------------------------------------
@@ -295,34 +365,47 @@ static int name_ok(const char *n) {
     return !(n[0] == '.' && (!n[1] || (n[1] == '.' && !n[2])));
 }
 
-static int obj_create(const char *name, uint64_t npages, int pid,
-                      uint64_t pml4) {
-    int i = kslots_alloc(&g_objs);
-    if (i < 0) return -ENOMEM;
-    struct shm_object *o = obj(i);   // zeroed
-    o->frames = kmalloc(npages * sizeof *o->frames);
-    if (!o->frames) { kslots_free(&g_objs, i); return -ENOMEM; }
-    k_memset(o->frames, 0, npages * sizeof *o->frames);
+// ALLOCATED OUTSIDE THE LOCK, PUBLISHED UNDER IT. Zeroing 32 MiB of
+// frames is far too long to hold the guard, and an object half made must
+// be invisible -- so the frames come first, and only then, guarded, the
+// name is checked again (a second creator may have finished meanwhile:
+// -EEXIST), the creator's data limit is asked with every object it
+// already holds counted (`charge`, NULL for none), and the slot goes live.
+// `charge`'s address-space lock is the caller's (mmap.c): the limit reads
+// its region table.
+static int obj_create(const char *name, uint64_t npages, int pid, uint64_t pml4,
+                      int anon, int pub, struct sched_mm *charge) {
+    uint64_t *frames = kmalloc(npages * sizeof *frames);
+    if (!frames) return -ENOMEM;
+    k_memset(frames, 0, npages * sizeof *frames);
     for (uint64_t p = 0; p < npages; p++) {
         uint64_t f = pmm_alloc_user_frame();
-        if (!f) {
-            for (uint64_t q = 0; q < p; q++) pmm_free_frame(o->frames[q]);
-            kfree(o->frames);
-            k_memset(o, 0, sizeof *o);
-            kslots_free(&g_objs, i);
-            return -ENOMEM;
-        }
+        if (!f) { free_frames(frames, (uint32_t)p); return -ENOMEM; }
         // Zeroed at creation, not on fault: a shared frame has no
         // per-mapper first touch to hang the zeroing on, and one
         // process must never read another's freed memory.
         k_memset((void *)(uintptr_t)f, 0, 4096);
-        o->frames[p] = f;
+        frames[p] = f;
     }
-    k_strlcpy(o->name, name, sizeof o->name);
-    o->npages = (uint32_t)npages;
-    o->creator = pid;
-    o->creator_mm = pml4;
-    o->refs = 1; // the descriptor about to be installed
+    tlock();
+    int rc = 0;
+    if (name[0] && lookup_locked(name) >= 0) rc = -EEXIST;
+    else if (charge && !mm_data_allows(charge, npages * 4096)) rc = -ENOMEM;
+    int i = rc ? -1 : kslots_alloc(&g_objs);
+    if (!rc && i < 0) rc = -ENOMEM;
+    if (!rc) {
+        struct shm_object *o = obj(i);   // zeroed
+        o->frames = frames;
+        k_strlcpy(o->name, name, sizeof o->name);
+        o->npages = (uint32_t)npages;
+        o->creator = pid;
+        o->creator_mm = pml4;
+        o->anon = anon;
+        o->pub = pub;
+        o->refs = 1; // the caller's: the descriptor about to be installed
+    }
+    tunlock();
+    if (rc) { free_frames(frames, (uint32_t)npages); return rc; }
     return i;
 }
 
@@ -342,26 +425,33 @@ int sys_shm_open(struct syscall_ctx *c) {
     }
 
     int pid = scheduler_current_tgid();   // the PROCESS: a thread opens what its process may
-    int idx = shm_lookup(name);
+    int idx;
+    // THE CHECKS AND THE REFERENCE ARE ONE GUARDED STEP: an index found
+    // and used later could be a slot freed and reused by then.
+    tlock();
+    idx = lookup_locked(name);
     if (idx >= 0) {
-        if ((m.flags & SHM_CREATE) && (m.flags & SHM_EXCL)) { ret = -EEXIST; goto out; }
+        ret = 0;
+        if ((m.flags & SHM_CREATE) && (m.flags & SHM_EXCL)) ret = -EEXIST;
         // REFUSED, not "no such name": a caller told ENOENT would
         // conclude the name is free and create a SECOND object behind
         // it -- which is exactly the failure that reads as a server
         // mixing the wrong client's ring. EPERM because that is this
         // errno table's "not allowed to ask"; there is no EACCES here
         // and one caller does not earn one.
-        if (!may_open(idx, pid)) { ret = -EPERM; goto out; }
-        if ((m.flags & SHM_FROM) && obj(idx)->creator != m.from_pid) { ret = -EPERM; goto out; }
+        else if (!may_open(idx, pid)) ret = -EPERM;
+        else if ((m.flags & SHM_FROM) && obj(idx)->creator != m.from_pid) ret = -EPERM;
         // A SANDBOXED process reaches a public object -- a service's
         // beacon -- only through its unveil list; its own objects and
         // ones granted to it are capabilities already (sandbox_abi.h).
-        if (obj(idx)->pub && obj(idx)->creator != pid && !granted_to(idx, pid) &&
-            !sandbox_shm_public(name)) {
-            ret = -ENOENT; goto out;
-        }
-        shm_get(idx);
+        else if (obj(idx)->pub && obj(idx)->creator != pid && !granted_to(idx, pid) &&
+                 !sandbox_shm_public(name))
+            ret = -ENOENT;
+        if (!ret) obj(idx)->refs++;
+        tunlock();
+        if (ret) goto out;
     } else {
+        tunlock();
         if (!(m.flags & SHM_CREATE)) { ret = -ENOENT; goto out; }
         // A beacon is a NAME others will trust, so making one is the
         // sandbox's PUBLISH: a sandboxed page must not squat a service.
@@ -374,13 +464,13 @@ int sys_shm_open(struct syscall_ctx *c) {
         // charges the allocating task. A limit nobody set charges nothing,
         // so a window buffer is free as before; a limited process (a web
         // page) can no longer pin memory past its cap through shm.
+        // A name another creator took meanwhile is EEXIST, as POSIX's
+        // O_CREAT|O_EXCL; without EXCL the caller asks again and opens it.
         struct sched_mm *mm = scheduler_current_mm();
-        if (mm && !mm_data_allows(mm, npages * 4096 + created_bytes(pid))) {
-            ret = -ENOMEM; goto out;
-        }
-        idx = obj_create(name, npages, pid, c->pml4);
+        if (mm) mm_lock(mm);
+        idx = obj_create(name, npages, pid, c->pml4, 0, (m.flags & SHM_PUBLIC) ? 1 : 0, mm);
+        if (mm) mm_unlock(mm);
         if (idx < 0) { ret = idx; goto out; }
-        obj(idx)->pub = (m.flags & SHM_PUBLIC) ? 1 : 0;
     }
 
     // A DESCRIPTION plus a descriptor naming it, fs_syscalls.c's pairing:
@@ -405,17 +495,21 @@ int sys_shm_grant(struct syscall_ctx *c) {
     if (!vmm_copy_string_from_user(c->pml4, name, c->a0, sizeof name)) {
         ret = -EFAULT; goto out;
     }
-    int idx = shm_lookup(name);
-    if (idx < 0) { ret = -ENOENT; goto out; }
-    if (obj(idx)->creator != scheduler_current_tgid()) { ret = -EPERM; goto out; }
-
     int target = (int)c->a1;
     if (target < 1) { ret = -EINVAL; goto out; }
-    for (int g = 0; g < obj(idx)->ngrants; g++)
-        if (obj(idx)->granted[g] == target) { ret = 0; goto out; }  // already
-    if (obj(idx)->ngrants >= SHM_GRANTS_MAX) { ret = -ENOSPC; goto out; }
-    obj(idx)->granted[obj(idx)->ngrants++] = target;
-    ret = 0;
+    tlock();
+    int idx = lookup_locked(name);
+    if (idx < 0) ret = -ENOENT;
+    else if (obj(idx)->creator != scheduler_current_tgid()) ret = -EPERM;
+    else {
+        struct shm_object *o = obj(idx);
+        ret = 0;
+        int have = 0;
+        for (int g = 0; g < o->ngrants; g++) have |= o->granted[g] == target;
+        if (!have && o->ngrants >= SHM_GRANTS_MAX) ret = -ENOSPC;
+        else if (!have) o->granted[o->ngrants++] = target;
+    }
+    tunlock();
 out:
     c->regs[14] = (uint64_t)ret;
     return 0;
@@ -428,19 +522,21 @@ int sys_shm_unlink(struct syscall_ctx *c) {
     if (!vmm_copy_string_from_user(c->pml4, name, c->a0, sizeof name)) {
         ret = -EFAULT; goto out;
     }
-    int idx = shm_lookup(name);
-    if (idx < 0) { ret = -ENOENT; goto out; }
+    tlock();
+    int idx = lookup_locked(name);
+    if (idx < 0) { tunlock(); ret = -ENOENT; goto out; }
     // THE CREATOR'S NAME TO TAKE BACK, nobody else's. Otherwise any
     // process could unlink a running server's beacon and publish its own
     // under the name -- every later client would trust the impostor. A
     // dead creator's names are already gone (shm_process_gone()), so the
     // "previous run's leftover" every server unlinks at start is still
     // its own to clear or not there at all.
-    if (obj(idx)->creator != scheduler_current_tgid()) { ret = -EPERM; goto out; }
+    if (obj(idx)->creator != scheduler_current_tgid()) { tunlock(); ret = -EPERM; goto out; }
     // The name goes now; the frames go with the last holder. An object
     // somebody is still using survives its own unlink, which is what
     // makes "no new openers" expressible.
     obj(idx)->unlinked = 1;
+    tunlock();
     ret = 0;
 out:
     c->regs[14] = (uint64_t)ret;
@@ -451,28 +547,33 @@ out:
 
 static int shm_q_count(void) {
     int n = 0;
+    tlock();
     for (int i = 0; i < kslots_cap(&g_objs); i++) {
         struct shm_object *o = obj(i);
         n += o && o->refs;
     }
+    tunlock();
     return n;
 }
 
 static int shm_q_fill(int index, void *out) {
     int n = 0;
+    tlock();
     for (int i = 0; i < kslots_cap(&g_objs); i++) {
         struct shm_object *o = obj(i);
         if (!o || !o->refs) continue;
         if (n++ != index) continue;
-        struct query_shm *r = out;
+        struct query_shm *r = out;   // a kernel buffer: the copy out is the caller's
         k_memset(r, 0, sizeof *r);
         k_strlcpy(r->name, o->anon ? "(anon)" : o->name, sizeof r->name);
         r->bytes = (uint64_t)o->npages * 4096ULL;
         r->refs = (uint32_t)o->refs;
         r->creator_pid = (int32_t)o->creator;
         r->flags = o->unlinked ? QUERY_SHM_UNLINKED : 0;
+        tunlock();
         return 1;
     }
+    tunlock();
     return 0;
 }
 
@@ -524,7 +625,7 @@ KTEST("shm", "the tables grow: 400 objects and 800 mappings at once") {
 }
 
 KTEST("shm", "an object outlives its unlink while somebody holds it") {
-    int idx = obj_create("ktest-shm", 2, 0, 0);
+    int idx = obj_create("ktest-shm", 2, 0, 0, 0, 0, 0);
     KTEST_ASSERT(idx >= 0);
     KTEST_ASSERT_EQ((int)shm_npages(idx), 2);
     KTEST_ASSERT(shm_frame(idx, 0) != 0 && shm_frame(idx, 1) != 0);
@@ -542,7 +643,7 @@ KTEST("shm", "an object outlives its unlink while somebody holds it") {
 }
 
 KTEST("shm", "two frames of one object are distinct and zeroed") {
-    int idx = obj_create("ktest-shm2", 2, 0, 0);
+    int idx = obj_create("ktest-shm2", 2, 0, 0, 0, 0, 0);
     KTEST_ASSERT(idx >= 0);
     uint64_t a = shm_frame(idx, 0), b = shm_frame(idx, 1);
     KTEST_ASSERT(a && b && a != b);
@@ -559,7 +660,7 @@ KTEST("shm", "an object can be bigger than one allocation of frames") {
     // frame array used to cap every object at, so this fails outright
     // against the old shape rather than merely being slower.
     const uint64_t pages = 96;
-    int idx = obj_create("ktest-shm-big", pages, 0, 0);
+    int idx = obj_create("ktest-shm-big", pages, 0, 0, 0, 0, 0);
     KTEST_ASSERT(idx >= 0);
     KTEST_ASSERT_EQ((int)shm_npages(idx), (int)pages);
     // Every page is a distinct frame, checked at both ends and across
@@ -587,7 +688,7 @@ KTEST("shm", "a dead creator's NAME goes, so a server notices") {
     // each client's object, so the object outlives the client -- and
     // while it lives the name is in the namespace, which is the only
     // thing the server can watch. Without this the name never goes.
-    int idx = obj_create("ktest-shm4", 1, 42, 0xBEEF000);
+    int idx = obj_create("ktest-shm4", 1, 42, 0xBEEF000, 0, 0, 0);
     KTEST_ASSERT(idx >= 0);
     shm_get(idx);                       // stand in for the server's hold
     KTEST_ASSERT_EQ(shm_lookup("ktest-shm4"), idx);
@@ -598,7 +699,7 @@ KTEST("shm", "a dead creator's NAME goes, so a server notices") {
 
     // And the name is free at once, rather than after the last holder:
     // a process reusing that pid must not collide with the corpse.
-    int second = obj_create("ktest-shm4", 1, 42, 0xCAFE000);
+    int second = obj_create("ktest-shm4", 1, 42, 0xCAFE000, 0, 0, 0);
     KTEST_ASSERT(second >= 0 && second != idx);
     KTEST_ASSERT_EQ(shm_lookup("ktest-shm4"), second);
 
@@ -610,7 +711,7 @@ KTEST("shm", "a dead creator's NAME goes, so a server notices") {
 }
 
 KTEST("shm", "a dead address space drops its mappings") {
-    int idx = obj_create("ktest-shm3", 1, 0, 0);
+    int idx = obj_create("ktest-shm3", 1, 0, 0, 0, 0, 0);
     KTEST_ASSERT(idx >= 0);
     KTEST_ASSERT_EQ(shm_map_add(0xDEAD000, idx, 0x9000000000ULL, 1), 0);
     KTEST_ASSERT_EQ(obj(idx)->refs, 2);

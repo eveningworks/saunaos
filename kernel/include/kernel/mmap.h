@@ -11,6 +11,18 @@
 
 struct sched_mm;
 
+// THE ADDRESS SPACE'S LOCK, Linux's mmap_lock (a sleeping mutex, no
+// readers' side): every change to `mm`'s region list, its break, and every
+// fault-in that reads the list holds it. LOCK ORDER: a mount's lock BEFORE
+// this one -- a read() into an unmapped page faults with its volume held --
+// so nothing holding it may touch the filesystem; a file fault-in drops it
+// across the read and checks the region again after. Never taken with the
+// preemption guard raised (kmutex.h): a fault there TRIES it.
+void mm_lock(struct sched_mm *mm);
+void mm_unlock(struct sched_mm *mm);
+// For a struct copied from a locked one (a fork's child): unlocked.
+void mm_lock_reset(struct sched_mm *mm);
+
 // The mmap arena's slice of the demand-paging hook. proc_syscalls.c's
 // uheap_fault() delegates any address inside the arena here; same
 // contract as vmm_fault_fn: 1 = a page was mapped, retry the access;
@@ -22,7 +34,8 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr);
 // mapping (or shm the process creates) still fit under
 // `mm`'s SYS_RLIMIT_DATA, else 0 -- and the process's first refusal is
 // logged. Counted on demand: a walk of the regions, paid only by a
-// process that set a limit.
+// process that set a limit. The CURRENT process's mm, with its lock held:
+// the shm objects it created count, whichever came first.
 int mm_data_allows(struct sched_mm *mm, uint64_t more);
 
 // The two halves of a fork's view of the arena. `mmap_inherits_at` is

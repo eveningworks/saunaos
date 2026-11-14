@@ -3154,6 +3154,28 @@ loop, none in another 60 s. Prove such a fix with a temporary spin in
 the window on the UNFIXED code (red 3 runs in 3), then the same spin
 with the fix (green), and remove it.
 
+## AN ADDRESS SPACE'S REGIONS, BREAK AND FAULT-INS ARE UNDER ITS LOCK, TAKEN AFTER ANY MOUNT'S
+
+`struct sched_mm` carries a sleeping lock (`mm_lock()`, `kernel/mm/mmap.h`;
+Linux's `mmap_lock` without its readers' side). mmap, munmap, the break,
+the DMA and BAR maps, a fork's copy and every fault-in in the mmap arena
+hold it: without it a sibling's fault re-mapped a page munmap had just
+released, and a regrow of the region list freed an array a preempted
+sibling still pointed into. **The order is a mount's lock BEFORE it** --
+a `read()` into an unmapped page faults with its volume held -- so a
+holder touches no filesystem: a file fault-in copies its region, drops
+the lock across the read and checks the region is still the same after.
+**A fault with the preemption guard raised TRIES the lock** and fails the
+access when it is held (a kmutex cannot be waited for there). The lock is
+16 bytes of `lock_word` in an api/ header that may not name `struct
+kmutex`; a fork's copy of the struct and a recycled slot reset it.
+
+The shm tables' lock is the preemption guard (nothing under it sleeps):
+**an object's index is never held across a gap without its reference** --
+a lookup that will use it takes the reference in the same guarded step,
+and a create allocates its frames first and publishes under the guard,
+asking the name and the data limit again there.
+
 ## WHAT CROSSES TO RING 3 IS ZEROED FIRST, AND WHAT COMES BACK IS CHECKED AS A USER ADDRESS
 
 Rules from the syscall-boundary audit (`docs/roadmap-details.md`, "The

@@ -338,6 +338,7 @@ static void mm_reset(int slot, uint64_t image_end, uint64_t user_rsp) {
     // the teardown path should have, and a slot recycled without one
     // must not leak. Idempotent, so both calling is correct.
     mmap_regions_reset(&procs[slot].mm);
+    mm_lock_reset(&procs[slot].mm);   // a recycled slot starts unlocked
 }
 
 // The loader every caller actually reaches: resolves `#!` first, then
@@ -731,11 +732,17 @@ int scheduler_fork(const uint64_t *regs) {
         if (procs[i].state != SCHED_BLOCKED || procs[i].tgid != procs[leader].pid) continue;
         if (procs[i].wait_chan) pinned[npin++] = (uint64_t)(uintptr_t)procs[i].wait_chan;
     }
-    struct vmm_fork_opts o = { pinned, npin, fork_inherits_borrowed, &procs[leader].mm };
+    // THE PARENT'S ADDRESS SPACE IS HELD from the copy of its tables to
+    // the copy of its region list: a sibling's mmap or munmap in between
+    // would give the child tables and regions that disagree.
+    struct sched_mm *pmm = &procs[leader].mm;
+    mm_lock(pmm);
+    struct vmm_fork_opts o = { pinned, npin, fork_inherits_borrowed, pmm };
     uint64_t as = vmm_fork_address_space(procs[leader].pml4_phys, &o);
     kfree(pinned);
-    if (!as) { slot_unclaim(slot); return -ENOMEM; }
-    if (mmap_inherit_shm(as, &procs[leader].mm) < 0) {
+    if (!as) { mm_unlock(pmm); slot_unclaim(slot); return -ENOMEM; }
+    if (mmap_inherit_shm(as, pmm) < 0) {
+        mm_unlock(pmm);
         vmm_destroy_address_space(as);
         slot_unclaim(slot);
         return -ENOMEM;
@@ -783,9 +790,12 @@ int scheduler_fork(const uint64_t *regs) {
               sizeof procs[slot].ext->exec_path);
     procs[slot].cpu_ns = 0;
     k_memcpy(&procs[slot].mm, &procs[leader].mm, sizeof procs[slot].mm);
+    mm_lock_reset(&procs[slot].mm);   // ...and the lock this thread holds
     // ...which copied the region POINTER. Give the child its own, or
     // the two of them free one array twice.
-    if (!mmap_clone_regions(&procs[slot].mm, &procs[leader].mm)) {
+    int cloned = mmap_clone_regions(&procs[slot].mm, pmm);
+    mm_unlock(pmm);
+    if (!cloned) {
         // After fd_clone(): the child's table holds references to the
         // parent's descriptions (a pipe end among them), so it has to be
         // released, or that pipe never reaches EOF -- and the address

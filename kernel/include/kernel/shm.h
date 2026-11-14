@@ -18,6 +18,10 @@ struct sched_mm;
 // a stale pointer would not say so.
 int shm_lookup(const char *name);
 
+// Bytes the live objects process `pid` created hold: what its data limit
+// is charged for them (mmap.c's mm_data_allows()).
+uint64_t shm_created_bytes(int pid);
+
 // A NAMELESS object, for a kernel subsystem that maps both sides itself.
 // It is unreachable through SYS_SHM_OPEN, which is the point: this
 // namespace has no permissions, so anything a process could name it

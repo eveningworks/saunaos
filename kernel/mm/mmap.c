@@ -31,6 +31,16 @@
 #include "dev_claim.h"    // dev_claim_check -- and has this process claimed it?
 #include "klimit.h"       // the region ceiling, logged once when reached
 #include "imgcache.h"     // /bin, /lib and /tests pages, one frame systemwide
+#include "kmutex.h"       // the address space's lock
+#include "shm.h"          // shm_created_bytes -- the data limit counts them
+
+_Static_assert(sizeof(((struct sched_mm *)0)->lock_word) >= sizeof(struct kmutex),
+               "sched_mm.lock_word holds a struct kmutex");
+static struct kmutex *mm_mutex(struct sched_mm *mm) { return (struct kmutex *)(void *)mm->lock_word; }
+
+void mm_lock(struct sched_mm *mm) { kmutex_lock(mm_mutex(mm)); }
+void mm_unlock(struct sched_mm *mm) { kmutex_unlock(mm_mutex(mm)); }
+void mm_lock_reset(struct sched_mm *mm) { k_memset(mm->lock_word, 0, sizeof mm->lock_word); }
 
 // The region containing `addr`, or NULL. Linear over `region_cap`,
 // which is tens: this runs per fault-in and per syscall, not per byte.
@@ -211,7 +221,9 @@ static int is_data(const struct mmap_region *r) {
 
 int mm_data_allows(struct sched_mm *mm, uint64_t more) {
     if (mm->data_cur == SYS_RLIM_INFINITY) return 1;
-    uint64_t used = mm->brk - mm->heap_base;
+    // + the shm objects it made: charged at every caller, so the order of
+    // an object and a map cannot decide whether the limit holds.
+    uint64_t used = mm->brk - mm->heap_base + shm_created_bytes(scheduler_current_tgid());
     for (int i = 0; i < mm->region_cap; i++)
         if (mm->regions[i].base && is_data(&mm->regions[i]))
             used += mm->regions[i].npages * 4096ULL;
@@ -228,6 +240,7 @@ int sys_mmap(struct syscall_ctx *c) {
     struct sched_mm *mm = caller_mm();
     struct mmap_msg m;
     int64_t ret;
+    int held = -1, locked = 0;
 
     if (!mm) { ret = -EPERM; goto out; }
     if (!vmm_copy_from_user(c->pml4, &m, c->a0, sizeof m)) {
@@ -257,6 +270,11 @@ int sys_mmap(struct syscall_ctx *c) {
 
     uint64_t npages = (m.length + 4095) / 4096;
     int charged = !shared && ((m.flags & SYS_MAP_ANONYMOUS) || (m.prot & SYS_PROT_WRITE));
+    // HELD from here to the end: the descriptor (a close in another
+    // thread must not free the object this maps, Linux's fdget()) and the
+    // address space's lock (the list, the limit and the slot are one step).
+    mm_lock(mm);
+    locked = 1;
     if (charged && !mm_data_allows(mm, npages * 4096ULL)) {
         ret = -ENOMEM; goto out;
     }
@@ -264,7 +282,7 @@ int sys_mmap(struct syscall_ctx *c) {
     struct open_file *f = 0;
     int shm_idx = -1;
     if (shared) {
-        f = fd_get(c->pml4, m.fd);
+        f = fd_get_held(c->pml4, m.fd, &held);
         if (!f || f->ops != &shm_fd_ops) { ret = -EBADF; goto out; }
         shm_idx = f->shm.idx;
         // The object's size is fixed at creation, so a mapping longer
@@ -272,7 +290,7 @@ int sys_mmap(struct syscall_ctx *c) {
         if (npages > shm_npages(shm_idx)) { ret = -EINVAL; goto out; }
         f = 0; // not a file mapping; nothing below should treat it as one
     } else if (!(m.flags & SYS_MAP_ANONYMOUS)) {
-        f = fd_get(c->pml4, m.fd);
+        f = fd_get_held(c->pml4, m.fd, &held);
         // "Open the wrong way" is EBADF here (errno.h's own words): a
         // mapping is a read of the file, so a write-only fd cannot
         // back one. A read-write one can, as on Linux for MAP_PRIVATE.
@@ -343,6 +361,8 @@ int sys_mmap(struct syscall_ctx *c) {
 
     ret = (int64_t)base;
 out:
+    if (locked) mm_unlock(mm);
+    fd_put(held);
     c->regs[14] = (uint64_t)ret;
     return 0;
 }
@@ -414,6 +434,7 @@ int dev_bar_check(int index, int which, uint64_t pml4,
 int sys_dev_map_bar(struct syscall_ctx *c) {
     struct sched_mm *mm = caller_mm();
     int64_t ret;
+    int locked = 0;
 
     if (!mm) { ret = -EPERM; goto out; }
 
@@ -423,6 +444,8 @@ int sys_dev_map_bar(struct syscall_ctx *c) {
     ret = dev_bar_check(index, which, c->pml4, &phys, &npages);
     if (ret != 0) goto out;
 
+    mm_lock(mm);
+    locked = 1;
     uint64_t base = arena_pick(mm, npages);
     if (!base) { ret = -ENOMEM; goto out; }
     int r_slot = free_slot(mm);
@@ -457,6 +480,7 @@ int sys_dev_map_bar(struct syscall_ctx *c) {
                 scheduler_current_pid());
     ret = (int64_t)base;
 out:
+    if (locked) mm_unlock(mm);
     c->regs[14] = (uint64_t)ret;
     return 0;
 }
@@ -480,8 +504,10 @@ out:
 uint64_t mmap_dma_reserve(uint64_t npages) {
     struct sched_mm *mm = caller_mm();
     if (!mm) return 0;
-    if (free_slot(mm) < 0) return 0;
-    return arena_pick(mm, npages);
+    mm_lock(mm);
+    uint64_t base = free_slot(mm) < 0 ? 0 : arena_pick(mm, npages);
+    mm_unlock(mm);
+    return base;
 }
 
 // MAP A DMA GRANT and record it, so teardown unmaps it.
@@ -503,14 +529,17 @@ int mmap_map_dma(uint64_t pml4, uint64_t base, uint64_t phys, uint64_t npages,
                  int writable, enum vmm_memtype mt) {
     struct sched_mm *mm = caller_mm();
     if (!mm) return 0;
-    int r_slot = free_slot(mm);
-    if (r_slot < 0) return 0;
+    mm_lock(mm);
+    // The reservation held no lock: a sibling's mmap may have taken the range.
+    int r_slot = overlap_of(mm, base, npages) ? -1 : free_slot(mm);
+    if (r_slot < 0) { mm_unlock(mm); return 0; }
 
     for (uint64_t i = 0; i < npages; i++) {
         if (!vmm_map_user_borrowed(pml4, base + i * 4096,
                                    phys + i * 4096, writable, 0, mt)) {
             for (uint64_t k = 0; k < i; k++)
                 vmm_unmap_user_page(pml4, base + k * 4096);
+            mm_unlock(mm);
             return 0;
         }
     }
@@ -523,6 +552,7 @@ int mmap_map_dma(uint64_t pml4, uint64_t base, uint64_t phys, uint64_t npages,
     r->shm_idx  = -1;
     r->path[0]  = '\0';
     r->base     = base;
+    mm_unlock(mm);
     return 1;
 }
 
@@ -589,19 +619,27 @@ out:
 void mmap_drop_dma_region(uint64_t base, uint64_t npages) {
     struct sched_mm *mm = caller_mm();
     if (!mm || !base) return;
+    mm_lock(mm);
     struct mmap_region *r = region_of(mm, base);
-    if (!r || r->kind != MMAP_KIND_DMA || r->base != base) return;
-    for (uint64_t i = 0; i < npages; i++)
-        vmm_unmap_user_page(vmm_current_pml4(), base + i * 4096);
-    r->base = 0;   // first and last: a zero base is what frees the slot
+    if (r && r->kind == MMAP_KIND_DMA && r->base == base) {
+        for (uint64_t i = 0; i < npages; i++)
+            vmm_unmap_user_page(vmm_current_pml4(), base + i * 4096);
+        r->base = 0;   // first and last: a zero base is what frees the slot
+    }
+    mm_unlock(mm);
 }
 
 int sys_munmap(struct syscall_ctx *c) {
     struct sched_mm *mm = caller_mm();
     uint64_t addr = c->a0, len = c->a1;
     int64_t ret = 0;
+    int locked = 0;
 
     if (!mm) { ret = -EPERM; goto out; }
+    // HELD ACROSS THE RELEASE: a sibling's fault in a page released here
+    // must find no region, not map the page again (mmap_fault_in()).
+    mm_lock(mm);
+    locked = 1;
     if (!len || (addr & 0xFFF) || (len & 0xFFF) ||
         !uaddr_is_mmap_range(addr)) {
         ret = -EINVAL; goto out;
@@ -673,6 +711,7 @@ int sys_munmap(struct syscall_ctx *c) {
     }
 
 out:
+    if (locked) mm_unlock(mm);
     c->regs[14] = (uint64_t)ret;
     return 0;
 }
@@ -752,8 +791,16 @@ static uint64_t file_fill_cached(const struct mmap_region *r, uint64_t off, uint
     return 0;
 }
 
-int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
-    uint64_t page = vaddr & ~0xFFFULL;
+// The same region, still there, after the lock was dropped for a read.
+static int same_region(const struct mmap_region *now, const struct mmap_region *was) {
+    return now && now->base == was->base && now->npages == was->npages &&
+           now->kind == was->kind && now->file_off == was->file_off &&
+           now->prot == was->prot && !k_strcmp(now->path, was->path);
+}
+
+// Under the address space's lock. A FILE page's read drops it (the lock
+// order, mmap.h): `r` is copied first and checked again afterwards.
+static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) {
     struct mmap_region *r = region_of(mm, page);
     if (!r) return 0; // a wild pointer that happens to land in the arena
 
@@ -767,6 +814,8 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
                                   (r->prot & SYS_PROT_WRITE) != 0, 0, 1) != 0;
     }
 
+    struct mmap_region was;        // the FILE path reads with the lock dropped
+    k_memcpy(&was, r, sizeof was); // (a struct copy is a memcpy the kernel lacks)
     uint64_t frame = 0;
     if (r->kind == MMAP_KIND_FILE) {
         // THE RE-ENTRANCY GUARD. This read may run from the copy
@@ -782,35 +831,39 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
                         "FS_OP -- see mmap_fault_in()\n", page);
             return 0;
         }
-        // A file that has vanished since mmap() kills the toucher
-        // loudly, where a short read past EOF is legitimately zeros.
-        if (!fs_exists(r->path)) {
-            klog_printf("mm: mmap backing file %s is gone -- fault at %#lx "
-                        "stays fatal\n", r->path, page);
-            return 0;
-        }
-        uint64_t off = r->file_off + (page - r->base);
-        int ro = !(r->prot & SYS_PROT_WRITE);
-        int cacheable = imgcache_path_ok(r->path);
-        uint64_t shared = cacheable && ro ? imgcache_lookup(r->path, off) : 0;
+        uint64_t off = was.file_off + (page - was.base);
+        int ro = !(was.prot & SYS_PROT_WRITE);
+        int cacheable = imgcache_path_ok(was.path);
+        uint64_t shared = cacheable && ro ? imgcache_lookup(was.path, off) : 0;
         if (!shared) {
             frame = pmm_alloc_user_frame();
             if (!frame) {
                 oom_note();
                 return 0;
             }
-            if (cacheable) shared = file_fill_cached(r, off, frame);
-            else if (!file_fill(r->path, off, frame)) shared = FILL_FAILED;
-            if (shared == FILL_FAILED) {
-                pmm_free_frame(frame);
+            mm_unlock(mm);
+            // A file that has vanished since mmap() kills the toucher
+            // loudly, where a short read past EOF is legitimately zeros.
+            int ok = fs_exists(was.path);
+            if (!ok)
+                klog_printf("mm: mmap backing file %s is gone -- fault at %#lx "
+                            "stays fatal\n", was.path, page);
+            else if (cacheable) shared = file_fill_cached(&was, off, frame);
+            else if (!file_fill(was.path, off, frame)) shared = FILL_FAILED;
+            mm_lock(mm);
+            if (!ok || shared == FILL_FAILED) { pmm_free_frame(frame); return 0; }
+            if (shared && shared != frame) pmm_free_frame(frame);   // the cache had one
+            // Unmapped or changed while the file was read: fatal, as a
+            // fault in no region is. A frame the cache adopted is its own.
+            if (!same_region(region_of(mm, page), &was)) {
+                if (!shared) pmm_free_frame(frame);
                 return 0;
             }
-            if (shared && shared != frame) pmm_free_frame(frame);
         }
         if (shared) {
             // Shared: every process maps the SAME frame, read-only.
             return vmm_map_user_fresh(pml4_phys, page, shared, 0,
-                                      (r->prot & SYS_PROT_EXEC) != 0, 1) != 0;
+                                      (was.prot & SYS_PROT_EXEC) != 0, 1) != 0;
         }
     } else {
         frame = pmm_alloc_user_frame();
@@ -821,11 +874,25 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
         k_memset((void *)(uintptr_t)frame, 0, 4096);
     }
 
-    // Only where still absent -- the file read above can sleep, and a
-    // second thread's fault-in of this page may have mapped it meanwhile.
+    // Only where still absent -- a second thread's fault-in of this page
+    // may have mapped it while the file was read.
     int mapped = vmm_map_user_fresh(pml4_phys, page, frame,
-                                    (r->prot & SYS_PROT_WRITE) != 0,
-                                    (r->prot & SYS_PROT_EXEC) != 0, 0);
+                                    (was.prot & SYS_PROT_WRITE) != 0,
+                                    (was.prot & SYS_PROT_EXEC) != 0, 0);
     if (mapped != 1) pmm_free_frame(frame);
     return mapped != 0;
+}
+
+int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
+    uint64_t page = vaddr & ~0xFFFULL;
+    // A FAULT WITH THE GUARD RAISED CANNOT WAIT for the lock (kmutex.h): it
+    // tries, and a held lock fails the access as an unmapped page would.
+    if (scheduler_preempt_depth() > 0) {
+        if (!kmutex_trylock(mm_mutex(mm))) return 0;
+    } else {
+        mm_lock(mm);
+    }
+    int rc = fault_locked(mm, pml4_phys, page);
+    mm_unlock(mm);
+    return rc;
 }

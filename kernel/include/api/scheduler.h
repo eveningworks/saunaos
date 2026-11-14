@@ -407,6 +407,11 @@ struct sched_mm {
     struct mmap_region *regions;
     int region_cap;
 
+    // THE ADDRESS SPACE'S LOCK (kernel/mm/mmap.c, mm_lock()) -- a struct
+    // kmutex, which this header's audience may not name. Zero is unlocked;
+    // a fork's copy of the struct is reset, since the forker holds it.
+    int lock_word[4];
+
     // SYS_RLIMIT_DATA's soft and hard limit, in bytes; SYS_RLIM_INFINITY
     // for none. NOT reset by mm_reset() -- a limit survives exec -- so
     // every path that makes an address space sets them: spawn from the

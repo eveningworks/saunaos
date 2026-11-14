@@ -198,6 +198,7 @@ int sys_sbrk(struct syscall_ctx *c) {
     // process needs no such check: its heap is reached THROUGH the
     // scheduler's notion of who is running, so it cannot be the
     // wrong one.
+    mm_lock(hp);   // the break and the data limit, against a sibling's mmap
     if (!sh && (g_heap_pml4 == 0 || pml4 != g_heap_pml4)) {
         // sbrk KEEPS RETURNING -1 ON FAILURE, and that is deliberate:
         // it hands back a POINTER, and (void *)-1 is the value every
@@ -247,6 +248,7 @@ int sys_sbrk(struct syscall_ctx *c) {
         hp->brk = old_brk + inc;
         c->regs[14] = old_brk; // classic sbrk() contract: returns the OLD break
     }
+    mm_unlock(hp);
     return 0;
 }
 

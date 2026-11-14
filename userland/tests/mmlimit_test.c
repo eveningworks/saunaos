@@ -10,6 +10,8 @@
 //   shm       an shm object is charged to its creator's data limit: its
 //             frames are allocated at creation, and a limited process
 //             could otherwise pin memory without bound (kernel/mm/shm.c)
+//   shmfirst  ...whichever comes first: an object created before an
+//             anonymous map or a heap grow counts against them too
 //
 // Each probe runs in a child, so a broken unmap takes only it down.
 //
@@ -57,12 +59,22 @@ static int probe_shm(void) {
     return big < 0 ? 0 : 1;
 }
 
+static int probe_shmfirst(void) {
+    struct rlimit lim = { 8 * MiB, 8 * MiB };
+    if (setrlimit(RLIMIT_DATA, &lim) != 0) return 2;
+    if (sys_shm_open("mmlimit-first", 7 * MiB, SHM_CREATE) < 0) return 3;   // the control
+    void *p = mmap(NULL, 7 * MiB, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p != MAP_FAILED) return 1;
+    return sys_sbrk((int64_t)(7 * MiB)) == (void *)-1 ? 0 : 4;
+}
+
 int main(int argc, char **argv) {
     if (argc > 2 && !strcmp(argv[1], "--probe")) {
         if (!strcmp(argv[2], "readonly")) return probe_readonly();
         if (!strcmp(argv[2], "huge"))     return probe_huge();
         if (!strcmp(argv[2], "wrap"))     return probe_wrap();
         if (!strcmp(argv[2], "shm"))      return probe_shm();
+        if (!strcmp(argv[2], "shmfirst")) return probe_shmfirst();
         return 9;
     }
     utest_begin("mmlimit_test", "mapping sizes are bounded, the data limit counts them",
@@ -72,6 +84,7 @@ int main(int argc, char **argv) {
         { "huge",     "an mmap longer than the arena is refused" },
         { "wrap",     "an munmap whose length wraps is refused, the page kept" },
         { "shm",      "an shm object counts against its creator's data limit" },
+        { "shmfirst", "...made first, it counts against a later map and heap grow" },
     };
     for (unsigned i = 0; i < sizeof probes / sizeof *probes; i++) {
         char args[32];
