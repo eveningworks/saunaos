@@ -12030,6 +12030,26 @@ A DLL is loaded once and kept until the program ends: FreeLibrary counts,
 nothing unloads, because no program w16 runs depends on a library going
 away and an unload would have to prove no far pointer into it survives.
 
+## Windows' own DLLs are w16's code; a program's redistributables run as shipped
+
+Chosen by the maintainer 2026-11-15, while WinTune 2.0 (a Visual Basic 3
+program) was being brought up. Wine draws the same line: the DLLs that
+ship WITH Windows (KERNEL, USER, GDI, COMMDLG, SHELL, MMSYSTEM, TOOLHELP,
+VER...) are its own builtin reimplementations, and third-party
+redistributables -- VB runtimes, MFC and VC runtimes, VBX and OCX
+controls -- run as the vendor's native DLL, installed beside the program
+or by `winetricks`. w16 follows it: a module a Windows 3.11 installation
+provides is answered in C; a DLL a program brings is loaded as it is
+(the entry above).
+
+The case against writing our own VBRUN300.DLL is its size, not its
+interface: it exports three entry points (WEP, VARPTR, THUNRTMAIN) yet
+holds the whole VB3 runtime -- ~390 KB of p-code interpreter and forms
+engine in an undocumented format -- while running Microsoft's costs only
+the calls it imports (300, most already answered). Neither is shipped in
+SaunaOS or fetched by it: a program carries its runtime, as WinTune does,
+and one that assumes it is installed is to ASK for the file (roadmap).
+
 ## Win16 calls are documented in their handler's comment
 
 Retro Launcher's calls window lists every Windows call a program imports,

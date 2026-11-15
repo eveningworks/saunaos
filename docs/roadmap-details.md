@@ -9002,3 +9002,31 @@ drag (`step.py p28 drag 440 267 440 336 --wait 4`; on this machine
 `wb_walk.py SIDE try drag 440 267 440 336`): both show the tip and a
 flashing outline at Write's left; they differ in the pointer's shape over
 the border, and in Write's caption after a click on the outline.
+
+## w16: ask for a program's missing runtime DLL (VBRUN300.DLL...)
+
+The maintainer's idea, 2026-11-15: w16 never ships a vendor's runtime
+(`docs/decisions/gui.md`, "Windows' own DLLs are w16's code; a program's
+redistributables run as shipped"), so a program that assumes one is
+installed -- most Visual Basic shareware assumed VBRUN300.DLL -- must ask
+for it. Today w16 exits with one log line (`needs VBRUN300.DLL, which is
+not there`) and the person sees nothing. Windows 3.1 said "Cannot find
+VBRUN300.DLL"; Windows 10 says "An app on your PC needs .NET Framework
+3.5" and offers to install it. Ours: a dialog naming the DLL and what it
+is (a small table of known redistributables: VBRUN100/200/300, VB40016,
+CTL3D, THREED.VBX...), Choose file..., copied into C:\WINDOWS\SYSTEM, the
+program started again. Never a download. Mock up before building.
+
+## w16: the VB3 runtime's missing calls
+
+WinTune 2.0 (Windows Magazine, 1995) is a Visual Basic 3 program. Its
+VBRUN300.DLL imports 300 calls; on 2026-11-15 w16 lacked 19 (WaitMessage,
+GetClassLong, GetMenuString, EndMenu, GetTabbedTextExtent, Get/
+SetKeyboardState, GetUpdateRgn, CreateIcon, RemoveMenu, DestroyCursor,
+GetCurrentPDB, FreeModule, GetCodeHandle, CreatePenIndirect, CopyMetaFile,
+EnumMetaFile, PlayMetaFileRecord and CreateBrushIndirect, since written)
+and its DLLs and VBX controls ~15 more (seven TOOLHELP calls,
+ChooseColor, SetParent, ShowOwnedPopups, SetMenuItemBitmaps...). Before
+those it stops at start-up: its last resource runs 217 bytes past the end
+of WT20.EXE, which ne.c refuses, and VBRUN300 asks GlobalHandle for a
+module's own segment, which w16 answers 0.

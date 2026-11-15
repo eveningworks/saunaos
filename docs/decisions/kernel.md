@@ -9939,6 +9939,33 @@ fixed verb with checked words, and a second pipe and process per program
 would buy no further narrowing.
 
 
+## A Win16 program's FindWindow sees its Help window through hlpbroker's answers
+
+Chosen by the maintainer 2026-11-15, for WinBench 3.1, which opens its
+licence with `WinHelp(..., "WINBENCH.HLP>License")` and then loops on
+`FindWindow(NULL, "Ziff-Davis Licensing Agreement")` until the window
+appears and again until it closes. On Windows and under Wine FindWindow
+searches every top-level window on the desktop (Wine through
+wineserver); a sandboxed `w16` sees only its own, and Help Viewer is
+another process that hlpbroker starts.
+
+So the broker answers back: a second pipe, on its standard output, where
+it writes `CLOSED\tN` when Help window N is gone. Every OPEN and WINHELP
+line is numbered in the order received, so a late close of a replaced
+window cannot read as the newer one closing, and a refused or failed
+start is answered at once. FindWindow answers an even handle (no `w16`
+window's is) while the last window sent is unanswered, matched by Help's
+class MS_WINHELP, the help file's title, or the secondary window's
+caption read from the .HLP. The rejected alternative -- answer the window
+as present once and gone the next time -- needs no channel, but a
+program that relies on the wait would run on while Help is still open.
+
+Two mechanisms it needed: the broker has no `poll()`, so each window it
+starts gets a thread blocked in `waitpid` that reports its exit (and is
+the child's only reaper; the broker used to leave zombies); and `w16`
+reads its end with `O_NONBLOCK`, which pipes now honour -- before
+2026-11-15 `fcntl` accepted the flag and a pipe read parked anyway.
+
 ## Free memory goes back to a hypervisor by free page reporting, walked from the idle loop
 
 Chosen 2026-10-22. QEMU allocates guest RAM lazily, so a VM only costs
