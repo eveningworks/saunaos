@@ -138,6 +138,9 @@ unsigned ne_entry_count(const struct ne_module *m);
 // the non-resident ones, without case -- or 0 when it exports no such name.
 unsigned ne_export_find(const struct ne_module *m, const char *name);
 
+// The exported name of `ord` (resident or non-resident table) into `out`; 0, or -1 when it has none.
+int ne_export_name(const struct ne_module *m, unsigned ord, char *out, size_t cap);
+
 #define NE_E_SHORT     (-1)   // shorter than the headers say
 #define NE_E_NOT_MZ    (-2)
 #define NE_E_NOT_NE    (-3)

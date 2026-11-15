@@ -333,6 +333,32 @@ unsigned ne_export_find(const struct ne_module *m, const char *name) {
     return names_find(m, off, off + len, name);
 }
 
+// A name table from `p` to `end`: the name of `ord` into `out`; 0, or -1 when it is not there.
+static int names_name(const struct ne_module *m, uint32_t p, uint32_t end, unsigned ord, char *out, size_t cap) {
+    while (p < end && span(m, p, 1)) {
+        unsigned n = rd8(m, p);
+        if (n == 0 || !span(m, p + 1, n + 2u) || p + 1 + n + 2 > end) break;
+        if (rd16(m, p + 1 + n) == ord && n < cap) {
+            memcpy(out, m->img + p + 1, n);
+            out[n] = 0;
+            return 0;
+        }
+        p += 1 + n + 2;
+    }
+    return -1;
+}
+
+int ne_export_name(const struct ne_module *m, unsigned ord, char *out, size_t cap) {
+    out[0] = 0;
+    if (!ord || !cap) return -1;                 // ordinal 0 is the module's own name
+    uint32_t res_end = m->ne + rd16(m, m->ne + 0x28);
+    if (res_end > m->resident && names_name(m, m->resident, res_end, ord, out, cap) == 0) return 0;
+    uint32_t off = rd32(m, m->ne + 0x2C);
+    uint16_t len = rd16(m, m->ne + 0x20);
+    if (!off || !len || !span(m, off, len)) return -1;
+    return names_name(m, off, off + len, ord, out, cap);
+}
+
 int ne_entry_flags(const struct ne_module *m, unsigned ordinal, uint16_t *seg, uint16_t *off, uint8_t *flags) {
     uint32_t p = m->entry_table, end = m->entry_table + m->entry_len;
     unsigned ord = 1;

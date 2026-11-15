@@ -17,6 +17,7 @@
 #include <strings.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include "font_shm.h"
 #include "keyboard.h"
 #include "win_proto.h"
@@ -1168,7 +1169,38 @@ static int cmp_u32(const void *a, const void *b) {
 
 static int cmp_str(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
 
-static int check(const uint8_t *img, uint32_t size) {
+// A program's own DLL for `--check`: MODULE.DLL in the program's folder, found without case and
+// parsed, so the calls a program makes into it are counted as present when the DLL exports them
+// (WinTune's GSWDLL.DLL). 0 when there is none or it is not an NE module.
+struct own_dll { uint8_t *img; struct ne_module m; };
+
+static struct own_dll *own_dll_load(const char *dir, const char *mod) {
+    char want[24], found[W16_PATH_MAX];
+    snprintf(want, sizeof want, "%s.DLL", mod);
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    found[0] = 0;
+    for (struct dirent *e; (e = readdir(d)) != 0;)
+        if (!strcasecmp(e->d_name, want)) { snprintf(found, sizeof found, "%s/%s", dir, e->d_name); break; }
+    closedir(d);
+    if (!found[0]) return 0;
+    struct own_dll *o = calloc(1, sizeof *o);
+    uint32_t size = 0;
+    if (!o || !(o->img = slurp(found, &size)) || ne_parse(o->img, size, &o->m) < 0) {
+        if (o) free(o->img);
+        free(o);
+        return 0;
+    }
+    return o;
+}
+
+// Whether import module `mod` (index i of `dlls`) exports `ord`, as one of the program's own DLLs.
+static int own_has(struct own_dll *const *dlls, unsigned i, unsigned ord) {
+    uint16_t seg, off;
+    return dlls[i] && ne_entry(&dlls[i]->m, ord, &seg, &off) == 0;
+}
+
+static int check(const uint8_t *img, uint32_t size, const char *path) {
     static struct ne_module m;
     int err = ne_parse(img, size, &m);
     if (err < 0) {
@@ -1182,6 +1214,13 @@ static int check(const uint8_t *img, uint32_t size) {
     if (ne_description(&m, desc, sizeof desc) == 0 && desc[0]) printf("description %s\n", desc);
     for (unsigned i = 1; i <= m.nmod; i++)
         if (ne_module_name(&m, i, mods[i - 1], sizeof mods[0]) < 0) snprintf(mods[i - 1], sizeof mods[0], "?");
+    static struct own_dll *dlls[NE_MAX_MODULES];
+    char dir[W16_PATH_MAX];
+    snprintf(dir, sizeof dir, "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash) *slash = 0; else snprintf(dir, sizeof dir, ".");
+    for (unsigned i = 0; i < m.nmod; i++)
+        dlls[i] = w16_is_builtin(mods[i]) ? 0 : own_dll_load(slash == dir ? "/" : dir, mods[i]);
     // Each import once: module << 16 | ordinal, collected then sorted.
     uint32_t *seen = 0;
     unsigned nseen = 0, cap = 0, has = 0, by_name = 0;
@@ -1236,7 +1275,7 @@ static int check(const uint8_t *img, uint32_t size) {
     unsigned partly = 0;
     for (unsigned k = 0; k < nseen; k++) {
         const char *mod = mods[(seen[k] >> 16) - 1];
-        has += w16_has(mod, seen[k] & 0xFFFF);
+        has += w16_has(mod, seen[k] & 0xFFFF) || own_has(dlls, (seen[k] >> 16) - 1, seen[k] & 0xFFFF);
         partly += w16_partly(mod, seen[k] & 0xFFFF) != 0;
     }
     // `has` counts the stand-ins too: `partly` is how many of it are one.
@@ -1249,10 +1288,17 @@ static int check(const uint8_t *img, uint32_t size) {
         unsigned ord = seen[k] & 0xFFFF;
         const struct w16_name *n = w16_name_lookup(mod, ord);
         const char *note = w16_partly(mod, ord);
-        printf("call %s %s.%u %s %s%s%s\n", note ? "partly" : w16_has(mod, ord) ? "has" : "missing", mod, ord,
-               n ? n->name : "?", w16_kind_names[n ? n->kind : w16_kind_other], note ? "\t" : "", note ? note : "");
+        unsigned mi = (seen[k] >> 16) - 1;
+        char own[64];
+        int is_own = own_has(dlls, mi, ord);     // the program's DLL's own name for it, when it has one
+        if (is_own && ne_export_name(&dlls[mi]->m, ord, own, sizeof own) < 0) snprintf(own, sizeof own, "?");
+        printf("call %s %s.%u %s %s%s%s\n", note ? "partly" : w16_has(mod, ord) || is_own ? "has" : "missing", mod, ord,
+               is_own ? own : n ? n->name : "?", w16_kind_names[n ? n->kind : w16_kind_other], note ? "\t" : "",
+               note ? note : "");
     }
     free(seen);
+    for (unsigned i = 0; i < m.nmod; i++)
+        if (dlls[i]) { free(dlls[i]->img); free(dlls[i]); dlls[i] = 0; }
     for (unsigned k = 0; k < by_name; k++) {
         char *sp = strchr(named[k], ' ');
         *sp = 0;
@@ -1556,7 +1602,13 @@ int main(int argc, char **argv) {
     // files, and the state directory its last run is recorded in.
     int ok;
     if (g_info || g_check) {
-        ok = unveil(path, "r") == 0 && unveil(NULL, NULL) == 0 && pledge("stdio rpath", NULL) == 0;
+        // --check reads the program's folder too: its own DLLs (MODULE.DLL), part of the same program.
+        char dir[W16_PATH_MAX];
+        snprintf(dir, sizeof dir, "%s", path);
+        char *sl = strrchr(dir, '/');
+        if (sl) *sl = 0;
+        ok = unveil(path, "r") == 0 && (!g_check || unveil(sl ? (sl == dir ? "/" : dir) : ".", "r") == 0)
+             && unveil(NULL, NULL) == 0 && pledge("stdio rpath", NULL) == 0;
     } else {
         w16_prefs_load(&g_w16_prefs, g_exe);
         if (g_w16_prefs.missing == W16_MISSING_ZERO) g_w16_skip_missing = 1;
@@ -1632,7 +1684,7 @@ int main(int argc, char **argv) {
         if ((size_t)snprintf(g_tail + len, sizeof g_tail - len, "%s%s", len ? " " : "", arg) >= sizeof g_tail - len)
             return uargs_error(&PROG, "the command line is longer than DOS's 126 characters");
     }
-    if (g_check) return check(img, size);
+    if (g_check) return check(img, size, path);
     if (!g_info) return run(path, img, size);
     static struct ne_module m;
     int err = ne_parse(img, size, &m);
