@@ -71,6 +71,10 @@ struct uui_filedialog_filter {
 // each app: Win32's "All Files (*.*)", KDE's "All Files".
 #define UUI_FILEDIALOG_ALL_FILES { "All files", 0, 0, 0 }
 
+// A row's `fn` for "files named *EXT": `ctx` is the extension (".dll"), compared without case.
+// For a type that IS its extension; one an app recognises by content keeps its own fn.
+int uui_filedialog_by_ext(void *ctx, const char *dir, const struct ulist_entry *e);
+
 struct uui_filedialog_opts {
     enum uui_filedialog_mode mode;
     const char *title;         // NULL derives one from the mode

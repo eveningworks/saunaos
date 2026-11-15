@@ -1267,16 +1267,9 @@ static struct uui_listedit g_drives;         // Options' Drives list (its page i
 static char *g_dll_for;                      // the program the chooser is for, by path
 static void chosen(void *ctx, const char *path);
 
-static int is_dll_name(void *ctx, const char *dir, const struct ulist_entry *e) {
-    (void)ctx;
-    (void)dir;
-    size_t n = strlen(e->name);
-    return e->is_dir || (n > 4 && !strcasecmp(e->name + n - 4, ".dll"));
-}
-
 static void pick_dll(const struct prog *p) {
     static const struct uui_filedialog_filter FILTERS[] = {
-        { "Windows libraries (*.DLL)", is_dll_name, 0, 0 }, UUI_FILEDIALOG_ALL_FILES,
+        { "Windows libraries (*.DLL)", uui_filedialog_by_ext, (void *)".dll", 0 }, UUI_FILEDIALOG_ALL_FILES,
     };
     if (!p || !p->nneeds || uui_filedialog_is_open(&g_chooser)) return;
     free(g_dll_for);

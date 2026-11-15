@@ -2420,10 +2420,10 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# w16's sample programs (docs/w16-design.md): NE executables BUILT here
 	# from userland/utils/w16/samples/*.asm by tools/gen/gen_ne.py -- the project
 	# ships no Microsoft file and tracks no generated binary for them. A
-	# source that says `;w16: library` is a DLL, and named .dll.
+	# source that says `;w16: library` is a DLL, and named .dll -- matched as gen_ne.py reads it.
 	mkdir -p $(SEED_DIR)/sync/usr/share/w16
 	for s in userland/utils/w16/samples/*.asm; do \
-		ext=exe; grep -q '^;w16: library' $$s && ext=dll; \
+		ext=exe; grep -Eq '^[[:space:]]*;w16:[[:space:]]*library([[:space:]]|$$)' $$s && ext=dll; \
 		python3 tools/gen/gen_ne.py $$s -o $(SEED_DIR)/sync/usr/share/w16/$$(basename $$s .asm).$$ext || exit 1; \
 	done
 	# ...and the guard (tools/lib/iso_guard.py) judges userland/ against build/userland, where no sample lands:

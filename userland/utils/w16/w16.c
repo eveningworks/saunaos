@@ -950,6 +950,7 @@ static struct uapp_desc g_desc;         // run()'s; open_top() fills in the main
 // A DLL it cannot start without (w16_missing_dll()), asked for before the program is loaded:
 // the module, the DLL importing it ("" the program), and the image run() was given.
 static char g_need[16], g_need_by[16];
+static int g_quit_said;                   // the reason w16 is ending was already given: run() adds none
 static const uint8_t *g_img;
 static uint32_t g_img_size;
 static struct ne_module g_pre;            // its header, read for the question
@@ -980,6 +981,7 @@ static int find_need(void) {
 static void need_done(struct uapp *a, int supplied) {
     if (!supplied) {
         fprintf(stderr, "w16: %s: needs %s.DLL, which is not there\n", g_w16.path, g_need);
+        g_quit_said = 1;
         uapp_quit(a, 1);
         return;
     }
@@ -987,7 +989,7 @@ static void need_done(struct uapp *a, int supplied) {
         w16_needdll_open(a, &g_pre, g_need, g_need_by, need_done);
         return;
     }
-    if (load_program() < 0) { uapp_quit(a, 1); return; }
+    if (load_program() < 0) { g_quit_said = 1; uapp_quit(a, 1); return; }   // w16_load() said why
     start_task(a);
 }
 
@@ -1206,8 +1208,10 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
         .tick_ms = 50,                   // timers: 3.1's ran at 55 ms
     };
     int r = uapp_run(&g_desc);
-    if (r && !g_task_started && g_need[0]) fprintf(stderr, "w16: %s: needs %s.DLL, which is not there\n", path, g_need);
-    else if (r && !g_task_started) fprintf(stderr, "w16: no window server to show %s in\n", path);
+    if (r && !g_task_started && !g_quit_said) {
+        if (g_need[0]) fprintf(stderr, "w16: %s: needs %s.DLL, which is not there\n", path, g_need);
+        else fprintf(stderr, "w16: no window server to show %s in\n", path);
+    }
     return r ? r : w->exit_code;
 }
 
@@ -1229,30 +1233,32 @@ struct own_dll { uint8_t *img; struct ne_module m; };
 
 static char g_check_sys[512], g_check_win[512];   // drive C:'s two, resolved before the sandbox; "" none
 
+// The first MODULE.DLL in the loader's folders that is an NE library -- one that is not is passed
+// over, as module16.c's find_dll() passes it, so a good copy in C:\WINDOWS\SYSTEM wins over a broken
+// file beside the program. 0 when there is none.
 static struct own_dll *own_dll_load(const char *dir, const char *mod) {
     char want[24], found[W16_PATH_MAX * 4];
     snprintf(want, sizeof want, "%s.DLL", mod);
     const char *dirs[] = { dir, g_check_sys, g_check_win };
-    found[0] = 0;
-    for (unsigned k = 0; k < 3 && !found[0]; k++) {
+    for (unsigned k = 0; k < 3; k++) {
         DIR *d = dirs[k][0] ? opendir(dirs[k]) : 0;
         if (!d) continue;
+        found[0] = 0;
         for (struct dirent *e; (e = readdir(d)) != 0;)
             if (!strcasecmp(e->d_name, want)) {
                 snprintf(found, sizeof found, "%s%s%s", dirs[k], !strcmp(dirs[k], "/") ? "" : "/", e->d_name);
                 break;
             }
         closedir(d);
-    }
-    if (!found[0]) return 0;
-    struct own_dll *o = calloc(1, sizeof *o);
-    uint32_t size = 0;
-    if (!o || !(o->img = slurp(found, &size)) || ne_parse(o->img, size, &o->m) < 0) {
+        if (!found[0]) continue;
+        struct own_dll *o = calloc(1, sizeof *o);
+        uint32_t size = 0;
+        if (o && (o->img = slurp(found, &size)) && ne_parse(o->img, size, &o->m) == 0 && (o->m.flags & 0x8000))
+            return o;
         if (o) free(o->img);
         free(o);
-        return 0;
     }
-    return o;
+    return 0;
 }
 
 // "needs VBRUN300.DLL Visual Basic 3.0 runtime": each DLL the program -- or one of its own DLLs, at

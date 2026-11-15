@@ -1396,6 +1396,7 @@ static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
     static char line[1400], tmp[300], word[400];
     char name[160] = "", host[256] = "";
+    help_drain();                                // one CLOSED per WinHelp: kept drained, the pipe never fills
     if (file >> 16) cpu16_str(&w->cpu, (uint16_t)(file >> 16), (uint16_t)file, name, sizeof name);
     char *win = strchr(name, '>');                    // FILE.HLP>window: the file's secondary window
     if (win) *win = 0;

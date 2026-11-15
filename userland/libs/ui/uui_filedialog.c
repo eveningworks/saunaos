@@ -4,6 +4,7 @@
 #include "ui/uui_filedialog.h"
 
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include "rt/sys.h"
 #include "kpath.h"
@@ -818,6 +819,13 @@ void uui_filedialog_close_window(struct uui_filedialog *fd) {
     fd->op_n = 0;
     if (g_open == fd) g_open = 0;
     uapp_window_close(w);
+}
+
+int uui_filedialog_by_ext(void *ctx, const char *dir, const struct ulist_entry *e) {
+    (void)dir;
+    const char *ext = ctx;
+    size_t n = strlen(e->name), k = ext ? strlen(ext) : 0;
+    return e->is_dir || (k && n > k && !strcasecmp(e->name + n - k, ext));
 }
 
 int uui_filedialog_is_open(const struct uui_filedialog *fd) {

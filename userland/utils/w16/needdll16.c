@@ -70,16 +70,23 @@ static int nd_copy(const char *from) {
         return -1;
     }
     char dir[512], to[600];
-    int ok = w16_windows_dir(g_w16_drive_c, 1, 1, dir, sizeof dir) == 0 &&
-             snprintf(to, sizeof to, "%s/%s.DLL", dir, g_nd.mod) < (int)sizeof to;
-    FILE *f = ok ? fopen(to, "wb") : 0;
-    ok = f && fwrite(img, 1, size, f) == size;
+    // The folder first: its failures set no errno, so they get their own words, not a stale reason.
+    if (w16_windows_dir(g_w16_drive_c, 1, 1, dir, sizeof dir) != 0 ||
+        snprintf(to, sizeof to, "%s/%s.DLL", dir, g_nd.mod) >= (int)sizeof to) {
+        free(img);
+        snprintf(g_nd.note, sizeof g_nd.note, "Could not make C:\\WINDOWS\\SYSTEM on drive C:.");
+        return -1;
+    }
+    errno = 0;
+    FILE *f = fopen(to, "wb");
+    int ok = f && fwrite(img, 1, size, f) == size;
     if (f && fclose(f) != 0) ok = 0;
     int err = errno;
     free(img);
     if (!ok) {
         if (f) remove(to);
-        snprintf(g_nd.note, sizeof g_nd.note, "Could not copy it to C:\\WINDOWS\\SYSTEM: %s.", strerror(err));
+        snprintf(g_nd.note, sizeof g_nd.note, "Could not copy it to C:\\WINDOWS\\SYSTEM: %s.",
+                 err ? strerror(err) : "the write failed");
         return -1;
     }
     ulogf("w16: copied %s to %s\n", from, to);
@@ -100,16 +107,9 @@ static void nd_chosen(void *ctx, const char *path) {
     if (g_nd.win) uapp_window_redraw(g_nd.win);
 }
 
-static int is_dll(void *ctx, const char *dir, const struct ulist_entry *e) {
-    (void)ctx;
-    (void)dir;
-    size_t n = strlen(e->name);
-    return e->is_dir || (n > 4 && !strcasecmp(e->name + n - 4, ".dll"));
-}
-
 static void nd_choose(void) {
     static const struct uui_filedialog_filter FILTERS[] = {
-        { "Windows libraries (*.DLL)", is_dll, 0, 0 }, UUI_FILEDIALOG_ALL_FILES,
+        { "Windows libraries (*.DLL)", uui_filedialog_by_ext, (void *)".dll", 0 }, UUI_FILEDIALOG_ALL_FILES,
     };
     if (uui_filedialog_is_open(&g_nd_chooser)) return;
     // Where a program carries its runtime: its own folder, its disks.

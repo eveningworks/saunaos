@@ -52,27 +52,38 @@ static void report_closed(unsigned seq) {
 
 // One per window started: reaps it, then says it is gone. The only reaper of its child.
 struct waiter { int pid; unsigned seq; };
+// g_child is the main loop's and the waiters': a reaped child's pid is forgotten under this lock, so
+// close_child() never signals a pid the kernel may have handed to another process since.
+static pthread_mutex_t g_child_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static void *wait_child(void *arg) {
     struct waiter wt = *(struct waiter *)arg;
     free(arg);
     int code;
     sys_waitpid(wt.pid, &code);
+    pthread_mutex_lock(&g_child_lock);
+    if (g_child == wt.pid) g_child = 0;
+    pthread_mutex_unlock(&g_child_lock);
     report_closed(wt.seq);
     return 0;
 }
 
+// A thread to reap the window and say so; if one cannot be started the window is reported closed at
+// once -- a program waiting for it to go would otherwise wait forever.
 static void watch_child(int pid, unsigned seq) {
     struct waiter *wt = malloc(sizeof *wt);
     pthread_t t;
     if (wt) { wt->pid = pid; wt->seq = seq; }
-    if (!wt || pthread_create(&t, 0, wait_child, wt) != 0) { free(wt); return; }
+    if (!wt || pthread_create(&t, 0, wait_child, wt) != 0) { free(wt); report_closed(seq); return; }
     pthread_detach(t);
 }
 
 // Closes the window this started last; its waiter reaps it and reports.
 static void close_child(void) {
+    pthread_mutex_lock(&g_child_lock);
     if (g_child > 0) sys_kill(g_child, 15);
     g_child = 0;
+    pthread_mutex_unlock(&g_child_lock);
 }
 
 #define W16BIN "/bin/w16"
@@ -167,8 +178,11 @@ int main(void) {
         unsigned seq = ++g_seq;
         if (!(winhelp ? build_winhelp(line, argv, 16) : build(line, argv, 16))) { report_closed(seq); continue; }
         close_child();
-        g_child = sys_spawn_argv(winhelp ? W16BIN : VIEWER, argv);
-        if (g_child > 0) watch_child(g_child, seq);
+        int pid = sys_spawn_argv(winhelp ? W16BIN : VIEWER, argv);
+        pthread_mutex_lock(&g_child_lock);
+        g_child = pid > 0 ? pid : 0;
+        pthread_mutex_unlock(&g_child_lock);
+        if (pid > 0) watch_child(pid, seq);
         else report_closed(seq);
     }
     return 0;

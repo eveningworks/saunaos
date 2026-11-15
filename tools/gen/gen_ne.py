@@ -405,7 +405,7 @@ def build(src, out):
                                    for i, (f, k, c) in enumerate(acc)))
                   for aid, acc in sorted(d["accels"].items())]
     if d["names"]:                               # records: length, type, id | 0x8000, "", the name
-        recs = b"".join(struct.pack("<HHH", 8 + len(n) + 1, t, rid | 0x8000) + b"\0" + n.encode() + b"\0"
+        recs = b"".join(struct.pack("<HHH", 8 + len(n), t, rid | 0x8000) + b"\0" + n.encode() + b"\0"
                         for t, rid, n in d["names"])
         resources.append((15, 1, recs + b"\0\0"))
     resources.sort(key=lambda r: (r[0], r[1]))

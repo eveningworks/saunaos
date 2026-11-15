@@ -339,9 +339,22 @@ void w16_prog_dir(struct w16 *w, char *out, size_t cap) {
     if (n && out[n - 1] == '\\') out[n - 1] = 0;
 }
 
+// Whether the file at `host` is an NE library (the 0x8000 module flag).
+static int is_library(const char *host) {
+    uint32_t size = 0;
+    uint8_t *img = w16_read_file(host, &size);
+    struct ne_module *m = img ? calloc(1, sizeof *m) : 0;
+    int ok = m && ne_parse(img, size, m) == 0 && (m->flags & 0x8000);
+    free(m);
+    free(img);
+    return ok;
+}
+
 // The DLL's host file: as named when the name is a path, else beside the
 // program, in the current folder, C:\WINDOWS\SYSTEM and C:\WINDOWS --
-// Windows' order. 0, or 2 (file not found).
+// Windows' order, passing over a file that is no library (3.1 failed the
+// load there instead), so a copy the person supplied to SYSTEM wins over a
+// broken one beside the program. 0, or 2 (file not found).
 static int find_dll(struct w16 *w, const char *spec, char *host, size_t cap) {
     char file[80];
     const char *base = spec;
@@ -359,7 +372,10 @@ static int find_dll(struct w16 *w, const char *spec, char *host, size_t cap) {
         default: snprintf(dos, sizeof dos, "C:\\WINDOWS\\%s", file); break;
         }
         FILE *f;
-        if (w16_dos_path(dos, host, cap, 0, 0, 0) == 0 && (f = fopen(host, "rb"))) { fclose(f); return 0; }
+        if (w16_dos_path(dos, host, cap, 0, 0, 0) == 0 && (f = fopen(host, "rb"))) {
+            fclose(f);
+            if (i == 0 || is_library(host)) return 0;   // a path is taken as named; the loader judges it
+        }
         if (i == 0) break;                       // a path names one place only
     }
     return 2;
@@ -630,11 +646,12 @@ static int local_call(unsigned ordinal) {
 int w16_kernel_heap_call(struct w16 *w, unsigned ordinal, struct w16_args *a,
                          int (*call)(struct w16 *, unsigned, struct w16_args *)) {
     if (!local_call(ordinal)) return call(w, ordinal, a);
-    struct w16_dll *d = w16_dll_of(w, w->cpu.sreg[S_DS]);
+    // A heap in a global block (VB3's): LocalInit names the block -- whatever DS is, a DLL's code
+    // included (VBRUN300 calls it with its own DGROUP in DS) -- and the other calls find it by DS.
+    uint16_t seg = w->cpu.sreg[S_DS];
+    if (ordinal == 4) { struct w16_args t = *a; uint16_t s0 = w16_arg16(&t); if (s0) seg = s0; }
+    struct w16_dll *d = w16_dll_of(w, seg);
     if (!d || !d->dgroup) {
-        // A heap in a global block (VB3's): LocalInit names the block, the other calls find it by DS.
-        uint16_t seg = w->cpu.sreg[S_DS];
-        if (ordinal == 4) { struct w16_args t = *a; uint16_t s0 = w16_arg16(&t); if (s0) seg = s0; }
         struct w16_lheap *sh = seg != w->dgroup ? w16_seg_heap(w, seg, ordinal == 4) : 0;
         if (!sh) return call(w, ordinal, a);
         uint16_t dg = w->dgroup;

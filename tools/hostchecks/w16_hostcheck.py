@@ -203,11 +203,13 @@ def main():
                 else:
                     print("  ok  hello.exe: imports are named (InitTask, CreateWindow, TextOut)")
             if name == "dialog.exe":
-                got = subprocess.run([exe, "find=5:NUMBERBOX", ne], capture_output=True, text=True).stdout.strip()
-                if got != "100":
-                    fails.append(f"dialog.exe: NUMBERBOX found {got}, not dialog 100 (the name table)")
-                else:
-                    print("  ok  dialog.exe: NUMBERBOX is dialog 100, through the name table")
+                # Two records: the second is found only if each record's length is right.
+                for nm in ("NUMBERBOX", "VALUEBOX"):
+                    got = subprocess.run([exe, f"find=5:{nm}", ne], capture_output=True, text=True).stdout.strip()
+                    if got != "100":
+                        fails.append(f"dialog.exe: {nm} found {got}, not dialog 100 (the name table)")
+                    else:
+                        print(f"  ok  dialog.exe: {nm} is dialog 100, through the name table")
             fz = subprocess.run([exe, "fuzz", ne], capture_output=True, text=True)
             if fz.returncode:
                 fails.append(f"{name}: the parser faulted on a mutated file")
