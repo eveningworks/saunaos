@@ -130,8 +130,8 @@ static char *dup_far(struct w16 *w, uint32_t far) {
 }
 
 static void set_result(struct cpu16 *c, uint32_t v) {
-    c->r[R_AX] = (uint16_t)v;
-    c->r[R_DX] = (uint16_t)(v >> 16);
+    c->r[R_AX].w = (uint16_t)v;
+    c->r[R_DX].w = (uint16_t)(v >> 16);
 }
 
 // --- atoms and classes ----------------------------------------------------------
@@ -182,8 +182,8 @@ static int api_GetQueueStatus(struct w16 *w, unsigned ordinal, struct w16_args *
         if (w->timer[i].used && w->timer[i].pending) qs |= 0x10;
     if (w16_wnd_next_paint(w)) qs |= 0x20;
     pthread_mutex_unlock(&w->lock);
-    w->cpu.r[R_DX] = qs;
-    w->cpu.r[R_AX] = qs & want;
+    w->cpu.r[R_DX].w = qs;
+    w->cpu.r[R_AX].w = qs & want;
     return 2;
 }
 
@@ -197,13 +197,13 @@ static int api_UnregisterClass(struct w16 *w, unsigned ordinal, struct w16_args 
     w16_arg16(a);
     int k = name ? w16_class_find(w, name) : -1;
     free(name);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (k < 0 || w->cls[k].host) return 6;       // w16's own classes stay
     if (w->win.used && w->win.cls == k) return 6;
     for (int i = 0; i < w->nwnds; i++)
         if (w->wnds[i] && w->wnds[i]->used && w->wnds[i]->cls == k) return 6;
     w->cls[k].name[0] = 0;                       // its slot stays: windows keep classes by index
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 6;
 }
 
@@ -254,7 +254,7 @@ static int register_class(struct w16 *w, struct w16_args *a) {
     if (mname >> 16) k.menu = dup_far(w, mname);
     else k.menu_id = (uint16_t)mname;
     k.name = w16_class_name(w, cname);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!k.name) return -1;
     if (k.cls_extra && !(k.extra = calloc(k.cls_extra, 1))) { free(k.name); free(k.menu); return 4; }
     if (g_w16_trace) {
@@ -267,7 +267,7 @@ static int register_class(struct w16 *w, struct w16_args *a) {
         free(k.extra);
         return 4;
     }
-    w->cpu.r[R_AX] = k.atom;
+    w->cpu.r[R_AX].w = k.atom;
     return 4;
 }
 
@@ -450,7 +450,7 @@ static int create_window(struct w16 *w, struct w16_args *a) {
     char *name = w16_class_name(w, cname), *text = (title >> 16) ? dup_far(w, title) : strdup("");
     int k = name ? w16_class_find(w, name) : -1;
     free(name);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     if (!text) return -1;
     if (k < 0) { free(text); return 30; }
     if (g_w16_trace) {
@@ -461,7 +461,7 @@ static int create_window(struct w16 *w, struct w16_args *a) {
     if ((style & WS_CHILD) && parent) {
         struct w16_wnd *ch = w16_wnd_create(w, k, text, style, x, y, cx, cy, parent, menu, inst, param);
         free(text);
-        c->r[R_AX] = ch ? ch->hwnd : 0;
+        c->r[R_AX].w = ch ? ch->hwnd : 0;
         return c->fault ? -1 : 30;
     }
     if (w->win.used && !(style & WS_CHILD)) {    // a second top-level window: a popup of its own
@@ -472,7 +472,7 @@ static int create_window(struct w16 *w, struct w16_args *a) {
         struct w16_wnd *p = w16_popup_new(w, k, text, style, x, y, cx, cy, parent, inst, param, hm);
         free(text);
         if (p && (style & WS_VISIBLE)) popup_show(w, p);
-        c->r[R_AX] = p ? p->hwnd : 0;
+        c->r[R_AX].w = p ? p->hwnd : 0;
         return c->fault ? -1 : 30;
     }
     if (w->win.used) {
@@ -483,7 +483,7 @@ static int create_window(struct w16 *w, struct w16_args *a) {
     int h = w16_create_main(w, k, text, style, cx, cy, menu, inst, param, title, cname);
     free(text);
     if (h < 0) return -1;
-    c->r[R_AX] = (uint16_t)h;
+    c->r[R_AX].w = (uint16_t)h;
     return 30;
 }
 
@@ -890,7 +890,7 @@ static int get_message(struct w16 *w, struct w16_args *a) {
     press_activates(w, &m);
     caption_press(w, &m);
     if (put_msg(w, lpmsg, &m) < 0) return -1;
-    w->cpu.r[R_AX] = m.message != WM_QUIT;
+    w->cpu.r[R_AX].w = m.message != WM_QUIT;
     return 10;
 }
 
@@ -919,7 +919,7 @@ static int peek_message(struct w16 *w, struct w16_args *a) {
         struct timespec ts = { 0, 1000000 };
         if (tight) nanosleep(&ts, 0);
     }
-    w->cpu.r[R_AX] = (uint16_t)got;
+    w->cpu.r[R_AX].w = (uint16_t)got;
     return 12;
 }
 
@@ -1424,7 +1424,7 @@ static int move_window(struct w16 *w, struct w16_args *a) {
     int16_t nx = (int16_t)w16_arg16(a), ny = (int16_t)w16_arg16(a);
     int16_t nw = (int16_t)w16_arg16(a), nh = (int16_t)w16_arg16(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = (uint16_t)w16_move_to(w, w16_wnd_get(w, h), nx, ny, nw, nh);
+    w->cpu.r[R_AX].w = (uint16_t)w16_move_to(w, w16_wnd_get(w, h), nx, ny, nw, nh);
     return 12;
 }
 
@@ -1505,7 +1505,7 @@ static int api_SetWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     p.cy = (int16_t)w16_arg16(a);
     p.flags = w16_arg16(a);
     struct w16_wnd *x = w16_wnd_get(w, p.hwnd);
-    w->cpu.r[R_AX] = x != 0;
+    w->cpu.r[R_AX].w = x != 0;
     if (x) set_window_pos(w, x, &p);
     return 14;
 }
@@ -1534,12 +1534,12 @@ static int api_BeginDeferWindowPos(struct w16 *w, unsigned ordinal, struct w16_a
     (void)ordinal;
     w16_arg16(a);
     struct dwp *g = realloc(g_dwp, sizeof *g * (g_ndwp + 1));
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!g) return 2;
     g_dwp = g;
     if (!g_dwp_next) g_dwp_next = 1;
     g_dwp[g_ndwp] = (struct dwp){ .handle = g_dwp_next++ };
-    w->cpu.r[R_AX] = g_dwp[g_ndwp++].handle;
+    w->cpu.r[R_AX].w = g_dwp[g_ndwp++].handle;
     return 2;
 }
 
@@ -1557,7 +1557,7 @@ static int api_DeferWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *
     p.cy = (int16_t)w16_arg16(a);
     p.flags = w16_arg16(a);
     struct dwp *d = dwp_get(h);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!d || !w16_wnd_get(w, p.hwnd)) return 16;
     if (d->n == d->cap) {
         unsigned cap = d->cap ? d->cap * 2 : 4;
@@ -1567,7 +1567,7 @@ static int api_DeferWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *
         d->cap = cap;
     }
     d->e[d->n++] = p;
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 16;
 }
 
@@ -1577,7 +1577,7 @@ static int api_DeferWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *
 static int api_EndDeferWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct dwp *d = dwp_get(w16_arg16(a));
-    w->cpu.r[R_AX] = d != 0;
+    w->cpu.r[R_AX].w = d != 0;
     if (!d) return 2;
     struct dwp batch = *d;
     *d = g_dwp[--g_ndwp];                        // off the list first: a move's messages may begin another
@@ -1610,7 +1610,7 @@ static int api_AdjustWindowRect(struct w16 *w, unsigned ordinal, struct w16_args
     r[2] = (int16_t)(r[2] + f);
     r[3] = (int16_t)(r[3] + f);
     if (put_bytes(w, p, r, 8) < 0) return -1;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 10;
 }
 
@@ -1623,7 +1623,7 @@ static int api_InitApp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg16(a);
-    c->r[R_AX] = 1;
+    c->r[R_AX].w = 1;
     return 2;
 }
 
@@ -1663,11 +1663,11 @@ static int api_BeginPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     uint32_t lpps = w16_arg32(a);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     if (x) {
         begin_paint(w, x, lpps);
         w->painting++;
-        c->r[R_AX] = x->dc;
+        c->r[R_AX].w = x->dc;
     }
     return 6;
 }
@@ -1689,7 +1689,7 @@ static int api_EndPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     // BeginPaint, and what the parent draws after a child painted stays on top -- the Windows Tutorial
     // paints its pieces with UpdateWindow midway, then its callout over them.
     (void)x;
-    c->r[R_AX] = 1;
+    c->r[R_AX].w = 1;
     return 6;
 }
 
@@ -1713,7 +1713,7 @@ static int api_GetDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t h = w16_arg16(a);
-    c->r[R_AX] = h ? w16_gdi_take_dc(w, h) : w16_gdi_screen_dc(w);
+    c->r[R_AX].w = h ? w16_gdi_take_dc(w, h) : w16_gdi_screen_dc(w);
     return 2;
 }
 
@@ -1725,7 +1725,7 @@ static int api_ReleaseDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
     w16_gdi_give_dc(w, w16_arg16(a));
-    c->r[R_AX] = 1;
+    c->r[R_AX].w = 1;
     return 4;
 }
 
@@ -1748,7 +1748,7 @@ static int api_PostMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     uint16_t h = w16_arg16(a), msg = w16_arg16(a), wp = w16_arg16(a);
     uint32_t lp = w16_arg32(a);
     w16_post_msg(w, h, msg, wp, lp);
-    c->r[R_AX] = 1;
+    c->r[R_AX].w = 1;
     return 10;
 }
 
@@ -1833,7 +1833,7 @@ static int api_GetClassInfo(struct w16 *w, unsigned ordinal, struct w16_args *a)
     char *name = w16_class_name(w, cname);
     int k = name ? w16_class_find(w, name) : -1;
     free(name);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (k < 0) return w->cpu.fault ? -1 : 10;
     const struct w16_class *cl = &w->cls[k];
     uint32_t proc = cl->host ? w16_host_proc_far(w, k) : (uint32_t)cl->proc_sel << 16 | cl->proc_off;
@@ -1846,7 +1846,7 @@ static int api_GetClassInfo(struct w16 *w, unsigned ordinal, struct w16_args *a)
     v16 = cl->background;  memcpy(wc + 16, &v16, 2);
     memcpy(wc + 22, &cname, 4);                  // lpszClassName: the caller's own string
     if (put_bytes(w, out, wc, sizeof wc) < 0) return -1;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 10;
 }
 
@@ -1879,7 +1879,7 @@ static void focus_off_hidden(struct w16 *w, struct w16_wnd *x) {
 int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd) {
     struct cpu16 *c = &w->cpu;
     int show = cmd != 0;
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     if (x == &w->win) {
         // SW_SHOWMINIMIZED, SW_MINIMIZE and SW_SHOWMINNOACTIVE; SW_MAXIMIZE;
         // SW_RESTORE -- toywm's to do, as the frame's buttons are.
@@ -1902,13 +1902,13 @@ int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd) {
                 x->visible = 1;
                 x->style |= WS_VISIBLE;
                 pthread_mutex_unlock(&w->lock);
-                c->r[R_AX] = 0;
+                c->r[R_AX].w = 0;
             } else {
-                c->r[R_AX] = 1;
+                c->r[R_AX].w = 1;
             }
             w16_child_state(w, x, sc);
             if ((x = w16_wnd_get(w, h))) w16_invalidate(w, x, 1);
-            return c->fault ? -1 : (int)c->r[R_AX];
+            return c->fault ? -1 : (int)c->r[R_AX].w;
         }
     }
     if (x->popup && w16_popup_framed(x)) {
@@ -1918,31 +1918,31 @@ int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd) {
                       : (cmd == 1 || cmd == 9) && (x->iconic || x->maximized) ? SC_RESTORE : 0;
         uint16_t h = x->hwnd;
         if (sc) popup_state(w, x, sc);
-        if (!(x = w16_wnd_get(w, h))) return c->fault ? -1 : (int)c->r[R_AX];
+        if (!(x = w16_wnd_get(w, h))) return c->fault ? -1 : (int)c->r[R_AX].w;
     }
     if (x->popup && show) {                      // its toywm window opens on its first show
-        c->r[R_AX] = (uint16_t)x->visible;
+        c->r[R_AX].w = (uint16_t)x->visible;
         int was = x->visible;
         popup_show(w, x);
         // Shown already, SW_SHOW, SW_SHOWNORMAL, SW_SHOWMAXIMIZED and SW_RESTORE still ACTIVATE it, as
         // 3.1's did: the Windows Tutorial gives Write the focus back so after each page.
         if (was && (cmd == 1 || cmd == 3 || cmd == 5 || cmd == 9)) w16_task_post_arg(w, W16_POST_ACTIVATE, x->hwnd);
-        return c->fault ? -1 : (int)c->r[R_AX];
+        return c->fault ? -1 : (int)c->r[R_AX].w;
     }
     if (!show) focus_off_hidden(w, x);
     if (x->popup && !show) {                     // hidden: its toywm window goes until it is shown again
         pthread_mutex_lock(&w->lock);
-        c->r[R_AX] = (uint16_t)x->visible;
+        c->r[R_AX].w = (uint16_t)x->visible;
         int was = x->visible;
         x->visible = 0;
         x->style &= ~WS_VISIBLE;
         if (was) x->opened = 0;
         pthread_mutex_unlock(&w->lock);
         if (was) w16_task_post_arg(w, W16_POST_DLG_HIDE, x->hwnd);
-        return c->fault ? -1 : (int)c->r[R_AX];
+        return c->fault ? -1 : (int)c->r[R_AX].w;
     }
     pthread_mutex_lock(&w->lock);
-    c->r[R_AX] = (uint16_t)x->visible;
+    c->r[R_AX].w = (uint16_t)x->visible;
     int was = x->visible;
     x->visible = show;
     if (show) x->style |= WS_VISIBLE;
@@ -1952,7 +1952,7 @@ int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd) {
     if (show) w16_invalidate(w, x, 1);
     else if (was && x->kind == W16_K_CHILD) w16_invalidate(w, w16_wnd_get(w, x->parent), 1);
     if (x == &w->win) w16_task_post(w, W16_POST_PAINT);
-    return c->fault ? -1 : (int)c->r[R_AX];
+    return c->fault ? -1 : (int)c->r[R_AX].w;
 }
 
 // ShowWindow(hWnd, nCmdShow) -> BOOL
@@ -1965,7 +1965,7 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     uint16_t cmd = w16_arg16(a);
     int was = x ? w16_show_window(w, x, cmd) : 0;
-    w->cpu.r[R_AX] = (uint16_t)(was > 0);
+    w->cpu.r[R_AX].w = (uint16_t)(was > 0);
     return w->cpu.fault ? -1 : 4;
 }
 
@@ -1978,7 +1978,7 @@ static int api_OpenIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     if (x == &w->win) w16_task_post_arg(w, W16_POST_SYSCMD, SC_RESTORE);
-    w->cpu.r[R_AX] = x != 0;
+    w->cpu.r[R_AX].w = x != 0;
     return 2;
 }
 
@@ -1990,7 +1990,7 @@ static int api_DestroyWindow(struct w16 *w, unsigned ordinal, struct w16_args *a
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     if (x) w16_wnd_destroy(w, x);
-    c->r[R_AX] = x != 0;
+    c->r[R_AX].w = x != 0;
     return 2;
 }
 
@@ -2037,7 +2037,7 @@ static int api_TranslateMessage(struct w16 *w, unsigned ordinal, struct w16_args
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg32(a);                            // WM_CHAR itself (see w16.c's on_key)
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     return 4;
 }
 
@@ -2105,7 +2105,7 @@ static int api_RedrawWindow(struct w16 *w, unsigned ordinal, struct w16_args *a)
     int have = far_rect(w, w16_arg32(a), r);
     uint16_t hrgn = w16_arg16(a), flags = w16_arg16(a);
     if (have < 0) return -1;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     if (!x) return 10;                               // the desktop: SaunaOS's, not the program's
     struct urgn g;
     urgn_init(&g);
@@ -2198,9 +2198,9 @@ static int api_LoadCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         struct ne_resource r;
         absent = !own && m && ne_resource_find(m, 12, 0, id, s[0] ? s : 0, &r) < 0;   // RT_GROUP_CURSOR
     }
-    if (ordinal == 174) c->r[R_AX] = own ? own : (uint16_t)(0x4000 | ordinal);
-    else if (!inst && !(name >> 16) && (name & 0xFF00) == 0x7F00) c->r[R_AX] = (uint16_t)(CURSOR_BASE | (name & 0xFF));
-    else c->r[R_AX] = own ? own : absent ? 0 : CURSOR_OWN;
+    if (ordinal == 174) c->r[R_AX].w = own ? own : (uint16_t)(0x4000 | ordinal);
+    else if (!inst && !(name >> 16) && (name & 0xFF00) == 0x7F00) c->r[R_AX].w = (uint16_t)(CURSOR_BASE | (name & 0xFF));
+    else c->r[R_AX].w = own ? own : absent ? 0 : CURSOR_OWN;
     return 6;
 }
 
@@ -2220,7 +2220,7 @@ static int api_GetSystemMetrics(struct w16 *w, unsigned ordinal, struct w16_args
     static const int16_t m[] = { W16_SCREEN_W, W16_SCREEN_H, 17, 17, 20, 1, 1, 18, 18, 18, 18, 32, 32,
                                  32, 32, 18, W16_SCREEN_W, W16_SCREEN_H - 20, 0, 1, 17, 17, 0, 0, 0, 0, 0, 0,
                                  0, 0, 18, 18, W16_FRAME, W16_FRAME, 0, 0, 4, 4 };
-    c->r[R_AX] = (uint16_t)(i >= 0 && i < (int)(sizeof m / sizeof m[0]) ? m[i] : 0);
+    c->r[R_AX].w = (uint16_t)(i >= 0 && i < (int)(sizeof m / sizeof m[0]) ? m[i] : 0);
     return 2;
 }
 
@@ -2232,14 +2232,14 @@ static int api_EnableWindow(struct w16 *w, unsigned ordinal, struct w16_args *a)
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     int enable = w16_arg16(a) != 0;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!x) return 4;
     pthread_mutex_lock(&w->lock);
     int was = (x->style & WS_DISABLED) != 0;
     if (enable) x->style &= ~WS_DISABLED;
     else x->style |= WS_DISABLED;
     pthread_mutex_unlock(&w->lock);
-    w->cpu.r[R_AX] = (uint16_t)was;
+    w->cpu.r[R_AX].w = (uint16_t)was;
     if (was == enable) {
         if (!enable && (w->focus == x->hwnd || w16_wnd_is_child(w, x->hwnd, w->focus))) w16_set_focus(w, 0);
         w16_send(w, x->hwnd, WM_ENABLE, (uint16_t)enable, 0);
@@ -2254,7 +2254,7 @@ static int api_EnableWindow(struct w16 *w, unsigned ordinal, struct w16_args *a)
 static int api_IsWindowEnabled(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    w->cpu.r[R_AX] = x && !(x->style & WS_DISABLED);
+    w->cpu.r[R_AX].w = x && !(x->style & WS_DISABLED);
     return 2;
 }
 
@@ -2266,7 +2266,7 @@ static int api_GetWindowText(struct w16 *w, unsigned ordinal, struct w16_args *a
     uint16_t h = w16_arg16(a);
     uint32_t far = w16_arg32(a);
     uint16_t max = w16_arg16(a);
-    w->cpu.r[R_AX] = (uint16_t)w16_send(w, h, WM_GETTEXT, max, far);
+    w->cpu.r[R_AX].w = (uint16_t)w16_send(w, h, WM_GETTEXT, max, far);
     return w->cpu.fault ? -1 : 8;
 }
 
@@ -2285,7 +2285,7 @@ static int api_SetWindowText(struct w16 *w, unsigned ordinal, struct w16_args *a
 // w16: The same.
 static int api_GetWindowTextLength(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w->cpu.r[R_AX] = (uint16_t)w16_send(w, w16_arg16(a), WM_GETTEXTLENGTH, 0, 0);
+    w->cpu.r[R_AX].w = (uint16_t)w16_send(w, w16_arg16(a), WM_GETTEXTLENGTH, 0, 0);
     return w->cpu.fault ? -1 : 2;
 }
 
@@ -2359,7 +2359,7 @@ static int api_GetWindowWord(struct w16 *w, unsigned ordinal, struct w16_args *a
     int set = ordinal == 134 || ordinal == 136, lng = ordinal == 135 || ordinal == 136;
     uint32_t v = set ? (lng ? w16_arg32(a) : w16_arg16(a)) : 0;
     set_result(&w->cpu, x ? window_field(w, x, index, lng ? 4 : 2, set, v) : 0);
-    if (!lng) w->cpu.r[R_DX] = 0;
+    if (!lng) w->cpu.r[R_DX].w = 0;
     return 4 + (set ? (lng ? 4 : 2) : 0);
 }
 
@@ -2371,7 +2371,7 @@ static int api_RegisterWindowMessage(struct w16 *w, unsigned ordinal, struct w16
     (void)ordinal;
     char *s = dup_far(w, w16_arg32(a));
     if (!s) return -1;
-    w->cpu.r[R_AX] = w16_atom_add(w, s);
+    w->cpu.r[R_AX].w = w16_atom_add(w, s);
     free(s);
     return 4;
 }
@@ -2382,7 +2382,7 @@ static int api_RegisterWindowMessage(struct w16 *w, unsigned ordinal, struct w16
 static int api_GetParent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    w->cpu.r[R_AX] = x ? x->parent : 0;
+    w->cpu.r[R_AX].w = x ? x->parent : 0;
     return 2;
 }
 
@@ -2392,7 +2392,7 @@ static int api_GetParent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_IsChild(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t p = w16_arg16(a), h = w16_arg16(a);
-    w->cpu.r[R_AX] = (uint16_t)w16_wnd_is_child(w, p, h);
+    w->cpu.r[R_AX].w = (uint16_t)w16_wnd_is_child(w, p, h);
     return 4;
 }
 
@@ -2411,7 +2411,7 @@ static int api_GetKeyState(struct w16 *w, unsigned ordinal, struct w16_args *a) 
                (vk == 0x12 && (m & KEY_MOD_ALT)) ||
                (vk == 0x01 && (b & MK_LBUTTON)) || (vk == 0x02 && (b & MK_RBUTTON)) ||
                (vk == 0x04 && (b & MK_MBUTTON));
-    w->cpu.r[R_AX] = down ? 0x8000 : 0;
+    w->cpu.r[R_AX].w = down ? 0x8000 : 0;
     return 2;
 }
 
@@ -2434,8 +2434,8 @@ static int api_GetDialogBaseUnits(struct w16 *w, unsigned ordinal, struct w16_ar
     (void)a;
     int bx, by;
     w16_dlg_units(&bx, &by);
-    w->cpu.r[R_AX] = (uint16_t)bx;
-    w->cpu.r[R_DX] = (uint16_t)by;
+    w->cpu.r[R_AX].w = (uint16_t)bx;
+    w->cpu.r[R_DX].w = (uint16_t)by;
     return 0;
 }
 
@@ -2445,7 +2445,7 @@ static int api_GetDialogBaseUnits(struct w16 *w, unsigned ordinal, struct w16_ar
 static int api_GetDlgCtrlID(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    w->cpu.r[R_AX] = x ? x->id : 0;
+    w->cpu.r[R_AX].w = x ? x->id : 0;
     return 2;
 }
 

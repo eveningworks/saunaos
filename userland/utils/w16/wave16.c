@@ -274,9 +274,9 @@ static int api_waveOutGetDevCaps(struct w16 *w, unsigned ordinal, struct w16_arg
     uint16_t dev = w16_arg16(a);
     uint32_t far = w16_arg32(a);
     uint16_t size = w16_arg16(a);
-    c->r[R_DX] = 0;
-    if (g_w16_prefs.sounds == W16_SOUNDS_OFF) { c->r[R_AX] = MMSYSERR_NODRIVER; return 8; }
-    if (dev != 0 && dev != 0xFFFF) { c->r[R_AX] = MMSYSERR_BADDEVICEID; return 8; }
+    c->r[R_DX].w = 0;
+    if (g_w16_prefs.sounds == W16_SOUNDS_OFF) { c->r[R_AX].w = MMSYSERR_NODRIVER; return 8; }
+    if (dev != 0 && dev != 0xFFFF) { c->r[R_AX].w = MMSYSERR_BADDEVICEID; return 8; }
     uint8_t caps[48] = { 0 };
     caps[0] = 1;                                 // wMid: MM_MICROSOFT, as the mapper's own said
     caps[4] = 0x00; caps[5] = 0x03;              // vDriverVersion 3.00
@@ -289,7 +289,7 @@ static int api_waveOutGetDevCaps(struct w16 *w, unsigned ordinal, struct w16_arg
         if (!p) return -1;
         memcpy(p, caps, n);
     }
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     return 8;
 }
 
@@ -307,7 +307,7 @@ static int api_waveOutOpen(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     uint32_t out = w16_arg32(a);
     uint16_t dev = w16_arg16(a);
     uint32_t fmt = w16_arg32(a), cb = w16_arg32(a), inst = w16_arg32(a), flags = w16_arg32(a);
-    c->r[R_DX] = 0;
+    c->r[R_DX].w = 0;
     pthread_mutex_lock(&g_wo.lock);
     int r = g_w16_prefs.sounds == W16_SOUNDS_OFF ? MMSYSERR_NODRIVER
             : dev != 0 && dev != 0xFFFF         ? MMSYSERR_BADDEVICEID
@@ -315,7 +315,7 @@ static int api_waveOutOpen(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     if (!r) r = take_format(w, fmt);
     pthread_mutex_unlock(&g_wo.lock);
     if (r < 0) return -1;
-    if (r || (flags & WAVE_FORMAT_QUERY)) { c->r[R_AX] = (uint16_t)r; return 22; }
+    if (r || (flags & WAVE_FORMAT_QUERY)) { c->r[R_AX].w = (uint16_t)r; return 22; }
     if (out) {
         uint8_t *p = cpu16_ptr(c, (uint16_t)(out >> 16), (uint16_t)out, 2, 1);
         if (!p) return -1;
@@ -337,7 +337,7 @@ static int api_waveOutOpen(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     g_wo.clock_ms = w16_now_ms();
     pthread_mutex_unlock(&g_wo.lock);
     tell(w, MM_WOM_OPEN, 0);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     return 22;
 }
 
@@ -355,8 +355,8 @@ static int api_waveOutClose(struct w16 *w, unsigned ordinal, struct w16_args *a)
     }
     pthread_mutex_unlock(&g_wo.lock);
     if (!r) tell(w, MM_WOM_CLOSE, 0);
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = 0;
     return 2;
 }
 
@@ -372,11 +372,11 @@ static int api_waveOutPrepareHeader(struct w16 *w, unsigned ordinal, struct w16_
     struct cpu16 *c = &w->cpu;
     const uint8_t *p = cpu16_ptr(c, (uint16_t)(hdr >> 16), (uint16_t)hdr, 32, 0);
     if (!p) return -1;
-    c->r[R_DX] = 0;
-    if (h != HWAVEOUT) { c->r[R_AX] = MMSYSERR_INVALHANDLE; return 8; }
-    if (ordinal == 407 && (p[16] & WHDR_INQUEUE)) { c->r[R_AX] = WAVERR_STILLPLAYING; return 8; }
+    c->r[R_DX].w = 0;
+    if (h != HWAVEOUT) { c->r[R_AX].w = MMSYSERR_INVALHANDLE; return 8; }
+    if (ordinal == 407 && (p[16] & WHDR_INQUEUE)) { c->r[R_AX].w = WAVERR_STILLPLAYING; return 8; }
     set_flags(w, hdr, ordinal == 406 ? WHDR_PREPARED : 0, ordinal == 406 ? 0 : WHDR_PREPARED);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     return 8;
 }
 
@@ -394,11 +394,11 @@ static int api_waveOutWrite(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct cpu16 *c = &w->cpu;
     const uint8_t *p = cpu16_ptr(c, (uint16_t)(hdr >> 16), (uint16_t)hdr, 32, 0);
     if (!p) return -1;
-    c->r[R_DX] = 0;
+    c->r[R_DX].w = 0;
     uint32_t data = (uint32_t)(p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24);
     uint32_t len = (uint32_t)(p[4] | p[5] << 8 | p[6] << 16 | (uint32_t)p[7] << 24);
-    if (h != HWAVEOUT || !g_wo.open) { c->r[R_AX] = MMSYSERR_INVALHANDLE; return 8; }
-    if (!(p[16] & WHDR_PREPARED)) { c->r[R_AX] = WAVERR_UNPREPARED; return 8; }
+    if (h != HWAVEOUT || !g_wo.open) { c->r[R_AX].w = MMSYSERR_INVALHANDLE; return 8; }
+    if (!(p[16] & WHDR_PREPARED)) { c->r[R_AX].w = WAVERR_UNPREPARED; return 8; }
     const uint8_t *b = len ? cpu16_ptr(c, (uint16_t)(data >> 16), (uint16_t)data, len, 0) : 0;
     if (len && !b) return -1;
     pthread_mutex_lock(&g_wo.lock);
@@ -418,7 +418,7 @@ static int api_waveOutWrite(struct w16 *w, unsigned ordinal, struct w16_args *a)
     }
     pthread_mutex_unlock(&g_wo.lock);
     if (ok) set_flags(w, hdr, WHDR_INQUEUE, WHDR_DONE);
-    c->r[R_AX] = ok ? 0 : MMSYSERR_NOMEM;
+    c->r[R_AX].w = ok ? 0 : MMSYSERR_NOMEM;
     return 8;
 }
 
@@ -439,8 +439,8 @@ static int api_waveOutPause(struct w16 *w, unsigned ordinal, struct w16_args *a)
         g_wo.paused = 0;
     }
     pthread_mutex_unlock(&g_wo.lock);
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = 0;
     return 2;
 }
 
@@ -467,8 +467,8 @@ static int api_waveOutReset(struct w16 *w, unsigned ordinal, struct w16_args *a)
     }
     pthread_mutex_unlock(&g_wo.lock);
     if (!r) w16_wave_service(w);
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = 0;
     return 2;
 }
 
@@ -494,8 +494,8 @@ static int api_waveOutGetPosition(struct w16 *w, unsigned ordinal, struct w16_ar
         p[1] = 0;
         for (int i = 0; i < 4; i++) p[2 + i] = (uint8_t)(v >> 8 * i);
     }
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = 0;
     return 8;
 }
 
@@ -508,8 +508,8 @@ static int api_waveOutGetPosition(struct w16 *w, unsigned ordinal, struct w16_ar
 // Whole: The waveIn calls over a capture stream. On the roadmap: "w16: wave input".
 static int api_waveInOpen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal; (void)a;
-    w->cpu.r[R_AX] = MMSYSERR_NODRIVER;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = MMSYSERR_NODRIVER;
+    w->cpu.r[R_DX].w = 0;
     return 22;
 }
 

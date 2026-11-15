@@ -69,14 +69,13 @@ int main(int argc, char **argv) {
         memcpy(flat + esp - 4, &(uint32_t){ ARG }, 4);       // the argument
         memcpy(flat + esp - 8, &(uint32_t){ HALT_AT }, 4);   // the return address
         esp -= 8;
-        c.r[R_SP] = (uint16_t)esp;
-        c.rh[R_SP] = (uint16_t)(esp >> 16);
+        c.r[R_SP].e = esp;
         c.ip = entry;
         c.flags = 0x0202;
         double t0 = now();
         cpu16_run(&c, 0);
         double t = now() - t0;
-        uint32_t got = (uint32_t)c.rh[R_AX] << 16 | c.r[R_AX];
+        uint32_t got = c.r[R_AX].e;
         if (c.fault != FAULT_HLT || got != want) {
             printf("FAIL run %u: %s at %04x:%x (%s), checksum %08x, the host's %08x\n", r,
                    cpu16_fault_name(c.fault), c.fault_cs, (unsigned)c.fault_ip, c.fault_why, got, want);

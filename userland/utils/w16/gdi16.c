@@ -974,7 +974,7 @@ static int text_out(struct w16 *w, struct w16_args *a) {
     at_cp(w, hdc, &x, &y);
     int width = draw_text(w, hdc, x, y, text, 0);
     past_cp(w, hdc, width);
-    w->cpu.r[R_AX] = width >= 0;
+    w->cpu.r[R_AX].w = width >= 0;
     free(text);
     return 12;
 }
@@ -1082,7 +1082,7 @@ static int bit_blt(struct w16 *w, struct w16_args *a) {
     uint16_t hs = w16_arg16(a);
     int16_t sx = (int16_t)w16_arg16(a), sy = (int16_t)w16_arg16(a);
     uint32_t rop = w16_arg32(a);
-    w->cpu.r[R_AX] = (uint16_t)w16_gdi_bitblt(w, hd, x, y, cw, ch, hs, sx, sy, rop);
+    w->cpu.r[R_AX].w = (uint16_t)w16_gdi_bitblt(w, hd, x, y, cw, ch, hs, sx, sy, rop);
     return 20;
 }
 
@@ -1159,7 +1159,7 @@ static int stretch_blt(struct w16 *w, struct w16_args *a) {
     int16_t sx = (int16_t)w16_arg16(a), sy = (int16_t)w16_arg16(a);
     int16_t sw = (int16_t)w16_arg16(a), sh = (int16_t)w16_arg16(a);
     uint32_t rop = w16_arg32(a);
-    w->cpu.r[R_AX] = (uint16_t)w16_gdi_stretchblt(w, hd, x, y, cw, ch, hs, sx, sy, sw, sh, rop);
+    w->cpu.r[R_AX].w = (uint16_t)w16_gdi_stretchblt(w, hd, x, y, cw, ch, hs, sx, sy, sw, sh, rop);
     return 24;
 }
 
@@ -1181,7 +1181,7 @@ static int pat_blt(struct w16 *w, struct w16_args *a) {
         gdi_bitblt(&b);
     }
     gdi_done(w, dc);
-    w->cpu.r[R_AX] = dc != 0;
+    w->cpu.r[R_AX].w = dc != 0;
     return 14;
 }
 
@@ -1264,7 +1264,7 @@ static int rectangle(struct w16 *w, struct w16_args *a) {
         }
     }
     gdi_done(w, dc);
-    w->cpu.r[R_AX] = dc != 0;
+    w->cpu.r[R_AX].w = dc != 0;
     return 10;
 }
 
@@ -1708,7 +1708,7 @@ static int create_dibitmap(struct w16 *w, struct w16_args *a) {
             for (int x = 0; x < d.w && x < pd.w; x++) bm->px[(size_t)y * d.w + x] = gdi_dib_px(&pd, row, x);
         }
     }
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 20;
 }
 
@@ -1843,7 +1843,7 @@ static int set_dibits_to_device(struct w16 *w, struct w16_args *a) {
         }
     }
     gdi_done(w, dc);
-    w->cpu.r[R_AX] = lines;
+    w->cpu.r[R_AX].w = lines;
     return 28;
 }
 
@@ -2017,8 +2017,8 @@ static uint16_t device_caps(uint16_t index) {
 // --- the dispatcher ----------------------------------------------------------------
 
 static void set32(struct cpu16 *c, uint32_t v) {
-    c->r[R_AX] = (uint16_t)v;
-    c->r[R_DX] = (uint16_t)(v >> 16);
+    c->r[R_AX].w = (uint16_t)v;
+    c->r[R_DX].w = (uint16_t)(v >> 16);
 }
 
 // SetBkColor(hdc, crColor) -> COLORREF
@@ -2053,7 +2053,7 @@ static int api_SetBkMode(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     o = obj(w, w16_arg16(a), GDI_DC);
     uint16_t v = w16_arg16(a);
     int *f = o ? (ordinal == 2 ? &o->bk_mode : &o->rop2) : 0;
-    c->r[R_AX] = f ? (uint16_t)*f : 0;
+    c->r[R_AX].w = f ? (uint16_t)*f : 0;
     if (f && v) *f = v;
     return 4;
 }
@@ -2080,7 +2080,7 @@ static int api_LineTo(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         o->cy = y;
     }
     gdi_done(w, o);
-    c->r[R_AX] = o != 0;
+    c->r[R_AX].w = o != 0;
     return 6;
 }
 
@@ -2106,7 +2106,7 @@ static int api_MoveToEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_gdiobj *o = obj(w, w16_arg16(a), GDI_DC);
     int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
     uint32_t far = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!o) return 10;
     if (far) {
         uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 4, 1);
@@ -2116,7 +2116,7 @@ static int api_MoveToEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
     o->cx = x;
     o->cy = y;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 10;
 }
 
@@ -2196,7 +2196,7 @@ static int api_SelectObject(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t hdc = w16_arg16(a);
-    c->r[R_AX] = select_object(w, hdc, w16_arg16(a));
+    c->r[R_AX].w = select_object(w, hdc, w16_arg16(a));
     return 4;
 }
 
@@ -2222,7 +2222,7 @@ static int api_CreateBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a)
             for (int x = 0; x < bw; x++)
                 bm->px[(size_t)y * bw + x] = p[y * stride + x / 8] >> (7 - x % 8) & 1 ? 0xFFFFFF : 0;
     }
-    c->r[R_AX] = h;
+    c->r[R_AX].w = h;
     return 12;
 }
 
@@ -2241,7 +2241,7 @@ static int api_CreateCompatibleBitmap(struct w16 *w, unsigned ordinal, struct w1
     struct w16_gdiobj *src = o ? obj(w, o->bitmap, GDI_BITMAP) : 0;
     int mono = o && !o->hwnd && !o->screen && (!src || src->mono);   // a memory DC's own bitmap decides
     new_bitmap(w, bw, bh, mono, &h);
-    c->r[R_AX] = h;
+    c->r[R_AX].w = h;
     return 6;
 }
 
@@ -2289,7 +2289,7 @@ static int api_CreateCompatibleDC(struct w16 *w, unsigned ordinal, struct w16_ar
     w16_arg16(a);
     h = new_obj(w, GDI_DC, &o);
     if (o) dc_defaults(o);
-    c->r[R_AX] = h;
+    c->r[R_AX].w = h;
     return 2;
 }
 
@@ -2305,7 +2305,7 @@ static int api_CreatePen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t cr = w16_arg32(a);
     h = new_obj(w, GDI_PEN, &o);
     if (o) { o->style = style; o->width = width; o->color = cr & 0xFFFFFF; }
-    c->r[R_AX] = h;
+    c->r[R_AX].w = h;
     return 8;
 }
 
@@ -2320,7 +2320,7 @@ static int api_CreateSolidBrush(struct w16 *w, unsigned ordinal, struct w16_args
     uint32_t cr = w16_arg32(a);
     h = new_obj(w, GDI_BRUSH, &o);
     if (o) o->color = cr & 0xFFFFFF;
-    c->r[R_AX] = h;
+    c->r[R_AX].w = h;
     return 4;
 }
 
@@ -2375,7 +2375,7 @@ static int api_GetTextExtentPoint(struct w16 *w, unsigned ordinal, struct w16_ar
     if (!p) return -1;
     int16_t sz[2] = { (int16_t)cx, (int16_t)cy };
     memcpy(p, sz, 4);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 12;
 }
 
@@ -2428,7 +2428,7 @@ static int api_GetTextMetrics(struct w16 *w, unsigned ordinal, struct w16_args *
                 tm[0] | tm[1] << 8, tm[2] | tm[3] << 8, tm[6] | tm[7] << 8, tm[8] | tm[9] << 8, tm[10] | tm[11] << 8);
         fflush(g_w16_trace);
     }
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 6;
 }
 
@@ -2479,7 +2479,7 @@ static int api_CreateFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t face = w16_arg32(a);
     if ((face >> 16) && cpu16_str(&w->cpu, (uint16_t)(face >> 16), (uint16_t)face, lf.face, sizeof lf.face) < 0)
         lf.face[0] = 0;
-    w->cpu.r[R_AX] = new_font(w, &lf);
+    w->cpu.r[R_AX].w = new_font(w, &lf);
     return 30;
 }
 
@@ -2501,7 +2501,7 @@ static int api_CreateFontIndirect(struct w16 *w, unsigned ordinal, struct w16_ar
     lf.charset = p[13];
     lf.pitch_family = p[17];
     if (cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)(far + 18), lf.face, sizeof lf.face) < 0) lf.face[0] = 0;
-    w->cpu.r[R_AX] = new_font(w, &lf);
+    w->cpu.r[R_AX].w = new_font(w, &lf);
     return 4;
 }
 
@@ -2588,7 +2588,7 @@ static int enum_fonts(struct w16 *w, struct w16_args *a, int families) {
         if (!last) break;
     }
     free(e.v);
-    w->cpu.r[R_AX] = last;
+    w->cpu.r[R_AX].w = last;
     return w->cpu.fault ? -1 : 14;
 }
 
@@ -2643,7 +2643,7 @@ static int api_AddFontResource(struct w16 *w, unsigned ordinal, struct w16_args 
         n = w16_font_add(host);
         pthread_mutex_unlock(&g_w16_text_lock);
     }
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 4;
 }
 
@@ -2654,7 +2654,7 @@ static int api_AddFontResource(struct w16 *w, unsigned ordinal, struct w16_args 
 static int api_RemoveFontResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     char host[1024];
-    w->cpu.r[R_AX] = font_file(w, w16_arg32(a), host, sizeof host) == 0;
+    w->cpu.r[R_AX].w = font_file(w, w16_arg32(a), host, sizeof host) == 0;
     return 4;
 }
 
@@ -2670,7 +2670,7 @@ static int api_GetRasterizerCaps(struct w16 *w, unsigned ordinal, struct w16_arg
     if (cb > sizeof rs) cb = sizeof rs;
     uint8_t *p = cb ? cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, cb, 1) : 0;
     if (p) memcpy(p, rs, cb);
-    w->cpu.r[R_AX] = p != 0;
+    w->cpu.r[R_AX].w = p != 0;
     return 6;
 }
 
@@ -2688,7 +2688,7 @@ static int api_GetTextFace(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     const char *f = w16_font_info(hfont)->face;
     snprintf(face, sizeof face, "%s", f ? f : "System");
     pthread_mutex_unlock(&g_w16_text_lock);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (cap <= 0) return 8;
     size_t n = strlen(face);
     if (n > (size_t)cap - 1) n = (size_t)cap - 1;
@@ -2696,7 +2696,7 @@ static int api_GetTextFace(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     if (!p) return -1;
     memcpy(p, face, n);
     p[n] = 0;
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 8;
 }
 
@@ -2709,7 +2709,7 @@ static int api_GetCharWidth(struct w16 *w, unsigned ordinal, struct w16_args *a)
     uint16_t hfont = dc_font(w, w16_arg16(a));
     uint16_t first = w16_arg16(a), last = w16_arg16(a);
     uint32_t far = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (last < first || last > 255) return 10;
     unsigned n = last - first + 1u;
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n * 2, 1);
@@ -2724,7 +2724,7 @@ static int api_GetCharWidth(struct w16 *w, unsigned ordinal, struct w16_args *a)
     }
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 10;
 }
 
@@ -2742,7 +2742,7 @@ static int api_MulDiv(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         q = (p < 0) != (den < 0) ? -q : q;
         r = q < -32768 || q > 32767 ? -32768 : (int32_t)q;
     }
-    w->cpu.r[R_AX] = (uint16_t)r;
+    w->cpu.r[R_AX].w = (uint16_t)r;
     return 6;
 }
 
@@ -2765,7 +2765,7 @@ static int api_CreateDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_gdiobj *o = 0;
     uint16_t h = !strcmp(name, "DISPLAY") ? new_obj(w, GDI_DC, &o) : 0;
     if (o) { dc_defaults(o); o->screen = 2; o->owned = 1; }
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 16;
 }
 
@@ -2780,7 +2780,7 @@ static int api_CreateDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_Escape(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a); w16_arg16(a); w16_arg16(a); w16_arg32(a); w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 14;
 }
 
@@ -2792,7 +2792,7 @@ static int api_DeleteDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     delete_object(w, w16_arg16(a));
-    c->r[R_AX] = 1;
+    c->r[R_AX].w = 1;
     return 2;
 }
 
@@ -2805,7 +2805,7 @@ static int api_GetDeviceCaps(struct w16 *w, unsigned ordinal, struct w16_args *a
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg16(a);
-    c->r[R_AX] = device_caps(w16_arg16(a));
+    c->r[R_AX].w = device_caps(w16_arg16(a));
     return 4;
 }
 
@@ -2816,7 +2816,7 @@ static int api_GetDeviceCaps(struct w16 *w, unsigned ordinal, struct w16_args *a
 static int api_GetStockObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    c->r[R_AX] = (uint16_t)(STOCK_BASE + w16_arg16(a));
+    c->r[R_AX].w = (uint16_t)(STOCK_BASE + w16_arg16(a));
     return 2;
 }
 
@@ -3012,7 +3012,7 @@ static int api_GetObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (!p) return -1;
         memcpy(p, buf, n);
     }
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 8;
 }
 
@@ -3047,7 +3047,7 @@ static int api_PtVisible(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct gdi_target t;
     struct w16_gdiobj *dc = target(w, hdc, &t);
     int px = (dc ? dev_x(dc, x) : x) + t.ox, py = (dc ? dev_y(dc, y) : y) + t.oy;
-    w->cpu.r[R_AX] = dc && t.px && px >= t.x0 && py >= t.y0 && px < t.x1 && py < t.y1 &&
+    w->cpu.r[R_AX].w = dc && t.px && px >= t.x0 && py >= t.y0 && px < t.x1 && py < t.y1 &&
                      (!dc->cliprgn || urgn_contains(dc->cliprgn, px - t.ox, py - t.oy));
     gdi_read_done(w, dc);                        // drew nothing: no repaint
     return 6;
@@ -3072,7 +3072,7 @@ static int api_RectVisible(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     int x1 = (dc ? dev_x(dc, r[2]) : r[2]) + t.ox, y1 = (dc ? dev_y(dc, r[3]) : r[3]) + t.oy;
     if (x1 < x0) { int k = x0; x0 = x1; x1 = k; }      // a mapping mode can flip an axis
     if (y1 < y0) { int k = y0; y0 = y1; y1 = k; }
-    w->cpu.r[R_AX] = dc && t.px && x0 < t.x1 && y0 < t.y1 && x1 > t.x0 && y1 > t.y0 &&
+    w->cpu.r[R_AX].w = dc && t.px && x0 < t.x1 && y0 < t.y1 && x1 > t.x0 && y1 > t.y0 &&
                      (!dc->cliprgn || urgn_overlaps(dc->cliprgn, (x0 < x1 ? x0 : x1) - t.ox, (y0 < y1 ? y0 : y1) - t.oy,
                                                     x1 > x0 ? x1 - x0 : x0 - x1, y1 > y0 ? y1 - y0 : y0 - y1));
     gdi_read_done(w, dc);                        // drew nothing: no repaint
@@ -3096,7 +3096,7 @@ static int api_SetBrushOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 // w16: Answers TRUE: w16 takes a brush's origin afresh at every select anyway.
 static int api_UnrealizeObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w->cpu.r[R_AX] = type_of(w, w16_arg16(a)) != GDI_FREE;
+    w->cpu.r[R_AX].w = type_of(w, w16_arg16(a)) != GDI_FREE;
     return 2;
 }
 
@@ -3111,7 +3111,7 @@ static int api_CreateHatchBrush(struct w16 *w, unsigned ordinal, struct w16_args
     struct w16_gdiobj *o;
     uint16_t h = new_obj(w, GDI_BRUSH, &o);
     if (o) { o->style = BS_HATCHED; o->width = hs < 6 ? hs : 0; o->color = cr & 0xFFFFFF; }
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 6;
 }
 
@@ -3121,7 +3121,7 @@ static int api_CreateHatchBrush(struct w16 *w, unsigned ordinal, struct w16_args
 static int api_CreatePatternBrush(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *bm = obj(w, w16_arg16(a), GDI_BITMAP), *o;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!bm) return 2;
     uint32_t *px = calloc(64, 4);
     if (!px) return 2;
@@ -3132,7 +3132,7 @@ static int api_CreatePatternBrush(struct w16 *w, unsigned ordinal, struct w16_ar
     o->style = BS_PATTERN;
     o->px = px;
     o->mono = bm->mono;
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 2;
 }
 
@@ -3151,7 +3151,7 @@ static int api_CreateIC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_gdiobj *o = 0;
     uint16_t h = !strcmp(name, "DISPLAY") ? new_obj(w, GDI_DC, &o) : 0;
     if (o) { dc_defaults(o); o->screen = 1; o->owned = 1; }
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 16;
 }
 
@@ -3188,7 +3188,7 @@ static int api_CreateRectRgn(struct w16 *w, unsigned ordinal, struct w16_args *a
     struct w16_gdiobj *o;
     uint16_t h = new_obj(w, GDI_REGION, &o);
     if (o) rgn_set(o, l, t, r, b);
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 8;
 }
 
@@ -3221,7 +3221,7 @@ static int api_CreateRectRgnIndirect(struct w16 *w, unsigned ordinal, struct w16
     struct w16_gdiobj *o;
     uint16_t h = new_obj(w, GDI_REGION, &o);
     if (o) rgn_set(o, r[0], r[1], r[2], r[3]);
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 4;
 }
 
@@ -3271,7 +3271,7 @@ static int api_FillRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             else w16_gdi_fill(w, hdc, q->x, q->y, q->x + q->w, q->y + q->h, brush);
         }
     }
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return ordinal == 40 ? 6 : ordinal == 41 ? 10 : 4;
 }
 
@@ -3282,10 +3282,10 @@ static int api_OffsetRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *r = obj(w, w16_arg16(a), GDI_REGION);
     int dx = (int16_t)w16_arg16(a), dy = (int16_t)w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!r) return 6;
     urgn_offset(&r->rg, dx, dy);
-    w->cpu.r[R_AX] = (uint16_t)rgn_kind(r);
+    w->cpu.r[R_AX].w = (uint16_t)rgn_kind(r);
     return 6;
 }
 
@@ -3296,14 +3296,14 @@ static int api_GetRgnBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *r = obj(w, w16_arg16(a), GDI_REGION);
     uint32_t far = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!r) return 6;
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 8, 1);
     if (!p) return -1;
     int16_t box[4];
     rgn_box(&r->rg, box);
     memcpy(p, box, 8);
-    w->cpu.r[R_AX] = (uint16_t)rgn_kind(r);
+    w->cpu.r[R_AX].w = (uint16_t)rgn_kind(r);
     return 6;
 }
 
@@ -3325,7 +3325,7 @@ static int api_PtInRegion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         return -1;
     }
     int in = r && urgn_overlaps(&r->rg, q[0], q[1], q[2] - q[0], q[3] - q[1]);
-    w->cpu.r[R_AX] = (uint16_t)in;
+    w->cpu.r[R_AX].w = (uint16_t)in;
     return 6;
 }
 
@@ -3335,7 +3335,7 @@ static int api_PtInRegion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_EqualRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *r1 = obj(w, w16_arg16(a), GDI_REGION), *r2 = obj(w, w16_arg16(a), GDI_REGION);
-    w->cpu.r[R_AX] = (uint16_t)(r1 && r2 && urgn_equal(&r1->rg, &r2->rg));
+    w->cpu.r[R_AX].w = (uint16_t)(r1 && r2 && urgn_equal(&r1->rg, &r2->rg));
     return 4;
 }
 
@@ -3348,7 +3348,7 @@ static int api_CombineRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_gdiobj *d = obj(w, w16_arg16(a), GDI_REGION), *s1 = obj(w, w16_arg16(a), GDI_REGION);
     struct w16_gdiobj *s2 = obj(w, w16_arg16(a), GDI_REGION);
     uint16_t mode = w16_arg16(a);
-    w->cpu.r[R_AX] = 0;                          // ERROR
+    w->cpu.r[R_AX].w = 0;                          // ERROR
     if (!d || !s1 || (mode != 5 && !s2)) return 8;
     int ok;
     switch (mode) {
@@ -3358,7 +3358,7 @@ static int api_CombineRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     case 4:  ok = urgn_subtract(&d->rg, &s1->rg, &s2->rg); break;    // RGN_DIFF
     default: ok = urgn_copy(&d->rg, &s1->rg); break;                 // RGN_COPY
     }
-    if (ok == 0) w->cpu.r[R_AX] = (uint16_t)rgn_kind(d);
+    if (ok == 0) w->cpu.r[R_AX].w = (uint16_t)rgn_kind(d);
     return 8;
 }
 
@@ -3417,7 +3417,7 @@ static int api_SetMapMode(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     uint16_t mode = w16_arg16(a);
-    w->cpu.r[R_AX] = dc ? (uint16_t)dc->map_mode : 0;
+    w->cpu.r[R_AX].w = dc ? (uint16_t)dc->map_mode : 0;
     if (dc && mode >= MM_TEXT && mode <= MM_ANISOTROPIC) {
         // MM_ISOTROPIC starts from MM_LOMETRIC's extents; MM_ANISOTROPIC keeps the ones in force
         dc->map_mode = mode;
@@ -3433,7 +3433,7 @@ static int api_SetMapMode(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_GetMapMode(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
-    w->cpu.r[R_AX] = dc ? (uint16_t)dc->map_mode : 0;
+    w->cpu.r[R_AX].w = dc ? (uint16_t)dc->map_mode : 0;
     return 2;
 }
 
@@ -3491,11 +3491,11 @@ static int put_pair(struct w16 *w, uint32_t far, int16_t x, int16_t y) {
 static int api_GetMapPairEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     uint32_t far = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!dc) return 6;
     int16_t *f = map_pair(dc, ordinal);
     if (!put_pair(w, far, f[0], f[1])) return -1;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 6;
 }
 
@@ -3512,11 +3512,11 @@ static int api_SetMapPairEx(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
     uint32_t far = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!dc) return 10;
     int16_t *f = map_pair(dc, ordinal);
     if (!put_pair(w, far, f[0], f[1])) return -1;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     int ext = ordinal == 479 || ordinal == 481;
     if (ordinal == 476 || ordinal == 477) { x = (int16_t)(f[0] + x); y = (int16_t)(f[1] + y); }
     if (ext && (dc->map_mode < MM_ISOTROPIC || !x || !y)) return 10;
@@ -3553,10 +3553,10 @@ static int api_GetCurrentPosition(struct w16 *w, unsigned ordinal, struct w16_ar
         return 2;
     }
     uint32_t far = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!dc) return 6;
     if (!put_pair(w, far, dc->cx, dc->cy)) return -1;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 6;
 }
 
@@ -3584,7 +3584,7 @@ static int api_DPtoLP(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     uint32_t far = w16_arg32(a);
     int16_t n = (int16_t)w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!dc || n <= 0) return 8;
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (uint32_t)n * 4, 1);
     if (!p) return -1;
@@ -3597,7 +3597,7 @@ static int api_DPtoLP(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         v[1] = (int16_t)y;
         memcpy(p + 4 * i, v, 4);
     }
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 8;
 }
 
@@ -3643,15 +3643,15 @@ static int api_OffsetClipRgn(struct w16 *w, unsigned ordinal, struct w16_args *a
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!dc) return 6;
-    w->cpu.r[R_AX] = SIMPLEREGION;
+    w->cpu.r[R_AX].w = SIMPLEREGION;
     if (!dc->has_clip) return 6;
     int dx = dev_x(dc, x) - dev_x(dc, 0), dy = dev_y(dc, y) - dev_y(dc, 0);
     dc->clip[0] = (int16_t)(dc->clip[0] + dx); dc->clip[2] = (int16_t)(dc->clip[2] + dx);
     dc->clip[1] = (int16_t)(dc->clip[1] + dy); dc->clip[3] = (int16_t)(dc->clip[3] + dy);
     if (dc->cliprgn) urgn_offset(dc->cliprgn, dx, dy);
-    w->cpu.r[R_AX] = (uint16_t)(dc->cliprgn ? kind_of(dc->cliprgn)
+    w->cpu.r[R_AX].w = (uint16_t)(dc->cliprgn ? kind_of(dc->cliprgn)
                                 : dc->clip[2] > dc->clip[0] && dc->clip[3] > dc->clip[1] ? SIMPLEREGION : NULLREGION);
     return 6;
 }
@@ -3664,7 +3664,7 @@ static int api_IntersectClipRect(struct w16 *w, unsigned ordinal, struct w16_arg
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     int l = (int16_t)w16_arg16(a), t = (int16_t)w16_arg16(a), r = (int16_t)w16_arg16(a), b = (int16_t)w16_arg16(a);
-    w->cpu.r[R_AX] = 0;                          // ERROR
+    w->cpu.r[R_AX].w = 0;                          // ERROR
     if (!dc) return 10;
     dev_rect(dc, &l, &t, &r, &b);
     struct urgn g, rect;
@@ -3672,7 +3672,7 @@ static int api_IntersectClipRect(struct w16 *w, unsigned ordinal, struct w16_arg
     urgn_init(&rect);
     if (clip_get(w, dc, &g) == 0 && urgn_set_rect(&rect, l, t, r - l, b - t) == 0 &&
         urgn_intersect(&g, &g, &rect) == 0)
-        w->cpu.r[R_AX] = (uint16_t)clip_set(dc, &g);
+        w->cpu.r[R_AX].w = (uint16_t)clip_set(dc, &g);
     urgn_free(&g);
     urgn_free(&rect);
     return 10;
@@ -3687,17 +3687,17 @@ static int api_SelectClipRgn(struct w16 *w, unsigned ordinal, struct w16_args *a
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     uint16_t h = w16_arg16(a);
     struct w16_gdiobj *r = obj(w, h, GDI_REGION);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!dc || (h && !r)) return 4;
     if (!r) {                                    // the clip taken away
         if (dc->cliprgn) { urgn_free(dc->cliprgn); free(dc->cliprgn); dc->cliprgn = 0; }
         dc->has_clip = 0;
-        w->cpu.r[R_AX] = SIMPLEREGION;
+        w->cpu.r[R_AX].w = SIMPLEREGION;
         return 4;
     }
     struct urgn g;
     urgn_init(&g);
-    if (urgn_copy(&g, &r->rg) == 0) w->cpu.r[R_AX] = (uint16_t)clip_set(dc, &g);
+    if (urgn_copy(&g, &r->rg) == 0) w->cpu.r[R_AX].w = (uint16_t)clip_set(dc, &g);
     urgn_free(&g);
     return 4;
 }
@@ -3711,7 +3711,7 @@ static int api_SelectClipRgn(struct w16 *w, unsigned ordinal, struct w16_args *a
 static int api_SaveDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     int16_t n = ordinal == 39 ? (int16_t)w16_arg16(a) : 0;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!dc) return ordinal == 39 ? 4 : 2;
     if (ordinal == 30) {
         struct w16_gdiobj *g = realloc(dc->saved, sizeof *g * (size_t)(dc->nsaved + 1));
@@ -3726,7 +3726,7 @@ static int api_SaveDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             if (!c || urgn_copy(c, dc->cliprgn) < 0) { free(c); return 2; }
             g[dc->nsaved].cliprgn = c;
         }
-        w->cpu.r[R_AX] = (uint16_t)++dc->nsaved;
+        w->cpu.r[R_AX].w = (uint16_t)++dc->nsaved;
         return 2;
     }
     int level = n < 0 ? dc->nsaved + n + 1 : n;
@@ -3746,7 +3746,7 @@ static int api_SaveDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     dc->hwnd = hwnd;
     dc->screen = screen;
     dc->sysrgn = sys;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 4;
 }
 
@@ -3761,7 +3761,7 @@ static int api_SetStretchBltMode(struct w16 *w, unsigned ordinal, struct w16_arg
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     uint16_t v = w16_arg16(a);
     int *f = dc ? (ordinal == 7 ? &dc->stretch_mode : &dc->fill_mode) : 0;
-    w->cpu.r[R_AX] = f ? (uint16_t)*f : 0;
+    w->cpu.r[R_AX].w = f ? (uint16_t)*f : 0;
     if (f && v) *f = v;
     return 4;
 }
@@ -3778,7 +3778,7 @@ static int api_SetTextJustification(struct w16 *w, unsigned ordinal, struct w16_
         dc->break_extra = count > 0 ? (int16_t)abs(dev_w(dc, extra)) : 0;
         dc->break_count = count > 0 ? count : 0;
     }
-    w->cpu.r[R_AX] = dc != 0;
+    w->cpu.r[R_AX].w = dc != 0;
     return 6;
 }
 
@@ -3790,7 +3790,7 @@ static int api_Ellipse(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hdc = w16_arg16(a);
     int l = (int16_t)w16_arg16(a), t = (int16_t)w16_arg16(a), r = (int16_t)w16_arg16(a), b = (int16_t)w16_arg16(a);
-    w->cpu.r[R_AX] = (uint16_t)ellipse(w, hdc, l, t, r, b);
+    w->cpu.r[R_AX].w = (uint16_t)ellipse(w, hdc, l, t, r, b);
     return 10;
 }
 
@@ -3803,7 +3803,7 @@ static int api_RoundRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t hdc = w16_arg16(a);
     int l = (int16_t)w16_arg16(a), t = (int16_t)w16_arg16(a), r = (int16_t)w16_arg16(a), b = (int16_t)w16_arg16(a);
     int ew = (int16_t)w16_arg16(a), eh = (int16_t)w16_arg16(a);
-    w->cpu.r[R_AX] = (uint16_t)roundrect(w, hdc, l, t, r, b, ew, eh);
+    w->cpu.r[R_AX].w = (uint16_t)roundrect(w, hdc, l, t, r, b, ew, eh);
     return 14;
 }
 
@@ -3820,7 +3820,7 @@ static int api_Arc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int v[8];
     for (int i = 0; i < 8; i++) v[i] = (int16_t)w16_arg16(a);
     int kind = ordinal == 23 ? ARC_ARC : ordinal == 26 ? ARC_PIE : ARC_CHORD;
-    w->cpu.r[R_AX] = (uint16_t)arc_shape(w, hdc, kind, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+    w->cpu.r[R_AX].w = (uint16_t)arc_shape(w, hdc, kind, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
     return 18;
 }
 
@@ -3833,7 +3833,7 @@ static int api_Polygon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t hdc = w16_arg16(a);
     uint32_t far = w16_arg32(a);
     int16_t n = (int16_t)w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (n <= 0) return 8;
     const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (uint32_t)n * 4, 0);
     if (!p) return -1;
@@ -3845,7 +3845,7 @@ static int api_Polygon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         for (int i = 0; i < n; i++) fprintf(g_w16_trace, " %d,%d", pt[2 * i], pt[2 * i + 1]);
         fprintf(g_w16_trace, "\n");
     }
-    w->cpu.r[R_AX] = (uint16_t)polygons(w, hdc, pt, &cnt, 1, ordinal == 36);
+    w->cpu.r[R_AX].w = (uint16_t)polygons(w, hdc, pt, &cnt, 1, ordinal == 36);
     free(pt);
     return 8;
 }
@@ -3859,7 +3859,7 @@ static int api_PolyPolygon(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     uint16_t hdc = w16_arg16(a);
     uint32_t fpt = w16_arg32(a), fcnt = w16_arg32(a);
     int16_t npoly = (int16_t)w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (npoly <= 0) return 12;
     const uint8_t *c = cpu16_ptr(&w->cpu, (uint16_t)(fcnt >> 16), (uint16_t)fcnt, (uint32_t)npoly * 2, 0);
     if (!c) return -1;
@@ -3870,7 +3870,7 @@ static int api_PolyPolygon(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     int *pt = p ? malloc(sizeof *pt * 2 * (size_t)total) : 0;
     if (pt) {
         for (int i = 0; i < 2 * total; i++) pt[i] = (int16_t)(p[2 * i] | p[2 * i + 1] << 8);
-        w->cpu.r[R_AX] = (uint16_t)polygons(w, hdc, pt, n, npoly, 1);
+        w->cpu.r[R_AX].w = (uint16_t)polygons(w, hdc, pt, n, npoly, 1);
     }
     free(pt);
     free(n);
@@ -3898,7 +3898,7 @@ static int api_CreateBitmapIndirect(struct w16 *w, unsigned ordinal, struct w16_
             for (int x = 0; x < bw; x++)
                 bm->px[(size_t)y * bw + x] = q[y * stride + x / 8] >> (7 - x % 8) & 1 ? 0xFFFFFF : 0;
     }
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 4;
 }
 
@@ -3969,10 +3969,10 @@ static int api_SetTextAlign(struct w16 *w, unsigned ordinal, struct w16_args *a)
     if (ordinal == 346) {
         uint16_t v = w16_arg16(a);
         if (dc) dc->text_align = v;
-        w->cpu.r[R_AX] = old;
+        w->cpu.r[R_AX].w = old;
         return 4;
     }
-    w->cpu.r[R_AX] = old;
+    w->cpu.r[R_AX].w = old;
     return 2;
 }
 
@@ -3991,7 +3991,7 @@ static int api_ExtTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     unsigned n = w16_arg16(a);
     uint32_t dxfar = w16_arg32(a);
     struct w16_gdiobj *dc = obj(w, hdc, GDI_DC);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!dc) return 22;
     int16_t rc[4] = { 0, 0, 0, 0 };
     int have_rc = 0;
@@ -4017,11 +4017,11 @@ static int api_ExtTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             pen += (int16_t)(dx[2 * i] | dx[2 * i + 1] << 8);
         }
         past_cp(w, hdc, dev_x(dc, pen) - dev_x(dc, x));
-        w->cpu.r[R_AX] = 1;
+        w->cpu.r[R_AX].w = 1;
     } else {
         int width = draw_text_clip(w, hdc, x, y, text, 0, cp);
         past_cp(w, hdc, width);
-        w->cpu.r[R_AX] = width >= 0;
+        w->cpu.r[R_AX].w = width >= 0;
     }
     free(text);
     return 22;
@@ -4035,13 +4035,13 @@ static int api_ExcludeClipRect(struct w16 *w, unsigned ordinal, struct w16_args 
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     int l = (int16_t)w16_arg16(a), t = (int16_t)w16_arg16(a), r = (int16_t)w16_arg16(a), b = (int16_t)w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!dc) return 10;
     dev_rect(dc, &l, &t, &r, &b);
     struct urgn g;
     urgn_init(&g);
     if (clip_get(w, dc, &g) == 0 && urgn_cut_rect(&g, l, t, r - l, b - t) == 0)
-        w->cpu.r[R_AX] = (uint16_t)clip_set(dc, &g);
+        w->cpu.r[R_AX].w = (uint16_t)clip_set(dc, &g);
     urgn_free(&g);
     return 10;
 }
@@ -4054,7 +4054,7 @@ static int api_GetClipBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     uint32_t far = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!dc) return 6;
     struct gdi_target t;
     fill_target(w, dc, &t);
@@ -4067,7 +4067,7 @@ static int api_GetClipBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int16_t out[4] = { (int16_t)(ll < rl ? ll : rl), (int16_t)(tl < bl ? tl : bl), (int16_t)(ll < rl ? rl : ll),
                        (int16_t)(tl < bl ? bl : tl) };
     for (int i = 0; i < 4; i++) { p[2 * i] = (uint8_t)out[i]; p[2 * i + 1] = (uint8_t)((uint16_t)out[i] >> 8); }
-    w->cpu.r[R_AX] = r > l && b > tp ? 2 : 1;
+    w->cpu.r[R_AX].w = r > l && b > tp ? 2 : 1;
     return 6;
 }
 
@@ -4089,7 +4089,7 @@ static int api_CreatePalette(struct w16 *w, unsigned ordinal, struct w16_args *a
     (void)ordinal;
     uint32_t far = w16_arg32(a);
     const uint8_t *hd = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 4, 0);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!hd) return -1;
     unsigned n = (unsigned)(hd[2] | hd[3] << 8);
     const uint8_t *e = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)(far + 4), (n ? n * 4 : 1), 0);
@@ -4101,7 +4101,7 @@ static int api_CreatePalette(struct w16 *w, unsigned ordinal, struct w16_args *a
     if (!o->px) { memset(o, 0, sizeof *o); return 4; }
     o->bw = (int)n;
     for (unsigned i = 0; i < n; i++) o->px[i] = (uint32_t)e[4 * i] << 16 | (uint32_t)e[4 * i + 1] << 8 | e[4 * i + 2];
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 4;
 }
 
@@ -4114,8 +4114,8 @@ static int api_GetSystemPaletteEntries(struct w16 *w, unsigned ordinal, struct w
     w16_arg16(a);
     unsigned start = w16_arg16(a), n = w16_arg16(a);
     uint32_t far = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
-    if (!(far >> 16)) { w->cpu.r[R_AX] = 256; return 10; }
+    w->cpu.r[R_AX].w = 0;
+    if (!(far >> 16)) { w->cpu.r[R_AX].w = 256; return 10; }
     if (start >= 256) return 10;
     if (n > 256 - start) n = 256 - start;
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (n ? n * 4 : 1), 1);
@@ -4125,7 +4125,7 @@ static int api_GetSystemPaletteEntries(struct w16 *w, unsigned ordinal, struct w
         uint32_t c = idx < 10 ? SYS[idx] : idx >= 246 ? SYS[idx - 236] : 0;
         p[4 * i] = (uint8_t)(c >> 16); p[4 * i + 1] = (uint8_t)(c >> 8); p[4 * i + 2] = (uint8_t)c; p[4 * i + 3] = 0;
     }
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 10;
 }
 
@@ -4134,7 +4134,7 @@ static int api_GetSystemPaletteEntries(struct w16 *w, unsigned ordinal, struct w
 // w16: The block is the metafile: a metafile handle here is the global block's.
 static int api_SetMetaFileBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w->cpu.r[R_AX] = w16_arg16(a);
+    w->cpu.r[R_AX].w = w16_arg16(a);
     return 2;
 }
 
@@ -4150,7 +4150,7 @@ static int api_SetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     unsigned start = w16_arg16(a), lines = w16_arg16(a);
     uint32_t lpbits = w16_arg32(a), lpbmi = w16_arg32(a);
     unsigned usage = w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!bm) return 18;
     static struct gdi_dib d;                     // the task thread's alone
     if (!bmi_at(w, lpbmi, usage, &d, hdc)) return -1;
@@ -4164,7 +4164,7 @@ static int api_SetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         for (int x = 0; x < bm->bw && x < d.w; x++) bm->px[(size_t)y * bm->bw + x] = gdi_dib_px(&d, row, x);
         done++;
     }
-    w->cpu.r[R_AX] = (uint16_t)done;
+    w->cpu.r[R_AX].w = (uint16_t)done;
     return 18;
 }
 
@@ -4230,7 +4230,7 @@ static int api_GetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     unsigned start = w16_arg16(a), lines = w16_arg16(a);
     uint32_t lpbits = w16_arg32(a), lpbmi = w16_arg32(a);
     w16_arg16(a);                                // the colour use: a table of colours either way
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!bm) return 18;
     uint8_t *h = cpu16_ptr(&w->cpu, (uint16_t)(lpbmi >> 16), (uint16_t)lpbmi, 40, 1);
     if (!h) return -1;
@@ -4245,7 +4245,7 @@ static int api_GetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     h[12] = 1; h[13] = 0; h[14] = (uint8_t)bpp; h[15] = 0;
     for (int k = 16; k < 40; k++) h[k] = 0;
     for (int k = 0; k < 4; k++) h[20 + k] = (uint8_t)((uint32_t)put[6] >> 8 * k);
-    if (!(lpbits >> 16)) { w->cpu.r[R_AX] = 1; return 18; }
+    if (!(lpbits >> 16)) { w->cpu.r[R_AX].w = 1; return 18; }
     if (start >= (unsigned)bm->bh) return 18;
     if (lines > (unsigned)bm->bh - start) lines = (unsigned)bm->bh - start;
     uint8_t *tab = ncol ? cpu16_ptr(&w->cpu, (uint16_t)(lpbmi >> 16), (uint16_t)(lpbmi + 40), ncol * 4, 1) : 0;
@@ -4310,7 +4310,7 @@ static int api_GetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             else row[x / 8] |= (uint8_t)(best << (7 - x % 8));
         }
     }
-    w->cpu.r[R_AX] = (uint16_t)lines;
+    w->cpu.r[R_AX].w = (uint16_t)lines;
     return 18;
 }
 
@@ -4327,7 +4327,7 @@ static int api_StretchDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a
     uint16_t usage = w16_arg16(a);
     uint32_t rop = w16_arg32(a);
     struct gdi_dib d;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!bmi_at(w, lpbmi, usage, &d, hdc)) return -1;
     int bh = d.h < 0 ? -d.h : d.h;
     const uint8_t *bits = dib_bits(w, lpbits, &d, (unsigned)bh);
@@ -4361,7 +4361,7 @@ static int api_StretchDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a
             pattern_of(w, dc, dc->brush, &dt, &b, pbuf);
             gdi_bitblt(&b);
             free(tmp);
-            w->cpu.r[R_AX] = (uint16_t)sah;
+            w->cpu.r[R_AX].w = (uint16_t)sah;
         }
     }
     gdi_done(w, dc);
@@ -4378,7 +4378,7 @@ static int api_BitmapBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int set = ordinal == 106;
     struct w16_gdiobj *bm = obj(w, w16_arg16(a), GDI_BITMAP);
     uint32_t cb = w16_arg32(a), far = w16_arg32(a);
-    w->cpu.r[R_AX] = w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = w->cpu.r[R_DX].w = 0;
     if (!bm) return 10;
     unsigned stride = bm->mono ? ((unsigned)bm->bw + 15) / 16 * 2 : ((unsigned)bm->bw + 1) & ~1u;
     uint32_t total = stride * (uint32_t)bm->bh, n = cb < total ? cb : total;
@@ -4413,7 +4413,7 @@ static int api_BitmapBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_GetROP2(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
-    w->cpu.r[R_AX] = dc ? (uint16_t)dc->rop2 : 0;
+    w->cpu.r[R_AX].w = dc ? (uint16_t)dc->rop2 : 0;
     return 2;
 }
 
@@ -4471,7 +4471,7 @@ static int api_ExtFloodFill(struct w16 *w, unsigned ordinal, struct w16_args *a)
     uint16_t type = w16_arg16(a);
     struct gdi_target t;
     struct w16_gdiobj *dc = target(w, hdc, &t);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     int px = dc ? dev_x(dc, x) + t.ox : 0, py = dc ? dev_y(dc, y) + t.oy : 0;
     if (dc && t.px && px >= t.x0 && py >= t.y0 && px < t.x1 && py < t.y1) {
         struct gdi_blit pb = { 0 };
@@ -4509,7 +4509,7 @@ static int api_ExtFloodFill(struct w16 *w, unsigned ordinal, struct w16_args *a)
                     }
                 }
             }
-            w->cpu.r[R_AX] = 1;
+            w->cpu.r[R_AX].w = 1;
         }
         free(f.seen);
         free(stack);
@@ -4571,7 +4571,7 @@ static int api_CreatePolygonRgn(struct w16 *w, unsigned ordinal, struct w16_args
     uint32_t far = w16_arg32(a);
     int16_t n = (int16_t)w16_arg16(a);
     int winding = w16_arg16(a) == 2;             // WINDING; else ALTERNATE
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (n <= 0) return 8;
     const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (uint32_t)n * 4, 0);
     if (!p) return -1;
@@ -4588,7 +4588,7 @@ static int api_CreatePolygonRgn(struct w16 *w, unsigned ordinal, struct w16_args
     uint16_t h = new_obj(w, GDI_REGION, &o);
     if (o && polygon_rgn(&o->rg, pt, n, winding) < 0) { o->type = GDI_FREE; h = 0; }
     free(pt);
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 8;
 }
 
@@ -4602,7 +4602,7 @@ static int api_CreatePolygonRgn(struct w16 *w, unsigned ordinal, struct w16_args
 static int api_EnumObjects(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a); w16_arg16(a); w16_arg32(a); w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 12;
 }
 
@@ -4616,7 +4616,7 @@ static int api_EnumObjects(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 static int api_GetCharABCWidths(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a); w16_arg16(a); w16_arg16(a); w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 10;
 }
 
@@ -4628,9 +4628,9 @@ static int api_GetPaletteEntries(struct w16 *w, unsigned ordinal, struct w16_arg
     struct w16_gdiobj *pal = obj(w, w16_arg16(a), GDI_PALETTE);
     unsigned start = w16_arg16(a), n = w16_arg16(a);
     uint32_t far = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!pal || !pal->px) return 10;
-    if (!(far >> 16)) { w->cpu.r[R_AX] = (uint16_t)pal->bw; return 10; }
+    if (!(far >> 16)) { w->cpu.r[R_AX].w = (uint16_t)pal->bw; return 10; }
     if (start >= (unsigned)pal->bw) return 10;
     if (n > (unsigned)pal->bw - start) n = (unsigned)pal->bw - start;
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n ? n * 4 : 1, 1);
@@ -4639,7 +4639,7 @@ static int api_GetPaletteEntries(struct w16 *w, unsigned ordinal, struct w16_arg
         uint32_t c = pal->px[start + i];
         p[4 * i] = (uint8_t)(c >> 16); p[4 * i + 1] = (uint8_t)(c >> 8); p[4 * i + 2] = (uint8_t)c; p[4 * i + 3] = 0;
     }
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 10;
 }
 
@@ -4653,14 +4653,14 @@ static int api_SetPaletteEntries(struct w16 *w, unsigned ordinal, struct w16_arg
     struct w16_gdiobj *pal = obj(w, w16_arg16(a), GDI_PALETTE);
     unsigned start = w16_arg16(a), n = w16_arg16(a);
     uint32_t far = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!pal || !pal->px || start >= (unsigned)pal->bw) return 10;
     if (n > (unsigned)pal->bw - start) n = (unsigned)pal->bw - start;
     const uint8_t *p = n ? cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n * 4, 0) : 0;
     if (n && !p) return -1;
     for (unsigned i = 0; i < n; i++)
         pal->px[start + i] = (uint32_t)p[4 * i] << 16 | (uint32_t)p[4 * i + 1] << 8 | p[4 * i + 2];
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 10;
 }
 
@@ -4671,7 +4671,7 @@ static int api_SetPaletteEntries(struct w16 *w, unsigned ordinal, struct w16_arg
 // draws in true colour rather than through a hardware palette.
 static int api_AnimatePalette(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int r = api_SetPaletteEntries(w, ordinal, a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return r;
 }
 
@@ -4690,7 +4690,7 @@ static int api_GetNearestPaletteIndex(struct w16 *w, unsigned ordinal, struct w1
         long db = (long)(cr >> 16 & 0xFF) - (long)(c & 0xFF), d = dr * dr + dg * dg + db * db;
         if (bd < 0 || d < bd) { bd = d; best = (unsigned)i; }
     }
-    w->cpu.r[R_AX] = (uint16_t)best;
+    w->cpu.r[R_AX].w = (uint16_t)best;
     return 6;
 }
 
@@ -4703,7 +4703,7 @@ static int api_GetNearestPaletteIndex(struct w16 *w, unsigned ordinal, struct w1
 static int api_UpdateColors(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 2;
 }
 

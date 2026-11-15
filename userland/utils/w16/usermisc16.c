@@ -156,7 +156,7 @@ static int format16(struct w16 *w, uint32_t out, uint32_t fmtp, uint32_t argp, u
     uint8_t *p = cpu16_ptr(c, (uint16_t)(out >> 16), (uint16_t)out, n + 1, 1);
     if (!p) return -1;
     memcpy(p, buf, n + 1);
-    c->r[R_AX] = (uint16_t)n;
+    c->r[R_AX].w = (uint16_t)n;
     return 0;                                    // the caller pops
 }
 
@@ -226,7 +226,7 @@ static int api_SetTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t hwnd = w16_arg16(a), id = w16_arg16(a), ms = w16_arg16(a);
-    c->r[R_AX] = set_timer(w, hwnd, id, ms, w16_arg32(a));
+    c->r[R_AX].w = set_timer(w, hwnd, id, ms, w16_arg32(a));
     return 10;
 }
 
@@ -246,7 +246,7 @@ static int api_KillTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         }
     if (found) w16_queue_drop_timer(w, hwnd, id);
     pthread_mutex_unlock(&w->lock);
-    c->r[R_AX] = (uint16_t)found;
+    c->r[R_AX].w = (uint16_t)found;
     return 4;
 }
 
@@ -259,8 +259,8 @@ static int api_GetTickCount(struct w16 *w, unsigned ordinal, struct w16_args *a)
     (void)ordinal;
     (void)a;
     uint32_t ms = (uint32_t)w16_now_ms();
-    c->r[R_AX] = (uint16_t)ms;
-    c->r[R_DX] = (uint16_t)(ms >> 16);
+    c->r[R_AX].w = (uint16_t)ms;
+    c->r[R_DX].w = (uint16_t)(ms >> 16);
     return 0;
 }
 
@@ -307,7 +307,7 @@ static int api_SetCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     pthread_mutex_lock(&w->lock);
-    c->r[R_AX] = w->capture;
+    c->r[R_AX].w = w->capture;
     w->capture = w16_arg16(a);
     pthread_mutex_unlock(&w->lock);
     return 2;
@@ -332,7 +332,7 @@ static int api_GetCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     (void)a;
-    c->r[R_AX] = w->capture;
+    c->r[R_AX].w = w->capture;
     return 0;
 }
 
@@ -343,7 +343,7 @@ static int api_GetCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_SetFocus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    c->r[R_AX] = w16_set_focus(w, w16_arg16(a));
+    c->r[R_AX].w = w16_set_focus(w, w16_arg16(a));
     return c->fault ? -1 : 2;
 }
 
@@ -354,7 +354,7 @@ static int api_GetFocus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     (void)a;
-    c->r[R_AX] = w->focus;
+    c->r[R_AX].w = w->focus;
     return 0;
 }
 
@@ -368,7 +368,7 @@ static int api_SetActiveWindow(struct w16 *w, unsigned ordinal, struct w16_args 
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     struct w16_wnd *f = w16_wnd_get(w, w->focus), *top = f ? w16_wnd_top(w, f) : 0;
-    c->r[R_AX] = top ? top->hwnd : w->win.used ? w->win.hwnd : 0;
+    c->r[R_AX].w = top ? top->hwnd : w->win.used ? w->win.hwnd : 0;
     if (x && (x == &w->win || x->popup) && x->visible) w16_task_post_arg(w, W16_POST_ACTIVATE, x->hwnd);
     return 2;
 }
@@ -381,7 +381,7 @@ static int api_GetActiveWindow(struct w16 *w, unsigned ordinal, struct w16_args 
     (void)ordinal;
     (void)a;
     struct w16_wnd *f = w16_wnd_get(w, w->focus), *top = f ? w16_wnd_top(w, f) : 0;
-    c->r[R_AX] = top ? top->hwnd : w->win.used ? w->win.hwnd : 0;
+    c->r[R_AX].w = top ? top->hwnd : w->win.used ? w->win.hwnd : 0;
     return 0;
 }
 
@@ -416,7 +416,7 @@ static int api_WindowFromPoint(struct w16 *w, unsigned ordinal, struct w16_args 
         if (x < dx || y < dy || x >= dx + t->cw || y >= dy + t->ch) continue;
         r = w16_wnd_at(w, t, x - dx, y - dy, &cx, &cy, &nc)->hwnd;
     }
-    w->cpu.r[R_AX] = r;
+    w->cpu.r[R_AX].w = r;
     return 4;
 }
 
@@ -434,7 +434,7 @@ static int api_IsIconic(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     pthread_mutex_lock(&w->lock);
-    w->cpu.r[R_AX] = x && x->iconic;
+    w->cpu.r[R_AX].w = x && x->iconic;
     pthread_mutex_unlock(&w->lock);
     return 2;
 }
@@ -505,7 +505,7 @@ static int api_GetWindowPlacement(struct w16 *w, unsigned ordinal, struct w16_ar
     }
     uint8_t *p = x ? cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, sizeof pl, 1) : 0;
     if (p) memcpy(p, pl, sizeof pl);
-    w->cpu.r[R_AX] = p != 0;
+    w->cpu.r[R_AX].w = p != 0;
     return 6;
 }
 
@@ -520,7 +520,7 @@ static int api_SetWindowPlacement(struct w16 *w, unsigned ordinal, struct w16_ar
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     uint32_t far = w16_arg32(a);
     const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 22, 0);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!x || !p) return p || !x ? 6 : -1;
     int16_t pl[11];
     memcpy(pl, p, sizeof pl);
@@ -548,7 +548,7 @@ static int api_SetWindowPlacement(struct w16 *w, unsigned ordinal, struct w16_ar
             pl[3] != -1 && pl[4] != -1)                                                    // -1: none set
             w16_move_to(w, x, pl[3], pl[4], x->w, x->h);
     }
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return w->cpu.fault ? -1 : 6;
 }
 
@@ -560,7 +560,7 @@ static int api_BringWindowToTop(struct w16 *w, unsigned ordinal, struct w16_args
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg16(a);
-    c->r[R_AX] = 1;
+    c->r[R_AX].w = 1;
     return 2;
 }
 
@@ -571,7 +571,7 @@ static int api_BringWindowToTop(struct w16 *w, unsigned ordinal, struct w16_args
 static int api_IsWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    c->r[R_AX] = x && !x->destroyed && (ordinal == 47 || w16_wnd_shown(w, x));
+    c->r[R_AX].w = x && !x->destroyed && (ordinal == 47 || w16_wnd_shown(w, x));
     return 2;
 }
 
@@ -589,7 +589,7 @@ static int api_FindWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg32(a); w16_arg32(a);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     return 8;
 }
 
@@ -613,7 +613,7 @@ uint16_t w16_set_cursor(struct w16 *w, uint16_t h) {
 static int api_SetCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    c->r[R_AX] = w16_set_cursor(w, w16_arg16(a));
+    c->r[R_AX].w = w16_set_cursor(w, w16_arg16(a));
     return 2;
 }
 
@@ -624,7 +624,7 @@ static int api_SetCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_ShowCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    c->r[R_AX] = w16_arg16(a) ? 1 : 0;
+    c->r[R_AX].w = w16_arg16(a) ? 1 : 0;
     return 2;
 }
 
@@ -659,7 +659,7 @@ static int api_CopyRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t dst = w16_arg32(a);
     if (get_rect(w, w16_arg32(a), r) < 0 || put_rect(w, dst, r) < 0) return -1;
-    c->r[R_AX] = 1;
+    c->r[R_AX].w = 1;
     return 8;
 }
 
@@ -675,7 +675,7 @@ static int api_PtInRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t pt = w16_arg32(a);
     int16_t x = (int16_t)pt, y = (int16_t)(pt >> 16);
     if (get_rect(w, p, r) < 0) return -1;
-    c->r[R_AX] = x >= r[0] && x < r[2] && y >= r[1] && y < r[3];
+    c->r[R_AX].w = x >= r[0] && x < r[2] && y >= r[1] && y < r[3];
     return 8;
 }
 
@@ -708,7 +708,7 @@ static int api_IntersectRect(struct w16 *w, unsigned ordinal, struct w16_args *a
     int meet = o[0] < o[2] && o[1] < o[3];
     if (!meet) memset(o, 0, sizeof o);
     if (put_rect(w, dst, o) < 0) return -1;
-    c->r[R_AX] = (uint16_t)meet;
+    c->r[R_AX].w = (uint16_t)meet;
     return 12;
 }
 
@@ -725,7 +725,7 @@ static int api_FillRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t br = w16_arg16(a);
     if (get_rect(w, p, r) < 0) return -1;
     w16_gdi_fill(w, hdc, r[0], r[1], r[2], r[3], br);
-    c->r[R_AX] = 1;
+    c->r[R_AX].w = 1;
     return 8;
 }
 
@@ -751,7 +751,7 @@ static int api_FrameRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t p = w16_arg32(a);
     uint16_t br = w16_arg16(a);
     if (get_rect(w, p, r) < 0) return -1;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     if (r[2] <= r[0] || r[3] <= r[1]) return 8;
     w16_gdi_fill(w, hdc, r[0], r[1], r[2], r[1] + 1, br);
     w16_gdi_fill(w, hdc, r[0], r[3] - 1, r[2], r[3], br);
@@ -787,7 +787,7 @@ static int api_DrawText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         fprintf(g_w16_trace, "  DrawText \"%s\" in %d,%d,%d,%d format %04x\n", text, r[0], r[1], r[2], r[3], fmt);
         fflush(g_w16_trace);
     }
-    w->cpu.r[R_AX] = (uint16_t)w16_gdi_draw_text(w, hdc, text, r, fmt);
+    w->cpu.r[R_AX].w = (uint16_t)w16_gdi_draw_text(w, hdc, text, r, fmt);
     free(text);
     if ((fmt & 0x0400) && put_rect(w, pr, r) < 0) return -1;   // DT_CALCRECT
     return 14;
@@ -804,7 +804,7 @@ static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t inst = w16_arg16(a);
     uint32_t name = w16_arg32(a);
     char sname[64] = "";
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if ((name >> 16) && cpu16_str(&w->cpu, (uint16_t)(name >> 16), (uint16_t)name, sname, sizeof sname) < 0)
         return -1;
     // NULL with an OBM_ number: Windows' own -- the scroll arrows, the check marks -- which USER took
@@ -812,9 +812,9 @@ static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     const struct ne_module *m = inst ? w16_module_of(w, inst) : !(name >> 16) ? w16_display_ne(w) : 0;
     struct ne_resource r;
     if (m && ne_resource_find(m, 2, 0, (name >> 16) ? 0 : (uint16_t)name, sname[0] ? sname : 0, &r) >= 0)
-        w->cpu.r[R_AX] = w16_gdi_bitmap_of_dib(w, m->img + r.off, r.len);
+        w->cpu.r[R_AX].w = w16_gdi_bitmap_of_dib(w, m->img + r.off, r.len);
     else if (!inst && !(name >> 16) && !m)
-        w->cpu.r[R_AX] = w16_obm_standin(w, (uint16_t)name);
+        w->cpu.r[R_AX].w = w16_obm_standin(w, (uint16_t)name);
     return 6;
 }
 
@@ -826,7 +826,7 @@ static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_GetWindowDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
-    w->cpu.r[R_AX] = h ? w16_gdi_take_dc(w, h) : w16_gdi_screen_dc(w);
+    w->cpu.r[R_AX].w = h ? w16_gdi_take_dc(w, h) : w16_gdi_screen_dc(w);
     return 2;
 }
 
@@ -870,7 +870,7 @@ static int api_DrawIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
     free(px);
     free(inv);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 8;
 }
 
@@ -882,8 +882,8 @@ static int api_GetMessagePos(struct w16 *w, unsigned ordinal, struct w16_args *a
     (void)a;
     int16_t x, y;
     w16_cursor_screen(w, &x, &y);
-    w->cpu.r[R_AX] = (uint16_t)x;
-    w->cpu.r[R_DX] = (uint16_t)y;
+    w->cpu.r[R_AX].w = (uint16_t)x;
+    w->cpu.r[R_DX].w = (uint16_t)y;
     return 0;
 }
 
@@ -894,8 +894,8 @@ static int api_GetMessageTime(struct w16 *w, unsigned ordinal, struct w16_args *
     (void)ordinal;
     (void)a;
     uint32_t ms = (uint32_t)w16_now_ms();
-    w->cpu.r[R_AX] = (uint16_t)ms;
-    w->cpu.r[R_DX] = (uint16_t)(ms >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)ms;
+    w->cpu.r[R_DX].w = (uint16_t)(ms >> 16);
     return 0;
 }
 
@@ -932,8 +932,8 @@ static int api_SetWindowsHook(struct w16 *w, unsigned ordinal, struct w16_args *
     int16_t id = (int16_t)w16_arg16(a);
     uint32_t fn = w16_arg32(a), old = 0;
     if (id >= -1 && id <= 14) { old = g_hooks[id + 1]; g_hooks[id + 1] = fn; }
-    w->cpu.r[R_AX] = (uint16_t)old;
-    w->cpu.r[R_DX] = (uint16_t)(old >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)old;
+    w->cpu.r[R_DX].w = (uint16_t)(old >> 16);
     return 6;
 }
 
@@ -947,7 +947,7 @@ static int api_UnhookWindowsHook(struct w16 *w, unsigned ordinal, struct w16_arg
     int ok = id >= -1 && id <= 14 && g_hooks[id + 1] == fn;
     if (ok) g_hooks[id + 1] = 0;
     if (ok && id == WH_JOURNALPLAYBACK) w16_journal_release(w);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 6;
 }
 
@@ -957,7 +957,7 @@ static int api_UnhookWindowsHook(struct w16 *w, unsigned ordinal, struct w16_arg
 static int api_DefHookProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a); w16_arg16(a); w16_arg32(a); w16_arg32(a);
-    w->cpu.r[R_AX] = w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = w->cpu.r[R_DX].w = 0;
     return 12;
 }
 
@@ -977,8 +977,8 @@ static int api_SetWindowsHookEx(struct w16 *w, unsigned ordinal, struct w16_args
     w16_arg16(a); w16_arg16(a);
     uint32_t h = 0;
     if (id >= -1 && id <= 14) { g_hooks[id + 1] = fn; h = 0x48000000u | (uint32_t)(id + 1); }
-    w->cpu.r[R_AX] = (uint16_t)h;
-    w->cpu.r[R_DX] = (uint16_t)(h >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)h;
+    w->cpu.r[R_DX].w = (uint16_t)(h >> 16);
     return 10;
 }
 
@@ -991,7 +991,7 @@ static int api_UnhookWindowsHookEx(struct w16 *w, unsigned ordinal, struct w16_a
     int ok = (h >> 16) == 0x4800 && (h & 0xFFFF) < 16;
     if (ok) g_hooks[h & 0xFFFF] = 0;
     if (ok && (h & 0xFFFF) == WH_JOURNALPLAYBACK + 1) w16_journal_release(w);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 4;
 }
 
@@ -1001,7 +1001,7 @@ static int api_UnhookWindowsHookEx(struct w16 *w, unsigned ordinal, struct w16_a
 static int api_CallNextHookEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a); w16_arg16(a); w16_arg16(a); w16_arg32(a);
-    w->cpu.r[R_AX] = w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = w->cpu.r[R_DX].w = 0;
     return 12;
 }
 
@@ -1014,7 +1014,7 @@ static int api_SelectPalette(struct w16 *w, unsigned ordinal, struct w16_args *a
     (void)ordinal;
     uint16_t hdc = w16_arg16(a), hpal = w16_arg16(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = w16_meta_select_palette(w, hdc, hpal) ? hpal : w16_gdi_select_palette(w, hdc, hpal);
+    w->cpu.r[R_AX].w = w16_meta_select_palette(w, hdc, hpal) ? hpal : w16_gdi_select_palette(w, hdc, hpal);
     return 6;
 }
 
@@ -1024,7 +1024,7 @@ static int api_SelectPalette(struct w16 *w, unsigned ordinal, struct w16_args *a
 static int api_WNetGetCaps(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 2;
 }
 
@@ -1048,8 +1048,8 @@ static int api_GetSysColor(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     (void)ordinal;
     uint32_t px = w16_syscolor(w16_arg16(a));
     uint32_t cr = (px & 0xFF) << 16 | (px & 0xFF00) | (px >> 16 & 0xFF);
-    c->r[R_AX] = (uint16_t)cr;
-    c->r[R_DX] = (uint16_t)(cr >> 16);
+    c->r[R_AX].w = (uint16_t)cr;
+    c->r[R_DX].w = (uint16_t)(cr >> 16);
     return 2;
 }
 
@@ -1095,7 +1095,7 @@ static int api_GetDesktopWindow(struct w16 *w, unsigned ordinal, struct w16_args
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     (void)a;
-    c->r[R_AX] = W16_DESKTOP;
+    c->r[R_AX].w = W16_DESKTOP;
     return 0;
 }
 
@@ -1105,7 +1105,7 @@ static int api_GetDesktopWindow(struct w16 *w, unsigned ordinal, struct w16_args
 static int api_GetLastActivePopup(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    c->r[R_AX] = w16_arg16(a);
+    c->r[R_AX].w = w16_arg16(a);
     return 2;
 }
 
@@ -1165,7 +1165,7 @@ static int api_lstrcmp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
     free(s);
     free(t);
-    w->cpu.r[R_AX] = (uint16_t)(int16_t)r;
+    w->cpu.r[R_AX].w = (uint16_t)(int16_t)r;
     return 8;
 }
 
@@ -1180,8 +1180,8 @@ static int api_AnsiUpper(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (!(far >> 16)) {
         int ch = far & 0xFF;
         ch = up ? fold(ch) : (ch >= 'A' && ch <= 'Z') || (ch >= 0xC0 && ch <= 0xDE && ch != 0xD7) ? ch + 32 : ch;
-        w->cpu.r[R_AX] = (uint16_t)ch;
-        w->cpu.r[R_DX] = 0;
+        w->cpu.r[R_AX].w = (uint16_t)ch;
+        w->cpu.r[R_DX].w = 0;
         return 4;
     }
     char *s = far_dup(w, far);
@@ -1194,8 +1194,8 @@ static int api_AnsiUpper(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
     free(s);
     if (!p) return -1;
-    w->cpu.r[R_AX] = (uint16_t)far;
-    w->cpu.r[R_DX] = (uint16_t)(far >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)far;
+    w->cpu.r[R_DX].w = (uint16_t)(far >> 16);
     return 4;
 }
 
@@ -1208,8 +1208,8 @@ static int api_AnsiNext(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 1, 0);
     if (!p) return -1;
     uint32_t r = *p ? far + 1 : far;
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = (uint16_t)(far >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = (uint16_t)(far >> 16);
     return 4;
 }
 
@@ -1220,8 +1220,8 @@ static int api_AnsiPrev(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t start = w16_arg32(a), cur = w16_arg32(a);
     uint16_t off = (uint16_t)cur > (uint16_t)start ? (uint16_t)((uint16_t)cur - 1) : (uint16_t)start;
-    w->cpu.r[R_AX] = off;
-    w->cpu.r[R_DX] = (uint16_t)(cur >> 16);
+    w->cpu.r[R_AX].w = off;
+    w->cpu.r[R_DX].w = (uint16_t)(cur >> 16);
     return 8;
 }
 
@@ -1256,8 +1256,8 @@ static int api_TabbedTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a
     }
     int width = w16_gdi_text(w, hdc, x, y, text, tab);
     free(text);
-    w->cpu.r[R_AX] = (uint16_t)(width > 0 ? width : 0);
-    w->cpu.r[R_DX] = (uint16_t)cy;
+    w->cpu.r[R_AX].w = (uint16_t)(width > 0 ? width : 0);
+    w->cpu.r[R_DX].w = (uint16_t)cy;
     return 22;
 }
 
@@ -1331,7 +1331,7 @@ static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t file = w16_arg32(a);
     uint16_t cmd = w16_arg16(a);
     uint32_t data = w16_arg32(a);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     if (cmd == 2) {                                   // HELP_QUIT
         if (g_w16_help_fd >= 0 && write(g_w16_help_fd, "QUIT\n", 5) < 0) g_w16_help_fd = -1;
         return 12;
@@ -1347,7 +1347,7 @@ static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             char text[220];
             snprintf(text, sizeof text, "Cannot find the help file %s.", name[0] ? name : "(none)");
             w16_message_box(w, owner, text, "Help", 0x30);   // MB_ICONEXCLAMATION
-            w->cpu.r[R_AX] = 0;
+            w->cpu.r[R_AX].w = 0;
             return 12;
         }
     }
@@ -1385,7 +1385,7 @@ static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (g_w16_help_fd < 0 || n >= (int)sizeof line || write(g_w16_help_fd, line, (size_t)n) < 0) {
         g_w16_help_fd = -1;
         w16_message_box(w, owner, "Help Viewer could not be started.", "Help", 0x30);
-        w->cpu.r[R_AX] = 0;
+        w->cpu.r[R_AX].w = 0;
     }
     return 12;
 }
@@ -1398,7 +1398,7 @@ static int api_IsRectEmpty(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     (void)ordinal;
     int16_t r[4];
     if (get_rect(w, w16_arg32(a), r) < 0) return -1;
-    w->cpu.r[R_AX] = r[2] <= r[0] || r[3] <= r[1];
+    w->cpu.r[R_AX].w = r[2] <= r[0] || r[3] <= r[1];
     return 4;
 }
 
@@ -1418,7 +1418,7 @@ static int api_UnionRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         o[2] = r[2] > s[2] ? r[2] : s[2]; o[3] = r[3] > s[3] ? r[3] : s[3];
     }
     if (put_rect(w, dst, o) < 0) return -1;
-    w->cpu.r[R_AX] = !(re && se);
+    w->cpu.r[R_AX].w = !(re && se);
     return 12;
 }
 
@@ -1471,7 +1471,7 @@ static int api_EnumWindows(struct w16 *w, unsigned ordinal, struct w16_args *a) 
         for (int i = 0; v && i < w->nwnds; i++)
             if (w->wnds[i] && w->wnds[i]->used && w->wnds[i]->kind == W16_K_DIALOG) v[n++] = w->wnds[i]->hwnd;
     }
-    w->cpu.r[R_AX] = (uint16_t)enum_call(w, v, n, fn, data);
+    w->cpu.r[R_AX].w = (uint16_t)enum_call(w, v, n, fn, data);
     free(v);
     return w->cpu.fault ? -1 : ordinal == 55 ? 10 : 8;
 }
@@ -1485,7 +1485,7 @@ static int api_GetClassName(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     uint32_t far = w16_arg32(a);
     int16_t cap = (int16_t)w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!x || x->cls < 0 || x->cls >= w->ncls || cap <= 0) return 8;
     const char *name = w->cls[x->cls].name;
     size_t n = strlen(name);
@@ -1494,7 +1494,7 @@ static int api_GetClassName(struct w16 *w, unsigned ordinal, struct w16_args *a)
     if (!p) return -1;
     memcpy(p, name, n);
     p[n] = 0;
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 8;
 }
 
@@ -1507,7 +1507,7 @@ static int api_FlashWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     (void)ordinal;
     w16_arg16(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = (uint16_t)(w->active != 0);
+    w->cpu.r[R_AX].w = (uint16_t)(w->active != 0);
     return 4;
 }
 
@@ -1519,7 +1519,7 @@ static int api_GetCaretBlinkTime(struct w16 *w, unsigned ordinal, struct w16_arg
     (void)ordinal;
     (void)a;
     pthread_mutex_lock(&w->lock);
-    w->cpu.r[R_AX] = (uint16_t)caret_blink(w);
+    w->cpu.r[R_AX].w = (uint16_t)caret_blink(w);
     pthread_mutex_unlock(&w->lock);
     return 0;
 }
@@ -1545,7 +1545,7 @@ static int api_GetUpdateRect(struct w16 *w, unsigned ordinal, struct w16_args *a
     }
     urgn_free(&g);
     if ((far >> 16) && put_rect(w, far, r) < 0) return -1;
-    w->cpu.r[R_AX] = (uint16_t)owed;
+    w->cpu.r[R_AX].w = (uint16_t)owed;
     return 8;
 }
 
@@ -1555,7 +1555,7 @@ static int api_GetUpdateRect(struct w16 *w, unsigned ordinal, struct w16_args *a
 static int api_InSendMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 0;
 }
 
@@ -1573,7 +1573,7 @@ static int api_ScrollDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int16_t sr[4], cr[4], up[4];
     if ((ps >> 16) && get_rect(w, ps, sr) < 0) return -1;
     if ((pc >> 16) && get_rect(w, pc, cr) < 0) return -1;
-    w->cpu.r[R_AX] = (uint16_t)w16_gdi_scroll(w, hdc, dx, dy, ps >> 16 ? sr : 0, pc >> 16 ? cr : 0, up);
+    w->cpu.r[R_AX].w = (uint16_t)w16_gdi_scroll(w, hdc, dx, dy, ps >> 16 ? sr : 0, pc >> 16 ? cr : 0, up);
     if (rgn) w16_gdi_region_set(w, rgn, up);
     if ((pu >> 16) && put_rect(w, pu, up) < 0) return -1;
     return 20;
@@ -1587,7 +1587,7 @@ static int api_EqualRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int16_t r[4], s[4];
     uint32_t p = w16_arg32(a), q = w16_arg32(a);
     if (get_rect(w, p, r) < 0 || get_rect(w, q, s) < 0) return -1;
-    w->cpu.r[R_AX] = memcmp(r, s, sizeof r) == 0;
+    w->cpu.r[R_AX].w = memcmp(r, s, sizeof r) == 0;
     return 8;
 }
 
@@ -1599,7 +1599,7 @@ static int api_IsZoomed(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     pthread_mutex_lock(&w->lock);
-    w->cpu.r[R_AX] = x && x->maximized;
+    w->cpu.r[R_AX].w = x && x->maximized;
     pthread_mutex_unlock(&w->lock);
     return 2;
 }
@@ -1635,16 +1635,16 @@ static int api_GetWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a), cmd = w16_arg16(a);
     struct w16_wnd *x = w16_wnd_get(w, h);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!x) return 4;
     if (cmd == 5) {                              // GW_CHILD
         int k;
         struct w16_wnd **kids = w16_wnd_children(w, h, &k);
-        w->cpu.r[R_AX] = kids && k ? kids[0]->hwnd : 0;
+        w->cpu.r[R_AX].w = kids && k ? kids[0]->hwnd : 0;
         return 4;
     }
     if (cmd == 4) {                              // GW_OWNER
-        w->cpu.r[R_AX] = x->kind == W16_K_DIALOG ? x->parent : 0;
+        w->cpu.r[R_AX].w = x->kind == W16_K_DIALOG ? x->parent : 0;
         return 4;
     }
     int n;
@@ -1653,10 +1653,10 @@ static int api_GetWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     for (int i = 0; v && i < n; i++) if (v[i] == h) at = i;
     if (v && at >= 0) {
         switch (cmd) {
-        case 0: w->cpu.r[R_AX] = v[0]; break;
-        case 1: w->cpu.r[R_AX] = v[n - 1]; break;
-        case 2: w->cpu.r[R_AX] = at + 1 < n ? v[at + 1] : 0; break;
-        case 3: w->cpu.r[R_AX] = at > 0 ? v[at - 1] : 0; break;
+        case 0: w->cpu.r[R_AX].w = v[0]; break;
+        case 1: w->cpu.r[R_AX].w = v[n - 1]; break;
+        case 2: w->cpu.r[R_AX].w = at + 1 < n ? v[at + 1] : 0; break;
+        case 3: w->cpu.r[R_AX].w = at > 0 ? v[at - 1] : 0; break;
         default: break;
         }
     }
@@ -1671,7 +1671,7 @@ static int api_GetWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_SetMessageQueue(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 2;
 }
 
@@ -1683,7 +1683,7 @@ static int api_CallMsgFilter(struct w16 *w, unsigned ordinal, struct w16_args *a
     (void)ordinal;
     w16_arg32(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 6;
 }
 
@@ -1763,7 +1763,7 @@ static int api_ClassWord(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
     pthread_mutex_unlock(&w->lock);
     if (set && index == -12) w16_cursor_refresh(w, v);
-    w->cpu.r[R_AX] = old;
+    w->cpu.r[R_AX].w = old;
     return set ? 6 : 4;
 }
 
@@ -1826,7 +1826,7 @@ static int api_DlgDirList(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         low[n] = 0;
         set_item_text(w, dlg, stat_id, low);
     }
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 12;
 }
 
@@ -1858,7 +1858,7 @@ static int api_DlgDirSelect(struct w16 *w, unsigned ordinal, struct w16_args *a)
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (unsigned)len, 1);
     if (!p) return -1;
     memcpy(p, out, len);
-    w->cpu.r[R_AX] = (uint16_t)folder;
+    w->cpu.r[R_AX].w = (uint16_t)folder;
     return 8;
 }
 
@@ -1874,7 +1874,7 @@ static int api_DlgDirSelect(struct w16 *w, unsigned ordinal, struct w16_args *a)
 static int api_OpenDriver(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 12;
 }
 
@@ -1894,8 +1894,8 @@ static int api_Driver(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int n = 0;
     for (size_t i = 0; i < sizeof ARGS / sizeof ARGS[0]; i++)
         if (ARGS[i].ordinal == ordinal) n = ARGS[i].argbytes;
-    w->cpu.r[R_AX] = 0;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = 0;
+    w->cpu.r[R_DX].w = 0;
     return n;
 }
 
@@ -1911,7 +1911,7 @@ static int api_EnumTaskWindows(struct w16 *w, unsigned ordinal, struct w16_args 
     if (v && w->win.used) v[n++] = w->win.hwnd;
     for (int i = 0; v && i < w->nwnds; i++)
         if (w->wnds[i] && w->wnds[i]->used && w->wnds[i]->kind == W16_K_DIALOG) v[n++] = w->wnds[i]->hwnd;
-    w->cpu.r[R_AX] = (uint16_t)enum_call(w, v, n, fn, data);
+    w->cpu.r[R_AX].w = (uint16_t)enum_call(w, v, n, fn, data);
     free(v);
     return w->cpu.fault ? -1 : 10;
 }
@@ -1929,7 +1929,7 @@ static int api_TrackPopupMenu(struct w16 *w, unsigned ordinal, struct w16_args *
     for (int i = 0; i < 5; i++) w16_arg16(a);
     w16_arg16(a);
     w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 16;
 }
 
@@ -1955,15 +1955,15 @@ static int api_SetProp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t value = ordinal == 26 ? w16_arg16(a) : 0;
     struct w16_wnd *x = w16_wnd_get(w, h);
     uint16_t at = prop_atom(w, name);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     int bytes = ordinal == 26 ? 8 : 6;
     if (!x || !at) return bytes;
     int i = 0;
     while (i < x->nprops && x->props[i].atom != at) i++;
-    if (ordinal == 25) { w->cpu.r[R_AX] = i < x->nprops ? x->props[i].value : 0; return bytes; }
+    if (ordinal == 25) { w->cpu.r[R_AX].w = i < x->nprops ? x->props[i].value : 0; return bytes; }
     if (ordinal == 24) {
         if (i < x->nprops) {
-            w->cpu.r[R_AX] = x->props[i].value;
+            w->cpu.r[R_AX].w = x->props[i].value;
             x->props[i] = x->props[--x->nprops];
         }
         return bytes;
@@ -1976,7 +1976,7 @@ static int api_SetProp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         x->props[i].atom = at;
     }
     x->props[i].value = value;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return bytes;
 }
 
@@ -1985,7 +1985,7 @@ static int api_SetProp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // w16: The program's one task (GetCurrentTask's) for any window it has; 0 for none.
 static int api_GetWindowTask(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w->cpu.r[R_AX] = w16_wnd_get(w, w16_arg16(a)) ? w->psp : 0;
+    w->cpu.r[R_AX].w = w16_wnd_get(w, w16_arg16(a)) ? w->psp : 0;
     return 2;
 }
 
@@ -1995,10 +1995,10 @@ static int api_GetWindowTask(struct w16 *w, unsigned ordinal, struct w16_args *a
 static int api_GetTopWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
-    if (!h) { w->cpu.r[R_AX] = w->active ? w->active : w->win.hwnd; return 2; }
+    if (!h) { w->cpu.r[R_AX].w = w->active ? w->active : w->win.hwnd; return 2; }
     int k;
     struct w16_wnd **kids = w16_wnd_children(w, h, &k);
-    w->cpu.r[R_AX] = kids && k ? kids[0]->hwnd : 0;
+    w->cpu.r[R_AX].w = kids && k ? kids[0]->hwnd : 0;
     return 2;
 }
 
@@ -2015,7 +2015,7 @@ static int api_AnsiLowerBuff(struct w16 *w, unsigned ordinal, struct w16_args *a
     if (!p) return -1;
     for (unsigned i = 0; i < n; i++)
         if ((p[i] >= 'A' && p[i] <= 'Z') || (p[i] >= 0xC0 && p[i] <= 0xDE && p[i] != 0xD7)) p[i] = (uint8_t)(p[i] + 32);
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 6;
 }
 
@@ -2026,7 +2026,7 @@ static int api_AnsiLowerBuff(struct w16 *w, unsigned ordinal, struct w16_args *a
 // a Windows network connection.
 static int api_WNetGetConnection(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal; (void)a;
-    w->cpu.r[R_AX] = 0x0030;                     // WN_NOT_CONNECTED
+    w->cpu.r[R_AX].w = 0x0030;                     // WN_NOT_CONNECTED
     return 12;
 }
 
@@ -2042,7 +2042,7 @@ static int api_AnsiUpperBuff(struct w16 *w, unsigned ordinal, struct w16_args *a
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n, 1);
     if (!p) return -1;
     for (unsigned i = 0; i < n; i++) p[i] = (uint8_t)fold(p[i]);
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 6;
 }
 
@@ -2056,7 +2056,7 @@ static int api_LoadIconHandler(struct w16 *w, unsigned ordinal, struct w16_args 
     (void)ordinal;
     w16_arg16(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 4;
 }
 
@@ -2081,7 +2081,7 @@ static int api_DrawFocusRect(struct w16 *w, unsigned ordinal, struct w16_args *a
 static int api_RealizePalette(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_meta_realize_palette(w16_arg16(a));
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 2;
 }
 
@@ -2242,7 +2242,7 @@ static int api_GlobalAtom(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_GetMessageExtraInfo(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
-    w->cpu.r[R_AX] = w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = w->cpu.r[R_DX].w = 0;
     return 0;
 }
 
@@ -2272,7 +2272,7 @@ static int api_GetKeyNameText(struct w16 *w, unsigned ordinal, struct w16_args *
     const char *name = sc < 0x59 ? N[sc] : 0;
     if (lp & 0x01000000u)
         for (unsigned i = 0; i < sizeof X / sizeof X[0]; i++) if (X[i].sc == sc) name = X[i].n;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!name || cap <= 0) return 10;
     int n = (int)strlen(name);
     if (n > cap - 1) n = cap - 1;
@@ -2280,7 +2280,7 @@ static int api_GetKeyNameText(struct w16 *w, unsigned ordinal, struct w16_args *
     if (!p) return -1;
     memcpy(p, name, (size_t)n);
     p[n] = 0;
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 10;
 }
 
@@ -2298,7 +2298,7 @@ static int api_IsCharAlpha(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     int lower = (ch >= 'a' && ch <= 'z') || ch == 0x9A || ch == 0x9C || ch == 0x9E || ch == 0x83 || ch == 0xAA ||
                 ch == 0xB5 || ch == 0xBA || (ch >= 0xDF && ch != 0xF7);
     int r = ordinal == 435 ? upper : ordinal == 436 ? lower : upper || lower || (ordinal == 434 && ch >= '0' && ch <= '9');
-    w->cpu.r[R_AX] = (uint16_t)r;
+    w->cpu.r[R_AX].w = (uint16_t)r;
     return 2;
 }
 
@@ -2312,7 +2312,7 @@ static int api_IsCharAlpha(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 static int api_SetSysModalWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 2;
 }
 
@@ -2370,10 +2370,10 @@ static int api_GrayString(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int count = (int16_t)w16_arg16(a), x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
     w16_arg16(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     if (fn >> 16) {
         uint16_t args[] = { hdc, (uint16_t)(data >> 16), (uint16_t)data, (uint16_t)count };
-        w->cpu.r[R_AX] = (uint16_t)w16_call_far(w, (uint16_t)(fn >> 16), (uint16_t)fn, args, 4);
+        w->cpu.r[R_AX].w = (uint16_t)w16_call_far(w, (uint16_t)(fn >> 16), (uint16_t)fn, args, 4);
         return w->cpu.fault ? -1 : 22;
     }
     char text[512];
@@ -2397,7 +2397,7 @@ static int api_ExitWindows(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     (void)ordinal;
     w16_arg32(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (w->win.used && !w16_send(w, w->win.hwnd, 0x0011, 0, 0)) return 6;   // WM_QUERYENDSESSION: refused
     if (w->win.used) w16_send(w, w->win.hwnd, 0x0016, 1, 0);                // WM_ENDSESSION
     if (w->cpu.fault) return -1;
@@ -2455,7 +2455,7 @@ static int api_DragObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t scope = w16_arg16(a), from = w16_arg16(a), fmt = w16_arg16(a), hof = w16_arg16(a), list = w16_arg16(a);
     w16_arg16(a);                                // hCursor: SaunaOS's own pointers stand for it
     struct cpu16 *c = &w->cpu;
-    c->r[R_AX] = c->r[R_DX] = 0;
+    c->r[R_AX].w = c->r[R_DX].w = 0;
     // Two DRAGINFOs, as 3.1 kept them: the one now and the one before -- hWnd, hScope, wFlags,
     // hList, hOfStruct, pt, l.
     uint8_t init[36] = { 0 };
@@ -2509,8 +2509,8 @@ static int api_DragObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t r = 0;
     if (ok && cur && w16_wnd_get(w, cur) && !c->fault) r = w16_send(w, cur, WM_DROPOBJECT, from, di);
     w16_global_free(w, blk);
-    c->r[R_AX] = (uint16_t)r;
-    c->r[R_DX] = (uint16_t)(r >> 16);
+    c->r[R_AX].w = (uint16_t)r;
+    c->r[R_DX].w = (uint16_t)(r >> 16);
     return c->fault ? -1 : 12;
 }
 
@@ -2664,7 +2664,7 @@ static int api_AnsiToOem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (p) memmove(p, s, n + 1);
     free(s);
     if (!p) return -1;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 8;
 }
 
@@ -2690,7 +2690,7 @@ static int api_AnsiToOemBuff(struct w16 *w, unsigned ordinal, struct w16_args *a
 static int api_GetKBCodePage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
-    w->cpu.r[R_AX] = 437;
+    w->cpu.r[R_AX].w = 437;
     return 0;
 }
 
@@ -2717,7 +2717,7 @@ static int api_VkKeyScan(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     else if (ch && (p = strchr(digits_shifted, (int)ch))) r = 0x100 | (unsigned)('0' + (p - digits_shifted));
     else if (ch && (p = strchr(punct, (int)ch))) r = vk[p - punct];
     else if (ch && (p = strchr(shifted, (int)ch))) r = 0x100 | vk[p - shifted];
-    w->cpu.r[R_AX] = (uint16_t)r;
+    w->cpu.r[R_AX].w = (uint16_t)r;
     return 2;
 }
 
@@ -2764,7 +2764,7 @@ static int api_MapVirtualKey(struct w16 *w, unsigned ordinal, struct w16_args *a
         else if (code >= 0x60 && code <= 0x69) r = '0' + code - 0x60;
         for (unsigned i = 0; !r && i < sizeof pvk; i++) if (pvk[i] == code) r = (uint8_t)punct[i];
     }
-    w->cpu.r[R_AX] = (uint16_t)r;
+    w->cpu.r[R_AX].w = (uint16_t)r;
     return 4;
 }
 

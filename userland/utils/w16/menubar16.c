@@ -157,7 +157,7 @@ static int api_LoadMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t p = w16_arg32(a);
     char name[64] = "";
     if ((p >> 16) && cpu16_str(c, (uint16_t)(p >> 16), (uint16_t)p, name, sizeof name) < 0) return -1;
-    c->r[R_AX] = w16_load_menu(w, (p >> 16) ? name : 0, (uint16_t)p);
+    c->r[R_AX].w = w16_load_menu(w, (p >> 16) ? name : 0, (uint16_t)p);
     return 6;
 }
 
@@ -198,7 +198,7 @@ static int api_CheckMenuItem(struct w16 *w, unsigned ordinal, struct w16_args *a
     int was = it ? it->flags & MF_CHECKED : -1;
     if (it) it->flags = (uint16_t)((it->flags & ~MF_CHECKED) | (flags & MF_CHECKED));
     pthread_mutex_unlock(&w->lock);
-    w->cpu.r[R_AX] = (uint16_t)was;
+    w->cpu.r[R_AX].w = (uint16_t)was;
     return 6;
 }
 
@@ -214,7 +214,7 @@ static int api_EnableMenuItem(struct w16 *w, unsigned ordinal, struct w16_args *
     if (it) it->flags = (uint16_t)((it->flags & ~(MF_GRAYED | MF_DISABLED)) | (flags & (MF_GRAYED | MF_DISABLED)));
     pthread_mutex_unlock(&w->lock);
     if (it && is_bar(w, h)) bar_changed(w);
-    w->cpu.r[R_AX] = (uint16_t)was;
+    w->cpu.r[R_AX].w = (uint16_t)was;
     return 6;
 }
 
@@ -234,7 +234,7 @@ static int api_GetMenuState(struct w16 *w, unsigned ordinal, struct w16_args *a)
         if (sub) r = (r & 0xFF) | (sub->n & 0xFF) << 8;
     }
     pthread_mutex_unlock(&w->lock);
-    w->cpu.r[R_AX] = (uint16_t)r;
+    w->cpu.r[R_AX].w = (uint16_t)r;
     return 6;
 }
 
@@ -246,7 +246,7 @@ static int api_GetMenuItemCount(struct w16 *w, unsigned ordinal, struct w16_args
     uint16_t h = w16_arg16(a);
     pthread_mutex_lock(&w->lock);
     struct w16_hmenu *m = menu_of(h);
-    w->cpu.r[R_AX] = (uint16_t)(m ? m->n : -1);
+    w->cpu.r[R_AX].w = (uint16_t)(m ? m->n : -1);
     pthread_mutex_unlock(&w->lock);
     return 2;
 }
@@ -261,7 +261,7 @@ static int api_GetMenuItemID(struct w16 *w, unsigned ordinal, struct w16_args *a
     struct w16_hmenu *m = menu_of(h);
     int r = m && pos < m->n && !(m->it[pos].flags & MF_POPUP) ? m->it[pos].id : -1;
     pthread_mutex_unlock(&w->lock);
-    w->cpu.r[R_AX] = (uint16_t)r;
+    w->cpu.r[R_AX].w = (uint16_t)r;
     return 4;
 }
 
@@ -282,7 +282,7 @@ static int api_GetSystemMenu(struct w16 *w, unsigned ordinal, struct w16_args *a
         w->sysmenu = 0;
     }
     if (!revert && !w->sysmenu) w->sysmenu = menu_new();
-    w->cpu.r[R_AX] = revert ? 0 : w->sysmenu;
+    w->cpu.r[R_AX].w = revert ? 0 : w->sysmenu;
     pthread_mutex_unlock(&w->lock);
     return 4;
 }
@@ -304,7 +304,7 @@ static int api_GetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    w->cpu.r[R_AX] = x && x->kind != W16_K_CHILD ? x->hmenu : 0;
+    w->cpu.r[R_AX].w = x && x->kind != W16_K_CHILD ? x->hmenu : 0;
     pthread_mutex_unlock(&w->lock);
     return 2;
 }
@@ -321,7 +321,7 @@ static int api_SetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t h = w16_arg16(a);
     int ok = x && x->kind != W16_K_CHILD;
     if (ok) w16_set_menu(w, x, h);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 4;
 }
 
@@ -359,7 +359,7 @@ static int api_GetSubMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t h = w16_arg16(a), pos = w16_arg16(a);
     pthread_mutex_lock(&w->lock);
     struct w16_hmenu *m = menu_of(h);
-    w->cpu.r[R_AX] = m && pos < m->n && (m->it[pos].flags & MF_POPUP) ? m->it[pos].sub : 0;
+    w->cpu.r[R_AX].w = m && pos < m->n && (m->it[pos].flags & MF_POPUP) ? m->it[pos].sub : 0;
     pthread_mutex_unlock(&w->lock);
     return 4;
 }
@@ -384,7 +384,7 @@ static int api_DestroyMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     int ok = menu_of(h) != 0 && !is_bar(w, h);
     if (ok) menu_destroy(h);
     pthread_mutex_unlock(&w->lock);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 2;
 }
 
@@ -452,7 +452,7 @@ static int api_CreatePopupMenu(struct w16 *w, unsigned ordinal, struct w16_args 
     (void)ordinal;
     (void)a;
     pthread_mutex_lock(&w->lock);
-    w->cpu.r[R_AX] = menu_new();
+    w->cpu.r[R_AX].w = menu_new();
     pthread_mutex_unlock(&w->lock);
     return 0;
 }
@@ -474,7 +474,7 @@ static int api_InsertMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int ok = in && menu_insert(in, at, text, id, flags);
     pthread_mutex_unlock(&w->lock);
     if (ok && is_bar(w, h)) bar_changed(w);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 12;
 }
 
@@ -493,7 +493,7 @@ static int api_AppendMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int ok = in && menu_insert(in, -1, text, id, flags);
     pthread_mutex_unlock(&w->lock);
     if (ok && is_bar(w, h)) bar_changed(w);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 10;
 }
 
@@ -509,7 +509,7 @@ static int api_DeleteMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (at >= 0) menu_cut(in, at, 1);
     pthread_mutex_unlock(&w->lock);
     if (at >= 0 && is_bar(w, h)) bar_changed(w);
-    w->cpu.r[R_AX] = at >= 0;
+    w->cpu.r[R_AX].w = at >= 0;
     return 6;
 }
 
@@ -529,7 +529,7 @@ static int api_ModifyMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (at >= 0 && (ok = menu_insert(in, at, text, id, flags))) menu_cut(in, at + 1, 0);
     pthread_mutex_unlock(&w->lock);
     if (ok && is_bar(w, h)) bar_changed(w);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 12;
 }
 
@@ -561,7 +561,7 @@ static int api_ChangeMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
     pthread_mutex_unlock(&w->lock);
     if (ok && is_bar(w, h)) bar_changed(w);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 12;
 }
 
@@ -572,7 +572,7 @@ static int api_ChangeMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_HiliteMenuItem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a); w16_arg16(a); w16_arg16(a); w16_arg16(a);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 8;
 }
 
@@ -589,7 +589,7 @@ static int api_LoadAccelerators(struct w16 *w, unsigned ordinal, struct w16_args
     if ((p >> 16) && cpu16_str(c, (uint16_t)(p >> 16), (uint16_t)p, name, sizeof name) < 0) return -1;
     struct ne_resource res;
     int i = w16_res_find(w, NE_RT_ACCELERATOR, 0, (uint16_t)((p >> 16) ? 0 : p), name[0] ? name : 0, &res);
-    c->r[R_AX] = i < 0 || i > 0x1FF ? 0 : (uint16_t)(HACCEL_BASE + i);
+    c->r[R_AX].w = i < 0 || i > 0x1FF ? 0 : (uint16_t)(HACCEL_BASE + i);
     return 6;
 }
 
@@ -609,7 +609,7 @@ static int api_TranslateAccelerator(struct w16 *w, unsigned ordinal, struct w16_
     (void)ordinal;
     uint16_t hwnd = w16_arg16(a), hacc = w16_arg16(a);
     uint32_t lpmsg = w16_arg32(a);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     const uint8_t *m = cpu16_ptr(c, (uint16_t)(lpmsg >> 16), (uint16_t)lpmsg, 10, 0);
     if (!m) return -1;
     uint16_t msg = (uint16_t)(m[2] | m[3] << 8), wp = (uint16_t)(m[4] | m[5] << 8);
@@ -631,7 +631,7 @@ static int api_TranslateAccelerator(struct w16 *w, unsigned ordinal, struct w16_
         if (hit) {
             struct w16_msg cm = { hwnd, WM_COMMAND, (uint16_t)cmd, 0x10000u, 0 };
             w16_dispatch(w, &cm);
-            c->r[R_AX] = 1;
+            c->r[R_AX].w = 1;
             return 8;
         }
         if (f & 0x80) break;

@@ -306,7 +306,7 @@ void cpu16_x87_op(struct cpu16 *c, uint8_t op, uint8_t modrm, int seg, uint32_t 
         if (!p) return;
     }
     if (op == 0xDF && modrm == 0xE0) {                   // FNSTSW AX: the stub's AX is the buffer's
-        c->r[R_AX] = rd16(x->img, IMG_SW);
+        c->r[R_AX].w = rd16(x->img, IMG_SW);
         return;
     }
     if (op == 0xDB && modrm == 0xE3) {

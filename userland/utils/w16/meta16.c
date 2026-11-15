@@ -63,19 +63,19 @@
 // pushed first (a long: high word, then low); DX:AX back.
 static uint32_t gdi(struct w16 *w, unsigned ordinal, const uint16_t *words, unsigned n) {
     struct cpu16 *c = &w->cpu;
-    uint16_t sp = c->r[R_SP], frame = (uint16_t)(sp - 2 * n - 4);
+    uint16_t sp = c->r[R_SP].w, frame = (uint16_t)(sp - 2 * n - 4);
     for (unsigned i = 0; i < n; i++) {
         uint8_t *p = cpu16_ptr(c, c->sreg[S_SS], (uint16_t)(frame + 4 + 2 * (n - 1 - i)), 2, 1);
         if (!p) { c->fault = 0; return 0; }      // no room below the stack: the record is skipped
         p[0] = (uint8_t)words[i];
         p[1] = (uint8_t)(words[i] >> 8);
     }
-    c->r[R_SP] = frame;
+    c->r[R_SP].w = frame;
     struct w16_args a = { c, 2 * n };
     int r = w16_gdi(w, ordinal, &a);
-    c->r[R_SP] = sp;
+    c->r[R_SP].w = sp;
     if (r < 0) return 0;
-    return (uint32_t)c->r[R_DX] << 16 | c->r[R_AX];
+    return (uint32_t)c->r[R_DX].w << 16 | c->r[R_AX].w;
 }
 
 #define G(ord, ...) gdi(w, (ord), (const uint16_t[]){ __VA_ARGS__ }, \
@@ -176,7 +176,7 @@ int w16_play_wmf(struct w16 *w, uint16_t hdc, const uint8_t *bytes, uint32_t len
     if (uwmf_open(&m, bytes, len) < 0) return 0;
     uint16_t *obj = calloc(m.nobjects ? m.nobjects : 1, sizeof *obj);
     if (!obj) { uwmf_close(&m); return 0; }
-    uint16_t ax = w->cpu.r[R_AX], dx = w->cpu.r[R_DX];
+    uint16_t ax = w->cpu.r[R_AX].w, dx = w->cpu.r[R_DX].w;
     G(GDI_SAVEDC, hdc);
     struct uwmf_rec r;
     int ok = 1, got = 0;
@@ -274,14 +274,14 @@ int w16_play_wmf(struct w16 *w, uint16_t hdc, const uint8_t *bytes, uint32_t len
         if (obj[i]) G(GDI_DELETEOBJECT, obj[i]);
     free(obj);
     uwmf_close(&m);
-    w->cpu.r[R_AX] = ax;
-    w->cpu.r[R_DX] = dx;
+    w->cpu.r[R_AX].w = ax;
+    w->cpu.r[R_DX].w = dx;
     return ok;
 }
 
 int w16_gdi_play_into(struct w16 *w, uint16_t hdc, const int16_t rc[4], int32_t pw, int32_t ph,
                       const uint8_t *bytes, uint32_t len) {
-    uint16_t ax = w->cpu.r[R_AX], dx = w->cpu.r[R_DX];
+    uint16_t ax = w->cpu.r[R_AX].w, dx = w->cpu.r[R_DX].w;
     // the rectangle in pixels, as the viewport is
     int16_t pt[4] = { rc[0], rc[1], rc[2], rc[3] };
     uint16_t at = put(w, pt, sizeof pt);
@@ -297,15 +297,15 @@ int w16_gdi_play_into(struct w16 *w, uint16_t hdc, const int16_t rc[4], int32_t 
     G(GDI_SETVPEXT, hdc, (uint16_t)(pt[2] - pt[0] ? pt[2] - pt[0] : 1), (uint16_t)(pt[3] - pt[1] ? pt[3] - pt[1] : 1));
     int ok = w16_play_wmf(w, hdc, bytes, len);
     G(GDI_RESTOREDC, hdc, (uint16_t)-1);
-    w->cpu.r[R_AX] = ax;
-    w->cpu.r[R_DX] = dx;
+    w->cpu.r[R_AX].w = ax;
+    w->cpu.r[R_DX].w = dx;
     return ok;
 }
 
 void w16_gdi_stretch_bitmap(struct w16 *w, uint16_t hdc, int x, int y, int cw, int ch, uint16_t bm) {
     int bw, bh;
     if (!w16_gdi_bitmap_pixels(w, bm, &bw, &bh)) return;
-    uint16_t ax = w->cpu.r[R_AX], dx = w->cpu.r[R_DX];
+    uint16_t ax = w->cpu.r[R_AX].w, dx = w->cpu.r[R_DX].w;
     uint16_t mdc = (uint16_t)G(GDI_COMPATDC, hdc);
     if (mdc) {
         uint16_t old = (uint16_t)G(GDI_SELECTOBJECT, mdc, bm);
@@ -314,8 +314,8 @@ void w16_gdi_stretch_bitmap(struct w16 *w, uint16_t hdc, int x, int y, int cw, i
         G(GDI_SELECTOBJECT, mdc, old);
         G(GDI_DELETEDC, mdc);
     }
-    w->cpu.r[R_AX] = ax;
-    w->cpu.r[R_DX] = dx;
+    w->cpu.r[R_AX].w = ax;
+    w->cpu.r[R_DX].w = dx;
 }
 
 uint16_t w16_render_metafile(struct w16 *w, const uint8_t *bytes, uint32_t len, int xext, int yext) {
@@ -327,7 +327,7 @@ uint16_t w16_render_metafile(struct w16 *w, const uint8_t *bytes, uint32_t len, 
     for (long i = 0; i < (long)pw * ph; i++) white[i] = 0xFFFFFF;
     uint16_t bm = w16_gdi_bitmap_from(w, white, pw, ph);
     free(white);
-    uint16_t ax = w->cpu.r[R_AX], dx = w->cpu.r[R_DX];
+    uint16_t ax = w->cpu.r[R_AX].w, dx = w->cpu.r[R_DX].w;
     uint16_t mdc = bm ? (uint16_t)G(GDI_COMPATDC, 0) : 0;
     if (mdc) {
         uint16_t old = (uint16_t)G(GDI_SELECTOBJECT, mdc, bm);
@@ -336,8 +336,8 @@ uint16_t w16_render_metafile(struct w16 *w, const uint8_t *bytes, uint32_t len, 
         G(GDI_SELECTOBJECT, mdc, old);
         G(GDI_DELETEDC, mdc);
     }
-    w->cpu.r[R_AX] = ax;
-    w->cpu.r[R_DX] = dx;
+    w->cpu.r[R_AX].w = ax;
+    w->cpu.r[R_DX].w = dx;
     return bm;
 }
 
@@ -363,7 +363,7 @@ static int api_PlayMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a)
     if (copy) memcpy(copy, p, size);
     int ok = copy && w16_play_wmf(w, hdc, copy, size);
     free(copy);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return w->cpu.fault ? -1 : 4;
 }
 
@@ -592,8 +592,8 @@ int w16_meta_record(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t v[16];
     for (unsigned i = 0; i < nw && i < 16; i++) v[i] = cpu16_arg(c, 2 * i);   // last argument first
 #define FAR(i) ((uint32_t)v[i] | (uint32_t)v[(i) + 1] << 16)
-    c->r[R_AX] = 1;
-    c->r[R_DX] = 0;
+    c->r[R_AX].w = 1;
+    c->r[R_DX].w = 0;
     switch (RECORDED[k].how) { // dispatch-ok: one case per way MS-WMF lays a call's arguments out
     case R_WORDS:
         if (nw == func >> 8) emit(m, func, v, nw, 0, 0);
@@ -692,7 +692,7 @@ int w16_meta_record(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         memcpy(rv + 3, v + 7, 8 * 2);
         emit(m, func, rv, 11, dib, ndib);
         free(dib);
-        c->r[R_AX] = v[7];                       // the source's height: the rows drawn
+        c->r[R_AX].w = v[7];                       // the source's height: the rows drawn
         break;
     }
     case R_DIBTODEV: {
@@ -706,7 +706,7 @@ int w16_meta_record(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         memcpy(rv + 1, v + 5, 8 * 2);
         emit(m, func, rv, 9, dib, ndib);
         free(dib);
-        c->r[R_AX] = v[5];
+        c->r[R_AX].w = v[5];
         break;
     }
     case R_SELECT: {                             // the object's slot; the handle back, as a stand-in
@@ -715,7 +715,7 @@ int w16_meta_record(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             uint16_t sv = (uint16_t)i;
             emit(m, func, &sv, 1, 0, 0);
         }
-        c->r[R_AX] = v[0];
+        c->r[R_AX].w = v[0];
         break;
     }
     }
@@ -732,7 +732,7 @@ int w16_meta_record(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_CreateMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t name = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     char path[128] = "";
     for (unsigned k = 0; name >> 16 && k + 1 < sizeof path; k++) {
         const uint8_t *ch = far_ptr(w, name + k, 1);
@@ -748,7 +748,7 @@ static int api_CreateMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *
     memset(m, 0, sizeof *m);
     m->hdc = hdc;
     if (path[0]) m->path = strdup(path);
-    w->cpu.r[R_AX] = hdc;
+    w->cpu.r[R_AX].w = hdc;
     return 4;
 }
 
@@ -759,7 +759,7 @@ static int api_CreateMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *
 static int api_CloseMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hdc = w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     struct mdc *m = mdc_of(hdc);
     if (!m) return 2;
     static const uint16_t eof[3] = { 3, 0, 0 };
@@ -777,7 +777,7 @@ static int api_CloseMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a
             FILE *f = w16_dos_path(m->path, host, sizeof host, 1, 0, 0) == 0 ? fopen(host, "wb") : 0;
             if (f) { fwrite(mf, 1, total, f); fclose(f); }
         }
-        w->cpu.r[R_AX] = w16_global_alloc(w, (uint32_t)total, mf);
+        w->cpu.r[R_AX].w = w16_global_alloc(w, (uint32_t)total, mf);
         free(mf);
     }
     free(m->buf);
@@ -797,7 +797,7 @@ static int api_DeleteMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *
     uint32_t size;
     int ok = w16_global_ptr(w, h, &size) != 0;
     if (ok) w16_global_free(w, h);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 2;
 }
 
@@ -806,7 +806,7 @@ static int api_DeleteMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *
 // w16: The same block: a metafile here is one already.
 static int api_GetMetaFileBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w->cpu.r[R_AX] = w16_arg16(a);
+    w->cpu.r[R_AX].w = w16_arg16(a);
     return 2;
 }
 

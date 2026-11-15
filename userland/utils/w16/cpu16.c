@@ -41,7 +41,7 @@ static uint8_t g_dummy[8];
 void cpu16_set_fault(struct cpu16 *c, int kind, const char *why) {
     if (c->fault) return;
     c->fault = kind;
-    memcpy(c->fault_r, c->r, sizeof c->fault_r);
+    for (int i = 0; i < 8; i++) c->fault_r[i] = c->r[i].w;
     memcpy(c->fault_sreg, c->sreg, sizeof c->fault_sreg);
     snprintf(c->fault_why, sizeof c->fault_why, "%s", why);
 }
@@ -249,11 +249,11 @@ static int ss_big(struct cpu16 *c) {
     return d && (d->flags & CPU16_DF_BIG);
 }
 static uint32_t sp_get(struct cpu16 *c) {
-    return ss_big(c) ? (uint32_t)c->rh[R_SP] << 16 | c->r[R_SP] : c->r[R_SP];
+    return ss_big(c) ? c->r[R_SP].e : c->r[R_SP].w;
 }
 static void sp_set(struct cpu16 *c, uint32_t v) {
-    if (ss_big(c)) c->rh[R_SP] = (uint16_t)(v >> 16);
-    c->r[R_SP] = (uint16_t)v;
+    if (ss_big(c)) c->r[R_SP].e = v;
+    else c->r[R_SP].w = (uint16_t)v;
 }
 static void sp_add(struct cpu16 *c, int32_t d) { sp_set(c, sp_get(c) + (uint32_t)d); }
 
@@ -388,24 +388,21 @@ static unsigned wbits(int w) { return w == 2 ? 32 : w ? 16 : 8; }
 static int osz(const struct insn *in, int wbit) { return wbit ? 1 + in->o32 : 0; }
 
 static uint8_t get8(struct cpu16 *c, int r) {
-    return r < 4 ? (uint8_t)c->r[r] : (uint8_t)(c->r[r - 4] >> 8);
+    return r < 4 ? (uint8_t)c->r[r].w : (uint8_t)(c->r[r - 4].w >> 8);
 }
 
 static void set8(struct cpu16 *c, int r, uint8_t v) {
-    if (r < 4) c->r[r] = (uint16_t)((c->r[r] & 0xFF00) | v);
-    else c->r[r - 4] = (uint16_t)((c->r[r - 4] & 0x00FF) | v << 8);
+    if (r < 4) c->r[r].w = (uint16_t)((c->r[r].w & 0xFF00) | v);
+    else c->r[r - 4].w = (uint16_t)((c->r[r - 4].w & 0x00FF) | v << 8);
 }
 
-static uint32_t get32(struct cpu16 *c, int r) { return (uint32_t)c->rh[r] << 16 | c->r[r]; }
-static void set32(struct cpu16 *c, int r, uint32_t v) {
-    c->r[r] = (uint16_t)v;
-    c->rh[r] = (uint16_t)(v >> 16);
-}
+static uint32_t get32(struct cpu16 *c, int r) { return c->r[r].e; }
+static void set32(struct cpu16 *c, int r, uint32_t v) { c->r[r].e = v; }
 
-static uint32_t reg_get(struct cpu16 *c, int r, int w) { return w == 2 ? get32(c, r) : w ? c->r[r] : get8(c, r); }
+static uint32_t reg_get(struct cpu16 *c, int r, int w) { return w == 2 ? get32(c, r) : w ? c->r[r].w : get8(c, r); }
 static void reg_set(struct cpu16 *c, int r, int w, uint32_t v) {
     if (w == 2) set32(c, r, v);
-    else if (w) c->r[r] = (uint16_t)v;
+    else if (w) c->r[r].w = (uint16_t)v;
     else set8(c, r, (uint8_t)v);
 }
 
@@ -606,14 +603,14 @@ static void decode_modrm(struct cpu16 *c, struct insn *in, struct modrm *m) {
     static const int base_bp[8] = { 0, 0, 1, 1, 0, 0, 1, 0 };
     uint16_t off = 0;
     switch (m->rm) {
-    case 0: off = (uint16_t)(c->r[R_BX] + c->r[R_SI]); break;
-    case 1: off = (uint16_t)(c->r[R_BX] + c->r[R_DI]); break;
-    case 2: off = (uint16_t)(c->r[R_BP] + c->r[R_SI]); break;
-    case 3: off = (uint16_t)(c->r[R_BP] + c->r[R_DI]); break;
-    case 4: off = c->r[R_SI]; break;
-    case 5: off = c->r[R_DI]; break;
-    case 6: off = m->mod == 0 ? 0 : c->r[R_BP]; break;
-    case 7: off = c->r[R_BX]; break;
+    case 0: off = (uint16_t)(c->r[R_BX].w + c->r[R_SI].w); break;
+    case 1: off = (uint16_t)(c->r[R_BX].w + c->r[R_DI].w); break;
+    case 2: off = (uint16_t)(c->r[R_BP].w + c->r[R_SI].w); break;
+    case 3: off = (uint16_t)(c->r[R_BP].w + c->r[R_DI].w); break;
+    case 4: off = c->r[R_SI].w; break;
+    case 5: off = c->r[R_DI].w; break;
+    case 6: off = m->mod == 0 ? 0 : c->r[R_BP].w; break;
+    case 7: off = c->r[R_BX].w; break;
     }
     bp = base_bp[m->rm] && !(m->rm == 6 && m->mod == 0);
     if (m->mod == 0 && m->rm == 6) off = fetch16(c);
@@ -640,10 +637,10 @@ static void rm_set(struct cpu16 *c, struct modrm *m, int w, uint32_t v) {
 }
 
 // An index register (SI, DI, CX, BX) as the address size reads it.
-static uint32_t idx_get(struct cpu16 *c, const struct insn *in, int r) { return in->a32 ? get32(c, r) : c->r[r]; }
+static uint32_t idx_get(struct cpu16 *c, const struct insn *in, int r) { return in->a32 ? get32(c, r) : c->r[r].w; }
 static void idx_add(struct cpu16 *c, const struct insn *in, int r, int32_t d) {
     if (in->a32) set32(c, r, get32(c, r) + (uint32_t)d);
-    else c->r[r] = (uint16_t)(c->r[r] + d);
+    else c->r[r].w = (uint16_t)(c->r[r].w + d);
 }
 
 // --- control transfer -----------------------------------------------------
@@ -744,7 +741,7 @@ static void interrupt(struct cpu16 *c, uint8_t n) {
         char why[48];
         // AH names the function for the DOS and BIOS services, so a
         // missing one says which.
-        snprintf(why, sizeof why, "INT %02Xh function %02Xh is not implemented", n, c->r[R_AX] >> 8);
+        snprintf(why, sizeof why, "INT %02Xh function %02Xh is not implemented", n, c->r[R_AX].w >> 8);
         cpu16_set_fault(c, FAULT_INT, why);
     }
 }
@@ -832,13 +829,13 @@ static void group3(struct cpu16 *c, struct modrm *m, int w) {
             set32(c, R_DX, (uint32_t)(r >> 32));
             setf(c, F_CF | F_OF, (r >> 32) != 0);
         } else if (w) {
-            uint32_t r = (uint32_t)c->r[R_AX] * (uint16_t)v;
-            c->r[R_AX] = (uint16_t)r;
-            c->r[R_DX] = (uint16_t)(r >> 16);
-            setf(c, F_CF | F_OF, c->r[R_DX] != 0);
+            uint32_t r = (uint32_t)c->r[R_AX].w * (uint16_t)v;
+            c->r[R_AX].w = (uint16_t)r;
+            c->r[R_DX].w = (uint16_t)(r >> 16);
+            setf(c, F_CF | F_OF, c->r[R_DX].w != 0);
         } else {
-            c->r[R_AX] = (uint16_t)((uint8_t)c->r[R_AX] * (uint8_t)v);
-            setf(c, F_CF | F_OF, (c->r[R_AX] >> 8) != 0);
+            c->r[R_AX].w = (uint16_t)((uint8_t)c->r[R_AX].w * (uint8_t)v);
+            setf(c, F_CF | F_OF, (c->r[R_AX].w >> 8) != 0);
         }
         szp(c, reg_get(c, R_AX, w), w);
         break;
@@ -849,13 +846,13 @@ static void group3(struct cpu16 *c, struct modrm *m, int w) {
             set32(c, R_DX, (uint32_t)((uint64_t)r >> 32));
             setf(c, F_CF | F_OF, r != (int32_t)r);
         } else if (w) {
-            int32_t r = (int32_t)(int16_t)c->r[R_AX] * (int16_t)v;
-            c->r[R_AX] = (uint16_t)r;
-            c->r[R_DX] = (uint16_t)((uint32_t)r >> 16);
+            int32_t r = (int32_t)(int16_t)c->r[R_AX].w * (int16_t)v;
+            c->r[R_AX].w = (uint16_t)r;
+            c->r[R_DX].w = (uint16_t)((uint32_t)r >> 16);
             setf(c, F_CF | F_OF, r != (int16_t)r);
         } else {
-            int16_t r = (int16_t)((int8_t)c->r[R_AX] * (int8_t)v);
-            c->r[R_AX] = (uint16_t)r;
+            int16_t r = (int16_t)((int8_t)c->r[R_AX].w * (int8_t)v);
+            c->r[R_AX].w = (uint16_t)r;
             setf(c, F_CF | F_OF, r != (int8_t)r);
         }
         szp(c, reg_get(c, R_AX, w), w);
@@ -867,15 +864,15 @@ static void group3(struct cpu16 *c, struct modrm *m, int w) {
             set32(c, R_AX, (uint32_t)(n / v));
             set32(c, R_DX, (uint32_t)(n % v));
         } else if (w) {
-            uint32_t n = (uint32_t)c->r[R_DX] << 16 | c->r[R_AX];
+            uint32_t n = (uint32_t)c->r[R_DX].w << 16 | c->r[R_AX].w;
             if (v == 0 || n / v > 0xFFFF) { cpu16_set_fault(c, FAULT_DE, "divide error (div)"); return; }
-            c->r[R_AX] = (uint16_t)(n / v);
-            c->r[R_DX] = (uint16_t)(n % v);
+            c->r[R_AX].w = (uint16_t)(n / v);
+            c->r[R_DX].w = (uint16_t)(n % v);
         } else {
-            uint16_t n = c->r[R_AX];
+            uint16_t n = c->r[R_AX].w;
             uint8_t d = (uint8_t)v;
             if (d == 0 || n / d > 0xFF) { cpu16_set_fault(c, FAULT_DE, "divide error (div)"); return; }
-            c->r[R_AX] = (uint16_t)((n % d) << 8 | (n / d));
+            c->r[R_AX].w = (uint16_t)((n % d) << 8 | (n / d));
         }
         break;
     default:                                              // idiv
@@ -888,20 +885,20 @@ static void group3(struct cpu16 *c, struct modrm *m, int w) {
             set32(c, R_AX, (uint32_t)q);
             set32(c, R_DX, (uint32_t)(n % d));
         } else if (w) {
-            int32_t n = (int32_t)((uint32_t)c->r[R_DX] << 16 | c->r[R_AX]);
+            int32_t n = (int32_t)((uint32_t)c->r[R_DX].w << 16 | c->r[R_AX].w);
             int32_t d = (int16_t)v;
             if (d == 0 || (n == INT32_MIN && d == -1)) { cpu16_set_fault(c, FAULT_DE, "divide error (idiv)"); return; }
             int32_t q = n / d;
             if (q > 32767 || q < -32768) { cpu16_set_fault(c, FAULT_DE, "divide error (idiv)"); return; }
-            c->r[R_AX] = (uint16_t)q;
-            c->r[R_DX] = (uint16_t)(n % d);
+            c->r[R_AX].w = (uint16_t)q;
+            c->r[R_DX].w = (uint16_t)(n % d);
         } else {
-            int16_t n = (int16_t)c->r[R_AX];
+            int16_t n = (int16_t)c->r[R_AX].w;
             int16_t d = (int8_t)v;
             if (d == 0) { cpu16_set_fault(c, FAULT_DE, "divide error (idiv)"); return; }
             int16_t q = (int16_t)(n / d);
             if (q > 127 || q < -128) { cpu16_set_fault(c, FAULT_DE, "divide error (idiv)"); return; }
-            c->r[R_AX] = (uint16_t)((uint8_t)(n % d) << 8 | (uint8_t)q);
+            c->r[R_AX].w = (uint16_t)((uint8_t)(n % d) << 8 | (uint8_t)q);
         }
         break;
     }
@@ -920,7 +917,7 @@ static uint32_t imul2(struct cpu16 *c, uint32_t a, uint32_t b, int w) {
 // --- BCD -----------------------------------------------------------------
 
 static void bcd(struct cpu16 *c, uint8_t op) {
-    uint8_t al = (uint8_t)c->r[R_AX];
+    uint8_t al = (uint8_t)c->r[R_AX].w;
     int cf = (c->flags & F_CF) != 0, af = (c->flags & F_AF) != 0;
     switch (op) {
     case 0x27: case 0x2F: {                               // daa, das
@@ -944,11 +941,11 @@ static void bcd(struct cpu16 *c, uint8_t op) {
     }
     case 0x37: case 0x3F:                                 // aaa, aas
         if ((al & 0x0F) > 9 || af) {
-            if (op == 0x37) { c->r[R_AX] = (uint16_t)(c->r[R_AX] + 0x106); }
-            else { c->r[R_AX] = (uint16_t)(c->r[R_AX] - 6); set8(c, 4, (uint8_t)(get8(c, 4) - 1)); }
+            if (op == 0x37) { c->r[R_AX].w = (uint16_t)(c->r[R_AX].w + 0x106); }
+            else { c->r[R_AX].w = (uint16_t)(c->r[R_AX].w - 6); set8(c, 4, (uint8_t)(get8(c, 4) - 1)); }
             af = cf = 1;
         } else af = cf = 0;
-        set8(c, 0, (uint8_t)(c->r[R_AX] & 0x0F));
+        set8(c, 0, (uint8_t)(c->r[R_AX].w & 0x0F));
         setf(c, F_CF, cf);
         setf(c, F_AF, af);
         break;
@@ -1081,7 +1078,7 @@ static void op_0f(struct cpu16 *c, struct insn *in) {
     case 0xA4: case 0xA5: case 0xAC: case 0xAD: {         // shld, shrd
         decode_modrm(c, in, &m);
         uint32_t v = rm_get(c, &m, w);
-        unsigned n = (op & 1 ? (uint8_t)c->r[R_CX] : fetch8(c)) & 0x1F;
+        unsigned n = (op & 1 ? (uint8_t)c->r[R_CX].w : fetch8(c)) & 0x1F;
         rm_set(c, &m, w, dshift(c, op >= 0xAC, v, reg_get(c, m.reg, w), n, w));
         return;
     }
@@ -1221,7 +1218,7 @@ static void step(struct cpu16 *c) {
             lo = (int32_t)rd32(c, m.seg, m.off);
             hi = (int32_t)rd32(c, m.seg, off_plus(&in, &m, 4));
         } else {
-            v = (int16_t)c->r[m.reg];
+            v = (int16_t)c->r[m.reg].w;
             lo = (int16_t)rd16(c, m.seg, m.off);
             hi = (int16_t)rd16(c, m.seg, off_plus(&in, &m, 2));
         }
@@ -1242,7 +1239,7 @@ static void step(struct cpu16 *c) {
         return;
     }
     case 0xE4: case 0xE5: case 0xE6: case 0xE7: case 0xEC: case 0xED: case 0xEE: case 0xEF: {
-        uint16_t port = op & 0x08 ? c->r[R_DX] : fetch8(c);
+        uint16_t port = op & 0x08 ? c->r[R_DX].w : fetch8(c);
         int w = osz(&in, op & 1), out = (op & 0x02) != 0;
         uint32_t v = out ? reg_get(c, R_AX, w) : 0;
         if (!c->io) { cpu16_set_fault(c, FAULT_HLT, "port I/O"); return; }
@@ -1319,8 +1316,8 @@ static void step(struct cpu16 *c) {
         return;
     }
     case 0x98:                                            // cbw, cwde
-        if (wd == 2) set32(c, R_AX, (uint32_t)(int32_t)(int16_t)c->r[R_AX]);
-        else c->r[R_AX] = (uint16_t)(int8_t)c->r[R_AX];
+        if (wd == 2) set32(c, R_AX, (uint32_t)(int32_t)(int16_t)c->r[R_AX].w);
+        else c->r[R_AX].w = (uint16_t)(int8_t)c->r[R_AX].w;
         return;
     case 0x99:                                            // cwd, cdq
         reg_set(c, R_DX, wd, reg_get(c, R_AX, wd) & wsign(wd) ? 0xFFFFFFFFu : 0);
@@ -1352,7 +1349,7 @@ static void step(struct cpu16 *c) {
     case 0xAC: case 0xAD: case 0xAE: case 0xAF:
         string_op(c, &in, op);
         return;
-    case 0xA8: alu(c, 4, c->r[R_AX], fetch8(c), 0); return;
+    case 0xA8: alu(c, 4, c->r[R_AX].w, fetch8(c), 0); return;
     case 0xA9: alu(c, 4, reg_get(c, R_AX, wd), fetchw(c, wd), wd); return;
     case 0xB0: case 0xB1: case 0xB2: case 0xB3: case 0xB4: case 0xB5: case 0xB6: case 0xB7:
         set8(c, op & 7, fetch8(c));
@@ -1364,7 +1361,7 @@ static void step(struct cpu16 *c) {
         int w = osz(&in, op & 1);
         decode_modrm(c, &in, &m);
         uint32_t v = rm_get(c, &m, w);
-        unsigned n = op <= 0xC1 ? fetch8(c) : op <= 0xD1 ? 1 : (uint8_t)c->r[R_CX];
+        unsigned n = op <= 0xC1 ? fetch8(c) : op <= 0xD1 ? 1 : (uint8_t)c->r[R_CX].w;
         n &= 0x1F;                                        // the 186's mask
         rm_set(c, &m, w, shift(c, m.reg, v, n, w));
         return;
@@ -1428,22 +1425,22 @@ static void step(struct cpu16 *c) {
     case 0xD4: {                                          // aam
         uint8_t base = fetch8(c);
         if (!base) { cpu16_set_fault(c, FAULT_DE, "divide error (aam)"); return; }
-        uint8_t al = (uint8_t)c->r[R_AX];
-        c->r[R_AX] = (uint16_t)((al / base) << 8 | (al % base));
-        szp(c, (uint8_t)c->r[R_AX], 0);
+        uint8_t al = (uint8_t)c->r[R_AX].w;
+        c->r[R_AX].w = (uint16_t)((al / base) << 8 | (al % base));
+        szp(c, (uint8_t)c->r[R_AX].w, 0);
         return;
     }
     case 0xD5: {                                          // aad
         uint8_t base = fetch8(c);
         uint8_t al = (uint8_t)(get8(c, 0) + get8(c, 4) * base);
-        c->r[R_AX] = al;
+        c->r[R_AX].w = al;
         szp(c, al, 0);
         return;
     }
     case 0xD6: set8(c, 0, c->flags & F_CF ? 0xFF : 0); return;     // salc
     case 0xD7: {                                          // xlat
         int s = in.seg >= 0 ? in.seg : S_DS;
-        uint32_t at = idx_get(c, &in, R_BX) + (uint8_t)c->r[R_AX];
+        uint32_t at = idx_get(c, &in, R_BX) + (uint8_t)c->r[R_AX].w;
         set8(c, 0, rd8(c, s, in.a32 ? at : (uint16_t)at));
         return;
     }

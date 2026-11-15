@@ -401,9 +401,9 @@ static int api_SetScrollPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     int bar = which_bar(x, w16_arg16(a));
     int16_t pos = (int16_t)w16_arg16(a);
     uint16_t redraw_it = w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (bar >= 0) {
-        w->cpu.r[R_AX] = (uint16_t)x->sb[bar].pos;
+        w->cpu.r[R_AX].w = (uint16_t)x->sb[bar].pos;
         w16_sbar_set(w, x, bar, x->sb[bar].min, x->sb[bar].max, pos, redraw_it);
     }
     return 8;
@@ -416,7 +416,7 @@ static int api_GetScrollPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     int bar = which_bar(x, w16_arg16(a));
-    w->cpu.r[R_AX] = bar >= 0 ? (uint16_t)x->sb[bar].pos : 0;
+    w->cpu.r[R_AX].w = bar >= 0 ? (uint16_t)x->sb[bar].pos : 0;
     return 4;
 }
 

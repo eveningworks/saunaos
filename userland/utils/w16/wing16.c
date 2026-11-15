@@ -140,7 +140,7 @@ static void put_header(uint8_t *p, int32_t bw, int32_t bh, uint32_t image) {
 // w16: A memory DC, CreateCompatibleDC's.
 static int api_WinGCreateDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal; (void)a;
-    w->cpu.r[R_AX] = w16_gdi_new_memory_dc(w);
+    w->cpu.r[R_AX].w = w16_gdi_new_memory_dc(w);
     return 0;
 }
 
@@ -154,7 +154,7 @@ static int api_WinGRecommendDIBFormat(struct w16 *w, unsigned ordinal, struct w1
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 40, 1);
     if (!p) return -1;
     put_header(p, 1, -1, 0);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 4;
 }
 
@@ -169,7 +169,7 @@ static int api_WinGCreateBitmap(struct w16 *w, unsigned ordinal, struct w16_args
     struct cpu16 *c = &w->cpu;
     w16_arg16(a);
     uint32_t bmi = w16_arg32(a), ppv = w16_arg32(a);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     const uint8_t *h = cpu16_ptr(c, (uint16_t)(bmi >> 16), (uint16_t)bmi, 40, 0);
     if (!h) return -1;
     uint32_t used = (uint32_t)(h[32] | h[33] << 8), colors = used && used < 256 ? used : 256;
@@ -199,7 +199,7 @@ static int api_WinGCreateBitmap(struct w16 *w, unsigned ordinal, struct w16_args
         p[2] = (uint8_t)g->bits;
         p[3] = (uint8_t)(g->bits >> 8);
     }
-    c->r[R_AX] = hbm;
+    c->r[R_AX].w = hbm;
     return 10;
 }
 
@@ -212,14 +212,14 @@ static int api_WinGGetDIBPointer(struct w16 *w, unsigned ordinal, struct w16_arg
     uint16_t hbm = w16_arg16(a);
     uint32_t bmi = w16_arg32(a);
     struct w16_gdiobj *bm = w16_gdi_obj(w, hbm, GDI_BITMAP);
-    c->r[R_AX] = c->r[R_DX] = 0;
+    c->r[R_AX].w = c->r[R_DX].w = 0;
     if (!bm || !bm->wing) return 6;
     if (bmi) {
         uint8_t *p = cpu16_ptr(c, (uint16_t)(bmi >> 16), (uint16_t)bmi, 40, 1);
         if (!p) return -1;
         put_header(p, bm->bw, bm->wing->topdown ? -bm->bh : bm->bh, bm->wing->stride * (uint32_t)bm->bh);
     }
-    c->r[R_DX] = bm->wing->bits;
+    c->r[R_DX].w = bm->wing->bits;
     return 6;
 }
 
@@ -233,7 +233,7 @@ static int api_WinGDIBColorTable(struct w16 *w, unsigned ordinal, struct w16_arg
     uint16_t hdc = w16_arg16(a), start = w16_arg16(a), n = w16_arg16(a);
     uint32_t far = w16_arg32(a);
     struct w16_gdiobj *bm = dc_bitmap(w, hdc);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     if (!bm || start >= 256) return 10;
     if (n > 256 - start) n = (uint16_t)(256 - start);
     uint8_t *p = n ? cpu16_ptr(c, (uint16_t)(far >> 16), (uint16_t)far, 4u * n, ordinal == 1005) : 0;
@@ -250,7 +250,7 @@ static int api_WinGDIBColorTable(struct w16 *w, unsigned ordinal, struct w16_arg
         }
     }
     if (ordinal == 1006) rev_clear(g);
-    c->r[R_AX] = n;
+    c->r[R_AX].w = n;
     return 10;
 }
 
@@ -274,7 +274,7 @@ static int api_WinGCreateHalfTonePalette(struct w16 *w, unsigned ordinal, struct
         uint32_t v = (uint32_t)(i - 225) * 12;
         pal[i] = v << 16 | v << 8 | v;
     }
-    w->cpu.r[R_AX] = w16_gdi_new_palette(w, pal, 256);
+    w->cpu.r[R_AX].w = w16_gdi_new_palette(w, pal, 256);
     return 0;
 }
 
@@ -287,7 +287,7 @@ static int api_WinGCreateHalfToneBrush(struct w16 *w, unsigned ordinal, struct w
     w16_arg16(a);
     uint32_t cr = w16_arg32(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = w16_gdi_new_brush(w, cr);
+    w->cpu.r[R_AX].w = w16_gdi_new_brush(w, cr);
     return 8;
 }
 
@@ -303,10 +303,10 @@ static int api_WinGBlt(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int16_t sx = (int16_t)w16_arg16(a), sy = (int16_t)w16_arg16(a);
     if (ordinal == 1009) {
         int16_t sw = (int16_t)w16_arg16(a), sh = (int16_t)w16_arg16(a);
-        w->cpu.r[R_AX] = (uint16_t)w16_gdi_stretchblt(w, hd, x, y, cw, ch, hs, sx, sy, sw, sh, 0x00CC0020);
+        w->cpu.r[R_AX].w = (uint16_t)w16_gdi_stretchblt(w, hd, x, y, cw, ch, hs, sx, sy, sw, sh, 0x00CC0020);
         return 20;
     }
-    w->cpu.r[R_AX] = (uint16_t)w16_gdi_bitblt(w, hd, x, y, cw, ch, hs, sx, sy, 0x00CC0020);
+    w->cpu.r[R_AX].w = (uint16_t)w16_gdi_bitblt(w, hd, x, y, cw, ch, hs, sx, sy, 0x00CC0020);
     return 16;
 }
 

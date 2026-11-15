@@ -449,7 +449,7 @@ uint16_t w16_icon_copy(struct w16 *w, uint16_t h) {
 static int api_CopyIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
-    w->cpu.r[R_AX] = w16_icon_copy(w, w16_arg16(a));
+    w->cpu.r[R_AX].w = w16_icon_copy(w, w16_arg16(a));
     return 4;
 }
 
@@ -462,7 +462,7 @@ static int api_DestroyIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     uint32_t len = 0;
     int block = loaded_icon(h) < 0 && w16_cursor_index(h) < 0 && w16_global_ptr(w, h, &len) != 0;
     if (block) w16_global_free(w, h);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 2;
 }
 
@@ -475,7 +475,7 @@ static int api_DumpIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t lp = w16_arg32(a), lplen = w16_arg32(a), lpxor = w16_arg32(a), lpand = w16_arg32(a);
     struct cpu16 *c = &w->cpu;
-    c->r[R_AX] = c->r[R_DX] = 0;
+    c->r[R_AX].w = c->r[R_DX].w = 0;
     const uint8_t *b = cpu16_ptr(c, (uint16_t)(lp >> 16), (uint16_t)lp, CII_LEN, 0);
     if (!b) return 16;
     unsigned iw = u16(b + 4), ih = u16(b + 6), wx = u16(b + 8);
@@ -486,7 +486,7 @@ static int api_DumpIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if ((lpand >> 16) && (p = cpu16_ptr(c, (uint16_t)(lpand >> 16), (uint16_t)lpand, 4, 1))) memcpy(p, &pand, 4);
     if ((lpxor >> 16) && (p = cpu16_ptr(c, (uint16_t)(lpxor >> 16), (uint16_t)lpxor, 4, 1))) memcpy(p, &pxor, 4);
     if ((lplen >> 16) && (p = cpu16_ptr(c, (uint16_t)(lplen >> 16), (uint16_t)lplen, 2, 1))) memcpy(p, &total, 2);
-    c->r[R_AX] = c->r[R_DX] = (uint16_t)sx;
+    c->r[R_AX].w = c->r[R_DX].w = (uint16_t)sx;
     return 16;
 }
 

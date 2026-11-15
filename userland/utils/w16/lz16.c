@@ -114,7 +114,7 @@ static int lz_init(unsigned dos) {
 // w16: The same: a compressed file (SZDD or KWAJ) is expanded whole into memory there and then.
 static int api_LZInit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w->cpu.r[R_AX] = (uint16_t)lz_init(w16_arg16(a));
+    w->cpu.r[R_AX].w = (uint16_t)lz_init(w16_arg16(a));
     return 2;
 }
 
@@ -133,7 +133,7 @@ static int api_LZOpenFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (r < 0) w16_file_close((unsigned)h);
         h = r;
     }
-    w->cpu.r[R_AX] = (uint16_t)h;
+    w->cpu.r[R_AX].w = (uint16_t)h;
     return 10;
 }
 
@@ -159,7 +159,7 @@ static int api_LZRead(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         r = w16_file_read((unsigned)h, p, n);
         if (r < 0) r = LZERROR_BADINHANDLE;
     }
-    w->cpu.r[R_AX] = (uint16_t)r;
+    w->cpu.r[R_AX].w = (uint16_t)r;
     return 8;
 }
 
@@ -182,8 +182,8 @@ static int api_LZSeek(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         r = w16_file_seek((unsigned)h, off, origin);
         if (r < 0) r = LZERROR_BADINHANDLE;
     }
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = (uint16_t)((uint32_t)r >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = (uint16_t)((uint32_t)r >> 16);
     return 8;
 }
 
@@ -233,8 +233,8 @@ static int api_LZCopy(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         r = !raw ? LZERROR_READ : put == (long)n ? put : LZERROR_WRITE;
         free(raw);
     }
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = (uint16_t)((uint32_t)r >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = (uint16_t)((uint32_t)r >> 16);
     return 4;
 }
 
@@ -244,7 +244,7 @@ static int api_LZCopy(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // w16: Nothing to set up: each copy expands in its own memory. LZStart answers 1.
 static int api_LZStart(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)a;
-    if (ordinal == 7) w->cpu.r[R_AX] = 1;
+    if (ordinal == 7) w->cpu.r[R_AX].w = 1;
     return 0;
 }
 
@@ -280,7 +280,7 @@ static int api_GetExpandedName(struct w16 *w, unsigned ordinal, struct w16_args 
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(buf >> 16), (uint16_t)buf, (uint32_t)len, 1);
     if (!p) return -1;
     memcpy(p, out, len);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 8;
 }
 

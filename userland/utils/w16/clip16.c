@@ -262,7 +262,7 @@ static int api_OpenClipboard(struct w16 *w, unsigned ordinal, struct w16_args *a
             break;
         }
     }
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return ordinal == 137 ? 2 : 0;
 }
 
@@ -278,7 +278,7 @@ static int api_EmptyClipboard(struct w16 *w, unsigned ordinal, struct w16_args *
     g.set = 1;
     g.owner = g.opener && w16_wnd_get(w, g.opener) ? g.opener : W16_HWND;
     g.serial = uclip_peek_serial();
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 0;
 }
 
@@ -296,7 +296,7 @@ static int api_EmptyClipboard(struct w16 *w, unsigned ordinal, struct w16_args *
 static int api_SetClipboardData(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t format = w16_arg16(a), h = w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!format) return 4;
     if (h) {
         w16_clip_set(w, format, h);
@@ -309,7 +309,7 @@ static int api_SetClipboardData(struct w16 *w, unsigned ordinal, struct w16_args
         f->delayed = 1;
         f->ours = 0;
     }
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 4;
 }
 
@@ -320,7 +320,7 @@ static int api_SetClipboardData(struct w16 *w, unsigned ordinal, struct w16_args
 // CF_OEMTEXT for text and CF_BITMAP and CF_DIB for a picture.
 static int api_GetClipboardData(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w->cpu.r[R_AX] = w16_clip_get(w, w16_arg16(a));
+    w->cpu.r[R_AX].w = w16_clip_get(w, w16_arg16(a));
     return 2;
 }
 
@@ -331,7 +331,7 @@ static int api_GetClipboardData(struct w16 *w, unsigned ordinal, struct w16_args
 static int api_GetClipboardOwner(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
-    w->cpu.r[R_AX] = current() ? g.owner : 0;
+    w->cpu.r[R_AX].w = current() ? g.owner : 0;
     return 0;
 }
 
@@ -348,7 +348,7 @@ static int api_EnumClipboardFormats(struct w16 *w, unsigned ordinal, struct w16_
         while (i < g.n && g.v[i].format != format) i++;
         i++;
     }
-    w->cpu.r[R_AX] = i < g.n ? g.v[i].format : 0;
+    w->cpu.r[R_AX].w = i < g.n ? g.v[i].format : 0;
     return 2;
 }
 
@@ -359,7 +359,7 @@ static int api_IsClipboardFormatAvailable(struct w16 *w, unsigned ordinal, struc
     (void)ordinal;
     uint16_t format = w16_arg16(a);
     imported(w);
-    w->cpu.r[R_AX] = find(format) != 0;
+    w->cpu.r[R_AX].w = find(format) != 0;
     return 2;
 }
 
@@ -371,9 +371,9 @@ static int api_RegisterClipboardFormat(struct w16 *w, unsigned ordinal, struct w
     (void)ordinal;
     uint32_t far = w16_arg32(a);
     char name[128];
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!(far >> 16) || cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, name, sizeof name) < 0) return 4;
-    w->cpu.r[R_AX] = w16_atom_add(w, name);
+    w->cpu.r[R_AX].w = w16_atom_add(w, name);
     return 4;
 }
 

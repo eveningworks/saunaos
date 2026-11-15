@@ -1065,8 +1065,8 @@ static int api_mciSendCommand(struct w16 *w, unsigned ordinal, struct w16_args *
     uint32_t flags = w16_arg32(a), far = w16_arg32(a);
     unsigned err = send_command(w, id, msg, flags, far);
     if (err) trace("command %04x: error %u", msg, err);
-    w->cpu.r[R_AX] = (uint16_t)err;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = (uint16_t)err;
+    w->cpu.r[R_DX].w = 0;
     return w->cpu.fault ? -1 : 12;
 }
 
@@ -1087,8 +1087,8 @@ static int api_mciSendString(struct w16 *w, unsigned ordinal, struct w16_args *a
     trace("string \"%s\": %u \"%s\"", line ? line : "", err, err ? "" : ret);
     if (!err) err = put_str(w, out, cap, ret);
     free(line);
-    w->cpu.r[R_AX] = (uint16_t)err;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = (uint16_t)err;
+    w->cpu.r[R_DX].w = 0;
     return w->cpu.fault ? -1 : 12;
 }
 
@@ -1127,7 +1127,7 @@ static int api_mciGetErrorString(struct w16 *w, unsigned ordinal, struct w16_arg
     for (unsigned i = 0; i < sizeof ERRORS / sizeof ERRORS[0]; i++)
         if (ERRORS[i].err == err) text = ERRORS[i].text;
     put_str(w, out, cap, text ? text : "");
-    w->cpu.r[R_AX] = text != 0;
+    w->cpu.r[R_AX].w = text != 0;
     return w->cpu.fault ? -1 : 10;
 }
 

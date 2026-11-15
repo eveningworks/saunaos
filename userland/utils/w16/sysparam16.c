@@ -246,7 +246,7 @@ static int api_SystemParametersInfo(struct w16 *w, unsigned ordinal, struct w16_
         }
     }
     if (ok) tell(w, flags);
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 10;
 }
 
@@ -259,7 +259,7 @@ static int api_SystemParametersInfo(struct w16 *w, unsigned ordinal, struct w16_
 // key is there, else SaunaOS's double-click setting (Settings > Mouse), which this never changes.
 static int api_DoubleClickTime(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (ordinal == 21) {
-        w->cpu.r[R_AX] = (uint16_t)w16_dclick_ms();
+        w->cpu.r[R_AX].w = (uint16_t)w16_dclick_ms();
         return 0;
     }
     unsigned ms = w16_arg16(a);
@@ -274,7 +274,7 @@ static int api_DoubleClickTime(struct w16 *w, unsigned ordinal, struct w16_args 
 static int api_SwapMouseButton(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     int on = w16_arg16(a) != 0;
-    w->cpu.r[R_AX] = (uint16_t)(w16_sysparam("windows", "SwapMouseButtons", 0) != 0);
+    w->cpu.r[R_AX].w = (uint16_t)(w16_sysparam("windows", "SwapMouseButtons", 0) != 0);
     session_set("SwapMouseButtons", on);
     return 2;
 }

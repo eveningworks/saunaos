@@ -663,7 +663,7 @@ static int api_DefFrameProc(struct w16 *w, unsigned ordinal, struct w16_args *a)
     uint32_t lp = w16_arg32(a), r = 0;
     struct w16_wnd *x = w16_wnd_get(w, hwnd), *client = w16_wnd_get(w, hc);
     struct mdi *m = mdi_of(client);
-    if (!x) { w->cpu.r[R_AX] = w->cpu.r[R_DX] = 0; return 12; }
+    if (!x) { w->cpu.r[R_AX].w = w->cpu.r[R_DX].w = 0; return 12; }
     if (!m) {
         r = w16_def_window_proc(w, x, msg, wp, lp);
     } else switch (msg) {
@@ -712,8 +712,8 @@ static int api_DefFrameProc(struct w16 *w, unsigned ordinal, struct w16_args *a)
         r = w16_def_window_proc(w, x, msg, wp, lp);
         break;
     }
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = (uint16_t)(r >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = (uint16_t)(r >> 16);
     return 12;
 }
 
@@ -729,7 +729,7 @@ static int api_DefMDIChildProc(struct w16 *w, unsigned ordinal, struct w16_args 
     struct w16_wnd *x = w16_wnd_get(w, hwnd), *client = x ? w16_mdi_client_of(w, x) : 0;
     struct mdi *m = mdi_of(client);
     uint16_t hc = client ? client->hwnd : 0;
-    if (!x) { w->cpu.r[R_AX] = w->cpu.r[R_DX] = 0; return 10; }
+    if (!x) { w->cpu.r[R_AX].w = w->cpu.r[R_DX].w = 0; return 10; }
     if (!m) {
         r = w16_def_window_proc(w, x, msg, wp, lp);
     } else switch (msg) {
@@ -803,8 +803,8 @@ static int api_DefMDIChildProc(struct w16 *w, unsigned ordinal, struct w16_args 
         r = w16_def_window_proc(w, x, msg, wp, lp);
         break;
     }
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = (uint16_t)(r >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = (uint16_t)(r >> 16);
     return 10;
 }
 
@@ -817,7 +817,7 @@ static int api_TranslateMDISysAccel(struct w16 *w, unsigned ordinal, struct w16_
     uint16_t hc = w16_arg16(a);
     uint32_t lpmsg = w16_arg32(a);
     struct cpu16 *c = &w->cpu;
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     const uint8_t *p = cpu16_ptr(c, (uint16_t)(lpmsg >> 16), (uint16_t)lpmsg, 10, 0);
     if (!p) return -1;
     uint16_t msg = (uint16_t)(p[2] | p[3] << 8), vk = (uint16_t)(p[4] | p[5] << 8);
@@ -831,7 +831,7 @@ static int api_TranslateMDISysAccel(struct w16 *w, unsigned ordinal, struct w16_
     else if (vk == VK_F6 || vk == VK_TAB) sc = mods & 1 ? SC_PREVWINDOW : SC_NEXTWINDOW;
     if (!sc) return 6;
     w16_send(w, m->active, WM_SYSCOMMAND, (uint16_t)sc, vk);
-    c->r[R_AX] = 1;
+    c->r[R_AX].w = 1;
     return 6;
 }
 

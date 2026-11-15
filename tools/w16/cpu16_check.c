@@ -201,6 +201,13 @@ static void run_native(const uint8_t *fin, uint8_t *fout) {
 
 struct regs { uint16_t r[8], rh[8], flags; };
 
+// The case's expected registers against the CPU's, all 32 bits of each.
+static int regs_differ(const struct regs *want, const struct cpu16 *got) {
+    for (int i = 0; i < 8; i++)
+        if (got->r[i].e != ((uint32_t)want->rh[i] << 16 | want->r[i])) return 1;
+    return 0;
+}
+
 #define U_AF F_AF
 #define U_ALL (F_CF | F_PF | F_AF | F_ZF | F_SF | F_OF)
 
@@ -682,7 +689,7 @@ static int fuzz_thunk(struct cpu16 *c, uint16_t sel, uint16_t off) {
 }
 
 static int fuzz_int(struct cpu16 *c, uint8_t n) {
-    if (n == 0x21 && (c->r[R_AX] >> 8) == 0x4C) { c->exited = 1; return 0; }
+    if (n == 0x21 && (c->r[R_AX].w >> 8) == 0x4C) { c->exited = 1; return 0; }
     return n & 1 ? 0 : -1;
 }
 
@@ -715,8 +722,8 @@ static int fuzz(unsigned cases) {
             g_desc[1].flags = g_desc[5].flags = CPU16_DF_BIG;
             if (rnd() & 1) g_desc[3].flags = CPU16_DF_BIG;
         }
-        for (int i = 0; i < 8; i++) { c.r[i] = (uint16_t)rnd(); c.rh[i] = (uint16_t)rnd(); }
-        c.r[R_SP] = (uint16_t)(rnd() % 0x220);
+        for (int i = 0; i < 8; i++) { uint16_t lo = (uint16_t)rnd(), hi = (uint16_t)rnd(); c.r[i].e = (uint32_t)hi << 16 | lo; }
+        c.r[R_SP].w = (uint16_t)(rnd() % 0x220);
         c.sreg[S_CS] = SEL(1);
         c.sreg[S_DS] = SEL(rnd() % 7);
         c.sreg[S_ES] = SEL(rnd() % 7);
@@ -802,8 +809,7 @@ int main(int argc, char **argv) {
         g_desc[E_DATA] = (struct cpu16_desc){ .base = g_idata, .limit = 0xFFFF, .kind = D_DATA, .owner = 2 };
         g_desc[E_STACK] = (struct cpu16_desc){ .base = g_istack, .limit = 0xFFFF, .kind = D_DATA, .owner = 3 };
         if (g_use32) g_desc[E_CODE].flags = g_desc[E_STACK].flags = CPU16_DF_BIG;
-        memcpy(c.r, in.r, sizeof c.r);
-        memcpy(c.rh, in.rh, sizeof c.rh);
+        for (int i = 0; i < 8; i++) c.r[i].e = (uint32_t)in.rh[i] << 16 | in.r[i];
         c.flags = in.flags;
         c.sreg[S_CS] = SEL(E_CODE);
         c.sreg[S_DS] = c.sreg[S_ES] = c.sreg[S_GS] = SEL(E_DATA);
@@ -841,7 +847,7 @@ int main(int argc, char **argv) {
         if (below < CMP_STACK - 1) memcpy(g_stack + below, g_istack + below, 2);
         uint16_t fmask = (uint16_t)((F_CF | F_PF | F_AF | F_ZF | F_SF | F_DF | F_OF) & ~undef);
         int fdiff = fp && x87_differs(fout, fw16, at, len);
-        int diff = memcmp(out.r, c.r, sizeof c.r) || memcmp(out.rh, c.rh, sizeof c.rh) || ((out.flags ^ c.flags) & fmask)
+        int diff = regs_differ(&out, &c) || ((out.flags ^ c.flags) & fmask)
                 || memcmp(g_data, g_idata, 0x10000) || memcmp(g_stack, g_istack, CMP_STACK) || fdiff;
         if (diff) {
             char d[64];
@@ -851,7 +857,7 @@ int main(int argc, char **argv) {
             printf("fl %04x\n  cpu  ", in.flags);
             for (int i = 0; i < 8; i++) printf("%04x%04x ", out.rh[i], out.r[i]);
             printf("fl %04x\n  w16  ", out.flags & fmask);
-            for (int i = 0; i < 8; i++) printf("%04x%04x ", c.rh[i], c.r[i]);
+            for (int i = 0; i < 8; i++) printf("%08x ", c.r[i].e);
             printf("fl %04x\n", c.flags & fmask);
             first_difference("data", g_data, g_idata, 0x10000);
             first_difference("stack", g_stack, g_istack, CMP_STACK);

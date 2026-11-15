@@ -316,8 +316,8 @@ static int dib_size(const uint8_t *d, uint32_t n, int *w, int *h) {
 // w16: The same handle; the rest succeed. No server ever edits an object here, so there is no one
 // to tell.
 static int api_OleRegisterClientDoc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    w->cpu.r[R_AX] = OLE_OK;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = OLE_OK;
+    w->cpu.r[R_DX].w = 0;
     switch (ordinal) {
     case 41: {
         w16_arg32(a); w16_arg32(a); w16_arg32(a);
@@ -344,7 +344,7 @@ static int api_OleEnumObjects(struct w16 *w, unsigned ordinal, struct w16_args *
     if (cur) i++;
     while (i < g_nobj && g_obj[i]->doc != doc) i++;
     if (!put_far(w, out, i < g_nobj ? far_obj(g_obj[i]) : 0)) return -1;
-    w->cpu.r[R_AX] = OLE_OK;
+    w->cpu.r[R_AX].w = OLE_OK;
     return 8;
 }
 
@@ -364,13 +364,13 @@ static int api_OleLoadFromStream(struct w16 *w, unsigned ordinal, struct w16_arg
     w16_arg32(a);
     uint32_t out = w16_arg32(a);
     struct rd r = { .w = w, .stream = stream };
-    w->cpu.r[R_AX] = OLE_ERROR_STREAM;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = OLE_ERROR_STREAM;
+    w->cpu.r[R_DX].w = 0;
     if (!stream_fn(w, stream, 0, &r.fn_sel, &r.fn_off)) return -1;
     struct ole_obj *o = object_new(w);
     if (!o || !(r.buf = w16_global_alloc(w, CHUNK, 0))) {
         if (o) object_free(w, o);
-        w->cpu.r[R_AX] = OLE_ERROR_MEMORY;
+        w->cpu.r[R_AX].w = OLE_ERROR_MEMORY;
         return 24;
     }
     int ok = read_object(&r, o);
@@ -387,7 +387,7 @@ static int api_OleLoadFromStream(struct w16 *w, unsigned ordinal, struct w16_arg
     o->doc = doc;
     o->client = client;
     if (!put_far(w, out, far_obj(o))) return -1;
-    w->cpu.r[R_AX] = OLE_OK;
+    w->cpu.r[R_AX].w = OLE_OK;
     return 24;
 }
 
@@ -399,12 +399,12 @@ static int api_OleSaveToStream(struct w16 *w, unsigned ordinal, struct w16_args 
     (void)ordinal;
     struct ole_obj *o = object_of(w16_arg32(a));
     uint32_t stream = w16_arg32(a);
-    w->cpu.r[R_AX] = OLE_ERROR_OBJECT;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = OLE_ERROR_OBJECT;
+    w->cpu.r[R_DX].w = 0;
     if (!o) return 8;
     struct rd r = { .w = w, .stream = stream };
     if (!stream_fn(w, stream, 1, &r.fn_sel, &r.fn_off)) return -1;
-    if (!(r.buf = w16_global_alloc(w, CHUNK, 0))) { w->cpu.r[R_AX] = OLE_ERROR_MEMORY; return 8; }
+    if (!(r.buf = w16_global_alloc(w, CHUNK, 0))) { w->cpu.r[R_AX].w = OLE_ERROR_MEMORY; return 8; }
     int ok = 1;
     for (uint32_t at = 0; ok && at < o->nraw; ) {
         uint32_t k = o->nraw - at < CHUNK ? o->nraw - at : CHUNK;
@@ -414,7 +414,7 @@ static int api_OleSaveToStream(struct w16 *w, unsigned ordinal, struct w16_args 
     }
     w16_global_free(w, r.buf);
     if (w->cpu.fault) return -1;
-    w->cpu.r[R_AX] = ok ? OLE_OK : OLE_ERROR_STREAM;
+    w->cpu.r[R_AX].w = ok ? OLE_OK : OLE_ERROR_STREAM;
     return 8;
 }
 
@@ -425,7 +425,7 @@ static int api_OleQuerySize(struct w16 *w, unsigned ordinal, struct w16_args *a)
     (void)ordinal;
     struct ole_obj *o = object_of(w16_arg32(a));
     uint32_t out = w16_arg32(a);
-    w->cpu.r[R_AX] = o ? OLE_OK : OLE_ERROR_OBJECT;
+    w->cpu.r[R_AX].w = o ? OLE_OK : OLE_ERROR_OBJECT;
     if (o && !put_far(w, out, o->nraw)) return -1;
     return 8;
 }
@@ -437,7 +437,7 @@ static int api_OleQueryType(struct w16 *w, unsigned ordinal, struct w16_args *a)
     (void)ordinal;
     struct ole_obj *o = object_of(w16_arg32(a));
     uint32_t out = w16_arg32(a);
-    w->cpu.r[R_AX] = o ? OLE_OK : OLE_ERROR_OBJECT;
+    w->cpu.r[R_AX].w = o ? OLE_OK : OLE_ERROR_OBJECT;
     if (o && !put_far(w, out, (uint32_t)o->type)) return -1;
     return 8;
 }
@@ -451,11 +451,11 @@ static int api_OleClone(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t client = w16_arg32(a), doc = w16_arg32(a);
     w16_arg32(a);
     uint32_t out = w16_arg32(a);
-    w->cpu.r[R_AX] = OLE_ERROR_OBJECT;
+    w->cpu.r[R_AX].w = OLE_ERROR_OBJECT;
     if (!o) return 20;
     struct ole_obj *c = object_new(w);
     uint8_t *raw = c ? malloc(o->nraw ? o->nraw : 1) : 0;
-    if (!c || !raw) { if (c) object_free(w, c); free(raw); w->cpu.r[R_AX] = OLE_ERROR_MEMORY; return 20; }
+    if (!c || !raw) { if (c) object_free(w, c); free(raw); w->cpu.r[R_AX].w = OLE_ERROR_MEMORY; return 20; }
     uint16_t sel = c->sel;
     *c = *o;
     c->sel = sel;
@@ -464,7 +464,7 @@ static int api_OleClone(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     c->client = client;
     c->doc = doc;
     if (!put_far(w, out, far_obj(c))) return -1;
-    w->cpu.r[R_AX] = OLE_OK;
+    w->cpu.r[R_AX].w = OLE_OK;
     return 20;
 }
 
@@ -480,18 +480,18 @@ static int api_OleObjectConvert(struct w16 *w, unsigned ordinal, struct w16_args
     uint32_t out = w16_arg32(a);
     char p[32] = "";
     if ((proto >> 16) && cpu16_str(&w->cpu, (uint16_t)(proto >> 16), (uint16_t)proto, p, sizeof p) < 0) return -1;
-    w->cpu.r[R_AX] = !o ? OLE_ERROR_OBJECT : strcmp(p, "Static") ? OLE_ERROR_PROTOCOL : OLE_ERROR_STATIC;
+    w->cpu.r[R_AX].w = !o ? OLE_ERROR_OBJECT : strcmp(p, "Static") ? OLE_ERROR_PROTOCOL : OLE_ERROR_STATIC;
     if (!o || strcmp(p, "Static") || !o->pformat) return 24;
     struct ole_obj *c = object_new(w);
     if (!c || !make_static(c, o->pformat, o->raw + o->poff, o->plen, o->pw, o->ph)) {
         if (c) object_free(w, c);
-        w->cpu.r[R_AX] = OLE_ERROR_MEMORY;
+        w->cpu.r[R_AX].w = OLE_ERROR_MEMORY;
         return 24;
     }
     c->client = client;
     c->doc = doc;
     if (!put_far(w, out, far_obj(c))) return -1;
-    w->cpu.r[R_AX] = OLE_OK;
+    w->cpu.r[R_AX].w = OLE_OK;
     return 24;
 }
 
@@ -504,8 +504,8 @@ static int api_OleDelete(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct ole_obj *o = object_of(w16_arg32(a));
     if (o) object_free(w, o);
-    w->cpu.r[R_AX] = o ? OLE_OK : OLE_ERROR_OBJECT;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = o ? OLE_OK : OLE_ERROR_OBJECT;
+    w->cpu.r[R_DX].w = 0;
     return 4;
 }
 
@@ -538,8 +538,8 @@ static int api_OleDraw(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t bounds = w16_arg32(a);
     w16_arg32(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = OLE_ERROR_OBJECT;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = OLE_ERROR_OBJECT;
+    w->cpu.r[R_DX].w = 0;
     if (!o) return 16;
     const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(bounds >> 16), (uint16_t)bounds, 8, 0);
     if (!p) return -1;
@@ -549,8 +549,8 @@ static int api_OleDraw(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int shown = draw(w, o, hdc, rc);
     if (w->cpu.fault) return -1;
     ax = shown ? OLE_OK : 8;                     // OLE_ERROR_DRAW
-    w->cpu.r[R_AX] = ax;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = ax;
+    w->cpu.r[R_DX].w = 0;
     return 16;
 }
 
@@ -561,7 +561,7 @@ static int api_OleQueryBounds(struct w16 *w, unsigned ordinal, struct w16_args *
     (void)ordinal;
     struct ole_obj *o = object_of(w16_arg32(a));
     uint32_t out = w16_arg32(a);
-    w->cpu.r[R_AX] = OLE_ERROR_OBJECT;
+    w->cpu.r[R_AX].w = OLE_ERROR_OBJECT;
     if (!o) return 8;
     int32_t pw = o->pw, ph = o->ph;
     int bw, bh;
@@ -573,7 +573,7 @@ static int api_OleQueryBounds(struct w16 *w, unsigned ordinal, struct w16_args *
     if (!p) return -1;
     int16_t rc[4] = { 0, 0, (int16_t)pw, (int16_t)ph };
     memcpy(p, rc, 8);
-    w->cpu.r[R_AX] = OLE_OK;
+    w->cpu.r[R_AX].w = OLE_OK;
     return 8;
 }
 
@@ -594,8 +594,8 @@ static int api_OleActivate(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     (void)ordinal;
     struct ole_obj *o = object_of(w16_arg32(a));
     w16_arg16(a); w16_arg16(a); w16_arg16(a); w16_arg16(a); w16_arg32(a);
-    w->cpu.r[R_AX] = !o ? OLE_ERROR_OBJECT : o->type == OT_STATIC ? OLE_ERROR_STATIC : OLE_ERROR_LAUNCH;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = !o ? OLE_ERROR_OBJECT : o->type == OT_STATIC ? OLE_ERROR_STATIC : OLE_ERROR_LAUNCH;
+    w->cpu.r[R_DX].w = 0;
     return 16;
 }
 
@@ -608,8 +608,8 @@ static int api_OleActivate(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 // to do -- a linked object keeps the picture it was saved with.
 static int api_OleQueryOpen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct ole_obj *o = object_of(w16_arg32(a));
-    w->cpu.r[R_AX] = !o ? OLE_ERROR_OBJECT : ordinal == 20 ? OLE_ERROR_NOT_OPEN : OLE_OK;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = !o ? OLE_ERROR_OBJECT : ordinal == 20 ? OLE_ERROR_NOT_OPEN : OLE_OK;
+    w->cpu.r[R_DX].w = 0;
     return 4;
 }
 
@@ -621,8 +621,8 @@ static int api_OleQueryOpen(struct w16 *w, unsigned ordinal, struct w16_args *a)
 static int api_OleSetHostNames(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct ole_obj *o = object_of(w16_arg32(a));
     if (ordinal == 15) { w16_arg32(a); w16_arg32(a); } else w16_arg16(a);
-    w->cpu.r[R_AX] = o ? OLE_OK : OLE_ERROR_OBJECT;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = o ? OLE_OK : OLE_ERROR_OBJECT;
+    w->cpu.r[R_DX].w = 0;
     return ordinal == 15 ? 12 : 6;
 }
 
@@ -635,8 +635,8 @@ static int api_OleGetLinkUpdateOptions(struct w16 *w, unsigned ordinal, struct w
     struct ole_obj *o = object_of(w16_arg32(a));
     uint32_t out = ordinal == 24 ? w16_arg32(a) : 0;
     if (ordinal == 25) w16_arg16(a);
-    w->cpu.r[R_AX] = !o ? OLE_ERROR_OBJECT : o->type != OT_LINK ? OLE_ERROR_NOT_LINK : OLE_OK;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = !o ? OLE_ERROR_OBJECT : o->type != OT_LINK ? OLE_ERROR_NOT_LINK : OLE_OK;
+    w->cpu.r[R_DX].w = 0;
     if (o && o->type == OT_LINK && ordinal == 24) {
         uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(out >> 16), (uint16_t)out, 2, 1);
         if (!p) return -1;
@@ -671,25 +671,25 @@ static uint16_t picture_handle(struct w16 *w, struct ole_obj *o, unsigned format
 static int api_OleEnumFormats(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct ole_obj *o = object_of(w16_arg32(a));
     uint16_t format = w16_arg16(a);
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_DX].w = 0;
     if (ordinal == 26) {
-        w->cpu.r[R_AX] = o && !format ? (uint16_t)o->pformat : 0;
+        w->cpu.r[R_AX].w = o && !format ? (uint16_t)o->pformat : 0;
         return 6;
     }
     uint32_t out = ordinal == 28 ? w16_arg32(a) : 0;
     if (ordinal == 29) {
         w16_arg16(a);
-        w->cpu.r[R_AX] = o ? OLE_ERROR_GENERIC : OLE_ERROR_OBJECT;
+        w->cpu.r[R_AX].w = o ? OLE_ERROR_GENERIC : OLE_ERROR_OBJECT;
         return 8;
     }
-    w->cpu.r[R_AX] = OLE_ERROR_OBJECT;
+    w->cpu.r[R_AX].w = OLE_ERROR_OBJECT;
     if (!o) return 10;
     uint16_t h = picture_handle(w, o, format);
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(out >> 16), (uint16_t)out, 2, 1);
     if (!p) return -1;
     p[0] = (uint8_t)h;
     p[1] = (uint8_t)(h >> 8);
-    w->cpu.r[R_AX] = h ? OLE_OK : OLE_ERROR_FORMAT;
+    w->cpu.r[R_AX].w = h ? OLE_OK : OLE_ERROR_FORMAT;
     return 10;
 }
 
@@ -701,12 +701,12 @@ static int api_OleEnumFormats(struct w16 *w, unsigned ordinal, struct w16_args *
 static int api_OleCopyToClipboard(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct ole_obj *o = object_of(w16_arg32(a));
-    w->cpu.r[R_AX] = OLE_ERROR_OBJECT;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = OLE_ERROR_OBJECT;
+    w->cpu.r[R_DX].w = 0;
     if (!o) return 4;
     uint16_t h = picture_handle(w, o, (unsigned)o->pformat);
     if (h) w16_clip_set(w, (uint16_t)o->pformat, h);
-    w->cpu.r[R_AX] = h ? OLE_OK : OLE_ERROR_FORMAT;
+    w->cpu.r[R_AX].w = h ? OLE_OK : OLE_ERROR_FORMAT;
     return 4;
 }
 
@@ -772,8 +772,8 @@ static int api_OleQueryCreateFromClip(struct w16 *w, unsigned ordinal, struct w1
     w16_arg16(a); w16_arg16(a);
     int st = is_static(w, proto);
     if (st < 0) return -1;
-    w->cpu.r[R_AX] = OLE_ERROR_FORMAT;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = OLE_ERROR_FORMAT;
+    w->cpu.r[R_DX].w = 0;
     int fmt;
     uint32_t len;
     int32_t pw, ph;
@@ -784,13 +784,13 @@ static int api_OleQueryCreateFromClip(struct w16 *w, unsigned ordinal, struct w1
             o->client = client;
             o->doc = doc;
             if (!put_far(w, out, far_obj(o))) { free(pic); return -1; }
-            w->cpu.r[R_AX] = OLE_OK;
+            w->cpu.r[R_AX].w = OLE_OK;
         } else {
             if (o) object_free(w, o);
-            w->cpu.r[R_AX] = OLE_ERROR_MEMORY;
+            w->cpu.r[R_AX].w = OLE_ERROR_MEMORY;
         }
     } else if (pic) {
-        w->cpu.r[R_AX] = OLE_OK;
+        w->cpu.r[R_AX].w = OLE_OK;
     }
     free(pic);
     return ordinal == 12 ? 24 : 8;
@@ -813,8 +813,8 @@ static int api_OleQueryCreateFromClip(struct w16 *w, unsigned ordinal, struct w1
 static int api_OleQueryLinkFromClip(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     unsigned bytes = ordinal == 9 ? 8 : ordinal == 11 ? 24 : ordinal == 34 ? 28 : ordinal == 38 ? 32 : 36;
     (void)a;
-    w->cpu.r[R_AX] = ordinal == 9 || ordinal == 11 ? OLE_ERROR_FORMAT : OLE_ERROR_CLASS;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = ordinal == 9 || ordinal == 11 ? OLE_ERROR_FORMAT : OLE_ERROR_CLASS;
+    w->cpu.r[R_DX].w = 0;
     return (int)bytes;
 }
 
@@ -827,8 +827,8 @@ static int api_OleQueryLinkFromClip(struct w16 *w, unsigned ordinal, struct w16_
 static int api_OleQueryReleaseStatus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct ole_obj *o = object_of(w16_arg32(a));
-    w->cpu.r[R_AX] = o ? OLE_OK : OLE_ERROR_OBJECT;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = o ? OLE_OK : OLE_ERROR_OBJECT;
+    w->cpu.r[R_DX].w = 0;
     return 4;
 }
 
@@ -896,8 +896,8 @@ const unsigned g_olecli_api_n = sizeof g_olecli_api / sizeof g_olecli_api[0];
 // Whole: The database, with servers w16 can start. On the roadmap: "w16: one program starting or
 // finding another".
 static int api_RegOpenKey(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    w->cpu.r[R_DX] = 0;
-    w->cpu.r[R_AX] = ERROR_BADKEY;
+    w->cpu.r[R_DX].w = 0;
+    w->cpu.r[R_AX].w = ERROR_BADKEY;
     switch (ordinal) {
     case 1: {
         uint32_t key = w16_arg32(a), sub = w16_arg32(a), out = w16_arg32(a);
@@ -905,13 +905,13 @@ static int api_RegOpenKey(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if ((sub >> 16) && cpu16_str(&w->cpu, (uint16_t)(sub >> 16), (uint16_t)sub, s, sizeof s) < 0) s[0] = 'x';
         if (key == HKEY_CLASSES_ROOT && !s[0]) {
             if (!put_far(w, out, HKEY_CLASSES_ROOT)) return -1;
-            w->cpu.r[R_AX] = ERROR_SUCCESS;
+            w->cpu.r[R_AX].w = ERROR_SUCCESS;
         }
         return 12;
     }
     case 3:
         w16_arg32(a);
-        w->cpu.r[R_AX] = ERROR_SUCCESS;
+        w->cpu.r[R_AX].w = ERROR_SUCCESS;
         return 4;
     default:                                      // 6 RegQueryValue, 7 RegEnumKey
         w16_arg32(a); w16_arg32(a); w16_arg32(a); w16_arg32(a);
@@ -929,8 +929,8 @@ static int api_RegOpenKey(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // Whole: The database as a file the program writes. On the roadmap: "w16: one program starting or
 // finding another".
 static int api_RegCreateKey(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    w->cpu.r[R_DX] = 0;
-    w->cpu.r[R_AX] = ERROR_CANTWRITE;
+    w->cpu.r[R_DX].w = 0;
+    w->cpu.r[R_AX].w = ERROR_CANTWRITE;
     if (ordinal == 2) { w16_arg32(a); w16_arg32(a); w16_arg32(a); return 12; }
     w16_arg32(a); w16_arg32(a); w16_arg32(a); w16_arg32(a); w16_arg32(a);
     return 20;
@@ -1018,21 +1018,21 @@ static int api_OleServer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     case 3: case 7: handle = w16_arg32(a); break;                          // a revoke
     default: w16_arg32(a); break;
     }
-    w->cpu.r[R_DX] = 0;
-    w->cpu.r[R_AX] = OLE_OK;
+    w->cpu.r[R_DX].w = 0;
+    w->cpu.r[R_AX].w = OLE_OK;
     if (out && ordinal == 5) {                    // OleUnblockServer: no request is waiting
         uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(out >> 16), (uint16_t)out, 2, 1);
         if (!p) return -1;
         p[0] = p[1] = 0;
     } else if (out) {
         uint32_t h = reg_add(obj);
-        if (!h) { w->cpu.r[R_AX] = OLE_ERROR_MEMORY; return (int)bytes; }
+        if (!h) { w->cpu.r[R_AX].w = OLE_ERROR_MEMORY; return (int)bytes; }
         if (!put_far(w, out, h)) return -1;
     }
     if (handle) {
         call_release(w, reg_take(handle));
-        w->cpu.r[R_AX] = OLE_OK;                  // what Release answered is the program's, not this call's
-        w->cpu.r[R_DX] = 0;
+        w->cpu.r[R_AX].w = OLE_OK;                  // what Release answered is the program's, not this call's
+        w->cpu.r[R_DX].w = 0;
     }
     return w->cpu.fault ? -1 : (int)bytes;
 }

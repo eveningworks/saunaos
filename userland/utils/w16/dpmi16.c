@@ -33,7 +33,7 @@ static int ok(struct cpu16 *c) {
 }
 
 static int fail(struct cpu16 *c, uint16_t code) {
-    c->r[R_AX] = code;
+    c->r[R_AX].w = code;
     c->flags |= F_CF;
     return 0;
 }
@@ -57,7 +57,7 @@ static struct cpu16_desc *readable(struct cpu16 *c, uint16_t sel) {
 
 // ES:DI, or ES:EDI from 32-bit code, as DPMI's buffer arguments are.
 static uint8_t *es_di(struct cpu16 *c, uint32_t len, int write) {
-    uint32_t off = c->cs32 ? (uint32_t)c->rh[R_DI] << 16 | c->r[R_DI] : c->r[R_DI];
+    uint32_t off = c->cs32 ? c->r[R_DI].e : c->r[R_DI].w;
     uint8_t *p = cpu16_ptr32(c, c->sreg[S_ES], off, len, write);
     if (!p) c->fault = 0;   // a bad buffer is the program's error to see, not a fault of w16's
     return p;
@@ -102,15 +102,15 @@ static int alloc_descs(struct cpu16 *c, unsigned n) {
         *d = (struct cpu16_desc){ .kind = D_DATA, .flags = CPU16_DF_LIN, .owner = CPU16_OWNER_ALLOC };
     }
     cpu16_desc_changed(c);
-    c->r[R_AX] = first;
+    c->r[R_AX].w = first;
     return ok(c);
 }
 
 int w16_dpmi(struct cpu16 *c) {
-    uint16_t ax = c->r[R_AX], bx = c->r[R_BX], cx = c->r[R_CX], dx = c->r[R_DX];
+    uint16_t ax = c->r[R_AX].w, bx = c->r[R_BX].w, cx = c->r[R_CX].w, dx = c->r[R_DX].w;
     if (g_w16_trace) {
         fprintf(g_w16_trace, "INT 31h AX=%04x BX=%04x CX=%04x DX=%04x SI=%04x DI=%04x\n", ax, bx, cx, dx,
-                c->r[R_SI], c->r[R_DI]);
+                c->r[R_SI].w, c->r[R_DI].w);
         fflush(g_w16_trace);
     }
     struct cpu16_desc *d;
@@ -122,12 +122,12 @@ int w16_dpmi(struct cpu16 *c) {
         memset(d, 0, sizeof *d);
         cpu16_desc_changed(c);
         return ok(c);
-    case 0x0003: c->r[R_AX] = 8; return ok(c);                        // the selector increment
+    case 0x0003: c->r[R_AX].w = 8; return ok(c);                        // the selector increment
     case 0x0006: {                                                     // get the base
         uint32_t base;
         if (!readable(c, bx) || cpu16_linear_base(c, bx, &base) < 0) return fail(c, DPMI_INVALID_SEL);
-        c->r[R_CX] = (uint16_t)(base >> 16);
-        c->r[R_DX] = (uint16_t)base;
+        c->r[R_CX].w = (uint16_t)(base >> 16);
+        c->r[R_DX].w = (uint16_t)base;
         return ok(c);
     }
     case 0x0007:                                                       // set the base
@@ -153,7 +153,7 @@ int w16_dpmi(struct cpu16 *c) {
         if (cpu16_linear_base(c, bx, &base) < 0) return fail(c, DPMI_INVALID_SEL);
         struct cpu16_desc src = *d;
         if (alloc_descs(c, 1) || (c->flags & F_CF)) return 0;
-        struct cpu16_desc *a = &c->desc[cpu16_index(c->r[R_AX])];
+        struct cpu16_desc *a = &c->desc[cpu16_index(c->r[R_AX].w)];
         *a = (struct cpu16_desc){ .kind = D_DATA, .flags = (uint8_t)(CPU16_DF_LIN | (src.flags & CPU16_DF_BIG)),
                                   .lin = base, .limit = src.limit, .owner = CPU16_OWNER_ALLOC };
         cpu16_desc_changed(c);
@@ -179,10 +179,10 @@ int w16_dpmi(struct cpu16 *c) {
         return ok(c);
     }
     case 0x0400:                                                       // the version: 0.9, 32-bit clients
-        c->r[R_AX] = 0x005A;
-        c->r[R_BX] = 0x0001;                                           // 32-bit programs; no real-mode reflection
-        c->r[R_CX] = 3;                                                // a 386
-        c->r[R_DX] = 0x0870;                                           // the PICs' bases, as a PC had them
+        c->r[R_AX].w = 0x005A;
+        c->r[R_BX].w = 0x0001;                                           // 32-bit programs; no real-mode reflection
+        c->r[R_CX].w = 3;                                                // a 386
+        c->r[R_DX].w = 0x0870;                                           // the PICs' bases, as a PC had them
         return ok(c);
     case 0x0500: {                                                     // free memory information
         uint8_t *p = es_di(c, 0x30, 1);
@@ -202,32 +202,32 @@ int w16_dpmi(struct cpu16 *c) {
         uint32_t lin;
         if (!p) return fail(c, DPMI_LINEAR_UNAVAIL);
         lin = c->lin_origin + (uint32_t)(p - c->lin);
-        c->r[R_BX] = c->r[R_SI] = (uint16_t)(lin >> 16);              // the handle is its linear address
-        c->r[R_CX] = c->r[R_DI] = (uint16_t)lin;
+        c->r[R_BX].w = c->r[R_SI].w = (uint16_t)(lin >> 16);              // the handle is its linear address
+        c->r[R_CX].w = c->r[R_DI].w = (uint16_t)lin;
         return ok(c);
     }
     case 0x0502: {                                                     // free one
-        uint8_t *p = cpu16_linear_ptr(c, pair(c->r[R_SI], c->r[R_DI]), 1);
+        uint8_t *p = cpu16_linear_ptr(c, pair(c->r[R_SI].w, c->r[R_DI].w), 1);
         if (!p || !lin16_size_of(p)) return fail(c, DPMI_INVALID_HANDLE);
         lin16_free(p);
         return ok(c);
     }
     case 0x0503: {                                                     // resize one: it may move
-        uint8_t *p = cpu16_linear_ptr(c, pair(c->r[R_SI], c->r[R_DI]), 1);
+        uint8_t *p = cpu16_linear_ptr(c, pair(c->r[R_SI].w, c->r[R_DI].w), 1);
         uint32_t size = pair(bx, cx);
         if (!p || !lin16_size_of(p)) return fail(c, DPMI_INVALID_HANDLE);
         if (!size) return fail(c, DPMI_INVALID_VALUE);
         uint8_t *n = lin16_realloc(p, size);
         if (!n) return fail(c, DPMI_LINEAR_UNAVAIL);
         uint32_t lin = c->lin_origin + (uint32_t)(n - c->lin);
-        c->r[R_BX] = c->r[R_SI] = (uint16_t)(lin >> 16);
-        c->r[R_CX] = c->r[R_DI] = (uint16_t)lin;
+        c->r[R_BX].w = c->r[R_SI].w = (uint16_t)(lin >> 16);
+        c->r[R_CX].w = c->r[R_DI].w = (uint16_t)lin;
         return ok(c);
     }
     case 0x0600: case 0x0601: case 0x0602: case 0x0603:               // lock and unlock: nothing pages out
     case 0x0702: case 0x0703:                                          // page hints
         return ok(c);
-    case 0x0604: c->r[R_BX] = 0; c->r[R_CX] = 4096; return ok(c);     // the page size
+    case 0x0604: c->r[R_BX].w = 0; c->r[R_CX].w = 4096; return ok(c);     // the page size
     default:
         return fail(c, DPMI_UNSUPPORTED);
     }

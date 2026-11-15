@@ -89,8 +89,8 @@ CONTROLS = [
     # The 32-bit segments, run in mode 32: the D bit ignored, a B-bit stack still moving SP.
     ("32-bit code decoded as 16-bit", CPU, ".o32 = c->cs32, .a32 = c->cs32 }", ".o32 = 0, .a32 = 0 }", "32"),
     ("32-bit stack moves SP only", CPU,
-     "    return ss_big(c) ? (uint32_t)c->rh[R_SP] << 16 | c->r[R_SP] : c->r[R_SP];",
-     "    return c->r[R_SP];", "32"),
+     "    return ss_big(c) ? c->r[R_SP].e : c->r[R_SP].w;",
+     "    return c->r[R_SP].w;", "32"),
 ]
 MODES = ("16", "32")   # the cases in 16-bit segments, then in 32-bit ones (cpu16_check.c)
 

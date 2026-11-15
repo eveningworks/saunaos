@@ -205,8 +205,8 @@ static int api_sndPlaySound(struct w16 *w, unsigned ordinal, struct w16_args *a)
     (void)ordinal;
     uint32_t far = w16_arg32(a);
     uint16_t flags = w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
-    if (!(far >> 16)) { stop(); w->cpu.r[R_AX] = 1; return 6; }
+    w->cpu.r[R_AX].w = 0;
+    if (!(far >> 16)) { stop(); w->cpu.r[R_AX].w = 1; return 6; }
     if (!ready(w)) return 6;
     struct usnd_clip c;
     if (flags & SND_MEMORY) {
@@ -230,7 +230,7 @@ static int api_sndPlaySound(struct w16 *w, unsigned ordinal, struct w16_args *a)
         }
         if (file_clip(host, &c) < 0) return 6;
     }
-    w->cpu.r[R_AX] = (uint16_t)play(&c, flags);
+    w->cpu.r[R_AX].w = (uint16_t)play(&c, flags);
     return 6;
 }
 
@@ -243,7 +243,7 @@ int w16_sound_ready(struct w16 *w) { return ready(w); }
 static int api_waveOutGetNumDevs(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
-    w->cpu.r[R_AX] = g_w16_prefs.sounds != W16_SOUNDS_OFF;
+    w->cpu.r[R_AX].w = g_w16_prefs.sounds != W16_SOUNDS_OFF;
     return 0;
 }
 
@@ -254,8 +254,8 @@ static int api_waveOutGetNumDevs(struct w16 *w, unsigned ordinal, struct w16_arg
 static int api_timeGetTime(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal; (void)a;
     uint32_t ms = (uint32_t)w16_now_ms();
-    w->cpu.r[R_AX] = (uint16_t)ms;
-    w->cpu.r[R_DX] = (uint16_t)(ms >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)ms;
+    w->cpu.r[R_DX].w = (uint16_t)(ms >> 16);
     return 0;
 }
 
@@ -315,7 +315,7 @@ static struct note *queue_add(void) {
 static int api_OpenSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal; (void)a;
     g_qmax = QUEUE_DEFAULT;
-    w->cpu.r[R_AX] = g_w16_prefs.sound_drv && ready(w) ? 1 : 0xFFFF;
+    w->cpu.r[R_AX].w = g_w16_prefs.sound_drv && ready(w) ? 1 : 0xFFFF;
     return 0;
 }
 
@@ -330,7 +330,7 @@ static int api_StopSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     g_tune_voice = USND_VOICE_NONE;
     g_nnotes = 0;
     if (ordinal == 2) { usnd_clip_free(&g_tune); memset(&g_tune, 0, sizeof g_tune); }
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 0;
 }
 
@@ -343,10 +343,10 @@ static int api_SetVoiceNote(struct w16 *w, unsigned ordinal, struct w16_args *a)
     (void)ordinal;
     w16_arg16(a);
     uint16_t value = w16_arg16(a), length = w16_arg16(a), dots = w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
-    if (value > 84 || length < 1 || length > 64) { w->cpu.r[R_AX] = 0xFFFF; return 8; }
+    w->cpu.r[R_AX].w = 0;
+    if (value > 84 || length < 1 || length > 64) { w->cpu.r[R_AX].w = 0xFFFF; return 8; }
     struct note *n = queue_add();
-    if (!n) { w->cpu.r[R_AX] = S_SERQFUL; return 8; }
+    if (!n) { w->cpu.r[R_AX].w = S_SERQFUL; return 8; }
     *n = (struct note){ (uint8_t)value, (uint8_t)length, (uint8_t)(dots < 3 ? dots : 3), 0, 0, 0 };
     return 8;
 }
@@ -361,7 +361,7 @@ static int api_SetVoiceQueueSize(struct w16 *w, unsigned ordinal, struct w16_arg
     uint16_t bytes = w16_arg16(a);
     g_qmax = bytes / QUEUE_ENTRY;
     g_nnotes = 0;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 4;
 }
 
@@ -377,11 +377,11 @@ static int api_SetVoiceSound(struct w16 *w, unsigned ordinal, struct w16_args *a
     uint32_t hz16 = w16_arg32(a);
     uint16_t ticks = w16_arg16(a);
     struct note *n = queue_add();
-    if (!n) { w->cpu.r[R_AX] = S_SERQFUL; return 8; }
+    if (!n) { w->cpu.r[R_AX].w = S_SERQFUL; return 8; }
     n->sound = 1;
     n->ticks = ticks;
     n->hz16 = hz16;                              // 0 Hz: a rest
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 8;
 }
 
@@ -399,7 +399,7 @@ static int api_SetVoiceAccent(struct w16 *w, unsigned ordinal, struct w16_args *
     if (tempo >= 32 && tempo <= 255) g_tempo = tempo;
     if (mode <= 2) g_mode = mode;
     if (pitch <= 83) g_pitch = pitch;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 10;
 }
 
@@ -408,7 +408,7 @@ static int api_SetVoiceAccent(struct w16 *w, unsigned ordinal, struct w16_args *
 // w16: Renders the queue into one square wave at its tempo and plays it through the sound daemon.
 static int api_StartSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal; (void)a;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!g_nnotes || !g_w16_prefs.sound_drv || !ready(w)) { g_nnotes = 0; return 0; }
     uint64_t total = 0;
     uint32_t *len = malloc(sizeof *len * (size_t)g_nnotes);
@@ -467,8 +467,8 @@ static int api_StartSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_WaitSoundState(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t state = w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
-    if (state > 2) { w->cpu.r[R_AX] = 0xFFF0; return 2; }       // S_SERDST
+    w->cpu.r[R_AX].w = 0;
+    if (state > 2) { w->cpu.r[R_AX].w = 0xFFF0; return 2; }       // S_SERDST
     uint64_t now = w16_now_ms();
     if (g_tune_voice != USND_VOICE_NONE && g_tune_end_ms > now) {
         uint64_t ms = g_tune_end_ms - now;

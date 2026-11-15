@@ -18,16 +18,16 @@ static void init_task(struct w16 *w) {
     struct cpu16 *c = &w->cpu;
     uint8_t *dg = cpu16_ptr(c, w->dgroup, 0, 16, 1);
     if (dg) {
-        uint16_t top = (uint16_t)(c->r[R_SP] - w->ne.stack);
-        uint16_t words[3] = { top, top, c->r[R_SP] };   // pStackTop, pStackMin, pStackBot
+        uint16_t top = (uint16_t)(c->r[R_SP].w - w->ne.stack);
+        uint16_t words[3] = { top, top, c->r[R_SP].w };   // pStackTop, pStackMin, pStackBot
         memcpy(dg + 0x0A, words, sizeof words);
     }
-    c->r[R_AX] = 1;
-    c->r[R_BX] = 0x81;
-    c->r[R_CX] = w->ne.stack;
-    c->r[R_DX] = SW_SHOWNORMAL;
-    c->r[R_SI] = 0;
-    c->r[R_DI] = w->dgroup;
+    c->r[R_AX].w = 1;
+    c->r[R_BX].w = 0x81;
+    c->r[R_CX].w = w->ne.stack;
+    c->r[R_DX].w = SW_SHOWNORMAL;
+    c->r[R_SI].w = 0;
+    c->r[R_DI].w = w->dgroup;
     c->sreg[S_ES] = w->psp;
 }
 
@@ -80,11 +80,11 @@ static int api_GetProfileInt(struct w16 *w, unsigned ordinal, struct w16_args *a
     if (far_str(w, app, sec, sizeof sec) < 0 || far_str(w, key, k, sizeof k) < 0 ||
         ini_file(w, ordinal, 127, file, f, sizeof f) < 0)
         return -1;
-    c->r[R_AX] = dflt;
+    c->r[R_AX].w = dflt;
     if (w16_ini_get(f, sec, k, v, sizeof v)) {
         unsigned n = 0;
         for (const char *p = v; *p >= '0' && *p <= '9'; p++) n = n * 10 + (unsigned)(*p - '0');
-        c->r[R_AX] = (uint16_t)n;
+        c->r[R_AX].w = (uint16_t)n;
     }
     return ordinal == 57 ? 10 : 14;
 }
@@ -115,7 +115,7 @@ static int api_GetProfileString(struct w16 *w, unsigned ordinal, struct w16_args
         n = put_str(w, buf, v, size);
         if (n < 0) return -1;
     }
-    c->r[R_AX] = (uint16_t)n;
+    c->r[R_AX].w = (uint16_t)n;
     return ordinal == 58 ? 18 : 22;
 }
 
@@ -133,7 +133,7 @@ static int api_WriteProfileString(struct w16 *w, unsigned ordinal, struct w16_ar
     if (far_str(w, app, sec, sizeof sec) < 0 || far_str(w, key, k, sizeof k) < 0 ||
         far_str(w, val, v, sizeof v) < 0 || ini_file(w, ordinal, 129, file, f, sizeof f) < 0)
         return -1;
-    c->r[R_AX] = (uint16_t)w16_ini_set(f, sec, (key >> 16) ? k : 0, (val >> 16) ? v : 0);
+    c->r[R_AX].w = (uint16_t)w16_ini_set(f, sec, (key >> 16) ? k : 0, (val >> 16) ? v : 0);
     return ordinal == 59 ? 12 : 16;
 }
 
@@ -176,8 +176,8 @@ static int api_MakeProcInstance(struct w16 *w, unsigned ordinal, struct w16_args
     (void)ordinal;
     uint32_t p = w16_arg32(a);                // -- every callback is entered with DS = DGROUP
     w16_arg16(a);
-    c->r[R_AX] = (uint16_t)p;
-    c->r[R_DX] = (uint16_t)(p >> 16);
+    c->r[R_AX].w = (uint16_t)p;
+    c->r[R_DX].w = (uint16_t)(p >> 16);
     return 6;
 }
 
@@ -220,8 +220,8 @@ static int api_lstrcpy(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     free(s);
     free(t);
     if (!p) return -1;
-    c->r[R_AX] = (uint16_t)dst;
-    c->r[R_DX] = (uint16_t)(dst >> 16);
+    c->r[R_AX].w = (uint16_t)dst;
+    c->r[R_DX].w = (uint16_t)(dst >> 16);
     return 8;
 }
 
@@ -233,7 +233,7 @@ static int api_lstrlen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     char *s = far_dup(w, w16_arg32(a));
     if (!s) return -1;
-    c->r[R_AX] = (uint16_t)strlen(s);
+    c->r[R_AX].w = (uint16_t)strlen(s);
     free(s);
     return 4;
 }
@@ -245,7 +245,7 @@ static int api_lstrlen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_GetCurrentTask(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
-    w->cpu.r[R_AX] = w->cpu.r[R_DX] = w->psp;
+    w->cpu.r[R_AX].w = w->cpu.r[R_DX].w = w->psp;
     return 0;
 }
 
@@ -254,7 +254,7 @@ static int api_GetCurrentTask(struct w16 *w, unsigned ordinal, struct w16_args *
 // w16: 1: each program runs in a w16 of its own, and sees no other.
 static int api_GetNumTasks(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal; (void)a;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 0;
 }
 
@@ -277,15 +277,15 @@ static int api_Catch(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)a;
     struct cpu16 *c = &w->cpu;
     uint16_t off = cpu16_arg(c, 0), sel = cpu16_arg(c, 2);
-    const uint8_t *ret = cpu16_ptr(c, c->sreg[S_SS], c->r[R_SP], 4, 0);
+    const uint8_t *ret = cpu16_ptr(c, c->sreg[S_SS], c->r[R_SP].w, 4, 0);
     uint8_t *buf = cpu16_ptr(c, sel, off, 2 * CATCH_WORDS, 1);
     if (!ret || !buf) return -1;
     uint16_t v[CATCH_WORDS] = {
-        (uint16_t)(ret[0] | ret[1] << 8), (uint16_t)(ret[2] | ret[3] << 8), (uint16_t)(c->r[R_SP] + 8),
-        c->r[R_BP], c->r[R_SI], c->r[R_DI], c->sreg[S_DS], c->sreg[S_SS], (uint16_t)c->depth,
+        (uint16_t)(ret[0] | ret[1] << 8), (uint16_t)(ret[2] | ret[3] << 8), (uint16_t)(c->r[R_SP].w + 8),
+        c->r[R_BP].w, c->r[R_SI].w, c->r[R_DI].w, c->sreg[S_DS], c->sreg[S_SS], (uint16_t)c->depth,
     };
     memcpy(buf, v, sizeof v);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     return 4;
 }
 
@@ -309,16 +309,16 @@ static int api_Throw(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         return -1;
     }
     c->sreg[S_SS] = v[7];
-    c->r[R_SP] = (uint16_t)(v[2] - 4);           // the Catch's return address, put back for the return
-    uint8_t *ret = cpu16_ptr(c, c->sreg[S_SS], c->r[R_SP], 4, 1);
+    c->r[R_SP].w = (uint16_t)(v[2] - 4);           // the Catch's return address, put back for the return
+    uint8_t *ret = cpu16_ptr(c, c->sreg[S_SS], c->r[R_SP].w, 4, 1);
     if (!ret) return -1;
     ret[0] = (uint8_t)v[0]; ret[1] = (uint8_t)(v[0] >> 8);
     ret[2] = (uint8_t)v[1]; ret[3] = (uint8_t)(v[1] >> 8);
-    c->r[R_BP] = v[3];
-    c->r[R_SI] = v[4];
-    c->r[R_DI] = v[5];
+    c->r[R_BP].w = v[3];
+    c->r[R_SI].w = v[4];
+    c->r[R_DI].w = v[5];
     c->sreg[S_DS] = v[6];
-    c->r[R_AX] = value;
+    c->r[R_AX].w = value;
     return 0;                                    // the far return lands where Catch returned
 }
 
@@ -339,7 +339,7 @@ static int api_WinExec(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int show = (int16_t)w16_arg16(a);
     char line[256];
     if (far_str(w, far, line, sizeof line) < 0) return -1;
-    w->cpu.r[R_AX] = (uint16_t)w16_launch(w, line, show);
+    w->cpu.r[R_AX].w = (uint16_t)w16_launch(w, line, show);
     return 6;
 }
 
@@ -354,12 +354,12 @@ static int api_GetWindowsDirectory(struct w16 *w, unsigned ordinal, struct w16_a
     unsigned size = w16_arg16(a);
     const char *dir = ordinal == 134 ? "C:\\WINDOWS" : "C:\\WINDOWS\\SYSTEM";
     unsigned len = (unsigned)strlen(dir);
-    w->cpu.r[R_AX] = (uint16_t)(len + 1);
+    w->cpu.r[R_AX].w = (uint16_t)(len + 1);
     if (size < len + 1) return 6;
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, len + 1, 1);
     if (!p) return -1;
     memcpy(p, dir, len + 1);
-    w->cpu.r[R_AX] = (uint16_t)len;
+    w->cpu.r[R_AX].w = (uint16_t)len;
     return 6;
 }
 
@@ -384,7 +384,7 @@ static int api_SetErrorMode(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg16(a);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     return 2;
 }
 
@@ -407,8 +407,8 @@ static int api_GetWinFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     (void)a;
-    c->r[R_AX] = 0x0425;                         // WF_PMODE WF_CPU386 WF_ENHANCED WF_80x87
-    c->r[R_DX] = 0;
+    c->r[R_AX].w = 0x0425;                         // WF_PMODE WF_CPU386 WF_ENHANCED WF_80x87
+    c->r[R_DX].w = 0;
     return 0;
 }
 
@@ -421,8 +421,8 @@ static int api_GetDOSEnvironment(struct w16 *w, unsigned ordinal, struct w16_arg
     (void)ordinal;
     (void)a;
     const uint8_t *psp = cpu16_ptr(c, w->psp, 0x2C, 2, 0);
-    c->r[R_AX] = 0;
-    c->r[R_DX] = psp ? (uint16_t)(psp[0] | psp[1] << 8) : 0;
+    c->r[R_AX].w = 0;
+    c->r[R_DX].w = psp ? (uint16_t)(psp[0] | psp[1] << 8) : 0;
     return 0;
 }
 
@@ -447,7 +447,7 @@ static int api_IsDBCSLeadByte(struct w16 *w, unsigned ordinal, struct w16_args *
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg16(a);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     return 2;
 }
 
@@ -463,8 +463,8 @@ static int api_GetVersion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     (void)a;
-    c->r[R_AX] = w16_prefs_winver(&g_w16_prefs);   // the version the program is told
-    c->r[R_DX] = 0x0500;
+    c->r[R_AX].w = w16_prefs_winver(&g_w16_prefs);   // the version the program is told
+    c->r[R_DX].w = 0x0500;
     return 0;
 }
 
@@ -479,7 +479,7 @@ static int api_GetInstanceData(struct w16 *w, unsigned ordinal, struct w16_args 
     (void)ordinal;
     w16_arg16(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = w16_arg16(a);
+    w->cpu.r[R_AX].w = w16_arg16(a);
     return 6;
 }
 
@@ -490,7 +490,7 @@ static int api_WaitEvent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg16(a);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     return 2;
 }
 
@@ -516,7 +516,7 @@ static int api_InitTask(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // FindAtom answers it without adding one.
 static int api_AddAtom(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     char name[256];
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (ordinal == 71) { w16_arg16(a); return 2; }   // DeleteAtom: 0 is success
     if (ordinal == 72) {
         uint16_t atom = w16_arg16(a);
@@ -535,24 +535,24 @@ static int api_AddAtom(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (!p) return -1;
         memcpy(p, name, n);
         p[n] = 0;
-        w->cpu.r[R_AX] = (uint16_t)n;
+        w->cpu.r[R_AX].w = (uint16_t)n;
         return 8;
     }
     uint32_t far = w16_arg32(a);
-    if (!(far >> 16)) { w->cpu.r[R_AX] = (uint16_t)far; return 4; }   // MAKEINTATOM
+    if (!(far >> 16)) { w->cpu.r[R_AX].w = (uint16_t)far; return 4; }   // MAKEINTATOM
     if (cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, name, sizeof name) < 0) return -1;
     if (name[0] == '#') {
         unsigned v = 0;
         for (const char *p = name + 1; *p >= '0' && *p <= '9'; p++) v = v * 10 + (unsigned)(*p - '0');
-        w->cpu.r[R_AX] = (uint16_t)(v < W16_ATOM_BASE ? v : 0);
+        w->cpu.r[R_AX].w = (uint16_t)(v < W16_ATOM_BASE ? v : 0);
         return 4;
     }
     if (ordinal == 69) {                         // FindAtom: the number, if it is there
         for (int i = 0; i < w->natoms; i++)
-            if (!strcasecmp(w->atoms[i], name)) { w->cpu.r[R_AX] = (uint16_t)(W16_ATOM_BASE + i); break; }
+            if (!strcasecmp(w->atoms[i], name)) { w->cpu.r[R_AX].w = (uint16_t)(W16_ATOM_BASE + i); break; }
         return 4;
     }
-    w->cpu.r[R_AX] = w16_atom_add(w, name);
+    w->cpu.r[R_AX].w = w16_atom_add(w, name);
     return 4;
 }
 
@@ -569,7 +569,7 @@ int w16_atom_call(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_IsRomModule(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 2;
 }
 
@@ -630,17 +630,17 @@ static int mscdex(struct cpu16 *c);
 
 static int multiplex(struct cpu16 *c) {
     if (g_w16_trace) {
-        fprintf(g_w16_trace, "INT 2Fh AX=%04x BX=%04x CX=%04x DX=%04x\n", c->r[R_AX], c->r[R_BX], c->r[R_CX],
-                c->r[R_DX]);
+        fprintf(g_w16_trace, "INT 2Fh AX=%04x BX=%04x CX=%04x DX=%04x\n", c->r[R_AX].w, c->r[R_BX].w, c->r[R_CX].w,
+                c->r[R_DX].w);
         fflush(g_w16_trace);
     }
-    if ((c->r[R_AX] >> 8) == 0x15) return mscdex(c);
-    switch (c->r[R_AX]) {
-    case 0x1600: c->r[R_AX] = w16_prefs_winver(&g_w16_prefs); break;   // minor in AH, major in AL
-    case 0x1680: sched_yield(); c->r[R_AX] &= 0xFF00; break;            // AL 0: given up
-    case 0x1683: c->r[R_BX] = 1; break;                                 // the system VM's ID
-    case 0x1684: c->sreg[S_ES] = 0; c->r[R_DI] = 0; break;              // no such VxD
-    case 0x1686: c->r[R_AX] = 0; break;                                 // protected mode
+    if ((c->r[R_AX].w >> 8) == 0x15) return mscdex(c);
+    switch (c->r[R_AX].w) {
+    case 0x1600: c->r[R_AX].w = w16_prefs_winver(&g_w16_prefs); break;   // minor in AH, major in AL
+    case 0x1680: sched_yield(); c->r[R_AX].w &= 0xFF00; break;            // AL 0: given up
+    case 0x1683: c->r[R_BX].w = 1; break;                                 // the system VM's ID
+    case 0x1684: c->sreg[S_ES] = 0; c->r[R_DI].w = 0; break;              // no such VxD
+    case 0x1686: c->r[R_AX].w = 0; break;                                 // protected mode
     default: break;                                                     // nobody's: untouched
     }
     return 0;
@@ -654,23 +654,23 @@ static int mscdex(struct cpu16 *c) {
     unsigned n = 0, first = 0;
     for (char d = 'D'; d <= 'Y'; d++)
         if (w16_drive_is_cd(d) && n++ == 0) first = (unsigned)(d - 'A');
-    switch (c->r[R_AX] & 0xFF) {
+    switch (c->r[R_AX].w & 0xFF) {
     case 0x00:
-        c->r[R_BX] = (uint16_t)n;
-        if (n) c->r[R_CX] = (uint16_t)first;
+        c->r[R_BX].w = (uint16_t)n;
+        if (n) c->r[R_CX].w = (uint16_t)first;
         break;
     case 0x0B:
-        c->r[R_AX] = c->r[R_CX] < 26 && w16_drive_is_cd((char)('A' + c->r[R_CX])) ? 0x5AD8 : 0;
-        c->r[R_BX] = 0xADAD;
+        c->r[R_AX].w = c->r[R_CX].w < 26 && w16_drive_is_cd((char)('A' + c->r[R_CX].w)) ? 0x5AD8 : 0;
+        c->r[R_BX].w = 0xADAD;
         break;
     case 0x0C:
-        if (n) c->r[R_BX] = 0x0215;
+        if (n) c->r[R_BX].w = 0x0215;
         break;
     case 0x0D: {
         unsigned k = 0;
         for (char d = 'D'; d <= 'Y'; d++) {
             if (!w16_drive_is_cd(d)) continue;
-            uint8_t *p = cpu16_ptr(c, c->sreg[S_ES], (uint16_t)(c->r[R_BX] + k++), 1, 1);
+            uint8_t *p = cpu16_ptr(c, c->sreg[S_ES], (uint16_t)(c->r[R_BX].w + k++), 1, 1);
             if (!p) return -1;
             *p = (uint8_t)(d - 'A');
         }
@@ -693,26 +693,26 @@ int w16_int(struct cpu16 *c, uint8_t n) {
         static const uint8_t PATH_AT_DSDX[] = { 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x41, 0x43, 0x4E, 0x56, 0x5B };
         char path[80] = "";
         for (unsigned i = 0; i < sizeof PATH_AT_DSDX; i++)
-            if (PATH_AT_DSDX[i] == c->r[R_AX] >> 8 && cpu16_str(c, c->sreg[S_DS], c->r[R_DX], path, sizeof path) < 0)
+            if (PATH_AT_DSDX[i] == c->r[R_AX].w >> 8 && cpu16_str(c, c->sreg[S_DS], c->r[R_DX].w, path, sizeof path) < 0)
                 path[0] = 0;
-        fprintf(g_w16_trace, "INT 21h AX=%04x BX=%04x CX=%04x DX=%04x%s%s%s\n", c->r[R_AX], c->r[R_BX], c->r[R_CX],
-                c->r[R_DX], path[0] ? " \"" : "", path, path[0] ? "\"" : "");
+        fprintf(g_w16_trace, "INT 21h AX=%04x BX=%04x CX=%04x DX=%04x%s%s%s\n", c->r[R_AX].w, c->r[R_BX].w, c->r[R_CX].w,
+                c->r[R_DX].w, path[0] ? " \"" : "", path, path[0] ? "\"" : "");
         fflush(g_w16_trace);
     }
-    switch (c->r[R_AX] >> 8) {
+    switch (c->r[R_AX].w >> 8) {
     case 0x0D:                                   // disk reset: DOS's buffers written -- w16 keeps none
         return 0;
     case 0x25:                                   // set an interrupt vector: kept by nobody
         return 0;
     case 0x30:                                   // DOS version: 5.0
-        c->r[R_AX] = 0x0005;
+        c->r[R_AX].w = 0x0005;
         return 0;
     case 0x35:                                   // get an interrupt vector: none installed
-        c->r[R_BX] = 0;
+        c->r[R_BX].w = 0;
         c->sreg[S_ES] = 0;
         return 0;
     case 0x4C:                                   // terminate with a code
-        c->exit_code = c->r[R_AX] & 0xFF;
+        c->exit_code = c->r[R_AX].w & 0xFF;
         c->exited = 1;
         return 0;
     default:

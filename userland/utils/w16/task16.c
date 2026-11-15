@@ -96,14 +96,14 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
     // can grow (mem16.c), as Windows laid a DGROUP out.
     const struct ne_segment *ad = &w->ne.seg[w->ne.autodata - 1];
     uint32_t data = (ad->minalloc > ad->length ? ad->minalloc : ad->length);
-    c->r[R_SP] = w->ne.sp ? w->ne.sp : (uint16_t)((data + w->ne.stack) & 0xFFFE);
+    c->r[R_SP].w = w->ne.sp ? w->ne.sp : (uint16_t)((data + w->ne.stack) & 0xFFFE);
     (void)dg;
     c->sreg[S_DS] = w->dgroup;
     c->sreg[S_ES] = w->psp;
-    c->r[R_BX] = w->ne.stack;
-    c->r[R_CX] = w->ne.heap;
-    c->r[R_DI] = w->dgroup;          // hInstance is the DGROUP selector
-    c->r[R_SI] = 0;                  // no previous instance
+    c->r[R_BX].w = w->ne.stack;
+    c->r[R_CX].w = w->ne.heap;
+    c->r[R_DI].w = w->dgroup;          // hInstance is the DGROUP selector
+    c->r[R_SI].w = 0;                  // no previous instance
     c->flags = F_IF | 0x0002;
     c->user = w;
     c->thunk = 0;                    // set by the task thread
@@ -362,7 +362,7 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     if (w16_wave_due() && r >= 0) w16_wave_service(w);   // buffers played: WHDR_DONE, its callback
     if (w16_mci_due() && r >= 0) w16_mci_service(w);     // a video's next picture, a play's end
     if (g_w16_trace && r >= 0) {                 // what it answered, as Wine's +relay ends a call with Ret
-        fprintf(g_w16_trace, "  = %04x:%04x\n", c->r[R_DX], c->r[R_AX]);
+        fprintf(g_w16_trace, "  = %04x:%04x\n", c->r[R_DX].w, c->r[R_AX].w);
         fflush(g_w16_trace);
     }
     // --skip-missing, or the `missing=zero` setting: the call answers 0 and the program runs on, as the
@@ -376,7 +376,7 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
             fprintf(g_w16_trace, "  MISSING, answered 0\n");
             fflush(g_w16_trace);
         }
-        c->r[R_AX] = c->r[R_DX] = 0;
+        c->r[R_AX].w = c->r[R_DX].w = 0;
         return n->argbytes;
     }
     if (r == -2 || (r < 0 && !c->fault)) {
@@ -415,17 +415,16 @@ void w16_sys_pop(struct w16 *w, uint16_t at) {
 
 uint32_t w16_call_far(struct w16 *w, uint16_t sel, uint16_t off, const uint16_t *words, unsigned n) {
     struct cpu16 *c = &w->cpu;
-    uint16_t saved[8], savedh[8], ss[CPU16_SREGS], flags = c->flags;
+    union cpu16_gpr saved[8];                    // the high words too: a 386-compiled callback may leave its own
+    uint16_t ss[CPU16_SREGS], flags = c->flags;
     memcpy(saved, c->r, sizeof saved);
-    memcpy(savedh, c->rh, sizeof savedh);        // a 386-compiled callback may leave its own high words
     memcpy(ss, c->sreg, sizeof ss);
     for (unsigned i = 0; i < n; i++) cpu16_push(c, words[i]);
     c->sreg[S_DS] = w->dgroup;       // what an instance thunk gave a callback
-    c->r[R_AX] = w->dgroup;
+    c->r[R_AX].w = w->dgroup;
     cpu16_call_far(c, sel, off);
-    uint32_t result = (uint32_t)c->r[R_DX] << 16 | c->r[R_AX];
+    uint32_t result = (uint32_t)c->r[R_DX].w << 16 | c->r[R_AX].w;
     memcpy(c->r, saved, sizeof saved);
-    memcpy(c->rh, savedh, sizeof savedh);
     c->sreg[S_ES] = ss[S_ES];
     c->sreg[S_DS] = ss[S_DS];
     c->sreg[S_SS] = ss[S_SS];

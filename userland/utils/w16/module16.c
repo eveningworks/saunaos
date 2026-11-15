@@ -400,19 +400,18 @@ static void patch_prologues(struct w16 *w, struct w16_dll *d) {
 static int lib_entry(struct w16 *w, struct w16_dll *d) {
     if (!d->ne.entry_cs) return 1;
     struct cpu16 *c = &w->cpu;
-    uint16_t r[8], rh[8], s[CPU16_SREGS], flags = c->flags;
+    union cpu16_gpr r[8];
+    uint16_t s[CPU16_SREGS], flags = c->flags;
     memcpy(r, c->r, sizeof r);
-    memcpy(rh, c->rh, sizeof rh);
     memcpy(s, c->sreg, sizeof s);
-    c->r[R_DI] = d->hinst;
-    c->r[R_CX] = d->ne.heap;
-    c->r[R_SI] = 0;
+    c->r[R_DI].w = d->hinst;
+    c->r[R_CX].w = d->ne.heap;
+    c->r[R_SI].w = 0;
     c->sreg[S_ES] = 0;
     c->sreg[S_DS] = d->dgroup;
     cpu16_call_far(c, d->seg_sel[d->ne.entry_cs], d->ne.entry_ip);
-    int ok = c->r[R_AX] != 0;
+    int ok = c->r[R_AX].w != 0;
     memcpy(c->r, r, sizeof r);
-    memcpy(c->rh, rh, sizeof rh);
     c->sreg[S_ES] = s[S_ES];
     c->sreg[S_DS] = s[S_DS];
     c->sreg[S_FS] = s[S_FS];
@@ -576,16 +575,16 @@ static int api_LoadLibrary(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     module_name(spec, name, sizeof name);
     int err = 2;
     if (w16_is_builtin(name)) {                  // Windows' own: always there
-        w->cpu.r[R_AX] = w16_thunk_sel(w, name);
+        w->cpu.r[R_AX].w = w16_thunk_sel(w, name);
         return 4;
     }
     if (same(name, "NETAPI")) {
-        w->cpu.r[R_AX] = (uint16_t)err;
+        w->cpu.r[R_AX].w = (uint16_t)err;
         return 4;
     }
     struct w16_dll *d = w16_dll_load(w, spec, &err);
     if (w->cpu.fault) return -1;
-    w->cpu.r[R_AX] = d && !d->broken ? d->hinst : (uint16_t)err;
+    w->cpu.r[R_AX].w = d && !d->broken ? d->hinst : (uint16_t)err;
     return 4;
 }
 
@@ -620,7 +619,7 @@ static int api_GetModuleHandle(struct w16 *w, unsigned ordinal, struct w16_args 
         struct w16_dll *d = display_module(w);
         h = d ? d->hinst : 0;
     }
-    w->cpu.r[R_AX] = h;
+    w->cpu.r[R_AX].w = h;
     return 4;
 }
 
@@ -654,8 +653,8 @@ static int api_GetProcAddress(struct w16 *w, unsigned ordinal, struct w16_args *
                 (unsigned)(r >> 16), (unsigned)(r & 0xFFFF));
         fflush(g_w16_trace);
     }
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = (uint16_t)(r >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = (uint16_t)(r >> 16);
     return 6;
 }
 
@@ -670,7 +669,7 @@ static int api_GetModuleFileName(struct w16 *w, unsigned ordinal, struct w16_arg
     struct w16_dll *d = w16_dll_of(w, h);
     char dos[300];
     if (w16_host_to_dos(d ? d->path : w->path, dos, sizeof dos) < 0) snprintf(dos, sizeof dos, "C:\\%s.EXE", w->ne.name);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (cap <= 0) return 8;
     size_t n = strlen(dos);
     if (n >= (size_t)cap) n = (size_t)cap - 1;
@@ -678,7 +677,7 @@ static int api_GetModuleFileName(struct w16 *w, unsigned ordinal, struct w16_arg
     if (!p) return -1;
     memcpy(p, dos, n);
     p[n] = 0;
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 8;
 }
 
@@ -688,7 +687,7 @@ static int api_GetModuleFileName(struct w16 *w, unsigned ordinal, struct w16_arg
 static int api_GetModuleUsage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_dll *d = w16_dll_of(w, w16_arg16(a));
-    w->cpu.r[R_AX] = d && d->refs > 0 ? (uint16_t)d->refs : 1;
+    w->cpu.r[R_AX].w = d && d->refs > 0 ? (uint16_t)d->refs : 1;
     return 2;
 }
 

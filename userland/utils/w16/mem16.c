@@ -230,7 +230,7 @@ void w16_local_init(struct w16 *w) {
     const struct cpu16_desc *dg = dgroup_desc(w);
     const struct ne_segment *s = &w->ne.seg[w->ne.autodata - 1];
     uint32_t data = (s->minalloc > s->length ? s->minalloc : s->length);
-    uint32_t start = data > (uint32_t)w->cpu.r[R_SP] ? data : w->cpu.r[R_SP];
+    uint32_t start = data > (uint32_t)w->cpu.r[R_SP].w ? data : w->cpu.r[R_SP].w;
     start = (start + 3) & ~3u;
     uint32_t end = dg->limit + 1;
     w->lheap.n = 0;
@@ -455,8 +455,8 @@ uint8_t *w16_local_ptr(struct w16 *w, uint16_t h, unsigned *size) {
 // --- KERNEL's memory exports ------------------------------------------------
 
 static void set32(struct cpu16 *c, uint32_t v) {
-    c->r[R_AX] = (uint16_t)v;
-    c->r[R_DX] = (uint16_t)(v >> 16);
+    c->r[R_AX].w = (uint16_t)v;
+    c->r[R_DX].w = (uint16_t)(v >> 16);
 }
 
 // A heap in DS's segment (0) from pStart to pEnd -- or, with pStart 0, the last pEnd bytes of it,
@@ -470,7 +470,7 @@ static int api_LocalInit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t seg = w16_arg16(a), start = w16_arg16(a), end = w16_arg16(a);
     struct cpu16_desc *dg = dgroup_desc(w);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (seg && seg != w->dgroup) return 6;
     uint32_t s0 = start, e0 = end;
     if (!start) {
@@ -486,7 +486,7 @@ static int api_LocalInit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     w->lheap.end = s0;
     if (lblock_add(w, 0, (uint16_t)s0, (uint16_t)(e0 - s0), 0) < 0) return 6;
     w->lheap.end = e0;
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 6;
 }
 
@@ -500,7 +500,7 @@ static int api_LocalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t flags = w16_arg16(a), size = w16_arg16(a);
-    c->r[R_AX] = local_alloc(w, flags, size);
+    c->r[R_AX].w = local_alloc(w, flags, size);
     return 4;
 }
 
@@ -511,7 +511,7 @@ static int api_LocalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t h = w16_arg16(a), size = w16_arg16(a), flags = w16_arg16(a);
-    c->r[R_AX] = local_realloc(w, h, size, flags);
+    c->r[R_AX].w = local_realloc(w, h, size, flags);
     return 6;
 }
 
@@ -522,7 +522,7 @@ static int api_LocalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t h = w16_arg16(a);
-    c->r[R_AX] = local_free(w, h) == 0 ? 0 : h;
+    c->r[R_AX].w = local_free(w, h) == 0 ? 0 : h;
     return 2;
 }
 
@@ -535,7 +535,7 @@ static int api_LocalLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     unsigned size;
     uint16_t h = w16_arg16(a);
-    c->r[R_AX] = local_deref(w, h, &size);
+    c->r[R_AX].w = local_deref(w, h, &size);
     uint8_t *e = is_moveable(h) ? entry(w, h) : 0;
     if (e && e[3] < 0xFF) e[3]++;
     return 2;
@@ -550,7 +550,7 @@ static int api_LocalUnlock(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     uint16_t h = w16_arg16(a);
     uint8_t *e = is_moveable(h) ? entry(w, h) : 0;
     if (e && e[3]) e[3]--;
-    c->r[R_AX] = e ? e[3] != 0 : 0;
+    c->r[R_AX].w = e ? e[3] != 0 : 0;
     return 2;
 }
 
@@ -562,7 +562,7 @@ static int api_LocalSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     unsigned size;
     local_deref(w, w16_arg16(a), &size);
-    c->r[R_AX] = (uint16_t)size;
+    c->r[R_AX].w = (uint16_t)size;
     return 2;
 }
 
@@ -573,9 +573,9 @@ static int api_LocalHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t off = w16_arg16(a);
-    c->r[R_AX] = lfind(w, off) >= 0 ? off : 0;
+    c->r[R_AX].w = lfind(w, off) >= 0 ? off : 0;
     for (int i = 0; i < w->lheap.nh; i++)
-        if (entry_off(w, w->lheap.h[i]) == off) { c->r[R_AX] = w->lheap.h[i]; break; }
+        if (entry_off(w, w->lheap.h[i]) == off) { c->r[R_AX].w = w->lheap.h[i]; break; }
     return 2;
 }
 
@@ -587,7 +587,7 @@ static int api_LocalFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
     uint8_t *e = is_moveable(h) ? entry(w, h) : 0;
-    c->r[R_AX] = e ? e[3] : 0;
+    c->r[R_AX].w = e ? e[3] : 0;
     return 2;
 }
 
@@ -599,7 +599,7 @@ static int api_LocalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg16(a);
-    c->r[R_AX] = local_free_bytes(w);
+    c->r[R_AX].w = local_free_bytes(w);
     return 2;
 }
 
@@ -613,7 +613,7 @@ static int api_LocalHandleDelta(struct w16 *w, unsigned ordinal, struct w16_args
     (void)ordinal;
     uint16_t v = w16_arg16(a);
     if (v) delta = v;
-    w->cpu.r[R_AX] = delta;
+    w->cpu.r[R_AX].w = delta;
     return 2;
 }
 
@@ -627,7 +627,7 @@ static int api_GlobalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg16(a);
-    c->r[R_AX] = w16_global_alloc(w, w16_arg32(a), 0);
+    c->r[R_AX].w = w16_global_alloc(w, w16_arg32(a), 0);
     return 6;
 }
 
@@ -642,7 +642,7 @@ static int api_GlobalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a
     uint16_t h = w16_arg16(a);
     uint32_t size = w16_arg32(a);
     uint16_t flags = w16_arg16(a);
-    c->r[R_AX] = global_realloc(w, h, size, flags);
+    c->r[R_AX].w = global_realloc(w, h, size, flags);
     return 8;
 }
 
@@ -655,12 +655,12 @@ static int api_GlobalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t h = w16_arg16(a);
     if (global_gone(w, h)) {                     // a discarded block: only its handle to free
         memset(desc_at(w, h), 0, sizeof w->desc[0]);
-        c->r[R_AX] = 0;
+        c->r[R_AX].w = 0;
         return 2;
     }
     int ok = global_desc(w, h) != 0;
     w16_global_free(w, h);
-    c->r[R_AX] = ok ? 0 : h;
+    c->r[R_AX].w = ok ? 0 : h;
     return 2;
 }
 
@@ -684,7 +684,7 @@ static int api_GlobalUnlock(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg16(a);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     return 2;
 }
 
@@ -720,7 +720,7 @@ static int api_GlobalHandle(struct w16 *w, unsigned ordinal, struct w16_args *a)
 static int api_GlobalFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    c->r[R_AX] = global_gone(w, w16_arg16(a)) ? GMEM_DISCARDED : 0;
+    c->r[R_AX].w = global_gone(w, w16_arg16(a)) ? GMEM_DISCARDED : 0;
     return 2;
 }
 
@@ -731,7 +731,7 @@ static int api_LockSegment(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t s = w16_arg16(a);
-    c->r[R_AX] = s == 0xFFFF ? c->sreg[S_DS] : s;
+    c->r[R_AX].w = s == 0xFFFF ? c->sreg[S_DS] : s;
     return 2;
 }
 
@@ -742,7 +742,7 @@ static int api_UnlockSegment(struct w16 *w, unsigned ordinal, struct w16_args *a
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t s = w16_arg16(a);
-    c->r[R_AX] = s == 0xFFFF ? c->sreg[S_DS] : s;
+    c->r[R_AX].w = s == 0xFFFF ? c->sreg[S_DS] : s;
     return 2;
 }
 
@@ -769,11 +769,11 @@ static int api_GlobalDOSAlloc(struct w16 *w, unsigned ordinal, struct w16_args *
         uint16_t h = w16_arg16(a);
         int ok = w16_global_ptr(w, h, 0) != 0;
         if (ok) w16_global_free(w, h);
-        w->cpu.r[R_AX] = ok ? 0 : h;
+        w->cpu.r[R_AX].w = ok ? 0 : h;
         return 2;
     }
     uint16_t sel = w16_global_alloc(w, w16_arg32(a), 0);
-    w->cpu.r[R_AX] = w->cpu.r[R_DX] = sel;
+    w->cpu.r[R_AX].w = w->cpu.r[R_DX].w = sel;
     return 4;
 }
 
@@ -783,7 +783,7 @@ static int api_GlobalDOSAlloc(struct w16 *w, unsigned ordinal, struct w16_args *
 // w16: 1 to a lock and 0 to an unlock, for any block: w16's memory never pages out.
 static int api_GlobalPageLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t h = w16_arg16(a);
-    w->cpu.r[R_AX] = w16_global_ptr(w, h, 0) && ordinal == 191 ? 1 : 0;
+    w->cpu.r[R_AX].w = w16_global_ptr(w, h, 0) && ordinal == 191 ? 1 : 0;
     return 2;
 }
 
@@ -795,7 +795,7 @@ static int api_GlobalPageLock(struct w16 *w, unsigned ordinal, struct w16_args *
 // back at none.
 static int api_GlobalFix(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     w16_arg16(a);
-    if (ordinal == 198) w->cpu.r[R_AX] = 0;
+    if (ordinal == 198) w->cpu.r[R_AX].w = 0;
     return 2;
 }
 
@@ -867,7 +867,7 @@ static int api_AllocSelector(struct w16 *w, unsigned ordinal, struct w16_args *a
     (void)ordinal;
     uint16_t src = w16_arg16(a);
     const struct cpu16_desc *d = src ? sel_desc(w, src) : 0;
-    w->cpu.r[R_AX] = src && !d ? 0 : alias_of(w, d, d ? d->kind : D_DATA);
+    w->cpu.r[R_AX].w = src && !d ? 0 : alias_of(w, d, d ? d->kind : D_DATA);
     return 2;
 }
 
@@ -879,7 +879,7 @@ static int api_AllocSelector(struct w16 *w, unsigned ordinal, struct w16_args *a
 // w16: The same: both reach the same bytes, by linear address.
 static int api_AllocAlias(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     const struct cpu16_desc *d = sel_desc(w, w16_arg16(a));
-    w->cpu.r[R_AX] = d ? alias_of(w, d, ordinal == 171 ? D_CODE : D_DATA) : 0;
+    w->cpu.r[R_AX].w = d ? alias_of(w, d, ordinal == 171 ? D_CODE : D_DATA) : 0;
     return 2;
 }
 
@@ -893,7 +893,7 @@ static int api_FreeSelector(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct cpu16_desc *d = own_desc(w, sel);
     if (d) memset(d, 0, sizeof *d);
     cpu16_desc_changed(&w->cpu);
-    w->cpu.r[R_AX] = d ? 0 : sel;
+    w->cpu.r[R_AX].w = d ? 0 : sel;
     return 2;
 }
 
@@ -906,14 +906,14 @@ static int api_PrestoChangoSelector(struct w16 *w, unsigned ordinal, struct w16_
     uint16_t src = w16_arg16(a), dst = w16_arg16(a);
     const struct cpu16_desc *s = sel_desc(w, src);
     struct cpu16_desc *d = own_desc(w, dst);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!s || !d) return 4;
     uint32_t lin;
     if (cpu16_linear_base(&w->cpu, src, &lin) < 0) return 4;
     *d = (struct cpu16_desc){ .lin = lin, .limit = s->limit, .kind = s->kind == D_CODE ? D_DATA : D_CODE,
                               .flags = (uint8_t)(CPU16_DF_LIN | (s->flags & CPU16_DF_BIG)), .owner = CPU16_OWNER_ALLOC };
     cpu16_desc_changed(&w->cpu);
-    w->cpu.r[R_AX] = dst;
+    w->cpu.r[R_AX].w = dst;
     return 4;
 }
 
@@ -925,8 +925,8 @@ static int api_GetSelectorBase(struct w16 *w, unsigned ordinal, struct w16_args 
     uint16_t sel = w16_arg16(a);
     uint32_t lin = 0;
     if (!sel_desc(w, sel) || cpu16_linear_base(&w->cpu, sel, &lin) < 0) lin = 0;
-    w->cpu.r[R_AX] = (uint16_t)lin;
-    w->cpu.r[R_DX] = (uint16_t)(lin >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)lin;
+    w->cpu.r[R_DX].w = (uint16_t)(lin >> 16);
     return 2;
 }
 
@@ -938,10 +938,10 @@ static int api_SetSelectorBase(struct w16 *w, unsigned ordinal, struct w16_args 
     (void)ordinal;
     uint16_t sel = w16_arg16(a);
     uint32_t base = w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (!own_desc(w, sel)) return 6;
     cpu16_set_linear_base(&w->cpu, sel, base);
-    w->cpu.r[R_AX] = sel;
+    w->cpu.r[R_AX].w = sel;
     return 6;
 }
 
@@ -952,8 +952,8 @@ static int api_GetSelectorLimit(struct w16 *w, unsigned ordinal, struct w16_args
     (void)ordinal;
     const struct cpu16_desc *d = sel_desc(w, w16_arg16(a));
     uint32_t lim = d ? d->limit : 0;
-    w->cpu.r[R_AX] = (uint16_t)lim;
-    w->cpu.r[R_DX] = (uint16_t)(lim >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)lim;
+    w->cpu.r[R_DX].w = (uint16_t)(lim >> 16);
     return 2;
 }
 
@@ -967,7 +967,7 @@ static int api_SetSelectorLimit(struct w16 *w, unsigned ordinal, struct w16_args
     struct cpu16_desc *d = own_desc(w, sel);
     if (d) d->limit = lim;
     cpu16_desc_changed(&w->cpu);
-    w->cpu.r[R_AX] = d ? 0 : sel;
+    w->cpu.r[R_AX].w = d ? 0 : sel;
     return 6;
 }
 
@@ -989,7 +989,7 @@ static int api_LocalShrink(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     (void)ordinal;
     w16_arg16(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = local_free_bytes(w);
+    w->cpu.r[R_AX].w = local_free_bytes(w);
     return 4;
 }
 
@@ -999,7 +999,7 @@ static int api_LocalShrink(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 // w16: Answers the handle: nothing is ever discarded.
 static int api_GlobalLRUNewest(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w->cpu.r[R_AX] = w16_arg16(a);
+    w->cpu.r[R_AX].w = w16_arg16(a);
     return 2;
 }
 
@@ -1011,7 +1011,7 @@ static int api_DirectResAlloc(struct w16 *w, unsigned ordinal, struct w16_args *
     w16_arg16(a);
     w16_arg16(a);
     unsigned size = w16_arg16(a);
-    w->cpu.r[R_AX] = w16_global_alloc(w, size, 0);
+    w->cpu.r[R_AX].w = w16_global_alloc(w, size, 0);
     return 6;
 }
 

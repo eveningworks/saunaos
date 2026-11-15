@@ -124,11 +124,11 @@ static int api_FindResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
     const struct ne_module *m = inst ? w16_module_of(w, inst) : &w->ne;
     if (m && m != &w->ne) {                      // a DLL's own
         int i = ne_resource_find(m, type, tname[0] ? tname : 0, id, name[0] ? name : 0, &r);
-        c->r[R_AX] = i < 0 ? 0 : dllres_handle(inst, i);
+        c->r[R_AX].w = i < 0 ? 0 : dllres_handle(inst, i);
         return 10;
     }
     int i = w16_res_find(w, type, tname[0] ? tname : 0, id, name[0] ? name : 0, &r);
-    c->r[R_AX] = i < 0 ? 0 : (uint16_t)(HRSRC_BASE + i);
+    c->r[R_AX].w = i < 0 ? 0 : (uint16_t)(HRSRC_BASE + i);
     return 10;
 }
 
@@ -143,7 +143,7 @@ static int api_AccessResource(struct w16 *w, unsigned ordinal, struct w16_args *
     (void)ordinal;
     w16_arg16(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = 0xFFFF;
+    w->cpu.r[R_AX].w = 0xFFFF;
     return 4;
 }
 
@@ -162,10 +162,10 @@ static int api_LoadResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct ne_resource r;
     if (dllres_at(w, h, &e, &m, &r) == 0) {
         if (!e->sel) e->sel = w16_global_alloc(w, r.len, m->img + r.off);
-        c->r[R_AX] = e->sel;
+        c->r[R_AX].w = e->sel;
         return 4;
     }
-    c->r[R_AX] = h >= HRSRC_BASE ? w16_res_load(w, h - HRSRC_BASE) : 0;
+    c->r[R_AX].w = h >= HRSRC_BASE ? w16_res_load(w, h - HRSRC_BASE) : 0;
     return 4;
 }
 
@@ -176,8 +176,8 @@ static int api_LockResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t h = w16_arg16(a);
-    c->r[R_AX] = 0;
-    c->r[R_DX] = h;
+    c->r[R_AX].w = 0;
+    c->r[R_DX].w = h;
     return 2;
 }
 
@@ -189,7 +189,7 @@ static int api_FreeResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg16(a);
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     return 2;
 }
 
@@ -206,8 +206,8 @@ static int api_SizeofResource(struct w16 *w, unsigned ordinal, struct w16_args *
     const struct ne_module *m;
     uint32_t n = dllres_at(w, h, &e, &m, &r) == 0 ? r.len
                : h >= HRSRC_BASE && ne_resource_at(&w->ne, h - HRSRC_BASE, &r) == 0 ? r.len : 0;
-    c->r[R_AX] = (uint16_t)n;
-    c->r[R_DX] = (uint16_t)(n >> 16);
+    c->r[R_AX].w = (uint16_t)n;
+    c->r[R_DX].w = (uint16_t)(n >> 16);
     return 4;
 }
 
@@ -234,12 +234,12 @@ int w16_user_loadstring(struct w16 *w, struct w16_args *a) {
     uint16_t cap = w16_arg16(a);
     char tmp[256];
     int n = load_string_in(inst ? w16_module_of(w, inst) : &w->ne, id, tmp, sizeof tmp);
-    if (n < 0 || cap == 0) { w->cpu.r[R_AX] = 0; return 10; }
+    if (n < 0 || cap == 0) { w->cpu.r[R_AX].w = 0; return 10; }
     if ((unsigned)n >= cap) n = cap - 1;
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(buf >> 16), (uint16_t)buf, (uint32_t)n + 1, 1);
     if (!p) return -1;
     memcpy(p, tmp, (size_t)n);
     p[n] = 0;
-    w->cpu.r[R_AX] = (uint16_t)n;
+    w->cpu.r[R_AX].w = (uint16_t)n;
     return 10;
 }

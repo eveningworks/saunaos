@@ -143,7 +143,7 @@ static int api_ExtractIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     int index = (int16_t)w16_arg16(a);
     char name[W16_PATH_MAX];
     if (far_name(w, far, name, sizeof name) < 0) return -1;
-    w->cpu.r[R_AX] = extract(w, name, index);
+    w->cpu.r[R_AX].w = extract(w, name, index);
     return 8;
 }
 
@@ -158,7 +158,7 @@ static int api_InternalExtractIcon(struct w16 *w, unsigned ordinal, struct w16_a
     int index = (int16_t)w16_arg16(a), n = (int16_t)w16_arg16(a);
     char name[W16_PATH_MAX];
     if (far_name(w, far, name, sizeof name) < 0) return -1;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (n <= 0 || n > 512) return 10;
     uint16_t *v = calloc((size_t)n, sizeof *v);
     if (!v) return 10;
@@ -166,7 +166,7 @@ static int api_InternalExtractIcon(struct w16 *w, unsigned ordinal, struct w16_a
         uint16_t h = extract(w, name, index + i);
         v[i] = h > 1 ? h : 0;
     }
-    w->cpu.r[R_AX] = w16_global_alloc(w, (uint32_t)n * 2, v);
+    w->cpu.r[R_AX].w = w16_global_alloc(w, (uint32_t)n * 2, v);
     free(v);
     return 10;
 }
@@ -213,7 +213,7 @@ static int api_FindExecutable(struct w16 *w, unsigned ordinal, struct w16_args *
                             ? path : file, exe, sizeof exe);
     uint8_t *p = (fr >> 16) ? cpu16_ptr(&w->cpu, (uint16_t)(fr >> 16), (uint16_t)fr, (uint32_t)strlen(exe) + 1, 1) : 0;
     if (p) memcpy(p, exe, strlen(exe) + 1);
-    w->cpu.r[R_AX] = (uint16_t)r;
+    w->cpu.r[R_AX].w = (uint16_t)r;
     return 12;
 }
 
@@ -320,7 +320,7 @@ static int api_ShellExecute(struct w16 *w, unsigned ordinal, struct w16_args *a)
     far_name(w, fo, op, sizeof op);
     far_name(w, fp, params, sizeof params);
     far_name(w, fd, dir, sizeof dir);
-    w->cpu.r[R_AX] = 31;
+    w->cpu.r[R_AX].w = 31;
     if (op[0] && !same_ci(op, "open")) return 20;
     char was[W16_PATH_MAX];
     snprintf(was, sizeof was, "%s", w16_dos_cwd());
@@ -334,7 +334,7 @@ static int api_ShellExecute(struct w16 *w, unsigned ordinal, struct w16_args *a)
         r = w16_launch(w, line, show);
     }
     if (dir[0]) w16_dos_chdir(was);
-    w->cpu.r[R_AX] = (uint16_t)r;
+    w->cpu.r[R_AX].w = (uint16_t)r;
     return 20;
 }
 
@@ -383,7 +383,7 @@ static int api_ExtractAssociatedIcon(struct w16 *w, unsigned ordinal, struct w16
         pi[0] = (uint8_t)newi;
         pi[1] = (uint8_t)(newi >> 8);
     }
-    w->cpu.r[R_AX] = out;
+    w->cpu.r[R_AX].w = out;
     return 10;
 }
 
@@ -397,8 +397,8 @@ static int api_DoEnvironmentSubst(struct w16 *w, unsigned ordinal, struct w16_ar
     unsigned cap = w16_arg16(a);
     struct cpu16 *c = &w->cpu;
     char *p = cap ? (char *)cpu16_ptr(c, (uint16_t)(far >> 16), (uint16_t)far, cap, 1) : 0;
-    c->r[R_AX] = (uint16_t)cap;
-    c->r[R_DX] = 0;
+    c->r[R_AX].w = (uint16_t)cap;
+    c->r[R_DX].w = 0;
     if (!p) return 6;
     const uint8_t *psp = cpu16_ptr(c, w->psp, 0x2C, 2, 0);
     uint16_t envsel = psp ? (uint16_t)(psp[0] | psp[1] << 8) : 0;
@@ -433,8 +433,8 @@ static int api_DoEnvironmentSubst(struct w16 *w, unsigned ordinal, struct w16_ar
     if (ok) {
         out[o] = 0;
         memcpy(p, out, o + 1);
-        c->r[R_AX] = (uint16_t)o;
-        c->r[R_DX] = 1;
+        c->r[R_AX].w = (uint16_t)o;
+        c->r[R_DX].w = 1;
     }
     free(out);
     return 6;
@@ -451,7 +451,7 @@ static int api_RegisterShellHook(struct w16 *w, unsigned ordinal, struct w16_arg
     (void)ordinal;
     w16_arg16(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 4;
 }
 
@@ -466,7 +466,7 @@ static int api_DragQueryPoint(struct w16 *w, unsigned ordinal, struct w16_args *
     (void)ordinal;
     w16_arg16(a);
     w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 6;
 }
 

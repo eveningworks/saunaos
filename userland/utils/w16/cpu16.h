@@ -105,10 +105,17 @@ typedef int (*cpu16_int_fn)(struct cpu16 *c, uint8_t n);
 // setting a fault. Without one, port I/O is a fault.
 typedef int (*cpu16_io_fn)(struct cpu16 *c, uint16_t port, unsigned size, int out, uint32_t *val);
 
+// A general register: `e` the 386's 32 bits (EAX), `w` its low word (AX), which a 16-bit write --
+// the API side's included -- replaces alone, keeping the high word, as a 386 does. One 32-bit slot
+// per register, so translated code (docs/w16-jit-design.md) reads EAX as one load. Little-endian:
+// `w` IS the low half.
+union cpu16_gpr {
+    uint32_t e;
+    uint16_t w;
+};
+
 struct cpu16 {
-    uint16_t r[8];
-    uint16_t rh[8];              // the 386's high words: EAX is rh[R_AX] << 16 | r[R_AX], so a 16-bit
-                                 // write -- the API side's included -- keeps them, as a 386 does
+    union cpu16_gpr r[8];
     uint32_t ip;                 // EIP: 16 bits unless CS is a 32-bit segment
     uint8_t cs32;                // CS's D bit, as the instruction being run found it (cpu16.c keeps it)
     uint16_t flags;

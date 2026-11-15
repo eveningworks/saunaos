@@ -39,7 +39,7 @@ static int rounded(struct w16 *w, uint8_t op, uint8_t modrm, uint8_t *mem) {
     uint8_t img[108];
     cpu16_x87_save(c, img);
     uint16_t keep = (uint16_t)(img[0] | img[1] << 8);
-    cpu16_x87_set_cw(c, (uint16_t)((keep & ~0x0C00) | (c->r[R_AX] & 0x0C00)));
+    cpu16_x87_set_cw(c, (uint16_t)((keep & ~0x0C00) | (c->r[R_AX].w & 0x0C00)));
     int r = cpu16_x87_exec(c, op, modrm, mem);
     cpu16_x87_set_cw(c, keep);
     return r;
@@ -59,14 +59,14 @@ static int api__fpMath(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)a;
     uint8_t m[4] = { 0 }, img[108];
     if (g_w16_trace) {
-        fprintf(g_w16_trace, "  _fpMath BX=%u, x87 status %04x\n", c->r[R_BX], cpu16_x87_status(c));
+        fprintf(g_w16_trace, "  _fpMath BX=%u, x87 status %04x\n", c->r[R_BX].w, cpu16_x87_status(c));
         fflush(g_w16_trace);
     }
-    switch (c->r[R_BX]) {
+    switch (c->r[R_BX].w) {
     case 0:
         g_em.users++;
         em_init(w);
-        c->r[R_AX] = 0;
+        c->r[R_AX].w = 0;
         c->flags &= (uint16_t)~F_CF;
         break;
     case 1: em_init(w); break;
@@ -74,21 +74,21 @@ static int api__fpMath(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         em_init(w);
         if (g_em.users) g_em.users--;
         break;
-    case 3: g_em.handler = (uint32_t)c->r[R_DX] << 16 | c->r[R_AX]; break;
+    case 3: g_em.handler = (uint32_t)c->r[R_DX].w << 16 | c->r[R_AX].w; break;
     case 4:
-        g_em.cw = c->r[R_AX];
-        cpu16_x87_set_cw(c, c->r[R_AX]);
+        g_em.cw = c->r[R_AX].w;
+        cpu16_x87_set_cw(c, c->r[R_AX].w);
         break;
-    case 5: c->r[R_AX] = g_em.cw; break;
+    case 5: c->r[R_AX].w = g_em.cw; break;
     case 6: rounded(w, 0xD9, 0xFC, 0); break;                 // FRNDINT
     case 7:                                                    // FISTP m32
         if (rounded(w, 0xDB, 0x18, m) < 0) return -1;
-        c->r[R_AX] = (uint16_t)(m[0] | m[1] << 8);
-        c->r[R_DX] = (uint16_t)(m[2] | m[3] << 8);
+        c->r[R_AX].w = (uint16_t)(m[0] | m[1] << 8);
+        c->r[R_DX].w = (uint16_t)(m[2] | m[3] << 8);
         break;
     case 8:
         g_em.status = (uint16_t)((g_em.status | (cpu16_x87_status(c) & 0x3F)) & 0x1FFF);
-        c->r[R_AX] = g_em.status;
+        c->r[R_AX].w = g_em.status;
         break;
     case 9:
         cpu16_x87_clear(c);
@@ -98,13 +98,13 @@ static int api__fpMath(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         cpu16_x87_save(c, img);
         unsigned tw = img[8] | img[9] << 8, n = 0;
         for (int i = 0; i < 8; i++) n += ((tw >> (2 * i)) & 3) != 3;
-        c->r[R_AX] = (uint16_t)n;
+        c->r[R_AX].w = (uint16_t)n;
         break;
     }
-    case 11: c->r[R_AX] = 1; break;
-    case 12: g_em.saved = c->r[R_AX]; break;
+    case 11: c->r[R_AX].w = 1; break;
+    case 12: g_em.saved = c->r[R_AX].w; break;
     default:
-        c->r[R_AX] = c->r[R_DX] = 0xFFFF;
+        c->r[R_AX].w = c->r[R_DX].w = 0xFFFF;
         break;
     }
     return 0;
@@ -161,13 +161,13 @@ int w16_fpu_irq(struct w16 *w) {
         return -1;
     }
     cpu16_push(c, c->flags);
-    cpu16_push(c, c->r[R_AX]);
+    cpu16_push(c, c->r[R_AX].w);
     cpu16_push(c, c->sreg[S_CS]);
     cpu16_push(c, c->ip);
     cpu16_push(c, ret);
     cpu16_push(c, 0);
     if (c->fault) return -1;
-    c->r[R_AX] = code;
+    c->r[R_AX].w = code;
     c->sreg[S_CS] = (uint16_t)(g_em.handler >> 16);
     c->ip = (uint16_t)g_em.handler;
     return 0;
@@ -177,7 +177,7 @@ int w16_fpu_irq(struct w16 *w) {
 // again, AX and the flags above it.
 int w16_fpu_irq_return(struct w16 *w) {
     struct cpu16 *c = &w->cpu;
-    c->r[R_AX] = cpu16_arg(c, 0);
+    c->r[R_AX].w = cpu16_arg(c, 0);
     c->flags = cpu16_arg(c, 2);
     return 4;
 }

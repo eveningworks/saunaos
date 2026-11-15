@@ -69,7 +69,7 @@ static int api_VerFindFile(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     }
     unsigned r = put_dir(w, cur, curlen, now) | put_dir(w, dest, destlen, to);
     if (now[0] && strcasecmp(now, to)) r |= VFF_CURNEDEST;
-    w->cpu.r[R_AX] = (uint16_t)r;
+    w->cpu.r[R_AX].w = (uint16_t)r;
     return 30;
 }
 
@@ -124,8 +124,8 @@ static int api_GetFileResourceSize(struct w16 *w, unsigned ordinal, struct w16_a
         if (p) memcpy(p, &r.off, 4);
         free(img);
     }
-    w->cpu.r[R_AX] = (uint16_t)len;
-    w->cpu.r[R_DX] = (uint16_t)(len >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)len;
+    w->cpu.r[R_DX].w = (uint16_t)(len >> 16);
     return 16;
 }
 
@@ -151,7 +151,7 @@ static int api_GetFileResource(struct w16 *w, unsigned ordinal, struct w16_args 
         }
         free(img);
     }
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 24;
 }
 
@@ -195,8 +195,8 @@ static int api_GetFileVersionInfoSize(struct w16 *w, unsigned ordinal, struct w1
     free(img);
     uint8_t *h = handle ? cpu16_ptr(&w->cpu, (uint16_t)(handle >> 16), (uint16_t)handle, 4, 1) : 0;
     if (h) memset(h, 0, 4);
-    w->cpu.r[R_AX] = (uint16_t)len;
-    w->cpu.r[R_DX] = (uint16_t)(len >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)len;
+    w->cpu.r[R_DX].w = (uint16_t)(len >> 16);
     return 8;
 }
 
@@ -217,7 +217,7 @@ static int api_GetFileVersionInfo(struct w16 *w, unsigned ordinal, struct w16_ar
         if (p) { memcpy(p, img + r.off, n); ok = 1; }
         free(img);
     }
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    w->cpu.r[R_AX].w = (uint16_t)ok;
     return 16;
 }
 
@@ -265,7 +265,7 @@ static int api_VerQueryValue(struct w16 *w, unsigned ordinal, struct w16_args *a
     struct cpu16 *c = &w->cpu;
     uint32_t block = w16_arg32(a), sub = w16_arg32(a), out = w16_arg32(a), lenp = w16_arg32(a);
     char path[128];
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     if (far_str(w, sub, path, sizeof path) < 0) return -1;
     const uint8_t *hd = cpu16_ptr(c, (uint16_t)(block >> 16), (uint16_t)block, 4, 0);
     if (!hd) return -1;
@@ -281,7 +281,7 @@ static int api_VerQueryValue(struct w16 *w, unsigned ordinal, struct w16_args *a
     uint32_t far = block + val;                  // inside the block, so inside its segment
     if (o) { o[0] = (uint8_t)far; o[1] = (uint8_t)(far >> 8); o[2] = (uint8_t)(far >> 16); o[3] = (uint8_t)(far >> 24); }
     if (l) { l[0] = (uint8_t)vl; l[1] = (uint8_t)(vl >> 8); }
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 16;
 }
 

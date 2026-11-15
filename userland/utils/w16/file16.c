@@ -280,8 +280,8 @@ static long rw(struct w16 *w, unsigned h, uint32_t far, unsigned n, int writing)
 // --- KERNEL's calls ---------------------------------------------------------------
 
 static void set32(struct cpu16 *c, uint32_t v) {
-    c->r[R_AX] = (uint16_t)v;
-    c->r[R_DX] = (uint16_t)(v >> 16);
+    c->r[R_AX].w = (uint16_t)v;
+    c->r[R_DX].w = (uint16_t)(v >> 16);
 }
 
 static char *far_path(struct w16 *w, uint32_t far) {
@@ -309,7 +309,7 @@ static int api_OpenFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t style = w16_arg16(a);
     int h = w16_open_file(w, name, ofs, style);
     if (h < 0) return -1;
-    w->cpu.r[R_AX] = (uint16_t)h;
+    w->cpu.r[R_AX].w = (uint16_t)h;
     return 10;
 }
 
@@ -408,7 +408,7 @@ static int api_lopen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t mode = w16_arg16(a);
     int h = dos ? open_dos(dos, mode & 3, 0, 0, 0) : -E_FILE;
     free(dos);
-    w->cpu.r[R_AX] = h < 0 ? HFILE_ERROR : (uint16_t)h;
+    w->cpu.r[R_AX].w = h < 0 ? HFILE_ERROR : (uint16_t)h;
     return 6;
 }
 
@@ -422,7 +422,7 @@ static int api_lcreat(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     w16_arg16(a);
     int h = dos ? open_dos(dos, 2, 1, 0, 0) : -E_PATH;
     free(dos);
-    w->cpu.r[R_AX] = h < 0 ? HFILE_ERROR : (uint16_t)h;
+    w->cpu.r[R_AX].w = h < 0 ? HFILE_ERROR : (uint16_t)h;
     return 6;
 }
 
@@ -431,7 +431,7 @@ static int api_lcreat(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // w16: The same; 0, or HFILE_ERROR for a handle that is not open.
 static int api_lclose(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w->cpu.r[R_AX] = close_handle(w16_arg16(a)) < 0 ? HFILE_ERROR : 0;
+    w->cpu.r[R_AX].w = close_handle(w16_arg16(a)) < 0 ? HFILE_ERROR : 0;
     return 2;
 }
 
@@ -447,7 +447,7 @@ static int api_lread(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t n = w16_arg16(a);
     long r = rw(w, h, far, n, ordinal == 86);
     if (r == -2) return -1;
-    w->cpu.r[R_AX] = r < 0 ? HFILE_ERROR : (uint16_t)r;
+    w->cpu.r[R_AX].w = r < 0 ? HFILE_ERROR : (uint16_t)r;
     return 8;
 }
 
@@ -485,7 +485,7 @@ static int api_hmemcpy(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_SetHandleCount(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t n = w16_arg16(a);
-    w->cpu.r[R_AX] = n > 255 ? 255 : n;
+    w->cpu.r[R_AX].w = n > 255 ? 255 : n;
     return 2;
 }
 
@@ -532,7 +532,7 @@ static int api_GetTempFileName(struct w16 *w, unsigned ordinal, struct w16_args 
         if (fd >= 0) { close(fd); break; }
         if (errno != EEXIST) { n = 0; break; }
     }
-    w->cpu.r[R_AX] = n;
+    w->cpu.r[R_AX].w = n;
     if (!n) return 10;
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(out >> 16), (uint16_t)out, (uint32_t)strlen(name) + 1, 1);
     if (!p) return -1;
@@ -546,7 +546,7 @@ static int api_GetTempFileName(struct w16 *w, unsigned ordinal, struct w16_args 
 static int api_GetTempDrive(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
-    w->cpu.r[R_AX] = 'C' | ':' << 8;
+    w->cpu.r[R_AX].w = 'C' | ':' << 8;
     return 2;
 }
 
@@ -560,7 +560,7 @@ static int api_GetDriveType(struct w16 *w, unsigned ordinal, struct w16_args *a)
     (void)ordinal;
     uint16_t n = w16_arg16(a);
     char d = (char)('A' + n);
-    w->cpu.r[R_AX] = n >= 26 || !drive_root(d) ? 0 : w16_drive_is_cd(d) ? 4 : 3;
+    w->cpu.r[R_AX].w = n >= 26 || !drive_root(d) ? 0 : w16_drive_is_cd(d) ? 4 : 3;
     return 2;
 }
 
@@ -585,11 +585,11 @@ const unsigned g_file_api_n = sizeof g_file_api / sizeof g_file_api[0];
 // --- INT 21h: DOS's file calls ---------------------------------------------------------
 
 static void dos_ok(struct cpu16 *c) { c->flags &= (uint16_t)~F_CF; }
-static int dos_err(struct cpu16 *c, int e) { c->flags |= F_CF; c->r[R_AX] = (uint16_t)e; return 0; }
+static int dos_err(struct cpu16 *c, int e) { c->flags |= F_CF; c->r[R_AX].w = (uint16_t)e; return 0; }
 
 static char *ds_dx_path(struct cpu16 *c) {
     char *s = malloc(DOS_PATH * 2);
-    if (s && cpu16_str(c, c->sreg[S_DS], c->r[R_DX], s, DOS_PATH * 2) < 0) { free(s); return 0; }
+    if (s && cpu16_str(c, c->sreg[S_DS], c->r[R_DX].w, s, DOS_PATH * 2) < 0) { free(s); return 0; }
     return s;
 }
 
@@ -793,14 +793,14 @@ static void dos_set_clock(struct cpu16 *c, int date) {
     struct tm tm, want;
     int ok = dos_now(&tm) != 0;
     if (ok && date) {
-        tm.tm_year = c->r[R_CX] - 1900;
-        tm.tm_mon = (c->r[R_DX] >> 8) - 1;
-        tm.tm_mday = c->r[R_DX] & 0xFF;
-        ok = c->r[R_CX] >= 1980 && c->r[R_CX] <= 2099;
+        tm.tm_year = c->r[R_CX].w - 1900;
+        tm.tm_mon = (c->r[R_DX].w >> 8) - 1;
+        tm.tm_mday = c->r[R_DX].w & 0xFF;
+        ok = c->r[R_CX].w >= 1980 && c->r[R_CX].w <= 2099;
     } else if (ok) {
-        tm.tm_hour = c->r[R_CX] >> 8;
-        tm.tm_min = c->r[R_CX] & 0xFF;
-        tm.tm_sec = c->r[R_DX] >> 8;
+        tm.tm_hour = c->r[R_CX].w >> 8;
+        tm.tm_min = c->r[R_CX].w & 0xFF;
+        tm.tm_sec = c->r[R_DX].w >> 8;
         ok = tm.tm_hour < 24 && tm.tm_min < 60 && tm.tm_sec < 60;
     }
     want = tm;
@@ -809,28 +809,28 @@ static void dos_set_clock(struct cpu16 *c, int date) {
     // mktime moves a day past the month's end on; DOS refused it
     ok = t != (time_t)-1 && tm.tm_mday == want.tm_mday && tm.tm_mon == want.tm_mon;
     if (ok) g_clock_offset = (long)(t - time(0));
-    c->r[R_AX] = (uint16_t)((c->r[R_AX] & 0xFF00) | (ok ? 0x00 : 0xFF));
+    c->r[R_AX].w = (uint16_t)((c->r[R_AX].w & 0xFF00) | (ok ? 0x00 : 0xFF));
 }
 
 int w16_dos_file(struct w16 *w, struct cpu16 *c) {
-    uint8_t ah = (uint8_t)(c->r[R_AX] >> 8);
+    uint8_t ah = (uint8_t)(c->r[R_AX].w >> 8);
     switch (ah) { // dispatch-ok: bounded by DOS's INT 21h functions, the ABI
     case 0x0E:                                   // select drive: C: or Z:
-        if (drive_root((char)('A' + (c->r[R_DX] & 0xFF))) && (c->r[R_DX] & 0xFF) < 26) {
-            char d = (char)('A' + (c->r[R_DX] & 0xFF));
+        if (drive_root((char)('A' + (c->r[R_DX].w & 0xFF))) && (c->r[R_DX].w & 0xFF) < 26) {
+            char d = (char)('A' + (c->r[R_DX].w & 0xFF));
             if (upper(g_cwd[0]) != d) snprintf(g_cwd, sizeof g_cwd, "%c:\\", d);
         }
-        c->r[R_AX] = (uint16_t)((c->r[R_AX] & 0xFF00) | 26);
+        c->r[R_AX].w = (uint16_t)((c->r[R_AX].w & 0xFF00) | 26);
         return 0;
     case 0x19:                                   // the current drive
-        c->r[R_AX] = (uint16_t)((c->r[R_AX] & 0xFF00) | (upper(g_cwd[0]) - 'A'));
+        c->r[R_AX].w = (uint16_t)((c->r[R_AX].w & 0xFF00) | (upper(g_cwd[0]) - 'A'));
         return 0;
     case 0x1A:                                   // set the DTA
-        g_dta = (uint32_t)c->sreg[S_DS] << 16 | c->r[R_DX];
+        g_dta = (uint32_t)c->sreg[S_DS] << 16 | c->r[R_DX].w;
         return 0;
     case 0x2F:                                   // get the DTA
         c->sreg[S_ES] = (uint16_t)(g_dta >> 16);
-        c->r[R_BX] = (uint16_t)g_dta;
+        c->r[R_BX].w = (uint16_t)g_dta;
         return 0;
     case 0x2B: case 0x2D:                        // set the date, the time: Windows' own clock
         dos_set_clock(c, ah == 0x2B);
@@ -839,20 +839,20 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
         struct tm now, *tm = dos_now(&now);
         if (!tm) return -1;
         if (ah == 0x2A) {
-            c->r[R_CX] = (uint16_t)(tm->tm_year + 1900);
-            c->r[R_DX] = (uint16_t)((tm->tm_mon + 1) << 8 | tm->tm_mday);
-            c->r[R_AX] = (uint16_t)((c->r[R_AX] & 0xFF00) | tm->tm_wday);
+            c->r[R_CX].w = (uint16_t)(tm->tm_year + 1900);
+            c->r[R_DX].w = (uint16_t)((tm->tm_mon + 1) << 8 | tm->tm_mday);
+            c->r[R_AX].w = (uint16_t)((c->r[R_AX].w & 0xFF00) | tm->tm_wday);
         } else {
-            c->r[R_CX] = (uint16_t)(tm->tm_hour << 8 | tm->tm_min);
-            c->r[R_DX] = (uint16_t)(tm->tm_sec << 8);
+            c->r[R_CX].w = (uint16_t)(tm->tm_hour << 8 | tm->tm_min);
+            c->r[R_DX].w = (uint16_t)(tm->tm_sec << 8);
         }
         return 0;
     }
     case 0x36:                                   // free space: plenty (32 KiB clusters)
-        c->r[R_AX] = 64;
-        c->r[R_BX] = 0x7FFF;
-        c->r[R_CX] = 512;
-        c->r[R_DX] = 0xFFFF;
+        c->r[R_AX].w = 64;
+        c->r[R_BX].w = 0x7FFF;
+        c->r[R_CX].w = 512;
+        c->r[R_DX].w = 0xFFFF;
         return 0;
     case 0x3B: case 0x39: case 0x3A: case 0x41: case 0x43: case 0x4E: {
         static char host[1024], full[DOS_PATH * 2];   // the task thread's alone
@@ -863,7 +863,7 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
             static char folder[DOS_PATH * 2];
             char *sl = strrchr(dos, '\\');
             int drive = dos[0] && dos[1] == ':';
-            if (c->r[R_CX] & 0x08) {             // the volume label
+            if (c->r[R_CX].w & 0x08) {             // the volume label
                 char d = drive ? upper(dos[0]) : upper(g_cwd[0]);
                 free(dos);
                 return find_label(c, d);
@@ -884,7 +884,7 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
             uint8_t *p = cpu16_ptr(c, (uint16_t)(g_dta >> 16), (uint16_t)g_dta, 43, 1);
             if (!p) return -1;
             if (id < 0) return dos_err(c, 8);    // out of memory
-            find_store(p, id, pattern, 0, (uint8_t)c->r[R_CX]);
+            find_store(p, id, pattern, 0, (uint8_t)c->r[R_CX].w);
             return find_next(c);
         }
         e = w16_dos_path(dos, host, sizeof host, ah == 0x39, full, sizeof full);
@@ -901,7 +901,7 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
         case 0x41: if (unlink(host) != 0) return dos_err(c, E_ACCESS); break;
         case 0x43:                               // attributes: a folder, or an archive
             if (stat(host, &st) != 0) return dos_err(c, E_FILE);
-            if ((c->r[R_AX] & 0xFF) == 0) c->r[R_CX] = S_ISDIR(st.st_mode) ? 0x10 : 0x20;
+            if ((c->r[R_AX].w & 0xFF) == 0) c->r[R_CX].w = S_ISDIR(st.st_mode) ? 0x10 : 0x20;
             break;
         }
         dos_ok(c);
@@ -910,46 +910,46 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
     case 0x3C: case 0x3D: {                      // create, open
         char *dos = ds_dx_path(c);
         if (!dos) return dos_err(c, E_PATH);
-        int h = open_dos(dos, c->r[R_AX] & 3, ah == 0x3C, 0, 0);
+        int h = open_dos(dos, c->r[R_AX].w & 3, ah == 0x3C, 0, 0);
         free(dos);
         if (h < 0) return dos_err(c, -h);
-        c->r[R_AX] = (uint16_t)h;
+        c->r[R_AX].w = (uint16_t)h;
         dos_ok(c);
         return 0;
     }
     case 0x3E:                                   // close
-        if (close_handle(c->r[R_BX]) < 0) return dos_err(c, E_HANDLE);
+        if (close_handle(c->r[R_BX].w) < 0) return dos_err(c, E_HANDLE);
         dos_ok(c);
         return 0;
     case 0x3F: case 0x40: {                      // read, write
-        long r = rw(w, c->r[R_BX], (uint32_t)c->sreg[S_DS] << 16 | c->r[R_DX], c->r[R_CX], ah == 0x40);
+        long r = rw(w, c->r[R_BX].w, (uint32_t)c->sreg[S_DS] << 16 | c->r[R_DX].w, c->r[R_CX].w, ah == 0x40);
         if (r == -2) return -1;
         if (r < 0) return dos_err(c, E_HANDLE);
-        c->r[R_AX] = (uint16_t)r;
+        c->r[R_AX].w = (uint16_t)r;
         dos_ok(c);
         return 0;
     }
     case 0x42: {                                 // seek
-        struct dosfile *f = file_of(c->r[R_BX]);
-        int whence = c->r[R_AX] & 0xFF;
+        struct dosfile *f = file_of(c->r[R_BX].w);
+        int whence = c->r[R_AX].w & 0xFF;
         if (!f || whence > 2) return dos_err(c, E_HANDLE);
-        off_t off = (int32_t)((uint32_t)c->r[R_CX] << 16 | c->r[R_DX]);
+        off_t off = (int32_t)((uint32_t)c->r[R_CX].w << 16 | c->r[R_DX].w);
         off_t r = seek(f, off, whence);
         if (r < 0) return dos_err(c, 25);
-        c->r[R_AX] = (uint16_t)r;
-        c->r[R_DX] = (uint16_t)(r >> 16);
+        c->r[R_AX].w = (uint16_t)r;
+        c->r[R_DX].w = (uint16_t)(r >> 16);
         dos_ok(c);
         return 0;
     }
     case 0x44:                                   // IOCTL: every handle is a file on a fixed disk
-        if ((c->r[R_AX] & 0xFF) == 0) { c->r[R_DX] = 0; dos_ok(c); return 0; }
-        if ((c->r[R_AX] & 0xFF) == 8) { c->r[R_AX] = 1; dos_ok(c); return 0; }
+        if ((c->r[R_AX].w & 0xFF) == 0) { c->r[R_DX].w = 0; dos_ok(c); return 0; }
+        if ((c->r[R_AX].w & 0xFF) == 8) { c->r[R_AX].w = 1; dos_ok(c); return 0; }
         return dos_err(c, 1);
     case 0x47: {                                 // the current folder, no drive or first '\'
-        uint8_t *p = cpu16_ptr(c, c->sreg[S_DS], c->r[R_SI], 64, 1);
+        uint8_t *p = cpu16_ptr(c, c->sreg[S_DS], c->r[R_SI].w, 64, 1);
         if (!p) return -1;
         snprintf((char *)p, 64, "%s", g_cwd + 3);
-        c->r[R_AX] = 0x0100;                     // DOS's own (undocumented) answer: Write scans for AL's 0
+        c->r[R_AX].w = 0x0100;                     // DOS's own (undocumented) answer: Write scans for AL's 0
         dos_ok(c);
         return 0;
     }
@@ -959,7 +959,7 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
         static char to[DOS_PATH * 2], hf[1024], ht[1024];
         char *from = ds_dx_path(c);
         if (!from) return dos_err(c, E_PATH);
-        int e = cpu16_str(c, c->sreg[S_ES], c->r[R_DI], to, sizeof to) < 0 ? E_PATH : 0;
+        int e = cpu16_str(c, c->sreg[S_ES], c->r[R_DI].w, to, sizeof to) < 0 ? E_PATH : 0;
         if (!e) e = w16_dos_path(from, hf, sizeof hf, 0, 0, 0);
         if (!e) e = w16_dos_path(to, ht, sizeof ht, 1, 0, 0);
         free(from);
@@ -969,19 +969,19 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
         return 0;
     }
     case 0x57: {                                 // a file's date and time
-        struct dosfile *f = file_of(c->r[R_BX]);
+        struct dosfile *f = file_of(c->r[R_BX].w);
         struct stat st;
         if (!f || fstat(f->rfd >= 0 ? f->rfd : f->wfd, &st) != 0) return dos_err(c, E_HANDLE);
-        if ((c->r[R_AX] & 0xFF) == 0) {
+        if ((c->r[R_AX].w & 0xFF) == 0) {
             struct tm *tm = localtime(&st.st_mtime);
-            c->r[R_CX] = tm ? (uint16_t)(tm->tm_hour << 11 | tm->tm_min << 5 | tm->tm_sec / 2) : 0;
-            c->r[R_DX] = tm ? (uint16_t)((tm->tm_year - 80) << 9 | (tm->tm_mon + 1) << 5 | tm->tm_mday) : 0;
+            c->r[R_CX].w = tm ? (uint16_t)(tm->tm_hour << 11 | tm->tm_min << 5 | tm->tm_sec / 2) : 0;
+            c->r[R_DX].w = tm ? (uint16_t)((tm->tm_year - 80) << 9 | (tm->tm_mon + 1) << 5 | tm->tm_mday) : 0;
         }
         dos_ok(c);
         return 0;
     }
     case 0x59:                                   // extended error: none to tell
-        c->r[R_AX] = 0;
+        c->r[R_AX].w = 0;
         return 0;
     default:
         return -1;

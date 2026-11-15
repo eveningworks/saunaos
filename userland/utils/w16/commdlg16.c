@@ -607,7 +607,7 @@ static int ofn_proc(struct w16 *w, struct w16_wnd *d, uint16_t msg, uint16_t wp,
 static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
     uint32_t far = w16_arg32(a);
     struct cpu16 *c = &w->cpu;
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     g_error = 0;
     uint8_t *of = at(w, far, 72, 0);
     if (!of) return -1;
@@ -750,7 +750,7 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
             uint32_t fl = rd32(of + 48);
             wr32(of + 48, o->readonly ? fl | OFN_READONLY : fl & ~(uint32_t)OFN_READONLY);
         }
-        c->r[R_AX] = r == 1;
+        c->r[R_AX].w = r == 1;
     }
 out:
     free(o->filter);
@@ -865,7 +865,7 @@ static int api_FindText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
     struct cpu16 *c = &w->cpu;
-    c->r[R_AX] = 0;
+    c->r[R_AX].w = 0;
     g_error = 0;
     uint8_t *p = at(w, far, 36, 0);
     if (!p) return -1;
@@ -919,7 +919,7 @@ static int api_FindText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         w16_set_focus(w, eh);
         w16_send(w, eh, EM_SETSEL, 0, 0xFFFF0000u);
     }
-    c->r[R_AX] = w16_wnd_get(w, h) ? h : 0;
+    c->r[R_AX].w = w16_wnd_get(w, h) ? h : 0;
     return c->fault ? -1 : 4;
 }
 
@@ -937,7 +937,7 @@ static int api_PrintDlg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a);
     g_error = PDERR_NODEFAULTPRN;
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 4;
 }
 
@@ -949,8 +949,8 @@ static int api_PrintDlg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_CommDlgExtendedError(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
-    w->cpu.r[R_AX] = g_error;
-    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX].w = g_error;
+    w->cpu.r[R_DX].w = 0;
     return 0;
 }
 
@@ -969,13 +969,13 @@ static int api_GetFileTitle(struct w16 *w, unsigned ordinal, struct w16_args *a)
     for (const char *p = s; *p; p++)
         if (*p == '\\' || *p == '/' || *p == ':') t = p + 1;
     size_t n = strlen(t);
-    if (!n) w->cpu.r[R_AX] = 0xFFFF;
-    else if (n + 1 > cap) w->cpu.r[R_AX] = (uint16_t)(n + 1);
+    if (!n) w->cpu.r[R_AX].w = 0xFFFF;
+    else if (n + 1 > cap) w->cpu.r[R_AX].w = (uint16_t)(n + 1);
     else {
         uint8_t *d = cpu16_ptr(&w->cpu, (uint16_t)(title >> 16), (uint16_t)title, (uint32_t)n + 1, 1);
         if (!d) { free(s); return -1; }
         memcpy(d, t, n + 1);
-        w->cpu.r[R_AX] = 0;
+        w->cpu.r[R_AX].w = 0;
     }
     free(s);
     return 10;
@@ -1296,7 +1296,7 @@ static int api_ChooseFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
     struct cpu16 *cpu = &w->cpu;
-    cpu->r[R_AX] = 0;
+    cpu->r[R_AX].w = 0;
     g_error = 0;
     const uint8_t *p = at(w, far, 46, 0);
     if (!p) return -1;
@@ -1434,7 +1434,7 @@ static int api_ChooseFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
                 c->lf.strikeout = (uint8_t)(k && w16_send(w, k->hwnd, BM_GETCHECK, 0, 0));
                 c->lf.underline = (uint8_t)(u && w16_send(w, u->hwnd, BM_GETCHECK, 0, 0));
             }
-            cpu->r[R_AX] = (uint16_t)cf_give_back(w, c);
+            cpu->r[R_AX].w = (uint16_t)cf_give_back(w, c);
         }
     }
 out:

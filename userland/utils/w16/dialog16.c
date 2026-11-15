@@ -839,7 +839,7 @@ static int dialog(struct w16 *w, struct w16_args *a, int with_param, int modal) 
     const struct ne_module *m;
     int found = find_template(w, inst, tmpl, &res, &m);
     if (found == -2) return -1;
-    c->r[R_AX] = modal ? 0xFFFF : 0;
+    c->r[R_AX].w = modal ? 0xFFFF : 0;
     if (found < 0) return pop;
     return run_template(w, m->img + res.off, res.len, inst, owner, proc, param, modal, pop);
 }
@@ -850,7 +850,7 @@ static int run_template(struct w16 *w, const uint8_t *p, uint32_t n, uint16_t in
                         uint32_t param, int modal, int pop) {
     struct cpu16 *c = &w->cpu;
     char why[96] = "";
-    c->r[R_AX] = modal ? 0xFFFF : 0;
+    c->r[R_AX].w = modal ? 0xFFFF : 0;
     struct w16_wnd *d = from_template(w, p, n, owner, inst ? inst : w->dgroup, proc, 0, why, sizeof why);
     if (!d) {
         if (!c->fault) cpu16_set_fault(c, FAULT_API, why[0] ? why : "out of memory for a dialog");
@@ -858,9 +858,9 @@ static int run_template(struct w16 *w, const uint8_t *p, uint32_t n, uint16_t in
     }
     uint16_t h = d->hwnd;
     start(w, d, param, modal);
-    if (!modal) { c->r[R_AX] = w16_wnd_get(w, h) ? h : 0; return pop; }
+    if (!modal) { c->r[R_AX].w = w16_wnd_get(w, h) ? h : 0; return pop; }
     d = w16_wnd_get(w, h);
-    c->r[R_AX] = d ? (uint16_t)w16_dlg_run(w, d) : 0xFFFF;
+    c->r[R_AX].w = d ? (uint16_t)w16_dlg_run(w, d) : 0xFFFF;
     return c->fault ? -1 : pop;
 }
 
@@ -917,7 +917,7 @@ static int indirect(struct w16 *w, struct w16_args *a, int modal) {
     uint32_t n = sel && (d->kind == D_DATA || d->kind == D_CODE) && off <= d->limit ? d->limit + 1u - off : 0;
     const uint8_t *p = n ? cpu16_ptr(&w->cpu, sel, off, n, 0) : 0;
     if (!p) {
-        w->cpu.r[R_AX] = modal ? 0xFFFF : 0;
+        w->cpu.r[R_AX].w = modal ? 0xFFFF : 0;
         return w->cpu.fault ? -1 : pop;
     }
     return run_template(w, p, n, inst, owner, proc, 0, modal, pop);
@@ -961,7 +961,7 @@ static int api_GetNextDlgTabItem(struct w16 *w, unsigned ordinal, struct w16_arg
         if (tabstop(v[i])) r = v[i]->hwnd;
     }
     free(v);
-    w->cpu.r[R_AX] = r;
+    w->cpu.r[R_AX].w = r;
     return 6;
 }
 
@@ -977,7 +977,7 @@ static int api_IsDialogMessage(struct w16 *w, unsigned ordinal, struct w16_args 
     if (!p) return -1;
     struct w16_msg m = { (uint16_t)(p[0] | p[1] << 8), (uint16_t)(p[2] | p[3] << 8), (uint16_t)(p[4] | p[5] << 8),
                          (uint32_t)(p[6] | p[7] << 8 | p[8] << 16 | (uint32_t)p[9] << 24), (uint8_t)w->key_mods };
-    w->cpu.r[R_AX] = d && w16_is_dialog(d) ? (uint16_t)w16_is_dialog_message(w, d, &m) : 0;
+    w->cpu.r[R_AX].w = d && w16_is_dialog(d) ? (uint16_t)w16_is_dialog_message(w, d, &m) : 0;
     return w->cpu.fault ? -1 : 6;
 }
 
@@ -993,7 +993,7 @@ static int api_EndDialog(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (!d->ended) d->ended = 1;
         if (!d->modal) w16_wnd_destroy(w, d);   // a modeless one has no loop to end
     }
-    w->cpu.r[R_AX] = d != 0;
+    w->cpu.r[R_AX].w = d != 0;
     return 4;
 }
 
@@ -1012,7 +1012,7 @@ static int api_GetDlgItem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t dlg = w16_arg16(a), id = w16_arg16(a);
     struct w16_wnd *c = w16_dlg_item(w, dlg, id);
-    w->cpu.r[R_AX] = c ? c->hwnd : 0;
+    w->cpu.r[R_AX].w = c ? c->hwnd : 0;
     return 4;
 }
 
@@ -1037,8 +1037,8 @@ static int api_GetDlgItemText(struct w16 *w, unsigned ordinal, struct w16_args *
     uint32_t far = w16_arg32(a);
     uint16_t max = w16_arg16(a);
     struct w16_wnd *c = w16_dlg_item(w, dlg, id);
-    w->cpu.r[R_AX] = 0;
-    if (c) w->cpu.r[R_AX] = (uint16_t)w16_send(w, c->hwnd, WM_GETTEXT, max, far);
+    w->cpu.r[R_AX].w = 0;
+    if (c) w->cpu.r[R_AX].w = (uint16_t)w16_send(w, c->hwnd, WM_GETTEXT, max, far);
     else if (max) {
         uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 1, 1);
         if (!p) return -1;
@@ -1093,7 +1093,7 @@ static int api_GetDlgItemInt(struct w16 *w, unsigned ordinal, struct w16_args *a
         p[0] = (uint8_t)ok;
         p[1] = 0;
     }
-    w->cpu.r[R_AX] = (uint16_t)(neg ? -v : v);
+    w->cpu.r[R_AX].w = (uint16_t)(neg ? -v : v);
     return 10;
 }
 
@@ -1106,8 +1106,8 @@ static int api_SendDlgItemMessage(struct w16 *w, unsigned ordinal, struct w16_ar
     uint32_t lp = w16_arg32(a);
     struct w16_wnd *c = w16_dlg_item(w, dlg, id);
     uint32_t r = c ? w16_send(w, c->hwnd, msg, wp, lp) : 0;
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = (uint16_t)(r >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = (uint16_t)(r >> 16);
     return w->cpu.fault ? -1 : 12;
 }
 
@@ -1130,7 +1130,7 @@ static int api_IsDlgButtonChecked(struct w16 *w, unsigned ordinal, struct w16_ar
     (void)ordinal;
     uint16_t dlg = w16_arg16(a), id = w16_arg16(a);
     struct w16_wnd *c = w16_dlg_item(w, dlg, id);
-    w->cpu.r[R_AX] = c ? (uint16_t)w16_send(w, c->hwnd, BM_GETCHECK, 0, 0) : 0;
+    w->cpu.r[R_AX].w = c ? (uint16_t)w16_send(w, c->hwnd, BM_GETCHECK, 0, 0) : 0;
     return 4;
 }
 
@@ -1158,8 +1158,8 @@ static int api_DefDlgProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t msg = w16_arg16(a), wp = w16_arg16(a);
     uint32_t lp = w16_arg32(a);
     uint32_t r = !d ? 0 : w16_is_dialog(d) ? w16_dialog_proc(w, d, msg, wp, lp) : w16_def_window_proc(w, d, msg, wp, lp);
-    w->cpu.r[R_AX] = (uint16_t)r;
-    w->cpu.r[R_DX] = (uint16_t)(r >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)r;
+    w->cpu.r[R_DX].w = (uint16_t)(r >> 16);
     return 10;
 }
 
@@ -1293,7 +1293,7 @@ static int api_MessageBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t type = w16_arg16(a);
     char *text = dup_far(w, tf), *cap = dup_far(w, cf);
     if (!text || !cap) { free(text); free(cap); return -1; }
-    w->cpu.r[R_AX] = (uint16_t)w16_message_box(w, owner, text, cap, type);
+    w->cpu.r[R_AX].w = (uint16_t)w16_message_box(w, owner, text, cap, type);
     free(text);
     free(cap);
     return w->cpu.fault ? -1 : 12;
@@ -1332,7 +1332,7 @@ static int api_ShellAbout(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         }
     }
     free(text); free(cap); free(app); free(other);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return w->cpu.fault ? -1 : 12;
 }
 
@@ -1391,7 +1391,7 @@ static int api_DragAcceptFiles(struct w16 *w, unsigned ordinal, struct w16_args 
 static int api_DragQueryFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a); w16_arg16(a); w16_arg32(a); w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_AX].w = 0;
     return 10;
 }
 

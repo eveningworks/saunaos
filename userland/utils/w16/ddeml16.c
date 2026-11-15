@@ -16,8 +16,8 @@ static uint32_t g_next_handle = 1;               // string and data handles: onl
 static uint16_t g_last_error = DMLERR_NO_ERROR;
 
 static void set32(struct w16 *w, uint32_t v) {
-    w->cpu.r[R_AX] = (uint16_t)v;
-    w->cpu.r[R_DX] = (uint16_t)(v >> 16);
+    w->cpu.r[R_AX].w = (uint16_t)v;
+    w->cpu.r[R_DX].w = (uint16_t)(v >> 16);
 }
 
 // DdeInitialize(lpidInst, pfnCallback, afCmd, ulRes) -> UINT
@@ -41,7 +41,7 @@ static int api_DdeInitialize(struct w16 *w, unsigned ordinal, struct w16_args *a
     if (!p) return -1;
     uint32_t id = 1;
     memcpy(p, &id, 4);
-    w->cpu.r[R_AX] = DMLERR_NO_ERROR;
+    w->cpu.r[R_AX].w = DMLERR_NO_ERROR;
     return 16;
 }
 
@@ -53,7 +53,7 @@ static int api_DdeInitialize(struct w16 *w, unsigned ordinal, struct w16_args *a
 static int api_DdeTrue4(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 4;
 }
 
@@ -95,7 +95,7 @@ static int api_DdeClientTransaction(struct w16 *w, unsigned ordinal, struct w16_
 static int api_DdePostAdvise(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a); w16_arg32(a); w16_arg32(a);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 12;
 }
 
@@ -132,7 +132,7 @@ static int api_DdeGetData(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_DdeGetLastError(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a);
-    w->cpu.r[R_AX] = g_last_error;
+    w->cpu.r[R_AX].w = g_last_error;
     g_last_error = DMLERR_NO_ERROR;
     return 4;
 }
@@ -155,7 +155,7 @@ static int api_DdeCreateStringHandle(struct w16 *w, unsigned ordinal, struct w16
 static int api_DdeFreeStringHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a); w16_arg32(a);
-    w->cpu.r[R_AX] = 1;
+    w->cpu.r[R_AX].w = 1;
     return 8;
 }
 
