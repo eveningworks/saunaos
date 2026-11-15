@@ -9027,6 +9027,12 @@ GetCurrentPDB, FreeModule, GetCodeHandle, CreatePenIndirect, CopyMetaFile,
 EnumMetaFile, PlayMetaFileRecord and CreateBrushIndirect, since written)
 and its DLLs and VBX controls ~15 more (seven TOOLHELP calls,
 ChooseColor, SetParent, ShowOwnedPopups, SetMenuItemBitmaps...). Before
-those it stops at start-up: its last resource runs 217 bytes past the end
-of WT20.EXE, which ne.c refuses, and VBRUN300 asks GlobalHandle for a
-module's own segment, which w16 answers 0.
+those it stopped at start-up: its last resource runs 217 bytes past the end
+of WT20.EXE (padding, accepted since), and VBRUN300 grows the program's own
+DGROUP, makes local heaps in global blocks and reads the program's p-code
+through AccessResource (all answered since). **It now stops at its Graphics
+Server**: WTGRAPH.VBX's GSWDLL.DLL starts GSW.EXE with WinExec and then
+looks in its own data segment for GSW.EXE's registration -- Windows 3.1
+kept ONE copy of a DLL's data for every program using it, and each w16
+program has its own. Two programs sharing one DLL instance is a design
+question (several tasks in one w16), not a missing call.
