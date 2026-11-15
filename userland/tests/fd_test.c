@@ -197,5 +197,22 @@ int main(void) {
           "a spawn naming a plain file as stdin is refused");
     sys_close(plain);
 
+    // O_NONBLOCK ON A PIPE: empty with a writer is EAGAIN, not a park (w16 drains hlpbroker's
+    // answers this way); a full pipe's write takes nothing and says EAGAIN.
+    int np[2];
+    utest_check(sys_pipe(np) == 0, "a pipe for O_NONBLOCK");
+    utest_check(sys_set_nonblock(np[0], 1) == 0 && sys_set_nonblock(np[1], 1) == 0, "both ends non-blocking");
+    char nb[64];
+    int64_t r0 = sys_read(np[0], nb, 1);
+    utest_checkf(r0 == -1 && sys_errno() == EAGAIN, "an empty pipe's read is EAGAIN (%lld)", (long long)r0);
+    utest_check(sys_write(np[1], "x", 1) == 1 && sys_read(np[0], nb, 1) == 1 && nb[0] == 'x',
+                "a written byte still comes back");
+    int64_t w = 0, total = 0;
+    memset(nb, 'y', sizeof nb);
+    for (int i = 0; i < 4096 && (w = sys_write(np[1], nb, sizeof nb)) > 0; i++) total += w;
+    utest_checkf(w == -1 && sys_errno() == EAGAIN && total > 0, "a full pipe's write is EAGAIN (after %lld bytes)", (long long)total);
+    sys_close(np[0]);
+    sys_close(np[1]);
+
     return utest_end();
 }

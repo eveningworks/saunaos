@@ -188,6 +188,8 @@ static int pipe_fd_read(struct syscall_ctx *c, struct open_file *f,
         regs[14] = (uint64_t)(int64_t)-EFAULT;
     } else if (n >= 0) {
         regs[14] = (uint64_t)n; // bytes, or 0 for EOF
+    } else if (f->nonblock) {
+        regs[14] = (uint64_t)(int64_t)-EAGAIN; // empty, writers left: O_NONBLOCK says so, not parks
     } else if (!scheduler_block_current(regs, pipe_wait_chan(pipe_idx), SCHED_WAIT_PIPE)) {
         // Nowhere to park (kernel code or the legacy path). Report EOF
         // rather than spinning: a caller that cannot block must not be
@@ -261,6 +263,8 @@ static int pipe_fd_write(struct syscall_ctx *c, struct open_file *f,
             regs[14] = (uint64_t)(int64_t)-EPIPE;
         } else if (n >= 0) {
             regs[14] = (uint64_t)n; // all of it, or an honest zero
+        } else if (f->nonblock) {
+            regs[14] = (uint64_t)(int64_t)-EAGAIN; // full: nothing taken, as POSIX says for O_NONBLOCK
         } else if (!scheduler_block_current(regs, pipe_wait_chan(pipe_idx), SCHED_WAIT_PIPE)) {
             // Nowhere to park -- kernel code, or the legacy loader.
             // Report 0 rather than spinning, for the same reason the
