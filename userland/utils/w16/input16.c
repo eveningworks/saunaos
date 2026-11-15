@@ -229,7 +229,10 @@ void w16_journal_release(struct w16 *w) {
     free(v);
 }
 
+int g_w16_input_off;
+
 void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up) {
+    if (g_w16_input_off && !up) return;
     if (w16_hook(WH_JOURNALPLAYBACK) &&          // the keyboard is the journal's while it plays
         hold(w, (struct held){ .top = top->hwnd, .key = key, .mods = mods, .up = up }))
         return;
@@ -268,6 +271,7 @@ static struct { uint64_t tick; uint16_t hwnd; int x, y; } g_last;
 static struct { uint16_t top; int x, y; } g_ptr;
 
 int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y) {
+    if (g_w16_input_off && msg != WM_LBUTTONUP && msg != WM_RBUTTONUP) return -1;
     if (w16_hook(WH_JOURNALPLAYBACK)) {          // the mouse is the journal's while it plays
         if (msg == WM_MOUSEMOVE ||
             hold(w, (struct held){ .top = top->hwnd, .msg = msg, .wp = wp, .x = x, .y = y }))
@@ -396,7 +400,7 @@ static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_
 // multiline edit, a document window. Messages 3.1 already had; a program that never asked for a
 // wheel scrolls by one anyway.
 void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches) {
-    if (!notches || w16_hook(WH_JOURNALPLAYBACK)) return;
+    if (!notches || g_w16_input_off || w16_hook(WH_JOURNALPLAYBACK)) return;
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *at = 0;
     if (g_ptr.top == top->hwnd) {

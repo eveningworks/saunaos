@@ -24,11 +24,17 @@
 // `EFFECT` with off, a preset's word (ucrt_effect_word) or custom then sets
 // that program's eight effect keys and nothing else (w16_prefs_save_effect). A w16 taken
 // over can change its own program's look -- not its drive C:, not another's.
+//
+// IT ANSWERS ON ITS STANDARD OUTPUT WHEN A HELP WINDOW CLOSES, so the program's FindWindow can wait
+// on it as on Windows (WinBench waits for its licence's window to come and go). Each OPEN and
+// WINHELP line is numbered from 1 in the order received, and `CLOSED\tN` says window N is gone --
+// at once for a line this refused or a start that failed; a newer N is the one still open.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#include <pthread.h>
 #include "rt/sys.h"
 #include "common/w16prefs.h"
 
@@ -36,14 +42,36 @@
 #define LINE_MAX_BYTES 4096
 
 static int g_child;
+static unsigned g_seq;                  // OPEN and WINHELP lines received
 
+static void report_closed(unsigned seq) {
+    char out[24];
+    int n = snprintf(out, sizeof out, "CLOSED\t%u\n", seq);
+    if (write(1, out, (size_t)n) < 0) { /* the program ended: nobody to tell */ }
+}
+
+// One per window started: reaps it, then says it is gone. The only reaper of its child.
+struct waiter { int pid; unsigned seq; };
+static void *wait_child(void *arg) {
+    struct waiter wt = *(struct waiter *)arg;
+    free(arg);
+    int code;
+    sys_waitpid(wt.pid, &code);
+    report_closed(wt.seq);
+    return 0;
+}
+
+static void watch_child(int pid, unsigned seq) {
+    struct waiter *wt = malloc(sizeof *wt);
+    pthread_t t;
+    if (wt) { wt->pid = pid; wt->seq = seq; }
+    if (!wt || pthread_create(&t, 0, wait_child, wt) != 0) { free(wt); return; }
+    pthread_detach(t);
+}
+
+// Closes the window this started last; its waiter reaps it and reports.
 static void close_child(void) {
     if (g_child > 0) sys_kill(g_child, 15);
-    int code;
-    while (g_child > 0 && sys_waitpid_nohang(g_child, &code) == SYS_RETRY) {
-        usleep(10000);
-        break;
-    }
     g_child = 0;
 }
 
@@ -134,15 +162,14 @@ int main(void) {
         }
         if (!strcmp(line, "QUIT")) { close_child(); continue; }
         char *argv[16];
-        if (!strncmp(line, "WINHELP\t", 8)) {
-            if (!build_winhelp(line, argv, 16)) continue;
-            close_child();
-            g_child = sys_spawn_argv(W16BIN, argv);
-            continue;
-        }
-        if (!build(line, argv, 16)) continue;
+        int winhelp = !strncmp(line, "WINHELP\t", 8);
+        if (!winhelp && strncmp(line, "OPEN\t", 5)) continue;
+        unsigned seq = ++g_seq;
+        if (!(winhelp ? build_winhelp(line, argv, 16) : build(line, argv, 16))) { report_closed(seq); continue; }
         close_child();
-        g_child = sys_spawn_argv(VIEWER, argv);
+        g_child = sys_spawn_argv(winhelp ? W16BIN : VIEWER, argv);
+        if (g_child > 0) watch_child(g_child, seq);
+        else report_closed(seq);
     }
     return 0;
 }

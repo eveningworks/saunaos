@@ -786,6 +786,55 @@ static struct tm *dos_now(struct tm *out) {
     return tm ? out : 0;
 }
 
+static uint8_t bcd(int v) { return (uint8_t)((v / 10) << 4 | v % 10); }
+
+// INT 1Ah, the BIOS clock, from Windows' own clock as DOS's 2Ah/2Ch are. 00h: CX:DX ticks since
+// midnight at the PIT's 1193180/65536 Hz (~18.2), AL 0 (no midnight passed) -- a benchmark's timer
+// (WinBench 3.1), so it carries the sub-second part DOS's 2Ch drops. 02h: the time in BCD (CH:CL:DH,
+// DL 0 no daylight saving); 04h: the date in BCD (CH century, CL year, DH month, DL day). CF clear.
+// The BIOS's ticks since midnight now, and the broken-down time they came from.
+static uint32_t bios_ticks(struct tm *tm) {
+    memset(tm, 0, sizeof *tm);
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    time_t now = ts.tv_sec + g_clock_offset;
+    if (!localtime_r(&now, tm)) return 0;
+    uint64_t us = (uint64_t)(tm->tm_hour * 3600 + tm->tm_min * 60 + tm->tm_sec) * 1000000u + (uint64_t)ts.tv_nsec / 1000u;
+    return (uint32_t)(us * 1193180u / (65536u * 1000000ull));
+}
+
+void w16_bios_refresh(struct w16 *w) {
+    if (!w->bios_low) return;
+    struct tm tm;
+    uint32_t t = bios_ticks(&tm);
+    memcpy(w->bios_low + 0x46C, &t, 4);          // little-endian, as the program reads it
+}
+
+int w16_bios_time(struct cpu16 *c) {
+    struct tm tm;
+    uint32_t ticks = bios_ticks(&tm);
+    switch (c->r[R_AX].w >> 8) {
+    case 0x00: {
+        c->r[R_CX].w = (uint16_t)(ticks >> 16);
+        c->r[R_DX].w = (uint16_t)ticks;
+        c->r[R_AX].w &= 0xFF00;
+        break;
+    }
+    case 0x02:
+        c->r[R_CX].w = (uint16_t)(bcd(tm.tm_hour) << 8 | bcd(tm.tm_min));
+        c->r[R_DX].w = (uint16_t)(bcd(tm.tm_sec) << 8);
+        break;
+    case 0x04:
+        c->r[R_CX].w = (uint16_t)(bcd((tm.tm_year + 1900) / 100) << 8 | bcd(tm.tm_year % 100));
+        c->r[R_DX].w = (uint16_t)(bcd(tm.tm_mon + 1) << 8 | bcd(tm.tm_mday));
+        break;
+    default:
+        return -1;
+    }
+    dos_ok(c);
+    return 0;
+}
+
 // 2Bh and 2Dh: the date (CX year, DH month, DL day) or the time (CH hour, CL minutes, DH seconds)
 // made Windows' own. AL 0, or FF for one DOS refused -- a year before 1980 or after 2099, the 30th
 // of February, the 25th hour.

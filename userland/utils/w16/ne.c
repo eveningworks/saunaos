@@ -183,10 +183,8 @@ static int hash_number(const char *name, uint16_t *out) {
     return 1;
 }
 
-int ne_resource_find(const struct ne_module *m, uint16_t type, const char *type_name,
-                     uint16_t id, const char *name, struct ne_resource *out) {
-    if (hash_number(type_name, &type)) type_name = 0;
-    if (hash_number(name, &id)) name = 0;
+static int find_exact(const struct ne_module *m, uint16_t type, const char *type_name,
+                      uint16_t id, const char *name, struct ne_resource *out) {
     for (unsigned i = 0; i < m->nres; i++) {
         if (ne_resource_at(m, i, out) < 0) return NE_E_RESOURCE;
         int type_ok = type_name ? out->type_name[0] && same_name(out->type_name, type_name)
@@ -196,6 +194,50 @@ int ne_resource_find(const struct ne_module *m, uint16_t type, const char *type_
         if (type_ok && id_ok) return (int)i;
     }
     return NE_E_RANGE;
+}
+
+// A NUL-terminated string at `p` inside [p, end) into `out`; its length, or -1 when it runs past
+// `end` or `cap`.
+static int name_at(const struct ne_module *m, uint32_t p, uint32_t end, char *out, size_t cap) {
+    size_t n = 0;
+    for (; p < end && n + 1 < cap; p++, n++)
+        if (!(out[n] = (char)rd8(m, p))) return (int)n;
+    return -1;
+}
+
+// THE NAME TABLE (RT_NAMETABLE, type 15): how Windows 3.0's resource compiler kept names for
+// resources it stored by number -- a program loads "REGISTERBOX" and the dialog is #13 (WinBench
+// 3.1). Records of WORD length, WORD type, WORD id (top bit set), the type's name ("" for a numbered
+// type) and the resource's name. The number `name` stands for, or 0.
+static uint16_t name_table_id(const struct ne_module *m, uint16_t type, const char *type_name, const char *name) {
+    struct ne_resource t;
+    int k = -1;
+    for (unsigned i = 0; i < m->nres && k < 0; i++)
+        if (ne_resource_at(m, i, &t) == 0 && !t.type_name[0] && t.type == 15) k = (int)i;
+    if (k < 0) return 0;
+    uint32_t p = t.off, end = t.off + t.len;
+    while (p + 7 <= end) {
+        uint16_t len = rd16(m, p);
+        if (len < 8 || len > end - p) break;
+        char tn[64], rn[64];
+        int a = name_at(m, p + 6, p + len, tn, sizeof tn);
+        int b = a < 0 ? -1 : name_at(m, p + 6 + (uint32_t)a + 1, p + len, rn, sizeof rn);
+        uint16_t rtype = rd16(m, p + 2), rid = rd16(m, p + 4);
+        int type_ok = type_name ? a > 0 && same_name(tn, type_name) : a == 0 && (rtype & 0x7FFF) == type;
+        if (b > 0 && type_ok && same_name(rn, name) && (rid & 0x7FFF)) return rid & 0x7FFF;
+        p += len;
+    }
+    return 0;
+}
+
+int ne_resource_find(const struct ne_module *m, uint16_t type, const char *type_name,
+                     uint16_t id, const char *name, struct ne_resource *out) {
+    if (hash_number(type_name, &type)) type_name = 0;
+    if (hash_number(name, &id)) name = 0;
+    int i = find_exact(m, type, type_name, id, name, out);
+    if (i != NE_E_RANGE || !name) return i;
+    uint16_t n = name_table_id(m, type, type_name, name);
+    return n ? find_exact(m, type, type_name, n, 0, out) : NE_E_RANGE;
 }
 
 int ne_reloc_at(const struct ne_module *m, unsigned seg, unsigned i, struct ne_reloc *out) {

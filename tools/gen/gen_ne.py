@@ -41,6 +41,10 @@ RESOURCES come from directives too, so a test program stays one text file:
                                                     default palette -- . clear;
                                                     the same id again adds a
                                                     picture to that group)
+    ;w16: nametable 5 100 NUMBERBOX                 (RT_NAMETABLE: a name for a
+                                                    numbered resource -- type,
+                                                    id, name -- as Windows 3.0's
+                                                    RC wrote; WinBench 3.1 has one)
 
 A bitmap is written as Windows stored one: a packed DIB (BITMAPINFOHEADER,
 the palette, the rows bottom-up and padded to 4 bytes), 4 bits a pixel for
@@ -81,7 +85,7 @@ def directives(path):
     """The ;w16: lines: module, segments, autodata, stack, heap."""
     d = {"module": None, "segments": {}, "autodata": 0, "stack": 4096, "heap": 1024,
          "description": "", "strings": {}, "bitmaps": {}, "dialogs": {}, "menus": {}, "accels": {},
-         "cursors": {}, "icons": {}}
+         "cursors": {}, "icons": {}, "names": []}
     for line in open(path, encoding="utf-8"):
         m = re.match(r"\s*;w16:\s*(\w+)\s*(.*?)\s*$", line)
         if not m:
@@ -129,6 +133,9 @@ def directives(path):
             bits = {"virtkey": 0x01, "shift": 0x04, "control": 0x08, "alt": 0x10}
             d["accels"].setdefault(int(aid, 0), []).append(
                 (sum(bits[f] for f in flags), int(k, 0), int(cmd, 0)))
+        elif key == "nametable":
+            t, rid, name = val.split()
+            d["names"].append((int(t, 0), int(rid, 0), name))
         elif key in ("menu", "popup", "item", "separator"):
             parts = shlex.split(val)
             mid = int(parts[0], 0)
@@ -391,6 +398,10 @@ def build(src, out):
     resources += [(9, aid, b"".join(struct.pack("<BHH", f | (0x80 if i == len(acc) - 1 else 0), k, c)
                                    for i, (f, k, c) in enumerate(acc)))
                   for aid, acc in sorted(d["accels"].items())]
+    if d["names"]:                               # records: length, type, id | 0x8000, "", the name
+        recs = b"".join(struct.pack("<HHH", 8 + len(n) + 1, t, rid | 0x8000) + b"\0" + n.encode() + b"\0"
+                        for t, rid, n in d["names"])
+        resources.append((15, 1, recs + b"\0\0"))
     resources.sort(key=lambda r: (r[0], r[1]))
     def resource_table_with(offsets):
         t = struct.pack("<H", ALIGN_SHIFT)

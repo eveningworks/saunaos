@@ -473,6 +473,7 @@ struct w16 {
     struct { uint16_t sel; char name[16]; } *thunks;   // a Windows module's thunk selector each
     int nthunks;
     uint16_t bios_sel[17];                       // KERNEL's __0000H..__F000H (by segment >> 12), __0040H (16)
+    uint8_t *bios_low;                           // the memory behind __0000H (and __0040H at +0x400), or 0
     uint16_t *res_sel;                           // a loaded resource's global block, by index;
     int res_cap;                                 // grown to the module's resources (res16.c)
     struct w16_gdiobj *gdi[W16_GDI_SLOTS / W16_GDI_BLOCK];   // gdi16.c: blocks, NULL until used
@@ -508,6 +509,7 @@ struct w16 {
 
 extern struct w16 g_w16;
 #include <stdio.h>
+extern int g_w16_input_off;                       // EnableHardwareInput(FALSE): presses and moves dropped
 extern int g_w16_skip_missing;                    // --skip-missing or missing=zero: a call w16 lacks answers 0
 extern int g_w16_jit;                             // the `jit` setting, less --no-jit: translate 32-bit code
 extern unsigned g_w16_jit_threshold;              // --jit-threshold N (0: the JIT's own)
@@ -1139,6 +1141,7 @@ int w16_res_find(struct w16 *w, uint16_t type, const char *type_name, uint16_t i
 // component may be missing when `creating`. 0, or a DOS error code;
 // `full` (optional) gets the full DOS path.
 extern int g_w16_help_fd;                         // w16.c: the pipe to hlpbroker, -1 none
+extern int g_w16_help_back;                       // w16.c: hlpbroker's answers (non-blocking), -1 none
 int w16_dos_path(const char *dos, char *host, size_t cap, int creating, char *full, size_t full_cap);
 int w16_host_to_dos(const char *host, char *out, size_t cap);
 void w16_dos_start(const char *exe);              // the current folder: the program's own
@@ -1151,6 +1154,8 @@ int w16_listbox_dir(struct w16 *w, struct w16_wnd *x, unsigned attr, const char 
 extern const struct w16_api g_commdlg_api[];
 extern const unsigned g_commdlg_api_n;
 int w16_dos_file(struct w16 *w, struct cpu16 *c);  // INT 21h's file calls; -1 not one
+int w16_bios_time(struct cpu16 *c);                 // INT 1Ah 00h/02h/04h; -1 another function
+void w16_bios_refresh(struct w16 *w);               // 0040:006C, the BIOS tick count, made current
 // OpenFile's work: the handle, HFILE_ERROR (the OFSTRUCT saying why), or -1 with the fault set.
 void w16_prog_dir(struct w16 *w, char *out, size_t cap);
 const struct ne_module *w16_display_ne(struct w16 *w);   // VGA.DRV's resources: OEMBIN, OBM_ bitmaps

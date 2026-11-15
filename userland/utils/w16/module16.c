@@ -140,6 +140,18 @@ static uint16_t kernel_selector(struct w16 *w, const char *module, unsigned ordi
         unsigned k = KERNEL_SELECTORS[i].segment >> 12;   // 0 to F: one per 64 KiB of the megabyte
         if (KERNEL_SELECTORS[i].segment == 0x0040) k = 16;
         if (w->bios_sel[k]) return w->bios_sel[k];
+        if (k == 0 || k == 16) {
+            // __0000H and __0040H ARE ONE MEMORY, 0x400 apart as on a PC: the BIOS data area, whose
+            // tick count (0040:006C) task16.c's tick keeps current -- a benchmark's clock (WinBench).
+            uint8_t *low = lin16_alloc(0x10400, 0);
+            if (!low) return 0;
+            w->bios_sel[0] = cpu16_alloc(&w->cpu, D_DATA, low, 0xFFFF, 0);
+            w->bios_sel[16] = cpu16_alloc(&w->cpu, D_DATA, low + 0x400, 0xFFFF, 0);
+            if (!w->bios_sel[0] || !w->bios_sel[16]) { w->bios_sel[0] = w->bios_sel[16] = 0; return 0; }
+            w->bios_low = low;
+            w16_bios_refresh(w);
+            return w->bios_sel[k];
+        }
         uint8_t *mem = lin16_alloc(0x10000, 0);
         if (!mem) return 0;
         if (KERNEL_SELECTORS[i].segment == 0xF000) {
@@ -628,7 +640,7 @@ static int api_GetModuleHandle(struct w16 *w, unsigned ordinal, struct w16_args 
 // selector is 0); NULL if it exports no such function.
 // w16: The same for the program and its DLLs, from their entry tables. A Windows module's function
 // is answered with the far address w16 catches its calls at, so the program can call it through the
-// pointer.
+// pointer; one of KERNEL's constants (__AHINCR, __0040H) as Windows answers one, FFFF and the value.
 static int api_GetProcAddress(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
@@ -640,7 +652,13 @@ static int api_GetProcAddress(struct w16 *w, unsigned ordinal, struct w16_args *
     struct w16_dll *d = w16_dll_of(w, h);
     if (bmod) {
         unsigned ord = (far >> 16) ? w16_builtin_ordinal(bmod, fn) : (uint16_t)far;
-        if (ord) r = (uint32_t)h << 16 | ord;
+        uint16_t v;
+        if (ord && w16_kernel_equate(bmod, ord, &v)) {    // a constant: FFFF:value, as Windows answers one
+            uint16_t s = kernel_selector(w, bmod, ord);
+            r = 0xFFFF0000u | (s ? s : v);
+        } else if (ord) {
+            r = (uint32_t)h << 16 | ord;
+        }
     } else if (!(d && d->resonly)) {             // the display driver's code is never run
         const struct ne_module *m = d ? &d->ne : &w->ne;
         const uint16_t *sel = d ? d->seg_sel : w->seg_sel;

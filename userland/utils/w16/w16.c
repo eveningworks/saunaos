@@ -16,6 +16,7 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include "font_shm.h"
 #include "keyboard.h"
 #include "win_proto.h"
@@ -1349,6 +1350,7 @@ static int why(const char *call) {
 
 // The write end of the pipe to hlpbroker, -1 when it could not be started: WinHelp() says so then.
 int g_w16_help_fd = -1;
+int g_w16_help_back = -1;
 
 // DISC IMAGES BECOME THE FOLDERS THEY ARE MOUNTED AT, before the sandbox
 // closes (automountd mounts them, over its channel). The program's own CD
@@ -1393,17 +1395,22 @@ static void mount_discs(void) {
 }
 
 static void start_help_broker(void) {
-    int fds[2];
+    int fds[2], back[2];
     if (sys_pipe(fds) != 0) return;
+    if (sys_pipe(back) != 0) { close(fds[0]); close(fds[1]); return; }
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
     char *argv[] = { (char *)"/bin/hlpbroker", NULL };
     o.argv = argv;
     o.stdin_fd = fds[0];
+    o.stdout_fd = back[1];                       // CLOSED lines: FindWindow's view of the Help window
     int pid = sys_spawn_opts("/bin/hlpbroker", &o);
     close(fds[0]);
-    if (pid <= 0) { close(fds[1]); return; }
+    close(back[1]);
+    if (pid <= 0) { close(fds[1]); close(back[0]); return; }
     g_w16_help_fd = fds[1];
+    if (fcntl(back[0], F_SETFL, O_NONBLOCK) == 0) g_w16_help_back = back[0];
+    else close(back[0]);
     // Whose settings it may change: told now, while this process is still trusted.
     char line[W16_PATH_MAX + 16];
     int n = snprintf(line, sizeof line, "PROGRAM\t%s\n", g_exe);

@@ -80,12 +80,6 @@
 
 // --- GDI -------------------------------------------------------------------------------------
 
-// GDI.50 CreateBrushIndirect(lpLogBrush) -> HBRUSH
-// Windows: A brush from a LOGBRUSH: solid, hatched, patterned or hollow.
-// Why: Not written yet: the brushes it describes are the ones CreateSolidBrush, CreateHatchBrush
-// and CreatePatternBrush already make.
-// By: POWER.DRV, SCHDPLUS.EXE, USER.EXE
-
 // GDI.76 GetBkMode(hDC) -> int
 // Windows: Whether text and hatches fill their background (OPAQUE) or leave it (TRANSPARENT).
 // Why: Not written yet: the DC keeps it for SetBkMode.
@@ -507,13 +501,6 @@
 // which TOOLHELP walks to list memory.
 // Why: A debugger's view of Windows' own heap; w16 keeps no such table for a program to walk.
 // By: TOOLHELP.DLL
-
-// KERNEL.29 Yield() -> void
-// Windows: Gives the CPU to the next task that has a message waiting, and returns when this one is
-// scheduled again.
-// Why: Not written yet: with one program per w16 there is no other task to yield to, so it would
-// return at once -- a small handler waiting for its first caller.
-// By: DDEML.DLL, EFAXPUMP.DLL, FAXSTUB.DLL, FAXVIEW.EXE, MCISEQ.DRV, MCIWAVE.DRV, and 8 more
 
 // KERNEL.31 PostEvent(hTask) -> void
 // Windows: Wakes a task that is waiting in WaitEvent, as USER does when it posts a message to it.

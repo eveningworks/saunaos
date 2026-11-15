@@ -494,6 +494,17 @@ static int api_WaitEvent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
+// Yield() -> void
+// Windows: Gives the CPU to the next task that has a message waiting, and returns when this one is
+// scheduled again.
+// w16: Gives SaunaOS the rest of the time slice and returns: with one program per w16 there is no
+// other Windows task to run.
+static int api_Yield(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)w; (void)ordinal; (void)a;
+    sched_yield();
+    return 0;
+}
+
 // InitTask() -> registers
 // Windows: A program's first call: sets up its stack, heap and command line, and answers in
 // registers -- the instance, the previous instance, the command line, how to show the window.
@@ -576,6 +587,7 @@ static int api_IsRomModule(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 const struct w16_api g_kernel_api[] = {
     { 1, api_FatalExit },
     { 3, api_GetVersion },
+    { 29, api_Yield },
     { 30, api_WaitEvent },
     { 36, api_GetCurrentTask },
     { 51, api_MakeProcInstance },
@@ -682,9 +694,11 @@ static int mscdex(struct cpu16 *c) {
 }
 
 // INT 21h: the DOS calls a Windows program still makes. 4Ch ends it.
-// INT 75h: the coprocessor's exception (win87em16.c). INT 31h: DPMI (dpmi16.c).
+// INT 75h: the coprocessor's exception (win87em16.c). INT 31h: DPMI (dpmi16.c). INT 1Ah: the BIOS
+// clock, which Windows reflected to the BIOS (file16.c).
 int w16_int(struct cpu16 *c, uint8_t n) {
     if (n == 0x75) return w16_fpu_irq(c->user);
+    if (n == 0x1A) return w16_bios_time(c);
     if (n == 0x31) return w16_dpmi(c);
     if (n == 0x2F) return multiplex(c);
     if (n != 0x21) return -1;

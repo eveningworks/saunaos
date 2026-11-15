@@ -3115,25 +3115,64 @@ static int api_CreateHatchBrush(struct w16 *w, unsigned ordinal, struct w16_args
     return 6;
 }
 
+// A pattern brush from a bitmap's 8 x 8 top-left corner, copied now; 0 for no bitmap.
+static uint16_t pattern_brush(struct w16 *w, uint16_t hbm) {
+    struct w16_gdiobj *bm = obj(w, hbm, GDI_BITMAP), *o;
+    if (!bm) return 0;
+    uint32_t *px = calloc(64, 4);
+    if (!px) return 0;
+    for (int i = 0; i < 64; i++)
+        px[i] = bm->px[(size_t)(i / 8 % bm->bh) * bm->bw + (size_t)(i % 8 % bm->bw)];
+    uint16_t h = new_obj(w, GDI_BRUSH, &o);
+    if (!o) { free(px); return 0; }
+    o->style = BS_PATTERN;
+    o->px = px;
+    o->mono = bm->mono;
+    return h;
+}
+
 // CreatePatternBrush(hbmp) -> HBRUSH
 // Windows: A brush whose 8 x 8 pattern is a bitmap's top-left corner.
 // w16: The same, the 8 x 8 corner copied when the brush is made.
 static int api_CreatePatternBrush(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    struct w16_gdiobj *bm = obj(w, w16_arg16(a), GDI_BITMAP), *o;
-    w->cpu.r[R_AX].w = 0;
-    if (!bm) return 2;
-    uint32_t *px = calloc(64, 4);
-    if (!px) return 2;
-    for (int i = 0; i < 64; i++)
-        px[i] = bm->px[(size_t)(i / 8 % bm->bh) * bm->bw + (size_t)(i % 8 % bm->bw)];
-    uint16_t h = new_obj(w, GDI_BRUSH, &o);
-    if (!o) { free(px); return 2; }
-    o->style = BS_PATTERN;
-    o->px = px;
-    o->mono = bm->mono;
-    w->cpu.r[R_AX].w = h;
+    w->cpu.r[R_AX].w = pattern_brush(w, w16_arg16(a));
     return 2;
+}
+
+// CreateBrushIndirect(lpLogBrush) -> HBRUSH
+// Windows: A brush from a LOGBRUSH (style, colour, hatch): solid, hollow, hatched, or a bitmap's
+// pattern.
+// w16: The same brushes CreateSolidBrush, CreateHatchBrush and CreatePatternBrush make, and the
+// hollow stock brush; a DIB pattern (BS_DIBPATTERN) is refused (0), as w16 has no
+// CreateDIBPatternBrush.
+static int api_CreateBrushIndirect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t far = w16_arg32(a);
+    const uint8_t *lb = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 8, 0);
+    w->cpu.r[R_AX].w = 0;
+    if (!lb) return 4;
+    uint16_t style = (uint16_t)(lb[0] | lb[1] << 8), hatch = (uint16_t)(lb[6] | lb[7] << 8);
+    uint32_t cr = (uint32_t)(lb[2] | lb[3] << 8 | lb[4] << 16);
+    struct w16_gdiobj *o;
+    uint16_t h;
+    switch (style) {
+    case 0:                                      // BS_SOLID
+    case BS_HATCHED:
+        h = new_obj(w, GDI_BRUSH, &o);
+        if (o) { o->style = style; o->width = style == BS_HATCHED && hatch < 6 ? hatch : 0; o->color = cr; }
+        w->cpu.r[R_AX].w = h;
+        break;
+    case BS_NULL:
+        w->cpu.r[R_AX].w = STOCK_BASE + NULL_BRUSH;
+        break;
+    case BS_PATTERN:
+        w->cpu.r[R_AX].w = pattern_brush(w, hatch);
+        break;
+    default:
+        break;
+    }
+    return 4;
 }
 
 // CreateIC(lpszDriver, lpszDevice, lpszOutput, lpdvmInit) -> HDC
@@ -4751,6 +4790,7 @@ const struct w16_api g_gdi_api[] = {
     { 47, api_CombineRgn },
     { 48, api_CreateBitmap },
     { 49, api_CreateBitmapIndirect },
+    { 50, api_CreateBrushIndirect },
     { 51, api_CreateCompatibleBitmap },
     { 52, api_CreateCompatibleDC },
     { 53, api_CreateDC },

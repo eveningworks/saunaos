@@ -98,7 +98,8 @@ struct ne_resource {
 int ne_resource_at(const struct ne_module *m, unsigned i, struct ne_resource *out);
 
 // The resource of `type` and `id`: a number when the name is NULL (or
-// "#123"), else a name compared without case. Its index, or NE_E_RANGE.
+// "#123"), else a name compared without case -- found in the name table
+// (RT_NAMETABLE) when no resource carries it. Its index, or NE_E_RANGE.
 int ne_resource_find(const struct ne_module *m, uint16_t type, const char *type_name,
                      uint16_t id, const char *name, struct ne_resource *out);
 

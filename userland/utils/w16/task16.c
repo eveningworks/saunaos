@@ -242,7 +242,7 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "USER",    16,  "the pointer is never confined" },                // ClipCursor
     { "USER",    141, "a program's own formats stay in that program" },  // SetClipboardData
     { "USER",    31,  "no for the main window, even when minimised" },       // IsIconic
-    { "USER",    50,  "finds no other program's window" },              // FindWindow
+    { "USER",    50,  "finds only the Help window the program opened" },              // FindWindow
     { "USER",    121, "only WH_CALLWNDPROC and WH_JOURNALPLAYBACK are called" },   // SetWindowsHook
     { "USER",    291, "only WH_CALLWNDPROC and WH_JOURNALPLAYBACK are called" },   // SetWindowsHookEx
     { "USER",    416, "shows no menu and answers FALSE" },                  // TrackPopupMenu
@@ -618,6 +618,7 @@ static void describe_fault(struct w16 *w) {
 static void task_tick(struct cpu16 *c) {
     static unsigned n;
     w16_wave_interrupt(&g_w16);
+    w16_bios_refresh(&g_w16);                    // the BIOS clock a program may poll (0040:006C)
     if (g_w16_trace && !(++n % TRACE_TICKS)) trace_tick(c);
     w16_stats_tick(c);
 }

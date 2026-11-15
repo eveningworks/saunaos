@@ -25,6 +25,7 @@
 ;w16: stack 4096
 ;w16: heap 1024
 ;w16: dialog 100 0 0 110 100 0x80c80080 "Number"
+;w16: nametable 5 100 NUMBERBOX
 ;w16: control 100 STATIC 65535 8 10 30 8 0x50000000 "&Value:"
 ;w16: control 100 EDIT 10 42 8 56 12 0x50810000 ""
 ;w16: control 100 BUTTON 1 8 34 44 14 0x50010001 "OK"

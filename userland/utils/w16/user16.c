@@ -165,6 +165,19 @@ char *w16_class_name(struct w16 *w, uint32_t far) {
     return dup_far(w, far);
 }
 
+// EnableHardwareInput(bEnable) -> BOOL
+// Windows: Turns the mouse and keyboard on or off for the whole system; while off, their input is
+// thrown away. Answers whether input was on before. A benchmark turns it off around its timings.
+// w16: The same for this program's windows, but a key or button RELEASE still arrives, so nothing
+// stays held down when input comes back.
+static int api_EnableHardwareInput(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int on = w16_arg16(a) != 0;
+    w->cpu.r[R_AX].w = !g_w16_input_off;
+    g_w16_input_off = !on;
+    return 2;
+}
+
 // GetQueueStatus(fuFlags) -> DWORD
 // Windows: What kinds of message wait in the queue -- QS_KEY, QS_MOUSEMOVE, QS_MOUSEBUTTON,
 // QS_POSTMESSAGE, QS_TIMER, QS_PAINT -- in the high word, those of fuFlags new since the program
@@ -2500,6 +2513,7 @@ const struct w16_api g_user_api[] = {
     { 261, api_EndDeferWindowPos },
     { 277, api_GetDlgCtrlID },
     { 290, api_RedrawWindow },
+    { 331, api_EnableHardwareInput },
     { 334, api_GetQueueStatus },
     { 403, api_UnregisterClass },
     { 404, api_GetClassInfo },

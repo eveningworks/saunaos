@@ -575,10 +575,64 @@ static int api_IsWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
+// THE HELP WINDOW, as FindWindow sees it: the one WinHelp asked hlpbroker for. Each OPEN or WINHELP
+// line sent is numbered from 1, and hlpbroker answers `CLOSED\tN` when window N is gone, so Help is
+// open while the last one sent has not been answered. Its handle is even: no w16 window's is.
+#define W16_HWND_HELP 0x3FFE
+static unsigned g_help_sent, g_help_closed;
+static char g_help_title[64], g_help_caption[52];   // the file's title; a secondary window's caption
+
+static void help_drain(void) {
+    static char buf[32];
+    static size_t len;
+    char ch;
+    while (g_w16_help_back >= 0 && read(g_w16_help_back, &ch, 1) == 1) {
+        if (ch != '\n') { if (len + 1 < sizeof buf) buf[len++] = ch; continue; }
+        buf[len] = 0;
+        len = 0;
+        unsigned long n = strncmp(buf, "CLOSED\t", 7) ? 0 : strtoul(buf + 7, 0, 10);
+        if (n > g_help_closed && n <= g_help_sent) g_help_closed = (unsigned)n;
+    }
+}
+
+// What the Help window opened on `host` will be called: the file's title, and the caption of its
+// secondary window `win` (FILE.HLP>win), if one was named.
+static void help_names(const char *host, const char *win) {
+    g_help_title[0] = g_help_caption[0] = 0;
+    FILE *f = fopen(host, "rb");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *buf = n > 0 && n < (64L << 20) ? malloc((size_t)n) : 0;
+    if (buf && fread(buf, 1, (size_t)n, f) == (size_t)n) {
+        struct uhlp *h = uhlp_open(buf, (size_t)n, 0);
+        if (h) {
+            snprintf(g_help_title, sizeof g_help_title, "%s", uhlp_title(h));
+            for (int i = 0; win && i < uhlp_nwindows(h); i++)
+                if (!strcasecmp(uhlp_window(h, i)->name, win))
+                    snprintf(g_help_caption, sizeof g_help_caption, "%s", uhlp_window(h, i)->caption);
+            uhlp_close(h);
+        }
+    }
+    free(buf);
+    fclose(f);
+}
+
+// Whether the string at `far` (NULL matches anything; an atom, nothing) equals one of `a`, `b`.
+static int help_field_is(struct w16 *w, uint32_t far, const char *a, const char *b) {
+    char s[64];
+    if (!far) return 1;
+    if (!(far >> 16) || cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, s, sizeof s) < 0) return 0;
+    return (a[0] && !strcasecmp(s, a)) || (b[0] && !strcasecmp(s, b));
+}
+
 // FindWindow(lpClassName, lpWindowName) -> HWND
 // Windows: Finds a top-level window by its class or its title, in any program. Programs use it to
-// find a copy of themselves already running.
-// w16: Finds none.
+// find a copy of themselves already running, or to wait on the Help window they opened.
+// w16: Finds the Help window the program opened with WinHelp, while it is open -- by Help's class,
+// MS_WINHELP, or its title: the help file's, or the caption of the secondary window it was opened in
+// (WinBench waits for its licence's window to come and go). Finds no other window.
 // Why: Each program runs in its own w16, so there are no other programs' windows to find. Its own
 // windows are not searched either: a program asks this for someone else's.
 // Notice: A program that allows only one copy of itself does not notice the first one; a second
@@ -588,8 +642,11 @@ static int api_IsWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_FindWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    w16_arg32(a); w16_arg32(a);
-    c->r[R_AX].w = 0;
+    uint32_t cls = w16_arg32(a), title = w16_arg32(a);
+    help_drain();
+    c->r[R_AX].w = (cls || title) && g_help_sent > g_help_closed &&
+                   help_field_is(w, cls, "MS_WINHELP", "") &&
+                   help_field_is(w, title, g_help_title, g_help_caption) ? W16_HWND_HELP : 0;
     return 8;
 }
 
@@ -1322,7 +1379,8 @@ static int winhelp_id(const char *host, unsigned cmd, uint32_t data, const char 
 // program's folder, then drive C:'s WINDOWS -- at the contents, the topic a HELP_CONTEXT number
 // names, a HELP_KEY keyword, or after a HELP_COMMAND macro. With the Help setting at WINHELP.EXE, and
 // that program on drive C:, it runs Windows' own Help under w16 instead, at the contents or the topic
-// a number or keyword names (a HELP_COMMAND macro is not passed). A second call closes the first
+// a number or keyword names (a HELP_COMMAND macro is not passed). A file named with a secondary
+// window, FILE.HLP>NAME, opens in the one window Help Viewer has. A second call closes the first
 // window and opens the next. HELP_QUIT closes the program's Help window. w16 may not start a program
 // itself, so the request goes to hlpbroker, which it started before its sandbox closed.
 static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
@@ -1339,6 +1397,8 @@ static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     static char line[1400], tmp[300], word[400];
     char name[160] = "", host[256] = "";
     if (file >> 16) cpu16_str(&w->cpu, (uint16_t)(file >> 16), (uint16_t)file, name, sizeof name);
+    char *win = strchr(name, '>');                    // FILE.HLP>window: the file's secondary window
+    if (win) *win = 0;
     if (!name[0] || w16_dos_path(name, host, sizeof host, 0, 0, 0) != 0) {
         char alt[200];
         const char *base = strrchr(name, '\\');
@@ -1386,7 +1446,10 @@ static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         g_w16_help_fd = -1;
         w16_message_box(w, owner, "Help Viewer could not be started.", "Help", 0x30);
         w->cpu.r[R_AX].w = 0;
+        return 12;
     }
+    g_help_sent++;
+    help_names(host, win ? win + 1 : 0);
     return 12;
 }
 

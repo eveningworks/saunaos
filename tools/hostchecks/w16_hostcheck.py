@@ -14,6 +14,7 @@ What it asserts:
     TextOut (userland/utils/w16/w16_names.c, generated from Wine's tables)
   - the RESOURCE table: both readers list the same resources (gdi.exe
     has a string table and a bitmap), and the fuzz reads every one
+  - the NAME TABLE (RT_NAMETABLE): dialog.exe's NUMBERBOX is dialog 100
   - HOSTILE FILES: thousands of mutated and truncated copies of each
     sample through ne_parse, every relocation, entry and module name,
     under AddressSanitizer and UBSan -- a parse either succeeds or
@@ -89,6 +90,7 @@ static void walk(const struct ne_module *m) {
     ne_resource_find(m, 2, 0, 1, 0, &found);
     ne_resource_find(m, 6, 0, 1, "#1", &found);
     ne_resource_find(m, 0, "MYTYPE", 0, "NAME", &found);
+    ne_resource_find(m, 5, 0, 0, "NUMBERBOX", &found);   // through the name table
     // The segments' bytes, as the loader copies them.
     volatile unsigned sum = 0;
     for (unsigned s = 0; s < m->nseg; s++)
@@ -104,6 +106,14 @@ int main(int argc, char **argv) {
     if (argc != 3) return 2;
     uint32_t n; uint8_t *img = slurp(argv[2], &n);
     static struct ne_module m;
+    if (!strncmp(argv[1], "find=", 5)) {           // find=TYPE:NAME -> the id it finds, or -1
+        if (ne_parse(img, n, &m) < 0) return 1;
+        struct ne_resource r;
+        int i = ne_resource_find(&m, (uint16_t)atoi(argv[1] + 5), 0, 0, strchr(argv[1], ':') + 1, &r);
+        printf("%d\n", i < 0 ? -1 : r.id);
+        free(img);
+        return 0;
+    }
     if (!strcmp(argv[1], "info")) {
         int e = ne_parse(img, n, &m);
         if (e < 0) { printf("refused: %s\n", ne_strerror(e)); free(img); return 1; }
@@ -164,7 +174,7 @@ def main():
                                 apply=args.positive_control, tool="w16_hostcheck"),
                 hostcheck.stage(tmp, "userland/utils/w16/ne_info.c", dest="utils/w16/ne_info.c"),
                 hostcheck.stage(tmp, "userland/utils/w16/w16_names.c", dest="utils/w16/w16_names.c")]
-        for h in ("ne.h", "w16_internal.h", "w16_names.h", "cpu16.h"):
+        for h in ("ne.h", "w16_internal.h", "w16_names.h", "cpu16.h", "lin16.h"):
             hostcheck.stage(tmp, f"userland/utils/w16/{h}", dest=f"utils/w16/{h}")
         flags = ["-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
                  "-fno-sanitize-recover=all", "-I" + tmp, "-I" + os.path.join(tmp, "utils", "w16"),
@@ -192,6 +202,12 @@ def main():
                     fails.append(f"hello.exe: imports not named: {missing}")
                 else:
                     print("  ok  hello.exe: imports are named (InitTask, CreateWindow, TextOut)")
+            if name == "dialog.exe":
+                got = subprocess.run([exe, "find=5:NUMBERBOX", ne], capture_output=True, text=True).stdout.strip()
+                if got != "100":
+                    fails.append(f"dialog.exe: NUMBERBOX found {got}, not dialog 100 (the name table)")
+                else:
+                    print("  ok  dialog.exe: NUMBERBOX is dialog 100, through the name table")
             fz = subprocess.run([exe, "fuzz", ne], capture_output=True, text=True)
             if fz.returncode:
                 fails.append(f"{name}: the parser faulted on a mutated file")
