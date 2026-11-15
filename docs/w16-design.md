@@ -650,7 +650,9 @@ the palette, whose mapping is not yet measured.
    the CPU's tick (every 64K instructions) as well as at each call, and
    answers DOS's disk reset (INT 21h 0Dh), which it calls next. Its speed is the CPU's: 20 MIPS under KVM
    before the descriptor cache, ~29 after (`tools/bench/cpu16_bench.py`
-   on the host: 51 -> 89). Setup's Program Manager group, a CD change
+   on the host: 51 -> 89); ~11 on the ASUS, then ~21 once the scheduler
+   stopped halving a lone busy process and `PeekMessage` slept only in a
+   tight poll (2026-11-15). A JIT is planned: `docs/w16-jit-design.md`. Setup's Program Manager group, a CD change
    for disc 2 and the speed are on the roadmap.
 
 ## Not planned

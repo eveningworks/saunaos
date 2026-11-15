@@ -1138,7 +1138,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: the 386's instructions -- 32-bit registers, 66/67, FS/GS, the 0F set~~ DONE 2026-11-01 -- in cpu16_hostcheck
 - [x] ~~w16: WinG, waveOut with ADPCM, MSCDEX and CD drives, boxes before the main window~~ DONE 2026-11-01 -- DK's encyclopaedia starts
 - [x] ~~w16: Watcom Win386 programs -- 32-bit segments, DPMI, one linear arena~~ DONE 2026-11-14 -- Lighthouse installs, its intro plays
-- [ ] w16: Lighthouse playable -- its rooms, at the CPU's speed (~29 MIPS under KVM), on the ASUS too
+- [ ] w16: Lighthouse playable -- its rooms, at the CPU's speed (~21 MIPS on the ASUS), on the ASUS too
 - [ ] w16: a JIT for 32-bit code -- hot blocks translated to x86-64; needs executable memory in a sandboxed process
 - [ ] w16: an installer's Program Manager groups as Retro Launcher entries -- PROGMAN's DDE (CreateGroup, AddItem) answered
 - [ ] w16: changing CDs -- Lighthouse's disc 2; a CD drive is one image or folder for a whole run
