@@ -253,6 +253,13 @@ class DebugConsole:
         finally:
             self.reconnect()
 
+    def tsh(self, line):
+        """One /bin/sh (dash) command line, verbatim -- `;`, `&&`, pipes, redirection,
+        `$?` and quotes -- through the console's `tsh` verb. `sh` runs one
+        command through the kernel shell, which splits on spaces and knows
+        none of them. A non-zero exit ends the reply with `[exit N]`."""
+        return self.send(f"tsh {line}")
+
     def send(self, command):
         """Run one debug-console command, return its output as text.
 

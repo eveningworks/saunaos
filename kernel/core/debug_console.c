@@ -72,6 +72,7 @@ static void dbg_cmd_help(void) {
     dbg_write("  lsfs [path] - list a filesystem directory (default /)\r\n");
     dbg_write("  ktest [suite] - run the in-kernel test suite\r\n");
     dbg_write("  sh <command>  - run any shell command, output back here\r\n");
+    dbg_write("  tsh <line>    - one /bin/sh command line, verbatim: ; && | > $? quotes\r\n");
     dbg_write("  gui <sub>     - inspect/drive the window manager (`gui help`)\r\n");
     dbg_write("  diag [name [cmd]] - ask any registered service; no args lists them\r\n");
 }
@@ -193,6 +194,46 @@ static void dbg_cmd_sh(char *line) {
     vga_set_sink(prev);
 }
 
+
+// `tsh <line>`: the line, VERBATIM, as /bin/sh's one `-c` argument -- `ssh host 'cmd'` and
+// `adb shell 'cmd'`'s shape: `;`, `&&`, `||`, pipes, redirection, `$?` and quotes, which `sh`'s
+// one-command kernel dispatcher has none of. /bin/sh is dash, a POSIX shell; tosh, the interactive
+// one, has no `;` or `||`. The same session as `sh` (dbg_cmd_sh()), and a non-zero exit said as
+// `[exit N]`.
+static void dbg_cmd_tsh(const char *line) {
+    if (!line || line[0] == '\0') {
+        dbg_write("usage: tsh <line>  (one POSIX sh command line: ; && || | > $? and quotes)\r\n");
+        return;
+    }
+    static const char path[] = "/bin/sh";
+    size_t n = k_strlen(line);
+    size_t len = sizeof path + 3 + n + 1;            // "/bin/sh\0" "-c\0" line "\0"
+    char *vec = kmalloc(len);
+    if (!vec) { dbg_write("tsh: out of memory\r\n"); return; }
+    k_memcpy(vec, path, sizeof path);
+    k_memcpy(vec + sizeof path, "-c", 3);
+    k_memcpy(vec + sizeof path + 3, line, n + 1);
+
+    const struct vga_sink *prev = vga_set_sink(&g_serial_sink);
+    fd_set_kernel_tty(g_tty);
+    int pid = scheduler_spawn_group(path, vec, len, -1, -1, -1, 0, 0, 0);
+    kfree(vec);
+    if (pid <= 0) {
+        dbg_write("tsh: could not start /bin/sh\r\n");
+    } else {
+        if (fd_kernel_tty()) tty_attach_kernel_session(fd_kernel_tty(), pid);
+        int code = -1;
+        while (scheduler_poll(pid, &code) == SCHED_POLL_RUNNING) {
+            scheduler_idle();
+            scheduler_idle_halt();
+        }
+        if (code != 0) dbg_printf("[exit %d]\r\n", code);
+    }
+    fd_set_kernel_tty(0);
+    tty_hangup(g_tty);
+    serial_tty_reset();
+    vga_set_sink(prev);
+}
 
 static void dbg_cmd_ktest(const char *suite) {
     const struct vga_sink *prev = vga_set_sink(&g_serial_sink);
@@ -497,6 +538,7 @@ static void dbg_dispatch(char *line) {
     else if (k_strcmp(line, "aml") == 0) { klog_tee_dbg(1); aml_dump(); klog_tee_dbg(0); }
     else if (k_strcmp(line, "ktest") == 0) dbg_cmd_ktest(arg);
     else if (k_strcmp(line, "sh") == 0) dbg_cmd_sh((char *)arg);
+    else if (k_strcmp(line, "tsh") == 0) dbg_cmd_tsh(arg);
     else {
         dbg_write("unknown command: ");
         dbg_write(line);

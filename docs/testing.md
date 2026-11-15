@@ -139,6 +139,12 @@ and keyboard) from the start, so none of its output reaches the port;
 a job a command leaves behind any other way (a shell's `&`) is moved
 there when the command returns and the session is hung up -- what it
 printed before that is in the reply, as on any terminal.
+**`sh` is ONE command through the kernel shell, which splits on spaces
+and knows no `;`, quotes or `$?`. `tsh <line>` is a whole `/bin/sh` (dash)
+command line, VERBATIM** -- `tsh grep -c "a b" /x; echo $?`, as `ssh host 'cmd'`
+hands its string to the remote `sh -c` -- with a non-zero exit said as
+`[exit N]` (`DebugConsole.tsh()`). `sh tosh -c <words>` runs SaunaOS's
+interactive shell, which has no `;` or `||`, on words already split.
 **And the reply carries terminal control sequences** (`ls` colours its
 names on a tty): `vm.py` and `DebugConsole` strip them, `readfile`'s
 exact frame excepted.

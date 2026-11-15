@@ -786,8 +786,9 @@ report is ON only after `enter_gui()`").
   command, a program that went raw does not leave the line raw, a job a
   command leaves behind (`tosh -c "counter_a &"`) prints NOTHING on the
   port once the prompt is back (it is confirmed alive across the
-  window), `sh spawn`'s job is detached from the start, and a spawned
-  reader does not take the next command's line. Its docstring lists a
+  window), `sh spawn`'s job is detached from the start, a spawned
+  reader does not take the next command's line, and `tsh` runs one
+  `/bin/sh` line verbatim (`;`, quotes, `||`, `[exit N]`). Its docstring lists a
   positive control per check, each verified. Not DebugConsole, because
   it has to speak while a command runs.
 - **`ctrlc_test.py`** -- **`Ctrl-C` interrupts the foreground JOB and

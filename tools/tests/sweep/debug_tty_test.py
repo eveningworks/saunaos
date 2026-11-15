@@ -6,7 +6,7 @@ WHAT IS UNDER TEST
 The debug console's port (COM2 on a `vm.py` guest) is a real tty
 (`kernel/tty/serial_tty.c`), and every `sh` command is one session on
 it (docs/decisions.md, "The kernel log and the debug console are two
-serial ports"). Five properties, each with a failure the others miss:
+serial ports"). Six properties, each with a failure the others miss:
 
 1. **A command's program reads the line.** `sh cat`, then a line typed
    on the port: it comes back twice -- the discipline's echo and cat's
@@ -30,6 +30,8 @@ serial ports"). Five properties, each with a failure the others miss:
 5. **A spawned reader does not take the next command**: `sh spawn
    /bin/cat`, then `sh ps` must run -- a reader holding this terminal
    would eat its line.
+6. **`tsh` runs one /bin/sh line verbatim**: `;` separates commands, quoted
+   spaces survive, `||` runs, and a non-zero exit is said as `[exit N]`.
 
 POSITIVE CONTROLS, verified: delete the `tty_hangup(g_tty)` call in
 kernel/core/debug_console.c's dbg_cmd_sh() -- the left-behind check goes
@@ -197,6 +199,18 @@ def main():
     check("a spawned reader does not take the next command's line",
           "PID" in ps, "ps ran" if "PID" in ps else "ps never ran -- its line was eaten")
     kill_all(p, ps, "cat")
+
+    # 6: `tsh` hands its line to /bin/sh VERBATIM. `sh` would run `echo` with
+    # the rest as words (`;` printed, the spaces between the quotes
+    # collapsed); through the shell the `;` separates two commands, the quoted
+    # run of spaces survives, and a failing command's exit is said.
+    out = p.send(b'tsh echo "a   b"; echo second\n', 5.0)
+    check("tsh: one shell line -- `;` runs two commands, a quoted run of spaces survives",
+          {"a   b", "second"} <= {ln.strip() for ln in out.replace("\r", "").split("\n")},
+          repr(out[-80:]))
+    out = p.send(b"tsh false || echo fallback; false\n", 5.0)
+    check("tsh: `||` runs, and the line's non-zero exit comes back as [exit N]",
+          "fallback" in out and "[exit 1]" in out, repr(out[-80:]))
 
     total = passed + len(failed)
     print(f"\ndebug_tty_test: {passed} passed, {len(failed)} failed (of {total})")
