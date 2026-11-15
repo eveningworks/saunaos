@@ -1160,7 +1160,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Retro Launcher: a program's own CD -- `cd` and `cd_letter` per program, a folder or an .iso~~ DONE 2026-11-01
 - [ ] Retro Launcher: a CD-ROM drive's walk off the window's thread -- a whole disc's tree, and a quadratic dedup
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE kept, never called
-- [ ] w16: how often 3.1 asked a journal's HC_GETNEXT per event -- the Tutorial's File menu lands on Exit, 3.11's on Open...
+- [ ] w16: count 3.1's HC_GETNEXT asks per event on real 3.11 -- modelled as two while a menu has the keyboard, from one hook
 - [ ] w16: Alt alone on a window with no menu bar -- 3.1 lit the control-menu box; w16 does nothing
 - [x] ~~w16: regions as more than their bounding rectangle~~ DONE 2026-10-24 -- lib/urgn rect lists; clips cut holes
 - [ ] GUI: selectable, copyable text in the read-only widgets -- `uui_markdown` and the labels have no selection (Help Viewer has)

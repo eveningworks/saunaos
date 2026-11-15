@@ -1222,6 +1222,9 @@ static void keymenu(struct w16 *w, struct w16_wnd *x, uint16_t ch) {
     }
     pthread_mutex_lock(&w->lock);
     if (what != W16_KEYMENU_BOX) w->menu_keys = h;
+    // Lit at once for the program's own screen reads, as 3.1's loop drew it before going on: the
+    // Windows Tutorial photographs Write straight after.
+    if (what == W16_KEYMENU_BAR) w->menu_lit = h;
     w->menu_asks++;                              // barmode16.c leaves menu_keys alone until it has heard
     pthread_mutex_unlock(&w->lock);
     if (!w16_task_post_arg(w, W16_POST_KEYMENU, (int)((uint32_t)h << 16 | (unsigned)what))) {

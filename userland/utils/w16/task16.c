@@ -20,6 +20,26 @@ struct w16 g_w16;
 pthread_mutex_t g_w16_text_lock = PTHREAD_MUTEX_INITIALIZER;
 char g_w16_fault[1024];
 FILE *g_w16_trace;
+const char *g_w16_trace_words;
+
+// --trace-words: the words of the program's data segment at the offsets named (hex, comma-separated),
+// on one line beside a message it dispatches -- a program's own state, to follow its logic by.
+static void trace_words(struct w16 *w) {
+    if (!g_w16_trace_words || !w->dgroup) return;
+    fputs("  words", g_w16_trace);
+    for (const char *p = g_w16_trace_words; *p;) {
+        char *end;
+        unsigned long off = strtoul(p, &end, 16);
+        if (end == p || off > 0xFFFE) break;
+        const uint8_t *v = cpu16_ptr(&w->cpu, w->dgroup, (uint16_t)off, 2, 0);
+        if (v) fprintf(g_w16_trace, " %lx=%04x", off, v[0] | v[1] << 8);
+        else fprintf(g_w16_trace, " %lx=?", off);
+        w->cpu.fault = 0;
+        p = *end == ',' ? end + 1 : end;
+        if (*end && *end != ',') break;
+    }
+    fputc('\n', g_w16_trace);
+}
 struct w16_prefs g_w16_prefs;
 char g_w16_fault_box[512];
 
@@ -355,6 +375,7 @@ static int thunk_call(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
             if (m) fprintf(g_w16_trace, "  msg hwnd=%04x %04x wParam=%04x lParam=%04x%04x\n", m[0] | m[1] << 8,
                            m[2] | m[3] << 8, m[4] | m[5] << 8, m[8] | m[9] << 8, m[6] | m[7] << 8);
             c->fault = 0;
+            trace_words(w);
         }
         fflush(g_w16_trace);                     // a fault ends in abort(), which flushes nothing
     }

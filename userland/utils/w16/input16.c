@@ -472,11 +472,26 @@ void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches) {
 #define HC_SKIP    2
 #define JP_STEP_MS  6
 #define JP_DRAWN_MS 55
-static struct { int have, skip, alt; uint16_t msg, l, h; uint64_t due, last; unsigned buttons, draws; } g_jp;
+static struct { int have, skip, alt, waited; uint16_t msg, l, h; uint64_t due, last; unsigned buttons, draws; } g_jp;
 
 static uint32_t journal_call(struct w16 *w, uint32_t hook, uint16_t code, uint16_t at) {
     const uint16_t words[] = { code, 0, (uint16_t)(at ? w->sysdata : 0), at };
     return w16_call_far(w, (uint16_t)(hook >> 16), (uint16_t)hook, words, 4);
+}
+
+// HC_GETNEXT once: the event into g_jp, and the wait it asks for; -1 when the hook went or faulted.
+static long journal_ask(struct w16 *w, uint32_t hook) {
+    uint16_t at = w16_sys_push(w, 10);
+    if (w->cpu.fault) return -1;
+    memset(w->sysmem + at, 0, 10);
+    uint32_t delay = journal_call(w, hook, HC_GETNEXT, at);
+    const uint8_t *e = w->sysmem + at;
+    g_jp.msg = (uint16_t)(e[0] | e[1] << 8);
+    g_jp.l = (uint16_t)(e[2] | e[3] << 8);
+    g_jp.h = (uint16_t)(e[4] | e[5] << 8);
+    w16_sys_pop(w, at);
+    if (w->cpu.fault || w16_hook(WH_JOURNALPLAYBACK) != hook) return -1;
+    return delay > 60000 ? 60000 : (long)delay;
 }
 
 // A played key to the window with the focus -- in any of the program's top-level windows, as 3.1
@@ -550,18 +565,11 @@ int w16_journal_play(struct w16 *w, int *wait_ms) {
         if (w->cpu.fault || w16_hook(WH_JOURNALPLAYBACK) != hook) return 1;   // it unhooked: its posts are next
     }
     if (!g_jp.have) {
-        uint16_t at = w16_sys_push(w, 10);
-        if (w->cpu.fault) return 0;
-        memset(w->sysmem + at, 0, 10);
-        uint32_t delay = journal_call(w, hook, HC_GETNEXT, at);
-        const uint8_t *e = w->sysmem + at;
-        g_jp.msg = (uint16_t)(e[0] | e[1] << 8);
-        g_jp.l = (uint16_t)(e[2] | e[3] << 8);
-        g_jp.h = (uint16_t)(e[4] | e[5] << 8);
-        w16_sys_pop(w, at);
-        if (w->cpu.fault || w16_hook(WH_JOURNALPLAYBACK) != hook) return 0;   // it unhooked itself
+        long delay = journal_ask(w, hook);
+        if (delay < 0) return 0;                 // it unhooked itself
         g_jp.have = 1;
-        g_jp.due = w16_now_ms() + (delay > 60000 ? 60000 : delay);
+        g_jp.waited = delay > 0;
+        g_jp.due = w16_now_ms() + (uint64_t)delay;
         uint64_t paced = g_jp.last + (w->screen_draws != g_jp.draws ? JP_DRAWN_MS : JP_STEP_MS);
         if (g_jp.last && paced > g_jp.due) g_jp.due = paced;
     }
@@ -569,6 +577,25 @@ int w16_journal_play(struct w16 *w, int *wait_ms) {
     if (now < g_jp.due) {
         *wait_ms = (int)(g_jp.due - now);
         return 0;
+    }
+    // 3.1'S MENU LOOP PEEKED, THEN TOOK: while the menus have the keyboard each event is asked for
+    // twice -- PeekMessage(PM_NOREMOVE) and then its removal -- and the second answer is what plays;
+    // after a wait the peek is asked again first. A hook that moves on at every HC_GETNEXT (the
+    // Windows Tutorial's) counts on it: its menu lesson lands on Open... and posts the WM_USER that
+    // turns its page only so. Read off that hook's code and both of 3.11's results; not yet counted on 3.11.
+    pthread_mutex_lock(&w->lock);
+    int menus = w->menu_keys != 0;
+    pthread_mutex_unlock(&w->lock);
+    if (menus) {
+        long delay = g_jp.waited ? journal_ask(w, hook) : 0;   // the peek again, once its wait is over
+        if (delay == 0) delay = journal_ask(w, hook);          // the removal's own ask
+        if (delay < 0) { g_jp.have = 0; return 0; }
+        if (delay > 0) {                         // it asks to wait again: peeked, not taken
+            g_jp.waited = 1;
+            g_jp.due = now + (uint64_t)delay;
+            *wait_ms = (int)delay;
+            return 0;
+        }
     }
     g_jp.have = 0;
     g_jp.last = now;

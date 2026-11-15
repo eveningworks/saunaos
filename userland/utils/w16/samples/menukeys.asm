@@ -8,7 +8,18 @@
 ;     DefWindowProc made Alt alone SC_KEYMENU, the bar of the window with the focus lit its first
 ;     title, Down dropped File and moved to Open, and Enter chose it -- WM_COMMAND 202 to the second
 ;     window (Played=2). The second window's own procedure saw the played Alt as WM_SYSKEYDOWN first
-;     (SysKey=1)
+;     (SysKey=1). Straight after DefWindowProc takes the played Alt up -- SC_KEYMENU asked -- the window
+;     procedure copies the screen round the second window's caption and bar into the main window at
+;     (270,140) (Lit=1): 3.1's loop had drawn File lit by then, so the copy shows it navy
+;   - then a second hook shaped as the Windows Tutorial's menu lesson's: it moves to its next event at
+;     EVERY HC_GETNEXT, not at HC_SKIP -- Alt down and up, Down, Down, Down up, Down, Down (asking a
+;     350 ms wait first), Down, and past that a Down up that marks it done. 3.1's menu loop asked
+;     twice per event (a peek, then the removal): so File drops, Open is lit, the done mark is
+;     reached and it says Ended=400; asked once, every Down lands, Exit is lit and it says Ended=401.
+;     Enter, which the test presses, then chooses the lit item: Chosen=2 (Open), not Chosen=5 (Exit)
+;   - half a second after that hook ends, the screen round the second window (its top-left 120 x 120)
+;     is copied into the main window at (270,10) (Copied=1): 3.1's screen held the open menu, so the
+;     copy shows File's popup with Open lit in navy below the bar
 ;   - a command to the main window is Typed=<id - 100>, for the keys the test presses itself
 ;
 ; Build: tools/gen/gen_ne.py.
@@ -30,8 +41,12 @@
 ;w16: popup 2 "&File"
 ;w16: item 2 201 "&New"
 ;w16: item 2 202 "&Open"
+;w16: item 2 203 "&Save"
+;w16: item 2 204 "Save &As"
+;w16: separator 2
+;w16: item 2 205 "E&xit"
 ;w16: popup 2 "&View"
-;w16: item 2 203 "&Zoom"
+;w16: item 2 206 "&Zoom"
 
 %include "ne16.inc"
 
@@ -39,6 +54,7 @@
 %define WM_SYSKEYDOWN  0x0104
 %define WM_COMMAND     0x0111
 %define WM_TIMER       0x0113
+%define WM_USER        0x0400
 %define CW_USEDEFAULT  0x8000
 %define WS_OVERLAPPEDWINDOW 0x00CF0000
 %define WS_VISIBLE_HI  0x1000
@@ -185,6 +201,37 @@ ini_write:
     W16_CALL "KERNEL", 129
     ret
 
+; The screen from the second window's top-left, 120 x copy_h, into the main window at (270, copy_y).
+copy_screen:
+    push word [hsecond]
+    push ds
+    push word rc
+    W16_CALL "USER", 32             ; GetWindowRect(hsecond): its place on the screen
+    push word [hwnd]
+    W16_CALL "USER", 66             ; GetDC(main)
+    mov [hdc], ax
+    push word 0
+    W16_CALL "USER", 66             ; GetDC(NULL): the screen
+    mov [hscreen], ax
+    push word [hdc]
+    push word 270
+    push word [copy_y]
+    push word 120
+    push word [copy_h]
+    push word [hscreen]
+    push word [rc]
+    push word [rc+2]
+    push word 0x00CC                ; SRCCOPY
+    push word 0x0020
+    W16_CALL "GDI", 34              ; BitBlt
+    push word 0
+    push word [hscreen]
+    W16_CALL "USER", 68             ; ReleaseDC
+    push word [hwnd]
+    push word [hdc]
+    W16_CALL "USER", 68             ; ReleaseDC
+    ret
+
 ; The one procedure of both classes, (hwnd, msg, wParam, lParam), Pascal, DS from AX.
 wndproc:
     push bp
@@ -194,10 +241,14 @@ wndproc:
     mov ax, [bp+12]
     cmp ax, WM_SYSKEYDOWN
     je .syskey
+    cmp ax, 0x0105                  ; WM_SYSKEYUP
+    je .syskeyup
     cmp ax, WM_COMMAND
     je .command
     cmp ax, WM_TIMER
     je .timer
+    cmp ax, WM_USER
+    je .second
     cmp ax, WM_DESTROY
     je .destroy
 .default:
@@ -222,9 +273,37 @@ wndproc:
     call ini_write
     jmp .default
 
+.syskeyup:                          ; the second window's first Alt up: DefWindowProc, then the screen at once
+    mov ax, [bp+14]
+    cmp ax, [hsecond]
+    jne .default
+    cmp word [bp+10], VK_MENU
+    jne .default
+    cmp word [lit_done], 0
+    jne .default
+    mov word [lit_done], 1
+    push word [bp+14]
+    push word [bp+12]
+    push word [bp+10]
+    push word [bp+8]
+    push word [bp+6]
+    W16_CALL "USER", 107            ; DefWindowProc: SC_KEYMENU, the bar to light
+    mov word [copy_y], 140
+    mov word [copy_h], 45
+    call copy_screen
+    mov si, key_lit
+    mov di, one_t
+    call ini_write
+    jmp .zero
+
 .command:
     mov ax, [bp+10]                 ; the command: 201.. to the second window, 101.. to the main one
     mov si, key_played
+    cmp word [chosen_next], 0
+    je .first
+    mov si, key_chosen
+.first:
+    mov word [chosen_next], 1
     sub ax, 200
     mov bx, [bp+14]
     cmp bx, [hsecond]
@@ -239,12 +318,33 @@ wndproc:
     jmp .zero
 
 .timer:
+    cmp word [bp+10], 2
+    je .copy
     push word [hwnd]
     push word 1
     W16_CALL "USER", 12             ; KillTimer
     mov word [played], 0
     push word WH_JOURNALPLAYBACK
     W16_PUSH_FAR hookproc, 1
+    W16_CALL "USER", 121            ; SetWindowsHook
+    jmp .zero
+
+.copy:                              ; the screen round the second window, menu and all, into the main one
+    push word [hwnd]
+    push word 2
+    W16_CALL "USER", 12             ; KillTimer
+    mov word [copy_y], 10
+    mov word [copy_h], 120
+    call copy_screen
+    mov si, key_copied
+    mov di, one_t
+    call ini_write
+    jmp .zero
+
+.second:                            ; the first journal is done: the Tutorial-shaped one
+    mov word [ctr], 0xFFFF
+    push word WH_JOURNALPLAYBACK
+    W16_PUSH_FAR hook2proc, 1
     W16_CALL "USER", 121            ; SetWindowsHook
     jmp .zero
 
@@ -279,6 +379,12 @@ hookproc:
     push word WH_JOURNALPLAYBACK
     W16_PUSH_FAR hookproc, 1
     W16_CALL "USER", 234            ; UnhookWindowsHook
+    push word [hwnd]
+    push word WM_USER
+    push word 0
+    push word 0
+    push word 0
+    W16_CALL "USER", 110            ; PostMessage(main, WM_USER): the second journal next
     jmp .done
 .next:
     les bx, [bp+6]                  ; the EVENTMSG: message, paramL (VK | scan << 8), paramH, time
@@ -298,9 +404,75 @@ hookproc:
     pop bp
     retf 8
 
+; The Tutorial-shaped hook: `ctr` moves on at every HC_GETNEXT (its event is events2[ctr]); past the
+; table a Down up with ctr 0x63, the done mark. At HC_SKIP: 0x63 says Ended=400, past 6 Ended=401.
+hook2proc:
+    push bp
+    mov bp, sp
+    push ds
+    mov ds, ax
+    mov ax, [bp+12]
+    cmp ax, HC_GETNEXT
+    je .next
+    cmp ax, HC_SKIP
+    jne .done
+    mov di, ended400_t
+    cmp word [ctr], 0x63
+    je .end
+    mov di, ended401_t
+    cmp word [ctr], 6
+    jle .done
+.end:
+    mov si, key_ended
+    call ini_write
+    push word WH_JOURNALPLAYBACK
+    W16_PUSH_FAR hook2proc, 1
+    W16_CALL "USER", 234            ; UnhookWindowsHook
+    push word [hwnd]
+    push word 2
+    push word 500
+    push word 0
+    push word 0
+    W16_CALL "USER", 10             ; SetTimer(hwnd, 2, 500, NULL): the screen copy, once the menu shows
+    jmp .done
+.next:
+    inc word [ctr]
+    les bx, [bp+6]
+    mov word [es:bx+4], 1
+    mov word [es:bx+6], 0
+    mov word [es:bx+8], 0
+    mov si, [ctr]
+    cmp si, 7
+    jbe .table
+    mov word [ctr], 0x63            ; past the table: a Down up, and done
+    mov word [es:bx], 0x0101
+    mov word [es:bx+2], 0x5028
+    mov word [es:bx+4], 0x8001
+    jmp .done
+.table:
+    shl si, 2
+    mov ax, [events2 + si]
+    mov [es:bx], ax
+    mov ax, [events2 + si + 2]
+    mov [es:bx+2], ax
+    cmp word [ctr], 6
+    jne .done
+    mov ax, 350                     ; the sixth asks to wait first, as the Tutorial's does
+    xor dx, dx
+    pop ds
+    pop bp
+    retf 8
+.done:
+    xor ax, ax
+    xor dx, dx
+    pop ds
+    pop bp
+    retf 8
+
 W16_ENTRY start
 W16_EXPORT 1, "WNDPROC", wndproc
 W16_EXPORT 2, "HOOKPROC", hookproc
+W16_EXPORT 3, "HOOK2PROC", hook2proc
 
 ; ---------------------------------------------------------------- data
 W16_SEGMENT 2
@@ -324,6 +496,25 @@ events:
             dw 0x0101, 0x5028
             dw 0x0100, 0x1C0D       ; WM_KEYDOWN VK_RETURN
             dw 0x0101, 0x1C0D
+
+; The Tutorial's menu lesson: Alt down and up, Down, Down, Down up, Down, Down, Down
+events2:
+            dw 0x0104, 0x3812
+            dw 0x0105, 0x3812
+            dw 0x0100, 0x5028
+            dw 0x0100, 0x5028
+            dw 0x0101, 0x5028
+            dw 0x0100, 0x5028
+            dw 0x0100, 0x5028
+            dw 0x0100, 0x5028
+ctr:        dw 0xFFFF
+rc:         dw 0, 0, 0, 0
+hdc:        dw 0
+hscreen:    dw 0
+copy_y:     dw 0
+copy_h:     dw 0
+lit_done:   dw 0
+chosen_next: dw 0
 
 wc:
             dw 0
@@ -351,5 +542,11 @@ ini_file:   db "MENUKEYS.INI", 0
 key_syskey: db "SysKey", 0
 key_played: db "Played", 0
 key_typed:  db "Typed", 0
+key_chosen: db "Chosen", 0
+key_ended:  db "Ended", 0
+key_copied: db "Copied", 0
+key_lit:    db "Lit", 0
+ended400_t: db "400", 0
+ended401_t: db "401", 0
 one_t:      db "1", 0
 num_t:      db "0", 0

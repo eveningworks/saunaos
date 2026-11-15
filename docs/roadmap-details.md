@@ -8930,9 +8930,17 @@ Stages, each compared with the 3.11 reference VM:
    menus built** (3.1's WM_SYSKEY* path and DefWindowProc's SC_KEYMENU, one
    bar for every window -- decisions/gui.md "A Win16 program hears Alt as
    3.1's system keys"): the Tutorial's played Alt lights Write's File and
-   its Downs drop it. It lands on Exit where 3.11's lands on Open... -- "w16:
-   how often 3.1 asked a journal's HC_GETNEXT per event" below. Scrolling,
-   the menus and dialogs come after it.
+   its Downs drop it. **Matched through page 31 the same day**, and the
+   one-page lag gone, after three fixes, each a `menukeys` check red
+   without it: two HC_GETNEXT asks an event while the menus have the
+   keyboard (the Tutorial's hook moves on at every ask; asked once it
+   lands on Exit and posts WM_USER+1, which turns no page -- "w16: count
+   3.1's HC_GETNEXT asks per event on real 3.11" below), an open menu in a
+   program's own screen reads (it photographs Write with File dropped),
+   and the title SC_KEYMENU lights drawn lit at once (the photograph is
+   taken before w16's main thread has heard). Pages 30 and 31 are 0
+   pixels off but the pointer. Next, the pages after 31: the menus'
+   commands and dialogs.
 
 
 ### w16: screen-DC drawing over the program's own popups (the Tutorial's tips)
@@ -9070,9 +9078,13 @@ program has its own. Two programs sharing one DLL instance is a design
 question (several tasks in one w16), not a missing call.
 
 
-## w16: how often 3.1 asked a journal's HC_GETNEXT per event
+## w16: count 3.1's HC_GETNEXT asks per event on real 3.11
 
-Found 2026-11-15 on Windows Basics' page 30 ("When you open a menu, you
+**Modelled 2026-11-15 as two asks an event while the menus have the
+keyboard** (input16.c's w16_journal_play(): 3.1's menu loop peeked, then
+removed; the second answer plays, and a wait is asked again first) --
+read off the Tutorial's hook and both of its outcomes on 3.11, not
+counted there. Found on Windows Basics' page 30 ("When you open a menu, you
 see a list of commands"). The Tutorial's journal hook (WINTUTOR.EXE
 segment 19 at 0x3aa) moves to its next table entry on EVERY HC_GETNEXT,
 not on HC_SKIP -- the docs say a hook should answer the same event until
@@ -9082,7 +9094,10 @@ the HC_SKIP after the seventh ask. w16 asks once per event, so every
 Down lands and File's popup ends on Exit; 3.11's ends on Open..., so 3.1
 asked more than once per event while its menu loop ran. Playing the
 FIRST of every two asks fits (Down drops on New, the release, the Down
-after the 350 ms wait reaches Open), but that is one observation, not a
-measurement. To measure: a program of ours on real 3.11 counting the
+after the 350 ms wait reaches Open). The same model explains the page
+lag found next: asked once, the hook ends at its seventh ask and posts
+WM_USER+1, which turns no page; asked twice, it plays a Down up past its
+table, marks itself done and posts the WM_USER that re-runs the page
+script -- the page turns with the menu open, as on 3.11. To measure: a program of ours on real 3.11 counting the
 asks per HC_SKIP with a menu open -- which needs "w16: the NASM samples
 start on real 3.11" first.

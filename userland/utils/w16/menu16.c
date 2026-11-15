@@ -175,6 +175,11 @@ static int choosable(const struct w16_menu *m, int i) {
 
 static void draw_menu(struct w16_menu *m, struct ugfx_surface *s);
 
+void w16_menu_paint(struct w16_menu *m, uint32_t *px) {
+    struct ugfx_surface t = ugfx_surface_for_pixels(px, m->w, m->h);
+    draw_menu(m, &t);
+}
+
 // Item i's cascade opened beside its row, its first row level with it.
 static void open_child(struct w16_menu *m, int i, int by_key) {
     struct w16_menu *sub = m->item[i].sub;

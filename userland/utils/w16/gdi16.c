@@ -988,6 +988,19 @@ static int text_out(struct w16 *w, struct w16_args *a) {
 // SO FAR (dlgwin16.c) -- the Tutorial paints a group and blits it with no wait between, so the last
 // shown frame is a step behind; NULL when none covers the rectangle read, or `st` is not the main window's.
 // Under `lock`.
+// pix (pw x ph) onto copy (rows `stride` wide) at x0, y0, inside l, t, r, b.
+static void lay_on(uint32_t *copy, int stride, const uint32_t *pix, int pw, int ph, int x0, int y0, int l, int t,
+                   int r, int b) {
+    for (int y = 0; y < ph; y++) {
+        int ty = y0 + y;
+        if (ty < t || ty >= b) continue;
+        for (int x = 0; x < pw; x++) {
+            int tx = x0 + x;
+            if (tx >= l && tx < r) copy[(size_t)ty * stride + tx] = pix[(size_t)y * pw + x];
+        }
+    }
+}
+
 static uint32_t *screen_copy(struct w16 *w, const struct w16_gdiobj *sdc, const struct gdi_target *st,
                              int sx, int sy, int cw, int ch) {
     struct w16_wnd *src = sdc && sdc->hwnd ? w16_wnd_get(w, sdc->hwnd) : 0;
@@ -1022,12 +1035,23 @@ static uint32_t *screen_copy(struct w16 *w, const struct w16_gdiobj *sdc, const 
         pix = g;
         w16_dlgwin_paint(d, pix, 1);           // what it has drawn, not its last shown frame
         w16_over_apply(w, d, pix, 1);
-        for (int y = 0; y < d->h; y++) {
-            int ty = py0 + y;
-            if (ty < t || ty >= b) continue;
-            for (int x = 0; x < d->w; x++) {
-                int tx = px0 + x;
-                if (tx >= l && tx < r) copy[(size_t)ty * st->w + tx] = pix[(size_t)y * d->w + x];
+        lay_on(copy, st->w, pix, d->w, d->h, px0, py0, l, t, r, b);
+    }
+    // AN OPEN MENU IS ON THE SCREEN, over every window, as 3.1's was: the Windows Tutorial photographs
+    // Write with its File menu dropped. A menu-bar menu's place is its window's (barmode16.c).
+    uint16_t mh_ = 0;
+    struct w16_menu *m = w16_bar_shown(&mh_);
+    struct w16_wnd *mw_ = m ? w16_wnd_get(w, mh_) : 0;
+    if (mw_ && (mw_ == &w->win || mw_->kind == W16_K_DIALOG) && m->w > 0 && m->h > 0) {
+        int ox = (mw_ == &w->win ? 0 : mw_->x) - mx + m->x, oy = (mw_ == &w->win ? 0 : mw_->y) - my + m->y;
+        if (!(ox >= r || oy >= b || ox + m->w <= l || oy + m->h <= t)) {
+            if (!copy && (copy = malloc((size_t)st->w * st->h * 4)))
+                memcpy(copy + (size_t)t * st->w, st->px + (size_t)t * st->w, (size_t)(b - t) * st->w * 4);
+            uint32_t *g = copy ? realloc(pix, (size_t)m->w * m->h * 4) : 0;
+            if (g) {
+                pix = g;
+                w16_menu_paint(m, pix);
+                lay_on(copy, st->w, pix, m->w, m->h, ox, oy, l, t, r, b);
             }
         }
     }

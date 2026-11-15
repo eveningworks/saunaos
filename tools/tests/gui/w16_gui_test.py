@@ -150,7 +150,10 @@ file is involved.
     recheck(p) -- the row-goes checks redden.
 28. **Menus from the keyboard** (`menukeys`, menukeys.exe; barmode16.c, DefWindowProc's system keys):
     a journal's Alt, Down, Down, Enter chooses Open from the focused SECOND window's File menu (Windows
-    Basics opens Write's so), its procedure seeing the Alt as WM_SYSKEYDOWN first; on the main window a
+    Basics opens Write's so), its procedure seeing the Alt as WM_SYSKEYDOWN first; a hook shaped as the
+    Tutorial's, moving on at every HC_GETNEXT, ends on Open and reaches its done mark (two asks an event
+    while the menu has the keyboard), Open chosen by Enter, and a copy of the screen holds that menu;
+    on the main window a
     real Alt alone lights File (navy), Right lights Edit, Down and Enter choose Copy; Alt+F, Down and
     Enter choose Open.
 
@@ -1753,6 +1756,27 @@ def menukeys(dbg, qmp, res, tmp):
     res.check("a journal's Alt, Down, Down, Enter chooses Open from the focused second window's File menu",
               "Played=2" in ini, ini[-200:])
     res.check("...and the program's own procedure saw the played Alt as WM_SYSKEYDOWN first", "SysKey=1" in ini,
+              ini[-200:])
+    win = dbg.window(MENUKEYS_TITLE) or win
+    lx, ly = win["x"] + FRAME + 270, win["y"] + FRAME + CAPTION + 19 + 140    # the Alt-up copy's place
+    im = shot(qmp, f"{tmp}/w16_menukeys_lit.png")
+    navy = sum(1 for x in range(lx + 4, lx + 44) for y in range(ly + 24, ly + 41) if im.getpixel((x, y)) == NAVY)
+    res.check("a copy of the screen straight after a played Alt alone shows the first title lit, as 3.1 had "
+              "drawn it before the program went on", "Lit=1" in ini and navy > 100, f"{navy} navy pixels; {ini[-60:]}")
+    ini = read("Ended=")
+    res.check("a hook that moves on at every ask, as the Tutorial's, reaches its done mark: two asks an event "
+              "while the menu has the keyboard, as 3.1's peek and removal", "Ended=400" in ini, ini[-200:])
+    ini = read("Copied=")
+    dbg.settle(0.3)
+    win = dbg.window(MENUKEYS_TITLE) or win
+    cx, cy = win["x"] + FRAME + 270, win["y"] + FRAME + CAPTION + 19 + 10    # the copy's place: below the bar
+    im = shot(qmp, f"{tmp}/w16_menukeys_copy.png")
+    navy = sum(1 for x in range(cx, cx + 120) for y in range(cy + 45, cy + 120) if im.getpixel((x, y)) == NAVY)
+    res.check("a program's copy of the screen holds the open menu, its lit item navy, as 3.1's screen did",
+              "Copied=1" in ini and navy > 300, f"{navy} navy pixels below the copy's bar; {ini[-60:]}")
+    qmp.send_key("ret")
+    ini = read("Chosen=")
+    res.check("...and its Downs left Open lit, which Enter chooses (Exit, had every Down landed)", "Chosen=2" in ini,
               ini[-200:])
     win = dbg.window(MENUKEYS_TITLE) or win
     bx, by = win["x"] + FRAME, win["y"] + FRAME + CAPTION      # the bar's top-left

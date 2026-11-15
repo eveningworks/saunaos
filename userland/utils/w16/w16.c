@@ -75,6 +75,9 @@ static const struct uargs_opt OPTS[] = {
       "off does: for a program the translator breaks, and to tell whether it is the translator", &g_no_jit, NULL },
     { "jit-threshold", 0, "N", "translate a block of 32-bit code after N arrivals at it (default 50)",
       NULL, &g_jit_threshold },
+    { "trace-words", 0, "OFFS", "with --trace, log these words of the program's data segment beside each "
+      "message it dispatches: hex offsets, comma-separated (a0c,21e) -- a program's own state, for "
+      "following its logic", NULL, &g_w16_trace_words },
     { "stats", 0, "FILE", "write where the program's time goes to FILE every few seconds and at its end: "
       "its own code against each module's calls, MIPS, and what the JIT did", NULL, &g_stats_path },
     { 0 },

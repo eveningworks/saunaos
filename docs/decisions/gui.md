@@ -13097,6 +13097,16 @@ but their physical presses still arrive; when one came between, w16
 sends a held Alt's repeat before the release, which tells DefWindowProc
 that Alt was not pressed alone, as the keyboard's own repeat would.
 
+**3.1's menu loop as the program saw it.** Three things a program could
+observe of that loop are kept although the loop is w16's main thread's:
+a journal's next event is asked for TWICE while the menus have the
+keyboard (its peek, then its removal; the Tutorial's hook moves on at
+every ask and turns its page only so -- modelled from that hook, roadmap
+"count 3.1's HC_GETNEXT asks per event on real 3.11"); an open menu is
+on the screen a program reads back (screen_copy() lays it on); and the
+title SC_KEYMENU lights is drawn lit at once (`menu_lit`, set by the
+task) -- the Tutorial photographs Write straight after.
+
 **Moving the menu loop onto the task** -- WM_MENUSELECT, WM_ENTERIDLE,
 MSGF_MENU filter hooks, a played CLICK on a menu -- is its own round:
 menu16/menubar16's two threads would become one.

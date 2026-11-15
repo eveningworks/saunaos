@@ -473,6 +473,7 @@ struct w16 {
     uint16_t menu_keys;                          // the top-level window whose menus have the keyboard
                                                  // (barmode16.c); under `lock`
     int menu_asks;                               // SC_KEYMENU asks posted, not yet heard; under `lock`
+    uint16_t menu_lit;                           // the bar SC_KEYMENU 0 asked lit, drawn so until heard
     int alt_alone, f10_alone;                    // DefWindowProc's: Alt or F10 down, nothing since (task)
 
     struct uapp *app;                            // the main thread's, once open
@@ -545,6 +546,7 @@ void w16_stats_tick(struct cpu16 *c);             // rewrites FILE every few sec
 void w16_stats_close(struct cpu16 *c);
 void w16_zeroed_write(FILE *f);                  // each call so answered, a W16_LAST_ZERO line each
 extern FILE *g_w16_trace;                        // --trace FILE: each call into KERNEL/USER/GDI
+extern const char *g_w16_trace_words;            // --trace-words: DGROUP words logged at each DispatchMessage
 extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-safe
 
 // uapp_post() codes, task -> main.
@@ -1056,8 +1058,9 @@ int w16_bar_has(uint16_t hwnd);                   // ...in hwnd's bar: the keys 
 void w16_bar_heard(struct w16 *w);                // a W16_POST_KEYMENU taken (the task's menu_asks)
 int w16_bar_open_in(uint16_t hwnd);               // a title of hwnd's bar asked for or dropped
 int w16_bar_pos(uint16_t hwnd);                   // that title, -1 none
-int w16_bar_lit(uint16_t hwnd);                   // the title hwnd's bar draws lit, -1 none
+int w16_bar_lit(uint16_t hwnd);                   // the title hwnd's bar draws lit, -1 none; under `lock`
 struct w16_menu *w16_bar_menu(uint16_t hwnd);     // the popup dropped from hwnd's bar, NULL none
+struct w16_menu *w16_bar_shown(uint16_t *hwnd);   // the one dropped, and whose bar: for a screen read (task)
 void w16_bar_request(struct w16 *w, uint16_t hwnd, int pos, int by_key);   // drop title pos
 int w16_bar_show(struct w16 *w, uint16_t hwnd, int pos);   // W16_POST_MENU_SHOW; 1 when it was the one asked
 void w16_bar_close(struct w16 *w);                // and out of menu-bar mode
@@ -1578,6 +1581,9 @@ struct w16_menu {
 void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_key);
 void w16_menu_close(struct w16_menu *m);
 void w16_menu_draw(struct w16_menu *m);
+// Into px, its m->w x m->h at 1x, as it shows: a program reading the screen sees an open menu (gdi16.c).
+// Its items change only under `lock`, which the reader holds.
+void w16_menu_paint(struct w16_menu *m, uint32_t *px);
 // Each returns the chosen item's id, 0 for nothing chosen yet, and -1
 // once the menu has closed without a choice. w16_menu_key also returns
 // W16_MENU_LEFT or W16_MENU_RIGHT for an arrow a menu bar moves on.

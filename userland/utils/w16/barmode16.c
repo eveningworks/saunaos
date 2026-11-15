@@ -57,6 +57,7 @@ static void sync(struct w16 *w) {
 void w16_bar_heard(struct w16 *w) {
     pthread_mutex_lock(&w->lock);
     if (w->menu_asks > 0) w->menu_asks--;
+    w->menu_lit = 0;                             // the bar's own state says from here
     pthread_mutex_unlock(&w->lock);
 }
 
@@ -74,7 +75,14 @@ int w16_bar_active(void) { return active(); }
 int w16_bar_has(uint16_t hwnd) { return hwnd && hwnd == g_hwnd && active(); }
 int w16_bar_open_in(uint16_t hwnd) { return hwnd && hwnd == g_hwnd && open_p(); }
 int w16_bar_pos(uint16_t hwnd) { return w16_bar_open_in(hwnd) ? g_pos : -1; }
-int w16_bar_lit(uint16_t hwnd) { return hwnd && hwnd == g_hwnd ? (open_p() ? g_pos : g_hot) : -1; }
+int w16_bar_lit(uint16_t hwnd) {
+    if (hwnd && hwnd == g_hwnd) return open_p() ? g_pos : g_hot;
+    return hwnd && hwnd == g_w16.menu_lit ? 0 : -1;   // asked lit by the task, not yet heard (under `lock`)
+}
+struct w16_menu *w16_bar_shown(uint16_t *hwnd) {
+    *hwnd = g_hwnd;
+    return g_hwnd && g_bar.popup > 0 ? &g_bar : 0;
+}
 struct w16_menu *w16_bar_menu(uint16_t hwnd) { return hwnd && hwnd == g_hwnd && g_bar.popup > 0 ? &g_bar : 0; }
 
 void w16_bar_close(struct w16 *w) {
