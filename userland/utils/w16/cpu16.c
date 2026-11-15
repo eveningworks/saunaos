@@ -12,6 +12,7 @@
 // 16 bits, and a 67-prefixed 32-bit address past a segment's limit is a
 // fault like any other.
 #include "cpu16.h"
+#include "jit16.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -144,21 +145,32 @@ static inline const struct cpu16_desc *seg_desc(struct cpu16 *c, int s) {
 
 static uint8_t *mem_slow(struct cpu16 *c, int s, const struct cpu16_desc *d, uint32_t off, unsigned size, int write);
 
+// A store is about to land at p: the JIT's translations of those bytes go first (cpu16.h).
+static inline void jit_store(struct cpu16 *c, const uint8_t *p, unsigned size) {
+    size_t rel = (size_t)(p - c->lin);
+    if (rel < c->lin_size &&
+        (c->jit_lines[rel >> CPU16_JIT_LINE] | c->jit_lines[(rel + size - 1) >> CPU16_JIT_LINE]))
+        cpu16_jit_store(c, p, size);
+}
+
 // A checked pointer to `size` bytes at sreg:off. On failure: the fault
 // is set and a scratch buffer comes back, so the caller need not check.
 // The common case -- a data or code segment, in its limit -- answers here;
 // anything else, a fault included, is mem_slow()'s.
 static inline uint8_t *mem(struct cpu16 *c, int s, uint32_t off, unsigned size, int write) {
     const struct cpu16_desc *d = seg_desc(c, s);
+    uint8_t *p = 0;
     if (d && (d->kind == D_DATA || (d->kind == D_CODE && !write)) && (uint64_t)off + size - 1 <= d->limit) {
         if (!(d->flags & CPU16_DF_LIN)) {
-            if (d->base) return d->base + off;
+            p = d->base ? d->base + off : 0;
         } else {
             uint32_t rel = d->lin + off - c->lin_origin;
-            if (c->lin && rel < c->lin_size && c->lin_size - rel >= size) return c->lin + rel;
+            if (c->lin && rel < c->lin_size && c->lin_size - rel >= size) p = c->lin + rel;
         }
     }
-    return mem_slow(c, s, d, off, size, write);
+    if (!p) p = mem_slow(c, s, d, off, size, write);
+    if (write && c->jit_lines && !c->fault) jit_store(c, p, size);
+    return p;
 }
 
 static uint8_t *mem_slow(struct cpu16 *c, int s, const struct cpu16_desc *d, uint32_t off, unsigned size, int write) {
@@ -193,8 +205,13 @@ uint8_t *cpu16_ptr32(struct cpu16 *c, uint16_t sel, uint32_t off, uint32_t len, 
     const struct cpu16_desc *d = desc_of(c, sel);
     uint8_t *p = d && (d->kind == D_DATA || (d->kind == D_CODE && !write)) && len ? seg_bytes(c, d, off, len) : 0;
     if (!p) cpu16_set_fault(c, FAULT_API, "a Windows call was passed a bad pointer");
+    else if (write && c->jit_lines) cpu16_jit_store(c, p, len);   // every C-side write into the program's memory
     return p;
 }
+
+// --- the JIT's view (cpu16.h) ---------------------------------------------------
+
+const struct cpu16_desc *cpu16_seg(struct cpu16 *c, int s) { return seg_desc(c, s); }
 
 uint8_t *cpu16_ptr(struct cpu16 *c, uint16_t sel, uint16_t off, uint32_t len, int write) {
     return cpu16_ptr32(c, sel, off, len, write);   // a huge block's limit reaches its end
@@ -361,6 +378,14 @@ static inline uint32_t fetch32(struct cpu16 *c) {
 }
 
 static uint32_t fetchw(struct cpu16 *c, int w) { return w == 2 ? fetch32(c) : w ? fetch16(c) : fetch8(c); }
+
+const uint8_t *cpu16_code_at(struct cpu16 *c, uint32_t ip, uint32_t *avail) {
+    if (c->fetch_sel != c->sreg[S_CS] || c->fetch_gen != c->desc_gen) fetch_window(c);
+    uint32_t k = ip - c->fetch_lo;
+    if (!c->fetch_host || k > c->fetch_n) { *avail = 0; return 0; }
+    *avail = c->fetch_n - k + 1;
+    return c->fetch_host + k;
+}
 
 int cpu16_load_sreg(struct cpu16 *c, int s, uint16_t sel) {
     if (s == S_CS) { cpu16_set_fault(c, FAULT_UD, "mov to CS"); return -1; }
@@ -664,6 +689,7 @@ static void far_jump(struct cpu16 *c, uint16_t sel, uint32_t off) {
         c->sreg[S_CS] = sel;
         c->ip = off;
         c->cs32 = (d->flags & CPU16_DF_BIG) != 0;
+        c->jit_probe = 1;
         return;
     }
     if (off > 0xFFFF) { cpu16_set_fault(c, FAULT_GP, "a 32-bit far transfer into Windows"); return; }
@@ -734,6 +760,7 @@ static void jump_near(struct cpu16 *c, const struct insn *in, uint32_t target) {
     const struct cpu16_desc *d = seg_desc(c, S_CS);
     if (!d || target > d->limit) { cpu16_set_fault(c, FAULT_GP, "near transfer past the code segment"); return; }
     c->ip = target;
+    c->jit_probe = 1;
 }
 
 static void interrupt(struct cpu16 *c, uint8_t n) {
@@ -1537,13 +1564,29 @@ int cpu16_step(struct cpu16 *c) {
     return c->fault ? -1 : 0;
 }
 
+void cpu16_jit_step(struct cpu16 *c) { step(c); }
+
 int cpu16_run(struct cpu16 *c, uint64_t max_steps) {
     uint64_t until = max_steps ? c->steps + max_steps : 0;
     unsigned depth = c->depth;
+    c->jit_probe = 1;                    // a callback's first instruction may start a block
     while (!c->fault && !c->exited) {
         if (c->sentinel && c->sreg[S_CS] == c->sentinel && c->ip == depth) return 0;
         if (until && c->steps >= until) { cpu16_set_fault(c, FAULT_LIMIT, "step budget"); break; }
+        // Translated blocks run only where control just arrived (cpu16.h): asking at every
+        // instruction would cost the interpreted code a lookup each.
+        if (c->jit_probe) {
+            c->jit_probe = 0;
+            if (c->jit && c->cs32) {
+                uint64_t before = c->steps;
+                if (jit16_run(c, until)) {
+                    if (((before ^ c->steps) & ~(uint64_t)(CPU16_TICK_STEPS - 1)) && c->tick) c->tick(c);
+                    continue;
+                }
+            }
+        }
         step(c);
+        if (c->jit_resume) { c->jit_resume = 0; c->jit_probe = 1; }
         if (!(++c->steps & (CPU16_TICK_STEPS - 1)) && c->tick) c->tick(c);
     }
     return c->fault ? -1 : 0;

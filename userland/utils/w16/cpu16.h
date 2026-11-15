@@ -152,6 +152,16 @@ struct cpu16 {
     uint32_t fetch_lo, fetch_n, fetch_gen, desc_gen;
     uint16_t fetch_sel;
     uint16_t sentinel;           // cpu16_call_far()'s return selector, 0 until the first call
+
+    // THE JIT (jit16.c), or NULL: 32-bit flat code translated to x86-64. The interpreter stays the
+    // reference -- a translated block that meets anything it does not handle hands the instruction
+    // back here. `jit_lines` marks each 64-byte line of the arena that translated code was made
+    // from: a store into a marked line (cpu16.c's mem(), cpu16_ptr32(), lin16's free) drops the
+    // blocks there first. `jit_probe` says control just moved (a jump, call or return), which is
+    // the only moment the run loop asks whether a translated block starts here.
+    struct jit16 *jit;
+    uint8_t *jit_lines;
+    uint8_t jit_probe, jit_resume;
 };
 
 // A descriptor was changed in place (its base, limit or kind): CS's fetch window is rebuilt.
@@ -176,6 +186,23 @@ int cpu16_linear_base(struct cpu16 *c, uint16_t sel, uint32_t *out);
 void cpu16_set_linear_base(struct cpu16 *c, uint16_t sel, uint32_t lin);
 // The host bytes [lin, lin+len) of the arena, or NULL when they are not all inside it.
 uint8_t *cpu16_linear_ptr(struct cpu16 *c, uint32_t lin, uint32_t len);
+
+// --- for the JIT (jit16.c) ----------------------------------------------------
+
+#define CPU16_JIT_LINE 6             // a code line is 64 bytes: jit_lines[arena offset >> 6]
+
+// The host bytes of CS:ip and how many follow it in CS's fetch window (0: none -- ip is outside
+// the segment, the arena, or CS is no code segment). The window is rebuilt as an instruction
+// fetch would rebuild it.
+const uint8_t *cpu16_code_at(struct cpu16 *c, uint32_t ip, uint32_t *avail);
+// One instruction at CS:EIP, interpreted, for a translated block that lacks it (jit16.c's call-out):
+// cpu16_step() without the count, which the block keeps.
+void cpu16_jit_step(struct cpu16 *c);
+// A segment register's descriptor through the descriptor cache, or NULL.
+const struct cpu16_desc *cpu16_seg(struct cpu16 *c, int s);
+// A store into [p, p+len) of host memory is about to happen: the translated code made from any
+// of it is dropped first. Cheap when nothing there was translated (one byte read per 64).
+void cpu16_jit_store(struct cpu16 *c, const uint8_t *p, uint32_t len);
 
 // Load a segment register as a mov would: checked against the table.
 int cpu16_load_sreg(struct cpu16 *c, int s, uint16_t sel);

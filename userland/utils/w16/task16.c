@@ -8,6 +8,7 @@
 // then every relocation is applied, following the chain a non-additive
 // one heads. The task starts with the registers Windows gave it.
 #include "w16_internal.h"
+#include "jit16.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +44,10 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
     c->desc = w->desc;
     // Every byte the program reaches lives in the linear arena (lin16.c), so each selector has a linear base.
     if (lin16_init(c) < 0) return load_fail(path, "cannot reserve its memory");
+    // The JIT after the arena, whose code lines it watches. Without its arena the program runs
+    // interpreted, as with jit=off.
+    if (g_w16_jit && jit16_init(c, g_w16_jit_threshold) < 0)
+        fprintf(stderr, "w16: no memory for the JIT -- %s runs interpreted\n", path);
 
     // Segments: data copied in, the rest zero, DGROUP grown by heap+stack;
     // then every relocation bound (module16.c).
@@ -303,7 +308,27 @@ static void zeroed_add(const char *module, unsigned ordinal, const char *fn) {
     pthread_mutex_unlock(&g_zeroed_lock);
 }
 
+static int thunk_call(struct cpu16 *c, uint16_t sel, uint16_t ordinal);
+
+// Every Windows call, timed by module under --stats.
 static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
+    if (!g_w16_stats_on) return thunk_call(c, sel, ordinal);
+    const char *name = w16_thunk_module(c->user, sel);
+    w16_stats_enter(name ? name : "?");
+    int r = thunk_call(c, sel, ordinal);
+    w16_stats_leave();
+    return r;
+}
+
+static int timed_int(struct cpu16 *c, uint8_t n) {
+    if (!g_w16_stats_on) return w16_int(c, n);
+    w16_stats_enter(W16_STATS_INT);
+    int r = w16_int(c, n);
+    w16_stats_leave();
+    return r;
+}
+
+static int thunk_call(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     struct w16 *w = c->user;
     g_last_call_steps = c->steps;
     const char *name = w16_thunk_module(w, sel);
@@ -391,6 +416,8 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
 }
 
 int g_w16_skip_missing;
+int g_w16_jit;
+unsigned g_w16_jit_threshold;
 
 void w16_zeroed_write(FILE *f) {
     pthread_mutex_lock(&g_zeroed_lock);
@@ -422,7 +449,9 @@ uint32_t w16_call_far(struct w16 *w, uint16_t sel, uint16_t off, const uint16_t 
     for (unsigned i = 0; i < n; i++) cpu16_push(c, words[i]);
     c->sreg[S_DS] = w->dgroup;       // what an instance thunk gave a callback
     c->r[R_AX].w = w->dgroup;
+    w16_stats_enter(W16_STATS_OWN);  // a window procedure called back from inside USER is the program's
     cpu16_call_far(c, sel, off);
+    w16_stats_leave();
     uint32_t result = (uint32_t)c->r[R_DX].w << 16 | c->r[R_AX].w;
     memcpy(c->r, saved, sizeof saved);
     c->sreg[S_ES] = ss[S_ES];
@@ -590,14 +619,17 @@ static void task_tick(struct cpu16 *c) {
     static unsigned n;
     w16_wave_interrupt(&g_w16);
     if (g_w16_trace && !(++n % TRACE_TICKS)) trace_tick(c);
+    w16_stats_tick(c);
 }
 
 void *w16_task_main(void *arg) {
     struct w16 *w = arg;
     struct cpu16 *c = &w->cpu;
     c->thunk = thunk;
+    c->intr = timed_int;
     c->tick = task_tick;
     if (w16_dll_start_pending(w) == 0) cpu16_run(c, 0);
+    w16_stats_close(c);
     if (c->fault) {
         const struct cpu16_desc *d = &w->desc[cpu16_index(c->fault_cs) % CPU16_MAX_DESC];
         fprintf(stderr, "w16: %s: %s at %u:%04x -- %s\n", w->path, cpu16_fault_name(c->fault),

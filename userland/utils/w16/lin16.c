@@ -144,9 +144,12 @@ uint32_t lin16_size_of(const void *p) {
     return owned(p, &i) ? g_lin.ext[i].size : 0;
 }
 
+void (*lin16_on_release)(void *p, uint32_t size);
+
 void lin16_free(void *p) {
     int i;
     if (!owned(p, &i)) return;
+    if (lin16_on_release) lin16_on_release(p, g_lin.ext[i].size);
     g_lin.ext[i].used = 0;
     if ((unsigned)i + 1 < g_lin.n && !g_lin.ext[i + 1].used) {     // merge with the next free one
         g_lin.ext[i].size += g_lin.ext[i + 1].size;

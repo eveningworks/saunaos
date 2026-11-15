@@ -32,6 +32,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 ROOT = toolpath.REPO
 W16 = "userland/utils/w16"
 CPU_FILES = ("cpu16.c", "cpu16.h", "cpu16_x87.c")
+JIT_FILES = ("jit16.c", "jit16_x86.c", "jit16.h", "jit16_internal.h", "lin16.c", "lin16.h")
 
 
 def run(cmd, **kw):
@@ -42,8 +43,13 @@ def run(cmd, **kw):
 
 
 def stage_cpu(tmp, rev):
-    """The CPU's sources -- this checkout's, or `rev`'s from git -- into tmp."""
-    for f in CPU_FILES:
+    """The CPU's sources -- this checkout's, or `rev`'s from git -- into tmp. The JIT's are staged
+    only where the revision has them (it came after cpu16.c's 32-bit registers)."""
+    files = CPU_FILES
+    if rev is None or subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{rev}:{W16}/jit16.c"],
+                                     capture_output=True).returncode == 0:
+        files = CPU_FILES + JIT_FILES
+    for f in files:
         dst = os.path.join(tmp, f)
         if rev:
             src = run(["git", "-C", ROOT, "show", f"{rev}:{W16}/{f}"])
@@ -64,8 +70,10 @@ def build(tmp, rev):
     run(["objcopy", "-O", "binary", "-j", ".text", "-j", ".rodata", "-j", ".data", elf, blob])
     entry = next(int(m.group(1), 16) for m in re.finditer(r"^([0-9a-f]+) T bench$", run(["nm", elf]), re.M))
     exe = os.path.join(tmp, "cpu16_bench")
-    run(["gcc", "-O2", "-g", "-std=gnu11", "-I", tmp, "-o", exe, os.path.join(ROOT, "tools", "w16", "cpu16_bench.c"),
-         os.path.join(tmp, "cpu16.c"), os.path.join(tmp, "cpu16_x87.c"), "-x", "c", work, "-Dbench=bench_native"])
+    srcs = [os.path.join(tmp, f) for f in ("cpu16.c", "cpu16_x87.c", "jit16.c", "jit16_x86.c", "lin16.c")
+            if os.path.exists(os.path.join(tmp, f))]
+    run(["gcc", "-O2", "-g", "-std=gnu11", "-I", tmp, "-o", exe, os.path.join(ROOT, "tools", "w16", "cpu16_bench.c")]
+        + srcs + ["-x", "c", work, "-Dbench=bench_native"])
     return exe, blob, entry
 
 
@@ -74,10 +82,14 @@ def main():
     ap.add_argument("--rev", help="time this git revision's cpu16.c instead of the checkout's")
     ap.add_argument("--runs", type=int, default=5, help="runs; the best is reported (default 5)")
     ap.add_argument("--perf", action="store_true", help="record one run with perf and print the top functions")
+    ap.add_argument("--jit", action="store_true", help="run through the JIT (userland/utils/w16/jit16.c)")
+    ap.add_argument("--jit-threshold", type=int, default=0, metavar="N",
+                    help="with --jit: arrivals before a block is translated (0: the JIT's default)")
     args = ap.parse_args()
     with tempfile.TemporaryDirectory() as tmp:
         exe, blob, entry = build(tmp, args.rev)
-        r = subprocess.run([exe, blob, hex(entry), str(args.runs)], capture_output=True, text=True)
+        jit = [str(args.jit_threshold)] if args.jit else []
+        r = subprocess.run([exe, blob, hex(entry), str(args.runs)] + jit, capture_output=True, text=True)
         print(r.stdout, end="")
         if r.returncode:
             print(r.stderr, end="")
@@ -85,7 +97,7 @@ def main():
         if args.perf:
             data = os.path.join(tmp, "perf.data")
             # cycles:u -- user space only, what a perf_event_paranoid of 2 still lets a user record
-            subprocess.run(["perf", "record", "-q", "-e", "cycles:u", "-o", data, exe, blob, hex(entry), "1"],
+            subprocess.run(["perf", "record", "-q", "-e", "cycles:u", "-o", data, exe, blob, hex(entry), "1"] + jit,
                            capture_output=True)
             rep = subprocess.run(["perf", "report", "-i", data, "--no-children", "--stdio", "--percent-limit", "1.5"],
                                  capture_output=True, text=True).stdout

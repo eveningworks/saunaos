@@ -17,6 +17,9 @@ void *lin16_alloc(uint32_t size, uint32_t align);
 // Grown in place when it can be, else moved; new bytes zero. NULL on failure (the old block is kept).
 void *lin16_realloc(void *p, uint32_t size);
 void lin16_free(void *p);
+// Told of every block before it is freed (and so of a realloc that moved), with its size: the
+// JIT drops what it translated from those bytes (jit16.c). NULL when nothing listens.
+extern void (*lin16_on_release)(void *p, uint32_t size);
 // A block's size as allocated (rounded up), 0 for a pointer the arena did not hand out.
 uint32_t lin16_size_of(const void *p);
 uint32_t lin16_free_bytes(void);

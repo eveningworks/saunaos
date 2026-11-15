@@ -42,7 +42,8 @@ static char g_tail[127];                 // the program's command line: DOS's 12
 static const char *g_trace_path;
 static const char *g_why;                // --why CALL
 static const char *g_install;            // --install DISKS
-static int g_dry_run, g_replace_ini, g_groups;
+static int g_dry_run, g_replace_ini, g_groups, g_no_jit;
+static const char *g_jit_threshold, *g_stats_path;
 static char g_exe[W16_PATH_MAX];         // the program, as an absolute path: its settings' key
 
 static const struct uargs_opt OPTS[] = {
@@ -67,6 +68,12 @@ static const struct uargs_opt OPTS[] = {
       "where drive C: has them", &g_replace_ini, NULL },
     { "groups", 'g', NULL, "make Program Manager a group for each of Retro Launcher's folders, on drive C: "
       "(RL1.GRP...), and take away those of folders no longer in the list", &g_groups, NULL },
+    { "no-jit", 0, NULL, "run a Win386 program's 32-bit code in the interpreter only, as the `jit` setting "
+      "off does: for a program the translator breaks, and to tell whether it is the translator", &g_no_jit, NULL },
+    { "jit-threshold", 0, "N", "translate a block of 32-bit code after N arrivals at it (default 50)",
+      NULL, &g_jit_threshold },
+    { "stats", 0, "FILE", "write where the program's time goes to FILE every few seconds and at its end: "
+      "its own code against each module's calls, MIPS, and what the JIT did", NULL, &g_stats_path },
     { 0 },
 };
 
@@ -1478,6 +1485,13 @@ static int install(const char *src) {
 int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
+    if (g_jit_threshold) {
+        char *end;
+        unsigned long v = strtoul(g_jit_threshold, &end, 10);
+        if (!g_jit_threshold[0] || *end || !v || v > 1000000)
+            return uargs_error(&PROG, "--jit-threshold takes a count from 1 to 1000000");
+        g_w16_jit_threshold = (unsigned)v;
+    }
     if (g_fonts) {                               // drive C:'s WINDOWS\SYSTEM, read in the sandbox
         if (a.argc) return uargs_error(&PROG, "--fonts takes no FILE");
         w16_prefs_load(&g_w16_prefs, 0);
@@ -1539,6 +1553,7 @@ int main(int argc, char **argv) {
     } else {
         w16_prefs_load(&g_w16_prefs, g_exe);
         if (g_w16_prefs.missing == W16_MISSING_ZERO) g_w16_skip_missing = 1;
+        g_w16_jit = g_w16_prefs.jit && !g_no_jit;
         snprintf(g_w16_drive_c, sizeof g_w16_drive_c, "%s", g_w16_prefs.drive_c);
         mkdirs(g_w16_drive_c);
         mkdirs(W16_STATE_DIR);
@@ -1565,9 +1580,12 @@ int main(int argc, char **argv) {
              && unveil("shm:font.0", "r") == 0 && unveil("shm:font.1", "r") == 0
              && unveil("shm:font.2", "r") == 0 && unveil("shm:font.3", "r") == 0
              && (!g_trace_path || unveil(g_trace_path, "rwc") == 0)
+             && (!g_stats_path || unveil(g_stats_path, "rwc") == 0)
              && unveil("shm:" SND_SERVER_NAME, "r") == 0 && unveil(snd_ring, "rwc") == 0
              && unveil(NULL, NULL) == 0
-             && pledge("stdio rpath wpath cpath shm window settings query", NULL) == 0;
+             // prot_exec only for the JIT's code, which it writes and then makes executable.
+             && pledge(g_w16_jit ? "stdio rpath wpath cpath shm window settings query prot_exec"
+                                 : "stdio rpath wpath cpath shm window settings query", NULL) == 0;
     }
     if (!ok) {
         fprintf(stderr, "w16: cannot sandbox myself, so I will not read %s\n", path);
@@ -1575,6 +1593,10 @@ int main(int argc, char **argv) {
     }
     if (g_trace_path && !(g_w16_trace = fopen(g_trace_path, "w"))) {
         fprintf(stderr, "w16: %s: %s\n", g_trace_path, strerror(errno));
+        return 1;
+    }
+    if (g_stats_path && w16_stats_open(g_stats_path) < 0) {
+        fprintf(stderr, "w16: %s: %s\n", g_stats_path, strerror(errno));
         return 1;
     }
     if (g_w16_trace) {                           // the drives first: a "no such drive" is then readable

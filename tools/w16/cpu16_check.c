@@ -26,6 +26,7 @@
 #include <unistd.h>
 
 #include "cpu16.h"
+#include "jit16.h"
 
 #define E_CODE 1
 #define E_DATA 2
@@ -40,6 +41,9 @@
 
 static uint8_t *g_code, *g_data, *g_stack, *g_lowstack;
 static uint8_t g_idata[0x10000], g_istack[0x10000], g_icode[0x10000];
+static uint8_t g_jdata[0x10000], g_jstack[0x10000], g_jcode[0x10000];
+static struct cpu16 g_jc;            // the JIT's run of each case: its own copy of every segment
+static int g_jit;
 static struct cpu16_desc g_desc[CPU16_MAX_DESC];
 static uint64_t g_saved_rsp;
 static int g_use32;                  // the cases run in a 32-bit code segment and stack
@@ -549,18 +553,20 @@ static unsigned gen_body(uint8_t *b, uint16_t *undef, struct regs *in, unsigned 
 
 // One test instruction: its prefixes -- sometimes 66, 67 or a GS
 // override -- then the body.
+static int g_seq;                    // `32 jit seq`: Win386's shapes -- 32-bit addresses, no GS
+
 static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
     unsigned kind = rnd() % 20, n = 0;
     *undef = 0;
     g_o32 = kind != 8 && rnd() % 3 == 0;                  // BCD has no operand size
-    g_a32 = rnd() % 4 == 0;
+    g_a32 = g_seq || rnd() % 4 == 0;
     if (g_a32) {                                          // what a 32-bit address may be made of
         in->rh[R_BX] = in->rh[R_SI] = in->rh[R_DI] = in->rh[R_BP] = 0;
         if (kind == 9 || kind == 11) in->rh[R_CX] = (uint16_t)(rnd() % 2);   // ECX counts under 67
     }
     if (g_o32 != g_use32) b[n++] = 0x66;              // in a 32-bit segment, 66 asks for the WORD
     if (g_a32 != g_use32) b[n++] = 0x67;
-    if (rnd() % 8 == 0) b[n++] = 0x65;
+    if (!g_seq && rnd() % 8 == 0) b[n++] = 0x65;
     return n + gen_body(b + n, undef, in, kind);
 }
 
@@ -693,28 +699,58 @@ static int fuzz_int(struct cpu16 *c, uint8_t n) {
     return n & 1 ? 0 : -1;
 }
 
-static int fuzz(unsigned cases) {
-    static uint8_t code[0x400], data[0x300], stack[0x200], arena[0x1000];
+// `n` bytes that END at a PROT_NONE page: translated code is not instrumented, so an access the
+// JIT let past a segment's end must fault where ASan cannot see it.
+static uint8_t *guarded(size_t n) {
+    size_t span = (n + 4095) & ~(size_t)4095;
+    uint8_t *p = mmap(0, span + 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == MAP_FAILED || mprotect(p + span, 4096, PROT_NONE) != 0) { perror("guarded"); exit(2); }
+    return p + span - n;
+}
+
+static int fuzz(unsigned cases, int jit) {
+    static uint8_t s_code[0x400], s_data[0x300], s_stack[0x200], s_arena[0x1000];
+    uint8_t *code = s_code, *data = s_data, *stack = s_stack, *arena = s_arena;
+    struct jit16 *jj = 0;
+    uint8_t *jlines = 0;
+    if (jit) {
+        // The JIT translates random bytes at their first arrival, and every case starts it again.
+        code = guarded(sizeof s_code);
+        data = guarded(sizeof s_data);
+        stack = guarded(sizeof s_stack);
+        arena = guarded(sizeof s_arena);
+        struct cpu16 t;
+        memset(&t, 0, sizeof t);
+        t.lin = arena;
+        t.lin_size = sizeof s_arena;
+        if (jit16_init(&t, 1) < 0) { fprintf(stderr, "no JIT\n"); return 2; }
+        jj = t.jit;
+        jlines = t.jit_lines;
+    }
     unsigned faults = 0, exits = 0, budget = 0;
     for (unsigned k = 0; k < cases; k++) {
         struct cpu16 c;
         memset(&c, 0, sizeof c);
+        c.jit = jj;
+        c.jit_lines = jlines;
         memset(g_desc, 0, sizeof g_desc);
         c.desc = g_desc;
         c.thunk = fuzz_thunk;
         c.intr = fuzz_int;
-        for (unsigned i = 0; i < sizeof code; i++) code[i] = (uint8_t)rnd();
-        for (unsigned i = 0; i < sizeof data; i++) data[i] = (uint8_t)rnd();
+        for (unsigned i = 0; i < sizeof s_code; i++) code[i] = (uint8_t)rnd();
+        for (unsigned i = 0; i < sizeof s_data; i++) data[i] = (uint8_t)rnd();
         // Small segments with odd limits, so the limit checks are what holds.
-        g_desc[1] = (struct cpu16_desc){ .base = code, .limit = sizeof code - 1, .kind = D_CODE, .owner = 1 };
-        g_desc[2] = (struct cpu16_desc){ .base = data, .limit = sizeof data - 1 - (rnd() % 64), .kind = D_DATA, .owner = 2 };
-        g_desc[3] = (struct cpu16_desc){ .base = stack, .limit = sizeof stack - 1, .kind = D_DATA, .owner = 3 };
+        g_desc[1] = (struct cpu16_desc){ .base = code, .limit = sizeof s_code - 1, .kind = D_CODE, .owner = 1 };
+        uint32_t dlim = sizeof s_data - 1 - (rnd() % 64);
+        uint8_t *dseg = jj ? data + sizeof s_data - (dlim + 1) : data;   // its limit AT the guard page
+        g_desc[2] = (struct cpu16_desc){ .base = dseg, .limit = dlim, .kind = D_DATA, .owner = 2 };
+        g_desc[3] = (struct cpu16_desc){ .base = stack, .limit = sizeof s_stack - 1, .kind = D_DATA, .owner = 3 };
         g_desc[4] = (struct cpu16_desc){ .base = 0, .limit = 0xFFFF, .kind = D_THUNK, .owner = 0 };
-        g_desc[5] = (struct cpu16_desc){ .base = code, .limit = sizeof code - 1, .kind = D_CODE, .owner = 1 };
+        g_desc[5] = (struct cpu16_desc){ .base = code, .limit = sizeof s_code - 1, .kind = D_CODE, .owner = 1 };
         // Half the cases in 32-bit segments, and a FLAT selector: a linear base anywhere, a 4 GiB limit,
         // over a small arena -- only the arena bound keeps it in.
         c.lin = arena;
-        c.lin_size = sizeof arena;
+        c.lin_size = sizeof s_arena;
         c.lin_origin = 0x80000000u;
         g_desc[6] = (struct cpu16_desc){ .lin = 0x80000000u + rnd() % 0x2000 - 0x800, .limit = 0xFFFFFFFFu,
                                          .kind = D_DATA, .flags = CPU16_DF_LIN, .owner = 6 };
@@ -730,21 +766,198 @@ static int fuzz(unsigned cases) {
         c.sreg[S_SS] = SEL(3);
         c.sreg[S_FS] = SEL(rnd() % 7);
         c.sreg[S_GS] = SEL(rnd() % 7);
-        c.ip = (uint16_t)(rnd() % sizeof code);
+        c.ip = (uint16_t)(rnd() % sizeof s_code);
         c.flags = (uint16_t)(rnd() & 0x0FD5);
+        if (jj) jit16_flush(&c);
         cpu16_run(&c, 2000);
         if (c.exited) exits++;
         else if (c.fault == FAULT_LIMIT) budget++;
         else faults++;
     }
-    printf("fuzz %u: %u faulted, %u exited, %u ran out of steps\n", cases, faults, exits, budget);
+    printf("fuzz %u: %u faulted, %u exited, %u ran out of steps", cases, faults, exits, budget);
+    if (jj) {
+        struct cpu16 t;
+        memset(&t, 0, sizeof t);
+        t.jit = jj;
+        t.jit_lines = jlines;
+        t.lin = arena;
+        t.lin_size = sizeof s_arena;
+        const struct jit16_stats *s = jit16_stats(&t);
+        printf(", %llu blocks translated, %llu instructions run in them", (unsigned long long)s->blocks,
+               (unsigned long long)s->run_insns);
+        jit16_free(&t);
+    }
+    printf("\n");
     return 0;
+}
+
+// The case again, TWICE (`32 jit`): interpreted, and translated -- the block from EIP 0, what it
+// left untranslated interpreted -- over the same memory, and everything compared: registers,
+// flags but the undefined ones, data, stack; or, where the interpreter faults, the same fault at
+// the same instruction. Its own runs rather than the native one's, because the segments here are
+// the JIT's cases, not the CPU's: one of three shapes a case at a time --
+//   0  base-pointer segments, the data segment's limit low enough that operands reach it;
+//   1  DS a FLAT selector (a linear base, a 4 GiB limit) over an arena that ends where the
+//      operands do, so the arena's bound is what holds -- a Win386 program's shape;
+//   2  DS an ordinary segment INSIDE the arena (its base in it), whose stores the code-line test
+//      watches -- and half the time the code itself in the arena, INSIDE the data's reach, so a
+//      store may rewrite the block that is running (the interpreter's bytes are the truth).
+// 1 when they differ (printed).
+static unsigned g_jit_ran, g_jit_insns, g_jit_shape[3];
+static uint32_t g_jrng = 7;
+static uint32_t jrnd(void) { g_jrng ^= g_jrng << 13; g_jrng ^= g_jrng >> 17; g_jrng ^= g_jrng << 5; return g_jrng; }
+#define JARENA 0x20000u
+static uint8_t g_arena_i[JARENA], g_arena_j[JARENA];
+static uint8_t g_jidata[0x10000], g_jistack[0x10000], g_jicode[0x10000];
+static struct cpu16 g_jca;           // the arena shapes' JIT: its code-line map over g_arena_j
+
+// Code in the data's reach may have its HLT overwritten by a store, so there the code segment ENDS
+// with the case: past it neither run goes on, which is where the interpreter's loop stops.
+static void jit_case_setup(struct cpu16 *c, struct cpu16_desc *desc, int shape, uint32_t dlim, uint32_t at,
+                           uint32_t code_at, unsigned len, uint8_t *arena, uint8_t *data, uint8_t *stack,
+                           uint8_t *code, const struct regs *in, const uint8_t *fin) {
+    desc[E_CODE] = (struct cpu16_desc){ .base = code_at ? arena + code_at : code, .limit = code_at ? len - 1 : 0xFFFF,
+                                        .kind = D_CODE, .owner = 1, .flags = CPU16_DF_BIG };
+    if (shape == 0) desc[E_DATA] = (struct cpu16_desc){ .base = data, .limit = dlim, .kind = D_DATA, .owner = 2 };
+    else if (shape == 1)
+        desc[E_DATA] = (struct cpu16_desc){ .lin = 0x80000000u + at, .limit = 0xFFFFFFFFu, .kind = D_DATA,
+                                            .flags = CPU16_DF_LIN, .owner = 2 };
+    else desc[E_DATA] = (struct cpu16_desc){ .base = arena + at, .limit = dlim, .kind = D_DATA, .owner = 2 };
+    desc[E_STACK] = (struct cpu16_desc){ .base = stack, .limit = 0xFFFF, .kind = D_DATA, .owner = 3, .flags = CPU16_DF_BIG };
+    c->desc = desc;
+    if (shape) { c->lin = arena; c->lin_size = JARENA; c->lin_origin = 0x80000000u; }
+    for (int i = 0; i < 8; i++) c->r[i].e = (uint32_t)in->rh[i] << 16 | in->r[i];
+    c->flags = in->flags;
+    c->sreg[S_CS] = SEL(E_CODE);
+    c->sreg[S_DS] = c->sreg[S_ES] = c->sreg[S_GS] = SEL(E_DATA);
+    c->sreg[S_SS] = SEL(E_STACK);
+    c->cs32 = 1;
+    c->ip = 0;
+    cpu16_x87_load(c, fin);
+}
+
+static int jit_differs(const struct regs *in, const uint8_t *test, unsigned len, uint16_t undef,
+                       const uint8_t *fin) {
+    int shape = (int)(jrnd() % 3);
+    g_jit_shape[shape]++;
+    // Data at `at` in the arena with its end near the operands (they are below 0x7000 plus a
+    // displacement): an arena of JARENA bytes ends 0x6000-0x8000 past `at`.
+    uint32_t at = shape == 1 ? JARENA - 0x6000 - (jrnd() % 0x2000) : shape == 2 ? jrnd() % 0x4000 : 0;
+    uint32_t dlim = shape == 1 ? 0 : 0x6000 + jrnd() % 0x2000;
+    int code_in_arena = shape == 2 && (jrnd() & 1);
+    // Where the operands are: a register (below 0x7000) of the case, plus a little.
+    uint32_t code_at = code_in_arena ? at + (in->r[jrnd() % 8] & 0x3FF0) + (jrnd() % 0x40) : 0;
+    uint8_t *data_i = shape ? g_arena_i + at : g_jidata;
+    uint32_t dbytes = shape ? (at + 0x10000 <= JARENA ? 0x10000 : JARENA - at) : 0x10000;
+
+    static struct cpu16 ci;
+    static struct cpu16_desc di[CPU16_MAX_DESC], dj[CPU16_MAX_DESC];
+    struct cpu16 *cj = shape ? &g_jca : &g_jc;
+    struct jit16 *j = cj->jit;
+    uint8_t *lines = cj->jit_lines;
+    memset(&ci, 0, sizeof ci);
+    memset(cj, 0, sizeof *cj);
+    cj->jit = j;
+    cj->jit_lines = lines;
+    if (shape) { cj->lin = g_arena_j; cj->lin_size = JARENA; }
+    jit16_flush(cj);                 // the code buffer holds a new case
+
+    // Both runs from the same bytes: the data the native run will start from, HLT after the code.
+    memset(g_arena_i, 0, JARENA);
+    memcpy(data_i, g_data, dbytes);                      // the code goes over it, below
+    memcpy(g_jistack, g_stack, 0x10000);
+    uint8_t *code_i = code_at ? g_arena_i + code_at : g_jicode;
+    if (!code_at) memset(code_i, 0xF4, 0x10000);
+    else code_i[len] = 0xF4;
+    memcpy(code_i, test, len);
+    memcpy(g_arena_j, g_arena_i, JARENA);
+    memcpy(g_jdata, g_jidata, sizeof g_jdata);
+    memcpy(g_jstack, g_jistack, sizeof g_jstack);
+    memcpy(g_jcode, g_jicode, sizeof g_jcode);
+
+    jit_case_setup(&ci, di, shape, dlim, at, code_at, len, g_arena_i, g_jidata, g_jistack, g_jicode, in, fin);
+    jit_case_setup(cj, dj, shape, dlim, at, code_at, len, g_arena_j, g_jdata, g_jstack, g_jcode, in, fin);
+    for (int s = 0; s < 64 && ci.ip < len && !ci.fault; s++) cpu16_step(&ci);
+    uint64_t before = cj->steps;
+    if (jit16_run(cj, 0)) { g_jit_ran++; g_jit_insns += (unsigned)(cj->steps - before); }
+    for (int s = 0; s < 64 && cj->ip < len && !cj->fault; s++) cpu16_step(cj);
+
+    uint16_t fmask = (uint16_t)((F_CF | F_PF | F_AF | F_ZF | F_SF | F_DF | F_OF) & ~undef);
+    int diff;
+    if (ci.fault) {
+        // The same fault at the same instruction, the registers as it found them, and memory as
+        // it left it -- a block must not run on past it. Registers after a fault hold the
+        // interpreter's scratch reads, which differ run to run.
+        diff = cj->fault != ci.fault || cj->fault_cs != ci.fault_cs || cj->fault_ip != ci.fault_ip ||
+               memcmp(cj->fault_r, ci.fault_r, sizeof ci.fault_r) || memcmp(g_arena_j, g_arena_i, JARENA) ||
+               memcmp(g_jdata, g_jidata, sizeof g_jdata) || memcmp(g_jstack, g_jistack, CMP_STACK);
+    } else {
+        diff = cj->fault || cj->ip != ci.ip || ((cj->flags ^ ci.flags) & fmask) ||
+               memcmp(g_arena_j, g_arena_i, JARENA) || memcmp(g_jdata, g_jidata, sizeof g_jdata) ||
+               memcmp(g_jstack, g_jistack, CMP_STACK);
+        for (int i = 0; i < 8; i++) diff |= cj->r[i].e != ci.r[i].e;
+    }
+    if (!diff) return 0;
+    char d[24 * 6 * 3 + 1];
+    dis(test, len, d);
+    printf("FAIL jit (shape %d%s) %s\n  in   ", shape, code_in_arena ? ", code in the arena" : "", d);
+    for (int i = 0; i < 8; i++) printf("%04x%04x ", in->rh[i], in->r[i]);
+    printf("fl %04x\n  w16  ", in->flags);
+    for (int i = 0; i < 8; i++) printf("%08x ", ci.r[i].e);
+    printf("fl %04x ip %x fault %d at %x\n  jit  ", ci.flags & fmask, (unsigned)ci.ip, ci.fault, (unsigned)ci.fault_ip);
+    for (int i = 0; i < 8; i++) printf("%08x ", cj->r[i].e);
+    printf("fl %04x ip %x fault %d at %x\n", cj->flags & fmask, (unsigned)cj->ip, cj->fault, (unsigned)cj->fault_ip);
+    if (ci.fault) {
+        printf("  at the fault: w16 ");
+        for (int i = 0; i < 8; i++) printf("%04x ", ci.fault_r[i]);
+        printf("(%s)\n                jit ", ci.fault_why);
+        for (int i = 0; i < 8; i++) printf("%04x ", cj->fault_r[i]);
+        printf("(%s)\n", cj->fault_why);
+    }
+    first_difference("arena", g_arena_i, g_arena_j, JARENA);
+    first_difference("data", g_jidata, g_jdata, sizeof g_jdata);
+    first_difference("stack", g_jistack, g_jstack, CMP_STACK);
+    return 1;
+}
+
+// A translated loop that calls nothing must still let the tick run: `l: cmp byte [100h], 0;
+// je l; hlt`, with the byte set only by the tick -- a wave buffer marked done, as a Sierra game
+// polls for one. 0 when it reached the HLT within ten ticks.
+static int g_ticked;
+static void tick_sets(struct cpu16 *c) { (void)c; g_jdata[0x100] = 1; g_ticked++; }
+static int jit_tick_test(void) {
+    struct cpu16 *c = &g_jc;
+    struct jit16 *j = c->jit;
+    memset(c, 0, sizeof *c);
+    c->jit = j;
+    jit16_flush(c);
+    static struct cpu16_desc desc[CPU16_MAX_DESC];
+    c->desc = desc;
+    static const uint8_t loop[] = { 0x80, 0x3D, 0x00, 0x01, 0x00, 0x00, 0x00, 0x74, 0xF7, 0xF4 };
+    memset(g_jcode, 0xF4, sizeof g_jcode);
+    memcpy(g_jcode, loop, sizeof loop);
+    memset(g_jdata, 0, sizeof g_jdata);
+    desc[E_CODE] = (struct cpu16_desc){ .base = g_jcode, .limit = 0xFFFF, .kind = D_CODE, .owner = 1, .flags = CPU16_DF_BIG };
+    desc[E_DATA] = (struct cpu16_desc){ .base = g_jdata, .limit = 0xFFFF, .kind = D_DATA, .owner = 2 };
+    desc[E_STACK] = (struct cpu16_desc){ .base = g_jstack, .limit = 0xFFFF, .kind = D_DATA, .owner = 3, .flags = CPU16_DF_BIG };
+    c->sreg[S_CS] = SEL(E_CODE);
+    c->sreg[S_DS] = c->sreg[S_ES] = c->sreg[S_GS] = c->sreg[S_FS] = SEL(E_DATA);
+    c->sreg[S_SS] = SEL(E_STACK);
+    c->r[R_SP].e = 0xF000;
+    c->flags = 0x0202;
+    c->tick = tick_sets;
+    g_ticked = 0;
+    cpu16_run(c, 10ull * CPU16_TICK_STEPS);
+    int ok = c->fault == FAULT_HLT && c->ip == sizeof loop && g_ticked >= 1;
+    printf("%s jit: a translated loop that calls nothing still gets the tick (%s, %d tick%s)\n",
+           ok ? "ok  " : "FAIL", cpu16_fault_name(c->fault), g_ticked, g_ticked == 1 ? "" : "s");
+    return ok ? 0 : 1;
 }
 
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "fuzz")) {
         g_rng = argc > 3 ? (uint32_t)atoi(argv[3]) * 2654435761u : 99;
-        return fuzz(argc > 2 ? (unsigned)atoi(argv[2]) : 20000);
+        return fuzz(argc > 2 ? (unsigned)atoi(argv[2]) : 20000, argc > 4 && !strcmp(argv[4], "jit"));
     }
     unsigned cases = argc > 1 ? (unsigned)atoi(argv[1]) : 100000;
     g_rng = (argc > 2 ? (uint32_t)atoi(argv[2]) : 1) * 2654435761u ^ 0x9E3779B9u;
@@ -758,6 +971,19 @@ int main(int argc, char **argv) {
     g_stack = low_map(0x10000);
     g_lowstack = low_map(0x10000);
     g_use32 = argc > 3 && !strcmp(argv[3], "32");
+    g_jit = g_use32 && argc > 4 && !strcmp(argv[4], "jit");
+    // `seq`: each case is 2-6 instructions whose flags are all defined, so the lazy flags carried
+    // from one to the next must come out exactly; the interpreter is the oracle (the single cases
+    // prove it against the CPU), and nothing runs natively.
+    g_seq = g_jit && argc > 5 && !strcmp(argv[5], "seq");
+    if (g_jit) {
+        g_jca.lin = g_arena_j;
+        g_jca.lin_size = JARENA;
+        g_jca.lin_origin = 0x80000000u;
+        if (jit16_init(&g_jc, 1) < 0 || jit16_init(&g_jca, 1) < 0) { fprintf(stderr, "no JIT\n"); return 2; }
+        g_jrng = (argc > 2 ? (uint32_t)atoi(argv[2]) : 1) * 0x9E3779B9u | 1;
+    }
+    unsigned tick_bad = g_jit ? (unsigned)jit_tick_test() : 0;
     set_ldt(E_CODE, g_code, 1, g_use32);
     set_ldt(E_DATA, g_data, 0, 0);
     set_ldt(E_STACK, g_stack, 0, g_use32);
@@ -775,11 +1001,30 @@ int main(int argc, char **argv) {
         in.r[R_SP] = TEST_SP;
         in.rh[R_SP] = 0;
         in.flags = (uint16_t)((rnd() & (F_CF | F_PF | F_AF | F_ZF | F_SF | F_DF | F_OF)) | F_IF | 2);
-        uint8_t test[24];
+        uint8_t test[24 * 6];
         uint16_t undef = 0;
-        int fp = rnd() % 4 == 0;
+        int fp = !g_seq && rnd() % 4 == 0;
         uint8_t fin[108], fout[108], fw16[108];
-        unsigned len = fp ? gen_x87(test) : gen(test, &undef, &in);
+        unsigned len = 0;
+        if (g_seq) {
+            for (unsigned n = 2 + rnd() % 5, tries = 0; n && tries < 200; tries++) {
+                uint8_t one[24];
+                unsigned l = gen(one, &undef, &in);
+                // A shift by CL's defined flags depend on CL when it RUNS, which an earlier
+                // instruction of the sequence may have changed: gen() judged them by CL now.
+                unsigned k = 0;
+                while (k < l && (one[k] == 0x66 || one[k] == 0x67 || one[k] == 0x65)) k++;
+                int by_cl = k < l && (one[k] == 0xD2 || one[k] == 0xD3 ||
+                                      (one[k] == 0x0F && k + 1 < l && (one[k + 1] == 0xA5 || one[k + 1] == 0xAD)));
+                if (undef || by_cl) continue;
+                memcpy(test + len, one, l);
+                len += l;
+                n--;
+            }
+            undef = 0;
+        } else {
+            len = fp ? gen_x87(test) : gen(test, &undef, &in);
+        }
         if (fp) rand_x87(fin);
         else {
             __asm__ volatile("fninit\n\tfnsave %0" : "=m"(fin) : : "memory");
@@ -817,10 +1062,14 @@ int main(int argc, char **argv) {
         c.ip = 0;
         cpu16_x87_load(&c, fin);
         for (int s = 0; s < 64 && c.ip < len && !c.fault; s++) cpu16_step(&c);
+        // The JIT's run before the skip: a case the interpreter faults on is exactly where a wrong
+        // limit check would show, and the fault must come out the same.
+        if (g_jit && jit_differs(&in, test, len, undef, fin)) bad++;
         if (c.fault) {           // divide errors and the like: not run natively
             skipped++;
             continue;
         }
+        if (g_seq) { ran++; continue; }
 
         // The CPU.
         for (int i = 0; i < 8; i++) {
@@ -872,6 +1121,13 @@ int main(int argc, char **argv) {
             bad++;
         }
     }
+    if (g_jit)
+        printf("jit: %u cases entered translated code, %u instructions ran there (shapes %u %u %u), "
+               "%llu left before an access, %llu blocks dropped by a store into them\n", g_jit_ran, g_jit_insns,
+               g_jit_shape[0], g_jit_shape[1], g_jit_shape[2],
+               (unsigned long long)(jit16_stats(&g_jc)->exit_slow + jit16_stats(&g_jca)->exit_slow),
+               (unsigned long long)jit16_stats(&g_jca)->invalidated);
+    bad += tick_bad;
     printf("cases %u ran %u skipped %u failed %u\n", ran + skipped, ran, skipped, bad);
     return bad ? 1 : 0;
 }

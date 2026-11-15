@@ -509,6 +509,19 @@ struct w16 {
 extern struct w16 g_w16;
 #include <stdio.h>
 extern int g_w16_skip_missing;                    // --skip-missing or missing=zero: a call w16 lacks answers 0
+extern int g_w16_jit;                             // the `jit` setting, less --no-jit: translate 32-bit code
+extern unsigned g_w16_jit_threshold;              // --jit-threshold N (0: the JIT's own)
+
+// --- `--stats FILE` (stats16.c): where the time goes ---------------------------
+#define W16_STATS_OWN "own code"                  // the program's own instructions
+#define W16_STATS_INT "DOS/DPMI"                  // its INT 21h, 2Fh and 31h
+int w16_stats_open(const char *path);             // 0, or -1 when FILE cannot be written
+extern int g_w16_stats_on;
+// Time is the named module's from here until the matching leave.
+void w16_stats_enter(const char *name);
+void w16_stats_leave(void);
+void w16_stats_tick(struct cpu16 *c);             // rewrites FILE every few seconds
+void w16_stats_close(struct cpu16 *c);
 void w16_zeroed_write(FILE *f);                  // each call so answered, a W16_LAST_ZERO line each
 extern FILE *g_w16_trace;                        // --trace FILE: each call into KERNEL/USER/GDI
 extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-safe

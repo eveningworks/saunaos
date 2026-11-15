@@ -101,6 +101,7 @@ struct w16_prefs {
     // (kept while off) -- ucrt.h's keys, `effect` and `crt_*`.
     int effect;
     struct ucrt_look crt;
+    int jit;                         // translate a Win386 program's 32-bit code (userland/utils/w16/jit16.c)
 };
 
 // THE KEYS A PROGRAM MAY OVERRIDE, by their place in w16_prefs_keys --
@@ -109,7 +110,7 @@ struct w16_prefs {
 // (ucrt.h's UCRT_PREF_KEYS) are overridden as a group.
 enum w16_prog_key {
     W16K_SCALE, W16K_FRAME, W16K_VERSION, W16K_ON_FAULT, W16K_TRACE, W16K_DRIVE_C, W16K_METHOD,
-    W16K_FONTS, W16K_SOUNDS, W16K_HELP, W16K_COLORS, W16K_MISSING, W16K_CD, W16K_CD_LETTER,
+    W16K_FONTS, W16K_SOUNDS, W16K_HELP, W16K_COLORS, W16K_MISSING, W16K_CD, W16K_CD_LETTER, W16K_JIT,
     W16K_EFFECT, W16K_PROGRAM_END = W16K_EFFECT + UCRT_PREF_KEY_COUNT,
 };
 #define W16_EFFECT_BIT W16K_EFFECT

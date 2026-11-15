@@ -411,7 +411,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `browser_hostcheck.py` -- Lay out the same pages with NetSurf on SaunaOS and on the host, and compare
 - `caret_hostcheck.py` -- Check userland/libs/ui/uui_caret.c -- the one blink every text caret shares --
 - `components_hostcheck.py` -- The optional components' build half, on the HOST: the check, the staging, the manifest tags
-- `cpu16_hostcheck.py` -- Check w16's 16-bit CPU interpreter against the real CPU, on the host
+- `cpu16_hostcheck.py` -- Check w16's 16-bit CPU interpreter against the real CPU, and its JIT against the interpreter
 - `des_hostcheck.py` -- Check userland/libs/base/udes.c against OpenSSL's DES, on the HOST
 - `divti3_hostcheck.py` -- Check tolibc's 128-bit division helpers against Python bignums, on the HOST
 - `exfat_hostcheck.py` -- SaunaOS's exFAT, judged by the host: fsck.exfat and an independent reader

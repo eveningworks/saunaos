@@ -16,6 +16,7 @@
 #include <time.h>
 
 #include "cpu16.h"
+#include "jit16.h"
 
 uint32_t bench_native(uint8_t *buf);
 
@@ -33,10 +34,12 @@ static double now(void) {
 
 int main(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cpu16_bench BLOB ENTRY [RUNS]\n");
+        fprintf(stderr, "usage: cpu16_bench BLOB ENTRY [RUNS [JIT-THRESHOLD]]\n");
         return 2;
     }
     unsigned entry = (unsigned)strtoul(argv[2], 0, 0), runs = argc > 3 ? (unsigned)atoi(argv[3]) : 3;
+    int jit = argc > 4;                                      // the JIT, with this threshold (0: its default)
+    unsigned threshold = jit ? (unsigned)atoi(argv[4]) : 0;
     FILE *f = fopen(argv[1], "rb");
     if (!f) { perror(argv[1]); return 2; }
     uint8_t *flat = calloc(1, FLAT);
@@ -72,9 +75,23 @@ int main(int argc, char **argv) {
         c.r[R_SP].e = esp;
         c.ip = entry;
         c.flags = 0x0202;
+        if (jit && jit16_init(&c, threshold) < 0) { fprintf(stderr, "no JIT arena\n"); return 2; }
         double t0 = now();
         cpu16_run(&c, 0);
         double t = now() - t0;
+        if (jit) {
+            const struct jit16_stats *s = jit16_stats(&c);
+            printf("  jit: %llu blocks of %llu instructions (%llu KiB), %.1f%% of instructions run translated, "
+                   "%llu runs, %llu left early, %llu refused\n",
+                   (unsigned long long)s->blocks, (unsigned long long)s->insns,
+                   (unsigned long long)(s->code_bytes >> 10), c.steps ? 100.0 * (double)s->run_insns / (double)c.steps : 0.0,
+                   (unsigned long long)s->runs, (unsigned long long)s->exit_slow, (unsigned long long)s->refused);
+            for (int k = 0; k < 256; k++)
+                if (s->stop_op[k] || s->stop_0f[k])
+                    printf("    stopped at %s%02x: %u\n", s->stop_0f[k] ? "0f " : "", k,
+                           s->stop_0f[k] ? s->stop_0f[k] : s->stop_op[k]);
+            jit16_free(&c);
+        }
         uint32_t got = c.r[R_AX].e;
         if (c.fault != FAULT_HLT || got != want) {
             printf("FAIL run %u: %s at %04x:%x (%s), checksum %08x, the host's %08x\n", r,

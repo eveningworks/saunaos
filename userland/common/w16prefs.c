@@ -76,6 +76,7 @@ const struct upref w16_prefs_keys[] = {
     [W16K_MISSING] = UPREF_WORD_KEY("missing", struct w16_prefs, missing, MISSING_WORDS, 2, W16_MISSING_STOP),
     [W16K_CD] = UPREF_TEXT_KEY("cd", struct w16_prefs, cd, "", is_abs_path),
     [W16K_CD_LETTER] = UPREF_TEXT_KEY("cd_letter", struct w16_prefs, cd_letter, "D", is_one_drive_letter),
+    [W16K_JIT] = UPREF_BOOL_KEY("jit", struct w16_prefs, jit, 1),
     [W16K_EFFECT] = UCRT_PREF_KEYS(struct w16_prefs, effect, crt),
     [W16K_PROGRAM_END] =
     DRIVE_KEY(d, 0), DRIVE_KEY(e, 1), DRIVE_KEY(f, 2), DRIVE_KEY(g, 3), DRIVE_KEY(h, 4), DRIVE_KEY(i, 5),
