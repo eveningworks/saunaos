@@ -894,9 +894,11 @@ static int get_message(struct w16 *w, struct w16_args *a) {
     return 10;
 }
 
-// PeekMessage(lpMsg, hwnd, min, max, flags). A program polling with it
-// would spin a core, so an empty queue costs the caller a millisecond --
-// Windows yielded to other tasks there.
+// PeekMessage(lpMsg, hwnd, min, max, flags). A program polling with it would spin a core, so an
+// empty queue costs a millisecond -- Windows yielded to other tasks there -- but only to a TIGHT
+// poll, one that ran under PEEK_BUSY_STEPS instructions since the last empty answer: a game that
+// peeks once a frame between its own work (Sierra's SCI) lost 7% of its time to the sleep.
+#define PEEK_BUSY_STEPS 10000
 static int peek_message(struct w16 *w, struct w16_args *a) {
     uint32_t lpmsg = w16_arg32(a);
     struct msg_filter f = { 0 };
@@ -911,8 +913,11 @@ static int peek_message(struct w16 *w, struct w16_args *a) {
     if (got) caption_press(w, &m);
     if (got && put_msg(w, lpmsg, &m) < 0) return -1;
     if (!got) {
+        static uint64_t last_empty;              // the CPU's step count at the last empty answer
+        int tight = w->cpu.steps - last_empty < PEEK_BUSY_STEPS;
+        last_empty = w->cpu.steps;
         struct timespec ts = { 0, 1000000 };
-        nanosleep(&ts, 0);
+        if (tight) nanosleep(&ts, 0);
     }
     w->cpu.r[R_AX] = (uint16_t)got;
     return 12;
@@ -1724,13 +1729,11 @@ static int api_ReleaseDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// A program polling with it would spin a core, so an empty queue costs the caller a millisecond --
-// Windows yielded to other tasks there.
 // PeekMessage(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg) -> BOOL
 // Windows: Looks for a message without waiting -- for a window, in a range -- taking it off the
 // queue with PM_REMOVE; FALSE when there is none. Programs that animate while idle loop on it.
-// w16: The same. A program that finds nothing gives up a millisecond each time, where Windows let
-// other programs run.
+// w16: The same. A program that finds nothing in a tight poll gives up a millisecond each time, where
+// Windows let other programs run; one that did work since the last empty answer does not.
 static int api_PeekMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return peek_message(w, a);

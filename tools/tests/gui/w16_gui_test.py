@@ -136,6 +136,8 @@ file is involved.
    quarter step that fits and centred on black (its green and yellow corners where that puts them); a
    cursor the module lacks is NULL; no pointer over it, as it answers WM_SETCURSOR; a click lands at its point in the picture; and a dialog over it
    is drawn at the picture's scale, grey from its WM_CTLCOLOR brush (CTLCOLOR_DLG), its static red.
+26. **PeekMessage idling** (`peek_idle`, peek.exe): an empty answer after the program's own work costs
+   no millisecond (Sierra's SCI peeks once a frame); back to back, a tight poll still gives one up.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1442,6 +1444,19 @@ def fullscreen(dbg, qmp, res, tmp):
         dbg.close_window(FULLSCR_TITLE)
 
 
+def peek_idle(dbg, res):
+    """peek.exe: PeekMessage's millisecond on an empty queue goes to a tight poll only -- 200 peeks
+    each after ~12K instructions of work cost no more than the work (Sierra's SCI peeks once a
+    frame), and 200 back to back still take 150 ms or more (an idle poll spares the core)."""
+    out = sh(dbg, "w16 /usr/share/w16/peek.exe")
+    m = re.search(r"w16: exit (\d+)", out)              # w16 names a non-zero exit code
+    code = int(m.group(1)) if m else 0
+    res.check("an empty PeekMessage after the program's own work costs it no millisecond", code & 1,
+              f"exit {code}: {out[-160:]}")
+    res.check("...and back to back, a tight poll still gives up its millisecond", code & 2,
+              f"exit {code}")
+
+
 def groups(dbg, res):
     """`w16 --groups` (grp16.c): with a Program Manager on drive C: -- any file named PROGMAN.EXE will
     do -- each of Retro Launcher's folders becomes a group file, RL1.GRP for the first (the samples),
@@ -2648,6 +2663,7 @@ def main():
               ("shapes", lambda: shapes(dbg, qmp, res, TMP)), ("own_cursor", lambda: own_cursor(dbg, qmp, res, TMP)),
               ("popup_window", lambda: popup_window(dbg, qmp, res, TMP)),
               ("fullscreen", lambda: fullscreen(dbg, qmp, res, TMP)),
+              ("peek_idle", lambda: peek_idle(dbg, res)),
               ("mdi", lambda: mdi(dbg, qmp, res, TMP)), ("groups", lambda: groups(dbg, res)),
               ("placed_popup", lambda: placed_popup(dbg, qmp, res, TMP)),
               ("fullwin", lambda: fullwin(dbg, qmp, res, TMP)), ("ownact", lambda: ownact(dbg, qmp, res, TMP)),
