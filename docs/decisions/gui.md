@@ -13033,3 +13033,53 @@ close. A program in the background still cannot raise itself; it gets
 no indication either way (the request is one-way). Measured on 3.11
 first: a click on an owner window activates it there too, so nothing
 else about activation changed.
+
+## A Win386 program's 32-bit code is translated in w16 -- not run natively in an LDT segment
+
+Picked 2026-11-15 (`docs/w16-jit-design.md`). Lighthouse, a Win386
+program, ran ~21 MIPS in the interpreter on the ASUS and wants ~40-50;
+nearly all of it was its own 32-bit code, and an interpreter's cost is
+decode and dispatch on every instruction.
+
+**What real systems do.** QEMU translates every guest block the first
+time it runs (TCG), into one code buffer it flushes whole when full,
+with lazy condition codes and patched jumps between blocks. DOSBox's
+dynamic cores do the same for the 32-bit games this is about, beside an
+interpreter, and drop a page's blocks when a store hits them. LuaJIT
+and HotSpot put a hot counter in front of an interpreter. Wine runs
+Win16 and Win32s code NATIVELY: an LDT descriptor per segment
+(`modify_ldt`), the CPU in compatibility mode, and every call into
+Windows a fault or a thunk.
+
+**Why not Wine's way here.** A compatibility-mode segment reaches only
+linear addresses below 4 GiB, and in every SaunaOS process that is
+PML4[0], the kernel's identity map -- user memory starts at 512 GiB
+(`kernel/uaddr.h`). Native execution needs a higher-half kernel first,
+then per-process LDTs switched on every context switch and every thunk
+and `INT 21h` turned from a #GP into a signal w16 handles: a different
+project, and the faster one, kept as the alternative.
+
+**What w16 does: LuaJIT's counter, QEMU's shape, the interpreter as the
+reference.**
+- A block start is counted when control arrives (~50 arrivals), and
+  the block's instructions are re-emitted AS THEMSELVES with their
+  operands moved, so the host's flags are the guest's; they stay lazy
+  in the host's until something needs `c->flags`.
+- Every access is checked BEFORE the instruction does anything, and a
+  failed check leaves the block there: the interpreter runs that
+  instruction, so a fault is always reported as the interpreter reports
+  it. Translated code never faults.
+- An instruction the translator lacks is CALLED OUT -- the interpreter
+  runs it from inside the block -- unless it can run the program's code
+  again (a far call into Windows, an interrupt, the x87's error
+  interrupt): a nested run may translate and flush the arena under the
+  waiting block, so those end the block instead.
+- One arena flushed whole when full (QEMU's `tb_flush`), not reclaimed
+  per page: Lighthouse made 2,926 blocks (~1 MiB) and invalidated 14 in
+  a minute, no churn to reclaim from.
+- W^X by `mprotect` flips, under the `prot_exec` promise, kept only
+  while the JIT is on (`docs/decisions/kernel.md`, "W^X for every
+  mapping").
+- The oracle is the interpreter, which `cpu16_hostcheck.py` holds to
+  the CPU: the JIT's cases are compared with it, not with the CPU.
+

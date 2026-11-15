@@ -396,8 +396,10 @@ AVIVideo device, Indeo 3 decoded by SaunaOS, with their sound). Watcom
 **Win386** programs run as well -- 32-bit code in flat segments their
 16-bit supervisor gets from DPMI, as on 3.1 in enhanced mode: Sierra's
 Lighthouse installs from its CD with its own Setup and plays its intro,
-full screen at the screen's height with its 4:3 kept, at the emulated
-CPU's speed. **Retro
+full screen at the screen's height with its 4:3 kept. Their hot 32-bit
+code is TRANSLATED to the machine's own as it runs (a JIT, the `jit`
+setting; the interpreter does the rest and stays the reference): ~53
+MIPS on a 2015 laptop's i5, against ~19 interpreted. **Retro
 Launcher** lists the programs found, as icons or a Details table, with a
 search box and an order (Name, Missing calls, Stand-ins, Last run... from a
 header click or View > Sort by), and for each one which Windows

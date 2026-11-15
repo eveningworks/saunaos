@@ -17,7 +17,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   The host's default `-march` reaches a `-m32` build: without `i486` the
   blob holds SSE the CPU does not have. A measurement, so in no runner.
   The i7-11700, 2026-11-14: 51 -> 89 MIPS with the descriptor cache, the
-  fetch window and one-store flags.
+  fetch window and one-store flags. `--jit` runs it through the JIT
+  (`jit16*.c`) instead, `--jit-threshold N` its translation threshold, and
+  prints what it translated and where blocks stopped: 829 MIPS, 100% of
+  the instructions translated (2026-11-15). `--rev` stages the JIT only
+  where that revision has it.
 - **`vblank_pacing.py`** -- whether toywm's frames land on the vblank,
   on a machine whose display says where the beam is (Intel; it SKIPS
   (77) elsewhere): drags a Notepad window by its title bar with `guictl

@@ -807,7 +807,26 @@ the rest in the sweep. Each stays a standalone script with its own
   goes red). Needs gcc and ffmpeg; SKIPPED without ffmpeg. In
   `ondemand_sweep.py`.
 - **`cpu16_hostcheck.py`** -- w16's 16-bit CPU interpreter
-  (`userland/utils/w16/cpu16.c`) against THE HOST'S OWN CPU. Its driver,
+  (`userland/utils/w16/cpu16.c`) against THE HOST'S OWN CPU, and its JIT
+  (`jit16*.c`) against the interpreter. THE JIT'S MODES, `32 jit` and
+  `32 jit seq`, run each 32-bit case twice more over the same memory --
+  interpreted, and translated from its first instruction -- the second
+  as sequences of 2-6 instructions whose flags are all defined (shifts
+  by CL left out: whether their flags are defined depends on CL when
+  they RUN), so the lazy flags carried between them must come out
+  exactly. Each case takes one of three segment shapes (base-pointer
+  segments with a data limit the operands reach; a flat selector over an
+  arena that ends where they do; an in-arena segment with the code in
+  the data's reach, so a store may rewrite the running block). A case
+  the interpreter faults on must fault the same at the same instruction,
+  with the same registers at the fault and the same memory. The fuzz
+  runs again translated, each segment ending at a PROT_NONE page (ASan
+  cannot see into generated code). `32 jit` first runs a translated
+  loop polling a byte only the tick sets, which must end. Seven JIT
+  controls: a limit check and the arena's bound 64 bytes late, a store
+  into translated code missed, ADC losing its carry, INC claiming CF, a
+  call-out running on past a fault, the dispatcher running past the
+  tick. Its driver,
   `tools/w16/cpu16_check.c`, puts 16-bit code, data and stack segments in
   the process's LDT (`modify_ldt`, Wine's route), and runs each random
   instruction in the interpreter and natively, entered from 64-bit mode

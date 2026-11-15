@@ -4,8 +4,9 @@ A staged plan, in the shape `docs/trace-design.md` used. It answers "what
 would it take to run a Win386 program's 32-bit code translated rather
 than interpreted, and what must the kernel give a sandboxed process
 first?" Picked 2026-11-15, after the quick wins below, as "quick wins,
-then a JIT design to review". **STAGE 0 IS BUILT (2026-11-15); stage 1's
-choices are made (below), nothing of it is built.**
+then a JIT design to review". **STAGES 0 AND 1 ARE BUILT (2026-11-15):
+Lighthouse runs 53 MIPS on the ASUS against 19 interpreted. Stage 2,
+chaining blocks, is the next lever (measured below).**
 
 ## The findings that shape the plan
 
@@ -89,7 +90,49 @@ a writable alias of the code alive.
   written RW then made RX, a store into it and a call into RW memory
   fault; `sandbox_test.c` the promise both ways.
 
-### Stage 1 -- translate a basic block (w16)
+### Stage 1 -- translate a basic block (w16) -- BUILT 2026-11-15
+
+`userland/utils/w16/jit16.c` (the arena, the block table, the
+dispatcher, invalidation, the call-out) and `jit16_x86.c` (decoding and
+emitting). What it became, where the plan below left room:
+
+- **Blocks of 32-bit flat code, each instruction re-emitted as itself**
+  -- a guest register is its 32-bit slot in `struct cpu16` (the
+  registers were re-laid as one slot each first), a memory operand
+  `[base+rax]` once checked -- with lazy flags as planned.
+- **The CALL-OUT, which the plan did not have**: an instruction the
+  translator lacks is run by the interpreter from inside the block, and
+  the block goes on unless that loaded a segment register, dropped
+  translated code or faulted -- QEMU's helper call, with the interpreter
+  as the helper. Transfers of control, far calls, interrupts and the x87
+  still end a block (they can run the program again, and a nested run
+  could flush the arena under the waiting block).
+- Self-modifying code by 64-byte LINES rather than whole pages: a page
+  holds code and the data next to it; a page whose blocks keep being
+  dropped is left to the interpreter (DOSBox's answer).
+- **The dispatcher returns to the run loop at every tick** (64K
+  instructions), however many blocks are left: the tick plays a wave
+  buffer to its end and marks it done, and Lighthouse polls for that in
+  a loop that calls nothing (New Game clicked early, Esc in the intro) --
+  without the return it spun in translated code with a black screen.
+- `--stats FILE`: time by module (exclusive), MIPS, and where runs fell
+  out of translated code -- the measurement below.
+
+**Measured.** The bench (`tools/bench/cpu16_bench.py --jit`, the dev
+host): 88 -> 829 MIPS, every instruction translated. Lighthouse, its
+title screen then New Game's intro, MIPS over its own time:
+
+| | interpreted | JIT |
+|---|---|---|
+| dev host, KVM | 61 | 159 |
+| the ASUS, bare metal | 19.3 | 53.3 |
+
+On the ASUS, 85% of its instructions ran in blocks and 1.9% of those were
+called out; a run left translated code mostly at a far call into Windows
+(`FF /3`); the rest is its 16-bit thunk glue, which stage 1 leaves to the
+interpreter. Blocks average ~5.3 instructions, and the ASUS ran 680
+million of them in 75 s: the dispatcher's lookup between every two is
+now the largest cost, which is stage 2.
 
 **Picked 2026-11-15:** a JIT rather than native execution (below);
 `mprotect` flips; 32-bit FLAT code only -- CS a 32-bit segment and DS, ES

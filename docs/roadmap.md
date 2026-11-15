@@ -28,7 +28,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 - [ ] `execl`/`execlp` in tolibc  *(`fork()`/`exec()`-style process model)*
 - [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
 - [ ] w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)  *(Running 16-bit Windows programs (w16))*
-- [ ] w16: a JIT for 32-bit code -- hot blocks translated to x86-64; needs executable memory in a sandboxed process  *(Running 16-bit Windows programs (w16))*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
 
@@ -1139,9 +1138,10 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: the 386's instructions -- 32-bit registers, 66/67, FS/GS, the 0F set~~ DONE 2026-11-01 -- in cpu16_hostcheck
 - [x] ~~w16: WinG, waveOut with ADPCM, MSCDEX and CD drives, boxes before the main window~~ DONE 2026-11-01 -- DK's encyclopaedia starts
 - [x] ~~w16: Watcom Win386 programs -- 32-bit segments, DPMI, one linear arena~~ DONE 2026-11-14 -- Lighthouse installs, its intro plays
-- [ ] w16: Lighthouse playable -- its rooms, at the CPU's speed (~21 MIPS on the ASUS), on the ASUS too
+- [ ] w16: Lighthouse playable -- its rooms, on the ASUS too (53 MIPS there with the JIT)
 - [x] ~~`mprotect()` and W^X for anonymous memory, with a `prot_exec` pledge promise~~ DONE 2026-11-15 -- `SYS_MPROTECT`, W|X refused
-- [ ] **NEXT** w16: a JIT for 32-bit code -- hot blocks translated to x86-64; needs executable memory in a sandboxed process
+- [x] ~~w16: a JIT for 32-bit code~~ DONE 2026-11-15 -- stage 1, blocks with lazy flags; Lighthouse 19 -> 53 MIPS on the ASUS
+- [ ] w16: the JIT's blocks chained -- a direct jump patched to the next block, not a lookup between every two
 - [ ] w16: an installer's Program Manager groups as Retro Launcher entries -- PROGMAN's DDE (CreateGroup, AddItem) answered
 - [ ] w16: changing CDs -- Lighthouse's disc 2; a CD drive is one image or folder for a whole run
 - [ ] w16: wave input -- waveInOpen answers that there is no device; recording over a capture stream
