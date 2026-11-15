@@ -297,7 +297,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   source of truth, and the case that matters most (somebody rebuilt and
   did not deploy) is exactly when it would be wrong. Measured against
   the bare-metal laptop: 79 of 86 files, 22.9 MB, 60 s; a second run
-  moves nothing.
+  moves nothing. **Every file in the manifest must come back with a
+  verdict**: the manifest can still be in flight when `sum -c` runs, and
+  a reply with no result lines once read as "nothing differs" -- a sync
+  that sent nothing and said "already up to date". It retries, then
+  raises, when any file got no verdict.
 
   Two traps it encodes, both found by its own positive control. **The
   manifest goes over as a FILE because a shell line is 128 bytes** --

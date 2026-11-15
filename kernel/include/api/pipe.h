@@ -28,9 +28,10 @@
 // (pipe.c's pipe_fd_write); this layer still just reports the condition,
 // because a pipe does not know which process is writing it.
 //
-// What is still deliberately absent: O_NONBLOCK on the pipe itself
-// (SYS_SET_NONBLOCK is on the description) and atomicity guarantees
-// above PIPE_BUF.
+// O_NONBLOCK is honoured at the syscall layer (pipe.c's pipe_fd_read and
+// pipe_fd_write: an empty read and a full write are -EAGAIN, the flag on
+// the open file description). Still deliberately absent: atomicity
+// guarantees above PIPE_BUF.
 
 // This pipe's wait channel, for a caller that needs to park on it.
 // 0 for an invalid index.

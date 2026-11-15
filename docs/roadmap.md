@@ -1103,7 +1103,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: Mouse's tracking speed and trails -- its slider's default is not 3.11's, and Mouse Trails is greyed (no trails drawn)
 - [ ] w16: a file dropped on a program (WM_DROPFILES) -- DragAcceptFiles is answered, nothing is ever dropped
 - [ ] w16: ask for a program's missing runtime DLL (VBRUN300.DLL...) -- name it, Choose file..., copy to C:\WINDOWS\SYSTEM
-- [ ] w16: the VB3 runtime's missing calls -- WinTune 2.0's VBRUN300.DLL imports 19 w16 lacks, its controls ~15 more
+- [ ] w16: the VB3 runtime's missing calls -- WinTune 2.0's VBRUN300.DLL and VBX controls import some w16 lacks (WaitMessage, EndMenu...)
+- [ ] w16: several programs in one w16, a DLL's data shared as on 3.1 (WinTune's Graphics Server) -- docs/w16-tasks-design.md, stage 1
 - [ ] w16: printing -- PrintDlg answers "no default printer"
 - [x] ~~w16: a program's own DLLs loaded beside it (Hearts' CARDS.DLL)~~ DONE 2026-10-20 -- LoadLibrary, GetProcAddress, by-name imports
 - [x] ~~w16: Control Panel opens with every applet's icon~~ DONE 2026-10-24 -- SPI, VerFindFile, RectVisible, a DLL's own resources
@@ -1165,7 +1166,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: Help Viewer's rest -- bookmarks and annotations
 - [ ] w16: IsIconic answers from the main window's state -- toywm minimizes it, and it says no; a child or popup answers
 - [x] ~~w16: Program Manager from Windows 3.11~~ DONE 2026-11-03 -- MDI, 3.1's icon blocks, Setup's groups, WinExec via toywm
-- [ ] w16: one program finding or talking to another -- FindWindow and DDE across w16s; starting one is done (WinExec)
+- [ ] w16: one program finding or talking to another -- FindWindow and DDE across w16s (only Help is found); starting one is done (WinExec)
 - [ ] w16: a dragged object's icon as the pointer -- DragObject shows SaunaOS's move and not-allowed pointers
 - [ ] w16: GrayString dimming an output function's drawing -- only text is greyed
 - [x] ~~w16: huge blocks~~ DONE 2026-10-22 -- GlobalAlloc over 64 KB is a run of selectors `__AHINCR` apart; Paintbrush's picture strips

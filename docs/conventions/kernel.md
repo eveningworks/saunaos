@@ -270,7 +270,7 @@ this the obvious way), not from how much history it accumulated.
   than its reader silently lost the remainder. Atomicity is affordable
   because `pipe_fd_write()` CLAMPS a pipe write to `PIPE_BUF_SIZE`,
   so a write always fits once drained -- POSIX's `PIPE_BUF` guarantee,
-  for the same reason. **That clamp used to be free and is not any
+  for the same reason. **An `O_NONBLOCK` pipe does not park either end**: an empty read and a full write are `-EAGAIN` (a full write takes nothing), which is what `hlpbroker`'s answers back to `w16` rely on. **That clamp used to be free and is not any
   more**: it held with nothing enforcing it while `SYS_WRITE_MAX` was
   1024, and raising the cap would have parked writers on requests the
   pipe could never satisfy. `api/pipe.h` carries the full note. Three traps ride with it. **Check-and-park must

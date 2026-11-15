@@ -21,6 +21,14 @@ HELP_CONTEXT topic), `-k` KEYWORD (HELP_KEY) and `-m` MACRO
 that is anything else is ignored. It exits when the pipe closes, and
 leaves the window open.
 
+It answers on its standard output, the write end of a second pipe `w16`
+reads without blocking, so a program's `FindWindow` can wait for Help's
+window to come and go as it can on Windows. Every `OPEN` and `WINHELP` line
+is numbered from 1 in the order received (`QUIT` and ignored lines are not);
+`CLOSED`, a tab and N says window N is gone -- at once for a line it refused
+or a start that failed, otherwise when the window's process ends. A newer N
+is the window still open.
+
 It also saves the program's own **screen effect** (`docs/commands/w16.md`),
 which `w16`'s sandbox keeps it from writing. The FIRST line is `PROGRAM`
 and the program's absolute path, written by `w16` before its sandbox

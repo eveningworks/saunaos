@@ -458,7 +458,7 @@ static int api_IsDBCSLeadByte(struct w16 *w, unsigned ordinal, struct w16_args *
 // answers (measured on the reference VM, 2026-10-21, samples/version.asm: GetVersion 0A03 on DOS
 // 0616, GetWinFlags 00000C29): "3.11" names the product, not the kernel, and a program tells WfW
 // from 3.1 by GetWinFlags, WNetGetCaps or its own INI. The 3.11 setting is for a program that
-// insists on it. The DOS version and the flags (w16 00000425) differ from the VM's as well.
+// insists on it. The DOS version and the flags (w16 00000429, the VM's 00000C29) differ as well.
 static int api_GetVersion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;

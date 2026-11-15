@@ -655,6 +655,20 @@ the palette, whose mapping is not yet measured.
    tight poll (2026-11-15). A JIT is planned: `docs/w16-jit-design.md`. Setup's Program Manager group, a CD change
    for disc 2 and the speed are on the roadmap.
 
+   **A benchmark and a Visual Basic 3 program, 2026-11-15**: a benchmark
+   (WinBench 3.1) runs -- INT 1Ah as the BIOS clock (`file16.c`),
+   `__0000H` and `__0040H` as ONE memory with a live tick at 0040:006C,
+   GetProcAddress answering a KERNEL constant as FFFF:value, resource
+   lookup through RT_NAMETABLE, WinHelp's `FILE.HLP>window` form, and
+   FindWindow finding Help's window through hlpbroker's answers
+   (`docs/decisions/kernel.md`). `__WINFLAGS` and GetWinFlags say a 486
+   (0x0429). A Visual Basic 3 program (WinTune 2.0) starts: resource
+   padding past the file's end accepted, the Global* calls answering a
+   module's own segments, LocalInit heaps in global blocks, AccessResource
+   a real DOS handle. It stops at its Graphics Server, a DLL two programs
+   share -- `docs/w16-tasks-design.md`. A TrueType face asked by full name
+   ("Times New Roman Bold") picks family and style.
+
 ## Not planned
 
 - Running DOS programs (V86 mode, a DOS API) -- a different layer.

@@ -791,7 +791,8 @@ the rest in the sweep. Each stays a standalone script with its own
   and truncated copies go through the parser, every relocation, entry,
   module name and segment byte, which must parse or be refused and never
   read outside the image -- and every RESOURCE, its bytes and lookups by
-  number and name. `--positive-control` drops the segment bound
+  number and name (also through an RT_NAMETABLE, which `dialog.exe`
+  carries: NUMBERBOX is dialog 100). `--positive-control` drops the segment bound
   (the fuzz must go red, a heap-buffer-overflow) and reads relocation
   sites from the wrong word (the comparison must go red); dropping the
   resource bound alone also goes red (checked with `mutate.py`). In
