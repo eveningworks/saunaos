@@ -10251,6 +10251,10 @@ which is how init asks where a shell is wanted -- `kernel/vt.h`. An open
 of a VT no session holds hangs it up and clears it, as getty's
 `vhangup()` does: the last session's descriptors then fail as Linux's do.
 
+**`/dev/watchdog`** (2026-11-15) is listed only while a hardware watchdog
+registered, and takes one opener at a time -- Linux's contract, init its
+feeder (`kernel/watchdog.h`).
+
 **What a name table cannot do**, kept on the roadmap rather than
 pretended: `stat("/dev/null")` is ENOENT (only the descriptor exists),
 `ls /dev` lists nothing, and a new device means a line in the table,
