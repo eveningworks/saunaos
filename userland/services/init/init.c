@@ -1499,6 +1499,45 @@ static int control_realtime(int asker, const struct initctl_msg *m,
     return INITCTL_OK;
 }
 
+// --- the hardware watchdog -----------------------------------------
+//
+// INIT FEEDS IT, systemd's RuntimeWatchdogSec= shape: the kernel resets
+// the machine when nothing writes /dev/watchdog for the timeout it was
+// booted with (`watchdog=`, kernel/watchdog.h), so a kernel that stops
+// scheduling, or an init that stops running, restarts the machine. It
+// catches init only: a hung service, desktop included, is not noticed.
+// Every wait in the loop below is bounded (CHAN_WAIT_MS at most), and each
+// pass feeds. Absent device: nothing to do, and nothing said.
+#define WDOG_FEED_MS 2000
+static int g_wdog = -1;
+static unsigned long long g_wdog_fed;
+
+static void watchdog_open(void) {
+    int fd = sys_open("/dev/watchdog", SYS_O_WRITE);
+    if (fd < 0) return;
+    sys_fd_cloexec(fd, 1);   // no program init starts may hold it
+    g_wdog = fd;
+    g_wdog_fed = now_ms();
+    sys_eprint("init: feeding /dev/watchdog\n");
+}
+
+static void watchdog_feed(void) {
+    if (g_wdog < 0) return;
+    unsigned long long now = now_ms();
+    if (now - g_wdog_fed < WDOG_FEED_MS) return;
+    g_wdog_fed = now;
+    sys_write(g_wdog, "1", 1);
+}
+
+// The magic close: a shutdown may take longer than the timeout, and is
+// not a hang. The kernel stops it at SYS_POWEROFF too.
+static void watchdog_release(void) {
+    if (g_wdog < 0) return;
+    sys_write(g_wdog, "V", 1);
+    sys_close(g_wdog);
+    g_wdog = -1;
+}
+
 // One pass: adopt any new client, answer everything queued. Returns how
 // many requests it acted on, so the caller knows the pass did work.
 // How long until the soonest thing init has scheduled, or CHAN_WAIT_MS
@@ -1601,6 +1640,7 @@ static void say_stage(int reboot, const char *line, const char *detail) {
 
 static void shutdown_machine(int reboot) {
     logf1("init: shutting down for %s\n", reboot ? "reboot" : "power-off");
+    watchdog_release();
     int total = 0, done = 0;
     for (int i = 0; i < g_svc_count; i++) if (g_svc[i].pid) total++;
     say_stage(reboot, "Stopping services...", "");
@@ -1964,12 +2004,14 @@ int main(void) {
     // a write once it is starting up is not harmless.
     unlink(CONTROL_PATH);
     unlink(STATUS_PATH);
+    watchdog_open();
     load_target();
     g_fs_gen = services_gen();
     load_services(1);
     g_vt_rescan = 1;
 
     for (;;) {
+        watchdog_feed();
         // A DOORBELL IS BOTH A REQUEST AND A RESCAN. Read before
         // deciding what to start, so a `service start` takes effect on
         // this pass rather than the next one.
@@ -2073,8 +2115,14 @@ int main(void) {
             // beacon could not be published. INTERRUPTIBLE, because a
             // control request is not a child exiting: sys_waitpid()
             // retries -EINTR and would park init again with the doorbell
-            // unanswered.
-            pid = sys_waitpid_intr(-1, &code);
+            // unanswered. A fed watchdog needs a deadline, which a
+            // blocking waitpid does not have.
+            if (g_wdog >= 0) {
+                pid = sys_waitpid_nohang(-1, &code);
+                if (pid == SYS_RETRY || pid == 0) { sys_sleep_ms(IDLE_SLEEP_MS); continue; }
+            } else {
+                pid = sys_waitpid_intr(-1, &code);
+            }
         }
 
         if (pid > 0) { reaped(pid, code); continue; }

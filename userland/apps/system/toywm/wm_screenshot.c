@@ -3,8 +3,8 @@
 // The whole capture is a memcpy out of the compositor's back buffer,
 // because that buffer already holds the finished frame in ordinary
 // cached memory (ui/ugfx.h's screen section). The framebuffer itself is
-// write-combining and is never read; a capture that went to the glass
-// would be a slow uncached round trip AND would race the scanout.
+// write-combining and is read only when asked (WIN_SHOT_SCANOUT, for
+// diagnosis): a slow uncached round trip that may race a flip.
 //
 // THE POINTER IS THE ONLY SUBTLE PART, and it is subtle in both
 // directions: with a software cursor the sprite is already in the back
@@ -298,6 +298,27 @@ int wm_screenshot_damage(int from, unsigned flags, int capacity_px, struct win_s
     return capture_damage(from, flags, capacity_px, size, out);
 }
 
+// The buffer the display shows, read through the grant's mapping
+// (WIN_FB_VADDR): the last one presented, or the only one. Uncached
+// reads, a row at a time -- a diagnosis tool, not a frame path.
+static void copy_scanout(uint32_t *dst, const struct win_shot *rect) {
+    const struct ugfx_screen *sc = &g_wm_screen;
+    int idx = sc->buffers > 1 ? sc->front_index : 0;
+    const volatile uint8_t *fb = (const volatile uint8_t *)(uintptr_t)
+        (WIN_FB_VADDR + (uint64_t)idx * WIN_FB_BUFFER_STRIDE);
+    int bytes = sc->bpp / 8;
+    for (int y = 0; y < rect->h; y++) {
+        const volatile uint8_t *row = fb + (size_t)(rect->y + y) * sc->pitch
+                                      + (size_t)rect->x * bytes;
+        uint32_t *out = dst + (size_t)y * rect->w;
+        for (int x = 0; x < rect->w; x++, row += bytes) {
+            uint32_t c = bytes == 4 ? *(const volatile uint32_t *)row
+                                    : (uint32_t)row[0] | (uint32_t)row[1] << 8 | (uint32_t)row[2] << 16;
+            out[x] = c | 0xFF000000u;
+        }
+    }
+}
+
 int wm_screenshot_capture(int from, int mode, unsigned flags,
                           int capacity_px, struct win_shot *rect) {
     // While a lease stands this compositor presents nothing, so its back
@@ -360,13 +381,18 @@ int wm_screenshot_capture(int from, int mode, unsigned flags,
     if (capacity_px <= 0 || (long)rect->w * rect->h > (long)capacity_px)
         return -ENOSPC;
 
+    // THE SCANOUT is copied as it stands -- rendering first is exactly
+    // what would hide the fault it is asked for (WIN_SHOT_SCANOUT).
+    int scanout = (flags & WIN_SHOT_SCANOUT) != 0;
+    if (scanout) flags &= ~WIN_SHOT_NO_SELF;
+
     // RENDER FIRST. A request arrives in the middle of the frame loop's
     // message pump, so anything that changed this iteration -- a
     // client's new frame, and in particular the requester having asked
     // to be left out -- is not in the back buffer yet. A fixed sleep in
     // the client would be guessing at a frame rate this loop does not
     // have.
-    {
+    if (!scanout) {
         int mx, my;
         uint8_t buttons;
         wm_rawin_mouse(&mx, &my, &buttons);
@@ -412,19 +438,32 @@ int wm_screenshot_capture(int from, int mode, unsigned flags,
     // colour by alpha and resolves the lot to black. The preview in the
     // Screenshot app was a black rectangle until this line.
     uint32_t *dst = p;
-    for (int y = 0; y < rect->h; y++) {
-        const uint32_t *src = back->pixels + (size_t)(rect->y + y) * back->w
-                              + rect->x;
-        for (int x = 0; x < rect->w; x++)
-            dst[(size_t)y * rect->w + x] = src[x] | 0xFF000000u;
+    if (scanout) {
+        copy_scanout(dst, rect);
+    } else {
+        for (int y = 0; y < rect->h; y++) {
+            const uint32_t *src = back->pixels + (size_t)(rect->y + y) * back->w
+                                  + rect->x;
+            for (int x = 0; x < rect->w; x++)
+                dst[(size_t)y * rect->w + x] = src[x] | 0xFF000000u;
+        }
     }
 
     // The copy is a surface so the cursor helpers can draw into it with
     // the ordinary clipped primitives -- a sprite half off the captured
     // rect must not run past the buffer.
     struct ugfx_surface shot = ugfx_surface_for_pixels(dst, rect->w, rect->h);
-    if (flags & WIN_SHOT_POINTER) wm_render_cursor_into(&shot, rect->x, rect->y);
-    else                          wm_render_cursor_erase(&shot, rect->x, rect->y);
+    if (scanout) {
+        // A software sprite is already in the scanout, where it was
+        // presented; erasing or redrawing it from the back buffer's state
+        // would mix two frames. Only the PLANE's pointer is missing.
+        if ((flags & WIN_SHOT_POINTER) && wm_hwcursor_active())
+            wm_render_cursor_into(&shot, rect->x, rect->y);
+    } else if (flags & WIN_SHOT_POINTER) {
+        wm_render_cursor_into(&shot, rect->x, rect->y);
+    } else {
+        wm_render_cursor_erase(&shot, rect->x, rect->y);
+    }
 
     unmap(p, bytes);
     return 0;

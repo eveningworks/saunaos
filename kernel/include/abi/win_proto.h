@@ -1532,6 +1532,14 @@ struct win_popup_pos {
 // sent WIN_CAST_POINTER when it moves -- RFB's PointerPos, the viewer
 // shown where the machine's own mouse went.
 #define WIN_SHOT_POINTER_POS 0x20
+// THE SCANOUT, NOT THE BACK BUFFER: copy what the display is scanning
+// out -- the buffer last presented -- and render nothing first. An
+// ordinary capture renders a frame and copies the back buffer, so a fault
+// in what reached the glass (a present that copied too small a damage
+// box) is repaired by the very capture meant to show it. Slow (the
+// scanouts are write-combining) and for diagnosis; NO_SELF is ignored, and
+// a SOFTWARE pointer is in the copy as it was presented, POINTER or not.
+#define WIN_SHOT_SCANOUT 0x40
 #define WIN_SHOT_CURSOR  4  // a MODE: the pointer's current shape, tightly
                             // packed 0xAARRGGBB, `w` x `h`; REPLY shot.x/y
                             // is its hotspot. RFB's Cursor pseudo-encoding.

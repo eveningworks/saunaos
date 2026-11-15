@@ -28,6 +28,7 @@
 #include "version.h" // SAUNAOS_VERSION_FULL -- a photographed panic identifies its build
 #include "clocksource.h" // uptime, so a panic says WHEN
 #include "kdebug.h" // the kernel debugger takes #DB/#BP/NMI when armed
+#include "lockup.h" // lockup_nmi() -- the hard-lockup check's NMI
 #include "multiboot.h" // syscall_irq=off, read once at syscall_insn_init()
 #include "oom.h"    // a #PF with no frame left goes to the OOM killer
 
@@ -329,7 +330,9 @@ void idt_log_stack_scan(uint64_t rsp, int max_shown) {
     // exactly what some faults leave behind, and faulting again inside
     // the panic handler loses the report entirely -- which is the one
     // outcome worse than a missing backtrace.
-    if (rsp < 0x1000 || rsp >= 0x100000000ULL || (rsp & 7)) {
+    // The identity map's END, not 4 GiB: on a machine with more RAM the
+    // kernel stacks live above it (the ASUS's at 0x100fcf990).
+    if (rsp < 0x1000 || rsp >= paging_identity_limit() || (rsp & 7)) {
         klog_printf("  no backtrace: RSP=0x%lx is not a walkable stack\n", rsp);
         return;
     }
@@ -396,6 +399,10 @@ static void panic_report_context(uint64_t rip, const uint64_t *regs,
                  rip - delta);
 
     idt_log_stack_scan(scan_from ? scan_from : regs[20], 12);
+}
+
+void idt_report_frame(const uint64_t *regs) {
+    panic_report_context(regs[17], regs, 0);
 }
 
 static void isr_dispatch_body(uint64_t *regs) {
@@ -511,6 +518,9 @@ static void isr_dispatch_body(uint64_t *regs) {
         // THE KERNEL DEBUGGER SEES ITS OWN TRAPS FIRST (kdebug.h) -- and
         // only when `kdebug=` armed it; otherwise these three panic as
         // they always did.
+        // The lockup detector's cycle-counter NMI before the debugger's,
+        // which would take any NMI as a stop.
+        if (vector == 2 && lockup_nmi(regs)) return;
         if ((vector == 1 || vector == 2 || vector == 3) && kdebug_trap(vector, regs))
             return;
         uint64_t error_code = regs[16];

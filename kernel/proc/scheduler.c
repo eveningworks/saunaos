@@ -92,6 +92,7 @@
 #include "uaddr.h" // uaddr_is_user() -- a thread pointer ring 3 may hold
 #include "sandbox.h"   // slot_free() drops the slot's reference
 #include "sched_internal.h"
+#include "lockup.h"  // lockup_idle()
 #include "vmm.h"
 #include "process.h" // process_context_is_armed() -- see kernel_slot_runnable()
 #include "page_report.h" // page_report_idle() -- idle work scheduler_idle() owns
@@ -601,6 +602,7 @@ static int runnable_at(int idx) {
 uint64_t kernel_vruntime;
 uint64_t g_min_vruntime;      // the pack's floor; never goes back
 static int g_kernel_halting;         // inside scheduler_idle_halt()
+int scheduler_cpu_halting(void) { return g_kernel_halting; }
 
 static uint64_t vr_credit_ns(void);  // one slice -- see g_timeslice_ms
 
@@ -1000,8 +1002,32 @@ int scheduler_any_ready(void) {
 
 int scheduler_kernel_running(void) { return current_index < 0; }
 
-void switch_to(int from, int idx) {
+// Context switches made -- the lockup detector's "the scheduler moved".
+static uint64_t g_switches;
+uint64_t scheduler_switch_count(void) { return g_switches; }
 
+// The hung-task check's question (kernel/lockup.h): a slot parked INSIDE
+// the kernel on a lock or a disk since before `before_ns` and not yet
+// reported. Marks it reported, so each park is said once.
+int scheduler_hung_find(uint64_t before_ns, struct sched_hung *out) {
+    for (int i = 0; i < MAX_PROCS; i++) {
+        struct sched_process *p = &procs[i];
+        if (p->state != SCHED_BLOCKED || !p->parked_in_kernel || p->hung_reported) continue;
+        if (p->wait_reason != SCHED_WAIT_LOCK && p->wait_reason != SCHED_WAIT_DISK) continue;
+        if (!p->parked_at_ns || p->parked_at_ns >= before_ns) continue;
+        p->hung_reported = 1;
+        out->pid = p->pid;
+        out->reason = p->wait_reason;
+        out->parked_at_ns = p->parked_at_ns;
+        out->rsp = p->kctx.rsp;
+        k_strlcpy(out->name, p->name, sizeof out->name);
+        return 1;
+    }
+    return 0;
+}
+
+void switch_to(int from, int idx) {
+    g_switches++;
     check_one_running("switch_to");
     trace_sched("switch_to", idx);
     kstack_verify(idx);   // before trusting anything else about this slot
@@ -1072,6 +1098,7 @@ void switch_to_kernel(int from) {
     // the frame the tick had just captured, which was a no-op by a
     // longer route; now there is nothing to switch to.
     if (was < 0) return;
+    g_switches++;
     // find_next_runnable()'s FALLBACK returns ROT_KERNEL without asking
     // kernel_slot_runnable(), so it can reach here before the kernel
     // context has ever been left -- and a restore then jumps to 0.
@@ -1540,6 +1567,8 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     // what it did: the whole GUI suite failed at once.
     procs[idx].wake_at_ns = wake_at_ns;
     procs[idx].wait_reason = reason;
+    procs[idx].parked_at_ns = clocksource_now_ns();
+    procs[idx].hung_reported = 0;
     current_index = -1;
 
     int next = find_next_runnable(rotation_pos);
@@ -1693,6 +1722,8 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
     procs[idx].wait_chan = chan;
     procs[idx].wake_at_ns = wake_at_ns;   // 0 = unbounded
     procs[idx].wait_reason = reason;
+    procs[idx].parked_at_ns = clocksource_now_ns();
+    procs[idx].hung_reported = 0;
     current_index = -1;
 
     int next = find_next_runnable(rotation_pos);
@@ -2093,6 +2124,7 @@ void scheduler_idle_halt(void) {
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(f) :: "memory");
     bill_current();          // what the kernel ran up to here IS charged...
     g_kernel_halting = 1;    // ...the halt is not (see kernel_vruntime)
+    lockup_idle();           // an idle CPU is not a locked one
     __asm__ volatile ("pushq %0; popfq" :: "r"(f) : "memory", "cc");
     clockevent_idle_halt();
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(f) :: "memory");

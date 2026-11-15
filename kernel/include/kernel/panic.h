@@ -22,4 +22,9 @@ int panic_parse_secs(const char *value, int *out);
 // system_reboot() ends here too. Defined in power.c.
 void power_reset_hardware(void) __attribute__((noreturn));
 
+// A SOFT reset that keeps RAM (power.c says how), for the panic path's
+// `panic_reset=warm`, the default. RETURNS when the machine did not
+// restart, and the caller then resets hard.
+void power_reset_warm(void);
+
 #endif

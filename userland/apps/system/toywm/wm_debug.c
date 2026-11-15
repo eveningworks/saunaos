@@ -2745,7 +2745,8 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
                      wm_damage_verify_enabled() ? "on" : "off");
         return 1;
     }
-    // `present [full on|off]` -- the buffer-age bypass (ugfx.h). Reports
+    // `present [full|hold on|off]` -- the buffer-age bypass and the held
+    // present (ugfx.h). Reports
     // the scanout count too, since the lever does nothing with one
     // buffer and that is the first thing to check when it seems inert.
     if (k_strcmp(sub, "present") == 0) {
@@ -2756,9 +2757,16 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
                 ugfx_screen_present_full(k_strcmp(onoff, "on") == 0);
                 WM_REDRAW();   // the buffers are stale by whatever it was doing
             }
+        } else if (arg && k_strcmp(arg, "hold") == 0) {
+            char *onoff = next_tok(&p);
+            if (onoff) {
+                ugfx_screen_present_hold(k_strcmp(onoff, "on") == 0);
+                WM_REDRAW();
+            }
         }
-        dbg_out_printf(o, "present: full=%s buffers=%d\r\n",
+        dbg_out_printf(o, "present: full=%s hold=%s buffers=%d\r\n",
                        ugfx_screen_present_full_get() ? "on" : "off",
+                       ugfx_screen_present_hold_get() ? "on" : "off",
                        g_wm_screen.buffers);
         return 1;
     }

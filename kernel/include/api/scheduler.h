@@ -75,6 +75,21 @@ int scheduler_any_ready(void);
 // Is the kernel context the one on the CPU?
 int scheduler_kernel_running(void);
 
+// For the lockup detector (kernel/lockup.h): context switches made, and
+// one slot parked inside the kernel on a lock or disk since before
+// `before_ns` that has not been reported yet (marked reported).
+uint64_t scheduler_switch_count(void);
+struct sched_hung {
+    int pid, reason;
+    uint64_t parked_at_ns;
+    uint64_t rsp;           // its saved kernel stack pointer, to scan
+    char name[32];
+};
+int scheduler_hung_find(uint64_t before_ns, struct sched_hung *out);
+// The kernel context is inside its idle halt. STAYS SET while a process
+// that preempted it out of the halt runs: ask scheduler_kernel_running() too.
+int scheduler_cpu_halting(void);
+
 // kernel.timeslice_ms: how long a process runs before a rotation, when
 // something else is runnable. Returns 0 (and changes nothing) outside
 // the range.

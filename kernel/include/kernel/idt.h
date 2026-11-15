@@ -13,6 +13,11 @@ void idt_set_gate(uint8_t vector, void (*handler)(void), uint8_t ist, uint8_t ty
 // backtrace, also used by UBSAN's. A stack SCAN, so it overreports.
 void idt_log_stack_scan(uint64_t rsp, int max_shown);
 
+// The panic report's context for an interrupted ring-0 frame (isr.asm's
+// layout): the RIP with its symbol, the addr2line hint and the stack
+// scan. For a report that is not a CPU exception -- the lockup detector.
+void idt_report_frame(const uint64_t *regs);
+
 // Installs a callback invoked when a CPU exception (vector < 32) occurs
 // while the faulting code was running in ring 3 (CS RPL == 3) -- after
 // the generic "KERNEL PANIC" banner and register dump are printed, but

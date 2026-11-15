@@ -11,6 +11,9 @@
 #include "clocksource.h"
 #include "io.h"
 #include "kdebug.h"
+#include "lockup.h"    // lockup_panic_stop()
+#include "watchdog.h"  // fed through the countdown
+#include "string.h"
 
 int panic_parse_secs(const char *value, int *out) {
     int64_t v;
@@ -19,6 +22,13 @@ int panic_parse_secs(const char *value, int *out) {
     if (v < -1) v = -1;
     *out = (int)v;
     return 1;
+}
+
+// `panic_reset=hard` uses the firmware's reset register straight away;
+// anything else (the default, `warm`) tries power_reset_warm() first.
+static int panic_reset_warm(void) {
+    char v[8];
+    return !(multiboot_cmdline_value("panic_reset=", v, sizeof v) && !k_strcmp(v, "hard"));
 }
 
 static int panic_secs(void) {
@@ -64,13 +74,21 @@ void panic_finish(void) {
     // or count a second time, just get the machine back.
     static int entered;
     if (entered++) power_reset_hardware();
+    // No cycle-counter NMI in the countdown, which runs with interrupts
+    // off on purpose and would read as a hard lockup.
+    lockup_panic_stop();
     kdebug_panic();
 
     int secs = panic_secs();
+    int warm = panic_reset_warm();
     if (secs > 0)
-        klog_printf(KLOG_CRIT "panic: restarting in %d s (panic=0 on the GRUB line halts instead)\n", secs);
+        klog_printf(KLOG_CRIT "panic: restarting in %d s, %s (panic=0 on the GRUB line halts instead)\n",
+                    secs, warm ? "warm (panic_reset=hard for the firmware's reset)" : "hard");
     else if (secs == 0)
         klog_write(KLOG_CRIT "panic: halted (panic=0)\n");
+    // A halt is meant to be read, so the watchdog stops; a countdown feeds
+    // it, so its hard reset cannot overtake the warm one chosen here.
+    if (secs == 0) watchdog_panic_stop();
     panic_store_save();
     serial_flush();
 
@@ -85,10 +103,15 @@ void panic_finish(void) {
             vga_present_force();
         }
         if (key_waiting()) break;
+        watchdog_panic_ping();
         wait_100ms();
     }
     vga_write("\nRestarting.\n");
     vga_present_force();
     serial_flush();
+    // The firmware and GRUB get the watchdog's whole timeout (the driver
+    // halts it at probe); an INIT# reset does not stop it.
+    watchdog_panic_ping();
+    if (warm) power_reset_warm();
     power_reset_hardware();
 }

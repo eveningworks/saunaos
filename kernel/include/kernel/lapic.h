@@ -66,6 +66,10 @@ void lapic_eoi(void);
 // Closes the 8259's path in (LINT0/ExtINT) once the I/O APIC delivers.
 void lapic_mask_lint0(void);
 
+// The performance-counter LVT (0x340), written whole -- the lockup
+// detector's NMI delivery, re-written after each one (it masks itself).
+void lapic_set_lvt_perf(uint32_t value);
+
 // This CPU's LAPIC id, which is what an MSI message address names as
 // its destination.
 uint8_t lapic_id(void);

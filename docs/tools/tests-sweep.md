@@ -1948,6 +1948,20 @@ report is ON only after `enter_gui()`").
   answers, and waiting on the exec started the countdown's clock a whole
   timeout late. `--positive-control` restarts COLD after the panic, where
   every recovery check must go red.
+- **`lockup_test.py`** -- the hang kit: the lockup detector
+  (`kernel/lockup.h`) and the hardware watchdog (`kernel/watchdog.h`).
+  **IT HANGS AND RESETS ITS GUEST ON PURPOSE**, three times, on a q35
+  disk COPY (QEMU's ICH9 carries the Intel TCO) whose GRUB line gains
+  `faultinject watchdog=40 hung_task=15`. `kernel.crash hung-task` must be
+  logged with its stack while the machine stays up; `soft-lockup` (a spin
+  with preemption off, interrupts ON) must be reported at ~20 s, panic,
+  restart warm and be recovered from the panic store; `hard-lockup`
+  (interrupts off) must be reported by the cycle-counter NMI under
+  `--kvm`, and under TCG -- which has no counter -- must be RESET by the
+  TCO at ~40 s, the next boot saying the watchdog did it.
+  `--positive-control` boots with `lockup=off watchdog=off hung_task=off`,
+  where every detection check must go red. Each trigger runs in the
+  background, as `panic_store_test.py`'s does.
 - **`kdebug_test.py`** -- the kernel's GDB stub (`kernel/debug/`),
   end to end over a real serial port: its own boot of a disk COPY with
   `kdebug=ttyS2` and `vm.py --kdebug`. A small protocol client in the

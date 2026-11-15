@@ -144,6 +144,11 @@ void lapic_mask_lint0(void) {
     if (g_base) lapic_write(LAPIC_REG_LVT_LINT0, LVT_MASKED);
 }
 
+// The performance-counter LVT: the lockup detector's NMI (kernel/lockup.h).
+void lapic_set_lvt_perf(uint32_t value) {
+    if (g_base) lapic_write(0x340, value);
+}
+
 
 uint8_t lapic_alloc_vector(void (*handler)(uint64_t *regs)) {
     if (!g_base || !handler) return 0;

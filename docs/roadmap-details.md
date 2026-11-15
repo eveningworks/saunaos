@@ -960,6 +960,29 @@ on purpose its `grub.cfg` needs `faultinject` -- `/boot` is read-only, so
 remount it (`umount /boot`, `mount ahci0p2 /boot`), `cp` from `/tmp`, and
 restore the original afterwards.
 
+**2026-11-15: THE WARM RESET IS BUILT AND DID NOT SAVE IT, AND THE READING
+CHANGES.** `panic_reset=warm` (the default now: bus mastering off, then
+`0xCF9 = 4`; the warm-boot word is not written, 0x472 being the null
+guard page) restarted the ASUS after a deliberate soft
+lockup, and the next boot still said `nothing recovered (other bytes ...)`.
+But the diagnostic's first word is `0x9022a9b8` on EVERY ASUS boot --
+after a panic, after a TCO reset, after an ordinary `reboot` and after the
+update's. DRAM scrambled by a new key would differ each time; a constant
+word means something in the boot path (firmware or GRUB, under CSM) writes
+that range the same way every boot, and no reset type can help. In QEMU
+the same kernel reads zeroes on a cold boot and recovers the record warm
+(`tools/tests/sweep/lockup_test.py`), so it is the ASUS's boot path, not
+the kernel's own relocation. Next: dump what is at 32 MiB on the ASUS
+(the word is a cheap fingerprint to match against GRUB's and the
+firmware's images), then a store address there that survives -- Linux's
+ramoops takes its range from `memmap=`, chosen per machine; a
+`panic_store=<addr>` boot word is that shape. CAVEAT on the measurement:
+with `watchdog=40` the ASUS's TCO fired at ~20 s (`docs/boot-flags.md`,
+`watchdog=`), the same moment the soft lockup reaches its 20 s, so that run's
+restart may have been the watchdog's hard one rather than the panic's
+warm one; the constant word says the record would not have survived
+either.
+
 **The panic store, planned 2026-09-02.** pstore's ramoops shape: a few
 frames at a fixed physical address, left out of the allocator, holding
 a signature, a checksum, the panic text and the tail of the kernel
@@ -1020,6 +1043,17 @@ timer interrupt that still arrives while the CPU spins, which the LAPIC
 timer does unless interrupts are off; the NMI half is later and wants
 the performance-counter setup nothing here has yet.
 
+**BUILT 2026-11-15** (`kernel/lockup.h`), all three halves: soft from
+the tick (20 s in the kernel, no switch, work waiting), hard from a
+cycle-counter NMI (10 s with no interrupt taken; architectural perfmon
+v2 -- real hardware and KVM, not TCG), hung tasks from a 5 s scan (a park
+on a lock or disk for `hung_task=` s, logged once with its stack). Soft
+and hard panic by default (`lockup=`), hung tasks never do
+(`docs/decisions.md`). Proven by `tools/tests/sweep/lockup_test.py` on
+TCG and KVM with a positive control; on the ASUS the hung-task report
+and the NMI's arming are measured, a soft lockup's report is not (its
+restart beat the TCO at `watchdog=40`).
+
 ### An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI
 
 Put on the roadmap 2026-10-09 (not scheduled). Firmware describes its
@@ -1052,7 +1086,7 @@ picked VENDORING uACPI over writing stage 4 or carrying ACPICA. The plan
 is `docs/aml-design.md`'s stage 4; the ASUS starting on one press with
 its power button armed is the acceptance test.
 
-### A hardware watchdog that RESETS a hung machine -- Intel's TCO timer (Linux `iTCO_wdt`) or ACPI's WDAT; nothing resets one today
+### A hardware watchdog that RESETS a hung machine
 
 Put on the roadmap 2026-10-06 (not scheduled). The lockup detector above REPORTS a stuck
 machine; this one RESETS it. Every test machine here is Intel, and the
@@ -1065,6 +1099,15 @@ things decide whether it works: the firmware may have set and LOCKED
 machine is wedged -- init, not a timer interrupt. With `bootcfg try`, a
 trial boot that hangs then resets into the old default unattended, which
 is what remote work on a laptop with no one at its keyboard wants.
+
+**BUILT 2026-11-15** for TCO v2 (ICH9 to the 9-series PCH:
+`kernel/drivers/watchdog/itco.c`, `/dev/watchdog`, fed by init).
+Measured: QEMU's q35 resets at the full timeout and the next boot names
+the watchdog; the ASUS (Wildcat Point-LP, `NO_REBOOT` clearable,
+`TCO_LOCK` set) resets an interrupts-off hang by itself, but at the
+FIRST expiry -- half the timeout -- with both status bits cleared, its
+firmware's SMI handler doing the reset. Skylake and later, AMD and WDAT
+are the roadmap's next line.
 
 ### Shell pipes & job control
 

@@ -1656,6 +1656,7 @@ split. One line per pair here; the site lists are in roadmap-details.
 - [x] ~~Kernel state queryable without a filesystem -- one syscall, an information class, a provider registry~~ stage 0 DONE 2026-08-19
 - [x] ~~Move the introspection commands onto it~~ DONE 2026-08-24 -- `dmesg` was the last one
 - [ ] A sampling profiler driven off the timer interrupt
+- [ ] The kernel log streamed live to another machine as it is written -- Linux's netconsole, `systemd-journal-remote`
 - [ ] Per-subsystem counters (cache hits, DMA retries, allocation failures) behind the existing `debug` flags
 - [x] ~~Log levels, and filtering by them~~ DONE 2026-09-15 -- in-band `KLOG_ERR` markers, `dmesg -l err`, `loglevel=`
 - [ ] `dmesg` filtering by subsystem
@@ -1674,7 +1675,7 @@ split. One line per pair here; the site lists are in roadmap-details.
 - [x] ~~Resolve those addresses to function names: the build already emits DWARF (`-g`)~~ DONE 2026-09-12 -- `tools/lib/panic_resolve.py`
 - [x] ~~A panic screen worth reading: registers, backtrace, the faulting address, what the kernel was doing~~ DONE 2026-09-12
 - [x] ~~A panic RAM store, and a warm reset after a countdown~~ DONE 2026-09-25 -- logd files it in the dead boot's log
-- [ ] The panic store on real hardware: the ASUS resets HARD (0xCF9 = 6) and kept nothing, 1 panic in 1 -- try a warm reset
+- [ ] The panic store on real hardware: the ASUS keeps nothing even after a WARM reset -- its range is overwritten at boot, so move it
 - [ ] `crashlog --panics` -- a panic is in the dead boot's log (`log -p N`); crashlog lists ring-3 reports only
 - [x] ~~Core dumps for a faulting ring-3 process~~ DONE 2026-09-02 -- a text report plus the raw stack in `/var/crash`
 - [x] ~~Say a crash on the desktop: a notice, a dialog, a Crash Reports list~~ DONE 2026-10-02 -- `QUERY_CRASH`
@@ -1689,8 +1690,10 @@ split. One line per pair here; the site lists are in roadmap-details.
 - [x] ~~The network debugger on real hardware: an r8169 backend (the Lenovo)~~ DONE 2026-09-27 -- stage 3b
 - [ ] The network debugger on a one-NIC machine: the OS's traffic through the debugger's card (KDNIC) -- stage 3c
 - [ ] Live kernel memory inspection without halting, drgn's shape, over `remote.py` -- `docs/kdebug-design.md` stage 1
-- [ ] A lockup detector: a CPU that stops scheduling, and a task stuck in an uninterruptible wait -- Linux's `softlockup` and `hung_task`
-- [ ] A hardware watchdog that RESETS a hung machine -- Intel's TCO timer (Linux `iTCO_wdt`) or ACPI's WDAT; nothing resets one today
+- [x] ~~A lockup detector: a CPU that stops scheduling, and a task stuck in an uninterruptible wait~~ DONE 2026-11-15 -- `lockup=`
+- [x] ~~A hardware watchdog that RESETS a hung machine~~ DONE 2026-11-15 -- Intel's TCO (`itco.c`), fed by init through `/dev/watchdog`
+- [ ] A hardware watchdog on the machines without a TCO v2: AMD's FCH (Linux `sp5100_tco`), Skylake and later (iTCO v4+), ACPI's WDAT
+- [ ] A service watchdog: init restarts a service that stops answering, not only one that exits -- systemd's `WatchdogSec=`
 - [x] ~~The kernel debugger's processes as GDB threads, and `ps`/`dmesg`~~ DONE 2026-09-27 -- threads, and `tools/gdb/saunaos.py`
 - [x] ~~Symbols for kernel modules and user programs in the debugger, and memory per thread~~ DONE 2026-09-27 -- `toy-symbols`
 - [x] ~~Send a file to the machine through the debugger~~ DONE 2026-09-28 -- `remote put`, written by `/bin/kdfiled`

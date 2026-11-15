@@ -119,6 +119,12 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   machine, not `/tmp`, which is a ramfs mount -- a screenshot is worth
   keeping if the fetch fails.
 
+  **`--scanout` copies what the panel SHOWS** (`screenshot -s`): the
+  buffer last presented, with no frame rendered first. An ordinary
+  capture renders and copies the compositor's back buffer, which repairs
+  a fault in what reached the glass -- the reason phone photos were the
+  only witness to one. Use it before asking for a photo.
+
   It is also the one path that exercises the HARDWARE cursor plane:
   `--pointer` there draws a sprite the back buffer does not contain,
   which no emulated setup here reproduces (`guictl state` reports

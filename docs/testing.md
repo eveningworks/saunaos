@@ -789,11 +789,17 @@ invisible here:
 - **It never runs in QEMU.** The path is gated on `buffers > 1`, and
   every machine the suite runs on reports ONE scanout and no flip
   (`lsdisplay`). The bare-metal ASUS reports THREE, with flip.
-- **A screenshot cannot show it, and TAKING one repairs it.**
+- **An ordinary screenshot cannot show it, and TAKING one repairs it.**
   `wm_screenshot.c` copies the compositor's BACK buffer -- which is
   always complete -- having first called `wm_render_frame()`, and it
   sets `redraw_pending` afterwards. So the capture is of a surface the
   bug does not affect, produced by an action that heals the screen.
+  **`screenshot --scanout` (`remote.py screenshot --scanout`) is the
+  one that can**: it renders nothing and copies the buffer last
+  presented. `gui present hold on` is its lever and positive control --
+  presents stop, so a window opened then is in the back buffer and not
+  on the screen; `screenshot_test.py` asserts the scanout capture shows
+  the screen and the ordinary one does not.
 
 The symptom, reported from the ASUS 2026-09-19, is a window that opens
 with most of it missing, or a drop shadow on one side only, righting

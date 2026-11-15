@@ -7,6 +7,7 @@
 // -- inside kmalloc, holding a mount lock, halfway through klog -- and
 // anything it shared with the kernel could be exactly what is broken.
 #include "kdebug.h"
+#include "watchdog.h"   // watchdog_debugger_hold()
 #include "kdebug_internal.h"
 #include "serial.h"
 #include "multiboot.h"
@@ -164,6 +165,7 @@ static void stop(uint64_t *regs, int sig) {
     kdb.regs = regs;
     kdb.sig = sig;
     kdb.stops++;
+    watchdog_debugger_hold(1);   // stopped time is not a hang
     kdb_arch_hw_disable();
     swbp_lift_all();
 
@@ -185,6 +187,7 @@ static void stop(uint64_t *regs, int sig) {
     kdb.watch_kind = 0;
     kdb.regs = 0;
     kdb.active = 0;
+    watchdog_debugger_hold(0);
     // NOT a wake from here: a trap can land inside the scheduler's own
     // interrupts-off code, and a wake would re-enter it half-way. The
     // tick cannot interrupt that code, so the wake goes there.

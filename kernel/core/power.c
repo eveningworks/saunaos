@@ -8,6 +8,9 @@
 #include "usb.h"      // usb_shutdown() -- quiesce the links before the reset
 #include "panic.h"    // power_reset_hardware()
 #include "splash.h"   // the shutdown screen's last two stages
+#include "watchdog.h" // stopped before a clean shutdown
+#include "pci.h"
+#include "pci_internal.h" // power_reset_warm(): bus mastering off
 
 // COMMIT, THEN FLUSH -- and it must be fs_sync(), not atac_flush().
 // With a write-back cache under the disk (ata_cache.h) a write that
@@ -42,6 +45,7 @@ static void flush_before_stopping(const char *what) {
 }
 
 void system_reboot(void) {
+    watchdog_shutdown();   // before the flush, which may be slow
     flush_before_stopping("reboot");
     // AFTER the flush, because a device may still be carrying the write
     // out, and BEFORE the reset, because the point is that the links go
@@ -84,6 +88,7 @@ void power_reset_hardware(void) {
 }
 
 void system_poweroff(void) {
+    watchdog_shutdown();
     flush_before_stopping("power off");
     usb_shutdown();
     klog_write("power: poweroff requested\n");
@@ -120,4 +125,28 @@ void system_poweroff(void) {
     vga_write("\nSystem halted -- it is now safe to close this window.\n");
     klog_write("power: poweroff port write had no effect, halting instead\n");
     for (;;) __asm__ volatile ("hlt");
+}
+
+// THE PANIC PATH'S RESET, which keeps RAM so the panic store can survive.
+// The firmware's reset register may ask for a HARD reset (0xCF9 = 6 on
+// the ASUS), which resets the memory controller; a SOFT one (RST_CPU with
+// SYS_RST clear: INIT# alone) leaves it and RAM. Linux's reboot=warm also
+// writes the BIOS warm-boot word at 0x472 -- the unmapped null page here,
+// so it is not written. (The ASUS keeps nothing either way: its boot path
+// overwrites the store, docs/roadmap-details.md.)
+//
+// BUS MASTERING GOES OFF FIRST: INIT# resets the CPU and nothing else, so
+// a controller still running its DMA rings would write into RAM the
+// firmware is booting from.
+//
+// Returns when the machine did not restart, for the caller's hard reset.
+void power_reset_warm(void) {
+    for (int i = 0; i < pci_device_count(); i++) {
+        const struct pci_device *d = pci_device_at(i);
+        uint16_t cmd = pci_config_read16(d, 0x04);
+        if (cmd & 0x4) pci_config_write16(d, 0x04, (uint16_t)(cmd & ~0x4));
+    }
+    outb(0xCF9, 0x00);
+    outb(0xCF9, 0x04);
+    for (int i = 0; i < 500000; i++) outb(0x80, 0);   // ~0.5 s
 }

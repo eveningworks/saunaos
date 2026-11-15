@@ -6,7 +6,7 @@
 
 ## Synopsis
 
-    screenshot [-w] [-r x,y,w,h] [-p] [-d seconds] [-f qoi|png] [path]
+    screenshot [-w] [-r x,y,w,h] [-p] [-s] [-d seconds] [-f qoi|png] [path]
 
 ## Description
 
@@ -33,6 +33,13 @@ laptop.
   rather than completed with guesses.
 - `-p`, `--pointer` -- draw the mouse pointer into the capture. Off by
   default, as `PrintScreen` is on Windows and `XGetImage` is under X11.
+- `-s`, `--scanout` -- copy what the display is SHOWING, the buffer
+  last presented, instead of rendering a fresh frame and copying the
+  compositor's back buffer. For diagnosis: an ordinary capture repaints
+  first, which repairs a fault in what reached the screen (a part of a
+  window that was never presented) before it can be seen. Slower, since
+  the display's memory is uncached. A hardware cursor is not in the
+  buffer either way; `-p` draws it.
 - `-d`, `--delay seconds` -- wait before capturing, so you can arrange
   the screen first. The wait happens before anything connects.
 - `-f`, `--format qoi|png` -- which encoder to use. Otherwise it comes

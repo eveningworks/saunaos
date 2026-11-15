@@ -11,6 +11,7 @@
 #include "klog.h"
 #include "kfmt.h"
 #include "kdebug.h"     // kdebug_poll(), and a tick that stays on for it
+#include "lockup.h"
 
 static const struct clockevent *g_ce;
 static uint32_t g_hz;
@@ -35,6 +36,7 @@ static uint64_t next_boundary(uint64_t now) {
 // device is simply re-armed.
 void clockevent_tick(uint64_t *regs) {
     g_events++;
+    lockup_tick(regs);
     kdebug_poll(regs);
     if (!g_oneshot) {
         g_ticks++;

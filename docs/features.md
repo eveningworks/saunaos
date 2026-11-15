@@ -755,3 +755,21 @@ The log behind that last one is **off by default** and wipes when
 switched off, because there is no privilege model here and a buffer of
 recent keystrokes is not something to keep without being asked.
 
+
+**A hung machine restarts by itself and says why.** Linux's three lockup
+checks, for one CPU: a SOFT lockup (the kernel holding the CPU with
+preemption off for 20 s), a HARD one (no interrupt taken for 10 s, seen
+from an NMI the CPU's cycle counter raises) and a HUNG TASK (a process
+parked on a lock or a disk for two minutes). The first two panic by
+default, so the report -- the stuck code's function and a stack scan --
+lands in the panic store, and the panic restarts WARM (bus mastering off,
+a soft reset through 0xCF9) so that RAM, and the record, survive the
+reset on machines whose firmware asks for a hard one. Behind them, Intel's
+TCO watchdog (ICH9 to the 9-series PCH) resets a machine nothing feeds:
+init writes `/dev/watchdog` every two seconds, Linux's device contract,
+and the next boot says when the last reset was the watchdog's. `lockup=`,
+`hung_task=`, `watchdog=` and `panic_reset=` on the GRUB line;
+`kernel.crash soft-lockup|hard-lockup|hung-task` under `faultinject`
+provokes each. And `screenshot --scanout` copies what the panel is
+actually showing rather than a freshly rendered frame, so a fault in what
+reached the screen is caught instead of repaired by the capture.

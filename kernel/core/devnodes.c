@@ -1,5 +1,6 @@
 // /dev/null, /dev/zero, /dev/random and /dev/urandom -- Linux's
-// drivers/char/mem.c and random.c in the small: four kinds of
+// drivers/char/mem.c and random.c in the small (and /dev/watchdog, whose
+// ops are kernel/core/watchdog.c's): four kinds of
 // description with no state, found by NAME in sys_open() because there
 // are no device nodes on disk to find them by. random and urandom are
 // one source here, as on Linux since 5.18 (krandom_bytes(), whose
@@ -12,6 +13,7 @@
 #include "string.h"
 #include "devnodes.h"
 #include "vt.h"          // VGA_VC_COUNT -- /dev/tty1../dev/ttyN
+#include "watchdog.h"    // /dev/watchdog, when a device registered
 
 #define CHUNK 256   // on the stack, as sys_do_getrandom()'s
 
@@ -88,5 +90,6 @@ const struct fd_ops *devnode_ops(const char *path) {
     if (!k_strcmp(n, "null"))    return &null_fd_ops;
     if (!k_strcmp(n, "zero"))    return &zero_fd_ops;
     if (!k_strcmp(n, "random") || !k_strcmp(n, "urandom")) return &random_fd_ops;
+    if (!k_strcmp(n, "watchdog") && watchdog_present()) return &watchdog_fd_ops;
     return 0;
 }

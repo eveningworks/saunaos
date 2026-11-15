@@ -10343,3 +10343,51 @@ per-thread switch (Apple's `MAP_JIT` with `pthread_jit_write_protect_np`).
 `mprotect`; a guard page needs a present-but-inaccessible state the
 fault-in path does not have yet (the guard-page roadmap item).
 
+
+## A hung machine is caught three ways: the lockup detector, a warm panic, and init feeding the watchdog
+
+Chosen 2026-11-15 so a test laptop that hangs comes back by itself and
+says why, instead of waiting for someone at the power button. Each part
+copies a real system's shape:
+
+**The hardware watchdog is fed by INIT, through `/dev/watchdog`** --
+systemd's `RuntimeWatchdogSec=` and Linux's device contract (the open
+starts it, a write feeds it, a close stops it only after a `V`). The
+obvious alternative, the kernel feeding it from the timer tick, resets
+only a machine whose interrupts stopped: a kernel that takes interrupts
+but no longer schedules (a deadlock, a spin with preemption off) keeps
+the tick and would never reset. A feeder in ring 3 needs the scheduler,
+the syscall path and init all working. What it does NOT catch is a hung
+service -- init feeds as long as init runs; a service watchdog
+(`WatchdogSec=`) is on the roadmap. The driver HALTS the timer at probe,
+as `iTCO_wdt` does, so the machine is unwatched from probe until init
+opens it (about half a second); the kernel debugger's stop and a
+`panic=0` halt stop it too, and a clean shutdown stops it before the
+flush.
+
+**A lockup panics by default** (`lockup=panic`), where Linux only warns
+unless `softlockup_panic=1`: a warning on a machine nobody is watching is
+read after the power cycle, if at all, while a panic puts the report in
+the panic store and restarts. Hard lockups use the CPU's cycle counter
+as an NMI source, Linux's perf watchdog; TCG has no counter, so there
+only the hardware watchdog catches an interrupts-off spin.
+
+**A hung task warns and never panics**, as Linux's default
+(`hung_task_panic=0`): a process parked on a mount lock behind a
+legitimate long hold -- a whole-disk check under `fs_exclusive_begin()`
+-- is indistinguishable from one behind a deadlock.
+
+**A panic restarts WARM** (`panic_reset=warm`): the ASUS's FADT asks for
+`0xCF9 = 6`, a hard reset, and its panic record did not survive one (the
+panic store's roadmap entry). A soft reset (INIT# alone) keeps RAM and
+the memory controller; bus mastering goes off on every PCI device first,
+because INIT# resets the CPU and nothing else, and a controller still
+running its DMA rings would write into RAM the firmware boots from.
+Linux's `reboot=warm` also writes the BIOS warm-boot word (0x1234 at
+0x472), which here is the unmapped null page, so it is not written. The
+hard reset follows after half a second if the machine is
+still up. On the ASUS it did NOT save the record (2026-11-15): the range
+reads the same word after every boot, so it is overwritten in the boot
+path and the store has to move there (the panic store's roadmap entry);
+the warm reset stays the default because it costs nothing where it does
+not help and is what keeps RAM where nothing overwrites it.

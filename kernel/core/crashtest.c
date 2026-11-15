@@ -20,6 +20,7 @@
 #include "string.h"
 #include "klog.h"
 #include "kfmt.h" // klog_printf
+#include "scheduler.h" // the lockup kinds
 
 static int g_armed = -1; // -1 = not yet decided
 
@@ -88,6 +89,28 @@ static void crash_kstack_overflow(void) {
     if (pad[511] == 99) klog_write("");
 }
 
+// The lockup detector's three cases (kernel/lockup.h), each a hang rather
+// than a fault: what reports it is the detector, or with `lockup=off`
+// the hardware watchdog's reset.
+// INTERRUPTS ON, explicitly: the setting that triggers this may run with
+// them off, and that would be the hard case instead.
+static void crash_soft_lockup(void) {
+    scheduler_preempt_disable();
+    __asm__ volatile ("sti");
+    for (;;) __asm__ volatile ("pause");
+}
+
+static void crash_hard_lockup(void) {
+    __asm__ volatile ("cli");
+    for (;;) __asm__ volatile ("pause");
+}
+
+// Parked on a channel nothing wakes, as a deadlocked lock waiter is.
+static void crash_hung_task(void) {
+    static char chan;
+    while (scheduler_block_kernel(&chan, SCHED_WAIT_LOCK)) { }
+}
+
 static const struct crash_kind g_kinds[] = {
     { "null-write",  "Write to address 0 (page fault)",        crash_null_write },
     { "null-read",   "Read from address 0 (page fault)",       crash_null_read },
@@ -97,6 +120,9 @@ static const struct crash_kind g_kinds[] = {
     { "write-text",  "Write to .text -- proves W^X is on",     crash_write_text },
     { "kstack-overflow", "Overrun the kernel stack -- proves its guard page",
       crash_kstack_overflow },
+    { "soft-lockup", "Spin with preemption off (soft lockup)",  crash_soft_lockup },
+    { "hard-lockup", "Spin with interrupts off (hard lockup)",  crash_hard_lockup },
+    { "hung-task",   "Park in the kernel forever (hung task)",  crash_hung_task },
 };
 
 int crash_kind_count(void) {

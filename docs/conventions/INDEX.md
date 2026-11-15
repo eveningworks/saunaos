@@ -97,6 +97,8 @@ whenever a headline here tells you something you did not already know.
   DOES NOT**
 - **THE KERNEL DEBUGGER'S STOPPED PATH TAKES NO LOCK, ALLOCATES NOTHING
   AND DOES NOT LOG**
+- **A STRETCH THAT HOLDS THE CPU WITH INTERRUPTS OFF ON PURPOSE MUST
+  TELL THE WATCHDOGS, OR IT IS REPORTED AS A HANG**
 - **A panic NAMES THE FUNCTION**
 - **A kernel panic prints enough to diagnose from a pasted log**
 - **Kernel stacks are 16 KiB, have a GUARD PAGE, and carry a CANARY**

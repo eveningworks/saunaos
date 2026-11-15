@@ -19,7 +19,7 @@
 #include "media/ushot.h"
 #include "base/udirs.h"
 
-#define USAGE "screenshot [-w] [-r x,y,w,h] [-p] [-d seconds] [-f qoi|png] [path]"
+#define USAGE "screenshot [-w] [-r x,y,w,h] [-p] [-s] [-d seconds] [-f qoi|png] [path]"
 
 
 static int parse_region(const char *s, int *x, int *y, int *w, int *h) {
@@ -69,6 +69,8 @@ int main(int argc, char **argv) {
             mode = WIN_SHOT_WINDOW;
         } else if (strcmp(a, "-p") == 0 || strcmp(a, "--pointer") == 0) {
             flags |= WIN_SHOT_POINTER;
+        } else if (strcmp(a, "-s") == 0 || strcmp(a, "--scanout") == 0) {
+            flags |= WIN_SHOT_SCANOUT;
         } else if ((strcmp(a, "-r") == 0 || strcmp(a, "--region") == 0) && i + 1 < argc) {
             if (!parse_region(argv[++i], &rx, &ry, &rw, &rh)) {
                 printf("screenshot: a region is x,y,w,h\n");

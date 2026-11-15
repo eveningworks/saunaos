@@ -28,6 +28,7 @@
 #include "sandbox_abi.h"
 #include "devnodes.h"    // /dev/null and friends, found by name
 #include "vt.h"          // /dev/tty1../dev/tty4
+#include "watchdog.h"    // /dev/watchdog's one-opener claim
 #include <stddef.h>
 
 // SYS_LISTDIR's per-call state, handed to fs_list() as its context and
@@ -120,10 +121,20 @@ enum fd_mode fs_open_access(uint32_t flags, unsigned *unveil) {
 // A descriptor over one of devnodes.c's kinds; the same two-table
 // errors as a file's open below.
 static void open_devnode(struct syscall_ctx *c, const struct fd_ops *ops) {
+    int wd = ops == &watchdog_fd_ops;
+    if (wd) {
+        int err = watchdog_claim();
+        if (err) { c->regs[14] = (uint64_t)(int64_t)err; return; }
+    }
     int di = fd_desc_alloc(ops, -1);
     int fd = di >= 0 ? fd_install(c->pml4, di) : -1;
     if (fd < 0) {
-        if (di >= 0) fd_desc_unref(di);
+        if (di >= 0) {
+            if (wd) watchdog_open_failed();  // the release stops it, not leaves it counting
+            fd_desc_unref(di);               // ...and gives the claim back
+        } else if (wd) {
+            watchdog_unclaim();
+        }
         c->regs[14] = (uint64_t)(int64_t)(di < 0 ? -ENFILE : -EMFILE);
         return;
     }

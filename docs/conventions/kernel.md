@@ -154,6 +154,18 @@ this the obvious way), not from how much history it accumulated.
   `#DB`, NMI, `#BP` and timer tick; and **software breakpoints are
   written only while the kernel RUNS** -- lifted on every stop -- so
   code that reads kernel text while stopped sees the real bytes.
+- **A STRETCH THAT HOLDS THE CPU WITH INTERRUPTS OFF ON PURPOSE MUST
+  TELL THE WATCHDOGS, OR IT IS REPORTED AS A HANG.** The lockup detector
+  panics after 10 s with no interrupt taken (where the CPU has a cycle
+  counter) and the hardware watchdog resets an unfed machine
+  (`kernel/lockup.h`, `kernel/watchdog.h`). The two that exist say so:
+  the kernel debugger's `stop()` brackets itself with
+  `watchdog_debugger_hold(1/0)`, which both honour, and `panic_finish()`
+  calls `lockup_panic_stop()` before its countdown and feeds the
+  watchdog through it (`watchdog_panic_ping()`), so the watchdog's HARD
+  reset cannot overtake the WARM one that keeps the panic store. A third
+  such path -- a firmware call, a long polled flash -- does the same,
+  through the same calls, which take no lock and do not log.
 - **A panic NAMES THE FUNCTION**, on screen and in the log:
   `in crash_gp_fault+0xa`, plus the faulting context, the general
   registers, the build id and the uptime. The symbol table is baked into

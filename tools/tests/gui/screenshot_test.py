@@ -254,6 +254,9 @@ def main():
         check("the pointer is drawn with --pointer and not without",
               with_p > without + 3, f"{with_p} colours vs {without}")
 
+    # --- 2b. --scanout copies the SCREEN, not the back buffer ----------
+    scanout_checks(dbg, disk, out, qmp)
+
     # --- 3. -w captures the window, at the window's size ---------------
     dbg.open_app("Calculator")
     dbg.settle()
@@ -275,6 +278,59 @@ def main():
     # --- 4..8. THE OVERLAY (the app, mockup S3) -------------------------
     overlay_checks(dbg, disk, out, qmp, skip)
     return report()
+
+
+# --- the scanout --------------------------------------------------------
+#
+# `gui present hold on` stops presents, so a window opened under it is in
+# the compositor's back buffer and NOT on the screen -- the fault class
+# --scanout is for. The screendump is the oracle for the screen: the
+# scanout capture must equal it, and the ordinary capture must differ from
+# it inside the new window (which is also what shows the lever worked).
+
+def scanout_checks(dbg, disk, out, qmp):
+    dbg.send("gui present hold on")
+    try:
+        # HELP, not a window the later checks open: an app reopens where it
+        # last was, and a Notepad left at its place covered their target.
+        dbg.open_app("Help")
+        dbg.wait_window("Help")
+        dbg.settle()
+        wins = [w for w in dbg.windows() if w["title"] == "Help"]
+        held = out("qmp_held.png")
+        qmp.screenshot(held)
+        dbg.send(f"sh spawn /bin/screenshot -s {SHOT_DIR}/s.qoi")
+        dbg.settle()
+        dbg.send(f"sh spawn /bin/screenshot {SHOT_DIR}/b.qoi")
+        dbg.settle()
+        dbg.send("sh sync")
+        time.sleep(0.3)  # sleep-ok: the same settle-then-sync the captures above use
+        sgot, bgot = out("guest_scan.qoi"), out("guest_back.qoi")
+        if not (check("--scanout wrote a file", pull(disk, f"{SHOT_DIR}/s.qoi", sgot))
+                and check("...and so did an ordinary capture beside it",
+                          pull(disk, f"{SHOT_DIR}/b.qoi", bgot))
+                and check("Help opened, with presents held", len(wins) == 1)):
+            return
+        w = wins[0]
+        box = (w["x"], w["y"], w["x"] + w["w"], w["y"] + w["h"])
+        sim, bim, ref = Image.open(sgot), Image.open(bgot), Image.open(held)
+        skip = [cursor_box(dbg), clock_box(dbg)]
+        sdiff = compare(sim, ref, skip=skip)
+        check("--scanout matches the screen while presents are held", sdiff == 0,
+              f"{sdiff} pixels differ from the screendump")
+        bdiff = compare(bim.crop(box), ref.crop(box))
+        check("...where an ordinary capture shows the window the screen does not",
+              bdiff > (w["w"] * w["h"]) // 4,
+              f"{bdiff} of {w['w'] * w['h']} differ inside the window")
+    finally:
+        dbg.send("gui present hold off")
+        dbg.settle()
+        # GONE before the overlay checks, which open a Notepad of their own
+        # and read the z-order.
+        check("...and the window closes again afterwards",
+              dbg.close_window("Help") and dbg.wait_gone("Help"),
+              str([w["title"] for w in dbg.windows()]))
+        dbg.settle()
 
 
 # --- the overlay --------------------------------------------------------

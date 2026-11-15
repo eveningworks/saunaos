@@ -681,6 +681,8 @@ def do_screenshot(a, host, tport, fport, timeout):
         cmd += " -w"
     if a.pointer:
         cmd += " -p"
+    if a.scanout:
+        cmd += " -s"
     if a.region:
         cmd += f" -r {a.region}"
     if a.delay:
@@ -1719,6 +1721,9 @@ def main():
                     help="the topmost window rather than the whole screen")
     sc.add_argument("--pointer", action="store_true",
                     help="include the mouse pointer")
+    sc.add_argument("--scanout", action="store_true",
+                    help="what the display shows, with no fresh frame rendered first "
+                         "(a capture otherwise repaints, and heals a present fault)")
     sc.add_argument("--region", metavar="X,Y,W,H", help="a rectangle")
     sc.add_argument("--delay", type=int, default=0, metavar="SECONDS",
                     help="wait before capturing")

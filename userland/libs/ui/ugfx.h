@@ -789,6 +789,7 @@ struct ugfx_screen {
     // never painted, or older than the ring, gets the whole screen.
     int buffers;
     int back_index;
+    int front_index;   // the buffer last presented: what the display shows
     uint32_t seq;
     uint32_t painted_seq[UGFX_SCREEN_BUFFERS];
     int dmg_x[UGFX_DAMAGE_RING], dmg_y[UGFX_DAMAGE_RING];
@@ -832,6 +833,14 @@ void ugfx_screen_forget(struct ugfx_screen *sc, int back);
 // per frame while it is on.
 void ugfx_screen_present_full(int on);
 int  ugfx_screen_present_full_get(void);
+
+// A TEST LEVER (`gui present hold on`): presents do nothing, the damage
+// kept, so the screen keeps showing the last frame while the back buffer
+// moves on -- the state `screenshot --scanout` exists to tell apart from
+// an ordinary capture, and its positive control. Off resumes; the next
+// present copies everything held.
+void ugfx_screen_present_hold(int on);
+int  ugfx_screen_present_hold_get(void);
 
 // After WIN_EV_SCREEN: re-maps the grant at its new geometry, grows the
 // back buffer if the mode did, and forgets every damage box, which was

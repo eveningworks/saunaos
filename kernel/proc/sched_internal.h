@@ -110,6 +110,10 @@ struct sched_process {
     // state.
     const void *wait_chan;
     int wait_reason;
+    // When this park began, and whether the hung-task check has already
+    // reported it (kernel/lockup.h) -- set at every park, like wake_at_ns.
+    uint64_t parked_at_ns;
+    uint8_t hung_reported;
     uint64_t pml4_phys;
     uint64_t kernel_rsp; // this process's saved trapframe pointer --
                           // valid whenever state != SCHED_UNUSED

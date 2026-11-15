@@ -1330,6 +1330,7 @@ int ugfx_screen_init(struct ugfx_screen *sc) {
     if (sc->buffers < 1) sc->buffers = 1;
     if (sc->buffers > UGFX_SCREEN_BUFFERS) sc->buffers = UGFX_SCREEN_BUFFERS;
     sc->back_index = (int)req.window < sc->buffers ? (int)req.window : 0;
+    sc->front_index = 0;   // the grant shows buffer 0
 
     if (w <= 0 || h <= 0) return 0;
     // 24 and 32 are what the kernel's own present path handles, so they
@@ -1379,6 +1380,7 @@ int ugfx_screen_remode(struct ugfx_screen *sc) {
     if (sc->buffers < 1) sc->buffers = 1;
     if (sc->buffers > UGFX_SCREEN_BUFFERS) sc->buffers = UGFX_SCREEN_BUFFERS;
     sc->back_index = (int)req.window < sc->buffers ? (int)req.window : 0;
+    sc->front_index = 0;   // the grant shows buffer 0
     sc->seq = 0;
     for (int i = 0; i < UGFX_SCREEN_BUFFERS; i++) sc->painted_seq[i] = 0;
     for (int i = 0; i < UGFX_DAMAGE_RING; i++) sc->dmg_w[i] = sc->dmg_h[i] = 0;
@@ -1403,9 +1405,12 @@ void ugfx_screen_forget(struct ugfx_screen *sc, int back) {
 static int g_present_full;
 void ugfx_screen_present_full(int on) { g_present_full = on ? 1 : 0; }
 int  ugfx_screen_present_full_get(void) { return g_present_full; }
+static int g_present_hold;
+void ugfx_screen_present_hold(int on) { g_present_hold = on ? 1 : 0; }
+int  ugfx_screen_present_hold_get(void) { return g_present_hold; }
 
 void ugfx_screen_present(struct ugfx_screen *sc) {
-    if (!sc || !sc->back.pixels) return;
+    if (!sc || !sc->back.pixels || g_present_hold) return;
 
     int x, y, w, h;
     // Nothing drawn since the last present. Not an error, and skipping is
@@ -1479,6 +1484,7 @@ void ugfx_screen_present(struct ugfx_screen *sc) {
     pr.a = x; pr.b = y; pr.c = w; pr.d = h;
     sc->seq = this_seq;
     if (sys_win_request(&pr) == 0 && sc->buffers > 1) {
+        sc->front_index = back;
         sc->painted_seq[back] = this_seq;
         int next = (int)pr.window < sc->buffers ? (int)pr.window : 0;
         if (next != back) sc->flips++;

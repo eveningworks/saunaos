@@ -337,6 +337,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `latency_under_io.py` -- what heavy disk I/O, or a busy CPU, does to desktop latency
 - `libc_diff.py` -- tolibc's formatter, number parsers and maths against glibc, case by case
 - `live_boot_test.py` -- the ISO boots and is USABLE with no disk
+- `lockup_test.py` -- The hang kit: the lockup detector reports each kind of hang, and the
 - `logrotate_test.py` -- `logd`'s per-boot retention: /var/log/boot/<n>.log and `log -p N`
 - `ls_test.py` -- /bin/ls: format flags, ordering, colour, and a directory past the page
 - `many_files_test.py` -- apps given more than their old tables held
