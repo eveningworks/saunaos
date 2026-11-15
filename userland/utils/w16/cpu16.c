@@ -16,6 +16,11 @@
 #include <stdio.h>
 #include <string.h>
 
+// Userland builds -ffreestanding, which makes every memcpy a call; the CPU's 2- and 4-byte loads and
+// stores go through it, and inlined they run the interpreter 6% faster (tools/bench/cpu16_bench.py).
+#define memcpy(d, s, n) __builtin_memcpy(d, s, n)
+#define memset(d, c, n) __builtin_memset(d, c, n)
+
 // What one instruction is decoding: its prefixes and where it began.
 struct insn {
     int seg;            // segment override, or -1
