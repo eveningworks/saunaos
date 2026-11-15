@@ -864,24 +864,36 @@ def _remote_mismatches(sess, host, tftp_port, remote_dir, want, timeout,
     if do_put(host, tftp_port, tmp, SUMS_REMOTE, timeout, quiet=True):
         raise RuntimeError("could not send the checksum manifest")
 
-    bad = []
-    for line in sess.run(f"sum -c {SUMS_REMOTE}", timeout):
-        # "<path>: OK", "<path>: FAILED", "<path>: FAILED open or read".
-        # Its own summary lines start with "sum:" and are not results.
-        if line.startswith("sum:") or ": " not in line:
-            continue
-        path, _, verdict = line.rpartition(": ")
-        if verdict.startswith("OK"):
-            continue
-        # "FAILED open or read" is ABSENT; a bare "FAILED" is PRESENT AND
-        # DIFFERENT. `sum` is the only thing that tells those apart
-        # cheaply, and for /etc they mean opposite things -- see
-        # do_sync()'s missing_only.
-        if missing_only and not verdict.startswith("FAILED open"):
-            continue
-        if path.startswith(base + "/"):
-            bad.append(path[len(base) + 1:])
-    return bad
+    # EVERY FILE ASKED ABOUT MUST COME BACK WITH A VERDICT. The manifest
+    # can still be in flight when `sum -c` runs ("sum: ...: no such file"),
+    # and a reply with no result lines once read as "nothing differs" --
+    # a sync that sent nothing and said "already up to date".
+    for _attempt in range(10):
+        bad, seen = [], set()
+        for line in sess.run(f"sum -c {SUMS_REMOTE}", timeout):
+            # "<path>: OK", "<path>: FAILED", "<path>: FAILED open or read".
+            # Its own summary lines start with "sum:" and are not results.
+            if line.startswith("sum:") or ": " not in line:
+                continue
+            path, _, verdict = line.rpartition(": ")
+            if not path.startswith(base + "/"):
+                continue
+            rel = path[len(base) + 1:]
+            seen.add(rel)
+            if verdict.startswith("OK"):
+                continue
+            # "FAILED open or read" is ABSENT; a bare "FAILED" is PRESENT AND
+            # DIFFERENT. `sum` is the only thing that tells those apart
+            # cheaply, and for /etc they mean opposite things -- see
+            # do_sync()'s missing_only.
+            if missing_only and not verdict.startswith("FAILED open"):
+                continue
+            bad.append(rel)
+        if seen >= set(want):
+            return bad
+        time.sleep(0.5)
+    raise RuntimeError(f"`sum -c {SUMS_REMOTE}` answered for {len(seen)} of "
+                       f"{len(want)} files -- the checksum manifest never arrived whole")
 
 
 def _remote_files(sess, remote_dir, timeout):
