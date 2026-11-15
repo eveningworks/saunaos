@@ -207,6 +207,17 @@ static int add_handle(int rfd, int wfd, const char *host) {
     return i + FIRST_HANDLE;
 }
 
+// A DOS handle reading `host` from `pos`: AccessResource's, on a module's own file. -1 when it
+// cannot be opened.
+int w16_file_open_at(const char *host, uint32_t pos) {
+    int fd = open(host, O_RDONLY);
+    if (fd < 0) return -1;
+    int h = add_handle(fd, -1, host);
+    if (h < 0) { close(fd); return -1; }
+    g_files[h - FIRST_HANDLE].pos = pos;
+    return h;
+}
+
 static struct dosfile *file_of(unsigned h) {
     if (h < FIRST_HANDLE || h - FIRST_HANDLE >= (unsigned)g_nfiles) return 0;
     struct dosfile *f = &g_files[h - FIRST_HANDLE];

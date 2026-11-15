@@ -413,6 +413,13 @@ struct w16_lheap {
     uint32_t end;                                // where it ends: it grows toward 64 KiB
     uint16_t *h;                                 // every moveable handle's entry
     int nh;
+    uint8_t global;                              // in a global block (VB3's): grown by GlobalReAlloc
+};
+
+// A local heap LocalInit made in a global block, as VB3 makes them (mem16.c), found by its selector.
+struct w16_segheap {
+    uint16_t sel;
+    struct w16_lheap heap;
 };
 
 // A program's own DLL, loaded (module16.c).
@@ -468,6 +475,8 @@ struct w16 {
     char missing[64];                            // "USER.171 (WinHelp)": the call that is not there
 
     struct w16_lheap lheap;                      // the local heap of `dgroup` (mem16.c)
+    struct w16_segheap *seg_heaps;               // heaps in global blocks, grown (mem16.c)
+    int nseg_heaps, cap_seg_heaps;
     struct w16_dll **dlls;                       // module16.c: the program's own DLLs, grown
     int ndlls;
     struct { uint16_t sel; char name[16]; } *thunks;   // a Windows module's thunk selector each
@@ -1154,6 +1163,8 @@ int w16_listbox_dir(struct w16 *w, struct w16_wnd *x, unsigned attr, const char 
 extern const struct w16_api g_commdlg_api[];
 extern const unsigned g_commdlg_api_n;
 int w16_dos_file(struct w16 *w, struct cpu16 *c);  // INT 21h's file calls; -1 not one
+int w16_file_open_at(const char *host, uint32_t pos); // a DOS handle reading host from pos, or -1
+struct w16_lheap *w16_seg_heap(struct w16 *w, uint16_t sel, int create);   // a global block's heap, or 0
 int w16_bios_time(struct cpu16 *c);                 // INT 1Ah 00h/02h/04h; -1 another function
 void w16_bios_refresh(struct w16 *w);               // 0040:006C, the BIOS tick count, made current
 // OpenFile's work: the handle, HFILE_ERROR (the OFSTRUCT saying why), or -1 with the fault set.

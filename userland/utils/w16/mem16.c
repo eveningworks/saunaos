@@ -48,6 +48,14 @@ static struct cpu16_desc *global_desc(struct w16 *w, uint16_t h) {
 
 static uint16_t global_sel(struct w16 *w, const struct cpu16_desc *d) { return cpu16_sel((unsigned)(d - w->desc)); }
 
+// A program's or DLL's own segment -- owner its NE segment number, not one of w16's 0xFFxx marks --
+// which Windows' global heap held like any block: GlobalHandle, GlobalSize, GlobalLock and GlobalReAlloc
+// answer for it (VBRUN300 grows the program's DGROUP at start). module16.c gives each a whole 64 KiB.
+static struct cpu16_desc *module_seg(struct w16 *w, uint16_t s) {
+    struct cpu16_desc *d = desc_at(w, s);
+    return d && (d->kind == D_CODE || d->kind == D_DATA) && d->owner >= 1 && d->owner < 0xFF00 ? d : 0;
+}
+
 // A block's selectors: its own and the tiles after it.
 static unsigned global_tiles(struct w16 *w, const struct cpu16_desc *d) {
     unsigned n = 1;
@@ -102,9 +110,40 @@ uint8_t *w16_global_ptr(struct w16 *w, uint16_t h, uint32_t *size) {
 }
 
 // A block's memory and selectors given back, and any handle forwarding to it.
+static void seg_heap_drop(struct w16 *w, uint16_t sel) {
+    for (int i = 0; i < w->nseg_heaps; i++) {
+        if (w->seg_heaps[i].sel != sel) continue;
+        free(w->seg_heaps[i].heap.blk);
+        free(w->seg_heaps[i].heap.h);
+        w->seg_heaps[i] = w->seg_heaps[--w->nseg_heaps];
+        return;
+    }
+}
+
+// The local heap LocalInit made in global block `sel`; with `create`, a new empty one for a global
+// block that has none. 0 for any other selector -- the program's or a DLL's DGROUP keeps its own.
+struct w16_lheap *w16_seg_heap(struct w16 *w, uint16_t sel, int create) {
+    for (int i = 0; i < w->nseg_heaps; i++)
+        if (w->seg_heaps[i].sel == sel) return &w->seg_heaps[i].heap;
+    if (!create || !global_desc(w, sel) || global_tiles(w, global_desc(w, sel)) != 1) return 0;
+    if (w->nseg_heaps == w->cap_seg_heaps) {
+        int cap = w->cap_seg_heaps ? w->cap_seg_heaps * 2 : 8;
+        struct w16_segheap *g = realloc(w->seg_heaps, sizeof *g * (size_t)cap);
+        if (!g) return 0;
+        w->seg_heaps = g;
+        w->cap_seg_heaps = cap;
+    }
+    struct w16_segheap *e = &w->seg_heaps[w->nseg_heaps++];
+    memset(e, 0, sizeof *e);
+    e->sel = sel;
+    e->heap.global = 1;
+    return &e->heap;
+}
+
 static void global_block_free(struct w16 *w, struct cpu16_desc *d) {
     uint16_t sel = global_sel(w, d);
     unsigned tiles = global_tiles(w, d);
+    seg_heap_drop(w, sel);
     lin16_free(d->base);
     memset(d, 0, sizeof *d * tiles);
     cpu16_desc_changed(&w->cpu);
@@ -246,8 +285,12 @@ static int grow(struct w16 *w, uint32_t need) {
     if (want > 0x10000) want = 0x10000;
     if (want <= end + 4) return 0;
     struct cpu16_desc *dg = dgroup_desc(w);
-    memset(dg->base + end, 0, want - end);       // the 64 KiB buffer was there all along
-    dg->limit = want - 1;
+    if (w->lheap.global) {                       // its block grown, as Windows grew a moveable one: in
+        if (dg->limit + 1u < want && !global_realloc(w, w->dgroup, want, 0)) return 0;   // place (one tile)
+    } else {
+        memset(dg->base + end, 0, want - end);   // the 64 KiB buffer was there all along
+        dg->limit = want - 1;
+    }
     struct w16_lblock *last = w->lheap.n ? &w->lheap.blk[w->lheap.n - 1] : 0;
     if (last && !last->used && last->off + last->size == end) last->size = (uint16_t)(last->size + (want - end));
     else if (lblock_add(w, w->lheap.n, (uint16_t)end, (uint16_t)(want - end), 0) < 0) return 0;
@@ -465,7 +508,9 @@ static void set32(struct cpu16 *c, uint32_t v) {
 // LocalInit(wSegment, pStart, pEnd) -> BOOL
 // Windows: Sets up a local heap in a data segment -- what a DLL's start-up code calls for the heap
 // its header asks for.
-// w16: The same for the data segment it runs in. The program's own heap is made when it loads.
+// w16: The same for the data segment it runs in, or for a global block (VB3 keeps heaps in its own
+// blocks): a heap of that block's, which the local-heap calls work on while DS is that block and which
+// grows by GlobalReAlloc. The program's own heap is made when it loads.
 static int api_LocalInit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t seg = w16_arg16(a), start = w16_arg16(a), end = w16_arg16(a);
@@ -479,10 +524,15 @@ static int api_LocalInit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
     s0 = (s0 + 3) & ~3u;
     if (e0 > 0x10000 || e0 <= s0 + 4) return 6;
-    if (dg->limit + 1u < e0) dg->limit = e0 - 1;   // the 64 KiB buffer was there all along
+    uint8_t global = w->lheap.global;
+    if (dg->limit + 1u < e0) {
+        if (!global) dg->limit = e0 - 1;         // the 64 KiB buffer was there all along
+        else if (!global_realloc(w, w->dgroup, e0, 0)) return 6;
+    }
     free(w->lheap.blk);
     free(w->lheap.h);
     memset(&w->lheap, 0, sizeof w->lheap);
+    w->lheap.global = global;
     w->lheap.end = s0;
     if (lblock_add(w, 0, (uint16_t)s0, (uint16_t)(e0 - s0), 0) < 0) return 6;
     w->lheap.end = e0;
@@ -636,12 +686,24 @@ static int api_GlobalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 // (the handle kept, the memory gone), and a size gives a discarded block memory again.
 // w16: The same, the handle kept: the block grows in place while the selectors after it are free, and
 // when they are not it moves and its handle forwards there (a far pointer from before then faults).
+// A program's own segment takes its new size in place, up to 64 KiB.
 static int api_GlobalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t h = w16_arg16(a);
     uint32_t size = w16_arg32(a);
     uint16_t flags = w16_arg16(a);
+    struct cpu16_desc *m = global_desc(w, h) || global_gone(w, h) ? 0 : module_seg(w, h);
+    if (m) {                                     // in its 64 KiB: a new limit, never a move
+        uint32_t old = m->limit + 1;
+        c->r[R_AX].w = 0;
+        if (size >= 1 && size <= 0x10000) {
+            if ((flags & 0x40) && size > old) memset(m->base + old, 0, size - old);   // GMEM_ZEROINIT
+            m->limit = size - 1;
+            c->r[R_AX].w = h | 7;
+        }
+        return 8;
+    }
     c->r[R_AX].w = global_realloc(w, h, size, flags);
     return 8;
 }
@@ -666,14 +728,14 @@ static int api_GlobalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 
 // GlobalLock(hMem) -> LPVOID
 // Windows: A far pointer to a global block, counting a lock on it; NULL for a discarded one.
-// w16: Its selector with offset 0, NULL when discarded. Nothing moves in w16's memory, so no lock is
-// needed or counted.
+// w16: Its selector with offset 0 (a program's own segment's too), NULL when discarded. Nothing moves
+// in w16's memory, so no lock is needed or counted.
 static int api_GlobalLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t h = w16_arg16(a);
     const struct cpu16_desc *d = global_desc(w, h);
-    set32(c, d ? (uint32_t)global_sel(w, d) << 16 : 0);
+    set32(c, d ? (uint32_t)global_sel(w, d) << 16 : module_seg(w, h) ? (uint32_t)(h | 7) << 16 : 0);
     return 2;
 }
 
@@ -690,27 +752,30 @@ static int api_GlobalUnlock(struct w16 *w, unsigned ordinal, struct w16_args *a)
 
 // GlobalSize(hMem) -> DWORD
 // Windows: A global block's size in bytes.
-// w16: The same; 0 for a handle that is not a block.
+// w16: The same, a program's own segment's too; 0 for a handle that is not a block.
 static int api_GlobalSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    const struct cpu16_desc *d = global_desc(w, w16_arg16(a));
-    set32(c, d ? global_bytes(w, d) : 0);
+    uint16_t h = w16_arg16(a);
+    const struct cpu16_desc *d = global_desc(w, h), *m = d ? 0 : module_seg(w, h);
+    set32(c, d ? global_bytes(w, d) : m ? m->limit + 1 : 0);
     return 2;
 }
 
 // GlobalHandle(wMem) -> DWORD
 // Windows: The handle of the global block a selector belongs to, with the selector in the high
-// word.
+// word -- a module's code and data segments are global blocks too.
 // w16: The selector both ways, as in w16 a global block's handle is its selector -- but for a block
-// GlobalReAlloc moved, whose handle is the one it had.
+// GlobalReAlloc moved, whose handle is the one it had. A program's or DLL's own segment (one whose
+// owner is its NE segment number) answers its selector both ways: VBRUN300 asks for its own at start.
 static int api_GlobalHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t s = w16_arg16(a);
     const struct cpu16_desc *d = global_desc(w, s);
     uint16_t sel = d ? global_sel(w, d) : 0;
-    set32(c, d ? (uint32_t)sel << 16 | handle_of(w, sel) : 0);
+    if (d) set32(c, (uint32_t)sel << 16 | handle_of(w, sel));
+    else set32(c, module_seg(w, s) ? (uint32_t)(s | 7) << 16 | (s | 7) : 0);
     return 2;
 }
 

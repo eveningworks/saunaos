@@ -135,15 +135,24 @@ static int api_FindResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
 // AccessResource(hInstance, hResInfo) -> int
 // Windows: Opens the file the resource is in, positioned at it, and returns a DOS file handle to
 // read it with.
-// w16: Answers -1, the file could not be opened: a resource is read with LoadResource and LockResource.
-// Why: A resource is read out of the loaded image, so there is no file position to hand back.
-// Notice: A program that reads a resource through the handle finds the call failed.
-// Whole: A DOS file handle on the program's file, at the resource.
+// w16: The same: a handle on the program's or DLL's own file, at the resource -- how VBRUN300 reads a
+// Visual Basic program's code. -1 when the file cannot be opened.
 static int api_AccessResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
-    w16_arg16(a);
-    w->cpu.r[R_AX].w = 0xFFFF;
+    uint16_t h = w16_arg16(a);
+    struct dllres *e;
+    const struct ne_module *m;
+    struct ne_resource r;
+    int fh = -1;
+    if (dllres_at(w, h, &e, &m, &r) == 0) {                     // a DLL's (or the display driver's)
+        struct w16_dll *d = w16_dll_of(w, e->inst);
+        const char *host = d ? d->path : w->path;
+        if (host) fh = w16_file_open_at(host, r.off);
+    } else if (h >= HRSRC_BASE && ne_resource_at(&w->ne, h - HRSRC_BASE, &r) == 0 && w->path) {
+        fh = w16_file_open_at(w->path, r.off);                  // the program's own
+    }
+    w->cpu.r[R_AX].w = (uint16_t)fh;
     return 4;
 }
 

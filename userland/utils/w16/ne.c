@@ -111,6 +111,16 @@ static int res_name(const struct ne_module *m, uint16_t rel, char *out, size_t c
     return 0;
 }
 
+// A resource's bytes in the file: `len`, or less when its last alignment unit
+// runs past the end -- padding, which Windows never read (WinTune 2.0's last
+// RCDATA ends 217 bytes short of its 256-byte unit). UINT32_MAX for one that
+// starts past the end or overruns by a unit or more.
+static uint32_t res_len(const struct ne_module *m, uint32_t off, uint32_t len) {
+    if (span(m, off, len)) return len;
+    if (off > m->size || len - (m->size - off) >= (1u << m->res_shift)) return UINT32_MAX;
+    return m->size - off;
+}
+
 // Walks the table once at parse time, so ne_resource_at() can trust every
 // span it was given: a type block's entries, and each resource's bytes.
 static int parse_resources(struct ne_module *m, uint32_t t) {
@@ -131,7 +141,7 @@ static int parse_resources(struct ne_module *m, uint32_t t) {
         for (unsigned i = 0; i < count; i++) {
             uint32_t off = (uint32_t)rd16(m, p + 12 * i) << m->res_shift;
             uint32_t len = (uint32_t)rd16(m, p + 12 * i + 2) << m->res_shift;
-            if (!span(m, off, len)) return NE_E_RESOURCE;
+            if (res_len(m, off, len) == UINT32_MAX) return NE_E_RESOURCE;
         }
         p += 12u * count;
         n += count;
@@ -155,7 +165,7 @@ int ne_resource_at(const struct ne_module *m, unsigned i, struct ne_resource *ou
             if (id & 0x8000) out->id = id & 0x7FFF;
             else if (res_name(m, id, out->name, sizeof out->name) < 0) return NE_E_RESOURCE;
             out->off = (uint32_t)rd16(m, e) << m->res_shift;
-            out->len = (uint32_t)rd16(m, e + 2) << m->res_shift;
+            out->len = res_len(m, out->off, (uint32_t)rd16(m, e + 2) << m->res_shift);
             return 0;
         }
         i -= count;

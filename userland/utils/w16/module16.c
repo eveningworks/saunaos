@@ -543,16 +543,35 @@ const struct ne_module *w16_module_of(struct w16 *w, uint16_t inst) {
 // --- the local heap a KERNEL call works on --------------------------------------
 
 // The local-heap calls work on the heap in DS's segment, as Windows'
-// did: a DLL's own when its code calls them. That heap is swapped in for
-// the call and back out after -- mem16.c knows one heap, in w->dgroup.
+// did: a DLL's own when its code calls them, or one LocalInit made in a
+// global block. That heap is swapped in for the call and back out after --
+// mem16.c knows one heap, in w->dgroup.
 static int local_call(unsigned ordinal) {
     return (ordinal >= 4 && ordinal <= 14) || ordinal == 121 || ordinal == 161 || ordinal == 162;
 }
 
 int w16_kernel_heap_call(struct w16 *w, unsigned ordinal, struct w16_args *a,
                          int (*call)(struct w16 *, unsigned, struct w16_args *)) {
-    struct w16_dll *d = local_call(ordinal) ? w16_dll_of(w, w->cpu.sreg[S_DS]) : 0;
-    if (!d || !d->dgroup) return call(w, ordinal, a);
+    if (!local_call(ordinal)) return call(w, ordinal, a);
+    struct w16_dll *d = w16_dll_of(w, w->cpu.sreg[S_DS]);
+    if (!d || !d->dgroup) {
+        // A heap in a global block (VB3's): LocalInit names the block, the other calls find it by DS.
+        uint16_t seg = w->cpu.sreg[S_DS];
+        if (ordinal == 4) { struct w16_args t = *a; uint16_t s0 = w16_arg16(&t); if (s0) seg = s0; }
+        struct w16_lheap *sh = seg != w->dgroup ? w16_seg_heap(w, seg, ordinal == 4) : 0;
+        if (!sh) return call(w, ordinal, a);
+        uint16_t dg = w->dgroup;
+        struct w16_lheap h = w->lheap;
+        w->dgroup = seg;
+        w->lheap = *sh;
+        int r = call(w, ordinal, a);
+        sh = w16_seg_heap(w, seg, 0);            // the call may have freed or grown the table
+        if (sh) *sh = w->lheap;
+        else { free(w->lheap.blk); free(w->lheap.h); }
+        w->lheap = h;
+        w->dgroup = dg;
+        return r;
+    }
     uint16_t dg = w->dgroup;
     struct w16_lheap h = w->lheap;
     w->dgroup = d->dgroup;
