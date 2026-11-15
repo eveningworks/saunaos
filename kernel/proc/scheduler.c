@@ -1201,11 +1201,32 @@ void scheduler_test_rt_budget_reset(void) { g_rt_used_ns = 0; g_rt_throttled = 0
 // bill_current() above.
 static void scheduler_rotate(uint64_t *regs);
 
+// The most any runnable fair process has run: where scheduler_yield()
+// puts a yielder, the back of the pack.
+static uint64_t fair_top(int except) {
+    uint64_t top = 0;
+    for (int i = 0; i < MAX_PROCS; i++)
+        if (i != except && runnable_at(i) && !is_rt(i) && procs[i].vruntime > top)
+            top = procs[i].vruntime;
+    return top;
+}
+
 // Whether a timer event should rotate: the slice is over -- or the
 // kernel context is IDLING with a process ready, which should run now
 // rather than when the idle loop's slice would have ended.
+// THE IDLE KERNEL'S HANDOVER IS A YIELD: it goes to the back of the pack.
+// A halt does not advance kernel_vruntime, so left where it was the
+// kernel stayed the least-run and the picker handed the CPU straight back
+// to the idle loop -- ~23,000 times a second until its slice ran out, and
+// a lone busy process got half the CPU. It still gets one idle pass per
+// process slice (input, network, the disk's write-back), as before.
 static int timer_wants_rotation(uint64_t now) {
-    if (current_index < 0 && clockevent_in_idle()) return scheduler_any_ready();
+    if (current_index < 0 && clockevent_in_idle()) {
+        if (!scheduler_any_ready()) return 0;
+        uint64_t top = fair_top(-1);
+        if (kernel_vruntime < top) kernel_vruntime = top;
+        return 1;
+    }
     if (g_need_resched) return 1;
     if (current_index >= 0 && procs[current_index].policy == SCHED_FIFO && now >= g_slice_end_ns) {
         // A FIFO PROCESS HAS NO SLICE, only the guards. The slice end
@@ -1261,11 +1282,8 @@ void scheduler_yield(uint64_t *regs) {
     if (current_index >= 0 && is_rt(current_index)) {
         procs[current_index].rt_seq = ++g_rt_seq;
     } else if (current_index >= 0) {
-        uint64_t top = procs[current_index].vruntime;
-        for (int i = 0; i < MAX_PROCS; i++)
-            if (i != current_index && runnable_at(i) && !is_rt(i) &&
-                procs[i].vruntime > top)
-                top = procs[i].vruntime;
+        uint64_t top = fair_top(current_index);
+        if (procs[current_index].vruntime > top) top = procs[current_index].vruntime;
         if (kernel_slot_runnable() && kernel_vruntime > top) top = kernel_vruntime;
         procs[current_index].vruntime = top;
     }

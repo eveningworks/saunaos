@@ -9,6 +9,9 @@
 //   self    the call answers for this thread
 //   disk    writes and an fsync park on the disk, and disk_ns grows
 //   runq    yielding to a spinning thread is READY time, and runq_ns grows
+//   alone   spinning with nothing else to run is not: under a quarter of
+//           the wall time waits for the CPU (the idle kernel once took
+//           half, handing the CPU back to itself)
 //   sleep   300 ms asleep grows none of the three by more than a little
 //   flock   300 ms waiting on another process's record lock is not a
 //           kernel lock: lock_ns does not grow by it
@@ -32,6 +35,7 @@
 #define DATAFILE "/var/tmp/delay_test.data"
 #define HOLD_MS 300
 #define SLACK_MS 50   // what a 300 ms wait by choice may still add, at most
+#define ALONE_MS 500
 
 static struct proc_info self(void) {
     struct proc_info pi;
@@ -87,6 +91,16 @@ int main(int argc, char **argv) {
     utest_checkf(spinning && c1.delay_runq_ns > c0.delay_runq_ns,
                  "runq: yielding to a spinning thread is time waiting for the CPU (+%llu ms)",
                  ms(c1.delay_runq_ns - c0.delay_runq_ns));
+
+    // alone: half a second of spinning, this thread the only one busy.
+    struct proc_info s0 = self();
+    uint64_t w0 = sys_monotonic_ns();
+    while (sys_monotonic_ns() - w0 < ALONE_MS * 1000000ull) {}
+    struct proc_info s1 = self();
+    uint64_t wall = sys_monotonic_ns() - w0;
+    uint64_t runq = s1.delay_runq_ns - s0.delay_runq_ns;
+    utest_checkf(runq < wall / 4, "alone: %llu ms of %llu spent waiting for the CPU, %llu running (under a quarter)",
+                 ms(runq), ms(wall), ms(s1.cpu_ns - s0.cpu_ns));
 
     // sleep: a wait by choice.
     struct proc_info d0 = self();

@@ -504,6 +504,23 @@ See the commit that added it for the full writeup and how
 both directions were verified, `scheduler.c`'s `ROT_KERNEL` comment for
 the design, and `docs/roadmap.md`'s Milestone 41 for what this unblocks.
 
+**An idle kernel's handover is a yield (2026-11-15).** Linux never has
+this problem: its idle task is a class of its own that runs only when
+nothing else can, and the polling SaunaOS does in its idle loop (raw
+input to the compositor, the network's receive path, the disk's
+write-back) is interrupts, softirqs and kernel threads there. Here the
+kernel context keeps its turn -- that polling has to run while a busy
+process holds the CPU -- but a turn spent idle ends with it moved to the
+back of the fair pack (`timer_wants_rotation()`), the same place
+`scheduler_yield()` puts a process. Without that, a halt (which does not
+advance `kernel_vruntime`) left the kernel the least-run, the picker
+chose it again on every hand-over, and with one busy process the timer
+fired ~23,000 times a second while the CPU split 50/50 between the
+process and the idle loop. Measured under KVM with `timer_bench.py`: a
+lone process's work units 49,005 -> 100,867, and two processes' total
+unchanged; `delay_test`'s `alone` check holds it (red at 260 ms of 500
+waiting for the CPU). It still gets one idle pass per process slice.
+
 ## Blocking syscalls deschedule; they never wait in place
 
 The obvious way to write a blocking syscall here -- `sti`, then spin or
