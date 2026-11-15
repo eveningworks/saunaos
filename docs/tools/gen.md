@@ -326,7 +326,8 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   Linux's signals and miss this kernel's numbering. The names are parsed
   out of the header rather than written down, so a signal added there
   appears on the next build. Run by the Makefile, not by hand.
-- **`gen_ne.py`** -- builds a Win16 (NE) executable from ONE NASM source
+- **`gen_ne.py`** -- builds a Win16 (NE) executable -- or, with `;w16: library`, a DLL,
+  which the Makefile names `.dll` -- from ONE NASM source
   written with `userland/utils/w16/samples/ne16.inc`, so w16's test programs
   need no foreign toolchain and no Microsoft binary. The source is
   assembled once per segment (`-DW16_PASS=n`), the other segments laid

@@ -1051,6 +1051,22 @@ int w16_kernel_equate(const char *module, unsigned ordinal, uint16_t *value);
 // or 11 (not a library w16 can load).
 struct w16_dll *w16_dll_load(struct w16 *w, const char *spec, int *err);
 struct w16_dll *w16_dll_of(struct w16 *w, uint16_t hinst);   // NULL: not a DLL's
+// THE DLL A PROGRAM CANNOT START WITHOUT, asked before w16_load(): the first module the program --
+// or a DLL it imports, at any depth -- imports that w16 does not answer and that is in none of the
+// places w16_dll_load() looks, or is there but no library. 1 with its name in `mod` ("VBRUN300") and in `by` the DLL importing
+// it ("" for the program itself), else 0. A load that failed halfway could not be undone, so the
+// question comes first (needdll16.c asks the person for the file).
+int w16_missing_dll(struct w16 *w, const struct ne_module *ne, char *mod, size_t mcap, char *by, size_t bcap);
+// What a DLL a program brings is, for a person: "Visual Basic 3.0 runtime" for the redistributables
+// programs commonly need, "a DLL the program needs" for the rest; `*who` its maker, or NULL.
+const char *w16_dll_what(const char *mod, const char **who);
+uint8_t *w16_read_file(const char *path, uint32_t *size);   // a whole file, at most 16 MiB; NULL
+// needdll16.c: "<program> needs a file" for `mod` (imported by DLL `by`, "" the program), on the MAIN
+// thread before the program is loaded (`pre` is its parsed header). `done(a, 1)` once the file the
+// person chose is in drive C:'s WINDOWS\SYSTEM; `done(a, 0)` on Cancel, or with no window to ask in.
+struct uapp;
+void w16_needdll_open(struct uapp *a, const struct ne_module *pre, const char *mod, const char *by,
+                      void (*done)(struct uapp *, int));
 int w16_dll_start_pending(struct w16 *w);         // the task's first act: their LibEntries
 // A KERNEL call, made on the local heap DS names (a DLL's own, when its code calls).
 int w16_kernel_heap_call(struct w16 *w, unsigned ordinal, struct w16_args *a,

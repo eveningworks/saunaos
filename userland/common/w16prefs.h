@@ -132,6 +132,12 @@ void w16_prog_conf(const char *exe, char *out, int cap);    // its overrides fil
 void w16_prog_last(const char *exe, char *out, int cap);    // its last-run record
 void w16_trace_path(const char *exe, char *out, int cap);   // where its trace goes
 
+// Drive C:'s WINDOWS folder, or with `system` its SYSTEM folder inside it, as it is spelt on disk
+// (names matched without case, as w16 matches them): 0 and the path in `out`, or -1 when it is not
+// there. `create` makes what is missing, spelt WINDOWS and SYSTEM -- where a program's missing DLL
+// is copied to (Retro Launcher's Add file..., w16's "needs a file").
+int w16_windows_dir(const char *drive_c, int system, int create, char *out, int cap);
+
 // Is `d` (D to Y, either case) one of the CD-ROM drives `cd_drives` names? Its folder is not asked.
 int w16_prefs_is_cd(const struct w16_prefs *p, char d);
 

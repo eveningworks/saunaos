@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 // --- Windows' own modules ------------------------------------------------------
 
@@ -364,7 +365,7 @@ static int find_dll(struct w16 *w, const char *spec, char *host, size_t cap) {
     return 2;
 }
 
-static uint8_t *read_file(const char *path, uint32_t *size) {
+uint8_t *w16_read_file(const char *path, uint32_t *size) {
     FILE *f = fopen(path, "rb");
     if (!f) return 0;
     uint8_t *buf = 0;
@@ -384,6 +385,82 @@ static uint8_t *read_file(const char *path, uint32_t *size) {
     fclose(f);
     *size = (uint32_t)n;
     return buf;
+}
+
+// --- a DLL that is not there -------------------------------------------------------
+
+// The redistributables a 3.x program commonly needs and SaunaOS does not ship (docs/decisions/gui.md,
+// "Windows' own DLLs are w16's code; a program's redistributables run as shipped").
+static const struct { const char *mod, *what, *who; } REDIST[] = {
+    { "VBRUN100", "Visual Basic 1.0 runtime", "Microsoft" },
+    { "VBRUN200", "Visual Basic 2.0 runtime", "Microsoft" },
+    { "VBRUN300", "Visual Basic 3.0 runtime", "Microsoft" },
+    { "VB40016",  "Visual Basic 4.0 runtime (16-bit)", "Microsoft" },
+    { "CTL3D",    "Microsoft 3D controls", "Microsoft" },
+    { "CTL3DV2",  "Microsoft 3D controls", "Microsoft" },
+};
+
+const char *w16_dll_what(const char *mod, const char **who) {
+    for (unsigned i = 0; i < sizeof REDIST / sizeof REDIST[0]; i++)
+        if (!strcasecmp(REDIST[i].mod, mod)) {
+            if (who) *who = REDIST[i].who;
+            return REDIST[i].what;
+        }
+    if (who) *who = 0;
+    return "a DLL the program needs";
+}
+
+struct need { char name[16], by[16]; };
+
+// `ne`'s imports w16 does not answer, onto the list unless there already: `by` imports them.
+static int need_add(struct need **list, int *n, int *cap, const struct ne_module *ne, const char *by) {
+    for (unsigned k = 1; k <= ne->nmod; k++) {
+        char mod[16];
+        if (ne_module_name(ne, k, mod, sizeof mod) < 0 || !mod[0] || w16_is_builtin(mod)) continue;
+        int seen = 0;
+        for (int i = 0; i < *n && !seen; i++) seen = !strcasecmp((*list)[i].name, mod);
+        if (seen) continue;
+        if (*n == *cap) {
+            struct need *g = realloc(*list, sizeof **list * (size_t)(*cap = *cap ? *cap * 2 : 8));
+            if (!g) return -1;
+            *list = g;
+        }
+        snprintf((*list)[*n].name, sizeof (*list)[*n].name, "%s", mod);
+        snprintf((*list)[*n].by, sizeof (*list)[*n].by, "%s", by);
+        (*n)++;
+    }
+    return 0;
+}
+
+int w16_missing_dll(struct w16 *w, const struct ne_module *ne, char *mod, size_t mcap, char *by, size_t bcap) {
+    struct need *list = 0;
+    int n = 0, cap = 0, found = 0;
+    struct ne_module *m = calloc(1, sizeof *m);
+    if (!m || need_add(&list, &n, &cap, ne, "") < 0) { free(m); free(list); return 0; }
+    // Breadth first, so the program's own imports are asked about before a DLL's.
+    for (int i = 0; i < n && !found; i++) {
+        char host[1024];
+        if (find_dll(w, list[i].name, host, sizeof host)) {
+            snprintf(mod, mcap, "%s", list[i].name);
+            snprintf(by, bcap, "%s", list[i].by);
+            found = 1;
+            break;
+        }
+        // ONE THERE THAT IS NO LIBRARY IS MISSING TOO: what the person supplies replaces it.
+        uint32_t size = 0;
+        uint8_t *img = w16_read_file(host, &size);
+        if (!img || ne_parse(img, size, m) < 0 || !(m->flags & 0x8000)) {
+            snprintf(mod, mcap, "%s", list[i].name);
+            snprintf(by, bcap, "%s", list[i].by);
+            found = 1;
+        } else if (need_add(&list, &n, &cap, m, list[i].name) < 0) {
+            i = n;
+        }
+        free(img);
+    }
+    free(m);
+    free(list);
+    return found;
 }
 
 // Each exported entry that loads its DGROUP with "push ds; pop ax" or
@@ -446,7 +523,7 @@ struct w16_dll *w16_dll_load(struct w16 *w, const char *spec, int *err) {
     w->dlls = g;
     snprintf(d->name, sizeof d->name, "%s", name);
     d->path = strdup(host);
-    d->img = read_file(host, &d->size);
+    d->img = w16_read_file(host, &d->size);
     if (!d->path || !d->img || ne_parse(d->img, d->size, &d->ne) < 0 || !(d->ne.flags & 0x8000)) {
         fprintf(stderr, "w16: %s: not a Windows library w16 can load\n", host);
         free(d->img); free(d->path); free(d);
@@ -494,7 +571,7 @@ static struct w16_dll *display_module(struct w16 *w) {
     w->dlls = g;
     snprintf(d->name, sizeof d->name, "DISPLAY");
     d->path = strdup(host);
-    d->img = read_file(host, &d->size);
+    d->img = w16_read_file(host, &d->size);
     d->resonly = d->refs = 1;
     w->dlls[w->ndlls++] = d;
     struct w16_image im = { &d->ne, d->seg_sel, d->path };

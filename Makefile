@@ -2419,10 +2419,12 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# a DIFFERENT format on purpose -- see that script's header.
 	# w16's sample programs (docs/w16-design.md): NE executables BUILT here
 	# from userland/utils/w16/samples/*.asm by tools/gen/gen_ne.py -- the project
-	# ships no Microsoft file and tracks no generated binary for them.
+	# ships no Microsoft file and tracks no generated binary for them. A
+	# source that says `;w16: library` is a DLL, and named .dll.
 	mkdir -p $(SEED_DIR)/sync/usr/share/w16
 	for s in userland/utils/w16/samples/*.asm; do \
-		python3 tools/gen/gen_ne.py $$s -o $(SEED_DIR)/sync/usr/share/w16/$$(basename $$s .asm).exe || exit 1; \
+		ext=exe; grep -q '^;w16: library' $$s && ext=dll; \
+		python3 tools/gen/gen_ne.py $$s -o $(SEED_DIR)/sync/usr/share/w16/$$(basename $$s .asm).$$ext || exit 1; \
 	done
 	# ...and the guard (tools/lib/iso_guard.py) judges userland/ against build/userland, where no sample lands:
 	# a stamp there says the samples were built after their source changed.

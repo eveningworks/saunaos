@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
+#include <dirent.h>
 #include <sys/stat.h>
 #include "base/uconf.h"
 #include "base/umd.h"
@@ -114,6 +116,32 @@ static void prog_file(const char *dir, const char *exe, const char *ext, char *o
 void w16_prog_conf(const char *exe, char *out, int cap) { prog_file(W16_PROG_DIR, exe, ".conf", out, cap); }
 void w16_prog_last(const char *exe, char *out, int cap) { prog_file(W16_STATE_DIR, exe, ".last", out, cap); }
 void w16_trace_path(const char *exe, char *out, int cap) { prog_file(W16_STATE_DIR, exe, ".trace", out, cap); }
+
+// `dir`/`name` as `dir` spells it, found without case, into `out`; made as `name` when `create`.
+static int child_dir(const char *dir, const char *name, int create, char *out, int cap) {
+    DIR *d = opendir(dir);
+    int found = 0;
+    for (struct dirent *e; d && !found && (e = readdir(d)) != 0;)
+        if (!strcasecmp(e->d_name, name)) {
+            found = snprintf(out, (size_t)cap, "%s%s%s", dir, dir[strlen(dir) - 1] == '/' ? "" : "/", e->d_name) < cap;
+            if (!found) break;
+        }
+    if (d) closedir(d);
+    struct stat st;
+    if (found) return stat(out, &st) == 0 && S_ISDIR(st.st_mode) ? 0 : -1;
+    if (!create || snprintf(out, (size_t)cap, "%s%s%s", dir, dir[strlen(dir) - 1] == '/' ? "" : "/", name) >= cap)
+        return -1;
+    return mkdir(out, 0755) == 0 ? 0 : -1;
+}
+
+int w16_windows_dir(const char *drive_c, int system, int create, char *out, int cap) {
+    char win[512];
+    if (!drive_c[0]) return -1;
+    if (create) mkdir(drive_c, 0755);
+    if (child_dir(drive_c, "WINDOWS", create, win, sizeof win) < 0) return -1;
+    if (!system) return snprintf(out, (size_t)cap, "%s", win) < cap ? 0 : -1;
+    return child_dir(win, "SYSTEM", create, out, cap);
+}
 
 int w16_prefs_is_cd(const struct w16_prefs *p, char d) {
     char u = d >= 'a' && d <= 'z' ? (char)(d - 32) : d;

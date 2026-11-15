@@ -34,6 +34,7 @@
 #include "base/uwalk.h"
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
+#include "base/ufileop.h"
 #include "base/ulog.h"
 #include "ui/utheme.h"
 #include "ui/uui.h"
@@ -102,6 +103,11 @@ struct prog {
     char **zeroed;                   // the calls answered 0 on that run: "USER.7 ExitWindows"
     int nzeroed;
     char *trace;                     // the trace that run wrote, while it is there
+    // The DLLs it cannot start without (`w16 --check`'s `needs` lines): "VBRUN300.DLL", and what each
+    // is ("Visual Basic 3.0 runtime"). Run is greyed while there is one.
+    char **needs, **needs_what;
+    int nneeds;
+    int bad_copy;                    // Add file... copied one and w16 still cannot use it
 };
 
 static struct prog *g_prog;
@@ -121,7 +127,7 @@ enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VER
        ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE, ID_TABLE, ID_SEARCH,
        ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN, ID_SOUNDS, ID_SOUND, ID_HELP, ID_COLORS,
        ID_WINBAR, ID_MISSING, ID_RUN_MORE, ID_RUNMENU, ID_INI, ID_DRV_TABLE, ID_DRV_TYPE, ID_DRV_LABEL,
-       ID_CD, ID_CD_LETTER, ID_EFFECT, ID_OPT_FX /* + UUI_CRTPICK_IDS */ };
+       ID_CD, ID_CD_LETTER, ID_ADDFILE, ID_EFFECT, ID_OPT_FX /* + UUI_CRTPICK_IDS */ };
 
 static struct uui_menubar g_menu;
 static struct uui_menubar g_ctx;             // a folder's right-click menu
@@ -163,6 +169,7 @@ static struct uui_dropdown g_dcd, g_dcl;     // its own CD, and the letter it is
 static struct uui_button g_run, g_run_more;
 static struct uui_button g_calls;            // "Missing calls...": the calls window
 static struct uui_button g_ini;              // "Open in Notepad" or "Make one...": its INI file
+static struct uui_button g_addfile;          // "Add file...": the DLL it cannot start without
 static struct uui_filedialog g_chooser;      // ~20 KB: file scope
 static int g_panel = 1;                      // the details panel is open
 static int g_px, g_py, g_pw, g_ph;           // where it is
@@ -196,6 +203,9 @@ static void prog_free(struct prog *p) {
         free(p->part[i].names); free(p->part[i].note); free(p->part[i].key); free(p->part[i].first);
     }
     free(p->part);
+    for (int i = 0; i < p->nneeds; i++) { free(p->needs[i]); free(p->needs_what[i]); }
+    free(p->needs);
+    free(p->needs_what);
     uimg_free(&p->small);
     memset(p, 0, sizeof *p);
 }
@@ -276,6 +286,20 @@ static void add_partly(struct prog *p, char *line) {
     p->part[i].names = joined;
 }
 
+// "needs VBRUN300.DLL Visual Basic 3.0 runtime": the file, then what it is.
+static void add_need(struct prog *p, const char *line) {
+    const char *sp = strchr(line, ' ');
+    char **g = realloc(p->needs, sizeof *p->needs * (size_t)(p->nneeds + 1));
+    if (g) p->needs = g;
+    char **h = g ? realloc(p->needs_what, sizeof *p->needs_what * (size_t)(p->nneeds + 1)) : 0;
+    if (h) p->needs_what = h;
+    if (!g || !h) return;
+    char *file = sp ? strndup(line, (size_t)(sp - line)) : strdup(line), *what = strdup(sp ? sp + 1 : "");
+    if (!file || !what) { free(file); free(what); return; }
+    p->needs[p->nneeds] = file;
+    p->needs_what[p->nneeds++] = what;
+}
+
 // `w16 --check PATH`'s lines into `p`.
 static void check(struct prog *p) {
     p->checked = 1;
@@ -322,6 +346,8 @@ static void check(struct prog *p) {
                 set_str(&p->mname[i], name ? name : "?");
                 set_str(&p->missing[i], name && name[0] != '?' ? name : imp);
             }
+        } else if (!strncmp(line, "needs ", 6)) {
+            add_need(p, line + 6);
         } else if (!strncmp(line, "icon ", 5)) {
             int w = 0, h = 0;
             sscanf(line + 5, "%d %d", &w, &h);
@@ -524,6 +550,7 @@ static char g_applied[UUI_TEXTBOX_MAX];      // the search the list was last bui
 static uint32_t badge_of(const struct prog *p) {
     int missing = p->imports - p->has;
     return !p->checked ? UTHEME_OUTLINE
+         : p->nneeds ? utheme_severity(UTHEME_SEV_WARNING)
          : p->last == 2 ? utheme_severity(UTHEME_SEV_ERROR)
          : p->last == 1 || (!missing && !p->partly) ? utheme_action(UTHEME_ACT_CREATE)
          : missing ? uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED)
@@ -534,6 +561,7 @@ static uint32_t badge_of(const struct prog *p) {
 static void status_text(const struct prog *p, char *st, size_t cap) {
     int missing = p->imports - p->has;
     if (!p->checked) snprintf(st, cap, "Checking...");
+    else if (p->nneeds) snprintf(st, cap, "%d file%s missing", p->nneeds, p->nneeds == 1 ? "" : "s");
     else if (p->last == 2) snprintf(st, cap, "Stopped last time");
     else if (missing) snprintf(st, cap, p->last == 1 ? "Ran last time" : "%d missing", missing);
     else if (p->partly) snprintf(st, cap, "Runs \xb7 %d partly", p->partly);
@@ -550,7 +578,7 @@ static void when_text(const struct prog *p, char *out, size_t cap) {
 
 // How the Status column orders: worst last, programs not yet checked first.
 static int status_rank(const struct prog *p) {
-    return !p->checked ? -1 : p->last == 2 ? 4 : p->imports > p->has ? 3 : p->partly ? 2 : 1;
+    return !p->checked ? -1 : p->last == 2 || p->nneeds ? 4 : p->imports > p->has ? 3 : p->partly ? 2 : 1;
 }
 
 // Two programs by one column, ascending; ties fall to the name and then the path, so a
@@ -837,6 +865,18 @@ static void fill_drive_c(const struct prog *p, unsigned mask, const struct w16_p
     g_ddc.disabled = !p || !p->ok;
 }
 
+// `w16 --check` once more for `p`, from nothing: after a DLL was supplied or its drive C: changed.
+static void recheck(struct prog *p) {
+    char *path = p->path;
+    int folder = p->folder, bad = p->bad_copy;
+    p->path = 0;
+    prog_free(p);
+    p->path = path;
+    p->folder = folder;
+    p->bad_copy = bad;
+    check(p);
+}
+
 // The program's own drive C: set to `path`, or back to the default (NULL).
 static void set_prog_drive_c(const struct prog *p, const char *path) {
     static struct w16_prefs eff;                 // ~3 KB with the drives: not on the stack
@@ -847,6 +887,7 @@ static void set_prog_drive_c(const struct prog *p, const char *path) {
         mask |= 1u << W16K_DRIVE_C;
     }
     w16_prefs_save_program(p->path, &eff, mask);
+    recheck((struct prog *)p);                   // its DLLs are looked for on its drive C:
 }
 
 // ITS OWN CD (`cd`, `cd_letter`): None, the one it has, Choose a folder..., Choose a disc image...,
@@ -1193,7 +1234,7 @@ static int target_folder(void) { return g_ctx_folder >= 0 ? g_ctx_folder : uui_s
 // --- choosing a folder, for whichever asked ----------------------------------------
 
 enum pick { PICK_ADD, PICK_CHANGE, PICK_OPT_ADD, PICK_OPT_CHANGE, PICK_DRIVE_ADD, PICK_DRIVE_CHANGE, PICK_PROG_C,
-            PICK_PROG_CD, PICK_PROG_CD_IMAGE };
+            PICK_PROG_CD, PICK_PROG_CD_IMAGE, PICK_DLL };
 _Static_assert(PICK_PROG_C == 6 && PICK_PROG_CD == 7 && PICK_PROG_CD_IMAGE == 8,
                "drive_c_chosen() and cd_chosen() name them by number, being above the enum");
 static int g_pick;
@@ -1215,6 +1256,63 @@ static char *drive_slot(struct w16_prefs *p, char d) {
 
 static void cd_set(struct w16_prefs *p, char d, int on);
 static struct uui_listedit g_drives;         // Options' Drives list (its page is below)
+
+// --- ADD FILE...: the DLL a program cannot start without -------------------------------------
+//
+// SaunaOS ships no vendor runtime (docs/decisions/gui.md, "Windows' own DLLs are w16's code; a
+// program's redistributables run as shipped"), so the person supplies it. The file is copied into
+// the program's drive C: WINDOWS\SYSTEM under the name the program imports -- where the loader looks
+// after the program's own folder -- and `w16 --check` asked again: this app never reads a Windows
+// file itself, so whether the copy is a library w16 can load is w16's answer, not ours.
+static char *g_dll_for;                      // the program the chooser is for, by path
+static void chosen(void *ctx, const char *path);
+
+static int is_dll_name(void *ctx, const char *dir, const struct ulist_entry *e) {
+    (void)ctx;
+    (void)dir;
+    size_t n = strlen(e->name);
+    return e->is_dir || (n > 4 && !strcasecmp(e->name + n - 4, ".dll"));
+}
+
+static void pick_dll(const struct prog *p) {
+    static const struct uui_filedialog_filter FILTERS[] = {
+        { "Windows libraries (*.DLL)", is_dll_name, 0, 0 }, UUI_FILEDIALOG_ALL_FILES,
+    };
+    if (!p || !p->nneeds || uui_filedialog_is_open(&g_chooser)) return;
+    free(g_dll_for);
+    if (!(g_dll_for = strdup(p->path))) return;
+    g_pick = PICK_DLL;
+    static char title[64];
+    snprintf(title, sizeof title, "Choose %s", p->needs[0]);
+    struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_OPEN, .title = title, .start_dir = "/home",
+                                     .filters = FILTERS, .filter_count = 2 };
+    uui_filedialog_open(g_app, &g_chooser, &o, chosen, g_app);
+}
+
+static void add_dll(const char *from) {
+    struct prog *p = 0;
+    for (int i = 0; i < g_nprog && !p; i++)
+        if (g_dll_for && !strcmp(g_prog[i].path, g_dll_for)) p = &g_prog[i];
+    if (!p || !p->nneeds) return;
+    static struct w16_prefs eff;                 // ~3 KB with the drives: not on the stack
+    static struct ufileop op;                    // tens of KB: file scope
+    w16_prefs_load(&eff, p->path);
+    char dir[512], to[600], need[32];
+    snprintf(need, sizeof need, "%s", p->needs[0]);
+    if (w16_windows_dir(eff.drive_c, 1, 1, dir, sizeof dir) < 0 ||
+        snprintf(to, sizeof to, "%s/%s", dir, need) >= (int)sizeof to) {
+        ulogf("retrolauncher: add file: cannot make %s's C:\\WINDOWS\\SYSTEM\n", eff.drive_c);
+        return;
+    }
+    int r = ufileop_copy(from, to, &op, &(struct ufileop_policy){ 0 });
+    ulogf("retrolauncher: add file %s as %s: %s\n", from, to, r == UFILEOP_OK ? "copied" : "failed");
+    if (r != UFILEOP_OK) return;
+    recheck(p);
+    p->bad_copy = 0;
+    for (int i = 0; i < p->nneeds; i++) p->bad_copy |= !strcasecmp(p->needs[i], need);
+    ulogf("retrolauncher: needs %s: %d%s\n", file_name(p->path), p->nneeds, p->bad_copy ? ", the copy unusable" : "");
+    fill_panel();
+}
 
 static void chosen(void *ctx, const char *path) {
     (void)ctx;
@@ -1264,6 +1362,7 @@ static void chosen(void *ctx, const char *path) {
             if (&g_prog[i] == g_pick_prog) set_prog_cd(g_pick_prog, path, 0);
         fill_panel();
         break;
+    case PICK_DLL: add_dll(path); break;
     }
     uapp_redraw(g_app);
 }
@@ -1820,9 +1919,9 @@ static void open_options(void) {
 static void command(struct uapp *a, int cmd) {
     struct prog *p = cur();
     switch (cmd) {
-    case CMD_RUN:     if (p && p->ok) run(p->path); break;
-    case CMD_RUN_TRACE: if (p && p->ok) run_as(p->path, RUN_TRACE); break;
-    case CMD_RUN_SKIP:  if (p && p->ok) run_as(p->path, RUN_SKIP); break;
+    case CMD_RUN:     if (p && p->ok && !p->nneeds) run(p->path); break;
+    case CMD_RUN_TRACE: if (p && p->ok && !p->nneeds) run_as(p->path, RUN_TRACE); break;
+    case CMD_RUN_SKIP:  if (p && p->ok && !p->nneeds) run_as(p->path, RUN_SKIP); break;
     case CMD_CALLS:   if (p && p->ok) show_calls(p->path); break;
     case CMD_PROPS:   g_panel = !g_panel; break;
     case CMD_VIEW_ICONS: case CMD_VIEW_DETAILS: set_details(cmd == CMD_VIEW_DETAILS); break;
@@ -1936,17 +2035,56 @@ static void bold_line(struct ugfx_surface *s, int x, int *y, int w, const char *
     ugfx_set_font(was);
 }
 
+// THE FILE IT CANNOT START WITHOUT, first under its name -- the "w16: a missing runtime DLL"
+// canvas's C: a warning-tinted box saying what the file is, and Add file... (layout() places it at
+// g_add_y). The first of them; once it is supplied the next shows.
+static int g_add_y = -1;
+static char g_need_text[320];
+
+static int add_w(void) { return ugfx_text_width("Add file...") + ugfx_char_w() * 3; }
+
+static int draw_need(struct ugfx_surface *s, const struct prog *p, int x, int y, int w) {
+    int pad = ugfx_char_w(), lh = ugfx_char_h(), rh = row_h();
+    const char *what = p->needs_what[0];
+    int a = !strncmp(what, "a ", 2) || !strncmp(what, "an ", 3);
+    int n = snprintf(g_need_text, sizeof g_need_text, "Needs %s, %s%s. %s", p->needs[0], a ? "" : "the ", what,
+                     p->bad_copy ? "The file chosen is not one w16 can load." : "SaunaOS does not include it.");
+    if (p->nneeds > 1 && n > 0 && n < (int)sizeof g_need_text)
+        snprintf(g_need_text + n, sizeof g_need_text - (size_t)n, " %d more after it.", p->nneeds - 1);
+    uint32_t hue = utheme_severity(UTHEME_SEV_WARNING), tint = ugfx_blend(UTHEME_WHITE, hue, 34);
+    const struct uimg *ico = icon_get("badge-warning", lh);
+    int tx = x + pad + (ico ? ico->w + pad : 0), tw = x + w - pad - tx, lines = 0;
+    char ln[200];
+    for (const char *t = g_need_text; *t; lines++) t = uui_label_wrap_next(t, tw, ln, sizeof ln);
+    int h = pad / 2 + lines * (lh + 2) + pad / 2 + rh + pad / 2;
+    uui_fill_round_rect(s, x, y, w, h, ugfx_px(6), ugfx_blend(tint, hue, 70));
+    uui_fill_round_rect(s, x + 1, y + 1, w - 2, h - 2, ugfx_px(5), tint);
+    if (ico) ugfx_blit_alpha(s, x + pad, y + pad / 2, ico->w, ico->h, ico->px, ico->w);
+    int ty = y + pad / 2;
+    for (const char *t = g_need_text; *t; ty += lh + 2) {
+        t = uui_label_wrap_next(t, tw, ln, sizeof ln);
+        ugfx_draw_string_clipped(s, tx, ty, tw, ln, UTHEME_TEXT, tint);
+    }
+    g_add_y = ty + pad / 2;
+    return y + h;
+}
+
 // The scrolling part: what the program is, its calls, its last run, its settings.
 static void draw_details(struct ugfx_surface *s, const struct prog *p, int x, int y0, int w) {
     int pad = ugfx_char_w(), lh = ugfx_char_h(), y = y0;
     uint32_t dim = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
     char t[160];
     g_why_n = 0;                                 // no links until this program's are drawn
+    g_add_y = -1;
     bold_line(s, x, &y, w, str(p->name), UTHEME_TEXT);
     line(s, x, &y, w, p->path, dim);
     if (p->ok) {
         snprintf(t, sizeof t, "Module %s", str(p->module));
         line(s, x, &y, w, t, dim);
+        if (p->nneeds) {
+            y += lh / 2;
+            y = draw_need(s, p, x, y, w);
+        }
         y += lh / 2;
         snprintf(t, sizeof t, "The %d calls it imports", p->imports);
         bold_line(s, x, &y, w, t, utheme_action(UTHEME_ACT_EDIT));
@@ -2335,6 +2473,8 @@ static unsigned item_flags(int code) {
     const struct prog *p = cur();
     if ((code == CMD_RUN || code == CMD_CALLS || code == CMD_RUN_TRACE || code == CMD_RUN_SKIP) && !(p && p->ok))
         return UUI_MI_DISABLED;
+    // A DLL it cannot start without: run it and w16 would only ask for the file the panel offers.
+    if ((code == CMD_RUN || code == CMD_RUN_TRACE || code == CMD_RUN_SKIP) && p->nneeds) return UUI_MI_DISABLED;
     // Skipping is Run itself when nothing is missing, or the program's own setting skips already.
     if (code == CMD_RUN_SKIP && ((p->checked && p->imports == p->has) || g_cur_skips)) return UUI_MI_DISABLED;
     int f = target_folder(), folder = f >= 0 && f < g_nfolders;   // a CD-ROM drive's row is no folder
@@ -2376,6 +2516,7 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_button_ops,    .widget = &g_run_more, .id = ID_RUN_MORE, .name = "run-more" },
     { .ops = &uui_button_ops,    .widget = &g_calls, .id = ID_CALLS,   .name = "calls" },
     { .ops = &uui_button_ops,    .widget = &g_ini,   .id = ID_INI,     .name = "ini" },
+    { .ops = &uui_button_ops,    .widget = &g_addfile, .id = ID_ADDFILE, .name = "add-file", .hidden = 1 },
     { .ops = &uui_statusbar_ops, .widget = &g_sb,    .id = ID_STATUS,  .name = "status" },
     { .ops = &uui_menubar_ops,   .widget = &g_ctx,   .id = ID_CTX,     .name = "ctxmenu" },
     { .ops = &uui_menubar_ops,   .widget = &g_runmenu, .id = ID_RUNMENU, .name = "runmenu" },
@@ -2440,6 +2581,8 @@ static void layout(int cw, int ch) {
     // The INI file's button beside its two lines, while both are in view.
     int iy = g_ini_y + ugfx_char_h() + 3 - rh / 2;
     item_of(&g_ini)->hidden = !ok || g_ini_y < 0 || iy < view_y() || iy + rh > view_y() + view_h();
+    int needs = ok && p->nneeds;
+    item_of(&g_addfile)->hidden = !needs || g_add_y < 0 || g_add_y < view_y() || g_add_y + rh > view_y() + view_h();
     if (!g_panel) return;
     int dx = g_px + pad * 2 + pad * 14, dw = g_pw - pad * 17 - uui_sbar_width();
     for (int i = 0; i < NSET; i++) uui_dropdown_set_geometry(&g_dd[i], dx, g_dd_y[i], dw, rh);
@@ -2450,11 +2593,12 @@ static void layout(int cw, int ch) {
     int by = g_py + g_ph - footer_h() + (footer_h() - rh) / 2;
     uui_button_set_geometry(&g_run, g_px + pad * 2, by, bw, rh);
     uui_button_set_geometry(&g_run_more, g_px + pad * 2 + bw + 1, by, mw, rh);
-    g_run.disabled = g_run_more.disabled = !ok;
+    g_run.disabled = g_run_more.disabled = !ok || needs;   // it cannot start without the file
     // The missing calls, or the whole list when none are.
     g_calls.label = calls_label(p);
     uui_button_set_geometry(&g_calls, g_px + pad * 3 + bw + 1 + mw, by, calls_w(p), rh);
     uui_button_set_geometry(&g_ini, g_px + g_pw - pad - uui_sbar_width() - ini_w(), iy, ini_w(), rh);
+    uui_button_set_geometry(&g_addfile, g_px + g_pw - pad * 2 - uui_sbar_width() - add_w(), g_add_y, add_w(), rh);
 }
 
 static void status(void) {
@@ -2462,7 +2606,7 @@ static void status(void) {
     for (int i = 0; i < g_nprog; i++) {
         if (!g_prog[i].ok) continue;
         ok++;
-        if (g_prog[i].last == 1 || g_prog[i].has == g_prog[i].imports) runs++;   // stand-ins run
+        if (!g_prog[i].nneeds && (g_prog[i].last == 1 || g_prog[i].has == g_prog[i].imports)) runs++;   // stand-ins run
         else need++;
     }
     if (g_applied[0]) snprintf(g_st_count, sizeof g_st_count, "%d of %d match", g_nview, g_nfolder_progs);
@@ -2505,6 +2649,8 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
         uapp_logf_layout("retrolauncher: layout ini %s %s|%s\n", g_ini_found ? "found" : "none", g_ini_dos,
                          g_ini_found ? g_ini_head : "None yet");
         uapp_logf_layout("retrolauncher: layout scroll %d %d\n", g_pscroll, g_zero_at);
+        uapp_logf_layout("retrolauncher: layout needs %d %s run %s|%s\n", lp->nneeds, lp->nneeds ? lp->needs[0] : "-",
+                         g_run.disabled ? "greyed" : "enabled", lp->nneeds ? g_need_text : "");
     }
 }
 
@@ -2567,6 +2713,7 @@ static void on_action(struct uapp *a, int code) {
     if (code == ID_RUN) command(a, CMD_RUN);
     if (code == ID_CALLS) command(a, CMD_CALLS);
     if (code == ID_INI && cur()) open_ini();
+    if (code == ID_ADDFILE) pick_dll(cur());
     // The arrow's menu, opened on its release (as a context menu is) ABOVE Run: the footer is the
     // window's bottom edge, and a menu dropped under it would leave the window. Opened once to learn its
     // height, then where it goes.
@@ -2765,7 +2912,8 @@ static int details_main(const char *path) {
         printf("Runs\tNo\n");
     } else {
         printf("Program\tWindows 3.x, %s\n", str(p.module));
-        if (missing) printf("Runs\tPartly: %d call%s missing\n", missing, missing == 1 ? "" : "s");
+        if (p.nneeds) printf("Runs\tNot yet: needs %s\n", p.needs[0]);
+        else if (missing) printf("Runs\tPartly: %d call%s missing\n", missing, missing == 1 ? "" : "s");
         else if (p.partly) printf("Runs\tYes, %d stand-in%s\n", p.partly, p.partly == 1 ? "" : "s");
         else printf("Runs\tYes\n");
     }
@@ -2832,7 +2980,11 @@ static int open_from_elsewhere(const char *path) {
         else
             snprintf(info.note, sizeof info.note, "w16 has every call it uses%s.", p.partly ? ", some as stand-ins" : "");
         int n = 0;
-        if (p.nmissing) {
+        // A DLL it cannot start without comes first: running it, w16 asks for the file.
+        for (int i = 0; i < p.nneeds && n < ULAUNCH_HEAD_LINES; i++)
+            snprintf(info.head[n++], sizeof info.head[0], "Needs %s (%s), which SaunaOS does not include",
+                     p.needs[i], p.needs_what[i]);
+        if (p.nmissing && n < ULAUNCH_HEAD_LINES - 1) {
             char list[ULAUNCH_HEAD_COLS + 1] = "";
             for (int i = 0; i < p.nmissing; i++)
                 snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s", i ? ", " : "", str(p.missing[i]));
@@ -2920,6 +3072,7 @@ int main(int argc, char **argv) {
     uui_button_init(&g_run, 0, 0, 0, 0, "Run", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN);
     uui_button_init(&g_run_more, 0, 0, 0, 0, "\xe2\x96\xbe", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN_MORE);
     uui_button_init(&g_ini, 0, 0, 0, 0, "Make one...", UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_INI);
+    uui_button_init(&g_addfile, 0, 0, 0, 0, "Add file...", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_ADDFILE);
     uui_button_init(&g_calls, 0, 0, 0, 0, "Calls it imports...", UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_CALLS);
     uui_stackbar_init(&g_bar, 3);
     uui_sbar_init(&g_psb);

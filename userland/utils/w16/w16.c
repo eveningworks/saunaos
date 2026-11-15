@@ -793,7 +793,11 @@ static void key_repeat(struct uapp *a) {
     }
 }
 
+// The program's thread is running (on_start(), or once its missing DLL was supplied).
+static int g_task_started;
+
 static int on_tick(struct uapp *a) {
+    if (!g_task_started) return 0;       // still asking for a DLL: nothing is loaded to tick
     key_repeat(a);
     w16_timers_fire(&g_w16);
     w16_sound_tick();
@@ -943,15 +947,62 @@ static int on_close(struct uapp *a) {
 
 static struct uapp_desc g_desc;         // run()'s; open_top() fills in the main window
 
-// The loop is up with no window yet, and the PROGRAM STARTS NOW: a post
-// made before g_w16.app was set went to no one, and a quick program's
-// main window, made before the loop, never opened.
-static int g_task_started;
+// A DLL it cannot start without (w16_missing_dll()), asked for before the program is loaded:
+// the module, the DLL importing it ("" the program), and the image run() was given.
+static char g_need[16], g_need_by[16];
+static const uint8_t *g_img;
+static uint32_t g_img_size;
+static struct ne_module g_pre;            // its header, read for the question
 
+static void start_task(struct uapp *a);
+
+// The program into memory, and its name for the Volume panel's row: the program's own short name
+// ("Hearts"), not w16. -1 when it cannot be loaded (w16_load() said why).
+static int load_program(void) {
+    struct w16 *w = &g_w16;
+    if (w16_load(w, g_img, g_img_size, w->path, g_tail) < 0) return -1;
+    char about[128];
+    if (ne_description(&w->ne, about, sizeof about) < 0 || !about[0]) snprintf(about, sizeof about, "%s", w->ne.name);
+    char *short_name = w16_short_title(about);
+    if (short_name) { w16_sound_set_name(short_name); free(short_name); }
+    return 0;
+}
+
+// Which DLL it still cannot start without: 1 with g_need set. A file supplied may import another.
+static int find_need(void) {
+    g_need[0] = 0;
+    return ne_parse(g_img, g_img_size, &g_pre) == 0 && !(g_pre.flags & 0x8000) &&
+           w16_missing_dll(&g_w16, &g_pre, g_need, sizeof g_need, g_need_by, sizeof g_need_by);
+}
+
+// The "needs a file" dialog's end: Cancel ends w16 as a missing DLL always did; a file put in place
+// asks again, as the next DLL may be missing too -- then the program is loaded and started.
+static void need_done(struct uapp *a, int supplied) {
+    if (!supplied) {
+        fprintf(stderr, "w16: %s: needs %s.DLL, which is not there\n", g_w16.path, g_need);
+        uapp_quit(a, 1);
+        return;
+    }
+    if (find_need()) {
+        w16_needdll_open(a, &g_pre, g_need, g_need_by, need_done);
+        return;
+    }
+    if (load_program() < 0) { uapp_quit(a, 1); return; }
+    start_task(a);
+}
+
+// The loop is up with no window yet, and the PROGRAM STARTS NOW -- or once a DLL it lacked is in
+// place: a post made before g_w16.app was set went to no one, and a quick program's main window,
+// made before the loop, never opened.
 static void on_start(struct uapp *a) {
     pthread_mutex_lock(&g_w16.lock);
     g_w16.app = a;
     pthread_mutex_unlock(&g_w16.lock);
+    if (g_need[0]) w16_needdll_open(a, &g_pre, g_need, g_need_by, need_done);
+    else start_task(a);
+}
+
+static void start_task(struct uapp *a) {
     static pthread_t task;
     if (pthread_create(&task, NULL, w16_task_main, &g_w16) != 0) {
         fprintf(stderr, "w16: cannot start the program's thread\n");
@@ -1122,12 +1173,12 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
     g_w16_fonts = g_w16_prefs.fonts;
     g_w16_desktop_frame = g_w16_prefs.frame == W16_FRAME_DESKTOP;
     w16_dos_start(g_exe);
-    if (w16_load(w, img, size, path, g_tail) < 0) return 1;
-    // The Volume panel's row: the program's own short name ("Hearts"), not w16.
-    char about[128];
-    if (ne_description(&w->ne, about, sizeof about) < 0 || !about[0]) snprintf(about, sizeof about, "%s", w->ne.name);
-    char *short_name = w16_short_title(about);
-    if (short_name) { w16_sound_set_name(short_name); free(short_name); }
+    w->path = path;
+    g_img = img;
+    g_img_size = size;
+    // A DLL it imports that is nowhere is ASKED FOR, in a window of w16's own, before anything is
+    // loaded (on_start()); else the program loads now, and a load that fails ends w16 here.
+    if (!find_need() && load_program() < 0) return 1;
     ugfx_font_init();
     // THE LOOP STARTS FIRST, the program in on_start(), before it has a window: a start-up
     // message box ("free memory", "no CD") comes before the main window,
@@ -1155,7 +1206,8 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
         .tick_ms = 50,                   // timers: 3.1's ran at 55 ms
     };
     int r = uapp_run(&g_desc);
-    if (r && !g_task_started) fprintf(stderr, "w16: no window server to show %s in\n", path);
+    if (r && !g_task_started && g_need[0]) fprintf(stderr, "w16: %s: needs %s.DLL, which is not there\n", path, g_need);
+    else if (r && !g_task_started) fprintf(stderr, "w16: no window server to show %s in\n", path);
     return r ? r : w->exit_code;
 }
 
@@ -1169,20 +1221,29 @@ static int cmp_u32(const void *a, const void *b) {
 
 static int cmp_str(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
 
-// A program's own DLL for `--check`: MODULE.DLL in the program's folder, found without case and
-// parsed, so the calls a program makes into it are counted as present when the DLL exports them
-// (WinTune's GSWDLL.DLL). 0 when there is none or it is not an NE module.
+// A program's own DLL for `--check`: MODULE.DLL found without case and parsed -- beside the program,
+// then in drive C:'s WINDOWS\SYSTEM and WINDOWS, the loader's order (module16.c's find_dll()) -- so the
+// calls a program makes into it are counted as present when the DLL exports them (WinTune's
+// GSWDLL.DLL). 0 when there is none or it is not an NE module.
 struct own_dll { uint8_t *img; struct ne_module m; };
 
+static char g_check_sys[512], g_check_win[512];   // drive C:'s two, resolved before the sandbox; "" none
+
 static struct own_dll *own_dll_load(const char *dir, const char *mod) {
-    char want[24], found[W16_PATH_MAX];
+    char want[24], found[W16_PATH_MAX * 4];
     snprintf(want, sizeof want, "%s.DLL", mod);
-    DIR *d = opendir(dir);
-    if (!d) return 0;
+    const char *dirs[] = { dir, g_check_sys, g_check_win };
     found[0] = 0;
-    for (struct dirent *e; (e = readdir(d)) != 0;)
-        if (!strcasecmp(e->d_name, want)) { snprintf(found, sizeof found, "%s/%s", dir, e->d_name); break; }
-    closedir(d);
+    for (unsigned k = 0; k < 3 && !found[0]; k++) {
+        DIR *d = dirs[k][0] ? opendir(dirs[k]) : 0;
+        if (!d) continue;
+        for (struct dirent *e; (e = readdir(d)) != 0;)
+            if (!strcasecmp(e->d_name, want)) {
+                snprintf(found, sizeof found, "%s%s%s", dirs[k], !strcmp(dirs[k], "/") ? "" : "/", e->d_name);
+                break;
+            }
+        closedir(d);
+    }
     if (!found[0]) return 0;
     struct own_dll *o = calloc(1, sizeof *o);
     uint32_t size = 0;
@@ -1192,6 +1253,43 @@ static struct own_dll *own_dll_load(const char *dir, const char *mod) {
         return 0;
     }
     return o;
+}
+
+// "needs VBRUN300.DLL Visual Basic 3.0 runtime": each DLL the program -- or one of its own DLLs, at
+// any depth -- imports that w16 does not answer and that is in none of the folders the loader looks
+// in, or is there but no library w16 can load. It cannot start without one (w16 then asks for the
+// file, needdll16.c, and what is supplied replaces a bad one).
+static void print_needs(const struct ne_module *pm, const char *dir) {
+    char (*names)[16] = 0;
+    int n = 0, cap = 0;
+    const struct ne_module *from = pm;
+    struct own_dll *o = 0;
+    for (int i = -1; i < n; i++) {
+        if (i >= 0) {
+            o = own_dll_load(dir, names[i]);
+            if (!o || !(o->m.flags & 0x8000)) {
+                printf("needs %s.DLL %s\n", names[i], w16_dll_what(names[i], 0));
+                if (o) { free(o->img); free(o); o = 0; }
+                continue;
+            }
+            from = &o->m;
+        }
+        for (unsigned k = 1; from && k <= from->nmod; k++) {
+            char mod[16];
+            if (ne_module_name(from, k, mod, sizeof mod) < 0 || !mod[0] || w16_is_builtin(mod)) continue;
+            int seen = 0;
+            for (int j = 0; j < n && !seen; j++) seen = !strcasecmp(names[j], mod);
+            if (seen) continue;
+            if (n == cap) {
+                char (*g)[16] = realloc(names, sizeof *names * (size_t)(cap = cap ? cap * 2 : 8));
+                if (!g) break;
+                names = g;
+            }
+            snprintf(names[n++], sizeof names[0], "%s", mod);
+        }
+        if (o) { free(o->img); free(o); o = 0; }
+    }
+    free(names);
 }
 
 // Whether import module `mod` (index i of `dlls`) exports `ord`, as one of the program's own DLLs.
@@ -1224,7 +1322,7 @@ static int check(const uint8_t *img, uint32_t size, const char *path) {
     // Each import once: module << 16 | ordinal, collected then sorted.
     uint32_t *seen = 0;
     unsigned nseen = 0, cap = 0, has = 0, by_name = 0;
-    // Imports by name that w16 cannot number -- a program's own DLL, a name its tables lack -- as
+    // Imports by name that w16 cannot number -- a DLL that is not there or lacks the name, a name its tables lack -- as
     // "MODULE name", each once: they count as imports and w16 has none, so they are LISTED, or the
     // launcher says one call is missing and the calls window finds none.
     char **named = 0;
@@ -1236,10 +1334,13 @@ static int check(const uint8_t *img, uint32_t size, const char *path) {
             unsigned ord = r.b;
             if ((r.flags & 3) == NE_REL_IMPORT_NAME) {
                 // By name, as the loader takes it: a Windows module's names
-                // are known, so it is listed under its ordinal like the rest.
+                // are known, and so are those the program's own DLL exports,
+                // so it is listed under its ordinal like the rest.
                 char fn[64];
-                ord = r.a >= 1 && r.a <= m.nmod && w16_is_builtin(mods[r.a - 1])
-                      && ne_imported_name(&m, r.b, fn, sizeof fn) == 0 ? w16_builtin_ordinal(mods[r.a - 1], fn) : 0;
+                int named_ok = r.a >= 1 && r.a <= m.nmod && ne_imported_name(&m, r.b, fn, sizeof fn) == 0;
+                ord = !named_ok ? 0
+                    : w16_is_builtin(mods[r.a - 1]) ? w16_builtin_ordinal(mods[r.a - 1], fn)
+                    : dlls[r.a - 1] ? ne_export_find(&dlls[r.a - 1]->m, fn) : 0;
                 if (!ord) {
                     char nm[64], key[96];
                     snprintf(key, sizeof key, "%s %s", r.a >= 1 && r.a <= m.nmod ? mods[r.a - 1] : "?",
@@ -1280,6 +1381,7 @@ static int check(const uint8_t *img, uint32_t size, const char *path) {
     }
     // `has` counts the stand-ins too: `partly` is how many of it are one.
     printf("imports %u\nhas %u\npartly %u\n", nseen + by_name, has, partly);
+    print_needs(&m, slash == dir ? "/" : dir);
     // "call missing USER.1 MessageBox Dialogs": whether w16 has it (has,
     // partly, missing), the import, its name ("?" unknown) and its kind,
     // which may hold spaces -- then, for a stand-in, a tab and what it does.
@@ -1607,7 +1709,16 @@ int main(int argc, char **argv) {
         snprintf(dir, sizeof dir, "%s", path);
         char *sl = strrchr(dir, '/');
         if (sl) *sl = 0;
+        // ...and drive C:'s WINDOWS\SYSTEM and WINDOWS, where the loader looks for a DLL next: which
+        // the program's settings name, so they are read now, before the sandbox closes.
+        if (g_check) {
+            w16_prefs_load(&g_w16_prefs, g_exe);
+            if (w16_windows_dir(g_w16_prefs.drive_c, 1, 0, g_check_sys, sizeof g_check_sys) < 0) g_check_sys[0] = 0;
+            if (w16_windows_dir(g_w16_prefs.drive_c, 0, 0, g_check_win, sizeof g_check_win) < 0) g_check_win[0] = 0;
+        }
         ok = unveil(path, "r") == 0 && (!g_check || unveil(sl ? (sl == dir ? "/" : dir) : ".", "r") == 0)
+             && (!g_check_sys[0] || unveil(g_check_sys, "r") == 0)
+             && (!g_check_win[0] || unveil(g_check_win, "r") == 0)
              && unveil(NULL, NULL) == 0 && pledge("stdio rpath", NULL) == 0;
     } else {
         w16_prefs_load(&g_w16_prefs, g_exe);

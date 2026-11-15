@@ -46,6 +46,10 @@ RESOURCES come from directives too, so a test program stays one text file:
                                                     id, name -- as Windows 3.0's
                                                     RC wrote; WinBench 3.1 has one)
 
+A LIBRARY (a DLL) says `;w16: library`: the header's library bit, one
+shared data segment, no stack -- its W16_ENTRY is LibEntry, which returns
+nonzero in AX when it started -- and the Makefile names it .dll.
+
 A bitmap is written as Windows stored one: a packed DIB (BITMAPINFOHEADER,
 the palette, the rows bottom-up and padded to 4 bytes), 4 bits a pixel for
 up to 16 colours, else 8.
@@ -85,13 +89,15 @@ def directives(path):
     """The ;w16: lines: module, segments, autodata, stack, heap."""
     d = {"module": None, "segments": {}, "autodata": 0, "stack": 4096, "heap": 1024,
          "description": "", "strings": {}, "bitmaps": {}, "dialogs": {}, "menus": {}, "accels": {},
-         "cursors": {}, "icons": {}, "names": []}
+         "cursors": {}, "icons": {}, "names": [], "library": False}
     for line in open(path, encoding="utf-8"):
         m = re.match(r"\s*;w16:\s*(\w+)\s*(.*?)\s*$", line)
         if not m:
             continue
         key, val = m.group(1), m.group(2)
-        if key == "segment":
+        if key == "library":
+            d["library"] = True
+        elif key == "segment":
             n, kind = val.split()
             d["segments"][int(n)] = kind
         elif key in ("autodata", "stack", "heap"):
@@ -520,12 +526,14 @@ def build(src, out):
 
     ne = bytearray(0x40)
     struct.pack_into("<2sBBHHI", ne, 0, b"NE", 5, 10, entry_off, len(entry_table), 0)
-    progflags = 0x0002 | 0x0008 | 0x0020                 # multiple data, protected mode, 286
-    appflags = 0x03                                       # uses the Windows API
+    # A program has data per instance; a library one shared segment, and the library bit.
+    progflags = (0x0001 if d["library"] else 0x0002) | 0x0008 | 0x0020   # data, protected mode, 286
+    appflags = 0x03 | (0x80 if d["library"] else 0)       # uses the Windows API
     struct.pack_into("<BB", ne, 0x0C, progflags, appflags)
     struct.pack_into("<HHH", ne, 0x0E, d["autodata"], d["heap"], d["stack"])
     struct.pack_into("<HH", ne, 0x14, entry[1], entry[0])  # CS:IP
-    struct.pack_into("<HH", ne, 0x18, 0, d["autodata"])    # SS:SP (SP 0: top of the segment)
+    struct.pack_into("<HH", ne, 0x18, 0, 0 if d["library"] else d["autodata"])   # SS:SP (SP 0: the top;
+                                                                                  # a DLL runs on its caller's)
     struct.pack_into("<HHH", ne, 0x1C, nseg, len(modules), len(nonres))
     struct.pack_into("<HHHHH", ne, 0x22, seg_table_off, res_table_off, resident_off,
                      modref_off, imported_off)
@@ -566,7 +574,7 @@ def dump(path):
         (o,) = struct.unpack_from("<H", b, ne + mod_t + 2 * i)
         ln = b[ne + imp_t + o]
         mods.append(b[ne + imp_t + o + 1:ne + imp_t + o + 1 + ln].decode())
-    print("imports " + " ".join(mods))
+    print(" ".join(["imports"] + mods))           # a library may import nothing: no trailing space
     for i in range(nseg):
         sector, length, flags, minalloc = struct.unpack_from("<HHHH", b, ne + seg_t + 8 * i)
         length = length or 0x10000

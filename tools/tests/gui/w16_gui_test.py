@@ -138,6 +138,16 @@ file is involved.
    is drawn at the picture's scale, grey from its WM_CTLCOLOR brush (CTLCOLOR_DLG), its static red.
 26. **PeekMessage idling** (`peek_idle`, peek.exe): an empty answer after the program's own work costs
    no millisecond (Sierra's SCI peeks once a frame); back to back, a tight poll still gives one up.
+27. **A missing runtime DLL** (`missing_dll`, needsvb.exe + rtstub.dll; needdll16.c, the launcher's Add
+    file...): with no VBRUN300.DLL on drive C:, w16 opens "Runtime test needs a file" (drawn: its heading
+    has ink, Choose file... is the accent and Cancel is not) and Cancel ends it; Choose file... on a file
+    that is no DLL says so and copies nothing; on rtstub.dll it copies it to C:\\WINDOWS\\SYSTEM as
+    VBRUN300.DLL and the program starts (its message box). In Retro Launcher the same program's panel
+    says "Needs VBRUN300.DLL, the Visual Basic 3.0 runtime" with Add file..., and Run is greyed -- by
+    the panel's own report and by pixel; Add file... with rtstub.dll takes the row away and Run is the
+    accent again. Positive control (mutate.py): make find_need() answer 0 -- the dialog checks redden;
+    drop `|| needs` from layout()'s `g_run.disabled` -- the greyed-Run checks redden; drop add_dll()'s
+    recheck(p) -- the row-goes checks redden.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -2634,6 +2644,150 @@ def retro_round(dbg, qmp, res):
     for f in (WIN16_CONF, FAULT_INI, FAULT_CONF, "/home/w16trace.txt"):
         sh(dbg, f"rm {f}")
 
+NEEDS_TITLE = "Runtime test needs a file"
+NEEDS_DLL = "/home/Win16/WINDOWS/SYSTEM/VBRUN300.DLL"
+CHOOSE_TITLE = "Choose VBRUN300.DLL"
+
+
+def choose_in_chooser(dbg, path):
+    """Types `path` into the open file chooser's name field and presses Enter (hexview_test's way)."""
+    def name_rect():
+        for ln in reversed(dbg.logs("filedialog: layout name ", clear=False)):
+            try:
+                return tuple(int(p) for p in ln.split()[-4:])
+            except ValueError:
+                return None
+        return None
+    rect, dlg = poll(name_rect, 8, 0.3), dbg.window(CHOOSE_TITLE)
+    if not rect or not dlg:
+        return False
+    dbg.click(dlg["content"]["x"] + rect[0] + rect[2] // 2, dlg["content"]["y"] + rect[1] + rect[3] // 2)
+    for ch in path:
+        dbg.key(hex(ord(ch)), settle=False)
+    dbg.key("0x0a")
+    return True
+
+
+def needdll_widgets(dbg, want="needdll_cancel", t=8.0):
+    """The "needs a file" window's controls from its layout log (a secondary window of a client with no
+    toplevel reports no widget map), as widgets() gives them: content rect plus `screen`."""
+    def look():
+        win = dbg.window(NEEDS_TITLE)
+        got = {}
+        for ln in dbg.logs("needdll: layout ", clear=False):
+            parts = ln.split("needdll: layout ", 1)[1].split()
+            if len(parts) == 5 and win:
+                x, y, w, h = (int(v) for v in parts[1:])
+                got[parts[0]] = {"x": x, "y": y, "w": w, "h": h,
+                                 "screen": {"x": win["content"]["x"] + x, "y": win["content"]["y"] + y}}
+        return got if want in got else None
+    return poll(look, t, 0.3) or {}
+
+
+def centre(w):
+    return w["screen"]["x"] + w["w"] // 2, w["screen"]["y"] + w["h"] // 2
+
+
+def button_px(im, w, frac=10):
+    """A button's face, off its label and its rounded corners: a few pixels in from the left, mid-height."""
+    return im.getpixel((w["screen"]["x"] + max(4, w["w"] // frac), w["screen"]["y"] + w["h"] // 2))
+
+
+def missing_dll(dbg, qmp, res):
+    """A DLL the program cannot start without: w16 asks for it, the launcher says so before a run."""
+    sh(dbg, f"rm {NEEDS_DLL}")
+    check = sh(dbg, "w16 --check /usr/share/w16/needsvb.exe")
+    res.check("w16 --check names the missing runtime: `needs VBRUN300.DLL Visual Basic 3.0 runtime`",
+              "needs VBRUN300.DLL Visual Basic 3.0 runtime" in check,
+              f"{[ln for ln in check.splitlines() if not ln.startswith(('icon', '0', 'f'))][:12]}")
+
+    # --- w16's own dialog: Cancel ends it --------------------------------------------------------------
+    dbg.logs("w16:", clear=True)
+    dbg.logs("needdll:", clear=True)
+    dbg.send("gui spawn /bin/w16 /usr/share/w16/needsvb.exe")
+    up = wait_title(dbg, NEEDS_TITLE, 15)
+    res.check("w16 asks for the file in a window of its own: 'Runtime test needs a file'", up,
+              f"windows {[w['title'] for w in dbg.windows()]}")
+    if up:
+        w = needdll_widgets(dbg)
+        im = shot(qmp, os.path.join(TMP, "w16_needdll.png"))
+        head, ch, ca = w.get("needdll_head"), w.get("needdll_choose"), w.get("needdll_cancel")
+        ink = head and min(sum(im.getpixel((x, y))) for x in range(head["screen"]["x"], head["screen"]["x"] + head["w"])
+                           for y in range(head["screen"]["y"], head["screen"]["y"] + head["h"]))
+        res.check("...and it is DRAWN: its heading has dark ink, Choose file... a face Cancel has not",
+                  head and ch and ca and ink is not None and ink < 200 and button_px(im, ch) != button_px(im, ca),
+                  f"head {head} ink {ink} choose {ch and button_px(im, ch)} cancel {ca and button_px(im, ca)}")
+        res.check("...and logs what it asked for", any("w16: needs VBRUN300.DLL: asked" in ln for ln in dbg.logs("w16:", clear=False)),
+                  f"{dbg.logs('w16:', clear=False)[-4:]}")
+        if ca:
+            dbg.click(*centre(ca))
+        gone = poll(lambda: dbg.window(NEEDS_TITLE) is None and "w16" not in sh(dbg, "ps"), 10, 0.3)
+        res.check("Cancel ends w16, the window gone and no w16 running", gone,
+                  f"windows {[x['title'] for x in dbg.windows()]}")
+
+    # --- Choose file...: a file that is no DLL is refused, rtstub.dll is copied and the program starts ---
+    dbg.logs("w16:", clear=True)
+    dbg.logs("needdll:", clear=True)
+    dbg.send("gui spawn /bin/w16 /usr/share/w16/needsvb.exe")
+    ch = wait_title(dbg, NEEDS_TITLE, 15) and needdll_widgets(dbg, "needdll_choose").get("needdll_choose")
+    if ch:
+        dbg.click(*centre(ch))
+        ok = wait_title(dbg, CHOOSE_TITLE) and choose_in_chooser(dbg, "/usr/share/w16/hello.exe")
+        refused = ok and poll(lambda: any("w16: refused /usr/share/w16/hello.exe" in ln
+                                          for ln in dbg.logs("w16:", clear=False)), 8, 0.3)
+        res.check("Choose file... on a program, not a DLL: refused, said in the dialog, nothing copied",
+                  refused and dbg.window(NEEDS_TITLE) is not None and "VBRUN300" not in sh(dbg, "ls /home/Win16/WINDOWS/SYSTEM"),
+                  f"chooser {ok} log {dbg.logs('w16:', clear=False)[-3:]}")
+        poll(lambda: dbg.window(CHOOSE_TITLE) is None, 5, 0.2)
+        dbg.click(*centre(ch))
+        ok = wait_title(dbg, CHOOSE_TITLE) and choose_in_chooser(dbg, "/usr/share/w16/rtstub.dll")
+        started = ok and wait_title(dbg, "Runtime test", 15)
+        res.check("Choose file... on rtstub.dll: copied to C:\\WINDOWS\\SYSTEM as VBRUN300.DLL, and the program starts",
+                  started and dbg.window(NEEDS_TITLE) is None and "VBRUN300.DLL" in sh(dbg, "ls /home/Win16/WINDOWS/SYSTEM"),
+                  f"chooser {ok} windows {[x['title'] for x in dbg.windows()]} log {dbg.logs('w16:', clear=False)[-3:]}")
+        dbg.close_window("Runtime test")
+    else:
+        res.check("w16 asks again for the Choose file... run", False, f"windows {[w['title'] for w in dbg.windows()]}")
+    poll(lambda: "w16" not in sh(dbg, "ps"), 10, 0.3)
+
+    # --- Retro Launcher: the row, Run greyed, Add file... ------------------------------------------------
+    sh(dbg, f"rm {NEEDS_DLL}")
+    dbg.logs("retrolauncher:", clear=True)
+    dbg.send(f"gui spawn {LAUNCHER_BIN} --show /usr/share/w16/needsvb.exe")
+    if not wait_title(dbg, "Retro Launcher"):
+        res.check("Retro Launcher opens on needsvb.exe", False, "")
+        return
+    dbg.send("gui resize 1100 640")
+    want = "needs 1 VBRUN300.DLL run greyed|Needs VBRUN300.DLL, the Visual Basic 3.0 runtime. SaunaOS does not include it."
+    lines = layout_lines(dbg, "retrolauncher", lambda a: any(want in ln for ln in a), 20)
+    res.check("the panel says what it needs, and Run is greyed: " + want.split("|")[1],
+              any(want in ln for ln in lines), f"{[ln for ln in lines if 'layout needs' in ln][-2:]}")
+    w = dbg.wait_widget("Retro Launcher", "add-file") and dbg.widgets("Retro Launcher")
+    add, run = (w or {}).get("add-file"), (w or {}).get("run")
+    im = shot(qmp, os.path.join(TMP, "w16_launcher_needs.png"))
+    accent = add and button_px(im, add)
+    res.check("...drawn so: Add file... is the accent, Run is not", add and run and button_px(im, run) != accent,
+              f"add {add} {accent} run {run} {run and button_px(im, run)}")
+    if add:
+        dbg.click(*dbg.widget_center("add-file", "Retro Launcher"))
+        ok = wait_title(dbg, CHOOSE_TITLE) and choose_in_chooser(dbg, "/usr/share/w16/rtstub.dll")
+        copied = ok and poll(lambda: any("add file /usr/share/w16/rtstub.dll as /home/Win16/WINDOWS/SYSTEM/VBRUN300.DLL: copied"
+                                         in ln for ln in dbg.logs("retrolauncher:", clear=False)), 8, 0.3)
+        res.check("Add file... copies the file chosen into C:\\WINDOWS\\SYSTEM as VBRUN300.DLL", copied,
+                  f"chooser {ok} {dbg.logs('retrolauncher: add', clear=False)[-2:]}")
+        dbg.send("gui resize 1100 641")          # a fresh frame, so the layout is reported again
+        lines = layout_lines(dbg, "retrolauncher", lambda a: any("layout needs 0 - run enabled" in ln for ln in a), 15)
+        w = dbg.widgets("Retro Launcher")
+        res.check("...then the row goes and Run is enabled", any("layout needs 0 - run enabled" in ln for ln in lines)
+                  and "add-file" not in w, f"{[ln for ln in lines if 'layout needs' in ln][-2:]} widgets {sorted(w)}")
+        im = shot(qmp, os.path.join(TMP, "w16_launcher_ready.png"))
+        run = w.get("run")
+        res.check("...and Run is drawn in the accent again", run and button_px(im, run) == accent,
+                  f"run {run and button_px(im, run)} accent {accent}")
+    dbg.close_window("Retro Launcher")
+    sh(dbg, f"rm {NEEDS_DLL}")
+
+
 def main():
     global TMP
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -2669,7 +2823,8 @@ def main():
               ("fullwin", lambda: fullwin(dbg, qmp, res, TMP)), ("ownact", lambda: ownact(dbg, qmp, res, TMP)),
               ("mci", lambda: mci(dbg, qmp, res, TMP)),
               ("colours16", lambda: colours16(dbg, qmp, res, TMP)),
-              ("retro_round", lambda: retro_round(dbg, qmp, res))]
+              ("retro_round", lambda: retro_round(dbg, qmp, res)),
+              ("missing_dll", lambda: missing_dll(dbg, qmp, res))]
     only = set(args.only.split(",")) if args.only else None
     if only and only - {n for n, _ in checks}:
         sys.exit(f"w16_gui_test: no such check: {', '.join(sorted(only - {n for n, _ in checks}))}")
