@@ -80,11 +80,11 @@ const char *w16_thunk_module(struct w16 *w, uint16_t sel) {
 // Windows: The selector step itself, 1 << __AHSHIFT: what a huge pointer adds to its selector to
 // reach the next 64 KB.
 // w16: 8, patched in at load.
-// __WINFLAGS = 0x0425
+// __WINFLAGS = 0x0429
 // Windows: A constant saying what Windows runs on and in -- the processor, protected mode, standard
 // or enhanced mode, a coprocessor.
-// w16: 0x0425 -- protected mode, a 386, enhanced mode, a coprocessor -- what 3.1 said on the
-// machines its programs expected.
+// w16: 0x0429 -- protected mode, a 486, enhanced mode, a coprocessor -- what 3.1 said on a 486 and
+// on everything after it (it had no flag for a Pentium), as the reference 3.11 machine says.
 // __0000H = selector
 // __0040H = selector
 // __A000H = selector
@@ -103,7 +103,7 @@ const char *w16_thunk_module(struct w16 *w, uint16_t sel) {
 static const struct { uint16_t ordinal, value; } KERNEL_EQUATES[] = {
     { 113, 3 },        // __AHSHIFT: a huge pointer's selector step is 1 << 3
     { 114, 8 },        // __AHINCR
-    { 178, 0x0425 },   // __WINFLAGS: protected mode, a 386, enhanced mode, a coprocessor
+    { 178, 0x0429 },   // __WINFLAGS: protected mode, a 486, enhanced mode, a coprocessor
 };
 
 // KERNEL's selectors (documented above): each ordinal's real-mode segment. A program imports one as a

@@ -402,12 +402,12 @@ static int api_OutputDebugString(struct w16 *w, unsigned ordinal, struct w16_arg
 // GetWinFlags() -> DWORD
 // Windows: What Windows runs on and in: protected mode, the processor, standard or enhanced mode, a
 // coprocessor.
-// w16: Protected mode, a 386, enhanced mode, a coprocessor -- as __WINFLAGS says.
+// w16: Protected mode, a 486, enhanced mode, a coprocessor -- as __WINFLAGS says.
 static int api_GetWinFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     (void)a;
-    c->r[R_AX].w = 0x0425;                         // WF_PMODE WF_CPU386 WF_ENHANCED WF_80x87
+    c->r[R_AX].w = 0x0429;                         // WF_PMODE WF_CPU486 WF_ENHANCED WF_80x87
     c->r[R_DX].w = 0;
     return 0;
 }

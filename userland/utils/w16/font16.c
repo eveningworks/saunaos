@@ -520,12 +520,29 @@ static const struct w16_fontinfo *stock(unsigned i) {
     }
 }
 
-// A TrueType face asked by a LOGFONT: its em from the height -- a character
-// height when negative, a cell (ascent and descent) when positive, 12 points
+// A TrueType face asked by a LOGFONT -- by family, or by full name ("Arial Bold") -- its em from the
+// height: a character height when negative, a cell (ascent and descent) when positive, 12 points
 // when 0 -- as Windows' TrueType mapper sized it. NULL: no such face.
 static const struct w16_fontinfo *truetype(const struct w16_logfont *lf) {
-    int synth;
-    const struct ttface *t = tt_find(lf->face, lf->weight >= FW_BOLD_FROM, lf->italic, &synth);
+    int synth, bold = lf->weight >= FW_BOLD_FROM, italic = lf->italic;
+    const struct ttface *t = tt_find(lf->face, bold, italic, &synth);
+    if (!t) {
+        // A FULL NAME, "Times New Roman Bold": the mapper matched a TrueType font's full name as well as
+        // its family, the style in the name added to the one asked (WinTach's labels).
+        static const struct { const char *suffix; int bold, italic; } S[] = {
+            { " Bold Italic", 1, 1 }, { " Bold", 1, 0 }, { " Italic", 0, 1 }, { " Regular", 0, 0 },
+        };
+        size_t n = strlen(lf->face);
+        for (unsigned i = 0; !t && i < sizeof S / sizeof S[0]; i++) {
+            size_t k = strlen(S[i].suffix);
+            if (n <= k || n - k >= sizeof ((struct ttface *)0)->family || strcasecmp(lf->face + n - k, S[i].suffix))
+                continue;
+            char family[sizeof ((struct ttface *)0)->family];
+            memcpy(family, lf->face, n - k);
+            family[n - k] = 0;
+            t = tt_find(family, bold || S[i].bold, italic || S[i].italic, &synth);
+        }
+    }
     if (!t) return 0;
     int px = lf->height < 0 ? -lf->height
            : lf->height ? (lf->height * t->upem + (t->asc + t->desc) / 2) / (t->asc + t->desc) : 16;
