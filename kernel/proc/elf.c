@@ -316,6 +316,11 @@ int elf_load_from(const struct elf_reader *r, uint64_t pml4_phys,
             klog_write(KLOG_ERR "elf: refused -- segment out of bounds\n");
             goto out;
         }
+        // W^X, as SYS_MMAP holds it: a segment is written or run, never both.
+        if ((ph->p_flags & (PF_W | PF_X)) == (PF_W | PF_X)) {
+            klog_write(KLOG_ERR "elf: refused -- a segment both writable and executable\n");
+            goto out;
+        }
         // NO PAGE IN TWO SEGMENTS. load_segment() maps a fresh frame per
         // page, so a second segment over a page replaced the first one's
         // frame -- losing its bytes and leaking the frame for the rest of

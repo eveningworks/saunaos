@@ -332,10 +332,12 @@ void *sys_sbrk(int64_t increment);
 // abi/syscall_abi.h's struct mmap_msg at the call. Failure is
 // (void *)-1 -- MAP_FAILED, mmap's own contract, the same reasoning as
 // sys_sbrk() above -- with the reason in sys_errno(). sys_munmap()
-// follows the ordinary 0/-1 rule.
+// follows the ordinary 0/-1 rule, as does sys_mprotect() (anonymous
+// mappings only; PROT_WRITE with PROT_EXEC is EACCES -- SYS_MPROTECT).
 void *sys_mmap(void *addr, uint64_t length, int prot, int flags,
                int fd, uint64_t offset);
 int sys_munmap(void *addr, uint64_t length);
+int sys_mprotect(void *addr, uint64_t length, int prot);
 
 // SYS_SHM_OPEN / SYS_SHM_UNLINK: a named shared-memory object, which
 // sys_mmap() maps with MAP_SHARED. Returns an fd, or -1 with the reason

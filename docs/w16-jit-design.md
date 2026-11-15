@@ -4,7 +4,8 @@ A staged plan, in the shape `docs/trace-design.md` used. It answers "what
 would it take to run a Win386 program's 32-bit code translated rather
 than interpreted, and what must the kernel give a sandboxed process
 first?" Picked 2026-11-15, after the quick wins below, as "quick wins,
-then a JIT design to review". **NOTHING HERE IS BUILT.**
+then a JIT design to review". **STAGE 0 IS BUILT (2026-11-15); stage 1's
+choices are made (below), nothing of it is built.**
 
 ## The findings that shape the plan
 
@@ -39,16 +40,12 @@ road goes; DOSBox ships a dynamic recompiler beside its "normal" core
 for exactly the 32-bit games this is about, and QEMU translates
 everything (TCG).
 
-**SaunaOS can already map executable memory -- too easily.** `SYS_MMAP`
-takes `PROT_EXEC` on an anonymous mapping and nothing refuses
-`PROT_WRITE | PROT_EXEC` together, so a JIT could be written today
-against a page that is writable and executable at once. That is the
+**SaunaOS could map executable memory -- too easily -- until stage 0.**
+`SYS_MMAP` took `PROT_WRITE | PROT_EXEC` on an anonymous mapping, the
 weakest shape there is, and w16 is the worst process to give it to: a
-Win16 program is untrusted CODE, w16 pledges (`docs/conventions/kernel.md`,
-the sandbox), and the sandbox has no promise for executable memory --
-OpenBSD's `pledge("prot_exec")` is exactly that promise, and OpenBSD
-refuses W|X mappings outright (W^X). There is no `mprotect()` either
-(`docs/roadmap.md`, the guard-page item, wants one for the same reason).
+Win16 program is untrusted CODE and w16 pledges. Stage 0 closed it the
+way OpenBSD does (`docs/decisions/kernel.md`, "W^X for every mapping, and
+executable memory a program wrote needs `prot_exec`").
 
 ## What real systems do for a JIT's memory
 
@@ -74,19 +71,38 @@ a writable alias of the code alive.
 
 ## The plan
 
-### Stage 0 -- executable memory, W^X (kernel)
+### Stage 0 -- executable memory, W^X (kernel) -- BUILT 2026-11-15
 
-- `SYS_MPROTECT(addr, len, prot)` on anonymous regions: split the region
-  as `munmap` already does, rewrite the PTEs' W and NX bits, flush.
-- `SYS_MMAP` and `SYS_MPROTECT` refuse `PROT_WRITE | PROT_EXEC`
-  (-EACCES, OpenBSD's errno) -- check first that nothing maps W|X today
-  (the dynamic loader maps file segments R+X).
-- A pledge promise for `PROT_EXEC` on anonymous memory; a process that
-  gave it up gets SIGSYS (or -EPERM), as other promises do.
-- KTEST: W|X refused, RW->RX runs, RX->write faults, a pledged process
-  without the promise refused.
+- `SYS_MPROTECT(addr, len, prot)` on anonymous memory: regions split at
+  both ends and folded back with same-prot neighbours, present leaves'
+  W and NX rewritten and flushed (`mmap_protect()`, `vmm_protect_user_page()`);
+  `munmap` spans the regions it leaves.
+- W|X is -EACCES from `SYS_MMAP`, `SYS_MPROTECT` and the ELF loader; none
+  of the 3,786 ELFs the build staged had a W+X segment.
+- The `prot_exec` promise (`PROMISE_PROT_EXEC`): anonymous `PROT_EXEC`, or
+  a file's outside `/bin`, `/lib`, `/tests`, kills a process that gave it
+  up with SIGSYS.
+- KTESTs (`kernel/mm/mprotect_test.c`, each seen red under a mutation):
+  the flips, a page faulted in after the call, holes and files refused
+  with nothing changed, a fork's shared frame never made writable and an
+  RX page never left COW, the ceiling. Ring 3: `mmap_test.c` runs code
+  written RW then made RX, a store into it and a call into RW memory
+  fault; `sandbox_test.c` the promise both ways.
 
 ### Stage 1 -- translate a basic block (w16)
+
+**Picked 2026-11-15:** a JIT rather than native execution (below);
+`mprotect` flips; 32-bit FLAT code only -- CS a 32-bit segment and DS, ES
+and SS one flat selector, anything else (FS/GS included) exits; cpu16's
+registers re-laid as 32-bit FIRST, a mechanical change guarded by
+`cpu16_bench.py`'s checksum (`EAX` is `rh[0] << 16 | r[0]` today, which
+translated code would pay a shift-or for); ONE code arena, bump-allocated
+and flushed whole when full (QEMU's `tb_flush`), with flushes and
+invalidations counted in the timing build so per-page reclaim (DOSBox's
+free cache blocks) is added only if a program churns; a block translated
+after ~50 entries (LuaJIT's hot-loop count is 56; `--jit-threshold N` to
+measure); a `jit` key in w16prefs' table, ON by default with `jit=off`
+per program and `--no-jit` -- no Retro Launcher control this stage.
 
 - Hot-path discovery: the interpreter counts entries per block start
   (a small hash on linear address); past a threshold the block is
@@ -105,7 +121,11 @@ a writable alias of the code alive.
 - **Self-modifying code**: Win386 code and data alias the same linear
   memory, so a store may hit translated code. A per-page "has
   translations" byte map over the arena; the interpreter's stores and
-  translated stores test it and invalidate the page's blocks.
+  translated stores test it and invalidate the page's blocks -- and so
+  does `cpu16_ptr32(..., write)`, which every one of the C side's writes
+  into program memory goes through (a file read over old code). QEMU's
+  user-mode answer, write-protecting the page and catching SIGSEGV, needs
+  the fault address, which SaunaOS's `struct sigframe` does not carry.
 
 ### Stage 2 -- chain blocks
 
@@ -144,10 +164,13 @@ the systems named, not a measurement here.
 - **More cores.** SaunaOS starts only the boot CPU (`docs/smp-design.md`,
   stage 1); the ASUS has four logical CPUs. Running w16's drawing and the
   compositor on another core is a separate lever, and a bigger project.
-- **Running Win386 code natively in a ring-3 32-bit segment.** x86-64
-  long mode has compatibility mode, so 32-bit code CAN run directly --
-  but it would need LDT descriptors per w16 process, a kernel that
-  switches them, and the linear arena's bounds enforced by segment
-  limits that compatibility mode still honours. Faster than any JIT, and
-  a much deeper kernel change; worth its own design before a JIT is
-  built, as the alternative it is.
+- **Running Win386 code natively in a ring-3 32-bit segment** (weighed
+  and declined 2026-11-15). x86-64 long mode has compatibility mode, so
+  32-bit code CAN run directly -- Wine does on Linux, and
+  `tools/w16/cpu16_check.c` does through `modify_ldt` -- but a
+  compatibility-mode segment reaches only linear addresses below 4 GiB,
+  and in every SaunaOS process that is PML4[0], the kernel's identity
+  map (`kernel/uaddr.h`: user memory starts at 512 GiB). So it needs a
+  higher-half kernel first, then per-process LDTs switched on every
+  context switch, and every thunk and `INT 21h` turned from a #GP into a
+  signal w16 handles. Faster than any JIT, and a different project.

@@ -39,7 +39,7 @@ ring 3 and a debugger's stop, stages 1-3 BUILT -- before `strace.c` or
 kept, stages 1 and 3 BUILT -- before `keyboard_layout.c` or `WIN_EV_RAW_KEY`
 work), `w16-design.md` (16-bit Windows programs on an emulated CPU, stages 0-3
 BUILT, stage 4 -- the user's own programs -- ongoing, with the side-by-side
-comparison against real 3.11 -- before NE or `userland/utils/w16/` work), `w16-jit-design.md` (translating w16's 32-bit code, and W^X executable memory with `mprotect()` first, NOTHING BUILT -- before a JIT, `SYS_MPROTECT` or a `PROT_EXEC` rule), `browser-design.md` (a NetSurf port, stages 0-6 (JavaScript) and the
+comparison against real 3.11 -- before NE or `userland/utils/w16/` work), `w16-jit-design.md` (translating w16's 32-bit code, and W^X executable memory with `mprotect()` first; stage 0 (`SYS_MPROTECT`, W^X, `prot_exec`) BUILT, stage 1's choices made -- before a JIT, `SYS_MPROTECT` or a `PROT_EXEC` rule), `browser-design.md` (a NetSurf port, stages 0-6 (JavaScript) and the
 sandbox BUILT -- before NetSurf, `uui_webview` or HTTP/1.1 work in
 `libhttp`), `usb-storage-design.md` (USB sticks: BOT, UAS, exFAT,
 removal, root on a stick; stages 1, 2, 4 and 5 BUILT -- before

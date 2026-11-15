@@ -9,7 +9,8 @@
 //
 // What is deliberately NOT here: touching a PROT_READ page and
 // touching an unmapped hole both KILL the process, so they belong with
-// the fault-on-purpose tests, not in a suite that must exit 0.
+// the fault-on-purpose tests, not in a suite that must exit 0 -- except
+// W^X's faults, each taken in a forked child (wx_checks).
 #include <stdint.h>
 #include "rt/sys.h"
 #include <string.h>
@@ -19,6 +20,8 @@
 #include "syscall_abi.h"
 #include <scheduler.h> // MMAP_MAX_REGIONS -- the bound, never a literal
 #include "tmppath.h"
+#include "signal_abi.h" // SIGNAL_EXIT_BASE, SIGSEGV
+#include <unistd.h>     // fork, _exit
 
 // Console AND /tmp/mmap_test.out (UTEST_VERDICT_FILE): this test is
 // SPAWNED (mmap needs a scheduler slot), and a spawned program's
@@ -65,6 +68,110 @@ static int write_fixture(void) {
     int64_t n = sys_write(fd, buf, FILE_BYTES);
     sys_close(fd);
     return n == FILE_BYTES;
+}
+
+// The span of this process's anonymous region starting at `base` (its
+// prot in *prot), 0 when there is none: QUERY_PROCMAP, what pmap prints.
+static uint64_t region_at(const void *base, uint64_t *prot) {
+    struct query_procmap q;
+    for (unsigned i = 0; ; i++) {
+        if (sys_query_record(QUERY_PROCMAP, i, &q, sizeof q) < (int)sizeof q) return 0;
+        if ((int)q.pid == sys_getpid() && q.kind == QUERY_PROCMAP_ANON &&
+            q.base == (uint64_t)(uintptr_t)base) {
+            if (prot) *prot = q.prot;
+            return q.bytes;
+        }
+    }
+}
+
+// --- SYS_MPROTECT and W^X ----------------------------------------------
+
+// `mov eax, imm32; ret`: the smallest function that says which bytes ran.
+static void put_ret(uint8_t *p, uint32_t v) {
+    p[0] = 0xB8;
+    memcpy(p + 1, &v, 4);
+    p[5] = 0xC3;
+}
+
+static int call_at(void *p) { return ((int (*)(void))p)(); }
+
+// A child that does `fn(arg)`, which must FAULT: its exit code, which is
+// 128 + SIGSEGV when it did (SIGNAL_EXIT_BASE), 0 if it survived.
+static void *g_fault_at;
+static void store_there(void) { *(volatile uint8_t *)g_fault_at = 0x90; }
+static void run_there(void) { call_at(g_fault_at); }
+static int child_code(void (*fn)(void)) {
+    int pid = fork();
+    if (pid == 0) { fn(); _exit(0); }
+    int code = -1;
+    if (pid < 0 || sys_waitpid(pid, &code) != pid) return -1;
+    return code;
+}
+
+static void wx_checks(void) {
+    const int segv = SIGNAL_EXIT_BASE + SIGSEGV;
+
+    void *e = sys_mmap(0, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
+                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    utest_check(e == MAP_FAILED && sys_errno() == EACCES,
+                "W^X: an anonymous mapping both writable and executable is EACCES");
+    int fd = sys_open(FILE_PATH, 0);
+    e = fd < 0 ? 0 : sys_mmap(0, 4096, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE, fd, 0);
+    utest_check(e == MAP_FAILED && sys_errno() == EACCES,
+                "W^X: a private file mapping both writable and executable is EACCES");
+
+    uint8_t *code = sys_mmap(0, 2 * 4096, PROT_READ | PROT_WRITE,
+                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (!in_arena(code)) {
+        utest_check(0, "an RW mapping for code");
+        if (fd >= 0) sys_close(fd);
+        return;
+    }
+    put_ret(code, 42);
+    g_fault_at = code;
+    utest_check(child_code(run_there) == segv,
+                 "a call into RW memory faults (NX)");
+    utest_check(sys_mprotect(code, 4096, PROT_READ | PROT_WRITE | PROT_EXEC) == -1 &&
+                sys_errno() == EACCES, "W^X: mprotect to RW|X is EACCES");
+    utest_check(sys_mprotect(code, 4096, PROT_READ | PROT_EXEC) == 0, "mprotect RW -> RX");
+    utest_check(call_at(code) == 42, "the RX page runs what was written into it");
+    utest_check(child_code(store_there) == segv, "a store into the RX page faults");
+    g_fault_at = code + 4096;
+    put_ret(code + 4096, 7);
+    utest_check(child_code(run_there) == segv, "...and the page after it stays RW, not X");
+
+    // The JIT's cycle: back to RW, new bytes, RX again -- the CPU must
+    // run the NEW bytes (the leaf's TLB entry flushed both ways).
+    utest_check(sys_mprotect(code, 4096, PROT_READ | PROT_WRITE) == 0, "mprotect RX -> RW");
+    put_ret(code, 43);
+    utest_check(sys_mprotect(code, 1, PROT_READ | PROT_EXEC) == 0 && call_at(code) == 43,
+                "rewritten and made RX again, it runs the new bytes (length rounds up)");
+
+    utest_check(sys_mprotect(code + 1, 4096, PROT_READ) == -1 && sys_errno() == EINVAL,
+                "mprotect of an unaligned address is EINVAL");
+    utest_check(sys_mprotect(code, 3 * 4096, PROT_READ) == -1 && sys_errno() == ENOMEM,
+                "mprotect past the mapping's end is ENOMEM, and changes nothing");
+    utest_check(call_at(code) == 43, "...the refused call left the RX page RX");
+    uint8_t *f = fd < 0 ? 0 : sys_mmap(0, 4096, PROT_READ, MAP_PRIVATE, fd, 0);
+    utest_check(in_arena(f) && sys_mprotect(f, 4096, PROT_READ | PROT_EXEC) == -1 &&
+                sys_errno() == EACCES, "mprotect of a file mapping is EACCES");
+    if (in_arena(f)) sys_munmap(f, 4096);
+    uint64_t px = 0, pw = 0;
+    utest_check(region_at(code, &px) == 4096 && px == (PROT_READ | PROT_EXEC) &&
+                region_at(code + 4096, &pw) == 4096 && pw == (PROT_READ | PROT_WRITE),
+                "pmap sees the mapping split: an RX region, then an RW one");
+    utest_check(sys_mprotect(code, 4096, PROT_READ | PROT_WRITE) == 0 &&
+                region_at(code, &pw) == 2 * 4096 && pw == (PROT_READ | PROT_WRITE),
+                "made one protection again, it folds back into one region");
+    utest_check(sys_mprotect(code + 4096, 4096, PROT_READ | PROT_EXEC) == 0 &&
+                sys_munmap(code, 2 * 4096) == 0 && region_at(code, 0) == 0 &&
+                region_at(code + 4096, 0) == 0,
+                "one munmap takes an RW region and the RX one after it");
+    if (fd >= 0) sys_close(fd);
+
+    void *lc = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    utest_check(lc != MAP_FAILED && mprotect(lc, 4096, PROT_READ) == 0 && munmap(lc, 4096) == 0,
+                "<sys/mman.h>'s mprotect() links and works");
 }
 
 int main(void) {
@@ -229,10 +336,10 @@ int main(void) {
                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
     p1 = sys_mmap(m0 + 4096, 4096, PROT_READ,
                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
-    utest_check(sys_munmap(m0, 2 * 4096) == -1 && sys_errno() == EINVAL,
+    utest_check(region_at(m0, 0) == 4096 && region_at(m0 + 4096, 0) == 4096,
           "a different prot stays its own region");
-    sys_munmap(m0, 4096);
-    sys_munmap(m0 + 4096, 4096);
+    utest_check(sys_munmap(m0, 2 * 4096) == 0 && region_at(m0, 0) == 0 && region_at(m0 + 4096, 0) == 0,
+          "one munmap spans two adjacent regions");
     // The ceiling counts REGIONS, so touching pages past it all map (the
     // cc1plus case: mdspan's tests built only with 65,536 regions).
     int all = 1;
@@ -295,6 +402,8 @@ int main(void) {
                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     utest_check(lc != MAP_FAILED && in_arena(lc) && munmap(lc, 4096) == 0,
           "<sys/mman.h>'s mmap()/munmap() link and work");
+
+    wx_checks();
 
     sys_unlink(FILE_PATH);
 

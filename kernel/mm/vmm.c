@@ -147,6 +147,7 @@ static int acct_slot(uint64_t pml4_phys, int create) {
 // unmap, release and teardown all sit above it and all three have to
 // give a slot back.
 static int drop_swap_entry(uint64_t *pt, int i);
+static uint64_t user_leaf_of_walk(uint64_t pml4_phys, uint64_t vaddr);
 
 uint64_t vmm_user_bytes(uint64_t pml4_phys) {
     int i = acct_slot(pml4_phys, 0);
@@ -650,6 +651,39 @@ int vmm_cow_break(uint64_t pml4_phys, uint64_t vaddr) {
     flush_if_live(pml4_phys, vaddr & ~0xFFFULL);
     pmm_free_frame(frame); // one owner fewer
     return 1;
+}
+
+// --- mprotect: one leaf's W and NX rewritten ----------------------------
+
+int vmm_protect_user_page(uint64_t pml4_phys, uint64_t vaddr, int writable, int executable) {
+    uint64_t *pt = pt_for(pml4_phys, vaddr);
+    if (!pt) return 0;
+    int i = (int)((vaddr >> 12) & 0x1FF);
+    uint64_t pte = pt[i];
+    if (!(pte & PAGE_PRESENT) || (pte & PAGE_BORROWED)) return 0;
+    uint64_t npte = pte & ~(PAGE_WRITABLE | PAGE_COW | PAGE_NX);
+    if (!executable) npte |= PAGE_NX;
+    // A FRAME ANOTHER SPACE STILL SHARES IS NEVER MADE WRITABLE HERE: it
+    // goes back to COW and the next write copies. The other way round,
+    // a read-only page loses PAGE_COW, because vmm_fault_in() breaks COW
+    // on any write fault -- a COW bit left on an RX page would hand it
+    // back W on the first store.
+    if (writable)
+        npte |= pmm_frame_refs(pte & ADDR_MASK) > 1 ? PAGE_COW : PAGE_WRITABLE;
+    if (npte != pte) {
+        pt[i] = npte;
+        // One CPU (docs/smp-design.md, stage 1), so invlpg is the whole
+        // shootdown; a second CPU running this space needs an IPI here.
+        flush_if_live(pml4_phys, vaddr & ~0xFFFULL);
+    }
+    return 1;
+}
+
+int vmm_user_page_prot(uint64_t pml4_phys, uint64_t vaddr) {
+    uint64_t e = user_leaf_of_walk(pml4_phys, vaddr);
+    if (!e) return -1;
+    return ((e & PAGE_WRITABLE) ? VMM_PAGE_W : 0) | ((e & PAGE_NX) ? 0 : VMM_PAGE_X) |
+           ((e & PAGE_COW) ? VMM_PAGE_COW : 0);
 }
 
 // vmm_fault_in() for the copy helpers, with the OOM killer behind it:

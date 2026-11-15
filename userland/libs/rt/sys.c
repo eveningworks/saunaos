@@ -554,6 +554,11 @@ int sys_munmap(void *addr, uint64_t length) {
     return (int)err(syscall2(SYS_MUNMAP, (uint64_t)(uintptr_t)addr, length));
 }
 
+int sys_mprotect(void *addr, uint64_t length, int prot) {
+    return (int)err(syscall3(SYS_MPROTECT, (uint64_t)(uintptr_t)addr, length,
+                             (uint64_t)(uint32_t)prot));
+}
+
 int sys_futex_wait(volatile uint32_t *word, uint32_t expected, int timeout_ms) {
     return (int)err(syscall3(SYS_FUTEX_WAIT, (uint64_t)(uintptr_t)word,
                               expected, (uint64_t)timeout_ms));

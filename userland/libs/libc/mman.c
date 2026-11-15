@@ -12,3 +12,7 @@ void *mmap(void *addr, size_t length, int prot, int flags,
 int munmap(void *addr, size_t length) {
     return sys_munmap(addr, length);
 }
+
+int mprotect(void *addr, size_t length, int prot) {
+    return sys_mprotect(addr, length, prot);
+}

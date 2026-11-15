@@ -2641,7 +2641,7 @@ stack top and allocates nothing, which is `clone(2)`'s shape rather than
 `pthread_create()`'s. Everything with a malloc in it -- the stack, the
 TLS block, the return value, the descriptor -- is `userland/libs/libc/pthread.c`.
 Two consequences are worth knowing before writing threaded code: a thread
-stack has **no guard page** (there is no `mprotect` to make one), and a
+stack has **no guard page** (`mprotect()` takes no `PROT_NONE` yet), and a
 **detached thread's stack is never reclaimed**, because nothing can
 safely free memory a dying thread is still standing on. Linux solves the
 second with `CLONE_CHILD_CLEARTID` and a futex wake.
@@ -5225,6 +5225,18 @@ the first refusals of each sandbox are logged as `sandbox: pid N
 refused path ...` -- a ring-3 library may read settings or locale data
 as FILES (libc's locale, a schema setting's `/etc/<app>.conf`).
 `ps --sandbox` shows what each process kept.
+
+## W^X IS REFUSED, NOT ADVISED -- WRITE CODE RW, THEN `mprotect()` IT RX, UNDER `prot_exec`
+
+`PROT_WRITE | PROT_EXEC` is -EACCES from `mmap()` and `mprotect()`, and an
+ELF segment with both flags does not load. A JIT writes a block into an
+RW anonymous mapping, then makes those pages RX (`mprotect()` changes
+anonymous memory only, and `munmap()` spans the regions it split). A
+sandboxed process needs the `prot_exec` promise for executable memory it
+could have written -- anonymous, or a file outside `/bin`, `/lib` and
+`/tests` -- and is killed with SIGSYS without it, as for any other group.
+Why each rule: `docs/decisions/kernel.md`, "W^X for every mapping, and
+executable memory a program wrote needs `prot_exec`".
 
 ## A SANDBOXED APP'S TOOLKIT CAN SPAWN ON ITS BEHALF -- OPEN THE FILE DIALOG WITH `no_mount`
 

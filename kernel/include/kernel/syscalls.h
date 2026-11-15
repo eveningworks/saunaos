@@ -398,6 +398,7 @@ int sys_yield(struct syscall_ctx *c);
 int sys_sbrk(struct syscall_ctx *c);
 int sys_mmap(struct syscall_ctx *c);   // kernel/mm/mmap.c
 int sys_munmap(struct syscall_ctx *c); // kernel/mm/mmap.c
+int sys_mprotect(struct syscall_ctx *c); // kernel/mm/mmap.c
 int sys_dev_map_bar(struct syscall_ctx *c); // kernel/mm/mmap.c
 int sys_dev_claim(struct syscall_ctx *c);   // kernel/drivers/dev_claim.c
 int sys_dev_release(struct syscall_ctx *c); // beside it

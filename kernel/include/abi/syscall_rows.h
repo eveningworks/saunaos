@@ -31,6 +31,7 @@ SYSCALL_ROW(SYS_SBRK, "sbrk", sys_sbrk, A_INT, A_END, A_END, R_HEX, PROMISE_STDI
 // negatives every libc wrapper already tests for.
 SYSCALL_ROW(SYS_MMAP, "mmap", sys_mmap, A_HEX, A_END, A_END, R_HEX, PROMISE_STDIO)
 SYSCALL_ROW(SYS_MUNMAP, "munmap", sys_munmap, A_HEX, A_INT, A_END, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW(SYS_MPROTECT, "mprotect", sys_mprotect, A_HEX, A_INT, A_HEX, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_DEV_MAP_BAR, "dev_map_bar", sys_dev_map_bar, A_INT, A_INT, A_END, R_HEX, PROMISE_DEVICE)
 SYSCALL_ROW(SYS_DEV_CLAIM, "dev_claim", sys_dev_claim, A_INT, A_END, A_END, R_DEC, PROMISE_DEVICE)
 SYSCALL_ROW(SYS_DEV_RELEASE, "dev_release", sys_dev_release, A_INT, A_HEX, A_END, R_DEC, PROMISE_DEVICE)

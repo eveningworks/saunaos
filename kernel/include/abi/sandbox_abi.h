@@ -26,7 +26,8 @@
 // ask for a second bit by ARGUMENT, the way pledge's `open` reads its
 // flags: open for writing wants WPATH, with O_CREAT also CPATH; a setting
 // write wants SETTINGS_WRITE; kill of another process wants PROC; an
-// SHM_PUBLIC object wants PUBLISH.
+// SHM_PUBLIC object wants PUBLISH; mmap or mprotect with PROT_EXEC wants
+// PROT_EXEC (OpenBSD's `prot_exec`).
 #define PROMISE_STDIO          (1u << 0)  // memory, threads, futexes, time, signals, held fds
 #define PROMISE_RPATH          (1u << 1)  // open to read, stat, list a directory
 #define PROMISE_WPATH          (1u << 2)  // open to write, truncate, fsync
@@ -45,14 +46,17 @@
 #define PROMISE_DIAG           (1u << 15) // the diagnostic registry: answer, or ASK, `diag NAME`.
                                           // Its own bit because asking the compositor's
                                           // name drives the desktop (`gui key`)
-#define PROMISE_ALL            0xFFFFu
+#define PROMISE_PROT_EXEC      (1u << 16) // PROT_EXEC on memory that is not the system
+                                          // image's code: anonymous memory, or a file
+                                          // outside /bin, /lib and /tests -- a JIT's
+#define PROMISE_ALL            0x1FFFFu
 
 // Each bit's WORD, in bit order: pledge()'s strings, the kernel's log
 // line and `ps --sandbox` all read this one list. OpenBSD's word where
 // it has one.
 #define PROMISE_WORDS { "stdio", "rpath", "wpath", "cpath", "shm", "publish", "proc", \
                         "inet", "window", "tty", "settings", "settings_write", "query", \
-                        "device", "admin", "diag" }
+                        "device", "admin", "diag", "prot_exec" }
 
 // --- unveil rights -------------------------------------------------------
 #define UNVEIL_R 0x1   // read: open to read, stat, list

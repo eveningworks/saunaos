@@ -5954,9 +5954,8 @@ and both are named in `<pthread.h>` rather than left to be discovered:
 **A thread stack has no guard page.** The initial thread's is grown on
 fault with a guard gap below it, and the kernel's own stacks have guard
 pages; a thread's is a malloc'd extent, so an overrun walks into another
-allocation instead of faulting. Fixing it needs an `mprotect`-shaped
-syscall, which this system does not have and which is a roadmap item on
-its own merits.
+allocation instead of faulting. Fixing it needs `PROT_NONE` in
+`mprotect()`, which arrived (2026-11-15) without it.
 
 **A detached thread's stack is never reclaimed.** Nothing can safely
 free memory a dying thread is still standing on: between "I am about to
@@ -10261,3 +10260,59 @@ Ctrl+Alt+F2 that hid it went down while it had the keyboard. Refusing
 their releases left them held when it came back; refusing PRESSES only
 is what the key streams' own "a release of nothing is dropped" rule
 makes safe.
+
+## W^X for every mapping, and executable memory a program wrote needs `prot_exec`
+
+Picked 2026-11-15, as stage 0 of `docs/w16-jit-design.md`: w16's JIT needs
+executable memory in a sandboxed process, and `SYS_MMAP` (2026-08-28) had
+taken `PROT_WRITE | PROT_EXEC` on an anonymous mapping since it landed --
+W^X held for ELF segments and the kernel image, not for anonymous memory.
+
+**What real systems do.** OpenBSD refuses a W|X mapping outright (`mmap`
+and `mprotect` answer EACCES; `wxallowed` per mount is the escape) and
+gates any `PROT_EXEC` after `pledge()` on the `prot_exec` promise. Linux
+allows W|X unless an LSM forbids it (SELinux's `execmem`, PaX's
+MPROTECT). Windows offers both: Arbitrary Code Guard refuses new
+executable memory for a process that opted in; `VirtualProtect` is the
+flip otherwise. A JIT gets its code memory one of three ways: FLIP
+(`mprotect`, V8's write-protected code space), MAP TWICE (one object RW
+and RX at two addresses: .NET's W^X mode, QEMU's `split-wx`), or a
+per-thread switch (Apple's `MAP_JIT` with `pthread_jit_write_protect_np`).
+
+**What SaunaOS does: OpenBSD's rule, enforced for everyone.**
+- **W|X is -EACCES in `SYS_MMAP`, `SYS_MPROTECT` and the ELF loader**
+  (a segment with PF_W and PF_X). Nothing the build stages had one --
+  3,786 ELFs, no RWE `PT_LOAD` or stack -- so the refusal cost nothing to
+  turn on, and it is a refusal rather than a warning because a warning
+  is what a JIT bug looks like in a log nobody reads.
+- **The JIT FLIPS.** `SYS_MPROTECT` was the smallest change (the region
+  list already carried `prot`, the fault path already maps NX from it)
+  and the guard-page item wanted it anyway; a dual mapping keeps a
+  writable alias of the code alive for as long as the code is.
+- **`mprotect()` changes ANONYMOUS memory only** (-EACCES otherwise). A
+  read-only file page may be the image cache's one frame for every
+  process (`kernel/mm/imgcache.c`), and an shm or device page belongs to
+  someone else; Linux allows a private file mapping, which a COW copy
+  makes safe there and which nothing here needs yet.
+- **A frame another address space still shares is never made writable**
+  by it: writable becomes COW when the frame's refcount is above one,
+  and read-only DROPS COW -- `vmm_fault_in()` breaks COW on any write
+  fault, so a COW bit left on an RX page would give it W back on the
+  first store.
+- **`prot_exec` covers executable memory a program could have WRITTEN**:
+  anonymous memory, or a file outside `/bin`, `/lib` and `/tests` (the
+  image cache's prefixes). OpenBSD gates every `PROT_EXEC`, but there
+  the dynamic loader runs before `main()` calls `pledge()`; here
+  `SPAWN_SANDBOX` applies the promises before the first instruction,
+  so ld.so's own `mmap` of `/lib/libc.so` would kill webcontent. Gating
+  only anonymous memory would leave a sandbox with `wpath` free to write
+  a file and map it executable -- W^X through the filesystem.
+- **A region split by `mprotect` folds back** when its neighbours have
+  one protection again, Linux's `vma_merge()`: a JIT flipping pages one
+  at a time holds a region per RUN of one protection, not one per flip.
+  `munmap` spans adjacent regions for the same reason.
+
+**Not done: `PROT_NONE`.** `mmap` requires `PROT_READ` and so does
+`mprotect`; a guard page needs a present-but-inaccessible state the
+fault-in path does not have yet (the guard-page roadmap item).
+

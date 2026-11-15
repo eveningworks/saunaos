@@ -33,6 +33,8 @@
 #include "imgcache.h"     // /bin, /lib and /tests pages, one frame systemwide
 #include "kmutex.h"       // the address space's lock
 #include "shm.h"          // shm_created_bytes -- the data limit counts them
+#include "sandbox.h"      // PROMISE_PROT_EXEC, asked by argument
+#include "sandbox_abi.h"
 
 _Static_assert(sizeof(((struct sched_mm *)0)->lock_word) >= sizeof(struct kmutex),
                "sched_mm.lock_word holds a struct kmutex");
@@ -236,23 +238,30 @@ int mm_data_allows(struct sched_mm *mm, uint64_t more) {
     return 0;
 }
 
+// The prot SYS_MMAP and SYS_MPROTECT take, or -errno. PROT_READ is
+// required and nothing unknown may be set: a bit this kernel does not
+// implement must refuse, not silently grant. **W^X: WRITE WITH EXEC IS
+// -EACCES** (OpenBSD's) -- a page is written, or run, never both.
+int mmap_prot_check(uint32_t prot) {
+    if (!(prot & SYS_PROT_READ) ||
+        (prot & ~(uint32_t)(SYS_PROT_READ | SYS_PROT_WRITE | SYS_PROT_EXEC)))
+        return -EINVAL;
+    if ((prot & SYS_PROT_WRITE) && (prot & SYS_PROT_EXEC)) return -EACCES;
+    return 0;
+}
+
 int sys_mmap(struct syscall_ctx *c) {
     struct sched_mm *mm = caller_mm();
     struct mmap_msg m;
     int64_t ret;
-    int held = -1, locked = 0;
+    int held = -1, locked = 0, exec_refused = 0;
 
     if (!mm) { ret = -EPERM; goto out; }
     if (!vmm_copy_from_user(c->pml4, &m, c->a0, sizeof m)) {
         ret = -EFAULT; goto out;
     }
 
-    // PROT_READ is required and nothing unknown may be set: a bit this
-    // kernel does not implement must refuse, not silently grant.
-    if (!(m.prot & SYS_PROT_READ) ||
-        (m.prot & ~(SYS_PROT_READ | SYS_PROT_WRITE | SYS_PROT_EXEC))) {
-        ret = -EINVAL; goto out;
-    }
+    if ((ret = mmap_prot_check(m.prot)) != 0) goto out;
     // Exactly one of PRIVATE/SHARED, and nothing this kernel does not
     // implement. SHARED is meaningful only over an shm object, which
     // the fd check below enforces.
@@ -263,6 +272,11 @@ int sys_mmap(struct syscall_ctx *c) {
         ret = -EINVAL; goto out;
     }
     if (shared && (m.flags & SYS_MAP_ANONYMOUS)) { ret = -EINVAL; goto out; }
+    // Executable memory a program WROTE needs `prot_exec`: anonymous here,
+    // a file outside the system image below. Nothing is held yet.
+    if ((m.prot & SYS_PROT_EXEC) && (m.flags & SYS_MAP_ANONYMOUS) && sandbox_active() &&
+        sandbox_require(PROMISE_PROT_EXEC, "mmap PROT_EXEC", c->regs))
+        return 0;
     if (!m.length || (m.offset & 0xFFF)) { ret = -EINVAL; goto out; }
     // NO LONGER THAN THE ARENA, before any arithmetic: a length near 2^64
     // wrapped the page count and the region's end into something small.
@@ -296,6 +310,14 @@ int sys_mmap(struct syscall_ctx *c) {
         // back one. A read-write one can, as on Linux for MAP_PRIVATE.
         if (!f || f->ops != &file_fd_ops || !fd_mode_reads(f->file.mode)) {
             ret = -EBADF; goto out;
+        }
+        // A file's code without the promise only from the system image:
+        // the dynamic loader maps /lib under SPAWN_SANDBOX before main()
+        // runs, and a sandbox with wpath could otherwise write a file
+        // and map it executable -- W^X through the filesystem.
+        if ((m.prot & SYS_PROT_EXEC) && !imgcache_path_ok(f->file.name) &&
+            !sandbox_allows(PROMISE_PROT_EXEC)) {
+            exec_refused = 1; goto out;
         }
     }
 
@@ -363,6 +385,12 @@ int sys_mmap(struct syscall_ctx *c) {
 out:
     if (locked) mm_unlock(mm);
     fd_put(held);
+    // Ended only once nothing is held (sandbox.h: the handler returns at
+    // once, and the trapframe is the next process's).
+    if (exec_refused) {
+        sandbox_violation("mmap PROT_EXEC", PROMISE_PROT_EXEC, c->regs);
+        return 0;
+    }
     c->regs[14] = (uint64_t)ret;
     return 0;
 }
@@ -647,30 +675,30 @@ int sys_munmap(struct syscall_ctx *c) {
 
     // A length that wraps the end past 2^64 is no range at all.
     if (len > UADDR_MMAP_LIMIT - addr) { ret = -EINVAL; goto out; }
-    uint64_t npages = len / 4096;
     uint64_t end = addr + len;
-    struct mmap_region *r = region_of(mm, addr);
-    uint64_t rend;
 
-    // The whole range must lie inside ONE region -- an edge trim, the
-    // middle, or all of it. POSIX allows a range spanning several
-    // mappings and holes; nothing here needs that yet, and a refusal
-    // can be widened where a silent partial unmap cannot be recalled.
-    if (!r) { ret = -EINVAL; goto out; }
-    rend = r->base + r->npages * 4096ULL;
-    if (end > rend) { ret = -EINVAL; goto out; }
-
-    // A SHARED region goes whole or not at all. Trimming one would split
-    // the object's frames between two entries, and the mapping table
-    // keys on a base address -- a refusal can be widened later; a
-    // half-dropped reference cannot be found again.
-    if (r->kind == MMAP_KIND_SHM && (addr != r->base || end != rend)) {
-        ret = -EINVAL; goto out;
+    // EVERY BYTE MAPPED, across as many ADJACENT regions as it takes --
+    // mprotect() splits one mapping into several, and a JIT unmapping its
+    // whole arena must not have to know where. POSIX also allows holes;
+    // a refusal can be widened where a silent partial unmap cannot be
+    // recalled. A SHARED region goes whole or not at all: trimming one
+    // would split the object's frames between two entries, and the
+    // mapping table keys on a base address.
+    for (uint64_t p = addr; p < end; ) {
+        struct mmap_region *q = region_of(mm, p);
+        if (!q) { ret = -EINVAL; goto out; }
+        uint64_t qend = q->base + q->npages * 4096ULL;
+        if (q->kind == MMAP_KIND_SHM && (p != q->base || end < qend)) {
+            ret = -EINVAL; goto out;
+        }
+        p = qend;
     }
 
-    // A middle cut needs a slot for the tail BEFORE anything is
-    // unmapped, so a full table refuses with every page still mapped
-    // rather than half-applying.
+    // A middle cut -- one region, both ends inside it -- needs a slot for
+    // the tail BEFORE anything is unmapped, so a full table refuses with
+    // every page still mapped rather than half-applying.
+    struct mmap_region *r = region_of(mm, addr);
+    uint64_t rend = r->base + r->npages * 4096ULL;
     struct mmap_region *tail = 0;
     if (addr > r->base && end < rend) {
         // **free_slot() CAN MOVE THE LIST.** It grows by allocating a
@@ -687,31 +715,141 @@ int sys_munmap(struct syscall_ctx *c) {
         tail = &mm->regions[t_slot];
     }
 
-    for (uint64_t p = addr; p < end; p += 4096)
-        vmm_release_user_page(c->pml4, p); // untouched pages: nothing there
-    if (r->kind == MMAP_KIND_SHM) shm_unmap_range(c->pml4, addr, npages);
+    // Piece by piece: only the first can be a back trim or the middle,
+    // only the last a front trim, everything between goes whole.
+    for (uint64_t p = addr; p < end; ) {
+        r = region_of(mm, p);
+        rend = r->base + r->npages * 4096ULL;
+        uint64_t pe = end < rend ? end : rend;
+        uint64_t npages = (pe - p) / 4096;
+        for (uint64_t v = p; v < pe; v += 4096)
+            vmm_release_user_page(c->pml4, v); // untouched pages: nothing there
+        if (r->kind == MMAP_KIND_SHM) shm_unmap_range(c->pml4, p, npages);
 
-    if (addr == r->base && end == rend) {
-        r->base = 0;
-    } else if (addr == r->base) {          // front trim
-        r->base = end;
-        r->npages -= npages;
-        r->file_off += len;
-    } else if (end == rend) {              // back trim
-        r->npages -= npages;
-    } else {                               // middle: r keeps the head
-        tail->npages   = (rend - end) / 4096;
-        tail->prot     = r->prot;
-        tail->kind     = r->kind;
-        tail->file_off = r->file_off + (end - r->base);
-        tail->shm_idx  = r->shm_idx;
-        k_strlcpy(tail->path, r->path, sizeof tail->path);
-        tail->base     = end;
-        r->npages      = (addr - r->base) / 4096;
+        if (p == r->base && pe == rend) {
+            r->base = 0;
+        } else if (p == r->base) {             // front trim
+            r->base = pe;
+            r->npages -= npages;
+            r->file_off += pe - p;
+        } else if (pe == rend) {               // back trim
+            r->npages -= npages;
+        } else {                               // middle: r keeps the head
+            tail->npages   = (rend - pe) / 4096;
+            tail->prot     = r->prot;
+            tail->kind     = r->kind;
+            tail->file_off = r->file_off + (pe - r->base);
+            tail->shm_idx  = r->shm_idx;
+            k_strlcpy(tail->path, r->path, sizeof tail->path);
+            tail->base     = pe;
+            r->npages      = (p - r->base) / 4096;
+        }
+        p = pe;
     }
 
 out:
     if (locked) mm_unlock(mm);
+    c->regs[14] = (uint64_t)ret;
+    return 0;
+}
+
+// --- SYS_MPROTECT ------------------------------------------------------
+
+// Makes `va` a region boundary: the ANON region containing it strictly
+// inside is cut in two there, Linux's split_vma(). 0, or -ENOMEM with no
+// slot -- and then nothing changed.
+static int split_at(struct sched_mm *mm, uint64_t va) {
+    struct mmap_region *r = region_of(mm, va);
+    if (!r || r->base == va) return 0;
+    int r_idx = (int)(r - mm->regions);
+    int t_slot = free_slot(mm);              // CAN MOVE THE LIST: re-derive r
+    if (t_slot < 0) return -ENOMEM;
+    r = &mm->regions[r_idx];
+    struct mmap_region *t = &mm->regions[t_slot];
+    uint64_t rend = r->base + r->npages * 4096ULL;
+    t->npages  = (rend - va) / 4096;
+    t->prot    = r->prot;
+    t->kind    = r->kind;
+    t->file_off = 0;
+    t->shm_idx = -1;
+    t->path[0] = '\0';
+    t->base    = va;                         // last: a non-zero base makes it live
+    r->npages  = (va - r->base) / 4096;
+    return 0;
+}
+
+// Folds the ANON region holding `va` with every same-prot ANON region
+// that runs on from it, and with the one that ends where it starts -- so
+// a JIT flipping pages back and forth holds as many regions as it has
+// runs of one protection, not one per flip.
+static void coalesce_at(struct sched_mm *mm, uint64_t va) {
+    struct mmap_region *r = region_of(mm, va);
+    if (!r || r->kind != MMAP_KIND_ANON) return;
+    struct mmap_region *n;
+    while ((n = anon_neighbour(mm, r->base + r->npages * 4096ULL, r->prot, 0))) {
+        r->npages += n->npages;
+        n->base = 0;
+    }
+    struct mmap_region *left = anon_neighbour(mm, r->base, r->prot, 1);
+    if (left) {
+        left->npages += r->npages;
+        r->base = 0;
+    }
+}
+
+int mmap_protect(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len,
+                 uint32_t prot) {
+    int rc = mmap_prot_check(prot);
+    if (rc) return rc;
+    if (!len || (addr & 0xFFF) || !uaddr_is_mmap_range(addr)) return -EINVAL;
+    if (len > UADDR_MMAP_LIMIT - addr) return -ENOMEM;
+    uint64_t end = addr + ((len + 4095) & ~0xFFFULL);
+    if (end > UADDR_MMAP_LIMIT || !mm->regions) return -ENOMEM;
+
+    // EVERY BYTE MAPPED, AND ALL OF IT ANONYMOUS, before anything moves.
+    // A file page may be the image cache's one frame for every process,
+    // and an shm or device page somebody else's: only memory the process
+    // made itself changes protection.
+    for (uint64_t p = addr; p < end; ) {
+        struct mmap_region *r = region_of(mm, p);
+        if (!r) return -ENOMEM;
+        if (r->kind != MMAP_KIND_ANON) return -EACCES;
+        p = r->base + r->npages * 4096ULL;
+    }
+
+    // Two cuts, then the pages; a failed cut leaves only a split of one
+    // prot, which the coalesce below folds back.
+    rc = split_at(mm, addr);
+    if (!rc) rc = split_at(mm, end);
+    if (!rc) {
+        for (int i = 0; i < mm->region_cap; i++) {
+            struct mmap_region *r = &mm->regions[i];
+            if (r->base >= addr && r->base < end) r->prot = (uint8_t)prot;
+        }
+        // Set before the leaves: a page faulted in from here on gets the
+        // new prot from its region, an already-present one below.
+        for (uint64_t p = addr; p < end; p += 4096)
+            vmm_protect_user_page(pml4, p, (prot & SYS_PROT_WRITE) != 0,
+                                  (prot & SYS_PROT_EXEC) != 0);
+    }
+    coalesce_at(mm, addr);
+    return rc;
+}
+
+int sys_mprotect(struct syscall_ctx *c) {
+    struct sched_mm *mm = caller_mm();
+    uint32_t prot = (uint32_t)c->a2;
+    int64_t ret;
+    if (!mm) { ret = -EPERM; goto out; }
+    // Only anonymous memory can be reached here, so EXEC always wants the
+    // promise. Nothing is held yet.
+    if ((prot & SYS_PROT_EXEC) && mmap_prot_check(prot) == 0 && sandbox_active() &&
+        sandbox_require(PROMISE_PROT_EXEC, "mprotect PROT_EXEC", c->regs))
+        return 0;
+    mm_lock(mm);
+    ret = mmap_protect(mm, c->pml4, c->a0, c->a1, prot);
+    mm_unlock(mm);
+out:
     c->regs[14] = (uint64_t)ret;
     return 0;
 }

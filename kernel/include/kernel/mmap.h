@@ -82,6 +82,16 @@ void mmap_regions_reset(struct sched_mm *mm);
 // one array.
 int mmap_clone_regions(struct sched_mm *dst, const struct sched_mm *src);
 
+// SYS_MPROTECT's engine, split out so a KTEST drives the path ring 3
+// does (the syscall refuses the kernel context at its first line): with
+// `mm`'s lock held, [addr, +len) -- wholly anonymous mappings -- gets
+// `prot`, regions split and folded back, present leaves rewritten. 0 or
+// -errno (abi/syscall_abi.h, SYS_MPROTECT).
+int mmap_protect(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len,
+                 uint32_t prot);
+// The prot both calls take, or -errno: W|X is -EACCES.
+int mmap_prot_check(uint32_t prot);
+
 // mm_test.c only: free_slot(), which is where the list grows.
 struct mmap_region *mmap_test_free_slot(struct sched_mm *mm);
 

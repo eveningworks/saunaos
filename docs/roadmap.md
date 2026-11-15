@@ -28,7 +28,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 - [ ] `execl`/`execlp` in tolibc  *(`fork()`/`exec()`-style process model)*
 - [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
 - [ ] w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)  *(Running 16-bit Windows programs (w16))*
-- [ ] `mprotect()` and W^X for anonymous memory, with a `prot_exec` pledge promise -- the JIT's stage 0  *(Running 16-bit Windows programs (w16))*
 - [ ] w16: a JIT for 32-bit code -- hot blocks translated to x86-64; needs executable memory in a sandboxed process  *(Running 16-bit Windows programs (w16))*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
@@ -338,7 +337,7 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [x] ~~More than eight Terminal tabs~~ DONE 2026-10-23 -- the tab table and the kernel's tty/pty tables grow
 - [ ] Terminal tabs past the strip's width run off its right edge -- a scrolling strip (Ctrl+PgUp/PgDn still reach them)
 - [x] ~~A tab can be renamed by hand~~ DONE 2026-08-27 -- Terminal > Rename Tab; the name outranks the shell's OSC
-- [ ] A thread stack with a guard page, which needs an `mprotect`-shaped syscall
+- [ ] A thread stack with a guard page, which needs `PROT_NONE` in `mprotect()`
 - [ ] Signal dispositions shared by a thread group, as POSIX has them -- per thread here, inherited at create
 - [ ] Audit every `scheduler_current_pid()` that decides a PERMISSION -- shared memory asked the thread, not the process, until 2026-10-13
 - [ ] GCC's default (`%fs:0x28`) stack-protector guard in ring 3, now that TLS exists
@@ -1141,7 +1140,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: WinG, waveOut with ADPCM, MSCDEX and CD drives, boxes before the main window~~ DONE 2026-11-01 -- DK's encyclopaedia starts
 - [x] ~~w16: Watcom Win386 programs -- 32-bit segments, DPMI, one linear arena~~ DONE 2026-11-14 -- Lighthouse installs, its intro plays
 - [ ] w16: Lighthouse playable -- its rooms, at the CPU's speed (~21 MIPS on the ASUS), on the ASUS too
-- [ ] **NEXT** `mprotect()` and W^X for anonymous memory, with a `prot_exec` pledge promise -- the JIT's stage 0
+- [x] ~~`mprotect()` and W^X for anonymous memory, with a `prot_exec` pledge promise~~ DONE 2026-11-15 -- `SYS_MPROTECT`, W|X refused
 - [ ] **NEXT** w16: a JIT for 32-bit code -- hot blocks translated to x86-64; needs executable memory in a sandboxed process
 - [ ] w16: an installer's Program Manager groups as Retro Launcher entries -- PROGMAN's DDE (CreateGroup, AddItem) answered
 - [ ] w16: changing CDs -- Lighthouse's disc 2; a CD drive is one image or folder for a whole run

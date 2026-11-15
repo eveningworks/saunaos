@@ -2095,10 +2095,23 @@ struct sys_stat {
 #define SYS_MUNMAP 79 // RDI = addr, RSI = length (both page-aligned).
                       // Unmaps [addr, addr+len) and frees the frames
                       // behind any pages that were touched. The range
-                      // must lie within ONE mapping (POSIX allows
-                      // spanning several; this does not, yet) -- it
-                      // may trim an edge or split the middle. Returns
-                      // 0 or -ERRNO.
+                      // may span ADJACENT mappings (mprotect splits
+                      // one into several) but no hole, which POSIX
+                      // allows and this refuses (-EINVAL); it may
+                      // trim an edge or split the middle, and takes a
+                      // shared mapping only whole. Returns 0 or -ERRNO.
+
+// SYS_MPROTECT -- RDI = addr (page-aligned), RSI = length (rounded up to
+// pages), RDX = SYS_PROT_* bits. Changes the protection of [addr, +len),
+// which must be wholly ANONYMOUS mappings with no hole: -ENOMEM for a
+// hole (Linux's), -EACCES for a file, shm or device mapping. Returns 0 or
+// -ERRNO.
+//
+// **W^X: PROT_WRITE WITH PROT_EXEC IS -EACCES, here and in SYS_MMAP**
+// (OpenBSD's rule and errno). Code is written RW, then made RX -- a JIT's
+// cycle. PROT_EXEC on anonymous memory also needs the `prot_exec`
+// promise (abi/sandbox_abi.h). PROT_READ is required, as in SYS_MMAP.
+#define SYS_MPROTECT 167
 
 #define SYS_SHM_OPEN 99   // RDI = pointer to a `struct shm_open_msg`.
                           // Returns a descriptor naming a SHARED

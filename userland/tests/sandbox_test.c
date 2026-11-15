@@ -15,11 +15,13 @@
 // SPAWNED by tools/tests/gate/usertest_run.py: fork and waitpid need a scheduler
 // slot, which the legacy `run` loader has not got.
 #include <errno.h>
+#include <stdint.h>
 #include <fcntl.h>
 #include <string.h>
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/mman.h>
 #include "rt/sys.h"
 #include "syscall_abi.h"
 #include "sandbox_abi.h"
@@ -205,6 +207,61 @@ static unsigned promises_of(int pid) {
     return 0;
 }
 
+// --- prot_exec: executable memory the program wrote itself -------------
+
+static int ret42(uint8_t *p) {           // `mov eax, 42; ret`
+    static const uint8_t code[] = { 0xB8, 42, 0, 0, 0, 0xC3 };
+    memcpy(p, code, sizeof code);
+    return 0;
+}
+
+static int anon_exec_needs_promise(void) {
+    if (pledge("stdio", NULL) != 0) return 1;
+    void *p = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == MAP_FAILED) return 2;                // RW is stdio
+    mmap(NULL, 4096, PROT_READ | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);   // never returns
+    return 3;
+}
+
+static int mprotect_exec_needs_promise(void) {
+    if (pledge("stdio", NULL) != 0) return 1;
+    uint8_t *p = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == MAP_FAILED) return 2;
+    if (mprotect(p, 4096, PROT_READ) != 0) return 3;   // dropping W is stdio
+    mprotect(p, 4096, PROT_READ | PROT_EXEC);          // never returns
+    return 4;
+}
+
+static int exec_with_promise(void) {
+    if (pledge("stdio prot_exec", NULL) != 0) return 1;
+    uint8_t *p = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == MAP_FAILED) return 2;
+    ret42(p);
+    if (mprotect(p, 4096, PROT_READ | PROT_EXEC) != 0) return 3;
+    if (((int (*)(void))(void *)p)() != 42) return 4;
+    if (pledge("stdio", NULL) != 0) return 5;          // and it can be given up
+    return 0;
+}
+
+// The system image's code needs no promise -- the dynamic loader maps
+// /lib under SPAWN_SANDBOX -- and a file the program could have WRITTEN
+// does.
+#define WRITTEN "/tmp/sandbox_test.x"
+static int file_exec_outside_image(void) {
+    int fd = open(SELF, O_RDONLY);
+    if (fd < 0) return 1;
+    int w = open(WRITTEN, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (w < 0 || write(w, "\xC3", 1) != 1) return 2;
+    close(w);
+    w = open(WRITTEN, O_RDONLY);
+    if (w < 0) return 3;
+    if (pledge("stdio rpath", NULL) != 0) return 4;
+    void *img = mmap(NULL, 4096, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, 0);
+    if (img == MAP_FAILED) return 5;
+    mmap(NULL, 4096, PROT_READ | PROT_EXEC, MAP_PRIVATE, w, 0);   // never returns
+    return 6;
+}
+
 static int last_crash_says(const char *prefix) {
     struct query_crash last;
     int found = 0;
@@ -242,6 +299,17 @@ int main(int argc, char **argv) {
     utest_checkf(code == 0, "a forked child inherits the pledge (%d)", code);
     code = in_child(kill_other);
     utest_checkf(code == KILLED_BY_SIGSYS, "kill() of itself is stdio, of another is proc (%d)", code);
+
+    code = in_child(anon_exec_needs_promise);
+    utest_checkf(code == KILLED_BY_SIGSYS, "anonymous RW is stdio; mmap with PROT_EXEC needs prot_exec (%d)", code);
+    utest_check(last_crash_says("Sandbox: mmap PROT_EXEC needs"), "...named in the crash record");
+    code = in_child(mprotect_exec_needs_promise);
+    utest_checkf(code == KILLED_BY_SIGSYS, "mprotect to read-only is stdio; to PROT_EXEC needs prot_exec (%d)", code);
+    code = in_child(exec_with_promise);
+    utest_checkf(code == 0, "with prot_exec: written RW, made RX, it runs (%d)", code);
+    code = in_child(file_exec_outside_image);
+    utest_checkf(code == KILLED_BY_SIGSYS, "the system image maps executable without it; a /tmp file does not (%d)", code);
+    unlink(WRITTEN);
 
     code = in_child(unveil_hides);
     utest_checkf(code == 0, "unveil hides the rest (ENOENT), only narrows, and locks (%d)", code);
