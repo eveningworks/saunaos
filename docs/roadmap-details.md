@@ -9017,6 +9017,33 @@ is (a small table of known redistributables: VBRUN100/200/300, VB40016,
 CTL3D, THREED.VBX...), Choose file..., copied into C:\WINDOWS\SYSTEM, the
 program started again. Never a download. Mock up before building.
 
+**BUILT 2026-11-15**, the "w16: a missing runtime DLL" canvas's B and C:
+- **`w16 --check`** prints `needs VBRUN300.DLL Visual Basic 3.0 runtime` for
+  each DLL the program -- or one of its own DLLs, at any depth -- imports
+  that is in none of the loader's places (its folder, drive C:'s
+  `WINDOWS\SYSTEM` and `WINDOWS`), or is there but no library. Its sandbox
+  unveils those two drive C: folders read-only, found before it closes. The
+  table of what each is lives in `module16.c` (`w16_dll_what()`): VBRUN100,
+  200, 300, VB40016, CTL3D, CTL3DV2; the rest "a DLL the program needs". A
+  VBX (THREED.VBX) is not in it: VB's runtime loads one with LoadLibrary,
+  never as an import.
+- **w16** asks BEFORE loading anything (`w16_missing_dll()`, then
+  `needdll16.c`'s "Runtime test needs a file" window on the uapp thread):
+  Choose file... opens the toolkit's chooser at the program's folder, the
+  file is checked to be an NE library and written to drive C:'s
+  `WINDOWS\SYSTEM` under the imported name, and the question is asked again
+  -- the next DLL may be missing too -- before the program loads. A load that
+  had failed halfway could not be undone (the arena, selectors, the JIT),
+  hence the question first. The sandbox is unchanged: a run already reads
+  the whole tree and writes drive C:. Cancel ends w16 as before.
+- **Retro Launcher**'s panel shows the warning row with **Add file...**, Run
+  (and Run with trace / skipping) greyed, the tile "1 file missing"; the copy
+  goes to the program's own drive C:, and `--check` is asked again.
+- Samples: `needsvb.exe` imports VBRUN300.THUNRTMAIN; `rtstub.dll` (gen_ne's
+  new `;w16: library`) exports it. `w16_gui_test.py --only missing_dll`.
+- Not done: a DLL a RUNNING program loads (`LoadLibrary`) is not asked for;
+  the call fails with error 2, as before.
+
 ## w16: the VB3 runtime's missing calls
 
 WinTune 2.0 (Windows Magazine, 1995) is a Visual Basic 3 program. Its

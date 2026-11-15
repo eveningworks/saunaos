@@ -1102,7 +1102,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: the control menu's Move and Size -- shown as 3.11's, they do nothing: toywm has no keyboard move
 - [ ] w16: Mouse's tracking speed and trails -- its slider's default is not 3.11's, and Mouse Trails is greyed (no trails drawn)
 - [ ] w16: a file dropped on a program (WM_DROPFILES) -- DragAcceptFiles is answered, nothing is ever dropped
-- [ ] w16: ask for a program's missing runtime DLL (VBRUN300.DLL...) -- name it, Choose file..., copy to C:\WINDOWS\SYSTEM
+- [x] ~~w16: ask for a program's missing runtime DLL (VBRUN300.DLL...)~~ DONE 2026-11-15 -- w16's dialog, the launcher's Add file...
 - [ ] w16: the VB3 runtime's missing calls -- WinTune 2.0's VBRUN300.DLL and VBX controls import some w16 lacks (WaitMessage, EndMenu...)
 - [ ] w16: several programs in one w16, a DLL's data shared as on 3.1 (WinTune's Graphics Server) -- docs/w16-tasks-design.md, stage 1
 - [ ] w16: printing -- PrintDlg answers "no default printer"

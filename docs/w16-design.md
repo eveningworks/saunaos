@@ -80,6 +80,8 @@ LOUDLY and by name (below), never as a silent zero.
   |   meta16.c   metafiles, through lib/uwmf             |
   |   ole16.c    OLECLI: objects kept, drawn, not edited |
   |  MAIN thread (uapp)                                  |
+  |   needdll16.c "needs a file": a missing DLL, asked   |
+  |              for before the program is loaded        |
   |   frame16.c  the 3.1 caption, frame and buttons (L3) |
   |   dlgwin16.c a dialog's frame, its own toywm window  |
   |   w16.c input16.c  input -> messages, pixels shown   |
@@ -116,6 +118,13 @@ LOUDLY and by name (below), never as a silent zero.
   Windows call failed at 1:00bb -- USER.123 (Foo) is not implemented`
   on stderr, exit status 1. The first run of a new program prints the
   next thing on its to-do list.
+- **A DLL the program imports that is nowhere is ASKED FOR, before
+  anything is loaded** (`w16_missing_dll()`, `needdll16.c`): SaunaOS ships
+  no vendor runtime (`docs/decisions/gui.md`, "Windows' own DLLs are w16's
+  code; a program's redistributables run as shipped"), so the person
+  chooses the file and it is copied into drive C:'s `WINDOWS\SYSTEM`.
+  Asked first because a load that failed halfway cannot be undone;
+  `--check`'s `needs` line is the same question, for the launcher.
 - **Two threads.** The program -- interpreter, message loop, GDI -- runs
   on a TASK thread, so a modal loop inside a window procedure simply
   blocks there; the uapp MAIN thread owns the toywm windows, draws their
