@@ -797,25 +797,31 @@ static void coalesce_at(struct sched_mm *mm, uint64_t va) {
     }
 }
 
-int mmap_protect(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len,
-                 uint32_t prot) {
+// Whether mmap_protect() would refuse [addr, +len) with `prot`, changing nothing: 0 or -errno.
+// EVERY BYTE MAPPED, AND ALL OF IT ANONYMOUS: a file page may be the image cache's one frame for
+// every process, and an shm or device page somebody else's -- only memory the process made
+// itself changes protection.
+int mmap_protect_check(struct sched_mm *mm, uint64_t addr, uint64_t len, uint32_t prot) {
     int rc = mmap_prot_check(prot);
     if (rc) return rc;
     if (!len || (addr & 0xFFF) || !uaddr_is_mmap_range(addr)) return -EINVAL;
     if (len > UADDR_MMAP_LIMIT - addr) return -ENOMEM;
     uint64_t end = addr + ((len + 4095) & ~0xFFFULL);
     if (end > UADDR_MMAP_LIMIT || !mm->regions) return -ENOMEM;
-
-    // EVERY BYTE MAPPED, AND ALL OF IT ANONYMOUS, before anything moves.
-    // A file page may be the image cache's one frame for every process,
-    // and an shm or device page somebody else's: only memory the process
-    // made itself changes protection.
     for (uint64_t p = addr; p < end; ) {
         struct mmap_region *r = region_of(mm, p);
         if (!r) return -ENOMEM;
         if (r->kind != MMAP_KIND_ANON) return -EACCES;
         p = r->base + r->npages * 4096ULL;
     }
+    return 0;
+}
+
+int mmap_protect(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len,
+                 uint32_t prot) {
+    int rc = mmap_protect_check(mm, addr, len, prot);
+    if (rc) return rc;
+    uint64_t end = addr + ((len + 4095) & ~0xFFFULL);
 
     // Two cuts, then the pages; a failed cut leaves only a split of one
     // prot, which the coalesce below folds back.
@@ -841,13 +847,16 @@ int sys_mprotect(struct syscall_ctx *c) {
     uint32_t prot = (uint32_t)c->a2;
     int64_t ret;
     if (!mm) { ret = -EPERM; goto out; }
-    // Only anonymous memory can be reached here, so EXEC always wants the
-    // promise. Nothing is held yet.
-    if ((prot & SYS_PROT_EXEC) && mmap_prot_check(prot) == 0 && sandbox_active() &&
-        sandbox_require(PROMISE_PROT_EXEC, "mprotect PROT_EXEC", c->regs))
-        return 0;
     mm_lock(mm);
-    ret = mmap_protect(mm, c->pml4, c->a0, c->a1, prot);
+    // A call that would fail answers its errno, so a program can probe; one that would succeed
+    // with EXEC -- anonymous memory, always -- needs the promise, and is ended with nothing held.
+    ret = mmap_protect_check(mm, c->a0, c->a1, prot);
+    if (!ret && (prot & SYS_PROT_EXEC) && !sandbox_allows(PROMISE_PROT_EXEC)) {
+        mm_unlock(mm);
+        sandbox_violation("mprotect PROT_EXEC", PROMISE_PROT_EXEC, c->regs);
+        return 0;
+    }
+    if (!ret) ret = mmap_protect(mm, c->pml4, c->a0, c->a1, prot);
     mm_unlock(mm);
 out:
     c->regs[14] = (uint64_t)ret;

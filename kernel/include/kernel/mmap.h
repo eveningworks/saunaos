@@ -89,6 +89,8 @@ int mmap_clone_regions(struct sched_mm *dst, const struct sched_mm *src);
 // -errno (abi/syscall_abi.h, SYS_MPROTECT).
 int mmap_protect(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len,
                  uint32_t prot);
+// mmap_protect()'s refusals alone, nothing changed: 0 or -errno. Lock held.
+int mmap_protect_check(struct sched_mm *mm, uint64_t addr, uint64_t len, uint32_t prot);
 // The prot both calls take, or -errno: W|X is -EACCES.
 int mmap_prot_check(uint32_t prot);
 
