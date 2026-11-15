@@ -787,6 +787,18 @@ static int api_GlobalPageLock(struct w16 *w, unsigned ordinal, struct w16_args *
     return 2;
 }
 
+// GlobalFix(hMem) -> void
+// GlobalUnfix(hMem) -> BOOL
+// Windows: Fixes a block in linear memory so it does not move, counting fixes; GlobalUnfix undoes
+// one, TRUE while the block is still fixed.
+// w16: Nothing to fix -- a block never moves (lin16.c) -- and GlobalUnfix answers FALSE, the count
+// back at none.
+static int api_GlobalFix(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    w16_arg16(a);
+    if (ordinal == 198) w->cpu.r[R_AX] = 0;
+    return 2;
+}
+
 // GlobalCompact(dwMinFree) -> DWORD
 // Windows: Compacts the global heap and returns the largest free block it could make.
 // w16: 16 MB (W16_FREE_MEMORY).
@@ -1043,6 +1055,8 @@ const struct w16_api g_kernel_mem_api[] = {
     { 189, api_SetSelectorLimit },
     { 191, api_GlobalPageLock },
     { 192, api_GlobalPageLock },
+    { 197, api_GlobalFix },
+    { 198, api_GlobalFix },
     { 310, api_LocalHandleDelta },
 };
 const unsigned g_kernel_mem_api_n = sizeof g_kernel_mem_api / sizeof g_kernel_mem_api[0];

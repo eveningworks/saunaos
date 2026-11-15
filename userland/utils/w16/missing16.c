@@ -728,16 +728,6 @@
 // Why: Windows' own: GDI's. A program steps a huge pointer with __AHINCR, which w16 answers.
 // By: GDI.EXE, WINFILE.EXE
 
-// KERNEL.197 GlobalFix(hMem) -> void
-// Windows: Fixes a block in linear memory so it does not move.
-// Why: Not written yet: w16's blocks never move, so it would do nothing.
-// By: 8514.DRV, GDI.EXE, MMSYSTEM.DLL, USER.EXE, WFWNET.DRV
-
-// KERNEL.198 GlobalUnfix(hMem) -> BOOL
-// Windows: Undoes GlobalFix.
-// Why: As GlobalFix.
-// By: GDI.EXE, MMSYSTEM.DLL, WFWNET.DRV
-
 // KERNEL.202 RegisterPtrace(lpfnPtrace) -> void
 // Windows: Installs a debugger's notification procedure.
 // Why: A debugger's: w16 has no 16-bit debugger interface (SaunaOS's strace watches w16 from
