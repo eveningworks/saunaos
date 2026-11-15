@@ -33,7 +33,6 @@
 #define WM_CHILDACTIVATE  0x0022
 #define WM_MDICALCSCROLL  0x003F          // USER's own, posted to the client after a child moved
 #define WM_SYSKEYDOWN     0x0104
-#define WM_MENUCHAR       0x0120
 #define MDITILE_HORIZONTAL   0x0001
 #define MDITILE_SKIPDISABLED 0x0002
 #define MDIS_ALLCHILDSTYLES  0x0001
@@ -50,7 +49,6 @@
 #define SB_BOTTOM         7
 #define SB_ENDSCROLL      8
 #define VK_TAB 0x09
-#define VK_F4  0x73
 #define VK_F6  0x75
 
 struct mdi {
@@ -760,8 +758,9 @@ static int api_DefMDIChildProc(struct w16 *w, unsigned ordinal, struct w16_args 
         case SC_PREVWINDOW:
             w16_send(w, hc, WM_MDINEXT, 0, 1);
             break;
-        case SC_KEYMENU:
-            w16_task_post_arg(w, W16_POST_CHILD_MENU, hwnd);
+        case SC_KEYMENU:                         // Alt+-: its own control menu; a letter is the frame's bar's
+            if (lp == '-' || lp == ' ') w16_task_post_arg(w, W16_POST_CHILD_MENU, hwnd);
+            else r = w16_def_window_proc(w, x, msg, wp, lp);
             break;
         default:
             r = w16_def_window_proc(w, x, msg, wp, lp);

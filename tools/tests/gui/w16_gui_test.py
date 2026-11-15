@@ -148,6 +148,11 @@ file is involved.
     accent again. Positive control (mutate.py): make find_need() answer 0 -- the dialog checks redden;
     drop `|| needs` from layout()'s `g_run.disabled` -- the greyed-Run checks redden; drop add_dll()'s
     recheck(p) -- the row-goes checks redden.
+28. **Menus from the keyboard** (`menukeys`, menukeys.exe; barmode16.c, DefWindowProc's system keys):
+    a journal's Alt, Down, Down, Enter chooses Open from the focused SECOND window's File menu (Windows
+    Basics opens Write's so), its procedure seeing the Alt as WM_SYSKEYDOWN first; on the main window a
+    real Alt alone lights File (navy), Right lights Edit, Down and Enter choose Copy; Alt+F, Down and
+    Enter choose Open.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1728,6 +1733,60 @@ def fullwin_screen_dc(dbg, qmp, res, tmp, second):
               "Focus=1" in ini and dots == [WHITE, BLACK, BLACK], f"{dots}")
 
 
+MENUKEYS_TITLE = "Menu keys test"
+MENUKEYS_INI = "/home/Win16/WINDOWS/MENUKEYS.INI"
+
+
+def menukeys(dbg, qmp, res, tmp):
+    """Menus from the keyboard (menukeys.exe, each step in its header): a journal's played keys open
+    and choose from the second window's menu, as the Windows Tutorial opens Write's File menu; then real
+    keys -- QMP's, so Alt alone is a physical key as on a keyboard -- on the main window's bar."""
+    sh(dbg, "mkdir /home/Win16")
+    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, f"rm {MENUKEYS_INI}")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/menukeys.exe", MENUKEYS_TITLE)
+    res.check("menukeys.exe opens its main window", win is not None, "no window")
+    if not win:
+        return
+    read = lambda key: poll(lambda: (lambda t: t if key in t else "")(sh(dbg, f"cat {MENUKEYS_INI}")), 10) or ""
+    ini = read("Played=")
+    res.check("a journal's Alt, Down, Down, Enter chooses Open from the focused second window's File menu",
+              "Played=2" in ini, ini[-200:])
+    res.check("...and the program's own procedure saw the played Alt as WM_SYSKEYDOWN first", "SysKey=1" in ini,
+              ini[-200:])
+    win = dbg.window(MENUKEYS_TITLE) or win
+    bx, by = win["x"] + FRAME, win["y"] + FRAME + CAPTION      # the bar's top-left
+    dbg.click(bx + 330, by + 40)                               # the main client, clear of the second window
+    dbg.settle(0.3)
+    dbg.warp_cursor(qmp, win["x"] + win["w"] + 40, win["y"] + win["h"] + 40)   # off the bar
+    qmp.send_key("alt")
+    dbg.settle(0.3)
+    im = shot(qmp, f"{tmp}/w16_menukeys_alt.png")
+    file_, edit = im.getpixel((bx + 2, by + 2)), im.getpixel((bx + 60, by + 2))
+    res.check("a real Alt alone lights the main bar's first title, nothing dropped", file_ == NAVY and edit == WHITE,
+              f"File {file_}, Edit {edit}")
+    qmp.send_key("right")
+    dbg.settle(0.3)
+    im = shot(qmp, f"{tmp}/w16_menukeys_right.png")
+    file_, edit = im.getpixel((bx + 2, by + 2)), im.getpixel((bx + 60, by + 2))
+    res.check("...Right lights the next title", file_ == WHITE and edit == NAVY, f"File {file_}, Edit {edit}")
+    qmp.send_key("down")
+    dbg.settle(0.3)
+    qmp.send_key("ret")
+    ini = read("Typed=")
+    res.check("...and Down then Enter choose its first item (Edit > Copy)", "Typed=3" in ini, ini[-200:])
+    qmp.combo(["alt", "f"])
+    dbg.settle(0.3)
+    qmp.send_key("down")
+    dbg.settle(0.3)
+    qmp.send_key("ret")
+    ini = poll(lambda: (lambda t: t if "Typed=2" in t else "")(sh(dbg, f"cat {MENUKEYS_INI}")), 10) or ini
+    res.check("Alt+F drops File, and Down then Enter choose Open", "Typed=2" in ini, ini[-200:])
+    im = shot(qmp, f"{tmp}/w16_menukeys_after.png")
+    res.check("...and the bar is lit no more", im.getpixel((bx + 2, by + 2)) == WHITE, f"{im.getpixel((bx + 2, by + 2))}")
+    dbg.close_window(MENUKEYS_TITLE)
+
+
 OWNACT_TITLE = "Owner"
 
 
@@ -2821,6 +2880,7 @@ def main():
               ("mdi", lambda: mdi(dbg, qmp, res, TMP)), ("groups", lambda: groups(dbg, res)),
               ("placed_popup", lambda: placed_popup(dbg, qmp, res, TMP)),
               ("fullwin", lambda: fullwin(dbg, qmp, res, TMP)), ("ownact", lambda: ownact(dbg, qmp, res, TMP)),
+              ("menukeys", lambda: menukeys(dbg, qmp, res, TMP)),
               ("mci", lambda: mci(dbg, qmp, res, TMP)),
               ("colours16", lambda: colours16(dbg, qmp, res, TMP)),
               ("retro_round", lambda: retro_round(dbg, qmp, res)),

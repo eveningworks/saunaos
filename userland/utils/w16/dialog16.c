@@ -563,11 +563,23 @@ static struct w16_wnd *mnemonic(struct w16 *w, struct w16_wnd *d, int ch) {
     return hit;
 }
 
+// The control a letter marks, given the focus and pressed if a button: 1 when one was.
+static int press_mnemonic(struct w16 *w, struct w16_wnd *d, int ch) {
+    struct w16_wnd *c = mnemonic(w, d, ch);
+    if (!c) return 0;
+    uint32_t cc = dlgcode(w, c, 0);
+    dlg_focus(w, d, c, 1);
+    if (cc & (DLGC_DEFPUSHBUTTON | DLGC_UNDEFPUSHBUTTON)) command(w, d, c->id);
+    else if (cc & DLGC_BUTTON) w16_send(w, c->hwnd, WM_CHAR, ' ', 0);
+    return 1;
+}
+
 int w16_is_dialog_message(struct w16 *w, struct w16_wnd *d, const struct w16_msg *m) {
     if (!d || (m->hwnd != d->hwnd && !w16_wnd_is_child(w, d->hwnd, m->hwnd))) return 0;
     struct w16_wnd *f = focused_in(w, d);
     unsigned mods = m->mods;
-    if (m->message == WM_KEYDOWN || m->message == WM_CHAR) w->key_mods = mods;
+    if (m->message == WM_KEYDOWN || m->message == WM_CHAR || m->message == WM_SYSKEYDOWN || m->message == WM_SYSCHAR)
+        w->key_mods = mods;
     if (m->message == WM_KEYDOWN) {
         uint32_t code = dlgcode(w, f, m->wparam);
         if (!(code & DLGC_WANTALLKEYS)) {
@@ -596,16 +608,11 @@ int w16_is_dialog_message(struct w16 *w, struct w16_wnd *d, const struct w16_msg
         if (!(code & DLGC_WANTALLKEYS) && (m->wparam == '\r' || m->wparam == '\t' || m->wparam == 0x1B))
             return 1;                            // their WM_KEYDOWN did the work
         if (m->wparam > ' ' && m->wparam < 0x7F && ((mods & KEY_MOD_ALT) || !(code & DLGC_WANTCHARS))) {
-            struct w16_wnd *c = mnemonic(w, d, m->wparam);
-            if (c) {
-                uint32_t cc = dlgcode(w, c, 0);
-                dlg_focus(w, d, c, 1);
-                if (cc & (DLGC_DEFPUSHBUTTON | DLGC_UNDEFPUSHBUTTON)) command(w, d, c->id);
-                else if (cc & DLGC_BUTTON) w16_send(w, c->hwnd, WM_CHAR, ' ', 0);
-                return 1;
-            }
+            if (press_mnemonic(w, d, m->wparam)) return 1;
             if (!(code & DLGC_WANTCHARS)) return 1;
         }
+    } else if (m->message == WM_SYSCHAR) {       // Alt and a control's letter, wherever the focus is
+        if (m->wparam > ' ' && m->wparam < 0x7F && press_mnemonic(w, d, m->wparam)) return 1;
     }
     w16_dispatch(w, m);
     return 1;

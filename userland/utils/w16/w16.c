@@ -20,6 +20,7 @@
 #include <dirent.h>
 #include "font_shm.h"
 #include "keyboard.h"
+#include "input_keys.h"   // INPUT_KEY_LEFTALT: Alt by itself
 #include "win_proto.h"
 #include "base/uargs.h"
 #include "base/umd.h"
@@ -125,14 +126,6 @@ static struct w16_menu g_menu;           // the control menu
 // second press on its box (g_child_box, window pixels at 1x) within the double-click time closes it.
 static uint16_t g_menu_child;
 static int g_child_box[4];
-static struct w16_menu g_bar;            // the menu bar's open title, its popup (menubar16.c)
-static int g_bar_pos = -1;               // that title, or -1
-static int g_bar_pending;                // asked of the task, not shown yet
-static int g_bar_by_key;
-// 3.1's menu-bar mode: a title lit with nothing dropped -- after Esc closes
-// a menu opened from the keyboard, or after F10. Arrows move it, Down or
-// Enter drops it, a second Esc leaves. -1 when the bar is not in it.
-static int g_bar_hot = -1;
 static struct w16_msgbox g_box;          // the Application Error box, once the program stopped
 static int g_faulted;
 static unsigned g_buttons;               // the mouse buttons down, as the program last heard
@@ -258,7 +251,7 @@ static void warp_to_glass(int *x, int *y) {
 static void unwarp(int *x, int *y) {
     if (!g_fx_on || g_crt.look.curve == UCRT_CURVE_OFF) return;
     // A menu or the error box is flat, over the glass: its points are its own.
-    if (w16_menu_open_p(&g_menu) || g_bar.popup > 0 || g_bar_pending || g_faulted) return;
+    if (w16_menu_open_p(&g_menu) || w16_bar_open_in(g_w16.win.hwnd) || g_faulted) return;
     if (*x < g_fx_x || *y < g_fx_y || *x >= g_fx_x + g_fx_w || *y >= g_fx_y + g_fx_h) return;
     int sx, sy;
     ucrt_source_point(&g_crt, *x - g_fx_x, *y - g_fx_y, &sx, &sy);
@@ -393,42 +386,20 @@ static void child_menu(struct uapp *a, uint16_t hwnd, int by_key) {
     uapp_redraw(a);
 }
 
-// --- the menu bar -------------------------------------------------------------------
-//
-// Asking to open a title goes through the task (menubar16.c), which shows
-// the program WM_INITMENUPOPUP first; W16_POST_MENU_SHOW then opens it.
+// --- the menu bar: barmode16.c's, in this window -------------------------------------
 
-static int bar_open(void) { return g_bar.popup > 0 || g_bar_pending; }
+static int bar_open(void) { return w16_bar_open_in(g_w16.win.hwnd); }
+static struct w16_menu *bar_menu(void) { return w16_bar_menu(g_w16.win.hwnd); }
 
 static void bar_request(struct uapp *a, int pos, int by_key) {
-    int first = !bar_open();
-    w16_menu_close(&g_bar);
+    (void)a;
     w16_menu_close(&g_menu);
-    g_bar_pos = pos;
-    g_bar_pending = 1;
-    g_bar_by_key = by_key;
-    w16_post_msg(&g_w16, g_w16.win.hwnd, W16_WM_MENUOPEN, (uint16_t)pos, (uint32_t)first);
-    uapp_redraw(a);
+    w16_bar_request(&g_w16, g_w16.win.hwnd, pos, by_key);
 }
 
 static void bar_close(struct uapp *a) {
-    w16_menu_close(&g_bar);
-    g_bar_pos = -1;
-    g_bar_pending = 0;
-    uapp_redraw(a);
-}
-
-static void bar_show(int pos) {
-    if (pos != g_bar_pos || !g_bar_pending) return;
-    g_bar_pending = 0;
-    int bx, by, bw, bh, tx = 0, tw = 0;
-    pthread_mutex_lock(&g_w16.lock);
-    w16_frame_menubar(&g_w16.win, &bx, &by, &bw, &bh);
-    w16_menubar_build(&g_w16.win, pos, &g_bar);
-    int ok = w16_menubar_title_at(&g_w16.win, -(pos + 1), &tx, &tw) >= 0;
-    pthread_mutex_unlock(&g_w16.lock);
-    if (ok && g_bar.n) w16_menu_open(&g_bar, bx + tx, by, tw, bh - 1, g_bar_by_key);
-    else g_bar_pos = -1;
+    (void)a;
+    w16_bar_forget(&g_w16, g_w16.win.hwnd);
 }
 
 // The bar title under window point x, or -1.
@@ -442,9 +413,8 @@ static int bar_title(int x) {
 }
 
 static void bar_choose(struct uapp *a, unsigned id) {
-    g_bar_pos = -1;
-    w16_post_msg(&g_w16, g_w16.win.hwnd, WM_COMMAND, (uint16_t)id, 0);
-    uapp_redraw(a);
+    (void)a;
+    w16_bar_choose(&g_w16, id);
 }
 
 static int maximized(void) {
@@ -547,7 +517,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     w16_frame_draw(out, win, uapp_focused(a), w16_menu_open_p(&g_menu) && !g_menu_child ? HIT_SYSMENU : g_pressed);
     int bx, by, bw, bh;
     w16_frame_menubar(win, &bx, &by, &bw, &bh);
-    if (bh) w16_menubar_draw(out, &g_w16.win, bx, by, bw, bar_open() ? g_bar_pos : g_bar_hot);
+    if (bh) w16_menubar_draw(out, &g_w16.win, bx, by, bw, w16_bar_lit(g_w16.win.hwnd));
     int cx, cy, cw, ch;
     w16_client_rect(win, &cx, &cy, &cw, &ch);
     // The last COMPLETE frame (w16_shown), never the buffer the program may
@@ -576,7 +546,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     pthread_mutex_unlock(&g_w16.lock);
     if (!g_full) draw_effect(s, cx, cy, cw, ch);
     w16_menu_draw(&g_menu);
-    w16_menu_draw(&g_bar);
+    if (bar_menu()) w16_menu_draw(bar_menu());
     w16_msgbox_draw(&g_box);
 }
 
@@ -587,7 +557,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         uapp_redraw(a);
         return;
     }
-    if (g_bar_hot >= 0) { g_bar_hot = -1; uapp_redraw(a); }   // a press leaves menu-bar mode
+    w16_bar_unlight(&g_w16, 0);         // a press leaves menu-bar mode, in any window
     unsigned edges;
     enum w16_hit hit = w16_frame_hit(&g_w16.win, x, y, &edges);
     uint64_t now = sys_ticks();
@@ -595,9 +565,9 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         // Another title switches to it, the open one closes it, and any
         // other press is the popup's -- outside it, a close.
         int t = hit == HIT_MENU ? bar_title(x) : -1;
-        if (t >= 0 && t != g_bar_pos) bar_request(a, t, 0);
+        if (t >= 0 && t != w16_bar_pos(g_w16.win.hwnd)) bar_request(a, t, 0);
         else if (t >= 0) bar_close(a);
-        else if (!w16_menu_press(&g_bar, x, y)) bar_close(a);
+        else if (!bar_menu() || !w16_menu_press(bar_menu(), x, y)) bar_close(a);
         uapp_redraw(a);
         return;
     }
@@ -672,8 +642,8 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
         uapp_redraw(a);
         return;
     }
-    if (g_bar.popup > 0) {
-        unsigned id = w16_menu_release(&g_bar, x, y);
+    if (bar_menu()) {
+        unsigned id = w16_menu_release(bar_menu(), x, y);
         if (id && id < W16_MENU_RIGHT) bar_choose(a, id);
         uapp_redraw(a);
         return;
@@ -743,8 +713,8 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
     if (bar_open()) {
         unsigned edges;
         int t = w16_frame_hit(&g_w16.win, x, y, &edges) == HIT_MENU ? bar_title(x) : -1;
-        if (t >= 0 && t != g_bar_pos) { bar_request(a, t, 0); return; }
-        if (w16_menu_motion(&g_bar, x, y)) uapp_redraw(a);
+        if (t >= 0 && t != w16_bar_pos(g_w16.win.hwnd)) { bar_request(a, t, 0); return; }
+        if (bar_menu() && w16_menu_motion(bar_menu(), x, y)) uapp_redraw(a);
         return;
     }
     if (w16_menu_open_p(&g_menu)) {
@@ -789,7 +759,7 @@ static void key_repeat(struct uapp *a) {
         pthread_mutex_lock(&g_w16.lock);
         struct w16_wnd *d = w16_wnd_get(&g_w16, dlg);
         pthread_mutex_unlock(&g_w16.lock);
-        if (d) w16_route_key(&g_w16, d, key, mods, 0);
+        if (d && !(w16_bar_has(dlg) && w16_bar_key(&g_w16, key))) w16_route_key(&g_w16, d, key, mods, 0);
     }
 }
 
@@ -814,69 +784,15 @@ static void handle_key(struct uapp *a, int key, unsigned mods) {
         if (w16_msgbox_key(&g_box, key)) end_faulted();
         return;
     }
-    if (g_bar.popup > 0) {
-        unsigned id = w16_menu_key(&g_bar, key);
-        if (id == W16_MENU_LEFT || id == W16_MENU_RIGHT) {
-            pthread_mutex_lock(&g_w16.lock);
-            int n = w16_menubar_count(&g_w16.win);
-            pthread_mutex_unlock(&g_w16.lock);
-            if (n) bar_request(a, (g_bar_pos + (id == W16_MENU_LEFT ? n - 1 : 1)) % n, 1);
-        } else if (id == (unsigned)-1) {
-            int was = g_bar_pos;
-            bar_close(a);
-            g_bar_hot = g_bar_by_key ? was : -1;   // Esc steps back to the bar, not out of it
-        } else if (id) {
-            bar_choose(a, id);
-        }
-        uapp_redraw(a);
-        return;
-    }
+    if (w16_bar_has(g_w16.win.hwnd) && w16_bar_key(&g_w16, key)) return;   // its bar's popup or menu-bar mode
     if (w16_menu_open_p(&g_menu)) {
         unsigned id = w16_menu_key(&g_menu, key);
         if (id && id < W16_MENU_RIGHT) control_chosen(a, id);
         uapp_redraw(a);
         return;
     }
-    if (g_bar_hot >= 0) {
-        pthread_mutex_lock(&g_w16.lock);
-        int n = w16_menubar_count(&g_w16.win);
-        int t = key > ' ' && key < 0x7F ? w16_menubar_mnemonic(&g_w16.win, key) : -1;
-        pthread_mutex_unlock(&g_w16.lock);
-        int hot = g_bar_hot;
-        g_bar_hot = -1;
-        if (n && key == KEY_ARROW_LEFT) g_bar_hot = (hot + n - 1) % n;
-        else if (n && key == KEY_ARROW_RIGHT) g_bar_hot = (hot + 1) % n;
-        else if (key == KEY_ARROW_DOWN || key == KEY_ARROW_UP || key == '\n' || key == '\r') bar_request(a, hot, 1);
-        else if (t >= 0) bar_request(a, t, 1);
-        else if (key != 0x1B) g_bar_hot = hot;   // anything else is ignored, as 3.1 beeped and stayed
-        uapp_redraw(a);
-        return;
-    }
-    if (key == ' ' && (mods & KEY_MOD_ALT)) {   // Alt+Space: the control menu, through the program
-        syscommand(SC_KEYMENU);
-        return;
-    }
-    if (key == '-' && (mods & KEY_MOD_ALT)) {   // Alt+-: the focused child's (an MDI document's), as 3.1 had it
-        pthread_mutex_lock(&g_w16.lock);
-        uint16_t f = g_w16.focus;
-        pthread_mutex_unlock(&g_w16.lock);
-        if (f && f != g_w16.win.hwnd) w16_post_msg(&g_w16, f, WM_SYSCOMMAND, SC_KEYMENU, '-');
-        return;
-    }
-    // F10 lights the bar's first title; Alt and a title's letter drops that menu.
-    if (g_w16.win.menubar && key == KEY_F10) {
-        pthread_mutex_lock(&g_w16.lock);
-        g_bar_hot = w16_menubar_count(&g_w16.win) ? 0 : -1;
-        pthread_mutex_unlock(&g_w16.lock);
-        uapp_redraw(a);
-        return;
-    }
-    if (g_w16.win.menubar && (mods & KEY_MOD_ALT) && key > ' ' && key < 0x7F) {
-        pthread_mutex_lock(&g_w16.lock);
-        int t = w16_menubar_mnemonic(&g_w16.win, key);
-        pthread_mutex_unlock(&g_w16.lock);
-        if (t >= 0) { bar_request(a, t, 1); return; }
-    }
+    // Alt+Space, Alt and a title's letter, Alt+- and F10 are the PROGRAM'S first: WM_SYSKEYDOWN and
+    // WM_SYSCHAR, which DefWindowProc turns into SC_KEYMENU (user16.c) and the menus open from there.
     w16_route_key(&g_w16, &g_w16.win, key, mods, 0);
 }
 
@@ -892,16 +808,17 @@ static void on_wheel(struct uapp *a, int notches) {
 static void on_phys_key(struct uapp *a, int code, int down, unsigned mods) {
     (void)a; (void)mods;
     w16_key_phys(code, down);
+    if (code == INPUT_KEY_LEFTALT && !g_faulted && !w16_menu_open_p(&g_menu)) w16_route_alt(&g_w16, &g_w16.win, down);
 }
 
 static void on_key_up(struct uapp *a, int key, unsigned mods) {
     (void)a; (void)mods;
-    if (g_faulted || w16_menu_open_p(&g_menu) || bar_open() || g_bar_hot >= 0) return;
+    if (g_faulted || w16_menu_open_p(&g_menu) || w16_bar_has(g_w16.win.hwnd)) return;
     w16_route_key(&g_w16, &g_w16.win, key, mods, 1);
 }
 
 static void on_focus(struct uapp *a, int focused) {
-    if (!focused) g_bar_hot = -1;
+    if (!focused) w16_bar_unlight(&g_w16, g_w16.win.hwnd);
     if (!focused) w16_key_release_all();         // its releases go to the window that has it now
     // WM_ACTIVATE, whose DefWindowProc gives the window -- or the program,
     // a child of it -- the keyboard focus.
@@ -1054,12 +971,14 @@ static int on_user(struct uapp *a, int code, int arg) {
         if (code == W16_POST_ABOVE) g_w16.pending_above = arg + 1;
         pthread_mutex_unlock(&g_w16.lock);
         if (code == W16_POST_FAULT) end_faulted();
+        if (code == W16_POST_KEYMENU) w16_bar_heard(&g_w16);   // no bar to light yet, but the ask is heard
         if (code == W16_POST_POINTER) {          // no window to warp in: the move is dropped, and the next posts again
             int x, y;
             w16_pointer_take(&g_w16, &x, &y);
         }
         return 0;
     }
+    // dispatch-ok: one case per W16_POST_* the task sends (w16_internal.h), each a few lines of main-thread work.
     switch (code) {
     case W16_POST_DONE:
         // RECORDED WHILE THE WINDOW STILL EXISTS: the launcher re-reads
@@ -1082,10 +1001,19 @@ static int on_user(struct uapp *a, int code, int arg) {
     case W16_POST_MENU_SHOW: {                  // arg: the bar's window << 16 | the title
         uint16_t h = (uint16_t)((uint32_t)arg >> 16);
         int pos = (int16_t)(arg & 0xFFFF);
-        if (h == g_w16.win.hwnd) bar_show(pos);
-        else w16_dlgwin_bar_show(&g_w16, h, pos);
+        w16_bar_show(&g_w16, h, pos);
         return 1;
     }
+    case W16_POST_KEYMENU: {                    // arg: the window << 16 | W16_KEYMENU_* or a title
+        uint16_t h = (uint16_t)((uint32_t)arg >> 16);
+        int what = arg & 0xFF;
+        w16_bar_heard(&g_w16);
+        if (what == W16_KEYMENU_BOX && h == g_w16.win.hwnd) do_syscmd(a, SC_KEYMENU);
+        else if (what == W16_KEYMENU_BOX) w16_dlgwin_keymenu(&g_w16, h);
+        else w16_bar_keymenu(&g_w16, h, what == W16_KEYMENU_BAR ? -1 : what);
+        return 1;
+    }
+    case W16_POST_KEY: w16_played_key(&g_w16, arg); return 1;
     case W16_POST_CURSOR: show_cursor(a, arg); return 0;
     case W16_POST_LAUNCH: {             // WinExec: the compositor starts the second w16 (shell16.c)
         char exe[512], args[256];

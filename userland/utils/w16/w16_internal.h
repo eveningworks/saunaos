@@ -22,6 +22,7 @@
 //   dialog16.c        DialogBox, CreateDialog and the dialog manager,
 //                     MessageBox (task thread)
 //   dlgwin16.c        a dialog's own toywm window: its 3.1 frame (main thread)
+//   barmode16.c       the one menu bar open or lit, and 3.1's menu-bar mode (main thread)
 //   module16.c        binding an image to Windows' modules; a program's own
 //                     DLLs (LoadLibrary, GetProcAddress)
 //   ddeml16.c         DDEML, mmsystem16.c MMSYSTEM: stand-ins (no peer, no wave device)
@@ -181,6 +182,11 @@ void ne_print_info(const struct ne_module *m);
 
 #define VK_SHIFT   0x10
 #define VK_CONTROL 0x11
+#define VK_MENU    0x12
+#define VK_F4      0x73
+#define VK_F10     0x79
+#define KF_ALT     0x20000000u   // a key message's lParam: Alt was down (its context code)
+#define WM_MENUCHAR 0x0120
 #define VK_PRIOR   0x21
 #define VK_NEXT    0x22
 #define VK_END     0x23
@@ -464,6 +470,10 @@ struct w16 {
     struct w16_wnd **wnds;                       // wnd16.c: every other window, grown
     int nwnds;
     uint16_t focus;                              // the window with the keyboard focus; under `lock`
+    uint16_t menu_keys;                          // the top-level window whose menus have the keyboard
+                                                 // (barmode16.c); under `lock`
+    int menu_asks;                               // SC_KEYMENU asks posted, not yet heard; under `lock`
+    int alt_alone, f10_alone;                    // DefWindowProc's: Alt or F10 down, nothing since (task)
 
     struct uapp *app;                            // the main thread's, once open
     int window_ready;                            // the first window exists (main waits)
@@ -559,6 +569,10 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_CHILD_BOX 19   // arg: a captioned child's hwnd -- open its control menu at its box (a press)
 #define W16_POST_LAUNCH    20   // WinExec: start the program shell16.c holds (w16_launch_take()), answer w16_launch_done()
 #define W16_POST_ACTIVATE  21   // arg: a top-level window's hwnd -- the program activated it: toywm brings it forward
+#define W16_POST_KEYMENU   22   // arg: a top-level window's hwnd << 16 | W16_KEYMENU_* -- SC_KEYMENU's main-thread half
+#define W16_POST_KEY       23   // arg: w16_played_key()'s -- a key a journal played while the menus had the keyboard
+#define W16_KEYMENU_BAR    0xFF    // the bar's first title lit (Alt alone, F10)
+#define W16_KEYMENU_BOX    0xFE    // the control menu (Alt+Space); a title's number drops that title
 
 // --- task16.c --------------------------------------------------------------
 
@@ -575,6 +589,7 @@ void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, u
 // as one into a full queue was on Windows.
 int w16_queue_room(struct w16 *w);
 void w16_queue_drop_timer(struct w16 *w, uint16_t hwnd, uint16_t id);   // under `lock`
+void w16_queue_drop_char(struct w16 *w, uint16_t hwnd);   // the char an accelerator's key made; under `lock`
 // WH_JOURNALPLAYBACK's next event played when due (task thread, unlocked): 1 when one was, else 0 and
 // *wait_ms the time until the next (0: none waiting).
 int w16_journal_play(struct w16 *w, int *wait_ms);
@@ -995,7 +1010,7 @@ void w16_over_drop(struct w16_wnd *d);
 // A minimized window as 3.1 showed one -- its class's icon, its title under it -- filling `s` (its
 // d->w x d->h); the caller holds the text lock and the w16 System font is selected.
 void w16_paint_iconic(const struct w16_wnd *d, struct ugfx_surface *s);
-int w16_dlgwin_bar_show(struct w16 *w, uint16_t hwnd, int pos);   // 1: the title was this framed popup's bar's
+void w16_dlgwin_keymenu(struct w16 *w, uint16_t hwnd);   // a framed popup's or dialog's control menu, by key
 void w16_dlgwin_close(struct w16 *w, uint16_t hwnd);
 void w16_dlgwin_resize(struct w16 *w, uint16_t hwnd);
 void w16_dlgwin_redraw(struct w16 *w, uint16_t hwnd);
@@ -1027,6 +1042,31 @@ int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t w
 int w16_cursor_shape(uint16_t hcursor);
 uint16_t w16_set_cursor(struct w16 *w, uint16_t h);   // SetCursor: the old one
 int w16_vk_of(int key);                           // a key's VK_* code, 0 for none
+int w16_key_of_vk(int vk);                        // and back: toywm's key for a VK_* code, 0 for none
+// Alt by itself, which toywm sends only as a physical edge: VK_MENU's WM_SYSKEYDOWN and WM_SYSKEYUP to
+// the window with the focus, unless the menus have the keyboard (main thread).
+void w16_route_alt(struct w16 *w, struct w16_wnd *top, int down);
+// A key a journal played, as W16_POST_KEY carries it: handed to the menus, or else posted to the
+// program after all (main thread).
+void w16_played_key(struct w16 *w, int arg);
+
+// --- barmode16.c: THE menu bar open or lit, the main window's or a framed popup's (main thread) ---
+int w16_bar_active(void);                         // a title asked for, dropped or lit, anywhere
+int w16_bar_has(uint16_t hwnd);                   // ...in hwnd's bar: the keys typed in hwnd are the menus'
+void w16_bar_heard(struct w16 *w);                // a W16_POST_KEYMENU taken (the task's menu_asks)
+int w16_bar_open_in(uint16_t hwnd);               // a title of hwnd's bar asked for or dropped
+int w16_bar_pos(uint16_t hwnd);                   // that title, -1 none
+int w16_bar_lit(uint16_t hwnd);                   // the title hwnd's bar draws lit, -1 none
+struct w16_menu *w16_bar_menu(uint16_t hwnd);     // the popup dropped from hwnd's bar, NULL none
+void w16_bar_request(struct w16 *w, uint16_t hwnd, int pos, int by_key);   // drop title pos
+int w16_bar_show(struct w16 *w, uint16_t hwnd, int pos);   // W16_POST_MENU_SHOW; 1 when it was the one asked
+void w16_bar_close(struct w16 *w);                // and out of menu-bar mode
+void w16_bar_choose(struct w16 *w, unsigned id);  // closed, and the command posted
+void w16_bar_unlight(struct w16 *w, uint16_t hwnd);   // a press (hwnd 0: any) or the focus gone: out of menu-bar mode
+void w16_bar_forget(struct w16 *w, uint16_t hwnd);    // the window closed or resized: all of it shut
+int w16_bar_key(struct w16 *w, int key);          // 1: the menus took toywm's key
+int w16_bar_alt(struct w16 *w, int down);         // 1: the menus took Alt itself
+void w16_bar_keymenu(struct w16 *w, uint16_t hwnd, int title);   // SC_KEYMENU: -1 lit, else drop title
 void w16_dlgwin_redraw_all(struct w16 *w);       // every open dialog shows its buffer again
 
 // --- module16.c: binding images, Windows' modules, a program's own DLLs ----------

@@ -973,6 +973,7 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
     if (!c && msg == WM_NCCREATE) return (x->ctl = calloc(1, sizeof(struct combo))) != 0;
     if (!c) return w16_def_window_proc(w, x, msg, wp, lp);
     struct w16_wnd *l = cb_list(w, c);
+    // dispatch-ok: the COMBOBOX class's window procedure -- one case per message 3.1's answered, as DefWindowProc's.
     switch (msg) {
     case WM_CREATE: {
         // Shut at one row; the list takes the rest of the template's height,
@@ -1045,8 +1046,12 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
         if (!c->edit) w16_set_focus(w, x->hwnd);
         drop(w, x, c, !c->dropped);
         return 0;
+    case WM_SYSKEYDOWN:                          // Alt+Down or Alt+Up drops the list or shuts it
+        if (!(lp & KF_ALT) || (wp != VK_DOWN && wp != VK_UP)) return w16_def_window_proc(w, x, msg, wp, lp);
+        drop(w, x, c, !c->dropped);
+        return 0;
     case WM_KEYDOWN:
-        if (wp == 0x73 || ((w->key_mods & KEY_MOD_ALT) && (wp == VK_DOWN || wp == VK_UP))) {   // F4, Alt+arrow
+        if (wp == 0x73) {                        // F4
             drop(w, x, c, !c->dropped);
             return 0;
         }

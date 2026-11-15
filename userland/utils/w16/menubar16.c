@@ -602,7 +602,7 @@ static int api_LoadAccelerators(struct w16 *w, unsigned ordinal, struct w16_args
 // Windows: Turns a key the accelerator table names into WM_COMMAND with its command id for the
 // window, rather than a keystroke; TRUE when it did.
 // w16: The same: a virtual key matches WM_KEYDOWN (and WM_SYSKEYDOWN) with the same Shift, Ctrl and
-// Alt, a character matches WM_CHAR, and the WM_COMMAND carries 1 in lParam's high word, as an
+// Alt, a character WM_CHAR (WM_SYSCHAR when it names Alt), and the WM_COMMAND carries 1 in lParam's high word, as an
 // accelerator's does.
 static int api_TranslateAccelerator(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
@@ -613,7 +613,7 @@ static int api_TranslateAccelerator(struct w16 *w, unsigned ordinal, struct w16_
     const uint8_t *m = cpu16_ptr(c, (uint16_t)(lpmsg >> 16), (uint16_t)lpmsg, 10, 0);
     if (!m) return -1;
     uint16_t msg = (uint16_t)(m[2] | m[3] << 8), wp = (uint16_t)(m[4] | m[5] << 8);
-    if (msg != WM_KEYDOWN && msg != 0x0104 && msg != WM_CHAR) return 8;
+    if (msg != WM_KEYDOWN && msg != WM_SYSKEYDOWN && msg != WM_CHAR && msg != WM_SYSCHAR) return 8;
     struct ne_resource res;
     if (hacc < HACCEL_BASE || ne_resource_at(&w->ne, hacc - HACCEL_BASE, &res) < 0 ||
         res.type != NE_RT_ACCELERATOR)
@@ -624,11 +624,16 @@ static int api_TranslateAccelerator(struct w16 *w, unsigned ordinal, struct w16_
         unsigned f = e[at], key = e[at + 1] | e[at + 2] << 8, cmd = e[at + 3] | e[at + 4] << 8;
         int hit;
         if (f & FVIRTKEY)
-            hit = msg != WM_CHAR && key == wp && !(f & FSHIFT) == !(mods & 1) &&
+            hit = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && key == wp && !(f & FSHIFT) == !(mods & 1) &&
                   !(f & FCONTROL) == !(mods & 2) && !(f & FALT) == !(mods & 4);
         else
-            hit = msg == WM_CHAR && key == wp;
+            hit = msg == ((f & FALT) ? WM_SYSCHAR : WM_CHAR) && key == wp;
         if (hit) {
+            if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) {
+                pthread_mutex_lock(&w->lock);
+                w16_queue_drop_char(w, (uint16_t)(m[0] | m[1] << 8));   // the message's own window
+                pthread_mutex_unlock(&w->lock);
+            }
             struct w16_msg cm = { hwnd, WM_COMMAND, (uint16_t)cmd, 0x10000u, 0 };
             w16_dispatch(w, &cm);
             c->r[R_AX].w = 1;
@@ -688,9 +693,10 @@ static int told_before(struct told *t, uint16_t h) {
     return 0;
 }
 
-static void init_popup(struct w16 *w, uint16_t sub, int pos, int depth, struct told *seen) {
+// To the window whose bar it drops from -- a second window's own, not the main window.
+static void init_popup(struct w16 *w, uint16_t hwnd, uint16_t sub, int pos, int depth, struct told *seen) {
     if (told_before(seen, sub)) return;
-    struct w16_msg ip = { w->win.hwnd, 0x0117, sub, (uint32_t)(uint16_t)pos, 0 };   // WM_INITMENUPOPUP
+    struct w16_msg ip = { hwnd, 0x0117, sub, (uint32_t)(uint16_t)pos, 0 };   // WM_INITMENUPOPUP
     w16_dispatch(w, &ip);
     for (int i = 0;; i++) {
         pthread_mutex_lock(&w->lock);
@@ -703,7 +709,7 @@ static void init_popup(struct w16 *w, uint16_t sub, int pos, int depth, struct t
             fprintf(stderr, "w16: %s: a menu nests past %d cascades; the rest are grey\n", w->path, W16_CASCADE_DEPTH);
             break;
         }
-        if (c) init_popup(w, c, i, depth + 1, seen);
+        if (c) init_popup(w, hwnd, c, i, depth + 1, seen);
     }
 }
 
@@ -735,7 +741,7 @@ void w16_menu_opening(struct w16 *w, uint16_t hwnd, int pos, int first) {
         w16_dispatch(w, &im);
     }
     struct told seen = { 0 };
-    init_popup(w, sub, pos, 0, &seen);
+    init_popup(w, hwnd, sub, pos, 0, &seen);
     free(seen.h);
     w16_task_post_arg(w, W16_POST_MENU_SHOW, (int)((uint32_t)hwnd << 16 | (uint16_t)pos));   // whose bar, which title
 }

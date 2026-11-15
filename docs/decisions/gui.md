@@ -13054,6 +13054,53 @@ no indication either way (the request is one-way). Measured on 3.11
 first: a click on an owner window activates it there too, so nothing
 else about activation changed.
 
+## A Win16 program hears Alt as 3.1's system keys, and its menus open from DefWindowProc
+
+Chosen 2026-11-15 for the Windows Tutorial, whose Windows Basics lesson
+opens Write's File menu by playing Alt and Down arrows through a
+`WH_JOURNALPLAYBACK` hook into Write -- a second top-level window of the
+Tutorial's own. Until then w16's main thread caught Alt+letter, Alt+Space,
+Alt+- and F10 itself and opened the menu, so the program never heard
+those keys; a journal's keys went straight to the program as
+WM_KEYDOWN, never past the menus; Alt alone did nothing; and a second
+window's bar had no keyboard at all.
+
+**What others do.** Windows 3.1 sends a key pressed with Alt held (and
+F10, and Alt itself) as WM_SYSKEYDOWN, its character as WM_SYSCHAR, and
+DefWindowProc turns Alt+character into `WM_SYSCOMMAND SC_KEYMENU` with
+it, and Alt or F10 pressed and released with nothing between into
+`SC_KEYMENU 0`; the menu loop then runs on the program's own task,
+reading the queue -- which is where a journal's played keys land. A
+letter no title has is asked of the window as WM_MENUCHAR, which is how
+an MDI frame's Alt+- opens the active document's control menu. Wine's
+user32 is the same, DefWindowProc and all (its `iMenuSysKey`, and a held
+Alt's repeat cancelling it).
+
+**SaunaOS follows 3.1's path, but keeps the menus on w16's main thread**
+(the maintainer's pick, over handing played keys to the main thread as
+typed ones, and over moving the menu loop onto the task). Keys reach the
+program as WM_SYSKEY*/WM_SYSCHAR (input16.c); DefWindowProc makes
+SC_KEYMENU, matches a letter against the bar and asks WM_MENUCHAR
+(user16.c); the main thread lights or drops the bar of the window it was
+asked for (barmode16.c, ONE bar for the main window and every framed
+popup). While the menus have the keyboard, `menu_keys` tells the task to
+hand a played key to the main thread rather than the program; the task
+sets it itself as it asks for SC_KEYMENU, so the next played key cannot
+overtake the ask. A program that takes WM_SYSKEYDOWN first, an
+accelerator naming Alt, a dialog's Alt+mnemonic (IsDialogMessage on
+WM_SYSCHAR) and a combo box's Alt+Down all behave as on 3.1.
+
+**Alt alone is a physical key.** toywm sends no key event for a
+modifier by itself, so w16 hears it from `WIN_EV_KEY_PHYS`. toywm also
+takes some Alt combinations (Alt+F4, Alt+Tab) before w16 sees the key,
+but their physical presses still arrive; when one came between, w16
+sends a held Alt's repeat before the release, which tells DefWindowProc
+that Alt was not pressed alone, as the keyboard's own repeat would.
+
+**Moving the menu loop onto the task** -- WM_MENUSELECT, WM_ENTERIDLE,
+MSGF_MENU filter hooks, a played CLICK on a menu -- is its own round:
+menu16/menubar16's two threads would become one.
+
 ## A Win386 program's 32-bit code is translated in w16 -- not run natively in an LDT segment
 
 Picked 2026-11-15 (`docs/w16-jit-design.md`). Lighthouse, a Win386

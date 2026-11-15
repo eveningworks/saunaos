@@ -653,6 +653,19 @@ static void clear_timer_pending(struct w16 *w, uint16_t hwnd, uint16_t id) {
     }
 }
 
+// THE CHARACTER A KEY MADE, once TranslateAccelerator has taken the key: w16 posts WM_CHAR or
+// WM_SYSCHAR with the key (TranslateMessage does nothing), and 3.1 never made one for a key a
+// program's accelerator took -- its loop skipped TranslateMessage. The next key or mouse message for
+// hwnd in the queue, when it is that character. Under `lock`.
+void w16_queue_drop_char(struct w16 *w, uint16_t hwnd) {
+    for (unsigned i = w->qhead; i != w->qtail; i = (i + 1) % w->qcap) {
+        uint16_t m = w->q[i].message;
+        if (w->q[i].hwnd != hwnd || !((m >= WM_KEYDOWN && m <= 0x0108) || (m >= WM_MOUSEMOVE && m <= 0x0209))) continue;
+        if (m == WM_CHAR || m == WM_SYSCHAR) take(w, i);
+        return;
+    }
+}
+
 // KillTimer's: a WM_TIMER already queued for the timer goes with it. 3.1 made WM_TIMER only when
 // the queue was empty, so none arrived after KillTimer -- a program that counts its ticks counts
 // one too many otherwise (the Windows Tutorial skipped a step). Under `lock`.
@@ -1186,6 +1199,38 @@ static void post_title(struct w16 *w, struct w16_wnd *x) {
     if (x->kind != W16_K_CHILD) w16_task_post_arg(w, W16_POST_TITLE, x->hwnd);
 }
 
+// SC_KEYMENU ON A TOP-LEVEL WINDOW, the task's half: Alt alone or F10 lights the bar, Alt+Space opens
+// the control menu, and a letter drops the title it marks -- one that marks none is WM_MENUCHAR's to
+// answer, as 3.1's menu loop asked the window (an MDI frame's Alt+- opens the active child's control
+// menu so). The main thread runs the menus (barmode16.c); `menu_keys` is set here, before it hears,
+// so a key a journal plays next goes after the ask rather than past it.
+static void keymenu(struct w16 *w, struct w16_wnd *x, uint16_t ch) {
+    uint16_t h = x->hwnd;
+    int what = ch == ' ' ? W16_KEYMENU_BOX : !ch ? W16_KEYMENU_BAR : -1;
+    if (what < 0) {
+        pthread_mutex_lock(&w->lock);
+        struct w16_wnd *y = w16_wnd_get(w, h);
+        int t = y && y->menubar ? w16_menubar_mnemonic(y, ch) : -1;
+        uint16_t bar = y ? y->hmenu : 0;
+        pthread_mutex_unlock(&w->lock);
+        if (t < 0) {                             // MF_POPUP clear: the bar's own letters
+            uint32_t r = w16_send(w, h, WM_MENUCHAR, ch, (uint32_t)bar << 16);
+            if (r >> 16 == 2) t = r & 0xFFFF;
+        }
+        if (t < 0 || t >= W16_KEYMENU_BOX) return;
+        what = t;
+    }
+    pthread_mutex_lock(&w->lock);
+    if (what != W16_KEYMENU_BOX) w->menu_keys = h;
+    w->menu_asks++;                              // barmode16.c leaves menu_keys alone until it has heard
+    pthread_mutex_unlock(&w->lock);
+    if (!w16_task_post_arg(w, W16_POST_KEYMENU, (int)((uint32_t)h << 16 | (unsigned)what))) {
+        pthread_mutex_lock(&w->lock);
+        w->menu_asks--;
+        pthread_mutex_unlock(&w->lock);
+    }
+}
+
 uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t wp, uint32_t lp) {
     // dispatch-ok: DefWindowProc's answers, one case per message Windows 3.1's own answered (Wine's is one switch too).
     switch (msg) {
@@ -1211,10 +1256,16 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
             } else if (sc == SC_MINIMIZE || sc == SC_MAXIMIZE || sc == SC_RESTORE) {
                 if (child) w16_child_state(w, x, sc);
                 else popup_state(w, x, sc);
+            } else if (sc == SC_KEYMENU && child && framed && (lp == '-' || lp == ' ')) {
+                w16_task_post_arg(w, W16_POST_CHILD_MENU, x->hwnd);   // its own control menu
+            } else if (sc == SC_KEYMENU && child && lp == '-' && x->parent) {
+                w16_send(w, x->parent, WM_SYSCOMMAND, wp, lp);   // the captioned child it is in, or MDI's frame
             } else if (sc == SC_KEYMENU && child) {
-                // Alt+-: the control menu of the captioned child this one is in (an MDI document's)
-                if (framed) w16_task_post_arg(w, W16_POST_CHILD_MENU, x->hwnd);
-                else if (lp == '-') w16_send(w, x->parent, WM_SYSCOMMAND, wp, lp);
+                // The menus are the top-level window's: 3.1 looked for the window with the bar.
+                struct w16_wnd *t = w16_wnd_top(w, x);
+                if (t && t != x) w16_send(w, t->hwnd, WM_SYSCOMMAND, wp, lp);
+            } else if (sc == SC_KEYMENU) {
+                keymenu(w, x, (uint16_t)lp);
             }
             return 0;
         }
@@ -1222,9 +1273,11 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
         case SC_CLOSE:
             w16_send(w, x->hwnd, WM_CLOSE, 0, 0);
             break;
-        case SC_MINIMIZE: case SC_MAXIMIZE: case SC_RESTORE: case SC_KEYMENU:
-            if ((wp & 0xFFF0) == SC_KEYMENU && lp == '-') break;   // Alt+- with no child to open it for
+        case SC_MINIMIZE: case SC_MAXIMIZE: case SC_RESTORE:
             w16_task_post_arg(w, W16_POST_SYSCMD, wp & 0xFFF0);
+            break;
+        case SC_KEYMENU:
+            keymenu(w, x, (uint16_t)lp);
             break;
         default:
             break;
@@ -1232,6 +1285,36 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
         return 0;
     case WM_CLOSE:
         w16_wnd_destroy(w, x);
+        return 0;
+    // 3.1'S SYSTEM KEYS (input16.c posts them): Alt or F10 pressed and let go with no key between is
+    // SC_KEYMENU 0, the menu bar lit; Alt and a character is SC_KEYMENU with it, to the window whose
+    // bar it is (a child's Alt+Space climbs to its parent's); Alt+F4 closes the top-level window.
+    // A held Alt's repeat cancels it, as Wine's DefWindowProc has it.
+    case WM_SYSKEYDOWN:
+        if (lp & KF_ALT) {
+            w->alt_alone = wp == VK_MENU && !(lp & 0x40000000u);
+            struct w16_wnd *t = wp == VK_F4 ? w16_wnd_top(w, x) : 0;
+            if (t) w16_post_msg(w, t->hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
+        } else if (wp == VK_F10) {
+            w->f10_alone = 1;
+        }
+        return 0;
+    case WM_KEYUP:
+    case WM_SYSKEYUP: {
+        int menu = (wp == VK_MENU && w->alt_alone) || (wp == VK_F10 && w->f10_alone);
+        w->alt_alone = w->f10_alone = 0;
+        struct w16_wnd *t = menu ? w16_wnd_top(w, x) : 0;
+        if (t) w16_send(w, t->hwnd, WM_SYSCOMMAND, SC_KEYMENU, 0);
+        return 0;
+    }
+    case WM_SYSCHAR:
+        w->alt_alone = 0;
+        if (wp == '\r' && x->iconic) {
+            w16_post_msg(w, x->hwnd, WM_SYSCOMMAND, SC_RESTORE, 0);
+        } else if ((lp & KF_ALT) && wp && wp != '\t' && wp != 0x1B) {
+            if (wp == ' ' && x->kind == W16_K_CHILD && x->parent) w16_send(w, x->parent, WM_SYSCHAR, wp, lp);
+            else w16_send(w, x->hwnd, WM_SYSCOMMAND, SC_KEYMENU, wp);
+        }
         return 0;
     case WM_PAINT: {
         uint16_t at = w16_sys_push(w, 32);

@@ -23,6 +23,7 @@
 #define VK_TAB    0x09
 #define VK_RETURN 0x0D
 #define VK_ESCAPE 0x1B
+#define W16_KEY_ALT (-VK_MENU)  // Alt by itself, as route_key() takes it: no toywm key is negative
 #define CS_DBLCLKS 0x0008
 #define HTHSCROLL 6
 #define HTVSCROLL 7
@@ -44,6 +45,14 @@ int w16_vk_of(int key) {
     if ((key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9') || key == ' ') return key;
     for (unsigned i = 0; i < sizeof VK / sizeof VK[0]; i++)
         if (VK[i].key == key) return VK[i].vk;
+    return 0;
+}
+
+int w16_key_of_vk(int vk) {
+    if (vk >= 'A' && vk <= 'Z') return vk + 32;
+    if ((vk >= '0' && vk <= '9') || vk == ' ') return vk;
+    for (unsigned i = 0; i < sizeof VK / sizeof VK[0]; i++)
+        if (VK[i].vk == vk) return VK[i].key;
     return 0;
 }
 
@@ -143,7 +152,12 @@ static int is_modifier(int code) {
     }
 }
 
+// Alt went down with nothing pressed since -- a key toywm takes for itself (Alt+F4, Alt+Tab) still
+// arrives here by position, and so does a press.
+static int g_alt_clean;
+
 void w16_key_phys(int code, int down) {
+    if (down && code != INPUT_KEY_LEFTALT) g_alt_clean = 0;
     if (is_modifier(code)) return;
     if (!down) {
         for (int i = 0; i < g_nphys; i++)
@@ -239,16 +253,35 @@ void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, i
     route_key(w, top, key, mods, up);
 }
 
+void w16_route_alt(struct w16 *w, struct w16_wnd *top, int down) {
+    if (w16_bar_has(top->hwnd) && w16_bar_alt(w, down)) return;
+    w16_route_key(w, top, W16_KEY_ALT, down ? KEY_MOD_ALT : 0, !down);
+}
+
+// 3.1'S SYSTEM KEYS: a key pressed with Alt held (and not Ctrl), F10, and Alt itself are
+// WM_SYSKEYDOWN and WM_SYSKEYUP, the character WM_SYSCHAR -- which DefWindowProc turns into the
+// menus (SC_KEYMENU), and a program may take first. lParam's context bit says Alt was down.
 static void route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up) {
     uint16_t to = key_target(w, top);
     mods &= KEY_MOD_SHIFT | KEY_MOD_CTRL | KEY_MOD_ALT;
-    int vk = w16_vk_of(key);
-    if (!up) modifiers(w, to, mods);
-    if (up) {
-        if (vk) w16_post_msg_mods(w, to, WM_KEYUP, (uint16_t)vk, 0xC0000001u, mods);
+    if (key == W16_KEY_ALT) {
+        // NOT ALONE: a key or press came with it that the program never heard (toywm's shortcut).
+        // A held Alt's repeat says so to DefWindowProc, as the keyboard's own repeat would have.
+        if (up && !g_alt_clean) w16_post_msg_mods(w, to, WM_SYSKEYDOWN, VK_MENU, KF_ALT | 0x40000001u, KEY_MOD_ALT);
+        if (up) w16_post_msg_mods(w, to, WM_SYSKEYUP, VK_MENU, 0xC0000001u, mods);
+        else w16_post_msg_mods(w, to, WM_SYSKEYDOWN, VK_MENU, KF_ALT | 1, mods);
+        g_alt_clean = !up;
         return;
     }
-    if (vk) w16_post_msg_mods(w, to, WM_KEYDOWN, (uint16_t)vk, 1, mods);
+    int vk = w16_vk_of(key);
+    int sys = ((mods & KEY_MOD_ALT) && !(mods & KEY_MOD_CTRL)) || vk == VK_F10;
+    uint32_t ctx = mods & KEY_MOD_ALT ? KF_ALT : 0;
+    if (!up) modifiers(w, to, mods);
+    if (up) {
+        if (vk) w16_post_msg_mods(w, to, sys ? WM_SYSKEYUP : WM_KEYUP, (uint16_t)vk, 0xC0000001u | ctx, mods);
+        return;
+    }
+    if (vk) w16_post_msg_mods(w, to, sys ? WM_SYSKEYDOWN : WM_KEYDOWN, (uint16_t)vk, 1 | ctx, mods);
     int ch = key == '\n' ? '\r' : key;
     // A TYPED KEY IS A CODEPOINT, and a Windows program reads its ANSI
     // code page, Windows-1252: a character with a byte there (the euro
@@ -260,7 +293,7 @@ static void route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods
     // Ctrl and a letter is its control character, as Windows made it.
     if ((mods & KEY_MOD_CTRL) && ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'))) ch &= 0x1F;
     if ((ch >= 0x20 && ch <= 0xFF && ch != 0x7F) || (ch > 0 && ch < 0x20))
-        w16_post_msg_mods(w, to, WM_CHAR, (uint16_t)ch, 1, mods);
+        w16_post_msg_mods(w, to, sys ? WM_SYSCHAR : WM_CHAR, (uint16_t)ch, 1 | ctx, mods);
 }
 
 // The last press, for a double click: when, where and on what.
@@ -311,6 +344,7 @@ static struct w16_wnd *top_under(struct w16 *w, struct w16_wnd *top, int *x, int
 }
 
 static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y) {
+    if (msg != WM_MOUSEMOVE) g_alt_clean = 0;
     pthread_mutex_lock(&w->lock);
     top = top_under(w, top, &x, &y);
     g_ptr.top = top->hwnd;
@@ -438,11 +472,39 @@ void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches) {
 #define HC_SKIP    2
 #define JP_STEP_MS  6
 #define JP_DRAWN_MS 55
-static struct { int have, skip; uint16_t msg, l, h; uint64_t due, last; unsigned buttons, draws; } g_jp;
+static struct { int have, skip, alt; uint16_t msg, l, h; uint64_t due, last; unsigned buttons, draws; } g_jp;
 
 static uint32_t journal_call(struct w16 *w, uint32_t hook, uint16_t code, uint16_t at) {
     const uint16_t words[] = { code, 0, (uint16_t)(at ? w->sysdata : 0), at };
     return w16_call_far(w, (uint16_t)(hook >> 16), (uint16_t)hook, words, 4);
+}
+
+// A played key to the window with the focus -- in any of the program's top-level windows, as 3.1
+// sent keys -- or the main window when none has it. The character with it, as w16 makes WM_CHAR.
+static void post_played(struct w16 *w, int arg) {
+    uint16_t msg = (uint16_t)(WM_KEYDOWN + (arg >> 8 & 7)), vk = arg & 0xFF;
+    int up = msg == WM_KEYUP || msg == WM_SYSKEYUP, alt = arg >> 24 & 1;
+    uint32_t lp = 1u | (uint32_t)(arg >> 16 & 0xFF) << 16 | (alt ? KF_ALT : 0) | (up ? 0xC0000000u : 0);
+    pthread_mutex_lock(&w->lock);
+    struct w16_wnd *f = w16_wnd_get(w, w->focus);
+    uint16_t to = f ? f->hwnd : w->win.hwnd;
+    pthread_mutex_unlock(&w->lock);
+    unsigned mods = alt ? KEY_MOD_ALT : 0;
+    w16_post_msg_mods(w, to, msg, vk, lp, mods);
+    int ch = w16_key_of_vk(vk);                  // the character it types, or a KEY_* special above a byte
+    ch = ch == '\n' ? '\r' : ch > 0 && ch < 0x100 ? ch : 0;
+    if (!up && ch) w16_post_msg_mods(w, to, msg == WM_SYSKEYDOWN ? WM_SYSCHAR : WM_CHAR, (uint16_t)ch, lp, mods);
+}
+
+void w16_played_key(struct w16 *w, int arg) {
+    int vk = arg & 0xFF, up = arg >> 8 & 1;
+    if (vk == VK_MENU) {
+        if (w16_bar_alt(w, !up)) return;
+    } else if (w16_bar_active()) {
+        int key = w16_key_of_vk(vk);
+        if (up || (key && w16_bar_key(w, key))) return;   // a release is the menus' with its press
+    }
+    post_played(w, arg);                         // the menus closed meanwhile: the program's after all
 }
 
 static void journal_event(struct w16 *w) {
@@ -464,19 +526,24 @@ static void journal_event(struct w16 *w) {
         w16_post_pointer(w, (int16_t)g_jp.l, (int16_t)g_jp.h);
         uint16_t wp = (uint16_t)((g_jp.buttons & 1 ? MK_LBUTTON : 0) | (g_jp.buttons & 2 ? MK_RBUTTON : 0));
         route_mouse(w, &w->win, msg, wp, x, y);
-    } else if (msg == WM_KEYDOWN || msg == WM_KEYUP) {
-        uint16_t vk = g_jp.l & 0xFF, to = key_target(w, &w->win);
-        uint32_t lp = 1u | (uint32_t)(g_jp.l >> 8 & 0xFF) << 16 | (msg == WM_KEYUP ? 0xC0000000u : 0);
-        w16_post_msg(w, to, msg, vk, lp);
-        int ch = vk >= 'A' && vk <= 'Z' ? vk + 32 : (vk >= '0' && vk <= '9') || vk == ' ' || vk == 0x0D || vk == 0x08 ? vk : 0;
-        if (msg == WM_KEYDOWN && ch) w16_post_msg(w, to, WM_CHAR, (uint16_t)ch, 1);
+    } else if (msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP) {
+        uint16_t vk = g_jp.l & 0xFF;
+        int up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
+        if (vk == VK_MENU) g_jp.alt = !up;
+        int arg = (g_jp.alt ? 1 << 24 : 0) | (g_jp.l >> 8 & 0xFF) << 16 | (msg - WM_KEYDOWN) << 8 | vk;
+        pthread_mutex_lock(&w->lock);
+        uint16_t menus = w->menu_keys;
+        pthread_mutex_unlock(&w->lock);
+        // THE MENUS TAKE A PLAYED KEY while they have the keyboard, as 3.1's menu loop read it from
+        // the queue: the main thread runs w16's menus, so it goes there, behind the SC_KEYMENU ask.
+        if (!menus || !w16_task_post_arg(w, W16_POST_KEY, arg)) post_played(w, arg);
     }
 }
 
 int w16_journal_play(struct w16 *w, int *wait_ms) {
     uint32_t hook = w16_hook(WH_JOURNALPLAYBACK);
     *wait_ms = 0;
-    if (!hook) { g_jp.have = 0; g_jp.skip = 0; g_jp.buttons = 0; g_jp.last = 0; return 0; }
+    if (!hook) { g_jp.have = 0; g_jp.skip = 0; g_jp.alt = 0; g_jp.buttons = 0; g_jp.last = 0; return 0; }
     if (g_jp.skip) {                             // what the last event made has been taken: move on
         g_jp.skip = 0;
         journal_call(w, hook, HC_SKIP, 0);

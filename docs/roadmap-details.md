@@ -8926,8 +8926,13 @@ Stages, each compared with the 3.11 reference VM:
    its menus take keys), has no Alt-alone menu mode, and no keyboard
    mode for a second window's menu bar at all -- so the menu never
    opens, and every later page lags the reference by one click (Write's caption on a click on the
-   Tutorial's window is that entry's "Left"). Scrolling, the menus and
-   dialogs come after it.
+   Tutorial's window is that entry's "Left"). **2026-11-15: the keyboard
+   menus built** (3.1's WM_SYSKEY* path and DefWindowProc's SC_KEYMENU, one
+   bar for every window -- decisions/gui.md "A Win16 program hears Alt as
+   3.1's system keys"): the Tutorial's played Alt lights Write's File and
+   its Downs drop it. It lands on Exit where 3.11's lands on Open... -- "w16:
+   how often 3.1 asked a journal's HC_GETNEXT per event" below. Scrolling,
+   the menus and dialogs come after it.
 
 
 ### w16: screen-DC drawing over the program's own popups (the Tutorial's tips)
@@ -9063,3 +9068,21 @@ looks in its own data segment for GSW.EXE's registration -- Windows 3.1
 kept ONE copy of a DLL's data for every program using it, and each w16
 program has its own. Two programs sharing one DLL instance is a design
 question (several tasks in one w16), not a missing call.
+
+
+## w16: how often 3.1 asked a journal's HC_GETNEXT per event
+
+Found 2026-11-15 on Windows Basics' page 30 ("When you open a menu, you
+see a list of commands"). The Tutorial's journal hook (WINTUTOR.EXE
+segment 19 at 0x3aa) moves to its next table entry on EVERY HC_GETNEXT,
+not on HC_SKIP -- the docs say a hook should answer the same event until
+it is skipped, and this one does not. Its table after Alt down and up is
+Down, Down, Down-up, Down, Down (350 ms first), Down, and it unhooks at
+the HC_SKIP after the seventh ask. w16 asks once per event, so every
+Down lands and File's popup ends on Exit; 3.11's ends on Open..., so 3.1
+asked more than once per event while its menu loop ran. Playing the
+FIRST of every two asks fits (Down drops on New, the release, the Down
+after the 350 ms wait reaches Open), but that is one observation, not a
+measurement. To measure: a program of ours on real 3.11 counting the
+asks per HC_SKIP with a menu open -- which needs "w16: the NASM samples
+start on real 3.11" first.
