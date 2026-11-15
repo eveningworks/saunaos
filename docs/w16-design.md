@@ -644,7 +644,11 @@ the palette, whose mapping is not yet measured.
    which w16 had applied itself on every move, over SCI's. Setup's menu matches
    3.11's side by side: DefDlgProc erases with the CTLCOLOR_DLG brush the
    dialog answers, and a static draws in the text colour WM_CTLCOLOR set
-   (`samples/fullscr.asm` checks all of it). Its speed is the CPU's: 20 MIPS under KVM
+   (`samples/fullscr.asm` checks all of it). Esc skips a movie: SCI then
+   polls its last buffers' WHDR_DONE in a loop that calls nothing, which
+   3.1's driver set at interrupt time -- w16 now marks played buffers from
+   the CPU's tick (every 64K instructions) as well as at each call, and
+   answers DOS's disk reset (INT 21h 0Dh), which it calls next. Its speed is the CPU's: 20 MIPS under KVM
    before the descriptor cache, ~29 after (`tools/bench/cpu16_bench.py`
    on the host: 51 -> 89). Setup's Program Manager group, a CD change
    for disc 2 and the speed are on the roadmap.

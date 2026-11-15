@@ -270,8 +270,9 @@ uint32_t w16_arg32(struct w16_args *a) {
     return (uint32_t)cpu16_arg(a->c, a->pos) | (uint32_t)cpu16_arg(a->c, a->pos + 2) << 16;
 }
 
-// Where the program is, every CPU16_TICK_STEPS instructions: a loop of its own shows as the same
-// place again and again, and the milliseconds between lines are the interpreter's speed.
+// Where the program is, every TRACE_TICKS ticks (16M instructions): a loop of its own shows as the
+// same place again and again, and the milliseconds between lines are the interpreter's speed.
+#define TRACE_TICKS 256
 static uint64_t g_last_call_steps;
 
 static void trace_tick(struct cpu16 *c) {
@@ -584,11 +585,19 @@ static void describe_fault(struct w16 *w) {
                  w->ne.name, cpu16_fault_name(c->fault), upper, at);
 }
 
+// Every CPU16_TICK_STEPS instructions of the program's own code: what 3.1's drivers did at interrupt
+// time, which a program polling memory in a loop that calls nothing waits on.
+static void task_tick(struct cpu16 *c) {
+    static unsigned n;
+    w16_wave_interrupt(&g_w16);
+    if (g_w16_trace && !(++n % TRACE_TICKS)) trace_tick(c);
+}
+
 void *w16_task_main(void *arg) {
     struct w16 *w = arg;
     struct cpu16 *c = &w->cpu;
     c->thunk = thunk;
-    if (g_w16_trace) c->tick = trace_tick;
+    c->tick = task_tick;
     if (w16_dll_start_pending(w) == 0) cpu16_run(c, 0);
     if (c->fault) {
         const struct cpu16_desc *d = &w->desc[cpu16_index(c->fault_cs) % CPU16_MAX_DESC];

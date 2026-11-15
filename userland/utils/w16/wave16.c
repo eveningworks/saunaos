@@ -10,8 +10,9 @@
 // A BUFFER IS DONE WHEN THE PLAYBACK HAS PASSED ITS END, and what the
 // program sees of that -- WHDR_DONE in its header, MM_WOM_DONE to its
 // window, its callback function -- happens on the TASK thread
-// (w16_wave_service): after every Windows call, and in the message wait,
-// which the main thread's tick wakes. With no sound daemon the device is
+// (w16_wave_service): after every Windows call, in the message wait,
+// which the main thread's tick wakes, and from the CPU's tick between
+// (w16_wave_interrupt). With no sound daemon the device is
 // SILENT: a clock plays the buffers, so a program that will not run
 // without a wave device (DK's encyclopaedias) runs anyway.
 #include "w16_internal.h"
@@ -223,6 +224,16 @@ void w16_wave_service(struct w16 *w) {
         tell(w, MM_WOM_DONE, b.hdr);
     }
     busy = 0;
+}
+
+// THE DRIVER'S INTERRUPT: a buffer played is marked WHDR_DONE, and a window or task told, while the
+// program runs without calling Windows -- as 3.1's driver did, so a program polling its header's
+// flag in a loop that calls nothing sees it (Sierra's SCI, when Esc stops a movie, waits there for the
+// buffers queued). A callback FUNCTION waits for the next Windows call: w16 enters none at an
+// arbitrary instruction.
+void w16_wave_interrupt(struct w16 *w) {
+    if (!w16_wave_due() || (g_wo.flags & CALLBACK_TYPEMASK) == CALLBACK_FUNCTION) return;
+    w16_wave_service(w);
 }
 
 // --- the calls ------------------------------------------------------------------------

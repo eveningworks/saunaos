@@ -1066,6 +1066,7 @@ int w16_sound_ready(struct w16 *w);     // sound16.c: the sound daemon is there 
 void w16_wave_tick(struct w16 *w);      // main thread: feed the daemon, find what has played
 int w16_wave_due(void);                 // buffers played that the program has not been told of
 void w16_wave_service(struct w16 *w);   // task thread: tell it -- WHDR_DONE, MM_WOM_DONE, its callback
+void w16_wave_interrupt(struct w16 *w); // task thread, from the CPU tick: the same, but never a callback function
 
 // --- wing16.c -------------------------------------------------------------------
 

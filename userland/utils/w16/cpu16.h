@@ -93,7 +93,7 @@ struct cpu16_x87 {
 
 struct cpu16;
 
-#define CPU16_TICK_STEPS (1u << 24)
+#define CPU16_TICK_STEPS (1u << 16)   // ~2 ms of a program at w16's speed: what runs "at interrupt time"
 
 // An import was reached: SS:SP holds the far return address, the
 // arguments above it. Return the bytes of arguments to pop (the Pascal

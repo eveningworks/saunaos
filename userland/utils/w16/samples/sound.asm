@@ -11,12 +11,16 @@
 ;   3. SOUND.DRV: two quarter notes of value 46 (A above middle C, 440 Hz)
 ;      at 120 a minute -- a second of square wave;
 ;   4. SOUND.DRV's tones: five SetVoiceSound(880 Hz, 200 ticks) -- each
-;      201 ticks of 2.44 ms, ~2.45 s in all -- waited out by WaitSoundState.
+;      201 ticks of 2.44 ms, ~2.45 s in all -- waited out by WaitSoundState;
+;   5. the WAV again through waveOutOpen with no callback, its header's
+;      WHDR_DONE then polled in a loop that calls nothing, as Sierra's SCI
+;      waits when Esc stops a movie: 3.1's driver set it at interrupt time.
 ;
 ; The exit code says what answered: bit 0 waveOutGetNumDevs said a
 ; device, bit 1 sndPlaySound said it played, bit 2 OpenSound gave a voice,
 ; bit 3 a 600-byte queue (SetVoiceQueueSize) took 100 sounds and refused the
-; 101st (S_SERQFUL), bit 4 WaitSoundState waited at least 2 s.
+; 101st (S_SERQFUL), bit 4 WaitSoundState waited at least 2 s, bit 5 the
+; polled header was marked done (within some 200M instructions).
 ; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module SOUND
@@ -136,6 +140,52 @@ no_wav:
 .short:
     W16_CALL "SOUND", 2             ; CloseSound()
 no_voice:
+    push ds                         ; waveOutOpen(&hwo, WAVE_MAPPER, the WAV's format, no callback)
+    push word hwo
+    push word 0xFFFF
+    push ds
+    push word wav + 20
+    push word 0
+    push word 0
+    push word 0
+    push word 0
+    push word 0
+    push word 0
+    W16_CALL "MMSYSTEM", 404
+    or ax, ax
+    jnz done
+    push word [hwo]                 ; waveOutPrepareHeader(hwo, &hdr, 32)
+    push ds
+    push word hdr
+    push word 32
+    W16_CALL "MMSYSTEM", 406
+    push word [hwo]                 ; waveOutWrite(hwo, &hdr, 32)
+    push ds
+    push word hdr
+    push word 32
+    W16_CALL "MMSYSTEM", 408
+    mov si, 0x400                   ; 1024 x 65536 polls, no call between
+.poll_outer:
+    xor cx, cx
+.poll:
+    test byte [hdr + 16], 1         ; WHDR_DONE
+    jnz .played
+    loop .poll
+    dec si
+    jnz .poll_outer
+    jmp .unplayed
+.played:
+    or byte [result], 32
+.unplayed:
+    push word [hwo]
+    W16_CALL "MMSYSTEM", 411        ; waveOutReset
+    push word [hwo]                 ; waveOutUnprepareHeader(hwo, &hdr, 32)
+    push ds
+    push word hdr
+    push word 32
+    W16_CALL "MMSYSTEM", 407
+    push word [hwo]
+    W16_CALL "MMSYSTEM", 405        ; waveOutClose
 done:
     mov al, [result]
     mov ah, 0x4C
@@ -165,6 +215,11 @@ result:    db 0, 0
 until:     dw 0
 count:     dw 0
 t0:        dw 0
+hwo:       dw 0
+hdr:                                ; WAVEHDR: lpData, length, recorded, user, flags, loops, next, reserved
+    W16_FARPTR wav_data, 2
+    dd WAV_FRAMES
+    dd 0, 0, 0, 0, 0, 0
 
 wav:
     db "RIFF"
@@ -176,6 +231,7 @@ wav:
     dw 1, 8                         ; block, bits
     db "data"
     dd WAV_FRAMES
+wav_data:
 %rep WAV_FRAMES / 10
     db 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x40, 0x40, 0x40, 0x40, 0x40
 %endrep

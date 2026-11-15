@@ -700,6 +700,8 @@ int w16_int(struct cpu16 *c, uint8_t n) {
         fflush(g_w16_trace);
     }
     switch (c->r[R_AX] >> 8) {
+    case 0x0D:                                   // disk reset: DOS's buffers written -- w16 keeps none
+        return 0;
     case 0x25:                                   // set an interrupt vector: kept by nobody
         return 0;
     case 0x30:                                   // DOS version: 5.0

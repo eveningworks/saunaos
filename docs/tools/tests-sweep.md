@@ -2716,7 +2716,9 @@ report is ON only after `enter_gui()`").
   (A440), then five SetVoiceSound 880 Hz tones (~2.4 s, 3.11's 2.44 ms
   tick) that WaitSoundState waits out, into an AC97 that QEMU's wav
   audiodev records; its exit code also says a 600-byte queue held exactly
-  100 sounds. Each
+  100 sounds, and that a WAV written with no callback had its header's
+  WHDR_DONE set while the program polled it in a loop calling nothing
+  (red when only a Windows call delivers it). Each
   is told apart by PITCH, counted in 50 ms windows that must hold the
   band three in a row (a sound's edge window reads any pitch). Three
   boots on copies of disk.img: the defaults (the beep is SaunaOS's chime,

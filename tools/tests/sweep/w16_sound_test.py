@@ -5,16 +5,18 @@ w16's sound test program (userland/utils/w16/samples/sound.asm) plays four
 sounds that can be told apart by PITCH, in order: a 1102.5 Hz square WAV
 from its own memory through sndPlaySound(SND_MEMORY), the Asterisk event
 through MessageBeep, two 440 Hz SOUND.DRV notes, and five 880 Hz
-SetVoiceSound tones (~2.45 s) that WaitSoundState waits out. The guest boots with
+SetVoiceSound tones (~2.45 s) that WaitSoundState waits out; then the WAV
+again through waveOutOpen, its header's WHDR_DONE polled in a loop that calls
+nothing (Sierra's SCI after Esc). The guest boots with
 an AC97 recorded by QEMU's wav audiodev -- what the DEVICE played,
 measured here, sharing no code with the guest (tools/tests/sweep/audio_test.py's
 oracle) -- and the program's exit code says what each call answered.
 
 Three runs, each on its own copy of the image:
 
-  1. the defaults: exit 31 (a device, the WAV played, a voice, a
+  1. the defaults: exit 63 (a device, the WAV played, a voice, a
      600-byte queue held exactly 100 sounds, WaitSoundState waited 2 s or
-     more); ~1100 Hz, then a sound that is NOT 2000 Hz (SaunaOS's chime:
+     more, the polled header marked done); ~1100 Hz, then a sound that is NOT 2000 Hz (SaunaOS's chime:
      drive C: has no WIN.INI), then ~0.9 s of 440 Hz, then ~2.4 s of 880 Hz;
   2. drive C:'s WIN.INI names SystemAsterisk=test.wav, a 2000 Hz square
      this tool writes to C:\\WINDOWS: the middle sound is 2000 Hz -- the
@@ -196,6 +198,7 @@ def main():
         win = windows(wav)
         loud = [t for t, hz in win if hz is not None]
         wavs, notes, high = band(win, 1102, 60), band(win, 440, 25), band(win, 2000, 60)
+        wavs = [t for t in wavs if not notes or t < notes[0]]   # sndPlaySound's; step 5 plays it again last
         tones = band(win, 880, 40)
         detail = (f"{len(loud)} loud windows: {len(wavs)} ~1102 Hz, {len(high)} ~2000 Hz, {len(notes)} ~440 Hz, "
                   f"{len(tones)} ~880 Hz; "
@@ -204,8 +207,8 @@ def main():
             check("[off] the program is told there is no device and no voice (exit 0)", code == 0, f"exit {code}")
             check("[off] nothing played", not loud, detail)
             continue
-        check(f"[{name}] each call answered: a device, the WAV played, a voice, a 100-entry queue, a wait (exit 31)",
-              code == 31, f"exit {code}")
+        check(f"[{name}] each call answered: a device, the WAV played, a voice, a 100-entry queue, a wait, "
+              f"a polled header done (exit 63)", code == 63, f"exit {code}")
         check(f"[{name}] sndPlaySound(SND_MEMORY) played the program's WAV at its rate (~1102 Hz, 0.3 s)",
               len(wavs) >= 4, detail)
         # Between the WAV and the notes: MessageBeep's event.
