@@ -3,8 +3,10 @@
 // here", 3 and 4). ugfx.c asks it for anything past U+00FF.
 //
 // THE SHAPE IS PANGO'S AND DIRECTWRITE'S: glyphs rendered on demand,
-// keyed (face, size, character), a fallback face when the chosen one has
-// no glyph, an outlined box when nothing does. Split from ugfx.c because
+// keyed (face, size, character), the fallback list's faces in order when
+// the chosen one has no glyph (base/ufontfallback.h -- Android's ordered
+// list), an outlined box when nothing does. An emoji tries the list's
+// emoji face first. Split from ugfx.c because
 // the atlas is mapped and this is rendered -- one owns a shm mapping,
 // the other a heap.
 //
@@ -22,11 +24,11 @@
 #include "base/ufile.h"
 #include "base/ulru.h"
 #include "base/ulog.h"
+#include "base/ufontfallback.h"
 #include "ttf.h"
 #include <stdlib.h>
 #include <string.h>
 
-#define FALLBACK_FACE "/usr/share/fonts/dejavu-sans-mono.ttf"
 #define FACE_FILE_MAX (8u << 20)
 
 // The budget. A glyph at the default size is a couple of hundred bytes,
@@ -44,7 +46,7 @@ struct face {
 struct gent {
     struct ulru_node node;     // first: a node IS its entry
     uint32_t cp;
-    int face, px, base, cell_h, smear;
+    int face, px, base, cell_h, smear, emoji;
     int w, adv;
     unsigned char cov[];       // w * cell_h
 };
@@ -96,20 +98,20 @@ static int face_for(const char *path) {
     return f->ok ? g_nfaces - 1 : -1;
 }
 
-static unsigned hash(uint32_t cp, int face, int px, int base, int cell_h, int smear) {
+static unsigned hash(uint32_t cp, int face, int px, int base, int cell_h, int smear, int emoji) {
     unsigned h = cp * 2654435761u;
     h ^= (unsigned)(face + 1) * 40503u + (unsigned)px * 97u + (unsigned)base * 131u
-       + (unsigned)cell_h * 193u + (unsigned)smear * 7u;
+       + (unsigned)cell_h * 193u + (unsigned)smear * 7u + (unsigned)emoji * 389u;
     return h ^ (h >> 15);
 }
 
-struct gkey { uint32_t cp; int face, px, base, cell_h, smear; };
+struct gkey { uint32_t cp; int face, px, base, cell_h, smear, emoji; };
 
 static int gent_is(const struct ulru_node *n, const void *key) {
     const struct gent *e = (const struct gent *)n;
     const struct gkey *k = key;
     return e->cp == k->cp && e->face == k->face && e->px == k->px && e->base == k->base &&
-           e->cell_h == k->cell_h && e->smear == k->smear;
+           e->cell_h == k->cell_h && e->smear == k->smear && e->emoji == k->emoji;
 }
 
 static size_t gent_bytes(const struct gent *e) {
@@ -185,7 +187,22 @@ static struct gent *box(int px, int base, int cell_h) {
     return e;
 }
 
-int ugfx_glyph_get(const struct ugfx_font *f, uint32_t cp,
+// Tries the fallback list's faces whose emoji flag is `emoji`, in order;
+// the first with the character draws it.
+static struct gent *from_list(uint32_t cp, int emoji, int skip, int px, int base,
+                              int cell_h, int smear) {
+    const struct ufont_fallback *fb = ufont_fallback();
+    for (int i = 0; i < fb->n; i++) {
+        if (fb->faces[i].emoji != emoji) continue;
+        int fi = face_for(fb->faces[i].path);
+        if (fi < 0 || fi == skip) continue;
+        struct gent *e = render(fi, cp, px, base, cell_h, smear);
+        if (e) return e;
+    }
+    return 0;
+}
+
+int ugfx_glyph_get(const struct ugfx_font *f, uint32_t cp, int emoji,
                    const unsigned char **cov, int *w, int *h, int *adv) {
     if (!f || f->char_h <= 0) return 0;
     int cell_h = f->char_h;
@@ -196,26 +213,27 @@ int ugfx_glyph_get(const struct ugfx_font *f, uint32_t cp,
     int smear = f->src_smear;
     int fi = face_for(f->src_path);
 
-    unsigned hv = hash(cp, fi, px, base, cell_h, smear);
-    struct gkey key = { cp, fi, px, base, cell_h, smear };
+    emoji = emoji ? 1 : 0;
+    unsigned hv = hash(cp, fi, px, base, cell_h, smear, emoji);
+    struct gkey key = { cp, fi, px, base, cell_h, smear, emoji };
     struct gent *hit = (struct gent *)ulru_find(&g_lru, hv, gent_is, &key);
     if (hit) {
         *cov = hit->cov; *w = hit->w; *h = hit->cell_h; *adv = hit->adv;
         return 1;
     }
 
-    // The chain: the font's own face, DejaVu Sans Mono (the widest
-    // coverage shipped), the box. Cached under the PRIMARY key either
+    // The chain: an emoji's emoji face first; the font's own face; the
+    // fallback list's text faces in order; an emoji face last for a
+    // character only it has; the box. Cached under the PRIMARY key either
     // way, so a character nothing has costs one lookup after the first.
-    struct gent *e = fi >= 0 ? render(fi, cp, px, base, cell_h, smear) : 0;
-    if (!e) {
-        int fb = face_for(FALLBACK_FACE);
-        if (fb >= 0 && fb != fi) e = render(fb, cp, px, base, cell_h, smear);
-    }
+    struct gent *e = emoji ? from_list(cp, 1, fi, px, base, cell_h, smear) : 0;
+    if (!e && fi >= 0) e = render(fi, cp, px, base, cell_h, smear);
+    if (!e) e = from_list(cp, 0, fi, px, base, cell_h, smear);
+    if (!e && !emoji) e = from_list(cp, 1, fi, px, base, cell_h, smear);
     if (!e) e = box(px, base, cell_h);
     if (!e) return 0;
     e->cp = cp; e->face = fi; e->px = px; e->base = base;
-    e->cell_h = cell_h; e->smear = smear;
+    e->cell_h = cell_h; e->smear = smear; e->emoji = emoji;
     while (ulru_oldest(&g_lru) && g_bytes + gent_bytes(e) > CACHE_BUDGET) evict_one();
     if (!ulru_insert(&g_lru, &e->node, hv)) { free(e); return 0; }
     g_bytes += gent_bytes(e);

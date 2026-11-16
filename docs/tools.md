@@ -588,6 +588,7 @@ Full entries: [`docs/tools/gen.md`](tools/gen.md).
 - `gen_commands_index.py` -- regenerate docs/commands/README.md's index
 - `gen_cursors.py` -- Generate the cursor themes into data/cursors/<theme>/
 - `gen_decisions_index.py` -- regenerate docs/decisions.md from docs/decisions/
+- `gen_emoji.py` -- which characters are drawn as EMOJI by default
 - `gen_icons.py` -- Draw the application icons into data/icons/*.qoi
 - `gen_imgdata.py` -- Generate the image data this repo ships: the test vectors and the wallpapers
 - `gen_kbs.py` -- generates /usr/share/kbs/<layout> keyboard-layout data

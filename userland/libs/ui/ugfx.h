@@ -338,8 +338,11 @@ int ugfx_char_advance(char c);
 // its Latin-1 letter -- the transition rule, so text written before
 // UTF-8 draws exactly as it did. A character the atlas lacks (anything
 // past U+00FF) comes from a per-process glyph cache rasterized from the
-// font's own .ttf, then DejaVu Sans Mono, then an outlined box the
-// advance wide. Kerning applies only BETWEEN TWO ATLAS CHARACTERS: a
+// font's own .ttf, then the fallback list's faces (base/ufontfallback.h),
+// then an outlined box the advance wide. An emoji goes to the emoji face
+// first (base/uemoji.h); a variation selector draws nothing and decides
+// the character before it, so a loop over a string passes the character
+// AFTER the one it draws to the _next forms. Kerning applies only BETWEEN TWO ATLAS CHARACTERS: a
 // cached glyph sits at its plain advance, which is visible on some Greek
 // and Cyrillic pairs (step 1's written-down trade).
 //
@@ -350,6 +353,9 @@ int ugfx_char_advance(char c);
 int  ugfx_cp_advance(uint32_t cp);
 void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
                   uint32_t color, uint32_t bg);
+int  ugfx_cp_advance_next(uint32_t cp, uint32_t next);
+void ugfx_draw_cp_next(struct ugfx_surface *s, int x, int y, uint32_t cp, uint32_t next,
+                       uint32_t color, uint32_t bg);
 
 // The character at byte `i` of `str`: its codepoint in `*cp` and the
 // byte index after it as the return value -- `i` itself, with `*cp` 0,

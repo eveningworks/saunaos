@@ -2,7 +2,7 @@
 //
 // Split out of ugfx.c because these are the only text functions
 // that touch no font state and no surface -- they stand entirely on
-// ugfx_cp_advance(), ugfx_kern() and ugfx_font_codepage(). That is what
+// ugfx_cp_advance_next(), ugfx_kern() and ugfx_font_codepage(). That is what
 // makes them compilable on the host against a synthetic proportional
 // face, which matters more here than for most code: this is the
 // arithmetic that decides where a caret goes, and it was wrong in every
@@ -39,12 +39,20 @@ int ugfx_text_decode(const char *str, int i, int end, uint32_t *cp) {
     return i + (n > 0 ? n : 1);
 }
 
+// The character after the one at `nx`'s predecessor: what a variation
+// selector there says about it (ugfx.h). 0 at the end.
+static uint32_t peek(const char *str, int nx, int end) {
+    uint32_t next;
+    ugfx_text_decode(str, nx, end, &next);
+    return next;
+}
+
 int ugfx_text_width_n(const char *str, int n) {
     if (!str) return 0;
     int w = 0, prev = 0;
     uint32_t cp;
     for (int i = 0, nx; (nx = ugfx_text_decode(str, i, n, &cp)) > i; i = nx) {
-        w += ugfx_kern(prev, (int)cp) + ugfx_cp_advance(cp);
+        w += ugfx_kern(prev, (int)cp) + ugfx_cp_advance_next(cp, peek(str, nx, n));
         prev = (int)cp;
     }
     return w;
@@ -57,7 +65,7 @@ int ugfx_text_index_at_x(const char *str, int x) {
     int w = 0, prev = 0, i = 0;
     uint32_t cp;
     for (int nx; (nx = ugfx_text_decode(str, i, -1, &cp)) > i; i = nx) {
-        int adv = ugfx_kern(prev, (int)cp) + ugfx_cp_advance(cp);
+        int adv = ugfx_kern(prev, (int)cp) + ugfx_cp_advance_next(cp, peek(str, nx, -1));
         // Past a glyph's midpoint belongs to the boundary AFTER it, so
         // clicking the right half of a character puts the caret behind
         // it. Rounding by half the CELL instead lands a click on the
@@ -122,7 +130,7 @@ int ugfx_text_fit_chars(const char *str, int max_w) {
     int i = 0, used = 0, prev = 0;
     uint32_t cp;
     for (int nx; (nx = ugfx_text_decode(str, i, -1, &cp)) > i; i = nx) {
-        int adv = ugfx_kern(prev, (int)cp) + ugfx_cp_advance(cp);
+        int adv = ugfx_kern(prev, (int)cp) + ugfx_cp_advance_next(cp, peek(str, nx, -1));
         if (used + adv > max_w) break;
         used += adv;
         prev = (int)cp;

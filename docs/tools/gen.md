@@ -277,6 +277,14 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `unicodedata`, blocks from Perl's copy of `Blocks.txt`: nothing is
   fetched. Re-run when a font is added; the Unicode License travels as
   `data/licenses/unicode.txt`.
+- **`gen_emoji.py`** -- which characters are drawn as EMOJI by default:
+  `userland/libs/base/uemoji_table.h`, the Emoji_Presentation ranges
+  `base/uemoji.h` binary-searches, so the text path sends U+2B50 to the
+  emoji face and U+2605 to the text faces. Python's `unicodedata` has no
+  emoji properties; Perl's regex engine does, so the source is Perl's
+  own copy of emoji-data.txt and nothing is fetched (the Unicode version
+  goes into the header). `--check` fails on a stale table. Re-run when a
+  newer Perl brings a newer Unicode.
 - **`gen_wcwidth.py`** -- the East Asian Wide table a grid of cells
   measures with (`wcwidth()`'s rule: 2 cells for W and F, 1 otherwise)
   into `userland/libs/base/uwcwidth_table.h` (tracked), read by

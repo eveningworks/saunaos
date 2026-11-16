@@ -2373,6 +2373,12 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# files travel with them, which the fonts' own licenses require.
 	mkdir -p $(SEED_DIR)/sync/usr/share/fonts
 	cp data/fonts/*.ttf data/fonts/LICENSE-*.txt $(SEED_DIR)/sync/usr/share/fonts/
+	# FALLBACK faces: what draws a character the interface face lacks
+	# (/etc/fonts/fallback.conf orders them). A folder of their own so the
+	# face picker and fontd, which list /usr/share/fonts itself, never offer
+	# a symbol or emoji font as the interface face.
+	mkdir -p $(SEED_DIR)/sync/usr/share/fonts/fallback
+	cp data/fonts/fallback/*.ttf data/fonts/fallback/LICENSE-*.txt $(SEED_DIR)/sync/usr/share/fonts/fallback/
 	# The Doom IWAD, and ONLY under EXTRAS=1. It is the one seeded file
 	# deliberately NOT in the repository -- `tools/fetch/fetch_wad.py` puts it
 	# in data/doom/, and a clean checkout has no such directory (see
@@ -2523,6 +2529,9 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	@for f in data/etc/*.conf; do \
 	    if [ -f "$$f" ]; then cp "$$f" $(SEED_DIR)/sync/etc/; fi; \
 	done
+	# /etc/fonts/fallback.conf: the font fallback order (base/ufontfallback.h).
+	mkdir -p $(SEED_DIR)/sync/etc/fonts
+	cp data/etc/fonts/fallback.conf $(SEED_DIR)/sync/etc/fonts/fallback.conf
 	# /etc/modules: the boot-time module list, comments only by default.
 	cp data/etc/modules $(SEED_DIR)/sync/etc/modules
 	# /etc/timezones: the city database, one "name,offset,dst,Label" row

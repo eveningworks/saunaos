@@ -55,9 +55,19 @@ License above:
                                     Bitstream Vera Fonts Copyright. Full
                                     text: data/fonts/LICENSE-Vera.txt.
 
-All three license files are copied onto the disk image alongside the
-fonts themselves, because each license requires the notice to travel
-with the font.
+data/fonts/fallback/ holds the FALLBACK faces, shipped verbatim as
+/usr/share/fonts/fallback and drawn for a character the interface face
+lacks (/etc/fonts/fallback.conf orders them):
+
+  noto-sans.ttf                     Noto Sans, Noto Sans Symbols, Noto
+  noto-sans-symbols.ttf             Sans Symbols 2 and Noto Sans Math,
+  noto-sans-symbols2.ttf            under the SIL Open Font License,
+  noto-sans-math.ttf                Version 1.1. Full text:
+                                    data/fonts/fallback/LICENSE-Noto.txt.
+
+Every license file is copied onto the disk image alongside the fonts
+themselves, because each license requires the notice to travel with
+the font.
 
 ---
 

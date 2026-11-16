@@ -187,6 +187,11 @@ int ugfx_cp_advance(uint32_t c) {
     return %(mid_w)d;
 }
 int ugfx_char_advance(char c) { return ugfx_cp_advance((unsigned char)c); }
+// The selectors draw nothing; the face has no emoji, so `next` decides nothing else.
+int ugfx_cp_advance_next(uint32_t c, uint32_t next) {
+    (void)next;
+    return (c == 0xFE0E || c == 0xFE0F) ? 0 : ugfx_cp_advance(c);
+}
 int ugfx_font_codepage(void) { return 0; }   // the UTF-8 mode; w16's is not tested here
 int ugfx_kern(int prev, int c) {
 %(kern_body)s

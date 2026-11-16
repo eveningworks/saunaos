@@ -10,6 +10,7 @@
 #include "font_ttf.h" // font_ttf_slot(): the slot layout both rings share
 #include "base/ulog.h"  // which source a client got its glyphs from
 #include "ui/ugfx_glyph.h" // characters past the atlas
+#include "base/uemoji.h"     // which of them are drawn as emoji
 #include "font_face.h" // FONT_BOLD_SUFFIX: the file a bold slot came from
 #include <stdlib.h>
 #include <stdio.h>   // snprintf -- the shm object's name
@@ -938,11 +939,13 @@ static int c1_of(unsigned char c) {
 
 int ugfx_font_codepage(void) { return g_font->c1_glyphs != 0; }
 
-int ugfx_cp_advance(uint32_t cp) {
+int ugfx_cp_advance_next(uint32_t cp, uint32_t next) {
     if (cp > 0xFF) {
+        if (uemoji_invisible(cp)) return 0;
         const unsigned char *cov;
         int w, h, adv;
-        if (!g_glyphs || !ugfx_glyph_get(g_font, cp, &cov, &w, &h, &adv)) return g_char_w;
+        if (!g_glyphs || !ugfx_glyph_get(g_font, cp, uemoji_wanted(cp, next), &cov, &w, &h, &adv))
+            return g_char_w;
         return adv;
     }
     unsigned char c = (unsigned char)cp;
@@ -953,6 +956,8 @@ int ugfx_cp_advance(uint32_t cp) {
     int adv = g_advances[idx];
     return adv > 0 ? adv : g_char_w;
 }
+
+int ugfx_cp_advance(uint32_t cp) { return ugfx_cp_advance_next(cp, 0); }
 
 int ugfx_char_advance(char c) { return ugfx_cp_advance((unsigned char)c); }
 
@@ -1014,13 +1019,14 @@ static void draw_cov(struct ugfx_surface *s, int x, int y, const unsigned char *
     }
 }
 
-void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
-                  uint32_t color, uint32_t bg) {
+void ugfx_draw_cp_next(struct ugfx_surface *s, int x, int y, uint32_t cp, uint32_t next,
+                       uint32_t color, uint32_t bg) {
     if (!s || !s->pixels || !g_glyphs) return;
     if (cp > 0xFF) {
+        if (uemoji_invisible(cp)) return;
         const unsigned char *cov;
         int w, h, adv;
-        if (ugfx_glyph_get(g_font, cp, &cov, &w, &h, &adv))
+        if (ugfx_glyph_get(g_font, cp, uemoji_wanted(cp, next), &cov, &w, &h, &adv))
             draw_cov(s, x, y, cov, w, h, color, bg);
         return;
     }
@@ -1030,6 +1036,11 @@ void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
         : g_glyphs + win_glyph_offset((uint32_t)glyph_index((unsigned char)cp),
                                       g_char_w, g_char_h);
     draw_cov(s, x, y, glyph, g_char_w, g_char_h, color, bg);
+}
+
+void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
+                  uint32_t color, uint32_t bg) {
+    ugfx_draw_cp_next(s, x, y, cp, 0, color, bg);
 }
 
 void ugfx_draw_char(struct ugfx_surface *s, int x, int y, char c,
@@ -1055,8 +1066,10 @@ void ugfx_draw_string(struct ugfx_surface *s, int x, int y,
         // (`if (!a) continue`), so a kerned glyph composites over its
         // neighbour instead of erasing it. Ring 0's cells ARE opaque
         // and needed draw_glyph_kerned() for exactly this.
-        ugfx_draw_cp(s, gx, y, cp, color, bg);
-        gx += ugfx_cp_advance(cp);
+        uint32_t next;
+        ugfx_text_decode(str, nx, -1, &next);
+        ugfx_draw_cp_next(s, gx, y, cp, next, color, bg);
+        gx += ugfx_cp_advance_next(cp, next);
         prev = (int)cp;
     }
 }
@@ -1083,9 +1096,11 @@ int ugfx_draw_string_clipped(struct ugfx_surface *s, int x, int y, int max_w,
     int gx = x, prev = 0;
     uint32_t cp;
     for (int i = 0, nx; (nx = ugfx_text_decode(str, i, fits, &cp)) > i; i = nx) {
+        uint32_t next;
+        ugfx_text_decode(str, nx, fits, &next);
         gx += ugfx_kern(prev, (int)cp);
-        ugfx_draw_cp(s, gx, y, cp, color, bg);
-        gx += ugfx_cp_advance(cp);
+        ugfx_draw_cp_next(s, gx, y, cp, next, color, bg);
+        gx += ugfx_cp_advance_next(cp, next);
         prev = (int)cp;
     }
     return 0;

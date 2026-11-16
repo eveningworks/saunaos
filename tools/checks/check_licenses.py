@@ -230,29 +230,35 @@ def main():
                     print(f"  ok    {os.path.relpath(path, REPO)}")
 
     # --- fonts ---------------------------------------------------------
-    if os.path.isdir(FONTS):
-        for name in sorted(os.listdir(FONTS)):
+    # data/fonts/ and its fallback/ folder (the faces /etc/fonts/fallback.conf
+    # orders), each font and each notice file named in LICENSE by its path.
+    for sub in ("", "fallback"):
+        folder = os.path.join(FONTS, sub)
+        if not os.path.isdir(folder):
+            continue
+        rel = "data/fonts/" + (sub + "/" if sub else "")
+        for name in sorted(os.listdir(folder)):
             if not name.lower().endswith((".ttf", ".otf")):
                 continue
             checked += 1
             if name not in lic:
-                problems.append(f"data/fonts/{name} ships but is not named in "
+                problems.append(f"{rel}{name} ships but is not named in "
                                 f"LICENSE's \"Third-party font\" section")
             elif args.verbose:
-                print(f"  ok    data/fonts/{name}")
+                print(f"  ok    {rel}{name}")
         # Every notice file the section points at must be real.
-        for name in sorted(os.listdir(FONTS)):
+        for name in sorted(os.listdir(folder)):
             if name.startswith("LICENSE"):
                 checked += 1
-                if f"data/fonts/{name}" not in lic:
-                    problems.append(f"data/fonts/{name} exists but LICENSE never "
+                if f"{rel}{name}" not in lic:
+                    problems.append(f"{rel}{name} exists but LICENSE never "
                                     f"points at it")
-        for line in lic.splitlines():
-            for token in line.split():
-                token = token.strip(".,;:")
-                if token.startswith("data/fonts/LICENSE"):
-                    if not os.path.exists(os.path.join(REPO, token)):
-                        problems.append(f"LICENSE points at {token}, which does not exist")
+    for line in lic.splitlines():
+        for token in line.split():
+            token = token.strip(".,;:")
+            if token.startswith("data/fonts/") and "LICENSE" in token:
+                if not os.path.exists(os.path.join(REPO, token)):
+                    problems.append(f"LICENSE points at {token}, which does not exist")
 
     # --- Terminal colour schemes ------------------------------------------
     if os.path.isdir(SCHEMES):
