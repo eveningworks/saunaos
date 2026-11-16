@@ -101,6 +101,7 @@ static void geometry(struct ep_geom *g) {
     if (g->tabs) yy += g->th + g->gap;
     g->recent = !searching() && g_tab != 0 && g_nrecent > 0;
     g->rcap_y = yy;
+    g->ry = 0;   // reported by `gui emoji` even when the row is hidden
     if (g->recent) {
         g->ry = yy + g->lh + g->small;
         yy = g->ry + g->cell + g->gap;
@@ -438,10 +439,14 @@ void emoji_picker_draw(int mx, int my) {
         int tx = x + big + g.gap;
         const char *hint = "Enter inserts \xC2\xB7 Esc closes";
         int hw = ugfx_text_width(hint), room = g.x + g.w - g.pad - tx;
-        int show_hint = hw + g.gap + ugfx_px(80) <= room;
-        if (show_hint) room -= hw + g.gap;
+        // THE NAME FIRST: the hint shows only beside a name that fits whole
+        // (a larger font leaves no room for both), and a name that does not
+        // fit even alone is elided, never cut mid-letter.
         const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
-        ugfx_draw_string_clipped(s, tx, ty, room, d->entries[e].name, UTHEME_TEXT, UGFX_TRANSPARENT);
+        int nw = ugfx_text_width(d->entries[e].name);
+        int show_hint = nw + g.gap + hw <= room;
+        if (show_hint) room -= hw + g.gap;
+        ugfx_draw_string_elided(s, tx, ty, room, d->entries[e].name, UTHEME_TEXT, UGFX_TRANSPARENT);
         ugfx_set_font(was);
         char cps[32];
         codes(&d->entries[e], cps, sizeof cps);
