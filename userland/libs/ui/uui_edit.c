@@ -10,8 +10,15 @@
 // boundary. The ops reach the text a byte at a time, so these copy the
 // at-most-four bytes a step needs and decode them with the Latin-1 rule
 // (base/uutf8.h): a stray byte is one character, never split.
-static int char_next(const struct uui_edit_ops *ops, void *text, int i, int len) {
-    if (i >= len) return len;
+// A VARIATION SELECTOR (U+FE0E, U+FE0F: EF B8 8E / EF B8 8F) belongs to
+// the character before it -- ❤️ is one character to step, delete and
+// select, as ugfx_text_next()/prev() draw it.
+static int selector_at(const struct uui_edit_ops *ops, void *text, int i, int len) {
+    return i + 3 <= len && (uint8_t)ops->at(text, i) == 0xEF && (uint8_t)ops->at(text, i + 1) == 0xB8 &&
+           ((uint8_t)ops->at(text, i + 2) == 0x8E || (uint8_t)ops->at(text, i + 2) == 0x8F);
+}
+
+static int char_step(const struct uui_edit_ops *ops, void *text, int i, int len) {
     char b[4];
     int n = 0;
     while (n < 4 && i + n < len) { b[n] = ops->at(text, i + n); n++; }
@@ -20,12 +27,23 @@ static int char_next(const struct uui_edit_ops *ops, void *text, int i, int len)
     return i + (l > 0 ? l : 1);
 }
 
-static int char_prev(const struct uui_edit_ops *ops, void *text, int i) {
-    if (i <= 0) return 0;
+static int char_next(const struct uui_edit_ops *ops, void *text, int i, int len) {
+    if (i >= len) return len;
+    int j = char_step(ops, text, i, len);
+    return selector_at(ops, text, j, len) ? j + 3 : j;
+}
+
+static int char_back(const struct uui_edit_ops *ops, void *text, int i) {
     int from = i > 4 ? i - 4 : 0;
     char b[4];
     for (int k = from; k < i; k++) b[k - from] = ops->at(text, k);
     return from + uutf8_prev(b, i - from);
+}
+
+static int char_prev(const struct uui_edit_ops *ops, void *text, int i) {
+    if (i <= 0) return 0;
+    int p = char_back(ops, text, i);
+    return p > 0 && selector_at(ops, text, p, i) ? char_back(ops, text, p) : p;
 }
 
 void uui_edit_init(struct uui_edit *e) {

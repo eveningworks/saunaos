@@ -108,13 +108,19 @@ def decode(b, i, end):
 
 
 def chars(b, n=-1):
-    """[(start, codepoint)] of the first n bytes, decoded as the C does."""
+    """[(start, codepoint)] of the first n bytes, decoded as the C does.
+    A VARIATION SELECTOR (U+FE0E/U+FE0F) after a character past ASCII is
+    part of that character: no boundary of its own, and no width."""
     end = len(b) if n < 0 else min(n, len(b))
     out, i = [], 0
     while i < end:
         cp, k = decode(b, i, end)
         out.append((i, cp))
         i += k
+        if cp > 0x7F and i < end:
+            sel, m = decode(b, i, end)
+            if sel in (0xFE0E, 0xFE0F):
+                i += m
     return out
 
 
@@ -187,11 +193,6 @@ int ugfx_cp_advance(uint32_t c) {
     return %(mid_w)d;
 }
 int ugfx_char_advance(char c) { return ugfx_cp_advance((unsigned char)c); }
-// The selectors draw nothing; the face has no emoji, so `next` decides nothing else.
-int ugfx_cp_advance_next(uint32_t c, uint32_t next) {
-    (void)next;
-    return (c == 0xFE0E || c == 0xFE0F) ? 0 : ugfx_cp_advance(c);
-}
 int ugfx_font_codepage(void) { return 0; }   // the UTF-8 mode; w16's is not tested here
 int ugfx_kern(int prev, int c) {
 %(kern_body)s
@@ -360,6 +361,7 @@ CASES = [
     "MMMMMMMMMMMMMMMMMMMM",
     "iiiiiiiiiiiiiiiiiiii",
     "Mixed Wi.dth, i;l|t and WMmw@ together",
+    "I \u2764\ufe0f it \u2764\ufe0e and \u2b50\ufe0e!",   # variation selectors: one character with the one before
 ]
 
 FIELD_WIDTHS = [40, 60, 120, 400]

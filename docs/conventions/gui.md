@@ -369,14 +369,18 @@ this the obvious way), not from how much history it accumulated.
   `ugfx.c` -- and records its file, so characters past them take the
   cache path too.)
 
-- **A LOOP THAT DRAWS OR MEASURES A STRING PASSES THE NEXT CHARACTER:
-  `ugfx_cp_advance_next()` / `ugfx_draw_cp_next()`.** U+FE0F after a
-  character makes it an emoji (❤️ is the red heart, ❤ the text one) and
-  U+FE0E makes an emoji text; the selector itself draws nothing. The
-  one-argument forms give each character its default look, so a loop
-  that uses them draws ❤️ as a black heart and nothing fails. The string
-  paths in `ugfx.c`/`ugfx_text.c` and `utext`'s grid pass it; the
-  terminal's cells do not yet (roadmap).
+- **A VARIATION SELECTOR IS PART OF THE CHARACTER BEFORE IT:
+  `ugfx_text_decode()` steps over it and TAGS the code point
+  (`UGFX_CP_EMOJI`/`UGFX_CP_TEXT`); a loop that decodes by itself tags
+  with `ugfx_cp_with_next()`.** U+FE0F makes a character an emoji (❤️ the
+  red heart, ❤ the text one) and U+FE0E makes an emoji text. Every loop
+  that measures AND draws through `ugfx_text_decode()` agrees by
+  construction; one that decodes with `uutf8_decode()` and calls
+  `ugfx_cp_advance()` on the bare value draws ❤️ as a black heart and
+  nothing fails. Compare a returned code point with a letter as it is
+  (the tags sit past U+10FFFF), or with `& UGFX_CP_VALUE` for its value.
+  `uui_edit` steps over the pair as one character, so a caret never
+  splits it. The terminal's cells do not tag yet (roadmap).
 
 - **A GLYPH CELL IS SIZED FROM `ttf_glyph_extent()`, NEVER FROM THE
   FONT'S ASCENT ALONE.** `ttf_render_glyph()` hints by default

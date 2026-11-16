@@ -116,7 +116,10 @@ struct ttf_edge { fx_t x0, y0, x1, y1; int dir; };
 // flat run or a round extremum, in pixel space (y down). `ink` is +1 when
 // the glyph's ink lies BELOW it (a top edge), -1 when above.
 struct ttf_hedge { fx_t y, xmin, xmax, len; int8_t ink; uint8_t used; };
-#define TTF_MAX_HEDGES 512
+// Sized so it CANNOT fill: an outline point adds at most one flat run and
+// one extremum, and an edge at most one anchor, so a glyph within
+// TTF_MAX_POINTS never has an edge or an anchor dropped.
+#define TTF_MAX_HEDGES (2 * TTF_MAX_POINTS)
 
 struct ttf_scratch {
     // One glyph's outline, already scaled into pixel space.

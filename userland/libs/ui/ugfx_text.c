@@ -2,7 +2,7 @@
 //
 // Split out of ugfx.c because these are the only text functions
 // that touch no font state and no surface -- they stand entirely on
-// ugfx_cp_advance_next(), ugfx_kern() and ugfx_font_codepage(). That is what
+// ugfx_cp_advance(), ugfx_kern() and ugfx_font_codepage(). That is what
 // makes them compilable on the host against a synthetic proportional
 // face, which matters more here than for most code: this is the
 // arithmetic that decides where a caret goes, and it was wrong in every
@@ -36,15 +36,19 @@ int ugfx_text_decode(const char *str, int i, int end, uint32_t *cp) {
     }
     int n;
     *cp = uutf8_decode(str + i, end < 0 ? -1 : end - i, &n);
-    return i + (n > 0 ? n : 1);
-}
-
-// The character after the one at `nx`'s predecessor: what a variation
-// selector there says about it (ugfx.h). 0 at the end.
-static uint32_t peek(const char *str, int nx, int end) {
-    uint32_t next;
-    ugfx_text_decode(str, nx, end, &next);
-    return next;
+    int nx = i + (n > 0 ? n : 1);
+    // A VARIATION SELECTOR after it is part of this character, not one of
+    // its own (ugfx.h): stepped over, and its choice tagged onto the code
+    // point -- read only inside `end`, so a slice measures what it draws.
+    if (*cp > 0x7F && str[nx] && (end < 0 || nx < end)) {
+        int m;
+        uint32_t sel = uutf8_decode(str + nx, end < 0 ? -1 : end - nx, &m);
+        if (m > 0 && (sel == 0xFE0F || sel == 0xFE0E)) {
+            *cp |= sel == 0xFE0F ? UGFX_CP_EMOJI : UGFX_CP_TEXT;
+            nx += m;
+        }
+    }
+    return nx;
 }
 
 int ugfx_text_width_n(const char *str, int n) {
@@ -52,7 +56,7 @@ int ugfx_text_width_n(const char *str, int n) {
     int w = 0, prev = 0;
     uint32_t cp;
     for (int i = 0, nx; (nx = ugfx_text_decode(str, i, n, &cp)) > i; i = nx) {
-        w += ugfx_kern(prev, (int)cp) + ugfx_cp_advance_next(cp, peek(str, nx, n));
+        w += ugfx_kern(prev, (int)cp) + ugfx_cp_advance(cp);
         prev = (int)cp;
     }
     return w;
@@ -65,7 +69,7 @@ int ugfx_text_index_at_x(const char *str, int x) {
     int w = 0, prev = 0, i = 0;
     uint32_t cp;
     for (int nx; (nx = ugfx_text_decode(str, i, -1, &cp)) > i; i = nx) {
-        int adv = ugfx_kern(prev, (int)cp) + ugfx_cp_advance_next(cp, peek(str, nx, -1));
+        int adv = ugfx_kern(prev, (int)cp) + ugfx_cp_advance(cp);
         // Past a glyph's midpoint belongs to the boundary AFTER it, so
         // clicking the right half of a character puts the caret behind
         // it. Rounding by half the CELL instead lands a click on the
@@ -130,7 +134,7 @@ int ugfx_text_fit_chars(const char *str, int max_w) {
     int i = 0, used = 0, prev = 0;
     uint32_t cp;
     for (int nx; (nx = ugfx_text_decode(str, i, -1, &cp)) > i; i = nx) {
-        int adv = ugfx_kern(prev, (int)cp) + ugfx_cp_advance_next(cp, peek(str, nx, -1));
+        int adv = ugfx_kern(prev, (int)cp) + ugfx_cp_advance(cp);
         if (used + adv > max_w) break;
         used += adv;
         prev = (int)cp;
@@ -147,5 +151,10 @@ int ugfx_text_next(const char *str, int i) {
 int ugfx_text_prev(const char *str, int i) {
     if (!str || i <= 0) return 0;
     if (ugfx_font_codepage()) return i - 1;
-    return uutf8_prev(str, i);
+    int p = uutf8_prev(str, i);
+    // Back over a variation selector AND its character, as next() steps.
+    int m;
+    uint32_t c = uutf8_decode(str + p, i - p, &m);
+    if (p > 0 && (c == 0xFE0F || c == 0xFE0E)) p = uutf8_prev(str, p);
+    return p;
 }

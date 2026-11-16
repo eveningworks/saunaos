@@ -197,6 +197,9 @@ static void render(void) {
     int ox = g_x - g_drawn.x, oy = g_y - g_drawn.y;
     static char line[TEXT_MAX];
     struct utextflow_line l = { 0 };
+    // An emoji is drawn as its silhouette here: in its own colours its dark
+    // detail would read as holes once the brightest channel is the alpha.
+    int colour_was = ugfx_set_color_glyphs(0);
     for (int at = 0, y = oy;; at = l.next, y += lh) {
         utextflow_line(g_buf, g_len, at, g_wrap, &l);
         int n = l.end - l.start;
@@ -212,6 +215,7 @@ static void render(void) {
         }
         if (l.last) break;
     }
+    ugfx_set_color_glyphs(colour_was);
     ugfx_set_font(old);
     for (size_t i = 0; i < need; i++) {
         uint32_t p = cov.px[i];

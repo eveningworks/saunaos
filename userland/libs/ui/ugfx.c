@@ -939,16 +939,33 @@ static int c1_of(unsigned char c) {
 
 int ugfx_font_codepage(void) { return g_font->c1_glyphs != 0; }
 
-int ugfx_cp_advance_next(uint32_t cp, uint32_t next) {
-    if (cp > 0xFF) {
-        if (uemoji_invisible(cp)) return 0;
+uint32_t ugfx_cp_with_next(uint32_t cp, uint32_t next) {
+    if (next == UEMOJI_VS_EMOJI) return cp | UGFX_CP_EMOJI;
+    if (next == UEMOJI_VS_TEXT) return cp | UGFX_CP_TEXT;
+    return cp;
+}
+
+// Whether `cp` (tagged or not) is drawn as an emoji, and its plain value.
+// A text-tagged Latin-1 character stays the atlas's.
+static int presentation(uint32_t cp, uint32_t *value) {
+    *value = cp & UGFX_CP_VALUE;
+    if (cp & UGFX_CP_EMOJI) return 1;
+    if (cp & UGFX_CP_TEXT) return 0;
+    return uemoji_presentation(*value);
+}
+
+int ugfx_cp_advance(uint32_t cp) {
+    uint32_t v;
+    int emoji = presentation(cp, &v);
+    if (v > 0xFF || emoji) {
+        if (uemoji_invisible(v)) return 0;   // a selector nothing consumed
         const unsigned char *cov;
-        int w, h, adv;
-        int color;
-        if (!g_glyphs || !ugfx_glyph_get(g_font, cp, uemoji_wanted(cp, next), &cov, &w, &h, &adv, &color))
+        int w, h, adv, color;
+        if (!g_glyphs || !ugfx_glyph_get(g_font, v, emoji, &cov, &w, &h, &adv, &color))
             return g_char_w;
         return adv;
     }
+    cp = v;
     unsigned char c = (unsigned char)cp;
     int k = c1_of(c);
     if (k >= 0 && g_font->c1_advances) return g_font->c1_advances[k];
@@ -957,8 +974,6 @@ int ugfx_cp_advance_next(uint32_t cp, uint32_t next) {
     int adv = g_advances[idx];
     return adv > 0 ? adv : g_char_w;
 }
-
-int ugfx_cp_advance(uint32_t cp) { return ugfx_cp_advance_next(cp, 0); }
 
 int ugfx_char_advance(char c) { return ugfx_cp_advance((unsigned char)c); }
 
@@ -1046,31 +1061,56 @@ static void draw_rgba(struct ugfx_surface *s, int x, int y, const unsigned char 
     }
 }
 
-void ugfx_draw_cp_next(struct ugfx_surface *s, int x, int y, uint32_t cp, uint32_t next,
-                       uint32_t color, uint32_t bg) {
+// The same cells as COVERAGE in the text's colour, alpha only: what a
+// caller drawing a mask (Paint's text) gets with colour glyphs off.
+static void draw_rgba_mask(struct ugfx_surface *s, int x, int y, const unsigned char *px4,
+                           int gw, int gh, uint32_t color, uint32_t bg) {
+    for (int row = 0; row < gh; row++) {
+        int py = y + row;
+        if (py < 0 || py >= s->h) continue;
+        for (int col = 0; col < gw; col++) {
+            int px = x + col;
+            if (px < 0 || px >= s->w) continue;
+            unsigned a = px4[((size_t)row * gw + col) * 4 + 3];
+            if (!a) continue;
+            if (a == 255) { ugfx_put_pixel(s, px, py, color); continue; }
+            uint32_t under = (bg == UGFX_TRANSPARENT) ? ugfx_get_pixel(s, px, py) : bg;
+            ugfx_put_pixel(s, px, py, blend(color, under, a));
+        }
+    }
+}
+
+static int g_color_glyphs = 1;
+
+int ugfx_set_color_glyphs(int on) {
+    int was = g_color_glyphs;
+    g_color_glyphs = on ? 1 : 0;
+    return was;
+}
+
+void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
+                  uint32_t color, uint32_t bg) {
     if (!s || !s->pixels || !g_glyphs) return;
-    if (cp > 0xFF) {
-        if (uemoji_invisible(cp)) return;
+    uint32_t v;
+    int emoji = presentation(cp, &v);
+    if (v > 0xFF || emoji) {
+        if (uemoji_invisible(v)) return;
         const unsigned char *cov;
-        int w, h, adv;
-        int rgba;
-        if (ugfx_glyph_get(g_font, cp, uemoji_wanted(cp, next), &cov, &w, &h, &adv, &rgba)) {
-            if (rgba) draw_rgba(s, x, y, cov, w, h, bg);
+        int w, h, adv, rgba;
+        if (ugfx_glyph_get(g_font, v, emoji, &cov, &w, &h, &adv, &rgba)) {
+            if (rgba && g_color_glyphs) draw_rgba(s, x, y, cov, w, h, bg);
+            else if (rgba) draw_rgba_mask(s, x, y, cov, w, h, color, bg);
             else draw_cov(s, x, y, cov, w, h, color, bg);
         }
         return;
     }
+    cp = v;
     int k = c1_of((unsigned char)cp);
     const unsigned char *glyph = k >= 0
         ? g_font->c1_glyphs + win_glyph_offset((uint32_t)k, g_char_w, g_char_h)
         : g_glyphs + win_glyph_offset((uint32_t)glyph_index((unsigned char)cp),
                                       g_char_w, g_char_h);
     draw_cov(s, x, y, glyph, g_char_w, g_char_h, color, bg);
-}
-
-void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
-                  uint32_t color, uint32_t bg) {
-    ugfx_draw_cp_next(s, x, y, cp, 0, color, bg);
 }
 
 void ugfx_draw_char(struct ugfx_surface *s, int x, int y, char c,
@@ -1096,10 +1136,8 @@ void ugfx_draw_string(struct ugfx_surface *s, int x, int y,
         // (`if (!a) continue`), so a kerned glyph composites over its
         // neighbour instead of erasing it. Ring 0's cells ARE opaque
         // and needed draw_glyph_kerned() for exactly this.
-        uint32_t next;
-        ugfx_text_decode(str, nx, -1, &next);
-        ugfx_draw_cp_next(s, gx, y, cp, next, color, bg);
-        gx += ugfx_cp_advance_next(cp, next);
+        ugfx_draw_cp(s, gx, y, cp, color, bg);
+        gx += ugfx_cp_advance(cp);
         prev = (int)cp;
     }
 }
@@ -1126,11 +1164,9 @@ int ugfx_draw_string_clipped(struct ugfx_surface *s, int x, int y, int max_w,
     int gx = x, prev = 0;
     uint32_t cp;
     for (int i = 0, nx; (nx = ugfx_text_decode(str, i, fits, &cp)) > i; i = nx) {
-        uint32_t next;
-        ugfx_text_decode(str, nx, fits, &next);
         gx += ugfx_kern(prev, (int)cp);
-        ugfx_draw_cp_next(s, gx, y, cp, next, color, bg);
-        gx += ugfx_cp_advance_next(cp, next);
+        ugfx_draw_cp(s, gx, y, cp, color, bg);
+        gx += ugfx_cp_advance(cp);
         prev = (int)cp;
     }
     return 0;

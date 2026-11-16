@@ -13294,8 +13294,12 @@ any size or display scale for about 120 lines of code;
 `tools/hostchecks/emoji_hostcheck.py` holds it to FreeType's own COLR
 rendering (0.6/255 mean difference). Emoji_Presentation is generated from
 Perl's Unicode data (`tools/gen/gen_emoji.py`), nothing fetched. The glyph
-cache keys a character by its presentation, and a string loop passes the
-character after the one it draws, so U+FE0F decides.
+cache keys a character by its presentation, and `ugfx_text_decode()` steps
+over a variation selector and tags the code point it returns, so every
+loop that measures and draws through it agrees on what ❤️ is -- resolved
+once in the decoder rather than in each caller, which a code review of
+the first version (separate `_next` calls each caller had to remember)
+showed half the callers missing.
 
 **Not chosen:** fontconfig's coverage ranking (more code and an index to
 cache, and less predictable which face draws a character); a per-script

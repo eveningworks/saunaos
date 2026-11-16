@@ -340,9 +340,10 @@ int ugfx_char_advance(char c);
 // past U+00FF) comes from a per-process glyph cache rasterized from the
 // font's own .ttf, then the fallback list's faces (base/ufontfallback.h),
 // then an outlined box the advance wide. An emoji goes to the emoji face
-// first (base/uemoji.h); a variation selector draws nothing and decides
-// the character before it, so a loop over a string passes the character
-// AFTER the one it draws to the _next forms. Kerning applies only BETWEEN TWO ATLAS CHARACTERS: a
+// first (base/uemoji.h). A VARIATION SELECTOR decides the character before
+// it and is not a character of its own: ugfx_text_decode() steps over it
+// and TAGS the code point it returns (UGFX_CP_EMOJI / UGFX_CP_TEXT), so
+// every loop that measures and draws through it agrees on what ❤️ is. Kerning applies only BETWEEN TWO ATLAS CHARACTERS: a
 // cached glyph sits at its plain advance, which is visible on some Greek
 // and Cyrillic pairs (step 1's written-down trade).
 //
@@ -353,9 +354,24 @@ int ugfx_char_advance(char c);
 int  ugfx_cp_advance(uint32_t cp);
 void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
                   uint32_t color, uint32_t bg);
-int  ugfx_cp_advance_next(uint32_t cp, uint32_t next);
-void ugfx_draw_cp_next(struct ugfx_surface *s, int x, int y, uint32_t cp, uint32_t next,
-                       uint32_t color, uint32_t bg);
+
+// A code point as the text path hands it on: its value in the low bits,
+// and the look a variation selector after it asked for. A caller that
+// compares a code point with a letter compares the value; the tags sit
+// past U+10FFFF, so a tagged one never equals an untagged character.
+#define UGFX_CP_EMOJI 0x40000000u   // U+FE0F followed it
+#define UGFX_CP_TEXT  0x20000000u   // U+FE0E followed it
+#define UGFX_CP_VALUE 0x001FFFFFu
+// `cp` tagged for the character `next` that follows it -- for a grid that
+// decodes by itself (utext) and keeps the selector as a cell of its own.
+uint32_t ugfx_cp_with_next(uint32_t cp, uint32_t next);
+
+// COLOUR GLYPHS (an emoji) are drawn in their own colours unless this is
+// off: then they draw as coverage in the text's colour, as any glyph does
+// -- for a caller that turns drawn text into a MASK (Paint's text tool),
+// where a colour glyph's dark detail would read as holes. Per process;
+// returns the old setting, which the caller puts back.
+int ugfx_set_color_glyphs(int on);
 
 // The character at byte `i` of `str`: its codepoint in `*cp` and the
 // byte index after it as the return value -- `i` itself, with `*cp` 0,

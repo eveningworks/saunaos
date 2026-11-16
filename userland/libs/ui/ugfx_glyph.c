@@ -124,11 +124,17 @@ static size_t gent_bytes(const struct gent *e) {
 // smaller until they fit -- an emoji is taller than a capital in most
 // emoji fonts, and the cell is the text's.
 static struct gent *render_color(struct face *f, int gid, int px, int base, int cell_h) {
-    int up, down, epx = px;
+    int up, down, epx = px, room = cell_h - base;
     if (!ttf_color_glyph_extent(&f->t, gid, epx, &up, &down, g_scratch)) return 0;
-    while (epx > px * 2 / 3 && (up > base || down > cell_h - base)) {
-        epx--;
+    // The size that fits, in one step (the layers scale with the size),
+    // then checked once -- rounding can leave a row over, so one more
+    // pixel off if it did. Never under two thirds of the text's size.
+    if (up > base || down > room) {
+        int a = up > base ? px * base / up : px, b = down > room ? px * room / (down ? down : 1) : px;
+        epx = a < b ? a : b;
+        if (epx < px * 2 / 3) epx = px * 2 / 3;
         ttf_color_glyph_extent(&f->t, gid, epx, &up, &down, g_scratch);
+        if ((up > base || down > room) && epx > px * 2 / 3) epx--;
     }
     int adv = ttf_advance_px(&f->t, gid, epx);
     if (adv < 1) adv = epx;

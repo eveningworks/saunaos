@@ -27,6 +27,7 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include "base/ufontfallback.h"
 #include "utils/errors.h"
 #include "utils/webcontent/ns_bitmap.h"
 #include "utils/webcontent/ns_font.h"
@@ -170,6 +171,8 @@ static int sandbox(void) {
     struct rlimit data = { (rlim_t)mib << 20, (rlim_t)mib << 20 };
     if (!mib || setrlimit(RLIMIT_DATA, &data) != 0) return 0;
     if (unveil(WC_OWN_FILES, "r") != 0 || unveil("/usr/share/fonts", "r") != 0) return 0;
+    // The font fallback ORDER the fonts above are tried in (base/ufontfallback.h).
+    if (unveil(UFONT_FALLBACK_CONF, "r") != 0) return 0;
     // Read as FILES in ring 3, not through SYS_SETTING: libc's locale
     // (libc/locale.c) and the browser's own settings, whose schema names
     // /etc/browser.conf (base/usetting_schema.c). Settings, nothing more.

@@ -812,10 +812,13 @@ int ttf_hdmx(const struct ttf_font *f, int ppem, int gid, int *advance) {
 static int colr_layers(const struct ttf_font *f, int gid, uint32_t *first, uint32_t *n) {
     if (!f->colr || !f->cpal || f->colr_len < 14 || rd_u16(f, f->colr) != 0) return 0;
     uint32_t nbase = rd_u16(f, f->colr + 2);
-    uint32_t base_off = f->colr + rd_u32(f, f->colr + 4);
-    uint32_t layer_off = f->colr + rd_u32(f, f->colr + 8);
+    uint32_t base_rel = rd_u32(f, f->colr + 4), layer_rel = rd_u32(f, f->colr + 8);
     uint32_t nlayers = rd_u16(f, f->colr + 12);
-    if (!in_range(f, base_off, nbase * 6) || !in_range(f, layer_off, nlayers * 4)) return 0;
+    // Both arrays inside COLR itself, not merely inside the file: a table
+    // that points past its own end is malformed, and its colours a guess.
+    if (base_rel > f->colr_len || nbase * 6 > f->colr_len - base_rel ||
+        layer_rel > f->colr_len || nlayers * 4 > f->colr_len - layer_rel) return 0;
+    uint32_t base_off = f->colr + base_rel;
     int lo = 0, hi = (int)nbase - 1;
     while (lo <= hi) {
         int mid = lo + (hi - lo) / 2;
@@ -837,19 +840,23 @@ static int colr_layers(const struct ttf_font *f, int gid, uint32_t *first, uint3
 // CPAL palette 0's entry, or `fg` for the foreground index 0xFFFF.
 static int colr_layer(const struct ttf_font *f, uint32_t i, uint32_t fg,
                       int *layer_gid, uint32_t *argb) {
-    uint32_t layer_off = f->colr + rd_u32(f, f->colr + 8);
+    uint32_t layer_off = f->colr + rd_u32(f, f->colr + 8);   // checked by colr_layers()
     uint32_t r = layer_off + i * 4;
     *layer_gid = (int)rd_u16(f, r);
     uint32_t pal = rd_u16(f, r + 2);
     if (pal == 0xFFFF) { *argb = fg | 0xFF000000u; return 1; }
-    if (f->cpal_len < 12) return 0;
+    // CPAL's header and palette 0's index (12 + 2 per palette), then the
+    // colour records, all inside the table.
+    if (f->cpal_len < 14) return 0;
     uint32_t entries = rd_u16(f, f->cpal + 2);
+    uint32_t palettes = rd_u16(f, f->cpal + 4);
     uint32_t records = rd_u16(f, f->cpal + 6);
-    uint32_t rec_off = f->cpal + rd_u32(f, f->cpal + 8);
+    uint32_t rec_rel = rd_u32(f, f->cpal + 8);
+    if (palettes < 1 || 12 + 2 * palettes > f->cpal_len) return 0;
+    if (rec_rel > f->cpal_len || records * 4 > f->cpal_len - rec_rel) return 0;
     uint32_t first = rd_u16(f, f->cpal + 12);   // palette 0's first record
-    if (pal >= entries || first + pal >= records || !in_range(f, rec_off + (first + pal) * 4, 4))
-        return 0;
-    uint32_t c = rec_off + (first + pal) * 4;   // B, G, R, A
+    if (pal >= entries || first + pal >= records) return 0;
+    uint32_t c = f->cpal + rec_rel + (first + pal) * 4;   // B, G, R, A
     *argb = rd_u8(f, c + 3) << 24 | rd_u8(f, c + 2) << 16 | rd_u8(f, c + 1) << 8 | rd_u8(f, c);
     return 1;
 }

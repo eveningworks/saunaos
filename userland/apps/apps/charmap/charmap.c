@@ -64,6 +64,7 @@ struct face {
     char styles[40];            // ", italic, bold italic" -- the style files beside it
     int nstyles;                // its files: the regular and each style
     unsigned long bytes;        // every file of the family
+    int fallback;               // from the fallback folder: never the interface's or a terminal's face
 };
 
 static struct uapp *g_app;
@@ -122,6 +123,7 @@ static void load_dir(const char *dir) {
         struct face *f = &g_faces[g_nfaces];
         memset(f, 0, sizeof *f);
         if (!uui_fontface_open(&f->ff, dir, stem)) continue;
+        f->fallback = !strcmp(dir, UFONT_FALLBACK_DIR);
         // The family's files from the listing: the regular, and each
         // style uui_fontface_family_file() refused to list as a family.
         static const struct { const char *tail, *name; } style[] = {
@@ -374,6 +376,7 @@ static void choose_font(int i) {
     list_blocks();
     fill();
     snprintf(g_status_font, sizeof g_status_font, "%s", g_faces[i].ff.family);
+    g_use_ui.disabled = g_use_mono.disabled = g_faces[i].fallback;
     ulogf("charmap: font %s, %d named characters\n", g_faces[i].ff.family, g_faces[i].named);
 }
 
@@ -428,6 +431,9 @@ static void layout(int cw, int ch) {
         uui_button_set_geometry(&g_use_mono, rx + b1 + pad, by, b2, bh);
         // Terminals need a fixed cell; a proportional face is not offered.
         g_fonts_items[W_USE_MONO].hidden = !(cur() && cur()->ff.mono);
+        // A fallback face is drawn only where the chosen one lacks a
+        // character; fontd loads the interface's from /usr/share/fonts alone.
+        g_use_ui.disabled = g_use_mono.disabled = cur() && cur()->fallback;
     }
 }
 
@@ -619,6 +625,7 @@ static void on_action(struct uapp *a, int code) {
     case ID_CLEAR:    g_ntext = 0; break;
     case ID_USE_UI:
     case ID_USE_MONO: {
+        if (!cur() || cur()->fallback) break;
         const char *key = code == ID_USE_UI ? "system.font.face" : "system.font.mono";
         int rc = usetting_set(key, cur()->ff.stem);
         snprintf(g_note, sizeof g_note, rc == SETTING_SAVED ? "%s now use %s" : "Could not change what %s use",
