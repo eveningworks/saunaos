@@ -33,6 +33,9 @@
 ;   Ext=... ExtPt=... ExtRet=0001      GetTextExtent and GetTextExtentPoint of "toy": the same size
 ;   EnvOff=0000 EnvHead=4150           GetDOSEnvironment: offset 0, "PA" (PATH=) first
 ;   KbCp=01B5 Msw=0013                 GetKBCodePage (437); SMSW, as Open Watcom's C start-up asks
+;   OverW=0020 OverR=0020 OverB=005A   _lwrite then _lread of 32 bytes from 8 into a 16-byte block, as
+;                                      WinBench's disk test runs past its buffer: the full count both
+;                                      ways, and the byte the read put back (C:\WINDOWS\OVERRUN.BIN)
 ; Run on real Windows 3.11 it is the check of what each answer should be.
 ; Build: tools/gen/gen_ne.py.
 ;
@@ -264,6 +267,48 @@ start:
     smsw ax
     mov [msw], ax
 
+    push word 0x42                  ; GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, 16)
+    push word 0
+    push word 16
+    W16_CALL "KERNEL", 15
+    push ax
+    W16_CALL "KERNEL", 18           ; GlobalLock -> DX:AX
+    add ax, 8                       ; the buffer: 8 into the block, 32 long -- 24 past its end
+    mov [ov_buf], ax
+    mov [ov_buf + 2], dx
+    les bx, [ov_buf]
+    mov byte [es:bx], 0x5A
+    push ds
+    push word ov_name
+    push word 0
+    W16_CALL "KERNEL", 83           ; _lcreat
+    mov [ov_h], ax
+    push ax
+    push word [ov_buf + 2]
+    push word [ov_buf]
+    push word 32
+    W16_CALL "KERNEL", 86           ; _lwrite(h, buf, 32)
+    mov [ov_w], ax
+    push word [ov_h]
+    push word 0
+    push word 0
+    push word 0
+    W16_CALL "KERNEL", 84           ; _llseek(h, 0, 0)
+    les bx, [ov_buf]
+    mov byte [es:bx], 0             ; the read must bring it back
+    push word [ov_h]
+    push word [ov_buf + 2]
+    push word [ov_buf]
+    push word 32
+    W16_CALL "KERNEL", 82           ; _lread(h, buf, 32)
+    mov [ov_r], ax
+    les bx, [ov_buf]
+    mov al, [es:bx]
+    xor ah, ah
+    mov [ov_b], ax
+    push word [ov_h]
+    W16_CALL "KERNEL", 81           ; _lclose
+
     push word 4                     ; CreateBitmap(4, 2, 1, 8, NULL)
     push word 2
     push word 1
@@ -450,6 +495,9 @@ start:
     HEXW env_head_t, [env_head]
     HEXW kb_cp_t, [kb_cp]
     HEXW msw_t, [msw]
+    HEXW ov_w_t, [ov_w]
+    HEXW ov_r_t, [ov_r]
+    HEXW ov_b_t, [ov_b]
     HEXD bits_set_t, bits_set
     HEXD bits_get_t, bits_get
     HEXW dib_w_t, [dib_w]
@@ -622,6 +670,11 @@ env_off:    dw 0
 env_head:   dw 0
 kb_cp:      dw 0
 msw:        dw 0
+ov_buf:     dd 0
+ov_h:       dw 0
+ov_w:       dw 0
+ov_r:       dw 0
+ov_b:       dw 0
 hbm:        dw 0
 bits_set:   dd 0
 bits_get:   dd 0
@@ -693,6 +746,9 @@ env_off_t:  times 6 db 0
 env_head_t: times 6 db 0
 kb_cp_t:    times 6 db 0
 msw_t:      times 6 db 0
+ov_w_t:     times 6 db 0
+ov_r_t:     times 6 db 0
+ov_b_t:     times 6 db 0
 bits_set_t: times 10 db 0
 bits_get_t: times 10 db 0
 dib_w_t:    times 6 db 0
@@ -731,6 +787,7 @@ keys:       dw k_equal_same, equal_same_t, k_equal_diff, equal_diff_t
             dw k_move_ret, move_ret_t, k_move_pt, move_pt_t
             dw k_ext, ext_t, k_ext_pt, ext_pt_t, k_ext_ret, ext_ret_t
             dw k_env_off, env_off_t, k_env_head, env_head_t, k_kb_cp, kb_cp_t, k_msw, msw_t
+            dw k_ov_w, ov_w_t, k_ov_r, ov_r_t, k_ov_b, ov_b_t
             dw k_pal, pal_t, 0
 k_move_ret: db "MoveRet", 0
 k_move_pt:  db "MovePt", 0
@@ -741,6 +798,10 @@ k_env_off:  db "EnvOff", 0
 k_env_head: db "EnvHead", 0
 k_kb_cp:    db "KbCp", 0
 k_msw:      db "Msw", 0
+k_ov_w:     db "OverW", 0
+k_ov_r:     db "OverR", 0
+k_ov_b:     db "OverB", 0
+ov_name:    db "C:\WINDOWS\OVERRUN.BIN", 0
 k_equal_same: db "EqualSame", 0
 k_equal_diff: db "EqualDiff", 0
 k_upper:    db "Upper", 0

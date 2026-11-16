@@ -280,10 +280,33 @@ static long rw(struct w16 *w, unsigned h, uint32_t far, unsigned n, int writing)
     if (fd < 0) return -1;
     if (writing && n == 0)                       // DOS: a write of nothing ends the file here
         return sys_truncate(f->host, (unsigned long long)f->pos) != 0 ? -1 : 0;
-    uint8_t *p = n ? cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n, !writing) : 0;
+    // A BUFFER THAT STARTS IN ITS BLOCK BUT RUNS PAST ITS END STILL MOVES ALL n BYTES, as 3.1's DOS
+    // call did (WinBench's disk test): past the block a write sends zeros and a read's bytes are
+    // dropped. One that starts outside its block faults.
+    uint16_t sel = (uint16_t)(far >> 16), off = (uint16_t)far;
+    uint32_t room = n ? cpu16_room(&w->cpu, sel, off, !writing) : 0, in = n < room ? n : room;
+    uint8_t *p = n ? cpu16_ptr(&w->cpu, sel, off, in ? in : n, !writing) : 0;
     if (n && !p) return -2;                      // the fault is set
     if (lseek(fd, f->pos, SEEK_SET) < 0) return -1;
-    long r = writing ? (long)write(fd, p, n) : (long)read(fd, p, n);
+    long r = writing ? (long)write(fd, p, in) : (long)read(fd, p, in);
+    if (in < n && r == (long)in) {
+        static int said;
+        if (!said) {
+            said = 1;
+            fprintf(stderr, "w16: %s: a file %s of %u bytes runs %u past its block at %04x:%04x -- done in full, "
+                    "as 3.1 did\n", w->path, writing ? "write" : "read", n, n - in, sel, off);
+        }
+        static uint8_t tail[4096];               // zeros for a write; a read's discard
+        if (writing) memset(tail, 0, sizeof tail);
+        for (uint32_t left = n - in; left; ) {
+            size_t k = left < sizeof tail ? left : sizeof tail;
+            long t = writing ? (long)write(fd, tail, k) : (long)read(fd, tail, k);
+            if (t <= 0) break;
+            r += t;
+            left -= (uint32_t)t;
+            if ((size_t)t < k) break;
+        }
+    }
     if (r > 0) f->pos += r;
     return r < 0 ? -1 : r;
 }
@@ -450,8 +473,8 @@ static int api_lclose(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // _lwrite(hFile, lpBuffer, wBytes) -> UINT
 // Windows: Read or write up to 65535 bytes at the file's position, which moves on; the count done,
 // or HFILE_ERROR. A write of 0 bytes ends the file at the position, as DOS's did.
-// w16: The same, the 0-byte write included, straight into or out of the program's memory, checked
-// to lie inside the segment it names.
+// w16: The same, the 0-byte write included, straight into or out of the program's memory; a buffer
+// that starts in its segment and runs past the end moves the full count, as 3.1's did (rw()).
 static int api_lread(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t h = w16_arg16(a);
     uint32_t far = w16_arg32(a);
@@ -465,8 +488,8 @@ static int api_lread(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // _hread(hFile, lpBuffer, lBytes) -> LONG
 // _hwrite(hFile, lpBuffer, lBytes) -> LONG
 // Windows: _lread and _lwrite for more than 64 KB, into or out of a huge block.
-// w16: The same: the buffer is checked to lie inside the block its selector starts, a huge block's
-// selectors after it included.
+// w16: The same, through the block its selector starts, a huge block's selectors after it included;
+// past its end as _lread and _lwrite (rw()).
 static int api_hread(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t h = w16_arg16(a);
     uint32_t far = w16_arg32(a), n = w16_arg32(a);

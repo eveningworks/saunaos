@@ -209,6 +209,20 @@ uint8_t *cpu16_ptr32(struct cpu16 *c, uint16_t sel, uint32_t off, uint32_t len, 
     return p;
 }
 
+uint32_t cpu16_room(struct cpu16 *c, uint16_t sel, uint32_t off, int write) {
+    const struct cpu16_desc *d = desc_of(c, sel);
+    if (!d || !(d->kind == D_DATA || (d->kind == D_CODE && !write)) || off > d->limit) return 0;
+    uint64_t room = (uint64_t)d->limit - off + 1;
+    if (d->flags & CPU16_DF_LIN) {               // a flat DPMI limit reaches past the arena: stop where it does
+        uint32_t rel = d->lin + off - c->lin_origin;
+        if (!c->lin || rel >= c->lin_size) return 0;
+        if (room > c->lin_size - rel) room = c->lin_size - rel;
+    } else if (!d->base) {
+        return 0;
+    }
+    return room > UINT32_MAX ? UINT32_MAX : (uint32_t)room;
+}
+
 // --- the JIT's view (cpu16.h) ---------------------------------------------------
 
 const struct cpu16_desc *cpu16_seg(struct cpu16 *c, int s) { return seg_desc(c, s); }

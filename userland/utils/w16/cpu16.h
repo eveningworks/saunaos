@@ -226,6 +226,7 @@ uint16_t cpu16_pop(struct cpu16 *c);
 uint16_t cpu16_arg(struct cpu16 *c, unsigned byte_off);   // SS:SP+4+byte_off
 uint8_t *cpu16_ptr(struct cpu16 *c, uint16_t sel, uint16_t off, uint32_t len, int write);
 uint8_t *cpu16_ptr32(struct cpu16 *c, uint16_t sel, uint32_t off, uint32_t len, int write);   // a 32-bit offset
+uint32_t cpu16_room(struct cpu16 *c, uint16_t sel, uint32_t off, int write);   // bytes from sel:off to its end, 0 none; no fault
 // A NUL-terminated string at sel:off, at most cap-1 bytes copied; -1 bad.
 int cpu16_str(struct cpu16 *c, uint16_t sel, uint16_t off, char *out, unsigned cap);
 

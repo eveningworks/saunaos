@@ -2418,7 +2418,10 @@ CALL_INI = "/home/Win16/WINDOWS/WINCALLS.INI"
 def calls_answered(dbg, res):
     """wincalls.exe asks for what needs no window and writes each answer to WINCALLS.INI; the
     values are what Windows 3.11 answers (the sample's header lists them)."""
+    sh(dbg, "mkdir /home/Win16")
+    sh(dbg, "mkdir /home/Win16/WINDOWS")             # C:\WINDOWS, where OVERRUN.BIN is made
     sh(dbg, f"rm {CALL_INI}")
+    sh(dbg, "rm /home/Win16/WINDOWS/OVERRUN.BIN")
     sh(dbg, "spawn /bin/w16 /usr/share/w16/wincalls.exe")
     end, text = time.time() + 15, ""
     while time.time() < end and "Pal=" not in text:
@@ -2445,6 +2448,7 @@ def calls_answered(dbg, res):
         "ReSame": "0001", "ReSize": "00012000", "ReKept": "0077", "ReTile": "0033", "ReHandle": "0001",
         "ReFree": "0000", "Int2f1680": "1600", "Int2f1684": "0000", "Int2f4300": "4300",
         "FloodRet": "0001", "FloodMono": "F800F800", "OleRelease": "0001",
+        "OverW": "0020", "OverR": "0020", "OverB": "005A",
     }
     for names, what in ((("EqualSame", "EqualDiff"), "EqualRect tells equal rectangles from different ones"),
                         (("Upper", "UpperN"), "AnsiUpperBuff upcases its count and no more"),
@@ -2470,9 +2474,14 @@ def calls_answered(dbg, res):
                          "GlobalReAlloc that must move a block past 64 KB keeps its handle and its bytes"),
                         (("Int2f1680", "Int2f1684", "Int2f4300"), "INT 2Fh answers the time slice and no VxD, and leaves a call nobody owns"),
                         (("FloodRet", "FloodMono"), "ExtFloodFill on a 1-bit bitmap stops at a border as that bitmap holds it"),
-                        (("OleRelease",), "OleRevokeServer calls the server's Release (Paintbrush's Exit waits for it)")):
+                        (("OleRelease",), "OleRevokeServer calls the server's Release (Paintbrush's Exit waits for it)"),
+                        (("OverW", "OverR", "OverB"), "_lwrite and _lread of a buffer running past its block move the full "
+                         "count, as 3.1's did (WinBench's disk test)")):
         res.check(f"wincalls.exe: {what}", all(got.get(n) == want[n] for n in names),
                   "; ".join(f"{n}={got.get(n)!r} (want {want[n]!r})" for n in names if got.get(n) != want[n]))
+    size = sh(dbg, "stat /home/Win16/WINDOWS/OVERRUN.BIN")
+    res.check("wincalls.exe: ...and the file holds all 32 bytes", re.search(r"\b32 bytes\b|[Ss]ize:?\s*32\b", size) is not None,
+              size[-200:])
     # The size depends on the font, so the two calls are held to each other, and to something.
     res.check("wincalls.exe: GetTextExtentPoint's SIZE is GetTextExtent's answer",
               got.get("Ext") == got.get("ExtPt") and got.get("Ext") not in (None, "00000000"),
