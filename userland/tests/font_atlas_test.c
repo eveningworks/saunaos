@@ -104,7 +104,7 @@ int main(void) {
     if (utest_failed()) return utest_end();
 
     struct font_atlas_plan plan;
-    utest_check(font_atlas_plan(&t, k0.px, (int)k0.weight, synthesizing, 1, &plan),
+    utest_check(font_atlas_plan(&t, k0.px, (int)k0.weight, synthesizing, 1, &plan, NULL),
                 "the atlas plan succeeds at the kernel's size");
     if (utest_failed()) return utest_end();
 

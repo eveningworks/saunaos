@@ -140,10 +140,19 @@ static int publish(int family, int weight) {
         return 0;
     }
 
+    // Scratch for measuring the hinted glyphs (the plan) and rendering them.
+    struct ttf_scratch *sc = (struct ttf_scratch *)malloc(sizeof *sc);
+    if (!sc) {
+        printf("fontd: no memory for scratch\n");
+        free(bytes);
+        return 0;
+    }
+
     struct font_atlas_plan plan;
     int px = g_px * g_scale / 100;
-    if (!font_atlas_plan(&t, px, weight, synthesizing, 0, &plan)) {
+    if (!font_atlas_plan(&t, px, weight, synthesizing, 0, &plan, sc)) {
         printf("fontd: %s refused at %dpx\n", face, px);
+        free(sc);
         free(bytes);
         return 0;
     }
@@ -159,6 +168,7 @@ static int publish(int family, int weight) {
     int fd = sys_shm_open(name, total, SHM_CREATE | SHM_EXCL | SHM_PUBLIC);
     if (fd < 0) {
         printf("fontd: cannot create %s (%d)\n", name, fd);
+        free(sc);
         free(bytes);
         return 0;
     }
@@ -168,6 +178,7 @@ static int publish(int family, int weight) {
         printf("fontd: cannot map %s\n", name);
         sys_close(fd);
         sys_shm_unlink(name);
+        free(sc);
         free(bytes);
         return 0;
     }
@@ -176,15 +187,6 @@ static int publish(int family, int weight) {
     memset(h, 0, sizeof *h);
     uint8_t *blob = (uint8_t *)base + sizeof *h;
 
-    struct ttf_scratch *sc = (struct ttf_scratch *)malloc(sizeof *sc);
-    if (!sc) {
-        printf("fontd: no memory for scratch\n");
-        sys_munmap(base, total);
-        sys_close(fd);
-        sys_shm_unlink(name);
-        free(bytes);
-        return 0;
-    }
     memset(blob, 0, (size_t)plan.total_bytes);
     font_atlas_render(&t, &plan, blob, sc);
     free(sc);

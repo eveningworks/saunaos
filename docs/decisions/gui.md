@@ -13210,3 +13210,59 @@ client on it is what Wayland deliberately avoids).
 dialog lit on 3.11 though the probes say SetFocus on its owner dims it
 -- docs/bugs.md, and "w16: the Windows Tutorial traced on 3.11 itself"
 on the roadmap.
+
+## Small text: our own light autohinter, blended in sRGB, grayscale only
+
+Chosen 2026-11-16, from a canvas of real renders (`tools/dev/font_compare.py`).
+Text from `ttf.c` was unhinted: below about 14 px an x-height or a
+crossbar landing between rows smeared into two grey rows, visibly softer
+than the baked console font FreeType had hinted offline.
+
+**What others do.** FreeType's default for most fonts is its v40 TrueType
+interpreter or its autohinter, both fitting VERTICALLY only in "light"
+mode -- advances untouched, so layout does not move with the size; its
+latin autohinter rounds the x-height (measured at the round letters'
+overshoot) up from 3/8 px, scales the outline to match, snaps blue zones
+and positions stems. DirectWrite hints vertically only too, blends at
+gamma 1.8 with an "enhanced contrast" boost, and offers ClearType
+subpixel rendering. macOS does no grid-fitting at all, darkens stems
+instead, and dropped subpixel rendering in Mojave; Wayland only passes a
+subpixel hint per output and leaves the choice to the client.
+
+**SaunaOS hints with its own light autohinter** (`media/ttf_hint.c`, in
+`ttf_render_glyph()`, so fontd's atlas, ugfx's glyph cache and private
+fonts, Character Map and w16's TrueType all get it): FreeType's latin
+autohinter cut down to what bounding boxes and one outline pass can say
+-- blue zones from the face's own letters at `ttf_open()`, edges as flat
+runs and on-curve extrema, stems that KEEP their thickness (light, not
+"normal" mode), every point interpolated between the fitted rows.
+`tools/hostchecks/ttf_hint_hostcheck.py` holds it to FreeType light's
+rows: 95-100% of letters start and stop on the same row, against about
+75% unhinted. Coverage stays blended in sRGB, and the rasterizer takes 16
+sub-scanlines (32 px and under) where it took 4.
+
+**THE LINE GROWS TO THE HINTED INK.** Rounding the x-height up lifts the
+capitals with it, and a Latin-1 capital's accent then reaches past the
+font's ascent; a cell sized from the ascent cut its top rows off (the
+console's squeezed baked cell still does). fontd's atlas and
+`ugfx_font_load()` size the cell from `ttf_glyph_extent()` over every
+slot, as Windows sizes a line by usWinAscent: Liberation Sans at 14 px
+keeps its 16 px line; at 10-12, 16-18, 20 and 23 px it is a pixel or two
+taller.
+
+**Not chosen:** running the font's own TrueType instructions (a stack VM
+of ~200 opcodes executing hostile code, and nothing for a CFF face);
+stem darkening with no grid-fitting (macOS's way: truest shapes, softest
+at 9-11 px on a 96-dpi panel); linear-light blending (dark text on the
+light window ground goes thin and grey even with a contrast boost --
+FreeType pairs it with stem darkening for that reason); gamma 1.8 with
+contrast (a little softer, not preferred on the canvas); subpixel/LCD
+rendering, even as an option -- glass, blur, transparent and scaled
+windows all break colour fringes, the glyph cache would triple, and
+125% panels need it less.
+
+**Left open:** a zone whose fitted row sits near half a pixel can round
+the other way from FreeType (it measures zones from outline points, this
+from bounding boxes), and a free stem centred within a hair of half a
+pixel can land a row from where FreeType puts it -- the check's 90%/95%
+bars, not 100%.

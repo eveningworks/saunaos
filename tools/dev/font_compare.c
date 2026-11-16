@@ -1,14 +1,14 @@
 // font_compare's renderer (tools/dev/font_compare.py builds and runs it):
-// one line of text as a grey8 coverage strip, drawn either by SaunaOS's
-// own userland/libs/media/ttf.c or by FreeType's light autohinter.
+// one line of text as a grey8 coverage strip, drawn by SaunaOS's own
+// userland/libs/media/ttf.c hinted (`ours`) or not (`raw`), or by FreeType's
+// light autohinter (`ft`).
 //
-// usage: font_compare <ours|ft> <font.ttf> <px> <utf-8 text> <out.raw>
+// usage: font_compare <ours|raw|ft> <font.ttf> <px> <utf-8 text> <out.raw>
 // out.raw is "W H BASELINE\n" then W*H coverage bytes, row-major.
 //
 // BOTH RENDERERS ARE LAID OUT WITH ttf.c's ADVANCES AND KERNING, so two
 // strips differ only in the glyphs' pixels, never in where they sit. ttf.c
-// is compiled from the tree as-is; the Python side sets TTF_SUBSAMPLES by
-// editing a COPY of ttf.h.
+// and ttf_hint.c are compiled from the tree as-is.
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,7 +44,7 @@ static void add(uint8_t *img, int W, int H, int x, int y, int v) {
 
 int main(int argc, char **argv) {
     if (argc != 6) {
-        fprintf(stderr, "usage: %s <ours|ft> <font.ttf> <px> <text> <out.raw>\n", argv[0]);
+        fprintf(stderr, "usage: %s <ours|raw|ft> <font.ttf> <px> <text> <out.raw>\n", argv[0]);
         return 2;
     }
     int ft = !strcmp(argv[1], "ft");
@@ -60,6 +60,7 @@ int main(int argc, char **argv) {
 
     struct ttf_font t;
     if (!ttf_open(&t, data, (uint32_t)len)) { fprintf(stderr, "ttf_open refused %s\n", argv[2]); return 1; }
+    if (!strcmp(argv[1], "raw")) ttf_set_hinting(&t, 0);
     struct ttf_scratch *sc = malloc(sizeof *sc);
 #ifdef HAVE_FREETYPE
     FT_Library lib;

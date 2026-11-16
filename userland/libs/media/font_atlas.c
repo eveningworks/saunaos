@@ -56,7 +56,8 @@ static void lift_into_line_box(uint8_t *cell, int cell_w, int cell_h, int line_h
 }
 
 int font_atlas_plan(const struct ttf_font *t, int px, int weight,
-                    int synthesizing, int tight, struct font_atlas_plan *p) {
+                    int synthesizing, int tight, struct font_atlas_plan *p,
+                    struct ttf_scratch *sc) {
     if (!t || !p || px <= 0) return 0;
 
     p->px = px;
@@ -67,8 +68,8 @@ int font_atlas_plan(const struct ttf_font *t, int px, int weight,
     fx_t scale = ttf_scale_for_px(t, px);
 
     // fontd's atlases take the font's FULL ascent and descent, as Qt sizes
-    // a line (Konsole's cell is QFontMetrics::height()), so every Latin-1
-    // capital's accent fits. TIGHT is genttf.py's squeezed cell -- 89% of
+    // a line (Konsole's cell is QFontMetrics::height()), grown below to
+    // whatever the hinted glyphs reach. TIGHT is genttf.py's squeezed cell -- 89% of
     // the ascent, 60% of the descent -- which the kernel's baked console
     // tables still use and which clips the ring of a capital Å; it stays
     // here so a test can compare an atlas against those tables.
@@ -76,6 +77,22 @@ int font_atlas_plan(const struct ttf_font *t, int px, int weight,
     fx_t down = tight ? (fx_t)(FX_ONE * 60 / 100) : FX_ONE;
     int baseline = fx_round(fx_mul(fx_mul(fx_from_int(t->ascent), scale), up));
     int below = fx_round(fx_mul(fx_mul(fx_from_int(t->descent), scale), down));
+
+    // HINTING CAN LIFT AN ACCENT PAST THE ASCENT: the x-height rounds up,
+    // capitals scale with it, and Å's ring sits above them. The cell grows
+    // to the ink rather than cut it off -- Windows sizes its line by
+    // usWinAscent, which covers every glyph, for the same reason.
+    int ink_up = 0, ink_down = 0;
+    if (!tight && sc) {
+        for (int s = 0; s < FONT_TTF_GLYPH_COUNT; s++) {
+            int u, d;
+            if (!ttf_glyph_extent(t, ttf_glyph_index(t, font_ttf_slot_draw_codepoint(s)), px, &u, &d, sc))
+                continue;
+            if (u > ink_up) ink_up = u;
+            if (d > ink_down) ink_down = d;
+        }
+        if (ink_up > baseline) baseline = ink_up;
+    }
     int line_h = baseline + below;
     if (line_h < 2) return 0;
 
@@ -86,6 +103,7 @@ int font_atlas_plan(const struct ttf_font *t, int px, int weight,
     // otherwise land on the row after the last.
     int full_below = fx_round(fx_mul(fx_from_int(t->descent), scale));
     if (full_below < below) full_below = below;
+    if (full_below < ink_down) full_below = ink_down;
     int cell_h = baseline + full_below + 1;
 
     // The cell is as wide as the WIDEST advance in the set, so a

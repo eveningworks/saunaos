@@ -26,10 +26,10 @@ font did not load.
 Two consequences worth knowing before editing this. The baked sizes are
 what gfx_set_font_px() SNAPS to when no face is loaded, so they are the
 whole answer on a font-less image and want to stay a sensible ladder.
-And these glyphs are hinted by FreeType offline, which a runtime atlas
-is not -- so below about 10px the baked font still looks BETTER than a
-rasterized face, and that is a real roadmap item rather than a
-measurement error.
+And these glyphs are hinted by FreeType offline (full hinting, both
+axes); a runtime atlas is light-hinted, vertically only, by
+userland/libs/media/ttf_hint.c -- so the two differ in horizontal stem
+placement, by design.
 
 Font: JetBrains Mono (Regular), SIL Open Font License 1.1. Chosen for
 being a well-hinted, widely used, freely embeddable monospace face -- see

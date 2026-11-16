@@ -829,7 +829,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Per-glyph advance widths, instead of one fixed cell per character~~ DONE 2026-08-20 -- `gfx_char_advance()`/`ugfx_char_advance()`
 - [x] ~~A face's glyphs past the 191-slot atlas are unreachable~~ DONE 2026-10-28 in ring 3 -- `ui/ugfx_glyph.c` draws them
 - [x] ~~No weights: one face, one weight~~ DONE 2026-08-21 -- a `-bold` file is a weight of its family, synthesized where there is none
-- [ ] Hinting -- glyphs are rendered unhinted, which is visible below about 10px (the baked font was hinted offline)
+- [x] ~~Hinting~~ DONE 2026-11-16 -- light vertical autohint, `media/ttf_hint.c`; 16 sub-scanlines; the line grows to hinted accents
 - [x] ~~Kerning pairs from the font's own tables~~ DONE 2026-08-21 -- format-0 `kern`, baked into the atlas as a dense slot matrix
 - [ ] Kerning from GPOS, which is where most modern faces keep it -- needs a shaping engine, and is where this deliberately stops
 - [x] ~~`gfx_text_width()` that measures rather than multiplies~~ DONE 2026-08-20
@@ -1765,7 +1765,7 @@ Things this OS does not do yet, or does in a way worth improving --
 `docs/bugs.md`; the test is "is something broken?", not "would I like
 this to be better?".
 
-- [ ] A capital's accent loses its faint top row in DejaVu Sans Mono at some sizes, and more in the console's squeezed baked cell
+- [ ] The kernel console's squeezed baked cell clips a capital's accent -- A-acute and A-diaeresis look alike there
 - [ ] The image cache keeps an exited program's text until reboot -- reclaiming it wants a per-frame map count
 - [ ] The image cache misses a write through a hard link made from outside `/bin`, `/lib`, `/tests` -- a key by inode fixes it
 - [ ] Remove `rename_from_toy_os()` once no installed machine can still have `/etc/toyos.conf` -- one `exists` per name per mount until then

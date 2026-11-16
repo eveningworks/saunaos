@@ -2,16 +2,16 @@
 """tools/dev/font_compare.py -- small text from SaunaOS's rasterizer, beside a reference.
 
 Renders real UI strings with the tree's own `userland/libs/media/ttf.c`
-(compiled for the host from `font_compare.c`) and, when libfreetype is
-installed, with FreeType's LIGHT AUTOHINTER -- the vertical-only hinting
-SaunaOS's own autohinter is built to match. Each VARIANT is a renderer, a
-sub-scanline count and a blend:
+and its autohinter `ttf_hint.c` (compiled for the host from
+`font_compare.c`) and, when libfreetype is installed, with FreeType's LIGHT
+AUTOHINTER -- the vertical-only hinting SaunaOS's is built to match. Each
+VARIANT is a renderer and a blend:
 
-  today      ours, the tree's TTF_SUBSAMPLES, blended in sRGB (what ugfx does)
-  sub16      ours, 16 sub-scanlines, sRGB
-  hint       FreeType light autohint, sRGB
-  hintdw     FreeType light autohint, gamma 1.8 + a contrast boost (DirectWrite's shape)
-  hintlinc   FreeType light autohint, linear light + a contrast boost
+  unhinted   ours with ttf_set_hinting(f, 0), blended in sRGB (what ugfx does)
+  hinted     ours as shipped, sRGB
+  ft         FreeType light autohint, sRGB -- the reference
+  ftdw       FreeType light autohint, gamma 1.8 + a contrast boost (DirectWrite's shape)
+  ftlin      FreeType light autohint, linear light + a contrast boost
 
 Every renderer is laid out with ttf.c's advances and kerning, so two sheets
 differ only in the glyphs' pixels. Out: `<variant>_1x.png` and
@@ -19,7 +19,7 @@ differ only in the glyphs' pixels. Out: `<variant>_1x.png` and
 with every variant side by side.
 
   tools/dev/font_compare.py --out /tmp/fc
-  tools/dev/font_compare.py --variants today,hint --sizes 9-12 --face dejavu-sans-mono --out /tmp/fc
+  tools/dev/font_compare.py --variants hinted,ft --sizes 9-12 --face dejavu-sans-mono --out /tmp/fc
 
 THE TRAP: a comparison sheet is only fair at ACTUAL PIXELS -- judge the
 1x images at 100% zoom; the 3x ones are for seeing why. And blending is
@@ -49,13 +49,13 @@ except ImportError:
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONTS = os.path.join(ROOT, "data", "fonts")
 
-# variant -> (renderer, sub-scanlines or None for the tree's, blend)
+# variant -> (renderer, blend)
 VARIANTS = {
-    "today":    ("ours", None, "srgb"),
-    "sub16":    ("ours", 16, "srgb"),
-    "hint":     ("ft", 16, "srgb"),
-    "hintdw":   ("ft", 16, "gamma18"),
-    "hintlinc": ("ft", 16, "linear"),
+    "unhinted": ("raw", "srgb"),
+    "hinted":   ("ours", "srgb"),
+    "ft":       ("ft", "srgb"),
+    "ftdw":     ("ft", "gamma18"),
+    "ftlin":    ("ft", "linear"),
 }
 
 # Colours from utheme_default(): body text on the window ground, a title
@@ -72,25 +72,19 @@ LINES = [
 MONO_LINE = (TERM, "$ ls -la /usr/share/fonts  # ÅÄÖ")
 
 
-def build(workdir, subsamples, with_ft):
-    """The renderer, against a COPY of ttf.h when the sub-scanline count changes."""
-    inc = os.path.join(workdir, f"inc{subsamples or 'tree'}")
+def build(workdir, with_ft):
+    """The renderer, from the tree's ttf.c and ttf_hint.c."""
+    inc = os.path.join(workdir, "inc")
     os.makedirs(inc, exist_ok=True)
     api = os.path.join(ROOT, "kernel", "include", "api")
-    # Only these two: api/ also holds a string.h that would shadow libc's.
-    shutil.copy(os.path.join(api, "fixed.h"), inc)
-    with open(os.path.join(api, "ttf.h")) as f:
-        hdr = f.read()
-    if subsamples:
-        import re
-        hdr, n = re.subn(r"#define TTF_SUBSAMPLES\s+\d+", f"#define TTF_SUBSAMPLES {subsamples}", hdr)
-        if n != 1:
-            sys.exit("font_compare: TTF_SUBSAMPLES not found in ttf.h")
-    with open(os.path.join(inc, "ttf.h"), "w") as f:
-        f.write(hdr)
-    exe = os.path.join(workdir, f"render{subsamples or 'tree'}{'_ft' if with_ft else ''}")
+    media = os.path.join(ROOT, "userland", "libs", "media")
+    # Only these: api/ also holds a string.h that would shadow libc's.
+    for h in (os.path.join(api, "fixed.h"), os.path.join(api, "ttf.h"),
+              os.path.join(media, "ttf_internal.h")):
+        shutil.copy(h, inc)
+    exe = os.path.join(workdir, "render_ft" if with_ft else "render")
     cmd = ["gcc", "-O2", "-I", inc, os.path.join(HERE, "font_compare.c"),
-           os.path.join(ROOT, "userland", "libs", "media", "ttf.c"), "-o", exe]
+           os.path.join(media, "ttf.c"), os.path.join(media, "ttf_hint.c"), "-o", exe]
     if with_ft:
         cflags = subprocess.run(["pkg-config", "--cflags", "freetype2"], capture_output=True, text=True).stdout.split()
         libs = subprocess.run(["pkg-config", "--libs", "freetype2"], capture_output=True, text=True).stdout.split()
@@ -190,10 +184,10 @@ def main():
     with tempfile.TemporaryDirectory() as work:
         exes = {}
         for v in names:
-            renderer, sub, mode = VARIANTS[v]
-            key = (sub, renderer == "ft")
+            renderer, mode = VARIANTS[v]
+            key = ft_ok
             if key not in exes:
-                exes[key] = build(work, sub, renderer == "ft")
+                exes[key] = build(work, ft_ok)
             rows = []
             for px in sizes:
                 block = [strip(exes[key], renderer, face, px, t, c, mode, work) for c, t in lines]

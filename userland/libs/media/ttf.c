@@ -8,6 +8,7 @@
 // reference anything kernel-only. It includes fixed.h and <stdint.h> and
 // nothing else, deliberately.
 #include "ttf.h"
+#include "ttf_internal.h"
 #include <stddef.h>
 
 // --- bounds-checked reads --------------------------------------------
@@ -45,6 +46,8 @@ static int in_range(const struct ttf_font *f, uint32_t off, uint32_t bytes) {
 
 #define TAG(a, b, c, d) (((uint32_t)(a) << 24) | ((uint32_t)(b) << 16) \
                        | ((uint32_t)(c) << 8) | (uint32_t)(d))
+
+static void find_blues(struct ttf_font *f);
 
 int ttf_open(struct ttf_font *f, const uint8_t *data, uint32_t len) {
     if (!f || !data || len < 12) return 0;
@@ -139,6 +142,7 @@ int ttf_open(struct ttf_font *f, const uint8_t *data, uint32_t len) {
             p += sub_len;
         }
     }
+    find_blues(f);
     return 1;
 }
 
@@ -311,6 +315,69 @@ static int loca_range(const struct ttf_font *f, int gid, uint32_t *start, uint32
     return 1;
 }
 
+// --- blue zones --------------------------------------------------------
+
+// A glyph's vertical extent from its `glyf` header -- the bounding box the
+// font itself stores, so nothing is decoded. 0 for a missing or empty glyph.
+static int glyph_ybox(const struct ttf_font *f, uint32_t cp, int *ymin, int *ymax) {
+    int gid = ttf_glyph_index(f, cp);
+    uint32_t start, end;
+    if (gid <= 0 || !loca_range(f, gid, &start, &end) || start == end) return 0;
+    uint32_t g = f->glyf + start;
+    if (!in_range(f, g, 10)) return 0;
+    *ymin = rd_i16(f, g + 4);
+    *ymax = rd_i16(f, g + 8);
+    return 1;
+}
+
+// The median top (or foot) of the letters in `chars` this face has, so one
+// odd letter (a serif face's 'Z' with a flourish) does not move the zone.
+static int median_y(const struct ttf_font *f, const char *chars, int top, int *out) {
+    int v[8], n = 0;
+    for (const char *c = chars; *c && n < 8; c++) {
+        int lo, hi;
+        if (!glyph_ybox(f, (uint8_t)*c, &lo, &hi)) continue;
+        int y = top ? hi : lo, k = n++;
+        while (k > 0 && v[k - 1] > y) { v[k] = v[k - 1]; k--; }
+        v[k] = y;
+    }
+    if (!n) return 0;
+    *out = v[n / 2];
+    return 1;
+}
+
+// One zone: flat letters for `ref`, round ones for `shoot`. An overshoot
+// on the wrong side, or past 1/20 em, is not one (a font whose round
+// letters sit lower than its flat ones), and the zone keeps ref only.
+static void blue(struct ttf_font *f, int zone, const char *flat, const char *round, int top) {
+    int ref, shoot;
+    if (!median_y(f, flat, top, &ref)) return;
+    if (!round || !median_y(f, round, top, &shoot)) shoot = ref;
+    int d = top ? shoot - ref : ref - shoot;
+    if (d < 0 || d > f->units_per_em / 20) shoot = ref;
+    f->blue_ref[zone] = (int16_t)ref;
+    f->blue_shoot[zone] = (int16_t)shoot;
+    f->blue_ok |= (uint8_t)(1u << zone);
+}
+
+// The letters each zone is measured from are FreeType's latin autohinter's
+// choice, cut down to what a bounding box can say.
+static void find_blues(struct ttf_font *f) {
+    blue(f, TTF_BLUE_BASE, "HEZLxz", "OCocs", 0);
+    blue(f, TTF_BLUE_DESC, "pq", 0, 0);
+    blue(f, TTF_BLUE_X, "xzuvw", "oces", 1);
+    blue(f, TTF_BLUE_CAP, "HEZTL", "OCQS", 1);
+    blue(f, TTF_BLUE_ASC, "bdhkl", 0, 1);
+    // An x-height above the cap height is not a Latin face's.
+    if ((f->blue_ok & (1u << TTF_BLUE_X)) && (f->blue_ok & (1u << TTF_BLUE_CAP)) &&
+        f->blue_ref[TTF_BLUE_X] >= f->blue_ref[TTF_BLUE_CAP])
+        f->blue_ok = 0;
+}
+
+void ttf_set_hinting(struct ttf_font *f, int on) {
+    if (f) f->no_hint = (uint8_t)(on ? 0 : 1);
+}
+
 // Glyph flags (simple outlines)
 #define ON_CURVE      0x01
 #define X_SHORT       0x02
@@ -348,7 +415,7 @@ static int decode_simple(const struct ttf_font *f, uint32_t g, uint32_t gend,
     }
     p += (uint32_t)ncont * 2;
     uint32_t ilen = rd_u16(f, p);
-    p += 2 + ilen; // instructions: this rasterizer does not hint
+    p += 2 + ilen; // instructions: not run -- ttf_hint.c fits the outline itself
     if (p > gend) return 0;
 
     // Flags, with the repeat encoding expanded. In the SCRATCH struct
@@ -554,6 +621,29 @@ static void add_span(struct ttf_scratch *sc, int w, fx_t xa, fx_t xb) {
     sc->acc[pb] += xb - fx_from_int(pb);
 }
 
+int ttf_glyph_extent(const struct ttf_font *f, int gid, int px, int *up, int *down,
+                     struct ttf_scratch *sc) {
+    *up = *down = 0;
+    if (!f || !sc) return 0;
+    fx_t scale = ttf_scale_for_px(f, px);
+    if (!scale) return 0;
+    sc->npoints = sc->ncontours = sc->nedges = 0;
+    if (!decode_outline(f, gid, 0, 0, scale, 0, 0, sc, 0)) return 0;
+    if (sc->npoints == 0) return 1;
+    if (!f->no_hint) ttf_hint_outline(f, scale, 0, sc);
+    fx_t lo = sc->py[0], hi = sc->py[0];
+    for (int i = 1; i < sc->npoints; i++) {
+        if (sc->py[i] < lo) lo = sc->py[i];
+        if (sc->py[i] > hi) hi = sc->py[i];
+    }
+    // y grows downward from the baseline at 0: the top is -lo, rounded up.
+    fx_t lo_row = lo & ~(fx_t)(FX_ONE - 1);
+    fx_t hi_row = (hi + FX_ONE - 1) & ~(fx_t)(FX_ONE - 1);
+    *up = lo_row < 0 ? fx_to_int(-lo_row) : 0;
+    *down = hi_row > 0 ? fx_to_int(hi_row) : 0;
+    return 1;
+}
+
 int ttf_render_glyph(const struct ttf_font *f, int gid, int px,
                      uint8_t *cov, int w, int h,
                      int x_origin, int baseline,
@@ -569,6 +659,12 @@ int ttf_render_glyph(const struct ttf_font *f, int gid, int px,
                         fx_from_int(x_origin), fx_from_int(baseline), sc, 0))
         return 0;
     if (sc->npoints == 0) return 1; // a space: nothing to fill
+    if (!f->no_hint) ttf_hint_outline(f, scale, fx_from_int(baseline), sc);
+
+    // Sub-scanlines by size: 16 where a row is a big share of a stroke,
+    // fewer where rows are many and each costs a pass over every edge.
+    int subs = px <= 32 ? TTF_SUBSAMPLES : px <= 64 ? TTF_SUBSAMPLES / 2 : TTF_SUBSAMPLES / 4;
+    if (subs < 1) subs = 1;
 
     int first = 0;
     for (int c = 0; c < sc->ncontours; c++) {
@@ -583,8 +679,8 @@ int ttf_render_glyph(const struct ttf_font *f, int gid, int px,
         for (int i = 0; i < w; i++) sc->acc[i] = 0;
         int any = 0;
 
-        for (int s = 0; s < TTF_SUBSAMPLES; s++) {
-            fx_t sy = fx_from_int(row) + (fx_t)((2 * s + 1) * FX_ONE / (2 * TTF_SUBSAMPLES));
+        for (int s = 0; s < subs; s++) {
+            fx_t sy = fx_from_int(row) + (fx_t)((2 * s + 1) * FX_ONE / (2 * subs));
             int nx = 0;
             for (int e = 0; e < sc->nedges; e++) {
                 const struct ttf_edge *ed = &sc->edges[e];
@@ -628,7 +724,7 @@ int ttf_render_glyph(const struct ttf_font *f, int gid, int px,
         uint8_t *out = cov + (size_t)row * (size_t)w;
         for (int i = 0; i < w; i++) {
             if (sc->acc[i] <= 0) continue;
-            int32_t a = (sc->acc[i] * 255) / (TTF_SUBSAMPLES * FX_ONE);
+            int32_t a = (int32_t)(((int64_t)sc->acc[i] * 255) / ((int64_t)subs * FX_ONE));
             if (a > 255) a = 255;
             if (a > out[i]) out[i] = (uint8_t)a;
         }

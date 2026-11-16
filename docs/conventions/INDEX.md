@@ -390,6 +390,8 @@ whenever a headline here tells you something you did not already know.
   SELECTED, AND `ugfx_set_font()` IS PER PROCESS**
 - **AN ATLAS IS THE 191 BAKED SLOTS, AND RING 3 DRAWS THE REST FROM A
   GLYPH CACHE.**
+- **A GLYPH CELL IS SIZED FROM `ttf_glyph_extent()`, NEVER FROM THE
+  FONT'S ASCENT ALONE.**
 - **`font glyph <char>` SHOWS WHAT WILL ACTUALLY BE DRAWN, AND IT READS
   BOTH SIDES.**
 - **RING 0 PARSES NO FONT: THE CONSOLE DRAWS BAKED BITMAPS, THE DESKTOP

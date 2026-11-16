@@ -170,7 +170,7 @@ Private seams of a split module, not for apps: `ubinmap_internal.h`.
 | `uwmf.h` | Windows metafiles (MS-WMF): a 16-bit metafile's records, decoded and checked, one at a time, for a caller that draws them -- w16's PlayMetaFile into a GDI DC, or an image viewer into a canvas. |
 | `winfnt.h` | Windows' bitmap fonts: a .FON -- an NE module whose RT_FONT resources are FNT 2.0 or 3.0 raster fonts, one face at one size each -- or a bare .FNT. |
 
-Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal.h`, `uvid_internal.h`.
+Private seams of a split module, not for apps: `ttf_internal.h`, `uimg_jpeg_int.h`, `usnd_internal.h`, `uvid_internal.h`.
 
 ## `userland/libs/ui/` -- libui: widgets, the theme and the app framework (`uapp`)
 

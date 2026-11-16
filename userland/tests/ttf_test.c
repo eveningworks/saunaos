@@ -1,19 +1,10 @@
-// The TrueType rasterizer, in RING 3.
+// The TrueType rasterizer, in RING 3, over the font on the real disk.
 //
-// WHY THIS EXISTS RATHER THAN ONLY THE KTESTs, which is the same reason
-// klineedit_test.c does: kernel/lib/ttf.c has KTESTs covering its
-// parsing and its fill rule, and every one of them would go on passing
-// whether or not a single line of it were reachable from a ring-3
-// program. What is new is the LINK -- ttf.c is compiled a second time
-// with USERLAND_CFLAGS into libmedia, so a ring-3 program can rasterize
-// a font for itself, and a KTEST runs inside the kernel and cannot see
-// that build at all.
-//
-// The assertion is therefore about the BUILD as much as the code: the
-// same source, over the same font file on the same disk, produces the
-// same answers on this side of the ring boundary. Rasterizing needs no
-// syscall beyond reading the file -- glyph filling is arithmetic, which
-// is exactly why one implementation can serve both rings.
+// userland/libs/media/ttf.c (with its autohinter, ttf_hint.c) is checked
+// on the host against FreeType by tools/hostchecks/ttf_hint_hostcheck.py;
+// this is the other half -- the same source as LINKED into a ring-3
+// program on this machine, reading the font file from its disk, gives the
+// answers a program draws with.
 //
 // Prints one line per check and exits with the number of failures.
 #include <stdint.h>
@@ -30,7 +21,7 @@
 #include "base/utest.h"
 
 int main(void) {
-    utest_begin("ttf_test", "the ring-3 build of kernel/lib/ttf.c", 0);
+    utest_begin("ttf_test", "the ring-3 build of ttf.c over the shipped face", 0);
 
     int64_t fd = sys_open(FONT_PATH, 0);
     if (fd < 0) {
@@ -98,6 +89,29 @@ int main(void) {
     utest_check(ink > 20, "the glyph has ink");
     utest_check(partial > 0, "the glyph is anti-aliased, not a 1-bit mask");
     utest_check(below == 0, "a capital puts nothing below the baseline");
+
+    // Hinted (the default), 'H' at 16 px stands on whole rows: its top row
+    // is as dark as the rows under it. ttf_glyph_extent() names that row.
+    int up = 0, down = 0, top_row = -1;
+    for (int y = 0; y < h && top_row < 0; y++)
+        for (int x = 0; x < w; x++) if (cov[y * w + x]) { top_row = y; break; }
+    int top_max = 0, mid_max = 0;
+    for (int x = 0; top_row >= 0 && x < w; x++) {
+        if (cov[top_row * w + x] > top_max) top_max = cov[top_row * w + x];
+        if (cov[(top_row + 3) * w + x] > mid_max) mid_max = cov[(top_row + 3) * w + x];
+    }
+    utest_checkf(top_row >= 0 && top_max * 10 >= mid_max * 9,
+                 "hinted, 'H' starts on a whole row (top %d, below it %d)", top_max, mid_max);
+    int ext_ok = ttf_glyph_extent(&f, gid_h, 16, &up, &down, sc);
+    utest_checkf(ext_ok && baseline - up == top_row && down == 0,
+                 "ttf_glyph_extent() names that row (%d up, %d down)", up, down);
+
+    // Unhinted it is the raw outline, which differs somewhere.
+    uint8_t *raw = (uint8_t *)calloc((uint32_t)(w * h), 1);
+    ttf_set_hinting(&f, 0);
+    utest_check(raw && ttf_render_glyph(&f, gid_h, 16, raw, w, h, 0, baseline, sc) &&
+                memcmp(raw, cov, (size_t)(w * h)) != 0,
+                "ttf_set_hinting(f, 0) draws the outline as it is");
 
     return utest_end();
 }

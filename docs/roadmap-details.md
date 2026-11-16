@@ -1732,12 +1732,12 @@ no bold window title, no emphasised label. That is the same gap as
 first real caller: a `uui_label` that could ask for bold would justify
 the API, where "an app might want a different font" never quite did.
 
-**Hinting is the cheapest visible win left.** Glyphs are rendered
-unhinted -- outlines scaled and filled with no grid-fitting -- so below
-about 10px stems land between pixel centres and the result is muddier
-than the baked font at the same size, which FreeType hinted offline. This
-is worth knowing before treating small-size rendering as a bug: it is a
-missing feature with a name.
+**Hinting: BUILT 2026-11-16.** A light, vertical-only autohinter
+(`media/ttf_hint.c`), FreeType's latin autohinter in light mode cut down;
+why this shape and not the font's own instructions, and why sRGB and
+grayscale: docs/decisions/gui.md, "Small text: our own light autohinter,
+blended in sRGB, grayscale only". `tools/dev/font_compare.py` draws it
+beside FreeType's.
 
 **Kerning** (`kern`/`GPOS`) matters now that the interface face IS
 proportional by default (`liberation-sans`, 2026-09-14): `AV` and `To`

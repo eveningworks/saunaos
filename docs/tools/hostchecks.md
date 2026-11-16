@@ -870,6 +870,17 @@ the rest in the sweep. Each stays a standalone script with its own
   only the arena bound keeps its wrap modulo 2^32 in, and ASan watches
   it. A host without `modify_ldt` prints SKIPPED,
   never PASS. In `ondemand_sweep.py`.
+- **`ttf_hint_hostcheck.py`** (gate) -- the light autohinter
+  (`userland/libs/media/ttf_hint.c`) against FreeType's light autohinter,
+  and `ttf_glyph_extent()` against the ink. Over the shipped faces at
+  8-24 px and twenty letters on every blue zone, the topmost and
+  bottommost rows with real ink must be FreeType light's in at least 90%
+  of cases at the top and 95% at the bottom (95-100% measured; about 75%
+  unhinted); every printable Latin-1 character must keep its ink inside
+  the rows `ttf_glyph_extent()` reports, which fontd's atlas sizes its
+  cell from. `--positive-control` turns hinting off, leaves the x-height
+  unrounded and measures the extent unhinted, and each must go RED. The
+  FreeType half needs `pkg-config freetype2` and says SKIPPED without it.
 - **`ugfx_text_hostcheck.py`** -- compiles the real
   `userland/libs/ui/ugfx_text.c` and `userland/libs/ui/uui_textbox.c` with the
   host gcc against a SYNTHETIC proportional face and sweeps ~4,400

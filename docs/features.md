@@ -223,7 +223,10 @@ mounted at once.
 Mono baked to bitmaps at build time as the guaranteed fallback, and a
 fixed-point TrueType rasterizer that loads a `.ttf` from
 `/usr/share/fonts` at runtime — so any size works, and a proportional
-face gets genuine per-glyph advances and real kerning. A face is a
+face gets genuine per-glyph advances and real kerning. Small text is
+light-hinted -- fitted to the pixel grid vertically only, the way
+FreeType's light autohinter and DirectWrite do it -- so 9-14 px text sits
+on whole rows instead of smearing across two. A face is a
 *family*: bold is a second file, or synthesized by thickening the
 regular outlines where a family has none, which is what GDI does.
 Because the whole UI is font-*derived*, changing the face or size

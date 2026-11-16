@@ -369,6 +369,18 @@ this the obvious way), not from how much history it accumulated.
   `ugfx.c` -- and records its file, so characters past them take the
   cache path too.)
 
+- **A GLYPH CELL IS SIZED FROM `ttf_glyph_extent()`, NEVER FROM THE
+  FONT'S ASCENT ALONE.** `ttf_render_glyph()` hints by default
+  (`media/ttf_hint.c`), and rounding the x-height up lifts the capitals
+  with it, so a Latin-1 capital's accent reaches past the font's own
+  ascent at many sizes -- by two rows at some. A cell whose top row is
+  the ascent silently loses the accent's top: nothing fails, the ring of
+  an Å is just gone. fontd's atlas (`font_atlas_plan()`) and
+  `ugfx_font_load()` grow the cell to the hinted ink of every slot; a new
+  caller that rasterizes into its own fixed cell does the same, or draws
+  unhinted (`ttf_set_hinting(f, 0)`) and says why.
+  `tools/hostchecks/ttf_hint_hostcheck.py` holds the extent to the ink.
+
 - **A FONT IS A HANDLE IN RING 3 AND A CONTEXT FLAG IN RING 0.** Ring 3
   passes `const struct ugfx_font *`, and `ugfx_set_font()` returns the
   previous one so save/restore is the shortest correct thing to write;

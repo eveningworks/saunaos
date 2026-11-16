@@ -39,8 +39,8 @@
 // no raw pointer arithmetic into the file anywhere below, only rd_u8/
 // rd_u16/rd_i16/rd_u32 with an explicit length check, and a malformed
 // table makes a function return 0 rather than read past the buffer.
-// docs/decisions/drivers.md has the full reasoning and the roadmap item
-// for moving it to ring 3.
+// docs/decisions/drivers.md has the full reasoning; since /bin/fontd
+// (2026-09-09) it runs in ring 3 only, sandboxed, and the checks stay.
 #include <stdint.h>
 #include "fixed.h"
 
@@ -56,12 +56,17 @@
 #define TTF_MAX_EDGES    2048
 #define TTF_MAX_CELL_W   256  // widest cell the coverage accumulator holds
 
-// Vertical supersampling: each pixel row is sampled at this many
+// Vertical supersampling: each pixel row is sampled at up to this many
 // sub-scanlines and the results averaged, while horizontal coverage is
-// computed exactly from the span ends. 4 was chosen by looking at the
-// result against the baked JetBrains Mono glyphs at 8px, where 1 is
-// visibly aliased and 8 is indistinguishable from 4.
-#define TTF_SUBSAMPLES   4
+// computed exactly from the span ends. 16 gives a near-horizontal edge 17
+// grey levels where 4 gave 5 -- visible at 9-14 px, where the autohinter
+// leaves round tops and diagonals between grid lines. Above 32 px a glyph
+// takes fewer (ttf_render_glyph()), since its rows cost per sub-scanline.
+#define TTF_SUBSAMPLES   16
+
+// The blue zones (struct ttf_font): BOTTOM zones hold letters' feet, TOP
+// zones their tops.
+enum { TTF_BLUE_BASE, TTF_BLUE_DESC, TTF_BLUE_X, TTF_BLUE_CAP, TTF_BLUE_ASC, TTF_BLUES };
 
 struct ttf_font {
     const uint8_t *data;
@@ -93,9 +98,23 @@ struct ttf_font {
     uint32_t os2, os2_len;     // and ttf_win_metrics() read them
     uint32_t vdmx, vdmx_len;   // the device metrics Windows lays text out by,
     uint32_t hdmx, hdmx_len;   // 0 when absent: ttf_vdmx(), ttf_hdmx()
+
+    // The autohinter's BLUE ZONES, measured by ttf_open() from the face's
+    // own Latin letters' bounding boxes, font units, y up. `ref` is where
+    // FLAT letters stop (the top of 'x', of 'H'), `shoot` where ROUND ones
+    // overshoot it ('o', 'O'). A bit in blue_ok per zone found.
+    int16_t blue_ref[TTF_BLUES], blue_shoot[TTF_BLUES];
+    uint8_t blue_ok;
+    uint8_t no_hint;           // ttf_set_hinting(f, 0): render the raw outline
 };
 
 struct ttf_edge { fx_t x0, y0, x1, y1; int dir; };
+
+// One horizontal feature of an outline the autohinter fits to the grid: a
+// flat run or a round extremum, in pixel space (y down). `ink` is +1 when
+// the glyph's ink lies BELOW it (a top edge), -1 when above.
+struct ttf_hedge { fx_t y, xmin, xmax, len; int8_t ink; uint8_t used; };
+#define TTF_MAX_HEDGES 512
 
 struct ttf_scratch {
     // One glyph's outline, already scaled into pixel space.
@@ -112,6 +131,13 @@ struct ttf_scratch {
     fx_t    xs[TTF_MAX_EDGES];       // crossings of one sub-scanline
     int     xdir[TTF_MAX_EDGES];
     int32_t acc[TTF_MAX_CELL_W];     // coverage accumulator for one row
+
+    // The autohinter's (ttf_hint.c): the edges it found, then the anchors
+    // -- an original y and where it was fitted -- sorted by original y.
+    struct ttf_hedge hedges[TTF_MAX_HEDGES];
+    int     nhedges;
+    fx_t    anc_o[TTF_MAX_HEDGES], anc_f[TTF_MAX_HEDGES];
+    int     nanc;
 };
 
 // Parses the table directory and the handful of headers everything else
@@ -206,6 +232,25 @@ void ttf_win_metrics(const struct ttf_font *f, int *ascent, int *descent);
 // none for that size -- the caller then scales the outline's metrics.
 int ttf_vdmx(const struct ttf_font *f, int ppem, int *ymax, int *ymin);
 int ttf_hdmx(const struct ttf_font *f, int ppem, int gid, int *advance);
+
+// LIGHT AUTOHINTING, on by default: ttf_render_glyph() fits a glyph's
+// horizontal features to the pixel grid VERTICALLY ONLY -- the x-height
+// rounded (up from 3/8 of a pixel), flat and round tops and feet onto
+// their blue zone, horizontal stems a whole number of pixels thick on
+// whole rows, everything between interpolated. Advances and x are never
+// touched, so layout is identical hinted or not. FreeType's "light" mode
+// and DirectWrite's vertical-only hinting have this shape; the font's own
+// TrueType instructions are not run. A face with no Latin x-height (a
+// symbol font) is drawn unhinted. `on` 0 turns it off for `f`.
+void ttf_set_hinting(struct ttf_font *f, int on);
+
+// The whole rows `gid` reaches at `px` above (*up) and below (*down) the
+// baseline, AS ttf_render_glyph() DRAWS IT -- hinted, which can lift an
+// accent past the font's own ascent. Rounded outward from the outline's
+// points (off-curve ones too, so never short). 1, or 0 for a malformed
+// glyph; a space reports 0 and 0. A cell sized from these never clips.
+int ttf_glyph_extent(const struct ttf_font *f, int gid, int px, int *up, int *down,
+                     struct ttf_scratch *sc);
 
 // Rasterizes `gid` into `cov` (w*h bytes, row-major, 0 = background,
 // 255 = fully ink), with the glyph origin at (x_origin, baseline) in

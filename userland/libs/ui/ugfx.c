@@ -789,7 +789,6 @@ int ugfx_font_load(const char *path, int px, int bold,
     fx_t scale = ttf_scale_for_px(&t, px);
     int baseline = fx_round(fx_mul(fx_from_int(t.ascent), scale));
     int below = fx_round(fx_mul(fx_from_int(t.descent), scale));
-    int cell_h = baseline + below + 1;
 
     // Emboldened only when asked AND the file is not already bold. A
     // caller passing a `-bold.ttf` with bold=1 would otherwise get a
@@ -803,6 +802,13 @@ int ugfx_font_load(const char *path, int px, int bold,
     int cell_w = 1;
     for (int i = 0; i < PRIV_SLOTS; i++) {
         gids[i] = ttf_glyph_index(&t, font_ttf_slot_draw_codepoint(i));
+        // Grown to the HINTED ink, as font_atlas_plan() does: hinting can
+        // lift an accent past the ascent.
+        int up, down;
+        if (ttf_glyph_extent(&t, gids[i], px, &up, &down, sc)) {
+            if (up > baseline) baseline = up;
+            if (down > below) below = down;
+        }
         int adv = ttf_advance_px(&t, gids[i], px);
         if (adv < 0) adv = 0;
         if (adv > 0) adv += smear;
@@ -810,6 +816,8 @@ int ugfx_font_load(const char *path, int px, int bold,
         advs[i] = (unsigned char)adv;
         if (adv > cell_w) cell_w = adv;
     }
+
+    int cell_h = baseline + below + 1;
 
     // The bound in ugfx_font_arena_size() is generous, but it is a
     // bound and not a guarantee about this face -- a display face with

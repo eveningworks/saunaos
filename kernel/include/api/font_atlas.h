@@ -64,12 +64,15 @@ uint32_t font_atlas_slot_codepoint(int slot);
 //
 // `tight` asks for the terminal cell (the baked tables' squeezed
 // ascent and descent, clipping capital accents); 0 gives UI text the
-// font's full ascent and descent.
+// font's full ascent and descent, GROWN to the hinted glyphs' ink
+// (ttf_glyph_extent()) so no Latin-1 capital's accent is cut off. `sc` is
+// scratch the caller owns, used to measure that.
 //
 // Returns 1, or 0 when the result would be unusable -- a line under two
 // pixels, or a cell wider than the rasteriser's accumulator.
 int font_atlas_plan(const struct ttf_font *t, int px, int weight,
-                    int synthesizing, int tight, struct font_atlas_plan *p);
+                    int synthesizing, int tight, struct font_atlas_plan *p,
+                    struct ttf_scratch *sc);
 
 // Renders the plan into `out`, which must be at least `p->total_bytes`
 // and ZEROED by the caller. `sc` is scratch the caller owns.
