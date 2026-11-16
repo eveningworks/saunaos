@@ -306,8 +306,8 @@ static void update_full(struct uapp *a) {
 // Window pixels to the program's 1x.
 static void to_w16(int *x, int *y) {
     if (g_full) {
-        *x = (*x - g_full_ox) * 4 / g_full_q;
-        *y = (*y - g_full_oy) * 4 / g_full_q;
+        *x = w16_point_down(*x - g_full_ox, g_full_q);
+        *y = w16_point_down(*y - g_full_oy, g_full_q);
         return;
     }
     unwarp(x, y);
@@ -318,12 +318,12 @@ static void to_w16(int *x, int *y) {
 // The program's 1x to window pixels: to_w16() backwards, the fullscreen picture's fit and place too.
 static void from_w16(int *x, int *y) {
     if (g_full) {
-        *x = g_full_ox + (*x * g_full_q + 2) / 4;
-        *y = g_full_oy + (*y * g_full_q + 2) / 4;
+        *x = g_full_ox + w16_point_up(*x, g_full_q);
+        *y = g_full_oy + w16_point_up(*y, g_full_q);
         return;
     }
-    *x = w16_up(*x);
-    *y = w16_up(*y);
+    *x = w16_point_up(*x, g_w16_q);
+    *y = w16_point_up(*y, g_w16_q);
     warp_to_glass(x, y);
 }
 
@@ -529,7 +529,9 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
         }
         if (g_virt) { vs = ugfx_surface_for_pixels(g_virt, win->w, win->h); out = &vs; }
     }
-    w16_frame_draw(out, win, uapp_focused(a), w16_menu_open_p(&g_menu) && !g_menu_child ? HIT_SYSMENU : g_pressed);
+    // Lit by its WM_NCACTIVATE (DefWindowProc's), inside the program's SetFocus or on toywm's focus,
+    // as the popups' captions are.
+    w16_frame_draw(out, win, win->active, w16_menu_open_p(&g_menu) && !g_menu_child ? HIT_SYSMENU : g_pressed);
     int bx, by, bw, bh;
     w16_frame_menubar(win, &bx, &by, &bw, &bh);
     if (bh) w16_menubar_draw(out, &g_w16.win, bx, by, bw, w16_bar_lit(g_w16.win.hwnd));

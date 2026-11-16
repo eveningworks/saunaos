@@ -1,14 +1,20 @@
 ; syscolor.asm -- SetSysColors read off the screen at once, as the Windows Tutorial's Windows Basics
-; page 43 photographs Program Manager straight after it: a black square painted in the client area,
-; then SetSysColors(COLOR_ACTIVECAPTION, its own colour). tools/tests/gui/w16_gui_test.py's
-; `syscolor_erase` checks:
+; page 43 photographs Program Manager straight after it. Three windows paint a black square at client
+; 20,20-60,60: the main one ("SysColor test", 600 x 440), and "Third" then "Other" owned by it inside
+; it -- so their squares are on w16's screen, the main window's client area, and above it on 3.1.
+; tools/tests/gui/w16_gui_test.py's `syscolor_erase` checks, in SYSCOLOR.INI:
 ;
-;   - Before: the screen's pixel in the square once it is painted (000000)
-;   - After: the same pixel straight after SetSysColors, no message taken -- 3.11 erases every window's
-;     client area inside the call and paints it later
-;   - Pending: GetUpdateRect then, 1 when a WM_PAINT is owed
-;   - Painted: the pixel once the messages are taken (000000 again); Done=1 last
-;   All in SYSCOLOR.INI.
+;   - Before / After: the main window's square, then straight after SetSysColors(COLOR_ACTIVECAPTION,
+;     its own colour) with no message taken -- SetSysColors erases nothing inside the call
+;   - NoRaise: the main window's square straight after SetFocus(Other), the owned window already on
+;     top: an activation that raises nothing erases nothing; CaptionB: Other's caption, lit at once
+;   - Owner / Raised / Lowered: straight after SetFocus(Third), which raises it over Other, the squares
+;     of the main window, Third and Other -- 3.11 erases every window owing an erase when an activation
+;     raises one; Pending: GetUpdateRect on the main window then, 1 while its WM_PAINT is owed
+;   - Painted: the main window's square once the messages are taken (black again)
+;   - Refocus: Third owes an erase, SetFocus(NULL), then SetFocus back into Third, already active:
+;     no activation, so its square stays black
+;   Done=1 last.
 ;
 ; Build: tools/gen/gen_ne.py.
 ;
@@ -63,8 +69,8 @@ start:
     push word WS_OVERLAPPEDWINDOW & 0xFFFF
     push word CW_USEDEFAULT
     push word CW_USEDEFAULT
-    push word 300
-    push word 200
+    push word 600
+    push word 440
     push word 0
     push word 0
     push word [hInstance]
@@ -79,35 +85,23 @@ start:
     W16_CALL "USER", 42             ; ShowWindow
     push word [hwnd]
     W16_CALL "USER", 124            ; UpdateWindow
-    push ds                         ; a second top-level window beside it, made active
-    push word classname
-    push ds
-    push word title2
-    push word WS_OVERLAPPEDWINDOW >> 16
-    push word WS_OVERLAPPEDWINDOW & 0xFFFF
+    push word title3                ; a third, below the first: not in the activation
+    push word 0
+    push word 250
+    call make_window
+    mov [hwnd3], ax
+    push word title2                ; a second beside them, made active
     push word 320
     push word 220
-    push word 300
-    push word 200
-    push word 0
-    push word 0
-    push word [hInstance]
-    push word 0
-    push word 0
-    W16_CALL "USER", 41             ; CreateWindow
-    or ax, ax
-    jz fail
+    call make_window
     mov [hwnd2], ax
-    push ax
-    push word 1
-    W16_CALL "USER", 42             ; ShowWindow(SW_SHOWNORMAL)
-    push word [hwnd2]
-    W16_CALL "USER", 124            ; UpdateWindow
     call drain
     push word [hwnd]
     W16_CALL "USER", 22             ; SetFocus: the square's window active again
     call drain
 
+    mov ax, [hwnd]
+    mov [sqwnd], ax
     mov si, key_before
     call read_square
 
@@ -115,7 +109,7 @@ start:
     W16_CALL "USER", 180            ; GetSysColor
     mov [rgb], ax
     mov [rgb + 2], dx
-    push word 1                     ; SetSysColors(1, &index, &rgb)
+    push word 1                     ; SetSysColors(1, &index, &rgb): every window owes an erase
     push ds
     push word index
     push ds
@@ -125,8 +119,26 @@ start:
     mov si, key_after               ; straight after, no message taken
     call read_square
     push word [hwnd2]
-    W16_CALL "USER", 22             ; SetFocus: the other window active, the square's window behind it
-    mov si, key_deact
+    W16_CALL "USER", 22             ; SetFocus(Other): activated, already on top -- nothing raised
+    mov si, key_noraise
+    call read_square
+    mov ax, [hwnd2]
+    mov [sqwnd], ax
+    mov si, key_capb
+    call read_caption
+    push word [hwnd3]
+    W16_CALL "USER", 22             ; SetFocus(Third): activated and raised over Other
+    mov ax, [hwnd]
+    mov [sqwnd], ax
+    mov si, key_owner
+    call read_square
+    mov ax, [hwnd3]
+    mov [sqwnd], ax
+    mov si, key_raised
+    call read_square
+    mov ax, [hwnd2]
+    mov [sqwnd], ax
+    mov si, key_lowered
     call read_square
     push word [hwnd]                ; GetUpdateRect(hwnd, &rc, FALSE)
     push ds
@@ -142,12 +154,64 @@ start:
     call ini_write
 
     call drain
+    mov ax, [hwnd]
+    mov [sqwnd], ax
     mov si, key_painted
     call read_square
+
+    push word [hwnd3]               ; the active window owes an erase, the focus is taken away,
+    push word 0                     ; then given back to it: no activation, so nothing is erased
+    push word 0
+    push word 1
+    W16_CALL "USER", 125            ; InvalidateRect(hwnd3, NULL, TRUE)
+    push word 0
+    W16_CALL "USER", 22             ; SetFocus(NULL)
+    push word [hwnd3]
+    W16_CALL "USER", 22             ; SetFocus(hwnd3)
+    mov ax, [hwnd3]
+    mov [sqwnd], ax
+    mov si, key_refocus
+    call read_square
+    call drain
     mov si, key_done
     mov di, one_t
     call ini_write
     jmp msgloop
+
+; CreateWindow of the class, titled by the word pushed first, at the x and y pushed after it,
+; 300 x 200, owned by the first window, shown and painted; its handle in AX.
+make_window:
+    push bp
+    mov bp, sp
+    push ds
+    push word classname
+    push ds
+    push word [bp+8]
+    push word WS_OVERLAPPEDWINDOW >> 16
+    push word WS_OVERLAPPEDWINDOW & 0xFFFF
+    push word [bp+6]
+    push word [bp+4]
+    push word 300
+    push word 200
+    push word [hwnd]                ; owned by the first: above it on 3.1, on its screen under w16
+    push word 0
+    push word [hInstance]
+    push word 0
+    push word 0
+    W16_CALL "USER", 41             ; CreateWindow
+    or ax, ax
+    jz fail
+    push ax
+    push ax
+    push word 1
+    W16_CALL "USER", 42             ; ShowWindow(SW_SHOWNORMAL)
+    pop ax
+    push ax
+    push ax
+    W16_CALL "USER", 124            ; UpdateWindow
+    pop ax
+    pop bp
+    ret 6
 
 ; PeekMessage(&msg, 0, 0, 0, PM_REMOVE) and dispatch until there is none
 drain:
@@ -172,10 +236,11 @@ read_square:
     push si
     mov word [pt], 30
     mov word [pt + 2], 30
-    push word [hwnd]                ; ClientToScreen(hwnd, &pt)
+    push word [sqwnd]               ; ClientToScreen(sqwnd, &pt)
     push ds
     push word pt
     W16_CALL "USER", 28
+.at:
     push word 0
     W16_CALL "USER", 66             ; GetDC(NULL): the screen
     mov [hdc], ax
@@ -199,6 +264,21 @@ read_square:
     mov di, pix_t
     call ini_write
     ret
+
+; The screen's pixel in [sqwnd]'s caption, 40 in and 10 down, to the INI under key SI.
+read_caption:
+    push word [sqwnd]               ; GetWindowRect(sqwnd, &rc)
+    push ds
+    push word rc
+    W16_CALL "USER", 32
+    mov ax, [rc]
+    add ax, 40
+    mov [pt], ax
+    mov ax, [rc + 2]
+    add ax, 10
+    mov [pt + 2], ax
+    push si
+    jmp read_square.at
 
 msgloop:
     push ds
@@ -308,6 +388,8 @@ hInstance:  dw 0
 nCmdShow:   dw 0
 hwnd:       dw 0
 hwnd2:      dw 0
+hwnd3:      dw 0
+sqwnd:      dw 0
 hdc:        dw 0
 phdc:       dw 0
 pix:        dd 0
@@ -338,11 +420,17 @@ msg:
 classname:  db "SysColorClass", 0
 title:      db "SysColor test", 0
 title2:     db "Other", 0
+title3:     db "Third", 0
 ini_app:    db "SysColor", 0
 ini_file:   db "SYSCOLOR.INI", 0
 key_before: db "Before", 0
 key_after:  db "After", 0
-key_deact:  db "Deactivated", 0
+key_noraise: db "NoRaise", 0
+key_capb:   db "CaptionB", 0
+key_owner:  db "Owner", 0
+key_raised: db "Raised", 0
+key_lowered: db "Lowered", 0
+key_refocus: db "Refocus", 0
 key_pending: db "Pending", 0
 key_painted: db "Painted", 0
 key_done:   db "Done", 0

@@ -9011,7 +9011,41 @@ Stages, each compared with the 3.11 reference VM:
    template's plain OK the default (`dialog_hide`'s OkStyle). Page 42's
    inactive caption is dithered on 3.11's 16 colours, a near-white the
    Tutorial sets with SetSysColors -- the same colour, solid at w16's 256.
+   **The review round after it** made activation 3.1's all through (SetFocus
+   activates inside the call, captions through WM_NCACTIVATE, toywm's stale
+   reports dropped, the erase only when a window is raised -- each measured
+   with a probe), which took pages 33-37 back to a dimmed Open dialog where
+   3.11's is lit: "w16: the Windows Tutorial traced on 3.11 itself" below.
 
+
+
+### w16: the Windows Tutorial traced on 3.11 itself -- what lights its photographed Open dialog (pages 33-37, docs/bugs.md)
+
+**Repro:** `wb_walk.py w16 start` and 32 `next` (saunaos-other/scripts/compare), then `shot`:
+page 33's Open dialog is a photograph whose caption is white; the same walk on the
+reference (`wb_walk.py ref ...`) shows it navy, and a click on it reaches the
+Tutorial's "Click the Continue button" tip, so it is the photograph there too.
+
+**What is established (2026-11-16).** w16's trace of the turn: CreateDialog
+(template 100, parent `tutclient` 2003, owner `tutor` 2001), a posted
+WM_USER to 2001, whose handler photographs Write, calls UpdateWindow(2003),
+**SetFocus(2001)**, hides Write, then UpdateWindow(2017) and photographs
+the dialog. 3.11's USER.EXE: SetFocus (internal 0x381d) activates the
+top-level window through 0x3514, which sends WM_NCACTIVATE(FALSE) to the
+dialog; DefDlgProc (USER.308) hands WM_NCACTIVATE to DefWindowProc. Six
+probes on the reference VM read the dialog's caption white after
+SetFocus(owner), the last a replica: a captionless WS_POPUP main window, a
+child client as the dialog's parent, the Tutorial's template style and
+font, Write's stand-in shown and hidden, the photograph routine's calls
+in order from a posted WM_USER. The Tutorial's dialog procedure returns 0
+for WM_NCACTIVATE, its CBT hook (0037:167d) allows HCBT_ACTIVATE and
+HCBT_SETFOCUS, and no journal hook is in at the time.
+
+**So the Tutorial runs a different path on 3.11** than w16's trace records
+-- which photograph is taken when, or what precedes it -- and no probe
+shows it. The next step is a trace on 3.11 itself: a copy of WINTUTOR.EXE
+patched to log its photograph routine's steps (WritePrivateProfileString
+spliced in), run on the reference VM.
 
 ### w16: screen-DC drawing over the program's own popups (the Tutorial's tips)
 

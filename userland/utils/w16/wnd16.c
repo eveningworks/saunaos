@@ -505,21 +505,15 @@ uint16_t w16_set_focus(struct w16 *w, uint16_t hwnd) {
     uint16_t old = w->focus;
     if (hwnd && !to) { pthread_mutex_unlock(&w->lock); return old; }
     w->focus = hwnd;
+    struct w16_wnd *top = to ? w16_wnd_top(w, to) : 0;
+    int can = top && !(top->style & WS_DISABLED) && top->visible;
+    pthread_mutex_unlock(&w->lock);
     // The focus going into another top-level window activates it first, as 3.1's SetFocus did
     // (SetActiveWindow on its top-level): the Windows Tutorial photographs Write straight after.
-    // "Another" by the focus, which only this thread moves -- not by the windows' active marks,
-    // which toywm's late focus answers may have set back.
-    struct w16_wnd *top = to ? w16_wnd_top(w, to) : 0, *was = old ? w16_wnd_get(w, old) : 0;
-    struct w16_wnd *was_top = was ? w16_wnd_top(w, was) : 0;
-    int activate = top && top != was_top && !(top->style & WS_DISABLED) && top->visible;
-    uint16_t changed[8];
-    int n = activate ? w16_wnd_activate_now(w, top, changed, 8) : 0;
-    pthread_mutex_unlock(&w->lock);
-    if (activate) {
-        w16_task_post_arg(w, W16_POST_ACTIVATE, top->hwnd);
-        for (int i = 0; i < n; i++) w16_task_post_arg(w, W16_POST_DLG_PAINT, changed[i]);
-        w16_erase_owed(w);
-    }
+    // "Another" than w->active_top, not than the old focus's: focus taken away with SetFocus(NULL) and
+    // given back to the active window activates nothing and erases nothing (syscolor.exe's Refocus).
+    // A window RAISED by it has every window's owed background erased at once (syscolor.exe).
+    if (can && w16_activate(w, top, 1) == 2) w16_erase_owed(w);
     if (old == hwnd) return old;
     if (old && w16_wnd_get(w, old)) w16_send(w, old, WM_KILLFOCUS, hwnd, 0);
     if (to && w->focus == hwnd) {
@@ -552,6 +546,7 @@ void w16_wnd_destroy(struct w16 *w, struct w16_wnd *x) {
     int child = x->kind == W16_K_CHILD, dialog = x->kind == W16_K_DIALOG;
     pthread_mutex_lock(&w->lock);
     if (w->focus == hwnd || w16_wnd_is_child(w, hwnd, w->focus)) w->focus = 0;
+    if (w->active_top == hwnd) w->active_top = 0;
     pthread_mutex_unlock(&w->lock);
     w16_send(w, hwnd, WM_DESTROY, 0, 0);
     int n;
@@ -579,22 +574,63 @@ void w16_wnd_destroy(struct w16 *w, struct w16_wnd *x) {
 // the screen lays them on in (gdi16.c's screen_copy()). Under `lock`.
 void w16_wnd_to_top(struct w16_wnd *x) { x->order = ++g_order; }
 
-// THE ACTIVE WINDOW CHANGES INSIDE THE CALL, as 3.1's SetActiveWindow did: top -- the main window, a
-// popup or a dialog -- on top of the program's others with its caption lit, the rest dimmed, before
-// toywm hears. The Windows Tutorial calls SetFocus and photographs the screen at once. The popups and
-// dialogs whose caption changed go in out[] (at most cap), counted, for their redraw. Under `lock`.
-int w16_wnd_activate_now(struct w16 *w, struct w16_wnd *top, uint16_t *out, int cap) {
-    int own = top->kind == W16_K_DIALOG, n = 0;  // a popup's kind is a dialog's: its own toywm window
-    if (own) w16_wnd_to_top(top);
-    for (int i = 0; i < w->nwnds; i++) {
+// The program's active window becomes top (w->active_top, 3.1's hwndActive), raised over the program's
+// other windows. Returns 0 when it was the active window already, 1 when it was not, 2 when it was
+// raised over another window too -- the main window never is: the others are always above it, as an
+// owner's owned windows were. Under `lock`.
+int w16_wnd_activate_now(struct w16 *w, struct w16_wnd *top) {
+    if (w->active_top == top->hwnd) return 0;
+    int raised = 0;
+    w->active_top = top->hwnd;
+    for (int i = 0; i < w->nwnds && top->kind == W16_K_DIALOG; i++) {   // a popup's kind is a dialog's
         struct w16_wnd *d = w->wnds[i];
-        if (!d || !d->used || d->kind != W16_K_DIALOG) continue;
-        int want = d == top;
-        if (d->active == want) continue;
-        d->active = want;
-        if (n < cap) out[n++] = d->hwnd;
+        if (d && d->used && d != top && d->kind == W16_K_DIALOG && d->visible && d->order > top->order) raised = 1;
     }
-    return n;
+    if (top->kind == W16_K_DIALOG) w16_wnd_to_top(top);
+    return raised ? 2 : 1;
+}
+
+// THE ACTIVE WINDOW CHANGES INSIDE THE CALL, as 3.1's SetActiveWindow did: top raised and made active,
+// then WM_NCACTIVATE to the window that was and to top -- whose DefWindowProc dims and lights their
+// captions, so a program that answers it itself keeps its caption, as 3.1 let it (the Windows Tutorial
+// photographs its Open dialog lit so) -- all before toywm hears; the Tutorial calls SetFocus and
+// photographs the screen at once. `ask_toywm`: toywm is asked to bring top forward (SetFocus; a window
+// shown is opened forward anyway), and toywm's reports until it has done so are stale
+// (w16_activate_reported()). Returns w16_wnd_activate_now()'s answer.
+int w16_activate(struct w16 *w, struct w16_wnd *top, int ask_toywm) {
+    uint16_t h = top->hwnd;
+    pthread_mutex_lock(&w->lock);
+    uint16_t old = w->active_top;
+    int r = w16_wnd_activate_now(w, top);
+    if (r) {
+        w->want_active = h;
+        w->want_until = w16_now_ms() + 500;
+    }
+    pthread_mutex_unlock(&w->lock);
+    if (!r) return 0;
+    if (ask_toywm) w16_task_post_arg(w, W16_POST_ACTIVATE, h);
+    if (old && w16_wnd_get(w, old)) w16_send(w, old, WM_NCACTIVATE, 0, 0);
+    if (w16_wnd_get(w, h)) w16_send(w, h, WM_NCACTIVATE, 1, 0);
+    return r;
+}
+
+// toywm's word that it focused (on) or left (!on) one of the program's top-level windows, before it
+// reaches the program as WM_NCACTIVATE and WM_ACTIVATE. A REPORT OLDER THAN THE PROGRAM'S OWN
+// ACTIVATION IS DROPPED -- anything but the window w16_activate() asked for, until toywm reports that
+// one or half a second passes -- or it would undo what the program did inside its call, and its
+// DefWindowProc's SetFocus ask toywm back. Otherwise the active window follows toywm (a click), the
+// one it replaces dimmed. Returns 0 to drop the report.
+int w16_activate_reported(struct w16 *w, uint16_t hwnd, int on) {
+    pthread_mutex_lock(&w->lock);
+    if (w->want_active && w16_now_ms() >= w->want_until) w->want_active = 0;
+    if (w->want_active && (hwnd != w->want_active || !on)) { pthread_mutex_unlock(&w->lock); return 0; }
+    if (w->want_active == hwnd && on) w->want_active = 0;
+    uint16_t old = on ? w->active_top : 0;
+    if (on) w->active_top = hwnd;
+    else if (w->active_top == hwnd) w->active_top = 0;
+    pthread_mutex_unlock(&w->lock);
+    if (old && old != hwnd && w16_wnd_get(w, old)) w16_send(w, old, WM_NCACTIVATE, 0, 0);
+    return 1;
 }
 
 // x under its siblings, their order among themselves kept: x renumbered first, then each of them.

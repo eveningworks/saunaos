@@ -15,6 +15,8 @@ What it asserts:
   - the RESOURCE table: both readers list the same resources (gdi.exe
     has a string table and a bitmap), and the fuzz reads every one
   - the NAME TABLE (RT_NAMETABLE): dialog.exe's NUMBERBOX is dialog 100
+  - POINTS: a point a program places (SetCursorPos) goes up to the window by w16_point_up() and comes
+    back through w16_point_down() as itself at every quarter-step scale from 1x to 4x
   - HOSTILE FILES: thousands of mutated and truncated copies of each
     sample through ne_parse, every relocation, entry and module name,
     under AddressSanitizer and UBSan -- a parse either succeeds or
@@ -23,7 +25,8 @@ What it asserts:
 POSITIVE CONTROL (--positive-control): two edits to a COPY of ne.c. The
 segment check stops bounding a segment by the file (the fuzz must go red
 under ASan), and the relocation reader takes the site from the wrong
-word (the comparison must go red).
+word (the comparison must go red). A third, to a copy of w16_internal.h,
+rounds a placed point to the nearest (the points check must go red).
 
 Needs gcc with ASan/UBSan and nasm.
 """
@@ -32,7 +35,7 @@ Needs gcc with ASan/UBSan and nasm.
 # ASan/UBSan (docs/w16-design.md); gcc and nasm.
 RUNNER = {
     "name": "w16_host",
-    "covers": "w16's NE parser vs gen_ne --dump, fuzzed",
+    "covers": "w16's NE parser vs gen_ne --dump, fuzzed; a placed point's round trip",
     "parallel": True,
 }
 
@@ -103,6 +106,16 @@ static uint32_t rng = 12345;
 static uint32_t rnd(void) { rng = rng * 1103515245u + 12345u; return rng >> 8; }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "points")) {  // every point placed comes back as itself
+        for (int q = 4; q <= 16; q++)
+            for (int v = 0; v < 2048; v++)
+                if (w16_point_down(w16_point_up(v, q), q) != v) {
+                    printf("q %d: %d -> %d -> %d\n", q, v, w16_point_up(v, q), w16_point_down(w16_point_up(v, q), q));
+                    return 1;
+                }
+        printf("points ok\n");
+        return 0;
+    }
     if (argc != 3) return 2;
     uint32_t n; uint8_t *img = slurp(argv[2], &n);
     static struct ne_module m;
@@ -149,6 +162,10 @@ CONTROL = [
     ("out->site = rd16(m, r + 2);", "out->site = rd16(m, r + 4);"),
 ]
 
+# ...and a point placed by nearest rounding, which comes back one short at 1.25x.
+POINT_CONTROL = [("static inline int w16_point_up(int v, int q) { return (v * q + 3) / 4; }",
+                  "static inline int w16_point_up(int v, int q) { return (v * q + 2) / 4; }")]
+
 
 def build_samples(tmp):
     exes = []
@@ -174,12 +191,21 @@ def main():
                                 apply=args.positive_control, tool="w16_hostcheck"),
                 hostcheck.stage(tmp, "userland/utils/w16/ne_info.c", dest="utils/w16/ne_info.c"),
                 hostcheck.stage(tmp, "userland/utils/w16/w16_names.c", dest="utils/w16/w16_names.c")]
-        for h in ("ne.h", "w16_internal.h", "w16_names.h", "cpu16.h", "lin16.h"):
+        for h in ("ne.h", "w16_names.h", "cpu16.h", "lin16.h"):
             hostcheck.stage(tmp, f"userland/utils/w16/{h}", dest=f"utils/w16/{h}")
+        hostcheck.stage(tmp, "userland/utils/w16/w16_internal.h", dest="utils/w16/w16_internal.h",
+                        edits=POINT_CONTROL, apply=args.positive_control, tool="w16_hostcheck")
         flags = ["-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
                  "-fno-sanitize-recover=all", "-I" + tmp, "-I" + os.path.join(tmp, "utils", "w16"),
                  "-I" + os.path.join(ROOT, "userland"), "-I" + os.path.join(ROOT, "userland", "libs")]   # base/urgn.h, via w16_internal.h
         exe = hostcheck.compile(tmp, "w16_host", srcs, flags=flags, tool="w16_hostcheck")
+
+        pts = subprocess.run([exe, "points"], capture_output=True, text=True)
+        if pts.returncode:
+            fails.append(f"points: a placed point does not come back as itself: {pts.stdout.strip()}")
+            print(f"  FAIL points: {pts.stdout.strip()}")
+        else:
+            print(f"  ok  {pts.stdout.strip()}: w16_point_up() and back at every quarter step, 1x to 4x")
 
         for ne in exes:
             name = os.path.basename(ne)
@@ -221,9 +247,9 @@ def main():
                 print(f"  ok  {name}: {fz.stdout.strip()}, no fault")
 
     if args.positive_control:
-        red = ("differs" in " ".join(fails), "faulted" in " ".join(fails))
+        red = ("differs" in " ".join(fails), "faulted" in " ".join(fails), "points:" in " ".join(fails))
         print(f"w16_hostcheck: positive control: comparison {'RED' if red[0] else 'green'}, "
-              f"fuzz {'RED' if red[1] else 'green'}")
+              f"fuzz {'RED' if red[1] else 'green'}, points {'RED' if red[2] else 'green'}")
         return 0 if all(red) else 1
     for f in fails:
         print("  FAIL " + f)

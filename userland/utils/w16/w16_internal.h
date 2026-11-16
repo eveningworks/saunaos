@@ -390,7 +390,7 @@ struct w16_wnd {
     int modal, ended;             // EndDialog was called (2: its window is gone)
     int16_t result;
     struct uapp_window *uwin;     // its toywm window (main thread's)
-    int active;                   // its toywm window has the focus (main thread's)
+    int active;                   // its caption lit: DefWindowProc's WM_NCACTIVATE, as 3.1 drew it
     int menubar;                  // a top-level window has a menu bar (SetMenu); under `lock`
     int bar_rows;                 // the rows its bar wraps to (w16_frame_bar_fit), 0 or 1 one row
     uint16_t hmenu;               // ...that bar's HMENU, its own -- a second top-level window has one too
@@ -471,6 +471,9 @@ struct w16 {
     struct w16_wnd **wnds;                       // wnd16.c: every other window, grown
     int nwnds;
     uint16_t focus;                              // the window with the keyboard focus; under `lock`
+    uint16_t active_top;                         // the active top-level window, 3.1's hwndActive; under `lock`
+    uint16_t want_active;                        // w16_activate()'s window toywm has yet to report; under `lock`
+    uint64_t want_until;                         // ...until then (w16_now_ms), when its reports count again
     uint16_t menu_keys;                          // the top-level window whose menus have the keyboard
                                                  // (barmode16.c); under `lock`
     int menu_asks;                               // SC_KEYMENU asks posted, not yet heard; under `lock`
@@ -1512,7 +1515,9 @@ int w16_child_framed(const struct w16_wnd *x);   // a child with a caption: 3.1'
 int w16_byte_align(int edge);   // how far CS_BYTEALIGN* moves a left edge: to the nearest multiple of 8
 int w16_byte_align_child(struct w16 *w, const struct w16_wnd *x, int nx);   // CS_BYTEALIGN*'s x for a child
 void w16_wnd_to_top(struct w16_wnd *x);
-int w16_wnd_activate_now(struct w16 *w, struct w16_wnd *top, uint16_t *out, int cap);
+int w16_wnd_activate_now(struct w16 *w, struct w16_wnd *top);
+int w16_activate(struct w16 *w, struct w16_wnd *top, int ask_toywm);   // 3.1's SetActiveWindow, inside the call
+int w16_activate_reported(struct w16 *w, uint16_t hwnd, int on);       // toywm's W16_WM_ACTIVATE: 0 drops it
 void w16_wnd_to_bottom(struct w16 *w, struct w16_wnd *x);
 struct urect;
 int w16_wnd_above(struct w16 *w, struct w16_wnd *x, struct urect **v, int *cap);   // WS_CLIPSIBLINGS' rects; under `lock`   // under its siblings; takes `lock`   // a shown top-level window above the program's others; under `lock`
@@ -1524,6 +1529,11 @@ void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch
 extern int g_w16_q, g_w16_method;
 int w16_up(int v);
 int w16_down(int v);
+// A POINT, unlike a length, goes up by the CEILING: the first window pixel whose truncating way back
+// (w16_down's, an input's) lands on it, so SetCursorPos's pointer reads back as the point it set at
+// any scale of 1x or more -- nearest rounding sent 1 to 0 at 1.25x. q in quarters, as g_w16_q.
+static inline int w16_point_up(int v, int q) { return (v * q + 3) / 4; }
+static inline int w16_point_down(int v, int q) { return v * 4 / q; }
 extern int g_w16_desktop_frame;                   // toywm's frame, not 3.1's
 void w16_frame_fit(const struct w16_wnd *win, int *w, int *h);   // a 3.1 outer size -> the window's
 void w16_scale_blit(struct ugfx_surface *dst, int dx, int dy, const uint32_t *src, int w, int h,

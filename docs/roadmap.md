@@ -1123,7 +1123,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: a menu bar wider than its window wraps to a second line, as 3.1's did~~ DONE 2026-11-16 -- `menuwrap.exe`
 - [x] ~~w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)~~ DONE 2026-11-16 -- to page 47
 - [ ] w16: a dialog's font at its template's size -- every dialog font is drawn at 8 points, and WM_GETFONT on a dialog answers none
-- [ ] w16: 3.1's synchronous paint after ShowWindow, MoveWindow and SetWindowPos -- only an activation erases owed backgrounds at once
+- [ ] w16: 3.1's synchronous paint after ShowWindow, MoveWindow and SetWindowPos -- only an activation that raises a window erases at once
+- [ ] w16: the Windows Tutorial traced on 3.11 itself -- what lights its photographed Open dialog (pages 33-37, docs/bugs.md)
 - [ ] w16: an edit's WS_BORDER taken off its style, as 3.1's GetWindowLong answered -- w16 keeps it (lbrect.exe)
 - [x] ~~w16: a popup drawn with SaunaOS's shadow round it~~ DONE 2026-11-05 -- `WIN_HINT_NO_SHADOW` on every w16 window but the main one
 - [x] ~~w16: screen-DC drawing over the program's own popups (the Tutorial's tips)~~ DONE 2026-11-08 -- an overlay per popup

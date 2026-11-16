@@ -5,9 +5,10 @@
 // or Sharp (sharp-bilinear: doubled pixel for pixel, then smoothed down,
 // so only the seam between two source pixels is blended).
 //
-// THE SCALE IS IN QUARTERS (g_w16_q: 4 is 1x, 6 is 1.5x), so a size
-// converts exactly both ways through w16_up() and w16_down() and nothing
-// drifts by a rounding: input is mapped back by the same rule.
+// THE SCALE IS IN QUARTERS (g_w16_q: 4 is 1x, 6 is 1.5x). A length goes up
+// by w16_up() (nearest) and back by w16_down() (truncating); a POINT the
+// program places goes up by w16_point_up() (the ceiling), the one way that
+// comes back through w16_down() as itself at 1.25x and 2.25x too.
 #include "w16_internal.h"
 
 #include <stdlib.h>

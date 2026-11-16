@@ -715,11 +715,14 @@ static void start(struct w16 *w, struct w16_wnd *d, uint32_t param, int modal) {
         pthread_mutex_lock(&w->lock);
         // On top and active AT ONCE, as user16.c's popup_show() makes a popup: a program reading the
         // screen straight after (the Windows Tutorial photographs its Open dialog) sees it active.
-        if (!d->visible) w16_wnd_activate_now(w, d, 0, 0);
+        int shown = !d->visible;
+        if (shown) w16_wnd_to_top(d);
         d->visible = 1;
         d->style |= WS_VISIBLE;
         pthread_mutex_unlock(&w->lock);
         w16_task_post_arg(w, W16_POST_DLG_OPEN, h);
+        if (shown) w16_activate(w, d, 0);
+        d = w16_wnd_get(w, h);
     }
     if (d && (r & 0xFFFF) && first && w16_wnd_get(w, first->hwnd)) quiet_focus(w, d, tab_target(w, d, first), 1);
     if (d) w16_invalidate(w, d, 1);

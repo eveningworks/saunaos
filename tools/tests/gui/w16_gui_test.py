@@ -173,12 +173,16 @@ file is involved.
     3.11 answers the same (DLGHIDE.INI, run on the reference VM). Its template's plain OK stays plain
     while the edit has the first focus, and SetFocus on its owner makes it inactive inside the call.
 33. **An erase inside an activation** (`syscolor_erase`, syscolor.exe; user16.c's w16_erase_owed): the
-    background SetSysColors owes is not erased by it, but by the SetFocus that deactivates the window,
-    its paint left owed -- Windows Basics' page 43 photographs Program Manager blank so.
+    background SetSysColors owes is not erased by it, nor by a SetFocus that activates a window already
+    on top, but by one that raises a window -- every window owing one, its paint left owed -- and not by
+    a SetFocus back into the window already active. Windows Basics' page 43 photographs Program Manager
+    blank so.
 34. **A combo box's height** (`combo_height`, cbheight.exe; list16.c): shut at 3.11's h + 4 +
     min(h / 4, 4) for its font's height h, its WS_BORDER taken off.
 35. **A list box's rectangle** (`border_rects`, lbrect.exe; list16.c): a pixel bigger on every side than
-    asked, as 3.1's list box made itself; an edit and a static keep the template's rectangle.
+    asked, as 3.1's list box made itself; an edit and a static keep the template's rectangle. Then which
+    caption is lit: a second dialog opened dims the first and the main window, a click on the main
+    window dims both dialogs, a click on the first dialog lights it again (dlgwin16.c's on_focus).
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1948,9 +1952,10 @@ SYSCOLOR_INI = "/home/Win16/WINDOWS/SYSCOLOR.INI"
 
 
 def syscolor_erase(dbg, qmp, res, tmp):
-    """syscolor.exe (its header has each step): after SetSysColors a window's square is still drawn,
-    and the SetFocus that deactivates it erases its owed background inside the call, its paint left
-    owed -- 3.11's answers (Windows Basics' page 43 photographs Program Manager so)."""
+    """syscolor.exe (its header has each step): after SetSysColors a window's square is still drawn, a
+    SetFocus that raises a window erases every owed background inside the call, its paint left owed,
+    and one that raises nothing erases nothing -- 3.11's answers (Windows Basics' page 43 photographs
+    Program Manager so)."""
     sh(dbg, "mkdir /home/Win16")
     sh(dbg, "mkdir /home/Win16/WINDOWS")
     sh(dbg, f"rm {SYSCOLOR_INI}")
@@ -1961,10 +1966,17 @@ def syscolor_erase(dbg, qmp, res, tmp):
     ini = poll(lambda: (lambda t: t if "Done=1" in t else "")(sh(dbg, f"cat {SYSCOLOR_INI}")), 10) or \
         sh(dbg, f"cat {SYSCOLOR_INI}")
     res.check("SetSysColors erases nothing inside the call: the square still reads black (3.11's After=000000)",
-              "Before=000000" in ini and "After=000000" in ini, ini[-200:])
-    res.check("...the SetFocus that deactivates the window erases it at once, its WM_PAINT still owed "
-              "(3.11's Deactivated=FFFFFF, Pending=1), then drawn back (Painted=000000)",
-              "Deactivated=FFFFFF" in ini and "Pending=1" in ini and "Painted=000000" in ini, ini[-200:])
+              "Before=000000" in ini and "After=000000" in ini, ini[-300:])
+    res.check("...nor does a SetFocus that activates a window already on top (3.11's NoRaise=000000), its "
+              "caption lit at once (CaptionB=000080)", "NoRaise=000000" in ini and "CaptionB=000080" in ini,
+              ini[-300:])
+    res.check("...but a SetFocus that raises a window erases every window owing an erase at once, its WM_PAINT "
+              "still owed (3.11's Owner, Raised and Lowered=FFFFFF, Pending=1), then drawn back (Painted=000000)",
+              all(f"{k}=FFFFFF" in ini for k in ("Owner", "Raised", "Lowered")) and "Pending=1" in ini
+              and "Painted=000000" in ini, ini[-300:])
+    res.check("...and the focus taken away and given back to the active window activates nothing and "
+              "erases nothing (3.11's Refocus=000000)", "Refocus=000000" in ini, ini[-300:])
+    dbg.close_window("Third")
     dbg.close_window("Other")
     dbg.close_window(SYSCOLOR_TITLE)
 
@@ -2023,6 +2035,35 @@ def border_rects(dbg, qmp, res, tmp):
     res.check("...an edit and a static keep the template's rectangle (3.11's 12 and 13)",
               rect(12) == ("0107", "000D", "0069", "0041") and rect(13) == ("000E", "0062", "0069", "0041"),
               f"12 {rect(12)} 13 {rect(13)}")
+
+    def lit():
+        # Which of the three captions are navy: a third or more of one row through the caption, 8 down
+        # from the window's top -- the main window's row lies above the dialogs over its client.
+        dbg.settle(0.3)
+        im = shot(qmp, f"{tmp}/w16_lbrect.png")
+        out = {}
+        for t in (LBRECT_TITLE, "Helv 8", "Second"):
+            wn = dbg.window(t)
+            out[t] = wn is not None and sum(1 for xx in range(wn["x"], wn["x"] + wn["w"])
+                                            if im.getpixel((xx, wn["y"] + 8)) == NAVY) * 3 > wn["w"]
+        return out
+    poll(lambda: dbg.window("Second") is not None, 6)
+    got = lit()
+    res.check("the second dialog opened is the lit one; the first dialog and the main window are dimmed",
+              got == {LBRECT_TITLE: False, "Helv 8": False, "Second": True}, f"{got}")
+    mw = dbg.window(LBRECT_TITLE)
+    if mw:
+        dbg.click(mw["x"] + mw["w"] - 40, mw["y"] + mw["h"] - 40)
+    got = lit()
+    res.check("...a click on the main window lights its caption and dims both dialogs",
+              got == {LBRECT_TITLE: True, "Helv 8": False, "Second": False}, f"{got}")
+    dw = dbg.window("Helv 8")
+    if dw:
+        dbg.click(dw["x"] + dw["w"] - 20, dw["y"] + dw["h"] - 20)
+    got = lit()
+    res.check("...and a click on the first dialog lights it again: a modeless dialog dimmed is lit by toywm's focus",
+              got == {LBRECT_TITLE: False, "Helv 8": True, "Second": False}, f"{got}")
+    dbg.close_window("Second")
     dbg.close_window("Helv 8")
     dbg.close_window(LBRECT_TITLE)
 

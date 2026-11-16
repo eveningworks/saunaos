@@ -33,6 +33,7 @@
 #define LBS_NOINTEGRALHEIGHT 0x0100
 #define LBS_EXTENDEDSEL 0x0800
 #define LBS_DISABLENOSCROLL 0x1000
+#define LBS_COMBOBOX   0x8000         // a combo box's own list: Win32's bit, free in 3.1's styles
 #define LB_ADDSTRING   (WM_USER + 1)
 #define LB_INSERTSTRING (WM_USER + 2)
 #define LB_DELETESTRING (WM_USER + 3)
@@ -123,7 +124,6 @@
 #define SB_THUMBPOSITION 4
 #define SB_THUMBTRACK    5
 #define LIST_ID          1000         // a combo box's list's id
-static int making_combo_list;           // the list being made is a combo box's (the program's thread)
 
 // --- LISTBOX -----------------------------------------------------------------------
 
@@ -748,7 +748,7 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
         // A child list a pixel bigger on every side than it was asked, a border or none, from a
         // template or CreateWindow, as 3.1's list box made itself (lbrect.exe); a combo box's list, its
         // own popup in 3.1, is not, nor a popup list (w16probe's Place: Control Panel's, unmeasured).
-        int grow = !making_combo_list && (x->style & WS_CHILD) ? 1 : 0;
+        int grow = !(x->style & LBS_COMBOBOX) && (x->style & WS_CHILD) ? 1 : 0;
         w16_wnd_set_geometry(w, x, x->x - grow, x->y - grow, x->w + 2 * grow, x->h + 2 * grow);
         // Whole rows only, the foot moved up, unless LBS_NOINTEGRALHEIGHT --
         // 3.11's Open lists are 106 tall where their template asks 111. A variable list's rows
@@ -1009,12 +1009,10 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
         int k = w16_class_find(w, "LISTBOX"), ek = w16_class_find(w, "EDIT");
         int room = c->open_h - sh - gap;
         int lh = room > item_h(x) * 2 + 2 ? room : item_h(x) * 4 + 2;
-        uint32_t ls = WS_CHILD | WS_BORDER | WS_VSCROLL | ((x->style & CBS_SORT) ? LBS_SORT : 0);
+        uint32_t ls = WS_CHILD | WS_BORDER | WS_VSCROLL | LBS_COMBOBOX | ((x->style & CBS_SORT) ? LBS_SORT : 0);
         if (simple) ls |= WS_VISIBLE | LBS_DISABLENOSCROLL;
-        making_combo_list = 1;
         struct w16_wnd *lw = w16_wnd_create(w, k, "", ls, x->x, x->y + sh + gap, x->w - (simple ? 0 : W16_SB),
                                             lh, x->parent, LIST_ID, x->inst, 0);
-        making_combo_list = 0;
         if (!lw) return 0xFFFFFFFFu;
         c->list = lw->hwnd;
         lb_of(lw)->combo = x->hwnd;

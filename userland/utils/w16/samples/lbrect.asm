@@ -9,7 +9,8 @@
 ;
 ; and the main window a LISTBOX with WS_BORDER made by CreateWindow at (10, 10, 100, 80) (id 20).
 ; LBRECT.INI [LbRect] gets, in hex, Xid/Yid (the window's corner in its parent's client area), Wid/Hid,
-; and Bid=1 when GetWindowLong still has WS_BORDER. Done=1 last.
+; and Bid=1 when GetWindowLong still has WS_BORDER. Then dialog 101 ("Second"), empty, beside the
+; first: the test clicks between the three windows and reads which caption is lit. Done=1 last.
 ;
 ; Build: tools/gen/gen_ne.py.
 ;
@@ -26,6 +27,7 @@
 ;w16: control 100 EDIT 12 150 8 60 40 0x50810080 ""
 ;w16: control 100 STATIC 13 8 60 60 40 0x50800000 ""
 ;w16: control 100 LISTBOX 14 80 60 60 40 0x50a10100 ""
+;w16: dialog 101 230 10 60 40 0x90c80080 "Second"
 
 %include "ne16.inc"
 
@@ -70,8 +72,8 @@ start:
     push word WS_OVERLAPPEDWINDOW & 0xFFFF
     push word CW_USEDEFAULT
     push word CW_USEDEFAULT
-    push word 400
-    push word 300
+    push word 640
+    push word 420
     push word 0
     push word 0
     push word [hInstance]
@@ -127,6 +129,14 @@ start:
     mov [rparent], ax
     mov word [rid], 20
     call report
+
+    push word [hInstance]           ; CreateDialog(hInst, MAKEINTRESOURCE(101), hwnd, DlgProc): a second,
+    push word 0                     ; empty one beside the first, which it dims
+    push word 101
+    push word [hwnd]
+    push word [dlgproc_ptr + 2]
+    push word [dlgproc_ptr]
+    W16_CALL "USER", 89
 
     mov si, key_done
     mov di, one_t

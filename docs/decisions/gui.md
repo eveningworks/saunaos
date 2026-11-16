@@ -13160,3 +13160,53 @@ reference.**
 - The oracle is the interpreter, which `cpu16_hostcheck.py` holds to
   the CPU: the JIT's cases are compared with it, not with the CPU.
 
+
+## A Win16 program's window is activated inside its own call, its caption through WM_NCACTIVATE
+
+Chosen 2026-11-16, after a code review of the Windows Basics work. A
+Win16 program asks for an activation (SetFocus into another top-level
+window, ShowWindow, CreateDialog) and may read the screen in the very
+next call -- the Windows Tutorial photographs Write straight after
+SetFocus. w16's windows are toywm's, and toywm grants a focus change
+later, on its main thread, so w16 had been lighting captions when toywm
+answered: too late for the photograph, and racy, since an answer for an
+earlier request could dim a window the program had just activated.
+
+**What others do.** Windows 3.1 does it all inside the call. Its
+SetFocus walks to the top-level window and, if that is not the active
+window, activates it; the activation sends WM_NCACTIVATE(FALSE) to the
+window losing it -- which may refuse by answering FALSE -- and
+WM_NCACTIVATE(TRUE) to the new one, and DefWindowProc draws the caption
+from that (read from 3.11's USER.EXE: SetFocus at 0x381d, the activation
+at 0x3514; DefDlgProc passes WM_NCACTIVATE on). When the activation
+raises a window over another, the synchronous paint after SetWindowPos
+erases every window's owed background before WM_PAINT; an activation
+that raises nothing erases nothing (syscolor.exe on 3.11). Wine follows
+the same order. Wayland has no client-driven activation at all -- a
+compositor decides, and a client hears it later -- which is toywm's
+position too.
+
+**SaunaOS keeps 3.1's order in the program's world and lets toywm catch
+up.** `w16_activate()` makes the program's active window (`active_top`,
+3.1's hwndActive) change inside the call, raises it among the program's
+windows, and sends the two WM_NCACTIVATEs, so a program that answers
+them itself keeps its caption; DefWindowProc lights or dims any
+top-level window from them, the main window's too. toywm is asked to
+bring the window forward, and until it reports that window, its other
+focus reports are dropped as stale (`w16_activate_reported()`, half a
+second at most): a late report would undo the program's activation and
+its DefWindowProc's SetFocus would ask toywm back. toywm's own changes
+-- a click -- reach the program as W16_WM_ACTIVATE, popups and dialogs
+as well as the main window, so a person's click and a program's call
+both go through WM_NCACTIVATE.
+
+**Not chosen:** captions set directly from toywm's focus (what w16 did:
+a stale answer dims a window the program has just activated, and a
+program cannot keep its caption lit); making toywm's focus change
+synchronous (the compositor is a separate process, and blocking a
+client on it is what Wayland deliberately avoids).
+
+**Left open:** the Tutorial's pages 33-37 photograph Write's Open
+dialog lit on 3.11 though the probes say SetFocus on its owner dims it
+-- docs/bugs.md, and "w16: the Windows Tutorial traced on 3.11 itself"
+on the roadmap.

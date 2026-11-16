@@ -470,16 +470,17 @@ static void on_phys_key(struct uapp_window *u, int code, int down, unsigned mods
     pthread_mutex_unlock(&g_w16.lock);
     if (d) w16_route_alt(&g_w16, d, down);
 }
-// Its caption lit while it has the focus, as a 3.1 window's active one is.
+// toywm focused or left it: the program hears it as WM_NCACTIVATE and WM_ACTIVATE, as a 3.1 window's
+// activation, and its DefWindowProc lights or dims the caption (w16_activate_reported() drops a report
+// the program's own activation has overtaken).
 static void on_focus(struct uapp_window *u, int focused) {
     if (!focused) w16_key_release_all();
     if (!focused) w16_bar_unlight(&g_w16, hwnd_of(u));
     pthread_mutex_lock(&g_w16.lock);
     struct w16_wnd *d = w16_wnd_get(&g_w16, hwnd_of(u));
-    int changed = d && d->popup && d->active != focused;
-    if (changed) d->active = focused;
+    uint16_t h = d ? d->hwnd : 0;
     pthread_mutex_unlock(&g_w16.lock);
-    if (changed) uapp_window_redraw(u);
+    if (h) w16_post_msg(&g_w16, h, W16_WM_ACTIVATE, (uint16_t)(focused != 0), 0);
 }
 static void on_wheel(struct uapp_window *u, int notches) {
     pthread_mutex_lock(&g_w16.lock);
@@ -575,7 +576,6 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
     pthread_mutex_lock(&w->lock);
     d->uwin = u;
     d->fullscreen = u && full;
-    d->active = u != 0;
     if (!u) {                                    // no window to show it in: the dialog is cancelled
         d->result = -1;
         if (!d->ended) d->ended = 1;

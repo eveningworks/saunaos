@@ -437,19 +437,18 @@ static void sized_on_show(struct w16 *w, struct w16_wnd *x) {
 
 // A popup shown: visible, painted, and its toywm window asked for the first time.
 static void popup_show(struct w16 *w, struct w16_wnd *x) {
-    uint16_t dimmed[8];
-    int n = 0;
+    uint16_t h0 = x->hwnd;
     pthread_mutex_lock(&w->lock);
-    if (!x->visible) n = w16_wnd_activate_now(w, x, dimmed, 8);   // shown, it is on top and active at once
+    int shown = !x->visible;
+    if (shown) w16_wnd_to_top(x);                // shown, it is on top and active at once
     x->visible = 1;
     x->style |= WS_VISIBLE;
     int first = !x->opened;
     x->opened = 1;
     pthread_mutex_unlock(&w->lock);
     if (first) w16_task_post_arg(w, W16_POST_DLG_OPEN, x->hwnd);
-    for (int i = 0; i < n; i++)
-        if (dimmed[i] != x->hwnd) w16_task_post_arg(w, W16_POST_DLG_PAINT, dimmed[i]);
-    w16_invalidate(w, x, 1);
+    if (shown) w16_activate(w, x, 0);
+    if ((x = w16_wnd_get(w, h0)) != 0) w16_invalidate(w, x, 1);
 }
 
 static int create_window(struct w16 *w, struct w16_args *a) {
@@ -570,11 +569,47 @@ static void erase_owes_children(struct w16 *w, struct w16_wnd *x, const int16_t 
     free(v);
 }
 
-// THE BACKGROUND OWED IS ERASED INSIDE AN ACTIVATION, the paint left owed, as 3.1's SetWindowPos sent
-// WM_ERASEBKGND in its synchronous paint: on 3.11 a window deactivated straight after SetSysColors
-// reads its client area erased, and drawn back only at its WM_PAINT (syscolor.exe). The Windows
-// Tutorial photographs Program Manager so on Windows Basics' page 43, its icons not yet drawn back.
-// A window whose WM_ERASEBKGND answers 0 is asked again at BeginPaint.
+// The update region's erase, as BeginPaint and an activation both run it: the window's DC taken and
+// clipped to the region, WM_ERASEBKGND through it when `erase`, the children it reaches owed a paint,
+// and what was drawn on the screen over the erased part cleared -- not when the program swallows the
+// erase (the Tutorial's Write keeps the tip it drew so). `paint` is BeginPaint's: the region handed
+// over (w16_paint_begin) before the DC is taken. box gets rcPaint, *erased whether the program erased;
+// returns the DC.
+static uint16_t erase_region(struct w16 *w, struct w16_wnd *x, int paint, int erase, int16_t *box, int *erased) {
+    uint16_t hwnd = x->hwnd;
+    struct urgn rgn, upd;                        // the region kept: the DC takes `rgn`
+    urgn_init(&rgn);
+    urgn_init(&upd);
+    int all = w16_update_region(w, x, &rgn);
+    box[0] = 0; box[1] = 0; box[2] = (int16_t)x->cw; box[3] = (int16_t)x->ch;
+    if (!all) {
+        struct urect b;
+        urgn_bbox(&rgn, &b);
+        box[0] = (int16_t)b.x; box[1] = (int16_t)b.y;
+        box[2] = (int16_t)(b.x + b.w); box[3] = (int16_t)(b.y + b.h);
+    }
+    if (paint) w16_paint_begin(w, x);
+    if (erase) erase_owes_children(w, x, box);
+    int kept = all || urgn_copy(&upd, &rgn) == 0;
+    uint16_t hdc = w16_gdi_take_dc(w, hwnd);
+    if (!all) w16_gdi_paint_rgn(w, hdc, &rgn);
+    urgn_free(&rgn);
+    *erased = erase && w16_send(w, hwnd, WM_ERASEBKGND, hdc, 0) != 0;
+    pthread_mutex_lock(&w->lock);
+    if (*erased && kept && (x = w16_wnd_get(w, hwnd)) != 0) w16_over_clear(w, x, all ? 0 : &upd);
+    pthread_mutex_unlock(&w->lock);
+    urgn_free(&upd);
+    w16_gdi_reset_dc(w, hdc);                    // WM_ERASEBKGND may have changed its state
+    return hdc;
+}
+
+// THE BACKGROUND OWED IS ERASED INSIDE AN ACTIVATION THAT RAISES A WINDOW, the paint left owed, as
+// 3.1's synchronous paint after SetWindowPos sent WM_ERASEBKGND: on 3.11 every window owing an erase --
+// the owner, the one raised and the one it went over -- reads erased straight after such a SetFocus,
+// and is drawn back only at its WM_PAINT, while an activation that raises nothing erases nothing
+// (syscolor.exe). The Windows Tutorial raises Write over Program Manager and photographs Program
+// Manager blank so on Windows Basics' page 43. A window whose WM_ERASEBKGND answers 0 is asked again
+// at BeginPaint.
 void w16_erase_owed(struct w16 *w) {
     int n = 0;
     pthread_mutex_lock(&w->lock);
@@ -589,31 +624,12 @@ void w16_erase_owed(struct w16 *w) {
         int owed = x && !x->destroyed && x->inval && x->erase;
         pthread_mutex_unlock(&w->lock);
         if (!owed || !w16_wnd_shown(w, x)) continue;
-        struct urgn rgn, upd;
-        urgn_init(&rgn);
-        urgn_init(&upd);
-        int all = w16_update_region(w, x, &rgn);
-        int16_t box[4] = { 0, 0, (int16_t)x->cw, (int16_t)x->ch };
-        if (!all) {
-            struct urect b;
-            urgn_bbox(&rgn, &b);
-            box[0] = (int16_t)b.x; box[1] = (int16_t)b.y;
-            box[2] = (int16_t)(b.x + b.w); box[3] = (int16_t)(b.y + b.h);
-        }
-        erase_owes_children(w, x, box);
-        int kept = all || urgn_copy(&upd, &rgn) == 0;
-        uint16_t hdc = w16_gdi_take_dc(w, x->hwnd);
-        if (!all) w16_gdi_paint_rgn(w, hdc, &rgn);
-        urgn_free(&rgn);
-        int erased = w16_send(w, x->hwnd, WM_ERASEBKGND, hdc, 0) != 0;
-        w16_gdi_give_dc(w, hdc);
+        int16_t box[4];
+        int erased;
+        w16_gdi_give_dc(w, erase_region(w, x, 0, 1, box, &erased));
         pthread_mutex_lock(&w->lock);
-        if (erased && (x = w16_wnd_get(w, h[i])) != 0) {
-            x->erase = 0;                        // BeginPaint's fErase says it is done
-            if (kept) w16_over_clear(w, x, all ? 0 : &upd);
-        }
+        if (erased && (x = w16_wnd_get(w, h[i])) != 0) x->erase = 0;   // BeginPaint's fErase: done
         pthread_mutex_unlock(&w->lock);
-        urgn_free(&upd);
     }
     free(h);
 }
@@ -622,33 +638,9 @@ void w16_erase_owed(struct w16 *w) {
 // stay inside it -- and its box is rcPaint, as Windows did. A program that validates part of what it
 // invalidated (the Windows Tutorial keeps a picture it just drew) relies on both.
 static void begin_paint(struct w16 *w, struct w16_wnd *x, uint32_t lpps) {
-    int erase = x->erase, erased = 0;
-    struct urgn rgn;
-    urgn_init(&rgn);
-    int all = w16_update_region(w, x, &rgn);
-    int16_t box[4] = { 0, 0, (int16_t)x->cw, (int16_t)x->ch };
-    if (!all) {
-        struct urect b;
-        urgn_bbox(&rgn, &b);
-        box[0] = (int16_t)b.x; box[1] = (int16_t)b.y;
-        box[2] = (int16_t)(b.x + b.w); box[3] = (int16_t)(b.y + b.h);
-    }
-    w16_paint_begin(w, x);
-    if (erase) erase_owes_children(w, x, box);
-    struct urgn upd;                             // the region kept: the DC takes `rgn`
-    urgn_init(&upd);
-    int kept = all || urgn_copy(&upd, &rgn) == 0;
-    uint16_t hdc = w16_gdi_take_dc(w, x->hwnd);
-    if (!all) w16_gdi_paint_rgn(w, hdc, &rgn);
-    urgn_free(&rgn);
-    if (erase) erased = w16_send(w, x->hwnd, WM_ERASEBKGND, hdc, 0) != 0;
-    if (erased && kept) {                        // what was drawn on the screen over it, erased --
-        pthread_mutex_lock(&w->lock);            // not by a program that swallows the erase (the
-        w16_over_clear(w, x, all ? 0 : &upd);    // Tutorial's Write keeps the tip it drew so)
-        pthread_mutex_unlock(&w->lock);
-    }
-    urgn_free(&upd);
-    w16_gdi_reset_dc(w, hdc);                    // WM_ERASEBKGND may have changed its state
+    int erase = x->erase, erased;
+    int16_t box[4];
+    uint16_t hdc = erase_region(w, x, 1, erase, box, &erased);
     uint8_t ps[32] = { 0 };
     uint16_t v[6] = { hdc, (uint16_t)(erase && !erased), (uint16_t)box[0], (uint16_t)box[1], (uint16_t)box[2],
                       (uint16_t)box[3] };
@@ -733,6 +725,7 @@ static void internal(struct w16 *w, const struct w16_msg *m) {
         w16_menu_opening(w, m->hwnd, m->wparam, (int)m->lparam);
         return;
     }
+    if (m->message == W16_WM_ACTIVATE && !w16_activate_reported(w, m->hwnd, m->wparam != 0)) return;
     if (m->message == W16_WM_ACTIVATE && w16_wnd_get(w, m->hwnd)) {
         // WM_NCACTIVATE first, as 3.1 sent it: an MDI frame's passes it on to its active child.
         w16_send(w, m->hwnd, WM_NCACTIVATE, m->wparam != 0, 0);
@@ -1420,10 +1413,16 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
     }
     case WM_GETTEXTLENGTH:
         return x->text ? (uint32_t)strlen(x->text) : 0;
-    case WM_NCACTIVATE:                          // a child's caption lit or dimmed (3.1's MDI windows hear it)
-        if (w16_child_framed(x) && x->active != (wp != 0)) {
+    case WM_NCACTIVATE:                          // a caption lit or dimmed: 3.1's MDI windows hear it, and
+        if (w16_child_framed(x) && x->active != (wp != 0)) {   // every top-level window's is drawn so
             x->active = wp != 0;
             nc_redraw(w, x);
+        } else if (x->kind != W16_K_CHILD && x->active != (wp != 0)) {
+            pthread_mutex_lock(&w->lock);
+            x->active = wp != 0;
+            pthread_mutex_unlock(&w->lock);
+            if (x == &w->win) w16_task_post(w, W16_POST_PAINT);
+            else w16_task_post_arg(w, W16_POST_DLG_PAINT, x->hwnd);
         }
         return 1;
     case WM_NCLBUTTONDOWN:
