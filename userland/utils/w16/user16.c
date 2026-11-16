@@ -727,6 +727,7 @@ static int late_kind(uint16_t msg) {
 static int next_message(struct w16 *w, const struct msg_filter *f, int remove, int wait_ms,
                         struct w16_msg *m) {
     uint64_t deadline = wait_ms > 0 ? w16_now_ms() + (uint64_t)wait_ms : 0;
+    w->asked_ms = w16_now_ms();
     pthread_mutex_lock(&w->lock);
     for (;;) {
         int found = 0, again = 0;

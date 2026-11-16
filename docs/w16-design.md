@@ -667,7 +667,10 @@ the palette, whose mapping is not yet measured.
    **A benchmark and a Visual Basic 3 program, 2026-11-15**: a benchmark
    (WinBench 3.1) runs -- INT 1Ah as the BIOS clock (`file16.c`), its disk
    test's `_lwrite` from one byte further into its 0xFE00-byte buffer each
-   block done in full as 3.11 did (2026-11-16, `rw()`),
+   block done in full as 3.11 did (2026-11-16, `rw()`), ES zeroed by
+   GlobalFree when it held the block (measured on 3.11), and its phase
+   labels shown while it works for minutes without asking for a message
+   (`w16_gdi_busy_flush`),
    `__0000H` and `__0040H` as ONE memory with a live tick at 0040:006C,
    GetProcAddress answering a KERNEL constant as FFFF:value, resource
    lookup through RT_NAMETABLE, WinHelp's `FILE.HLP>window` form, and

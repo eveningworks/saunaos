@@ -504,6 +504,7 @@ struct w16 {
     uint16_t *wing;                              // wing16.c: every WinG bitmap's handle, grown
     int nwing, wing_cap, wing_pulled;            // ...and how many owe a push
     uint64_t committed_ms;                       // when w16_gdi_flush() last took a frame
+    uint64_t asked_ms;                           // when the program last asked for a message (w16_gdi_busy_flush)
     uint64_t flash_ms;                           // when an inverting window-DC draw last ran (gdi16.c's hold_flash)
     int painting;                                // BeginPaint calls not yet ended: a window DC drawing is a repaint's
     struct w16_timer *timer;                     // set by the task, fired by the main thread;
@@ -677,6 +678,7 @@ void w16_gdi_flush(struct w16 *w);
 // The frame a top-level window shows: its last complete one, else (none
 // yet) its buffer as it is. Under `lock`.
 const uint32_t *w16_shown(const struct w16_wnd *x, int *w, int *h);
+void w16_gdi_busy_flush(struct w16 *w);          // the CPU's tick: a busy program's drawing shown anyway
 void w16_gdi_forget_window(struct w16 *w, uint16_t hwnd);   // its DC goes with it
 // A bitmap made from a packed DIB (header, palette, bits): LoadBitmap's. 0 when malformed.
 uint16_t w16_gdi_bitmap_of_dib(struct w16 *w, const uint8_t *dib, uint32_t len);

@@ -639,6 +639,7 @@ static void task_tick(struct cpu16 *c) {
     static unsigned n;
     w16_wave_interrupt(&g_w16);
     w16_bios_refresh(&g_w16);                    // the BIOS clock a program may poll (0040:006C)
+    w16_gdi_busy_flush(&g_w16);
     if (g_w16_trace && !(++n % TRACE_TICKS)) trace_tick(c);
     w16_stats_tick(c);
 }

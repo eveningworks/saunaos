@@ -163,6 +163,9 @@ file is involved.
     a second row, as 3.11 did WinBench's -- the client under both (WM_SIZE's height), no line between
     the rows, "\b&Help" at the last row's right end, a row-2 title's popup dropped under row 2 -- and a
     DrawMenuBar after two titles are deleted gives one row back, the client a row taller.
+31. **A busy program's drawing is shown** (`busy_draw`, busydraw.exe; gdi16.c's w16_gdi_busy_flush): a
+    black box drawn through GetDC is on the screen while the program then works 8 s without asking for
+    a message, as 3.1 drew straight onto the screen (WinBench's disk test labels).
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1870,6 +1873,29 @@ def menuwrap(dbg, qmp, res, tmp):
     dbg.close_window(MENUWRAP_TITLE)
 
 
+BUSY_TITLE = "Busy draw test"
+
+
+def busy_draw(dbg, qmp, res, tmp):
+    """busydraw.exe draws a black box through GetDC and then spends 8 s without asking for a message:
+    the box must be on the screen during those 8 s, not only once the program asks again."""
+    t0 = time.time()
+    win = dbg.spawn("/bin/w16 /usr/share/w16/busydraw.exe", BUSY_TITLE)
+    res.check("busydraw.exe opens its window", win is not None, "no window")
+    if not win:
+        return
+    cx, cy = win["x"] + FRAME + 70, win["y"] + FRAME + CAPTION + 45      # the box's middle
+    seen, at = None, None
+    while time.time() - t0 < 6:                   # well inside the program's 8 busy seconds
+        im = shot(qmp, f"{tmp}/w16_busy.png")
+        seen, at = im.getpixel((cx, cy)), time.time() - t0
+        if seen == BLACK:
+            break
+    res.check("a box drawn through GetDC shows while the program works without asking for a message",
+              seen == BLACK, f"{seen} at ({cx},{cy}), {at and round(at, 1)} s after the spawn")
+    dbg.close_window(BUSY_TITLE)
+
+
 OWNACT_TITLE = "Owner"
 
 
@@ -3011,6 +3037,7 @@ def main():
               ("fullwin", lambda: fullwin(dbg, qmp, res, TMP)), ("ownact", lambda: ownact(dbg, qmp, res, TMP)),
               ("menukeys", lambda: menukeys(dbg, qmp, res, TMP)),
               ("menuwrap", lambda: menuwrap(dbg, qmp, res, TMP)),
+              ("busy_draw", lambda: busy_draw(dbg, qmp, res, TMP)),
               ("mci", lambda: mci(dbg, qmp, res, TMP)),
               ("colours16", lambda: colours16(dbg, qmp, res, TMP)),
               ("retro_round", lambda: retro_round(dbg, qmp, res)),

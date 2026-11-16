@@ -317,6 +317,20 @@ void w16_gdi_flush(struct w16 *w) {
     w16_task_post(w, W16_POST_PAINT);
 }
 
+// A PROGRAM BUSY WITHOUT ASKING FOR A MESSAGE STILL SHOWS WHAT IT DRAWS, a frame at most every 30 ms
+// once it has not asked for 100 -- 3.1 drew straight onto the screen, and WinBench's disk test labels
+// each phase with GetDC and then reads and writes for minutes. Called from the CPU's tick; a program
+// that asks for messages is shown between them (user16.c's next_message()), as before.
+void w16_gdi_busy_flush(struct w16 *w) {
+    if (!w->fb_dirty || w->painting) return;
+    uint64_t now = w16_now_ms();
+    if (now - w->asked_ms < 100 || now - w->committed_ms < 30) return;
+    pthread_mutex_lock(&w->lock);
+    int owed = w16_wnd_next_paint(w) != 0;       // a window half painted would show its children missing
+    pthread_mutex_unlock(&w->lock);
+    if (!owed) w16_gdi_flush(w);
+}
+
 const uint32_t *w16_shown(const struct w16_wnd *x, int *w, int *h) {
     if (x->shown) { *w = x->shw; *h = x->shh; return x->shown; }
     *w = x->fbw;
