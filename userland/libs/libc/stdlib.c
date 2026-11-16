@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "rt/sys.h"
+#include "rt/ulock.h"
 #include <errno.h>
 #include <signal.h>
 #include <float.h>
@@ -59,10 +60,8 @@ static struct exit_block *g_exit_top = &g_exit0;
 static volatile int g_exit_lock;
 static int g_exiting; // exit() called from inside a handler: run no more
 
-static void exit_lock(void) {
-    while (__atomic_exchange_n(&g_exit_lock, 1, __ATOMIC_ACQUIRE)) sys_yield();
-}
-static void exit_unlock(void) { __atomic_store_n(&g_exit_lock, 0, __ATOMIC_RELEASE); }
+static void exit_lock(void)   { ulock_take(&g_exit_lock); }
+static void exit_unlock(void) { ulock_drop(&g_exit_lock); }
 
 static int exit_push(const struct exit_fn *e) {
     exit_lock();

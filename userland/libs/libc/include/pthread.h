@@ -19,10 +19,6 @@
 //     exits -- nothing can safely free memory a dying thread is still
 //     standing on, which is what Linux's CLONE_CHILD_CLEARTID futex
 //     wake exists to solve. Join a thread if you want its memory back.
-//   - **A MUTEX SPINS AND YIELDS** rather than blocking: the futex it
-//     could park on exists, and this has not been moved onto it.
-//     Correct under this preemptive scheduler, and it costs the waiter
-//     its timeslice.
 //   - **CANCELLATION IS DEFERRED, AND HONOURED IN THREE PLACES ONLY**:
 //     pthread_testcancel(), pthread_cond_wait() and
 //     pthread_cond_timedwait(). The blocking calls POSIX also makes
@@ -72,7 +68,7 @@ typedef struct {
 } pthread_mutexattr_t;
 
 typedef struct {
-    volatile int locked;
+    volatile int locked; // 0 free, 1 held, 2 held and waited on (rt/ulock.h)
     int          owner;  // tid, for the recursion check; 0 when free
     int          type;   // PTHREAD_MUTEX_*
     int          count;  // a RECURSIVE mutex's depth
@@ -104,17 +100,19 @@ typedef struct {
 // wait behind it, so a stream of readers cannot starve it. A thread
 // that read-locks again while a writer waits therefore waits on itself
 // -- POSIX leaves that case to the implementation, and glibc's
-// writer-preferring kind does the same. Spin-and-yield, like a mutex.
+// writer-preferring kind does the same. A waiter parks on a futex.
 typedef struct {
     volatile int lock;      // guards the three counts below
     int readers;            // holding a read lock
     int writer;             // the tid holding the write lock, or 0
     int writers_waiting;
+    volatile unsigned seq;  // bumped at every release; waiters park on it
+    volatile int parked;    // waiters parked on seq
 } pthread_rwlock_t;
 
 typedef struct { int unused; } pthread_rwlockattr_t;
 
-#define PTHREAD_RWLOCK_INITIALIZER { 0, 0, 0, 0 }
+#define PTHREAD_RWLOCK_INITIALIZER { 0, 0, 0, 0, 0, 0 }
 
 // THREAD-SPECIFIC DATA. A key is an index that is never reused, so a
 // value set under a deleted key can never be read back under a new one;

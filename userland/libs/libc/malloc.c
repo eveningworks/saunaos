@@ -28,6 +28,7 @@
 #include <string.h>
 #include <heap.h>
 #include "rt/sys.h"
+#include "rt/ulock.h"
 
 #define SLAB_SPAN    (64u * 1024u)
 #define SLAB_MAX     1024u
@@ -56,12 +57,8 @@ static volatile int g_lock;
 // The same shape as heap_os_lock(), and a DIFFERENT lock: a span comes
 // from kmalloc(), which takes that one. The order is always this lock,
 // then the heap's.
-static void lock(void) {
-    while (__atomic_exchange_n(&g_lock, 1, __ATOMIC_ACQUIRE))
-        sys_yield();
-}
-
-static void unlock(void) { __atomic_store_n(&g_lock, 0, __ATOMIC_RELEASE); }
+static void lock(void)   { ulock_take(&g_lock); }
+static void unlock(void) { ulock_drop(&g_lock); }
 
 static void push(struct span *s) {
     s->prev = 0;

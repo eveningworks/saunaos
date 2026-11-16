@@ -33,6 +33,7 @@
 #include <fcntl.h>   // open() -- fopen goes through it
 #include <stdlib.h>
 #include "rt/sys.h"
+#include "rt/ulock.h"
 #include "syscall_abi.h"
 #include <errno.h>
 #include "tmppath.h"   // TMP_DIR_DEFAULT, and enum tmp_kind
@@ -173,9 +174,7 @@ static void decide_buffering(FILE *f) {
 static void *lock_id(void) { return (void *)__errno_location(); }
 
 
-// Spin-then-yield, the same shape as the ring-3 heap lock
-// (userland/libs/libc/heap_os.c): there is no futex wait in this library yet
-// and a stdio critical section is short.
+// A RECURSIVE lock, glibc's _IO_lock_t: a ulock plus its owner and depth.
 static void lock_stream(FILE *f) {
     void *me = lock_id();
     // **READ ATOMICALLY: this one runs WITHOUT the lock held.** It asks
@@ -188,8 +187,7 @@ static void lock_stream(FILE *f) {
         f->lock_depth++;
         return;
     }
-    while (__atomic_exchange_n(&f->lock_flag, 1, __ATOMIC_ACQUIRE))
-        sys_yield();
+    ulock_take(&f->lock_flag);
     __atomic_store_n(&f->lock_owner, me, __ATOMIC_RELAXED);
     f->lock_depth = 1;
 }
@@ -197,7 +195,7 @@ static void lock_stream(FILE *f) {
 static void unlock_stream(FILE *f) {
     if (--f->lock_depth > 0) return;
     __atomic_store_n(&f->lock_owner, (void *)0, __ATOMIC_RELAXED);
-    __atomic_store_n(&f->lock_flag, 0, __ATOMIC_RELEASE);
+    ulock_drop(&f->lock_flag);
 }
 
 // THE TABLE, not a stream: fopen() scanning the pool for a free slot and
@@ -205,13 +203,8 @@ static void unlock_stream(FILE *f) {
 // to lock.
 static volatile int g_table_flag;
 
-static void lock_table(void) {
-    while (__atomic_exchange_n(&g_table_flag, 1, __ATOMIC_ACQUIRE))
-        sys_yield();
-}
-static void unlock_table(void) {
-    __atomic_store_n(&g_table_flag, 0, __ATOMIC_RELEASE);
-}
+static void lock_table(void)   { ulock_take(&g_table_flag); }
+static void unlock_table(void) { ulock_drop(&g_table_flag); }
 
 // POSIX's explicit locking, so a caller can make a SEQUENCE of stdio
 // calls atomic rather than each one separately -- which is the only way
@@ -225,7 +218,7 @@ int ftrylockfile(FILE *f) {
         f->lock_depth++;
         return 0;
     }
-    if (__atomic_exchange_n(&f->lock_flag, 1, __ATOMIC_ACQUIRE)) return -1;
+    if (!ulock_try(&f->lock_flag)) return -1;
     __atomic_store_n(&f->lock_owner, me, __ATOMIC_RELAXED);
     f->lock_depth = 1;
     return 0;

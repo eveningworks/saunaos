@@ -11,6 +11,7 @@
 #include <string.h>
 #include <errno.h>
 #include "rt/sys.h"
+#include "rt/ulock.h"
 
 struct pthread {
     int    tid;
@@ -237,8 +238,7 @@ int pthread_mutex_lock(pthread_mutex_t *m) {
         // Not recursive: a relock says so rather than deadlocking.
         return EDEADLK;
     }
-    while (__atomic_exchange_n(&m->locked, 1, __ATOMIC_ACQUIRE))
-        sys_yield();
+    ulock_take(&m->locked);
     m->owner = me;
     m->count = 1;
     return 0;
@@ -251,7 +251,7 @@ int pthread_mutex_trylock(pthread_mutex_t *m) {
         m->count++;
         return 0;
     }
-    if (__atomic_exchange_n(&m->locked, 1, __ATOMIC_ACQUIRE)) return EBUSY;
+    if (!ulock_try(&m->locked)) return EBUSY;
     m->owner = me;
     m->count = 1;
     return 0;
@@ -264,7 +264,7 @@ int pthread_mutex_unlock(pthread_mutex_t *m) {
     if (m->type == PTHREAD_MUTEX_RECURSIVE && --m->count > 0) return 0;
     m->owner = 0;
     m->count = 0;
-    __atomic_store_n(&m->locked, 0, __ATOMIC_RELEASE);
+    ulock_drop(&m->locked);
     return 0;
 }
 
@@ -387,9 +387,13 @@ int pthread_once(pthread_once_t *once, void (*fn)(void)) {
                                      __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)) {
         fn();
         __atomic_store_n(&once->done, 2, __ATOMIC_RELEASE);
+        sys_futex_wake((volatile uint32_t *)&once->done, 0);
         return 0;
     }
-    while (__atomic_load_n(&once->done, __ATOMIC_ACQUIRE) != 2) sys_yield();
+    // Parked on the word until the runner stores 2 and wakes everyone.
+    int v;
+    while ((v = __atomic_load_n(&once->done, __ATOMIC_ACQUIRE)) != 2)
+        sys_futex_wait((volatile uint32_t *)&once->done, (uint32_t)v, 0);
     return 0;
 }
 
@@ -435,13 +439,41 @@ void __pthread_cleanup_pop(struct __pthread_cleanup *c, int execute) {
 
 // --- read-write locks ------------------------------------------------
 //
-// The counts change only under `lock`, a test-and-set taken for a few
-// instructions; waiting happens OUTSIDE it, yielding between looks.
+// The counts change only under `lock`, a ulock held for a few
+// instructions. Waiting happens OUTSIDE it, parked on `seq`: every
+// release bumps it, and a waiter samples it BEFORE its failed try, so a
+// release in between makes the park return at once -- the condition
+// variable's argument. The wake is skipped while `parked` is 0; the
+// waiter raises `parked` before the kernel reads `seq` and the releaser
+// bumps `seq` before reading `parked` (both full barriers), so one of
+// the two always sees the other.
 
-static void rw_take(pthread_rwlock_t *l) {
-    while (__atomic_exchange_n(&l->lock, 1, __ATOMIC_ACQUIRE)) sys_yield();
+static void rw_take(pthread_rwlock_t *l) { ulock_take(&l->lock); }
+static void rw_drop(pthread_rwlock_t *l) { ulock_drop(&l->lock); }
+
+static void rw_changed(pthread_rwlock_t *l) {
+    __atomic_add_fetch(&l->seq, 1, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&l->parked, __ATOMIC_SEQ_CST))
+        sys_futex_wake((volatile uint32_t *)&l->seq, 0);
 }
-static void rw_drop(pthread_rwlock_t *l) { __atomic_store_n(&l->lock, 0, __ATOMIC_RELEASE); }
+
+// Parked until `seq` moves from `seen`, or until the deadline (NULL: no
+// deadline). ETIMEDOUT once it has passed, else 0 -- the caller re-tries.
+static int rw_park(pthread_rwlock_t *l, unsigned seen, const struct timespec *abstime) {
+    int ms = 0;
+    if (abstime) {
+        struct timespec now;
+        if (clock_gettime(CLOCK_REALTIME, &now) != 0) return 0;
+        if (ts_reached(&now, abstime)) return ETIMEDOUT;
+        int64_t left = (int64_t)(abstime->tv_sec - now.tv_sec) * 1000 +
+                       (abstime->tv_nsec - now.tv_nsec) / 1000000;
+        ms = left < 1 ? 1 : left > 1000000 ? 1000000 : (int)left;
+    }
+    __atomic_add_fetch(&l->parked, 1, __ATOMIC_SEQ_CST);
+    sys_futex_wait((volatile uint32_t *)&l->seq, seen, ms);
+    __atomic_sub_fetch(&l->parked, 1, __ATOMIC_SEQ_CST);
+    return 0;
+}
 
 int pthread_rwlockattr_init(pthread_rwlockattr_t *a) { return a ? 0 : EINVAL; }
 int pthread_rwlockattr_destroy(pthread_rwlockattr_t *a) { return a ? 0 : EINVAL; }
@@ -451,6 +483,8 @@ int pthread_rwlock_init(pthread_rwlock_t *l, const pthread_rwlockattr_t *attr) {
     if (!l) return EINVAL;
     l->lock = 0;
     l->readers = l->writer = l->writers_waiting = 0;
+    l->seq = 0;
+    l->parked = 0;
     return 0;
 }
 
@@ -480,13 +514,11 @@ static int wr_try(pthread_rwlock_t *l, int me) {
 static int rd_wait(pthread_rwlock_t *l, const struct timespec *abstime) {
     if (!l) return EINVAL;
     if (l->writer == sys_gettid()) return EDEADLK;
-    while (rd_try(l) != 0) {
-        struct timespec now;
-        if (abstime && clock_gettime(CLOCK_REALTIME, &now) == 0 && ts_reached(&now, abstime))
-            return ETIMEDOUT;
-        sys_yield();
+    for (;;) {
+        unsigned seen = __atomic_load_n(&l->seq, __ATOMIC_ACQUIRE);
+        if (rd_try(l) == 0) return 0;
+        if (rw_park(l, seen, abstime)) return ETIMEDOUT;
     }
-    return 0;
 }
 
 static int wr_wait(pthread_rwlock_t *l, const struct timespec *abstime) {
@@ -497,17 +529,16 @@ static int wr_wait(pthread_rwlock_t *l, const struct timespec *abstime) {
     l->writers_waiting++;
     rw_drop(l);
     int rc = 0;
-    while (wr_try(l, me) != 0) {
-        struct timespec now;
-        if (abstime && clock_gettime(CLOCK_REALTIME, &now) == 0 && ts_reached(&now, abstime)) {
-            rc = ETIMEDOUT;
-            break;
-        }
-        sys_yield();
+    for (;;) {
+        unsigned seen = __atomic_load_n(&l->seq, __ATOMIC_ACQUIRE);
+        if (wr_try(l, me) == 0) break;
+        if ((rc = rw_park(l, seen, abstime)) != 0) break;
     }
     rw_take(l);
     l->writers_waiting--;
     rw_drop(l);
+    // A writer that gives up may be what readers were queued behind.
+    if (rc) rw_changed(l);
     return rc;
 }
 
@@ -530,6 +561,7 @@ int pthread_rwlock_unlock(pthread_rwlock_t *l) {
     else if (l->readers > 0) l->readers--;
     else rc = EPERM;
     rw_drop(l);
+    if (!rc) rw_changed(l);
     return rc;
 }
 
@@ -537,7 +569,7 @@ int pthread_rwlock_unlock(pthread_rwlock_t *l) {
 //
 // The key table grows and its slots are never reused (see <pthread.h>);
 // each thread's value array grows on its first pthread_setspecific()
-// past the end. The table's lock is the same spin-and-yield as a mutex.
+// past the end. The table's lock is a ulock, as a mutex is.
 
 struct tsd_key {
     int used;
@@ -548,10 +580,8 @@ static struct tsd_key *g_keys;
 static unsigned g_nkeys, g_keycap;
 static volatile int g_keylock;
 
-static void key_lock(void) {
-    while (__atomic_exchange_n(&g_keylock, 1, __ATOMIC_ACQUIRE)) sys_yield();
-}
-static void key_unlock(void) { __atomic_store_n(&g_keylock, 0, __ATOMIC_RELEASE); }
+static void key_lock(void)   { ulock_take(&g_keylock); }
+static void key_unlock(void) { ulock_drop(&g_keylock); }
 
 int pthread_key_create(pthread_key_t *key, void (*destructor)(void *)) {
     if (!key) return EINVAL;

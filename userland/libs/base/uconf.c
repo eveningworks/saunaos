@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "base/uconf.h"
 #include "rt/sys.h"
+#include "rt/ulock.h"
 #include <string.h>
 #include <stdio.h>   // snprintf, for the said-once lines
 
@@ -117,11 +118,8 @@ static volatile int g_lock;          // a process may ask from two threads (webc
 static volatile int g_count_tid;
 static unsigned long long g_tid_reads;
 
-static void lock(void) {
-    while (__atomic_exchange_n(&g_lock, 1, __ATOMIC_ACQUIRE)) sys_yield();
-}
-
-static void unlock(void) { __atomic_store_n(&g_lock, 0, __ATOMIC_RELEASE); }
+static void lock(void)   { ulock_take(&g_lock); }
+static void unlock(void) { ulock_drop(&g_lock); }
 
 uint32_t uconf_cache_set_cap(uint32_t bytes) {
     lock();

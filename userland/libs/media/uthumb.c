@@ -234,9 +234,8 @@ static int thumb_produce(struct thumb_job *j) {
 
 // **ONE WORKER FOR THE PROCESS'S LIFE, NEVER ONE PER DECODE.** A thread
 // per thumbnail is the obvious shape and it degrades the whole machine
-// here: a detached thread's stack reclaim still SPINS AND YIELDS
-// (docs/roadmap.md), so every finished decode leaves something burning a
-// scheduler slot. Measured: filemanager_test.py went from 1 failure to
+// here: a detached thread's stack is never reclaimed (<pthread.h>), so
+// every finished decode leaves its stack behind. Measured: filemanager_test.py went from 1 failure to
 // 22 with a thread per decode and back with this.
 //
 // IT PARKS BY SLEEPING (chosen while pthread_cond_wait spun; it parks on a

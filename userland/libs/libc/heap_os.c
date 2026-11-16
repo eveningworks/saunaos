@@ -20,6 +20,7 @@
 // at the page it cannot be given, not at the malloc().
 #include "heap_os.h"
 #include "rt/sys.h"
+#include "rt/ulock.h"
 
 // glibc's M_MMAP_THRESHOLD default.
 #define MMAP_THRESHOLD (128u * 1024u)
@@ -69,22 +70,15 @@ int heap_os_should_fail_alloc(void) { return 0; }
 // kernel thread, this needs a lock first"); threads are that caller,
 // arriving on the ring-3 side.
 //
-// A SPIN THAT YIELDS, not a futex: `SYS_FUTEX_WAIT` exists and this has
-// not been moved onto it (docs/roadmap.md). Correct under a preemptive round-robin scheduler,
-// because the holder is always eventually run, and cheap in the case
-// that matters -- an uncontended acquire is one atomic exchange, which
-// is what every single-threaded program in this system pays.
-//
-// The acquire/release ordering is not decoration on x86-64's TSO: the
-// COMPILER is what would otherwise hoist a list read out of the
-// critical section.
+// A ulock (rt/ulock.h): an uncontended acquire is one compare-and-swap,
+// which is what every single-threaded program in this system pays, and
+// a waiter parks rather than spinning.
 static volatile int g_heap_lock;
 
 void heap_os_lock(void) {
-    while (__atomic_exchange_n(&g_heap_lock, 1, __ATOMIC_ACQUIRE))
-        sys_yield();
+    ulock_take(&g_heap_lock);
 }
 
 void heap_os_unlock(void) {
-    __atomic_store_n(&g_heap_lock, 0, __ATOMIC_RELEASE);
+    ulock_drop(&g_heap_lock);
 }

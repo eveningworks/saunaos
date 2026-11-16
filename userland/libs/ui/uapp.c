@@ -1,6 +1,7 @@
 // See ui/uapp.h for what this is and why.
 #include "ui/uapp_internal.h"
 #include "base/uutf8.h"   // a title cut between characters
+#include "rt/ulock.h"
 #include <errno.h>
 
 // One process, one TOPLEVEL -- plus its popups, which are surfaces of
@@ -100,8 +101,8 @@ static unsigned g_post_head, g_post_tail;   // free-running, like uchan's
 static volatile int g_post_lock;
 static void loop_kick(void);
 
-static void post_lock(void)   { while (__atomic_exchange_n(&g_post_lock, 1, __ATOMIC_ACQUIRE)) sys_yield(); }
-static void post_unlock(void) { __atomic_store_n(&g_post_lock, 0, __ATOMIC_RELEASE); }
+static void post_lock(void)   { ulock_take(&g_post_lock); }
+static void post_unlock(void) { ulock_drop(&g_post_lock); }
 
 static int post_take(int *a0, int *a1) {
     post_lock();

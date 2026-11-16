@@ -238,6 +238,66 @@ static void *key_worker(void *arg) {
     return NULL;
 }
 
+// A WAITER ON A HELD LOCK IS PARKED: blocked on a futex, and charged
+// next to no CPU while the holder sleeps. A lock that spins on
+// sys_yield() passes every other check in this file -- it is correct,
+// only never asleep, and it took a third of the CPU from an idle desktop.
+static volatile int g_park_tid, g_park_got;
+static void *park_mutex(void *arg) {
+    g_park_tid = sys_gettid();
+    pthread_mutex_lock((pthread_mutex_t *)arg);
+    g_park_got = 1;
+    pthread_mutex_unlock((pthread_mutex_t *)arg);
+    return NULL;
+}
+static void *park_wrlock(void *arg) {
+    g_park_tid = sys_gettid();
+    pthread_rwlock_wrlock((pthread_rwlock_t *)arg);
+    g_park_got = 1;
+    pthread_rwlock_unlock((pthread_rwlock_t *)arg);
+    return NULL;
+}
+static void *park_stream(void *arg) {
+    g_park_tid = sys_gettid();
+    flockfile((FILE *)arg);
+    g_park_got = 1;
+    funlockfile((FILE *)arg);
+    return NULL;
+}
+
+static int slot_of(int tid, struct proc_info *out) {
+    for (int i = 0; sys_proc_info(i, out) == 0; i++)
+        if (out->pid == tid) return i;
+    return -1;
+}
+
+#define PARK_WINDOW_MS 300
+#define PARK_CPU_MAX_NS (30ull * 1000 * 1000)   // a tenth of the window
+
+// Starts `fn` on a lock the caller holds, and reports whether it sat
+// parked through the window. The caller then releases and joins.
+static int parks(void *(*fn)(void *), void *arg, pthread_t *t, const char *what) {
+    g_park_tid = 0;
+    g_park_got = 0;
+    if (pthread_create(t, NULL, fn, arg) != 0) {
+        utest_checkf(0, "a waiter on a held %s started", what);
+        return 0;
+    }
+    while (!g_park_tid) sys_sleep_ms(1);
+    sys_sleep_ms(50);                       // into the lock and parked
+    struct proc_info a, b;
+    int slot = slot_of(g_park_tid, &a);
+    sys_sleep_ms(PARK_WINDOW_MS);
+    int ok = slot >= 0 && sys_proc_info(slot, &b) == 0 && b.pid == g_park_tid;
+    uint64_t used = ok ? b.cpu_ns - a.cpu_ns : 0;
+    utest_checkf(ok && b.state == PROC_STATE_BLOCKED && b.wait_reason == PROC_WAIT_FUTEX &&
+                 !g_park_got && used < PARK_CPU_MAX_NS,
+                 "a waiter on a held %s is parked on a futex (state %u, wait %u, "
+                 "%llu us of CPU in %d ms)", what, ok ? b.state : 0u, ok ? b.wait_reason : 0u,
+                 (unsigned long long)(used / 1000), PARK_WINDOW_MS);
+    return 1;
+}
+
 static void *forever(void *arg) {
     (void)arg;
     for (;;) sys_yield();
@@ -479,6 +539,32 @@ int main(void) {
                      r, (long long)(waited / 1000000));
         utest_check(pthread_mutex_unlock(&tm) == 0,
                     "...holding the mutex again");
+    }
+
+    {
+        pthread_t t;
+        pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+        pthread_mutex_lock(&m);
+        if (parks(park_mutex, &m, &t, "mutex")) {
+            pthread_mutex_unlock(&m);
+            pthread_join(t, NULL);
+            utest_check(g_park_got, "...and takes the mutex once it is released");
+        }
+
+        pthread_rwlock_t rw = PTHREAD_RWLOCK_INITIALIZER;
+        pthread_rwlock_rdlock(&rw);
+        if (parks(park_wrlock, &rw, &t, "read-write lock")) {
+            pthread_rwlock_unlock(&rw);
+            pthread_join(t, NULL);
+            utest_check(g_park_got, "...and the writer gets in once the reader leaves");
+        }
+
+        flockfile(stdout);
+        if (parks(park_stream, stdout, &t, "stdio stream")) {
+            funlockfile(stdout);
+            pthread_join(t, NULL);
+            utest_check(g_park_got, "...and locks the stream once it is released");
+        }
     }
 
     // A THREAD LEFT RUNNING AT EXIT, on purpose and never joined.

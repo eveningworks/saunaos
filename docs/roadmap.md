@@ -237,7 +237,7 @@ only expensive part of it.
 - [ ] **NEXT** A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first
 - [x] ~~`/dev/null`~~ DONE 2026-11-11 -- with `/dev/zero` and `/dev/[u]random`, found by name in `sys_open()`
 - [ ] A `/dev` that lists and `stat()`s -- the devices are names `sys_open()` knows, so `ls /dev` is empty and `stat("/dev/null")` ENOENT
-- [ ] tolibc's mutex, rwlock and stdio locks park on a futex -- they spin on `sys_yield()` while held, as the condvar did
+- [x] ~~tolibc's mutex, rwlock and stdio locks park on a futex~~ DONE 2026-11-16 -- one `rt/ulock.h` for every ring-3 lock, malloc's too
 - [ ] **NEXT** `execl`/`execlp` in tolibc
 - [ ] **NEXT** The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob
 - [x] ~~`brk`-style growable per-process heap~~ DONE -- `SYS_SBRK` reserves and `uheap_fault()` maps on touch; the heap is per process
@@ -324,7 +324,7 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [x] ~~User threads (a second thread sharing one address space)~~ DONE 2026-08-26 -- a slot whose `tgid` names another
 - [x] ~~Thread-local storage (FS.base)~~ DONE 2026-08-26 -- `__thread` in ring 3, a per-thread errno, reloaded on every switch
 - [x] ~~A futex, so a mutex can BLOCK~~ DONE 2026-09-08 -- `SYS_FUTEX_WAIT`/`WAKE`, keyed on the FRAME so shm works
-- [ ] Put tolibc's mutex and a detached thread's stack reclaim on the futex -- both still spin and yield
+- [ ] Reclaim a detached thread's stack -- leaked until its process exits; Linux's `CLONE_CHILD_CLEARTID` is the shape
 - [x] ~~Image Viewer decodes on a worker thread~~ DONE 2026-09-16 -- one at a time, a later request supersedes it
 - [x] ~~File Manager thumbnails decode on a worker thread, with no batch size~~ DONE 2026-09-17 -- measured 24/s against the old 4/s ceiling
 - [x] ~~A thumbnail cache that survives a reboot~~ DONE 2026-09-17 -- `/var/cache/thumbnails`, one QOI named after its source
