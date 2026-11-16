@@ -31,6 +31,17 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   (Package)`, AMI's `Return (GPRW (gpe, state))`) are decoded, anything
   else is reported unread. On the ASUS all 17 were Methods and none
   woke from S5.
+- **`font_compare.py`** (+ `font_compare.c`) -- small text from the
+  tree's own `ttf.c`, compiled for the host, beside FreeType's LIGHT
+  AUTOHINTER (the vertical-only hinting SaunaOS's autohinter is built to
+  match), as PNG sheets: real UI strings at 9-14 px in `utheme_default()`'s
+  colours, per variant (sub-scanline count, renderer, sRGB / gamma 1.8 /
+  linear-light blend), at 1x and a 3x zoom, plus `compare.png` side by
+  side. Every renderer is laid out with ttf.c's advances and kerning, so
+  two sheets differ only in the glyphs' pixels. It is how the 2026-11-16
+  hinting canvas was made, and the oracle for the autohinter. Judge the 1x
+  sheets at ACTUAL PIXELS. Needs gcc and Pillow; the FreeType variants
+  need `pkg-config freetype2` and are skipped without it.
 - **`backup_repo.sh`** -- a complete, verifiable backup of the GitHub
   repo: mirror clone, a bundle of LOCAL refs (catching branches never
   pushed), **every release asset**, and the repo/PR/issue metadata.

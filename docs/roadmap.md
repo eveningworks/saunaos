@@ -1765,7 +1765,7 @@ Things this OS does not do yet, or does in a way worth improving --
 `docs/bugs.md`; the test is "is something broken?", not "would I like
 this to be better?".
 
-- [ ] Accents on CAPITALS are clipped at the top of the session font's squeezed cell -- A-acute and A-diaeresis look alike
+- [ ] A capital's accent loses its faint top row in DejaVu Sans Mono at some sizes, and more in the console's squeezed baked cell
 - [ ] The image cache keeps an exited program's text until reboot -- reclaiming it wants a per-frame map count
 - [ ] The image cache misses a write through a hard link made from outside `/bin`, `/lib`, `/tests` -- a key by inode fixes it
 - [ ] Remove `rename_from_toy_os()` once no installed machine can still have `/etc/toyos.conf` -- one `exists` per name per mount until then

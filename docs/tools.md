@@ -526,6 +526,7 @@ Full entries: [`docs/tools/dev.md`](tools/dev.md).
 - `aml_walk.py` -- Walk a DSDT dump on the host and say how its PCI interrupt routing is
 - `backup_repo.sh` -- Take a complete, restore-tested backup of the GitHub repository
 - `code_identity.py` -- Do two builds contain the same code? The check after a source-tree move
+- `font_compare.py` -- small text from SaunaOS's rasterizer, beside a reference
 - `kdebug_bridge.py` -- Carry GDB to the kernel debugger's NETWORK transport
 - `loc.py` -- how big is this project, honestly
 - `mutate.py` -- A positive control, done safely: break the code on purpose, show the test goes red
