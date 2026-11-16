@@ -229,8 +229,8 @@ regular outlines where a family has none, which is what GDI does.
 Because the whole UI is font-*derived*, changing the face or size
 reflows everything, live, without restarting anything.
 
-Fonts come in **two tiers**. The session font is rasterized once in the
-kernel and mapped read-only into every window, so all text matches the
+Fonts come in **two tiers**. The session font is rasterized once by
+`/bin/fontd`, a sandboxed ring-3 service, and mapped read-only into every window, so all text matches the
 desktop's setting by construction rather than by each app being
 careful. An app needing something that font cannot express rasterizes
 it *itself*, in ring 3, with the same rasterizer — what every Wayland
