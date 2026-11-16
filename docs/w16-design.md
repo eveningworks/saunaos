@@ -562,7 +562,7 @@ the palette, whose mapping is not yet measured.
    a journal hook's HC_SKIP waits until the program has taken the event it
    played, so a hook that unhooks and posts on its last one has its click
    arrive first. Walked with the Windows Tutorial's Windows Basics to its
-   Minimize page (2026-11-05) and on through its sizing exercise (2026-11-08), each page within the pointers, TrueType's
+   Minimize page (2026-11-05), on through its sizing exercise (2026-11-08) and to its last page (2026-11-16), each page within the pointers, TrueType's
    anti-aliasing, a polygon region's edge a pixel off 3.11's along part of
    the Tutorial's arrows (neither pixel centres nor integer scan lines fit
    both arrows measured), and a disabled push button's label a pixel off
