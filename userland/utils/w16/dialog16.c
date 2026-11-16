@@ -188,12 +188,14 @@ struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32
 }
 
 // CS_BYTEALIGNCLIENT and CS_BYTEALIGNWINDOW, as 3.1 placed such a window: its client area's (or its
-// own) left edge on the next byte of a planar screen -- a multiple of 8 -- the window moved right to put
-// it there. The Windows Tutorial's Program Manager, asked for at 304 with a 4-pixel frame, is at 308.
+// own) left edge on the NEAREST byte of a planar screen -- a multiple of 8, a remainder of 4 going up
+// (dlgplace.exe on 3.11: asked at 33 35 36 38, at 32 32 40 40). A dialog is one: #32770 is
+// CS_BYTEALIGNWINDOW.
+int w16_byte_align(int edge) { return ((edge + 4) & ~7) - edge; }
+
 static int byte_aligned(const struct w16 *w, const struct w16_wnd *d, int x) {
     unsigned cs = d->cls >= 0 && d->cls < w->ncls ? w->cls[d->cls].style : 0;
-    int edge = cs & 0x1000 ? x + frame_of_wnd(d) : cs & 0x2000 ? x : -1;
-    return edge < 0 ? x : x + ((8 - (edge & 7)) & 7);
+    return cs & 0x1000 ? x + w16_byte_align(x + frame_of_wnd(d)) : cs & 0x2000 ? x + w16_byte_align(x) : x;
 }
 
 struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_t style, int x, int y, int cx,
@@ -343,8 +345,8 @@ static struct w16_wnd *dlg_main(struct w16 *w, int k, uint32_t style, int cw, in
 
 // Where a dialog's template puts it, in screen coordinates: its x, y are its CLIENT AREA's, from the
 // owner's client area (the screen's with DS_ABSALIGN), the window its frame and caption further out,
-// and then moved wholly onto the screen -- Wine's DIALOG_CreateIndirect. Against 3.11 (Notepad's Page
-// Setup) y lands on the pixel and x 3 short.
+// moved wholly onto the screen -- Wine's DIALOG_CreateIndirect -- and then byte-aligned as its class
+// asks, as 3.1's CreateWindow did (the Windows Tutorial's Open dialog: asked at 250, at 248).
 static void place_from_template(struct w16 *w, struct w16_wnd *d, uint16_t owner, uint32_t style, int px, int py) {
     px -= w16_dlg_frame(d);
     py -= w16_dlg_frame_top(d) + w16_dlg_caption(d);
@@ -359,7 +361,7 @@ static void place_from_template(struct w16 *w, struct w16_wnd *d, uint16_t owner
     }
     if (px + d->w > W16_SCREEN_W) px = W16_SCREEN_W - d->w;
     if (py + d->h > W16_SCREEN_H) py = W16_SCREEN_H - d->h;
-    d->x = px > 0 ? px : 0;
+    d->x = byte_aligned(w, d, px > 0 ? px : 0);
     d->y = py > 0 ? py : 0;
     d->placed = 1;
 }

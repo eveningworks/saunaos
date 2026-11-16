@@ -17,7 +17,9 @@ RESOURCES come from directives too, so a test program stays one text file:
     ;w16: row 1 00112200                           (its rows, top first, one
                                                     hex digit a pixel)
     ;w16: dialog 100 0 0 120 60 0x80c00000 "Caption"   (RT_DIALOG: x y w h in
-                                                    dialog units, its style)
+                                                    dialog units, its style; a
+                                                    `font 8 "Helv"` after it sets
+                                                    DS_SETFONT and writes the font)
     ;w16: control 100 EDIT 10 8 8 50 12 0x50810000 ""  (a control of dialog 100:
                                                     class, id, x y w h, style, text)
     ;w16: menu 200                                  (RT_MENU, then its parts,
@@ -115,9 +117,12 @@ def directives(path):
             bid, row = val.split()
             d["bitmaps"][int(bid, 0)]["rows"].append([int(ch, 16) for ch in row])
         elif key == "dialog":
-            did, x, y, w, h, style, caption = shlex.split(val)
+            did, x, y, w, h, style, caption, *font = shlex.split(val)
+            if font and (len(font) != 3 or font[0] != "font"):
+                sys.exit(f"gen_ne: a dialog's tail is `font PT FACE`, not {font}")
             d["dialogs"][int(did, 0)] = {"rect": [int(v, 0) for v in (x, y, w, h)],
-                                         "style": int(style, 0), "caption": caption, "controls": []}
+                                         "style": int(style, 0) | (0x40 if font else 0), "caption": caption,
+                                         "font": (int(font[1], 0), font[2]) if font else None, "controls": []}
         elif key == "control":
             did, cls, cid, x, y, w, h, style, text = shlex.split(val)
             d["dialogs"][int(did, 0)]["controls"].append(
@@ -311,6 +316,8 @@ def dialog_template(dlg):
     x, y, w, h = dlg["rect"]
     out = struct.pack("<IBhhhh", dlg["style"], len(dlg["controls"]), x, y, w, h)
     out += b"\0\0" + dlg["caption"].encode("latin-1") + b"\0"
+    if dlg.get("font"):                                   # DS_SETFONT: its point size, then its face
+        out += struct.pack("<H", dlg["font"][0]) + dlg["font"][1].encode("latin-1") + b"\0"
     for cls, cid, (cx, cy, cw, ch), style, text in dlg["controls"]:
         if cls not in CLASSES:
             sys.exit(f"gen_ne: a dialog control's class {cls} is not one of {sorted(CLASSES)}")

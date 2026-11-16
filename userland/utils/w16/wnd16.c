@@ -577,8 +577,8 @@ void w16_wnd_to_bottom(struct w16 *w, struct w16_wnd *x) {
 }
 
 // CS_BYTEALIGNCLIENT and CS_BYTEALIGNWINDOW on a child, as 3.1 placed one: its client area's (or its
-// own) left edge ON THE SCREEN on the next multiple of 8, the window moved right to put it there --
-// the Windows Tutorial's Accessories group, asked for at 0 in its Program Manager, is at 4.
+// own) left edge ON THE SCREEN on the nearest multiple of 8 (w16_byte_align()) -- the Windows
+// Tutorial's Accessories group, asked for at 0 in its Program Manager, is at 4.
 int w16_byte_align_child(struct w16 *w, const struct w16_wnd *x, int nx) {
     unsigned cs = x->cls >= 0 && x->cls < w->ncls ? w->cls[x->cls].style : 0;
     struct w16_wnd *p = (cs & 0x3000) ? w16_wnd_get(w, x->parent) : 0;
@@ -586,8 +586,7 @@ int w16_byte_align_child(struct w16 *w, const struct w16_wnd *x, int nx) {
     int px, py, l, t, r, b;
     w16_screen_offset(w, p, &px, &py);
     w16_wnd_insets(x, &l, &t, &r, &b);
-    int edge = px + nx + (cs & 0x1000 ? l : 0);
-    return nx + ((8 - (edge & 7)) & 7);
+    return nx + w16_byte_align(px + nx + (cs & 0x1000 ? l : 0));
 }
 
 struct w16_wnd *w16_wnd_create(struct w16 *w, int cls, const char *title, uint32_t style, int x, int y,

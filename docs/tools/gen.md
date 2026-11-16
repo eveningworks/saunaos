@@ -334,8 +334,8 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   out in nobits sections from 0 so code can name its data; macros record
   imports, internal far pointers, the entry and exports in a trailing
   section; `;w16:` comment lines set the module, segments, stack and
-  heap, and the resources -- strings, bitmaps, dialogs and their
-  controls, menus, accelerators, an RT_NAMETABLE (`;w16: nametable TYPE ID NAME`), 32x32 cursors drawn as rows of `.`
+  heap, and the resources -- strings, bitmaps, dialogs (a `font 8 "Helv"`
+  tail sets DS_SETFONT) and their controls, menus, accelerators, an RT_NAMETABLE (`;w16: nametable TYPE ID NAME`), 32x32 cursors drawn as rows of `.`
   clear, `~` invert, `#` black, `o` white, and 32x32 icons in 16 colours
   as rows of palette-index hex digits (`.` clear), several pictures to a
   group each with the colour count its entry claims -- so a test program

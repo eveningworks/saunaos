@@ -8983,7 +8983,14 @@ Stages, each compared with the 3.11 reference VM:
    and the title SC_KEYMENU lights drawn lit at once (the photograph is
    taken before w16's main thread has heard). Pages 30 and 31 are 0
    pixels off but the pointer. Next, the pages after 31: the menus'
-   commands and dialogs.
+   commands and dialogs. **2026-11-16: the lesson ends at page 47**; 32 and
+   38 match but for the pointer. Pages 33-37 are Write's Open dialog,
+   which now sits at 3.11's x: 3.1 byte-aligned every dialog (#32770 is
+   CS_BYTEALIGNWINDOW) to the NEAREST multiple of 8, measured with
+   `dlgplace.exe` on 3.11 (w16_gui_test's `byte_aligned`). Left there: the
+   Tutorial's tips drawn under the dialog where 3.11 has them over it, and
+   the directory list's scroll arrows; then 39 (the sundae dialog) and
+   40-46 (active and inactive windows, Program Manager over Write).
 
 
 ### w16: screen-DC drawing over the program's own popups (the Tutorial's tips)

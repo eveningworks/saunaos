@@ -1120,6 +1120,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: Clock's Always on Top~~ DONE 2026-10-21 -- a program's own system-menu items, HWND_TOPMOST as toywm's Always on Top
 - [ ] w16: a pie's or chord's straight edge a pixel off 3.11's where an arc ends between two outline pixels
 - [ ] w16: a dialog of the program's own class that is not its main window -- an owned one, or a second
+- [ ] w16: more than seven windows beside the main one -- uapp's surface table is `WIN_CLIENT_MAX` and an eighth fails silently
+- [ ] w16: a menu bar wider than its window wraps to a second line, as 3.1's did -- WinBench's is cut off at "Clippi"
 - [ ] **NEXT** w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)
 - [x] ~~w16: a popup drawn with SaunaOS's shadow round it~~ DONE 2026-11-05 -- `WIN_HINT_NO_SHADOW` on every w16 window but the main one
 - [x] ~~w16: screen-DC drawing over the program's own popups (the Tutorial's tips)~~ DONE 2026-11-08 -- an overlay per popup

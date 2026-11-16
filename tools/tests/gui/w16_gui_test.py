@@ -156,6 +156,9 @@ file is involved.
     on the main window a
     real Alt alone lights File (navy), Right lights Edit, Down and Enter choose Copy; Alt+F, Down and
     Enter choose Open.
+29. **Byte alignment** (`byte_aligned`, dlgplace.exe): seven windows at the x 3.11 put them -- dialogs
+    (class #32770, whose style GetClassWord answers 2808) and popups of CS_BYTEALIGNWINDOW and
+    CS_BYTEALIGNCLIENT classes, each edge on the NEAREST multiple of 8, a remainder of 4 going up.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1899,6 +1902,37 @@ def mci(dbg, qmp, res, tmp):
 
 
 PLACE_TITLE = "Place test"
+ALIGN_TITLE = "Byte alignment"
+# dlgplace.exe's windows on Windows for Workgroups 3.11, measured 2026-11-16: each one's left edge.
+ALIGN_311 = {"101 2808": 248, "105 2808": 32, "106 2808": 40, "W35": 32, "W36": 40, "C402": 399, "C403": 407}
+
+
+def byte_aligned(dbg, res):
+    """dlgplace.exe: every window where 3.11 put it, by its place from the main window at 0,0."""
+    win = dbg.spawn("/bin/w16 /usr/share/w16/dlgplace.exe", ALIGN_TITLE)
+    res.check("dlgplace.exe opens its main window", win is not None, "no window")
+    if not win:
+        return
+    got = {}
+
+    def all_placed():
+        ws = dbg.windows()
+        main = next((w for w in ws if w["title"] == ALIGN_TITLE and not w.get("dialog")), None)
+        if not main:
+            return False
+        s = main["content"]["w"] / 600         # w16's scale: the main window is 600 wide
+        got.clear()
+        for w in ws:
+            if w.get("dialog") and w.get("place") and w.get("client_pid") == main.get("client_pid"):
+                got[w["title"]] = round(w["place"]["x"] / s)
+        return len(got) >= len(ALIGN_311)
+    poll(all_placed, 8)
+    res.check("each dialog's class style is #32770's, 2808, in its title",
+              all(t in got for t in ALIGN_311 if t[0].isdigit()), f"titles {sorted(got)}")
+    wrong = {t: (got.get(t), x) for t, x in ALIGN_311.items() if got.get(t) != x}
+    res.check("every window's x is 3.11's -- the nearest multiple of 8, a remainder of 4 going up",
+              not wrong, f"(w16, 3.11): {wrong}")
+    dbg.close_window(ALIGN_TITLE)
 
 
 def placed_popup(dbg, qmp, res, tmp):
@@ -2903,6 +2937,7 @@ def main():
               ("peek_idle", lambda: peek_idle(dbg, res)),
               ("mdi", lambda: mdi(dbg, qmp, res, TMP)), ("groups", lambda: groups(dbg, res)),
               ("placed_popup", lambda: placed_popup(dbg, qmp, res, TMP)),
+              ("byte_aligned", lambda: byte_aligned(dbg, res)),
               ("fullwin", lambda: fullwin(dbg, qmp, res, TMP)), ("ownact", lambda: ownact(dbg, qmp, res, TMP)),
               ("menukeys", lambda: menukeys(dbg, qmp, res, TMP)),
               ("mci", lambda: mci(dbg, qmp, res, TMP)),
