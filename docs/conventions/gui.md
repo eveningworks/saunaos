@@ -383,7 +383,26 @@ this the obvious way), not from how much history it accumulated.
   nothing fails. Compare a returned code point with a letter as it is
   (the tags sit past U+10FFFF), or with `& UGFX_CP_VALUE` for its value.
   `uui_edit` steps over the pair as one character, so a caret never
-  splits it. The terminal's cells do not tag yet (roadmap).
+  splits it. The terminal's cells tag through `uvterm_cell_cp()`, the
+  selector keeping a blank cell of its own.
+
+- **A WIDGET THAT DRAWS A TEXT CARET SAYS WHERE WITH `uui_caret_at()`,
+  EVERY FRAME, WHATEVER THE BLINK.** uapp brackets each window's paint
+  (`uui_caret_frame_begin()`/`_end()`) and sends the compositor the rect
+  when a frame moves it (`WIN_REQ_CARET_RECT`, text-input-v3's
+  `set_cursor_rectangle`); the emoji picker opens under it. `uui_textbox`
+  and `utext` do it. A caret drawn only in the blink's ON phase, or a new
+  editor that skips the call, reports "no caret" on alternate frames or
+  always, and the picker opens in the middle of the window -- nothing
+  fails. The rect is in the coordinates of the surface drawn on, so a
+  caret drawn into a separate popup surface is not the window's.
+
+- **`:name:` COMPLETION IS EVERY ROUTED `uui_textbox`'s; A FIELD WHOSE
+  TEXT IS A PATH, A COMMAND OR CODE SETS `no_complete`.** It lives in
+  `ui/uui_emojicomplete.h` and is off in a masked field. It opens only
+  for a field the router's overlay pass has drawn (`draw_overlay`), so a
+  field an app paints by hand, or a composite's inner field, never
+  completes -- and never has Enter or Tab taken by a list nobody can see.
 
 - **A GLYPH CELL IS SIZED FROM `ttf_glyph_extent()`, NEVER FROM THE
   FONT'S ASCENT ALONE.** `ttf_render_glyph()` hints by default

@@ -8,6 +8,16 @@ fresh image and its own guest. A new tool here needs a `RUNNER =
 {"covers": ...}` header, plus `"vm": [...]` when its guest must differ
 from the default (a sound card, a USB mouse, `--reboot`).
 
+- **`emoji_picker_test.py`** -- the emoji picker (Super+period) over
+  Notepad: it opens under the caret Notepad reported
+  (`WIN_REQ_CARET_RECT`) with Twemoji's yellow face in its first cell,
+  "heart" narrows the grid, Enter types the focused emoji (a code point
+  past U+FFFF) -- the compositor's log, the bytes Notepad saves, the
+  colour in the editor -- the Recently used row then starts with it and a
+  click there types it again, Esc closes. Then Character Map's Emoji page
+  draws in colour and `:grinning` + Tab in its search completes to the
+  emoji, which the search finds alone. `gui emoji --json` is how it reads
+  the panel.
 - **`emoji_test.py`** -- emoji draw in COLOUR from the fallback list's
   emoji face, and U+FE0F decides: Notepad opens three files and the
   editor's own rectangle (between its `tabs` and `status` widgets) is
@@ -2643,7 +2653,10 @@ runs first**: a `doom1.wad` with one
   checked here too, the Hex Viewer's byte grid (`uui_hexview`, on a
   550-row font licence -- on a 20,000-row binary the wheel's 36 rows move
   the thumb a few pixels, under the check's threshold; `key_mods="ctrl"`,
-  since its Home/End are the row's), the Software app's cards and list
+  since its Home/End are the row's), Character Map's Emoji grid (`uui_emojigrid`, the
+  emoji named with an "e", many times what fits -- a group barely overflows
+  a wide window, and a thumb past half its track reads as the ground; its page is found from the layout log, the widget map
+  holding the first page only), the Software app's cards and list
   (`uui_appcard`, both layouts, over 24 definitions written into
   `/usr/share/components` and removed after), and Disks' pending list (`uui_steplist`) through
   `check_view()` from `disks_test.py`, which has the second disk a queue

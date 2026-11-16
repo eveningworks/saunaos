@@ -244,7 +244,11 @@ Symbols, Symbols 2 and Math, DejaVu Sans Mono (`/etc/fonts/fallback.conf`)
 -- then an outlined box. Emoji are drawn in colour from Twemoji's
 COLR layers, by SaunaOS's own rasterizer, in every app and in Character
 Map; ❤ is a text heart and ❤️ (with U+FE0F) the red one, as Unicode
-says. The honest
+says -- in the Terminal's cells too. **Super+period** opens the emoji
+picker at the text caret, Windows 11's shape: search, category tabs,
+Recently used, and Enter or a click types the emoji into the focused
+window. Character Map has an Emoji page, and typing `:hea` in a text
+field offers the emoji whose names hold it. The honest
 limits: the kernel console draws only the baked ASCII + Latin-1 set (a
 character past it is `?`), and
 kerning comes from the legacy `kern` table only, between two atlas

@@ -393,6 +393,10 @@ whenever a headline here tells you something you did not already know.
 - **A VARIATION SELECTOR IS PART OF THE CHARACTER BEFORE IT:
   `ugfx_text_decode()` steps over it and TAGS the code point; a loop that
   decodes by itself tags with `ugfx_cp_with_next()`.**
+- **A WIDGET THAT DRAWS A TEXT CARET SAYS WHERE WITH `uui_caret_at()`,
+  EVERY FRAME, WHATEVER THE BLINK.**
+- **`:name:` COMPLETION IS EVERY ROUTED `uui_textbox`'s; A FIELD WHOSE
+  TEXT IS A PATH, A COMMAND OR CODE SETS `no_complete`.**
 - **A GLYPH CELL IS SIZED FROM `ttf_glyph_extent()`, NEVER FROM THE
   FONT'S ASCENT ALONE.**
 - **`font glyph <char>` SHOWS WHAT WILL ACTUALLY BE DRAWN, AND IT READS

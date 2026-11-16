@@ -13309,6 +13309,62 @@ at 14 px); monochrome Noto Emoji (no colour path to build, but line art
 where people expect emoji); OpenMoji (CC BY-SA, and muddier at 14 px).
 
 **Left open:** emoji sequences -- ZWJ families, flags, skin tones -- are
-GSUB ligatures and draw as their parts until step 5's shaping; the
-terminal's cells do not pass the next character yet; a COLR layer in the
-text colour draws black (Twemoji has none).
+GSUB ligatures and draw as their parts until step 5's shaping; a COLR
+layer in the text colour draws black (Twemoji has none). The terminal's
+cells tag a selector since the emoji picker's round (`uvterm_cell_cp()`).
+
+## The emoji picker is a compositor overlay at the caret, fed by a caret report, listing single code points only
+
+Chosen 2026-11-16 from a mockup canvas (option A, compact at the caret).
+There was no way to type an emoji except pasting one from Character Map.
+
+**What others do.** Windows 10/11 opens its emoji panel with Win+. (and
+Win+;) at the text caret: a search box, category tabs, a Recently used
+row, a grid, and a click or Enter that types the emoji into the focused
+field and closes the panel; the shell knows where the caret is through
+the text-input framework (TSF), which the toolkit feeds. macOS's
+Character Viewer (Ctrl+Cmd+Space) is the same shape, anchored to the
+insertion point the text system reports. GNOME's is GTK's own popover
+(Ctrl+. inside a GtkEntry/TextView) plus IBus's Ctrl+Shift+E emoji input
+method, so a non-GTK app gets only the IBus one; KDE Plasma has a
+separate Emoji Selector window (Meta+.) that copies to the clipboard
+rather than typing. Wayland's text-input-v3 is how an input method learns
+the caret: the client sends `set_cursor_rectangle` and the compositor
+places the candidate window by it. Slack, GitHub and Discord add
+`:name:` completion in their own fields.
+
+**SaunaOS follows Windows for the shape and Wayland for the plumbing.**
+Super+period opens a compact panel (`toywm/emoji_picker.c`) as a
+compositor OVERLAY, like the on-screen keyboard: it is not a window, so
+it never takes focus from the field it types into, and the emoji goes
+out through `wm_client_send_key()` as 32-bit key code points (base, then
+U+FE0F where the data says) -- no ring-3 program gains a way to type
+into another, the XTEST hole Wayland's virtual-keyboard protocol closes.
+Where it opens comes from a CARET REPORT, `WIN_REQ_CARET_RECT`,
+text-input-v3's `set_cursor_rectangle` in this protocol's shape: a
+`uui_textbox` or `utext` says where it drew its caret each frame
+(`uui_caret_at()`), and uapp sends the rect only when a frame moves it.
+With no caret known the panel centres in the window's lower half. The
+list is shared data, `base/uemojidata.h`, generated from Unicode's
+emoji-test.txt; Character Map's Emoji page draws it with the same
+`uui_emojigrid` widget, and `:name:` completion
+(`ui/uui_emojicomplete.h`) is a toolkit behaviour of every routed
+`uui_textbox`, off in a masked field or one that sets `no_complete`.
+Recents are a setting, `desktop.emoji.recent`: the emoji themselves as
+UTF-8, newest first -- which the settings ABI's 64-byte value bounds at
+16 when any one is a BMP character and 15 otherwise.
+
+**Not chosen:** a picker APP that copies to the clipboard (Plasma's: the
+person pastes it themselves, and the window takes focus away from the
+field); having each toolkit field open its own popover (GTK's: an app
+drawing its own text, the Terminal, gets nothing); asking the focused
+client for its caret only when the picker opens (a round trip the
+compositor would wait on, from a process that may be busy -- the report
+is pushed instead, as Wayland's is); sequences in the list.
+
+**No sequences yet.** Only fully-qualified entries that are ONE code
+point, optionally followed by U+FE0F, are listed (about a third of Unicode 16.0's
+fully-qualified emoji), and only those Twemoji maps: a ZWJ family, a flag, a
+skin-tone variant or a keycap is a GSUB ligature in the face, and
+inserted it would draw as its parts until shaping exists. The Component
+and Flags groups are left out for the same reason.

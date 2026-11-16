@@ -842,7 +842,10 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Apply a composite glyph's 2x2 transform instead of skipping it (accents are pure translations, so nothing needs it yet)
 - [x] ~~A font fallback chain past DejaVu Sans Mono~~ DONE 2026-11-16 -- `/etc/fonts/fallback.conf`, four Noto faces
 - [x] ~~Colour emoji~~ DONE 2026-11-16 -- COLR v0 over CPAL in `ttf.c`, Twemoji, in ugfx, `utext` and `uglyph`
-- [ ] The terminal's cells (`uvterm`) do not tag a variation selector: ❤️ draws as a text heart there
+- [x] ~~The terminal's cells (`uvterm`) do not tag a variation selector~~ DONE 2026-11-16 -- `uvterm_cell_cp()`
+- [x] ~~An emoji picker~~ DONE 2026-11-16 -- Super+period at the caret (`WIN_REQ_CARET_RECT`), Character Map's Emoji page, `:name:`
+- [ ] The emoji picker lists single code points only: no ZWJ sequences, flags, skin tones or keycaps until shaping
+- [ ] `:name:` completion reaches a routed `uui_textbox` only: not a composite's inner field (find bar, spinbox, path bar) or `utext`
 - [ ] Emoji sequences (ZWJ families, flags, skin tones) draw as their parts -- they are GSUB ligatures, step 5's shaping
 - [ ] A COLR layer in "the text colour" draws black: the glyph cache keys an emoji without the colour
 - [ ] Note the boundary: complex-script shaping
