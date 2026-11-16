@@ -166,6 +166,10 @@ file is involved.
 31. **A busy program's drawing is shown** (`busy_draw`, busydraw.exe; gdi16.c's w16_gdi_busy_flush): a
     black box drawn through GetDC is on the screen while the program then works 8 s without asking for
     a message, as 3.1 drew straight onto the screen (WinBench's disk test labels).
+32. **A modeless dialog shown and hidden** (`dialog_hide`, dlghide.exe; dialog16.c, user16.c): read off
+    the screen straight after CreateDialog its caption is the active navy, and ShowWindow(SW_HIDE) takes
+    its window away -- the Windows Tutorial photographs its Open dialog so and hides it under its tips.
+    3.11 answers the same (DLGHIDE.INI, run on the reference VM).
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1896,6 +1900,31 @@ def busy_draw(dbg, qmp, res, tmp):
     dbg.close_window(BUSY_TITLE)
 
 
+DLGHIDE_TITLE = "Dialog hide test"
+DLGHIDE_INI = "/home/Win16/WINDOWS/DLGHIDE.INI"
+
+
+def dialog_hide(dbg, qmp, res, tmp):
+    """dlghide.exe (its header has each step): CreateDialog's dialog active at once on the screen, then
+    hidden by ShowWindow(SW_HIDE) -- its window gone, not left on the screen."""
+    sh(dbg, "mkdir /home/Win16")
+    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, f"rm {DLGHIDE_INI}")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/dlghide.exe", DLGHIDE_TITLE)
+    res.check("dlghide.exe opens its window", win is not None, "no window")
+    if not win:
+        return
+    ini = poll(lambda: (lambda t: t if "Hidden=1" in t else "")(sh(dbg, f"cat {DLGHIDE_INI}")), 10) or \
+        sh(dbg, f"cat {DLGHIDE_INI}")
+    res.check("a dialog CreateDialog shows is active at once: its caption read off the screen is navy, "
+              "straight after and once its messages are taken (3.11's Caption0 and Caption)",
+              "Caption0=000080" in ini and "Caption=000080" in ini, ini[-120:])
+    gone = poll(lambda: dbg.window("Hide me") is None, 5)
+    res.check("...and ShowWindow(SW_HIDE) takes the dialog's window off the screen", "Hidden=1" in ini and gone,
+              f"windows {[w['title'] for w in dbg.windows()]}")
+    dbg.close_window(DLGHIDE_TITLE)
+
+
 OWNACT_TITLE = "Owner"
 
 
@@ -3038,6 +3067,7 @@ def main():
               ("menukeys", lambda: menukeys(dbg, qmp, res, TMP)),
               ("menuwrap", lambda: menuwrap(dbg, qmp, res, TMP)),
               ("busy_draw", lambda: busy_draw(dbg, qmp, res, TMP)),
+              ("dialog_hide", lambda: dialog_hide(dbg, qmp, res, TMP)),
               ("mci", lambda: mci(dbg, qmp, res, TMP)),
               ("colours16", lambda: colours16(dbg, qmp, res, TMP)),
               ("retro_round", lambda: retro_round(dbg, qmp, res)),

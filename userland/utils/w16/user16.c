@@ -2020,7 +2020,10 @@ int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd) {
         if (sc) popup_state(w, x, sc);
         if (!(x = w16_wnd_get(w, h))) return c->fault ? -1 : (int)c->r[R_AX].w;
     }
-    if (x->popup && show) {                      // its toywm window opens on its first show
+    // A DIALOG IS SHOWN AND HIDDEN AS A POPUP IS, its toywm window with it: the Windows Tutorial hides
+    // its Open dialog and paints a photograph of it, with its tips over it, on its own window.
+    int own_window = x->popup || x->kind == W16_K_DIALOG;
+    if (own_window && show) {                    // its toywm window opens on its first show
         c->r[R_AX].w = (uint16_t)x->visible;
         int was = x->visible;
         popup_show(w, x);
@@ -2030,7 +2033,7 @@ int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd) {
         return c->fault ? -1 : (int)c->r[R_AX].w;
     }
     if (!show) focus_off_hidden(w, x);
-    if (x->popup && !show) {                     // hidden: its toywm window goes until it is shown again
+    if (own_window && !show) {                   // hidden: its toywm window goes until it is shown again
         pthread_mutex_lock(&w->lock);
         c->r[R_AX].w = (uint16_t)x->visible;
         int was = x->visible;

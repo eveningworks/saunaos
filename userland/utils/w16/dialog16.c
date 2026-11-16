@@ -702,6 +702,15 @@ static void start(struct w16 *w, struct w16_wnd *d, uint32_t param, int modal) {
     d = w16_wnd_get(w, h);
     if (d && d->kind == W16_K_DIALOG && !d->ended) {
         pthread_mutex_lock(&w->lock);
+        // On top and active AT ONCE, as user16.c's popup_show() makes a popup: a program reading the
+        // screen straight after (the Windows Tutorial photographs its Open dialog) sees it active.
+        if (!d->visible) {
+            w16_wnd_to_top(d);
+            for (int i = 0; i < w->nwnds; i++)
+                if (w->wnds[i] && w->wnds[i]->used && (w->wnds[i]->popup || w->wnds[i]->kind == W16_K_DIALOG))
+                    w->wnds[i]->active = 0;
+            d->active = 1;
+        }
         d->visible = 1;
         d->style |= WS_VISIBLE;
         pthread_mutex_unlock(&w->lock);

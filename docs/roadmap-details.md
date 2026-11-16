@@ -8987,10 +8987,16 @@ Stages, each compared with the 3.11 reference VM:
    38 match but for the pointer. Pages 33-37 are Write's Open dialog,
    which now sits at 3.11's x: 3.1 byte-aligned every dialog (#32770 is
    CS_BYTEALIGNWINDOW) to the NEAREST multiple of 8, measured with
-   `dlgplace.exe` on 3.11 (w16_gui_test's `byte_aligned`). Left there: the
-   Tutorial's tips drawn under the dialog where 3.11 has them over it, and
-   the directory list's scroll arrows; then 39 (the sundae dialog) and
-   40-46 (active and inactive windows, Program Manager over Write).
+   `dlgplace.exe` on 3.11 (w16_gui_test's `byte_aligned`). **2026-11-16: the
+   tips over the dialog, as 3.11 has them** -- the Tutorial photographs its
+   Open dialog with a screen DC, hides it and paints the photograph and its
+   tips on its own window; w16's SW_HIDE left a dialog's window on the
+   screen, and a dialog was made active only when its window opened, after
+   the photograph (`dlghide.exe`, w16_gui_test's `dialog_hide`, the same
+   answers as 3.11). 34-36 now differ by the file list a pixel off and its
+   scroll arrows, the arrow's edge and the pointer; then 39 (the sundae
+   dialog) and 40-46 (active and inactive windows, Program Manager over
+   Write).
 
 
 ### w16: screen-DC drawing over the program's own popups (the Tutorial's tips)
