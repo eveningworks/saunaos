@@ -44,7 +44,9 @@ ROOT = "/pg"
 VIDEO = "/usr/share/videos/first-boot.mpg"
 # ~100 MB: a copy runs ~25 MB/s under TCG on the HP Z1 G8, and Pause lands
 # ~20 MB after the copy is seen moving -- 6 copies finished first there.
-COPIES = 12
+# ~200 MB: at 12 (~100 MB) an idle host copied it all in under two seconds
+# under TCG (2026-11-16, ~54 MB/s), before the Pause click could land.
+COPIES = 24
 RUNNING, PAUSED, QUEUED = 0, 4, 5   # enum uui_xfer_state
 EV_PAUSE, EV_RESUME = 4, 5          # UUI_XFER_EV_*
 
