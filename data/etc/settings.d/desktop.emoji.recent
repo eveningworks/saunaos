@@ -1,0 +1,8 @@
+Type=string
+File=/etc/desktop.conf
+Label=Recently used emoji
+Category=Input
+Group=Emoji
+Default=
+Description=The emoji picker's Recently used row, newest first; empty it to clear the row
+Order=10

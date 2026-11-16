@@ -60,6 +60,7 @@
 #include "wm_quick.h"
 #include "wm_overlay.h"
 #include "osk.h"
+#include "emoji_picker.h"
 #include "confirm_dialog.h"
 #include "leave_page.h"
 #include "desktop.h"
@@ -1477,6 +1478,8 @@ void wm_run(void) {
             {
                 int cw = start_menu_wait_ms();
                 if (cw >= 0 && (uint32_t)cw < wait_ms) wait_ms = (uint32_t)cw;
+                int ew = emoji_picker_wait_ms();
+                if (ew >= 0 && (uint32_t)ew < wait_ms) wait_ms = (uint32_t)ew;
             }
             // Snap layouts opens after a rest on Maximize, and closes after
             // a grace once the pointer has left it.
@@ -2012,6 +2015,14 @@ void wm_run(void) {
                     // switcher IS one and its next Tab must reach this
                     // branch, not its key handler. INHIBITABLE, as
                     // Alt+Space is: DOOM's map is Tab and it strafes on Alt.
+                    WM_REDRAW();
+                } else if ((key == '.' || key == ';') && (key_mods & KEY_MOD_SUPER) &&
+                           !(key_mods & (KEY_MOD_CTRL | KEY_MOD_ALT)) &&
+                           !wm_overlay_modal_open() && !wm_shortcut_inhibited(f)) {
+                    // SUPER+PERIOD (and Super+semicolon): the emoji picker at
+                    // the caret, Windows' keys (emoji_picker.h). Before the
+                    // overlays, so a second press closes the open picker.
+                    emoji_picker_toggle();
                     WM_REDRAW();
                 } else if (wm_overlay_key(key, key_mods)) {
                     // AN OPEN OVERLAY OWNS THE KEYBOARD, which is what lets

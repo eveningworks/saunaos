@@ -70,3 +70,19 @@ int uui_caret_wait_ms(void) {
     long long left = (long long)(p + 1) * UUI_CARET_HALF_MS - (long long)ms;
     return left > 0 ? (int)left : 0;
 }
+
+static const struct ugfx_surface *g_at_s;   // the surface the last caret was placed on
+static int g_at[4];
+
+void uui_caret_at(const struct ugfx_surface *s, int x, int y, int w, int h) {
+    g_at_s = s;
+    g_at[0] = x; g_at[1] = y; g_at[2] = w; g_at[3] = h;
+}
+
+void uui_caret_frame_begin(void) { g_at_s = 0; }
+
+int uui_caret_frame_end(const struct ugfx_surface *s, int *x, int *y, int *w, int *h) {
+    if (!g_at_s || g_at_s != s) return 0;
+    *x = g_at[0]; *y = g_at[1]; *w = g_at[2]; *h = g_at[3];
+    return 1;
+}

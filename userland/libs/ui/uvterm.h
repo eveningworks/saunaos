@@ -226,4 +226,9 @@ void uvterm_draw(const struct uvterm *t, struct ugfx_surface *s, int x, int y,
 void uvterm_draw_caret(const struct uvterm *t, struct ugfx_surface *s, int x, int y,
                        const struct uvterm_look *look);
 
+// Cell `q` of `row`'s character for drawing: tagged with the variation
+// selector in the cell after it (ugfx_cp_with_next()), so U+2764 U+FE0F
+// draws the emoji heart. The selector's own cell draws nothing.
+uint32_t uvterm_cell_cp(const struct uvterm *t, const struct uvterm_cell *row, int q);
+
 #endif

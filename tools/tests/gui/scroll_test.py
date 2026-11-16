@@ -24,7 +24,7 @@ reddens. The Launcher's Details table is a uui_table, whose bar is uui_sbar's.
 """
 
 RUNNER = {
-    "covers": "scrolling as a person does it: wheel direction, thumb vs view, track clicks, thumb drag (Retro Launcher grid, Log Viewer, Hex Viewer grid, Software cards and list)",
+    "covers": "scrolling as a person does it: wheel direction, thumb vs view, track clicks, thumb drag (Retro Launcher grid, Log Viewer, Hex Viewer grid, Character Map emoji grid, Software cards and list)",
 }
 
 import argparse
@@ -234,6 +234,46 @@ def main():
                            lambda sx, sy, w, h: (sx + 120, sy + 60), lambda sx, sy, w, h: (sx + w // 2, sy - 20),
                            keys=True, top_inset=inset, warp=True, key_mods="ctrl")
             dbg.close_window(HEX_TITLE)
+
+        # --- Character Map's Emoji grid (ui/uui_emojigrid, a uui_grid): every emoji with an 'e' in its name ---
+        # The page is the rail's second row; a page swapped to is read from the layout log, not the widget map.
+        dbg.logs("charmap:", clear=True)
+        win = dbg.spawn("/bin/wm/apps/charmap", "Character Map")
+        if res.check("Character Map opens", win is not None, "no window"):
+            def charmap_rects(*need):
+                got = {}
+                for ln in dbg.logs("charmap: layout ", clear=False):
+                    parts = ln.split("charmap: layout ", 1)[1].split()
+                    if len(parts) in (2, 5) and all(p.lstrip("-").isdigit() for p in parts[1:]):
+                        got[parts[0]] = [int(p) for p in parts[1:]]
+                return got if all(k in got for k in need) else None
+            cx, cy = win["content"]["x"], win["content"]["y"]
+            got = poll(lambda: charmap_rects("rail", "rail.top", "rail.row_h"), 10, 0.3)
+            if res.check("Character Map reports its rail", got is not None):
+                rx, ry, rw, rh = got["rail"]
+                row = got["rail.row_h"][0]
+                dbg.click(cx + rx + rw // 2, cy + ry + got["rail.top"][0] + row + row // 2)
+                got = poll(lambda: charmap_rects("egrid", "esearch"), 10, 0.3)
+                if res.check("Character Map's Emoji page opens", got is not None):
+                    # A group barely overflows a wide window, and a thumb longer than half its track reads as
+                    # the ground: "e" lists most of the emoji, many times what fits.
+                    ex, ey, ew, eh = got["esearch"]
+                    dbg.click(cx + ex + ew // 2, cy + ey + eh // 2)
+                    dbg.key("e")
+                    poll(lambda: any(' "e" ' in ln for ln in dbg.logs("charmap: emoji search", clear=False)), 10, 0.3)
+                    gx, gy, gw, gh = got["egrid"]
+                    # check_view() asks the widget map, which holds the first page only: the rect, as it would.
+                    # Parked ON the grid: the wheel goes where the real pointer is, and above it is the search bar.
+                    real = dbg.widgets
+                    dbg.widgets = lambda title="": dict(real(title), egrid={
+                        "screen": {"x": cx + gx, "y": cy + gy}, "w": gw, "h": gh})
+                    try:
+                        check_view(dbg, qmp, res, args.tmp, "Character Map emoji grid", "Character Map", "egrid",
+                                   lambda sx, sy, w, h: (sx + 30, sy + 30), lambda sx, sy, w, h: (sx + 10, sy + 10),
+                                   keys=True, warp=True)
+                    finally:
+                        dbg.widgets = real
+            dbg.close_window("Character Map")
 
         # --- the Software app's cards and list (ui/uui_appcard), with FAKES more than fit -------------------
         # Definitions only: the app lists a component its Paths= name, present or not.

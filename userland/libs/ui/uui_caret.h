@@ -31,4 +31,14 @@ void uui_caret_reset(void);
 // once per wait, and act on the 0.
 int uui_caret_wait_ms(void);
 
+// WHERE THE CARET IS, whatever the blink: a widget that draws one says so
+// every frame, in the coordinates of the surface it draws on. uapp brackets
+// a window's paint with _begin/_end and reports a change to the compositor
+// (abi/win_proto.h's WIN_REQ_CARET_RECT), which opens the emoji picker there.
+struct ugfx_surface;
+void uui_caret_at(const struct ugfx_surface *s, int x, int y, int w, int h);
+void uui_caret_frame_begin(void);
+// The last caret placed on `s` since _begin: 1 and its rect, or 0 for none.
+int  uui_caret_frame_end(const struct ugfx_surface *s, int *x, int *y, int *w, int *h);
+
 #endif

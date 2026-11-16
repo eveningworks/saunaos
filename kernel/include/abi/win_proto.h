@@ -1411,6 +1411,14 @@ struct win_popup_pos {
 // past WIN_LAUNCH_ARG_MAX is refused, not cut: a cut path names
 // another file.
 #define WIN_REQ_LAUNCH        52
+// WHERE THE TEXT CARET IS, for what the compositor puts beside it -- the
+// emoji picker (Super+period) opens under it. `window`: whose. a, b: the
+// caret's rect's top-left, content-relative; c: WIN_WIDGET_WH(w, h), 0 for
+// NO caret (focus left the text). Wayland's text-input-v3
+// set_cursor_rectangle, sent by uapp when a frame moves the caret drawn by
+// a uui_textbox or utext -- never per frame. Not answered; a lost one costs
+// a picker placed by the window instead.
+#define WIN_REQ_CARET_RECT    53
 #define WIN_LAUNCH_END        0xFF
 #define WIN_LAUNCH_ARGS       8
 #define WIN_LAUNCH_ARG_MAX    512

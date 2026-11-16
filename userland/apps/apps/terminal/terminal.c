@@ -950,8 +950,9 @@ static void draw_hits(struct ugfx_surface *s, struct session *ses, int top) {
         ugfx_fill_rect(s, x, y, n * cw, ch, hl);
         // The hit's characters again, each at its own cell.
         for (int k = 0; k < n; k++)
-            if (row[c0 + k].wide != UVTERM_CONT && row[c0 + k].ch != ' ')
-                ugfx_draw_cp(s, x + k * cw, y, row[c0 + k].ch, ugfx_rgb(35, 38, 41), hl);
+            if (row[c0 + k].wide != UVTERM_CONT && row[c0 + k].ch != ' ' && row[c0 + k].ch != 0xFE0F &&
+                row[c0 + k].ch != 0xFE0E)
+                ugfx_draw_cp(s, x + k * cw, y, uvterm_cell_cp(&ses->t, row, c0 + k), ugfx_rgb(35, 38, 41), hl);
     }
 }
 

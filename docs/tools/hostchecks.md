@@ -870,6 +870,16 @@ the rest in the sweep. Each stays a standalone script with its own
   only the arena bound keeps its wrap modulo 2^32 in, and ASan watches
   it. A host without `modify_ldt` prints SKIPPED,
   never PASS. In `ondemand_sweep.py`.
+- **`uemojidata_hostcheck.py`** (gate) -- the emoji list
+  (`base/uemojidata.c`): the shipped `data/usr/share/unicode/emoji` parsed
+  by the tree's C and by the script's own reading, entry for entry and
+  group for group (U+FE0F where the file says); name searches with the
+  case changed and a search for the emoji itself; and the recents value
+  -- a pick to the front, a duplicate dropped, cut at 16 and at the
+  settings ABI's 63 bytes on a character boundary, decoded back with an
+  unknown character skipped. `--positive-control` makes the search case
+  sensitive, keeps duplicates and drops U+FE0F in the parse; each must
+  go RED.
 - **`emoji_hostcheck.py`** (gate) -- colour emoji: `ttf.c`'s COLR v0
   compositing (`ttf_render_color_glyph()`, layers of outlines filled from
   CPAL) against FreeType's own COLR render of the same Twemoji glyphs,

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ui/uui_caret.h"
+#include "ui/uui_emojicomplete.h"
 #include "ui/uui_widget.h"  // the ops tables at the bottom of this file
 #include "ui/uui_route.h"   // UUI_NOWHERE, for edit_target
 #include "keyboard.h" // KEY_* codes, as delivered by WIN_EV_KEY
@@ -102,6 +103,7 @@ void uui_textbox_init(struct uui_textbox *f, const char *initial) {
     f->disabled = 0;
     f->placeholder = 0;
     f->bare = 0;
+    f->no_complete = 0;
     // Left UNSET so the theme answers at DRAW time -- see utheme.h.
     // These were four literals that happened to equal the default
     // palette, which meant a theme change reached everything except the
@@ -277,8 +279,13 @@ int uui_textbox_key_mods(struct uui_textbox *f, int key, unsigned mods) {
     // with the multi-line editor. This widget used to carry its own,
     // which had none of that: the caret moved with arrows and nothing
     // else, so you could not select anything in a text field at all.
+    // An open :name: list takes its keys first (Tab, Enter, Esc, Up, Down);
+    // anything the field takes then re-reads the query at the caret.
+    if (uui_emojicomplete_key(f, key)) return 1;
     tb_sync(f);
-    return uui_edit_key(&f->ed, &TB_EDIT_OPS, f, key, mods);
+    int took = uui_edit_key(&f->ed, &TB_EDIT_OPS, f, key, mods);
+    if (took) uui_emojicomplete_update(f);
+    return took;
 }
 
 int uui_textbox_key(struct uui_textbox *f, int key) {
@@ -376,9 +383,9 @@ void uui_textbox_draw(struct ugfx_surface *s, const struct uui_textbox *f0) {
                                  uui_state_bg(fg, UUI_STATE_DISABLED), bg);
 
     if (f->active) {
-        if (uui_caret_visible())
-            ugfx_fill_rect(s, x + pad + ugfx_text_width_n(shown, f->ed.cursor - start),
-                            ty, CARET_W, ugfx_char_h(), fg);
+        int cx = x + pad + ugfx_text_width_n(shown, f->ed.cursor - start);
+        uui_caret_at(s, cx, ty, CARET_W, ugfx_char_h());
+        if (uui_caret_visible()) ugfx_fill_rect(s, cx, ty, CARET_W, ugfx_char_h(), fg);
         // The border too, not the caret alone: the caret says WHERE the
         // next character lands, the ring says WHICH control is listening,
         // and a caret 200px away is easy to miss. Over the border rather
@@ -406,6 +413,7 @@ static int ops_key(void *w, int key, unsigned mods) {
     return uui_textbox_key_mods((struct uui_textbox *)w, key, mods);
 }
 static void ops_set_focused(void *w, int focused) {
+    if (!focused && uui_emojicomplete_open((struct uui_textbox *)w)) uui_emojicomplete_cancel();
     uui_textbox_set_active((struct uui_textbox *)w, focused);
 }
 static int ops_accepts_focus(const void *w) {
@@ -454,6 +462,13 @@ static int tb_ops_press(void *w, int cx, int cy, unsigned mods) {
     (void)cy;
     struct uui_textbox *f = (struct uui_textbox *)w;
     if (f->disabled) return 0;
+    // The :name: list is an overlay, offered every press first: a row
+    // inserts; anywhere else dismisses it, and the press is the field's only
+    // if it landed on the field.
+    if (uui_emojicomplete_open(f)) {
+        if (uui_emojicomplete_press(f, cx, cy)) return 1;
+        if (!uui_textbox_hit(f, cx, cy)) return 0;
+    }
     // Places the caret AND collapses any selection, which is what a
     // plain click does everywhere.
     uui_edit_place(&f->ed, &TB_EDIT_OPS, f, uui_textbox_index_at_x(f, cx), 0);
@@ -475,6 +490,14 @@ static int tb_ops_motion(void *w, int cx, int cy, unsigned buttons) {
 
 static void tb_ops_draw(struct ugfx_surface *s, const void *w) {
     uui_textbox_draw(s, (const struct uui_textbox *)w);
+}
+
+// The :name: list (ui/uui_emojicomplete.h), over the widgets around it.
+static void tb_ops_draw_overlay(struct ugfx_surface *s, const void *w) {
+    uui_emojicomplete_draw(s, (const struct uui_textbox *)w);
+}
+static int tb_ops_overlay_active(const void *w) {
+    return uui_emojicomplete_open((const struct uui_textbox *)w);
 }
 
 static void te_ops_natural_size(const void *w, int *out_w, int *out_h) {
@@ -518,6 +541,8 @@ const struct uui_widget_ops uui_textbox_ops = {
     .set_geometry = te_ops_set_geometry,
     .release = te_ops_release,
     .draw          = tb_ops_draw,
+    .draw_overlay  = tb_ops_draw_overlay,
+    .overlay_active = tb_ops_overlay_active,
     .hit           = ops_hit,
     .key           = ops_key,
     .set_focused   = ops_set_focused,

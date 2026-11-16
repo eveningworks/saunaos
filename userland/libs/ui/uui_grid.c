@@ -127,7 +127,10 @@ static void grid_draw(struct ugfx_surface *s, const void *w) {
         int st = 0;
         if (i == g->selected) {
             st |= UUI_GRID_SELECTED | (g->focused ? UUI_GRID_FOCUSED : 0);
-            uui_fill_round_rect(s, x + 2, y + 2, px - 4, g->cell_h - 4, uui_select_radius(0), UTHEME_ACCENT);
+            int r = uui_select_radius(0);
+            uui_fill_round_rect(s, x + 2, y + 2, px - 4, g->cell_h - 4, r, UTHEME_ACCENT);
+            if (g->ring)
+                uui_fill_round_rect(s, x + 4, y + 4, px - 8, g->cell_h - 8, r > 2 ? r - 2 : r, UTHEME_SELECTION);
         } else if (i == g->hot) {
             st |= UUI_GRID_HOT;
             uui_fill_round_rect(s, x + 2, y + 2, px - 4, g->cell_h - 4, uui_select_radius(0), uui_state_bg(uui_grid_c_bg(g), UUI_STATE_HOVER));

@@ -22,6 +22,7 @@
 #include "confirm_dialog.h"
 #include "leave_page.h"
 #include "osk.h"
+#include "emoji_picker.h"
 #include "wm_tooltip.h"
 #include "crash_notice.h"
 #include "wm_flash.h"
@@ -44,6 +45,7 @@ static int open_notify(void)  { return wm_notify_open; }
 static int open_confirm(void) { return confirm_dialog_open; }
 static int open_leave(void) { return leave_page_open; }
 static int open_osk(void)     { return osk_open; }
+static int open_emoji(void)   { return emoji_picker_open; }
 static int open_notice(void)  { return crash_notice_open; }
 
 // MOST MODAL FIRST. This order is the click priority -- a modal dialog
@@ -123,6 +125,11 @@ static const struct wm_overlay g_overlays[] = {
       wm_notify_hover_at,        wm_notify_damage,        wm_notify_rect, 0, 0, wm_notify_key, wm_notify_close, 0, 0, 0, 0, 0 },
     { "layout",   open_layout,   layout_draw,      layout_handle_click,
       layout_hover_at,           layout_damage,           layout_rect, 0, 0, layout_key, layout_close, 0, 0, 0, 0, 0 },
+    // The emoji picker (emoji_picker.h): a light-dismiss card at the caret,
+    // above the on-screen keyboard it may be opened over.
+    { "emoji",    open_emoji,    emoji_picker_draw, emoji_picker_handle_click,
+      emoji_picker_hover_at,     emoji_picker_damage,     emoji_picker_rect, emoji_picker_update_press,
+      emoji_picker_wheel, emoji_picker_key, emoji_picker_close, 0, 0, 0, 0, 0 },
     // Under every menu (drawn before them), above the windows: a crash
     // notice in the corner. Passive -- see wm_overlay.h.
     { "notice",   open_notice,   crash_notice_draw, crash_notice_handle_click,

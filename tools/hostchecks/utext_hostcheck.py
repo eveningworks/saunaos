@@ -124,6 +124,9 @@ void uui_scrollanim_arm(struct uui_scrollanim *a) { (void)a; }
 void uui_scrollanim_cancel(struct uui_scrollanim *a) { (void)a; }
 int uui_scrollanim_sync(struct uui_scrollanim *a, int pos_px) { (void)a; return pos_px; }
 int uui_caret_visible(void) { return 1; }
+void uui_caret_at(const struct ugfx_surface *s, int x, int y, int w, int h)
+{ (void)s; (void)x; (void)y; (void)w; (void)h; }
+uint32_t ugfx_cp_with_next(uint32_t cp, uint32_t next) { (void)next; return cp; }   // a tag: drawing only
 void ugfx_clip_save(const struct ugfx_surface *s, struct ugfx_clip *out)
 { (void)s; out->x0 = out->y0 = out->x1 = out->y1 = out->active = 0; }
 void ugfx_clip_restore(struct ugfx_surface *s, const struct ugfx_clip *c) { (void)s; (void)c; }

@@ -12,6 +12,7 @@
 #include "termkey.h"     // a keysym becomes an ANSI sequence here
 #include "base/uutf8.h"   // cells hold characters; the stream is UTF-8
 #include "base/uwcwidth.h" // ...and a wide one takes two cells
+#include "base/uemoji.h"   // a selector cell decides the cell before it
 
 // --- the buffers ---------------------------------------------------------------
 
@@ -751,6 +752,18 @@ int uvterm_sel_text(const struct uvterm *t, char *out, int cap) {
 }
 
 // --- drawing -------------------------------------------------------------------
+
+// CELL `q`'s CHARACTER, TAGGED FOR THE SELECTOR THAT FOLLOWS IT: U+FE0F after
+// a heart makes it the red emoji heart (docs/conventions/gui.md's selector
+// rule). The selector keeps a blank cell of its own, as VTE and xterm give it
+// one; a wide character's continuation cell is stepped over.
+uint32_t uvterm_cell_cp(const struct uvterm *t, const struct uvterm_cell *row, int q) {
+    int n = q + 1;
+    while (n < t->cols && row[n].wide == UVTERM_CONT) n++;
+    return ugfx_cp_with_next(row[q].ch, n < t->cols ? row[n].ch : 0);
+}
+
+static int is_selector_cell(const struct uvterm_cell *c) { return uemoji_invisible(c->ch); }
 //
 // A ROW AT A TIME, IN RUNS OF ONE COLOUR PAIR: per-cell drawing would be
 // 12,000 calls a frame; a run is one string call and usually one per row.
@@ -771,7 +784,9 @@ static void draw_run(const struct uvterm *t, struct ugfx_surface *s, int x, int 
     int n = 0, from = i;
     for (int q = i; q <= j; q++) {
         int plain = q < j && row[q].wide == UVTERM_NARROW &&
-                    (row[q].ch < 0x80 || ugfx_cp_advance(row[q].ch) == k->cw);
+                    (row[q].ch < 0x80 || ugfx_cp_advance(row[q].ch) == k->cw) &&
+                    !is_selector_cell(&row[q]) &&
+                    !(q + 1 < t->cols && is_selector_cell(&row[q + 1]));
         if (plain) {
             if (!n) from = q;
             n += uutf8_encode(row[q].ch, t->runbuf + n);
@@ -782,8 +797,8 @@ static void draw_run(const struct uvterm *t, struct ugfx_surface *s, int x, int 
             ugfx_draw_string(s, x + from * k->cw, y, t->runbuf, f, b);
             n = 0;
         }
-        if (q < j && row[q].wide != UVTERM_CONT && row[q].ch != ' ')
-            ugfx_draw_cp(s, x + q * k->cw, y, row[q].ch, f, b);
+        if (q < j && row[q].wide != UVTERM_CONT && row[q].ch != ' ' && !is_selector_cell(&row[q]))
+            ugfx_draw_cp(s, x + q * k->cw, y, uvterm_cell_cp(t, row, q), f, b);
     }
 }
 
@@ -841,7 +856,7 @@ void uvterm_draw_caret(const struct uvterm *t, struct ugfx_surface *s, int x, in
         const struct uvterm_cell *row = uvterm_line(t, uvterm_view_line(t, t->cr));
         int wide = row && row[t->cc].wide == UVTERM_WIDE;
         ugfx_fill_rect(s, cx, cy, wide ? 2 * k->cw : k->cw, k->ch, k->cursor_rgb);
-        if (row && row[t->cc].ch != ' ' && row[t->cc].wide != UVTERM_CONT)
-            ugfx_draw_cp(s, cx, cy, row[t->cc].ch, k->pal[t->bg], k->cursor_rgb);
+        if (row && row[t->cc].ch != ' ' && row[t->cc].wide != UVTERM_CONT && !is_selector_cell(&row[t->cc]))
+            ugfx_draw_cp(s, cx, cy, uvterm_cell_cp(t, row, t->cc), k->pal[t->bg], k->cursor_rgb);
     }
 }

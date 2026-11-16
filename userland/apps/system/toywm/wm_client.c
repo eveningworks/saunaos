@@ -1695,6 +1695,15 @@ static void req_inhibit_shortcuts(int from, struct wmchan_msg *m) {
     wm_shortcut_inhibit(find_client_window(from, m->window), m->a != 0);
 }
 
+static void req_caret_rect(int from, struct wmchan_msg *m) {
+    int i = find_client_window(from, m->window);
+    if (i < 0) return;
+    windows[i].caret_x = m->a;
+    windows[i].caret_y = m->b;
+    windows[i].caret_w = WIN_WIDGET_W(m->c);
+    windows[i].caret_h = WIN_WIDGET_H(m->c);
+}
+
 static void req_pong(int from, struct wmchan_msg *m) {
     on_window_pong(from, m->window, (uint32_t)m->a);
 }
@@ -1782,6 +1791,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_WIDGET] = req_widget,
     [WIN_REQ_TIMER] = req_timer,
     [WIN_REQ_INHIBIT_SHORTCUTS] = req_inhibit_shortcuts,
+    [WIN_REQ_CARET_RECT] = req_caret_rect,
     [WIN_REQ_PONG] = req_pong,
     [WIN_REQ_SYNC_DONE] = req_sync_done,
     [WIN_REQ_CLOSE_PID] = req_close_pid,

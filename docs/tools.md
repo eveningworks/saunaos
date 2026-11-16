@@ -156,6 +156,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `doom_data_test.py` -- DOOM's game data and key sheet: the downloader, the launcher, F1
 - `drag_image_test.py` -- The compositor's drag image: one image wherever the pointer is, saying
 - `editmenu_test.py` -- Clipboard keys and the shared right-click edit menu, in a text field
+- `emoji_picker_test.py` -- The emoji picker (Super+period) types an emoji into the focused window, and Character Map lists them in colour
 - `emoji_test.py` -- Emoji draw in COLOUR from the fallback list's emoji face, and U+FE0F decides
 - `engineless_test.py` -- Help and System Update with no Web page engine: their pages drawn as Markdown, not a dead web view
 - `fbs_test.py` -- First-boot setup: shown when it should be, saves what is chosen, ends
@@ -438,6 +439,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `ubinmap_hostcheck.py` -- Check lib/ubinmap (the Hex Viewer's structure decoders) and lib/ubyteval (its inspector) on the HOST
 - `ucolour_hostcheck.py` -- Check userland/libs/base/ucolour.c's HSL and HSV conversions against
 - `ucrt_hostcheck.py` -- Check userland/libs/ui/ucrt.c -- the CRT effect -- with the host gcc, against
+- `uemojidata_hostcheck.py` -- The emoji list's parser, search and recents (base/uemojidata.c), on the HOST
 - `ufatimg_hostcheck.py` -- Check base/ufatimg.c -- FAT12/FAT16 disk images read from memory
 - `ugfx_fill_hostcheck.py` -- Check ugfx's anti-aliased fills against Pillow, on the HOST
 - `ugfx_pix_hostcheck.py` -- Check ugfx_pix's SIMD tiers BYTE FOR BYTE against its C table, on the host
@@ -591,6 +593,7 @@ Full entries: [`docs/tools/gen.md`](tools/gen.md).
 - `gen_cursors.py` -- Generate the cursor themes into data/cursors/<theme>/
 - `gen_decisions_index.py` -- regenerate docs/decisions.md from docs/decisions/
 - `gen_emoji.py` -- which characters are drawn as EMOJI by default
+- `gen_emojidata.py` -- the emoji the picker and Character Map list
 - `gen_icons.py` -- Draw the application icons into data/icons/*.qoi
 - `gen_imgdata.py` -- Generate the image data this repo ships: the test vectors and the wallpapers
 - `gen_kbs.py` -- generates /usr/share/kbs/<layout> keyboard-layout data

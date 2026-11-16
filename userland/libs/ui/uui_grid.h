@@ -36,6 +36,10 @@ struct uui_grid {
     uui_grid_cell_fn cell;
     void *ctx;
     uint32_t bg;   // UUI_COLOR_UNSET = field_bg; a cell callback reads uui_grid_c_bg()
+    // 1: the selected cell is the selection colour inside an accent ring
+    // (the emoji picker, where a solid accent would fight colour glyphs),
+    // not the solid accent cell. A cell callback then draws its ordinary ink.
+    int ring;
     // OWNED
     int hot, armed, activated, focused;
     int bar_hot, bar_drag, bar_grab;

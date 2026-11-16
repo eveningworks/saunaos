@@ -99,6 +99,10 @@ struct uui_textbox {
     // Latin-1, which has no bullet), and clicks place the caret by those.
     // The text itself is unchanged in `buf`.
     int masked;
+    // 1 = no ":name:" emoji completion here (ui/uui_emojicomplete.h) --
+    // a field whose text is a path, a command or code. A masked field never
+    // completes either way.
+    int no_complete;
 };
 
 void uui_textbox_init(struct uui_textbox *f, const char *initial);

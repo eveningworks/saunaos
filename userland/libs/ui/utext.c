@@ -649,15 +649,15 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
     }
     ugfx_clip_restore(s, &saved);
 
-    if (show_cursor && uui_caret_visible()) {
+    if (show_cursor) {
         int cl, cc;
         pos_of_index(t, max_cols, t->ed.cursor, &cl, &cc);
         cc -= t->hscroll;
-        if (cl >= first_line && cl - first_line < visible_rows &&
-            cc >= 0 && cc <= max_cols)
-            // text-measure-ok: same grid contract
-            ugfx_fill_rect(s, x + cc * char_w, y + (cl - first_line) * char_h + disp,
-                            CURSOR_BAR_W, char_h, fg);
+        // text-measure-ok: same grid contract
+        int cx = x + cc * char_w, cy = y + (cl - first_line) * char_h + disp;
+        int shown = cl >= first_line && cl - first_line < visible_rows && cc >= 0 && cc <= max_cols;
+        if (shown) uui_caret_at(s, cx, cy, CURSOR_BAR_W, char_h);
+        if (shown && uui_caret_visible()) ugfx_fill_rect(s, cx, cy, CURSOR_BAR_W, char_h, fg);
     }
 }
 

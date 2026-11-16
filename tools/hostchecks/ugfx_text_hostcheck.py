@@ -206,6 +206,16 @@ int ugfx_char_h(void) { return 16; }
 // Everything uui_textbox.c draws through. None of the geometry depends
 // on a pixel landing anywhere, so stubs are the whole port.
 int uui_caret_visible(void) { return 1; }   // the blink phase: drawing, not geometry
+void uui_caret_at(const struct ugfx_surface *s, int x, int y, int w, int h)
+{ (void)s; (void)x; (void)y; (void)w; (void)h; }
+// :name: completion (ui/uui_emojicomplete.h) never opens here: no list to read.
+struct uui_textbox;
+int  uui_emojicomplete_key(struct uui_textbox *f, int key) { (void)f; (void)key; return 0; }
+void uui_emojicomplete_update(struct uui_textbox *f) { (void)f; }
+int  uui_emojicomplete_open(const struct uui_textbox *f) { (void)f; return 0; }
+void uui_emojicomplete_cancel(void) {}
+int  uui_emojicomplete_press(struct uui_textbox *f, int cx, int cy) { (void)f; (void)cx; (void)cy; return 0; }
+void uui_emojicomplete_draw(struct ugfx_surface *s, const struct uui_textbox *f) { (void)s; (void)f; }
 void ugfx_fill_rect(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t c)
 { (void)s; (void)x; (void)y; (void)w; (void)h; (void)c; }
 void ugfx_draw_rect(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t c)

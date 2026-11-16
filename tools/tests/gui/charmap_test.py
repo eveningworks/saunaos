@@ -233,7 +233,7 @@ def run(dbg, qmp, tmp, res):
     # 6. The Fonts page.
     rx, ry, rw, rh = lay.screen("rail")
     row = lay.r["rail.row_h"]
-    dbg.click(rx + rw // 2, ry + lay.r["rail.top"] + row + row // 2)
+    dbg.click(rx + rw // 2, ry + lay.r["rail.top"] + 2 * row + row // 2)   # Characters, Emoji, Fonts
     lay = wait(dbg, content, lambda lay: lay.state["page"] == 1 and "waterfall" in lay.r)
     if not chk(res, lay.state["page"] == 1, f"the rail opens Fonts ({lay.state})"):
         return

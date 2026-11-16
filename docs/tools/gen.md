@@ -285,6 +285,17 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   own copy of emoji-data.txt and nothing is fetched (the Unicode version
   goes into the header). `--check` fails on a stale table. Re-run when a
   newer Perl brings a newer Unicode.
+- **`gen_emojidata.py`** -- the emoji a person can PICK:
+  `data/usr/share/unicode/emoji`, groups in CLDR order and one line per
+  entry (its code points, then its CLDR name), read by
+  `base/uemojidata.h` for the emoji picker and Character Map's Emoji page.
+  Its input is VENDORED, `tools/gen/data/emoji-test.txt` (Unicode's
+  emoji-test.txt, Unicode License v3 -- `LICENSE`), so nothing is fetched.
+  Keeps fully-qualified entries that are one code point, optionally with
+  U+FE0F, that `data/fonts/fallback/twemoji.ttf` maps; drops ZWJ
+  sequences, skin tones, flags, keycaps and the Component group, which
+  need shaping. `--check` fails on a stale file. Re-run when either input
+  changes.
 - **`gen_wcwidth.py`** -- the East Asian Wide table a grid of cells
   measures with (`wcwidth()`'s rule: 2 cells for W and F, 1 otherwise)
   into `userland/libs/base/uwcwidth_table.h` (tracked), read by

@@ -1,7 +1,7 @@
 // Character Map -- every character the installed fonts can draw, and
 // the fonts themselves. GNOME Characters and GNOME Fonts in one window,
 // as Windows' charmap is one: chosen from mockups on 2026-10-09 (C3), a
-// RAIL of two pages.
+// RAIL of three pages.
 //
 //   Characters  search (a name, U+XXXX, or the character itself), the
 //               font as chips, a Unicode block, the GRID of glyphs, a
@@ -9,6 +9,9 @@
 //               UTF-8, block, which fonts have it) and a line of text to
 //               copy that a double-click adds to -- charmap's "Characters
 //               to copy".
+//   Emoji       the emoji picker's list (base/uemojidata.h) in colour: a
+//               search by name, a Group, the grid (ui/uui_emojigrid.h) and
+//               the same detail strip and line of text (2026-11-16).
 //   Fonts       a card per family and the chosen one's page: a sample at
 //               a ladder of sizes, its files, coverage and licence, and
 //               "Use for the interface" / "for terminals".
@@ -29,6 +32,7 @@
 #include "base/ugrow.h"
 #include "base/ulistdir.h"
 #include "base/ufontfallback.h"
+#include "base/uemojidata.h"
 #include "ui/uapp.h"
 #include "ui/uglyph.h"
 #include "ui/uui_fontsample.h"
@@ -39,6 +43,7 @@
 #include "ui/uui_dropdown.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_grid.h"
+#include "ui/uui_emojigrid.h"
 #include "ui/uui_primitives.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_sidebar.h"
@@ -51,10 +56,12 @@
 #define MAX_TEXT   64
 #define SAMPLE     "The quick brown fox jumps over the lazy dog"
 
-enum { PAGE_CHARS, PAGE_FONTS };
+// The rail's ids; its ORDER is Characters, Emoji, Fonts (main()).
+enum { PAGE_CHARS, PAGE_FONTS, PAGE_EMOJI };
 enum {
     ID_RAIL = 1, ID_SEARCH, ID_FONT, ID_FONTLIST, ID_BLOCK, ID_GRID,
     ID_COPY, ID_ADD, ID_COPY_ALL, ID_CLEAR, ID_CARDS, ID_SAMPLE, ID_USE_UI, ID_USE_MONO,
+    ID_ESEARCH, ID_EGROUP, ID_EGRID,
 };
 
 struct face {
@@ -87,7 +94,7 @@ static int g_ntext;
 static char g_note[96];            // the status bar's message
 static char g_status_font[64];
 
-static struct uui_sidebar_row g_rail_rows[2];
+static struct uui_sidebar_row g_rail_rows[3];
 static struct uui_sidebar g_rail;
 static struct uui_textbox g_search, g_sample;
 static struct uui_segmented g_chips;
@@ -97,7 +104,15 @@ static struct uui_button g_copy, g_add, g_copy_all, g_clear, g_use_ui, g_use_mon
 static struct uui_statusbar g_status;
 static struct uui_focus g_focus;
 static struct uui_focusable g_ring[4];
-enum { RING_RAIL, RING_SEARCH, RING_BLOCK, RING_GRID };   // the Characters page's tab order
+enum { RING_RAIL, RING_SEARCH, RING_BLOCK, RING_GRID };   // the Characters and Emoji pages' tab order
+
+// Emoji: the search, the group, the grid over g_eitems (entry indices).
+static struct uui_textbox g_esearch;
+static struct uui_dropdown g_egroup;
+static struct uui_emojigrid g_egrid;
+static const char **g_group_names;
+static int *g_eitems;
+static char g_emoji_face[48];      // the emoji face's family, for "In ..."
 
 // Geometry the drawing needs.
 static int g_rail_w, g_top_h, g_detail_y, g_detail_h, g_text_y, g_text_h;
@@ -315,6 +330,53 @@ static void add_selected(void) {
     ulogf("charmap: text %d character(s)\n", g_ntext);
 }
 
+// --- the Emoji page's list ----------------------------------------------------
+
+// The search's matches while there is a query, else the Group's emoji.
+static void efill(void) {
+    const struct uemojidata *d = uemojidata();
+    int keep = uui_emojigrid_focused(&g_egrid), n = 0;
+    const char *q = uui_textbox_text(&g_esearch);
+    if (!g_eitems) {
+        snprintf(g_note, sizeof g_note, "No emoji list");
+    } else if (q[0]) {
+        n = uemojidata_search(d, q, g_eitems, d->count);
+        if (n > d->count) n = d->count;
+        snprintf(g_note, sizeof g_note, "%d match%s", n, n == 1 ? "" : "es");
+        ulogf("charmap: emoji search \"%s\" %d\n", q, n);
+    } else if (d->ngroups) {
+        int gi = uui_dropdown_selected(&g_egroup);
+        if (gi < 0 || gi >= d->ngroups) gi = 0;
+        const struct uemoji_group *gr = &d->groups[gi];
+        for (n = 0; n < gr->count; n++) g_eitems[n] = gr->first + n;
+        snprintf(g_note, sizeof g_note, "%s, %d emoji", gr->name, n);
+    }
+    uui_emojigrid_set(&g_egrid, g_eitems, n);
+    for (int i = 0; i < n; i++)
+        if (g_eitems[i] == keep) uui_grid_select(&g_egrid.grid, i);
+}
+
+static const struct uemoji_entry *selected_emoji(void) {
+    int e = uui_emojigrid_focused(&g_egrid);
+    return e >= 0 ? &uemojidata()->entries[e] : 0;
+}
+
+// Its characters: the base, and U+FE0F where the list writes one.
+static int emoji_cps(const struct uemoji_entry *e, uint32_t out[2]) {
+    out[0] = e->cp;
+    out[1] = 0xFE0F;
+    return e->vs16 ? 2 : 1;
+}
+
+static void add_emoji(void) {
+    const struct uemoji_entry *e = selected_emoji();
+    uint32_t cps[2];
+    int n = e ? emoji_cps(e, cps) : 0;
+    if (!n || g_ntext + n > MAX_TEXT) return;
+    for (int i = 0; i < n; i++) g_text[g_ntext++] = cps[i];
+    ulogf("charmap: text %d character(s)\n", g_ntext);
+}
+
 // --- pages -------------------------------------------------------------------
 
 static struct uui_item g_chars_items[] = {
@@ -333,6 +395,18 @@ static struct uui_item g_chars_items[] = {
 #define W_CHIPS    2
 #define W_FONTLIST 3
 #define W_USE_MONO 4
+
+static struct uui_item g_emoji_items[] = {
+    { .ops = &uui_sidebar_ops,   .widget = &g_rail,     .id = ID_RAIL,     .name = "rail" },
+    { .ops = &uui_textbox_ops,   .widget = &g_esearch,  .id = ID_ESEARCH,  .name = "esearch" },
+    { .ops = &uui_emojigrid_ops, .widget = &g_egrid,    .id = ID_EGRID,    .name = "egrid" },
+    { .ops = &uui_button_ops,    .widget = &g_copy,     .id = ID_COPY,     .name = "copy" },
+    { .ops = &uui_button_ops,    .widget = &g_add,      .id = ID_ADD,      .name = "add" },
+    { .ops = &uui_button_ops,    .widget = &g_copy_all, .id = ID_COPY_ALL, .name = "copyall" },
+    { .ops = &uui_button_ops,    .widget = &g_clear,    .id = ID_CLEAR,    .name = "clear" },
+    // Last: its popup paints over the grid.
+    { .ops = &uui_dropdown_ops,  .widget = &g_egroup,   .id = ID_EGROUP,   .name = "egroup" },
+};
 
 static struct uui_item g_fonts_items[] = {
     { .ops = &uui_sidebar_ops, .widget = &g_rail,     .id = ID_RAIL,     .name = "rail" },
@@ -353,6 +427,15 @@ static void show_page(struct uapp *a, int page) {
         uui_focus_init(&g_focus, g_ring, 4);
         uui_focus_set(&g_focus, RING_GRID);
         if (g_nfaces) fill();
+    } else if (page == PAGE_EMOJI) {
+        uapp_set_widgets(a, g_emoji_items, (int)(sizeof g_emoji_items / sizeof g_emoji_items[0]));
+        g_ring[RING_RAIL] = (struct uui_focusable){ &g_rail, &uui_sidebar_ops };
+        g_ring[RING_SEARCH] = (struct uui_focusable){ &g_esearch, &uui_textbox_focus_ops };
+        g_ring[RING_BLOCK] = (struct uui_focusable){ &g_egroup, &uui_dropdown_focus_ops };
+        g_ring[RING_GRID] = (struct uui_focusable){ &g_egrid, &uui_emojigrid_ops };
+        uui_focus_init(&g_focus, g_ring, 4);
+        uui_focus_set(&g_focus, RING_GRID);
+        efill();
     } else {
         uapp_set_widgets(a, g_fonts_items, (int)(sizeof g_fonts_items / sizeof g_fonts_items[0]));
         g_ring[0] = (struct uui_focusable){ &g_rail, &uui_sidebar_ops };
@@ -365,7 +448,7 @@ static void show_page(struct uapp *a, int page) {
         snprintf(g_note, sizeof g_note, "%d font famil%s in %s", g_nfaces, g_nfaces == 1 ? "y" : "ies", FONT_DIR);
     }
     uui_sidebar_select_id(&g_rail, page);
-    ulogf("charmap: page %s\n", page == PAGE_CHARS ? "characters" : "fonts");
+    ulogf("charmap: page %s\n", page == PAGE_CHARS ? "characters" : page == PAGE_EMOJI ? "emoji" : "fonts");
 }
 
 static void choose_font(int i) {
@@ -391,7 +474,24 @@ static void layout(int cw, int ch) {
     uui_sidebar_set_geometry(&g_rail, 0, 0, g_rail_w, ch);
     int x = g_rail_w + 1, w = cw - x;
     g_page_x = x;
-    if (g_page == PAGE_CHARS) {
+    if (g_page == PAGE_EMOJI) {
+        g_top_h = bh + pad * 2;
+        int bw = pad * 20;
+        uui_textbox_set_geometry(&g_esearch, x + pad, pad, pad * 22, bh);
+        uui_dropdown_set_geometry(&g_egroup, cw - pad - bw, pad, bw, bh);
+        g_text_h = bh + pad * 2;
+        g_text_y = ch - g_text_h;
+        g_detail_h = lh * 4 + pad;
+        g_detail_y = g_text_y - g_detail_h;
+        g_egrid.grid.cell_w = g_egrid.grid.cell_h = lh * 5 / 2;
+        g_egrid.px = lh * 3 / 2;
+        uui_emojigrid_ops.set_geometry(&g_egrid, x, g_top_h, w, g_detail_y - g_top_h);
+        int b1 = pad * 10, b2 = pad * 13;
+        uui_button_set_geometry(&g_add, cw - pad - b2, g_detail_y + (g_detail_h - bh) / 2, b2, bh);
+        uui_button_set_geometry(&g_copy, cw - pad * 2 - b2 - b1, g_detail_y + (g_detail_h - bh) / 2, b1, bh);
+        uui_button_set_geometry(&g_clear, cw - pad - b1, g_text_y + pad, b1, bh);
+        uui_button_set_geometry(&g_copy_all, cw - pad * 2 - b1 * 2, g_text_y + pad, b1, bh);
+    } else if (g_page == PAGE_CHARS) {
         g_top_h = bh + pad * 2;
         uui_textbox_set_geometry(&g_search, x + pad, pad, pad * 22, bh);
         int fx = x + pad * 24, bw = pad * 20, sw, sh;
@@ -475,6 +575,33 @@ static void draw_detail(struct ugfx_surface *s, int cw) {
     ugfx_draw_string_clipped(s, x, ty + lh * 2 + pad, room, in, dim, panel);
 }
 
+static void draw_emoji_detail(struct ugfx_surface *s, int cw) {
+    int lh = ugfx_char_h(), pad = ugfx_char_w();
+    uint32_t panel = UTHEME_PANEL_BG, dim = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    ugfx_fill_rect(s, g_page_x, g_detail_y, cw - g_page_x, g_detail_h, panel);
+    ugfx_fill_rect(s, g_page_x, g_detail_y, cw - g_page_x, 1, UTHEME_SEPARATOR);
+    const struct uemoji_entry *e = selected_emoji();
+    if (!e) return;
+    int tile = g_detail_h - pad * 2, tx = g_page_x + pad * 2, ty = g_detail_y + pad;
+    uapp_logf_layout("charmap: layout tile %d %d %d %d\n", tx, ty, tile, tile);
+    uui_fill_round_rect(s, tx, ty, tile, tile, 8, ugfx_rgb(29, 36, 51));
+    uui_emojigrid_draw_entry(s, g_egrid.face, uui_emojigrid_focused(&g_egrid), tile * 2 / 3, tx, ty, tile, tile);
+    int x = tx + tile + pad * 2, room = g_copy.x - x - pad * 2;
+    const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+    ugfx_draw_string_clipped(s, x, ty, room, e->name, UTHEME_TEXT, panel);
+    ugfx_set_font(was);
+    char cps[32], hex[32] = "", line[160];
+    snprintf(cps, sizeof cps, e->vs16 ? "U+%04X U+FE0F" : "U+%04X", (unsigned)e->cp);
+    for (int i = 0; e->seq[i] && i < 10; i++)
+        snprintf(hex + i * 3, sizeof hex - (size_t)i * 3, "%02X ", (unsigned char)e->seq[i]);
+    int b = uunicode_block_of(e->cp);
+    snprintf(line, sizeof line, "%s    UTF-8 %s   %s", cps, hex, b >= 0 ? uunicode_block(b)->name : "");
+    ugfx_draw_string_clipped(s, x, ty + lh + pad / 2, room, line, dim, panel);
+    char in[80];
+    snprintf(in, sizeof in, "In %s", g_emoji_face[0] ? g_emoji_face : "the emoji face");
+    ugfx_draw_string_clipped(s, x, ty + lh * 2 + pad, room, in, dim, panel);
+}
+
 static void draw_text_line(struct ugfx_surface *s, int cw) {
     int lh = ugfx_char_h(), pad = ugfx_char_w();
     ugfx_fill_rect(s, g_page_x, g_text_y, cw - g_page_x, g_text_h, UTHEME_WHITE);
@@ -488,12 +615,16 @@ static void draw_text_line(struct ugfx_surface *s, int cw) {
     uui_fill_round_rect(s, bx + 1, g_text_y + pad + 1, bw - 2, g_text_h - pad * 2 - 2, 4, UTHEME_WHITE);
     // Each character in the first font that has it: the line can hold
     // an arrow the session font cannot draw.
+    // A selector draws nothing: the character before it is the emoji face's.
     struct face *f = cur();
     int x = bx + pad, cell = lh + 2;
     for (int i = 0; i < g_ntext && f && x + cell < bx + bw; i++) {
-        struct face *g = f;
-        for (int k = 0; k < g_nfaces && !uglyph_has(&g->ff.reg, g_text[i]); k++) g = &g_faces[k];
-        uglyph_draw(s, &g->ff.reg, g_text[i], lh, x, g_text_y + pad, cell, g_text_h - pad * 2, UTHEME_TEXT);
+        if (g_text[i] == 0xFE0F || g_text[i] == 0xFE0E) continue;
+        struct uglyph_face *gf = &f->ff.reg;
+        if (i + 1 < g_ntext && g_text[i + 1] == 0xFE0F && g_egrid.face && uglyph_has(g_egrid.face, g_text[i]))
+            gf = g_egrid.face;
+        for (int k = 0; k < g_nfaces && !uglyph_has(gf, g_text[i]); k++) gf = &g_faces[k].ff.reg;
+        uglyph_draw(s, gf, g_text[i], lh, x, g_text_y + pad, cell, g_text_h - pad * 2, UTHEME_TEXT);
         x += cell;
     }
     if (!g_ntext)
@@ -572,9 +703,21 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     // page, font, characters listed, the selected one, the text's length, its last
     uapp_logf_layout("charmap: layout state %d %d %d %d %d %d\n", g_page, g_cur, g_ncps, (int)selected_cp(), g_ntext,
                      g_ntext ? (int)g_text[g_ntext - 1] : 0);
+    // Copy and Add act on the selection: greyed with none (docs/gui-guidelines.md).
+    g_copy.disabled = g_add.disabled = g_page == PAGE_EMOJI ? !selected_emoji() : !selected_cp();
+    g_copy_all.disabled = g_clear.disabled = !g_ntext;
     ugfx_fill_rect(s, g_rail_w, 0, 1, g_status.y, UTHEME_SEPARATOR);
     uui_statusbar_draw(s, &g_status);
-    if (g_page == PAGE_CHARS) {
+    if (g_page == PAGE_EMOJI) {
+        uapp_logf_layout("charmap: layout emoji %d %d\n", g_egrid.count, uui_emojigrid_focused(&g_egrid));
+        ugfx_fill_rect(s, g_page_x, 0, s->w - g_page_x, g_top_h, UTHEME_CHROME);
+        ugfx_fill_rect(s, g_page_x, g_top_h - 1, s->w - g_page_x, 1, UTHEME_SEPARATOR);
+        int lw = ugfx_text_width("Group");
+        ugfx_draw_string(s, g_egroup.x - lw - ugfx_char_w(), g_egroup.y + (g_egroup.h - ugfx_char_h()) / 2, "Group",
+                         uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), UTHEME_CHROME);
+        draw_emoji_detail(s, s->w);
+        draw_text_line(s, s->w);
+    } else if (g_page == PAGE_CHARS) {
         ugfx_fill_rect(s, g_page_x, 0, s->w - g_page_x, g_top_h, UTHEME_CHROME);
         ugfx_fill_rect(s, g_page_x, g_top_h - 1, s->w - g_page_x, 1, UTHEME_SEPARATOR);
         int lw = ugfx_text_width("Block");
@@ -598,6 +741,14 @@ static void on_widget(struct uapp *a, int id, int reason) {
         break;
     }
     case ID_SEARCH: fill(); break;
+    case ID_ESEARCH: efill(); break;
+    case ID_EGROUP:
+        if (!g_egroup.open && !uui_textbox_text(&g_esearch)[0]) efill();
+        else if (!g_egroup.open) { uui_textbox_set_text(&g_esearch, ""); efill(); }
+        break;
+    case ID_EGRID:
+        if (uui_emojigrid_take(&g_egrid) >= 0) add_emoji();
+        break;
     case ID_FONT: if (g_chips.selected != g_cur) choose_font(g_chips.selected); break;
     case ID_FONTLIST: if (uui_dropdown_selected(&g_fontlist) != g_cur) choose_font(uui_dropdown_selected(&g_fontlist)); break;
     case ID_BLOCK: show_block(); break;
@@ -615,6 +766,14 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void on_action(struct uapp *a, int code) {
     uint32_t cp = selected_cp();
     char what[16];           // the status bar is Latin-1: name it, don't show it
+    if (g_page == PAGE_EMOJI && (code == ID_COPY || code == ID_ADD)) {
+        const struct uemoji_entry *e = selected_emoji();
+        uint32_t cps[2];
+        if (e && code == ID_COPY) copy_text(cps, emoji_cps(e, cps), e->name);
+        if (e && code == ID_ADD) add_emoji();
+        uapp_redraw(a);
+        return;
+    }
     switch (code) {
     case ID_COPY:
         snprintf(what, sizeof what, "U+%04X", (unsigned)cp);
@@ -649,6 +808,14 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     if (chars && at == RING_BLOCK) show_block();
     if (chars && at == RING_GRID && uui_grid_take(&g_grid) >= 0) add_selected();
     if (g_page == PAGE_FONTS && g_cards.selected >= 0 && g_cards.selected != g_cur) choose_font(g_cards.selected);
+    if (g_page == PAGE_EMOJI) {
+        if (key == 0x03 && at == RING_GRID) { on_action(a, ID_COPY); return; }
+        if (key == 0x06) uui_focus_set(&g_focus, RING_SEARCH);
+        if (key == '\b' && at == RING_GRID && g_ntext) g_ntext--;
+        if (at == RING_SEARCH) efill();
+        if (at == RING_BLOCK && !g_egroup.open) { uui_textbox_set_text(&g_esearch, ""); efill(); }
+        if (at == RING_GRID && uui_emojigrid_take(&g_egrid) >= 0) add_emoji();
+    }
     uapp_redraw(a);
 }
 
@@ -664,10 +831,13 @@ static void on_size(int *w, int *h) {
 
 int main(void) {
     load_faces();
-    for (int i = 0; i < 2; i++)
-        g_rail_rows[i] = (struct uui_sidebar_row){ .label = i ? "Fonts" : "Characters", .kind = UUI_SIDEBAR_TOP,
-                                                   .icon = i ? "tb-font" : "tb-omega", .id = i };
-    uui_sidebar_init(&g_rail, 0, 0, 0, 0, g_rail_rows, 2);
+    g_rail_rows[0] = (struct uui_sidebar_row){ .label = "Characters", .kind = UUI_SIDEBAR_TOP,
+                                               .icon = "tb-omega", .id = PAGE_CHARS };
+    g_rail_rows[1] = (struct uui_sidebar_row){ .label = "Emoji", .kind = UUI_SIDEBAR_TOP,
+                                               .icon = "tb-emoji", .id = PAGE_EMOJI };
+    g_rail_rows[2] = (struct uui_sidebar_row){ .label = "Fonts", .kind = UUI_SIDEBAR_TOP,
+                                               .icon = "tb-font", .id = PAGE_FONTS };
+    uui_sidebar_init(&g_rail, 0, 0, 0, 0, g_rail_rows, 3);
     uui_statusbar_init(&g_status);
     g_status.panes[0].text = g_note;
     g_status.panes[1] = (struct uui_status_pane){ .text = g_status_font, .chars = 26 };
@@ -680,6 +850,22 @@ int main(void) {
     uui_dropdown_init(&g_fontlist, 0, 0, 0, 0, g_font_names, g_nfaces);
     uui_dropdown_init(&g_block, 0, 0, 0, 0, g_block_names, 0);
     uui_grid_init(&g_grid, ugfx_char_h() * 5 / 2, ugfx_char_h() * 5 / 2);
+    // The Emoji page: the list's groups for the dropdown, the face this
+    // program already opened for its "which fonts have it" line.
+    const struct uemojidata *ed = uemojidata();
+    g_eitems = ed->count ? malloc(sizeof *g_eitems * (size_t)ed->count) : 0;
+    g_group_names = ed->ngroups ? malloc(sizeof *g_group_names * (size_t)ed->ngroups) : 0;
+    int ngroups = g_group_names ? ed->ngroups : 0;
+    for (int i = 0; i < ngroups; i++) g_group_names[i] = ed->groups[i].name;
+    uui_textbox_init(&g_esearch, "");
+    g_esearch.placeholder = "Search emoji";
+    uui_dropdown_init(&g_egroup, 0, 0, 0, 0, g_group_names, ngroups);
+    uui_emojigrid_init(&g_egrid, ugfx_char_h() * 5 / 2, ugfx_char_h() * 3 / 2);
+    for (int i = 0; i < g_nfaces; i++)
+        if (!strcmp(g_faces[i].ff.stem, "twemoji")) g_egrid.face = &g_faces[i].ff.reg;
+    if (!g_egrid.face) g_egrid.face = uui_emojigrid_face();
+    if (!uglyph_family(g_egrid.face, g_emoji_face, sizeof g_emoji_face)) g_emoji_face[0] = '\0';
+    ulogf("charmap: %d emoji in %d groups, face %s\n", ed->count, ngroups, g_emoji_face[0] ? g_emoji_face : "none");
     uui_grid_init(&g_cards, ugfx_char_w() * 28, ugfx_char_h() * 4);
     uui_grid_set(&g_cards, g_nfaces, card, 0);
     g_cards.bg = UUI_ROLE(panel_bg);

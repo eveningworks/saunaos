@@ -89,6 +89,8 @@ struct window {
     int scanout_ok;
     // The client asked for keys by position too (WIN_HINT_PHYS_KEYS).
     int phys_keys;
+    // Its text caret, content-relative (WIN_REQ_CARET_RECT); caret_h 0 for none.
+    int caret_x, caret_y, caret_w, caret_h;
     // The client draws its own frame (WIN_HINT_NO_DECOR): no title bar,
     // border or rounded corners from toywm, and no resize band of its own.
     int no_decor;

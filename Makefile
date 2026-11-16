@@ -2471,10 +2471,12 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	mkdir -p $(SEED_DIR)/sync/tests/utf8
 	cp data/tests/utf8/* $(SEED_DIR)/sync/tests/utf8/
 	# Unicode's names and blocks for the characters the fonts can draw
-	# (tools/gen/gen_unicode_names.py, tracked), for the Character Map --
+	# (tools/gen/gen_unicode_names.py, tracked), for the Character Map, and the
+	# emoji list (tools/gen/gen_emojidata.py) for the picker and its Emoji page --
 	# Unicode, Inc.'s data, so its notice travels with it.
 	mkdir -p $(SEED_DIR)/sync/usr/share/unicode $(SEED_DIR)/sync/usr/share/licenses
-	cp data/usr/share/unicode/names data/usr/share/unicode/blocks $(SEED_DIR)/sync/usr/share/unicode/
+	cp data/usr/share/unicode/names data/usr/share/unicode/blocks data/usr/share/unicode/emoji \
+	   $(SEED_DIR)/sync/usr/share/unicode/
 	cp data/licenses/unicode.txt $(SEED_DIR)/sync/usr/share/licenses/
 	# NetSurf's run-time resources -- the user-agent stylesheets and its
 	# Messages -- straight from the vendored port (docs/browser-design.md),

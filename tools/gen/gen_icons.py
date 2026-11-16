@@ -1426,6 +1426,16 @@ def icon_tb_font():
     return im
 
 
+def icon_tb_emoji():
+    # A smiling face: Character Map's Emoji page.
+    im, d = _tb()
+    d.ellipse([6, 6, 58, 58], outline=TB_INK, width=6)
+    d.ellipse([20, 20, 28, 30], fill=TB_INK)
+    d.ellipse([36, 20, 44, 30], fill=TB_INK)
+    d.arc([17, 22, 47, 48], 25, 155, fill=TB_INK, width=6)
+    return im
+
+
 def icon_tb_fullscreen():
     # Four corners pointing out.
     im, d = _tb()
@@ -1806,6 +1816,7 @@ ICONS = {
     "tb-check": icon_tb_check,
     "tb-eject": icon_tb_eject,
     "tb-font": icon_tb_font,
+    "tb-emoji": icon_tb_emoji,
     "tb-fullscreen": icon_tb_fullscreen,
     "tb-unfullscreen": icon_tb_unfullscreen,
     "tb-minimize": icon_tb_minimize,

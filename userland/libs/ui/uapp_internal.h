@@ -138,6 +138,8 @@ struct uapp_top {
     // names one on every move.
     int cursor;
     int hears;                  // the app has an on_widget: a focused key is reported
+    // The caret last reported (WIN_REQ_CARET_RECT): a frame that moves it sends.
+    int caret_sent, caret[4];
     const struct uapp_top_ops *ops;
 };
 extern const struct uapp_top_ops APP_OPS, WIN_OPS;   // uapp_window.c

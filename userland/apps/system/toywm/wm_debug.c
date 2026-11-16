@@ -21,6 +21,7 @@
 #include "wm_overlay.h"
 #include "crash_notice.h"
 #include "osk.h"
+#include "emoji_picker.h"
 #include "wm_debug.h"
 #include "ui/uui_primitives.h"   // uui_hit() -- `gui sync`
 #include "start_menu.h"
@@ -2669,6 +2670,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
         return 1;
     }
     if (k_strcmp(sub, "brightness") == 0)   { cmd_brightness(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "emoji") == 0)        { emoji_picker_report(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "state") == 0)        { cmd_state(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "sync") == 0)         { while (*p == ' ') p++; cmd_sync(o, p); return 1; }
     if (k_strcmp(sub, "wait") == 0)         { wm_debug_wait_cmd(o, p); return 1; }

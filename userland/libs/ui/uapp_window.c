@@ -1,6 +1,18 @@
 // uapp's toplevels: what the main window and a dialog window share --
 // input routing and painting -- and dialog windows. See ui/uapp_internal.h.
 #include "ui/uapp_internal.h"
+#include "ui/uui_caret.h"
+
+// The caret this frame drew, told to the compositor when it moved
+// (WIN_REQ_CARET_RECT) -- text-input-v3's set_cursor_rectangle.
+static void caret_report(struct uapp_top *t, const struct ugfx_surface *s) {
+    int r[4] = { 0, 0, 0, 0 };
+    if (!uui_caret_frame_end(s, &r[0], &r[1], &r[2], &r[3])) r[0] = r[1] = r[2] = r[3] = 0;
+    if (t->caret_sent && !memcmp(r, t->caret, sizeof r)) return;
+    if (!wmchan_send(WIN_REQ_CARET_RECT, t->slot, r[0], r[1], WIN_WIDGET_WH(r[2], r[3]), 0)) return;
+    memcpy(t->caret, r, sizeof r);
+    t->caret_sent = 1;
+}
 
 // ONE FRAME'S PAINTING, for either kind of toplevel. ORDER, and it is
 // load-bearing: clear, then the APP's own painting, then the widgets, then
@@ -13,6 +25,7 @@
 // dialog window has none.
 void top_paint(struct uapp_top *t, struct ugfx_surface *s, struct uui_layout *layout,
                       struct uapp *a) {
+    uui_caret_frame_begin();
     if (layout || t->router.count) ugfx_fill(s, UTHEME_PANEL_BG);
     if (a && a->desc->on_draw) {
         struct uapp_draw d = { s, UTHEME_TEXT, UTHEME_PANEL_BG };
@@ -26,6 +39,7 @@ void top_paint(struct uapp_top *t, struct ugfx_surface *s, struct uui_layout *la
         struct uapp_draw d = { s, UTHEME_TEXT, UTHEME_PANEL_BG };
         a->desc->on_draw_over(a, &d);
     }
+    caret_report(t, s);
 }
 
 // --- dialog windows: a second toplevel (ui/uapp.h) -------------------
