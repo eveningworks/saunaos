@@ -2448,7 +2448,7 @@ def calls_answered(dbg, res):
         "ReSame": "0001", "ReSize": "00012000", "ReKept": "0077", "ReTile": "0033", "ReHandle": "0001",
         "ReFree": "0000", "Int2f1680": "1600", "Int2f1684": "0000", "Int2f4300": "4300",
         "FloodRet": "0001", "FloodMono": "F800F800", "OleRelease": "0001",
-        "OverW": "0020", "OverR": "0020", "OverB": "005A",
+        "OverW": "0020", "OverR": "0020", "OverB": "005A", "FreedEs": "0000",
     }
     for names, what in ((("EqualSame", "EqualDiff"), "EqualRect tells equal rectangles from different ones"),
                         (("Upper", "UpperN"), "AnsiUpperBuff upcases its count and no more"),
@@ -2476,7 +2476,8 @@ def calls_answered(dbg, res):
                         (("FloodRet", "FloodMono"), "ExtFloodFill on a 1-bit bitmap stops at a border as that bitmap holds it"),
                         (("OleRelease",), "OleRevokeServer calls the server's Release (Paintbrush's Exit waits for it)"),
                         (("OverW", "OverR", "OverB"), "_lwrite and _lread of a buffer running past its block move the full "
-                         "count, as 3.1's did (WinBench's disk test)")):
+                         "count, as 3.1's did (WinBench's disk test)"),
+                        (("FreedEs",), "GlobalFree of the block in ES leaves ES 0000, as 3.11's KERNEL did")):
         res.check(f"wincalls.exe: {what}", all(got.get(n) == want[n] for n in names),
                   "; ".join(f"{n}={got.get(n)!r} (want {want[n]!r})" for n in names if got.get(n) != want[n]))
     size = sh(dbg, "stat /home/Win16/WINDOWS/OVERRUN.BIN")

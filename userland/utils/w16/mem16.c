@@ -140,9 +140,18 @@ struct w16_lheap *w16_seg_heap(struct w16 *w, uint16_t sel, int create) {
     return &e->heap;
 }
 
+// ES HOLDING A SELECTOR BEING FREED IS ZEROED, as 3.11's KERNEL did (measured: GlobalFree of the
+// block in ES leaves it 0000) -- a program that pushes ES and pops it back after the free, as the C
+// runtime's intdos() does in WinBench's disk test, then loads the null selector, not a dead one.
+static void es_forget(struct w16 *w, uint16_t sel, unsigned tiles) {
+    unsigned i = cpu16_index(w->cpu.sreg[S_ES]), first = cpu16_index(sel);
+    if (w->cpu.sreg[S_ES] && i >= first && i < first + tiles) w->cpu.sreg[S_ES] = 0;
+}
+
 static void global_block_free(struct w16 *w, struct cpu16_desc *d) {
     uint16_t sel = global_sel(w, d);
     unsigned tiles = global_tiles(w, d);
+    es_forget(w, sel, tiles);
     seg_heap_drop(w, sel);
     lin16_free(d->base);
     memset(d, 0, sizeof *d * tiles);
@@ -709,7 +718,8 @@ static int api_GlobalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a
 }
 
 // GlobalFree(hMem) -> HGLOBAL
-// Windows: Frees a global block: 0, or the handle when it could not.
+// Windows: Frees a global block: 0, or the handle when it could not; ES is 0 after it when it held
+// the block.
 // w16: The same.
 static int api_GlobalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
@@ -951,12 +961,15 @@ static int api_AllocAlias(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // FreeSelector(wSelector) -> WORD
 // Windows: Gives back a selector AllocSelector (or an alias call) made: 0, or the selector when it
 // was not one.
-// w16: The same.
+// w16: The same, ES zeroed when it held it (es_forget()).
 static int api_FreeSelector(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t sel = w16_arg16(a);
     struct cpu16_desc *d = own_desc(w, sel);
-    if (d) memset(d, 0, sizeof *d);
+    if (d) {
+        memset(d, 0, sizeof *d);
+        es_forget(w, sel, 1);
+    }
     cpu16_desc_changed(&w->cpu);
     w->cpu.r[R_AX].w = d ? 0 : sel;
     return 2;

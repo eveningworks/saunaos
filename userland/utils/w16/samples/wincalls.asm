@@ -36,6 +36,8 @@
 ;   OverW=0020 OverR=0020 OverB=005A   _lwrite then _lread of 32 bytes from 8 into a 16-byte block, as
 ;                                      WinBench's disk test runs past its buffer: the full count both
 ;                                      ways, and the byte the read put back (C:\WINDOWS\OVERRUN.BIN)
+;   FreedEs=0000                       ES after GlobalFree of the block it held: 3.11 zeroes it
+;                                      (WinBench's intdos() reloads ES after freeing its buffer)
 ; Run on real Windows 3.11 it is the check of what each answer should be.
 ; Build: tools/gen/gen_ne.py.
 ;
@@ -309,6 +311,23 @@ start:
     push word [ov_h]
     W16_CALL "KERNEL", 81           ; _lclose
 
+    push word 2                     ; GlobalAlloc(GMEM_MOVEABLE, 16), locked into ES, then freed
+    push word 0
+    push word 16
+    W16_CALL "KERNEL", 15
+    mov [fz_h], ax
+    push ax
+    W16_CALL "KERNEL", 18           ; GlobalLock -> DX:AX
+    mov es, dx
+    push word [fz_h]
+    W16_CALL "KERNEL", 19           ; GlobalUnlock
+    push word [fz_h]
+    W16_CALL "KERNEL", 17           ; GlobalFree
+    mov ax, es                      ; read, never reloaded
+    mov [fz_es], ax
+    push ds
+    pop es
+
     push word 4                     ; CreateBitmap(4, 2, 1, 8, NULL)
     push word 2
     push word 1
@@ -498,6 +517,7 @@ start:
     HEXW ov_w_t, [ov_w]
     HEXW ov_r_t, [ov_r]
     HEXW ov_b_t, [ov_b]
+    HEXW fz_es_t, [fz_es]
     HEXD bits_set_t, bits_set
     HEXD bits_get_t, bits_get
     HEXW dib_w_t, [dib_w]
@@ -675,6 +695,8 @@ ov_h:       dw 0
 ov_w:       dw 0
 ov_r:       dw 0
 ov_b:       dw 0
+fz_h:       dw 0
+fz_es:      dw 0
 hbm:        dw 0
 bits_set:   dd 0
 bits_get:   dd 0
@@ -749,6 +771,7 @@ msw_t:      times 6 db 0
 ov_w_t:     times 6 db 0
 ov_r_t:     times 6 db 0
 ov_b_t:     times 6 db 0
+fz_es_t:    times 6 db 0
 bits_set_t: times 10 db 0
 bits_get_t: times 10 db 0
 dib_w_t:    times 6 db 0
@@ -787,7 +810,7 @@ keys:       dw k_equal_same, equal_same_t, k_equal_diff, equal_diff_t
             dw k_move_ret, move_ret_t, k_move_pt, move_pt_t
             dw k_ext, ext_t, k_ext_pt, ext_pt_t, k_ext_ret, ext_ret_t
             dw k_env_off, env_off_t, k_env_head, env_head_t, k_kb_cp, kb_cp_t, k_msw, msw_t
-            dw k_ov_w, ov_w_t, k_ov_r, ov_r_t, k_ov_b, ov_b_t
+            dw k_ov_w, ov_w_t, k_ov_r, ov_r_t, k_ov_b, ov_b_t, k_fz_es, fz_es_t
             dw k_pal, pal_t, 0
 k_move_ret: db "MoveRet", 0
 k_move_pt:  db "MovePt", 0
@@ -801,6 +824,7 @@ k_msw:      db "Msw", 0
 k_ov_w:     db "OverW", 0
 k_ov_r:     db "OverR", 0
 k_ov_b:     db "OverB", 0
+k_fz_es:    db "FreedEs", 0
 ov_name:    db "C:\WINDOWS\OVERRUN.BIN", 0
 k_equal_same: db "EqualSame", 0
 k_equal_diff: db "EqualDiff", 0
