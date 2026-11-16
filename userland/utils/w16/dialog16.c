@@ -195,7 +195,8 @@ int w16_byte_align(int edge) { return ((edge + 4) & ~7) - edge; }
 
 static int byte_aligned(const struct w16 *w, const struct w16_wnd *d, int x) {
     unsigned cs = d->cls >= 0 && d->cls < w->ncls ? w->cls[d->cls].style : 0;
-    return cs & 0x1000 ? x + w16_byte_align(x + frame_of_wnd(d)) : cs & 0x2000 ? x + w16_byte_align(x) : x;
+    return cs & CS_BYTEALIGNCLIENT ? x + w16_byte_align(x + frame_of_wnd(d))
+         : cs & CS_BYTEALIGNWINDOW ? x + w16_byte_align(x) : x;
 }
 
 struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_t style, int x, int y, int cx,
@@ -361,7 +362,9 @@ static void place_from_template(struct w16 *w, struct w16_wnd *d, uint16_t owner
     }
     if (px + d->w > W16_SCREEN_W) px = W16_SCREEN_W - d->w;
     if (py + d->h > W16_SCREEN_H) py = W16_SCREEN_H - d->h;
-    d->x = byte_aligned(w, d, px > 0 ? px : 0);
+    int x = byte_aligned(w, d, px > 0 ? px : 0);
+    if (x + d->w > W16_SCREEN_W && x >= 8) x -= 8;   // rounded up past the screen's edge: the byte before
+    d->x = x;
     d->y = py > 0 ? py : 0;
     d->placed = 1;
 }

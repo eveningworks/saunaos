@@ -1498,6 +1498,9 @@ enum w16_hit { HIT_CLIENT, HIT_CAPTION, HIT_SYSMENU, HIT_MIN, HIT_MAX, HIT_EDGE,
 void w16_frame_menubar(const struct w16_wnd *win, int *x, int *y, int *w, int *h);
 enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *edges);
 int w16_child_framed(const struct w16_wnd *x);   // a child with a caption: 3.1's frame drawn by w16
+#define CS_SAVEBITS        0x0800
+#define CS_BYTEALIGNCLIENT 0x1000
+#define CS_BYTEALIGNWINDOW 0x2000
 int w16_byte_align(int edge);   // how far CS_BYTEALIGN* moves a left edge: to the nearest multiple of 8
 int w16_byte_align_child(struct w16 *w, const struct w16_wnd *x, int nx);   // CS_BYTEALIGN*'s x for a child
 void w16_wnd_to_top(struct w16_wnd *x);

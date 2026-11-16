@@ -581,12 +581,12 @@ void w16_wnd_to_bottom(struct w16 *w, struct w16_wnd *x) {
 // Tutorial's Accessories group, asked for at 0 in its Program Manager, is at 4.
 int w16_byte_align_child(struct w16 *w, const struct w16_wnd *x, int nx) {
     unsigned cs = x->cls >= 0 && x->cls < w->ncls ? w->cls[x->cls].style : 0;
-    struct w16_wnd *p = (cs & 0x3000) ? w16_wnd_get(w, x->parent) : 0;
+    struct w16_wnd *p = (cs & (CS_BYTEALIGNCLIENT | CS_BYTEALIGNWINDOW)) ? w16_wnd_get(w, x->parent) : 0;
     if (!p) return nx;
     int px, py, l, t, r, b;
     w16_screen_offset(w, p, &px, &py);
     w16_wnd_insets(x, &l, &t, &r, &b);
-    return nx + w16_byte_align(px + nx + (cs & 0x1000 ? l : 0));
+    return nx + w16_byte_align(px + nx + (cs & CS_BYTEALIGNCLIENT ? l : 0));
 }
 
 struct w16_wnd *w16_wnd_create(struct w16 *w, int cls, const char *title, uint32_t style, int x, int y,
@@ -618,7 +618,7 @@ struct w16_wnd *w16_wnd_create(struct w16 *w, int cls, const char *title, uint32
     if (cx == W16_CW_USEDEFAULT) cx = cy = 0;
     c->active = w16_child_framed(c);             // a captioned child is drawn active until WM_NCACTIVATE says not
     w16_wnd_set_geometry(w, c, x, y, cx, cy);
-    if (w->cls[cls].style & 0x3000) w16_wnd_set_geometry(w, c, w16_byte_align_child(w, c, x), y, cx, cy);
+    if (w->cls[cls].style & (CS_BYTEALIGNCLIENT | CS_BYTEALIGNWINDOW)) w16_wnd_set_geometry(w, c, w16_byte_align_child(w, c, x), y, cx, cy);
     uint16_t hwnd = c->hwnd;
     // WM_CREATE, with a CREATESTRUCT in w16's scratch area: lpCreateParams,
     // hInstance, hMenu, hwndParent, cy, cx, y, x, style, the two names.

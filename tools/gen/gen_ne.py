@@ -120,6 +120,8 @@ def directives(path):
             did, x, y, w, h, style, caption, *font = shlex.split(val)
             if font and (len(font) != 3 or font[0] != "font"):
                 sys.exit(f"gen_ne: a dialog's tail is `font PT FACE`, not {font}")
+            if int(style, 0) & 0x40 and not font:
+                sys.exit(f"gen_ne: dialog {did} sets DS_SETFONT (0x40) with no `font PT FACE` tail")
             d["dialogs"][int(did, 0)] = {"rect": [int(v, 0) for v in (x, y, w, h)],
                                          "style": int(style, 0) | (0x40 if font else 0), "caption": caption,
                                          "font": (int(font[1], 0), font[2]) if font else None, "controls": []}

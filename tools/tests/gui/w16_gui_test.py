@@ -2711,9 +2711,13 @@ def retro_round(dbg, qmp, res):
     # 7. Options: General's "When a call is missing"; Drives' Type and Label, saved on OK. The Options
     # window is the launcher's second window: what is in it is in its layout lines, not `gui widgets`.
     sh(dbg, f"write {WIN16_CONF} drive_d={CD_ROOT}")
-    show_launcher(dbg, "/usr/share/w16/fault.exe", lambda a: footer(a) is not None)
-    dbg.send("gui resize 1200 640")
-    lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "toolbar.button 9") is not None)
+    lines = show_launcher(dbg, "/usr/share/w16/fault.exe", lambda a: footer(a) is not None) or []
+    win = dbg.window("Retro Launcher")
+    # REOPENED AT ITS REMEMBERED 1200 x 640, a resize to it lays nothing out again: its first layout
+    # is the answer (waiting for a new one failed every run the size was already that).
+    if not (win and (win["content"]["w"], win["content"]["h"]) == (1200, 640) and layout_rect(lines, "toolbar.button 9")):
+        dbg.send("gui resize 1200 640")
+        lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "toolbar.button 9") is not None)
     b, win = layout_rect(lines, "toolbar.button 9"), dbg.window("Retro Launcher")
     if not b or not win:
         res.check("the toolbar reports its Options button", False, f"{b} {win}")

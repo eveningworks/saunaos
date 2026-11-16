@@ -335,6 +335,17 @@ static int ts_reached(const struct timespec *now, const struct timespec *t) {
            (now->tv_sec == t->tv_sec && now->tv_nsec >= t->tv_nsec);
 }
 
+// How long to park before deadline `t` on `clock`: 0 once it has passed, else 1..`cap` ms (0 to the
+// futex would mean no deadline at all). A clock that cannot be read answers 1 -- a short park, never
+// a spin.
+static int ms_until(clockid_t clock, const struct timespec *t, int cap) {
+    struct timespec now;
+    if (clock_gettime(clock, &now) != 0) return 1;
+    if (ts_reached(&now, t)) return 0;
+    int64_t left = (int64_t)(t->tv_sec - now.tv_sec) * 1000 + (t->tv_nsec - now.tv_nsec) / 1000000;
+    return left < 1 ? 1 : left > cap ? cap : (int)left;
+}
+
 // pthread_cond_wait() with a deadline, checked each time the wait returns. The mutex
 // is held again on BOTH returns, as POSIX requires -- a caller retests
 // its predicate either way.
@@ -348,17 +359,12 @@ int pthread_cond_timedwait(pthread_cond_t *c, pthread_mutex_t *m,
     int timed_out = 0;
     while (__atomic_load_n(&c->generation, __ATOMIC_ACQUIRE) == seen) {
         if (cancel_now()) { pthread_mutex_lock(m); pthread_testcancel(); }
-        struct timespec now;
-        if (clock_gettime(c->clock, &now) != 0) { sys_yield(); continue; }
-        if (ts_reached(&now, abstime)) {
+        // Parked until the deadline or the cancel poll, whichever is first.
+        int ms = ms_until(c->clock, abstime, CANCEL_POLL_MS);
+        if (!ms) {
             timed_out = 1;
             break;
         }
-        // Parked until the deadline or the cancel poll, whichever is first
-        // (at least 1 ms: 0 would mean no deadline at all).
-        int64_t left = (int64_t)(abstime->tv_sec - now.tv_sec) * 1000 +
-                       (abstime->tv_nsec - now.tv_nsec) / 1000000;
-        int ms = left < 1 ? 1 : left > CANCEL_POLL_MS ? CANCEL_POLL_MS : (int)left;
         sys_futex_wait((volatile uint32_t *)&c->generation, seen, ms);
     }
     rc = pthread_mutex_lock(m);
@@ -441,9 +447,11 @@ void __pthread_cleanup_pop(struct __pthread_cleanup *c, int execute) {
 //
 // The counts change only under `lock`, a ulock held for a few
 // instructions. Waiting happens OUTSIDE it, parked on `seq`: every
-// release bumps it, and a waiter samples it BEFORE its failed try, so a
-// release in between makes the park return at once -- the condition
-// variable's argument. The wake is skipped while `parked` is 0; the
+// release that can let a waiter in bumps it -- a writer leaving, the last
+// reader leaving, the last waiting writer giving up -- and a waiter
+// samples it BEFORE its failed try, so a release in between makes the
+// park return at once (the condition variable's argument). The wake is
+// skipped while `parked` is 0; the
 // waiter raises `parked` before the kernel reads `seq` and the releaser
 // bumps `seq` before reading `parked` (both full barriers), so one of
 // the two always sees the other.
@@ -461,14 +469,7 @@ static void rw_changed(pthread_rwlock_t *l) {
 // deadline). ETIMEDOUT once it has passed, else 0 -- the caller re-tries.
 static int rw_park(pthread_rwlock_t *l, unsigned seen, const struct timespec *abstime) {
     int ms = 0;
-    if (abstime) {
-        struct timespec now;
-        if (clock_gettime(CLOCK_REALTIME, &now) != 0) return 0;
-        if (ts_reached(&now, abstime)) return ETIMEDOUT;
-        int64_t left = (int64_t)(abstime->tv_sec - now.tv_sec) * 1000 +
-                       (abstime->tv_nsec - now.tv_nsec) / 1000000;
-        ms = left < 1 ? 1 : left > 1000000 ? 1000000 : (int)left;
-    }
+    if (abstime && !(ms = ms_until(CLOCK_REALTIME, abstime, 1000000))) return ETIMEDOUT;
     __atomic_add_fetch(&l->parked, 1, __ATOMIC_SEQ_CST);
     sys_futex_wait((volatile uint32_t *)&l->seq, seen, ms);
     __atomic_sub_fetch(&l->parked, 1, __ATOMIC_SEQ_CST);
@@ -535,10 +536,10 @@ static int wr_wait(pthread_rwlock_t *l, const struct timespec *abstime) {
         if ((rc = rw_park(l, seen, abstime)) != 0) break;
     }
     rw_take(l);
-    l->writers_waiting--;
+    int last = --l->writers_waiting == 0;
     rw_drop(l);
-    // A writer that gives up may be what readers were queued behind.
-    if (rc) rw_changed(l);
+    // The last waiting writer giving up is what readers were queued behind.
+    if (rc && last) rw_changed(l);
     return rc;
 }
 
@@ -555,13 +556,13 @@ int pthread_rwlock_timedwrlock(pthread_rwlock_t *l, const struct timespec *absti
 
 int pthread_rwlock_unlock(pthread_rwlock_t *l) {
     if (!l) return EINVAL;
-    int rc = 0;
+    int rc = 0, opened = 1;
     rw_take(l);
     if (l->writer && l->writer == sys_gettid()) l->writer = 0;
-    else if (l->readers > 0) l->readers--;
+    else if (l->readers > 0) opened = --l->readers == 0;   // only the last reader lets a writer in
     else rc = EPERM;
     rw_drop(l);
-    if (!rc) rw_changed(l);
+    if (!rc && opened) rw_changed(l);
     return rc;
 }
 

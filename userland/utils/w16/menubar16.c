@@ -774,7 +774,7 @@ static char *plain_text(const char *t, int *mark) {
 // Minesweeper's Game 54 (38), class style 0.
 static int byte_aligned(const struct w16_wnd *win) {
     const struct w16 *w = &g_w16;
-    return win->cls >= 0 && win->cls < w->ncls && (w->cls[win->cls].style & 0x3000);
+    return win->cls >= 0 && win->cls < w->ncls && (w->cls[win->cls].style & (CS_BYTEALIGNCLIENT | CS_BYTEALIGNWINDOW));
 }
 
 static int titles(const struct w16_hmenu *m, int *xs, int *ws, int cap, int width, int aligned) {

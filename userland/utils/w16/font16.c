@@ -60,8 +60,14 @@ static int is_fon(const char *n) {
     return l > 4 && !strcasecmp(n + l - 4, ".fon");
 }
 
-// A .FON's raster fonts known from now on, the file's bytes kept (its fonts point into them).
-static void fon_add(const char *name, unsigned char *bytes, size_t n) {
+// The faces 3.1's GDI took only from SYSTEM.INI's [boot] files.
+static int system_face(const char *face) {
+    return !strcasecmp(face, "System") || !strcasecmp(face, "Fixedsys") || !strcasecmp(face, "Terminal");
+}
+
+// A .FON's raster fonts known from now on, the file's bytes kept (its fonts point into them). Its System,
+// Fixedsys and Terminal faces only with `all`: one of [boot]'s files, or a program's AddFontResource.
+static void fon_add(const char *name, unsigned char *bytes, size_t n, int all) {
     uint8_t **gf = realloc(g_files, sizeof *g_files * (size_t)(g_nfiles + 1));
     if (!gf) { free(bytes); return; }
     g_files = gf;
@@ -69,7 +75,7 @@ static void fon_add(const char *name, unsigned char *bytes, size_t n) {
     int count = winfnt_count(bytes, n);
     for (int i = 0; i < count; i++) {
         struct winfnt f;
-        if (winfnt_get(bytes, n, i, &f) < 0 || f.vector) continue;
+        if (winfnt_get(bytes, n, i, &f) < 0 || f.vector || (!all && system_face(f.face))) continue;
         struct real *g = realloc(g_real, sizeof *g_real * (size_t)(g_nreal + 1));
         if (!g) break;
         g_real = g;
@@ -86,39 +92,34 @@ static void sysini_file(const char *sec, const char *key, const char *def, char 
     if (b) memmove(out, b + 1, strlen(b + 1) + 1);
 }
 
-// THE FONTS GDI LISTS ARE 3.1's: every .FON in C:\WINDOWS\SYSTEM but a DOS window's -- the files
-// SYSTEM.INI's [386Enh] names, which 3.1 loaded for a DOS window and GDI never saw (EGA40WOA.FON is a
-// 16 x 12 "Terminal" that took the OEM font's place). The stock fonts are the files [boot] names.
+// THE FONTS GDI LISTS ARE 3.1's: the System, Fixedsys and Terminal faces only from the files SYSTEM.INI's
+// [boot] names, which are the stock fonts too; everything else in C:\WINDOWS\SYSTEM as found. A full 3.11
+// also holds the DOS windows' fonts and another display's system fonts, all of those faces -- GDI never
+// saw them, and EGA40WOA.FON, a 16 x 12 "Terminal", took the OEM font's place.
 static void scan(void) {
     if (g_scanned) return;
     g_scanned = 1;
     static char dir[1024], path[1400];           // once, on the one thread that scans
-    static const char *const WOA[][2] = {
-        { "woafont", "DOSAPP.FON" }, { "CGA40WOA.FON", "CGA40WOA.FON" }, { "CGA80WOA.FON", "CGA80WOA.FON" },
-        { "EGA40WOA.FON", "EGA40WOA.FON" }, { "EGA80WOA.FON", "EGA80WOA.FON" },
-    };
     static const char *const SYS[SYS_COUNT][2] = {
         { "fonts.fon", "VGASYS.FON" }, { "fixedfon.fon", "VGAFIX.FON" }, { "oemfonts.fon", "VGAOEM.FON" },
     };
-    char woa[5][64], sys[SYS_COUNT][64];
-    for (int i = 0; i < 5; i++) sysini_file("386Enh", WOA[i][0], WOA[i][1], woa[i], sizeof woa[i]);
+    char sys[SYS_COUNT][64];
     for (int i = 0; i < SYS_COUNT; i++) sysini_file("boot", SYS[i][0], SYS[i][1], sys[i], sizeof sys[i]);
     if (w16_dos_path("C:\\WINDOWS\\SYSTEM", dir, sizeof dir, 0, 0, 0) != 0) return;
     DIR *d = opendir(dir);
     struct dirent *de;
     while (d && (de = readdir(d))) {
         if (!is_fon(de->d_name)) continue;
-        int skip = 0;
-        for (int i = 0; i < 5; i++) skip |= !strcasecmp(de->d_name, woa[i]);
-        if (skip) continue;
+        int which = -1;
+        for (int i = 0; i < SYS_COUNT; i++)
+            if (!strcasecmp(de->d_name, sys[i])) which = i;
         snprintf(path, sizeof path, "%s/%s", dir, de->d_name);
         unsigned char *bytes = 0;
         size_t n = 0;
         if (ufile_slurp(path, 4ul * 1024 * 1024, &bytes, &n) != UFILE_OK) continue;
         int first = g_nreal;
-        fon_add(de->d_name, bytes, n);
-        for (int i = 0; i < SYS_COUNT; i++)
-            if (g_nreal > first && !strcasecmp(de->d_name, sys[i])) g_sys[i] = first;
+        fon_add(de->d_name, bytes, n, which >= 0);
+        if (which >= 0 && g_nreal > first) g_sys[which] = first;
     }
     if (d) closedir(d);
 }
@@ -830,7 +831,7 @@ int w16_font_add(const char *path) {
     if (count > 0) {                             // a .FON: known already when SYSTEM holds it
         for (int i = 0; i < g_nreal; i++)
             if (!strcasecmp(g_real[i].file, base_name(path))) { free(bytes); return count; }
-        fon_add(base_name(path), bytes, n);
+        fon_add(base_name(path), bytes, n, 1);
         return count;
     }
     struct ttf_font f;

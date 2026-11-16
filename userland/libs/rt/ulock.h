@@ -1,6 +1,8 @@
 // ulock -- ring 3's one internal lock: a word that parks its waiters on
-// a futex. Every lock in libc (mutex, rwlock, once, stdio, malloc) and
-// the toolkit's own small ones are this, so none of them spins.
+// a futex. libc's mutex, stdio and malloc locks, the guard on a rwlock's
+// counts and the toolkit's small locks are this, so none of them spins;
+// a rwlock's, pthread_once's and a condition variable's WAITERS park on
+// a word of their own and are woken all at once (pthread.c).
 //
 // Drepper's "mutex3" ("Futexes Are Tricky"), glibc's and musl's shape:
 // 0 free, 1 held, 2 held and somebody may be parked. An uncontended

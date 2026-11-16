@@ -199,7 +199,7 @@ because releasing every waiter on a contended lock so all but one parks
 again is the herd this channel mechanism exists to avoid.
 
 It retires a roadmap item with two callers of its own: tolibc's mutex
-spun and yielded then (it parks on one since 2026-11-16, `rt/ulock.h`),
+spun and yielded then (it parks on one since ee5f2078, `rt/ulock.h`),
 and a detached thread's stack cannot be reclaimed without one.
 
 **THE RING IS BUILT (2026-09-08), and it needed no kernel support at

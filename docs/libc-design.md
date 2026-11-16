@@ -178,9 +178,10 @@ deliberately does NOT have is listed in the header itself and is about
 the kernel underneath rather than about the library: cancellation
 honoured only at `pthread_testcancel()` and the two condition waits, no
 asynchronous cancellation, no barriers, and a detached thread's stack
-never reclaimed. Every lock parks on the futex: a condition variable's
-waiter on its generation word (d9369aa9), and the mutex, rwlock, once,
-stdio and malloc locks on one `rt/ulock.h` word (2026-11-16).
+never reclaimed. Every lock parks on the futex (d9369aa9, ee5f2078): the
+mutex, stdio and malloc locks on a `rt/ulock.h` word, three-state and woken
+one at a time; a condition variable's, a rwlock's and pthread_once's
+waiters on a word of their own, woken together.
 
 **`signal.h` WAS ON THIS LIST AND ITS REASON EXPIRED.** It said "that is
 `docs/signals-design.md`'s, and a libc that ships a `signal()` which
