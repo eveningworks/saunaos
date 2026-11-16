@@ -41,7 +41,7 @@ int ugfx_text_decode(const char *str, int i, int end, uint32_t *cp) {
         if (c && c < 0x80) {
             int nx = i + 1;
             *cp = c;
-            if (!ugfx_font_codepage() && (unsigned char)str[nx] == 0xEF && (end < 0 || nx < end))
+            if ((end < 0 || nx < end) && (unsigned char)str[nx] == 0xEF && c != '\n' && !ugfx_font_codepage())
                 *cp |= take_selector(str, &nx, end);
             return nx;
         }
@@ -159,8 +159,11 @@ int ugfx_text_next(const char *str, int i) {
 int ugfx_text_prev(const char *str, int i) {
     if (!str || i <= 0) return 0;
     if (ugfx_font_codepage()) return i - 1;
-    int p = uutf8_prev(str, i);
-    // Back over a variation selector AND its character, as next() steps.
-    if (p > 0 && uemoji_selector_utf8(str + p, i - p)) p = uutf8_prev(str, p);
-    return p;
+    // Back over a variation selector AND its character, exactly as decode()
+    // pairs them forward -- a RUN of selectors included (base/uemoji.h).
+    int k = 0, q = i;
+    while (q >= 3 && uemoji_selector_utf8(str + q - 3, 3)) { k++; q -= 3; }
+    if (!k) return uutf8_prev(str, i);
+    if (!uemoji_run_attached(k, q > 0 && str[q - 1] != '\n')) return i - 3;   // a selector alone
+    return k == 1 ? uutf8_prev(str, q) : i - 6;                  // with what precedes it
 }

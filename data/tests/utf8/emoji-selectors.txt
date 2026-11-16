@@ -1,0 +1,4 @@
+Hearts ❤️ and ❤ and ❤︎ side by side, a keycap 1️⃣ and #️⃣, a star ⭐︎.
+Runs: a️️b and ️️️c at a line start:
+️️x then a line break with a selector after it:
+️y 😀️ 😀︎ ©️ ®︎ end

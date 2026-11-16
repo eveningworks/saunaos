@@ -117,7 +117,7 @@ def chars(b, n=-1):
         cp, k = decode(b, i, end)
         out.append((i, cp))
         i += k
-        if i < end:
+        if i < end and cp != 0x0A:   # a line break takes no selector
             sel, m = decode(b, i, end)
             if sel in (0xFE0E, 0xFE0F):
                 i += m
@@ -375,6 +375,7 @@ CASES = [
     "I \u2764\ufe0f it \u2764\ufe0e and \u2b50\ufe0e!",   # variation selectors: one character with the one before
     "#\ufe0f\u20e3 1\ufe0f\u20e3 key",   # a selector after ASCII: a keycap's first two are one character
     "\u00a9\ufe0f and \u00ae\ufe0e",   # ...and after Latin-1
+    "a\ufe0f\ufe0fb \ufe0f\ufe0f\ufe0fc",   # RUNS of selectors: prev pairs them as next did
 ]
 
 FIELD_WIDTHS = [40, 60, 120, 400]

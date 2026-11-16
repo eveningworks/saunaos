@@ -18,6 +18,7 @@
 #include "ui/utext.h"
 #include "base/uutf8.h"
 #include "base/uwcwidth.h"
+#include "base/uemoji.h"
 #include "ui/utheme.h"   // UUI_COLOR: a mark may name a role
 #include "ui/uui_caret.h"
 #include "ui/uui_undo.h"
@@ -29,22 +30,49 @@
 // start of the visual row. `tab_width` 0 or 1 keeps the old one cell.
 // Every pass that turns indices into columns goes through these two --
 // drawing and hit-testing disagreeing by a tab is the bug they prevent.
+//
+// AN EMOJI-PRESENTATION CHARACTER (one a U+FE0F followed) IS TWO CELLS,
+// as UTS #51 makes an emoji presentation sequence wide -- ❤️ next to ❤.
 static int cells_at(const struct utext *t, uint32_t c, int col) {
-    if (c != '\t' || t->tab_width <= 1) return c == '\t' ? 1 : uwcwidth(c);
+    uint32_t v = c & UGFX_CP_VALUE;
+    if (v != '\t' || t->tab_width <= 1) {
+        if (v == '\t') return 1;
+        return (c & UGFX_CP_EMOJI) && v > 0x7F ? 2 : uwcwidth(v);
+    }
     return t->tab_width - col % t->tab_width;
 }
 
-// The character at byte `k`: its codepoint, and the index after it.
+// The character at byte `k`: its codepoint, and the index after it. A
+// VARIATION SELECTOR after it is part of it, as ugfx_text_decode() and
+// uui_edit have it (base/uemoji.h's one rule): stepped over, and its
+// choice TAGGED onto the code point (ugfx.h's UGFX_CP_*) -- so a click, a
+// wrap and a column never land between ❤ and its U+FE0F. Compare a
+// returned code point with a letter by its value.
 static int char_at(const struct utext *t, int k, uint32_t *cp) {
     if (k >= t->count) { *cp = 0; return t->count; }
     int n;
     *cp = uutf8_decode(t->buf + k, t->count - k, &n);
-    return k + (n > 0 ? n : 1);
+    int nx = k + (n > 0 ? n : 1);
+    uint32_t sel = nx < t->count && *cp != '\n' ? uemoji_selector_utf8(t->buf + nx, t->count - nx) : 0;
+    if (sel) {
+        *cp |= sel == UEMOJI_VS_EMOJI ? UGFX_CP_EMOJI : UGFX_CP_TEXT;
+        nx += 3;
+    }
+    return nx;
 }
 
 static int char_before(const struct utext *t, int k) {
     if (k <= 0) return 0;
     if (k > t->count) k = t->count;
+    // A run of selectors pairs as char_at() paired it going forward.
+    int n = 0, q = k;
+    while (q >= 3 && uemoji_selector_utf8(t->buf + q - 3, 3)) { n++; q -= 3; }
+    if (n) {
+        if (!uemoji_run_attached(n, q > 0 && t->buf[q - 1] != '\n')) return k - 3;
+        if (n > 1) return k - 6;
+        k = q;   // the character before the run
+        if (k <= 0) return 0;
+    }
     int from = k > 4 ? k - 4 : 0;
     return from + uutf8_prev(t->buf + from, k - from);
 }
@@ -196,9 +224,10 @@ static void line_span(const struct utext *t, int cols, int start,
     for (int i = start, nx; i < t->count; i = nx) {
         uint32_t c;
         nx = char_at(t, i, &c);
-        if (c == '\n') { *draw_end = i; *next = i + 1; return; }
+        uint32_t v = c & UGFX_CP_VALUE;
+        if (v == '\n') { *draw_end = i; *next = nx; return; }
 
-        if (c == ' ' || c == '\t') {
+        if (v == ' ' || v == '\t') {
             // A SPACE NEVER TRIGGERS A BREAK. Trailing blanks are
             // invisible, so pushing a line over the edge with them
             // would break before a word that fits perfectly well.
@@ -609,14 +638,15 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
             int rx = x + col * char_w;
             // text-measure-ok: a tab is n cells of the fixed grid -- see the top of this file
             if (cell != row_bg) ugfx_fill_rect(s, rx, ry, n * char_w, char_h, cell);
-            if (ch == '\t' || (ch == ' ' && t->show_ws)) {
+            uint32_t chv = ch & UGFX_CP_VALUE;
+            if (chv == '\t' || (chv == ' ' && t->show_ws)) {
                 // SPACES AND TABS, when asked: a centred dot for a space and
                 // a rule to an arrowhead for a tab, faint (gedit's and
                 // Kate's marks). Drawn, not glyphs: the grid font has none.
                 if (t->show_ws) {
                     uint32_t ink = mix(cell, fg, 80);
                     int cy = ry + char_h / 2;
-                    if (ch == ' ') ugfx_fill_rect(s, rx + char_w / 2 - 1, cy - 1, 2, 2, ink);
+                    if (chv == ' ') ugfx_fill_rect(s, rx + char_w / 2 - 1, cy - 1, 2, 2, ink);
                     else {
                         // text-measure-ok: a tab is n cells of the fixed grid -- see the top of this file
                         int x0 = rx + 2, x1 = rx + n * char_w - 3;
@@ -627,11 +657,7 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
                 }
                 continue;
             }
-            // The character after decides an emoji's look (U+FE0F); the
-            // selector keeps its own cell, which is the second one ❤️ needs.
-            uint32_t nx = 0;
-            if (kn < draw_end) char_at(t, kn, &nx);
-            ugfx_draw_cp(s, rx, ry, ugfx_cp_with_next(ch, nx), fg, cell);
+            ugfx_draw_cp(s, rx, ry, ch, fg, cell);   // tagged by char_at(): U+FE0F decides
         }
         // A selection running THROUGH a line break should read as
         // reaching the end of the line, so paint one cell past the last

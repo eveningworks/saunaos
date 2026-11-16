@@ -134,6 +134,34 @@ static int word_before(const char *buf, int len, int i) {
     return kutf8_isalnum(kutf8_decode(buf + j, i - j, &n));
 }
 
+
+// A VARIATION SELECTOR (U+FE0E/U+FE0F, EF B8 8E/8F) belongs to the character
+// before it, whatever it is -- the toolkit's one rule (userland
+// base/uemoji.h, which this shared source cannot include): ❤️ is one
+// character to step over and to delete, as every text field has it. A run
+// of selectors pairs as stepping forward pairs it: (c S1)(S2 S3)...
+static int vs_at(const char *b, int len, int i) {
+    return i >= 0 && i + 3 <= len && (unsigned char)b[i] == 0xEF && (unsigned char)b[i + 1] == 0xB8 &&
+           ((unsigned char)b[i + 2] == 0x8E || (unsigned char)b[i + 2] == 0x8F);
+}
+
+static int ch_next(const char *b, int len, int i) {
+    if (i >= len) return len;
+    int j = kutf8_next(b, len, i);
+    return b[i] != '\n' && vs_at(b, len, j) ? j + 3 : j;
+}
+
+static int ch_prev(const char *b, int i) {
+    if (i <= 0) return 0;
+    int k = 0, q = i;
+    while (q >= 3 && vs_at(b, i, q - 3)) { k++; q -= 3; }
+    if (!k) return kutf8_prev(b, i);
+    int has_base = q > 0 && b[q - 1] != '\n';
+    int attached = has_base ? (k % 2 == 1) : (k % 2 == 0);
+    if (!attached) return i - 3;
+    return k == 1 ? kutf8_prev(b, q) : i - 6;
+}
+
 int kline_word_start(const char *buf, int len, int from) {
     int i = from;
     while (i > 0 && !word_before(buf, len, i)) i = kutf8_prev(buf, i); // separators left
@@ -488,19 +516,19 @@ enum kline_action kline_key(struct kline_edit *e, int key) {
         // file's top comment.
         if (e->len == 0) return KLINE_EOF;
         if (e->cursor >= e->len) return KLINE_IGNORED;
-        delete_range(e, e->cursor, kutf8_next(e->buf, e->len, e->cursor), 0);
+        delete_range(e, e->cursor, ch_next(e->buf, e->len, e->cursor), 0);
         return KLINE_REDRAW;
 
     // ---- motion ----
     case KEY_ARROW_LEFT:
     case CTRL('b'):
         if (e->cursor == 0) return KLINE_IGNORED;
-        e->cursor = kutf8_prev(e->buf, e->cursor);
+        e->cursor = ch_prev(e->buf, e->cursor);
         return KLINE_REDRAW;
     case KEY_ARROW_RIGHT:
     case CTRL('f'):
         if (e->cursor >= e->len) return KLINE_IGNORED;
-        e->cursor = kutf8_next(e->buf, e->len, e->cursor);
+        e->cursor = ch_next(e->buf, e->len, e->cursor);
         return KLINE_REDRAW;
     case KEY_HOME:
     case CTRL('a'):
@@ -523,11 +551,11 @@ enum kline_action kline_key(struct kline_edit *e, int key) {
     case '\b':
     case 0x7F: // some keyboards/terminals send DEL for backspace
         if (e->cursor == 0) return KLINE_IGNORED;
-        delete_range(e, kutf8_prev(e->buf, e->cursor), e->cursor, 0);
+        delete_range(e, ch_prev(e->buf, e->cursor), e->cursor, 0);
         return KLINE_REDRAW;
     case KEY_DELETE:
         if (e->cursor >= e->len) return KLINE_IGNORED;
-        delete_range(e, e->cursor, kutf8_next(e->buf, e->len, e->cursor), 0);
+        delete_range(e, e->cursor, ch_next(e->buf, e->len, e->cursor), 0);
         return KLINE_REDRAW;
     case CTRL('k'): // kill to end of line
         if (e->cursor >= e->len) return KLINE_IGNORED;

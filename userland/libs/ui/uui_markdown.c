@@ -457,7 +457,7 @@ static int walk(struct uui_markdown *m, struct ugfx_surface *s,
                     ugfx_draw_char(s, x, c.oy + c.pen_y, '-', UTHEME_ACCENT, UTHEME_WHITE);
                 } else {
                     uint32_t cp;
-                    for (int k = 0, nx; (nx = ugfx_text_decode(ln, k, arg, &cp)) > k && cp != ' '; k = nx) {
+                    for (int k = 0, nx; (nx = ugfx_text_decode(ln, k, arg, &cp)) > k && (cp & UGFX_CP_VALUE) != ' '; k = nx) {
                         ugfx_draw_cp(s, x, c.oy + c.pen_y, cp, UTHEME_ACCENT, UTHEME_WHITE);
                         x += ugfx_cp_advance(cp);
                     }

@@ -375,8 +375,14 @@ this the obvious way), not from how much history it accumulated.
   with `ugfx_cp_with_next()`.** U+FE0F makes a character an emoji (❤️ the
   red heart, ❤ the text one) and U+FE0E makes an emoji text. The selector
   belongs to WHATEVER character precedes it, ASCII too -- a keycap is '1'
-  then U+FE0F -- and `base/uemoji.h`'s `uemoji_selector_utf8()` is the one
-  test for it; an ASCII character still draws from the atlas. Every loop
+  then U+FE0F -- except a line break, and `base/uemoji.h`'s
+  `uemoji_selector_utf8()` is the one test for it; an ASCII character
+  still draws from the atlas. A RUN of selectors pairs as decoding forward
+  pairs it, (c S1)(S2 S3)..., and stepping back must agree
+  (`uemoji_run_attached()`): `ugfx_text_prev()`, `uui_edit`, `utext` and
+  the shared line editor (`klineedit.c`, which cannot include the header
+  and repeats the rule) all do, and `klineedit_cases.h` asserts it in both
+  rings. In `utext`'s grid ❤️ is one character two cells wide. Every loop
   that measures AND draws through `ugfx_text_decode()` agrees by
   construction; one that decodes with `uutf8_decode()` and calls
   `ugfx_cp_advance()` on the bare value draws ❤️ as a black heart and

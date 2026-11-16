@@ -27,6 +27,11 @@ static const int k_undo[]        = { 'a','b','c', CTRL('u'), CTRL('x'), CTRL('u'
 static const int k_delete[]      = { 'a','b','c', KEY_HOME, KEY_DELETE };
 static const int k_ctrl_k[]      = { 'a','b','c','d', KEY_HOME, KEY_ARROW_RIGHT, CTRL('k') };
 static const int k_ctrl_d_mid[]  = { 'a','b','c', KEY_HOME, CTRL('d') };
+// A VARIATION SELECTOR is part of the character before it (klineedit.c's
+// ch_prev/ch_next): ❤️ as U+2764 U+FE0F is one character to delete or step.
+static const int k_vs_bksp[]     = { 'a', 0x2764, 0xFE0F, 0x7F };
+static const int k_vs_left[]     = { 'a', 0x2764, 0xFE0F, KEY_ARROW_LEFT, 'x' };
+static const int k_vs_delete[]   = { 0x2764, 0xFE0F, 'b', KEY_HOME, KEY_DELETE };
 static const int k_transpose[]   = { 'a','b', CTRL('t') };
 // Alt-T, transpose WORDS -- a different code path from Ctrl-T, and one
 // that had no case at all until it was rewritten as an in-place rotate.
@@ -77,6 +82,9 @@ const struct kline_case kline_cases[] = {
     CASE("Alt-B: letters past ASCII are one word", k_u8_word, "one X\xC3\xA4\xC4\x85" "b", 5),
     CASE("Alt-Backspace kills a UTF-8 word",  k_u8_meta_bksp, "cd ",    3),
     CASE("Alt-U upcases past ASCII",          k_u8_upcase, "\xC4\x84\xC3\x84" "B", 5),
+    CASE("Backspace takes a heart and its selector", k_vs_bksp, "a",   1),
+    CASE("Left steps over a heart and its selector", k_vs_left, "ax\xE2\x9D\xA4\xEF\xB8\x8F", 2),
+    CASE("Delete takes a heart and its selector",    k_vs_delete, "b", 0),
 };
 
 const int kline_case_count = (int)(sizeof kline_cases / sizeof kline_cases[0]);

@@ -10,12 +10,15 @@ void utextflow_line(const char *s, int n, int start, int wrap_w, struct utextflo
         uint32_t c;
         nx = ugfx_text_decode(s, i, n, &c);
         if (nx <= i) nx = i + 1;   // a NUL inside the run: one byte, as before
-        if (c == '\n') {
-            *out = (struct utextflow_line){ start, i, i + 1, x, 0 };
+        // The VALUE: a variation selector after it tags the code point
+        // (ugfx.h), and a tagged newline or space is still one.
+        uint32_t v = c & UGFX_CP_VALUE;
+        if (v == '\n') {
+            *out = (struct utextflow_line){ start, i, nx, x, 0 };
             return;
         }
         int adv = ugfx_cp_advance(c);
-        if (c == ' ') {
+        if (v == ' ') {
             // A SPACE NEVER BREAKS A LINE: trailing blanks are invisible,
             // so letting them overflow costs nothing a reader sees.
             if (run < 0) { run = i; run_x = x; }

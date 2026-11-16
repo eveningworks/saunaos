@@ -33,7 +33,7 @@ static inline int uemoji_invisible(uint32_t cp) {
 
 // THE ONE RULE, for every text path: a variation selector belongs to the
 // character before it, WHATEVER that character is (a keycap is '1' then
-// U+FE0F). This says whether the UTF-8 at `b` (up to `avail` bytes, < 0
+// U+FE0F) -- except a line break ('\n'), which a line always ends at. This says whether the UTF-8 at `b` (up to `avail` bytes, < 0
 // for a NUL-terminated string) starts with one: its code point, else 0.
 // Reads no byte past `avail` or past a NUL.
 static inline uint32_t uemoji_selector_utf8(const char *b, int avail) {
@@ -43,6 +43,20 @@ static inline uint32_t uemoji_selector_utf8(const char *b, int avail) {
     if (u[2] == 0x8E) return UEMOJI_VS_TEXT;
     if (u[2] == 0x8F) return UEMOJI_VS_EMOJI;
     return 0;
+}
+
+// Stepping BACK across a run of selectors as forward decoding paired them:
+// a character takes the ONE selector after it, and a selector with nothing
+// to attach to is a character of its own that takes the next -- so k
+// selectors after a character pair as (c S1)(S2 S3)(S4 S5)..., and at the
+// very start of the text as (S1 S2)(S3 S4).... Given the run's length `k`
+// ending at the step point and whether a character precedes the run, this
+// says how many selectors the unit ending there holds besides its first
+// code point: 1 (the last selector is attached to the code point before it)
+// or 0 (it stands alone).
+// `has_base`: a character other than a line break precedes the run.
+static inline int uemoji_run_attached(int k, int has_base) {
+    return has_base ? (k % 2 == 1) : (k % 2 == 0);
 }
 
 #endif

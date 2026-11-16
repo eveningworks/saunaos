@@ -38,7 +38,7 @@ import hostcheck  # noqa: E402
 ROOT = toolpath.REPO
 TOOL = "uemojidata_hostcheck"
 DATA = os.path.join(ROOT, "data", "usr", "share", "unicode", "emoji")
-QUERIES = ["heart", "HEART", "Cat", "face with", "o’clock", "zzzqqq", "x", "\U0001F600", "\u2764\ufe0f",
+QUERIES = ["\u00f1", "\u2019", "heart", "HEART", "Cat", "face with", "o’clock", "zzzqqq", "x", "\U0001F600", "\u2764\ufe0f",
            "\U0001F600\U0001F600"]
 VALUE_MAX = 64          # SETTING_ABI_VALUE_MAX
 RECENT_MAX = 16

@@ -803,19 +803,42 @@ int ugfx_font_load(const char *path, int px, int bold,
     int cell_w = 1;
     for (int i = 0; i < PRIV_SLOTS; i++) {
         gids[i] = ttf_glyph_index(&t, font_ttf_slot_draw_codepoint(i));
-        // Grown to the HINTED ink, as font_atlas_plan() does: hinting can
-        // lift an accent past the ascent.
-        int up, down;
-        if (ttf_glyph_extent(&t, gids[i], px, &up, &down, sc)) {
-            if (up > baseline) baseline = up;
-            if (down > below) below = down;
-        }
         int adv = ttf_advance_px(&t, gids[i], px);
         if (adv < 0) adv = 0;
         if (adv > 0) adv += smear;
         if (adv > 255) adv = 255;
         advs[i] = (unsigned char)adv;
         if (adv > cell_w) cell_w = adv;
+    }
+
+    // EACH GLYPH IS RASTERIZED ONCE, into a tall scratch cell (2 em above
+    // the baseline, 1 below), and the cell grows to the HINTED ink found
+    // there -- hinting can lift an accent past the ascent, as
+    // font_atlas_plan() also allows for -- then each is copied into the
+    // final cell. Measuring first and rendering after would decode and
+    // hint every outline twice.
+    int tall_up = 2 * px, tall_h = 3 * px;
+    unsigned char *tall = calloc((size_t)PRIV_SLOTS * (size_t)cell_w * (size_t)tall_h, 1);
+    if (tall) {
+        for (int i = 0; i < PRIV_SLOTS; i++) {
+            unsigned char *c = tall + (size_t)i * cell_w * tall_h;
+            ttf_render_glyph(&t, gids[i], px, c, cell_w, tall_h, 0, tall_up, sc);
+            for (int y = 0; y < tall_h; y++) {
+                int ink = 0;
+                for (int x = 0; x < cell_w && !ink; x++) ink = c[y * cell_w + x] != 0;
+                if (!ink) continue;
+                if (tall_up - y > baseline) baseline = tall_up - y;
+                if (y + 1 - tall_up > below) below = y + 1 - tall_up;
+            }
+        }
+    } else {
+        for (int i = 0; i < PRIV_SLOTS; i++) {   // no memory for the scratch: measure, then render
+            int up, down;
+            if (ttf_glyph_extent(&t, gids[i], px, &up, &down, sc)) {
+                if (up > baseline) baseline = up;
+                if (down > below) below = down;
+            }
+        }
     }
 
     int cell_h = baseline + below + 1;
@@ -830,7 +853,7 @@ int ugfx_font_load(const char *path, int px, int bold,
     unsigned long path_len = strlen(path) + 1;
     unsigned long need = glyph_bytes + PRIV_SLOTS
                        + (unsigned long)PRIV_SLOTS * PRIV_SLOTS + path_len;
-    if (cell_h < 2 || need > arena_size) { free(sc); free(file); return 0; }
+    if (cell_h < 2 || need > arena_size) { free(tall); free(sc); free(file); return 0; }
 
     unsigned char *blob = (unsigned char *)arena;
     for (unsigned long i = 0; i < need; i++) blob[i] = 0;
@@ -838,7 +861,16 @@ int ugfx_font_load(const char *path, int px, int bold,
     for (int i = 0; i < PRIV_SLOTS; i++) {
         unsigned char *cell = blob + (unsigned long)i * (unsigned long)cell_w
                                                        * (unsigned long)cell_h;
-        ttf_render_glyph(&t, gids[i], px, cell, cell_w, cell_h, 0, baseline, sc);
+        if (tall) {
+            // The cell's rows out of the tall one: its baseline on ours.
+            const unsigned char *c = tall + (size_t)i * cell_w * tall_h;
+            for (int y = 0; y < cell_h; y++) {
+                int ty = tall_up - baseline + y;
+                if (ty >= 0 && ty < tall_h) memcpy(cell + (size_t)y * cell_w, c + (size_t)ty * cell_w, (size_t)cell_w);
+            }
+        } else {
+            ttf_render_glyph(&t, gids[i], px, cell, cell_w, cell_h, 0, baseline, sc);
+        }
         // Per cell, after rendering it: the cells are contiguous, so
         // emboldening the whole blob at once would smear each glyph
         // into the start of the next (they share rows in memory, not on
@@ -846,6 +878,7 @@ int ugfx_font_load(const char *path, int px, int bold,
         // reason.
         if (smear) ttf_embolden(cell, cell_w, cell_h, smear);
     }
+    free(tall);
     for (int i = 0; i < PRIV_SLOTS; i++) blob[glyph_bytes + i] = advs[i];
 
     signed char *kern = (signed char *)(blob + glyph_bytes + PRIV_SLOTS);

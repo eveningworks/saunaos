@@ -813,7 +813,15 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         if (key == 0x06) uui_focus_set(&g_focus, RING_SEARCH);
         if (key == '\b' && at == RING_GRID && g_ntext) g_ntext--;
         if (at == RING_SEARCH) efill();
-        if (at == RING_BLOCK && !g_egroup.open) { uui_textbox_set_text(&g_esearch, ""); efill(); }
+        // Only a group the keys actually CHANGED clears the search: a Tab
+        // or a stray key on the closed dropdown must not wipe the query.
+        static int last_group = -1;
+        int gi = uui_dropdown_selected(&g_egroup);
+        if (at == RING_BLOCK && !g_egroup.open && gi != last_group && last_group >= 0) {
+            uui_textbox_set_text(&g_esearch, "");
+            efill();
+        }
+        last_group = gi;
         if (at == RING_GRID && uui_emojigrid_take(&g_egrid) >= 0) add_emoji();
     }
     uapp_redraw(a);

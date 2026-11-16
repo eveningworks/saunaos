@@ -41,6 +41,11 @@ void uui_emojicomplete_update(struct uui_textbox *f) {
         uui_textbox_has_selection(f))
         return;
     const char *t = uui_textbox_text(f);
+    // An Esc holds for THAT colon only: once the caret is back at or before
+    // it -- the colon deleted -- a ':' typed there again completes again.
+    if (g_dismissed == f && (f->ed.cursor <= g_dismissed_at || g_dismissed_at >= (int)strlen(t) ||
+                             t[g_dismissed_at] != ':'))
+        g_dismissed = 0;
     int c = f->ed.cursor, i = c;
     while (i > 0 && letter(t[i - 1])) i--;
     if (c - i < 2 || i < 1 || t[i - 1] != ':') return;
@@ -66,6 +71,10 @@ static void choose(struct uui_textbox *f, int k) {
     if (k < 0 || k >= g.n || g.items[k] < 0 || g.items[k] >= d->count) return;
     int from = g.start, to = f->ed.cursor;
     uui_emojicomplete_cancel();
+    // The text may have changed under the list by another route (an app's
+    // set_text, a paste): replace only a ':' still where it was.
+    const char *t = uui_textbox_text(f);
+    if (from >= to || to > (int)strlen(t) || t[from] != ':') return;
     uui_textbox_select(f, from, to);
     uui_textbox_insert(f, d->entries[g.items[k]].seq);
 }

@@ -125,9 +125,11 @@ int uemojidata_search(const struct uemojidata *d, const char *q, int *out, int c
     uint32_t c = uutf8_decode(q, qn, &k);
     if (c >= 0x80 && (k == qn || (qn - k == 3 && !memcmp(q + k, "\xEF\xB8\x8F", 3)))) {
         int e = uemojidata_find(d, c);
-        if (e < 0) return 0;
-        if (cap > 0) out[0] = e;
-        return 1;
+        if (e >= 0) {
+            if (cap > 0) out[0] = e;
+            return 1;
+        }
+        // Not an emoji: a letter like 'n with tilde', searched in the names.
     }
     for (int i = 0; i < d->count; i++) {
         if (!holds(d->entries[i].name, q, qn)) continue;

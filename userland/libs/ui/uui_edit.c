@@ -32,7 +32,7 @@ static int char_step(const struct uui_edit_ops *ops, void *text, int i, int len)
 static int char_next(const struct uui_edit_ops *ops, void *text, int i, int len) {
     if (i >= len) return len;
     int j = char_step(ops, text, i, len);
-    return selector_at(ops, text, j, len) ? j + 3 : j;
+    return ops->at(text, i) != '\n' && selector_at(ops, text, j, len) ? j + 3 : j;
 }
 
 static int char_back(const struct uui_edit_ops *ops, void *text, int i) {
@@ -44,8 +44,13 @@ static int char_back(const struct uui_edit_ops *ops, void *text, int i) {
 
 static int char_prev(const struct uui_edit_ops *ops, void *text, int i) {
     if (i <= 0) return 0;
-    int p = char_back(ops, text, i);
-    return p > 0 && selector_at(ops, text, p, i) ? char_back(ops, text, p) : p;
+    // As ugfx_text_prev(): a run of selectors pairs the way stepping
+    // forward paired it (base/uemoji.h).
+    int k = 0, q = i;
+    while (q >= 3 && selector_at(ops, text, q - 3, q)) { k++; q -= 3; }
+    if (!k) return char_back(ops, text, i);
+    if (!uemoji_run_attached(k, q > 0 && ops->at(text, q - 1) != '\n')) return i - 3;
+    return k == 1 ? char_back(ops, text, q) : i - 6;
 }
 
 void uui_edit_init(struct uui_edit *e) {
