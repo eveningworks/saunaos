@@ -138,19 +138,19 @@ void w16_bar_choose(struct w16 *w, unsigned id) {
 int w16_bar_show(struct w16 *w, uint16_t hwnd, int pos) {
     if (!g_pending || hwnd != g_hwnd || pos != g_pos) return 0;
     g_pending = 0;
-    int bx = 0, by = 0, bw, bh = 0, tx = 0, tw = 0, ok = 0;
+    int bx = 0, by = 0, bw, bh = 0, tx = 0, ty = 0, tw = 0, ok = 0;
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *d = w16_wnd_get(w, hwnd);
     struct uapp_window *u = d && d != &w->win ? d->uwin : 0;
     if (d && (d == &w->win || u)) {
         w16_frame_menubar(d, &bx, &by, &bw, &bh);
         w16_menubar_build(d, pos, &g_bar);
-        ok = w16_menubar_title_at(d, -(pos + 1), &tx, &tw) >= 0;
+        ok = w16_menubar_title_at(d, -(pos + 1), 0, &tx, &ty, &tw) >= 0;
     }
     pthread_mutex_unlock(&w->lock);
     if (ok && g_bar.n) {
         unsigned prev = u ? uapp_window_popup_begin(u) : 0;   // in its own window, not the main one
-        w16_menu_open(&g_bar, bx + tx, by, tw, bh - 1, g_by_key);
+        w16_menu_open(&g_bar, bx + tx, by + ty, tw, W16_MENU_H - 1, g_by_key);   // under its title's row
         if (u) uapp_window_popup_end(prev);
     } else {
         g_pos = -1;                              // a title that is a command of its own: nothing shows

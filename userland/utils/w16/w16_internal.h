@@ -392,6 +392,7 @@ struct w16_wnd {
     struct uapp_window *uwin;     // its toywm window (main thread's)
     int active;                   // its toywm window has the focus (main thread's)
     int menubar;                  // a top-level window has a menu bar (SetMenu); under `lock`
+    int bar_rows;                 // the rows its bar wraps to (w16_frame_bar_fit), 0 or 1 one row
     uint16_t hmenu;               // ...that bar's HMENU, its own -- a second top-level window has one too
     // A second top-level window CreateWindow made beside the main one (W16_K_DIALOG's machinery: its
     // own buffer and toywm window, the class's procedure, no dialog manager): `opened` once its toywm
@@ -988,7 +989,8 @@ void w16_menu_cut_at(struct w16 *w, uint16_t h, int from, int to); // items from
 int w16_menu_put(struct w16 *w, uint16_t h, int at, const char *text, uint16_t id, unsigned flags, uint16_t sub, int bmp);
 void w16_menu_check(struct w16 *w, uint16_t h, uint16_t id, int on);
 int w16_menubar_count(const struct w16_wnd *x);
-int w16_menubar_title_at(const struct w16_wnd *x, int at, int *tx, int *tw);   // at < 0: title -at-1's place
+int w16_menubar_title_at(const struct w16_wnd *x, int at, int y, int *tx, int *ty, int *tw);   // at < 0: title -at-1's place
+int w16_menubar_rows(const struct w16_wnd *x, int width);   // the rows its titles wrap to in a bar `width` wide
 int w16_menubar_mnemonic(const struct w16_wnd *x, int ch);
 void w16_menubar_draw(struct ugfx_surface *s, const struct w16_wnd *x, int left, int y, int width, int open);
 void w16_menubar_build(const struct w16_wnd *x, int pos, struct w16_menu *out);
@@ -1494,8 +1496,11 @@ void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int activ
 // sizing edge (WIN_EDGE_* bits in *edges).
 enum w16_hit { HIT_CLIENT, HIT_CAPTION, HIT_SYSMENU, HIT_MIN, HIT_MAX, HIT_EDGE, HIT_MENU, HIT_NONE };
 #define W16_MENU_H     19                         // the menu bar, its bottom line included: 18 rows and a line, as 3.11
+// A window's whole bar: W16_MENU_H a row, no line between rows (3.11's WinBench, two rows of 19).
+#define W16_BAR_H(x) ((x)->menubar ? W16_MENU_H * ((x)->bar_rows > 1 ? (x)->bar_rows : 1) : 0)
 // The menu bar's rectangle in window coordinates (zero height: none).
 void w16_frame_menubar(const struct w16_wnd *win, int *x, int *y, int *w, int *h);
+int w16_frame_bar_fit(struct w16_wnd *win);      // its bar's rows for its width now, kept in bar_rows (under `lock`)
 enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *edges);
 int w16_child_framed(const struct w16_wnd *x);   // a child with a caption: 3.1's frame drawn by w16
 #define CS_SAVEBITS        0x0800

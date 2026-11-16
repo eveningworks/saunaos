@@ -367,7 +367,7 @@ because they drive and copy Microsoft programs):
 | Thing | 3.11 |
 |---|---|
 | Caption | 18 rows and a black line (W16_CAPTION 19) |
-| Menu bar | 18 rows and a black line (W16_MENU_H 19) |
+| Menu bar | 18 rows and a black line (W16_MENU_H 19); too wide for the window, it wraps -- rows 19 apart, no line between them, the line under the last (WinBench 3.1: Clipping, Disks and Help on a second row) |
 | Main frame | black, 2 grey, black: 4; notches 22 from each outer corner, on the caption buttons' edges |
 | Dialog frame | DS_MODALFRAME (or WS_DLGFRAME without WS_BORDER): black and 4 of navy all round, a caption the client's width edged white on its top and sides, its black line stopping at the white (Notepad's Find). WS_CAPTION alone: one black line, the caption straight inside it, no white (Hearts) |
 | Control-menu box | 18 square; its bar 13 by 3, 2 in, 7 down, a shadow 1 down-right |
@@ -378,7 +378,7 @@ because they drive and copy Microsoft programs):
 | Check box, radio button | 13 by 13, the label 5 past it at (height - text + 2) / 2; the circle 3.11's stepped one, open (its background shows inside), its dot 7 wide; the focus round the label one wider each side and above, two below |
 | Group box | its frame from half a line down, the label's cell 3 rows down, the gap 7 in, the label's cleared box counting the overhang; disabled, its label dithered too |
 | Mnemonic underline | a row below the baseline (ascent + 1), a blank row between it and the letters; the letter's width plus the overhang of a bold GDI made |
-| Menu bar | titles from the bar's left edge, each 8 in from its box, the box its text plus 16 -- rounded to the nearest 8 in a byte-aligned window (CS_BYTEALIGNCLIENT or CS_BYTEALIGNWINDOW: Program Manager, Notepad, Write), not in another (Minesweeper's Game, 54) |
+| Menu bar | titles from the bar's left edge, each 8 in from its box, the box its text plus 16 -- rounded to the nearest 8 in a byte-aligned window (CS_BYTEALIGNCLIENT or CS_BYTEALIGNWINDOW: Program Manager, Notepad, Write), not in another (Minesweeper's Game, 54); a title that would cross the bar's right edge starts the next row unless it is the row's first; MF_HELP or a title starting `\b` (WinBench's Help) and those after it end at the LAST row's right edge |
 | List box | whole rows only, the foot moved up (unless LBS_NOINTEGRALHEIGHT); rows of folders or drives 16, the picture's height |
 | Combo box | shut, the font's height and 7; its button 17 wide, the arrow with a stem over a bar |
 | Colours | navy 0000A8, face grey C0C7C8, shadow grey 87888F; dark green 00A857, teal 57A8A8, maroon A80057, purple A857A8, olive A8A857 -- a channel a step or two off 0x80 drawn as the palette's (Hearts' 0x007F00 felt is solid 00A857); stock and system-colour brushes the same (the VGA palette; ctl16.c's `w16_vga()`); an icon's too, its index chosen from the unshifted colour (icon16.c) |

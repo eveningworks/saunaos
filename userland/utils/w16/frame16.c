@@ -86,11 +86,18 @@ void w16_frame_menubar(const struct w16_wnd *win, int *x, int *y, int *w, int *h
     *x = f;
     *y = f + (has_caption(win) ? W16_CAPTION : 0);
     *w = win->w - 2 * f;
-    *h = win->menubar ? W16_MENU_H : 0;
+    *h = W16_BAR_H(win);
+}
+
+// A bar wraps to as many rows as its titles need at the window's width, as 3.1's did -- worked out
+// where 3.1 did (a size or frame change, SetMenu, DrawMenuBar), not on every draw.
+int w16_frame_bar_fit(struct w16_wnd *win) {
+    win->bar_rows = win->menubar ? w16_menubar_rows(win, win->w - 2 * frame_of(win)) : 1;
+    return win->bar_rows;
 }
 
 void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch) {
-    int f = frame_of(win), cap = has_caption(win) ? W16_CAPTION : 0, bar = win->menubar ? W16_MENU_H : 0;
+    int f = frame_of(win), cap = has_caption(win) ? W16_CAPTION : 0, bar = W16_BAR_H(win);
     *x = f;
     *y = f + cap + bar;
     *cw = win->w - 2 * f;

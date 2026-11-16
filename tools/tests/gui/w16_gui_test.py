@@ -159,6 +159,10 @@ file is involved.
 29. **Byte alignment** (`byte_aligned`, dlgplace.exe): seven windows at the x 3.11 put them -- dialogs
     (class #32770, whose style GetClassWord answers 2808) and popups of CS_BYTEALIGNWINDOW and
     CS_BYTEALIGNCLIENT classes, each edge on the NEAREST multiple of 8, a remainder of 4 going up.
+30. **A menu bar that wraps** (`menuwrap`, menuwrap.exe; menubar16.c): a bar wider than its window takes
+    a second row, as 3.11 did WinBench's -- the client under both (WM_SIZE's height), no line between
+    the rows, "\b&Help" at the last row's right end, a row-2 title's popup dropped under row 2 -- and a
+    DrawMenuBar after two titles are deleted gives one row back, the client a row taller.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1814,6 +1818,58 @@ def menukeys(dbg, qmp, res, tmp):
     dbg.close_window(MENUKEYS_TITLE)
 
 
+MENUWRAP_TITLE = "Menu wrap test"
+MENUWRAP_INI = "/home/Win16/WINDOWS/MENUWRAP.INI"
+MENU_ROW = 19                 # w16_internal.h's W16_MENU_H: a bar row, 3.11's 18 and the line
+
+
+def menuwrap(dbg, qmp, res, tmp):
+    """A menu bar wider than its window (menuwrap.exe, each step in its header), wrapped as 3.11 wrapped
+    WinBench 3.1's: rows of 19, the bottom line under the last, Help on the last row's right."""
+    sh(dbg, "mkdir /home/Win16")
+    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, f"rm {MENUWRAP_INI}")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/menuwrap.exe", MENUWRAP_TITLE)
+    res.check("menuwrap.exe opens its window", win is not None, "no window")
+    if not win:
+        return
+    read = lambda want: poll(lambda: (lambda t: t if want in t else "")(sh(dbg, f"cat {MENUWRAP_INI}")), 10) or \
+        sh(dbg, f"cat {MENUWRAP_INI}")
+    two, one = 160 - 2 * FRAME - CAPTION - 2 * MENU_ROW, 160 - 2 * FRAME - CAPTION - MENU_ROW
+    ini = read(f"Height={two:03d}")
+    res.check(f"the program hears a client under two bar rows (Height={two:03d})", f"Height={two:03d}" in ini, ini[-120:])
+    dbg.settle(0.3)
+    win = dbg.window(MENUWRAP_TITLE) or win
+    bx, by, bw = win["x"] + FRAME, win["y"] + FRAME + CAPTION, win["w"] - 2 * FRAME
+    im = shot(qmp, f"{tmp}/w16_menuwrap.png")
+    mid = bx + bw // 2
+    ink = lambda x0, x1, y0, y1: sum(1 for x in range(x0, x1) for y in range(y0, y1) if im.getpixel((x, y)) == BLACK)
+    res.check("the bar's black line is under its second row, none between the rows",
+              im.getpixel((mid, by + 2 * MENU_ROW - 1)) == BLACK and im.getpixel((mid, by + MENU_ROW - 1)) == WHITE,
+              f"under row 2 {im.getpixel((mid, by + 2 * MENU_ROW - 1))}, under row 1 {im.getpixel((mid, by + MENU_ROW - 1))}")
+    row2 = (by + MENU_ROW, by + 2 * MENU_ROW - 1)
+    first, middle, right = ink(bx, bx + 50, *row2), ink(bx + 60, bx + bw - 60, *row2), ink(bx + bw - 45, bx + bw, *row2)
+    res.check("row 2 holds Delta at its left and Help at its right end, nothing between",
+              first > 20 and right > 20 and middle == 0, f"ink left {first}, middle {middle}, right {right}")
+    dbg.click(bx + 14, by + MENU_ROW + 9)                    # Delta
+    titles = wait_titles(dbg, lambda t: "Popup" in t)
+    pop = dbg.window("Popup")
+    res.check("a click on Delta drops its menu under row 2", pop is not None and abs(pop["y"] - (by + 2 * MENU_ROW)) <= 2,
+              f"popup {pop and (pop['x'], pop['y'])}, row 2's bottom {by + 2 * MENU_ROW}; windows {titles}")
+    qmp.send_key("down")
+    dbg.settle(0.3)
+    qmp.send_key("ret")
+    ini = read(f"Height={one:03d}")
+    res.check(f"Delta > Shorten deletes two titles and DrawMenuBar gives one row back (Chosen=4, Height={one:03d})",
+              "Chosen=4" in ini and f"Height={one:03d}" in ini, ini[-120:])
+    dbg.settle(0.3)
+    im = shot(qmp, f"{tmp}/w16_menuwrap_one.png")
+    res.check("...the line under the one row, Help at its right end",
+              im.getpixel((mid, by + MENU_ROW - 1)) == BLACK and ink(bx + bw - 45, bx + bw, by, by + MENU_ROW - 1) > 20,
+              f"under row 1 {im.getpixel((mid, by + MENU_ROW - 1))}")
+    dbg.close_window(MENUWRAP_TITLE)
+
+
 OWNACT_TITLE = "Owner"
 
 
@@ -2944,6 +3000,7 @@ def main():
               ("byte_aligned", lambda: byte_aligned(dbg, res)),
               ("fullwin", lambda: fullwin(dbg, qmp, res, TMP)), ("ownact", lambda: ownact(dbg, qmp, res, TMP)),
               ("menukeys", lambda: menukeys(dbg, qmp, res, TMP)),
+              ("menuwrap", lambda: menuwrap(dbg, qmp, res, TMP)),
               ("mci", lambda: mci(dbg, qmp, res, TMP)),
               ("colours16", lambda: colours16(dbg, qmp, res, TMP)),
               ("retro_round", lambda: retro_round(dbg, qmp, res)),

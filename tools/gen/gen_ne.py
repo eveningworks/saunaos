@@ -155,7 +155,7 @@ def directives(path):
             if key == "menu":
                 d["menus"][mid] = []
             elif key == "popup":
-                d["menus"][mid].append(("popup", parts[1], []))
+                d["menus"][mid].append(("popup", parts[1].replace("\\b", "\b"), []))   # "\b": 3.1's right-justify
             elif key == "item":
                 d["menus"][mid][-1][2].append((int(parts[1], 0), parts[2].replace("\\t", "\t"),
                                                parts[3:]))

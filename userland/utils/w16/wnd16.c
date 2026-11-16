@@ -110,6 +110,7 @@ void w16_wnd_insets(const struct w16_wnd *x, int *l, int *t, int *r, int *b) {
 
 int w16_top_fit(struct w16_wnd *win) {
     int cx, cy, fbw, fbh, l, t, r, b;
+    w16_frame_bar_fit(win);
     w16_client_rect(win, &cx, &cy, &fbw, &fbh);
     w16_wnd_insets(win, &l, &t, &r, &b);
     int cw = fbw - r > 1 ? fbw - r : 1, ch = fbh - b > 1 ? fbh - b : 1;

@@ -405,12 +405,12 @@ static void bar_close(struct uapp *a) {
     w16_bar_forget(&g_w16, g_w16.win.hwnd);
 }
 
-// The bar title under window point x, or -1.
-static int bar_title(int x) {
+// The bar title under window point x, y, or -1.
+static int bar_title(int x, int y) {
     int bx, by, bw, bh;
     pthread_mutex_lock(&g_w16.lock);
     w16_frame_menubar(&g_w16.win, &bx, &by, &bw, &bh);
-    int t = bh ? w16_menubar_title_at(&g_w16.win, x - bx, 0, 0) : -1;
+    int t = bh ? w16_menubar_title_at(&g_w16.win, x - bx, y - by, 0, 0, 0) : -1;
     pthread_mutex_unlock(&g_w16.lock);
     return t;
 }
@@ -567,7 +567,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     if (bar_open()) {
         // Another title switches to it, the open one closes it, and any
         // other press is the popup's -- outside it, a close.
-        int t = hit == HIT_MENU ? bar_title(x) : -1;
+        int t = hit == HIT_MENU ? bar_title(x, y) : -1;
         if (t >= 0 && t != w16_bar_pos(g_w16.win.hwnd)) bar_request(a, t, 0);
         else if (t >= 0) bar_close(a);
         else if (!bar_menu() || !w16_menu_press(bar_menu(), x, y)) bar_close(a);
@@ -575,7 +575,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         return;
     }
     if (hit == HIT_MENU && (buttons & 1)) {
-        int t = bar_title(x);
+        int t = bar_title(x, y);
         if (t >= 0) bar_request(a, t, 0);
         return;
     }
@@ -715,7 +715,7 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
     if (g_faulted) return;
     if (bar_open()) {
         unsigned edges;
-        int t = w16_frame_hit(&g_w16.win, x, y, &edges) == HIT_MENU ? bar_title(x) : -1;
+        int t = w16_frame_hit(&g_w16.win, x, y, &edges) == HIT_MENU ? bar_title(x, y) : -1;
         if (t >= 0 && t != w16_bar_pos(g_w16.win.hwnd)) { bar_request(a, t, 0); return; }
         if (bar_menu() && w16_menu_motion(bar_menu(), x, y)) uapp_redraw(a);
         return;

@@ -25,6 +25,8 @@
 #define MF_DISABLED   0x0002
 #define MF_CHECKED    0x0008
 #define MF_POPUP      0x0010
+#define MF_MENUBARBREAK 0x0020      // in a bar, as MF_MENUBREAK: the title starts a new row
+#define MF_MENUBREAK  0x0040
 #define MF_END        0x0080
 #define MF_BYPOSITION 0x0400
 #define MF_HELP       0x4000        // the item and those after it at the bar's right end
@@ -123,7 +125,7 @@ static int parse_items(struct reader *r, uint16_t h, int depth) {
         if (flags & MF_POPUP) {
             if (!(sub = menu_new()) || parse_items(r, sub, depth + 1) < 0) return -1;
         }
-        unsigned keep = flags & (MF_GRAYED | MF_DISABLED | MF_CHECKED | MF_POPUP);
+        unsigned keep = flags & (MF_GRAYED | MF_DISABLED | MF_CHECKED | MF_POPUP | MF_MENUBARBREAK | MF_MENUBREAK | MF_HELP);
         if (!(flags & MF_POPUP) && !id && !text[0]) keep |= MF_SEP;
         if (menu_append(menu_of(h), text, id, (uint16_t)keep, sub) < 0) return -1;
         if (flags & MF_END) return 0;
@@ -325,6 +327,15 @@ static int api_SetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
+// A bar that changed its rows changed the client area: repainted, and the program told -- SENT, as
+// SetMenu's and DrawMenuBar's SetWindowPos(SWP_FRAMECHANGED) sent it, or posted (notify 0).
+static void bar_resized(struct w16 *w, struct w16_wnd *win, int max, int cw, int ch, int notify) {
+    w16_invalidate(w, win, 1);
+    uint32_t sz = (uint32_t)ch << 16 | (uint16_t)cw;
+    if (notify) w16_send(w, win->hwnd, WM_SIZE, max ? SIZE_MAXIMIZED : SIZE_RESTORED, sz);
+    else w16_post_msg(w, win->hwnd, WM_SIZE, max ? SIZE_MAXIMIZED : SIZE_RESTORED, sz);
+}
+
 void w16_set_menu(struct w16 *w, struct w16_wnd *x, uint16_t h) {
     w16_set_menu_ex(w, x, h, 1);
 }
@@ -333,20 +344,15 @@ void w16_set_menu(struct w16 *w, struct w16_wnd *x, uint16_t h) {
 // program (MFC's hook) that has not attached its object -- Hearts faulted. It is posted there, as it was.
 void w16_set_menu_ex(struct w16 *w, struct w16_wnd *win, uint16_t h, int notify) {
     pthread_mutex_lock(&w->lock);
-    int had = win->menubar, has = menu_of(h) != 0;
+    int had = win->menubar, rows = win->bar_rows > 1 ? win->bar_rows : 1, has = menu_of(h) != 0;
     win->hmenu = has ? h : 0;
     win->menubar = has;
-    int resized = had != has && win->used && w16_top_fit(win) > 0;
-    int cw = win->cw, ch = win->ch;
+    int resized = win->used && (had != has || w16_frame_bar_fit(win) != rows) && w16_top_fit(win) > 0;
+    int cw = win->cw, ch = win->ch, max = win->maximized;
     pthread_mutex_unlock(&w->lock);
-    if (resized) {
-        // SENT, as SetMenu's own SetWindowPos sent it: posted, it arrived after a later frame change's
-        // size (Clock's title coming back) and the program drew for the wrong client area.
-        w16_invalidate(w, win, 1);
-        uint32_t sz = (uint32_t)ch << 16 | (uint16_t)cw;
-        if (notify) w16_send(w, win->hwnd, WM_SIZE, SIZE_RESTORED, sz);
-        else w16_post_msg(w, win->hwnd, WM_SIZE, SIZE_RESTORED, sz);
-    }
+    // SENT: posted, it arrived after a later frame change's size (Clock's title coming back) and the
+    // program drew for the wrong client area.
+    if (resized) bar_resized(w, win, max, cw, ch, notify);
     bar_changed(w);
 }
 
@@ -365,11 +371,24 @@ static int api_GetSubMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 }
 
 // DrawMenuBar(hWnd) -> void
-// Windows: Redraws a window's menu bar after a program changed it.
-// w16: The same.
+// Windows: Redraws a window's menu bar after a program changed it; a bar that now wraps to more or
+// fewer rows resizes the client area (WM_SIZE).
+// w16: The same, the rows refitted for the main window only.
 static int api_DrawMenuBar(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a);
+    uint16_t hwnd = w16_arg16(a);
+    pthread_mutex_lock(&w->lock);
+    struct w16_wnd *win = w16_wnd_get(w, hwnd);
+    int resized = 0, max = 0, cw = 0, ch = 0;
+    if (win == &w->win && win->used && win->menubar) {
+        int rows = win->bar_rows > 1 ? win->bar_rows : 1;
+        resized = w16_frame_bar_fit(win) != rows && w16_top_fit(win) > 0;
+        max = win->maximized;
+        cw = win->cw;
+        ch = win->ch;
+    }
+    pthread_mutex_unlock(&w->lock);
+    if (resized) bar_resized(w, win, max, cw, ch, 1);
     bar_changed(w);
     return 2;
 }
@@ -433,7 +452,7 @@ static int item_text(struct w16 *w, uint32_t far, unsigned flags, char *out, siz
 }
 
 static int menu_insert(struct w16_hmenu *m, int at, const char *text, uint16_t id, unsigned flags) {
-    if (menu_append(m, text, id, (uint16_t)(flags & (MF_GRAYED | MF_DISABLED | MF_CHECKED | MF_POPUP | MF_HELP)), 0) < 0)
+    if (menu_append(m, text, id, (uint16_t)(flags & (MF_GRAYED | MF_DISABLED | MF_CHECKED | MF_POPUP | MF_MENUBARBREAK | MF_MENUBREAK | MF_HELP)), 0) < 0)
         return 0;
     struct w16_mi it = m->it[m->n - 1];
     if (flags & MF_POPUP) { it.sub = id; it.id = 0; }
@@ -756,6 +775,7 @@ static char *plain_text(const char *t, int *mark) {
     char *out = malloc(strlen(t) + 1);
     int k = 0;
     *mark = -1;
+    if (*t == '\b') t++;                         // the right-justify mark (rightward()), not drawn
     for (; out && *t; t++) {
         if (*t == '&' && t[1] && t[1] != '&') { *mark = k; continue; }
         if (*t == '&') t++;
@@ -765,8 +785,6 @@ static char *plain_text(const char *t, int *mark) {
     return out;
 }
 
-// Each title's place along the bar, in the bar's 1x pixels; its count. An item with MF_HELP and those
-// after it end at the bar's right edge (`width`, 0 unknown) -- an MDI frame's Restore.
 // IN A BYTE-ALIGNED WINDOW (CS_BYTEALIGNCLIENT or CS_BYTEALIGNWINDOW) A TEXT TITLE'S BOX IS ITS TEXT AND
 // BOTH PADS ROUNDED TO THE NEAREST 8, the text still 8 in from its left; in any other the two pads alone.
 // Measured on 3.11: Program Manager's File, Options, Window 40, 64, 72 wide (24, 50, 52 of text),
@@ -777,8 +795,18 @@ static int byte_aligned(const struct w16_wnd *win) {
     return win->cls >= 0 && win->cls < w->ncls && (w->cls[win->cls].style & (CS_BYTEALIGNCLIENT | CS_BYTEALIGNWINDOW));
 }
 
-static int titles(const struct w16_hmenu *m, int *xs, int *ws, int cap, int width, int aligned) {
-    int x = 0, n = 0, help = -1;                 // the first box starts at the bar's edge
+// A title 3.1 puts at the bar's right end with those after it: MF_HELP, or text starting "\b"
+// (WinBench's "\b&Help").
+static int rightward(const struct w16_mi *it) { return (it->flags & MF_HELP) || it->text[0] == '\b'; }
+
+// Each title's place in the bar, in its 1x pixels -- xs and ws along a row, rs the row -- and the count.
+// A BAR TOO NARROW FOR ITS TITLES WRAPS, as 3.1's (Wine's MENU_MenuBarCalcSize): a title that would
+// cross `width` starts the next row unless it is the row's first, as does MF_MENUBREAK or
+// MF_MENUBARBREAK; `width` 0 is one row. A rightward() title and those after it on the LAST row end
+// at its right edge -- an MDI frame's Restore, WinBench's Help under its Clipping and Disks -- the
+// last row SHOWN when `shown` (> 0) rows are fewer than the titles took (no DrawMenuBar yet).
+static int titles(const struct w16_hmenu *m, int *xs, int *rs, int *ws, int cap, int width, int aligned, int shown) {
+    int x = 0, row = 0, n = 0, help = -1;        // the first box starts at the bar's edge
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
     for (int i = 0; m && i < m->n && n < cap; i++, n++) {
@@ -791,17 +819,51 @@ static int titles(const struct w16_hmenu *m, int *xs, int *ws, int cap, int widt
             tw = t ? ugfx_text_width(t) : 0;
             free(t);
         }
-        if ((m->it[i].flags & MF_HELP) && help < 0) help = i;
-        xs[n] = x;
+        if (rightward(&m->it[i]) && help < 0) help = i;
         ws[n] = tw + 2 * pad();
         if (aligned && !m->it[i].bmp) ws[n] = (ws[n] + 4) / 8 * 8;
+        if (x > 0 && ((m->it[i].flags & (MF_MENUBREAK | MF_MENUBARBREAK)) || (width > 0 && x + ws[n] > width))) {
+            row++;
+            x = 0;
+        }
+        xs[n] = x;
+        rs[n] = row;
         x += ws[n];
     }
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
-    if (help >= 0 && width > 0 && x < width)
-        for (int i = help; i < n; i++) xs[i] += width - x;
+    if (shown > 0 && row > shown - 1) row = shown - 1;
+    for (int i = n - 1, right = width; help >= 0 && width > 0 && i >= help && rs[i] >= row; i--) {
+        if (rs[i] > row) continue;               // a row not shown
+        if (xs[i] + ws[i] >= right) break;       // as far right as it goes already
+        xs[i] = right - ws[i];
+        right = xs[i];
+    }
     return n;
+}
+
+static int *title_arrays(int n, int **rs, int **ws) {
+    int *xs = malloc(sizeof *xs * (size_t)(n + 1));
+    *rs = malloc(sizeof **rs * (size_t)(n + 1));
+    *ws = malloc(sizeof **ws * (size_t)(n + 1));
+    if (xs && *rs && *ws) return xs;
+    free(xs);
+    free(*rs);
+    free(*ws);
+    *rs = *ws = 0;
+    return 0;
+}
+
+int w16_menubar_rows(const struct w16_wnd *win, int width) {
+    struct w16_hmenu *m = menu_of(win->hmenu);
+    int *xs, *rs, *ws, rows = 1;
+    if (!m || !m->n || !(xs = title_arrays(m->n, &rs, &ws))) return 1;
+    int n = titles(m, xs, rs, ws, m->n, width, byte_aligned(win), 0);
+    if (n > 0) rows = rs[n - 1] + 1;
+    free(xs);
+    free(rs);
+    free(ws);
+    return rows;
 }
 
 int w16_menubar_count(const struct w16_wnd *x) {
@@ -809,22 +871,22 @@ int w16_menubar_count(const struct w16_wnd *x) {
     return m ? m->n : 0;
 }
 
-int w16_menubar_title_at(const struct w16_wnd *win, int x, int *tx, int *tw) {
+// The title at bar point x, y -- or, x < 0, title -x-1 -- with its box's left, top and width.
+int w16_menubar_title_at(const struct w16_wnd *win, int x, int y, int *tx, int *ty, int *tw) {
     struct w16_hmenu *m = menu_of(win->hmenu);
-    if (!m) return -1;
-    int *xs = malloc(sizeof *xs * (size_t)(m->n + 1)), *ws = malloc(sizeof *ws * (size_t)(m->n + 1));
-    int hit = -1, bx, by, bw, bh;
+    int *xs, *rs, *ws, hit = -1, bx, by, bw, bh;
+    if (!m || !(xs = title_arrays(m->n, &rs, &ws))) return -1;
     w16_frame_menubar(win, &bx, &by, &bw, &bh);
-    if (xs && ws) {
-        int n = titles(m, xs, ws, m->n, bw, byte_aligned(win));
-        for (int i = 0; i < n; i++)
-            if ((x < 0 && i == -x - 1) || (x >= xs[i] && x < xs[i] + ws[i])) {
-                hit = i;
-                if (tx) *tx = xs[i];
-                if (tw) *tw = ws[i];
-            }
-    }
+    int n = titles(m, xs, rs, ws, m->n, bw, byte_aligned(win), bh / W16_MENU_H), row = y / W16_MENU_H;
+    for (int i = 0; i < n && rs[i] * W16_MENU_H < bh; i++)
+        if ((x < 0 && i == -x - 1) || (x >= 0 && rs[i] == row && x >= xs[i] && x < xs[i] + ws[i])) {
+            hit = i;
+            if (tx) *tx = xs[i];
+            if (ty) *ty = rs[i] * W16_MENU_H;
+            if (tw) *tw = ws[i];
+        }
     free(xs);
+    free(rs);
     free(ws);
     return hit;
 }
@@ -880,25 +942,27 @@ static void bar_bitmap(struct ugfx_surface *s, int x, int y, int bmp, int open) 
 
 void w16_menubar_draw(struct ugfx_surface *s, const struct w16_wnd *win, int x, int y, int width, int open) {
     uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF), navy = w16_rgb(0x000080);
-    ugfx_fill_rect(s, x, y, width, W16_MENU_H - 1, white);
-    ugfx_fill_rect(s, x, y + W16_MENU_H - 1, width, 1, black);
+    int bh = W16_BAR_H(win), *xs, *rs, *ws;
+    if (bh < W16_MENU_H) bh = W16_MENU_H;
+    ugfx_fill_rect(s, x, y, width, bh - 1, white);
+    ugfx_fill_rect(s, x, y + bh - 1, width, 1, black);
     struct w16_hmenu *m = menu_of(win->hmenu);
-    if (!m) return;
-    int *xs = malloc(sizeof *xs * (size_t)(m->n + 1)), *ws = malloc(sizeof *ws * (size_t)(m->n + 1));
-    if (!xs || !ws) { free(xs); free(ws); return; }
-    int n = titles(m, xs, ws, m->n, width, byte_aligned(win));
+    if (!m || !(xs = title_arrays(m->n, &rs, &ws))) return;
+    int n = titles(m, xs, rs, ws, m->n, width, byte_aligned(win), bh / W16_MENU_H);
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
     // The cell's top on the bar's: 3.11's 16-row System font in its 18 rows.
-    int ch = ugfx_char_h(), ty = y + (W16_MENU_H - 1 - ch - 2) / 2;
-    for (int i = 0; i < n && xs[i] < width; i++) {
+    int ch = ugfx_char_h(), ty0 = (W16_MENU_H - 1 - ch - 2) / 2;
+    // A row past the ones the window was fitted to (a menu changed and no DrawMenuBar yet) is not drawn.
+    for (int i = 0; i < n && xs[i] < width && rs[i] * W16_MENU_H < bh; i++) {
+        int ry = y + rs[i] * W16_MENU_H, ty = ry + ty0;
         if (m->it[i].bmp) {
-            bar_bitmap(s, x + xs[i], y, m->it[i].bmp, i == open);
+            bar_bitmap(s, x + xs[i], ry, m->it[i].bmp, i == open);
             continue;
         }
         int lit = i == open, grey = m->it[i].flags & (MF_GRAYED | MF_DISABLED);
         uint32_t fg = grey && !lit ? w16_rgb(0xC0C0C0) : lit ? white : black;   // as a grey menu item (menu16.c)
-        if (lit) ugfx_fill_rect(s, x + xs[i], y, ws[i], W16_MENU_H - 1, navy);
+        if (lit) ugfx_fill_rect(s, x + xs[i], ry, ws[i], W16_MENU_H - 1, navy);
         int mark;
         char *plain = plain_text(m->it[i].text, &mark);
         if (!plain) continue;
@@ -907,12 +971,13 @@ void w16_menubar_draw(struct ugfx_surface *s, const struct w16_wnd *win, int x, 
         if (mark >= 0)
             // text-loop-ok: w16 text is a Windows code page -- one byte, one character
             ugfx_fill_rect(s, tx + ugfx_text_width_n(plain, mark), ty + w16_font_ascent(ugfx_font_current()) + 1, ugfx_text_width_n(plain + mark, 1), 1, fg);
-        if (grey && lit) w16_gray_dither(s, x + xs[i], y, ws[i], W16_MENU_H - 1, white, navy);
+        if (grey && lit) w16_gray_dither(s, x + xs[i], ry, ws[i], W16_MENU_H - 1, white, navy);
         free(plain);
     }
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
     free(xs);
+    free(rs);
     free(ws);
 }
 

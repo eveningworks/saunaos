@@ -121,7 +121,7 @@ int w16_dlg_frame_top(const struct w16_wnd *d) { return frame_of_wnd(d); }
 int w16_dlg_caption(const struct w16_wnd *d) {
     if (d->iconic) return 0;
     int cap = (d->style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0;   // 18 rows and the line under them
-    return cap + (w16_popup_framed(d) && d->menubar ? W16_MENU_H : 0);
+    return cap + (w16_popup_framed(d) ? W16_BAR_H(d) : 0);
 }
 
 void w16_dlg_set_font(struct w16_wnd *d, int pt) {
@@ -223,6 +223,7 @@ struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_
     d->hmenu = menu;                             // its bar (GetMenu answers it)
     d->menubar = menu != 0;
     if (d->placed) d->x = byte_aligned(w, d, d->x);
+    if (w16_popup_framed(d)) w16_frame_bar_fit(d);
     int f = frame_of_wnd(d), cap = w16_dlg_caption(d);
     d->cw = d->fbw = cx - 2 * f > 1 ? cx - 2 * f : 1;
     d->ch = d->fbh = cy - 2 * f - cap > 1 ? cy - 2 * f - cap : 1;
@@ -745,7 +746,11 @@ static void resize_owed(struct w16 *w, struct w16_wnd *d, int ocw, int och) {
 }
 
 static int dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int nh, int align) {
-    int f = w16_dlg_frame(d), top = w16_dlg_frame_top(d), cap = w16_dlg_caption(d);
+    int f = w16_dlg_frame(d), top = w16_dlg_frame_top(d), framed = w16_popup_framed(d);
+    // The new width's bar rows, kept only once the resize is done (under `lock`, below).
+    int rows = framed && d->menubar ? w16_menubar_rows(d, nw - 2 * f) : d->bar_rows;
+    int cap = w16_dlg_caption(d) - (framed ? W16_BAR_H(d) : 0) +
+              (framed && d->menubar ? W16_MENU_H * (rows > 1 ? rows : 1) : 0);
     int cw = nw - 2 * f > 1 ? nw - 2 * f : 1, ch = nh - top - cap - f > 1 ? nh - top - cap - f : 1;
     int k = d->cls;
     uint32_t bg = d->popup && k >= 0 && k < w->ncls ? w16_brush_color(w->cls[k].background) : w16_syscolor(COLOR_WINDOW);
@@ -757,6 +762,7 @@ static int dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, 
     d->placed = 1;
     int sized = cw != d->cw || ch != d->ch, ocw = d->cw, och = d->ch;
     if (sized && w16_fb_resize(d, cw, ch, bg) < 0) { pthread_mutex_unlock(&w->lock); return 0; }
+    d->bar_rows = rows;
     d->cw = cw;
     d->ch = ch;
     d->w = cw + 2 * f;

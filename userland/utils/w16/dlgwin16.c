@@ -275,14 +275,14 @@ static void bar_request(struct uapp_window *u, int pos, int by_key) {
 
 static void bar_close(struct uapp_window *u) { w16_bar_forget(&g_w16, hwnd_of(u)); }
 
-// The bar title under window point x, or -1.
+// The bar title under window point x, y, or -1.
 static int bar_title_at(struct uapp_window *u, int x, int y) {
     int bx, by, bw, bh, t = -1;
     pthread_mutex_lock(&g_w16.lock);
     struct w16_wnd *d = w16_wnd_get(&g_w16, hwnd_of(u));
     if (d) {
         w16_frame_menubar(d, &bx, &by, &bw, &bh);
-        if (bh && y >= by && y < by + bh && x >= bx && x < bx + bw) t = w16_menubar_title_at(d, x - bx, 0, 0);
+        if (bh && y >= by && y < by + bh && x >= bx && x < bx + bw) t = w16_menubar_title_at(d, x - bx, y - by, 0, 0, 0);
     }
     pthread_mutex_unlock(&g_w16.lock);
     return t;
