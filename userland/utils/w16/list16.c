@@ -123,6 +123,7 @@
 #define SB_THUMBPOSITION 4
 #define SB_THUMBTRACK    5
 #define LIST_ID          1000         // a combo box's list's id
+static int making_combo_list;           // the list being made is a combo box's (the program's thread)
 
 // --- LISTBOX -----------------------------------------------------------------------
 
@@ -744,7 +745,11 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
         // An empty list shows no scroll bar, unless it asks to keep it.
         x->keep_sb = (x->style & LBS_DISABLENOSCROLL) != 0;
         x->sb[SB_VERT] = (struct w16_sbar){ 0, 0, 0 };
-        w16_wnd_set_geometry(w, x, x->x, x->y, x->w, x->h);
+        // A child list a pixel bigger on every side than it was asked, a border or none, from a
+        // template or CreateWindow, as 3.1's list box made itself (lbrect.exe); a combo box's list, its
+        // own popup in 3.1, is not, nor a popup list (w16probe's Place: Control Panel's, unmeasured).
+        int grow = !making_combo_list && (x->style & WS_CHILD) ? 1 : 0;
+        w16_wnd_set_geometry(w, x, x->x - grow, x->y - grow, x->w + 2 * grow, x->h + 2 * grow);
         // Whole rows only, the foot moved up, unless LBS_NOINTEGRALHEIGHT --
         // 3.11's Open lists are 106 tall where their template asks 111. A variable list's rows
         // differ, so it keeps its height (Fonts' Sample box).
@@ -890,9 +895,14 @@ struct combo {
 
 static struct combo *cb_of(struct w16_wnd *x) { return x->ctl; }
 
-static int shut_h(const struct w16_wnd *x) {   // 3.11's: 20 in a Helv 8 dialog
+// The shut box's height: 3.11's for its font's height h, h + 4 + min(h / 4, 4) -- 16, 20, 24, 28, 32,
+// 37, 45 for Small Fonts 6, Helv 8, the System font and Helv 10, 12, 14, 18, 24 (cbheight.exe). An
+// owner-drawn box's item measured by its parent is 7 short of it, as COMMDLG's Drives box was.
+static int shut_h(const struct w16_wnd *x) {
     const struct combo *c = x->ctl;
-    return (c && c->oh ? c->oh : item_h(x)) + 7;
+    if (c && c->oh) return c->oh + 7;
+    int h = item_h(x);
+    return h + 4 + (h / 4 < 4 ? h / 4 : 4);
 }
 
 static struct w16_wnd *cb_list(struct w16 *w, struct combo *c) { return w16_wnd_get(w, c->list); }
@@ -951,8 +961,11 @@ static void paint_combo(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s
         struct listbox *lb = l ? lb_of(l) : 0;
         if (lb && lb->sel >= 0 && !lb->owner) {
             const char *t = lb->it[lb->sel].text;
-            int tw = ugfx_text_width(t), ty = oy + (h - item_h(x)) / 2;
-            int ix = item_icon(s, lb, lb->sel, ox + 4, ty, item_h(x)), tx = ox + 4 + ix;
+            // A plain item's cell 3 in from the box's corner both ways, as 3.11 drew it in the System
+            // font and Helv 8 alike; COMMDLG's drawn items (a drive's picture first) keep theirs.
+            int pic = lb->folders != 0, in = pic ? 4 : 3;
+            int tw = ugfx_text_width(t), ty = pic ? oy + (h - item_h(x)) / 2 : oy + 3;
+            int ix = item_icon(s, lb, lb->sel, ox + in, ty, item_h(x)), tx = ox + in + ix;
             if (c->focused) ugfx_fill_rect(s, tx - 2, ty, tw + 4 < x->cw - bw - 4 - ix ? tw + 4 : x->cw - bw - 4 - ix, item_h(x), navy);
             ugfx_draw_string_clipped(s, tx, ty, x->cw - bw - 6 - ix, t, c->focused ? white : black, UGFX_TRANSPARENT);
         }
@@ -977,10 +990,11 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
     switch (msg) {
     case WM_CREATE: {
         // Shut at one row; the list takes the rest of the template's height,
-        // and the scroll bar a template asks for is the list's.
+        // and the scroll bar and border a template asks for are the list's: the box draws its own
+        // frame, and 3.11's GetWindowLong answers no WS_BORDER on it (cbheight.exe).
         c->open_h = x->h;
         pthread_mutex_lock(&w->lock);
-        x->style &= ~(WS_VSCROLL | WS_HSCROLL);
+        x->style &= ~(WS_VSCROLL | WS_HSCROLL | WS_BORDER);
         pthread_mutex_unlock(&w->lock);
         int owner = (x->style & (CBS_OWNERDRAWFIXED | CBS_OWNERDRAWVARIABLE)) != 0, row_h = 0;
         if (owner) {                              // the shut box's item (-1), then a row of the list
@@ -997,8 +1011,10 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
         int lh = room > item_h(x) * 2 + 2 ? room : item_h(x) * 4 + 2;
         uint32_t ls = WS_CHILD | WS_BORDER | WS_VSCROLL | ((x->style & CBS_SORT) ? LBS_SORT : 0);
         if (simple) ls |= WS_VISIBLE | LBS_DISABLENOSCROLL;
+        making_combo_list = 1;
         struct w16_wnd *lw = w16_wnd_create(w, k, "", ls, x->x, x->y + sh + gap, x->w - (simple ? 0 : W16_SB),
                                             lh, x->parent, LIST_ID, x->inst, 0);
+        making_combo_list = 0;
         if (!lw) return 0xFFFFFFFFu;
         c->list = lw->hwnd;
         lb_of(lw)->combo = x->hwnd;

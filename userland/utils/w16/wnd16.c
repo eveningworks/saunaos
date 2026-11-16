@@ -505,7 +505,21 @@ uint16_t w16_set_focus(struct w16 *w, uint16_t hwnd) {
     uint16_t old = w->focus;
     if (hwnd && !to) { pthread_mutex_unlock(&w->lock); return old; }
     w->focus = hwnd;
+    // The focus going into another top-level window activates it first, as 3.1's SetFocus did
+    // (SetActiveWindow on its top-level): the Windows Tutorial photographs Write straight after.
+    // "Another" by the focus, which only this thread moves -- not by the windows' active marks,
+    // which toywm's late focus answers may have set back.
+    struct w16_wnd *top = to ? w16_wnd_top(w, to) : 0, *was = old ? w16_wnd_get(w, old) : 0;
+    struct w16_wnd *was_top = was ? w16_wnd_top(w, was) : 0;
+    int activate = top && top != was_top && !(top->style & WS_DISABLED) && top->visible;
+    uint16_t changed[8];
+    int n = activate ? w16_wnd_activate_now(w, top, changed, 8) : 0;
     pthread_mutex_unlock(&w->lock);
+    if (activate) {
+        w16_task_post_arg(w, W16_POST_ACTIVATE, top->hwnd);
+        for (int i = 0; i < n; i++) w16_task_post_arg(w, W16_POST_DLG_PAINT, changed[i]);
+        w16_erase_owed(w);
+    }
     if (old == hwnd) return old;
     if (old && w16_wnd_get(w, old)) w16_send(w, old, WM_KILLFOCUS, hwnd, 0);
     if (to && w->focus == hwnd) {
@@ -564,6 +578,24 @@ void w16_wnd_destroy(struct w16 *w, struct w16_wnd *x) {
 // A top-level window shown is on top of the program's others, as 3.1 put it: the order a blit reading
 // the screen lays them on in (gdi16.c's screen_copy()). Under `lock`.
 void w16_wnd_to_top(struct w16_wnd *x) { x->order = ++g_order; }
+
+// THE ACTIVE WINDOW CHANGES INSIDE THE CALL, as 3.1's SetActiveWindow did: top -- the main window, a
+// popup or a dialog -- on top of the program's others with its caption lit, the rest dimmed, before
+// toywm hears. The Windows Tutorial calls SetFocus and photographs the screen at once. The popups and
+// dialogs whose caption changed go in out[] (at most cap), counted, for their redraw. Under `lock`.
+int w16_wnd_activate_now(struct w16 *w, struct w16_wnd *top, uint16_t *out, int cap) {
+    int own = top->kind == W16_K_DIALOG, n = 0;  // a popup's kind is a dialog's: its own toywm window
+    if (own) w16_wnd_to_top(top);
+    for (int i = 0; i < w->nwnds; i++) {
+        struct w16_wnd *d = w->wnds[i];
+        if (!d || !d->used || d->kind != W16_K_DIALOG) continue;
+        int want = d == top;
+        if (d->active == want) continue;
+        d->active = want;
+        if (n < cap) out[n++] = d->hwnd;
+    }
+    return n;
+}
 
 // x under its siblings, their order among themselves kept: x renumbered first, then each of them.
 void w16_wnd_to_bottom(struct w16 *w, struct w16_wnd *x) {

@@ -27,7 +27,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 - [ ] A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first  *(`fork()`/`exec()`-style process model)*
 - [ ] `execl`/`execlp` in tolibc  *(`fork()`/`exec()`-style process model)*
 - [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
-- [ ] w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)  *(Running 16-bit Windows programs (w16))*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
 
@@ -1122,7 +1121,10 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: a dialog of the program's own class that is not its main window -- an owned one, or a second
 - [ ] w16: more than seven windows beside the main one -- uapp's surface table is `WIN_CLIENT_MAX` and an eighth fails silently
 - [x] ~~w16: a menu bar wider than its window wraps to a second line, as 3.1's did~~ DONE 2026-11-16 -- `menuwrap.exe`
-- [ ] **NEXT** w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)
+- [x] ~~w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)~~ DONE 2026-11-16 -- to page 47
+- [ ] w16: a dialog's font at its template's size -- every dialog font is drawn at 8 points, and WM_GETFONT on a dialog answers none
+- [ ] w16: 3.1's synchronous paint after ShowWindow, MoveWindow and SetWindowPos -- only an activation erases owed backgrounds at once
+- [ ] w16: an edit's WS_BORDER taken off its style, as 3.1's GetWindowLong answered -- w16 keeps it (lbrect.exe)
 - [x] ~~w16: a popup drawn with SaunaOS's shadow round it~~ DONE 2026-11-05 -- `WIN_HINT_NO_SHADOW` on every w16 window but the main one
 - [x] ~~w16: screen-DC drawing over the program's own popups (the Tutorial's tips)~~ DONE 2026-11-08 -- an overlay per popup
 - [ ] w16: WIN87EM's __WinEm87Save, __WinEm87Restore and __WinEm87Info -- no program run so far imports them

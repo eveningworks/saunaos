@@ -437,19 +437,18 @@ static void sized_on_show(struct w16 *w, struct w16_wnd *x) {
 
 // A popup shown: visible, painted, and its toywm window asked for the first time.
 static void popup_show(struct w16 *w, struct w16_wnd *x) {
+    uint16_t dimmed[8];
+    int n = 0;
     pthread_mutex_lock(&w->lock);
-    if (!x->visible) {                           // shown, it is on top and active at once, as 3.1 made it:
-        w16_wnd_to_top(x);                       // a blit reading the screen meanwhile sees it so
-        for (int i = 0; i < w->nwnds; i++)
-            if (w->wnds[i] && w->wnds[i]->used && w->wnds[i]->popup) w->wnds[i]->active = 0;
-        x->active = 1;
-    }
+    if (!x->visible) n = w16_wnd_activate_now(w, x, dimmed, 8);   // shown, it is on top and active at once
     x->visible = 1;
     x->style |= WS_VISIBLE;
     int first = !x->opened;
     x->opened = 1;
     pthread_mutex_unlock(&w->lock);
     if (first) w16_task_post_arg(w, W16_POST_DLG_OPEN, x->hwnd);
+    for (int i = 0; i < n; i++)
+        if (dimmed[i] != x->hwnd) w16_task_post_arg(w, W16_POST_DLG_PAINT, dimmed[i]);
     w16_invalidate(w, x, 1);
 }
 
@@ -557,6 +556,68 @@ void w16_paint_begin(struct w16 *w, struct w16_wnd *x) {
     pthread_mutex_unlock(&w->lock);
 }
 
+// A parent that does not clip its children erases over them, and Windows invalidates what it erased
+// over: each child draws itself, its frame and scroll bars too, once the parent is done. box is the
+// erase's (left, top, right, bottom) in the parent's client area.
+static void erase_owes_children(struct w16 *w, struct w16_wnd *x, const int16_t *box) {
+    if (x->style & WS_CLIPCHILDREN) return;
+    int n;
+    struct w16_wnd **v = w16_wnd_children(w, x->hwnd, &n);
+    for (int i = 0; v && i < n; i++)
+        if (w16_wnd_shown(w, v[i]) && v[i]->x < box[2] && v[i]->x + v[i]->w > box[0] &&
+            v[i]->y < box[3] && v[i]->y + v[i]->h > box[1])
+            w16_invalidate(w, v[i], 1);
+    free(v);
+}
+
+// THE BACKGROUND OWED IS ERASED INSIDE AN ACTIVATION, the paint left owed, as 3.1's SetWindowPos sent
+// WM_ERASEBKGND in its synchronous paint: on 3.11 a window deactivated straight after SetSysColors
+// reads its client area erased, and drawn back only at its WM_PAINT (syscolor.exe). The Windows
+// Tutorial photographs Program Manager so on Windows Basics' page 43, its icons not yet drawn back.
+// A window whose WM_ERASEBKGND answers 0 is asked again at BeginPaint.
+void w16_erase_owed(struct w16 *w) {
+    int n = 0;
+    pthread_mutex_lock(&w->lock);
+    uint16_t *h = malloc(((size_t)w->nwnds + 1) * sizeof *h);
+    if (h && w->win.used) h[n++] = w->win.hwnd;
+    for (int i = 0; h && i < w->nwnds; i++)
+        if (w->wnds[i] && w->wnds[i]->used) h[n++] = w->wnds[i]->hwnd;
+    pthread_mutex_unlock(&w->lock);
+    for (int i = 0; i < n && !w->cpu.fault; i++) {
+        struct w16_wnd *x = w16_wnd_get(w, h[i]);
+        pthread_mutex_lock(&w->lock);
+        int owed = x && !x->destroyed && x->inval && x->erase;
+        pthread_mutex_unlock(&w->lock);
+        if (!owed || !w16_wnd_shown(w, x)) continue;
+        struct urgn rgn, upd;
+        urgn_init(&rgn);
+        urgn_init(&upd);
+        int all = w16_update_region(w, x, &rgn);
+        int16_t box[4] = { 0, 0, (int16_t)x->cw, (int16_t)x->ch };
+        if (!all) {
+            struct urect b;
+            urgn_bbox(&rgn, &b);
+            box[0] = (int16_t)b.x; box[1] = (int16_t)b.y;
+            box[2] = (int16_t)(b.x + b.w); box[3] = (int16_t)(b.y + b.h);
+        }
+        erase_owes_children(w, x, box);
+        int kept = all || urgn_copy(&upd, &rgn) == 0;
+        uint16_t hdc = w16_gdi_take_dc(w, x->hwnd);
+        if (!all) w16_gdi_paint_rgn(w, hdc, &rgn);
+        urgn_free(&rgn);
+        int erased = w16_send(w, x->hwnd, WM_ERASEBKGND, hdc, 0) != 0;
+        w16_gdi_give_dc(w, hdc);
+        pthread_mutex_lock(&w->lock);
+        if (erased && (x = w16_wnd_get(w, h[i])) != 0) {
+            x->erase = 0;                        // BeginPaint's fErase says it is done
+            if (kept) w16_over_clear(w, x, all ? 0 : &upd);
+        }
+        pthread_mutex_unlock(&w->lock);
+        urgn_free(&upd);
+    }
+    free(h);
+}
+
 // BeginPaint: the update region becomes the paint DC's clip -- the erase and all the program draws
 // stay inside it -- and its box is rcPaint, as Windows did. A program that validates part of what it
 // invalidated (the Windows Tutorial keeps a picture it just drew) relies on both.
@@ -573,17 +634,7 @@ static void begin_paint(struct w16 *w, struct w16_wnd *x, uint32_t lpps) {
         box[2] = (int16_t)(b.x + b.w); box[3] = (int16_t)(b.y + b.h);
     }
     w16_paint_begin(w, x);
-    if (erase && !(x->style & WS_CLIPCHILDREN)) {
-        // A parent that does not clip its children paints over them, and Windows invalidates what it
-        // painted over: each child draws itself, its frame and scroll bars too, once the parent is done.
-        int n;
-        struct w16_wnd **v = w16_wnd_children(w, x->hwnd, &n);
-        for (int i = 0; v && i < n; i++)         // those the erase can reach: inside the region's box
-            if (w16_wnd_shown(w, v[i]) && v[i]->x < box[2] && v[i]->x + v[i]->w > box[0] &&
-                v[i]->y < box[3] && v[i]->y + v[i]->h > box[1])
-                w16_invalidate(w, v[i], 1);
-        free(v);
-    }
+    if (erase) erase_owes_children(w, x, box);
     struct urgn upd;                             // the region kept: the DC takes `rgn`
     urgn_init(&upd);
     int kept = all || urgn_copy(&upd, &rgn) == 0;

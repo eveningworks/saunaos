@@ -8931,7 +8931,7 @@ Stages, each compared with the 3.11 reference VM:
    Tutorial's drag exercise) and sized inside its parent with the dotted
    outline, minimised to an icon there and maximised to its client --
    what MDI programs (File Manager, Program Manager) need too.
-4. Windows Basics walked against 3.11, page by page -- **IN PROGRESS**:
+4. **DONE 2026-11-16.** Windows Basics walked against 3.11, page by page:
    matched to its maximized Write window on 2026-11-03, and to the
    Minimize page on 2026-11-05 after eight fixes, each checked by
    `fullwin.exe` (w16_gui_test's `fullwin`): FrameRgn's width, an icon's
@@ -8993,10 +8993,24 @@ Stages, each compared with the 3.11 reference VM:
    tips on its own window; w16's SW_HIDE left a dialog's window on the
    screen, and a dialog was made active only when its window opened, after
    the photograph (`dlghide.exe`, w16_gui_test's `dialog_hide`, the same
-   answers as 3.11). 34-36 now differ by the file list a pixel off and its
-   scroll arrows, the arrow's edge and the pointer; then 39 (the sundae
-   dialog) and 40-46 (active and inactive windows, Program Manager over
-   Write).
+   answers as 3.11). **2026-11-16 (later): walked to its last page, 47** --
+   pages 33-47 match 3.11 but for the pointer and the drop capitals (Times
+   New Roman, "w16: TrueType text hinted and drawn bilevel" below), after six
+   fixes, each a probe run on 3.11 first and a w16_gui_test check:
+   SetFocus into another top-level window activates it inside the call, as
+   3.1's SetActiveWindow did (pages 41 and 43 photograph Write lit or dimmed,
+   and in front, straight after; `dialog_hide`'s AfterSetFocus); that
+   activation erases each window's owed background at once, its paint left
+   owed (3.1's synchronous paint: page 43 photographs Program Manager blank
+   after SetSysColors; `syscolor_erase`); SetCursorPos on a fullscreen
+   program counts its fit and place (`fullscreen`); a combo box drops its
+   WS_BORDER and is h + 4 + min(h / 4, 4) tall for its font's h, its text 3
+   in (page 39's Flavor box; `combo_height`); a list box makes itself a
+   pixel bigger on every side, a border or none (the Open dialog's file
+   list; `border_rects`); and the first focus in a dialog does not make a
+   template's plain OK the default (`dialog_hide`'s OkStyle). Page 42's
+   inactive caption is dithered on 3.11's 16 colours, a near-white the
+   Tutorial sets with SetSysColors -- the same colour, solid at w16's 256.
 
 
 ### w16: screen-DC drawing over the program's own popups (the Tutorial's tips)

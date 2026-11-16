@@ -315,6 +315,18 @@ static void to_w16(int *x, int *y) {
     *y = w16_down(*y);
 }
 
+// The program's 1x to window pixels: to_w16() backwards, the fullscreen picture's fit and place too.
+static void from_w16(int *x, int *y) {
+    if (g_full) {
+        *x = g_full_ox + (*x * g_full_q + 2) / 4;
+        *y = g_full_oy + (*y * g_full_q + 2) / 4;
+        return;
+    }
+    *x = w16_up(*x);
+    *y = w16_up(*y);
+    warp_to_glass(x, y);
+}
+
 // The control menu: 3.1's, then the program's own items, then the effect's.
 static void build_control_menu(void) {
     g_menu_child = 0;
@@ -1036,9 +1048,7 @@ static int on_user(struct uapp *a, int code, int arg) {
     {
         int x, y;
         if (!w16_pointer_take(&g_w16, &x, &y)) return 0;
-        x = w16_up(x);
-        y = w16_up(y);
-        warp_to_glass(&x, &y);
+        from_w16(&x, &y);
         uapp_set_pointer(a, x, y);
         return 0;
     }

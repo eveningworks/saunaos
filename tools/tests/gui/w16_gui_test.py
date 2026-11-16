@@ -134,7 +134,8 @@ file is involved.
 25. **A fullscreen main window** (`fullscreen`, fullscr.exe, the shape of Sierra's games and Setup): a
    captionless WS_POPUP shown maximized fills SaunaOS's screen, its 640 x 480 scaled by the largest
    quarter step that fits and centred on black (its green and yellow corners where that puts them); a
-   cursor the module lacks is NULL; no pointer over it, as it answers WM_SETCURSOR; a click lands at its point in the picture; and a dialog over it
+   cursor the module lacks is NULL; no pointer over it, as it answers WM_SETCURSOR; a click lands at its point in the picture;
+   SetCursorPos puts the pointer on the picture's point, fit and centring counted; and a dialog over it
    is drawn at the picture's scale, grey from its WM_CTLCOLOR brush (CTLCOLOR_DLG), its static red.
 26. **PeekMessage idling** (`peek_idle`, peek.exe): an empty answer after the program's own work costs
    no millisecond (Sierra's SCI peeks once a frame); back to back, a tight poll still gives one up.
@@ -169,7 +170,15 @@ file is involved.
 32. **A modeless dialog shown and hidden** (`dialog_hide`, dlghide.exe; dialog16.c, user16.c): read off
     the screen straight after CreateDialog its caption is the active navy, and ShowWindow(SW_HIDE) takes
     its window away -- the Windows Tutorial photographs its Open dialog so and hides it under its tips.
-    3.11 answers the same (DLGHIDE.INI, run on the reference VM).
+    3.11 answers the same (DLGHIDE.INI, run on the reference VM). Its template's plain OK stays plain
+    while the edit has the first focus, and SetFocus on its owner makes it inactive inside the call.
+33. **An erase inside an activation** (`syscolor_erase`, syscolor.exe; user16.c's w16_erase_owed): the
+    background SetSysColors owes is not erased by it, but by the SetFocus that deactivates the window,
+    its paint left owed -- Windows Basics' page 43 photographs Program Manager blank so.
+34. **A combo box's height** (`combo_height`, cbheight.exe; list16.c): shut at 3.11's h + 4 +
+    min(h / 4, 4) for its font's height h, its WS_BORDER taken off.
+35. **A list box's rectangle** (`border_rects`, lbrect.exe; list16.c): a pixel bigger on every side than
+    asked, as 3.1's list box made itself; an edit and a static keep the template's rectangle.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1454,6 +1463,10 @@ def fullscreen(dbg, qmp, res, tmp):
     cy = re.search(r"ClickY=(\d+)", ini)
     res.check("a click lands at its point in the picture (300,200), to a scaled pixel",
               cx and cy and abs(int(cx.group(1)) - 300) <= 1 and abs(int(cy.group(1)) - 200) <= 1, ini[-200:])
+    want = at(500, 100)
+    res.check("...and SetCursorPos(500, 100) puts the pointer on the picture's (500,100), its fit and place counted",
+              poll(lambda: (lambda c: abs(c[0] - want[0]) <= 2 and abs(c[1] - want[1]) <= 2)(dbg.cursor()), 4),
+              f"pointer {dbg.cursor()}, want {want}")
     poll(lambda: dbg.window("Colours") is not None, 6)
     dlg = dbg.window("Colours")
     res.check("its dialog opens", dlg is not None, f"{[w['title'] for w in dbg.windows()]}")
@@ -1919,10 +1932,99 @@ def dialog_hide(dbg, qmp, res, tmp):
     res.check("a dialog CreateDialog shows is active at once: its caption read off the screen is navy, "
               "straight after and once its messages are taken (3.11's Caption0 and Caption)",
               "Caption0=000080" in ini and "Caption=000080" in ini, ini[-120:])
+    res.check("...its template's plain OK stays a plain push button with the edit first focused, straight "
+              "after and once its messages are taken (3.11's OkStyleFocus0=0068 and OkStyleFocus=0068)",
+              "OkStyleFocus0=0068" in ini and "OkStyleFocus=0068" in ini, ini[-200:])
+    res.check("...and SetFocus on its owner makes it inactive inside the call: its caption reads white "
+              "(3.11's AfterSetFocus=FFFFFF)", "AfterSetFocus=FFFFFF" in ini, ini[-200:])
     gone = poll(lambda: dbg.window("Hide me") is None, 5)
     res.check("...and ShowWindow(SW_HIDE) takes the dialog's window off the screen", "Hidden=1" in ini and gone,
               f"windows {[w['title'] for w in dbg.windows()]}")
     dbg.close_window(DLGHIDE_TITLE)
+
+
+SYSCOLOR_TITLE = "SysColor test"
+SYSCOLOR_INI = "/home/Win16/WINDOWS/SYSCOLOR.INI"
+
+
+def syscolor_erase(dbg, qmp, res, tmp):
+    """syscolor.exe (its header has each step): after SetSysColors a window's square is still drawn,
+    and the SetFocus that deactivates it erases its owed background inside the call, its paint left
+    owed -- 3.11's answers (Windows Basics' page 43 photographs Program Manager so)."""
+    sh(dbg, "mkdir /home/Win16")
+    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, f"rm {SYSCOLOR_INI}")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/syscolor.exe", SYSCOLOR_TITLE)
+    res.check("syscolor.exe opens its window", win is not None, "no window")
+    if not win:
+        return
+    ini = poll(lambda: (lambda t: t if "Done=1" in t else "")(sh(dbg, f"cat {SYSCOLOR_INI}")), 10) or \
+        sh(dbg, f"cat {SYSCOLOR_INI}")
+    res.check("SetSysColors erases nothing inside the call: the square still reads black (3.11's After=000000)",
+              "Before=000000" in ini and "After=000000" in ini, ini[-200:])
+    res.check("...the SetFocus that deactivates the window erases it at once, its WM_PAINT still owed "
+              "(3.11's Deactivated=FFFFFF, Pending=1), then drawn back (Painted=000000)",
+              "Deactivated=FFFFFF" in ini and "Pending=1" in ini and "Painted=000000" in ini, ini[-200:])
+    dbg.close_window("Other")
+    dbg.close_window(SYSCOLOR_TITLE)
+
+
+CBHEIGHT_TITLE = "Combo height test"
+CBHEIGHT_INI = "/home/Win16/WINDOWS/CBHEIGHT.INI"
+
+
+def combo_height(dbg, qmp, res, tmp):
+    """cbheight.exe (its header has each step): a combo box's shut height from its font, 3.11's
+    h + 4 + min(h / 4, 4), and no WS_BORDER left on it -- the Windows Tutorial's sundae dialog has a
+    WS_BORDER drop-down list in the System font. Only the System font and Helv 8 are compared: w16
+    draws every dialog font at 8 points."""
+    sh(dbg, "mkdir /home/Win16")
+    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, f"rm {CBHEIGHT_INI}")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/cbheight.exe", CBHEIGHT_TITLE)
+    res.check("cbheight.exe opens its window", win is not None, "no window")
+    if not win:
+        return
+    ini = poll(lambda: (lambda t: t if "Done=1" in t else "")(sh(dbg, f"cat {CBHEIGHT_INI}")), 10) or \
+        sh(dbg, f"cat {CBHEIGHT_INI}")
+    want = {"D0H0": "18", "D0H1": "18", "D0H2": "18", "D1H0": "14", "D1H1": "14", "D1H2": "14"}
+    got = {k: (re.search(rf"^{k}=(\w+)", ini, re.M) or [None, None])[1] for k in want}
+    res.check("a combo box shut is 24 tall in the System font and 20 in Helv 8, a list or an edit, a border "
+              "or none (3.11's D0Hn=18, D1Hn=14)", got == want, f"{got}")
+    res.check("...and its WS_BORDER is gone from its style (3.11's DnBn=0)",
+              not re.search(r"^D\dB\d=1", ini, re.M), ini[-300:])
+    dbg.close_window(CBHEIGHT_TITLE)
+
+
+LBRECT_TITLE = "Border rectangle test"
+LBRECT_INI = "/home/Win16/WINDOWS/LBRECT.INI"
+
+
+def border_rects(dbg, qmp, res, tmp):
+    """lbrect.exe (its header has each step): a list box is a pixel bigger on every side than it was
+    asked, a border or none, from a template or CreateWindow; an edit and a static keep the template's
+    rectangle -- 3.11's answers (the Windows Tutorial's Open dialog, Windows Basics pages 33-37)."""
+    sh(dbg, "mkdir /home/Win16")
+    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, f"rm {LBRECT_INI}")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/lbrect.exe", LBRECT_TITLE)
+    res.check("lbrect.exe opens its window", win is not None, "no window")
+    if not win:
+        return
+    ini = poll(lambda: (lambda t: t if "Done=1" in t else "")(sh(dbg, f"cat {LBRECT_INI}")), 10) or \
+        sh(dbg, f"cat {LBRECT_INI}")
+    def rect(i):
+        return tuple((re.search(rf"^{k}{i}=(\w+)", ini, re.M) or [None, None])[1] for k in "XYWH")
+    lists = {i: rect(i) for i in (10, 11, 14, 20)}
+    want = {10: ("000D", "000C", "006B", "0043"), 11: ("008B", "000C", "006B", "0043"),
+            14: ("008B", "0061", "006B", "0043"), 20: ("0009", "0009", "0066", "0052")}
+    res.check("a list box is a pixel bigger on every side than asked: a border, none, a scroll bar, by "
+              "CreateWindow (3.11's X/Y/W/H for 10, 11, 14, 20)", lists == want, f"{lists}")
+    res.check("...an edit and a static keep the template's rectangle (3.11's 12 and 13)",
+              rect(12) == ("0107", "000D", "0069", "0041") and rect(13) == ("000E", "0062", "0069", "0041"),
+              f"12 {rect(12)} 13 {rect(13)}")
+    dbg.close_window("Helv 8")
+    dbg.close_window(LBRECT_TITLE)
 
 
 OWNACT_TITLE = "Owner"
@@ -3068,6 +3170,9 @@ def main():
               ("menuwrap", lambda: menuwrap(dbg, qmp, res, TMP)),
               ("busy_draw", lambda: busy_draw(dbg, qmp, res, TMP)),
               ("dialog_hide", lambda: dialog_hide(dbg, qmp, res, TMP)),
+              ("syscolor_erase", lambda: syscolor_erase(dbg, qmp, res, TMP)),
+              ("combo_height", lambda: combo_height(dbg, qmp, res, TMP)),
+              ("border_rects", lambda: border_rects(dbg, qmp, res, TMP)),
               ("mci", lambda: mci(dbg, qmp, res, TMP)),
               ("colours16", lambda: colours16(dbg, qmp, res, TMP)),
               ("retro_round", lambda: retro_round(dbg, qmp, res)),

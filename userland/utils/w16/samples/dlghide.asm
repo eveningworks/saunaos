@@ -5,6 +5,11 @@
 ;   - a main window ("Dialog hide test"), then CreateDialog of template 100 ("Hide me", WS_VISIBLE):
 ;     GetPixel on the screen DC in its caption straight after (Caption0) and once its messages are
 ;     taken (Caption), as the Tutorial photographs its Open dialog -- 3.11's answers in DLGHIDE.INI
+;   - OkStyleFocus0 / OkStyleFocus: OK's button style (low nibble) and the focus's id, straight after
+;     and once its messages are taken: the template's plain OK stays a plain push button while the
+;     edit (104, 0x68) has the first focus -- 3.11 answers 0068 both times
+;   - AfterSetFocus: the caption once SetFocus has gone to the main window, its owner -- the dialog
+;     made inactive inside the call (3.11: FFFFFF); AfterSetActive the same after SetActiveWindow
 ;   - ShowWindow(dialog, SW_HIDE): the dialog's window goes from the screen (Hidden=1 once done)
 ;
 ; Build: tools/gen/gen_ne.py.
@@ -17,7 +22,9 @@
 ;w16: stack 4096
 ;w16: heap 1024
 ;w16: dialog 100 20 20 120 40 0x90c80080 "Hide me"
-;w16: control 100 STATIC 65535 8 10 100 8 0x50000000 "A modeless dialog"
+;w16: control 100 EDIT 104 8 4 60 12 0x50810080 ""
+;w16: control 100 BUTTON 1 72 4 40 14 0x50010000 "OK"
+;w16: control 100 BUTTON 2 72 20 40 14 0x50010000 "Cancel"
 
 %include "ne16.inc"
 
@@ -90,6 +97,8 @@ start:
 
     mov si, key_cap0                ; straight after CreateDialog
     call read_caption
+    mov si, key_st0
+    call read_okstyle
 drain:
     push ds                         ; PeekMessage(&msg, 0, 0, 0, PM_REMOVE) until there is none
     push word msg
@@ -106,6 +115,16 @@ drain:
     jmp drain
 drained:
     mov si, key_cap                 ; once its messages are taken, as the Tutorial's photograph is
+    call read_caption
+    mov si, key_st1
+    call read_okstyle
+    push word [hwnd]
+    W16_CALL "USER", 22             ; SetFocus(main window, the dialog's owner)
+    mov si, key_cap2
+    call read_caption
+    push word [hwnd]
+    W16_CALL "USER", 59             ; SetActiveWindow(main window)
+    mov si, key_cap3
     call read_caption
 
     push word [hdlg]
@@ -146,6 +165,28 @@ read_caption:
     call hex2
     mov al, [pix + 2]
     call hex2
+    pop si
+    mov di, cap_t
+    call ini_write
+    ret
+
+; OK's button style (GetWindowLong & 0xF: 0 a push button, 1 the default) and the focus's id, to the INI under SI.
+read_okstyle:
+    push si
+    push word [hdlg]
+    push word 1
+    W16_CALL "USER", 91             ; GetDlgItem(hdlg, IDOK)
+    push ax
+    push word -16
+    W16_CALL "USER", 135            ; GetWindowLong(GWL_STYLE)
+    and al, 0x0F
+    mov di, cap_t
+    call hex2
+    W16_CALL "USER", 23             ; GetFocus
+    push ax
+    W16_CALL "USER", 277            ; GetDlgCtrlID
+    call hex2
+    mov byte [di], 0
     pop si
     mov di, cap_t
     call ini_write
@@ -282,6 +323,10 @@ ini_app:    db "DlgHide", 0
 ini_file:   db "DLGHIDE.INI", 0
 key_cap:    db "Caption", 0
 key_cap0:   db "Caption0", 0
+key_cap2:   db "AfterSetFocus", 0
+key_st0:    db "OkStyleFocus0", 0
+key_st1:    db "OkStyleFocus", 0
+key_cap3:   db "AfterSetActive", 0
 key_hidden: db "Hidden", 0
 cap_t:      db "000000", 0
 one_t:      db "1", 0

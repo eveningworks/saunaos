@@ -726,6 +726,7 @@ int w16_get_msg(struct w16 *w, struct w16_msg *m, int wait_ms);
 int w16_get_mouse_msg(struct w16 *w, uint16_t hwnd, struct w16_msg *m, int wait_ms);
 uint32_t w16_dispatch(struct w16 *w, const struct w16_msg *m);
 void w16_paint_now(struct w16 *w);                // every WM_PAINT owed, sent now
+void w16_erase_owed(struct w16 *w);               // every WM_ERASEBKGND owed, sent now; the paints stay owed
 // SendMessage: the window's procedure called now, the program's or w16's.
 uint32_t w16_send(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wp, uint32_t lp);
 #define WH_JOURNALPLAYBACK 1
@@ -1511,6 +1512,7 @@ int w16_child_framed(const struct w16_wnd *x);   // a child with a caption: 3.1'
 int w16_byte_align(int edge);   // how far CS_BYTEALIGN* moves a left edge: to the nearest multiple of 8
 int w16_byte_align_child(struct w16 *w, const struct w16_wnd *x, int nx);   // CS_BYTEALIGN*'s x for a child
 void w16_wnd_to_top(struct w16_wnd *x);
+int w16_wnd_activate_now(struct w16 *w, struct w16_wnd *top, uint16_t *out, int cap);
 void w16_wnd_to_bottom(struct w16 *w, struct w16_wnd *x);
 struct urect;
 int w16_wnd_above(struct w16 *w, struct w16_wnd *x, struct urect **v, int *cap);   // WS_CLIPSIBLINGS' rects; under `lock`   // under its siblings; takes `lock`   // a shown top-level window above the program's others; under `lock`

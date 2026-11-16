@@ -10,6 +10,8 @@
 ;   - over it SaunaOS shows no pointer: its class cursor is the arrow, but it answers WM_SETCURSOR
 ;     with SetCursor(NULL), as SCI does -- 3.1 asked the window before applying a class cursor
 ;   - a click lands where it was made in the picture: WM_LBUTTONDOWN's point (ClickX=, ClickY=)
+;   - then SetCursorPos(500, 100) puts the pointer on the picture's (500, 100), fit and centring
+;     counted (the Windows Tutorial points at Write's control box so)
 ;   - then DIALOG 100, whose procedure answers WM_CTLCOLOR with LTGRAY_BRUSH for the dialog itself
 ;     (CTLCOLOR_DLG) and its static, and sets the static's text red: 3.1's DefDlgProc erased with
 ;     that brush, and the static drew in that colour (Sierra's Setup is grey, its link red)
@@ -225,6 +227,9 @@ wndproc:
     mov ax, [bp+8]
     mov di, key_clicky
     call save_ax
+    push word 500                   ; SetCursorPos(500, 100): its screen is the picture
+    push word 100
+    W16_CALL "USER", 70
     push word [hInstance]           ; DialogBox(hInst, MAKEINTRESOURCE(100), hwnd, DlgProc)
     push word 0
     push word 100
