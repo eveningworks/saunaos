@@ -156,6 +156,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `doom_data_test.py` -- DOOM's game data and key sheet: the downloader, the launcher, F1
 - `drag_image_test.py` -- The compositor's drag image: one image wherever the pointer is, saying
 - `editmenu_test.py` -- Clipboard keys and the shared right-click edit menu, in a text field
+- `emoji_test.py` -- Emoji draw in COLOUR from the fallback list's emoji face, and U+FE0F decides
 - `engineless_test.py` -- Help and System Update with no Web page engine: their pages drawn as Markdown, not a dead web view
 - `fbs_test.py` -- First-boot setup: shown when it should be, saves what is chosen, ends
 - `filedialog_test.py` -- the shared file chooser, as a window
@@ -415,6 +416,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `cpu16_hostcheck.py` -- Check w16's 16-bit CPU interpreter against the real CPU, and its JIT against the interpreter
 - `des_hostcheck.py` -- Check userland/libs/base/udes.c against OpenSSL's DES, on the HOST
 - `divti3_hostcheck.py` -- Check tolibc's 128-bit division helpers against Python bignums, on the HOST
+- `emoji_hostcheck.py` -- Colour emoji (COLR v0 over CPAL) against FreeType's, and the emoji table, on the HOST
 - `exfat_hostcheck.py` -- SaunaOS's exFAT, judged by the host: fsck.exfat and an independent reader
 - `filemanager_harness_hostcheck.py` -- filemanager_test.py's own harness, checked on the host with no guest
 - `hash_hostcheck.py` -- Check /lib/libhash.so's algorithms against hashlib and zlib, on the HOST

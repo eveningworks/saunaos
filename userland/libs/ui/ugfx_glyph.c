@@ -48,7 +48,8 @@ struct gent {
     uint32_t cp;
     int face, px, base, cell_h, smear, emoji;
     int w, adv;
-    unsigned char cov[];       // w * cell_h
+    int color;                 // cov is premultiplied R,G,B,A per pixel (an emoji)
+    unsigned char cov[];       // w * cell_h, times 4 when `color`
 };
 
 static struct face **g_faces;
@@ -115,7 +116,50 @@ static int gent_is(const struct ulru_node *n, const void *key) {
 }
 
 static size_t gent_bytes(const struct gent *e) {
-    return sizeof *e + (size_t)e->w * (size_t)e->cell_h;
+    return sizeof *e + (size_t)e->w * (size_t)e->cell_h * (e->color ? 4u : 1u);
+}
+
+// A COLOUR glyph (COLR v0, ttf.h), or NULL when `gid` has none. Drawn at
+// the text's size unless its layers would leave the cell, then a step
+// smaller until they fit -- an emoji is taller than a capital in most
+// emoji fonts, and the cell is the text's.
+static struct gent *render_color(struct face *f, int gid, int px, int base, int cell_h) {
+    int up, down, epx = px;
+    if (!ttf_color_glyph_extent(&f->t, gid, epx, &up, &down, g_scratch)) return 0;
+    while (epx > px * 2 / 3 && (up > base || down > cell_h - base)) {
+        epx--;
+        ttf_color_glyph_extent(&f->t, gid, epx, &up, &down, g_scratch);
+    }
+    int adv = ttf_advance_px(&f->t, gid, epx);
+    if (adv < 1) adv = epx;
+    int cw = adv + epx;
+    if (cw > TTF_MAX_CELL_W) cw = TTF_MAX_CELL_W;
+    size_t n = (size_t)cw * (size_t)cell_h;
+    unsigned char *rgba = calloc(n, 4), *cov = malloc(n);
+    if (!rgba || !cov) { free(rgba); free(cov); return 0; }
+    // Layers in "the text colour" are drawn black: the cache is keyed
+    // without a colour, and the emoji fonts shipped use none.
+    if (ttf_render_color_glyph(&f->t, gid, epx, rgba, cov, cw, cell_h, 0, base, 0, g_scratch) != 1) {
+        free(rgba); free(cov);
+        return 0;
+    }
+    free(cov);
+    int last = -1;
+    for (int y = 0; y < cell_h; y++)
+        for (int x = cw - 1; x > last; x--)
+            if (rgba[((size_t)y * cw + x) * 4 + 3]) { last = x; break; }
+    int w = last + 1 > adv ? last + 1 : adv;
+    if (w > cw) w = cw;
+    struct gent *e = malloc(sizeof *e + (size_t)w * (size_t)cell_h * 4);
+    if (!e) { free(rgba); return 0; }
+    memset(e, 0, sizeof *e);
+    for (int y = 0; y < cell_h; y++)
+        memcpy(e->cov + (size_t)y * w * 4, rgba + (size_t)y * cw * 4, (size_t)w * 4);
+    free(rgba);
+    e->w = w;
+    e->adv = adv;
+    e->color = 1;
+    return e;
 }
 
 static void evict_one(void) {
@@ -136,6 +180,10 @@ static struct gent *render(int fi, uint32_t cp, int px, int base, int cell_h, in
     int gid = ttf_glyph_index(&f->t, cp);
     if (!gid) return 0;
     if (!g_scratch && !(g_scratch = malloc(sizeof *g_scratch))) return 0;
+    if (f->t.colr) {
+        struct gent *c = render_color(f, gid, px, base, cell_h);
+        if (c) return c;
+    }
     int adv = ttf_advance_px(&f->t, gid, px);
     if (adv < 0) adv = 0;
     if (adv > 0) adv += smear;
@@ -203,7 +251,7 @@ static struct gent *from_list(uint32_t cp, int emoji, int skip, int px, int base
 }
 
 int ugfx_glyph_get(const struct ugfx_font *f, uint32_t cp, int emoji,
-                   const unsigned char **cov, int *w, int *h, int *adv) {
+                   const unsigned char **cov, int *w, int *h, int *adv, int *color) {
     if (!f || f->char_h <= 0) return 0;
     int cell_h = f->char_h;
     int px = f->src_px > 0 ? f->src_px : f->line_h * 3 / 4;
@@ -218,7 +266,7 @@ int ugfx_glyph_get(const struct ugfx_font *f, uint32_t cp, int emoji,
     struct gkey key = { cp, fi, px, base, cell_h, smear, emoji };
     struct gent *hit = (struct gent *)ulru_find(&g_lru, hv, gent_is, &key);
     if (hit) {
-        *cov = hit->cov; *w = hit->w; *h = hit->cell_h; *adv = hit->adv;
+        *cov = hit->cov; *w = hit->w; *h = hit->cell_h; *adv = hit->adv; *color = hit->color;
         return 1;
     }
 
@@ -237,6 +285,6 @@ int ugfx_glyph_get(const struct ugfx_font *f, uint32_t cp, int emoji,
     while (ulru_oldest(&g_lru) && g_bytes + gent_bytes(e) > CACHE_BUDGET) evict_one();
     if (!ulru_insert(&g_lru, &e->node, hv)) { free(e); return 0; }
     g_bytes += gent_bytes(e);
-    *cov = e->cov; *w = e->w; *h = e->cell_h; *adv = e->adv;
+    *cov = e->cov; *w = e->w; *h = e->cell_h; *adv = e->adv; *color = e->color;
     return 1;
 }

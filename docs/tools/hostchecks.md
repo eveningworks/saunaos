@@ -870,6 +870,15 @@ the rest in the sweep. Each stays a standalone script with its own
   only the arena bound keeps its wrap modulo 2^32 in, and ASan watches
   it. A host without `modify_ldt` prints SKIPPED,
   never PASS. In `ondemand_sweep.py`.
+- **`emoji_hostcheck.py`** (gate) -- colour emoji: `ttf.c`'s COLR v0
+  compositing (`ttf_render_color_glyph()`, layers of outlines filled from
+  CPAL) against FreeType's own COLR render of the same Twemoji glyphs,
+  thirty emoji at 16, 24 and 40 px -- mean difference under 4/255, under
+  2% of pixels off by more than 48 (0.3-0.6/255 measured) -- and
+  `base/uemoji.h`'s six presentation cases (U+2B50 emoji, U+2605 text,
+  U+FE0F and U+FE0E deciding). `--positive-control` reads CPAL's bytes in
+  the wrong order and stacks the layers in reverse; each must go RED.
+  Needs `pkg-config freetype2`; SKIPPED without it.
 - **`ttf_hint_hostcheck.py`** (gate) -- the light autohinter
   (`userland/libs/media/ttf_hint.c`) against FreeType's light autohinter,
   and `ttf_glyph_extent()` against the ink. Over the shipped faces at

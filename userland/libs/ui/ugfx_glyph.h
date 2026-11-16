@@ -12,10 +12,12 @@
 // The glyph for `cp` in font `f`: a coverage cell `*w` wide and `*h`
 // (== f->char_h) tall with the baseline on the atlas's row, and the pen
 // advance. `emoji` asks for emoji presentation (base/uemoji.h's
-// uemoji_wanted()): the emoji face is tried first. 1 on success, 0 only
+// uemoji_wanted()): the emoji face is tried first. `*color` 1 means a
+// COLOUR glyph: `*cov` is then premultiplied R,G,B,A, four bytes a pixel,
+// drawn as it is rather than in the text's colour. 1 on success, 0 only
 // when memory ran out. The pointer is valid until the next call -- an
 // eviction may free it.
 int ugfx_glyph_get(const struct ugfx_font *f, uint32_t cp, int emoji,
-                   const unsigned char **cov, int *w, int *h, int *adv);
+                   const unsigned char **cov, int *w, int *h, int *adv, int *color);
 
 #endif

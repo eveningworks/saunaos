@@ -24,6 +24,7 @@ struct cached {
     int bx, by;                   // its top-left from the pen at the baseline
     int adv;                      // the pen's advance, pixels
     uint32_t *pix;                // w*h, alpha = coverage; NULL for a glyph with no ink
+    int color;                    // pix is the glyph's own ARGB (straight): an emoji
 };
 
 static struct ulru g_lru;
@@ -40,6 +41,12 @@ int uglyph_open(struct uglyph_face *face, const char *path) {
 
 static struct cached *render(struct uglyph_face *face, uint32_t cp, int px);
 
+// A colour glyph in its own colours, any other in `color`.
+static void blit(struct ugfx_surface *s, const struct cached *c, int x, int y, uint32_t color) {
+    if (c->color) ugfx_blit_alpha(s, x, y, c->w, c->h, c->pix, c->w);
+    else ugfx_blit_tinted(s, x, y, c->w, c->h, c->pix, c->w, color);
+}
+
 int uglyph_text(struct ugfx_surface *s, struct uglyph_face *face, const char *utf8, int px,
                 int x, int baseline, uint32_t color) {
     if (!face->ok) return 0;
@@ -53,7 +60,7 @@ int uglyph_text(struct ugfx_surface *s, struct uglyph_face *face, const char *ut
         prev = gid;
         struct cached *c = gid ? render(face, cp, px) : 0;
         if (!c) continue;
-        if (s && c->pix) ugfx_blit_tinted(s, pen + c->bx, baseline + c->by, c->w, c->h, c->pix, c->w, color);
+        if (s && c->pix) blit(s, c, pen + c->bx, baseline + c->by, color);
         pen += c->adv;
     }
     return pen - x;
@@ -161,7 +168,21 @@ static struct cached *render(struct uglyph_face *face, uint32_t cp, int px) {
     if (cw > TTF_MAX_CELL_W) cw = ch = TTF_MAX_CELL_W;
     uint8_t *cov = calloc((size_t)cw * (size_t)ch, 1);
     if (!cov) return 0;
-    if (!ttf_render_glyph(&face->f, gid, px, cov, cw, ch, cw / 4, ch * 2 / 3, &g_scratch)) { free(cov); return 0; }
+    // A COLOUR glyph (COLR v0, ttf.h) when the face has one for `gid`:
+    // premultiplied RGBA, kept below as straight ARGB for ugfx_blit_alpha().
+    uint8_t *rgba = face->f.colr ? calloc((size_t)cw * (size_t)ch, 4) : 0;
+    if (rgba && ttf_render_color_glyph(&face->f, gid, px, rgba, cov, cw, ch, cw / 4, ch * 2 / 3,
+                                       0, &g_scratch) != 1) {
+        free(rgba);
+        rgba = 0;
+        for (size_t k = 0; k < (size_t)cw * (size_t)ch; k++) cov[k] = 0;
+    }
+    if (rgba) {
+        for (size_t k = 0; k < (size_t)cw * (size_t)ch; k++) cov[k] = rgba[k * 4 + 3];
+    } else if (!ttf_render_glyph(&face->f, gid, px, cov, cw, ch, cw / 4, ch * 2 / 3, &g_scratch)) {
+        free(cov);
+        return 0;
+    }
     int x0 = cw, y0 = ch, x1 = -1, y1 = -1;
     for (int y = 0; y < ch; y++)
         for (int x = 0; x < cw; x++)
@@ -172,7 +193,8 @@ static struct cached *render(struct uglyph_face *face, uint32_t cp, int px) {
                 if (y > y1) y1 = y;
             }
     struct cached *slot = calloc(1, sizeof *slot);
-    if (!slot) { free(cov); return 0; }
+    if (!slot) { free(cov); free(rgba); return 0; }
+    slot->color = rgba != 0;
     slot->face = face;
     slot->cp = cp;
     slot->px = px;
@@ -183,12 +205,21 @@ static struct cached *render(struct uglyph_face *face, uint32_t cp, int px) {
         slot->w = x1 - x0 + 1;
         slot->h = y1 - y0 + 1;
         slot->pix = malloc((size_t)slot->w * (size_t)slot->h * sizeof *slot->pix);
-        if (!slot->pix) { free(cov); free(slot); return 0; }
+        if (!slot->pix) { free(cov); free(rgba); free(slot); return 0; }
         for (int y = 0; y < slot->h; y++)
-            for (int x = 0; x < slot->w; x++)
-                slot->pix[y * slot->w + x] = (uint32_t)cov[(y0 + y) * cw + x0 + x] << 24;
+            for (int x = 0; x < slot->w; x++) {
+                size_t k = (size_t)(y0 + y) * cw + x0 + x;
+                uint32_t a = cov[k];
+                if (!rgba) { slot->pix[y * slot->w + x] = a << 24; continue; }
+                // Premultiplied to straight: each channel back over its alpha.
+                const uint8_t *p = rgba + k * 4;
+                uint32_t r = a ? p[0] * 255u / a : 0, g = a ? p[1] * 255u / a : 0, b = a ? p[2] * 255u / a : 0;
+                slot->pix[y * slot->w + x] = a << 24 | (r > 255 ? 255 : r) << 16 |
+                                             (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b);
+            }
     }
     free(cov);
+    free(rgba);
     struct ulru_node *old;
     while ((old = ulru_oldest(&g_lru)) && g_bytes + cached_bytes(slot) > CACHE_BUDGET) {
         if (!g_evicted++)
@@ -211,6 +242,6 @@ int uglyph_draw(struct ugfx_surface *s, struct uglyph_face *face, uint32_t cp, i
     int top = y + (h - asc - desc) / 2 + asc + c->by;
     if (top + c->h > y + h) top = y + h - c->h;
     if (top < y) top = y;
-    ugfx_blit_tinted(s, x + (w - c->w) / 2, top, c->w, c->h, c->pix, c->w, color);
+    blit(s, c, x + (w - c->w) / 2, top, color);
     return 1;
 }

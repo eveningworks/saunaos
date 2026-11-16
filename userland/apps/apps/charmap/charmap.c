@@ -28,6 +28,7 @@
 #include "base/uunicode.h"
 #include "base/ugrow.h"
 #include "base/ulistdir.h"
+#include "base/ufontfallback.h"
 #include "ui/uapp.h"
 #include "ui/uglyph.h"
 #include "ui/uui_fontsample.h"
@@ -107,9 +108,10 @@ static int by_family(const void *a, const void *b) {
     return strcmp(((const struct face *)a)->ff.family, ((const struct face *)b)->ff.family);
 }
 
-static void load_faces(void) {
+// The families in `dir`, appended to g_faces.
+static void load_dir(const char *dir) {
     struct ulist_entry *e = NULL;
-    int n = ulistdir(FONT_DIR, &e);   // the whole folder, paged
+    int n = ulistdir(dir, &e);   // the whole folder, paged
     for (int i = 0; i < n; i++) {
         char stem[48];
         if (!uui_fontface_family_file(e[i].name, stem, sizeof stem)) continue;
@@ -119,7 +121,7 @@ static void load_faces(void) {
         }
         struct face *f = &g_faces[g_nfaces];
         memset(f, 0, sizeof *f);
-        if (!uui_fontface_open(&f->ff, FONT_DIR, stem)) continue;
+        if (!uui_fontface_open(&f->ff, dir, stem)) continue;
         // The family's files from the listing: the regular, and each
         // style uui_fontface_family_file() refused to list as a family.
         static const struct { const char *tail, *name; } style[] = {
@@ -150,6 +152,13 @@ static void load_faces(void) {
         g_nfaces++;
     }
     free(e);
+}
+
+// The interface faces and the fallback list's (base/ufontfallback.h), so
+// "which fonts have it" names the face that actually draws an emoji.
+static void load_faces(void) {
+    load_dir(FONT_DIR);
+    load_dir(UFONT_FALLBACK_DIR);
     if (g_nfaces) qsort(g_faces, (size_t)g_nfaces, sizeof g_faces[0], by_family);
     if (!UGROW(g_font_names, g_font_names_cap, g_nfaces)) g_nfaces = 0;   // logged below as none
     for (int i = 0; i < g_nfaces; i++) g_font_names[i] = g_faces[i].ff.family;

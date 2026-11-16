@@ -13266,3 +13266,45 @@ the other way from FreeType (it measures zones from outline points, this
 from bounding boxes), and a free stem centred within a hair of half a
 pixel can land a row from where FreeType puts it -- the check's 90%/95%
 bars, not 100%.
+
+## Font fallback is an ordered list file; emoji are Twemoji's COLR layers, drawn by our own rasterizer
+
+Chosen 2026-11-16, from a canvas of real renders. A character the
+interface face lacked came from DejaVu Sans Mono or became a box: symbols,
+arrows and math drew monospaced or not at all, and there was no emoji.
+
+**What others do.** Android lists its fallback families in order in
+`fonts.xml`; fontconfig ranks every installed font by how much of the text
+it covers (`fc-match`); DirectWrite maps each script to a font. For emoji,
+Windows' Segoe UI Emoji and Firefox's Twemoji are COLR (layers of ordinary
+outlines, each one colour from a CPAL palette), Android and Linux ship
+Noto Color Emoji as PNG strikes (CBDT), Apple as PNGs (sbix). All of them
+pick emoji or text by Unicode's Emoji_Presentation property, overridden by
+U+FE0F / U+FE0E.
+
+**SaunaOS keeps Android's shape and Windows' emoji format.** One ordered
+list, `/etc/fonts/fallback.conf` (compiled in too, for a machine or a
+sandbox without it): the first face with the character draws it, and an
+emoji goes to the face marked `emoji` first. The faces are Noto Sans,
+Symbols 2, Symbols, Math (OFL) and Twemoji Mozilla (CC BY 4.0 artwork,
+credited in About), in `/usr/share/fonts/fallback/` so the face picker
+never offers them as the interface face. COLR v0 is read by `ttf.c` and
+its layers filled by the same rasterizer as text, so an emoji is crisp at
+any size or display scale for about 120 lines of code;
+`tools/hostchecks/emoji_hostcheck.py` holds it to FreeType's own COLR
+rendering (0.6/255 mean difference). Emoji_Presentation is generated from
+Perl's Unicode data (`tools/gen/gen_emoji.py`), nothing fetched. The glyph
+cache keys a character by its presentation, and a string loop passes the
+character after the one it draws, so U+FE0F decides.
+
+**Not chosen:** fontconfig's coverage ranking (more code and an index to
+cache, and less predictable which face draws a character); a per-script
+table (DirectWrite's: needs script itemization the text path does not
+have); Noto Color Emoji (10.7 MB of PNGs, a decode and a downscale, soft
+at 14 px); monochrome Noto Emoji (no colour path to build, but line art
+where people expect emoji); OpenMoji (CC BY-SA, and muddier at 14 px).
+
+**Left open:** emoji sequences -- ZWJ families, flags, skin tones -- are
+GSUB ligatures and draw as their parts until step 5's shaping; the
+terminal's cells do not pass the next character yet; a COLR layer in the
+text colour draws black (Twemoji has none).

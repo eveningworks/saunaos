@@ -9,7 +9,8 @@ userland/libs/base/uunicode.c:
     blocks   one line per block that holds any of them: "0080;00FF;Latin-1 Supplement"
 
 ONLY WHAT THE FONTS COVER. The whole database names ~150,000 characters
-(~2 MB of names); the fonts in data/fonts have a few thousand between them, and
+(~2 MB of names); the fonts in data/fonts (and its fallback/) have a few
+thousand between them, and
 a name for a character nothing can draw is a row the Character Map would
 have to hide. The cmaps are read here, from the same files the build
 seeds. Re-run when a font is added.
@@ -77,9 +78,10 @@ def main():
         sys.exit(f"gen_unicode_names: no Blocks.txt at {args.blocks} (pass --blocks)")
 
     cps = set()
-    for f in sorted(os.listdir(FONTS)):
-        if f.endswith(".ttf"):
-            cps |= cmap_codepoints(os.path.join(FONTS, f))
+    for folder in (FONTS, os.path.join(FONTS, "fallback")):   # the interface faces and the fallback list's
+        for f in sorted(os.listdir(folder)):
+            if f.endswith(".ttf"):
+                cps |= cmap_codepoints(os.path.join(folder, f))
     named = {}
     for cp in sorted(cps):
         try:

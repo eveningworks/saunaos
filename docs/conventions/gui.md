@@ -362,12 +362,21 @@ this the obvious way), not from how much history it accumulated.
   order is ABI, shared through `WIN_REQ_FONT`, so a client built against
   the old count indexes into the wrong glyph rather than failing. In ring
   3 a character past U+00FF is drawn by `ui/ugfx_glyph.c`'s per-process
-  cache (the font's `.ttf`, then DejaVu Sans Mono, then a box) -- that is
+  cache (the font's `.ttf`, then the fallback list's faces, then a box) -- that is
   the way past the ceiling, not a bigger atlas.
 
   (A ring-3 PRIVATE font has the same 191 slots -- `PRIV_SLOTS` in
   `ugfx.c` -- and records its file, so characters past them take the
   cache path too.)
+
+- **A LOOP THAT DRAWS OR MEASURES A STRING PASSES THE NEXT CHARACTER:
+  `ugfx_cp_advance_next()` / `ugfx_draw_cp_next()`.** U+FE0F after a
+  character makes it an emoji (❤️ is the red heart, ❤ the text one) and
+  U+FE0E makes an emoji text; the selector itself draws nothing. The
+  one-argument forms give each character its default look, so a loop
+  that uses them draws ❤️ as a black heart and nothing fails. The string
+  paths in `ugfx.c`/`ugfx_text.c` and `utext`'s grid pass it; the
+  terminal's cells do not yet (roadmap).
 
 - **A GLYPH CELL IS SIZED FROM `ttf_glyph_extent()`, NEVER FROM THE
   FONT'S ASCENT ALONE.** `ttf_render_glyph()` hints by default

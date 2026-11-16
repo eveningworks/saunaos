@@ -239,7 +239,12 @@ careful. An app needing something that font cannot express rasterizes
 it *itself*, in ring 3, with the same rasterizer — what every Wayland
 client does. A GUI app's text past U+00FF (Greek, Cyrillic, box
 drawing) comes from a per-process glyph cache rasterized from the face's
-own `.ttf`, then DejaVu Sans Mono, then an outlined box. The honest
+own `.ttf`, then the fallback list's faces in order -- Noto Sans, its
+Symbols, Symbols 2 and Math, DejaVu Sans Mono (`/etc/fonts/fallback.conf`)
+-- then an outlined box. Emoji are drawn in colour from Twemoji's
+COLR layers, by SaunaOS's own rasterizer, in every app and in Character
+Map; ❤ is a text heart and ❤️ (with U+FE0F) the red one, as Unicode
+says. The honest
 limits: the kernel console draws only the baked ASCII + Latin-1 set (a
 character past it is `?`), and
 kerning comes from the legacy `kern` table only, between two atlas

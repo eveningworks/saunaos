@@ -627,7 +627,11 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
                 }
                 continue;
             }
-            ugfx_draw_cp(s, rx, ry, ch, fg, cell);
+            // The character after decides an emoji's look (U+FE0F); the
+            // selector keeps its own cell, which is the second one ❤️ needs.
+            uint32_t nx = 0;
+            if (kn < draw_end) char_at(t, kn, &nx);
+            ugfx_draw_cp_next(s, rx, ry, ch, nx, fg, cell);
         }
         // A selection running THROUGH a line break should read as
         // reaching the end of the line, so paint one cell past the last

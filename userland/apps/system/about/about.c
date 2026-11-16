@@ -119,6 +119,11 @@ static void fill_rows(void) {
                  SAUNAOS_SOURCE_EXACT ? "" : ", plus local changes");
     }
 
+    // CC BY 4.0's attribution for the emoji artwork, where a person sees
+    // it; the licence travels as /usr/share/fonts/fallback/LICENSE-Twemoji.txt.
+    r = add("Emoji", 0, 0);
+    snprintf(r->value, sizeof r->value, "Twemoji, (c) Twitter, Inc. and contributors, CC BY 4.0");
+
     // The row this window exists to make impossible to miss.
     if (have_kv && strcmp(kv.build_id, SAUNAOS_BUILD_ID) != 0) {
         r = add("", 0, 1);

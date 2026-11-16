@@ -8,6 +8,14 @@ fresh image and its own guest. A new tool here needs a `RUNNER =
 {"covers": ...}` header, plus `"vm": [...]` when its guest must differ
 from the default (a sound card, a USB mouse, `--reboot`).
 
+- **`emoji_test.py`** -- emoji draw in COLOUR from the fallback list's
+  emoji face, and U+FE0F decides: Notepad opens three files and the
+  editor's own rectangle (between its `tabs` and `status` widgets) is
+  read -- four U+1F600 draw Twemoji's yellow, four U+2764 U+FE0F its red
+  heart, four bare U+2764 no red at all. `--positive-control` rewrites the
+  guest's `/etc/fonts/fallback.conf` without the emoji face first, and the
+  two colour checks must go red (measured: 0 yellow, 0 red; green runs see
+  ~380 and ~450).
 - **`logview_test.py`** -- the Log Viewer on a FIXTURE log it is opened
   at (`logview <file>`): an error, a warning, an ordinary line, the
   error again and a program line, planted with `vm.py put` -- not

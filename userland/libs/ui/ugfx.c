@@ -944,7 +944,8 @@ int ugfx_cp_advance_next(uint32_t cp, uint32_t next) {
         if (uemoji_invisible(cp)) return 0;
         const unsigned char *cov;
         int w, h, adv;
-        if (!g_glyphs || !ugfx_glyph_get(g_font, cp, uemoji_wanted(cp, next), &cov, &w, &h, &adv))
+        int color;
+        if (!g_glyphs || !ugfx_glyph_get(g_font, cp, uemoji_wanted(cp, next), &cov, &w, &h, &adv, &color))
             return g_char_w;
         return adv;
     }
@@ -1019,6 +1020,32 @@ static void draw_cov(struct ugfx_surface *s, int x, int y, const unsigned char *
     }
 }
 
+// A COLOUR glyph (an emoji, ugfx_glyph.h): premultiplied R,G,B,A cells
+// drawn in their own colours over `bg` (or what is there, for
+// UGFX_TRANSPARENT), through put_pixel like draw_cov() for the clip and
+// the damage.
+static void draw_rgba(struct ugfx_surface *s, int x, int y, const unsigned char *px4,
+                      int gw, int gh, uint32_t bg) {
+    if (x >= s->w || y >= s->h || x + gw <= 0 || y + gh <= 0) return;
+    for (int row = 0; row < gh; row++) {
+        int py = y + row;
+        if (py < 0 || py >= s->h) continue;
+        for (int col = 0; col < gw; col++) {
+            int px = x + col;
+            if (px < 0 || px >= s->w) continue;
+            const unsigned char *p = px4 + ((size_t)row * gw + col) * 4;
+            unsigned a = p[3];
+            if (!a) continue;
+            uint32_t under = (bg == UGFX_TRANSPARENT) ? ugfx_get_pixel(s, px, py) : bg;
+            unsigned keep = 255 - a;
+            unsigned r = p[0] + ((under >> 16) & 0xFF) * keep / 255;
+            unsigned g = p[1] + ((under >> 8) & 0xFF) * keep / 255;
+            unsigned b = p[2] + (under & 0xFF) * keep / 255;
+            ugfx_put_pixel(s, px, py, (r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b));
+        }
+    }
+}
+
 void ugfx_draw_cp_next(struct ugfx_surface *s, int x, int y, uint32_t cp, uint32_t next,
                        uint32_t color, uint32_t bg) {
     if (!s || !s->pixels || !g_glyphs) return;
@@ -1026,8 +1053,11 @@ void ugfx_draw_cp_next(struct ugfx_surface *s, int x, int y, uint32_t cp, uint32
         if (uemoji_invisible(cp)) return;
         const unsigned char *cov;
         int w, h, adv;
-        if (ugfx_glyph_get(g_font, cp, uemoji_wanted(cp, next), &cov, &w, &h, &adv))
-            draw_cov(s, x, y, cov, w, h, color, bg);
+        int rgba;
+        if (ugfx_glyph_get(g_font, cp, uemoji_wanted(cp, next), &cov, &w, &h, &adv, &rgba)) {
+            if (rgba) draw_rgba(s, x, y, cov, w, h, bg);
+            else draw_cov(s, x, y, cov, w, h, color, bg);
+        }
         return;
     }
     int k = c1_of((unsigned char)cp);

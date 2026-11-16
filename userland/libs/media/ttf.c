@@ -87,6 +87,8 @@ int ttf_open(struct ttf_font *f, const uint8_t *data, uint32_t len) {
         case TAG('O', 'S', '/', '2'): f->os2 = off; f->os2_len = tlen; break;
         case TAG('V', 'D', 'M', 'X'): f->vdmx = off; f->vdmx_len = tlen; break;
         case TAG('h', 'd', 'm', 'x'): f->hdmx = off; f->hdmx_len = tlen; break;
+        case TAG('C', 'O', 'L', 'R'): f->colr = off; f->colr_len = tlen; break;
+        case TAG('C', 'P', 'A', 'L'): f->cpal = off; f->cpal_len = tlen; break;
         default: break;
         }
     }
@@ -800,4 +802,100 @@ int ttf_hdmx(const struct ttf_font *f, int ppem, int gid, int *advance) {
         if ((int)rd_u8(f, r) == ppem) { *advance = (int)rd_u8(f, r + 2 + (uint32_t)gid); return 1; }
     }
     return 0;
+}
+
+// --- colour glyphs: COLR v0 over CPAL ----------------------------------
+
+// The layers of `gid`: *first (an index into the layer records) and the
+// count. 0 when the font has no usable COLR v0 or `gid` is not a colour
+// glyph. Base glyph records are sorted by glyph id, so a binary search.
+static int colr_layers(const struct ttf_font *f, int gid, uint32_t *first, uint32_t *n) {
+    if (!f->colr || !f->cpal || f->colr_len < 14 || rd_u16(f, f->colr) != 0) return 0;
+    uint32_t nbase = rd_u16(f, f->colr + 2);
+    uint32_t base_off = f->colr + rd_u32(f, f->colr + 4);
+    uint32_t layer_off = f->colr + rd_u32(f, f->colr + 8);
+    uint32_t nlayers = rd_u16(f, f->colr + 12);
+    if (!in_range(f, base_off, nbase * 6) || !in_range(f, layer_off, nlayers * 4)) return 0;
+    int lo = 0, hi = (int)nbase - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        uint32_t r = base_off + (uint32_t)mid * 6;
+        int g = (int)rd_u16(f, r);
+        if (g == gid) {
+            *first = rd_u16(f, r + 2);
+            *n = rd_u16(f, r + 4);
+            // A run past the layer array is a malformed font: no colour.
+            return *n > 0 && *first + *n <= nlayers;
+        }
+        if (g < gid) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return 0;
+}
+
+// Layer `i`'s glyph and its colour as 0xAARRGGBB (straight alpha):
+// CPAL palette 0's entry, or `fg` for the foreground index 0xFFFF.
+static int colr_layer(const struct ttf_font *f, uint32_t i, uint32_t fg,
+                      int *layer_gid, uint32_t *argb) {
+    uint32_t layer_off = f->colr + rd_u32(f, f->colr + 8);
+    uint32_t r = layer_off + i * 4;
+    *layer_gid = (int)rd_u16(f, r);
+    uint32_t pal = rd_u16(f, r + 2);
+    if (pal == 0xFFFF) { *argb = fg | 0xFF000000u; return 1; }
+    if (f->cpal_len < 12) return 0;
+    uint32_t entries = rd_u16(f, f->cpal + 2);
+    uint32_t records = rd_u16(f, f->cpal + 6);
+    uint32_t rec_off = f->cpal + rd_u32(f, f->cpal + 8);
+    uint32_t first = rd_u16(f, f->cpal + 12);   // palette 0's first record
+    if (pal >= entries || first + pal >= records || !in_range(f, rec_off + (first + pal) * 4, 4))
+        return 0;
+    uint32_t c = rec_off + (first + pal) * 4;   // B, G, R, A
+    *argb = rd_u8(f, c + 3) << 24 | rd_u8(f, c + 2) << 16 | rd_u8(f, c + 1) << 8 | rd_u8(f, c);
+    return 1;
+}
+
+int ttf_render_color_glyph(const struct ttf_font *f, int gid, int px,
+                           uint8_t *rgba, uint8_t *cov, int w, int h,
+                           int x_origin, int baseline, uint32_t fg,
+                           struct ttf_scratch *sc) {
+    uint32_t first, n;
+    if (!f || !rgba || !cov || w <= 0 || h <= 0) return -1;
+    if (!colr_layers(f, gid, &first, &n)) return 0;
+    for (uint32_t i = 0; i < n; i++) {
+        int lg;
+        uint32_t c;
+        if (!colr_layer(f, first + i, fg, &lg, &c)) return -1;
+        for (int k = 0; k < w * h; k++) cov[k] = 0;
+        if (!ttf_render_glyph(f, lg, px, cov, w, h, x_origin, baseline, sc)) return -1;
+        uint32_t ca = c >> 24, cr = (c >> 16) & 0xFF, cg = (c >> 8) & 0xFF, cb = c & 0xFF;
+        // Each layer over the ones below it, premultiplied: what is drawn
+        // is out = src + under * (1 - src alpha).
+        for (int k = 0; k < w * h; k++) {
+            uint32_t a = cov[k] * ca / 255;
+            if (!a) continue;
+            uint8_t *p = rgba + (size_t)k * 4;
+            uint32_t keep = 255 - a;
+            p[0] = (uint8_t)(cr * a / 255 + p[0] * keep / 255);
+            p[1] = (uint8_t)(cg * a / 255 + p[1] * keep / 255);
+            p[2] = (uint8_t)(cb * a / 255 + p[2] * keep / 255);
+            p[3] = (uint8_t)(a + p[3] * keep / 255);
+        }
+    }
+    return 1;
+}
+
+int ttf_color_glyph_extent(const struct ttf_font *f, int gid, int px,
+                           int *up, int *down, struct ttf_scratch *sc) {
+    uint32_t first, n;
+    *up = *down = 0;
+    if (!f || !colr_layers(f, gid, &first, &n)) return 0;
+    for (uint32_t i = 0; i < n; i++) {
+        int lg, u, d;
+        uint32_t c;
+        if (!colr_layer(f, first + i, 0, &lg, &c)) return 0;
+        if (!ttf_glyph_extent(f, lg, px, &u, &d, sc)) continue;
+        if (u > *up) *up = u;
+        if (d > *down) *down = d;
+    }
+    return 1;
 }

@@ -98,6 +98,8 @@ struct ttf_font {
     uint32_t os2, os2_len;     // and ttf_win_metrics() read them
     uint32_t vdmx, vdmx_len;   // the device metrics Windows lays text out by,
     uint32_t hdmx, hdmx_len;   // 0 when absent: ttf_vdmx(), ttf_hdmx()
+    uint32_t colr, colr_len;   // COLR v0 and CPAL, 0 when absent or another
+    uint32_t cpal, cpal_len;   // version: ttf_render_color_glyph()
 
     // The autohinter's BLUE ZONES, measured by ttf_open() from the face's
     // own Latin letters' bounding boxes, font units, y up. `ref` is where
@@ -251,6 +253,25 @@ void ttf_set_hinting(struct ttf_font *f, int on);
 // glyph; a space reports 0 and 0. A cell sized from these never clips.
 int ttf_glyph_extent(const struct ttf_font *f, int gid, int px, int *up, int *down,
                      struct ttf_scratch *sc);
+
+// COLOUR GLYPHS, COLR version 0 (the emoji shape Windows' Segoe UI Emoji
+// and Firefox's Twemoji use): a glyph is a stack of ordinary outline
+// glyphs, each filled with one colour from the font's CPAL palette 0, or
+// with `fg` where the font says "the text colour". Renders `gid` into
+// `rgba` (w*h*4 bytes, PREMULTIPLIED R,G,B,A per pixel) as
+// ttf_render_glyph() would place it; `cov` is w*h bytes of the caller's
+// scratch for one layer at a time. Like ttf_render_glyph() it does not
+// clear `rgba`. Returns 1, 0 when `gid` has no colour layers (draw it with
+// ttf_render_glyph()), -1 for a malformed table.
+int ttf_render_color_glyph(const struct ttf_font *f, int gid, int px,
+                           uint8_t *rgba, uint8_t *cov, int w, int h,
+                           int x_origin, int baseline, uint32_t fg,
+                           struct ttf_scratch *sc);
+
+// The rows a colour glyph's layers reach, as ttf_glyph_extent() measures
+// one outline. 0 when `gid` has no colour layers.
+int ttf_color_glyph_extent(const struct ttf_font *f, int gid, int px,
+                           int *up, int *down, struct ttf_scratch *sc);
 
 // Rasterizes `gid` into `cov` (w*h bytes, row-major, 0 = background,
 // 255 = fully ink), with the glyph origin at (x_origin, baseline) in
