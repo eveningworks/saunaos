@@ -20,13 +20,31 @@
 // and a caller slices with what these return rather than with `i + 1`.
 #include "ui/ugfx.h"
 #include "base/uutf8.h"
+#include "base/uemoji.h"
+
+// A VARIATION SELECTOR at `at` belongs to the character just decoded
+// (base/uemoji.h's rule): its tag, and `*nx` moved past it. Read only inside
+// `end`, so a slice measures exactly what it draws.
+static uint32_t take_selector(const char *str, int *nx, int end) {
+    uint32_t sel = uemoji_selector_utf8(str + *nx, end < 0 ? -1 : end - *nx);
+    if (!sel) return 0;
+    *nx += 3;
+    return sel == UEMOJI_VS_EMOJI ? UGFX_CP_EMOJI : UGFX_CP_TEXT;
+}
 
 int ugfx_text_decode(const char *str, int i, int end, uint32_t *cp) {
     // ASCII FIRST: one compare, the same answer in both modes -- this is
-    // under every glyph every text call measures or draws.
+    // under every glyph every text call measures or draws. The selector
+    // check after it is one more byte compare (0xEF is not ASCII).
     if (str && i >= 0 && (end < 0 || i < end)) {
         unsigned char c = (unsigned char)str[i];
-        if (c && c < 0x80) { *cp = c; return i + 1; }
+        if (c && c < 0x80) {
+            int nx = i + 1;
+            *cp = c;
+            if (!ugfx_font_codepage() && (unsigned char)str[nx] == 0xEF && (end < 0 || nx < end))
+                *cp |= take_selector(str, &nx, end);
+            return nx;
+        }
     }
     *cp = 0;
     if (!str || i < 0 || (end >= 0 && i >= end) || !str[i]) return i < 0 ? 0 : i;
@@ -37,17 +55,7 @@ int ugfx_text_decode(const char *str, int i, int end, uint32_t *cp) {
     int n;
     *cp = uutf8_decode(str + i, end < 0 ? -1 : end - i, &n);
     int nx = i + (n > 0 ? n : 1);
-    // A VARIATION SELECTOR after it is part of this character, not one of
-    // its own (ugfx.h): stepped over, and its choice tagged onto the code
-    // point -- read only inside `end`, so a slice measures what it draws.
-    if (*cp > 0x7F && str[nx] && (end < 0 || nx < end)) {
-        int m;
-        uint32_t sel = uutf8_decode(str + nx, end < 0 ? -1 : end - nx, &m);
-        if (m > 0 && (sel == 0xFE0F || sel == 0xFE0E)) {
-            *cp |= sel == 0xFE0F ? UGFX_CP_EMOJI : UGFX_CP_TEXT;
-            nx += m;
-        }
-    }
+    if (end < 0 || nx < end) *cp |= take_selector(str, &nx, end);
     return nx;
 }
 
@@ -153,8 +161,6 @@ int ugfx_text_prev(const char *str, int i) {
     if (ugfx_font_codepage()) return i - 1;
     int p = uutf8_prev(str, i);
     // Back over a variation selector AND its character, as next() steps.
-    int m;
-    uint32_t c = uutf8_decode(str + p, i - p, &m);
-    if (p > 0 && (c == 0xFE0F || c == 0xFE0E)) p = uutf8_prev(str, p);
+    if (p > 0 && uemoji_selector_utf8(str + p, i - p)) p = uutf8_prev(str, p);
     return p;
 }

@@ -12,8 +12,8 @@ pixels may differ by more than 48 -- what is left is the two rasterizers'
 edge coverage, not colour or order.
 
 It also checks `base/uemoji.h` at the cases that decide how text looks:
-U+2B50 and U+1F600 are emoji, U+2605 and U+2764 text, U+FE0F makes U+2764
-an emoji and U+FE0E makes U+2B50 text.
+U+2B50 and U+1F600 are emoji, U+2605 and U+2764 text, and the selector
+reader finds U+FE0F and refuses a truncated one.
 
 `--positive-control` reads CPAL's colours in the wrong byte order (RGBA for
 BGRA) and, separately, stacks the layers in reverse; each must go RED.
@@ -66,7 +66,8 @@ int main(int argc, char **argv) {
     // The presentation cases first: one line, 1 per expectation met.
     printf("UEMOJI %d %d %d %d %d %d\n", uemoji_presentation(0x2B50), uemoji_presentation(0x1F600),
            !uemoji_presentation(0x2605), !uemoji_presentation(0x2764),
-           uemoji_wanted(0x2764, UEMOJI_VS_EMOJI), !uemoji_wanted(0x2B50, UEMOJI_VS_TEXT));
+           uemoji_selector_utf8("\xEF\xB8\x8F", -1) == UEMOJI_VS_EMOJI,
+           uemoji_selector_utf8("\xEF\xB8\x8E", 2) == 0);   // two bytes are not a selector
     FILE *fp = fopen(argv[1], "rb");
     if (!fp) return 1;
     fseek(fp, 0, SEEK_END);

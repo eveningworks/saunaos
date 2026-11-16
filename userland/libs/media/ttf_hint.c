@@ -144,6 +144,32 @@ static void find_edges(struct ttf_scratch *sc, fx_t em) {
     }
 }
 
+// Shell sort by y (Ciura's gaps): no allocation, no recursion, and close
+// to n log n on the few hundred to few thousand edges a glyph has.
+static void sort_edges(struct ttf_scratch *sc) {
+    static const int gaps[] = { 701, 301, 132, 57, 23, 10, 4, 1 };
+    for (unsigned g = 0; g < sizeof gaps / sizeof gaps[0]; g++) {
+        int gap = gaps[g];
+        for (int i = gap; i < sc->nhedges; i++) {
+            struct ttf_hedge t = sc->hedges[i];
+            int j = i;
+            for (; j >= gap && sc->hedges[j - gap].y > t.y; j -= gap) sc->hedges[j] = sc->hedges[j - gap];
+            sc->hedges[j] = t;
+        }
+    }
+}
+
+// The first edge whose y is past `y` (edges sorted by y).
+static int first_below(const struct ttf_scratch *sc, fx_t y) {
+    int lo = 0, hi = sc->nhedges;
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (sc->hedges[mid].y <= y) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+}
+
 void ttf_hint_outline(const struct ttf_font *f, fx_t scale, fx_t baseline,
                       struct ttf_scratch *sc) {
     if (!(f->blue_ok & (1u << TTF_BLUE_X)) || sc->npoints == 0) return;
@@ -182,8 +208,11 @@ void ttf_hint_outline(const struct ttf_font *f, fx_t scale, fx_t baseline,
         z[i].fshoot = baseline - fshoot;
     }
 
-    // 2.
+    // 2. Sorted by y, so a stem's partner is found in the window below an
+    // edge rather than by a scan of every edge (the arrays are sized for
+    // TTF_MAX_POINTS, thousands, and pairing would otherwise be quadratic).
     find_edges(sc, em);
+    sort_edges(sc);
     sc->nanc = 0;
 
     // 3. Blue edges: their fitted row is in the anchors; `used` 2 = blue.
@@ -219,11 +248,11 @@ void ttf_hint_outline(const struct ttf_font *f, fx_t scale, fx_t baseline,
             if (top->ink != 1 || top->used == 1) continue;
             int best = -1;
             fx_t best_d = 0;
-            for (int g = 0; g < sc->nhedges; g++) {
+            for (int g = first_below(sc, top->y); g < sc->nhedges; g++) {
                 struct ttf_hedge *b = &sc->hedges[g];
-                if (b->ink != -1 || b->used == 1) continue;
                 fx_t d = b->y - top->y;
-                if (d <= 0 || d > maxw) continue;
+                if (d > maxw) break;                 // sorted: nothing nearer follows
+                if (b->ink != -1 || b->used == 1) continue;
                 if (b->xmin - tol > top->xmax || top->xmin - tol > b->xmax) continue;
                 if (best < 0 || d < best_d) { best = g; best_d = d; }
             }

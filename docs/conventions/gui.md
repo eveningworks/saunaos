@@ -373,7 +373,10 @@ this the obvious way), not from how much history it accumulated.
   `ugfx_text_decode()` steps over it and TAGS the code point
   (`UGFX_CP_EMOJI`/`UGFX_CP_TEXT`); a loop that decodes by itself tags
   with `ugfx_cp_with_next()`.** U+FE0F makes a character an emoji (❤️ the
-  red heart, ❤ the text one) and U+FE0E makes an emoji text. Every loop
+  red heart, ❤ the text one) and U+FE0E makes an emoji text. The selector
+  belongs to WHATEVER character precedes it, ASCII too -- a keycap is '1'
+  then U+FE0F -- and `base/uemoji.h`'s `uemoji_selector_utf8()` is the one
+  test for it; an ASCII character still draws from the atlas. Every loop
   that measures AND draws through `ugfx_text_decode()` agrees by
   construction; one that decodes with `uutf8_decode()` and calls
   `ugfx_cp_advance()` on the bare value draws ❤️ as a black heart and

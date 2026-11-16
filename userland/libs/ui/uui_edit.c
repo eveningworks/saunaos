@@ -5,17 +5,19 @@
 #include "ui/uui_widget.h" // uui_key_is_shortcut
 #include "ui/uui_undo.h"
 #include "base/uutf8.h"   // stepping by CHARACTER: docs/utf8-design.md
+#include "base/uemoji.h"  // a variation selector goes with its character
 
 // The text is UTF-8 and every index here is a byte offset on a character
 // boundary. The ops reach the text a byte at a time, so these copy the
 // at-most-four bytes a step needs and decode them with the Latin-1 rule
 // (base/uutf8.h): a stray byte is one character, never split.
-// A VARIATION SELECTOR (U+FE0E, U+FE0F: EF B8 8E / EF B8 8F) belongs to
-// the character before it -- ❤️ is one character to step, delete and
-// select, as ugfx_text_next()/prev() draw it.
+// A VARIATION SELECTOR belongs to the character before it, whatever it is
+// (base/uemoji.h's rule) -- ❤️ and 1️⃣'s first two are one character to
+// step, delete and select, as ugfx_text_next()/prev() draw it.
 static int selector_at(const struct uui_edit_ops *ops, void *text, int i, int len) {
-    return i + 3 <= len && (uint8_t)ops->at(text, i) == 0xEF && (uint8_t)ops->at(text, i + 1) == 0xB8 &&
-           ((uint8_t)ops->at(text, i + 2) == 0x8E || (uint8_t)ops->at(text, i + 2) == 0x8F);
+    if (i + 3 > len) return 0;
+    char b[3] = { ops->at(text, i), ops->at(text, i + 1), ops->at(text, i + 2) };
+    return uemoji_selector_utf8(b, 3) != 0;
 }
 
 static int char_step(const struct uui_edit_ops *ops, void *text, int i, int len) {

@@ -25,18 +25,24 @@ static inline int uemoji_presentation(uint32_t cp) {
     return 0;
 }
 
-// `cp` as drawn when `next` follows it: a variation selector decides,
-// else its default. A selector itself draws nothing (uemoji_invisible()).
-static inline int uemoji_wanted(uint32_t cp, uint32_t next) {
-    if (next == UEMOJI_VS_EMOJI) return 1;
-    if (next == UEMOJI_VS_TEXT) return 0;
-    return uemoji_presentation(cp);
-}
-
 // A character the text path skips: the variation selectors, which only
 // choose how the one before them looks.
 static inline int uemoji_invisible(uint32_t cp) {
     return cp == UEMOJI_VS_TEXT || cp == UEMOJI_VS_EMOJI;
+}
+
+// THE ONE RULE, for every text path: a variation selector belongs to the
+// character before it, WHATEVER that character is (a keycap is '1' then
+// U+FE0F). This says whether the UTF-8 at `b` (up to `avail` bytes, < 0
+// for a NUL-terminated string) starts with one: its code point, else 0.
+// Reads no byte past `avail` or past a NUL.
+static inline uint32_t uemoji_selector_utf8(const char *b, int avail) {
+    const unsigned char *u = (const unsigned char *)b;
+    if (avail >= 0 && avail < 3) return 0;
+    if (u[0] != 0xEF || u[1] != 0xB8) return 0;
+    if (u[2] == 0x8E) return UEMOJI_VS_TEXT;
+    if (u[2] == 0x8F) return UEMOJI_VS_EMOJI;
+    return 0;
 }
 
 #endif

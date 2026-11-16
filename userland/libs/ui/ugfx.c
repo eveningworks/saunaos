@@ -946,7 +946,8 @@ uint32_t ugfx_cp_with_next(uint32_t cp, uint32_t next) {
 }
 
 // Whether `cp` (tagged or not) is drawn as an emoji, and its plain value.
-// A text-tagged Latin-1 character stays the atlas's.
+// The callers keep ASCII in the atlas whatever a selector asked: a keycap's
+// '1' is a '1' until the keycap sequence can be shaped (font round step 5).
 static int presentation(uint32_t cp, uint32_t *value) {
     *value = cp & UGFX_CP_VALUE;
     if (cp & UGFX_CP_EMOJI) return 1;
@@ -957,7 +958,7 @@ static int presentation(uint32_t cp, uint32_t *value) {
 int ugfx_cp_advance(uint32_t cp) {
     uint32_t v;
     int emoji = presentation(cp, &v);
-    if (v > 0xFF || emoji) {
+    if (v > 0xFF || (emoji && v > 0x7F)) {
         if (uemoji_invisible(v)) return 0;   // a selector nothing consumed
         const unsigned char *cov;
         int w, h, adv, color;
@@ -1006,8 +1007,10 @@ static uint32_t blend(uint32_t fg, uint32_t bg, unsigned alpha) {
 
 // One coverage cell, `gw` x `gh`, at (x, y) -- an atlas glyph or a
 // cached one, which are the same shape by construction (ugfx_glyph.c).
-static void draw_cov(struct ugfx_surface *s, int x, int y, const unsigned char *glyph,
-                     int gw, int gh, uint32_t color, uint32_t bg) {
+// `step` is the bytes per pixel: 1 for a coverage cell, 4 for a colour
+// one drawn as its alpha (the last byte) -- draw_rgba_mask().
+static void draw_cov_step(struct ugfx_surface *s, int x, int y, const unsigned char *glyph,
+                          int gw, int gh, uint32_t color, uint32_t bg, int step) {
     if (x >= s->w || y >= s->h || x + gw <= 0 || y + gh <= 0) return;
     for (int row = 0; row < gh; row++) {
         int py = y + row;
@@ -1015,7 +1018,7 @@ static void draw_cov(struct ugfx_surface *s, int x, int y, const unsigned char *
         for (int col = 0; col < gw; col++) {
             int px = x + col;
             if (px < 0 || px >= s->w) continue;
-            unsigned a = glyph[row * gw + col];
+            unsigned a = glyph[((size_t)row * gw + col) * step + (step - 1)];
             if (!a) continue; // fully background -- leave it alone
             // Through put_pixel rather than straight at the buffer, so a
             // glyph obeys the clip rect and marks damage like everything
@@ -1033,6 +1036,11 @@ static void draw_cov(struct ugfx_surface *s, int x, int y, const unsigned char *
             }
         }
     }
+}
+
+static void draw_cov(struct ugfx_surface *s, int x, int y, const unsigned char *glyph,
+                     int gw, int gh, uint32_t color, uint32_t bg) {
+    draw_cov_step(s, x, y, glyph, gw, gh, color, bg, 1);
 }
 
 // A COLOUR glyph (an emoji, ugfx_glyph.h): premultiplied R,G,B,A cells
@@ -1065,19 +1073,7 @@ static void draw_rgba(struct ugfx_surface *s, int x, int y, const unsigned char 
 // caller drawing a mask (Paint's text) gets with colour glyphs off.
 static void draw_rgba_mask(struct ugfx_surface *s, int x, int y, const unsigned char *px4,
                            int gw, int gh, uint32_t color, uint32_t bg) {
-    for (int row = 0; row < gh; row++) {
-        int py = y + row;
-        if (py < 0 || py >= s->h) continue;
-        for (int col = 0; col < gw; col++) {
-            int px = x + col;
-            if (px < 0 || px >= s->w) continue;
-            unsigned a = px4[((size_t)row * gw + col) * 4 + 3];
-            if (!a) continue;
-            if (a == 255) { ugfx_put_pixel(s, px, py, color); continue; }
-            uint32_t under = (bg == UGFX_TRANSPARENT) ? ugfx_get_pixel(s, px, py) : bg;
-            ugfx_put_pixel(s, px, py, blend(color, under, a));
-        }
-    }
+    draw_cov_step(s, x, y, px4, gw, gh, color, bg, 4);
 }
 
 static int g_color_glyphs = 1;
@@ -1093,7 +1089,7 @@ void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
     if (!s || !s->pixels || !g_glyphs) return;
     uint32_t v;
     int emoji = presentation(cp, &v);
-    if (v > 0xFF || emoji) {
+    if (v > 0xFF || (emoji && v > 0x7F)) {
         if (uemoji_invisible(v)) return;
         const unsigned char *cov;
         int w, h, adv, rgba;

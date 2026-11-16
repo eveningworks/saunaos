@@ -125,16 +125,23 @@ static size_t gent_bytes(const struct gent *e) {
 // emoji fonts, and the cell is the text's.
 static struct gent *render_color(struct face *f, int gid, int px, int base, int cell_h) {
     int up, down, epx = px, room = cell_h - base;
+    if (base < 1 || room < 0) return 0;   // no cell to fit into
     if (!ttf_color_glyph_extent(&f->t, gid, epx, &up, &down, g_scratch)) return 0;
-    // The size that fits, in one step (the layers scale with the size),
-    // then checked once -- rounding can leave a row over, so one more
-    // pixel off if it did. Never under two thirds of the text's size.
+    // The size that fits, estimated in one step (the layers scale with the
+    // size), then re-measured until it does -- the extents round outward,
+    // so the estimate can leave a row or two over. Never under two thirds
+    // of the text's size; a glyph still over at that is clipped.
     if (up > base || down > room) {
-        int a = up > base ? px * base / up : px, b = down > room ? px * room / (down ? down : 1) : px;
+        int a = up > base ? px * base / up : px;
+        int b = down > room ? (room ? px * room / down : px * 2 / 3) : px;
         epx = a < b ? a : b;
-        if (epx < px * 2 / 3) epx = px * 2 / 3;
-        ttf_color_glyph_extent(&f->t, gid, epx, &up, &down, g_scratch);
-        if ((up > base || down > room) && epx > px * 2 / 3) epx--;
+        int floor = px * 2 / 3;
+        if (epx < floor) epx = floor;
+        for (int tries = 0; tries < 4; tries++) {
+            ttf_color_glyph_extent(&f->t, gid, epx, &up, &down, g_scratch);
+            if ((up <= base && down <= room) || epx <= floor) break;
+            epx--;
+        }
     }
     int adv = ttf_advance_px(&f->t, gid, epx);
     if (adv < 1) adv = epx;

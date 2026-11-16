@@ -109,15 +109,15 @@ def decode(b, i, end):
 
 def chars(b, n=-1):
     """[(start, codepoint)] of the first n bytes, decoded as the C does.
-    A VARIATION SELECTOR (U+FE0E/U+FE0F) after a character past ASCII is
-    part of that character: no boundary of its own, and no width."""
+    A VARIATION SELECTOR (U+FE0E/U+FE0F) after ANY character is part of
+    that character: no boundary of its own, and no width."""
     end = len(b) if n < 0 else min(n, len(b))
     out, i = [], 0
     while i < end:
         cp, k = decode(b, i, end)
         out.append((i, cp))
         i += k
-        if cp > 0x7F and i < end:
+        if i < end:
             sel, m = decode(b, i, end)
             if sel in (0xFE0E, 0xFE0F):
                 i += m
@@ -187,6 +187,7 @@ static int in_set(const char *set, uint32_t c) {
     return 0;
 }
 int ugfx_cp_advance(uint32_t c) {
+    c &= 0x001FFFFFu;   // ugfx.h's UGFX_CP_VALUE: a selector's tag is not a width here
     if (c > 0xFF) return %(far_w)d;
     if (in_set(NARROW, c)) return %(narrow_w)d;
     if (in_set(WIDE, c))   return %(wide_w)d;
@@ -362,6 +363,8 @@ CASES = [
     "iiiiiiiiiiiiiiiiiiii",
     "Mixed Wi.dth, i;l|t and WMmw@ together",
     "I \u2764\ufe0f it \u2764\ufe0e and \u2b50\ufe0e!",   # variation selectors: one character with the one before
+    "#\ufe0f\u20e3 1\ufe0f\u20e3 key",   # a selector after ASCII: a keycap's first two are one character
+    "\u00a9\ufe0f and \u00ae\ufe0e",   # ...and after Latin-1
 ]
 
 FIELD_WIDTHS = [40, 60, 120, 400]
