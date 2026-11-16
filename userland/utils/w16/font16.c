@@ -49,6 +49,9 @@ struct real {
 };
 static struct real *g_real;
 static int g_nreal, g_scanned;
+// The stock fonts' own files, as SYSTEM.INI's [boot] names them: an index into g_real, or -1.
+enum { SYS_FONT, SYS_FIXED, SYS_OEM, SYS_COUNT };
+static int g_sys[SYS_COUNT] = { -1, -1, -1 };
 static uint8_t **g_files;                         // the files' bytes, which the fonts point into
 static int g_nfiles;
 
@@ -76,20 +79,46 @@ static void fon_add(const char *name, unsigned char *bytes, size_t n) {
     }
 }
 
+// [sec] key of SYSTEM.INI, or `def` -- as a file name, its folder dropped.
+static void sysini_file(const char *sec, const char *key, const char *def, char *out, size_t cap) {
+    if (!w16_ini_get("SYSTEM.INI", sec, key, out, cap) || !out[0]) snprintf(out, cap, "%s", def);
+    const char *b = strrchr(out, '\\');
+    if (b) memmove(out, b + 1, strlen(b + 1) + 1);
+}
+
+// THE FONTS GDI LISTS ARE 3.1's: every .FON in C:\WINDOWS\SYSTEM but a DOS window's -- the files
+// SYSTEM.INI's [386Enh] names, which 3.1 loaded for a DOS window and GDI never saw (EGA40WOA.FON is a
+// 16 x 12 "Terminal" that took the OEM font's place). The stock fonts are the files [boot] names.
 static void scan(void) {
     if (g_scanned) return;
     g_scanned = 1;
     static char dir[1024], path[1400];           // once, on the one thread that scans
+    static const char *const WOA[][2] = {
+        { "woafont", "DOSAPP.FON" }, { "CGA40WOA.FON", "CGA40WOA.FON" }, { "CGA80WOA.FON", "CGA80WOA.FON" },
+        { "EGA40WOA.FON", "EGA40WOA.FON" }, { "EGA80WOA.FON", "EGA80WOA.FON" },
+    };
+    static const char *const SYS[SYS_COUNT][2] = {
+        { "fonts.fon", "VGASYS.FON" }, { "fixedfon.fon", "VGAFIX.FON" }, { "oemfonts.fon", "VGAOEM.FON" },
+    };
+    char woa[5][64], sys[SYS_COUNT][64];
+    for (int i = 0; i < 5; i++) sysini_file("386Enh", WOA[i][0], WOA[i][1], woa[i], sizeof woa[i]);
+    for (int i = 0; i < SYS_COUNT; i++) sysini_file("boot", SYS[i][0], SYS[i][1], sys[i], sizeof sys[i]);
     if (w16_dos_path("C:\\WINDOWS\\SYSTEM", dir, sizeof dir, 0, 0, 0) != 0) return;
     DIR *d = opendir(dir);
     struct dirent *de;
     while (d && (de = readdir(d))) {
         if (!is_fon(de->d_name)) continue;
+        int skip = 0;
+        for (int i = 0; i < 5; i++) skip |= !strcasecmp(de->d_name, woa[i]);
+        if (skip) continue;
         snprintf(path, sizeof path, "%s/%s", dir, de->d_name);
         unsigned char *bytes = 0;
         size_t n = 0;
         if (ufile_slurp(path, 4ul * 1024 * 1024, &bytes, &n) != UFILE_OK) continue;
+        int first = g_nreal;
         fon_add(de->d_name, bytes, n);
+        for (int i = 0; i < SYS_COUNT; i++)
+            if (g_nreal > first && !strcasecmp(de->d_name, sys[i])) g_sys[i] = first;
     }
     if (d) closedir(d);
 }
@@ -510,13 +539,24 @@ static const struct w16_fontinfo *resolve(const char *face, int height, int weig
 // --- what an HFONT is ---------------------------------------------------------
 
 
+// A system font: its own file's when 3.11's are drawn and the file is there, else as resolve().
+static const struct w16_fontinfo *system_font(int which, const char *face, int height, int weight, int standin,
+                                              int px, int cell) {
+    if (g_w16_fonts == W16_FONTS_WIN311) {
+        scan();
+        struct inst *in = g_sys[which] >= 0 ? instance(g_sys[which], 0, 0, 0) : 0;
+        if (in) return &in->info;
+    }
+    return resolve(face, height, weight, standin, px, cell);
+}
+
 static const struct w16_fontinfo *stock(unsigned i) {
     switch (i) {
-    case SYSTEM_FIXED_FONT: return resolve("Fixedsys", 15, 400, STAND_MONO, 13, 15);
-    case OEM_FIXED_FONT:    return resolve("Terminal", 12, 400, STAND_MONO, 13, 15);
+    case SYSTEM_FIXED_FONT: return system_font(SYS_FIXED, "Fixedsys", 15, 400, STAND_MONO, 13, 15);
+    case OEM_FIXED_FONT:    return system_font(SYS_OEM, "Terminal", 12, 400, STAND_MONO, 13, 15);
     case ANSI_FIXED_FONT:   return resolve("Courier", 13, 400, STAND_MONO, 13, 15);
     case ANSI_VAR_FONT:     return resolve("MS Sans Serif", 13, 400, STAND_SANS, 11, 13);
-    default:                return resolve("System", 16, 700, STAND_SANS, 13, 16);
+    default:                return system_font(SYS_FONT, "System", 16, 700, STAND_SANS, 13, 16);
     }
 }
 
