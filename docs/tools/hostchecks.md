@@ -18,10 +18,12 @@ the rest in the sweep. Each stays a standalone script with its own
   **It builds the REAL toolkit**: every `.c` in `userland/libs/{base,net,
   media,ui}/` and the `kernel/lib` sources ring 3 shares (read from the
   Makefile's `$(BUILD)/userland/shared/NAME.o` list), against tolibc's
-  headers as the guest compiles them, into `build/hostui/` -- ~6 s from
+  headers as the guest compiles them, into `build/hostui/` -- seconds from
   cold, and after that only what a source or an included header changed
   (`gcc -MMD`; `check_deps.py` leaves this tree alone, make does not own
-  it). **What is stubbed is the platform**: the `sys_*` calls, in
+  it). **ccache goes in front of gcc when it is installed**, as in the
+  Makefile: a preflight's `make clean` takes `build/hostui/` with it, and
+  the cold rebuild is then cache lookups (measured 8.1 s -> 1.3 s). **What is stubbed is the platform**: the `sys_*` calls, in
   `tools/lib/uitest/uitest_sys.c` -- one process, one thread, a clock that
   moves only when the harness does (a second before every press, so two
   clicks are a double click only by `uitest_double_click_in`), settings

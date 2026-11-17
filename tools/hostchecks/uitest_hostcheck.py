@@ -66,6 +66,11 @@ LIBS = ("base", "net", "media", "ui")
 # allocator (glibc's malloc is the one in use) and UBSan's runtime.
 SHARED_SKIP = {"heap_core", "ubsan", "ubsan_cases"}
 
+# ccache in front of gcc when it is installed, as the Makefile does: a
+# preflight starts from `make clean`, which takes build/hostui/ with it,
+# and ccache turns that cold rebuild of every toolkit source into lookups.
+GCC = (["ccache"] if shutil.which("ccache") else []) + ["gcc"]
+
 INC_LIBC = ["-Iuserland/libs/libc/include"]
 INC_API = ["-Ikernel/include/api", "-Ikernel/include/abi", "-Ibuild/gen", "-Iuserland", "-Iuserland/libs"]
 TOOLKIT_FLAGS = ["-std=gnu11", "-ffreestanding", "-O2", "-g", "-w", "-fno-strict-aliasing",
@@ -187,7 +192,7 @@ def compile_one(src, obj, staged=None):
     flags = TOOLKIT_FLAGS + ([] if shared else INC_LIBC) + INC_API + EXTRA.get(src, [])
     if staged:   # a sibling `#include "x.h"` is looked for beside the COPY otherwise
         flags = flags + ["-I" + os.path.dirname(src)]
-    r = run(["gcc", *flags, "-MMD", "-MF", obj[:-2] + ".d", "-c", "-o", obj, staged or src])
+    r = run([*GCC, *flags, "-MMD", "-MF", obj[:-2] + ".d", "-c", "-o", obj, staged or src])
     return src, r.returncode, r.stderr
 
 
@@ -266,14 +271,14 @@ def build_harness():
         src = os.path.join(HARNESS, name + ".c")
         obj = os.path.join(hdir, name + ".o")
         flags = CASE_FLAGS + ([] if host else INC_LIBC + INC_API) + ["-I" + HARNESS]
-        r = run(["gcc", *flags, "-c", "-o", obj, src])
+        r = run([*GCC, *flags, "-c", "-o", obj, src])
         if r.returncode:
             sys.exit(f"uitest_host: compile of {name}.c failed:\n{r.stderr}")
         out.append(obj)
     own = []
     for src in LIBC_OWN:
         obj = os.path.join(hdir, "libc__" + os.path.basename(src)[:-2] + ".o")
-        r = run(["gcc", *TOOLKIT_FLAGS, *INC_LIBC, *INC_API, "-c", "-o", obj, src])
+        r = run([*GCC, *TOOLKIT_FLAGS, *INC_LIBC, *INC_API, "-c", "-o", obj, src])
         if r.returncode:
             sys.exit(f"uitest_host: compile of {src} failed:\n{r.stderr}")
         own.append(obj)
@@ -292,10 +297,10 @@ def link_case(case, harness, lib, bindir):
     obj = os.path.join(bindir, name + ".o")
     exe = os.path.join(bindir, name)
     # userland/tests/ too: a case may share a fixture header with a guest test.
-    r = run(["gcc", *CASE_FLAGS, *INC_LIBC, *INC_API, "-I" + HARNESS, "-Iuserland/tests", "-c", "-o", obj, case])
+    r = run([*GCC, *CASE_FLAGS, *INC_LIBC, *INC_API, "-I" + HARNESS, "-Iuserland/tests", "-c", "-o", obj, case])
     if r.returncode:
         return name, None, f"compile failed:\n{r.stderr}"
-    r = run(["gcc", "-o", exe, obj, *harness, "-Wl,--start-group", lib, own, "-Wl,--end-group",
+    r = run([*GCC, "-o", exe, obj, *harness, "-Wl,--start-group", lib, own, "-Wl,--end-group",
              "-Wl,--gc-sections", "-Wl,--wrap=fopen", "-lm"])
     if r.returncode:
         return name, None, f"link failed:\n{r.stderr}"

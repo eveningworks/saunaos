@@ -68,7 +68,7 @@ pixels on the real screen.
 host check that builds the WHOLE real toolkit (every `.c` in
 `userland/libs/{base,net,media,ui}/` and the shared `kernel/lib`
 sources, read from the Makefile) with the host gcc into `build/hostui/`
--- ~6 s cold, incremental after -- and links each case with
+-- ~8 s cold, ~1 s through ccache, incremental after -- and links each case with
 `--gc-sections`. Liberation Sans 14 px through the toolkit's own `ttf.c`
 (`ugfx_font_adopt()`). The thirteen in-guest widget tests moved onto it,
 and `scroll_test`'s four rules over six widgets (`scroll_uitest.c`);
