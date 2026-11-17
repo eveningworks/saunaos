@@ -97,7 +97,8 @@ left to the next session:
   two lay out differently would be handed the wrong layout (tolibc's
   `d_name` is at offset 1, glibc's at 19). The check refuses a binary
   importing one of `ABI_UNSAFE` from glibc; tolibc's own `stat.c`,
-  `time.c`, `tz.c` and `locale.c` are linked over the stubs instead.
+  `time.c`, `tz.c`, `locale.c` and `access.c` are linked over the stubs
+  instead.
 - **One executable has one `stat`.** The half compiled against the host's
   headers must reach the host kernel by number (`syscall(2)`), or it
   calls tolibc's `stat` -- which is how the first font load came back

@@ -92,6 +92,11 @@ ABI_UNSAFE = {
     "pthread_mutex_init", "pthread_mutex_lock", "pthread_mutex_unlock", "pthread_mutex_destroy",
     "pthread_cond_wait", "pthread_cond_signal", "pthread_once", "pthread_attr_init",
     "pthread_create", "pthread_join",
+    # Not a struct but the same trap: tolibc's O_* values are SYS_O_*'s,
+    # not Linux's, and a path glibc is handed is never put under the root,
+    # so the HOST's own files would answer (or be unlinked).
+    "open", "open64", "openat", "creat", "access", "unlink", "unlinkat", "rename", "renameat",
+    "remove", "rmdir", "mkdir", "truncate",
 }
 
 # tolibc's OWN implementation of a call in ABI_UNSAFE, compiled into the
@@ -101,7 +106,8 @@ ABI_UNSAFE = {
 # AN ARCHIVE, ahead of glibc on the link line: a member comes in only when
 # something reaches it, and then wins over glibc's symbol of that name.
 LIBC_OWN = ["userland/libs/libc/stat.c", "userland/libs/libc/time.c", "userland/libs/libc/tz.c",
-            "userland/libs/libc/locale.c", "userland/libs/libc/printf_float.c"]
+            "userland/libs/libc/locale.c", "userland/libs/libc/printf_float.c",
+            "userland/libs/libc/access.c"]
 
 # Each control: (source, before, after, cases that must go red). The edit
 # is applied to a COPY; the checked-in file is never touched.
@@ -122,8 +128,14 @@ CONTROLS = [
     # Esc in an open dropdown keeps what the arrows moved to, instead of
     # the choice the list opened with: the bug this harness found first.
     ("userland/libs/ui/uui_dropdown.c",
-     "        d->list.selected = d->opened_with;\n",
+     "    if (d->opened_with >= -1 && d->opened_with < d->list.count) d->list.selected = d->opened_with;",
      "",
+     ["settings_rows"]),
+    # The scroll view's hit answering everywhere: it no longer clips its
+    # children, so the clipped half of a straddling control takes a click.
+    ("userland/libs/ui/uui_scrollview.c",
+     "    return cx >= sv->x && cx < sv->x + sv->w && cy >= sv->y && cy < sv->y + sv->h;",
+     "    (void)sv; (void)cx; (void)cy; return 1;",
      ["settings_rows"]),
 ]
 
@@ -173,6 +185,8 @@ def stale(obj, src):
 def compile_one(src, obj, staged=None):
     shared = src.startswith("kernel/lib/")
     flags = TOOLKIT_FLAGS + ([] if shared else INC_LIBC) + INC_API + EXTRA.get(src, [])
+    if staged:   # a sibling `#include "x.h"` is looked for beside the COPY otherwise
+        flags = flags + ["-I" + os.path.dirname(src)]
     r = run(["gcc", *flags, "-MMD", "-MF", obj[:-2] + ".d", "-c", "-o", obj, staged or src])
     return src, r.returncode, r.stderr
 
@@ -205,12 +219,18 @@ def build_toolkit(jobs):
         sys.exit(1)
     lib = os.path.join(BUILD, "libhostui.a")
     objs = [os.path.join(objdir, obj_name(s)) for s in srcs]
-    if todo or not os.path.exists(lib):
+    # A source deleted or renamed recompiles nothing, but its member must go.
+    members = os.path.join(BUILD, "members")
+    listed = "\n".join(objs)
+    same = os.path.exists(members) and open(members).read() == listed
+    if todo or not same or not os.path.exists(lib):
         if os.path.exists(lib):
             os.unlink(lib)
         r = run(["ar", "rcs", lib, *objs])
         if r.returncode:
             sys.exit(f"uitest_host: ar failed:\n{r.stderr}")
+        with open(members, "w") as fh:
+            fh.write(listed)
     return lib, len(todo), len(srcs)
 
 

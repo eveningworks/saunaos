@@ -15,6 +15,7 @@ void uui_dropdown_init(struct uui_dropdown *d, int x, int y, int w, int h,
     d->tracking = 0;
     d->max_rows = 6;
     d->focused = 0;
+    d->opened_with = -1;
     // The theme's, resolved at draw (ui/utheme.h's UUI_COLOR).
     d->bg = d->fg = d->border = UUI_COLOR_UNSET;
 
@@ -33,6 +34,8 @@ void uui_dropdown_set_items(struct uui_dropdown *d, const char *const *items, in
     if (sel >= count) sel = count - 1;
     if (sel < -1) sel = -1;
     d->list.selected = sel;
+    // An open list's Esc puts this back, so it must name a row that is still there.
+    if (d->opened_with >= count) d->opened_with = count - 1;
 }
 
 void uui_dropdown_set_selected(struct uui_dropdown *d, int index) {
@@ -50,8 +53,19 @@ void uui_dropdown_set_selected(struct uui_dropdown *d, int index) {
 //
 // Opened WITH a grab: an open dropdown owns the next click, which is
 // what dd_ops_overlay used to buy in-window.
+// A DISMISS IS A CANCEL: Esc, a click elsewhere, the compositor taking
+// the popup back, focus leaving -- each puts back the choice the list
+// opened with, which the arrows may have moved (Windows' CBN_SELENDCANCEL,
+// Qt's QComboBox). Only Enter and a click on a row commit.
+static void dd_restore(struct uui_dropdown *d) {
+    if (d->opened_with >= -1 && d->opened_with < d->list.count) d->list.selected = d->opened_with;
+}
+
+// Only the COMPOSITOR's dismiss lands here: popup_close() of our own
+// releases the callback before it could fire, so this never undoes a commit.
 static void dd_done(void *owner) {
     struct uui_dropdown *d = (struct uui_dropdown *)owner;
+    if (d->open) dd_restore(d);
     d->popup = 0;
     d->open = 0;
 }
@@ -189,6 +203,7 @@ int uui_dropdown_click(struct uui_dropdown *d, int cx, int cy) {
         // On a popup SURFACE this arm is unreachable: the compositor's
         // grab consumes that press and answers with WIN_EV_POPUP_DONE,
         // which lands in dd_done() instead.
+        dd_restore(d);
         dd_close(d);
         return 1;
     }
@@ -239,11 +254,7 @@ int uui_dropdown_key(struct uui_dropdown *d, int key) {
         if (key > ' ' && key < 0x7F) return uui_listbox_key(&d->list, key);
         return 0;
     }
-    if (key == 0x1B) {                                        // Esc cancels
-        d->list.selected = d->opened_with;
-        dd_close(d);
-        return 1;
-    }
+    if (key == 0x1B) { dd_restore(d); dd_close(d); return 1; }  // Esc cancels
     if (key == '\n' || key == '\r') { dd_close(d); return 1; } // Enter commits
     return uui_listbox_key(&d->list, key);
 }
@@ -274,7 +285,10 @@ static void dd_ops_set_focused(void *w, int focused) {
     // go somewhere else is a menu nobody is driving, and it would still
     // be drawn over the rest of the window. NOT under a press it is
     // tracking: that press is choosing a row, and its release closes it.
-    if (!focused && !d->tracking) dd_close(d);
+    if (!focused && !d->tracking && d->open) {
+        dd_restore(d);
+        dd_close(d);
+    }
 }
 
 const struct uui_widget_ops uui_dropdown_focus_ops = {

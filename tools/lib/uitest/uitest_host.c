@@ -9,9 +9,11 @@
 // **IT CALLS NOTHING BY A NAME THE OTHER HALF DEFINES.** One executable
 // has one `stat`, and it is tolibc's (stat.c, linked for the toolkit) --
 // a call to stat() here would reach THAT, hand it a glibc struct and the
-// root-prefixed path, and come back ENOENT. The same for opendir/readdir,
-// which uitest_sys.c defines. So the calls whose names are shared go to
-// the kernel by number (syscall(2)), and struct stat is the kernel's.
+// root-prefixed path, and come back ENOENT; mkdir() would recurse through
+// sys_mkdir() back into uh_mkdir(). The same for opendir/readdir, which
+// uitest_sys.c defines. So EVERY file call here goes to the kernel by
+// number (syscall(2)) -- open, read, write, close, lseek, mkdir, unlink,
+// rename as much as stat -- and struct stat is the kernel's.
 //
 // Every guest path is resolved under $UITEST_ROOT, which the runner
 // builds from the tree (tools/hostchecks/uitest_hostcheck.py), so the
@@ -44,24 +46,24 @@ int uh_open(const char *guest, int write, int create, int trunc, int append, int
     if (create) fl |= O_CREAT;
     if (trunc) fl |= O_TRUNC;
     if (append) fl |= O_APPEND;
-    int fd = open(p, fl | O_CLOEXEC, 0644);
-    return fd < 0 ? -errno : fd;
+    long fd = syscall(SYS_openat, AT_FDCWD, p, fl | O_CLOEXEC, 0644);
+    return fd < 0 ? -errno : (int)fd;
 }
 
 long long uh_read(int fd, void *buf, unsigned long len) {
-    ssize_t n = read(fd, buf, len);
+    long n = syscall(SYS_read, fd, buf, len);
     return n < 0 ? -errno : n;
 }
 
 long long uh_write(int fd, const void *buf, unsigned long len) {
-    ssize_t n = write(fd, buf, len);
+    long n = syscall(SYS_write, fd, buf, len);
     return n < 0 ? -errno : n;
 }
 
-int uh_close(int fd) { return close(fd) < 0 ? -errno : 0; }
+int uh_close(int fd) { return syscall(SYS_close, fd) < 0 ? -errno : 0; }
 
 long long uh_lseek(int fd, long long off, int whence) {
-    off_t r = lseek(fd, (off_t)off, whence == 1 ? SEEK_CUR : whence == 2 ? SEEK_END : SEEK_SET);
+    long r = syscall(SYS_lseek, fd, (off_t)off, whence == 1 ? SEEK_CUR : whence == 2 ? SEEK_END : SEEK_SET);
     return r < 0 ? -errno : (long long)r;
 }
 
@@ -107,11 +109,11 @@ struct uh_dir {
 void *uh_dir_open(const char *guest) {
     char p[4096];
     if (!host_path(guest, p, sizeof p)) return NULL;
-    int fd = open(p, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    long fd = syscall(SYS_openat, AT_FDCWD, p, O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0);
     if (fd < 0) return NULL;
     struct uh_dir *d = calloc(1, sizeof *d);
-    if (!d) { close(fd); return NULL; }
-    d->fd = fd;
+    if (!d) { syscall(SYS_close, fd); return NULL; }
+    d->fd = (int)fd;
     return d;
 }
 
@@ -130,7 +132,15 @@ int uh_dir_next(void *dir, char *name, unsigned long cap, int *is_dir) {
         d->pos += e->d_reclen;
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
         snprintf(name, cap, "%s", e->d_name);
-        *is_dir = e->d_type == DT_DIR;
+        // THE ROOT IS BUILT OF SYMLINKS (/usr/share/fonts, each .ui file),
+        // which getdents reports as DT_LNK, and some filesystems answer
+        // DT_UNKNOWN: either is asked of stat, which follows the link.
+        if (e->d_type == DT_LNK || e->d_type == DT_UNKNOWN) {
+            struct stat st;
+            *is_dir = syscall(SYS_newfstatat, d->fd, e->d_name, &st, 0) == 0 && S_ISDIR(st.st_mode);
+        } else {
+            *is_dir = e->d_type == DT_DIR;
+        }
         return 1;
     }
 }
@@ -138,26 +148,26 @@ int uh_dir_next(void *dir, char *name, unsigned long cap, int *is_dir) {
 void uh_dir_close(void *dir) {
     struct uh_dir *d = dir;
     if (!d) return;
-    close(d->fd);
+    syscall(SYS_close, d->fd);
     free(d);
 }
 
 int uh_mkdir(const char *guest) {
     char p[4096];
     if (!host_path(guest, p, sizeof p)) return -ENOENT;
-    return mkdir(p, 0755) < 0 ? -errno : 0;
+    return syscall(SYS_mkdirat, AT_FDCWD, p, 0755) < 0 ? -errno : 0;
 }
 
 int uh_unlink(const char *guest) {
     char p[4096];
     if (!host_path(guest, p, sizeof p)) return -ENOENT;
-    return unlink(p) < 0 ? -errno : 0;
+    return syscall(SYS_unlinkat, AT_FDCWD, p, 0) < 0 ? -errno : 0;
 }
 
 int uh_rename(const char *from, const char *to) {
     char a[4096], b[4096];
     if (!host_path(from, a, sizeof a) || !host_path(to, b, sizeof b)) return -ENOENT;
-    return rename(a, b) < 0 ? -errno : 0;
+    return syscall(SYS_renameat, AT_FDCWD, a, AT_FDCWD, b) < 0 ? -errno : 0;
 }
 
 // The real fopen, reached through ld's --wrap: the toolkit's fopen() of

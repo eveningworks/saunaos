@@ -27,6 +27,11 @@
 
 #define W 560
 #define H 360
+// The page's view stops short of the window's foot, as the app's does
+// above its button row: a point below the view is still IN the window,
+// so "the clipped half takes no click" is the scroll view's clip at work
+// and not merely a press outside the window.
+#define VH (H - 40)
 #define FILLERS 12   // rows past the four, so the page overflows
 
 static const char *const CLOCK[] = { "12-hour", "24-hour" };
@@ -102,16 +107,15 @@ static void build(void) {
     uui_focus_init(&g_focus, g_ring, 4 + FILLERS);
 }
 
-// The window: the scroll view placed over all of it, as the app's body
-// layout leaves it the page's whole area.
+// The window: the scroll view placed over all of it but the foot.
 static void open_page(struct uitest_win *win) {
-    uui_scrollview_ops.set_geometry(&g_scroll, 0, 0, W, H);
+    uui_scrollview_ops.set_geometry(&g_scroll, 0, 0, W, VH);
     uitest_window(win, g_items, 1, NULL, W, H);
     uitest_set_focus(win, &g_focus);
 }
 
 static void relayout(struct uitest_win *win) {
-    uui_scrollview_ops.set_geometry(&g_scroll, 0, 0, W, H);
+    uui_scrollview_ops.set_geometry(&g_scroll, 0, 0, W, VH);
     uitest_settle(win);
 }
 
@@ -159,6 +163,13 @@ int main(void) {
     uitest_settle(&win);
     uitest_check_int("Esc in the open list keeps the choice it had", uui_dropdown_selected(&g_theme), 1);
     utest_check(!uui_router_overlay_open(&win.router), "...and closes it");
+    uitest_click(&win, "theme");
+    uitest_key(&win, KEY_ARROW_DOWN, 0);
+    uitest_click(&win, "anim");   // elsewhere: dismisses the list, and is not the switch's
+    uitest_settle(&win);
+    uitest_check_int("a click elsewhere dismisses the list with the choice it had", uui_dropdown_selected(&g_theme), 1);
+    utest_check(!uui_router_overlay_open(&win.router), "...and closes it");
+    uitest_check_int("...and the click is the popup's, not the switch's under it", g_anim.on, 0);
 
     // --- a radio list commits on RELEASE, and a press dragged off commits nothing ------
     uitest_rect(&win, "pointer", &x, &y, &w, &h);
@@ -177,16 +188,16 @@ int main(void) {
     utest_check(uui_scrollview_scrollable(&g_scroll), "the page has more rows than fit, so it scrolls");
     const char *last = g_fill_name[FILLERS - 1];
     uitest_rect(&win, last, &x, &y, &w, &h);
-    snprintf(what, sizeof what, "the last row's switch starts below the view (y %d of %d)", y, H);
-    utest_check(y >= H, what);
+    snprintf(what, sizeof what, "the last row's switch starts below the view (y %d of %d)", y, VH);
+    utest_check(y >= VH, what);
     for (int i = 0; i < 20 && uui_scrollview_offset(&g_scroll) < uui_scrollview_max_offset(&g_scroll); i++)
         uitest_wheel(&win, "page", -3);
     uitest_settle(&win);
     uitest_check_int("the wheel down reaches the page's end", uui_scrollview_offset(&g_scroll),
                      uui_scrollview_max_offset(&g_scroll));
     uitest_rect(&win, last, &x, &y, &w, &h);
-    snprintf(what, sizeof what, "...where the last switch is inside the view (%d..%d of %d)", y, y + h, H);
-    utest_check(y >= 0 && y + h <= H, what);
+    snprintf(what, sizeof what, "...where the last switch is inside the view (%d..%d of %d)", y, y + h, VH);
+    utest_check(y >= 0 && y + h <= VH, what);
     uitest_click(&win, last);
     uitest_check_int("...and a click there turns it on", g_fill[FILLERS - 1].on, 1);
 
@@ -194,10 +205,11 @@ int main(void) {
     // clipped half does not -- the clip is the viewport's edge.
     uitest_wheel(&win, "page", 30);   // back to the top
     uitest_settle(&win);
+    // Straddling by enough that both clicks below land on it.
     int pick = -1;
     for (int i = 0; i < FILLERS && pick < 0; i++) {
         uitest_rect(&win, g_fill_name[i], &x, &y, &w, &h);
-        if (y < H && y + h > H) pick = i;
+        if (y < VH - 4 && y + h > VH + 4) pick = i;
     }
     if (pick < 0) {
         // None happens to straddle at offset 0: scroll until one does.
@@ -206,7 +218,7 @@ int main(void) {
             relayout(&win);
             for (int i = 0; i < FILLERS && pick < 0; i++) {
                 uitest_rect(&win, g_fill_name[i], &x, &y, &w, &h);
-                if (y < H - 4 && y + h > H + 4) pick = i;
+                if (y < VH - 4 && y + h > VH + 4) pick = i;
             }
         }
     }
@@ -214,9 +226,9 @@ int main(void) {
     if (pick >= 0) {
         uitest_rect(&win, g_fill_name[pick], &x, &y, &w, &h);
         int before = g_fill[pick].on;
-        uitest_click_at(&win, x + 4, H + 2);   // below the view: clipped away
+        uitest_click_at(&win, x + 4, VH + 2);   // below the view, inside the window: clipped away
         uitest_check_int("a click on the clipped half of a straddling switch does nothing", g_fill[pick].on, before);
-        uitest_click_at(&win, x + 4, H - 3);
+        uitest_click_at(&win, x + 4, VH - 3);
         uitest_check_int("...and one on its shown half flips it", g_fill[pick].on, !before);
     }
 

@@ -10,6 +10,7 @@
 #include "ui/uui_anim.h"
 
 void (*uitest_report)(int ok, const char *what);
+const char *uitest_case;
 
 static void report(int ok, const char *what) {
     if (uitest_report) uitest_report(ok, what);
@@ -238,8 +239,10 @@ int uitest_hover(struct uitest_win *win, const char *name, int dx, int dy) {
 
 int uitest_key(struct uitest_win *win, int key, unsigned mods) {
     int changed = 0;
+    // uapp stops here only when the overlay's owner has an id; a change
+    // without one goes on to the focus ring, as it does there.
     int id = uui_router_overlay_key(&win->router, key, mods, &changed);
-    if (id || changed) { note(win, id, changed); return 1; }
+    if (id) { note(win, id, changed); return 1; }
     if (win->focus && uui_focus_key(win->focus, key, mods)) {
         int cur = win->focus->current;
         note(win, cur >= 0 ? uui_router_id_of(&win->router, win->focus->items[cur].widget) : 0, 1);
@@ -267,12 +270,16 @@ uint32_t uitest_pixel(struct uitest_win *win, const char *name, int dx, int dy) 
     return point_in(win, name, dx, dy, &x, &y) ? uitest_pixel_at(win, x, y) : 0;
 }
 
+// The REAL fopen: $UITEST_KEEP is a host path, and the wrapped one
+// (uitest_host.c) would put it under the root, where no such folder is.
+FILE *__real_fopen(const char *path, const char *mode);
+
 void uitest_keep(struct uitest_win *win, const char *tag) {
     const char *dir = getenv("UITEST_KEEP");
     if (!dir || !*dir) return;
     char path[512];
-    snprintf(path, sizeof path, "%s/%s-%s.ppm", dir, utest_name ? utest_name : "uitest", tag);
-    FILE *f = fopen(path, "wb");
+    snprintf(path, sizeof path, "%s/%s-%s.ppm", dir, uitest_case ? uitest_case : "uitest", tag);
+    FILE *f = __real_fopen(path, "wb");
     if (!f) return;
     fprintf(f, "P6\n%d %d\n255\n", win->surface.w, win->surface.h);
     for (int i = 0; i < win->surface.w * win->surface.h; i++) {

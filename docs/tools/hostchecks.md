@@ -36,14 +36,18 @@ the rest in the sweep. Each stays a standalone script with its own
   TOLIBC's headers, so a glibc call taking a struct the two lay out
   differently (`stat`, `readdir`, `struct tm`, locale) is handed the wrong
   layout: a binary IMPORTING one of `ABI_UNSAFE` from glibc is refused, and
-  the fix is tolibc's own source in `LIBC_OWN` (stat, time, tz, locale) or
-  a stub in tolibc's layout (opendir). A raw `syscall` instruction in the
+  the fix is tolibc's own source in `LIBC_OWN` (stat, time, tz, locale,
+  access) or a stub in tolibc's layout (opendir). The list also names the
+  path calls (`open`, `access`, `unlink`, `rename`, ...): tolibc's `O_*`
+  are `SYS_O_*`'s numbers, not Linux's, and glibc never puts a path under
+  the root, so the host's own files would answer. A raw `syscall` instruction in the
   binary would run a LINUX syscall by SaunaOS's number, so the linked text
   is disassembled and one is refused (ugfx.c's font request goes through
   rt's `sys_win_request()` for this reason). And **one executable has one
   `stat`**: `uitest_host.c`, the half compiled against the host's headers,
-  reaches the kernel by `syscall(2)` for every name the SaunaOS half
-  defines, or it would call tolibc's `stat` with a glibc struct.
+  reaches the kernel by `syscall(2)` for EVERY file call, or it would call
+  tolibc's `stat` with a glibc struct (and tolibc's `mkdir` straight back
+  into `sys_mkdir()`).
 
   The cases are the in-guest widget tests that moved down (`sbar`,
   `droprows`, `focusring`, `table_tree`, `table_columns`, `typeahead`,

@@ -47,13 +47,14 @@ struct uitest_win {
 // own (a widget name that is not there) through the test file's copy:
 // uitest_begin() is a macro, expanded in the test, that hands it over.
 extern void (*uitest_report)(int ok, const char *what);
+extern const char *uitest_case;   // the name given uitest_begin(): uitest_keep()'s file names
 static inline void uitest_report_here(int ok, const char *what) { utest_check(ok, what); }
 
 // The font and the theme, then utest_begin(). Exits the test (status 99)
 // when the font cannot be rasterized: nothing after it would mean anything.
 void uitest_setup(void);
 #define uitest_begin(name, title) \
-    (uitest_report = uitest_report_here, uitest_setup(), utest_begin((name), (title), 0))
+    (uitest_report = uitest_report_here, uitest_case = (name), uitest_setup(), utest_begin((name), (title), 0))
 #define uitest_end() utest_end()
 
 // A window of w x h: the layout (if any) run over the whole of it, the
