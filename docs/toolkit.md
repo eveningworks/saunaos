@@ -96,6 +96,7 @@
 | `upager.h` | The pager: show a block of text one screenful at a time, on whichever of fd 0 and fd 1 is a terminal. |
 | `upath.h` | PATH lookup for a ring-3 program that has to RUN another one. |
 | `upins.h` | PLACES: the list down the top of a file window's side pane, in the person's order -- Explorer's Quick access and Dolphin's Places panel, ONE list: Recent, Home, the personal folders and the Recycle... |
+| `upixscale.h` | A 32-bit PICTURE SCALED SHARP: nearest-neighbour up to the next whole factor, then bilinear to the size asked -- the "sharp bilinear" retro emulators default to. |
 | `uprefs.h` | uprefs -- an app's options file described as a TABLE: one row per key names the field it fills, its type, its range or words and its default, and load, save and Defaults all walk that one table --... |
 | `uprocio.h` | Each process's I/O RATE, from two reads of QUERY_PROCIO (Linux's /proc/<pid>/io) and the time between them -- what iotop and Windows' Resource Monitor show. |
 | `uprogress.h` | A one-line transfer meter, redrawn in place with `\r`. |

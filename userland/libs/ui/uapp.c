@@ -222,6 +222,8 @@ int comp_pid(void) {
     return wmchan() ? g_wmchan.beacon->server_pid : 0;
 }
 
+int uapp_has_desktop(void) { return comp_pid() > 0; }
+
 // Sends one request over the channel. Returns 1 if it went, 0 if there
 // is no compositor channel or its ring is full.
 // The payload rides the text union: a string, or a present's damage.
@@ -321,8 +323,7 @@ void uapp_move_start(struct uapp *a, unsigned edges) {
 }
 
 void uapp_set_cursor(struct uapp *a, int cursor) {
-    int image = cursor >= WIN_CURSOR_IMAGE_BASE && cursor < WIN_CURSOR_IMAGE(WIN_CURSOR_IMAGE_IDS);
-    if (!image && (cursor < 0 || cursor >= WIN_CURSOR_COUNT)) return;
+    if (!cursor_valid(cursor)) return;
     if (a->motion_cursor >= 0) { a->motion_cursor = cursor; return; }
     if (a->top.cursor == cursor) return;
     // Either way: a server that refuses this (one built before the
@@ -1098,6 +1099,13 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         a->top.mouse_x = ev->a;
         a->top.mouse_y = ev->b;
         if (top_secondary(&a->top, ev->a, ev->b, 1)) break;
+        // ONE BUTTON OF A CHORD came up while the primary is still held
+        // (the UP names those still down): not the widgets' release, or a
+        // left drag would end at the right button's. The app hears it.
+        if (WIN_MOUSE_BUTTONS(ev->mods) & 0x1) {
+            if (d->on_release) d->on_release(a, ev->a, ev->b, ev->mods);
+            break;
+        }
         if (top_routes(&a->top)) {
             int was_dragging = uui_router_drag_active(&a->top.router);
             top_release(&a->top, ev->a, ev->b);
@@ -1246,7 +1254,7 @@ static int open_toplevel(struct uapp *a, int first) {
 int uapp_open_toplevel(struct uapp *a) { return a && !a->has_top && a->running ? open_toplevel(a, 0) : 0; }
 int uapp_has_toplevel(const struct uapp *a) { return a && a->has_top; }
 
-static int uapp_open(struct uapp **out, const struct uapp_desc *desc) {
+int uapp_open(struct uapp **out, const struct uapp_desc *desc) {
     struct uapp *a = &g_app;
     // EVERY GUI APP SPEAKS THE SYSTEM'S REGION, and follows a change to
     // it (WIN_EV_SETTING below) -- what the person chose in System
@@ -1319,12 +1327,45 @@ static int next_event(struct win_event *ev) {
     return uchan_client_recv(&g_wmchan, ev, sizeof *ev);
 }
 
-static int uapp_pump(struct uapp *a, int block) {
+// THE DESKTOP IS GONE when its beacon is: a dead compositor's is
+// unlinked with it, so this is the close it can no longer ask for. Asked
+// ONCE -- ASKED, not destroyed, the same courtesy the desktop extends
+// when it is alive; an app that refuses lingers with no window, which is
+// a leak and not a fault, and is what it asked for. 1 when that quit it.
+static int compositor_gone(struct uapp *a) {
+    static int asked;
+    if (asked || uchan_client_server_alive(&g_wmchan)) return 0;
+    asked = 1;
+    ulog("uapp: the compositor is gone -- asked to close\n");
+    struct win_event ev;
+    memset(&ev, 0, sizeof ev);
+    ev.type = WIN_EV_CLOSE;
+    ev.window = a->window;
+    g_close_synth = 1;
+    dispatch(a, &ev);
+    g_close_synth = 0;
+    return !a->running;
+}
+
+int uapp_pump(struct uapp *a, int timeout_ms) {
     struct win_event ev;
     static uint32_t dropped_seen;
-    static int asked_to_close;   // the compositor's death is asked about ONCE
 
-    if (block) {
+    if (!a->running) return -1;
+    if (timeout_ms == 0) {
+        // A PROGRAM THAT ONLY POLLS never parks, so the park's check below
+        // never runs for it: once a park's length apart instead.
+        static uint64_t checked_ms;
+        uint64_t now = sys_monotonic_ns() / 1000000ull;
+        if (now - checked_ms >= UAPP_WAIT_MS) {
+            checked_ms = now;
+            if (compositor_gone(a)) return -1;
+        }
+    } else {
+        // A bounded wait (the step API's) ends at its deadline as a tick
+        // or a caret flip would; -1 is uapp_run()'s park, which has none.
+        uint64_t deadline = timeout_ms > 0
+            ? sys_monotonic_ns() / 1000000ull + (uint64_t)timeout_ms : 0;
         while (!uchan_client_pending(&g_wmchan) && g_post_head == g_post_tail) {
             // ONE FRAME while something animates (ui/uui_anim.h), the
             // long park otherwise -- and the frame's wake is not "a whole
@@ -1344,6 +1385,13 @@ static int uapp_pump(struct uapp *a, int block) {
                 break;
             }
             if (caret > 0 && caret < wait) wait = caret;
+            int left = -1;
+            if (deadline) {
+                uint64_t now = sys_monotonic_ns() / 1000000ull;
+                if (now >= deadline) break;
+                left = (int)(deadline - now);
+                if (left < wait) wait = left;
+            }
             // A tick kept HERE (the server declined the timer) is one
             // more deadline the park must not outlast.
             int tick = -1;
@@ -1357,25 +1405,10 @@ static int uapp_pump(struct uapp *a, int block) {
             if (uchan_client_pending(&g_wmchan) || g_post_head != g_post_tail) break;
             if (animating) break;
             if (wait == tick) break;       // a tick is due
+            if (wait == left) break;       // the caller's deadline
             if (wait == caret) continue;   // the flip, not a silent server
-            // Nothing arrived in a whole wait: is anyone still there to
-            // send? A dead compositor's beacon is unlinked with it, so
-            // this is the close the desktop can no longer ask for.
-            if (!asked_to_close && !uchan_client_server_alive(&g_wmchan)) {
-                // ASKED, not destroyed -- the same courtesy the desktop
-                // extends when it is alive. An app that refuses lingers
-                // with no window, which is a leak and not a fault, and
-                // is what it asked for; it is not asked again.
-                asked_to_close = 1;
-                ulog("uapp: the compositor is gone -- asked to close\n");
-                memset(&ev, 0, sizeof ev);
-                ev.type = WIN_EV_CLOSE;
-                ev.window = a->window;
-                g_close_synth = 1;
-                dispatch(a, &ev);
-                g_close_synth = 0;
-                if (!a->running) return 0;
-            }
+            // Nothing arrived in a whole wait: is anyone still there to send?
+            if (compositor_gone(a)) return -1;
         }
     }
     // Drain everything queued, blocking or not: one wake often carries
@@ -1386,8 +1419,10 @@ static int uapp_pump(struct uapp *a, int block) {
     // drew nothing until the hand stopped; after a frame's worth of
     // events the frame goes out, and the rest are handled after it.
     unsigned long long drain_from = sys_monotonic_ns();
+    int handled = 0;
     while (a->running && next_event(&ev)) {
         dispatch(a, &ev);
+        handled++;
         owed_release(a);
         // Not before the FIRST frame: what a window does as it opens --
         // made, then sized, then fullscreen -- is handled whole, or the
@@ -1430,13 +1465,14 @@ static int uapp_pump(struct uapp *a, int block) {
             g_sync_owed = 0;
         }
     }
-    return a->running;
+    return a->running ? handled : -1;
 }
 
-static void uapp_close(struct uapp *a) {
+int uapp_close(struct uapp *a) {
     for (int i = 1; i < WIN_CLIENT_MAX; i++)
         if (g_surf[i].used) popup_close(0, i);
     if (a->has_top) wmchan_send(WIN_REQ_DESTROY, a->window, 0, 0, 0, 0);
+    return a->status;
 }
 
 int uapp_run(const struct uapp_desc *desc) {
@@ -1465,11 +1501,11 @@ int uapp_run(const struct uapp_desc *desc) {
         // make the desktop feel sticky.
         while (a->running) {
             if (a->poll_paused) {   // nothing to animate: wait like any app
-                uapp_pump(a, 1);
+                if (uapp_pump(a, -1) < 0) break;
                 continue;
             }
             if (desc->on_tick(a)) a->top.dirty = 1;
-            uapp_pump(a, 0);
+            if (uapp_pump(a, 0) < 0) break;
             sys_yield();
         }
     } else if (desc->on_tick && !a->timer_armed) {
@@ -1484,12 +1520,11 @@ int uapp_run(const struct uapp_desc *desc) {
                 a->tick_due_ms = now + a->tick_ms;
                 if (desc->on_tick(a)) a->top.dirty = 1;
             }
-            if (!uapp_pump(a, 1)) break;
+            if (uapp_pump(a, -1) < 0) break;
         }
     } else {
-        while (uapp_pump(a, 1)) { }
+        while (uapp_pump(a, -1) >= 0) { }
     }
 
-    uapp_close(a);
-    return a->status;
+    return uapp_close(a);
 }

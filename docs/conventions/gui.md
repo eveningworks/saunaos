@@ -4018,8 +4018,8 @@ real scanout hardware does. Do not write a pixel assertion for one.
   Notepad's text area opens Notepad's menu, not the system menu -- and
   SaunaOS used to be the outlier, seizing the button over the WHOLE
   window so that no ring-3 client could ever receive one. Three things
-  to know. **The WM arms the press with the button that made it**
-  (`content_pressed_btn` in `wm_internal.h`): a right-press armed and
+  to know. **The WM arms the press with the buttons that made it**
+  (`content_pressed_btn` in `wm_internal.h`, a mask): a right-press armed and
   released on the LEFT button's bit would leave the client holding a
   `MOUSE_DOWN` with no `MOUSE_UP`, which is the same bug the left button
   already shipped once. **Toykit acts on `0x1` alone** -- a secondary
@@ -4029,6 +4029,19 @@ real scanout hardware does. Do not write a pixel assertion for one.
   And **the cost is real and was accepted**: the window menu is no
   longer reachable from the middle of an app's window, which is exactly
   the bargain every real desktop makes, and four other ways in remain.
+
+- **A MOUSE DOWN NAMES THE BUTTON PRESSED, AN UP THE BUTTONS STILL HELD,
+  AND A CHORD IS ONE PRESS.** A second button pressed while another is
+  held on the same window JOINS `content_pressed_btn` (a mask); one of
+  them coming up is a `MOUSE_UP` naming those still held, and the last
+  one's is the usual `MOUSE_UP` with 0. Toykit treats an UP that still
+  names the primary as NOT the widgets' release -- `on_release` (or
+  `on_button` for the secondary) hears it, and a left drag goes on. A
+  client keeping its own button state (SDL's driver) ADDS a down's
+  button to the set and REPLACES the set on an up. Until 2026-11-17 the
+  WM tracked one button: the right's press overwrote the left's, its
+  release ended both, and the left's real release never reached the
+  client at all.
 
 - **DOOM IS A VENDORED PORT, LINKED INTO ONE BINARY, AND ITS BACKEND IS
   NOT IN THE VENDORED DIRECTORY.** `userland/third_party/doom/upstream/` is doomgeneric

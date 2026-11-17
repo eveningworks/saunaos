@@ -1087,7 +1087,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 `docs/sdl-design.md` has the stages; SDL3 with sdl2-compat, SaunaOS as an SDL private platform.
 
 - [x] ~~Stage 0: SDL3 and sdl2-compat vendored, built and proven headless~~ DONE 2026-11-17 -- `sdl3_test`, `sdl2_test`
-- [ ] Stage 1: a `uapp` step API (open, pump, present) and SDL's video driver over it
+- [x] ~~Stage 1: a `uapp` step API and SDL's video driver over it~~ DONE 2026-11-17 -- `sdl_window_test.py`, sharp bilinear
+- [ ] SDL windows follow a `display.scale` change while running -- the scale is read when a window opens
+- [ ] SDL's custom cursor images (`SDL_CreateColorCursor`) as `uapp_cursor_image()` cursors on a `uapp_window`
 - [ ] Stage 2: SDL's audio driver over `usnd_push`
 - [ ] Stage 3: preferences folder, clipboard, open URL, message boxes, relative mouse, fullscreen, SDL in the SDK
 - [ ] Stage 4: ScummVM on its SDL backend, as a GPL optional component, with the freeware games' downloader

@@ -399,6 +399,29 @@ struct uapp_desc {
 // process exit status -- pass it straight back from main().
 int uapp_run(const struct uapp_desc *desc);
 
+// THE PROGRAM OWNS THE LOOP: uapp_run() taken apart, for code that calls
+// in rather than being called -- a port's own main loop (SDL's
+// SDL_PollEvent), X11's XPending and Win32's PeekMessage shape. Drawing
+// is unchanged: on_draw paints whatever is dirty, inside uapp_pump().
+// Main thread only, as every uapp call but uapp_post().
+//
+// uapp_open: 1 with `*out` set, 0 when there is no compositor or the
+// window could not open (UAPP_NO_TOPLEVEL opens none). It does not do
+// uapp_run()'s single-instance or widget-id checks.
+int uapp_open(struct uapp **out, const struct uapp_desc *desc);
+// Handles every queued event and paints what is dirty, waiting for the
+// first at most `timeout_ms` (0 never waits; -1 waits as long as it
+// takes). How many events it handled -- 0 when the wait ran out -- or -1
+// once the app has quit: uapp_quit(), or the compositor gone (checked
+// even when it does not wait, so a program that only polls hears too).
+int uapp_pump(struct uapp *a, int timeout_ms);
+// Closes the toplevel and its popups. The exit status uapp_quit() set.
+int uapp_close(struct uapp *a);
+// Whether there is a desktop to open windows on -- before uapp_open(),
+// for a program that would rather do without one (SDL falls back to a
+// headless driver, as its X11 driver does without $DISPLAY).
+int uapp_has_desktop(void);
+
 // --- a DIALOG WINDOW: a second toplevel of this process ---------------
 //
 // A real window -- chrome, a title, a close button, dragged and stacked
@@ -475,14 +498,17 @@ struct uapp_window_desc {
     void (*on_close)(struct uapp_window *w);
     // A PLACED window the person dragged: its new offset from the owner's content.
     void (*on_placed)(struct uapp_window *w, int x, int y);
-    // A RESIZABLE window the person resized: its new content size, the buffer already made for it --
-    // uapp_desc.on_resize's rule. Not called for uapp_window_resize(), the program's own.
+    // A RESIZABLE window the person resized, or ANY window going into or
+    // out of fullscreen: its new content size, the buffer already made for
+    // it -- uapp_desc.on_resize's rule. Not called for uapp_window_resize(),
+    // the program's own.
     void (*on_resize)(struct uapp_window *w, int width, int height);
     // A press of any button but the PRIMARY -- the secondary when the
     // shared edit menu did not take it, the two side buttons
-    // (WIN_MOUSE_BTN_SIDE, _EXTRA) -- with `buttons` the ones down
-    // (`up` 0); then its release (`up` 1, `buttons` 0). A context menu
-    // opens on the release -- uui_menubar_open_at()'s rule.
+    // (WIN_MOUSE_BTN_SIDE, _EXTRA) -- with `buttons` the one pressed
+    // (`up` 0); then its release (`up` 1, `buttons` the ones STILL down,
+    // 0 unless another was held). A context menu opens on the release --
+    // uui_menubar_open_at()'s rule.
     void (*on_button)(struct uapp_window *w, int x, int y, unsigned buttons, int up);
 
     // A window that DRAWS ITS OWN PIXELS, as uapp_desc.on_draw: called each
@@ -493,6 +519,9 @@ struct uapp_window_desc {
     void (*on_press)(struct uapp_window *w, int x, int y, unsigned buttons);
     void (*on_motion)(struct uapp_window *w, int x, int y, unsigned buttons);
     void (*on_release)(struct uapp_window *w, int x, int y, unsigned buttons);
+    // The pointer left the window. NULL for most: only a program keeping
+    // its own idea of where the pointer is (SDL's mouse focus) needs it.
+    void (*on_leave)(struct uapp_window *w);
 
     // What the layout log calls this window (ui/uui_describe.h's
     // vocabulary). Set it and the toolkit emits the report itself each
@@ -528,6 +557,9 @@ int uapp_window_width(const struct uapp_window *w);
 int uapp_window_height(const struct uapp_window *w);
 // Its title, re-sent to the compositor. The string is copied.
 void uapp_window_set_title(struct uapp_window *w, const char *title);
+// The pointer's shape over this window: uapp_set_cursor()'s, for a
+// window that is not the toplevel (WIN_CURSOR_NONE hides it).
+void uapp_window_set_cursor(struct uapp_window *w, int cursor);
 // FULLSCREEN, as uapp_set_fullscreen() for the main window: the whole
 // screen, no frame, no taskbar, until asked again with `on` = 0 or it
 // closes. Its size follows the compositor's proposal (on_draw sees it in
@@ -849,21 +881,15 @@ int uapp_height(const struct uapp *a);
 // (see kernel/include/api/gfx.h).
 struct ugfx_surface *uapp_surface(struct uapp_draw *d);
 
-// --- no escape hatch, and why ----------------------------------------
+// --- the step API, and why it came back --------------------------------
 //
-// There was one: uapp_open()/uapp_pump()/uapp_close(), so an app could
-// drive the loop itself. The design predicted Terminal would need it,
-// because Terminal BLOCKS inside a command -- the shell runs to
-// completion in a function call -- and wants what it has already
-// produced on screen first.
-//
-// Porting Terminal showed that is not a loop problem at all. It needs
-// to PAINT at a moment of its choosing, which is uapp_flush(), one
-// line. With that, Terminal uses uapp_run() like everything else, and
-// the hatch had no caller in the tree.
-//
-// So it was removed rather than kept for a case that turned out not to
-// exist. It comes back the day something genuinely owns its own loop --
-// and the shape is already known, since it was written once.
+// uapp_open()/uapp_pump()/uapp_close() existed once and were removed:
+// the design predicted Terminal would need to drive its own loop, and
+// Terminal turned out to need only uapp_flush() -- to PAINT at a moment
+// of its choosing -- so the hatch had no caller. It came back for SDL
+// (docs/sdl-design.md), which genuinely owns its loop: an SDL program
+// calls SDL_PollEvent from its own while, and SDL's video driver pumps
+// uapp from there. Anything that only needs to paint early still wants
+// uapp_flush(), not this.
 
 #endif

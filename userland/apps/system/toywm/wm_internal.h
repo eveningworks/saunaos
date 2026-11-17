@@ -301,12 +301,13 @@ extern int content_dragging;
 // wm_update_drag_resize() for where it's driven each tick.
 extern int content_pressed;
 
-// Which BUTTON bit armed content_pressed: 0x1 for the left button, 0x2
-// for the right one. The press is released when THAT button goes up,
-// not when the left one does -- without this a right-click forwarded to
-// a client (see wm_handle_right_click()) would arm a press that nothing
-// could ever release, and the client would sit holding a MOUSE_DOWN
-// that never got its MOUSE_UP. Meaningless while content_pressed is -1.
+// Which BUTTON bits armed content_pressed: 0x1 for the left button, 0x2
+// for the right one, BOTH for a chord (one pressed while the other was
+// held on the same window). The press ends when the last of them goes
+// up; one going up before is a MOUSE_UP naming those still held. Without
+// it a right-click forwarded to a client (see wm_handle_right_click())
+// would arm a press that nothing could ever release, and a chord's left
+// button would never come up. Meaningless while content_pressed is -1.
 extern int content_pressed_btn;
 
 // Title-bar minimize/maximize/close buttons: Windows/KDE-style delayed

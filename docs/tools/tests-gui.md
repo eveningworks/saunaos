@@ -1939,6 +1939,29 @@ from the default (a sound card, a USB mouse, `--reboot`).
   second re-decodes once. The old "not older" rule tied on a same-second
   rewrite and served it stale, which was this tool's intermittent red.
   In `gui_regress.py`.
+- **`sdl_window_test.py`** -- an SDL3 program's window on the desktop
+  (`docs/sdl-design.md`, stage 1). Drives `/tests/sdlwin_test`, which
+  paints red | blue | green bands in SDL points and logs every event SDL
+  hands it (`sdlwin:` lines). At display.scale 100% and then 125% (held
+  and put back): the content is the SDL size times the scale; the bands
+  are on screen, and at 125% the picture is scaled SHARP BILINEAR -- the
+  edge that lands on a pixel edge (80 -> 100) stays unblended, the one
+  inside a pixel (121 -> 151.25) blends one column, so plain bilinear
+  and nearest each fail a different check; a click is SDL's button at
+  the point in points, the secondary button SDL's right, the wheel SDL's
+  wheel; a chord (QMP's real buttons: left held, right pressed and
+  released) is SDL's right alone, the left coming up once at the end;
+  the pointer leaving is SDL's mouse-leave; a REAL key (QMP `send-key`
+  -- `gui key` injects a character only, never a key by position) is
+  its SDL scancode down and up, plus SDL text; F (the program's
+  fullscreen key) fills the screen with SDL hearing its size in points,
+  and F again gives the fixed window its own size back; the close
+  button is SDL's close request and the program is gone. Controls: the
+  scaler with every weight 0 (nearest) and with the whole factor forced
+  to 1 (plain bilinear) each fail their one check; no `on_leave` fails
+  the leave check; no restore after fullscreen fails both return
+  checks; the WM's old one-button press failed the chord check.
+  In `gui_regress.py`.
 - **`bad_present_test.py`** -- a refused replacement of the buffer ON
   SCREEN keeps the last good frame and the compositor alive. Drives
   `/tests/badpresent`, a raw-protocol client (no uapp, which never

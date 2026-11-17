@@ -521,8 +521,8 @@ void wm_handle_left_click(int mx, int my) {
                 // commit a click. That is exactly the bug this line
                 // fixes: keyboard input worked and mouse input did
                 // not.
+                content_pressed_btn = content_pressed == fi ? (content_pressed_btn | 0x1) : 0x1;
                 content_pressed = fi;
-                content_pressed_btn = 0x1;
             }
             // A ring-3 client gets the same event as a message instead
             // of a callback. It has no on_click/on_press distinction --
@@ -1013,8 +1013,11 @@ void wm_handle_right_click(int mx, int my) {
             // Armed exactly like the left button's press, or the
             // MOUSE_UP below would never be sent -- see the same
             // reasoning in wm_handle_left_click().
+            // A CHORD JOINS the press held on this window rather than
+            // replacing it, or the left button's release would never
+            // reach the client (wm_internal.h's content_pressed_btn).
+            content_pressed_btn = content_pressed == fi ? (content_pressed_btn | 0x2) : 0x2;
             content_pressed = fi;
-            content_pressed_btn = 0x2;
             wm_client_send_mouse(&windows[fi], WIN_EV_MOUSE_DOWN, mx, my, 2);
             WM_REDRAW();
             return;
@@ -1435,9 +1438,15 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
 
     if (content_pressed >= 0) {
         struct window *w = &windows[content_pressed];
-        // The button that ARMED this press is the one whose release
-        // ends it -- see wm_internal.h's content_pressed_btn.
-        if (buttons & content_pressed_btn) {
+        // The buttons that ARMED this press are the ones whose release
+        // ends it -- see wm_internal.h's content_pressed_btn. One of a
+        // chord coming up is its own MOUSE_UP, naming those STILL held.
+        unsigned held = (unsigned)buttons & (unsigned)content_pressed_btn;
+        if (held && held != (unsigned)content_pressed_btn) {
+            wm_client_send_mouse(w, WIN_EV_MOUSE_UP, mx, my, held);
+            content_pressed_btn = (int)held;
+        }
+        if (held) {
             // Every tick, not just on change -- on_press decides for
             // itself whether the "hot" button moved (e.g. the mouse
             // slid onto a different button, or off all of them) and

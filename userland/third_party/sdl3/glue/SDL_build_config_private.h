@@ -133,12 +133,13 @@
 #define HAVE_PTHREAD_CONDATTR_SETCLOCK 1
 #define HAVE__EXIT 1
 
-/* Subsystems. Stage 0 has SDL's dummy video and audio drivers (and the
- * disk one, which writes what is played to a file); SaunaOS's own come as
- * SDL_VIDEO_DRIVER_PRIVATE and SDL_AUDIO_DRIVER_PRIVATE.
- * docs/sdl-design.md has the stages. */
+/* Subsystems. Video is SaunaOS's desktop (PRIVATE, first in SDL's
+ * order), with SDL's dummy driver kept for headless tests (hint
+ * "dummy"); audio is SDL's dummy and disk drivers until SaunaOS's own
+ * (SDL_AUDIO_DRIVER_PRIVATE). docs/sdl-design.md has the stages. */
 #define SDL_AUDIO_DRIVER_DUMMY 1
 #define SDL_AUDIO_DRIVER_DISK 1
+#define SDL_VIDEO_DRIVER_PRIVATE 1 /* glue/SDL_saunaos_{video,window,events}.c */
 #define SDL_VIDEO_DRIVER_DUMMY 1
 #define SDL_CAMERA_DRIVER_DUMMY 1
 #define SDL_JOYSTICK_DISABLED 1

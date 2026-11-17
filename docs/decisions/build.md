@@ -2795,16 +2795,30 @@ No host CMake either: the configuration is our header. The one thing
 the hooks cannot reach is a patch (`sdl3/patches/`), applied to the
 copy -- there is no host oracle to keep in step, unlike NetSurf's.
 
-**Why the video driver will sit on a uapp STEP API, not uapp on a
+**Why the video driver sits on a uapp STEP API, not uapp on a
 second thread or the raw window protocol.** SDL programs own their
 loop (`SDL_PollEvent`), as X11 (`XPending`) and Win32 (`PeekMessage`)
 programs do; `uapp_run()` owns it instead. Haiku's SDL driver bridges
 that with a thread for its `BApplication`, which shares the surface
 between two threads; speaking the window protocol directly, as SDL's
 Wayland driver does, would repeat what the toolkit already does
-(scaling, the window channel). Giving `uapp` open/pump/present lets the
+(scaling, the window channel). Giving `uapp` open/pump/close lets the
 toolkit keep that work, and any later port with its own loop uses the
-same three calls.
+same three calls. Each SDL window is a `uapp_window` of a no-toplevel
+app (w16's shape), because a toplevel cannot be closed and reopened and
+an SDL program's windows can.
+
+**Why an SDL window that is not scale-aware is scaled SHARP BILINEAR.**
+Most games draw a fixed size and do not ask for SDL's high pixel
+density. At a fractional `display.scale` such a window can be shown
+unscaled (sharp, but smaller than everything else -- KDE's "apply
+scaling themselves" for X11 apps), smooth (Windows' and KWin/Mutter's
+answer for a legacy client: soft pixel text), nearest (uneven: every
+fourth pixel doubled at 125%) or sharp bilinear (nearest to the next
+whole factor, then bilinear down -- what emulators default to). The
+maintainer picked sharp bilinear from a canvas showing all four on a
+real 125% window frame (2026-11-17). Coordinates are POINTS, macOS's
+model, so the program's picture and its pointer agree at any scale.
 
 **Why `-Bsymbolic` on libSDL3.** With the dynamic API layer off (it is
 on a private platform), SDL3 calls its own functions by their public

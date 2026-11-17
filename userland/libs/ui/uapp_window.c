@@ -192,6 +192,13 @@ void uapp_window_set_title(struct uapp_window *w, const char *title) {
     wmchan_send(WIN_REQ_TITLE, (uint32_t)w->top.slot, 0, 0, 0, w->title);
 }
 
+void uapp_window_set_cursor(struct uapp_window *w, int cursor) {
+    if (!w || !w->top.slot || !cursor_valid(cursor)) return;
+    if (w->top.cursor == cursor) return;
+    w->top.cursor = cursor;
+    wmchan_send(WIN_REQ_CURSOR, (uint32_t)w->top.slot, cursor, 0, 0, 0);
+}
+
 void uapp_window_activate(struct uapp_window *w) {
     if (w && w->top.slot) wmchan_send(WIN_REQ_ACTIVATE_OWN, (uint32_t)w->top.slot, 0, 0, 0, 0);
 }
@@ -206,6 +213,18 @@ void uapp_window_set_fullscreen(struct uapp_window *w, int on) {
     if (w->fullscreen == on) return;
     w->fullscreen = on;
     wmchan_send(WIN_REQ_FULLSCREEN, (uint32_t)w->top.slot, on, 0, 0, 0);
+    // A FIXED window takes the screen's size while fullscreen and must
+    // give it back after: it declines every other resize, the compositor's
+    // restore included, so it keeps its own size here and goes back to it.
+    if (w->desc.flags & UAPP_WIN_RESIZABLE) return;
+    struct uapp_surf *s = &g_surf[w->top.slot];
+    if (on) {
+        w->windowed_w = s->w;
+        w->windowed_h = s->h;
+    } else if (w->windowed_w > 0 && uapp_window_resize(w, w->windowed_w, w->windowed_h)) {
+        if (w->desc.on_resize) w->desc.on_resize(w, w->windowed_w, w->windowed_h);
+        w->windowed_w = w->windowed_h = 0;
+    }
 }
 
 int uapp_window_resize(struct uapp_window *w, int rw, int rh) {
@@ -632,7 +651,10 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         }
         return;
     case WIN_EV_MOUSE_MOVE: {
-        if (ev->a < 0 || ev->b < 0) return;   // a leave carries no position
+        if (ev->a < 0 || ev->b < 0) {           // a leave carries no position
+            if (d->on_leave) d->on_leave(w);
+            return;
+        }
         w->top.mouse_x = ev->a;
         w->top.mouse_y = ev->b;
         if (d->on_motion) d->on_motion(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods));
@@ -651,7 +673,12 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         if (top_secondary(&w->top, ev->a, ev->b, 1)) return;
         if (g_secondary == w && d->on_button) {
             g_secondary = 0;
-            d->on_button(w, ev->a, ev->b, 0, 1);
+            d->on_button(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods), 1);
+            return;
+        }
+        // One button of a chord up while the primary is still held: uapp.c's rule.
+        if (WIN_MOUSE_BUTTONS(ev->mods) & 0x1) {
+            if (d->on_release) d->on_release(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods));
             return;
         }
         top_release(&w->top, ev->a, ev->b);
@@ -674,7 +701,7 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         s->w = rw;
         s->h = rh;
         if (s->back >= 0) s->surface = ugfx_surface_for_pixels(s->px[s->back], rw, rh);
-        if (d->on_resize && (d->flags & UAPP_WIN_RESIZABLE)) d->on_resize(w, rw, rh);
+        if (d->on_resize && ((d->flags & UAPP_WIN_RESIZABLE) || w->fullscreen)) d->on_resize(w, rw, rh);
         return;
     }
     default:

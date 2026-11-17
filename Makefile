@@ -1978,12 +1978,13 @@ $(BUILD)/userland-pic/third_party/sdl3/glue/%.o: userland/third_party/sdl3/glue/
 	$(CC) $(LIBC_PIC_CFLAGS) $(SDL_PORT_CFLAGS) $< -o $@
 
 LIBSDL3_SO = $(BUILD)/lib/libSDL3.so.0
-$(LIBSDL3_SO): $(SDL3_OBJS) $(SDL3_GLUE_OBJS) $(LIBBASE_SO) $(LIBC_SO) $(TOOLKIT_EXE_SIDE) \
+$(LIBSDL3_SO): $(SDL3_OBJS) $(SDL3_GLUE_OBJS) $(TOOLKIT_SO) $(LIBC_SO) $(TOOLKIT_EXE_SIDE) \
                tools/build/check_lib_layers.py
 	@mkdir -p $(dir $@)
 	$(LD) -shared -Bsymbolic --hash-style=sysv -z max-page-size=4096 -soname libSDL3.so.0 -o $@ \
-	      $(SDL3_OBJS) $(SDL3_GLUE_OBJS) $(LIBBASE_SO) $(LIBC_SO)
-	@$(TOOLKIT_LAYERS) --below $(LIBBASE_SO) $(LIBC_SO) -- $@ || { rm -f $@; exit 1; }
+	      $(SDL3_OBJS) $(SDL3_GLUE_OBJS) --as-needed $(LIBUI_SO) $(LIBMEDIA_SO) $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO)
+	@$(TOOLKIT_LAYERS) --below $(LIBUI_SO) $(LIBMEDIA_SO) $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO) \
+	      -- $@ || { rm -f $@; exit 1; }
 
 SDL2COMPAT_OBJS = $(patsubst userland/%.c,$(BUILD)/userland-pic/%.o,$(SDL2COMPAT_SRCS))
 $(BUILD)/userland-pic/third_party/sdl2compat/upstream/%.o: userland/third_party/sdl2compat/upstream/%.c $(BUILD)/.sanitize-flag
@@ -2048,6 +2049,9 @@ SDL_APP_CFLAGS = -U__linux__ -U__linux -U__gnu_linux__ -Ulinux
 $(BUILD)/userland/tests/sdl3_test.o: USERLAND_CFLAGS += $(SDL_APP_CFLAGS) -Iuserland/third_party/sdl3/upstream/include
 $(BUILD)/userland/tests/sdl2_test.o: USERLAND_CFLAGS += $(SDL_APP_CFLAGS) -Iuserland/third_party/sdl2compat/upstream/include
 $(BUILD)/userland/tests/sdl3_test.elf: $(BUILD)/userland/tests/sdl3_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LIBSDL3_SO) $(LDSO)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBSDL3_SO) $(TOOLKIT_LINK)
+$(BUILD)/userland/tests/sdlwin_test.o: USERLAND_CFLAGS += $(SDL_APP_CFLAGS) -Iuserland/third_party/sdl3/upstream/include
+$(BUILD)/userland/tests/sdlwin_test.elf: $(BUILD)/userland/tests/sdlwin_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LIBSDL3_SO) $(LDSO)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBSDL3_SO) $(TOOLKIT_LINK)
 $(BUILD)/userland/tests/sdl2_test.elf: $(BUILD)/userland/tests/sdl2_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LIBSDL2_SO) $(LIBSDL3_SO) $(LDSO)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBSDL2_SO) $(TOOLKIT_LINK)

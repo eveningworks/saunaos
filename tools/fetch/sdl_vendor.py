@@ -251,8 +251,11 @@ def main():
     flags = compile_flags(trees["sdl3"])
 
     u3 = units(trees["sdl3"], SDL3_UNITS, SDL3_EXCLUDE)
-    dest, n = copy_port(trees["sdl3"], "sdl3", set(u3) | headers(trees["sdl3"], u3, flags),
-                        "include")
+    # Our glue reaches upstream headers no unit does (SDL's evdev
+    # scancode table), so they are scanned too -- for headers only.
+    glue = sorted(glob.glob(os.path.join(THIRD_PARTY, "sdl3", "glue", "*.c")))
+    dest, n = copy_port(trees["sdl3"], "sdl3",
+                        set(u3) | headers(trees["sdl3"], u3 + glue, flags), "include")
     apply_patches("sdl3", dest)
     write_sources(dest, "sdl3", "SDL3_SRCS", u3)
     write_readme("sdl3", dest, *pins["sdl3"])

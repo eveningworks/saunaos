@@ -5,14 +5,17 @@ programs written for Linux, Windows or macOS already speak, so a port
 is a recompile and not a new backend each time. ScummVM is the first
 program it is for; DOSBox and most SDL games are the ones after.
 
-**STAGE 0 IS BUILT (2026-11-17)** -- SDL 3.4.20 and sdl2-compat 2.32.74
+**STAGES 0 AND 1 ARE BUILT (2026-11-17)** -- SDL 3.4.20 and sdl2-compat 2.32.74
 are vendored, build as `/lib/libSDL3.so.0` and `/lib/libSDL2-2.0.so.0`,
 and pass `/tests/sdl3_test` and `/tests/sdl2_test` with SDL's own dummy
-video and disk audio drivers. **The choices were made the same day**:
+video and disk audio drivers; an SDL program opens a real desktop
+window, scaled and driven (`sdl_window_test.py`). Sound is next.
+**The choices were made the same day**:
 SDL3 with sdl2-compat on top rather than SDL2 alone, and the video
 driver over a STEP API in `uapp` rather than a second thread or the
-raw window protocol. The stage markers on the headings are the
-authority.
+raw window protocol; and sharp bilinear scaling for a window that is
+not scale-aware, from a canvas of four. The stage markers on the
+headings are the authority.
 
 ## The finding that shapes the plan
 
@@ -60,15 +63,15 @@ and the link found no C-library function missing.
   /lib/libSDL2-2.0.so.0  (sdl2-compat) --dlopen--> /lib/libSDL3.so.0
                                                    |  generic SDL
                                                    |  sdl3/glue/: config, time, filesystem,
-                                                   |    [stage 1] video driver -> uapp step API
+                                                   |    video driver -> uapp step API, uapp_window per SDL window
                                                    |    [stage 2] audio driver -> usnd_push
                                                    v
                                    libbase.so (udirs, uself)  libc.so (tolibc)
 ```
 
-`libSDL3` links only `libbase` today (the personal folders and the
-program's own path); the video driver will add `libui`, the audio
-driver `libmedia`. Both are zlib-licensed, so they ship in the base
+`libSDL3` links `libui` (the video driver) and `libbase` (the
+personal folders, the program's own path, the scaler); the audio
+driver will add `libmedia`. Both are zlib-licensed, so they ship in the base
 image rather than in a GPL optional component; a GPL program built on
 them (ScummVM) is the component.
 
@@ -114,22 +117,85 @@ them (ScummVM) is the component.
   programs are (`TOOLKIT_LINK`) exports them; a narrower link line made
   sdl2-compat's `dlopen()` of SDL3 fail as unresolved.
 
-### Stage 1 -- the video driver, over a uapp step API
+### Stage 1 -- the video driver, over a uapp step API -- BUILT 2026-11-17
 
-- `uapp` gains the program-owns-the-loop shape: open a toplevel, pump
-  events with a timeout, present a frame -- `uapp_run()` becomes a loop
-  over the same three.
-- `PRIVATE_bootstrap`: an SDL window is a uapp toplevel; SDL's
-  framebuffer path (`CreateWindowFramebuffer`/`UpdateWindowFramebuffer`)
-  presents its surface with damage. The software renderer draws into
-  it. No OpenGL, so no GL contexts and no SDL_GPU.
-- Input: key presses and releases by POSITION (`input_keys.h`) as SDL
-  scancodes, the layout's characters as SDL text input (UTF-8); mouse
-  motion, buttons and the wheel; resize; Close and Alt+F4 as SDL's
-  close request; the title; showing and hiding the cursor.
-- `display.scale` as SDL's pixel density.
-- Exit: an SDL program in a window, drawn and driven, measured by
-  pixels and injected input.
+- **uapp's step API**: `uapp_open()`, `uapp_pump(a, timeout_ms)` and
+  `uapp_close()` -- `uapp_run()` taken apart, and `uapp_run()` now a
+  loop over the same calls. Drawing is unchanged: `on_draw` paints what
+  is dirty inside the pump. The pump returns how many events it handled
+  (SDL's wait reports "something arrived" from that, not from the
+  clock) or -1 once the app is over, and checks the compositor is alive
+  even when it does not wait, so a game that only polls hears the
+  desktop die: the driver turns that into `SDL_EVENT_QUIT`.
+- **No desktop, no driver** (`uapp_has_desktop()`): SDL goes on to its
+  next driver, X11's and Wayland's rule without a display. SDL's dummy
+  driver is not one it falls back to -- it starts only when named --
+  so with no desktop `SDL_Init(VIDEO)` fails, as on Linux without
+  `$DISPLAY`.
+- **An SDL window is a `uapp_window` of a no-toplevel app**
+  (`UAPP_NO_TOPLEVEL`, w16's shape), not the toplevel: a toplevel cannot
+  be closed and opened again, SDL windows are, and there may be several.
+  Each has its own taskbar button. A hidden SDL window has no uapp
+  window at all; showing it opens one.
+- **Coordinates are points** (macOS's model): a 640x400 SDL window is a
+  640x400 x `display.scale` uapp window, the desktop's mode is reported
+  in points with that pixel density, and the pointer arrives in points
+  by the window's actual size. A window that asked for
+  `SDL_WINDOW_HIGH_PIXEL_DENSITY` draws the pixels; one that did not
+  draws points and is scaled **sharp bilinear** (`base/upixscale.h`:
+  nearest-neighbour to the next whole factor, then bilinear down) --
+  the maintainer's pick from the "SDL window scaling at 125%" canvas,
+  over unscaled, smooth and nearest. A whole factor is pure
+  duplication; 640x400 -> 800x500 measured 0.9 ms a frame on the dev
+  host.
+- **Input**: keys by POSITION (`on_phys_key`'s evdev codes through
+  SDL's own Linux scancode table), the typed character as SDL text while
+  the program has text input on, all five buttons -- chords included,
+  which needed the WM to track a press as a SET of buttons
+  (`docs/conventions/gui.md`, "A chord is one press") -- the wheel, the
+  pointer leaving (`uapp_window_desc.on_leave`, new), focus (focus lost
+  releases every key, uapp's rule). The title bar's close is
+  `SDL_EVENT_WINDOW_CLOSE_REQUESTED`: a request the program decides.
+- **Fullscreen** is the desktop's own mode. A FIXED window going
+  fullscreen now hears the screen's size (`on_resize`, which used to be
+  a resizable window's alone) and gets its own size back after --
+  `uapp_window_set_fullscreen()` keeps it, since a fixed window declines
+  every other resize. SDL sizes the window to the mode itself.
+- A window that asked for high pixel density draws at the window's REAL
+  size: points times the scale does not round-trip (1002 px -> 802
+  points -> 1003 px), and a framebuffer a pixel off would be resampled
+  every frame.
+- **The cursor**: the desktop's shapes for SDL's system cursors, and
+  hidden (`SDL_HideCursor`) -- `uapp_window_set_cursor()`, new, because
+  `uapp_set_cursor()` reached only a toplevel. A window opened later
+  takes SDL's current cursor, not the arrow.
+- `SDL_UpdateWindowSurface()` presents at once (a `uapp_pump(a, 0)`),
+  not at the program's next pump.
+- **Tests**: `tools/tests/gui/sdl_window_test.py` over
+  `/tests/sdlwin_test` -- pixels at 100% and 125% (an edge on a pixel
+  edge unblended, one inside a pixel blended: plain bilinear and nearest
+  each fail one check, both seen red), clicks in points, the right
+  button, a chord (left held, right pressed and released), the pointer
+  leaving, the wheel, a real key's scancode and text, fullscreen in and
+  out at both scales, close. Every check was seen red.
+  `/tests/pixscale_test` checks the scaler's arithmetic.
+
+**Not yet**: custom cursor images (`uapp_cursor_image()` exists for a
+toplevel), following a `display.scale` change while running (the scale
+is read when a window opens), window position, relative mouse and
+pointer grab, message boxes.
+
+**Traps found on the way**:
+
+- **An edge that lands on a pixel edge is not blended**, by design: a
+  test picture split at the half (80 of 160) shows nothing at 1.25x.
+  The test's second edge is at 121 for that reason.
+- **`gui key` injects a CHARACTER, never a key by position**: a test of
+  a game's keys uses QMP's `send-key`, the keyboard's own path.
+- **`SDL_UCS4ToUTF8()` writes no terminator.**
+- **A MOUSE DOWN names the button pressed, an UP those still held** --
+  `abi/win_proto.h` said so only for the UP; a client keeping a button
+  set adds on a down and replaces on an up.
 
 ### Stage 2 -- the audio driver, over usnd_push
 

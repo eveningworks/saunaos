@@ -200,6 +200,7 @@ struct uapp_window {
     struct uapp_window_desc desc;
     char title[WIN_TITLE_LEN];
     int fullscreen;         // uapp_window_set_fullscreen(): its resize proposals adopted whatever the flags
+    int windowed_w, windowed_h;   // a FIXED window's size before fullscreen, given back after; 0 = none
 };
 
 // --- uapp.c ----------------------------------------------------------------
@@ -213,6 +214,11 @@ UAPP_HIDDEN int  wmchan_call(uint32_t type, uint32_t window, int aa, int bb, int
 UAPP_HIDDEN int  wmchan_send_damage(uint32_t type, uint32_t window, int aa, int bb, int cc,
                                     const char *text, const struct win_damage *dmg);
 UAPP_HIDDEN void clamp_to_screen(int *w, int *h);
+// A WIN_REQ_CURSOR argument the compositor knows: a shape, or an image id.
+static inline int cursor_valid(int cursor) {
+    return (cursor >= 0 && cursor < WIN_CURSOR_COUNT) ||
+           (cursor >= WIN_CURSOR_IMAGE_BASE && cursor < WIN_CURSOR_IMAGE(WIN_CURSOR_IMAGE_IDS));
+}
 
 // --- uapp_surface.c ----------------------------------------------------------
 UAPP_HIDDEN extern struct uapp_surf g_surf[WIN_CLIENT_MAX];

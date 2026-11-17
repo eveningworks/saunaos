@@ -51,7 +51,9 @@
                             // button is held carries that button's bit,
                             // and the UP that ends the press carries 0
                             // (the buttons now down, not the one that
-                            // was released).
+                            // was released). A DOWN carries the button
+                            // just pressed, not the others held -- a
+                            // client wanting the whole set keeps it.
                             //
                             // Toykit acts on 0x1 alone -- a secondary
                             // press never arms a widget or moves the
