@@ -8,6 +8,7 @@
 #include "ui/uui_route.h"   // UUI_NOWHERE, for edit_target
 #include "keyboard.h" // KEY_* codes, as delivered by WIN_EV_KEY
 #include "base/uutf8.h"   // a masked field's stars, and cutting on a boundary
+#include "base/udclick.h"
 
 // Caret width in pixels -- a bar, not a block, so it sits between
 // characters rather than covering one.
@@ -262,6 +263,15 @@ int uui_textbox_index_at_x(const struct uui_textbox *f0, int cx) {
     return idx;
 }
 
+// The character under `cx` -- not the boundary nearest it -- in an
+// unmasked field: where a double click's word starts.
+static int char_at_x(const struct uui_textbox *f, int cx) {
+    int start = field_window_start(f, field_avail(f));
+    int rel = cx - (f->x + UUI_TEXTBOX_PAD);
+    int idx = start + ugfx_text_char_at_x(T(f) + start, rel < 0 ? 0 : rel);
+    return idx > f->len ? f->len : idx;
+}
+
 // What the edit core needs re-asserted before every call: the history
 // (re-pointed, so a struct copied by value records into its own copy)
 // and `masked`, which an app sets by assignment after init.
@@ -470,8 +480,17 @@ static int tb_ops_press(void *w, int cx, int cy, unsigned mods) {
         if (!uui_textbox_hit(f, cx, cy)) return 0;
     }
     // Places the caret AND collapses any selection, which is what a
-    // plain click does everywhere.
-    uui_edit_place(&f->ed, &TB_EDIT_OPS, f, uui_textbox_index_at_x(f, cx), 0);
+    // plain click does everywhere; a double click takes the word, a
+    // triple the whole field. ONE run for every field: a person clicks in
+    // one place at a time, and the slop keeps a run inside one field.
+    // A PASSWORD's double click takes the whole field, as Qt's and
+    // Windows' do: a word of it would show where its punctuation is.
+    static struct udclick_run run;
+    int n = udclick_count(&run, cx, cy);
+    if (n == 2 && !f->masked) uui_edit_select_word(&f->ed, &TB_EDIT_OPS, f, char_at_x(f, cx));
+    else if (n >= 2) uui_edit_select_all(&f->ed, &TB_EDIT_OPS, f);
+    else uui_edit_place(&f->ed, &TB_EDIT_OPS, f, uui_textbox_index_at_x(f, cx), 0);
+    f->word_held = n > 1;
     return 1;
 }
 
@@ -483,7 +502,7 @@ static int tb_ops_motion(void *w, int cx, int cy, unsigned buttons) {
     (void)cy;
     if (!buttons) return 0;
     struct uui_textbox *f = (struct uui_textbox *)w;
-    if (f->disabled) return 0;
+    if (f->disabled || f->word_held) return 0;   // a drag would undo the word
     uui_edit_place(&f->ed, &TB_EDIT_OPS, f, uui_textbox_index_at_x(f, cx), 1);
     return 1;
 }

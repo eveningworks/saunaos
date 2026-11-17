@@ -173,6 +173,44 @@ int uunicode_search(const char *q, uint32_t *out, int cap) {
     return found;
 }
 
+// NameAliases.txt's abbreviations where it has one, sorted by code point.
+static const struct { uint32_t cp; const char *ab; } g_abbrev[] = {
+    { 0x00A0, "NBSP" }, { 0x00AD, "SHY" },  { 0x034F, "CGJ" },  { 0x061C, "ALM" },
+    { 0x180E, "MVS" },  { 0x200B, "ZWSP" }, { 0x200C, "ZWNJ" }, { 0x200D, "ZWJ" },
+    { 0x200E, "LRM" },  { 0x200F, "RLM" },  { 0x2028, "LSEP" }, { 0x2029, "PSEP" },
+    { 0x202A, "LRE" },  { 0x202B, "RLE" },  { 0x202C, "PDF" },  { 0x202D, "LRO" },
+    { 0x202E, "RLO" },  { 0x202F, "NNBSP" }, { 0x205F, "MMSP" }, { 0x2060, "WJ" },
+    { 0x2061, "FA" },   { 0x2062, "IT" },   { 0x2063, "IS" },   { 0x2064, "IP" },
+    { 0x2066, "LRI" },  { 0x2067, "RLI" },  { 0x2068, "FSI" },  { 0x2069, "PDI" },
+    { 0x3000, "IDSP" }, { 0xFEFF, "BOM" },
+};
+
+const char *uunicode_abbrev(uint32_t cp) {
+    static const char c0[32][4] = {
+        "NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL", "BS", "HT", "LF", "VT", "FF", "CR", "SO", "SI",
+        "DLE", "DC1", "DC2", "DC3", "DC4", "NAK", "SYN", "ETB", "CAN", "EM", "SUB", "ESC", "FS", "GS", "RS", "US",
+    };
+    if (cp < 0x20) return cp == '\t' || cp == '\n' ? NULL : c0[cp];
+    if (cp == 0x7F) return "DEL";
+    if (cp >= 0x80 && cp < 0xA0) return "C1";
+    // The selectors: VS1..VS16 (FE00..FE0F), VS17..VS256 past the BMP.
+    if (cp >= 0xFE00 && cp <= 0xFE0F) {
+        static const char vs[16][5] = { "VS1", "VS2", "VS3", "VS4", "VS5", "VS6", "VS7", "VS8",
+                                        "VS9", "VS10", "VS11", "VS12", "VS13", "VS14", "VS15", "VS16" };
+        return vs[cp - 0xFE00];
+    }
+    if (cp >= 0xE0100 && cp <= 0xE01EF) return "VS";
+    if (cp == 0xE0001 || (cp >= 0xE0020 && cp <= 0xE007F)) return "TAG";
+    int lo = 0, hi = (int)(sizeof g_abbrev / sizeof g_abbrev[0]) - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (g_abbrev[mid].cp == cp) return g_abbrev[mid].ab;
+        if (g_abbrev[mid].cp < cp) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return NULL;
+}
+
 int uunicode_utf8(uint32_t cp, char out[5]) {
     int n;
     if (cp < 0x80) { out[0] = (char)cp; n = 1; }

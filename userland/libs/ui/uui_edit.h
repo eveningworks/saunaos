@@ -110,6 +110,16 @@ int uui_edit_has_selection(const struct uui_edit *e);
 void uui_edit_range(const struct uui_edit *e, int *out_start, int *out_end);
 
 void uui_edit_select_all(struct uui_edit *e, const struct uui_edit_ops *ops, void *text);
+// What a DOUBLE click selects: the run of characters of one kind around
+// `index` -- a word (letters, digits, '_', any letter past ASCII), a run
+// of spaces, of punctuation or of emoji -- the caret at its end. KDE's
+// rule, without Windows' trailing space. A click past a line's last
+// character takes the one before it.
+void uui_edit_select_word(struct uui_edit *e, const struct uui_edit_ops *ops, void *text, int index);
+// What a TRIPLE click selects: the line `index` is on, its line break
+// included (Kate's and Windows'), or the whole text where there are no
+// lines -- a single-line field, as Qt's QLineEdit.
+void uui_edit_select_line(struct uui_edit *e, const struct uui_edit_ops *ops, void *text, int index);
 void uui_edit_clear_selection(struct uui_edit *e);
 
 // Removes the selected range, leaves the caret where it started, and

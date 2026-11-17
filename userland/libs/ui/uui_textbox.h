@@ -103,6 +103,9 @@ struct uui_textbox {
     // a field whose text is a path, a command or code. A masked field never
     // completes either way.
     int no_complete;
+    // OWNED: the last press was a double or triple click, so the drag
+    // after it keeps the word (or the whole field) instead of re-placing.
+    int word_held;
 };
 
 void uui_textbox_init(struct uui_textbox *f, const char *initial);

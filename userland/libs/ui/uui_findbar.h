@@ -42,7 +42,7 @@ struct uui_findbar {
     int pill;                   // floating: a rounded card with an outline
 
     int hovered;                // button under the pointer (UUI_FB_*), or -1; OWNED
-    int pressed;                // button armed by a press, or -1; OWNED
+    int pressed;                // button armed by a press, -2 the field, or -1; OWNED
     int event;                  // parked for uui_findbar_take(); OWNED
 };
 

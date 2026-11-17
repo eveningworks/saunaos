@@ -53,6 +53,72 @@ static int char_prev(const struct uui_edit_ops *ops, void *text, int i) {
     return k == 1 ? char_back(ops, text, q) : i - 6;
 }
 
+// --- word and line selection ------------------------------------------
+
+static uint32_t cp_at(const struct uui_edit_ops *ops, void *text, int i, int len) {
+    char b[4];
+    int n = 0;
+    while (n < 4 && i + n < len) { b[n] = ops->at(text, i + n); n++; }
+    int l;
+    return uutf8_decode(b, n, &l);
+}
+
+// The kind of character a double click gathers: 0 a line break (never
+// gathered), 1 blank, 2 word, 3 punctuation, 4 emoji. Past ASCII a
+// character is a letter unless it is a space, general or CJK
+// punctuation, or drawn as an emoji.
+static int char_kind(uint32_t c, int emoji_sel) {
+    if (c == '\n') return 0;
+    if (c == ' ' || c == '\t' || c == 0xA0 || c == 0x3000 || (c >= 0x2000 && c <= 0x200A)) return 1;
+    if (c < 0x80) {
+        int alnum = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+        return alnum || c == '_' ? 2 : 3;
+    }
+    if (emoji_sel || uemoji_presentation(c)) return 4;
+    if ((c >= 0x2010 && c <= 0x2BFF) || (c >= 0x3001 && c <= 0x303F) || (c >= 0xFE10 && c <= 0xFE6F)) return 3;
+    return 2;
+}
+
+static int kind_at(const struct uui_edit_ops *ops, void *text, int i, int len) {
+    int j = char_step(ops, text, i, len);
+    return char_kind(cp_at(ops, text, i, len), j < len && selector_at(ops, text, j, len) &&
+                                                   ops->at(text, j + 2) == (char)0x8F);
+}
+
+void uui_edit_select_word(struct uui_edit *e, const struct uui_edit_ops *ops, void *text, int index) {
+    int len = ops->len(text);
+    if (index < 0) index = 0;
+    if (index > len) index = len;
+    // Past the last character of a line: the one before it.
+    if ((index >= len || ops->at(text, index) == '\n') && index > 0 && ops->at(text, index - 1) != '\n')
+        index = char_prev(ops, text, index);
+    int kind = index < len ? kind_at(ops, text, index, len) : 0;
+    int start = index, end = index;
+    if (kind) {
+        while (start > 0) {
+            int p = char_prev(ops, text, start);
+            if (kind_at(ops, text, p, len) != kind) break;
+            start = p;
+        }
+        while (end < len && kind_at(ops, text, end, len) == kind) end = char_next(ops, text, end, len);
+    }
+    e->sel_anchor = start;
+    e->cursor = end;
+    e->sel_active = 1;
+}
+
+void uui_edit_select_line(struct uui_edit *e, const struct uui_edit_ops *ops, void *text, int index) {
+    if (!ops->line_start || !ops->line_end) { uui_edit_select_all(e, ops, text); return; }
+    int len = ops->len(text);
+    if (index < 0) index = 0;
+    if (index > len) index = len;
+    int end = ops->line_end(text, index);
+    if (end < len && ops->at(text, end) == '\n') end++;
+    e->sel_anchor = ops->line_start(text, index);
+    e->cursor = end;
+    e->sel_active = 1;
+}
+
 void uui_edit_init(struct uui_edit *e) {
     e->cursor = 0;
     e->sel_anchor = 0;

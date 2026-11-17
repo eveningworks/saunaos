@@ -39,6 +39,14 @@ int uunicode_block_of(uint32_t cp);
 //                        RIGHTWARDS ARROW; "e" does not find LETTER)
 int uunicode_search(const char *q, uint32_t *out, int cap);
 
+// The short label an editor shows for a character that draws NOTHING (or
+// only a gap) when it asks to see what is in the text -- "ZWSP", "VS16",
+// "NBSP", "ESC" -- or NULL for one that draws itself. Notepad++'s "Show
+// all characters" and Unicode's own name aliases (NameAliases.txt's
+// abbreviations) are the vocabulary. Never NULL for a C0 control other
+// than tab and line feed, which an editor marks its own way.
+const char *uunicode_abbrev(uint32_t cp);
+
 // `cp` as UTF-8 into `out` (4 bytes and a NUL); returns the byte count,
 // 0 for a value that is not a scalar value (a surrogate, past U+10FFFF).
 int uunicode_utf8(uint32_t cp, char out[5]);

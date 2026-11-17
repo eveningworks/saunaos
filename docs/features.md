@@ -503,9 +503,15 @@ a colour-coded command bar, a line-number gutter with the caret's line
 tinted, find with every hit highlighted, a live Markdown preview beside
 the source that scrolls with it, and undo and redo -- which every text
 field on the desktop has, from one edit history in the toolkit. Undoing
-back to what was saved makes a document clean again. Its **Options**
+back to what was saved makes a document clean again. A double click
+selects a word and a triple click the line, here and in every text
+field (the whole field there). View > Invisible characters shows what
+draws nothing -- dots for spaces, arrows for tabs, a mark at each line's
+end, and a label for a hidden character (ZWSP, NBSP, a selector's VS16,
+a control's ESC) -- and names the character at the caret in the status
+bar: its code point, its Unicode name and its UTF-8 bytes. Its **Options**
 window (Edit > Options..., or the gear) keeps tab width and
-spaces-for-Tab, keep-the-indent, shown whitespace, the text size, the
+spaces-for-Tab, keep-the-indent, shown invisible characters, the text size, the
 bars, the preview's mode and side, reopening the last tabs, opening in
 a tab or a window, line endings for new files, trimming and a final
 newline on save, and how many recent files File > Recent keeps, across

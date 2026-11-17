@@ -70,6 +70,8 @@ struct utext_wrap {
     int      cols;        // the wrap width this was built for
     int      wrap;        // and the wrap MODE -- changing it relines
                           // the whole document, so it is part of the key
+    int      tab_width;   // and so do these two: each changes how many
+    int      show_ws;     // cells a character takes
     unsigned rev;         // the text revision it was built from
     int      total_lines;
     int      n;           // checkpoints in use
@@ -140,7 +142,10 @@ struct utext {
     // 1: one cell, as before) sets where a tab's stops are, for drawing,
     // wrapping and hit-testing alike; `tab_spaces` makes Tab type spaces
     // to the next stop; `auto_indent` makes Enter repeat the line's
-    // indent; `show_ws` marks spaces and tabs; `scroll_margin` keeps
+    // indent; `show_ws` reveals what draws nothing -- a dot for a space,
+    // an arrow for a tab, a return mark at each line's end, and a label
+    // for an invisible character ("ZWSP", a selector's "VS16"), which then
+    // takes its label's cells; `scroll_margin` keeps
     // that many rows visible around the caret when it moves.
     int tab_width;
     int tab_spaces;
@@ -196,6 +201,11 @@ int utext_putc(struct utext *t, char c);
 
 // Reads logical index `i`. Out of range returns 0.
 char utext_at(const struct utext *t, int i);
+// The CHARACTER at byte `i` as the editor steps over it: its code point,
+// tagged (ugfx.h's UGFX_CP_EMOJI / UGFX_CP_TEXT) when a variation
+// selector follows and belongs to it; returns the index after it, the
+// selector included. `*cp` is 0 at the end of the text.
+int utext_char(const struct utext *t, int i, uint32_t *cp);
 
 // Writes logical index `i`, in place. Out of range does nothing.
 void utext_set(struct utext *t, int i, char c);
@@ -249,6 +259,11 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
 // space becomes a logical index. Clicking past a line's end lands at
 // that end; below the last line lands at the buffer's end.
 int utext_index_at_point(struct utext *t, int x, int y, int w, int h, int px, int py);
+// The CHARACTER under the point rather than the boundary nearest it --
+// where a double click's word starts: the right half of a tab or a wide
+// character is still that character, and the blank after a row (wrapped
+// or not) is its last one.
+int utext_char_at_point(struct utext *t, int x, int y, int w, int h, int px, int py);
 
 // Scrolls the view so the caret is on screen, if it is not already --
 // what typing, arrow keys and a paste all need, and nothing else.
@@ -277,6 +292,10 @@ int  utext_sel_present(const struct utext *t);
 void utext_sel_range(const struct utext *t, int *out_start, int *out_end);
 void utext_sel_delete(struct utext *t);
 void utext_sel_all(struct utext *t);
+// A double click's word and a triple click's line at index `i`
+// (ui/uui_edit.h's rules); the caret ends after them.
+void utext_sel_word(struct utext *t, int i);
+void utext_sel_line(struct utext *t, int i);
 
 // --- text in and out, for a clipboard ---------------------------------
 

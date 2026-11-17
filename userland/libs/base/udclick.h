@@ -26,4 +26,15 @@ int udclick_word_ms(const char *word);
 
 void udclick_reload(void);
 
+// A RUN OF CLICKS: each press within the double-click time of the last
+// and within UDCLICK_SLOP px of it counts on -- 1, 2 (a double click),
+// 3 (a triple), then 1 again -- as Windows (SM_CXDOUBLECLK) and Qt count
+// them. What a text editor selects by: a word on 2, the line on 3.
+#define UDCLICK_SLOP 4
+struct udclick_run {
+    uint64_t ns;
+    int x, y, n;
+};
+int udclick_count(struct udclick_run *r, int x, int y);
+
 #endif

@@ -31,3 +31,14 @@ uint64_t udclick_ticks(void) { return (uint64_t)udclick_ms() * USER_HZ / 1000; }
 uint64_t udclick_ns(void)    { return (uint64_t)udclick_ms() * 1000000ull; }
 
 void udclick_reload(void) { g_ms = 0; }
+
+int udclick_count(struct udclick_run *r, int x, int y) {
+    uint64_t now = sys_monotonic_ns();
+    int dx = x - r->x, dy = y - r->y;
+    int near = dx <= UDCLICK_SLOP && -dx <= UDCLICK_SLOP && dy <= UDCLICK_SLOP && -dy <= UDCLICK_SLOP;
+    r->n = r->n > 0 && r->n < 3 && near && now - r->ns <= udclick_ns() ? r->n + 1 : 1;
+    r->ns = now;
+    r->x = x;
+    r->y = y;
+    return r->n;
+}

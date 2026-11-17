@@ -549,6 +549,9 @@ int ugfx_text_prev(const char *str, int i);
 // caret by dividing by the cell until the interface face stopped being
 // monospace.
 int ugfx_text_index_at_x(const char *str, int x);
+// The CHARACTER under `x` instead -- its start, whichever half was hit
+// (a double click's word starts there); past the end, the end.
+int ugfx_text_char_at_x(const char *str, int x);
 
 // Draws `str` with its top-left at (x, y), alpha-blending each glyph's
 // coverage between `bg` and `color` -- the same anti-aliased result the

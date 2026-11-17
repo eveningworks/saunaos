@@ -89,6 +89,19 @@ int ugfx_text_index_at_x(const char *str, int x) {
     return i;
 }
 
+int ugfx_text_char_at_x(const char *str, int x) {
+    if (!str || x <= 0) return 0;
+    int w = 0, prev = 0, i = 0;
+    uint32_t cp;
+    for (int nx; (nx = ugfx_text_decode(str, i, -1, &cp)) > i; i = nx) {
+        int adv = ugfx_kern(prev, (int)cp) + ugfx_cp_advance(cp);
+        if (x < w + adv) return i;
+        w += adv;
+        prev = (int)cp;
+    }
+    return i;
+}
+
 int ugfx_draw_string_elided(struct ugfx_surface *s, int x, int y, int max_w,
                             const char *str, uint32_t color, uint32_t bg) {
     if (!str) return 0;

@@ -19,6 +19,8 @@
 #include "base/uutf8.h"
 #include "base/uwcwidth.h"
 #include "base/uemoji.h"
+#include "base/uunicode.h"   // uunicode_abbrev: what show_ws labels
+#include "ui/uui_primitives.h"
 #include "ui/utheme.h"   // UUI_COLOR: a mark may name a role
 #include "ui/uui_caret.h"
 #include "ui/uui_undo.h"
@@ -33,13 +35,41 @@
 //
 // AN EMOJI-PRESENTATION CHARACTER (one a U+FE0F followed) IS TWO CELLS,
 // as UTS #51 makes an emoji presentation sequence wide -- ❤️ next to ❤.
-static int cells_at(const struct utext *t, uint32_t c, int col) {
+//
+// **WITH `show_ws`, A CHARACTER THAT DRAWS NOTHING IS ITS LABEL'S WIDTH**
+// ("ZWSP", "NBSP", a C0 control's "ESC"; base/uunicode.h), and a selector
+// folded into the character before it adds its own ("VS16") -- so the
+// caret, a click and a wrap all agree with what is drawn.
+// A label's cells: one an ASCII letter, in the fixed grid.
+static int label_cells(const char *s) {
+    int n = 0;
+    while (s[n]) n++;
+    return n;
+}
+
+static const char *reveal_label(const struct utext *t, uint32_t v) {
+    return t->show_ws ? uunicode_abbrev(v) : NULL;
+}
+
+static const char *selector_label(const struct utext *t, uint32_t c) {
+    if (!t->show_ws || !(c & (UGFX_CP_EMOJI | UGFX_CP_TEXT))) return NULL;
+    return c & UGFX_CP_EMOJI ? "VS16" : "VS15";
+}
+
+static int base_cells(const struct utext *t, uint32_t c, int col) {
     uint32_t v = c & UGFX_CP_VALUE;
+    const char *lab = reveal_label(t, v);
+    if (lab) return label_cells(lab);
     if (v != '\t' || t->tab_width <= 1) {
         if (v == '\t') return 1;
         return (c & UGFX_CP_EMOJI) && v > 0x7F ? 2 : uwcwidth(v);
     }
     return t->tab_width - col % t->tab_width;
+}
+
+static int cells_at(const struct utext *t, uint32_t c, int col) {
+    const char *vs = selector_label(t, c);
+    return base_cells(t, c, col) + (vs ? label_cells(vs) : 0);
 }
 
 // The character at byte `k`: its codepoint, and the index after it. A
@@ -60,6 +90,8 @@ static int char_at(const struct utext *t, int k, uint32_t *cp) {
     }
     return nx;
 }
+
+int utext_char(const struct utext *t, int i, uint32_t *cp) { return char_at(t, i, cp); }
 
 static int char_before(const struct utext *t, int k) {
     if (k <= 0) return 0;
@@ -277,6 +309,8 @@ static void wrap_build(struct utext *t, int cols) {
     w->cols = cols;
     w->rev = t->rev;
     w->wrap = t->wrap;
+    w->tab_width = t->tab_width;
+    w->show_ws = t->show_ws;
     w->stride = 1;
     w->n = 0;
     w->lno[w->n] = 0;
@@ -313,7 +347,9 @@ static void wrap_build(struct utext *t, int cols) {
 
 static void wrap_ensure(struct utext *t, int cols) {
     struct utext_wrap *w = &t->wrap_cache;
-    if (w->valid && w->cols == cols && w->rev == t->rev && w->wrap == t->wrap) return;
+    if (w->valid && w->cols == cols && w->rev == t->rev && w->wrap == t->wrap &&
+        w->tab_width == t->tab_width && w->show_ws == t->show_ws)
+        return;
     wrap_build(t, cols);
 }
 
@@ -542,6 +578,16 @@ static uint32_t mix(uint32_t a, uint32_t b, unsigned t) {
     return out;
 }
 
+// A label in a soft box over `cells` cells of the grid: what show_ws
+// draws for a character that draws nothing.
+static void draw_label(struct ugfx_surface *s, int x, int y, int cells, const char *label,
+                       uint32_t fg, uint32_t bg) {
+    // text-measure-ok: a fixed grid by contract -- see the top of this file
+    int cw = ugfx_char_w(), ch = ugfx_char_h(), w = cells * cw, inset = ch / 10;
+    uui_fill_round_rect(s, x + 1, y + inset, w - 2, ch - 2 * inset, ugfx_px(3), mix(bg, fg, 34));
+    ugfx_draw_string_clipped(s, x, y, w, label, mix(bg, fg, 190), UGFX_TRANSPARENT);
+}
+
 void utext_draw(struct utext *t, struct ugfx_surface *s,
                  int x, int y, int w, int h,
                  uint32_t fg, uint32_t bg, uint32_t sel_bg, int show_cursor) {
@@ -629,6 +675,10 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
             int col = vc - t->hscroll;   // hscroll is 0 while wrapping
             vc += n;
             if (col + n <= 0) continue;
+            // A LABEL CUT BY THE LEFT EDGE is not drawn: the row's clip
+            // takes in the gutter, and four cells of "VS16" would land on
+            // the line numbers. Its own cells show the background.
+            if (col < 0 && t->show_ws && (reveal_label(t, ch & UGFX_CP_VALUE) || selector_label(t, ch))) continue;
             if (col >= max_cols) break;
             while (mk < t->mark_count && t->marks[mk].end <= k) mk++;
             uint32_t cell = row_bg;
@@ -657,7 +707,12 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
                 }
                 continue;
             }
-            ugfx_draw_cp(s, rx, ry, ch, fg, cell);   // tagged by char_at(): U+FE0F decides
+            const char *lab = reveal_label(t, chv), *vs = selector_label(t, ch);
+            int vn = vs ? label_cells(vs) : 0;
+            if (lab) draw_label(s, rx, ry, n - vn, lab, fg, cell);
+            else ugfx_draw_cp(s, rx, ry, ch, fg, cell);   // tagged by char_at(): U+FE0F decides
+            // text-measure-ok: a fixed grid by contract -- see the top of this file
+            if (vs) draw_label(s, rx + (n - vn) * char_w, ry, vn, vs, fg, cell);
         }
         // A selection running THROUGH a line break should read as
         // reaching the end of the line, so paint one cell past the last
@@ -667,6 +722,24 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
             if (col >= 0 && col < max_cols)
                 // text-measure-ok: same grid contract
                 ugfx_fill_rect(s, x + col * char_w, ry, char_w, char_h, sel_bg);
+        }
+        // THE LINE'S END, with show_ws: a faint return arrow in the cell
+        // after it (Notepad++'s and Word's paragraph mark). A wrapped row
+        // ends at no character, so it gets none. After the selection's fill,
+        // which covers the same cell, and tinted against it.
+        if (t->show_ws && draw_end < t->count && t->buf[draw_end] == '\n') {
+            int col = col_of(t, i, draw_end) - t->hscroll;
+            if (col >= 0 && col < max_cols) {
+                // text-measure-ok: same grid contract
+                int ax = x + col * char_w, cy = ry + char_h / 2;
+                int in_sel = has_sel && draw_end >= sel_start && draw_end < sel_end;
+                uint32_t ink = mix(in_sel ? sel_bg : row_bg, fg, 80);
+                int x0 = ax + 2, x1 = ax + char_w - 3, top = ry + char_h / 4;
+                ugfx_fill_rect(s, x1, top, 1, cy - top + 1, ink);   // down...
+                ugfx_fill_rect(s, x0, cy, x1 - x0, 1, ink);         // ...and back
+                ugfx_fill_rect(s, x0 + 1, cy - 1, 1, 3, ink);       // the head
+                ugfx_fill_rect(s, x0 + 2, cy - 2, 1, 5, ink);
+            }
         }
 
         if (last_span(t, draw_end, next) || next <= i) break;
@@ -687,7 +760,10 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
     }
 }
 
-int utext_index_at_point(struct utext *t, int x, int y, int w, int h, int px, int py) {
+// `under`: the CHARACTER whose cells hold the point (a double click's
+// word), and past a row's end its last character -- else the caret
+// BOUNDARY nearest it, a click's.
+static int hit(struct utext *t, int x, int y, int w, int h, int px, int py, int under) {
     int max_cols, visible_rows;
     text_box(t, &x, &w);
     grid(w, h, &max_cols, &visible_rows);
@@ -717,16 +793,25 @@ int utext_index_at_point(struct utext *t, int x, int y, int w, int h, int px, in
                 uint32_t cp;
                 kn = char_at(t, k, &cp);
                 int n = cells_at(t, cp, vc);
-                if (want_col < vc + n) return (n > 1 && want_col - vc >= (n + 1) / 2) ? kn : k;
+                if (want_col < vc + n)
+                    return !under && n > 1 && want_col - vc >= (n + 1) / 2 ? kn : k;
                 vc += n;
             }
-            return draw_end;
+            return under && draw_end > i ? char_before(t, draw_end) : draw_end;
         }
-        if (last_span(t, draw_end, next) || next <= i)
-            return draw_end;   // clicked below the last line
+        if (last_span(t, draw_end, next) || next <= i)   // clicked below the last line
+            return under && draw_end > i ? char_before(t, draw_end) : draw_end;
         i = next;
     }
     return t->count;
+}
+
+int utext_index_at_point(struct utext *t, int x, int y, int w, int h, int px, int py) {
+    return hit(t, x, y, w, h, px, py, 0);
+}
+
+int utext_char_at_point(struct utext *t, int x, int y, int w, int h, int px, int py) {
+    return hit(t, x, y, w, h, px, py, 1);
 }
 
 int utext_widest_line(struct utext *t, int w, int h) {
@@ -921,6 +1006,9 @@ void utext_sel_all(struct utext *t) {
     t->ed.sel_active = 1;
     t->ed.cursor = t->count;
 }
+
+void utext_sel_word(struct utext *t, int i) { uui_edit_select_word(&t->ed, &UTEXT_EDIT_OPS, t, i); }
+void utext_sel_line(struct utext *t, int i) { uui_edit_select_line(&t->ed, &UTEXT_EDIT_OPS, t, i); }
 
 int utext_sel_text(const struct utext *t, char *out, int cap) {
     int s, e;

@@ -44,6 +44,8 @@
 #include "media/uclip.h"
 #include "keyboard.h" // KEY_* codes, the same ones the WM delivers
 #include "ui/umonofont.h"
+#include "base/uunicode.h"   // the character at the caret, named
+#include "base/udclick.h"
 #include "apps/apps/notepad/notepad.h"   // the options, their window, the kept state
 
 // A small inset so glyphs and the frame don't touch when there is no
@@ -101,6 +103,7 @@
 #define CMD_FIND_NEXT  28
 #define CMD_FIND_PREV  29
 #define CMD_OPTIONS    30
+#define CMD_SHOWWS     31
 #define CMD_RECENT_0   40   // .. + NP_RECENT_MAX - 1
 
 
@@ -208,6 +211,7 @@ static char g_lncol[24];
 static char g_chars[24];
 static char g_kind[16];
 static char g_eol[16];
+static char g_charinfo[160];   // the character at the caret, while invisibles are shown
 
 // --- the menu tree ----------------------------------------------------
 
@@ -281,6 +285,7 @@ static const struct uui_menu_item view_items[] = {
     UUI_MENU_SEP,
     UUI_MENU("Status bar", CMD_STATUSBAR, 0),
     UUI_MENU("Line numbers", CMD_LINENUMS, 0),
+    UUI_MENU("Invisible characters", CMD_SHOWWS, 0),
 };
 
 static const struct uui_menu_item menu_bar[] = {
@@ -831,6 +836,68 @@ static void group(char *out, int cap, int n) {
     out[o] = '\0';
 }
 
+// One code point as the inspector names it: "U+2764 HEAVY BLACK HEART",
+// a control by its abbreviation. PRINTABLE ASCII is itself, quoted --
+// the names file (a third of a megabyte, kept once read) is read only
+// when the caret first sits on something past ASCII.
+static int name_cp(char *out, int cap, uint32_t v) {
+    if (v >= 0x20 && v < 0x7F) return snprintf(out, (size_t)cap, "U+%04X '%c'", (unsigned)v, (char)v);
+    const char *ab = uunicode_abbrev(v), *nm = ab && v < 0x80 ? NULL : uunicode_name(v);
+    return snprintf(out, (size_t)cap, "U+%04X %s", (unsigned)v, nm ? nm : ab ? ab : "");
+}
+
+// THE CHARACTER AT THE CARET, while invisible characters are shown --
+// what a label stands for, and the bytes it is: Emacs' `C-x =`, VS
+// Code's Unicode highlight hover. The selector folded into it is named
+// too, as utext steps over the two as one.
+static void describe_caret(void) {
+    uint32_t cp;
+    int i = T->ed.cursor, nx = utext_char(T, i, &cp);
+    uint32_t v = cp & UGFX_CP_VALUE;
+    if (nx <= i) { g_charinfo[0] = '\0'; return; }
+    if (v == '\n') { strlcpy(g_charinfo, "U+000A line end", sizeof g_charinfo); return; }
+    // A STRAY BYTE is drawn as its Latin-1 letter (utext's rule), but it
+    // is not that character's UTF-8 -- the inspector says so rather than
+    // name an é the file does not hold.
+    char want[5];
+    int nb = nx - i - (cp & (UGFX_CP_EMOJI | UGFX_CP_TEXT) ? 3 : 0);
+    if (nb != uunicode_utf8(v, want)) {
+        snprintf(g_charinfo, sizeof g_charinfo, "not UTF-8: byte %02X", (unsigned)(unsigned char)utext_at(T, i));
+        return;
+    }
+    int o = name_cp(g_charinfo, sizeof g_charinfo, v);
+    // The selector by its label, as the text shows it: a status bar is
+    // short, and "VARIATION SELECTOR-16" would push the bytes off it.
+    if (cp & (UGFX_CP_EMOJI | UGFX_CP_TEXT) && o < (int)sizeof g_charinfo)
+        o += snprintf(g_charinfo + o, sizeof g_charinfo - (size_t)o, " + %s",
+                      cp & UGFX_CP_EMOJI ? "VS16" : "VS15");
+    for (int k = i; k < nx && o < (int)sizeof g_charinfo; k++)
+        o += snprintf(g_charinfo + o, sizeof g_charinfo - (size_t)o, k == i ? "   %02X" : " %02X",
+                      (unsigned)(unsigned char)utext_at(T, k));
+}
+
+// The panes: the message, then the fixed indicators on the right. While
+// invisibles are shown the character at the caret takes the stretch --
+// the message a pane as wide as it is (up to 32 characters), the count
+// and the kind stepping aside -- or at a default window's width its name
+// would be cut to "U+2".
+static void status_panes(void) {
+    int k = 0, ins = g_conf.show_ws, mlen = (int)strlen(g_status);
+    g_statusbar.panes[k].text = g_status;
+    g_statusbar.panes[k++].chars = !ins ? 0 : mlen < 4 ? 4 : mlen > 32 ? 32 : mlen + 1;
+    if (ins) {
+        describe_caret();
+        g_statusbar.panes[k].text = g_charinfo; g_statusbar.panes[k++].chars = 0;
+    }
+    g_statusbar.panes[k].text = g_lncol;     g_statusbar.panes[k++].chars = 14;
+    if (!ins) {
+        g_statusbar.panes[k].text = g_chars; g_statusbar.panes[k++].chars = 16;
+        g_statusbar.panes[k].text = g_kind;  g_statusbar.panes[k++].chars = 10;
+    }
+    g_statusbar.panes[k].text = g_eol;       g_statusbar.panes[k++].chars = 13;
+    g_statusbar.count = k;
+}
+
 // LOGICAL lines, not wrapped rows: "Ln 12" in every editor counts
 // newlines, and agrees with `sed -n 12p`.
 static void update_indicators(void) {
@@ -843,6 +910,7 @@ static void update_indicators(void) {
     strlcpy(g_kind, cur()->path[0] && looks_like_markdown(cur()->path) ? "Markdown" : "Plain text",
             sizeof g_kind);
     strlcpy(g_eol, cur()->crlf ? "Windows (CRLF)" : "Unix (LF)", sizeof g_eol);
+    status_panes();
 }
 
 // --- the clipboard ----------------------------------------------------
@@ -1053,6 +1121,8 @@ static unsigned menu_item_flags(int code) {
         return g_show_status ? UUI_MI_CHECKED : 0;
     case CMD_LINENUMS:
         return g_linenums ? UUI_MI_CHECKED : 0;
+    case CMD_SHOWWS:
+        return g_conf.show_ws ? UUI_MI_CHECKED : 0;
     case CMD_WORDWRAP:
         return utext_get_wrap(T) != UTEXT_WRAP_OFF ? UUI_MI_CHECKED : 0;
     case CMD_MARKDOWN:
@@ -1570,6 +1640,11 @@ static void do_command(struct uapp *a, int code) {
         for (int i = 0; i < g_ndocs; i++) g_docs[i]->text.gutter = g_linenums;
         conf_store();
         break;
+    case CMD_SHOWWS:
+        g_conf.show_ws = !g_conf.show_ws;
+        for (int i = 0; i < g_ndocs; i++) g_docs[i]->text.show_ws = g_conf.show_ws;
+        conf_store();
+        break;
     case CMD_MARKDOWN:
         cur()->preview = !cur()->preview;
         set_status(cur()->preview ? "preview on -- Ctrl-E to hide it" : "preview off");
@@ -1662,6 +1737,7 @@ static void editor_key(int key) {
 // --- Toykit callbacks -------------------------------------------------
 
 static int g_dragging;
+static struct udclick_run g_clicks;   // a double click selects a word, a triple the line
 static int g_scrollbar_grab; // how far down the thumb the drag started
 static int g_hbar_grab;
 
@@ -1934,10 +2010,15 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     } else if (x < tx + tw && y >= ty && y < ty + th) {
         // A click in the text gives it the keys back from the find field.
         if (g_find_open) uui_textbox_set_active(&g_find.field, 0);
-        T->ed.cursor = utext_index_at_point(T, tx, ty, tw, th, x, y);
-        utext_sel_start(T);
+        int n = udclick_count(&g_clicks, x, y);
+        if (n == 2) utext_sel_word(T, utext_char_at_point(T, tx, ty, tw, th, x, y));
+        else if (n == 3) utext_sel_line(T, utext_char_at_point(T, tx, ty, tw, th, x, y));
+        else {
+            T->ed.cursor = utext_index_at_point(T, tx, ty, tw, th, x, y);
+            utext_sel_start(T);
+        }
         if (T->ed.undo) uui_undo_break(T->ed.undo);   // a moved caret ends a typing run
-        g_dragging = 1;
+        g_dragging = n == 1;   // a drag from a word or line would undo it
     }
     uapp_redraw(a);
     ugfx_set_font(was_doc);
@@ -2061,13 +2142,7 @@ static void on_open_cb(struct uapp *a) {
 
     uui_dialog_init(&g_ask);
     uui_statusbar_init(&g_statusbar);
-    g_statusbar.count = 5;
-    g_statusbar.panes[0].text = g_status; g_statusbar.panes[0].chars = 0;
-    g_statusbar.panes[1].text = g_lncol;  g_statusbar.panes[1].chars = 14;
-    g_statusbar.panes[2].text = g_chars;  g_statusbar.panes[2].chars = 16;
-    g_statusbar.panes[3].text = g_kind;   g_statusbar.panes[3].chars = 10;
-    g_statusbar.panes[4].text = g_eol;    g_statusbar.panes[4].chars = 13;
-    update_indicators();
+    update_indicators();   // and the panes
 
     // AFTER the widgets exist: opening writes the status and the title.
     if (g_conf.reopen) session_restore(a);

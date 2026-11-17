@@ -25,7 +25,7 @@ struct np_conf {
     int tab_width;       // 2, 4 or 8
     int tab_spaces;      // Tab inserts spaces
     int auto_indent;     // a new line keeps the indent of the one above
-    int show_ws;         // spaces and tabs drawn
+    int show_ws;         // invisible characters shown: spaces, tabs, line ends, labels
     int wrap;            // new documents wrap
     // View
     int linenums, line_highlight, cmdbar, statusbar, menubar;

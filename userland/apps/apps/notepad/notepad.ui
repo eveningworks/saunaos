@@ -15,7 +15,7 @@ options #options title="Notepad Options" {
         }
         check #tabspaces "Insert spaces when Tab is pressed" key=tab_spaces
         check #indent caption="Typing:" "Keep the indent of the line above" key=auto_indent
-        check #whitespace "Show spaces and tabs" key=show_whitespace
+        check #whitespace "Show invisible characters" key=show_whitespace
         choice #wrap caption="Word wrap:" key=wrap {
             item "On" value=on
             item "Off" value=off

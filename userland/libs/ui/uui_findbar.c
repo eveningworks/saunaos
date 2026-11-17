@@ -179,21 +179,25 @@ static int fb_hit(const void *w, int cx, int cy) {
     return uui_hit(f->x, f->y, f->w, f->h, cx, cy);
 }
 
+// `pressed` while the press went to the field rather than a button.
+#define FB_FIELD (-2)
+
 static int fb_press(void *w, int cx, int cy, unsigned mods) {
-    (void)mods;
     struct uui_findbar *f = w;
     f->pressed = button_at(f, cx, cy);
     if (f->pressed < 0 && uui_textbox_hit(&f->field, cx, cy)) {
+        // The FIELD's own press: a click places the caret, a double click
+        // takes a word, a triple the whole field, and a drag selects.
         uui_textbox_set_active(&f->field, 1);
-        f->field.ed.cursor = uui_textbox_index_at_x(&f->field, cx);
-        f->field.ed.sel_active = 0;
+        uui_textbox_ops.press(&f->field, cx, cy, mods);
+        f->pressed = FB_FIELD;
     }
     return 1;
 }
 
 static int fb_motion(void *w, int cx, int cy, unsigned buttons) {
-    (void)buttons;
     struct uui_findbar *f = w;
+    if (f->pressed == FB_FIELD && buttons) return uui_textbox_ops.motion(&f->field, cx, cy, buttons);
     int h = button_at(f, cx, cy);
     if (h == f->hovered) return 0;
     f->hovered = h;

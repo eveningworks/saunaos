@@ -132,6 +132,23 @@ void ugfx_clip_save(const struct ugfx_surface *s, struct ugfx_clip *out)
 void ugfx_clip_restore(struct ugfx_surface *s, const struct ugfx_clip *c) { (void)s; (void)c; }
 void ugfx_clip_intersect(struct ugfx_surface *s, int x, int y, int w, int h)
 { (void)s; (void)x; (void)y; (void)w; (void)h; }
+// show_ws's labels: the drawing is stubbed, the LABELS are not -- their
+// length is how many cells a character takes. A few of base/uunicode's.
+const char *uunicode_abbrev(uint32_t cp) {
+    switch (cp) {
+    case 0x1B: return "ESC";
+    case 0x200B: return "ZWSP";
+    case 0xFE0E: return "VS15";
+    case 0xFE0F: return "VS16";
+    default: return 0;
+    }
+}
+int ugfx_px(int px) { return px; }
+int ugfx_draw_string_clipped(struct ugfx_surface *s, int x, int y, int w, const char *str,
+                             uint32_t f, uint32_t b)
+{ (void)s; (void)x; (void)y; (void)w; (void)str; (void)f; (void)b; return 0; }
+void uui_fill_round_rect(struct ugfx_surface *s, int x, int y, int w, int h, int r, uint32_t c)
+{ (void)s; (void)x; (void)y; (void)w; (void)h; (void)r; (void)c; }
 
 // **INCLUDED, NOT LINKED.** line_span() and line_begin() are static --
 // they are the rule and the accelerator, and testing an accelerator
@@ -689,10 +706,114 @@ static void check_utf8(void) {
     if (t.ed.cursor != 1) fail("a stray byte is one step", t.ed.cursor, 1);
 }
 
+// SHOW_WS: a character that draws nothing takes its label's cells, a
+// selector folded into the one before it adds its own -- and the wrap
+// index is rebuilt when the mode (or the tab width) changes, though the
+// text did not.
+static void check_reveal(void) {
+    static char b[256];
+    struct utext t;
+    utext_init_buf(&t, b, (int)sizeof b);
+    utext_insert_text(&t, "a\xe2\x80\x8b" "b", 5);   // a ZWSP b
+    utext_set_wrap(&t, UTEXT_WRAP_OFF);
+    t.show_ws = 1;
+    int at = utext_index_at_point(&t, 0, 0, 20 * CW, 4 * CH, 5 * CW + CW / 2, CH / 2);
+    if (at != 4) fail("show_ws: the b after a ZWSP is at column 5, past its label", at, 4);
+    at = utext_index_at_point(&t, 0, 0, 20 * CW, 4 * CH, 2 * CW + CW / 2, CH / 2);
+    if (at != 1) fail("show_ws: a click on the label's first half lands before it", at, 1);
+    int line = -1, col = -1;
+    pos_of_index(&t, 20, 4, &line, &col);
+    if (col != 5) fail("show_ws: the caret after a ZWSP label is at column 5", col, 5);
+
+    utext_init_buf(&t, b, (int)sizeof b);
+    utext_insert_text(&t, "\xe2\x9d\xa4\xef\xb8\x8f" "x", 7);   // ❤ U+FE0F x
+    utext_set_wrap(&t, UTEXT_WRAP_OFF);
+    at = utext_index_at_point(&t, 0, 0, 20 * CW, 4 * CH, 2 * CW + CW / 2, CH / 2);
+    if (at != 6) fail("an emoji heart is two cells: column 2 is the x", at, 6);
+    t.show_ws = 1;
+    pos_of_index(&t, 20, 6, &line, &col);
+    if (col != 6) fail("show_ws: an emoji heart (2 cells) and its VS16 label (4) are 6 cells", col, 6);
+    at = utext_char_at_point(&t, 0, 0, 20 * CW, 4 * CH, 5 * CW + CW / 2, CH / 2);
+    if (at != 0) fail("the character under the label's last cell is the heart", at, 0);
+    t.ed.cursor = 0;
+    utext_cursor_right(&t);
+    if (t.ed.cursor != 6) fail("show_ws: Right still steps over the heart and its selector", t.ed.cursor, 6);
+
+    // THE CACHE KEY: "ab ZWSP cd" in 6 columns is one line, and eight
+    // cells -- two lines -- once its label shows, with no edit between.
+    utext_init_buf(&t, b, (int)sizeof b);
+    utext_insert_text(&t, "ab\xe2\x80\x8b" "cd", 7);
+    utext_set_wrap(&t, UTEXT_WRAP_WORD);
+    int total = 0;
+    utext_metrics(&t, 6 * CW, 4 * CH, &total, NULL);
+    if (total != 1) fail("one line without show_ws", total, 1);
+    t.show_ws = 1;
+    utext_metrics(&t, 6 * CW, 4 * CH, &total, NULL);
+    if (total != 2) fail("show_ws relines the document without an edit", total, 2);
+    t.show_ws = 0;
+    utext_init_buf(&t, b, (int)sizeof b);
+    utext_insert_text(&t, "ab\tcd", 5);
+    t.tab_width = 2;
+    utext_metrics(&t, 6 * CW, 4 * CH, &total, NULL);
+    if (total != 1) fail("ab, a 2-wide tab and cd fit 6 columns", total, 1);
+    t.tab_width = 8;
+    utext_metrics(&t, 6 * CW, 4 * CH, &total, NULL);
+    if (total != 2) fail("a tab width change relines without an edit", total, 2);
+}
+
+// A double click's word and a triple click's line (ui/uui_edit.h).
+static void expect_sel(struct utext *t, const char *want, const char *what) {
+    char got[128];
+    int n = utext_sel_text(t, got, (int)sizeof got - 1);
+    got[n > 0 ? n : 0] = 0;
+    if (!xeq(got, want)) { printf("FAIL %s: \"%s\" != \"%s\"\n", what, got, want); fails++; }
+}
+
+static void check_words(void) {
+    static char b[256];
+    struct utext t;
+    utext_init_buf(&t, b, (int)sizeof b);
+    const char *s = "hello w\xc3\xb6rld, foo_bar\nnext line";   // hello wörld, foo_bar / next line
+    utext_insert_text(&t, s, xlen(s));
+    utext_sel_word(&t, 8);  expect_sel(&t, "w\xc3\xb6rld", "a word with a letter past ASCII is one word");
+    if (t.ed.cursor != 12) fail("the caret ends after the word", t.ed.cursor, 12);
+    utext_sel_word(&t, 12); expect_sel(&t, ",", "punctuation is its own run");
+    utext_sel_word(&t, 18); expect_sel(&t, "foo_bar", "an underscore joins a word");
+    utext_sel_word(&t, 5);  expect_sel(&t, " ", "a space is a run of blanks");
+    utext_sel_word(&t, 21); expect_sel(&t, "foo_bar", "past a line's end: the last word on it");
+    // A double click's start: the character UNDER the point. The right
+    // half of a 4-wide tab is still the tab; past a row's end, its last.
+    {
+        static char b2[64];
+        struct utext u;
+        utext_init_buf(&u, b2, (int)sizeof b2);
+        utext_insert_text(&u, "\tfoo", 4);
+        u.tab_width = 4;
+        utext_set_wrap(&u, UTEXT_WRAP_OFF);
+        int k = utext_char_at_point(&u, 0, 0, 20 * CW, 4 * CH, 3 * CW + 1, CH / 2);
+        if (k != 0) fail("the right half of a tab is the tab", k, 0);
+        k = utext_char_at_point(&u, 0, 0, 20 * CW, 4 * CH, 15 * CW, CH / 2);
+        if (k != 3) fail("past the row's end: its last character", k, 3);
+        // A WRAPPED row: past "aaa" is its last a, not the next row's b.
+        utext_init_buf(&u, b2, (int)sizeof b2);
+        utext_insert_text(&u, "aaa bbb", 7);
+        utext_set_wrap(&u, UTEXT_WRAP_WORD);
+        k = utext_char_at_point(&u, 0, 0, 4 * CW, 4 * CH, 3 * CW + CW / 2, CH / 2);
+        if (k != 2) fail("past a wrapped row's end: its last character", k, 2);
+    }
+    utext_sel_line(&t, 3);  expect_sel(&t, "hello w\xc3\xb6rld, foo_bar\n", "a triple click takes the line and its break");
+    utext_sel_line(&t, 26); expect_sel(&t, "next line", "the last line has no break to take");
+    utext_init_buf(&t, b, (int)sizeof b);
+    s = "a\xe2\x9d\xa4\xef\xb8\x8f\xe2\x9d\xa4\xef\xb8\x8f b";        // a ❤️❤️ b
+    utext_insert_text(&t, s, xlen(s));
+    utext_sel_word(&t, 1);  expect_sel(&t, "\xe2\x9d\xa4\xef\xb8\x8f\xe2\x9d\xa4\xef\xb8\x8f",
+                                       "emoji with their selectors are a run of their own");
+}
+
 int main(int argc, char **argv) {
     int corrupt = argc > 1 && xeq(argv[1], "--corrupt");
     int first = corrupt ? 2 : 1;
-    if (!corrupt) { check_semantics(); check_rule(); check_undo(); check_gutter(); check_tabs(); check_utf8(); }
+    if (!corrupt) { check_semantics(); check_rule(); check_undo(); check_gutter(); check_tabs(); check_utf8(); check_reveal(); check_words(); }
     for (int i = first; i + 1 < argc; i += 3) {
         int cols = atoi(argv[i + 1]);
         int wrap = atoi(argv[i + 2]);
