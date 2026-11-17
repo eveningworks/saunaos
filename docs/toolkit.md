@@ -41,6 +41,7 @@
 | `ucomponent.h` | The OPTIONAL COMPONENTS of this machine (docs/software-design.md): what each one is, whether it is installed, whose a file is, and removing one. |
 | `uconf.h` | /etc access for a ring-3 program: reading and writing `name=value` documents. |
 | `ucrash.h` | ucrash -- a ring-3 crash report from /var/crash, read: its header, the kernel log it carries, and a BACKTRACE recovered from the saved stack. |
+| `udatafetch.h` | GAME DATA FETCHED ON THE MACHINE -- a program's table of the data it can download (DOOM's IWADs, ScummVM's freeware games), each pinned by SHA-256, unpacked into place and its licence saved beside... |
 | `udate.h` | A `struct rtc_time` written the way the LC_TIME locale writes it -- "1.10.2026 14.02" in Finland, "10/1/2026 2:02 PM" in the US. |
 | `udclick.h` | udclick -- the double-click time: how soon a second click must follow the first to count as a double click. |
 | `udecl.h` | udecl -- a small DECLARATIVE TREE file: one node per line, a block of children in braces. |
@@ -223,6 +224,7 @@ Private seams of a split module, not for apps: `ttf_internal.h`, `uimg_jpeg_int.
 | `uui_countdown.h` | uui_countdown -- A QUESTION THAT ANSWERS ITSELF: a bold line, a sentence, a bar running down beside "Restarting in 9 seconds", and two buttons; when the time runs out the timeout's answer is taken. |
 | `uui_crtpick.h` | uui_crtpick.h -- a CRT screen effect's controls (ui/ucrt.h) as rows of an Options window (ui/uui_prefs.h): the Look gallery -- Off, then each preset, every card the app's own sample run through tha... |
 | `uui_ctxmenu.h` | uui_ctxmenu -- a WIDGET'S OWN right-click menu, hosted by uapp: a table header's column chooser is the first. |
+| `uui_datacard.h` | THE GAME-DATA CARD -- what a program shows over a black window when the data it plays is not on the machine: a card of what it can download (base/udatafetch.h), its licence to agree to or read, and... |
 | `uui_describe.h` | uui_describe.h -- a widget REPORTS ITS OWN GEOMETRY, by name. |
 | `uui_dialog.h` | A MODAL over the app's own window: a title, some lines, and a row of buttons. |
 | `uui_diskplan.h` | uui_diskplan -- what a disk holds NOW and what it will hold AFTER an operation, as two labelled partition maps one above the other: an installer's or a partitioner's before-and-after (Calamares' pa... |

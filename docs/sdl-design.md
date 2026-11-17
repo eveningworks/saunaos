@@ -5,7 +5,8 @@ programs written for Linux, Windows or macOS already speak, so a port
 is a recompile and not a new backend each time. ScummVM is the first
 program it is for; DOSBox and most SDL games are the ones after.
 
-**STAGES 0, 1, 2 AND 3 ARE BUILT (2026-11-17)** -- SDL 3.4.20 and sdl2-compat 2.32.74
+**STAGES 0 TO 4 ARE BUILT (2026-11-17)** -- ScummVM runs on it (stage 4,
+`make scummvm`). SDL 3.4.20 and sdl2-compat 2.32.74
 are vendored, build as `/lib/libSDL3.so.0` and `/lib/libSDL2-2.0.so.0`,
 and pass `/tests/sdl3_test` and `/tests/sdl2_test` with SDL's own dummy
 video and disk audio drivers; an SDL program opens a real desktop
@@ -336,11 +337,73 @@ It needed dynamic linking first -- sdl2-compat `dlopen()`s `libSDL3.so.0`
 default"). `cross_gcc_test.py` builds an SDL3 program with `pkg-config`
 and an SDL2 one with `sdl2-config` and runs both on a guest.
 
-### Stage 4 -- ScummVM
+### Stage 4 -- ScummVM -- BUILT 2026-11-17
 
-On its stock SDL backend, as a GPL optional component; the freeware
-games (Beneath a Steel Sky, Flight of the Amazon Queen, Lure of the
-Temptress, Drascula) through a downloader like DOOM's.
+ScummVM 2026.4.0 on its stock SDL2 backend (sdl2-compat over SDL3),
+with four engines -- sky, queen, lure, drascula -- the four freeware
+games' (Beneath a Steel Sky, Flight of the Amazon Queen, Lure of the
+Temptress, Drascula). The maintainer's picks, from the "ScummVM games
+options" canvas and two question rounds the same day:
+
+- **Fetched, as GNU make is** -- the source is 212 MiB, so it is the
+  `scummvm` row in `tools/fetch/fetch_extras.py` (licences shown,
+  `EXTRAS=1`), pinned in `tools/fetch/fetch_scummvm.py`; our change is
+  `userland/third_party/scummvm/patches/` (one line of `configure`:
+  SaunaOS is a POSIX host) and `tools/build/build_scummvm.sh`, which
+  cross-builds it with `x86_64-saunaos-g++` -- the first port built by
+  the cross compiler rather than the tree's gcc -- into
+  `toolchain/scummvm/usr`. `make scummvm` runs it (about a minute on
+  the dev host); the seed step carries that tree to the image while it
+  exists, never under `NOGPL=1`. 20 MB stripped, 10 MB of data beside it.
+- **zlib, libogg and libvorbis are linked in statically** (its zip
+  themes, compressed saves, Drascula's Ogg music); they reach the SDK
+  when a second port needs them (the roadmap). No MP3, FLAC, PNG,
+  FreeType, network or OpenGL: nothing these four games need.
+- **The game data lives in `/usr/share/games/<id>/`** (Debian's
+  shape, as DOOM's `/usr/share/doom`); ScummVM's settings and saves go
+  where its POSIX backend puts them, `$XDG_CONFIG_HOME/scummvm` and
+  `$XDG_DATA_HOME/scummvm/saves` -- which `/etc/environment` now sets
+  to `/home/.config` and `/home/.local/share` (HOME stays `/`), the
+  image ships those folders, and the front makes them on a machine
+  updated from before: ScummVM makes only its own folder beneath them.
+- **The front is DOOM's card (G2)** -- `/bin/wm/apps/scummvm`, the
+  Start menu's ScummVM: with a game here it registers any new one
+  (`scummvm --add --path=DIR`, so ScummVM writes its own list) and
+  becomes ScummVM's launcher (`execv`) with no window of its own; with
+  none, or as Free Adventure Games (`--games`), it shows the card,
+  several games at once, and does the same once its window has closed --
+  never inside the event loop, since each `--add` is a ScummVM run of
+  its own. A game is offered to ScummVM ONCE (`added_<id>` in
+  `/etc/scummvm-games.conf`), so one removed from ScummVM's list stays
+  removed. Its left button opens ScummVM's launcher, whose Add Game is
+  the way in for a game a person owns.
+- **The licence is a `uui_para`**: selectable, Ctrl+A / Ctrl+C, and the
+  right-click Copy / Select All through `uapp_popup_menu()`.
+- **The card is shared, and DOOM moved onto it**: `base/udatafetch.h`
+  (the table, the SHA-256-pinned fetch, the unpack into `<id>.part` and
+  the rename, the licence saved) and `ui/uui_datacard.h` (the rows --
+  radio or checkboxes --, each licence, the progress). The transfer is
+  passed in as `uhttp_download`: libhttp is not a toolkit library.
+- **Every game is pinned by the `.sha256` ScummVM publishes beside it**,
+  and fetched from `downloads.scummvm.org` (`mirror=` in
+  `/etc/scummvm-games.conf` stands in). Their licence is one freeware
+  text -- share it unchanged and free -- so it is a notice to read, not
+  an agreement; each game's own readme is saved to `/usr/share/licenses`.
+- **The component** is `scummvm` (GPL-3.0-or-later, `Built=if-present`):
+  the program, its data, the front and its two Start-menu entries, which
+  carry freedesktop's `TryExec=/usr/bin/scummvm` so a build without it
+  seeds neither.
+- **What building it found**: tolibc's `<string.h>` defined `memcpy` and
+  three others as function-like macros, which a hosted compiler does not
+  need and C++ forbids (ScummVM's `Std::memcpy` broke) -- now
+  freestanding C only; and `execl`/`execlp`/`execle` were missing.
+- **Tests**: `tools/tests/gui/scummvm_data_test.py` -- the card, a
+  tampered zip refused on its SHA-256 with nothing left behind (seen
+  red with the check removed), Lure downloaded from a loopback mirror,
+  registered in `scummvm.ini` under `XDG_CONFIG_HOME`, its licence
+  saved, the front handing over the next time, and `scummvm lure`
+  drawing the game. `doom_data_test.py` passed unchanged on the shared
+  card.
 
 ## Open questions
 

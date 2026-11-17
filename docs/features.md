@@ -380,6 +380,15 @@ one you have. A launcher page shows the data's own title picture, Start
 and the keys, and **F1 in a level** puts the same key sheet over the
 paused game; F1 again is DOOM's own help.
 
+**ScummVM plays classic adventure games** (an optional component, from
+`make scummvm`): ScummVM 2026.4.0 on its own SDL backend, over SaunaOS's
+SDL. With no game yet, the Start menu's ScummVM offers the four freeware
+games -- Beneath a Steel Sky, Flight of the Amazon Queen, Lure of the
+Temptress and Drascula with its music -- on the same card DOOM uses,
+several at once; each is checked against ScummVM's published SHA-256,
+added to ScummVM's list, and ScummVM's own launcher opens. Saves and
+settings live under `/home` (XDG's folders).
+
 **Windows 3.1 programs run in a window of their own** (`/bin/w16`, the
 shape of otvdm and Wine): an emulated 16-bit CPU in an ordinary ring-3
 process, and Windows' KERNEL, USER, GDI, COMMDLG, OLECLI and the rest

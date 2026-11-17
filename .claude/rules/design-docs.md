@@ -33,8 +33,8 @@ work), `update-design.md`, `software-design.md` (optional components + the Softw
 the network BUILT, on QEMU's e1000 and on real r8169s -- the Lenovo,
 the desktop),
 `sdl-design.md` (SDL3 + sdl2-compat as the platform layer for ported
-programs, SaunaOS an SDL private platform; stages 0-3 BUILT 2026-11-17, ScummVM next --
-before `userland/third_party/sdl3/`, SDL's drivers, or a port that
+programs, SaunaOS an SDL private platform; stages 0-4 BUILT 2026-11-17, stage 4 ScummVM (`make scummvm`) --
+before `userland/third_party/sdl3/`, SDL's drivers, `uui_datacard`, or a port that
 wants SDL), `netstack-design.md` (the network stack in ring 3, PLANNED -- before
 socket or `kernel/net/` work), `trace-design.md` (`strace` decoding in
 ring 3 and a debugger's stop, stages 1-3 BUILT -- before `strace.c` or

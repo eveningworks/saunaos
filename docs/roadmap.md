@@ -25,9 +25,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first  *(`fork()`/`exec()`-style process model)*
-- [ ] `execl`/`execlp` in tolibc  *(`fork()`/`exec()`-style process model)*
 - [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
-- [ ] Stage 4: ScummVM on its SDL backend, as a GPL optional component, with the freeware games' downloader  *(SDL: a platform layer for ported programs)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
 
@@ -238,7 +236,7 @@ only expensive part of it.
 - [x] ~~`/dev/null`~~ DONE 2026-11-11 -- with `/dev/zero` and `/dev/[u]random`, found by name in `sys_open()`
 - [ ] A `/dev` that lists and `stat()`s -- the devices are names `sys_open()` knows, so `ls /dev` is empty and `stat("/dev/null")` ENOENT
 - [x] ~~tolibc's mutex, rwlock and stdio locks park on a futex~~ DONE 2026-11-16 -- one `rt/ulock.h` for every ring-3 lock, malloc's too
-- [ ] **NEXT** `execl`/`execlp` in tolibc
+- [x] ~~`execl`/`execlp` in tolibc~~ DONE 2026-11-17 -- with `execle`, for ScummVM; `fork_test`
 - [ ] **NEXT** The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob
 - [x] ~~`brk`-style growable per-process heap~~ DONE -- `SYS_SBRK` reserves and `uheap_fault()` maps on touch; the heap is per process
 
@@ -1102,7 +1100,10 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Stage 2: SDL's audio driver over `usnd_push`~~ DONE 2026-11-17 -- `sdl_audio_test.py`, both SDLs, by the card's recording
 - [x] ~~Stage 3: preferences folder, clipboard, open URL, message boxes, relative mouse~~ DONE 2026-11-17 -- `sdl_stage3_test.py`
 - [x] ~~SDL in the SDK: SDL3's and SDL2's headers, `.pc` files and `sdl2-config`~~ DONE 2026-11-17 -- over dynamic linking by default
-- [ ] **NEXT** Stage 4: ScummVM on its SDL backend, as a GPL optional component, with the freeware games' downloader
+- [x] ~~Stage 4: ScummVM on its SDL backend, a GPL component, with the freeware games' downloader~~ DONE 2026-11-17 -- `make scummvm`
+- [ ] zlib, libogg and libvorbis in the SDK, for the second port that needs them -- ScummVM links its own copies statically
+- [ ] `uzip` reads a member's compressed bytes as it inflates them, rather than holding them all in memory
+- [ ] Window titles past 32 bytes are cut with no ellipsis (`WIN_TITLE_MAX`) -- ScummVM's game titles
 - [ ] A pointer lock with an absolute device (a tablet): relative motion from the change in position
 - [ ] More than one message box at a time in a program (`uui_msgbox` keeps one)
 - [ ] SDL and the toolkit built with unwind tables, so a C++ throw may cross an SDL callback

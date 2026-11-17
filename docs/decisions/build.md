@@ -2868,3 +2868,44 @@ through `SDL_Foo_REAL`; here the link binds them inside the library.
 **Why not a native ScummVM backend** (one `OSystem` class, as DOOM's
 doomgeneric glue). Smaller for ScummVM alone, but DOSBox and every
 other port would each need their own; SDL is that work once.
+
+## ScummVM is fetched and cross-built, its libraries linked in, its data under /usr/share/games
+
+*2026-11-17, the maintainer's picks (`docs/sdl-design.md`, stage 4).*
+
+**Fetched, not vendored, as GNU make is.** ScummVM's source is 212 MiB
+compressed and every engine's code; the four engines built use a small
+part, but a trimmed tree in git would be tens of MB of history to keep
+current by hand. So the tarball is pinned (`tools/fetch/fetch_scummvm.py`,
+the `scummvm` row of `fetch_extras.py`), our change is a patch directory,
+and `make scummvm` builds into `toolchain/scummvm/`, outside `build/`, as
+`make native-toolchain` does -- opt-in, carried to the image while it
+exists, never under `NOGPL=1`. It is the first port built by
+`x86_64-saunaos-g++` rather than the tree's freestanding gcc, which
+cannot build C++: the cross compiler is what the SDK is for.
+
+**zlib, libogg and libvorbis are static inside it**, not SDK libraries.
+One program uses them; promoting them is a few lines in the SDK when
+DOSBox or another port wants the same, and until then the base image
+gains nothing. Linux distributions share them because hundreds of
+programs link them; SaunaOS has one.
+
+**The games live in `/usr/share/games/<id>/`**, system data as DOOM's
+`/usr/share/doom` is, Debian's place for a game-data package. Settings
+and saves follow ScummVM's own POSIX rule -- `$XDG_CONFIG_HOME` and
+`$XDG_DATA_HOME` -- which `/etc/environment` now sets under `/home`
+rather than moving `HOME` from `/`: tosh's `~` and everything else that
+reads `HOME` stay where they are, and a later port finds the same three
+folders. The image ships them, because a program creates only its own
+folder beneath them.
+
+**The game-data card is the toolkit's, with the transfer passed in.**
+`base/udatafetch.h` and `ui/uui_datacard.h` came out of DOOM's front when
+ScummVM needed the same card. The download is `uhttp_download`, in
+libhttp, which is not one of the four toolkit libraries (it links
+libssl and libhash, and only programs that fetch link it); so the engine
+takes it as a pointer rather than make libbase depend on TLS.
+
+**ScummVM registers its own games** (`scummvm --add --path=DIR`): its
+ini's format is ScummVM's, and a front that wrote it would break with
+the next version's keys.

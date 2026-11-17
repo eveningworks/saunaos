@@ -235,6 +235,10 @@ All five stages, each tested red before green (`components_hostcheck`,
 - **`Built=if-present`** marks the compiler and make: a checkout with no
   `toolchain/native` has no such component, rather than a failing
   build; all of its paths or none. `NOGPL=1` stages no GPL component.
+  ScummVM (`scummvm`, 2026-11-17, `docs/sdl-design.md` stage 4) is the
+  third: `toolchain/scummvm` from `make scummvm`, and its front and
+  Start-menu entries, which the seed leaves out by their `TryExec=`
+  when the program is not there.
 - **The engine is two halves**, not one in libbase: `base/ucomponent.h`
   (definitions, owner, the state file, Remove, the closures, the GPL
   view) and `common/upd.h`'s `upd_component_add()` and the update's
