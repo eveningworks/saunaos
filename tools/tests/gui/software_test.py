@@ -283,9 +283,11 @@ def main():
         r = app.rect("cats.games")
         if r:
             click_rect(dbg, win, r)
-        st = app.wait(lambda s: s.get("cards") == 1)
-        res.check("a click on Games shows its one card, DOOM",
-                  r is not None and st and st["cat"] != 1 and list(app.cards()) == ["doom"],
+        # DOOM, and ScummVM when this build carries it (`make scummvm`).
+        games = [g for g in ("doom", "scummvm") if g in staged]
+        st = app.wait(lambda s: s.get("cards") == len(games))
+        res.check("a click on Games shows its cards: DOOM, and ScummVM when built",
+                  r is not None and st and st["cat"] != 1 and sorted(app.cards()) == games,
                   f"{r} {st} {sorted(app.cards())}")
         r = app.rect("cats.all")
         if r:
