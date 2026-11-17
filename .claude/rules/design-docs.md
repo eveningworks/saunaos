@@ -47,7 +47,7 @@ sandbox BUILT -- before NetSurf, `uui_webview` or HTTP/1.1 work in
 `libhttp`), `usb-storage-design.md` (USB sticks: BOT, UAS, exFAT,
 removal, root on a stick; stages 1, 2, 4 and 5 BUILT -- before
 `usb_storage.c`, a removable `block_device`, `blk_device_gone()` or
-automountd), `gui-test-sync-design.md` (GUI tests that wait for state, not time: guest-side
+automountd), `gui-unittest-design.md` (the toolkit and apps tested in-process, KTEST-style, a widget harness then an offscreen `uapp` -- PLANNED 2026-11-17, after SDL stage 4 -- before a test harness for widgets or a headless app), `gui-test-sync-design.md` (GUI tests that wait for state, not time: guest-side
 waits, guest-timed input, app idle -- the 2026-11-05 flake measurement and
 four stages; 1 and 2 BUILT, stage 3's diagnosis done, stage 4 and the app-busy protocol not -- before `gui_debug.py`'s waits, `wm_debug.c`'s
 commands or a new GUI test), `ui-files-design.md` (a window's widgets, menus and Options pages in a `.ui` file read at start, stages 1, 4a

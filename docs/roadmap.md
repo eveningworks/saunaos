@@ -27,8 +27,8 @@ buildable now. Something that MISBEHAVES is not here -- that is
 - [ ] A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first  *(`fork()`/`exec()`-style process model)*
 - [ ] `execl`/`execlp` in tolibc  *(`fork()`/`exec()`-style process model)*
 - [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
+- [ ] Stage 4: ScummVM on its SDL backend, as a GPL optional component, with the freeware games' downloader  *(SDL: a platform layer for ported programs)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
-- [ ] The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are  *(Programming on the machine)*
 <!-- END next-up -->
 
 
@@ -804,6 +804,13 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Read the four flakes stage 3 left; an app-busy protocol only if one needs it
 - [ ] Measure the suite again, by the same classification
 
+### GUI unit tests: the toolkit and apps in-process
+**Needs:** `docs/gui-unittest-design.md`, which measures the suite and stages this. Next after SDL stage 4, ahead of the C++ headers.
+
+- [ ] A widget harness on the host: widgets drawn into memory, driven by name through the real router
+- [ ] Whole apps headless: an offscreen `uapp` backend in place of the compositor
+- [ ] Move `gui_regress` checks that are widget logic down; measure the suite again
+
 ### Window files: widgets declared in a .ui file
 **Needs:** `docs/ui-files-design.md`, which stages it.
 
@@ -1095,7 +1102,11 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Stage 2: SDL's audio driver over `usnd_push`~~ DONE 2026-11-17 -- `sdl_audio_test.py`, both SDLs, by the card's recording
 - [x] ~~Stage 3: preferences folder, clipboard, open URL, message boxes, relative mouse~~ DONE 2026-11-17 -- `sdl_stage3_test.py`
 - [x] ~~SDL in the SDK: SDL3's and SDL2's headers, `.pc` files and `sdl2-config`~~ DONE 2026-11-17 -- over dynamic linking by default
-- [ ] Stage 4: ScummVM on its SDL backend, as a GPL optional component, with the freeware games' downloader
+- [ ] **NEXT** Stage 4: ScummVM on its SDL backend, as a GPL optional component, with the freeware games' downloader
+- [ ] A pointer lock with an absolute device (a tablet): relative motion from the change in position
+- [ ] More than one message box at a time in a program (`uui_msgbox` keeps one)
+- [ ] SDL and the toolkit built with unwind tables, so a C++ throw may cross an SDL callback
+- [ ] Game controllers in SDL: a joystick driver over the kernel's HID input
 - [ ] Per-thread signal masks and `pthread_sigmask()`, which would retire SDL's one patch
 - [ ] `tm_gmtoff` and `tm_zone` in tolibc's `struct tm` (POSIX.1-2024) -- the cross toolchain's libstdc++ must be rebuilt with it
 - [ ] `<semaphore.h>` in tolibc (`sem_init`, `sem_wait`, `sem_timedwait`, `sem_post`) -- SDL compiles its generic semaphore meanwhile
@@ -1746,7 +1757,7 @@ the design doc says why in its first section.
 - [x] ~~`%Lf`/`%Le`/`%Lg` in tolibc's printf~~ DONE 2026-11-10 -- with `%a`, `%n`, exact digits, rounded strtod
 - [ ] `<complex.h>` and `<tgmath.h>`, so libstdc++'s `std::complex` uses C99's `cexp` and friends
 - [ ] The wide-string and wide-I/O families in tolibc, so libstdc++ can be built with `wchar_t` (`std::wstring`, `std::wcout`)
-- [ ] **NEXT** The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are
+- [ ] The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are
 - [ ] A C++ layer over the toolkit, gtkmm's shape -- classes, lambdas for callbacks; the C library stays the implementation
 - [x] ~~The cross compiler links dynamically by default; `-static` opts out~~ DONE 2026-11-17 -- tables via `dl_iterate_phdr()`
 - [ ] A shared library built by the cross toolchain, with C++ in it -- needs libstdc++ built `-fpic` (its TLS is local-exec)
