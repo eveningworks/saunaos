@@ -76,9 +76,9 @@ THE SOURCE IS SERVED FROM THE SAME PLACE AS THE BINARIES
 GPL-2's section 3 counts source offered "from the same place" as the
 binaries as distributing it, and GPL-3's 6(d) asks the distributor to
 keep it available -- so each published build carries `source/`: a `git
-archive` of its commit (vendored ports included), and the pinned GNU
-release tarballs whenever the build carries the native toolchain or
-make. A tarball is stored ONCE under `<store>/sources/` and hard-linked
+archive` of its commit (vendored ports included), and the pinned upstream
+release tarballs whenever the build carries the native toolchain, make
+or ScummVM (SOURCE_SETS). A tarball is stored ONCE under `<store>/sources/` and hard-linked
 into each build, so ten builds with GCC cost one GCC. Debian's source
 packages beside its binaries are the shape.
 
@@ -156,6 +156,7 @@ import iso_guard          # noqa: E402
 import preflight_stamp    # noqa: E402
 from remote import USERLAND_TREES   # noqa: E402
 import fetch_toolchain    # noqa: E402
+import fetch_scummvm      # noqa: E402
 import components         # noqa: E402
 
 REPO = toolpath.REPO
@@ -602,14 +603,23 @@ def _by_key(text):
 
 
 # Which pinned tarball sets a build's binaries came from, by the licence
-# notice its staging carries (build_native_toolchain.sh and
-# build_native_make.sh write these beside what they build).
-SOURCE_SETS = (("native-toolchain.txt", "NATIVE"), ("native-make.txt", "MAKE"))
+# notice its staging carries (build_native_toolchain.sh,
+# build_native_make.sh and build_scummvm.sh write these beside what they
+# build): (notice, [(file, algorithm, pin)], where the fetcher keeps them,
+# the fetcher, for the README).
+SOURCE_SETS = (
+    ("native-toolchain.txt", [r[:3] for r in fetch_toolchain.NATIVE], fetch_toolchain.DEST_DIR,
+     "tools/fetch/fetch_toolchain.py"),
+    ("native-make.txt", [r[:3] for r in fetch_toolchain.MAKE], fetch_toolchain.DEST_DIR,
+     "tools/fetch/fetch_toolchain.py"),
+    ("scummvm-build.txt", [(n, "sha256", pin) for n, pin, _url in fetch_scummvm.TARBALLS],
+     fetch_scummvm.DEST_DIR, "tools/fetch/fetch_scummvm.py"),
+)
 
 
 def write_source(staging, store, out):
-    """`out`/: this commit as an archive, the GNU tarballs the build's
-    binaries came from, and a README naming them. Returns the names."""
+    """`out`/: this commit as an archive, the pinned upstream tarballs the
+    build's binaries came from, and a README naming them. Returns the names."""
     os.makedirs(out, exist_ok=True)
     full = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, check=True,
                           capture_output=True, text=True).stdout.strip()
@@ -619,13 +629,15 @@ def write_source(staging, store, out):
     names = [f"{tree}.tar.gz"]
     lic = os.path.join(staging, "usr", "share", "licenses")
     shared = os.path.join(store, "sources")
-    for notice, attr in SOURCE_SETS:
+    fetcher = {}
+    for notice, rows, dest_dir, tool in SOURCE_SETS:
         if not os.path.exists(os.path.join(lic, notice)):
             continue
-        for tb, algo, pin, _rel in getattr(fetch_toolchain, attr):
+        for tb, algo, pin in rows:
+            fetcher[tb] = tool
             kept = os.path.join(shared, tb)
             if not os.path.isfile(kept):
-                local = os.path.join(fetch_toolchain.DEST_DIR, tb)
+                local = os.path.join(dest_dir, tb)
                 # A build that carries the binaries and cannot offer their
                 # source must not publish: that is the obligation itself.
                 if not os.path.isfile(local) or fetch_toolchain.digest(local, algo) != pin:
@@ -643,7 +655,7 @@ def write_source(staging, store, out):
                  f"  {tree}.tar.gz  the repository at that commit: SaunaOS, its vendored\n"
                  f"      ports, toolchain/patches/ and the build scripts\n")
         for tb in names[1:]:
-            fh.write(f"  {tb}  the pinned upstream release (tools/fetch/fetch_toolchain.py)\n")
+            fh.write(f"  {tb}  the pinned upstream release ({fetcher[tb]})\n")
         fh.write("\nLICENSE, at the top of the archive, says what is under which licence.\n")
     return names
 

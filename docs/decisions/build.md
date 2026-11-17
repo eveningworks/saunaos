@@ -2762,9 +2762,9 @@ each build; Android vendors publish kernel trees on their own sites.
 
 **SaunaOS serves it from the update server**, at `<channel>/source/`:
 a `git archive` of the build's commit -- which holds every vendored
-port, the patches and the build scripts -- and the pinned GNU release
-tarballs whenever the build carries the native toolchain or make
-(decided by the licence notices the build staged, so the list cannot
+port, the patches and the build scripts -- and the pinned upstream
+release tarballs whenever the build carries the native toolchain, make
+or ScummVM (decided by the licence notices the build staged, so the list cannot
 disagree with what shipped). The tarballs are kept once and hard-linked
 into each build. A build that carries GCC and cannot offer its tarball
 is REFUSED at publish: the obligation is the point, so failing to meet
