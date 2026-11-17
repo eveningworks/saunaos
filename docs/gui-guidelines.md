@@ -873,7 +873,8 @@ reasoning and the worked example are in `docs/conventions/gui.md`):
   a greyed button's tooltip ("Unmount it first", Disks).
 - **Text a person reads can be selected and copied.** Drag to select,
   Ctrl+A for all, Ctrl+C to copy, a right-click menu with Copy and Select
-  All; the text cursor over the text, the HAND over a link (never the text
+  All, a double click for a word and a triple for the line (`uui_edit`'s,
+  so `utext` and every `uui_textbox` have them); the text cursor over the text, the HAND over a link (never the text
   cursor on a link), and a drag that starts on a link selects instead of
   following it. A read-only page is no exception -- a browser's and a
   PDF's are read-only.

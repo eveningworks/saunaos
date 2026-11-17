@@ -61,7 +61,7 @@ Exit status is non-zero on any violation. Needs gcc.
 # this repo's own Markdown and pci.ids. gcc and the standard library.
 RUNNER = {
     "name": "utext_host",
-    "covers": "the editor's wrap index vs a naive scan",
+    "covers": "the editor's wrap index vs a naive scan; shown invisibles' cells; word and line selection",
     "parallel": True,
 }
 

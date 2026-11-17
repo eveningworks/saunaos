@@ -939,8 +939,11 @@ the rest in the sweep. Each stays a standalone script with its own
 - **`utext_hostcheck.py`** -- also checks the EDIT HISTORY
   (`ui/uui_undo.c`: a word, a Backspace run, a replacement and a paste
   are one step each, clean is a position, a full history forgets its
-  oldest steps) and that the line-number gutter takes its share of the
-  box in the hit test. It compiles `userland/libs/ui/utext.c` with the
+  oldest steps), that the line-number gutter takes its share of the
+  box in the hit test, that `show_ws`'s labels take their cells (the
+  caret, a click and a wrap, and the wrap index rebuilt when the mode or
+  the tab width changes), and a double click's word and a triple click's
+  line, from the character UNDER the point. It compiles `userland/libs/ui/utext.c` with the
   host gcc, beside a NAIVE implementation of the same wrap rule written
   out longhand in the driver, and requires the two to agree over a
   corpus: this repository's own Markdown, a 4,000-line synthetic

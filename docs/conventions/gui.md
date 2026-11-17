@@ -389,7 +389,15 @@ this the obvious way), not from how much history it accumulated.
   nothing fails. Compare a returned code point with a letter as it is
   (the tags sit past U+10FFFF), or with `& UGFX_CP_VALUE` for its value.
   `uui_edit` steps over the pair as one character, so a caret never
-  splits it. The terminal's cells tag through `uvterm_cell_cp()`, the
+  splits it. **With `utext`'s `show_ws` a character that draws nothing
+  TAKES ITS LABEL'S CELLS** ("ZWSP", "ESC", base/uunicode.h's
+  `uunicode_abbrev()`), and a selector folded into the character before
+  it adds its own ("VS16") -- `cells_at()` counts them, so the caret, a
+  click and a wrap agree with what is drawn; a label painted OVER the
+  text without cells would put every one after it a label's width off.
+  The wrap index is keyed on `show_ws` and the tab width as well as the
+  text, the width and the wrap mode, since each changes how many cells a
+  character takes. The terminal's cells tag through `uvterm_cell_cp()`, the
   selector keeping a blank cell of its own.
 
 - **A WIDGET THAT DRAWS A TEXT CARET SAYS WHERE WITH `uui_caret_at()`,
@@ -6379,6 +6387,23 @@ File Manager row. The value is cached per process and dropped on every
 whose first click does slow work before the second is looked at adds
 SLACK to the time, never a time of its own (the File Manager's folder
 tree). DOOM's double-click "use" is the game's own and stays so.
+
+## A RUN OF CLICKS IS `udclick_count()`, AND A DOUBLE CLICK'S WORD STARTS AT THE CHARACTER UNDER THE POINTER
+
+Text counts its clicks with `udclick_count()` (base/udclick.h): within
+the double-click time and 4 px of the last (Windows' SM_CXDOUBLECLK),
+1, 2, 3, then 1 again. Two selects a word, three the line with its
+break (`uui_edit_select_word()`/`_line()`, KDE's and Windows' gestures;
+a single-line field takes itself whole, and a PASSWORD field always
+does -- a word of it would show where its punctuation is). **The word
+starts at the character UNDER the pointer, not at the caret boundary a
+single click rounds to**: `utext_char_at_point()`,
+`ugfx_text_char_at_x()`. The rounding one hands the right half of a
+letter, a tab or an emoji to the character AFTER it, so a double click
+on the last letter of a word selected the space beyond it, and past a
+wrapped row's end it took the next row's first word. A drag after a
+double or triple click leaves the selection alone; extending it word by
+word is not built.
 
 ## THE DESKTOP FOLLOWS THE FILE MANAGER'S FOLDER OPTIONS (`base/ufolderopts.h`)
 

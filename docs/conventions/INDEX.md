@@ -392,7 +392,8 @@ whenever a headline here tells you something you did not already know.
   GLYPH CACHE.**
 - **A VARIATION SELECTOR IS PART OF THE CHARACTER BEFORE IT:
   `ugfx_text_decode()` steps over it and TAGS the code point; a loop that
-  decodes by itself tags with `ugfx_cp_with_next()`.**
+  decodes by itself tags with `ugfx_cp_with_next()`.** With `show_ws`, a
+  character that draws nothing takes its label's cells.
 - **A WIDGET THAT DRAWS A TEXT CARET SAYS WHERE WITH `uui_caret_at()`,
   EVERY FRAME, WHATEVER THE BLINK.**
 - **`:name:` COMPLETION IS EVERY ROUTED `uui_textbox`'s; A FIELD WHOSE
@@ -949,6 +950,8 @@ whenever a headline here tells you something you did not already know.
   PRINTS TOO**
 - **A DOUBLE CLICK IS JUDGED BY `base/udclick.h`, NEVER BY A WIDGET'S OWN
   CONSTANT**
+- **A RUN OF CLICKS IS `udclick_count()`, AND A DOUBLE CLICK'S WORD STARTS AT
+  THE CHARACTER UNDER THE POINTER**
 - **THE DESKTOP FOLLOWS THE FILE MANAGER'S FOLDER OPTIONS
   (`base/ufolderopts.h`)**
 - **THE FILE MANAGER'S LEFT-PANE MENU ACTS ON THE ROW CLICKED, NEVER THE

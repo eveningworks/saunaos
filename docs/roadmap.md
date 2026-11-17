@@ -1177,6 +1177,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: Alt alone on a window with no menu bar -- 3.1 lit the control-menu box; w16 does nothing
 - [x] ~~w16: regions as more than their bounding rectangle~~ DONE 2026-10-24 -- lib/urgn rect lists; clips cut holes
 - [ ] GUI: selectable, copyable text in the read-only widgets -- `uui_markdown` and the labels have no selection (Help Viewer has)
+- [ ] GUI: a drag after a double or triple click extends by words or lines (Windows, KDE) -- it keeps the selection as it is
 - [ ] w16: popup menus at a point -- TrackPopupMenu shows nothing and answers FALSE
 - [ ] w16: Help Viewer's rest -- bookmarks and annotations
 - [ ] w16: IsIconic answers from the main window's state -- toywm minimizes it, and it says no; a child or popup answers
