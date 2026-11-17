@@ -252,14 +252,10 @@ def build_toolkit(jobs):
     return lib, len(todo), len(srcs)
 
 
-# An APP source a control edits: build_app() compiles the staged copy.
-APP_OVERRIDE = {}
-
-
 def control_archive(lib, control):
-    """A copy of the archive with one source rebuilt from an edited copy --
-    or, for an app's own source (userland/apps/), the archive as it is and
-    the copy handed to build_app()."""
+    """(archive, override): a copy of the archive with one source rebuilt
+    from an edited copy -- or, for an app's own source (userland/apps/),
+    the archive as it is and {source: edited copy} for build_app()."""
     src, before, after, _ = control
     pcdir = os.path.join(BUILD, "control")
     os.makedirs(pcdir, exist_ok=True)
@@ -269,10 +265,8 @@ def control_archive(lib, control):
     staged = os.path.join(pcdir, os.path.basename(src))
     with open(staged, "w") as fh:
         fh.write(body.replace(before, after, 1))
-    APP_OVERRIDE.clear()
     if src.startswith("userland/apps/"):
-        APP_OVERRIDE[os.path.join(ROOT, src)] = staged
-        return lib
+        return lib, {os.path.join(ROOT, src): staged}
     obj = os.path.join(pcdir, obj_name(src))
     # The copy sits elsewhere, so its own directory's headers must still be found.
     _, rc, err = compile_one(src, obj, staged=staged)
@@ -283,7 +277,7 @@ def control_archive(lib, control):
     r = run(["ar", "r", pclib, obj])
     if r.returncode:
         sys.exit(f"uitest_host: ar failed:\n{r.stderr}")
-    return pclib
+    return pclib, {}
 
 
 def build_harness():
@@ -325,7 +319,7 @@ def build_harness():
 APP_LINE = re.compile(r"^//\s*uitest-app:\s*(\S+)")
 
 
-def build_app(case, bindir, name):
+def build_app(case, bindir, name, override):
     """A case whose first line is `// uitest-app: DIR` drives that app
     (stage 2): DIR's sources, compiled as the guest compiles a program but
     with main renamed uitest_app_main, which tools/lib/uitest/uitest_app.c
@@ -342,14 +336,14 @@ def build_app(case, bindir, name):
     for src in srcs:
         obj = os.path.join(bindir, f"{name}__app__{os.path.basename(src)[:-2]}.o")
         r = run([*GCC, *TOOLKIT_FLAGS, *INC_LIBC, *INC_API, "-I" + os.path.join(ROOT, app),
-                 "-Dmain=uitest_app_main", "-c", "-o", obj, APP_OVERRIDE.get(src, src)])
+                 "-Dmain=uitest_app_main", "-c", "-o", obj, override.get(src, src)])
         if r.returncode:
             return [], f"compile of {os.path.relpath(src, ROOT)} failed:\n{r.stderr}"
         out.append(obj)
     return out, None
 
 
-def link_case(case, harness, lib, bindir):
+def link_case(case, harness, lib, bindir, override):
     harness, own = harness
     name = os.path.basename(case)[:-len("_uitest.c")]
     obj = os.path.join(bindir, name + ".o")
@@ -358,7 +352,7 @@ def link_case(case, harness, lib, bindir):
     r = run([*GCC, *CASE_FLAGS, *INC_LIBC, *INC_API, "-I" + HARNESS, "-Iuserland/tests", "-c", "-o", obj, case])
     if r.returncode:
         return name, None, f"compile failed:\n{r.stderr}"
-    app_objs, err = build_app(case, bindir, name)
+    app_objs, err = build_app(case, bindir, name, override)
     if err:
         return name, None, err
     r = run([*GCC, "-o", exe, obj, *app_objs, *harness, "-Wl,--start-group", lib, own, "-Wl,--end-group",
@@ -426,13 +420,14 @@ def run_case(name, exe, root, keep):
     return name, ok, out
 
 
-def run_all(cases, harness, lib, jobs, keep, quiet=False):
-    bindir = os.path.join(BUILD, "bin" if lib.endswith("hostui/libhostui.a") else "bin-control")
+def run_all(cases, harness, lib, jobs, keep, quiet=False, override=None, control=False):
+    # A control's binaries apart from the real ones, an app control's too.
+    bindir = os.path.join(BUILD, "bin-control" if control else "bin")
     os.makedirs(bindir, exist_ok=True)
     root = make_root()
     results = {}
     with concurrent.futures.ThreadPoolExecutor(jobs) as ex:
-        built = list(ex.map(lambda c: link_case(c, harness, lib, bindir), cases))
+        built = list(ex.map(lambda c: link_case(c, harness, lib, bindir, override or {}), cases))
         for name, exe, err in built:
             if err:
                 results[name] = (False, err)
@@ -491,15 +486,14 @@ def main():
     wrong = []
     for control in CONTROLS:
         src, _, _, reds = control
-        pclib = control_archive(lib, control)
+        pclib, override = control_archive(lib, control)
         print(f"uitest_host: control in {src} -- {', '.join(reds)} must go red")
-        results = run_all(cases, harness, pclib, args.jobs, None, quiet=True)
+        results = run_all(cases, harness, pclib, args.jobs, None, quiet=True, override=override, control=True)
         for name, (ok, _) in results.items():
             if name in reds and ok:
                 wrong.append(f"{name} stayed GREEN under the control in {src}")
             elif name not in reds and not ok:
                 wrong.append(f"{name} went red under the control in {src}, which it does not cover")
-    APP_OVERRIDE.clear()
     for w in wrong:
         print(f"uitest_host: {w}")
     print("uitest_host: positive control " + ("FAILED" if wrong else "passed: every control was caught"))

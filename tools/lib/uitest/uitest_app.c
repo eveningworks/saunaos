@@ -1,8 +1,9 @@
 // A whole app on the host, against a stand-in compositor -- see
 // uitest_app.h. The protocol answers here are toywm's (wm_client.c),
 // reduced to one client and one window; a request it does not know is
-// dropped, and a CALL it does not know is refused (a = -1), which is
-// what an older server answers too.
+// dropped. A CALL it does not know goes unanswered and times out once the
+// clock passes the caller's deadline, which uapp reads as the refusal an
+// older server gives.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,8 +37,8 @@ static struct {
     // full ring, sys_sleep_ms).
     volatile uint32_t *word;
     uint32_t expected;
-    int timeout_ms;
-    int timed_out;                  // resumed because the clock moved, not the word
+    int timeout_ms;                 // 0: no deadline
+    uint64_t parked_ns;             // the clock when it parked
     // The window: its last presented frame and what it said about itself.
     int w, h;
     uint32_t *frame;
@@ -47,7 +48,6 @@ static struct {
     char title[WIN_TITLE_LEN];
     struct widget *widgets;
     int nwidgets, cap;
-    unsigned buttons;
 } g;
 
 static void fail(const char *what) {
@@ -62,7 +62,7 @@ static int futex_hook(volatile uint32_t *word, uint32_t expected, int timeout_ms
     g.word = word;
     g.expected = expected;
     g.timeout_ms = timeout_ms;
-    g.timed_out = 0;
+    g.parked_ns = uitest_now_ns();
     uh_coro_yield();
     if (*word != expected) return 0;
     return -1;   // the timeout: the clock was moved past it
@@ -103,8 +103,8 @@ static void reply(int pid, int a, int b, int c) {
 
 static void take_present(int pid, const struct wmchan_msg *m) {
     if (m->window != 0) return;   // a popup surface: none are granted
-    int buf = WIN_PRESENT_BUF(m->a), gen = (int)((uint32_t)m->a >> 2);
-    int w = (int)(((uint32_t)m->b >> 16) & 0xFFFF), h = (int)((uint32_t)m->b & 0xFFFF);
+    int buf = WIN_PRESENT_BUF(m->a), gen = (int)WIN_PRESENT_GEN(m->a);
+    int w = WIN_PRESENT_W(m->b), h = WIN_PRESENT_H(m->b);
     char name[WIN_BUF_NAME_MAX];
     snprintf(name, sizeof name, WIN_BUF_NAME_FMT, pid, (int)m->window, buf);
     int fd = sys_shm_open_from(name, pid);
@@ -179,7 +179,13 @@ static void serve(void) {
     while ((pid = uchan_server_recv(&g.srv, &m, sizeof m)) > 0) handle(pid, &m);
 }
 
-// Resume the app until it parks with nothing changed by serving it.
+// A park whose deadline the clock has moved past: the wait timed out.
+static int deadline_passed(void) {
+    return g.timeout_ms > 0 && uitest_now_ns() >= g.parked_ns + (uint64_t)g.timeout_ms * 1000000ull;
+}
+
+// Resume the app until it parks with nothing changed by serving it and
+// its deadline still ahead.
 static void run(void) {
     for (int spins = 0; !uh_coro_done(); spins++) {
         if (spins > 5000) { fail("the app parks (it ran 5000 resumes without one)"); return; }
@@ -188,6 +194,7 @@ static void run(void) {
         serve();
         if (!g.word) continue;                        // a sleep: served, go on
         if (*g.word != g.expected) continue;          // a reply or an event: wake it
+        if (deadline_passed()) continue;              // the clock moved past it: a timeout
         return;                                       // parked, and nothing for it
     }
 }
@@ -202,10 +209,18 @@ int uitest_app_settle(void) {
     for (int i = 0; !uh_coro_done() && g.timeout_ms > 0 && g.timeout_ms <= 100; i++) {
         if (i > 2000) { fail("the app's animations settle"); break; }
         uitest_advance_ms(g.timeout_ms);
-        g.timed_out = 1;
         run();
     }
     return !uh_coro_done();
+}
+
+// The hooks out and the channel closed: after the app has ended, or when
+// it never got going, so nothing after it parks into a coroutine that is
+// not there.
+static void teardown(void) {
+    uitest_futex_hook = NULL;
+    uitest_sleep_hook = NULL;
+    uchan_server_close(&g.srv);
 }
 
 int uitest_app_start(int argc, char **argv) {
@@ -216,12 +231,13 @@ int uitest_app_start(int argc, char **argv) {
     if (uchan_server_open(&g.srv, WMCHAN_SERVICE) < 0) { fail("the stand-in compositor opens its channel"); return 0; }
     uitest_futex_hook = futex_hook;
     uitest_sleep_hook = sleep_hook;
-    if (uh_coro_start(entry, 8u << 20) < 0) { fail("the app's stack is made"); return 0; }
+    if (uh_coro_start(entry, 8u << 20) < 0) { fail("the app's stack is made"); teardown(); return 0; }
     uitest_app_settle();
     if (uh_coro_done()) {
         char what[96];
         snprintf(what, sizeof what, "the app shows a window (its main returned %d first)", g.status);
         fail(what);
+        teardown();
         return 0;
     }
     if (!g.frames) fail("the app presents a first frame");
@@ -316,11 +332,12 @@ void uitest_app_tick(int n) {
 int uitest_app_close(void) {
     send_event(WIN_EV_CLOSE, 0, 0, 0);
     uitest_app_settle();
-    if (!uh_coro_done()) { fail("the app exits when its window is asked to close"); return -1; }
-    uitest_futex_hook = NULL;
-    uitest_sleep_hook = NULL;
-    uchan_server_close(&g.srv);
-    return g.status;
+    int done = uh_coro_done();
+    if (!done) fail("the app exits when its window is asked to close");
+    // Torn down either way: a case that goes on must not park into an app
+    // still suspended on its stack.
+    teardown();
+    return done ? g.status : -1;
 }
 
 FILE *__real_fopen(const char *path, const char *mode);

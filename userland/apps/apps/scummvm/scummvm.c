@@ -10,8 +10,8 @@
 // ScummVM's file. A game is marked offered (`added_<id>` in GAMES_CONF)
 // once ScummVM's list NAMES it, so one the person then removes from that
 // list stays removed -- and a folder ScummVM did not take is asked again
-// at the next start rather than hidden for good (marking every attempt
-// is how a failed add once kept a game out of the list for ever). That
+// at the next start (up to TRIES_MAX) rather than hidden after one failed
+// add, which is how a game once stayed out of the list for ever. That
 // runs a ScummVM per new game, seconds each, so it happens after the
 // card's window has closed, never inside its event loop.
 #include "base/uconf.h"
@@ -124,6 +124,27 @@ static int offered(const struct udata_item *g) {
     return uconf_get(GAMES_CONF, key, v, sizeof v) && !strcmp(v, "yes");
 }
 
+static void mark_offered(const struct udata_item *g) {
+    char key[48];
+    snprintf(key, sizeof key, "added_%s", g->id);
+    uconf_set(GAMES_CONF, key, "yes");
+}
+
+// A folder ScummVM does not take is asked again at the next start -- but
+// not for ever: each ask runs a ScummVM (seconds), so after TRIES_MAX the
+// game is marked offered and left alone. 0 when this was the last try.
+#define TRIES_MAX 3
+static int another_try(const struct udata_item *g) {
+    char key[48], v[8];
+    snprintf(key, sizeof key, "tries_%s", g->id);
+    int n = uconf_get(GAMES_CONF, key, v, sizeof v) ? atoi(v) : 0;
+    snprintf(v, sizeof v, "%d", ++n);
+    uconf_set(GAMES_CONF, key, v);
+    if (n < TRIES_MAX) return 1;
+    mark_offered(g);
+    return 0;
+}
+
 static int run_wait(char *const argv[]) {
     pid_t pid;
     if (posix_spawn(&pid, argv[0], NULL, NULL, argv, environ) != 0) return -1;
@@ -165,18 +186,26 @@ static void register_games(void) {
     free(ini);
     for (int i = 0; i < GAME_COUNT; i++) {
         char *dir = udata_path(GAMES_DIR, &GAMES[i]), *arg = NULL;
-        if (dir && access(dir, F_OK) == 0 && (!have_ini || !offered(&GAMES[i])) && !registered(dir) &&
-            asprintf(&arg, "--path=%s", dir) >= 0) {
+        if (!dir || access(dir, F_OK) != 0 || (have_ini && offered(&GAMES[i]))) {
+            free(dir);
+            continue;
+        }
+        // Listed already (ScummVM's own Add Game, an add whose mark was
+        // lost): marked here too, or removing it later would not stick.
+        if (registered(dir)) {
+            mark_offered(&GAMES[i]);
+        } else if (asprintf(&arg, "--path=%s", dir) >= 0) {
             char *argv[] = { SCUMMVM, "--add", arg, NULL };
             int rc = run_wait(argv);
             if (registered(dir)) {
-                char key[48];
-                snprintf(key, sizeof key, "added_%s", GAMES[i].id);
-                uconf_set(GAMES_CONF, key, "yes");
+                mark_offered(&GAMES[i]);
                 ulogf("scummvm: added %s to ScummVM's list (exit %d)\n", GAMES[i].id, rc);
-            } else {
+            } else if (another_try(&GAMES[i])) {
                 ulogf("scummvm: ScummVM did not list %s (exit %d); asked again next start\n",
                       GAMES[i].id, rc);
+            } else {
+                ulogf("scummvm: ScummVM did not list %s (exit %d) in %d tries; left alone\n",
+                      GAMES[i].id, rc, TRIES_MAX);
             }
         }
         free(arg);

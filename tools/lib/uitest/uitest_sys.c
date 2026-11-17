@@ -261,13 +261,13 @@ int sys_shm_unlink(const char *name) {
 int sys_shm_grant(const char *name, int pid) { (void)pid; return shm_find(name) ? 0 : fail(-2); }
 
 void *sys_mmap(void *addr, uint64_t length, int prot, int flags, int fd, uint64_t offset) {
-    (void)addr; (void)prot; (void)flags;
-    if (fd >= SHM_FD_BASE && fd < SHM_FD_BASE + g_shm_count) {
+    (void)addr; (void)prot;
+    if (!(flags & SYS_MAP_ANONYMOUS) && fd >= SHM_FD_BASE && fd < SHM_FD_BASE + g_shm_count) {
         struct shm_obj *o = &g_shm[fd - SHM_FD_BASE];
         if (offset + length > o->bytes) { g_errno = 22; return (void *)-1; }
         return (char *)o->mem + offset;
     }
-    if (fd < 0) {   // anonymous
+    if (flags & SYS_MAP_ANONYMOUS) {   // fd and offset ignored, as the ABI says
         void *p = calloc(1, length ? (size_t)length : 1);
         if (p) return p;
         g_errno = 12;

@@ -120,7 +120,9 @@ int main(void) {
     uitest_advance_ms(3000);
     uitest_app_tick(3);
     s = rclick_cell(4, 4);   // an open cell: the sampling poke, it changes nothing
-    utest_checkf(s.ok && (s.phase != 1 || s.elapsed > t1), "the clock runs while a game is in progress (%d -> %d)",
+    // A game still RUNNING: a first click that won outright would pass a
+    // stopped clock here (the fixed board does not, and must not start to).
+    utest_checkf(s.ok && s.phase == 1 && s.elapsed > t1, "the clock runs while a game is in progress (%d -> %d)",
                  t1, s.elapsed);
 
     // --- a right-click flags, and the flag is DRAWN ------------------------------------

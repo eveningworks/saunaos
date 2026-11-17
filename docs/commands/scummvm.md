@@ -39,7 +39,8 @@ Its list and options are `/home/.config/scummvm/scummvm.ini`, its saves
 front sets the same defaults when started without them, or ScummVM would
 write its list into its working directory). A game counts as added once
 ScummVM's list names it; a folder ScummVM does not take is offered again
-at the next start, and `dmesg` says `ScummVM did not list <id>`.
+at the next start, up to three times, and `dmesg` says `ScummVM did not
+list <id>`.
 
 ## What it deliberately does not do
 
