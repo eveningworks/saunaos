@@ -163,9 +163,13 @@ int uopen_spawn(const char *path) {
     return pid;
 }
 
+int uopen_is_web_url(const char *url) {
+    return url && (!strncasecmp(url, "http://", 7) || !strncasecmp(url, "https://", 8));
+}
+
 int uopen_url(const char *url) {
     if (!url) return -1;
-    if (!strncasecmp(url, "http://", 7) || !strncasecmp(url, "https://", 8)) {
+    if (uopen_is_web_url(url)) {
         char *argv[] = { (char *)UOPEN_BROWSER, (char *)url, 0 };
         return sys_spawn_argv(argv[0], argv);
     }

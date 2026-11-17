@@ -306,9 +306,12 @@ the question round of the same day:
   `WIN_EV_RAW_REL` instead of moving it, forwarded as `WIN_EV_MOUSE_REL`.
   Held in the KERNEL, not warped back each frame, so a click lands where
   the lock is however fast the mouse moved, and an edge stops nothing.
-  In force only while its window has the focus: Alt+Tab or another
-  window suspends it and the focus coming back resumes it -- the way out
-  every desktop gives. An absolute device (a tablet) still moves the
+  In force only while its window has the focus and none of the
+  compositor's own overlays is up: Alt+Tab, the Start menu, a flyout or
+  another window suspends it and their going resumes it -- the way out
+  every desktop gives. A lock's motion at a text VT is dropped, and it
+  reaches the compositor before a click in the same poll (motion, then
+  the button, as an evdev frame orders them). An absolute device (a tablet) still moves the
   pointer and adds no motion. `SDL_WarpMouseInWindow` is
   `uapp_window_set_pointer()`.
 - **Fullscreen** came with stage 1.

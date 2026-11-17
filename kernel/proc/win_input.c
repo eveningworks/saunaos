@@ -346,6 +346,7 @@ void win_input_poll(void) {
         int ex, ey, x, y;
         while (mouse_try_get_button_edge(&e, &ex, &ey)) {}
         (void)mouse_get_wheel_delta();
+        (void)mouse_get_rel_delta(&ex, &ey);   // a lock's motion at the VT is the VT's
         mouse_get_state(&x, &y, &held);
         uint8_t keep = g_last_buttons & held;   // releases only
         if (keep != g_last_buttons && input_room() >= 2)
@@ -381,6 +382,13 @@ void win_input_poll(void) {
     // poll never makes queue_push() evict input to fit input. A button
     // transition may be two events (push_button_edge()), so it waits for
     // two slots.
+    // A LOCK'S MOTION GOES BEFORE THIS POLL'S CLICKS, as an evdev frame's
+    // REL before its BTN: a flick then a click aims, then fires. The
+    // accumulator has no per-edge split, so motion after a click in the
+    // same poll goes first too -- a poll apart, never a click early.
+    int rdx, rdy;
+    if (input_room() > 0 && mouse_get_rel_delta(&rdx, &rdy)) push(WIN_EV_RAW_REL, rdx, rdy, 0);
+
     int ex = 0, ey = 0;
     while (input_room() >= 2 && mouse_try_get_button_edge(&edge, &ex, &ey)) {
         uint8_t told = push_button_edge(ex, ey, g_last_buttons, edge);
@@ -422,6 +430,5 @@ void win_input_poll(void) {
         int wheel = mouse_get_wheel_delta();
         if (wheel != 0) push(WIN_EV_RAW_WHEEL, wheel, 0, 0);
     }
-    int rdx, rdy;                     // ...and so does a lock's motion
-    if (input_room() > 0 && mouse_get_rel_delta(&rdx, &rdy)) push(WIN_EV_RAW_REL, rdx, rdy, 0);
+
 }

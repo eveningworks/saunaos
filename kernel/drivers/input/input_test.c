@@ -218,6 +218,12 @@ KTEST("input", "a pointer lock holds the pointer and hands over its motion") {
 
     int save_x = 0, save_y = 0, x = 0, y = 0, dx = 0, dy = 0;
     uint8_t buttons = 0;
+    // win_input_poll() runs from scheduler_idle() and drains the same
+    // accumulator, so nothing else runs between a feed and its read; a
+    // compositor's own lock is put back after.
+    scheduler_preempt_disable();
+    int was_wanted = mouse_rel_wanted();
+    mouse_want_rel(0);
     mouse_get_state(&save_x, &save_y, &buttons);
 
     // What a report moves the pointer by, free -- speed and acceleration
@@ -226,7 +232,6 @@ KTEST("input", "a pointer lock holds the pointer and hands over its motion") {
     mouse_feed_rel(6, 4);                       // PS/2 sense: +y is up
     mouse_get_state(&x, &y, &buttons);
     int mx = x - w / 2, my = y - h / 2;
-    KTEST_ASSERT(mx > 0 && my < 0);
 
     mouse_set_position(w / 2, h / 2);
     mouse_want_rel(1);
@@ -236,18 +241,24 @@ KTEST("input", "a pointer lock holds the pointer and hands over its motion") {
     int got = mouse_get_rel_delta(&dx, &dy);
     int again = mouse_get_rel_delta(&dx, &dy);  // read and reset
     mouse_want_rel(0);
-    KTEST_ASSERT_EQ(x, w / 2);                  // held
-    KTEST_ASSERT_EQ(y, h / 2);
-    KTEST_ASSERT_EQ(got, 1);
-    KTEST_ASSERT_EQ(dx, 2 * mx);                // the motion, summed
-    KTEST_ASSERT_EQ(dy, 2 * my);
-    KTEST_ASSERT_EQ(again, 0);
+    int hx = x, hy = y, hdx = dx, hdy = dy;
 
     // Let go: motion moves the pointer again and nothing accumulates.
     mouse_feed_rel(6, 4);
     mouse_get_state(&x, &y, &buttons);
     int after = mouse_get_rel_delta(&dx, &dy);
     mouse_set_position(save_x, save_y);
+    mouse_want_rel(was_wanted);
+    scheduler_preempt_enable();
+    // Asserted only now: a failed assert returns, and must not leave
+    // preemption off or a compositor's lock cleared.
+    KTEST_ASSERT(mx > 0 && my < 0);
+    KTEST_ASSERT_EQ(hx, w / 2);                 // held
+    KTEST_ASSERT_EQ(hy, h / 2);
+    KTEST_ASSERT_EQ(got, 1);
+    KTEST_ASSERT_EQ(hdx, 2 * mx);               // the motion, summed
+    KTEST_ASSERT_EQ(hdy, 2 * my);
+    KTEST_ASSERT_EQ(again, 0);
     KTEST_ASSERT_EQ(x, w / 2 + mx);
     KTEST_ASSERT_EQ(after, 0);
 }

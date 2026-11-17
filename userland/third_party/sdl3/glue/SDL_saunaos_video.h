@@ -36,8 +36,11 @@ float SAUNAOS_Scale(void);
  * (the desktop went away). What uapp_pump() returned. */
 int SAUNAOS_Pump(int timeout_ms);
 
-/* Is a SAUNAOS_Pump() under way: an SDL event watcher runs inside one. */
+/* Is a SAUNAOS_Pump() under way: an SDL event watcher runs inside one.
+ * SAUNAOS_PumpNest(+1/-1) marks a pump of someone else's (a message box's
+ * wait) as one, so a watcher it dispatches to cannot pump inside it. */
 bool SAUNAOS_InPump(void);
+void SAUNAOS_PumpNest(int delta);
 
 /* SDL_saunaos_messagebox.c: the device's hook, and the bootstrap's, which
  * needs no driver up. */

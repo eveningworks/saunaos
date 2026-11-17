@@ -98,6 +98,7 @@ int mouse_get_wheel_delta(void);
 // ABSOLUTE device still moves it and adds nothing. mouse_get_rel_delta():
 // 1 with a non-zero delta, and the accumulator reset.
 void mouse_want_rel(int on);
+int  mouse_rel_wanted(void);
 int  mouse_get_rel_delta(int *dx, int *dy);
 
 #endif

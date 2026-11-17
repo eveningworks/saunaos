@@ -1164,9 +1164,10 @@ struct win_cursor_image {
 // FOCUS the pointer stays where it is -- put at the content's centre
 // first if it was outside -- and the window hears WIN_EV_MOUSE_REL for
 // every movement, never a WIN_EV_MOUSE_MOVE; buttons and the wheel arrive
-// as usual. Focus going anywhere else (Alt+Tab, Super, a click the
-// keyboard made) SUSPENDS it with the pointer free, and the focus coming
-// back resumes it: the lock is the window's until it lets go or closes.
+// as usual. Focus going anywhere else, or one of the compositor's own
+// overlays opening (Alt+Tab, Super's Start menu, a flyout, the Leave page),
+// SUSPENDS it with the pointer free, and their going resumes it: the lock
+// is the window's until it lets go or closes.
 // No reply. The client hides its own cursor (WIN_REQ_CURSOR).
 #define WIN_REQ_POINTER_LOCK 55
 // `window`: the locked window; a, b: relative motion in screen pixels.

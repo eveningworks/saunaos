@@ -162,6 +162,7 @@ def box_rects(dbg, win, names, timeout=10.0):
 
 
 def check_msgbox(dbg, qmp, log, res, shot):
+    answered = len(dbg.logs("msgbox: answered", clear=False))
     run(dbg, log, "msgbox")
     if not log.wait("ready"):
         res.check("the message-box program opens its window", False, f"log: {log.tail()}")
@@ -217,6 +218,11 @@ def check_msgbox(dbg, qmp, log, res, shot):
     ln = log.wait("answer ")
     res.check("Return answers the return button's id", ln is not None and "answer 11 ok 1" in ln,
               f"log: {log.tail()}")
+    # ONE answer per box: the focused button's Enter is not answered again
+    # by the window's own key handler (a second answer could reach a box
+    # opened from the first one's reply).
+    lines = dbg.logs("msgbox: answered", clear=False)[answered:]
+    res.check("each of the four boxes answered once", len(lines) == 4, f"answers: {lines}")
 
     run(dbg, log, "alone")
     a = box(dbg, "Before video")
@@ -274,6 +280,23 @@ def check_rel(dbg, qmp, log, res):
     qmp.mouse_up("left")
     res.check("a click still arrives while held", log.wait("button 1 down") is not None,
               f"log: {log.tail()}")
+
+    # The Start menu (Super) is the compositor's own, not a window: it too
+    # suspends the lock, and closing it resumes it.
+    qmp.send_key("meta_l")
+    dbg.settle()
+    at = dbg.cursor()
+    push(qmp, 15)
+    dbg.settle()
+    res.check("Super's Start menu suspends it: the pointer moves", dbg.cursor()[0] > at[0],
+              f"before {at}, after {dbg.cursor()}")
+    qmp.send_key("esc")
+    dbg.settle()
+    at = dbg.cursor()
+    push(qmp, 15)
+    dbg.settle()
+    res.check("...and closing it resumes it: held again", dbg.cursor() == at,
+              f"before {at}, after {dbg.cursor()}")
 
     # Another window takes the focus: the lock is suspended.
     log.mark()

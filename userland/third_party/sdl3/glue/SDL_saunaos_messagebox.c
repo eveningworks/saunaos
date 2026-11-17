@@ -16,10 +16,11 @@ static bool show(struct uapp *a, const SDL_MessageBoxData *data, int *buttonID)
     if (uui_msgbox_is_open()) {
         return SDL_SetError("SaunaOS shows one message box at a time");
     }
-    struct uui_msgbox_button buttons[UUI_MSGBOX_MAX_BUTTONS];
     int n = data->numbuttons;
-    if (n > UUI_MSGBOX_MAX_BUTTONS) {
-        return SDL_SetError("A message box has at most %d buttons", UUI_MSGBOX_MAX_BUTTONS);
+    struct uui_msgbox_button *buttons =
+        (struct uui_msgbox_button *)SDL_calloc(n > 0 ? (size_t)n : 1, sizeof *buttons);
+    if (!buttons) {
+        return false;   /* SDL_calloc set the error */
     }
     bool rtl = (data->flags & SDL_MESSAGEBOX_BUTTONS_RIGHT_TO_LEFT) != 0;
     for (int i = 0; i < n; i++) {
@@ -45,7 +46,9 @@ static bool show(struct uapp *a, const SDL_MessageBoxData *data, int *buttonID)
         .owner = data->window && data->window->internal ? data->window->internal->uw : NULL,
     };
     int code;
-    if (!uui_msgbox_run(a, &m, &code)) {
+    int shown = uui_msgbox_run(a, &m, &code);
+    SDL_free(buttons);
+    if (!shown) {
         return SDL_SetError("SaunaOS: the message box could not be shown");
     }
     *buttonID = code == UUI_MSGBOX_CLOSED ? -1 : code;
@@ -60,7 +63,12 @@ bool SAUNAOS_ShowMessageBox(SDL_VideoDevice *_this, const SDL_MessageBoxData *da
     if (SAUNAOS_InPump()) {
         return SDL_SetError("SaunaOS: no message box from inside event handling");
     }
-    return show(SAUNAOS_app, data, buttonID);
+    /* The box's wait pumps the app, dispatching to the SDL windows too:
+     * counted as a pump, so their watchers' SAUNAOS_Pump stays out. */
+    SAUNAOS_PumpNest(1);
+    bool ok = show(SAUNAOS_app, data, buttonID);
+    SAUNAOS_PumpNest(-1);
+    return ok;
 }
 
 /* Before SDL_Init(VIDEO), or with another driver up: an app of our own,

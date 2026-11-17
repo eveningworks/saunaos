@@ -6,13 +6,20 @@
 // pointer, so a click lands where the lock is however fast the mouse
 // moved, and an edge stops nothing.
 //
-// IN FORCE ONLY WHILE ITS WINDOW HAS THE FOCUS. Alt+Tab, Super or a
-// window opening over it suspends it with the pointer free; the focus
-// coming back resumes it -- the lock is the window's until it lets go or
-// closes (Wayland's persistent lifetime). That is the way out a held
-// pointer needs, the keyboard's, as on every desktop.
+// IN FORCE ONLY WHILE ITS WINDOW HAS THE FOCUS AND NONE OF THE
+// COMPOSITOR'S OWN OVERLAYS IS UP. Alt+Tab, Super's Start menu, a flyout,
+// the Leave page or a window opening over it suspends it with the pointer
+// free -- those are not windows[], so the focus alone does not see them;
+// the lock coming back resumes it -- the lock is the window's until it
+// lets go or closes (Wayland's persistent lifetime). That is the way out a
+// held pointer needs, the keyboard's, as on every desktop.
+//
+// AN ABSOLUTE DEVICE (a tablet) still moves the kernel's pointer; while
+// the lock is in force the frame keeps reporting the lock point, so the
+// locked window hears no position, only no motion.
 #include "wm_internal.h"
 #include "apps/system/toywm/wm_ptrlock.h"
+#include "apps/system/toywm/wm_overlay.h"   // wm_overlay_any_open()
 #include "rt/sys.h"
 #include "win_proto.h"
 #include "base/ulog.h"
@@ -20,6 +27,7 @@
 // Held by open_seq, never index: a raise renumbers windows[].
 static uint32_t g_seq;
 static int g_active;
+static int g_lx, g_ly;   // where it is held
 
 static void hold(int on) {
     struct win_request_msg q = {0};
@@ -48,12 +56,11 @@ void wm_ptrlock_request(int idx, int on) {
     ulogf("wm: pointer lock %s by window %d\n", on ? "asked" : "released", idx);
 }
 
-int wm_ptrlock_active(void) { return g_active; }
-
 void wm_ptrlock_frame(int *mx, int *my) {
     int idx = g_seq ? wm_window_by_seq(g_seq) : -1;
     if (g_seq && idx < 0) g_seq = 0;   // its window went away
-    int want = idx >= 0 && idx == wm_focus_index() && windows[idx].state != WIN_MINIMIZED;
+    int want = idx >= 0 && idx == wm_focus_index() && windows[idx].state != WIN_MINIMIZED &&
+               !wm_overlay_any_open();
     if (want && !g_active) {
         // Held where it is when that is over the content, else at the
         // content's centre -- a lock asked from the keyboard.
@@ -67,11 +74,17 @@ void wm_ptrlock_frame(int *mx, int *my) {
         }
         hold(1);
         g_active = 1;
+        g_lx = *mx;
+        g_ly = *my;
         ulogf("wm: pointer lock in force for window %d at %d,%d\n", idx, *mx, *my);
     } else if (!want && g_active) {
         hold(0);
         g_active = 0;
         ulogf("wm: pointer lock suspended\n");
+    }
+    if (g_active) {
+        *mx = g_lx;
+        *my = g_ly;
     }
 }
 

@@ -16,7 +16,5 @@ void wm_ptrlock_frame(int *mx, int *my);
 // Relative motion from the kernel (WIN_EV_RAW_REL), for the locked window.
 void wm_ptrlock_motion(int dx, int dy);
 
-// Is a lock in force -- the pointer held -- this frame?
-int wm_ptrlock_active(void);
 
 #endif

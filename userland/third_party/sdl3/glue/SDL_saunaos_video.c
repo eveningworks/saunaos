@@ -147,6 +147,11 @@ bool SAUNAOS_InPump(void)
     return g_pump_depth > 0;
 }
 
+void SAUNAOS_PumpNest(int delta)
+{
+    g_pump_depth += delta;
+}
+
 int SAUNAOS_Pump(int timeout_ms)
 {
     static bool told;

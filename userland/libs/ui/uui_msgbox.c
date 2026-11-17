@@ -17,18 +17,24 @@
 static struct uapp_window *g_win;
 static uui_msgbox_fn g_done;
 static void *g_ctx;
-static int g_kind, g_count, g_key_took;
+static int g_kind, g_count;
 static char *g_title;
-static char *g_labels[UUI_MSGBOX_MAX_BUTTONS];
-static int g_codes[UUI_MSGBOX_MAX_BUTTONS];
-static unsigned g_flags[UUI_MSGBOX_MAX_BUTTONS];
+
+// The buttons, as many as asked for: allocated with the box, freed with it.
+struct mb_button {
+    char *label;
+    int code;
+    unsigned flags;
+    struct uui_button b;
+};
+static struct mb_button *g_b;
+static struct uui_item *g_foot_items;          // the spacer, then each button
+static struct uui_focusable *g_focusables;
 
 static struct uui_para g_para;
-static struct uui_button g_btn[UUI_MSGBOX_MAX_BUTTONS];
 static struct uui_label g_spacer;
-static struct uui_item g_body_items[2], g_foot_items[UUI_MSGBOX_MAX_BUTTONS + 1], g_root_items[2];
+static struct uui_item g_body_items[2], g_root_items[2];
 static struct uui_layout g_body_l, g_foot_l, g_root_l;
-static struct uui_focusable g_focusables[UUI_MSGBOX_MAX_BUTTONS];
 static struct uui_focus g_focus;
 
 // --- the severity badge: a disc in the severity's colour, a glyph on it ----
@@ -95,10 +101,14 @@ static void finish(int code) {
         g_win = 0;
     }
     uui_para_free(&g_para);
-    for (int i = 0; i < g_count; i++) {
-        free(g_labels[i]);
-        g_labels[i] = 0;
-    }
+    for (int i = 0; g_b && i < g_count; i++) free(g_b[i].label);
+    free(g_b);
+    free(g_foot_items);
+    free(g_focusables);
+    g_b = 0;
+    g_foot_items = 0;
+    g_focusables = 0;
+    g_count = 0;
     free(g_title);
     g_title = 0;
     ulogf("msgbox: answered %d\n", code);
@@ -107,21 +117,22 @@ static void finish(int code) {
 
 static int with_flag(unsigned flag) {
     for (int i = 0; i < g_count; i++)
-        if (g_flags[i] & flag) return i;
+        if (g_b[i].flags & flag) return i;
     return -1;
 }
 
+// A click, or Enter or Space on the focused button -- the focus ring
+// commits those as a click. RETURN works by FOCUS: the return button has it
+// when the box opens, and Enter is the focused button's, as in MessageBox.
+// So Enter is never answered here as well: the window hears the same key
+// after the ring, and a second answer could reach a box `done` just opened.
 static void w_action(struct uapp_window *w, int code) {
     (void)w;
-    if (code >= ID_BUTTON && code < ID_BUTTON + g_count) finish(g_codes[code - ID_BUTTON]);
+    if (code >= ID_BUTTON && code < ID_BUTTON + g_count) finish(g_b[code - ID_BUTTON].code);
 }
 
 static void w_widget(struct uapp_window *w, int id, int reason) {
-    if (reason == UUI_REASON_KEY && id >= ID_BUTTON && id < ID_BUTTON + g_count) {
-        g_key_took = 1;   // the focused button took this Enter or Space
-        finish(g_codes[id - ID_BUTTON]);
-        return;
-    }
+    (void)id; (void)reason;
     if (g_win) uapp_window_redraw(w);
 }
 
@@ -132,20 +143,14 @@ static void w_key(struct uapp_window *w, int key, unsigned mods) {
     }
     if (key == 0x1B) {
         int i = with_flag(UUI_MSGBOX_ESCAPE);
-        if (i >= 0) finish(g_codes[i]);
-        return;
+        if (i >= 0) finish(g_b[i].code);
     }
-    if ((key == '\n' || key == '\r') && !g_key_took) {
-        int i = with_flag(UUI_MSGBOX_RETURN);
-        if (i >= 0) finish(g_codes[i]);
-    }
-    g_key_took = 0;
 }
 
 static void w_close(struct uapp_window *w) {
     (void)w;
     int i = with_flag(UUI_MSGBOX_ESCAPE);
-    finish(i >= 0 ? g_codes[i] : UUI_MSGBOX_CLOSED);
+    finish(i >= 0 ? g_b[i].code : UUI_MSGBOX_CLOSED);
 }
 
 // The message on the field colour, the buttons on a strip of the panel
@@ -155,7 +160,7 @@ static int margin(void) { return ugfx_px(14); }
 static void w_draw(struct uapp_window *w, struct uapp_draw *d) {
     int ww = uapp_window_width(w), wh = uapp_window_height(w);
     // The band starts one margin above the buttons: the root's gap is two.
-    int foot = g_count ? g_btn[0].y - margin() : wh;
+    int foot = g_count ? g_b[0].b.y - margin() : wh;
     ugfx_fill_rect(d->surface, 0, 0, ww, foot, UTHEME_WHITE);
     ugfx_fill_rect(d->surface, 0, foot, ww, wh - foot, UTHEME_PANEL_BG);
     ugfx_fill_rect(d->surface, 0, foot, ww, 1, UTHEME_SEPARATOR);
@@ -164,18 +169,21 @@ static void w_draw(struct uapp_window *w, struct uapp_draw *d) {
 // --- building it ---------------------------------------------------------------
 
 static int take(const struct uui_msgbox *m) {
-    if (!m || m->count < 1 || m->count > UUI_MSGBOX_MAX_BUTTONS) return 0;
+    if (!m || m->count < 1 || !m->buttons) return 0;
     g_kind = m->kind;
     g_count = m->count;
-    g_key_took = 0;
     g_title = strdup(m->title ? m->title : "");
-    int ok = g_title != 0 && uui_para_init(&g_para, m->message);
-    for (int i = 0; i < g_count; i++) {
-        g_labels[i] = strdup(m->buttons[i].label ? m->buttons[i].label : "");
-        g_codes[i] = m->buttons[i].code;
-        g_flags[i] = m->buttons[i].flags;
-        ok = ok && g_labels[i];
+    g_b = calloc((size_t)g_count, sizeof *g_b);
+    g_foot_items = calloc((size_t)g_count + 1, sizeof *g_foot_items);
+    g_focusables = calloc((size_t)g_count, sizeof *g_focusables);
+    int ok = g_title && g_b && g_foot_items && g_focusables && uui_para_init(&g_para, m->message);
+    for (int i = 0; ok && i < g_count; i++) {
+        g_b[i].label = strdup(m->buttons[i].label ? m->buttons[i].label : "");
+        g_b[i].code = m->buttons[i].code;
+        g_b[i].flags = m->buttons[i].flags;
+        ok = g_b[i].label != 0;
     }
+    if (!ok) ulogf("msgbox: no memory for a box of %d button(s)\n", m->count);
     return ok;
 }
 
@@ -195,13 +203,14 @@ static void build(void) {
     uui_label_init(&g_spacer, "");
     g_foot_items[nf++] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_spacer, .flags = UUI_FILL_W };
     for (int i = 0; i < g_count; i++) {
-        uui_button_init(&g_btn[i], 0, 0, 0, 0, g_labels[i], UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_BUTTON + i);
-        g_btn[i].outlined = 1;
-        uui_button_set_default(&g_btn[i], (g_flags[i] & UUI_MSGBOX_RETURN) != 0);
-        if (g_flags[i] & UUI_MSGBOX_RETURN) first_focus = i;
-        g_foot_items[nf++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_btn[i],
-                                                .id = ID_BUTTON + i, .name = g_labels[i] };
-        g_focusables[i] = (struct uui_focusable){ &g_btn[i], &uui_button_ops };
+        struct uui_button *b = &g_b[i].b;
+        uui_button_init(b, 0, 0, 0, 0, g_b[i].label, UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_BUTTON + i);
+        b->outlined = 1;
+        uui_button_set_default(b, (g_b[i].flags & UUI_MSGBOX_RETURN) != 0);
+        if (g_b[i].flags & UUI_MSGBOX_RETURN) first_focus = i;
+        g_foot_items[nf++] = (struct uui_item){ .ops = &uui_button_ops, .widget = b,
+                                                .id = ID_BUTTON + i, .name = g_b[i].label };
+        g_focusables[i] = (struct uui_focusable){ b, &uui_button_ops };
     }
     g_foot_l = (struct uui_layout){ .dir = UUI_ROW, .items = g_foot_items, .count = nf, .gap = ugfx_px(8) };
 

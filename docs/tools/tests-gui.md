@@ -1955,13 +1955,18 @@ from the default (a sound card, a USB mouse, `--reboot`).
   boxes -- a dialog OWNED by the SDL window and modal, its layout read
   from the `msgbox: layout` lines (a dialog window sends no widget map),
   the error badge's rim and the footer by pixel, Ctrl+C copying the whole
-  message, a click, Esc, a close answering -1, Return -- and one before
+  message, a click, Esc, a close answering -1, Return, each box answered
+  ONCE (one `msgbox: answered` line) -- and one before
   `SDL_Init(VIDEO)`, unowned; then relative mode: the pointer HELD, QMP's
   relative reports summing to SDL's motion, a click still arriving,
-  another window's focus suspending the lock and closing it resuming it,
+  Super's Start menu suspending the lock and Esc resuming it, another
+  window's focus suspending it and closing that window resuming it,
   R releasing it. Controls: the kernel not holding the pointer fails both
   "held" checks, `uui_para_key()` declining fails the Ctrl+C one, the
-  badge in the accent fails the colour one. In `gui_regress.py`.
+  badge in the accent fails the colour one, the lock blind to overlays
+  fails the Start menu one. The answered-once check cannot see the double
+  answer it guards against unless a reply opens the next box, which no
+  SDL path does. In `gui_regress.py`.
 - **`sdl_window_test.py`** -- an SDL3 program's window on the desktop
   (`docs/sdl-design.md`, stage 1). Drives `/tests/sdlwin_test`, which
   paints red | blue | green bands in SDL points and logs every event SDL

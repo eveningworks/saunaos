@@ -9,15 +9,13 @@
 #include "base/uopen.h"
 #include "ui/uapp.h"
 
-#include <strings.h>
-
 bool SDL_SYS_OpenURL(const char *url)
 {
     int pid;
     /* With the video driver up, the app reaps the browser when it exits;
      * without it nothing does until this program ends, as for any
      * uopen_url() caller. */
-    if (SAUNAOS_app && (!strncasecmp(url, "http://", 7) || !strncasecmp(url, "https://", 8))) {
+    if (SAUNAOS_app && uopen_is_web_url(url)) {
         pid = uapp_spawn(SAUNAOS_app, UOPEN_BROWSER, url);
     } else {
         pid = uopen_url(url);

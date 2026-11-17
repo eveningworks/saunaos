@@ -1,4 +1,5 @@
 #include "mouse.h"
+#include "irqflags.h"   // irq_save(): a device report may land between the read and the reset
 #include "io.h"
 #include "klog.h"
 
@@ -383,16 +384,24 @@ int  mouse_scroll_step(void)          { return scroll_step; }
 int  mouse_scroll_invert(void)        { return scroll_invert; }
 
 void mouse_want_rel(int on) {
+    uint64_t f = irq_save();
     rel_wanted = on != 0;
     rel_dx = rel_dy = 0;
+    irq_restore(f);
 }
 
+int mouse_rel_wanted(void) { return rel_wanted; }
+
 int mouse_get_rel_delta(int *dx, int *dy) {
-    if (!rel_dx && !rel_dy) return 0;
-    *dx = rel_dx;
-    *dy = rel_dy;
-    rel_dx = rel_dy = 0;
-    return 1;
+    uint64_t f = irq_save();
+    int got = rel_dx || rel_dy;
+    if (got) {
+        *dx = rel_dx;
+        *dy = rel_dy;
+        rel_dx = rel_dy = 0;
+    }
+    irq_restore(f);
+    return got;
 }
 
 int mouse_get_wheel_delta(void) {

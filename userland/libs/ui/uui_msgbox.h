@@ -24,7 +24,8 @@ enum {
     UUI_MSGBOX_ERROR,
 };
 
-// Return answers with this button; it is drawn as the default.
+// The default: drawn so, and FOCUSED when the box opens, so Enter answers
+// with it -- or, after Tab, with whichever button has the focus.
 #define UUI_MSGBOX_RETURN 0x1u
 // Esc and the window's close answer with this one. A box with none
 // answers a close with UUI_MSGBOX_CLOSED.
@@ -42,11 +43,9 @@ struct uui_msgbox {
     const char *message;
     int kind;                                // UUI_MSGBOX_*
     const struct uui_msgbox_button *buttons; // left to right as drawn
-    int count;                               // 1..UUI_MSGBOX_MAX_BUTTONS
+    int count;                               // at least 1
     struct uapp_window *owner;               // NULL: the app's main window
 };
-
-#define UUI_MSGBOX_MAX_BUTTONS 8
 
 // The answer: a button's code, or UUI_MSGBOX_CLOSED.
 typedef void (*uui_msgbox_fn)(void *ctx, int code);
