@@ -716,6 +716,10 @@ EXCLUDED = [
     ("sdlwin_test",      "an SDL program for tools/tests/gui/sdl_window_test.py: it "
                           "opens a window and logs what SDL tells it, so it needs a "
                           "desktop and a test driving its input"),
+    ("sdltone_test",     "plays a tone through SDL3's audio for tools/tests/sweep/"
+                          "sdl_audio_test.py, which judges what the card emitted on the "
+                          "host: it needs sound hardware and a recording"),
+    ("sdl2tone_test",    "sdltone_test's SDL2 twin, for the same host-side test"),
     ("cjson_bench",      "a benchmark, not a test: a timing number would make the "
                           "gate flap. Run it with `spawn /tests/cjson_bench`"),
     ("stdio_bench",      "a benchmark, not a test: it measures what BUFSIZ should be "

@@ -1387,6 +1387,22 @@ report is ON only after `enter_gui()`").
   seconds, and a benchmark run beside eleven other VMs measures
   contention. `blank_window_test.py` covers "it draws" in the gate,
   since that one opens every app in the registry.
+- **`sdl_audio_test.py`** -- **SDL's audio through SaunaOS's own driver,
+  judged on the HOST** (`docs/sdl-design.md`, stage 2). Two boots with an
+  AC97, each recorded by QEMU's wav audiodev and measured with
+  `audio_test.py`'s `measure()` and `segments()`: `/tests/sdltone_test`
+  (SDL3, 1 kHz as mono float at 44.1 kHz into an `SDL_AudioStream`) and
+  `/tests/sdl2tone_test` (SDL2's callback API through sdl2-compat, 750 Hz
+  as mono S16 at 22.05 kHz -- a different pitch, so one boot's recording
+  cannot pass for the other's). Each must name the `saunaos` driver, play
+  to its end, at its pitch within 3%, for ~1.5 s, with NO WHOLE-CHUNK
+  HOLE -- usnd's mixer playing silence for a queue it found empty.
+  `--kvm` boots under KVM, which is how a hole was shown not to be TCG's
+  speed. **The hole check is RED through soundd today** (`docs/bugs.md`):
+  with soundd stopped the tone is clean. Seen red: the pitch and hole
+  checks before the soundd/usnd fixes; the length check with the driver
+  dropping every other buffer. On demand: it boots its own guest with
+  extra hardware.
 - **`doom_sound_test.py`** -- **DOOM's effects and music, judged on the
   HOST**, and the only thing that exercises `userland/third_party/doom/glue/dg_sound.c`,
   `dg_music.c` and `opl_saunaos.c` at all. On demand twice over: it needs

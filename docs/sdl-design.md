@@ -5,11 +5,13 @@ programs written for Linux, Windows or macOS already speak, so a port
 is a recompile and not a new backend each time. ScummVM is the first
 program it is for; DOSBox and most SDL games are the ones after.
 
-**STAGES 0 AND 1 ARE BUILT (2026-11-17)** -- SDL 3.4.20 and sdl2-compat 2.32.74
+**STAGES 0, 1 AND 2 ARE BUILT (2026-11-17)**, stage 2 with a pacing
+defect open through soundd (below) -- SDL 3.4.20 and sdl2-compat 2.32.74
 are vendored, build as `/lib/libSDL3.so.0` and `/lib/libSDL2-2.0.so.0`,
 and pass `/tests/sdl3_test` and `/tests/sdl2_test` with SDL's own dummy
 video and disk audio drivers; an SDL program opens a real desktop
-window, scaled and driven (`sdl_window_test.py`). Sound is next.
+window, scaled and driven (`sdl_window_test.py`), and SDL programs play
+sound through usnd (`sdl_audio_test.py`).
 **The choices were made the same day**:
 SDL3 with sdl2-compat on top rather than SDL2 alone, and the video
 driver over a STEP API in `uapp` rather than a second thread or the
@@ -64,14 +66,14 @@ and the link found no C-library function missing.
                                                    |  generic SDL
                                                    |  sdl3/glue/: config, time, filesystem,
                                                    |    video driver -> uapp step API, uapp_window per SDL window
-                                                   |    [stage 2] audio driver -> usnd_push
+                                                   |    audio driver -> usnd_push (libmedia)
                                                    v
                                    libbase.so (udirs, uself)  libc.so (tolibc)
 ```
 
 `libSDL3` links `libui` (the video driver) and `libbase` (the
-personal folders, the program's own path, the scaler); the audio
-driver will add `libmedia`. Both are zlib-licensed, so they ship in the base
+personal folders, the program's own path, the scaler) and `libmedia`
+(the audio driver). Both are zlib-licensed, so they ship in the base
 image rather than in a GPL optional component; a GPL program built on
 them (ScummVM) is the component.
 
@@ -220,12 +222,59 @@ sat through the silent park the check used to wait for.
   `abi/win_proto.h` said so only for the UP; a client keeping a button
   set adds on a down and replaces on an up.
 
-### Stage 2 -- the audio driver, over usnd_push
+### Stage 2 -- the audio driver, over usnd_push -- BUILT 2026-11-17, one defect open
 
-`PRIVATEAUDIO_bootstrap`: SDL's device thread fills a buffer in
-`usnd`'s format (stereo S16 at `USND_RATE`; SDL converts anything else)
-and pushes it into the never-blocking single-producer queue DOOM's music
-uses. Exit: a tone played and its samples seen at the sink.
+`PRIVATEAUDIO_bootstrap` (`glue/SDL_saunaos_audio.c`): the device is
+`usnd`'s format, always -- stereo S16 at `USND_RATE` -- and SDL converts
+whatever a program asks for in front of it, as SDL does for PipeWire's
+and PulseAudio's one native format. SDL's device thread pushes each
+buffer into the never-blocking single-producer queue DOOM's music uses
+(`usnd_push`), waiting first until no more than ~64 ms is queued ahead
+of usnd's mixer, so a sound effect does not wait behind the whole
+queue. The device is opened at `SDL_OpenAudioDevice`, not at
+`SDL_Init`: a program that never plays does not take the card. No card
+and no soundd is a failed open, as on Linux with nothing to connect to.
+`libSDL3` now links `libmedia`. Playback only: usnd has no capture.
+
+- **Tests**: `tools/tests/sweep/sdl_audio_test.py` -- two boots with an
+  AC97, QEMU's wav recording of what the CARD emitted measured on the
+  host (`audio_test.py`'s oracle): `/tests/sdltone_test` (SDL3, 1 kHz as
+  mono float at 44.1 kHz into an `SDL_AudioStream`) and
+  `/tests/sdl2tone_test` (SDL2's callback API through sdl2-compat --
+  ScummVM's shape -- 750 Hz as mono S16 at 22.05 kHz). Each must open
+  the `saunaos` driver, play to its end, at its own pitch, for ~1.5 s,
+  with no whole-chunk hole.
+- **The open defect: holes through soundd.** Straight to the card
+  (soundd stopped) the tone is clean, 1000.0 Hz with no hole. Through
+  soundd a pushed source -- SDL's, and by the same path DOOM's music --
+  gets one-chunk (10.7 ms) holes: 4-8 per 1.5 s at first, 0-4 after two
+  fixes found on the way (below). It is PACING: usnd's worker sleeps
+  10 ms and is not woken by a push, so it moves pushed audio into soundd's
+  341 ms client ring in lumps, while soundd pulls a client in bursts up
+  to its own 341 ms card ring ahead and, when the card's lead falls under
+  85 ms, commits silence for a client without a whole chunk (139 such
+  chunks in one 3 s run). `aplay` is clean through the same path because
+  a file always has the next chunk. Ruled out by measurement: the
+  driver's queue running dry (once in ~300 waits, at the start), its depth
+  (64 or 128 ms the same), lock contention (polling less made it worse),
+  TCG speed (KVM the same), and capping soundd's lead alone.
+- **Two fixes made on the way**, each a real defect on its own: **soundd
+  took a client's PARTIAL chunk** -- it treated a client as starved only
+  when `hw_pos == wr_pos`, so a writer part-way into a chunk had the
+  unwritten rest played as silence and its `hw_pos` moved past `wr_pos`;
+  and **usnd padded a short pushed source with silence whenever the sink
+  had room**, which for soundd's deep ring was always -- it now mixes a
+  pushed source only as far as it has arrived, padding for the device
+  sink (which plays on through an underrun) or for the other voices.
+
+**The choice the defect needs** (the maintainer's, next): (a) usnd's
+worker WOKEN by a push (a futex beside the queue), keeping soundd's
+client ring a set lead ahead rather than as full as it will go --
+PipeWire's shape, the producer's quantum drives the graph; (b) soundd
+pulling each client at the card's rate with a fixed per-client lead
+rather than in bursts -- PulseAudio's `tlength`/`minreq`; (c) both. Each
+touches every sound client, so each is gated by `audio_test.py` (both
+cards), `soundd_test.py`, `doom_sound_test.py` and a check on the ASUS.
 
 ### Stage 3 -- the rest a port reaches for
 

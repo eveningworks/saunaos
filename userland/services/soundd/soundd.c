@@ -496,8 +496,13 @@ static void mix_chunk(uint32_t dst) {
         // client derives "where may I write" from `hw_pos`. Parked one
         // chunk ahead of the writer, that reads as no room FOREVER and
         // stalls the client's decoder instead of merely going quiet
-        // (aplay never exited; found on the laptop, not in QEMU).
-        if (src == c->ctl->wr_pos) { g_starved_chunks++; continue; } // silence
+        // (aplay never exited; found on the laptop, not in QEMU). And
+        // not past it EITHER: a writer part-way into a chunk has not
+        // given a whole one, and taking it played the unwritten rest as
+        // silence and moved `hw_pos` beyond `wr_pos` -- holes in a pushed
+        // source, whose writes do not land on chunk boundaries.
+        uint32_t avail = (c->ctl->wr_pos + SND_RING_BYTES - src) % SND_RING_BYTES;
+        if (avail < SND_CHUNK_BYTES) { g_starved_chunks++; continue; } // silence
 
         const volatile int32_t *s = c->ring + src / 4;
         int32_t g = gain_q15(c->gain);

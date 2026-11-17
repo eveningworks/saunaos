@@ -223,6 +223,26 @@ static int voices_active(void) {
 // has played and pinning the cursor throws nothing away.
 #define IDLE_PENDING MIX_FRAMES
 
+// A PUSHED SOURCE IS MIXED AS FAR AS IT HAS ARRIVED. A sink with room is
+// not a deadline: soundd's client ring holds ~341 ms and frees it in
+// bursts, and filling it ahead of a real-time producer padded every short
+// pass with silence -- a steady SDL tone reached the card with chunk-sized
+// holes in it. Its underrun becomes silence only where something needs it
+// to: the DEVICE plays on through an underrun, so its writer must stay
+// ahead once the ring is nearly dry; soundd waits for a client instead
+// (soundd.c, "never overtake the writer"), so there only the other voices
+// -- a game's effects beside its music -- are worth padding for. Returns
+// how much of `room` to mix now.
+static long push_room(long room) {
+    if (!g_push_on || !g_push) return room;
+    int others = g_st_open && !g_st_paused && !g_st_done;
+    for (int v = 0; v < USND_VOICES && !others; v++) others = g_voices[v].active;
+    if (g_sink->pending() < MIX_FRAMES && (g_sink != &usnd_sink_daemon || others)) return room;
+    long avail = g_push_head - g_push_tail;          // at USND_RATE
+    long out = g_rate == USND_RATE ? avail : (long)((uint64_t)avail * g_rate / USND_RATE);
+    return out < room ? out : room;
+}
+
 static void *worker_main(void *arg) {
     (void)arg;
     while (!g_quit) {
@@ -249,6 +269,8 @@ static void *worker_main(void *arg) {
                 long room = g_sink->space();
                 if (room <= 0) break;
                 if (room > MIX_FRAMES) room = MIX_FRAMES;
+                room = push_room(room);
+                if (room <= 0) break;
                 mix(room);
                 long wrote = g_sink->write(g_out, room);
                 if (wrote <= 0) break;

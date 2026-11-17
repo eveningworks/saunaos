@@ -2053,6 +2053,12 @@ $(BUILD)/userland/tests/sdl3_test.elf: $(BUILD)/userland/tests/sdl3_test.o $(USE
 $(BUILD)/userland/tests/sdlwin_test.o: USERLAND_CFLAGS += $(SDL_APP_CFLAGS) -Iuserland/third_party/sdl3/upstream/include
 $(BUILD)/userland/tests/sdlwin_test.elf: $(BUILD)/userland/tests/sdlwin_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LIBSDL3_SO) $(LDSO)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBSDL3_SO) $(TOOLKIT_LINK)
+$(BUILD)/userland/tests/sdltone_test.o: USERLAND_CFLAGS += $(SDL_APP_CFLAGS) -Iuserland/third_party/sdl3/upstream/include
+$(BUILD)/userland/tests/sdltone_test.elf: $(BUILD)/userland/tests/sdltone_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LIBSDL3_SO) $(LDSO)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBSDL3_SO) $(TOOLKIT_LINK)
+$(BUILD)/userland/tests/sdl2tone_test.o: USERLAND_CFLAGS += $(SDL_APP_CFLAGS) -Iuserland/third_party/sdl2compat/upstream/include
+$(BUILD)/userland/tests/sdl2tone_test.elf: $(BUILD)/userland/tests/sdl2tone_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LIBSDL2_SO) $(LIBSDL3_SO) $(LDSO)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBSDL2_SO) $(TOOLKIT_LINK)
 $(BUILD)/userland/tests/sdl2_test.elf: $(BUILD)/userland/tests/sdl2_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LIBSDL2_SO) $(LIBSDL3_SO) $(LDSO)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBSDL2_SO) $(TOOLKIT_LINK)
 

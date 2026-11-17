@@ -367,6 +367,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `rootdisk_test.py` -- every SATA drive, and which disk is the root
 - `sanitize_run.py` -- Build SaunaOS with UBSAN=1 and/or KASAN=1 and list every site that fires
 - `screentrial_test.py` -- A screen size tried at a restart: GRUB sets it once, screentrial asks,
+- `sdl_audio_test.py` -- SDL's audio, through SaunaOS's own
 - `sector4k_test.py` -- a disk with 4096-byte sectors, end to end in QEMU
 - `serial_backpressure_test.py` -- a stalled COM1 reader must not
 - `shutdown_sync_test.py` -- A write made just before `reboot` must survive it

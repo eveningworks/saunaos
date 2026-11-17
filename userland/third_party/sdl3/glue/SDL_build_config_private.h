@@ -135,8 +135,9 @@
 
 /* Subsystems. Video is SaunaOS's desktop (PRIVATE, first in SDL's
  * order), with SDL's dummy driver kept for headless tests (hint
- * "dummy"); audio is SDL's dummy and disk drivers until SaunaOS's own
- * (SDL_AUDIO_DRIVER_PRIVATE). docs/sdl-design.md has the stages. */
+ * "dummy"); audio is SaunaOS's own over usnd (PRIVATE, first), with SDL's
+ * dummy and disk drivers kept for tests. docs/sdl-design.md has the stages. */
+#define SDL_AUDIO_DRIVER_PRIVATE 1 /* glue/SDL_saunaos_audio.c */
 #define SDL_AUDIO_DRIVER_DUMMY 1
 #define SDL_AUDIO_DRIVER_DISK 1
 #define SDL_VIDEO_DRIVER_PRIVATE 1 /* glue/SDL_saunaos_{video,window,events}.c */
