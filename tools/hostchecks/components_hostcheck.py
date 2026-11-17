@@ -166,6 +166,13 @@ def main():
         shutil.rmtree(os.path.join(s, "usr", "libexec"))
         shutil.rmtree(os.path.join(s, "usr", "lib"))
         shutil.rmtree(os.path.join(s, "usr", "include"))
+        # ...and no `make scummvm`: the seed leaves out its data, and its
+        # front and Start-menu entries by their TryExec= (Makefile, seed).
+        shutil.rmtree(os.path.join(s, "usr", "share", "scummvm"), ignore_errors=True)
+        for p in ("bin/wm/apps/scummvm", "usr/wm/applications/scummvm.desktop",
+                  "usr/wm/applications/scummvm-games.desktop"):
+            if os.path.exists(os.path.join(s, p)):
+                os.remove(os.path.join(s, p))
         defs = components.load(d)
         c.ok("a Built=if-present component with none of its paths is no error",
              not components.check(defs, s), "; ".join(components.check(defs, s))[:300])
@@ -174,7 +181,8 @@ def main():
         staged = os.listdir(os.path.join(s, components.STAGED_DIR)) if r.returncode == 0 else []
         c.ok("...and is not staged, while the rest are",
              r.returncode == 0 and "cc.component" not in staged and "make.component" not in staged
-             and "doom.component" in staged, (r.stdout + r.stderr)[-300:])
+             and "scummvm.component" not in staged and "doom.component" in staged,
+             (r.stdout + r.stderr)[-300:])
 
         # 4. sizes: the carve-out counts to its owner. The control moves
         # nsmonkey to Demos; the GPL rule then refuses the stage, and
