@@ -84,7 +84,7 @@ FPM="-ffile-prefix-map=$WORK/src=/usr/src"
 MAKE_CONF=(--build="$BUILD_TRIPLE" --host="$TARGET" --prefix=/usr
     --disable-nls --disable-load --without-guile --without-customs
     --without-dmalloc
-    CPPFLAGS="-DPOSIX=1" CFLAGS="-O2 -std=gnu17 $FPM" CXX=g++)
+    CPPFLAGS="-DPOSIX=1" CFLAGS="-O2 -std=gnu17 $FPM" CXX=g++ LDFLAGS=-static)
 
 STAMP=$OUT/.saunaos-native-make
 want=$( {

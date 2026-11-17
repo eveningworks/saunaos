@@ -53,14 +53,15 @@ Teach GCC the x86_64-saunaos target: the OS name, its tm files, its thread model
  	tm_file="${tm_file} i386/unix.h i386/att.h elfos.h newlib-stdint.h i386/i386elf.h i386/x86-64.h fuchsia.h"
 --- a/libgcc/config.host
 +++ b/libgcc/config.host
-@@ -757,6 +757,12 @@
+@@ -757,6 +757,13 @@
  x86_64-*-fuchsia*)
  	tmake_file="$tmake_file t-libgcc-pic"
  	;;
 +x86_64-*-saunaos*)
 +	# Changed for SaunaOS, 2026-11-08: t-gthr-noweak, as tolibc's
-+	# threads are in libc.a, not a library a weak reference may miss.
-+	tmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic t-gthr-noweak"
++	# threads are in libc.a, not a library a weak reference may miss;
++	# t-eh-dw2-dip (2026-11-17): tables found by dl_iterate_phdr().
++	tmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic t-gthr-noweak t-eh-dw2-dip"
 +	extra_parts="$extra_parts crtbegin.o crtend.o"
 +	;;
  i[34567]86-*-dragonfly*)
@@ -104,7 +105,7 @@ Teach GCC the x86_64-saunaos target: the OS name, its tm files, its thread model
    # The CXXFLAGS thing is suspicious, but based on similar bits previously
 --- /dev/null
 +++ b/gcc/config/saunaos.h
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,128 @@
 +/* Target definitions for x86_64-saunaos: SaunaOS, a hobby x86-64 OS.
 +   Written for SaunaOS, 2026 (toolchain/patches/gcc/ in its repository).
 +
@@ -172,14 +173,25 @@ Teach GCC the x86_64-saunaos target: the OS name, its tm files, its thread model
 +#define ASM_SPEC "%{m16|m32:--32} %{m64:--64} %{mx32:--x32} " \
 +  "-mrelax-relocations=no"
 +
-+/* A static ET_EXEC at the base the sysroot's saunaos.ld names, three
-+   PT_LOADs with real permissions; -n because that script lays the
-+   pages out itself.  --eh-frame-hdr is not optional with that script:
++/* DYNAMIC BY DEFAULT, as /bin's programs are and as on Linux: an
++   ET_EXEC at the same base through saunaos-dyn.ld, /lib/ld-toy.so as its
++   interpreter -- the tree's DYN_LINK line.  --export-dynamic because a
++   library calls back into the program (the shared libc's errno), sysv
++   hashes because ld-toy reads no other, -z nocopyreloc because it
++   implements no copy relocation, -rpath-link so ld finds a library's
++   own DT_NEEDED (libSDL3.so.0's libui.so) in /lib, which -nostdlib
++   otherwise leaves it no path to.  -static is the old link: a static
++   ET_EXEC through saunaos.ld, -n because that script lays the pages
++   out itself.  --eh-frame-hdr is not optional with either script:
 +   without it the PT_GNU_EH_FRAME it declares is empty, at address 0.  */
 +#undef  LINK_SPEC
 +#define LINK_SPEC \
-+  "-nostdlib %{shared:-shared} " \
-+  "%{!shared:%{!r:-n %{!T*:-T %R/usr/lib/saunaos.ld}}} " \
++  "-nostdlib %{shared:-shared --hash-style=sysv -z max-page-size=4096} " \
++  "%{!static:-rpath-link=%R/lib} " \
++  "%{static:-static %{!r:-n %{!T*:-T %R/usr/lib/saunaos.ld}}} " \
++  "%{!static:%{!shared:%{!r:%{!T*:-T %R/usr/lib/saunaos-dyn.ld} " \
++    "--dynamic-linker=/lib/ld-toy.so --export-dynamic --hash-style=sysv " \
++    "-z nocopyreloc}}} " \
 +  "%{!r:--gc-sections --eh-frame-hdr}"
 +
 +/* crt0.o FIRST: _start must be the lowest address in .text.
@@ -204,9 +216,15 @@ Teach GCC the x86_64-saunaos target: the OS name, its tm files, its thread model
 +
 +/* The runtime every program carries -- syscall wrappers, the canary,
 +   the signal trampoline, TLS setup -- then the C library.  These sit
-+   after the program and before -lc, as on the Makefile's line.  */
++   after the program and before -lc, as on the Makefile's line.  A
++   dynamic program takes libc_nonshared.a WHOLE: its pthread.o is the
++   program's, never the shared libc's, and a library reached only
++   through another would otherwise leave its pthread_* unresolved
++   (the Makefile's TOOLKIT_LINK).  -lc is then /usr/lib/libc.so, a
++   linker script naming /lib/libc.so.  */
 +#undef  LIB_SPEC
-+#define LIB_SPEC "%{!shared:sys.o%s stack_chk.o%s sigtramp.o%s tls.o%s} -lc"
++#define LIB_SPEC "%{!shared:sys.o%s stack_chk.o%s sigtramp.o%s tls.o%s} " \
++  "%{!static:%{!shared:--whole-archive -lc_nonshared --no-whole-archive}} -lc"
 +
 +/* Every object says its stack is not executable; without the note ld
 +   assumes it is, and warns.  */

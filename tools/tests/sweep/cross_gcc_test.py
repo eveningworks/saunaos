@@ -3,14 +3,19 @@
 
 docs/cc-design.md, stage 1's exit criterion: `x86_64-saunaos-gcc hello.c -o
 hello`, with NO flags, gives a binary that `spawn`s and prints on a guest.
-The flags the tree passes by hand (Makefile's USERLAND_CFLAGS and its static
-link line) are the cross compiler's DEFAULTS now -- gcc/config/saunaos.h in
+The flags the tree passes by hand (Makefile's USERLAND_CFLAGS and its link
+lines) are the cross compiler's DEFAULTS now -- gcc/config/saunaos.h in
 toolchain/patches/gcc/ -- so this compiles with none and checks they arrived.
+The default is a DYNAMIC program, as /bin's are; -static is the static one.
+Both are built and both run. Then SDL, through the SDK: an SDL3 program built
+with `pkg-config sdl3` and an SDL2 one with `sdl2-config`, each run on the
+guest under SDL's dummy video driver.
 
 WHAT A BROKEN VERSION WOULD STILL PASS, and what is asserted instead:
   - "it produced a binary" passes a link with no crt0 (the entry falls back
     to whatever is first in .text): the ELF must be ET_EXEC, entry == _start,
-    no PT_INTERP, loaded at the 0x8000000000 base saunaos.ld names;
+    loaded at the 0x8000000000 base the scripts name -- the default with
+    PT_INTERP /lib/ld-toy.so and libc.so NEEDED, -static with no PT_INTERP;
   - "it ran" passes a program that printed half its lines and faulted: the
     guest's output is compared LINE FOR LINE with the same source built by
     the host's plain gcc and run here -- printf, malloc, a struct passed by
@@ -123,6 +128,49 @@ GUARDED = "void sink(char *); void f(void) { char b[64]; sink(b); }\n"
 BROKEN_SPECS = "*startfile:\n%{!shared:}\n\n"
 
 
+# SDL through the SDK, under the dummy driver (no desktop is needed).
+SDL3_PROGRAM = r"""
+#include <SDL3/SDL.h>
+#include <stdio.h>
+int main(void) {
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+    if (!SDL_Init(SDL_INIT_VIDEO)) { printf("cc_sdl: sdl3 init failed %s\n", SDL_GetError()); return 1; }
+    SDL_Window *w = SDL_CreateWindow("cc", 64, 48, 0);
+    printf("cc_sdl: sdl3 %d.%d.%d %s %s\n", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_MICRO_VERSION,
+           SDL_GetCurrentVideoDriver(), w ? "window" : SDL_GetError());
+    SDL_Quit();
+    return 0;
+}
+"""
+SDL2_PROGRAM = r"""
+#include "SDL.h"
+#include <stdio.h>
+int main(int argc, char **argv) {
+    (void)argc; (void)argv;
+    SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { printf("cc_sdl: sdl2 init failed %s\n", SDL_GetError()); return 1; }
+    SDL_version v;
+    SDL_GetVersion(&v);
+    SDL_Window *w = SDL_CreateWindow("cc", 0, 0, 64, 48, 0);
+    printf("cc_sdl: sdl2 %d.%d.%d %s %s\n", v.major, v.minor, v.patch,
+           SDL_GetCurrentVideoDriver(), w ? "window" : SDL_GetError());
+    SDL_Quit();
+    return 0;
+}
+"""
+
+
+def interp_and_needed(path):
+    """(the PT_INTERP string or None, [DT_NEEDED...]), by readelf."""
+    out = subprocess.run(["readelf", "-lWd", path], capture_output=True, text=True).stdout
+    interp = None
+    for line in out.splitlines():
+        if "Requesting program interpreter:" in line:
+            interp = line.split(":", 1)[1].strip().rstrip("]")
+    needed = [ln.split("[", 1)[1].rstrip("]") for ln in out.splitlines() if "(NEEDED)" in ln]
+    return interp, needed
+
+
 def elf_facts(path):
     """(e_type, e_entry, [p_type...], {name: value} for _start/main)."""
     with open(path, "rb") as f:
@@ -145,7 +193,7 @@ def clean_lines(text):
     """The program's lines out of a `sh cat` reply, console chatter dropped."""
     return [ln.rstrip() for ln in text.splitlines()
             if ln.startswith(("cc_hello:", "malloc:", "realloc:", "struct:", "varargs:",
-                              "longjmp:", "float:", "snprintf:", "errno:"))]
+                              "longjmp:", "float:", "snprintf:", "errno:", "cc_sdl:"))]
 
 
 def main():
@@ -211,23 +259,53 @@ def run(args, gcc, tmp):
               "__stack_chk_guard@GOTPCREL(%rip)" in asm.stdout
               or "__stack_chk_guard(%rip)" in asm.stdout)
 
-    # 2. The build, with no flags at all.
-    exe = os.path.join(tmp, "hello")
-    cc = subprocess.run([gcc, *extra, *broken, "-O2", src, "-o", exe],
-                        capture_output=True, text=True)
-    if not res.check("`x86_64-saunaos-gcc -O2 hello.c -o hello` links", cc.returncode == 0,
-                     (cc.stdout + cc.stderr).strip()[:600]):
-        return res.finish("cross_gcc_test")
-    e_type, e_entry, phdrs, syms = elf_facts(exe)
-    res.check("ET_EXEC, as the kernel's loader requires", e_type == 2, f"e_type={e_type}")
-    res.check("the entry point is _start (crt0.o, linked first)",
-              "_start" in syms and e_entry == syms["_start"],
-              f"entry={e_entry:#x} _start={syms.get('_start', 0):#x}")
-    loads = [p for p in phdrs if p[0] == 1]
-    res.check("static: no PT_INTERP", not any(p[0] == 3 for p in phdrs))
-    res.check("loaded at 0x8000000000, the base saunaos.ld names",
-              bool(loads) and min(p[3] for p in loads) == BASE,
-              f"lowest vaddr={min((p[3] for p in loads), default=0):#x}")
+    # 2. The build, with no flags at all -- dynamic -- and with -static.
+    exes = {}
+    for kind, flags in (("dynamic", []), ("static", ["-static"])):
+        exe = os.path.join(tmp, f"hello-{kind}")
+        cc = subprocess.run([gcc, *extra, *broken, "-O2", *flags, src, "-o", exe],
+                            capture_output=True, text=True)
+        what = "-O2 hello.c" if not flags else "-O2 -static hello.c"
+        if not res.check(f"`x86_64-saunaos-gcc {what} -o hello` links", cc.returncode == 0,
+                         (cc.stdout + cc.stderr).strip()[:600]):
+            continue
+        exes[kind] = exe
+        e_type, e_entry, phdrs, syms = elf_facts(exe)
+        res.check(f"{kind}: ET_EXEC, as the kernel's loader requires", e_type == 2, f"e_type={e_type}")
+        res.check(f"{kind}: the entry point is _start (crt0.o, linked first)",
+                  "_start" in syms and e_entry == syms["_start"],
+                  f"entry={e_entry:#x} _start={syms.get('_start', 0):#x}")
+        loads = [p for p in phdrs if p[0] == 1]
+        res.check(f"{kind}: loaded at 0x8000000000, the base the scripts name",
+                  bool(loads) and min(p[3] for p in loads) == BASE,
+                  f"lowest vaddr={min((p[3] for p in loads), default=0):#x}")
+        interp, needed = interp_and_needed(exe)
+        if kind == "dynamic":
+            res.check("dynamic (the default): PT_INTERP /lib/ld-toy.so, libc.so NEEDED",
+                      interp == "/lib/ld-toy.so" and "libc.so" in needed, f"{interp} {needed}")
+        else:
+            res.check("-static: no PT_INTERP, nothing NEEDED", interp is None and not needed,
+                      f"{interp} {needed}")
+
+    # 2b. SDL through the SDK: pkg-config for SDL3, sdl2-config for SDL2.
+    sysroot = os.path.join(REPO, "build", "sysroot")
+    env = dict(os.environ, PKG_CONFIG_LIBDIR=os.path.join(sysroot, "usr", "lib", "pkgconfig"))
+    sdl = {}
+    for name, prog, how in (("sdl3", SDL3_PROGRAM, ["pkg-config", "--cflags", "--libs", "sdl3"]),
+                            ("sdl2", SDL2_PROGRAM, ["sh", os.path.join(sysroot, "usr", "bin", "sdl2-config"),
+                                                    "--cflags", "--libs"])):
+        c = os.path.join(tmp, f"{name}.c")
+        with open(c, "w") as f:
+            f.write(prog)
+        flags = subprocess.run(how, capture_output=True, text=True, env=env).stdout.split()
+        exe = os.path.join(tmp, name)
+        cc = subprocess.run([gcc, *extra, c, "-o", exe, *flags], capture_output=True, text=True)
+        tool = "pkg-config" if how[0] == "pkg-config" else "sdl2-config"
+        if res.check(f"an {name.upper()} program links with {tool}'s flags",
+                     cc.returncode == 0, f"flags {flags}: " + (cc.stdout + cc.stderr).strip()[:600]):
+            sdl[name] = exe
+            want_so = "libSDL3.so.0" if name == "sdl3" else "libSDL2-2.0.so.0"
+            res.check(f"...needing {want_so} from /lib", want_so in interp_and_needed(exe)[1])
 
     # 3. The oracle: the same source, the host's plain gcc, run here.
     host_exe = os.path.join(tmp, "hello-host")
@@ -247,22 +325,35 @@ def run(args, gcc, tmp):
     if not res.check("the guest came up", "ready" in vm("start", timeout=300)):
         return res.finish("cross_gcc_test")
     try:
-        out = vm("put", exe, GUEST_BIN)
-        res.check("the binary is copied in", "fail" not in out.lower(), out.strip()[:300])
-        vm("exec", f"rm {GUEST_OUT}")
-        vm("exec", f"spawn /bin/tosh -c {GUEST_BIN} > {GUEST_OUT}")
-        def read():
-            return clean_lines(vm("exec", f"cat {GUEST_OUT}"))
+        def run_on_guest(exe, end):
+            out = vm("put", exe, GUEST_BIN)
+            res.check(f"{os.path.basename(exe)} is copied in", "fail" not in out.lower(), out.strip()[:300])
+            vm("exec", f"rm {GUEST_OUT}")
+            vm("exec", f"spawn /bin/tosh -c {GUEST_BIN} > {GUEST_OUT}")
 
-        # Wait on what is asserted: the program's LAST line in the file.
-        got = poll(lambda: (lambda lines: lines if END in lines else None)(read()), 30) or read()
-        res.check("it spawns and prints on the guest, to the last line", END in got,
-                  f"got {len(got)} lines")
-        pad = max(len(want), len(got))
-        diff = [f"    host: {w!r}\n    test: {g!r}"
-                for w, g in zip(want + [""] * pad, got + [""] * pad) if w != g]
-        res.check(f"its output matches the host build's, line for line ({len(want)} lines)",
-                  got == want, "\n".join(diff)[:1500])
+            def read():
+                return clean_lines(vm("exec", f"cat {GUEST_OUT}"))
+            # Wait on what is asserted: the program's LAST line in the file.
+            return poll(lambda: (lambda lines: lines if any(end in ln for ln in lines) else None)(read()),
+                        30) or read()
+
+        for kind, exe in exes.items():
+            got = run_on_guest(exe, END)
+            res.check(f"{kind}: it spawns and prints on the guest, to the last line", END in got,
+                      f"got {len(got)} lines")
+            pad = max(len(want), len(got))
+            diff = [f"    host: {w!r}\n    test: {g!r}"
+                    for w, g in zip(want + [""] * pad, got + [""] * pad) if w != g]
+            res.check(f"{kind}: its output matches the host build's, line for line ({len(want)} lines)",
+                      got == want, "\n".join(diff)[:1500])
+        for name, version in (("sdl3", "3."), ("sdl2", "2.")):
+            if name not in sdl:
+                continue
+            got = run_on_guest(sdl[name], f"cc_sdl: {name}")
+            line = next((ln for ln in got if ln.startswith(f"cc_sdl: {name}")), "")
+            res.check(f"{name}: it runs on the guest, under SDL's dummy driver, with a window",
+                      line.startswith(f"cc_sdl: {name} {version}") and line.endswith("dummy window"),
+                      f"got {got}")
     finally:
         vm("stop")
     return res.finish("cross_gcc_test")

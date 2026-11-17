@@ -8,7 +8,8 @@ it?** -- and it deliberately does not answer the larger one next to it.
 **Status: stage 0 (the SDK), stage 1 (the cross toolchain), stage 2
 (C++ for SaunaOS, cross-built) and stage 3 (GCC and binutils ON the
 machine, opt-in) BUILT 2026-11-08; stage 4 (GNU make on the machine)
-BUILT 2026-11-09; stage 5 (the corpus, compared) DONE 2026-11-11. THE
+BUILT 2026-11-09; stage 5 (the corpus, compared) DONE 2026-11-11;
+DYNAMIC BY DEFAULT since 2026-11-17 (below), as /bin's programs are. THE
 COMPILER IS GCC WITH BINUTILS** (chosen 2026-11-04), over TCC, because
 only GCC gives C++. Pinned: GCC 16.2 and binutils 2.47, the host's own
 (2026-11-08), so stage 5's comparison has no version to explain.
@@ -343,10 +344,8 @@ What building it found:
   compiler's defaults are the tree's ABI flags, and its sysroot is a
   symlink in its prefix". That entry also has why the sysroot is a
   symlink inside the prefix rather than `--with-sysroot=build/sysroot`.
-- **STATIC ONLY.** A dynamic link (`saunaos-dyn.ld`,
-  `-dynamic-linker /lib/ld-toy.so`) needs a driver option to ask for it
-  (an `extra_options` `.opt` file) and `libc.so` in the sysroot, which
-  stage 0 does not stage; deferred, not attempted.
+- **Static only, at first** -- dynamic linking came on 2026-11-17 as
+  the DEFAULT, not a driver option ("Dynamic by default", below).
 - **The first comparison found a tolibc bug, not a compiler one**:
   `printf` ignored the `0` flag on `%f` -- and `+`, ` ` and `#` on
   every float conversion, fixed 2026-11-08 with a float matrix in
@@ -448,9 +447,10 @@ What building it found:
 - **libstdc++ is the toolchain's, not the SDK's**: under
   `toolchain/local/x86_64-saunaos/`, and on no disk until stage 3 puts a
   `g++` there.
-- **STILL STATIC ONLY** -- `-shared` and a dynamic C++ program (whose
-  libraries' unwind tables the loader would have to register) are
-  roadmap lines.
+- **Static only, at first** -- a dynamic C++ program came with
+  "Dynamic by default" (below), its tables FOUND by libgcc rather than
+  registered. A C++ shared library is still a roadmap line: libstdc++.a
+  is built for an executable (local-exec TLS), not `-fpic`.
 
 ### Stage 3 -- binutils and GCC built to run ON SaunaOS
 
@@ -690,6 +690,49 @@ own, 1,681 torture, 3,464 libstdc++) and 513 skipped by their own
   over hours of compiling (`docs/bugs.md`), so one is better run in
   parts -- `--skip-done` finishes a stopped run, `--collect` judges one
   that already ran.
+
+### Dynamic by default -- BUILT 2026-11-17
+
+`x86_64-saunaos-gcc hello.c` gives a DYNAMIC program, as `/bin`'s are and
+as on Linux, SerenityOS and Haiku; `-static` gives the old link. Asked for
+by SDL in the SDK (`docs/sdl-design.md`, stage 3): sdl2-compat `dlopen()`s
+`libSDL3.so.0`, which no static program can.
+
+- **The specs are the tree's `DYN_LINK` line** (`gcc/config/saunaos.h`):
+  `saunaos-dyn.ld`, `--dynamic-linker=/lib/ld-toy.so --export-dynamic
+  --hash-style=sysv -z nocopyreloc`, `libc_nonshared.a` WHOLE before `-lc`
+  (`TOOLKIT_LINK`'s reason), and `-rpath-link=%R/lib` -- `-nostdlib`
+  leaves ld no path to a library's own `DT_NEEDED` (`libSDL3.so.0`'s
+  `libui.so`).
+- **`/usr/lib/lib<name>.so` is a linker script**, `INPUT(/lib/libc.so)`,
+  for c, the four toolkit libraries, SDL3 and SDL2 -- a `-dev` symlink's
+  role with no symlink on the disk. ld reads an absolute path in a
+  script inside the sysroot as the sysroot's, so the cross linker needs
+  the libraries themselves: `build/sysroot/lib/`, stripped as the seed
+  step strips `/lib`'s, and on no disk (`sdk_test.py` checks it is the
+  image's `/lib` byte for byte). `-static` never reads a `.so`.
+- **Unwind tables are FOUND, through `dl_iterate_phdr()`** -- libgcc's
+  `unwind-dw2-fde-dip.c`, Linux's path, given a `__saunaos__` block like
+  Bionic's (`toolchain/patches/gcc/0002`) and `t-eh-dw2-dip`. The old
+  registry call from `start.c` could not work: a dynamic program's
+  libgcc is hidden inside it, so `libc.so`'s weak `__register_frame_info`
+  found nothing and the first throw terminated. `libc.so` is linked
+  `--eh-frame-hdr` so a throw crosses a `qsort()` comparator in it.
+  `docs/decisions/build.md` has the decision; it is the one GCC-logic
+  line the stop list below would otherwise forbid.
+- **The machine's own compiler stays static**: its build passes
+  `LDFLAGS=-static`, as its stamp assumes.
+- **What it costs**: `--export-dynamic` keeps every libstdc++ member a
+  C++ program pulled in, so a dynamic C++ program is about twice its
+  static size (1.3 MB against 0.7 MB for `cross_gxx_test`'s); a C one
+  carries `pthread.o` whole, as the tree's do. SDL and the toolkit are
+  built with no unwind tables, so a C++ exception must not cross their
+  frames (an SDL callback that throws terminates).
+- **Tests**: `cross_gcc_test.py` builds the default and `-static`, checks
+  `PT_INTERP`/`NEEDED`, runs both against the host's output, and builds
+  and runs an SDL3 program with `pkg-config` and an SDL2 one with
+  `sdl2-config`; `cross_gxx_test.py` runs its C++ program both ways, and
+  its controls break the script each build links with.
 
 ## What would make us stop
 

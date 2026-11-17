@@ -174,9 +174,12 @@ it is saved.
   is compiled `-nostdinc` against the sysroot ALONE and linked from its
   `/usr/lib`, and must be `ET_EXEC` with `_start` at the entry; on a scratch
   image, `sync`'s `exact` prune removes a dropped file and directory and
-  keeps what is still seeded and what is outside the list.
+  keeps what is still seeded and what is outside the list. And the
+  sysroot's `lib/` -- the shared libraries the cross LINKER reads for a
+  dynamic program -- must be disk.img's `/lib` byte for byte.
   `--positive-control` tampers with a copy of the SDK (an edited
-  `stdio.h`, a stale header, no `crt0.o`) and must fail. In `preflight.sh`.
+  `stdio.h`, a stale header, no `crt0.o`, an altered `lib/libc.so`) and
+  must fail. In `preflight.sh`.
 - **`todisk_test.py`** -- its check, host-only and about a second: a
   scratch partitioned image, a folder with files from empty to over the
   direct-block ceiling, read back through `tfs3_writer`'s reader. Bytes

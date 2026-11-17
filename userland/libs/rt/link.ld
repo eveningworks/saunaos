@@ -73,10 +73,10 @@ SECTIONS
 
     /* UNWIND TABLES, for C++ exceptions (docs/cc-design.md, stage 2).
        KEEP because --gc-sections otherwise drops .eh_frame whole -- ld
-       still trims the FDEs of functions it discarded. start.c hands
-       __eh_frame_start to libgcc's unwinder (__register_frame_info),
-       which walks to the zero-length entry LONG(0) writes -- the one
-       crtend.o would carry, which nothing here links.
+       still trims the FDEs of functions it discarded. libgcc's unwinder
+       finds them through dl_iterate_phdr() and .eh_frame_hdr's table;
+       LONG(0) is the zero-length entry crtend.o would carry, which
+       nothing here links.
        .gcc_except_table is the per-function landing-pad data the FDEs
        point at, which `.rodata*` does not match. */
     .eh_frame_hdr : { *(.eh_frame_hdr) } :rodata :eh_frame

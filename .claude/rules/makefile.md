@@ -10,7 +10,10 @@ Moved verbatim from the root CLAUDE.md (2026-10-23); it loads only when a matchi
 
 - Makefile traps: **`LIVE` changes the PREREQUISITE as well as the
   command line**; **every definition is DEFERRED (`=`, never `:=`) with
-  `$(if ...)`, not `ifeq`**; **`MENU=1` works by deriving
+  `$(if ...)`, not `ifeq`** -- **but a rule's PREREQUISITE list expands
+  when the rule is READ**, so a variable defined further down is EMPTY
+  there and the ordering silently goes (the SDK raced libSDL3's relink
+  until it named the path through `$(BUILD)`); **`MENU=1` works by deriving
   `GRUB_TIMEOUT`**, baked into both media.
 - **Source discovery is recursive** -- every `.c` under `kernel/` compiles
   (the example modules excepted), so a new directory needs no Makefile edit, and there

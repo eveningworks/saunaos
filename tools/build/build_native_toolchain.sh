@@ -29,7 +29,8 @@
 # SDK's startup objects and static libraries, because every program built
 # here is STATIC: a libc fix reaches the machine's cc, as and ar only by a
 # rebuild (ar refused every archive until F_GETFL reported O_RDWR, fixed in
-# libc and invisible to the stamp).
+# libc and invisible to the stamp). STATIC BY ASKING: the specs link
+# dynamically by default, so every configure line passes LDFLAGS=-static.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -92,13 +93,13 @@ FPM="-ffile-prefix-map=$WORK/src=/usr/src"
 # it with arguments, an error in GCC 16's default C23 -- so every compiler
 # it tries is "not working". The flag is what distributions pass.
 LIB_CONF=(--build="$BUILD_TRIPLE" --host="$TARGET" --prefix="$HOSTLIBS"
-    --disable-shared --enable-static CFLAGS="-O2 -std=gnu17 $FPM")
+    --disable-shared --enable-static CFLAGS="-O2 -std=gnu17 $FPM" LDFLAGS=-static)
 BINUTILS_CONF=(--build="$BUILD_TRIPLE" --host="$TARGET" --target="$TARGET"
     --prefix=/usr --with-sysroot=/ --disable-nls --disable-werror
     --disable-gprofng --disable-gdb --disable-gdbserver --disable-sim
     --disable-plugins --disable-install-libbfd --disable-libctf
     --without-zstd --without-debuginfod --without-msgpack
-    CFLAGS="-O2 $FPM" CXXFLAGS="-O2 $FPM")
+    CFLAGS="-O2 $FPM" CXXFLAGS="-O2 $FPM" LDFLAGS=-static)
 GCC_CONF=(--build="$BUILD_TRIPLE" --host="$TARGET" --target="$TARGET"
     --prefix=/usr --with-sysroot=/ --with-build-sysroot="$SYSROOT"
     --with-as=/usr/bin/as --with-ld=/usr/bin/ld
@@ -109,7 +110,7 @@ GCC_CONF=(--build="$BUILD_TRIPLE" --host="$TARGET" --target="$TARGET"
     --enable-initfini-array --disable-libstdcxx-pch --enable-libstdcxx-time=yes
     --disable-libssp --disable-libquadmath --disable-libgomp
     --disable-libatomic --disable-libsanitizer --disable-libvtv
-    CFLAGS="-O2 $FPM" CXXFLAGS="-O2 -DCODY_NETWORKING=0 $FPM")
+    CFLAGS="-O2 $FPM" CXXFLAGS="-O2 -DCODY_NETWORKING=0 $FPM" LDFLAGS=-static)
 # --disable-fixincludes: the target's headers are never fixed (the GCC
 # patch's mkfixinc.sh), so the host copy of the tool would be dead
 # weight -- and it times its server with alarm(), which this system has

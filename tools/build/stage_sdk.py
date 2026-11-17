@@ -29,6 +29,21 @@ list: it is the compiler's own `-M` closure over the headers above, so a new
 #include in a libc header ships its target with no edit here, and a kernel
 header nothing public reaches stays off the disk.
 
+DYNAMIC LINKING IS THE DEFAULT (docs/cc-design.md, "Dynamic by default").
+The shared libraries live in /lib, where ld-toy finds them; /usr/lib holds a
+LINKER SCRIPT per library a program may name -- libc.so is `INPUT(/lib/libc.so)`,
+libSDL3.so is `INPUT(/lib/libSDL3.so.0)` -- the role a Linux distribution's
+`-dev` symlink plays, without needing a symlink on the disk. ld reads a path
+in a script found inside the sysroot as sysroot-relative, so the cross
+linker needs the libraries themselves too: the sysroot's lib/ has a copy,
+which the seed step does NOT put on the disk (the disk's /lib already has
+the same files). -static never sees a script: it takes only the archives.
+
+SDL's headers ship as <SDL3/...> and <SDL2/...>, with pkg-config files
+(usr/lib/pkgconfig) and sdl2-config (usr/bin) that name them with `=`
+paths, which GCC reads as sysroot-relative -- one answer for the cross
+compiler and for the one on the machine.
+
 /usr/lib holds the static archives (libc.a, libc_nonshared.a, the four toolkit
 archives, and empty libm.a/libpthread.a/libdl.a/librt.a), the five runtime objects every program links (crt0.o first), and
 the two linker scripts as saunaos.ld / saunaos-dyn.ld -- the shared libraries
@@ -66,6 +81,60 @@ EMPTY_ARCHIVES = ("libm.a", "libpthread.a", "libdl.a", "librt.a")
 EMPTY_ARCHIVE = b"!<arch>\n"
 LINK_SCRIPTS = (("userland/libs/rt/link.ld", "saunaos.ld"),
                 ("userland/libs/rt/link-dyn.ld", "saunaos-dyn.ld"))
+# The shared libraries a program may link by -l<name>: (the -l name, the
+# file in /lib).
+SHARED = (("c", "libc.so"), ("base", "libbase.so"), ("net", "libnet.so"),
+          ("media", "libmedia.so"), ("ui", "libui.so"),
+          ("SDL3", "libSDL3.so.0"), ("SDL2", "libSDL2-2.0.so.0"))
+SDL3_INC = "userland/third_party/sdl3/upstream/include/SDL3"
+SDL2_INC = "userland/third_party/sdl2compat/upstream/include/SDL2"
+
+
+def sdl_version(header, names):
+    vals = {}
+    for line in open(os.path.join(REPO, header), encoding="utf-8"):
+        parts = line.split()
+        if len(parts) >= 3 and parts[0] == "#define" and parts[1] in names:
+            vals[parts[1]] = parts[2]
+    return ".".join(vals[n] for n in names)
+
+
+def sdl_files():
+    """SDL's headers, and the pkg-config files and sdl2-config that name them."""
+    out = {}
+    for inc, sub in ((SDL3_INC, "SDL3"), (SDL2_INC, "SDL2")):
+        for f in sorted(os.listdir(os.path.join(REPO, inc))):
+            if f.endswith(".h"):
+                out[f"usr/include/{sub}/{f}"] = (f"{inc}/{f}", False)
+    v3 = sdl_version(f"{SDL3_INC}/SDL_version.h",
+                     ("SDL_MAJOR_VERSION", "SDL_MINOR_VERSION", "SDL_MICRO_VERSION"))
+    v2 = sdl_version(f"{SDL2_INC}/SDL_version.h",
+                     ("SDL_MAJOR_VERSION", "SDL_MINOR_VERSION", "SDL_PATCHLEVEL"))
+    pc = ("prefix=/usr\nlibdir=${{prefix}}/lib\nincludedir=${{prefix}}/include\n\n"
+          "Name: {name}\nDescription: Simple DirectMedia Layer, SaunaOS's platform layer\n"
+          "Version: {ver}\nLibs: -l{lib}\nCflags:{cflags}\n")
+    out["usr/lib/pkgconfig/sdl3.pc"] = (pc.format(name="sdl3", ver=v3, lib="SDL3", cflags="").encode(), False)
+    out["usr/lib/pkgconfig/sdl2.pc"] = (pc.format(name="sdl2", ver=v2, lib="SDL2",
+                                                  cflags=" -I=/usr/include/SDL2 -D_REENTRANT").encode(), False)
+    config = f"""#!/bin/sh
+# sdl2-config for SaunaOS: SDL2 through sdl2-compat over SDL3. The -I path is
+# `=`-prefixed, which GCC reads as sysroot-relative, so the cross compiler and
+# the one on the machine take the same answer.
+usage() {{ echo "Usage: sdl2-config [--prefix] [--exec-prefix] [--version] [--cflags] [--libs] [--static-libs]" >&2; exit 1; }}
+[ $# -eq 0 ] && usage
+for a in "$@"; do
+    case "$a" in
+    --prefix|--exec-prefix) echo /usr ;;
+    --version) echo {v2} ;;
+    --cflags) echo -I=/usr/include/SDL2 -D_REENTRANT ;;
+    --libs) echo -lSDL2 ;;
+    --static-libs) echo "sdl2-config: SDL2 is a shared library on SaunaOS" >&2; exit 1 ;;
+    *) usage ;;
+    esac
+done
+"""
+    out["usr/bin/sdl2-config"] = (config.encode(), False)
+    return out
 
 
 def rel(path):
@@ -147,6 +216,11 @@ def plan(build, cc):
         files["usr/lib/" + name] = (src, False)
     for a in EMPTY_ARCHIVES:
         files["usr/lib/" + a] = (None, False)
+    bl = rel(os.path.join(build, "lib"))
+    for name, so in SHARED:
+        files["lib/" + so] = (f"{bl}/{so}", True)   # stripped as the seed step strips /lib's
+        files[f"usr/lib/lib{name}.so"] = (f"INPUT(/lib/{so})\n".encode(), False)
+    files.update(sdl_files())
     return files
 
 
@@ -156,9 +230,11 @@ def stage(files, out, objcopy):
     for dst, (src, strip) in sorted(files.items()):
         target = os.path.join(tmp, dst)
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        if src is None:
+        if src is None or isinstance(src, bytes):   # an empty archive, or text made here
             with open(target, "wb") as f:
-                f.write(EMPTY_ARCHIVE)
+                f.write(EMPTY_ARCHIVE if src is None else src)
+            if target.endswith("/sdl2-config"):
+                os.chmod(target, 0o755)
             continue
         source = os.path.join(REPO, src)
         if not os.path.exists(source):
@@ -183,7 +259,8 @@ def main():
     files = plan(build, args.cc)
     if args.list:
         for dst, (src, strip) in sorted(files.items()):
-            print(f"/{dst}\t{src or '(empty archive)'}{'  (strip-debug)' if strip else ''}")
+            what = "(generated)" if isinstance(src, bytes) else src or "(empty archive)"
+            print(f"/{dst}\t{what}{'  (strip-debug)' if strip else ''}")
         return
     if not args.out:
         ap.error("--out or --list")

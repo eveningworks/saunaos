@@ -251,6 +251,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`objdump`](objdump.md)
 - [`ranlib`](ranlib.md)
 - [`readelf`](readelf.md)
+- [`sdl2-config`](sdl2-config.md)
 - [`size`](size.md)
 - [`strings`](strings.md)
 - [`strip`](strip.md)

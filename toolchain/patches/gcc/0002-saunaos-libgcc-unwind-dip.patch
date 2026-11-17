@@ -1,0 +1,22 @@
+SaunaOS: libgcc's unwinder finds unwind tables through dl_iterate_phdr(),
+the PT_GNU_EH_FRAME path Linux, the BSDs and Bionic take, rather than a
+registry libc.so cannot reach in a dynamic program (docs/decisions/build.md,
+"A program's unwind tables are FOUND, through dl_iterate_phdr()").
+--- a/libgcc/unwind-dw2-fde-dip.c
++++ b/libgcc/unwind-dw2-fde-dip.c
+@@ -54,6 +54,15 @@
+ 
+ #if !defined(inhibit_libc) && defined(HAVE_LD_EH_FRAME_HDR) \
+     && defined(__BIONIC__)
++# define USE_PT_GNU_EH_FRAME
++#endif
++
++/* Changed for SaunaOS, 2026-11-17: tables found through dl_iterate_phdr(),
++   which its C library and ld-toy.so provide, as Bionic's block above does.
++   A dynamic program's libgcc is hidden inside it, so libc.so cannot
++   register tables with it, and a shared library's would be missed.  */
++#if !defined(inhibit_libc) && defined(HAVE_LD_EH_FRAME_HDR) \
++    && defined(__saunaos__)
+ # define USE_PT_GNU_EH_FRAME
+ #endif
+ 

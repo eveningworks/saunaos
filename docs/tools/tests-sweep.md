@@ -10,12 +10,18 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
 
 - **`cross_gcc_test.py`** -- `docs/cc-design.md` stage 1's exit
   criterion: `x86_64-saunaos-gcc -O2 hello.c -o hello`, NO other flags,
-  gives an `ET_EXEC` whose entry is `_start` at `0x8000000000` with no
-  `PT_INTERP`, which `vm.py put` copies onto a guest booted from a COPY of
-  `disk.img` (slot 6 by default) and `tosh -c` runs with stdout to a file;
-  its lines must equal the same source built by the host's plain gcc and
+  gives an `ET_EXEC` whose entry is `_start` at `0x8000000000` -- DYNAMIC
+  ("Dynamic by default"): `PT_INTERP` `/lib/ld-toy.so`, `libc.so` NEEDED
+  -- and the same with `-static` has no `PT_INTERP` and needs nothing.
+  `vm.py put` copies each onto a guest booted from a COPY of `disk.img`
+  (slot 6 by default) and `tosh -c` runs it with stdout to a file; its
+  lines must equal the same source built by the host's plain gcc and
   run here (printf, malloc/realloc, a struct by value, varargs,
-  setjmp/longjmp, floats, errno). It also asserts the defaults arrived: a
+  setjmp/longjmp, floats, errno). Then SDL through the SDK: an SDL3
+  program linked with `pkg-config sdl3`'s flags and an SDL2 one with
+  `sdl2-config`'s (`PKG_CONFIG_LIBDIR` the sysroot's), each needing its
+  `/lib` library and each run on the guest under SDL's dummy driver to a
+  window. It also asserts the defaults arrived: a
   protected function reads `__stack_chk_guard` (not `%fs:40`) RIP-relative,
   and `__saunaos__` is predefined where `__linux__` is not.
   `--positive-control` links through a specs file with no startfile (the
@@ -126,12 +132,18 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   keep its unwind tables (`--positive-control libc_eh_frame` discards
   libc.a's alone). A second program does `import std` (`-std=c++23
   -fmodules --compile-std-module`), built, run on the guest and compared
-  with the host's build of it the same way. It
+  with the host's build of it the same way. The main program is built a
+  second time `-static` and run the same way: the default is dynamic, its
+  throws crossing `libc.so`, whose tables libgcc finds through
+  `dl_iterate_phdr()`. It
   also checks `g++ -v` says `Thread model: posix`, that every C library
   header in the sysroot compiles as C++ on its own (the toolkit's are
-  left out: not C++-clean yet), and prints the binary's size. `--positive-control eh_frame` (or `init_array`) links
-  with a copy of the sysroot's `saunaos.ld` that discards that section,
-  and must fail. A SKIP (77) without a toolchain, or with a stage-1 one
+  left out: not C++-clean yet; SDL's are checked as a C++ port includes
+  them, `<SDL3/SDL.h>` and SDL2's `"SDL.h"` with `sdl2-config`'s flags),
+  and prints the binary's size. `--positive-control eh_frame` (or
+  `init_array`) links with a copy of the sysroot's `saunaos-dyn.ld` that
+  discards that section, `libc_eh_frame` a `-static` link whose
+  `saunaos.ld` discards libc.a's tables, and each must fail. A SKIP (77) without a toolchain, or with a stage-1 one
   that has no `g++`.
 - **`boot_entry_test.py`** -- a one-shot GRUB entry is taken ONCE, and
   GRUB is what ends it. Boots a copy of `disk.img` with reboots allowed,

@@ -15,7 +15,7 @@ BUILT -- before libc-shaped work), `tree-design.md` (the source tree by role, ma
 stages 1-5 BUILT -- before moving a directory, adding a component or
 placing a module in a library),
 `cc-design.md` (an on-OS `cc`,
-stages 0 (the SDK), 1 (the host cross toolchain), 2 (C++ cross-built: g++, libstdc++), 3 (GCC on the machine, `make native-toolchain`) and 4 (GNU make on the machine) BUILT, GCC chosen for C++ -- before compiler/SDK/C++ work, and before believing the roadmap's
+stages 0 (the SDK), 1 (the host cross toolchain), 2 (C++ cross-built: g++, libstdc++), 3 (GCC on the machine, `make native-toolchain`) and 4 (GNU make on the machine) BUILT, DYNAMIC BY DEFAULT since 2026-11-17, GCC chosen for C++ -- before compiler/SDK/C++ work, and before believing the roadmap's
 "out of scope" line covers it), `umdf-design.md` (a driver as a
 process, PLANNED -- IOMMU-less DMA buys crash isolation, NOT
 containment), `dynlink-design.md`, `signals-design.md` (signals, TTY and
@@ -33,7 +33,7 @@ work), `update-design.md`, `software-design.md` (optional components + the Softw
 the network BUILT, on QEMU's e1000 and on real r8169s -- the Lenovo,
 the desktop),
 `sdl-design.md` (SDL3 + sdl2-compat as the platform layer for ported
-programs, SaunaOS an SDL private platform; stage 0 BUILT 2026-11-17 --
+programs, SaunaOS an SDL private platform; stages 0-3 BUILT 2026-11-17, ScummVM next --
 before `userland/third_party/sdl3/`, SDL's drivers, or a port that
 wants SDL), `netstack-design.md` (the network stack in ring 3, PLANNED -- before
 socket or `kernel/net/` work), `trace-design.md` (`strace` decoding in

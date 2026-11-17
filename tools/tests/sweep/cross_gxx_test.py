@@ -28,11 +28,11 @@ WHAT A BROKEN VERSION WOULD STILL PASS, and what is asserted instead:
 
   python3 tools/tests/sweep/cross_gxx_test.py [--instance N] [--toolchain DIR]
   python3 tools/tests/sweep/cross_gxx_test.py --positive-control eh_frame
-      # links with a copy of saunaos.ld that discards .eh_frame: must FAIL
+      # links with a copy of saunaos-dyn.ld that discards .eh_frame: must FAIL
   python3 tools/tests/sweep/cross_gxx_test.py --positive-control init_array
       # ... that keeps no .init_array: must FAIL
   python3 tools/tests/sweep/cross_gxx_test.py --positive-control libc_eh_frame
-      # ... that discards libc.a's tables only: must FAIL
+      # a -static link whose saunaos.ld discards libc.a's tables only: must FAIL
 
 A SKIP (exit 77) without a toolchain, or one built before C++ (stage 1):
 `make toolchain EXTRAS=1`. Boots its own guest, on a COPY of disk.img.
@@ -289,12 +289,15 @@ int main() {
 """
 
 # The two breaks the control can make, as edits to a copy of saunaos.ld.
+# Each break edits the script ITS build links with: the default is dynamic
+# (saunaos-dyn.ld); libc.a's tables exist only in a -static link (saunaos.ld) --
+# a dynamic program's libc tables are libc.so's, found by its PT_GNU_EH_FRAME.
 BREAKS = {
-    "eh_frame": ("    .eh_frame : {\n",
+    "eh_frame": ("saunaos-dyn.ld", [], "    .eh_frame : {\n",
                  "    /DISCARD/ : { *(.eh_frame) }\n    .eh_frame : {\n"),
-    "libc_eh_frame": ("    .eh_frame : {\n",
+    "libc_eh_frame": ("saunaos.ld", ["-static"], "    .eh_frame : {\n",
                       "    /DISCARD/ : { *libc.a:*(.eh_frame) }\n    .eh_frame : {\n"),
-    "init_array": ("        KEEP(*(.init_array))\n        PROVIDE_HIDDEN(__init_array_end = .);",
+    "init_array": ("saunaos-dyn.ld", [], "        KEEP(*(.init_array))\n        PROVIDE_HIDDEN(__init_array_end = .);",
                    "        PROVIDE_HIDDEN(__init_array_end = .);"),
 }
 
@@ -315,7 +318,7 @@ def main():
     ap.add_argument("--disk", default="disk.img", help="the image to boot a COPY of")
     ap.add_argument("--kvm", action="store_true")
     ap.add_argument("--positive-control", choices=sorted(BREAKS),
-                    help="link with a saunaos.ld that loses this section: must fail")
+                    help="link with a script that loses this section: must fail")
     args = ap.parse_args()
 
     prefix = os.path.join(REPO, args.toolchain)
@@ -343,16 +346,16 @@ def run(args, gxx, tmp):
         extra = [f"--sysroot={sysroot}"]
     broken = []
     if args.positive_control:
-        old, new = BREAKS[args.positive_control]
-        with open(os.path.join(sysroot, "usr/lib/saunaos.ld")) as f:
+        name, flags, old, new = BREAKS[args.positive_control]
+        with open(os.path.join(sysroot, "usr/lib", name)) as f:
             script = f.read()
         if script.count(old) != 1:
-            print(f"cross_gxx_test: the control's edit no longer matches saunaos.ld: {old!r}")
+            print(f"cross_gxx_test: the control's edit no longer matches {name}: {old!r}")
             return 2
         bad = os.path.join(tmp, "broken.ld")
         with open(bad, "w") as f:
             f.write(script.replace(old, new))
-        broken = ["-T", bad]
+        broken = ["-T", bad, *flags]
         print(f"cross_gxx_test: POSITIVE CONTROL -- {args.positive_control} lost from the "
               "link; must FAIL")
 
@@ -363,13 +366,15 @@ def run(args, gxx, tmp):
 
     # 2. Every C library header compiles as C++ on its own: extern "C"
     # around it, no C-only keyword, no C++ keyword as a name. The toolkit's
-    # headers (base/ net/ media/ ui/) are not C++-clean yet, and are left out.
+    # headers (base/ net/ media/ ui/) are not C++-clean yet, and are left out;
+    # SDL's are not the C library's (its other platforms' config headers are
+    # not meant to compile here), and are checked through SDL.h below.
     inc = os.path.join(sysroot, "usr/include")
     bad = []
     headers = sorted(os.path.relpath(os.path.join(d, f), inc)
                      for d, dirs, files in os.walk(inc)
                      if os.path.relpath(d, inc).split(os.sep)[0] not in
-                     ("base", "net", "media", "ui", "saunaos")
+                     ("base", "net", "media", "ui", "saunaos", "SDL2", "SDL3")
                      for f in files if f.endswith(".h"))
     for h in headers:
         r = subprocess.run([gxx, *extra, "-std=c++17", "-Wall", "-fsyntax-only", "-x", "c++", "-"],
@@ -379,6 +384,15 @@ def run(args, gxx, tmp):
             bad.append(f"{h}: {r.stderr.strip().splitlines()[0] if r.stderr.strip() else r.returncode}")
     res.check(f"every C library header compiles as C++ ({len(headers)})",
               bool(headers) and not bad, "\n    ".join(bad)[:1200])
+    # SDL as a C++ port includes it: SDL3's way, and SDL2's through the
+    # flags sdl2-config gives (an `=` path, the sysroot's).
+    for name, include, flags in (("SDL3", "<SDL3/SDL.h>", []),
+                                 ("SDL2", '"SDL.h"', ["-I=/usr/include/SDL2", "-D_REENTRANT"])):
+        r = subprocess.run([gxx, *extra, *flags, "-std=c++17", "-Wall", "-fsyntax-only", "-x", "c++", "-"],
+                           input=f"#include {include}\nint main() {{ return 0; }}\n",
+                           capture_output=True, text=True)
+        res.check(f"{name}'s SDL.h compiles as C++ from the SDK", r.returncode == 0 and not r.stderr.strip(),
+                  r.stderr.strip()[:600])
 
     # 3. The build, with no flags but the language level.
     exe = os.path.join(tmp, "cxx_hello")
@@ -392,6 +406,16 @@ def run(args, gxx, tmp):
     stripped = os.path.join(tmp, "cxx_hello.stripped")
     subprocess.run([strip, "-o", stripped, exe], check=False)
     print(f"cross_gxx_test: binary {size} bytes, {os.path.getsize(stripped) if os.path.exists(stripped) else 0} stripped")
+    # The same program -static: its throws go through libc.a's tables, found
+    # by libc.a's own dl_iterate_phdr. Not under a control, whose break is
+    # the default build's.
+    static_exe = os.path.join(tmp, "cxx_hello_static")
+    st = None
+    if not args.positive_control:
+        st = subprocess.run([gxx, *extra, "-std=c++17", "-O2", "-static", *srcs, "-o", static_exe],
+                            capture_output=True, text=True)
+        res.check("`x86_64-saunaos-g++ -static` links it too", st.returncode == 0,
+                  (st.stdout + st.stderr).strip()[:800])
     sections = subprocess.run(["readelf", "-SW", exe], capture_output=True, text=True).stdout
     res.check("the binary keeps .eh_frame and .init_array",
               bool(re.search(r"\.eh_frame\s", sections)) and ".init_array" in sections
@@ -434,22 +458,26 @@ def run(args, gxx, tmp):
     if not res.check("the guest came up", "ready" in vm("start", timeout=300)):
         return res.finish("cross_gxx_test")
     try:
-        out = vm("put", exe, GUEST_BIN)
-        res.check("the binary is copied in", "fail" not in out.lower(), out.strip()[:300])
-        vm("exec", f"rm {GUEST_OUT}")
-        vm("exec", f"spawn /bin/tosh -c {GUEST_BIN} > {GUEST_OUT}")
+        runs = [("", exe)]
+        if st is not None and st.returncode == 0:
+            runs.append(("-static: ", static_exe))
+        for label, binary in runs:
+            out = vm("put", binary, GUEST_BIN)
+            res.check(f"{label}the binary is copied in", "fail" not in out.lower(), out.strip()[:300])
+            vm("exec", f"rm {GUEST_OUT}")
+            vm("exec", f"spawn /bin/tosh -c {GUEST_BIN} > {GUEST_OUT}")
 
-        def read():
-            return clean_lines(vm("exec", f"cat {GUEST_OUT}"))
+            def read():
+                return clean_lines(vm("exec", f"cat {GUEST_OUT}"))
 
-        got = poll(lambda: (lambda lines: lines if END in lines else None)(read()), 60) or read()
-        res.check("it runs on the guest to the global's destructor, after main", END in got,
-                  f"got {len(got)} lines")
-        pad = max(len(want), len(got))
-        diff = [f"    host: {w!r}\n    test: {g!r}"
-                for w, g in zip(want + [""] * pad, got + [""] * pad) if w != g]
-        res.check(f"its output matches the host build's, line for line ({len(want)} lines)",
-                  got == want, "\n".join(diff)[:2000])
+            got = poll(lambda: (lambda lines: lines if END in lines else None)(read()), 60) or read()
+            res.check(f"{label}it runs on the guest to the global's destructor, after main", END in got,
+                      f"got {len(got)} lines")
+            pad = max(len(want), len(got))
+            diff = [f"    host: {w!r}\n    test: {g!r}"
+                    for w, g in zip(want + [""] * pad, got + [""] * pad) if w != g]
+            res.check(f"{label}its output matches the host build's, line for line ({len(want)} lines)",
+                      got == want, "\n".join(diff)[:2000])
         if mb.returncode == 0:
             vm("put", mod_exe, GUEST_BIN + "_mod")
             vm("exec", f"rm {GUEST_OUT}_mod")

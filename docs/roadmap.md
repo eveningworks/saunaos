@@ -1093,7 +1093,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] SDL's custom cursor images (`SDL_CreateColorCursor`) as `uapp_cursor_image()` cursors on a `uapp_window`
 - [x] ~~Stage 2: SDL's audio driver over `usnd_push`~~ DONE 2026-11-17 -- `sdl_audio_test.py`, both SDLs, by the card's recording
 - [x] ~~Stage 3: preferences folder, clipboard, open URL, message boxes, relative mouse~~ DONE 2026-11-17 -- `sdl_stage3_test.py`
-- [ ] SDL in the SDK: SDL3's and SDL2's headers, `.pc` files and `sdl2-config`, over dynamic linking in the cross toolchain
+- [x] ~~SDL in the SDK: SDL3's and SDL2's headers, `.pc` files and `sdl2-config`~~ DONE 2026-11-17 -- over dynamic linking by default
 - [ ] Stage 4: ScummVM on its SDL backend, as a GPL optional component, with the freeware games' downloader
 - [ ] Per-thread signal masks and `pthread_sigmask()`, which would retire SDL's one patch
 - [ ] `tm_gmtoff` and `tm_zone` in tolibc's `struct tm` (POSIX.1-2024) -- the cross toolchain's libstdc++ must be rebuilt with it
@@ -1746,7 +1746,8 @@ the design doc says why in its first section.
 - [ ] `<complex.h>` and `<tgmath.h>`, so libstdc++'s `std::complex` uses C99's `cexp` and friends
 - [ ] The wide-string and wide-I/O families in tolibc, so libstdc++ can be built with `wchar_t` (`std::wstring`, `std::wcout`)
 - [ ] The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are
-- [ ] A shared library built by the cross toolchain, with C++ in it: `-shared` specs, its unwind tables registered by ld-toy
+- [x] ~~The cross compiler links dynamically by default; `-static` opts out~~ DONE 2026-11-17 -- tables via `dl_iterate_phdr()`
+- [ ] A shared library built by the cross toolchain, with C++ in it -- needs libstdc++ built `-fpic` (its TLS is local-exec)
 - [x] ~~GCC and binutils running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000`~~ DONE 2026-11-08 -- `make native-toolchain`, opt-in
 - [x] ~~`cc` and `c++` on the machine, with `docs/commands/` pages~~ DONE 2026-11-08 -- `native_cc_test.py` compares with the host
 - [x] ~~`cc` and `c++` as hard links of `gcc` and `g++` on the image~~ DONE 2026-11-09 -- `tfs3_writer.py` seeds a link as one

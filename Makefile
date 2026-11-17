@@ -1521,10 +1521,14 @@ $(BUILD)/userland-pic/shared/%.o: kernel/lib/%.c $(BUILD)/.sanitize-flag
 	@mkdir -p $(dir $@)
 	$(CC) $(LIBC_PIC_SHARED_CFLAGS) $< -o $@
 
+# --eh-frame-hdr: libc is built WITH unwind tables (above), and libgcc
+# finds a library's through its PT_GNU_EH_FRAME (dl_iterate_phdr), which
+# ld writes only when asked -- a C++ throw out of a qsort() comparator in
+# a dynamic program crosses this library's frames.
 LIBC_SO = $(BUILD)/lib/libc.so
 $(LIBC_SO): $(LIBC_PIC_OBJS)
 	@mkdir -p $(dir $@)
-	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libc.so -o $@ $(LIBC_PIC_OBJS)
+	$(LD) -shared --hash-style=sysv -z max-page-size=4096 --eh-frame-hdr -soname libc.so -o $@ $(LIBC_PIC_OBJS)
 
 # --- the toolkit libraries, shared ------------------------------------
 #
@@ -1707,7 +1711,11 @@ all: $(LDSO) $(DYNLIBS) $(SND_PLUGINS) $(LIBC_SO) $(TOOLKIT_SO)
 # sysroot the host's x86_64-saunaos-gcc is configured with, so both see
 # the same bytes. tools/build/stage_sdk.py decides the layout and which
 # kernel headers ship (the compiler's own -M closure); it replaces the
-# tree whole, so a deleted header leaves it. build_stamp.h is left out
+# tree whole, so a deleted header leaves it. Its lib/ (the shared libraries,
+# for the cross linker) and usr/bin/ (sdl2-config, with a compiler only)
+# are not the disk's /usr. The SDL libraries are named by path: their
+# variables are defined below, and a prerequisite expands when its rule
+# is read. build_stamp.h is left out
 # of the prerequisites only because it changes on every build and no
 # public header reaches it.
 SYSROOT    = $(BUILD)/sysroot
@@ -1716,7 +1724,10 @@ SDK_INPUTS = $(filter-out kernel/include/api/build_stamp.h,$(shell find userland
                userland/libs/base userland/libs/net userland/libs/media userland/libs/ui \
                kernel/include/api kernel/include/abi -name '*.h' 2>/dev/null)) \
              userland/libs/rt/sys.h userland/libs/rt/link.ld userland/libs/rt/link-dyn.ld \
-             $(LIBC) $(LIBC_NONSHARED) $(TOOLKIT_A) $(USERLAND_RT) tools/build/stage_sdk.py
+             $(LIBC) $(LIBC_NONSHARED) $(TOOLKIT_A) $(USERLAND_RT) tools/build/stage_sdk.py \
+             $(LIBC_SO) $(TOOLKIT_SO) $(BUILD)/lib/libSDL3.so.0 $(BUILD)/lib/libSDL2-2.0.so.0 \
+             $(wildcard userland/third_party/sdl3/upstream/include/SDL3/*.h \
+                        userland/third_party/sdl2compat/upstream/include/SDL2/*.h)
 $(SDK_STAMP): $(SDK_INPUTS)
 	python3 tools/build/stage_sdk.py --build $(BUILD) --out $(SYSROOT)
 	@touch $@
@@ -2310,7 +2321,8 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	rm -rf $(SEED_DIR)/sync/usr/bin $(SEED_DIR)/sync/usr/libexec
 	$(if $(NOGPL),@true,@if [ -x $(NATIVE_TC)/usr/bin/gcc ]; then \
 	    echo "seed: the native toolchain ($(NATIVE_TC)) goes in /usr"; \
-	    cp -r --preserve=links $(NATIVE_TC)/usr/. $(SEED_DIR)/sync/usr/; fi)
+	    cp -r --preserve=links $(NATIVE_TC)/usr/. $(SEED_DIR)/sync/usr/; \
+	    cp $(SYSROOT)/usr/bin/sdl2-config $(SEED_DIR)/sync/usr/bin/; fi)
 	printf '# image directories tfs3_writer.py sync mirrors exactly (Makefile, seed)\n/usr/include\n/usr/lib\n/usr/bin\n/usr/libexec\n' > $(SEED_DIR)/exact
 	# Destination comes from the SOURCE DIRECTORY, not from a list:
 	# build/userland/{gui,bin}/x.elf -> /bin/x, build/userland/tests/x.elf

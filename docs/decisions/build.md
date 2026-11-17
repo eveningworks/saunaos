@@ -2457,7 +2457,9 @@ a static `/bin` program: `gcc/config/saunaos.h`'s specs add `-fpie
 -ftls-model=local-exec -fstack-protector-strong`, `-mrelax-relocations=no`
 to the assembler, and the link line `-n --gc-sections -T
 saunaos.ld crt0.o <prog> -lgcc sys.o stack_chk.o sigtramp.o tls.o -lc
--lgcc`. Each one is spelled `%{!other-form:...}` so a user's own flag
+-lgcc` -- since 2026-11-17 the `-static` one: the default became the
+dynamic `DYN_LINK` line ("The compiler links dynamically by default",
+below). Each one is spelled `%{!other-form:...}` so a user's own flag
 wins.
 
 **Why defaults, not a wrapper script.** A program built with this
@@ -2521,7 +2523,10 @@ shortcut and gets a library named before its own dependency wrong
 available to check here, so nothing is claimed for it.
 
 **The unwind tables are REGISTERED, by libc's start code -- not found
-through `dl_iterate_phdr()`, and not registered by `crtbegin.o`.** Linux
+through `dl_iterate_phdr()`, and not registered by `crtbegin.o`.
+SUPERSEDED 2026-11-17** by "The compiler links dynamically by default,
+and libgcc FINDS unwind tables through dl_iterate_phdr()" (below): a
+dynamic program's libgcc is out of libc.so's reach. As it stood: Linux
 finds them through `dl_iterate_phdr()` and `PT_GNU_EH_FRAME`, but GCC
 16's libgcc enables that path (`unwind-dw2-fde-dip.c`) for a fixed list
 of systems -- glibc, Bionic, Linux, the BSDs, Solaris -- so SaunaOS
@@ -2558,6 +2563,38 @@ include/c++}`, beside the compiler that uses it, and `make sdk`'s tree
 -- which is replaced whole -- never holds it. It reaches the disk with
 stage 3, when a `g++` runs there: before that it is tens of MB of
 headers and archives nothing on the machine can read.
+
+## The compiler links dynamically by default, and libgcc FINDS unwind tables through dl_iterate_phdr()
+
+**2026-11-17** (`docs/cc-design.md`, "Dynamic by default"; asked for by
+SDL in the SDK, `docs/sdl-design.md` stage 3). Two picks of the
+maintainer's, the second forced by the first.
+
+**Dynamic is the default, `-static` the way out** -- over a static
+default with a SaunaOS-only flag asking for dynamic. `/bin`'s programs
+are already dynamic (ld-toy), so the cross compiler was the odd one out,
+and Linux, SerenityOS and Haiku all default dynamic: a build system that
+knows nothing of SaunaOS gets the link the OS's own programs have, and
+`pkg-config`/`sdl2-config` need no extra flag. sdl2-compat cannot work
+any other way -- it `dlopen()`s `libSDL3.so.0`. A `-dev` symlink's job is
+a linker script in `/usr/lib` (`INPUT(/lib/libc.so)`), which needs no
+symlink on the disk and which ld resolves inside the sysroot when cross
+linking.
+
+**libgcc finds unwind tables through `dl_iterate_phdr()`, Linux's path,
+and the registry is retired** -- over registering every loaded object's
+tables from a preinit function in the program, which would have needed
+no GCC patch. The registry broke the day the default went dynamic:
+libgcc's archive hides its symbols, so `libc.so`'s start code -- whose
+weak `__register_frame_info` used to bind inside a static program --
+found nothing in a dynamic one, and the first `throw` terminated. A
+program-side registration would cover the program and its load-time
+libraries but never a library `dlopen()`ed later (sdl2-compat's
+libSDL3, any plugin). The cost is one block in libgcc's
+`unwind-dw2-fde-dip.c` (`toolchain/patches/gcc/0002`), the same per-OS
+block Linux, the BSDs and Bionic each have -- the one exception to
+`cc-design.md`'s stop line on GCC logic, taken knowingly. `dl_iterate_phdr()`
+had been in tolibc and ld-toy since stage 2 for exactly this switch.
 
 ## tolibc's long double maths is the x87's, and its four special functions are double precision
 

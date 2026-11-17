@@ -30,24 +30,15 @@ struct rt_initfini {
     rt_init_fn *preinit, *preinit_end;
     rt_init_fn *init, *init_end;
     rt_fini_fn *fini, *fini_end;
-    const void *eh_frame;   // link.ld's __eh_frame_start
+    const void *eh_frame;   // link.ld's __eh_frame_start; read by nothing since
+                            // libgcc finds tables itself (below), kept for crt0
 };
 
-// UNWIND TABLES ARE REGISTERED HERE, before any constructor, when the
-// program carries libgcc's unwinder (a C++ program that can throw); the
-// reference is weak, so a C program pulls in nothing. This is the job
-// gcc's crtbegin.o does on Linux, and it cannot do it here: its call
-// to the weak function is PC-relative, and a weak symbol nothing
-// defines is address 0, out of reach of an image at 0x8000000000. The
-// call below loads the address from the GOT, which can hold a 0. The
-// other way -- libgcc finding the tables through
-// dl_iterate_phdr(), as on Linux -- is enabled in libgcc for a fixed
-// list of systems only (docs/decisions/build.md).
-//
-// `g_eh_object` is libgcc's `struct object`, private to it; crtstuff.c
-// reserves it the same way, as eight longs.
-void __register_frame_info(const void *begin, void *object) __attribute__((weak));
-static long g_eh_object[8];
+// NO UNWIND TABLES ARE REGISTERED HERE: libgcc's unwinder finds every
+// object's through dl_iterate_phdr() and its PT_GNU_EH_FRAME, as on Linux
+// (toolchain/patches/gcc/0002; docs/decisions/build.md). A registry call
+// from here could not reach a DYNAMIC program's libgcc, which is hidden
+// inside the program, and would miss every shared library's tables.
 
 extern struct ldso_api __ldso_api;   // dlfcn.c; filled by ld-toy.so
 
@@ -66,11 +57,6 @@ static void run_fini(void) {
 
 void __libc_start_init(int argc, char **argv, char **envp, const struct rt_initfini *t) {
     g_prog = t;
-    // Through a pointer the compiler cannot see through: a direct call
-    // to a weak function is the PC-relative one that cannot reach 0.
-    void (*reg)(const void *, void *) = __register_frame_info;
-    __asm__("" : "+r"(reg));
-    if (reg && t->eh_frame) reg(t->eh_frame, g_eh_object);
     // The first entry on the exit list, so it runs LAST. It cannot fail:
     // the first 32 entries need no allocation.
     atexit(run_fini);

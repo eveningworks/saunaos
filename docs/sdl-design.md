@@ -5,7 +5,7 @@ programs written for Linux, Windows or macOS already speak, so a port
 is a recompile and not a new backend each time. ScummVM is the first
 program it is for; DOSBox and most SDL games are the ones after.
 
-**STAGES 0, 1 AND 2 ARE BUILT (2026-11-17)** -- SDL 3.4.20 and sdl2-compat 2.32.74
+**STAGES 0, 1, 2 AND 3 ARE BUILT (2026-11-17)** -- SDL 3.4.20 and sdl2-compat 2.32.74
 are vendored, build as `/lib/libSDL3.so.0` and `/lib/libSDL2-2.0.so.0`,
 and pass `/tests/sdl3_test` and `/tests/sdl2_test` with SDL's own dummy
 video and disk audio drivers; an SDL program opens a real desktop
@@ -268,7 +268,7 @@ and no soundd is a failed open, as on Linux with nothing to connect to.
   dropped once the cause was found: nothing needed it. Lower latency for
   games is its own change, measured on the hardware.
 
-### Stage 3 -- the rest a port reaches for -- BUILT 2026-11-17 (the SDK part follows)
+### Stage 3 -- the rest a port reaches for -- BUILT 2026-11-17
 
 The maintainer's picks from the "SDL message box options" canvas and
 the question round of the same day:
@@ -322,12 +322,16 @@ the question round of the same day:
   seen red: the kernel not holding, `uui_para_key()` declining, the
   badge in the accent.
 
-**Still to come in stage 3: SDL in the SDK** -- SDL3's and SDL2's
-headers, `.pc` files and `sdl2-config`, so `cc`/`c++` (on the machine
-and cross) find `<SDL3/SDL.h>` and `-lSDL3`. The cross toolchain links
-STATIC only (`docs/cc-design.md`) and sdl2-compat `dlopen()`s
-`libSDL3.so.0`, so it needs dynamic linking in the toolchain first --
-the maintainer's pick, the same day.
+**SDL in the SDK -- BUILT the same day.** `<SDL3/...>` and `<SDL2/...>`
+in `/usr/include`, `-lSDL3`/`-lSDL2` through `/usr/lib`'s linker scripts,
+`sdl3.pc`/`sdl2.pc` in `/usr/lib/pkgconfig` and `sdl2-config` (in the
+sysroot's `usr/bin`, and the image's `/usr/bin` when it carries a
+compiler). Their include flag is `-I=/usr/include/SDL2`: GCC reads `=` as
+the sysroot, so the cross compiler and the machine's take one answer.
+It needed dynamic linking first -- sdl2-compat `dlopen()`s `libSDL3.so.0`
+-- which became the compiler's DEFAULT (`docs/cc-design.md`, "Dynamic by
+default"). `cross_gcc_test.py` builds an SDL3 program with `pkg-config`
+and an SDL2 one with `sdl2-config` and runs both on a guest.
 
 ### Stage 4 -- ScummVM
 

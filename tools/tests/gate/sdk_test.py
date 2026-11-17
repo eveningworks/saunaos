@@ -87,6 +87,20 @@ def compare(want, got):
     return bad
 
 
+def image_libs(disk, names):
+    """{name: bytes or None} for /lib/<name> on the image."""
+    base, sectors = mkpart_test.volume_of(disk)
+    img = t3.Tfs3Image(disk, writable=False, base_lba=base, sectors=sectors)
+    try:
+        out = {}
+        for n in names:
+            ino = img.lookup("/lib/" + n)
+            out[n] = img.read_file_data(ino) if ino is not None else None
+        return out
+    finally:
+        img.close()
+
+
 def image_files(disk, out):
     """Copy the image's SDK directories under `out`; None if the image has no TFS3."""
     base, sectors = mkpart_test.volume_of(disk)
@@ -210,6 +224,8 @@ def main():
             with open(os.path.join(copy, "usr/include/stale.h"), "w") as f:
                 f.write("/* a header the tree deleted */\n")
             os.remove(os.path.join(copy, "usr/lib/crt0.o"))
+            with open(os.path.join(copy, "lib/libc.so"), "ab") as f:
+                f.write(b"tampered")
             sysroot = copy
 
         fresh = os.path.join(tmp, "fresh")
@@ -234,6 +250,19 @@ def main():
             check(f"{os.path.basename(args.disk)}'s /usr/include and /usr/lib are build/sysroot", not drift,
                   "; ".join(drift[:4]) + (f" (+{len(drift) - 4})" if len(drift) > 4 else "")
                   + " -- `make iso` re-seeds")
+            # The sysroot's lib/ is what the cross LINKER reads for a dynamic
+            # program; what runs is the image's /lib. They must be one file.
+            names = [so for _, so in stage_sdk.SHARED]
+            libs = image_libs(args.disk, names)
+            stale = []
+            for n in names:
+                mine = os.path.join(sysroot, "lib", n)
+                theirs = libs.get(n)
+                if not os.path.isfile(mine) or theirs is None or open(mine, "rb").read() != theirs:
+                    stale.append(n)
+            check(f"build/sysroot's lib/ is {os.path.basename(args.disk)}'s /lib, byte for byte",
+                  not stale, "differ or missing: " + ", ".join(stale)
+                  + " -- `make iso` re-seeds; a STRIP=0 image keeps debug info the SDK's copy has not")
         else:
             print(f"  skip {args.disk} is absent -- `make iso` builds it")
 

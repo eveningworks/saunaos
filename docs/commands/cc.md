@@ -20,10 +20,13 @@ processes, with temporary files in the scratch directory
 (`storage.tmpdir`).
 
 **THE LINK LINE IS THIS SYSTEM'S**, built into the driver's specs: a
-static program at the base every `/bin` program uses, against the SDK in
-`/usr/include` and `/usr/lib` -- the C library and libgcc, with the
-stack protector on; the toolkit's four archives are there to name
-(`-lui -lmedia -lnet -lbase`, in that order). A program built here runs as `./name` or under
+DYNAMIC program, as every `/bin` program is, at the same base, with
+`/lib/ld-toy.so` as its interpreter and `/lib/libc.so` as its C library;
+`-static` gives a static one from the archives instead. Either is built
+against the SDK in `/usr/include` and `/usr/lib`, with libgcc and the
+stack protector on; the toolkit is there to name (`-lui -lmedia -lnet
+-lbase`, in that order), and SDL as `-lSDL3` or `-lSDL2`
+(`pkg-config sdl3`, `sdl2-config --cflags --libs`). A program built here runs as `./name` or under
 `spawn`. No flag is needed for any of it, and the flags the tree passes
 by hand (`-fpie`, `-mno-direct-extern-access`,
 `-mstack-protector-guard=global`) are the defaults.
@@ -36,8 +39,8 @@ by hand (`-fpie`, `-mno-direct-extern-access`,
   flags (`-mcmodel=kernel` and the rest) are a cross build's. This
   compiles programs, not the system (`docs/cc-design.md`, "This is NOT
   self-hosting").
-- **Static programs only.** `-shared` and a program linked against
-  `/lib/libc.so` are not offered by the specs.
+- **No C++ shared library**: libstdc++ is built for a program, not
+  `-fpic`. A C one links with `-shared -fpic`.
 - **No LTO, no plugins, no OpenMP, no sanitizers** -- configured off.
 - **`-time` and `-ftime-report`'s child times** are not available:
   the system does not add a reaped child's CPU time to its parent, so
