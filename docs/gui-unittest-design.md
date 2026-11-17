@@ -5,7 +5,8 @@ then whole apps driven in memory, with no guest, no compositor and no QMP
 -- what KTESTs are to the kernel. **The maintainer's pick, 2026-11-17, after
 SDL stage 4 and ahead of the toolkit's C++ headers. Stage 1 BUILT
 2026-11-17** (`tools/hostchecks/uitest_hostcheck.py`, `tools/lib/uitest/`);
-stages 2 and 3 not.
+**stage 2 BUILT 2026-11-17** (`tools/lib/uitest/uitest_app.c`), on the host
+rather than in the guest first; stage 3 not.
 
 ## The measurement that decided it
 
@@ -130,7 +131,39 @@ deterministic font, so the whole set runs in seconds with no QEMU.
   rules, `settings_test`'s rows). A ported check leaves the GUI tool,
   which keeps ONE end-to-end check of what moved.
 
-## Stage 2: whole apps headless -- an offscreen `uapp`
+## Stage 2: whole apps headless -- an offscreen `uapp` -- BUILT
+
+**As built** (2026-11-17, the maintainer away; Recommended taken): ON THE
+HOST, at the same seam as stage 1, and with NO CHANGE TO `uapp`. The
+window protocol is `base/uchan.h` rings in shared memory plus futex
+words, and every one of those is a `sys_*` call the host stubs already
+answer -- so the stubs give real named shared memory, and
+`tools/lib/uitest/uitest_app.c` is a stand-in compositor that serves the
+app's real channel in-process: CREATE, PRESENT (the frame copied, the
+previous buffer released, a frame's time on the clock), the widget map,
+the title; the calls it does not stand in for (POPUP, DIALOG, NOTICE, ...)
+are refused, and uapp takes the path it has for each (a dropdown draws in
+the window). The app's real `main` (its directory's sources, `main`
+renamed, named by a case's `// uitest-app: DIR` line) runs on its own
+stack (`ucontext`), and every futex wait is where it PARKS and the test
+runs: one thread, so a frame read after `uitest_app_settle()` is settled
+by construction. Its log is captured, so a case reads an app's own report
+lines as the GUI tools do; `sys_getrandom` is a fixed sequence.
+
+**Measured.** Calculator's and Minesweeper's own rules moved down
+(`calculator_app_uitest.c`, `mines_app_uitest.c`); their GUI tools kept
+the end-to-end part -- the ring-3 process, the composited frame, the
+right-click past the window manager, the dialog, the disk:
+`calculator_client_test` 22 s -> 12 s, `mines_test` 44 s -> 30 s, and
+the two app cases take well under a second each on the host.
+
+**Why the host and not the guest first**: the seam already existed and
+runs in every preflight in seconds; a guest runner would have needed the
+backend as a second implementation inside `uapp`, and paid TCG for each
+case. An app that needs what the root does not hold (a file under
+`/home`, a service) is still the guest's, and the GUI tool keeps it.
+
+### The plan it was built from
 
 Qt's offscreen shape: a `uapp` backend that draws into memory and takes
 its events from the test instead of `wmchan`, so an app's REAL code --

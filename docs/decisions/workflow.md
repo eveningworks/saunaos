@@ -468,3 +468,33 @@ GUI tool whose checks moved keeps one end-to-end view of the same
 behaviour (`scroll_test.py` keeps the Retro Launcher's grid). An app's
 own logic -- staging, the registry, files -- stays in its GUI tool until
 stage 2's offscreen uapp can run the app's real code.
+
+## A whole app is tested headless by standing in for the COMPOSITOR at the syscall seam, not by a second uapp backend
+
+Chosen 2026-11-17 (`docs/gui-unittest-design.md`, stage 2), with the
+maintainer away and the Recommended route taken.
+
+**The obvious shape was a backend inside `uapp`** -- Qt's QPA plugin: an
+ops table for the window, the present and the events, a second
+implementation that draws into memory. It would have touched every path
+uapp has to the compositor, and the test of an app would then run a uapp
+the real desktop never runs.
+
+**The window protocol is already made of things the host stubs answer**:
+`base/uchan.h` rings in shared memory, futex words to wait on, buffers
+that are shm objects. So the stubs give real named shared memory, and
+`tools/lib/uitest/uitest_app.c` serves the app's REAL channel the way
+toywm does, for one client and one window. uapp is unchanged; the code
+under test is the code that ships, down to its channel.
+
+**One thread, two stacks.** The app's `main` runs on its own stack
+(`ucontext`), and a futex wait -- the only place uapp's loop parks -- is
+where it hands back to the test. Nothing races, and a frame read after a
+settle is settled by construction, which is what `gui sync` buys a GUI
+tool with a round trip. Threads were ruled out for exactly the races and
+the waits they would bring back.
+
+**What it does not stand in for** -- popup surfaces, dialog windows,
+drag and drop, a proposed resize -- it REFUSES, and uapp takes the path it
+already has for a refusal (a popup draws inside the window). The GUI tool
+of an app keeps those, and everything that needs the real stack.

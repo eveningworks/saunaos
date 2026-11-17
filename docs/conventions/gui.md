@@ -6538,7 +6538,8 @@ page then agree).
 ## A WIDGET'S OWN LOGIC IS TESTED ON THE HOST, AND THE GUI TOOL ABOVE IT KEEPS ONE END-TO-END CHECK
 
 **The rule.** What a widget decides by itself -- a hit test, a layout, focus, an edit, a scroll position, the colour
-of its selected state -- is a case in `tools/hostchecks/uitest/` (`tools/lib/uitest/uitest.h`): the widget tree an
+of its selected state -- and what an APP decides by itself (its rules, its handlers, what a click on its widgets
+draws: `// uitest-app:`, its real main headless) is a case in `tools/hostchecks/uitest/` (`tools/lib/uitest/uitest.h`): the widget tree an
 app declares, drawn into memory and driven by NAME through the real router, in seconds, in every preflight. A GUI
 tool in `tools/tests/gui/` is for what needs the real stack: the compositor, the protocol, real input, several
 windows, the app's own logic and files. When a check moves down, the tool KEEPS one end-to-end check of the same

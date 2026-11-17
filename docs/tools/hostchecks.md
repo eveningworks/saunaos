@@ -59,6 +59,20 @@ the rest in the sweep. Each stays a standalone script with its own
   archive with each `CONTROLS` edit on a copy and requires exactly its
   named cases red and the rest green (uui_sbar's bottom-counted offset
   reddens `sbar` and `scroll`; uui_grid's unflipped thumb `scroll`).
+  **WHOLE APPS, TOO (stage 2)**: a case whose first line is
+  `// uitest-app: DIR` builds that app's sources with `main` renamed and
+  drives its REAL main through `tools/lib/uitest/uitest_app.h` --
+  `uitest_app_start`, `_click(name)` from the window's widget map,
+  `_rclick_at`, `_key`, `_type`, `_tick`, `_settle`, `_pixel` of the
+  presented frame, `_close`. `uitest_app.c` is a stand-in compositor
+  serving the app's real `base/uchan.h` channel over the stubs' shared
+  memory; the app runs on its own stack and the test runs only while it
+  PARKS (a futex wait), so every frame read is settled. A present costs a
+  frame's time on the clock, or an animation never ends. The app's log is
+  kept (`uitest_log_find`), `sys_getrandom` is fixed, a second thread is
+  refused (tolibc's `pthread.c` is linked), and POPUP/DIALOG/NOTICE are
+  refused, so popups draw in the window. Cases: `calculator_app`,
+  `mines_app`. A control may edit an APP's source (`APP_OVERRIDE`).
   `--keep DIR` writes `uitest_keep()` frames as PPMs; names run a subset;
   `--list`. Needs gcc and objdump.
 - **`smb_hostcheck.py`** -- the SMB client's protocol

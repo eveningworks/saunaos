@@ -267,17 +267,16 @@ from the default (a sound card, a USB mouse, `--reboot`).
   offsets in Python -- the Python copy drifts silently the moment a row
   is added to the app, which is exactly what happened when the dropdown
   and listbox rows landed mid-file.
-- **`calculator_client_test.py`** -- drives the RING-3 Calculator
-  (`userland/apps/calculator.c`) and asserts on it (8 checks). Worth reading
-  for two techniques: it uses **no OCR** -- every check is a round trip
-  (a state change must alter the display's pixels, and returning to the
-  same logical state must restore them EXACTLY), which proves rendering
-  and arithmetic together and also catches a right number drawn in the
-  wrong place; and its last check presses a button, drags OFF it and
-  releases, which must NOT commit. That one matters because a client
-  acting on button-down passes every other check and fails only that.
-  Geometry is derived from the window's reported content size, not
-  hardcoded, so it survives a font-size change.
+- **`calculator_client_test.py`** -- the RING-3 Calculator
+  (`userland/apps/apps/calculator/`) END TO END: its own process, the
+  faces drawn on the real screen, a click through the compositor
+  repainting the display, the title-bar close. Its arithmetic, C's exact
+  round trip, the keyboard and the press dragged off a button run on the
+  HOST against Calculator's real main
+  (`tools/hostchecks/uitest/calculator_app_uitest.c`, stage 2 of
+  `docs/gui-unittest-design.md`), with the same technique: **no OCR**,
+  every check a pixel round trip. Geometry comes from the app's own
+  layout lines, never re-derived.
 - **`uterm_test.py`** -- drives the RING-3 Terminal, which is a real
   TERMINAL EMULATOR now: a pty with `/bin/tosh` on the far end.
 
@@ -1146,7 +1145,10 @@ from the default (a sound card, a USB mouse, `--reboot`).
   handler returning early reddens every menu check and leaves the two
   controls green; a choice that writes nothing reddens checks 2 and 3.
   In `gui_regress.py`.
-- **`mines_test.py`** -- Minesweeper (29 checks), and the protocol
+- **`mines_test.py`** -- Minesweeper END TO END (its rules -- the
+  clock, the first click's safe 3x3, flags, a press dragged off a cell --
+  run on the host against its real main,
+  `tools/hostchecks/uitest/mines_app_uitest.c`), and the protocol
   property it was built to prove: **a secondary click reaching a ring-3
   client**. The check that matters is a PAIR -- a right-click on the
   BOARD must flag a cell and leave no context menu open, and a
