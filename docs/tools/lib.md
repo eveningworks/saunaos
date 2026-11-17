@@ -165,7 +165,12 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   work after the frame (`settle(0)`: the frame alone) -- never replace it
   with a fixed sleep: the console is asynchronous. `windows()`/`window(title)` ask the WM
   what it is drawing, and `enter_gui()` polls the desktop ready instead
-  of sleeping.
+  of sleeping. It also holds `desktop.caret_blink` OFF for the run (as
+  `separate_tray_icons()` holds `desktop.tray.quick`), through
+  `_hold_setting()`: a marker in `/var/tmp` names the value a tool's, so
+  a run killed before its exit restore is put right by the next run
+  instead of read as the owner's choice -- a machine once kept a caret
+  that never blinked anywhere that way.
 
   **Waits the WM decides, and input it times** (`docs/gui-test-sync-design.md`):
   `wait_window(title, pid=)`, `wait_widget(title, name)` and

@@ -1450,6 +1450,42 @@ def _enable_layout_log(sock):
     atexit.register(_restore)
 
 
+def _config_value(reply):
+    """The value `sh config get NAME` printed: its last word."""
+    lines = [l.strip() for l in (reply or "").splitlines() if l.strip()]
+    return lines[-1].split()[-1] if lines else ""
+
+
+def _hold_setting(c, name, value):
+    """Set `name` to `value` for this run; a function that puts it back
+    (`config unset`, the declared default), or None when it was already
+    `value` by the machine's own choice.
+
+    A MARKER IN /var/tmp SAYS THE VALUE IS A TOOL'S, NOT THE OWNER'S. An
+    atexit restore never runs for a run that is killed (a timeout, Ctrl-C
+    twice, the host dropping the link), and the next run then found the
+    value already set, took it for the owner's and left it -- for good:
+    the ASUS sat with its caret not blinking anywhere (2026-11-17). With
+    the marker, whichever run next finishes puts it back."""
+    marker = f"/var/tmp/gui_debug.{name}"
+    m = re.search(r"<<<FILE (-?\d+)", c.send(f"readfile {marker}") or "")
+    ours = bool(m and int(m.group(1)) >= 0)
+    if _config_value(c.send(f"sh config get {name}")) == value and not ours:
+        return None
+    if not ours:
+        c.write_lines(marker, [f"{name} held by tools/lib/gui_debug.py"])
+    c.send(f"sh config set {name} {value}")
+    sock = getattr(c, "sock_path", None)
+    def _restore():
+        try:
+            with DebugConsole(sock) as r:
+                r.send(f"sh config unset {name}")
+                r.send(f"sh rm {marker}")
+        except Exception:
+            pass
+    return _restore
+
+
 def _steady_caret(sock):
     """`desktop.caret_blink` OFF for this run, restored at exit.
 
@@ -1460,17 +1496,9 @@ def _steady_caret(sock):
     compares frames wants it still; tools/tests/gui/caret_blink_test.py turns it
     back on to test the blink itself."""
     with DebugConsole(sock) as c:
-        was_off = "off" in (c.send("sh config get desktop.caret_blink") or "")
-        c.send("sh config set desktop.caret_blink off")
-    if was_off:
-        return
-    def _restore():
-        try:
-            with DebugConsole(sock) as c:
-                c.send("sh config set desktop.caret_blink on")
-        except Exception:
-            pass
-    atexit.register(_restore)
+        restore = _hold_setting(c, "desktop.caret_blink", "off")
+    if restore:
+        atexit.register(restore)
 
 
 def separate_tray_icons(dbg):
@@ -1482,26 +1510,16 @@ def separate_tray_icons(dbg):
     by default, and a click there opens Quick Settings, not the flyout a
     tool about that flyout means to test; tools/tests/gui/quick_test.py covers the
     grouped path. Waits until the group is gone from the strip."""
-    was_off = "off" in (dbg.send("sh config get desktop.tray.quick") or "")
-    dbg.send("sh config set desktop.tray.quick off")
+    restore = _hold_setting(dbg, "desktop.tray.quick", "off")
     for _ in range(25):
         q = dbg.json("gui quick --json")
         if not q.get("button") or not q["button"][2]:
             break
         dbg.settle()
-    if was_off:
-        return
-    sock = getattr(dbg, "sock_path", None)
-    def _restore():
-        try:
-            with DebugConsole(sock) as c:
-                c.send("sh config unset desktop.tray.quick")
-        except Exception:
-            pass
     # On bare metal there is no socket: DebugConsole() itself becomes the
     # remote console (SAUNAOS_REMOTE_HOST), so the restore runs there too.
-    if sock is not None or os.environ.get("SAUNAOS_REMOTE_HOST"):
-        atexit.register(_restore)
+    if restore and (getattr(dbg, "sock_path", None) is not None or os.environ.get("SAUNAOS_REMOTE_HOST")):
+        atexit.register(restore)
 
 
 def wait_for_desktop(sock, timeout=8.0):
