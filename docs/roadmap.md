@@ -28,6 +28,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 - [ ] `execl`/`execlp` in tolibc  *(`fork()`/`exec()`-style process model)*
 - [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
+- [ ] The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are  *(Programming on the machine)*
 <!-- END next-up -->
 
 
@@ -1745,7 +1746,8 @@ the design doc says why in its first section.
 - [x] ~~`%Lf`/`%Le`/`%Lg` in tolibc's printf~~ DONE 2026-11-10 -- with `%a`, `%n`, exact digits, rounded strtod
 - [ ] `<complex.h>` and `<tgmath.h>`, so libstdc++'s `std::complex` uses C99's `cexp` and friends
 - [ ] The wide-string and wide-I/O families in tolibc, so libstdc++ can be built with `wchar_t` (`std::wstring`, `std::wcout`)
-- [ ] The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are
+- [ ] **NEXT** The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are
+- [ ] A C++ layer over the toolkit, gtkmm's shape -- classes, lambdas for callbacks; the C library stays the implementation
 - [x] ~~The cross compiler links dynamically by default; `-static` opts out~~ DONE 2026-11-17 -- tables via `dl_iterate_phdr()`
 - [ ] A shared library built by the cross toolchain, with C++ in it -- needs libstdc++ built `-fpic` (its TLS is local-exec)
 - [x] ~~GCC and binutils running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000`~~ DONE 2026-11-08 -- `make native-toolchain`, opt-in
