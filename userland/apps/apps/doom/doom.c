@@ -465,7 +465,7 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
     if (doom_front_up() || doom_help_up()) doom_front_release(a, x, y, buttons);
 }
 
-void doom_start_game(struct uapp *a, const struct doom_iwad *w) {
+void doom_start_game(struct uapp *a, const struct udata_item *w) {
     struct doom_state *st = uapp_state(a);
     doom_front_leave();
     if (st->started) return;

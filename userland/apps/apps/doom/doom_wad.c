@@ -11,52 +11,51 @@
 #include <unistd.h>
 
 // **A DOWNLOAD IS PINNED BY ITS SHA-256**, Debian's game-data-packager
-// shape: the checksum, not the transport, is what says the bytes are
-// the game -- which is why the fetch may skip certificate checks on a
-// machine with no CA bundle (uhttp.h's `insecure`), and why a mirror
-// (`mirror=` in /etc/doom.conf) is as good as the origin.
-//
-// Freedoom's checksum is the one its release signs (freedoom-0.13.0-
-// CHECKSUM, PGP-signed by the project); the shareware one is id's 1.9
-// doom1.wad (MD5 f0cefca49926d00903cf57551d901abe, the widely published
-// value). ORDER IS PREFERENCE when nothing is chosen in /etc/doom.conf:
-// id's own data first, as before this list existed.
-const struct doom_iwad DOOM_IWADS[] = {
+// shape (base/udatafetch.h). Freedoom's checksum is the one its release
+// signs (freedoom-0.13.0-CHECKSUM, PGP-signed by the project); the
+// shareware one is id's 1.9 doom1.wad (MD5 f0cefca49926d00903cf57551d901abe,
+// the widely published value). ORDER IS PREFERENCE when nothing is
+// chosen in /etc/doom.conf: id's own data first, as before this list existed.
+static const struct udata_part SHAREWARE[] = { {
+    "https://raw.githubusercontent.com/Akbar30Bill/DOOM_wads/master/doom1.wad",
+    "1d7d43be501e67d927e415e0b8f3e29c3bf33075e859721816f652a526cac771",
+    4196020, UDATA_FILE, NULL,
+} };
+static const struct udata_part FREEDOOM[] = { {
+    "https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip",
+    "3f9b264f3e3ce503b4fb7f6bdcb1f419d93c7b546f4df3e874dd878db9688f59",
+    24143781, UDATA_MEMBER, "freedoom-0.13.0/freedoom1.wad",
+} };
+
+const struct udata_item DOOM_IWADS[] = {
     { "doom1.wad", "DOOM Shareware", "Episode 1 by id Software. Free to share unchanged.",
-      "https://raw.githubusercontent.com/Akbar30Bill/DOOM_wads/master/doom1.wad",
-      "1d7d43be501e67d927e415e0b8f3e29c3bf33075e859721816f652a526cac771",
-      4196020, NULL, "raw.githubusercontent.com",
+      "raw.githubusercontent.com", SHAREWARE, 1,
       "id Software shareware licence. Not open source.",
       "id Software lets anyone share the shareware episode unchanged and free of "
       "charge. You may not sell it or change it, and it is not the full game.\n"
       "This copy comes from a third party's GitHub repository, not from id "
       "Software. DOOM checks that it is id's unmodified version 1.9 before using it.",
       1, "doom-shareware.txt", NULL },
-    { "doom.wad", "DOOM", "The registered game.", NULL, NULL, 0, NULL, NULL, NULL, NULL, 0, NULL, NULL },
-    { "doom2.wad", "DOOM II", "Hell on Earth.", NULL, NULL, 0, NULL, NULL, NULL, NULL, 0, NULL, NULL },
+    { "doom.wad", "DOOM", "The registered game.", NULL, NULL, 0, NULL, NULL, 0, NULL, NULL },
+    { "doom2.wad", "DOOM II", "Hell on Earth.", NULL, NULL, 0, NULL, NULL, 0, NULL, NULL },
     { "freedoom1.wad", "Freedoom: Phase 1", "Free game content, BSD licence. Four episodes.",
-      "https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip",
-      "3f9b264f3e3ce503b4fb7f6bdcb1f419d93c7b546f4df3e874dd878db9688f59",
-      24143781, "freedoom-0.13.0/freedoom1.wad", "github.com/freedoom",
+      "github.com/freedoom", FREEDOOM, 1,
       "BSD 3-clause. Free software.",
       "Freedoom is free game content: you may use, share and change it, as long "
       "as its copyright notice stays with it.\n"
       "It comes from the Freedoom project's own releases on GitHub. DOOM checks "
       "the release's signed checksum before using it.",
       0, "freedoom.txt", "freedoom-0.13.0/COPYING.txt" },
-    { "freedoom2.wad", "Freedoom: Phase 2", "Free game content, BSD licence.", NULL, NULL, 0, NULL, NULL,
+    { "freedoom2.wad", "Freedoom: Phase 2", "Free game content, BSD licence.", NULL, NULL, 0,
       NULL, NULL, 0, NULL, NULL },
 };
 const int DOOM_IWAD_COUNT = (int)(sizeof DOOM_IWADS / sizeof DOOM_IWADS[0]);
 
-int doom_iwad_path(const struct doom_iwad *w, char *out, int cap) {
-    return snprintf(out, (size_t)cap, "%s/%s", DOOM_WAD_DIR, w->file) < cap;
+int doom_iwad_path(const struct udata_item *w, char *out, int cap) {
+    return snprintf(out, (size_t)cap, "%s/%s", DOOM_WAD_DIR, w->id) < cap;
 }
 
-int doom_iwad_present(const struct doom_iwad *w) {
-    char p[160];
-    return doom_iwad_path(w, p, sizeof p) && access(p, F_OK) == 0;
-}
+int doom_iwad_present(const struct udata_item *w) { return udata_present(DOOM_WAD_DIR, w); }
 
 // CASE-BLIND: a retail DOOM.WAD off a DOS install or a FAT stick is the
 // same file. The table's lower-case name is what it is installed as.
@@ -69,16 +68,16 @@ static int same_name(const char *a, const char *b) {
     return *a == *b;
 }
 
-const struct doom_iwad *doom_iwad_named(const char *file) {
+const struct udata_item *doom_iwad_named(const char *file) {
     for (int i = 0; i < DOOM_IWAD_COUNT; i++)
-        if (same_name(DOOM_IWADS[i].file, file)) return &DOOM_IWADS[i];
+        if (same_name(DOOM_IWADS[i].id, file)) return &DOOM_IWADS[i];
     return NULL;
 }
 
-const struct doom_iwad *doom_iwad_chosen(void) {
+const struct udata_item *doom_iwad_chosen(void) {
     char v[32];
     if (uconf_get(DOOM_CONF, "iwad", v, sizeof v)) {
-        const struct doom_iwad *w = doom_iwad_named(v);
+        const struct udata_item *w = doom_iwad_named(v);
         if (w && doom_iwad_present(w)) return w;
     }
     for (int i = 0; i < DOOM_IWAD_COUNT; i++)
@@ -86,18 +85,8 @@ const struct doom_iwad *doom_iwad_chosen(void) {
     return NULL;
 }
 
-int doom_iwad_choose(const struct doom_iwad *w) {
-    return uconf_set(DOOM_CONF, "iwad", w->file);
-}
-
-int doom_iwad_url(const struct doom_iwad *w, char *out, int cap) {
-    char mirror[128];
-    if (!w->url) return 0;
-    if (uconf_get(DOOM_CONF, "mirror", mirror, sizeof mirror) && mirror[0]) {
-        const char *base = strrchr(w->url, '/');
-        return snprintf(out, (size_t)cap, "%s%s", mirror, base) < cap;
-    }
-    return snprintf(out, (size_t)cap, "%s", w->url) < cap;
+int doom_iwad_choose(const struct udata_item *w) {
+    return uconf_set(DOOM_CONF, "iwad", w->id);
 }
 
 // --- the WAD itself --------------------------------------------------------

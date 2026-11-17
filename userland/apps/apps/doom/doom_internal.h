@@ -3,55 +3,33 @@
 
 // DOOM's parts beside the game window (userland/apps/apps/doom/doom.c): the
 // game data it can run and where that comes from (doom_wad.c), and the
-// front end -- the launcher page, the game-data card with its download,
+// front end -- the launcher page, the game-data card (ui/uui_datacard.h),
 // and the F1 key sheet over the game (doom_front.c). Split from doom.c
 // by concern, the userland/apps/system/toywm/ way: doom.c is the game's window, these
 // are everything that is not the game.
 #include <stdint.h>
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
+#include "base/udatafetch.h"
 
 #define DOOM_WAD_DIR "/usr/share/doom"
 #define DOOM_CONF    "/etc/doom.conf"
 
 // --- the game data (doom_wad.c) ---------------------------------------
 
-// One IWAD this port knows by name. `url` NULL: never downloaded, only
-// found -- a retail file the person brings themselves.
-struct doom_iwad {
-    const char *file;       // its name in DOOM_WAD_DIR
-    const char *name;       // what it is called on screen
-    const char *detail;     // one line about it
-    const char *url;        // where a download fetches it from, or NULL
-    const char *sha256;     // what the download must hash to
-    unsigned long size;     // the download's size, for the card
-    const char *zip_member; // when `url` is a .zip: the WAD inside it
-    const char *source;     // the host named on the card
-    // THE LICENCE, shown before a download (mockup L2): its name, the
-    // notice in plain words ('\n' between paragraphs), and whether the
-    // person must AGREE (id's terms) or is only told (BSD). Saved as
-    // /usr/share/licenses/<licence_file> -- from <licence_member> in the
-    // zip when there is one, the real text, else the notice itself.
-    const char *licence;
-    const char *notice;
-    int agree;
-    const char *licence_file;
-    const char *licence_member;
-};
-extern const struct doom_iwad DOOM_IWADS[];
+// The IWADs this port knows by name, as udatafetch items: `id` is the
+// file's name in DOOM_WAD_DIR; one with no parts is never downloaded,
+// only found -- a retail file the person brings themselves.
+extern const struct udata_item DOOM_IWADS[];
 extern const int DOOM_IWAD_COUNT;
 
-int doom_iwad_path(const struct doom_iwad *w, char *out, int cap);
-int doom_iwad_present(const struct doom_iwad *w);
-const struct doom_iwad *doom_iwad_named(const char *file);
+int doom_iwad_path(const struct udata_item *w, char *out, int cap);
+int doom_iwad_present(const struct udata_item *w);
+const struct udata_item *doom_iwad_named(const char *file);
 // The one to play: /etc/doom.conf's `iwad=` if it is here, else the
 // first present in table order. NULL when there is none.
-const struct doom_iwad *doom_iwad_chosen(void);
-int doom_iwad_choose(const struct doom_iwad *w);
-// The URL a download uses: `mirror=` in /etc/doom.conf replaces all but
-// the file's name, so a LAN copy (or a test's server) stands in for the
-// origin. 0 when there is none to download.
-int doom_iwad_url(const struct doom_iwad *w, char *out, int cap);
+const struct udata_item *doom_iwad_chosen(void);
+int doom_iwad_choose(const struct udata_item *w);
 
 // Does `path` start like an IWAD? A file someone points the card at.
 int doom_wad_is_iwad(const char *path);
@@ -89,6 +67,6 @@ void doom_front_leave(void);  // the game takes the window
 // --- doom.c, for the front end ----------------------------------------
 
 // Starts the game on `w`, leaving the front end.
-void doom_start_game(struct uapp *a, const struct doom_iwad *w);
+void doom_start_game(struct uapp *a, const struct udata_item *w);
 
 #endif
