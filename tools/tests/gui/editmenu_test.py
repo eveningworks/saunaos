@@ -17,6 +17,11 @@ text="..."`, `uidemo: edit text="..."`) -- the buffer, not pixels.
      back -- each one reported by the app as an `edit` it was told about.
   3. The Menu key opens it at the focused field of an app with a focus
      ring (Help's search), and Esc closes it.
+  4. A chord is one press: with the right button held over the field, a
+     left click on a button is the button's (it commits at the LEFT's
+     release) and the menu opens at the RIGHT's -- the left's release was
+     taken for the right's. And the app's on_release hears a chord once,
+     when the last button comes up (UI Demo's `release 0x..` lines).
 
 Positive controls (mutate.py): break uui_edit.c's Ctrl-V case and the
 key checks go red; break uui_editmenu.c's ED_PASTE row and the menu's.
@@ -232,6 +237,56 @@ def run_readonly(t, win, field):
             "copied from the read-only view; a one-line field pastes its first line", got)
 
 
+def btn1_rect(dbg):
+    """UI Demo's `layout btn1 x y w h`, content-relative."""
+    deadline = time.time() + 4
+    while time.time() < deadline:
+        for ln in reversed(dbg.logs("uidemo: layout btn1 ", clear=False)):
+            return tuple(int(v) for v in ln.split("uidemo: layout btn1 ", 1)[1].split()[:4])
+        time.sleep(0.2)   # sleep-ok: polls the guest log for a line, bounded
+    return None
+
+
+def run_chords(t, qmp, win, field, btn):
+    """Which button came up decides where a release goes."""
+    if not t.check(btn is not None, "UI Demo reports its first button"):
+        return
+    c = win["content"]
+    fx, fy = c["x"] + field["x"] + field["w"] // 2, c["y"] + field["y"] + field["h"] // 2
+    bx, by = c["x"] + btn[0] + btn[2] // 2, c["y"] + btn[1] + btn[3] // 2
+    t.dbg.logs("uidemo:", clear=True)
+    t.dbg.warp_cursor(qmp, fx, fy)
+    qmp.mouse_down("right")
+    t.dbg.settle()
+    t.dbg.warp_cursor(qmp, bx, by)
+    qmp.mouse_down("left")
+    t.dbg.settle()
+    qmp.mouse_up("left")
+    lines = wait_lines(t.dbg, "uidemo", lambda a: any("uidemo: button 1" in ln for ln in a), 3.0)
+    t.check(any("uidemo: button 1" in ln for ln in lines),
+            "right held over the field: a left click on a button commits at the LEFT's release",
+            [ln for ln in lines if "layout" not in ln][-6:])
+    t.check(not menu_rows(lines, "uidemo")[1],
+            "...and the edit menu does not open at it", "editmenu.open 1 at the left's release")
+    qmp.mouse_up("right")
+    lines = wait_lines(t.dbg, "uidemo", lambda a: menu_rows(a, "uidemo")[1], 3.0)
+    t.check(menu_rows(lines, "uidemo")[1], "the menu opens at the RIGHT's release")
+    key(t.dbg, K_ESC)
+
+    # on_release: once per press, at the LAST button's release.
+    px, py = c["x"] + c["w"] - 20, c["y"] + c["h"] - 10
+    t.dbg.warp_cursor(qmp, px, py)
+    t.dbg.logs("uidemo:", clear=True)
+    for step in (("down", "left"), ("down", "right"), ("up", "right"), ("up", "left")):
+        (qmp.mouse_down if step[0] == "down" else qmp.mouse_up)(step[1])
+        t.dbg.settle()
+    lines = wait_lines(t.dbg, "uidemo", lambda a: any("release 0x00" in ln for ln in a), 3.0)
+    rel = [ln.split("uidemo: ", 1)[1] for ln in lines if re.search(r"uidemo: (press|release) 0x", ln)]
+    t.check([r.split()[0] + " " + r.split()[1] for r in rel] ==
+            ["press 0x01", "press 0x02", "release 0x00"],
+            "a chord is one press to the app: on_release once, when the last button is up", rel)
+
+
 def run_menu_key(t):
     t.dbg.spawn(HELP, "Help")
     win = t.dbg.window_settled("Help")
@@ -277,9 +332,13 @@ def main():
     win = dbg.window_settled("UI Demo")
     if not t.check(win is not None, "UI Demo opens"):
         return 1
+    btn = btn1_rect(dbg)
     field = dbg.widgets("UI Demo").get("textbox")
     if not t.check(field is not None, "UI Demo reports its text field"):
         return 1
+
+    print("== chords ==")
+    run_chords(t, qmp, win, field, btn)
 
     print("== keys ==")
     run_keys(t, win, field)

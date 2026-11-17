@@ -151,6 +151,7 @@ struct uapp {
     int has_top;                // the toplevel is open (UAPP_NO_TOPLEVEL opens it late)
     int w, h;
     int drag_exported;          // a FILES drag was announced to the compositor (WIN_REQ_DRAG_START)
+    int press_heard;            // on_press heard part of the press now held (on_release's pairing)
     // The last WIN_REQ_DRAG_FEEDBACK sent, so a held pointer sends none.
     int fb_sent, fb_acc, fb_copy;
     char fb_text[64];
@@ -227,6 +228,7 @@ UAPP_HIDDEN extern uint32_t g_popup_parent;
 UAPP_HIDDEN extern uint32_t g_press_slot;
 UAPP_HIDDEN extern struct win_event g_press_up;
 UAPP_HIDDEN extern int g_release_owed;
+UAPP_HIDDEN extern unsigned g_btn_held, g_btn_released;   // uapp.c's note_buttons()
 UAPP_HIDDEN extern const struct uui_popup_ops g_popup_ops;
 UAPP_HIDDEN int  slot_of(const struct uapp_surf *s);
 UAPP_HIDDEN int  buf_make(struct uapp_surf *s, int buf, int w, int h);

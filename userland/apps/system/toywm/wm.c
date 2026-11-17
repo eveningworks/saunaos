@@ -202,7 +202,7 @@ unsigned resize_asks = 0;
 
 int content_dragging = -1; // index into windows[], or -1 -- see wm_internal.h
 int content_pressed = -1; // index into windows[], or -1 -- see wm_internal.h
-int content_pressed_btn = 1; // which button armed it -- see wm_internal.h
+int content_pressed_btn = 1; // the buttons held on it -- see wm_internal.h
 
 int redraw_pending = 1;
 
@@ -1648,21 +1648,26 @@ void wm_run(void) {
         // unconditional push would overflow a 32-deep queue in a
         // fraction of a second and report constant drops while the user
         // sat still. See WIN_EV_RAW_MOUSE.
-        int left_edge_down = (buttons & 0x1) && !(prev_buttons & 0x1);
+        // A press already held on a client takes every new one first
+        // (wm_press_join(): a chord is one press, the window's).
+        unsigned downs = (unsigned)(buttons & ~prev_buttons);
+        downs &= ~wm_press_join(mx, my, downs, buttons);
+        int left_edge_down = (downs & 0x1) != 0;
         if (left_edge_down) wm_handle_left_click(mx, my);
 
         // bit1 = right button (see mouse.h's mouse_get_state()) -- same
         // edge-triggered pattern as the left button above, dispatching
         // to context_menu.h's popup instead of a window action.
-        int right_edge_down = (buttons & 0x2) && !(prev_buttons & 0x2);
+        int right_edge_down = (downs & 0x2) != 0;
         if (right_edge_down && !wm_overlay_modal_open()) wm_handle_right_click(mx, my);
 
-        // MIDDLE AND THE TWO THUMB BUTTONS, BOTH EDGES. Unlike the two
-        // above these do no window management at all -- they are handed
-        // to the client under the pointer and nothing else -- so the
-        // release matters as much as the press and there is no drag to
-        // track between them. A client that does not want them ignores
-        // them; that is the whole of the compositor's policy here.
+        // MIDDLE AND THE TWO THUMB BUTTONS. Unlike the two above these
+        // do no window management at all -- they are handed to the
+        // client under the pointer and nothing else. The PRESS only: it
+        // arms content_pressed, and the release is that press's, in
+        // wm_update_drag_resize(), like the left's and the right's. A
+        // client that does not want them ignores them; that is the whole
+        // of the compositor's policy here.
         //
         // MIDDLE IS IN THIS LIST BECAUSE IT WAS IN NO LIST. Nothing
         // tested bit 2 anywhere in the WM, so a middle click travelled
@@ -1676,8 +1681,7 @@ void wm_run(void) {
         };
         for (unsigned t = 0; t < sizeof PASSTHRU / sizeof PASSTHRU[0]; t++) {
             unsigned bit = PASSTHRU[t];
-            int now = (buttons & bit) != 0, was = (prev_buttons & bit) != 0;
-            if (now != was && !wm_overlay_modal_open()) wm_handle_thumb_button(mx, my, bit, now);
+            if ((downs & bit) && !wm_overlay_modal_open()) wm_handle_thumb_button(mx, my, bit);
         }
 
         // A Start-menu action (currently just "Exit to shell") may have

@@ -35,7 +35,8 @@ static bool SAUNAOS_VideoInit(SDL_VideoDevice *_this)
 {
     (void)_this;
     g_desc.title = "SDL";
-    g_desc.flags = UAPP_NO_TOPLEVEL;
+    /* The program's locale is its own: SDL_Init must not change it. */
+    g_desc.flags = UAPP_NO_TOPLEVEL | UAPP_NO_SETLOCALE;
     g_desc.on_user = on_user;
     if (!uapp_open(&SAUNAOS_app, &g_desc)) {
         return SDL_SetError("SaunaOS: no desktop to open a window on");
@@ -80,10 +81,20 @@ static void SAUNAOS_VideoQuit(SDL_VideoDevice *_this)
 int SAUNAOS_Pump(int timeout_ms)
 {
     static bool told;
+    static int depth;
     if (!SAUNAOS_app) {
         return -1;
     }
+    /* NOT FROM INSIDE ONE: an SDL event watcher runs within uapp_pump()'s
+     * dispatch, and a pump from there (SDL_UpdateWindowSurface,
+     * SDL_PumpEvents) would hand SDL the next events in the middle of
+     * this one. The outer pump paints what was marked. */
+    if (depth) {
+        return 0;
+    }
+    depth++;
     int handled = uapp_pump(SAUNAOS_app, timeout_ms);
+    depth--;
     if (handled < 0 && !told) {
         told = true;
         SDL_SendQuit();

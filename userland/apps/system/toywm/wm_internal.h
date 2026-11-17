@@ -301,13 +301,14 @@ extern int content_dragging;
 // wm_update_drag_resize() for where it's driven each tick.
 extern int content_pressed;
 
-// Which BUTTON bits armed content_pressed: 0x1 for the left button, 0x2
-// for the right one, BOTH for a chord (one pressed while the other was
-// held on the same window). The press ends when the last of them goes
-// up; one going up before is a MOUSE_UP naming those still held. Without
-// it a right-click forwarded to a client (see wm_handle_right_click())
-// would arm a press that nothing could ever release, and a chord's left
-// button would never come up. Meaningless while content_pressed is -1.
+// Which BUTTON bits are held on content_pressed: whichever armed it (the
+// left, the right, the middle, a thumb button) and every other pressed
+// while it lasts -- wherever the pointer is then (wm_press_join()). The
+// press ends when the last of them goes up; one going up before is a
+// MOUSE_UP naming those still held. Without it a right-click forwarded
+// to a client (see wm_handle_right_click()) would arm a press that
+// nothing could ever release, and a chord's left button would never come
+// up. Meaningless while content_pressed is -1.
 extern int content_pressed_btn;
 
 // Title-bar minimize/maximize/close buttons: Windows/KDE-style delayed
@@ -787,9 +788,16 @@ int wm_ensure_reachable(int idx);
 // button or empty taskbar space shows nothing (no real action to offer
 // there yet). Defined in wm_input.c.
 void wm_handle_right_click(int mx, int my);
-// The thumb buttons (WIN_MOUSE_BTN_SIDE/EXTRA), delivered to the client
-// under the pointer and to nothing else -- see the definition.
-void wm_handle_thumb_button(int mx, int my, unsigned btn, int down);
+// The middle and thumb buttons' PRESS, delivered to the client under
+// the pointer and to nothing else -- see the definition. Their release
+// ends the press it armed (wm_update_drag_resize()).
+void wm_handle_thumb_button(int mx, int my, unsigned btn);
+// Buttons newly down (`downs`) while a press is held on a client: they
+// join it (implicit grab). Returns the ones it took, which the WM's own
+// handlers must not also see. Defined in wm_input.c.
+unsigned wm_press_join(int mx, int my, unsigned downs, uint8_t buttons);
+// Arm the content press on windows[fi] for `bit`, or join the one there.
+void wm_press_arm(int fi, unsigned bit, int mx, int my);
 
 // Drives title_btn_pressed_active while a title-bar button is armed,
 // and fires its action on release if the cursor's still over it -- see

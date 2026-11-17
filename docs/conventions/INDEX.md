@@ -808,8 +808,9 @@ whenever a headline here tells you something you did not already know.
 - **A SECONDARY CLICK IS THE CLIENT'S INSIDE ITS CONTENT AREA, AND THE
   WM'S EVERYWHERE ELSE**
 - **A MOUSE DOWN NAMES THE BUTTON PRESSED, AN UP THE BUTTONS STILL HELD,
-  AND A CHORD IS ONE PRESS** -- toykit's widgets ignore an UP that still
-  names the primary
+  AND A CHORD IS ONE PRESS -- THE WINDOW'S THAT HAS IT** -- every button
+  joins the held press (implicit grab); the toolkit routes an UP by which
+  button came up; `on_release` once per press
 - **DOOM IS A VENDORED PORT IN `userland/third_party/doom/upstream/`, LINKED INTO ONE
   BINARY**
 - **DOOM'S SOUND IS THE REST OF THE PORT, NOT A REWRITE -- AND THE THREE

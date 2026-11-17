@@ -508,8 +508,7 @@ void wm_handle_left_click(int mx, int my) {
             // on this same button-down tick too, not just subsequent
             // ones, so the pressed look appears immediately.
             if (windows[fi].app && windows[fi].app->on_press) {
-                content_pressed = fi;
-                content_pressed_btn = 0x1;
+                wm_press_arm(fi, 0x1, mx, my);
                 windows[fi].app->on_press(&windows[fi], ccx, ccy);
             } else if (wm_client_is_client_window(&windows[fi])) {
                 // A client has no on_press callback -- it does its own
@@ -521,8 +520,7 @@ void wm_handle_left_click(int mx, int my) {
                 // commit a click. That is exactly the bug this line
                 // fixes: keyboard input worked and mouse input did
                 // not.
-                content_pressed_btn = content_pressed == fi ? (content_pressed_btn | 0x1) : 0x1;
-                content_pressed = fi;
+                wm_press_arm(fi, 0x1, mx, my);
             }
             // A ring-3 client gets the same event as a message instead
             // of a callback. It has no on_click/on_press distinction --
@@ -895,7 +893,11 @@ static void ctx_toggle_pin(void *ctx) {
 // DELIVERED BY POSITION, NOT BY FOCUS, which is what both Windows
 // (mouse messages go to the window under the cursor) and Wayland
 // (pointer focus IS the surface under the pointer) do.
-void wm_handle_thumb_button(int mx, int my, unsigned btn, int down) {
+//
+// THE PRESS ARMS content_pressed, as the right button's does, so its
+// release goes to the window that heard the press -- and is a chord's
+// partial release when another button is still held there.
+void wm_handle_thumb_button(int mx, int my, unsigned btn) {
     const int *zorder = wm_stacking(0);
     for (int z = window_count - 1; z >= 0; z--) {
         int i = zorder[z];
@@ -907,11 +909,48 @@ void wm_handle_thumb_button(int mx, int my, unsigned btn, int down) {
         // and the client has no business hearing about it.
         int cx = mx - window_content_x(w), cy = my - window_content_y(w);
         if (cx < 0 || cy < 0 || cx >= w->w || cy >= w->h) return;
-        if (wm_client_is_client_window(w))
-            wm_client_send_mouse(w, down ? WIN_EV_MOUSE_DOWN : WIN_EV_MOUSE_UP,
-                                 mx, my, down ? btn : 0);
+        if (wm_client_is_client_window(w)) {
+            wm_press_arm(i, btn, mx, my);
+            wm_client_send_mouse(w, WIN_EV_MOUSE_DOWN, mx, my, btn);
+        }
         return;   // the topmost window here takes it, hit or not
     }
+}
+
+// Arms the content press on windows[fi] for `bit`, or joins the one held
+// there. A press still recorded on ANOTHER window is one whose buttons all
+// came up in this same sample, its release not yet handled: it ends now,
+// or that window never hears its MOUSE_UP.
+void wm_press_arm(int fi, unsigned bit, int mx, int my) {
+    if (content_pressed >= 0 && content_pressed != fi) {
+        struct window *o = &windows[content_pressed];
+        if (o->app && o->app->on_release) o->app->on_release(o);
+        wm_client_send_mouse(o, WIN_EV_MOUSE_UP, mx, my, 0);
+        content_pressed = -1;
+    }
+    content_pressed_btn = content_pressed == fi ? (content_pressed_btn | (int)bit) : (int)bit;
+    content_pressed = fi;
+}
+
+// A CHORD IS ONE PRESS, AND IT BELONGS TO THE WINDOW THAT HAS IT: a
+// button pressed while another is held on a client goes to THAT client,
+// wherever the pointer is, and joins the press -- X11's and Wayland's
+// implicit grab, which lasts until every button is up. None of the WM's
+// own meaning for it (a raise, the window menu, a click on another
+// window): that window would hear a press whose release went elsewhere,
+// and the first one's release would never come. A WM-drawn window takes
+// a left-only press, so another button is swallowed while it lasts.
+unsigned wm_press_join(int mx, int my, unsigned downs, uint8_t buttons) {
+    if (!downs || content_pressed < 0) return 0;
+    if (!((unsigned)buttons & (unsigned)content_pressed_btn)) return 0;   // that press is over
+    struct window *w = &windows[content_pressed];
+    if (!wm_client_is_client_window(w)) return downs;
+    for (unsigned bit = 1; bit <= WIN_MOUSE_BTN_EXTRA; bit <<= 1) {
+        if (!(downs & bit)) continue;
+        content_pressed_btn |= (int)bit;
+        wm_client_send_mouse(w, WIN_EV_MOUSE_DOWN, mx, my, bit);
+    }
+    return downs;
 }
 
 void wm_handle_right_click(int mx, int my) {
@@ -1016,8 +1055,7 @@ void wm_handle_right_click(int mx, int my) {
             // A CHORD JOINS the press held on this window rather than
             // replacing it, or the left button's release would never
             // reach the client (wm_internal.h's content_pressed_btn).
-            content_pressed_btn = content_pressed == fi ? (content_pressed_btn | 0x2) : 0x2;
-            content_pressed = fi;
+            wm_press_arm(fi, 0x2, mx, my);
             wm_client_send_mouse(&windows[fi], WIN_EV_MOUSE_DOWN, mx, my, 2);
             WM_REDRAW();
             return;

@@ -633,6 +633,31 @@ static void drag_export_end(struct uapp *a) {
     a->fb_sent = 0;
 }
 
+// THE BUTTONS DOWN, as this process has heard them, and the ones the UP
+// being dispatched let go. An UP names those STILL held (abi/win_proto.h),
+// so which came up is the difference -- Qt's button() beside buttons().
+// One set per process is enough: the compositor sends every button of a
+// press to the one window that has it (toywm's wm_press_join()).
+unsigned g_btn_held, g_btn_released;
+
+static void note_buttons(const struct win_event *in) {
+    static int odd;   // protocol surprises logged, the first few
+    unsigned b = WIN_MOUSE_BUTTONS(in->mods);
+    if (in->type == WIN_EV_MOUSE_DOWN) {
+        if ((g_btn_held & b) && odd < 4) {
+            odd++;
+            ulogf("uapp: pid %d: a press of button 0x%x, already down\n", (int)sys_getpid(), b);
+        }
+        g_btn_held |= b;
+        return;
+    }
+    g_btn_released = g_btn_held & ~b;
+    // An UP with nothing held either way ends a press this side did not
+    // see begin (a synthetic one, a window opened mid-press): the primary's.
+    if (!g_btn_released && !b) g_btn_released = WIN_MOUSE_BTN_PRIMARY;
+    g_btn_held = b;
+}
+
 static void dispatch(struct uapp *a, const struct win_event *in) {
     const struct uapp_desc *d = a->desc;
 
@@ -647,6 +672,13 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
     // Typing or clicking shows the caret solid and restarts its blink,
     // whichever window or widget the event is for (ui/uui_caret.h).
     if (in->type == WIN_EV_KEY || in->type == WIN_EV_MOUSE_DOWN) uui_caret_reset();
+
+    // Not for a popup slot already closed: its release was owed and
+    // dispatched (owed_release()), and this one is dropped below.
+    if ((in->type == WIN_EV_MOUSE_DOWN || in->type == WIN_EV_MOUSE_UP) &&
+        (in->window == a->window || dlg_for(in->window) ||
+         (in->window < WIN_CLIENT_MAX && g_surf[in->window].used)))
+        note_buttons(in);
 
     if (in->type == WIN_EV_MOUSE_DOWN && (WIN_MOUSE_BUTTONS(in->mods) & 0x1)) {
         g_press_slot = 0;
@@ -665,7 +697,7 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
             g_press_up.b = in->b + ps->oy;
             g_press_up.mods = WIN_MOUSE_MODS(in->mods) << WIN_MOUSE_MODS_SHIFT;
         }
-    } else if (in->type == WIN_EV_MOUSE_UP && !(WIN_MOUSE_BUTTONS(in->mods) & 0x1)) {
+    } else if (in->type == WIN_EV_MOUSE_UP && (g_btn_released & 0x1)) {
         g_press_slot = 0;
     }
 
@@ -899,7 +931,7 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         // small reads, so it is done for ANY setting rather than asking
         // which -- Windows' WM_SETTINGCHANGE carries no more than this.
         tzset();
-        setlocale(LC_ALL, "");
+        if (!(d->flags & UAPP_NO_SETLOCALE)) setlocale(LC_ALL, "");
         udclick_reload();
         utheme_settings_reload();   // corners, the scrollbar's look
         if (d->on_setting) d->on_setting(a);
@@ -1048,7 +1080,10 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
                    top_secondary(&a->top, ev->a, ev->b, 0)) {
             break;   // over editable text: the shared edit menu's (uapp_window.c)
         }
-        if (d->on_press) d->on_press(a, ev->a, ev->b, ev->mods);
+        if (d->on_press) {
+            a->press_heard = 1;
+            d->on_press(a, ev->a, ev->b, ev->mods);
+        }
         break;
 
     case WIN_EV_MOUSE_MOVE: {
@@ -1095,15 +1130,21 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         break;
     }
 
-    case WIN_EV_MOUSE_UP:
+    case WIN_EV_MOUSE_UP: {
         a->top.mouse_x = ev->a;
         a->top.mouse_y = ev->b;
-        if (top_secondary(&a->top, ev->a, ev->b, 1)) break;
-        // ONE BUTTON OF A CHORD came up while the primary is still held
-        // (the UP names those still down): not the widgets' release, or a
-        // left drag would end at the right button's. The app hears it.
-        if (WIN_MOUSE_BUTTONS(ev->mods) & 0x1) {
-            if (d->on_release) d->on_release(a, ev->a, ev->b, ev->mods);
+        // WHICH BUTTON CAME UP decides where the release goes, not what is
+        // still held: in a chord the other button's release is not the
+        // widgets', nor the edit menu's (note_buttons()).
+        unsigned rel = g_btn_released;
+        if (rel & 0x2) top_secondary(&a->top, ev->a, ev->b, 1);
+        // The press is over when nothing is still down; on_release hears
+        // it then, once, if on_press heard any of it.
+        int over = !WIN_MOUSE_BUTTONS(ev->mods);
+        int tell = d->on_release && a->press_heard && (over || (d->flags & UAPP_EVERY_RELEASE));
+        if (over) a->press_heard = 0;
+        if (!(rel & 0x1)) {
+            if (tell) d->on_release(a, ev->a, ev->b, ev->mods);
             break;
         }
         if (top_routes(&a->top)) {
@@ -1127,8 +1168,9 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
             a->top.dirty = 1;
             if (code >= 0 && d->on_action) d->on_action(a, code);
         }
-        if (d->on_release) d->on_release(a, ev->a, ev->b, ev->mods);
+        if (tell) d->on_release(a, ev->a, ev->b, ev->mods);
         break;
+    }
 
     default:
         // An event type this build does not know about. Ignoring it is
@@ -1208,7 +1250,7 @@ static int open_toplevel(struct uapp *a, int first) {
                    UAPP_NO_DECOR == WIN_HINT_NO_DECOR && UAPP_CENTRED == WIN_HINT_CENTRED,
                    "uapp's flags are sent to TWS as its hints");
     wmchan_send(WIN_REQ_HINTS, a->window,
-                (int)((desc->flags & ~(UAPP_POLL | UAPP_NO_TOPLEVEL)) | (desc->on_phys_key ? WIN_HINT_PHYS_KEYS : 0)),
+                (int)((desc->flags & ~(UAPP_POLL | UAPP_NO_TOPLEVEL | UAPP_EVERY_RELEASE | UAPP_NO_SETLOCALE)) | (desc->on_phys_key ? WIN_HINT_PHYS_KEYS : 0)),
                 desc->min_w, desc->min_h, 0);
 
     // Arm the repeating timer for every on_tick that does not poll --
@@ -1258,8 +1300,9 @@ int uapp_open(struct uapp **out, const struct uapp_desc *desc) {
     struct uapp *a = &g_app;
     // EVERY GUI APP SPEAKS THE SYSTEM'S REGION, and follows a change to
     // it (WIN_EV_SETTING below) -- what the person chose in System
-    // Settings is not something an app should have to opt into.
-    setlocale(LC_ALL, "");
+    // Settings is not something an app should have to opt into -- unless
+    // it is a port that assumes "C" (UAPP_NO_SETLOCALE).
+    if (!(desc->flags & UAPP_NO_SETLOCALE)) setlocale(LC_ALL, "");
     a->desc = desc;
     a->top.dirty = 1;
     a->running = 1;
@@ -1352,16 +1395,16 @@ int uapp_pump(struct uapp *a, int timeout_ms) {
     static uint32_t dropped_seen;
 
     if (!a->running) return -1;
-    if (timeout_ms == 0) {
-        // A PROGRAM THAT ONLY POLLS never parks, so the park's check below
-        // never runs for it: once a park's length apart instead.
-        static uint64_t checked_ms;
-        uint64_t now = sys_monotonic_ns() / 1000000ull;
-        if (now - checked_ms >= UAPP_WAIT_MS) {
-            checked_ms = now;
-            if (compositor_gone(a)) return -1;
-        }
-    } else {
+    // ONCE A PARK'S LENGTH APART, whatever the timeout: a program that
+    // polls, or waits less than a park (a game's 16 ms frame), never sits
+    // through the silent wait whose end checks below.
+    static uint64_t checked_ms;
+    uint64_t now_ms = sys_monotonic_ns() / 1000000ull;
+    if (now_ms - checked_ms >= UAPP_WAIT_MS) {
+        checked_ms = now_ms;
+        if (compositor_gone(a)) return -1;
+    }
+    if (timeout_ms != 0) {
         // A bounded wait (the step API's) ends at its deadline as a tick
         // or a caret flip would; -1 is uapp_run()'s park, which has none.
         uint64_t deadline = timeout_ms > 0

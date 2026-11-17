@@ -1130,7 +1130,7 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
     // and opens unowned (UAPP_NO_TOPLEVEL). W16_POST_TOP_OPEN opens the
     // toplevel when the program makes its main window (open_top()).
     g_desc = (struct uapp_desc){
-        .flags = UAPP_NO_TOPLEVEL,
+        .flags = UAPP_NO_TOPLEVEL | UAPP_EVERY_RELEASE,   // its own chord model (on_release)
         .min_w = w16_up(120),
         .min_h = w16_up(2 * W16_FRAME + W16_CAPTION + 1),
         .on_start = on_start,

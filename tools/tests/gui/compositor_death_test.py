@@ -106,6 +106,7 @@ from harness import Results  # noqa: E402
 DEFAULT_SOCK = ".vm.serial"
 COMP = "/tests/screenclient"
 CLIENT = "/tests/winclient"
+SDLWIN = "/tests/sdlwin_test"
 TOYWM = "/bin/wm/system/toywm"
 
 
@@ -159,6 +160,9 @@ def run_ring3(dbg, desktop_pid):
     # between "asked" and "destroyed" observable, because a refused ask
     # leaves the process alive and a destroy would not.
     dbg.send(f"gui spawn {CLIENT}")
+    # An SDL program waiting in a game's 16 ms slices, which never sits
+    # through a whole silent park: it must hear the desktop go too.
+    dbg.send(f"gui spawn {SDLWIN} wait16")
     time.sleep(1.5)
     wins = [w for w in (dbg.windows() or []) if w.get("client_pid")]
     check("a client window exists to be asked to close",
@@ -218,6 +222,10 @@ def run_ring3(dbg, desktop_pid):
     check("a client that DECLINED is still alive (asked, not destroyed)",
           "winclient" in slots,
           "winclient present" if "winclient" in slots else slots.strip()[:60])
+    check("an SDL program waiting 16 ms at a time hears it as SDL_EVENT_QUIT",
+          "sdlwin: close requested" in after,
+          next((l for l in after.split("\n") if "sdlwin:" in l), "no sdlwin line"))
+    check("...and, quitting on it, is gone", "sdlwin_test" not in slots, "sdlwin_test still in a slot")
 
     check("the text console is restored",
           "console restored" in after,

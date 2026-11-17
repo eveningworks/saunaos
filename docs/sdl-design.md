@@ -170,20 +170,43 @@ them (ScummVM) is the component.
   `uapp_set_cursor()` reached only a toplevel. A window opened later
   takes SDL's current cursor, not the arrow.
 - `SDL_UpdateWindowSurface()` presents at once (a `uapp_pump(a, 0)`),
-  not at the program's next pump.
+  not at the program's next pump -- except from an SDL event watcher,
+  which runs INSIDE the driver's pump: a pump from there would hand SDL
+  the next events in the middle of this one, so the driver declines it
+  and the outer pump paints.
+- **SDL_Init leaves the locale alone** (`UAPP_NO_SETLOCALE`, GTK's
+  `gtk_disable_setlocale()`): a C program starts in "C" until it calls
+  `setlocale()` itself, and a ported one counts on it -- the region's
+  decimal comma reaches it through `localeconv()` today, and would reach
+  `printf`/`strtod` once tolibc honours `LC_NUMERIC` (roadmap).
+- **`SDL_SetWindowHitTest`** on a BORDERLESS window: a press on a
+  draggable or resize area starts the move or resize
+  (`uapp_window_move_start()`) and the program hears no press -- X11's
+  and Windows' rule. A framed window's hit test is not asked: toywm
+  moves only a window that draws its own frame.
 - **Tests**: `tools/tests/gui/sdl_window_test.py` over
   `/tests/sdlwin_test` -- pixels at 100% and 125% (an edge on a pixel
   edge unblended, one inside a pixel blended: plain bilinear and nearest
   each fail one check, both seen red), clicks in points, the right
   button, a chord (left held, right pressed and released), the pointer
   leaving, the wheel, a real key's scancode and text, fullscreen in and
-  out at both scales, close. Every check was seen red.
+  out at both scales, close; and after a review of the stage, a chord
+  with the middle, a chord across two windows, a drag off the edge, the
+  nested watcher, the locale and the hit-test move. Every check was seen
+  red. `compositor_death_test.py` checks an SDL program waiting in 16 ms
+  slices hears the desktop die.
   `/tests/pixscale_test` checks the scaler's arithmetic.
 
 **Not yet**: custom cursor images (`uapp_cursor_image()` exists for a
 toplevel), following a `display.scale` change while running (the scale
 is read when a window opens), window position, relative mouse and
 pointer grab, message boxes.
+
+**The desktop dying** reaches a program through `uapp_pump()`'s liveness
+check, once a park's length apart whatever the timeout -- SDL's own wait
+loop pumps with 0 on every pass anyway (`SDL_WaitEventTimeout_Device`),
+but a program on the step API waiting 16 ms at a time would never have
+sat through the silent park the check used to wait for.
 
 **Traps found on the way**:
 

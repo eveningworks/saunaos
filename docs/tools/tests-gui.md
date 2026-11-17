@@ -440,7 +440,10 @@ from the default (a sound card, a USB mouse, `--reboot`).
   `window_settled()`. Positive controls: breaking the core's Ctrl-V
   turns the four paste checks red, breaking the menu's Paste turns Paste
   and Undo red, breaking the Menu key turns its check red, and dropping
-  the single-line rule turns the read-only paste check red.
+  the single-line rule turns the read-only paste check red. Its chord
+  checks (right held over the field, a left click on a button; and
+  `on_release` once per chord, from UI Demo's `press`/`release` lines)
+  go red when the toolkit routes an UP by what is still held.
 - **`uiclient_test.py`** -- drives `userland/tests/uiclient.c`, the ring-3
   client that renders real text with `userland/libs/ui/ugfx.c`, and asserts on
   it (8 checks: text actually rendered, the button drew, a click and a
@@ -1649,7 +1652,9 @@ from the default (a sound card, a USB mouse, `--reboot`).
   caught it as UI Demo going silent. And its positive control reddens
   exactly TWO of the ten, because the other eight are regression cover
   for stage 4a's role-clear path rather than tests of R7 -- read that
-  before trusting a green run. In `gui_regress.py`.
+  before trusting a green run. It also checks an SDL program waiting in
+  16 ms slices (`sdlwin_test wait16`) hears the desktop die and quits.
+  In `gui_regress.py`.
 - **`frame_pacing_test.py`** -- the compositor composes at most one
   frame per refresh (`userland/apps/system/toywm/wm.c`, "FRAMES ARE PACED TO THE
   REFRESH"): a Calculator window shaken by its title bar with FAST
@@ -1960,7 +1965,14 @@ from the default (a sound card, a USB mouse, `--reboot`).
   scaler with every weight 0 (nearest) and with the whole factor forced
   to 1 (plain bilinear) each fail their one check; no `on_leave` fails
   the leave check; no restore after fullscreen fails both return
-  checks; the WM's old one-button press failed the chord check.
+  checks; the WM's old one-button press failed the chord check. Then
+  the chord rules (`docs/conventions/gui.md`): the middle held with the
+  left, a right pressed over a SECOND SDL window (`tag=B`) going to the
+  first, a left drag off the edge being no leave, an event watcher that
+  repaints never running inside itself, the locale kept as "C" under a
+  decimal-comma region (`locale.region fi`, held), and a BORDERLESS
+  window's hit-test strip moving it, after which uapp logs no "press of
+  button 0x1, already down". Each was seen red by putting its bug back.
   In `gui_regress.py`.
 - **`bad_present_test.py`** -- a refused replacement of the buffer ON
   SCREEN keeps the last good frame and the compositor alive. Drives

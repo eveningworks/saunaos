@@ -189,7 +189,9 @@ static bool SAUNAOS_CreateWindowFramebuffer(SDL_VideoDevice *_this, SDL_Window *
 }
 
 /* A frame is done: paint it now rather than at the program's next pump,
- * which a game busy with its next frame may be a while reaching. */
+ * which a game busy with its next frame may be a while reaching. From an
+ * event watcher, inside a pump, SAUNAOS_Pump() declines and that pump
+ * paints it. */
 static bool SAUNAOS_UpdateWindowFramebuffer(SDL_VideoDevice *_this, SDL_Window *window,
                                             const SDL_Rect *rects, int numrects)
 {
@@ -199,6 +201,13 @@ static bool SAUNAOS_UpdateWindowFramebuffer(SDL_VideoDevice *_this, SDL_Window *
         uapp_window_redraw(data->uw);
         SAUNAOS_Pump(0);
     }
+    return true;
+}
+
+/* Asked at each press instead (SDL_saunaos_events.c's hit_test()). */
+static bool SAUNAOS_SetWindowHitTest(SDL_Window *window, bool enabled)
+{
+    (void)window; (void)enabled;
     return true;
 }
 
@@ -224,6 +233,7 @@ void SAUNAOS_SetWindowHooks(SDL_VideoDevice *device)
     device->SetWindowFullscreen = SAUNAOS_SetWindowFullscreen;
     device->CreateWindowFramebuffer = SAUNAOS_CreateWindowFramebuffer;
     device->UpdateWindowFramebuffer = SAUNAOS_UpdateWindowFramebuffer;
+    device->SetWindowHitTest = SAUNAOS_SetWindowHitTest;
     device->DestroyWindowFramebuffer = SAUNAOS_DestroyWindowFramebuffer;
 }
 

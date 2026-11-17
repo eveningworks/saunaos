@@ -1724,9 +1724,10 @@ static void req_move_start(int from, struct wmchan_msg *m) {
     int idx = find_client_window(from, m->window);
     if (idx < 0 || !windows[idx].no_decor || windows[idx].popup || !(wm_ptr_buttons & 0x1)) return;
     if (content_pressed != idx) return;
-    // The drag is toywm's now: the client hears its button come up here,
-    // as a Wayland client hears wl_pointer.leave, or it stays pressed.
-    wm_client_send_mouse(&windows[idx], WIN_EV_MOUSE_UP, wm_ptr_x, wm_ptr_y, 0x1);
+    // The drag is toywm's now: the client hears its press END here (0:
+    // nothing still held, every button of it), as a Wayland client hears
+    // wl_pointer.leave, or it stays pressed.
+    wm_client_send_mouse(&windows[idx], WIN_EV_MOUSE_UP, wm_ptr_x, wm_ptr_y, 0);
     content_pressed = -1;
     unsigned edges = (unsigned)m->a & (WIN_EDGE_LEFT | WIN_EDGE_RIGHT | WIN_EDGE_TOP | WIN_EDGE_BOTTOM);
     if (!edges) wm_begin_move(idx, wm_ptr_x, wm_ptr_y);

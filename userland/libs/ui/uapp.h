@@ -113,6 +113,18 @@ struct uui_focus;   // ui/uui_focus.h -- desc.focus is a pointer, so a
 // before its main window. uapp's own; never sent to TWS.
 #define UAPP_NO_TOPLEVEL 0x200
 
+// on_release for EVERY button that comes up, a chord's first ones
+// included -- not just once, when the last does. For an app keeping its
+// own model of what is held (w16, a game); it tells which came up from
+// `buttons`, the ones still down. uapp's own; never sent to TWS.
+#define UAPP_EVERY_RELEASE 0x400
+
+// uapp_open() leaves the C locale alone (GTK's gtk_disable_setlocale()):
+// a C program starts in "C" until it calls setlocale() itself, and one
+// ported from elsewhere -- SDL's -- counts on it. uapp's own; never sent
+// to TWS.
+#define UAPP_NO_SETLOCALE 0x800
+
 // The drawing context handed to on_draw. Carries the surface AND the
 // theme defaults, which is what takes ugfx_draw_string()'s six
 // arguments down to three for the common case.
@@ -329,6 +341,10 @@ struct uapp_desc {
     // Content-relative, in pixels. `buttons` is offered these first;
     // these still fire, so an app can mix routed controls with its own
     // hit-testing (Shapes' checkbox, Notepad's text area).
+    // on_press hears EVERY button, `buttons` the one pressed. on_release
+    // hears the press END -- once, when the LAST button comes up, and only
+    // after an on_press -- so a stroke is not ended by a chord's other
+    // button (UAPP_EVERY_RELEASE asks for each one).
     void (*on_press)(struct uapp *a, int x, int y, unsigned buttons);
     void (*on_release)(struct uapp *a, int x, int y, unsigned buttons);
     void (*on_motion)(struct uapp *a, int x, int y, unsigned buttons);
@@ -504,7 +520,7 @@ struct uapp_window_desc {
     // the program's own.
     void (*on_resize)(struct uapp_window *w, int width, int height);
     // A press of any button but the PRIMARY -- the secondary when the
-    // shared edit menu did not take it, the two side buttons
+    // shared edit menu did not take it, the middle, the two side buttons
     // (WIN_MOUSE_BTN_SIDE, _EXTRA) -- with `buttons` the one pressed
     // (`up` 0); then its release (`up` 1, `buttons` the ones STILL down,
     // 0 unless another was held). A context menu opens on the release --
@@ -512,9 +528,10 @@ struct uapp_window_desc {
     void (*on_button)(struct uapp_window *w, int x, int y, unsigned buttons, int up);
 
     // A window that DRAWS ITS OWN PIXELS, as uapp_desc.on_draw: called each
-    // frame before its widgets are drawn over. And the primary button,
-    // as uapp_desc's on_press/on_motion/on_release: every press, after
-    // the widgets have seen it. NULL for a widget dialog, which is most.
+    // frame before its widgets are drawn over. And the PRIMARY button,
+    // after the widgets have seen it: its press, and its release (with
+    // `buttons` the ones still down) -- other buttons are on_button's.
+    // NULL for a widget dialog, which is most.
     void (*on_draw)(struct uapp_window *w, struct uapp_draw *d);
     void (*on_press)(struct uapp_window *w, int x, int y, unsigned buttons);
     void (*on_motion)(struct uapp_window *w, int x, int y, unsigned buttons);

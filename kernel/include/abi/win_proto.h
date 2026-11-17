@@ -54,6 +54,10 @@
                             // was released). A DOWN carries the button
                             // just pressed, not the others held -- a
                             // client wanting the whole set keeps it.
+                            // EVERY button pressed while a press lasts
+                            // goes to the window that has it, wherever
+                            // the pointer is (the implicit grab), so
+                            // the set a client keeps is the true one.
                             //
                             // Toykit acts on 0x1 alone -- a secondary
                             // press never arms a widget or moves the

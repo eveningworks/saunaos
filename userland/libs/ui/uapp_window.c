@@ -606,10 +606,6 @@ int uapp_question_open(struct uapp *a) {
     return uapp_inwindow_question_open(a);
 }
 
-// The window whose on_button heard a press: its release is that
-// handler's, not the widgets'.
-static struct uapp_window *g_secondary;
-
 void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
     const struct uapp_window_desc *d = &w->desc;
     switch (ev->type) {
@@ -646,12 +642,13 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         } else if (WIN_MOUSE_BUTTONS(ev->mods) &&
                  !((WIN_MOUSE_BUTTONS(ev->mods) & 0x2) && top_secondary(&w->top, ev->a, ev->b, 0)) &&
                  d->on_button) {
-            g_secondary = w;
             d->on_button(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods), 0);
         }
         return;
     case WIN_EV_MOUSE_MOVE: {
-        if (ev->a < 0 || ev->b < 0) {           // a leave carries no position
+        // A LEAVE is (-1,-1) with nothing held (toywm's hover): a drag
+        // past the left or top edge is a real, negative position.
+        if (ev->a == -1 && ev->b == -1 && !WIN_MOUSE_BUTTONS(ev->mods)) {
             if (d->on_leave) d->on_leave(w);
             return;
         }
@@ -667,23 +664,22 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         }
         return;
     }
-    case WIN_EV_MOUSE_UP:
+    case WIN_EV_MOUSE_UP: {
         w->top.mouse_x = ev->a;
         w->top.mouse_y = ev->b;
-        if (top_secondary(&w->top, ev->a, ev->b, 1)) return;
-        if (g_secondary == w && d->on_button) {
-            g_secondary = 0;
-            d->on_button(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods), 1);
-            return;
+        // By WHICH button came up (uapp.c's note_buttons()): the primary's
+        // is the widgets' and on_release's, any other the edit menu's or
+        // on_button's -- in a chord as much as alone.
+        unsigned rel = g_btn_released, now = WIN_MOUSE_BUTTONS(ev->mods);
+        unsigned other = rel & ~0x1u;
+        if ((other & 0x2) && top_secondary(&w->top, ev->a, ev->b, 1)) other &= ~0x2u;
+        if (other && d->on_button) d->on_button(w, ev->a, ev->b, now, 1);
+        if (rel & 0x1) {
+            top_release(&w->top, ev->a, ev->b);
+            if (d->on_release) d->on_release(w, ev->a, ev->b, now);
         }
-        // One button of a chord up while the primary is still held: uapp.c's rule.
-        if (WIN_MOUSE_BUTTONS(ev->mods) & 0x1) {
-            if (d->on_release) d->on_release(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods));
-            return;
-        }
-        top_release(&w->top, ev->a, ev->b);
-        if (d->on_release) d->on_release(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods));
         return;
+    }
     case WIN_EV_WHEEL:
         if (!top_wheel(&w->top, (int)ev->a) && d->on_wheel) d->on_wheel(w, (int)ev->a);
         return;

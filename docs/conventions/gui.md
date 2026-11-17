@@ -4031,17 +4031,26 @@ real scanout hardware does. Do not write a pixel assertion for one.
   the bargain every real desktop makes, and four other ways in remain.
 
 - **A MOUSE DOWN NAMES THE BUTTON PRESSED, AN UP THE BUTTONS STILL HELD,
-  AND A CHORD IS ONE PRESS.** A second button pressed while another is
-  held on the same window JOINS `content_pressed_btn` (a mask); one of
-  them coming up is a `MOUSE_UP` naming those still held, and the last
-  one's is the usual `MOUSE_UP` with 0. Toykit treats an UP that still
-  names the primary as NOT the widgets' release -- `on_release` (or
-  `on_button` for the secondary) hears it, and a left drag goes on. A
-  client keeping its own button state (SDL's driver) ADDS a down's
-  button to the set and REPLACES the set on an up. Until 2026-11-17 the
-  WM tracked one button: the right's press overwrote the left's, its
-  release ended both, and the left's real release never reached the
-  client at all.
+  AND A CHORD IS ONE PRESS -- THE WINDOW'S THAT HAS IT.** Every button
+  pressed while another is held on a client -- left, right, middle, a
+  thumb button, wherever the pointer is by then -- goes to THAT client
+  and joins `content_pressed_btn` (`wm_press_join()`: X11's and
+  Wayland's implicit grab), with none of the WM's own meaning for it.
+  One coming up is a `MOUSE_UP` naming those still held; the last, or a
+  client-started move taking the press over, is the `MOUSE_UP` with 0.
+  The client tells WHICH came up from what it held before
+  (`uapp.c`'s `note_buttons()`, Qt's `button()` beside `buttons()`) and
+  routes by that, never by what is still held: the primary's release is
+  the widgets' and `uapp_window_desc.on_release`'s, the secondary's the
+  edit menu's or `on_button`'s. `uapp_desc.on_release` hears the press
+  END -- once, at the last button's release, and only after an
+  `on_press` -- so a stroke is not ended by a chord's other button;
+  `UAPP_EVERY_RELEASE` (w16) hears each. A client keeping its own set
+  (SDL's driver) ADDS a down's button and REPLACES the set on an up.
+  Until 2026-11-17 the WM tracked one button, then a set that the middle
+  and thumb buttons and a press on another window still broke; the
+  toolkit routed by what was still held, which sent a right-held chord's
+  LEFT release to the edit menu.
 
 - **DOOM IS A VENDORED PORT, LINKED INTO ONE BINARY, AND ITS BACKEND IS
   NOT IN THE VENDORED DIRECTORY.** `userland/third_party/doom/upstream/` is doomgeneric

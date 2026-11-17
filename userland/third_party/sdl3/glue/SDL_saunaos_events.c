@@ -74,8 +74,47 @@ static void on_motion(struct uapp_window *uw, int x, int y, unsigned buttons)
  * names those STILL held, never the one let go (abi/win_proto.h). So a
  * press is added to what is known to be down and a release replaces it --
  * whichever callback each took. */
+/* SDL_SetWindowHitTest's answer at a primary press: 0 for a normal
+ * press, else it started a move (-1) or a resize (WIN_EDGE_* bits) and
+ * the program hears no press -- X11's and Windows' rule. A BORDERLESS
+ * window's only: toywm moves only a window that draws its own frame. */
+static int hit_test(struct uapp_window *uw, int x, int y)
+{
+    static const unsigned edges[] = {
+        [SDL_HITTEST_RESIZE_TOPLEFT] = WIN_EDGE_TOP | WIN_EDGE_LEFT,
+        [SDL_HITTEST_RESIZE_TOP] = WIN_EDGE_TOP,
+        [SDL_HITTEST_RESIZE_TOPRIGHT] = WIN_EDGE_TOP | WIN_EDGE_RIGHT,
+        [SDL_HITTEST_RESIZE_RIGHT] = WIN_EDGE_RIGHT,
+        [SDL_HITTEST_RESIZE_BOTTOMRIGHT] = WIN_EDGE_BOTTOM | WIN_EDGE_RIGHT,
+        [SDL_HITTEST_RESIZE_BOTTOM] = WIN_EDGE_BOTTOM,
+        [SDL_HITTEST_RESIZE_BOTTOMLEFT] = WIN_EDGE_BOTTOM | WIN_EDGE_LEFT,
+        [SDL_HITTEST_RESIZE_LEFT] = WIN_EDGE_LEFT,
+    };
+    SDL_Window *window = data_of(uw)->window;
+    if (!window->hit_test || !(window->flags & SDL_WINDOW_BORDERLESS)) {
+        return 0;
+    }
+    float px, py;
+    to_points(uw, window, x, y, &px, &py);
+    SDL_Point pt = { (int)px, (int)py };
+    SDL_HitTestResult r = window->hit_test(window, &pt, window->hit_test_data);
+    if (r == SDL_HITTEST_DRAGGABLE) {
+        uapp_window_move_start(uw, 0);
+        return -1;
+    }
+    if (r >= SDL_HITTEST_RESIZE_TOPLEFT && r <= SDL_HITTEST_RESIZE_LEFT &&
+        (window->flags & SDL_WINDOW_RESIZABLE)) {
+        uapp_window_move_start(uw, edges[r]);
+        return (int)edges[r];
+    }
+    return 0;
+}
+
 static void on_press(struct uapp_window *uw, int x, int y, unsigned buttons)
 {
+    if (hit_test(uw, x, y)) {
+        return;
+    }
     motion(uw, x, y);
     buttons_now(uw, data_of(uw)->buttons | buttons);
 }
@@ -242,6 +281,18 @@ static bool SAUNAOS_ShowCursor(SDL_Cursor *cursor)
     return true;
 }
 
+/* SDL's auto-capture while a button is held: the desktop already keeps
+ * sending this window the pointer, past its edges too, until every button
+ * is up (the implicit grab) -- so a drag off the edge is not a leave. A
+ * capture with nothing held the desktop has no way to give. */
+static bool SAUNAOS_CaptureMouse(SDL_Window *window)
+{
+    if (window && !SDL_GetMouseState(NULL, NULL)) {
+        return SDL_Unsupported();
+    }
+    return true;
+}
+
 void SAUNAOS_InitInput(void)
 {
     SDL_AddKeyboard(SDL_DEFAULT_KEYBOARD_ID, NULL);
@@ -250,6 +301,7 @@ void SAUNAOS_InitInput(void)
     mouse->CreateSystemCursor = SAUNAOS_CreateSystemCursor;
     mouse->ShowCursor = SAUNAOS_ShowCursor;
     mouse->FreeCursor = SAUNAOS_FreeCursor;
+    mouse->CaptureMouse = SAUNAOS_CaptureMouse;
     SDL_SetDefaultCursor(make_cursor(WIN_CURSOR_DEFAULT));
 }
 
