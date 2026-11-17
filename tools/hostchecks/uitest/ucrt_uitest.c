@@ -19,7 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ui/ucrt.h"
-#include "base/utest.h"
+#include "uitest.h"
 
 #define GREY 0x808080u
 
@@ -140,11 +140,11 @@ static void check_glass_point(void) {
 }
 
 int main(void) {
-    utest_begin("ucrt_test", "the CRT effect's scanlines and apply_from", UTEST_VERDICT_FILE);
+    uitest_begin("ucrt", "the CRT effect's scanlines and apply_from");
     check_lines(64, 480, 200, "200 lines in 480 rows (DOOM's window)");
     check_lines(64, 1080, 200, "200 lines in 1080 rows (fullscreen)");
     check_lines(64, 400, 200, "200 lines in 400 rows (two each)");
     check_apply_from();
     check_glass_point();
-    return utest_end();
+    return uitest_end();
 }

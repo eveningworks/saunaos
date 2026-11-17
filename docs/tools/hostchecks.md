@@ -8,6 +8,53 @@ the ones whose `RUNNER` says `gate` also in every preflight (`--gate`),
 the rest in the sweep. Each stays a standalone script with its own
 `--positive-control`, built through `tools/lib/hostcheck.py`.
 
+- **`uitest_hostcheck.py`** (gate) -- THE HOST WIDGET HARNESS
+  (`docs/gui-unittest-design.md`, stage 1): every
+  `tools/hostchecks/uitest/*_uitest.c`, each a widget tree drawn into
+  memory and driven BY NAME through the real router
+  (`tools/lib/uitest/uitest.h`: `uitest_window`, `uitest_click`,
+  `uitest_wheel`, `uitest_key`, `uitest_settle`, `uitest_pixel`), reporting
+  through `base/utest.h`. About two seconds for the lot once built.
+  **It builds the REAL toolkit**: every `.c` in `userland/libs/{base,net,
+  media,ui}/` and the `kernel/lib` sources ring 3 shares (read from the
+  Makefile's `$(BUILD)/userland/shared/NAME.o` list), against tolibc's
+  headers as the guest compiles them, into `build/hostui/` -- ~6 s from
+  cold, and after that only what a source or an included header changed
+  (`gcc -MMD`; `check_deps.py` leaves this tree alone, make does not own
+  it). **What is stubbed is the platform**: the `sys_*` calls, in
+  `tools/lib/uitest/uitest_sys.c` -- one process, one thread, a clock that
+  moves only when the harness does (a second before every press, so two
+  clicks are a double click only by `uitest_double_click_in`), settings
+  only as a case declares them, files under `build/hostui/root/` (the
+  tree's fonts, `.ui` files and `data/usr/share`, and no `/etc`). The text
+  is Liberation Sans at 14 px through the toolkit's own `ttf.c`
+  (`ugfx_font_adopt()`), so no host font is involved. A widget reaching an
+  unstubbed call fails to LINK, naming it.
+
+  **Three traps, each refused rather than left to corrupt quietly.** The C
+  library underneath is glibc while the toolkit was compiled against
+  TOLIBC's headers, so a glibc call taking a struct the two lay out
+  differently (`stat`, `readdir`, `struct tm`, locale) is handed the wrong
+  layout: a binary IMPORTING one of `ABI_UNSAFE` from glibc is refused, and
+  the fix is tolibc's own source in `LIBC_OWN` (stat, time, tz, locale) or
+  a stub in tolibc's layout (opendir). A raw `syscall` instruction in the
+  binary would run a LINUX syscall by SaunaOS's number, so the linked text
+  is disassembled and one is refused (ugfx.c's font request goes through
+  rt's `sys_win_request()` for this reason). And **one executable has one
+  `stat`**: `uitest_host.c`, the half compiled against the host's headers,
+  reaches the kernel by `syscall(2)` for every name the SaunaOS half
+  defines, or it would call tolibc's `stat` with a glibc struct.
+
+  The cases are the in-guest widget tests that moved down (`sbar`,
+  `droprows`, `focusring`, `table_tree`, `table_columns`, `typeahead`,
+  `scalerec`, `sizefield`, `transfers`, `wrap`, `uibuilder`, `ucrt`,
+  `uvterm`) and `scroll`, `scroll_test.py`'s four rules over six widgets
+  with the thumb read from pixels. `--positive-control` rebuilds the
+  archive with each `CONTROLS` edit on a copy and requires exactly its
+  named cases red and the rest green (uui_sbar's bottom-counted offset
+  reddens `sbar` and `scroll`; uui_grid's unflipped thumb `scroll`).
+  `--keep DIR` writes `uitest_keep()` frames as PPMs; names run a subset;
+  `--list`. Needs gcc and objdump.
 - **`smb_hostcheck.py`** -- the SMB client's protocol
   (names UTF-8 both ways since UTF-8 step 3: a CJK name, and a stray
   Latin-1 byte reaching its file as its letter; red on the sniffing

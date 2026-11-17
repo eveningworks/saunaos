@@ -53,7 +53,7 @@ static struct ugfx_surface g_surf;
 // is between commands and is dropped, so "0 failure(s)" alone would be
 // the only thing anyone could ever read back. See wrap_test.c on why
 // the file exists at all.
-#include "base/utest.h"
+#include "uitest.h"
 
 // The call sites here read `ok(name, cond, detail)`; the harness takes
 // the boolean first. One adapter rather than transposing every call
@@ -116,13 +116,12 @@ int main(int argc, char **argv) {
     (void)argc; (void)argv;
     // Without this every metric is zero and every check below passes for
     // the wrong reason -- see uapp.c on the font not being free in ring 3.
-    ugfx_font_init();
 
     g_surf.pixels = g_px;
     g_surf.w = SURF_W;
     g_surf.h = SURF_H;
 
-    utest_begin("focusring_test", "focus indicators", UTEST_VERDICT_FILE);
+    uitest_begin("focusring", "focus indicators");
     ok("the font loaded, so metrics are real", ugfx_char_w() > 0, "char_w is 0");
 
     char detail[96];
@@ -259,5 +258,5 @@ int main(int argc, char **argv) {
              h, uui_sidebar_row_h(&sb));
     ok("uui_sidebar rings the selected ROW", h == uui_sidebar_row_h(&sb), detail);
 
-    return utest_end();
+    return uitest_end();
 }

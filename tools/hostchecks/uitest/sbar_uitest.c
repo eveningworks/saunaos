@@ -1,8 +1,8 @@
 // uui_sbar -- the scrollbar state every scrolling widget embeds -- held
 // to docs/gui-guidelines.md's "Scrollbars": the thumb does not jump when
 // grabbed, a drag is absolute and clamps, the trough pages, the thumb's
-// end is the right end, and hover is the strip's own. A ring-3 test
-// because the toolkit is ring 3's (see typeahead_test.c).
+// end is the right end, and hover is the strip's own. On the host
+// (tools/lib/uitest/), where the bar's width is Liberation Sans's.
 //
 // Every position is read back through the PAINTER's own geometry
 // (uui_scrollbar_thumb_rect()), not this struct's arithmetic, so a
@@ -10,11 +10,9 @@
 //
 // Prints one line per check and exits with the number of failures.
 #include <stdio.h>
-#include "rt/sys.h"
-#include "ui/ugfx.h"
+#include "uitest.h"
 #include "ui/uui_sbar.h"
 #include "ui/uui_scrollbar.h"
-#include "base/utest.h"
 
 #define X 200
 #define Y 40
@@ -39,8 +37,7 @@ static int thumb_y(const struct uui_sbar *b, int *th) {
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-    ugfx_font_init();
-    utest_begin("sbar_test", "the shared scrollbar state", UTEST_VERDICT_FILE);
+    uitest_begin("sbar", "the shared scrollbar state");
     utest_check_detail(ugfx_char_h() > 0, "the font loaded, so the width is real", "char_h is 0");
 
     struct uui_sbar b;
@@ -111,5 +108,5 @@ int main(int argc, char **argv) {
     oki("content that fits shows no bar", uui_sbar_shown(&b), 0);
     oki("...and a press there is not the bar's", uui_sbar_press(&b, bx, Y + 10), 0);
 
-    return utest_end();
+    return uitest_end();
 }

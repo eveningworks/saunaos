@@ -9,7 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "ui/uui_droprows.h"
-#include "base/utest.h"
+#include "uitest.h"
 
 static struct uui_dropdown dd;
 static struct uui_droprows r;
@@ -21,7 +21,7 @@ static int shows(const char *label) {
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-    utest_begin("droprows_test", "uui_droprows", UTEST_VERDICT_FILE);
+    uitest_begin("droprows", "uui_droprows");
 
     static const char *vols[] = { "/ on ata0p3", "/mnt/data on ata1p1" };
     uui_dropdown_init(&dd, 0, 0, 0, 0, NULL, 0);
@@ -91,5 +91,5 @@ int main(int argc, char **argv) {
     uui_droprows_add_own(&sr, "1536 MiB");
     utest_check(sr.rows == 4 && !strcmp(sr.items[2], "1536 MiB"), "one own row is replaced, not added to");
 
-    return utest_end();
+    return uitest_end();
 }

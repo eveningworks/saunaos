@@ -41,7 +41,7 @@
 #include "ui/uui_tree.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "base/utest.h"
+#include "uitest.h"
 #include "base/uprefs.h"
 #include "ui/uui_prefs.h"
 #include <stddef.h>
@@ -630,7 +630,7 @@ static const char HOSTED[] =
 
 static void hosted(void) {
     // A FONT, or every spacing below is 0 and the checks hold whatever the strip does.
-    utest_checkf(ugfx_font_init() && ugfx_char_h() > 0, "the session font is loaded (line %d)", ugfx_char_h());
+    utest_checkf(ugfx_char_h() > 0, "the session font is loaded (line %d)", ugfx_char_h());
     struct uui_builder *b = uui_builder_parse("h.ui", HOSTED, sizeof HOSTED - 1, NAMES, NN);
     struct uui_toolbar *tb = uui_builder_widget(b, "w", "tb", "toolbar");
     struct uui_dropdown *da = uui_builder_widget(b, "w", "a", "dropdown");
@@ -1332,7 +1332,7 @@ static void shipped_options(void) {
 }
 
 int main(void) {
-    utest_begin("uibuilder_test", "base/udecl and ui/uui_builder", UTEST_VERDICT_FILE);
+    uitest_begin("uibuilder", "base/udecl and ui/uui_builder");
     parser();
     builder();
     form();
@@ -1351,5 +1351,5 @@ int main(void) {
     shipped_installer();
     options();
     shipped_options();
-    return utest_end();
+    return uitest_end();
 }

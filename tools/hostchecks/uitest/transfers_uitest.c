@@ -9,7 +9,7 @@
 #include "rt/sys.h"
 #include "ui/ugfx.h"
 #include "ui/uui_transfers.h"
-#include "base/utest.h"
+#include "uitest.h"
 
 static void oks(const char *name, const char *got, const char *want) {
     char d[300];
@@ -43,8 +43,7 @@ static int click_action(int row, int from_right) {
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-    ugfx_font_init();
-    utest_begin("transfers_test", "uui_transfers: status lines and actions", UTEST_VERDICT_FILE);
+    uitest_begin("transfers", "uui_transfers: status lines and actions");
     char s[200];
 
     struct uui_xfer x;
@@ -108,5 +107,5 @@ int main(int argc, char **argv) {
     utest_checkf(ev == -1, "a row without Pause keeps one button, as the Browser's (got %d)", ev);
     ev = click_action(2, 0);
     utest_checkf(ev == UUI_XFER_EV_CANCEL, "...which is Cancel (got %d)", ev);
-    return utest_end();
+    return uitest_end();
 }

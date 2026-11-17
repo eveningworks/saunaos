@@ -16,17 +16,6 @@
 #include <stdio.h>   // snprintf -- the shm object's name
 #include <string.h>
 
-static inline int64_t syscall2(uint64_t num, uint64_t arg1, uint64_t arg2) {
-    int64_t ret;
-    __asm__ volatile (
-        "syscall"
-        : "=a"(ret)
-        : "a"(num), "D"(arg1), "S"(arg2)
-        : "rcx", "r11", "memory"
-    );
-    return ret;
-}
-
 // THE SESSION FONTS, filled by ugfx_font_init(): the desktop's active
 // face in each weight, mapped read-only by the server. Zero until then,
 // which makes a forgotten init draw nothing rather than dereference a
@@ -528,7 +517,7 @@ static int map_kernel_font(int weight, struct ugfx_font *out) {
     for (unsigned i = 0; i < sizeof(req); i++) ((uint8_t *)&req)[i] = 0;
     req.type = WIN_REQ_FONT;
     req.window = (uint32_t)weight; // `window` IS the weight here -- see win_proto.h
-    if (syscall2(SYS_WIN_REQUEST, (uint64_t)(uintptr_t)&req, 0) != 1) return 0;
+    if (sys_win_request(&req) != 1) return 0;
 
     uint64_t base = win_font_vaddr(weight);
     out->char_w = req.a;
@@ -709,6 +698,15 @@ const struct ugfx_font *ugfx_set_font(const struct ugfx_font *f) {
     // layout of everything drawn after it instead of looking wrong.
     g_font = (f && f->glyphs) ? f : &g_session[UGFX_FONT_SLOT_UI_REGULAR];
     return prev;
+}
+
+void ugfx_font_adopt(int slot, const struct ugfx_font *f) {
+    if (slot < 0 || slot >= UGFX_FONT_SLOTS || !f || !f->glyphs) return;
+    fontd_unmap(slot);
+    g_session[slot] = *f;
+    g_from_fontd[slot] = 0;
+    g_slot_asked[slot] = 1;
+    if (slot == UGFX_FONT_SLOT_UI_REGULAR) g_font = &g_session[slot];
 }
 
 // --- a private font, rasterized by this app (tier 2) ------------------

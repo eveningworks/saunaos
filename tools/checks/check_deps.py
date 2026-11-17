@@ -64,6 +64,10 @@ BUILD = os.path.join(REPO, "build")
 # it would mean this tool's own probe races the build step that rewrites
 # it. There is always another header to pick.
 SKIP_HEADERS = {"kernel/include/api/version.h"}
+# Build trees make does not own: tools/hostchecks/uitest_hostcheck.py's
+# host build of the toolkit reads its own .d files to decide what to
+# recompile, so `make -n` rightly plans nothing for them.
+NOT_MAKES = {os.path.join("build", "hostui")}
 
 
 def dep_headers(dpath):
@@ -100,7 +104,8 @@ def dep_headers(dpath):
 def collect_probes():
     """One (object, header, .d) probe per build directory holding .d files."""
     by_dir = {}
-    for root, _dirs, files in os.walk(BUILD):
+    for root, dirs, files in os.walk(BUILD):
+        dirs[:] = [d for d in dirs if os.path.relpath(os.path.join(root, d), REPO) not in NOT_MAKES]
         ds = sorted(f for f in files if f.endswith(".d"))
         if ds:
             by_dir[root] = ds

@@ -16,7 +16,7 @@
 #include "ui/utheme.h"
 #include "keyboard.h"
 #include "ui/uui_table.h"
-#include "base/utest.h"
+#include "uitest.h"
 
 static void ok(const char *name, int cond, const char *detail) {
     utest_check_detail(cond, name, detail);
@@ -102,8 +102,7 @@ static int row_mid(const struct uui_table *t, int v) {
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-    ugfx_font_init();
-    utest_begin("table_tree_test", "uui_table groups, tree and heat", UTEST_VERDICT_FILE);
+    uitest_begin("table_tree", "uui_table groups, tree and heat");
     ok("the font loaded, so metrics are real", ugfx_char_h() > 0, "char_h is 0");
 
     static struct uui_table t;
@@ -203,5 +202,5 @@ int main(int argc, char **argv) {
              (unsigned)(uui_table_c_sel_bg(&t) & 0xffffff));
     ok("selection outranks heat", (sel & 0xffffff) == (uui_table_c_sel_bg(&t) & 0xffffff), d);
 
-    return utest_end();
+    return uitest_end();
 }

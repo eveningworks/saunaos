@@ -452,6 +452,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `uhlpmac_hostcheck.py` -- Check userland/libs/base/uhlpmac.c (the WinHelp macro language) on the HOST
 - `uimg_codec_hostcheck.py` -- Check uimg's QOI, PNG, BMP and GIF codecs against Pillow, zlib and ImageMagick, on the HOST
 - `uimg_hostcheck.py` -- Check userland/libs/media/uimg_jpeg.c against libjpeg, on the HOST, over many files
+- `uitest_hostcheck.py` -- The host widget harness: every tools/hostchecks/uitest/*_uitest.c, built
 - `umd_hostcheck.py` -- Check userland/libs/base/umd.c against every page it will ever render, on the HOST
 - `umsexpand_hostcheck.py` -- Check base/umsexpand.c -- the SZDD and KWAJ expander -- three ways
 - `upixel_hostcheck.py` -- Check userland/libs/media/upixel.c and upixundo.c -- the paint tools and their

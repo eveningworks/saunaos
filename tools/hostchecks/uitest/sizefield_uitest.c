@@ -13,7 +13,7 @@
 #include "ui/ugfx.h"
 #include "ui/uui_sizefield.h"
 #include "keyboard.h"
-#include "base/utest.h"
+#include "uitest.h"
 
 static void ok(const char *name, int cond, uint64_t got) {
     char d[64];
@@ -42,8 +42,7 @@ static void select_all_and_type(struct uui_sizefield *f, const char *s) {
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-    ugfx_font_init();
-    utest_begin("sizefield_test", "uui_sizefield", UTEST_VERDICT_FILE);
+    uitest_begin("sizefield", "uui_sizefield");
 
     static struct uui_sizefield f;
     uui_sizefield_init(&f, 1024, 1, 9000);
@@ -95,5 +94,5 @@ int main(int argc, char **argv) {
        uui_sizefield_mib(&f) <= 2000000 && uui_sizefield_mib(&f) >= 1999000,
        uui_sizefield_mib(&f));
 
-    return utest_end();
+    return uitest_end();
 }

@@ -26,7 +26,7 @@
 #include "ui/uui_listbox.h"
 #include "ui/uui_table.h"
 
-#include "base/utest.h"
+#include "uitest.h"
 
 // The call sites here read `ok(name, cond, detail)`; the harness takes
 // the boolean first. One adapter rather than transposing every call
@@ -228,9 +228,9 @@ static void table_checks(void) {
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-    utest_begin("typeahead_test", "type-ahead in uui_listbox and uui_table", 0);
+    uitest_begin("typeahead", "type-ahead in uui_listbox and uui_table");
     listbox_checks();
     table_checks();
 
-    return utest_end();
+    return uitest_end();
 }

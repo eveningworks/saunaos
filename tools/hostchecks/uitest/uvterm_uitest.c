@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ui/uvterm.h"
-#include "base/utest.h"
+#include "uitest.h"
 #include "ansiregion_seq.h"
 
 static struct uvterm g_t;   // ~1 KiB of struct; its buffers are malloc'd
@@ -19,10 +19,10 @@ static struct uvterm g_t;   // ~1 KiB of struct; its buffers are malloc'd
 static const struct uvterm_cell *row0(void) { return uvterm_line(&g_t, g_t.sb_count); }
 
 int main(void) {
-    utest_begin("uvterm_test", "the terminal grid holds characters, not bytes", 0);
+    uitest_begin("uvterm", "the terminal grid holds characters, not bytes");
     if (!uvterm_init(&g_t, 4, 10, 8, 7, 0)) {
         utest_check(0, "uvterm_init");
-        return utest_end();
+        return uitest_end();
     }
 
     // a-umlaut is C3 A4, written as two separate writes.
@@ -77,7 +77,7 @@ int main(void) {
     static struct uvterm t;
     if (!uvterm_init(&t, 16, 40, 8, 7, 0)) {
         utest_check(0, "uvterm_init (16x40)");
-        return utest_end();
+        return uitest_end();
     }
     uvterm_write(&t, "ab\ncd\r\nx", 8);
     const struct uvterm_cell *l0 = uvterm_line(&t, t.sb_count);
@@ -120,5 +120,5 @@ int main(void) {
                  "an inserted line is blanked in the current background (bg %d)",
                  ins ? ins[0].bg : -1);
     uvterm_free(&t);
-    return utest_end();
+    return uitest_end();
 }

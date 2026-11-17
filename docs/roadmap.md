@@ -26,6 +26,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 
 - [ ] A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first  *(`fork()`/`exec()`-style process model)*
 - [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
+- [ ] A widget harness on the host: widgets drawn into memory, driven by name through the real router  *(GUI unit tests: the toolkit and apps in-process)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
 
@@ -805,7 +806,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 ### GUI unit tests: the toolkit and apps in-process
 **Needs:** `docs/gui-unittest-design.md`, which measures the suite and stages this. Next after SDL stage 4, ahead of the C++ headers.
 
-- [ ] A widget harness on the host: widgets drawn into memory, driven by name through the real router
+- [ ] **NEXT** A widget harness on the host: widgets drawn into memory, driven by name through the real router
 - [ ] Whole apps headless: an offscreen `uapp` backend in place of the compositor
 - [ ] Move `gui_regress` checks that are widget logic down; measure the suite again
 

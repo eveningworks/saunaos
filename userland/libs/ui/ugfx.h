@@ -426,6 +426,13 @@ const struct ugfx_font *ugfx_font_mono(int weight);
 const struct ugfx_font *ugfx_set_font(const struct ugfx_font *f);
 const struct ugfx_font *ugfx_font_current(void);
 
+// A SESSION SLOT (UGFX_FONT_SLOT) FROM A FONT THIS PROCESS RASTERIZED
+// (ugfx_font_load), for a process with no /bin/fontd to map one from --
+// the host widget harness, tools/lib/uitest/. Copied by value, so `f`
+// itself may go, but its ARENA must outlive every draw. The slot is then
+// never asked of fontd; adopting UI-regular also makes it current.
+void ugfx_font_adopt(int slot, const struct ugfx_font *f);
+
 // The kerning adjustment in pixels between two adjacent characters, 0
 // when the current font does not kern them. Every measuring and drawing
 // path in ugfx applies this already; a client drawing its own runs

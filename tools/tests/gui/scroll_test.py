@@ -16,15 +16,21 @@ THE INVARIANT, asked of each view, with the pointer parked off the bar:
   - a click in the track BELOW the thumb moves it down, and ABOVE moves it up;
   - dragging the thumb to the middle puts it there, and the view (checked by End/Home's thumb) was not left at an end.
 
+ONE VIEW, END TO END: the Retro Launcher's grid, where the mirrored thumb was first seen, in the real app on the
+real screen -- a folder of programs, the compositor's wheel and the pointer. The same rules over every other scrolling
+widget (its Details table, the Log Viewer, the Hex Viewer, Character Map's emoji grid, Software's cards and list) run
+on the HOST in tools/hostchecks/uitest/scroll_uitest.c, in a second instead of minutes; a NEW scrolling view goes
+there, and here only when its app's wiring is the risk.
+
   python3 tools/tests/gui/scroll_test.py
 Disks' pending list (ui/uui_steplist, a uui_table) runs check_view() from tools/tests/sweep/disks_test.py, which has the second
 disk a queue needs, and the installer's Software checklist (ui/uui_appcard's CHECKS layout) from
 tools/tests/sweep/installer_test.py, whose Disk step a guest with no spare disk cannot pass. Positive control (mutate.py): drop one uui_scrollbar_flip() from uui_grid.c's draw -- the Launcher's thumb check
-reddens. The Launcher's Details table is a uui_table, whose bar is uui_sbar's.
+reddens.
 """
 
 RUNNER = {
-    "covers": "scrolling as a person does it: wheel direction, thumb vs view, track clicks, thumb drag (Retro Launcher grid, Log Viewer, Hex Viewer grid, Character Map emoji grid, Software cards and list)",
+    "covers": "scrolling as a person does it, end to end: wheel direction, thumb vs view, track clicks, thumb drag (Retro Launcher grid; the other views in uitest_host)",
 }
 
 import argparse
@@ -44,9 +50,6 @@ from harness import Results, poll               # noqa: E402
 K_HOME, K_END = "0xf786", "0xf787"
 PROGRAMS = 60
 FOLDER = "/home/w16many"
-HEX_TITLE = "LICENSE-DejaVu.txt - Hex Viewer"
-FAKE_DIR = "/usr/share/components"
-FAKES = 24
 
 
 def thumb(im, wx, wy, ww, wh):
@@ -197,116 +200,8 @@ def main():
                        lambda sx, sy, w, h: (sx + 60, sy + 40), lambda sx, sy, w, h: (sx + w // 2, sy - 20), keys=False)
             dbg.close_window("Retro Launcher")
 
-        # --- the Retro Launcher's Details view (ui/uui_table), the same sixty programs -------------------------
-        dbg.send("sh write /etc/retrolauncher.conf view=details")
-        win = dbg.spawn("/bin/wm/apps/retrolauncher", "Retro Launcher")
-        if res.check("the Retro Launcher opens in Details", win is not None, "no window"):
-            time.sleep(15)
-            check_view(dbg, qmp, res, args.tmp, "Retro Launcher details", "Retro Launcher", "programs-table",
-                       lambda sx, sy, w, h: (sx + 60, sy + 60), lambda sx, sy, w, h: (sx + w // 2, sy - 20), keys=True)
-            dbg.close_window("Retro Launcher")
-        dbg.send("sh rm /etc/retrolauncher.conf")
-
-        # --- the Log Viewer's list (ui/uui_loglist), on the kernel log -----------------------------------------
-        win = dbg.spawn("/bin/wm/apps/logview", "Log Viewer")
-        if res.check("the Log Viewer opens", win is not None, "no window"):
-            time.sleep(3)
-            check_view(dbg, qmp, res, args.tmp, "Log Viewer list", "Log Viewer", "log",
-                       lambda sx, sy, w, h: (sx + 120, sy + 60), lambda sx, sy, w, h: (sx + w // 2, sy - 20), keys=True)
-            dbg.close_window("Log Viewer")
-
-        # --- the Hex Viewer's byte grid (ui/uui_hexview) on a font licence: five hundred rows -----------------
-        # Ctrl+Home/End are the file's ends (Home/End are the row's); the wheel goes where the real pointer is.
-        dbg.logs("hexview:", clear=True)
-        win = dbg.spawn("/bin/wm/apps/hexview /usr/share/fonts/LICENSE-DejaVu.txt", HEX_TITLE)
-        if res.check("the Hex Viewer opens", win is not None, "no window"):
-            # The column header is above the track: the inset is where the grid says its rows start.
-            def header():
-                got = {}
-                for ln in dbg.logs("hexview: layout grid", clear=False):
-                    parts = ln.split("hexview: layout ", 1)[1].split()
-                    if parts[0] in ("grid", "grid.rows_y"):
-                        got[parts[0]] = [int(p) for p in parts[1:]]
-                return got["grid.rows_y"][0] - got["grid"][1] if "grid" in got and "grid.rows_y" in got else None
-            inset = poll(header, 10, 0.3)
-            if res.check("the Hex Viewer reports where its rows start", inset is not None):
-                check_view(dbg, qmp, res, args.tmp, "Hex Viewer grid", HEX_TITLE, "grid",
-                           lambda sx, sy, w, h: (sx + 120, sy + 60), lambda sx, sy, w, h: (sx + w // 2, sy - 20),
-                           keys=True, top_inset=inset, warp=True, key_mods="ctrl")
-            dbg.close_window(HEX_TITLE)
-
-        # --- Character Map's Emoji grid (ui/uui_emojigrid, a uui_grid): every emoji with an 'e' in its name ---
-        # The page is the rail's second row; a page swapped to is read from the layout log, not the widget map.
-        dbg.logs("charmap:", clear=True)
-        win = dbg.spawn("/bin/wm/apps/charmap", "Character Map")
-        if res.check("Character Map opens", win is not None, "no window"):
-            def charmap_rects(*need):
-                got = {}
-                for ln in dbg.logs("charmap: layout ", clear=False):
-                    parts = ln.split("charmap: layout ", 1)[1].split()
-                    if len(parts) in (2, 5) and all(p.lstrip("-").isdigit() for p in parts[1:]):
-                        got[parts[0]] = [int(p) for p in parts[1:]]
-                return got if all(k in got for k in need) else None
-            cx, cy = win["content"]["x"], win["content"]["y"]
-            got = poll(lambda: charmap_rects("rail", "rail.top", "rail.row_h"), 10, 0.3)
-            if res.check("Character Map reports its rail", got is not None):
-                rx, ry, rw, rh = got["rail"]
-                row = got["rail.row_h"][0]
-                dbg.click(cx + rx + rw // 2, cy + ry + got["rail.top"][0] + row + row // 2)
-                got = poll(lambda: charmap_rects("egrid", "esearch"), 10, 0.3)
-                if res.check("Character Map's Emoji page opens", got is not None):
-                    # A group barely overflows a wide window, and a thumb longer than half its track reads as
-                    # the ground: "e" lists most of the emoji, many times what fits.
-                    ex, ey, ew, eh = got["esearch"]
-                    dbg.click(cx + ex + ew // 2, cy + ey + eh // 2)
-                    dbg.key("e")
-                    poll(lambda: any(' "e" ' in ln for ln in dbg.logs("charmap: emoji search", clear=False)), 10, 0.3)
-                    gx, gy, gw, gh = got["egrid"]
-                    # check_view() asks the widget map, which holds the first page only: the rect, as it would.
-                    # Parked ON the grid: the wheel goes where the real pointer is, and above it is the search bar.
-                    real = dbg.widgets
-                    dbg.widgets = lambda title="": dict(real(title), egrid={
-                        "screen": {"x": cx + gx, "y": cy + gy}, "w": gw, "h": gh})
-                    try:
-                        check_view(dbg, qmp, res, args.tmp, "Character Map emoji grid", "Character Map", "egrid",
-                                   lambda sx, sy, w, h: (sx + 30, sy + 30), lambda sx, sy, w, h: (sx + 10, sy + 10),
-                                   keys=True, warp=True)
-                    finally:
-                        dbg.widgets = real
-            dbg.close_window("Character Map")
-
-        # --- the Software app's cards and list (ui/uui_appcard), with FAKES more than fit -------------------
-        # Definitions only: the app lists a component its Paths= name, present or not.
-        for i in range(FAKES):
-            path = f"{FAKE_DIR}/zz{i:02d}.component"
-            dbg.send(f"sh write {path} Name=Fake component {i:02d}")
-            for line in ("Summary=A definition with nothing behind it, to scroll past", "Category=demos",
-                         "License=MIT", f"Paths=/nonexistent/zz{i:02d}", "Size=123456", "Files=1"):
-                dbg.send(f"sh append {path} {line}")
-        dbg.logs("software:", clear=True)
-        win = dbg.spawn("/bin/wm/system/software", "Software")
-        if res.check("Software opens", win is not None, "no window"):
-            poll(lambda: any(f"software: card {FAKES} " in ln for ln in dbg.logs("software:", clear=False)), 15, 0.3)
-            # Inside the view and off the bar and every card: the gap above the first row.
-            check_view(dbg, qmp, res, args.tmp, "Software cards", "Software", "cards",
-                       lambda sx, sy, w, h: (sx + 60, sy + 40), lambda sx, sy, w, h: (sx + 4, sy + 4),
-                       keys=True, warp=True)
-            dbg.key("2", mods="ctrl")
-            dbg.settle()
-            def header():
-                for ln in reversed(dbg.logs("software: layout cards.header", clear=False)):
-                    return int(ln.split()[-1])
-                return None
-            inset = poll(header, 10, 0.3)
-            if res.check("the Software list reports its header", inset is not None):
-                check_view(dbg, qmp, res, args.tmp, "Software list", "Software", "cards",
-                           lambda sx, sy, w, h: (sx + 40, sy + 10), lambda sx, sy, w, h: (sx + 40, sy - inset // 2),
-                           keys=True, top_inset=inset, warp=True)
-            dbg.close_window("Software")
     finally:
         dbg.send(f"sh rm -r {FOLDER}")
-        for i in range(FAKES):
-            dbg.send(f"sh rm {FAKE_DIR}/zz{i:02d}.component")
         dbg.close()
     return res.finish("scroll_test")
 

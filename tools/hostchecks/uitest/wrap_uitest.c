@@ -21,7 +21,7 @@
 #include "ui/ugfx.h"
 #include "ui/uui_label.h"
 
-#include "base/utest.h"
+#include "uitest.h"
 
 // The call sites here read `ok(name, cond, detail)`; the harness takes
 // the boolean first. One adapter rather than transposing every call
@@ -39,13 +39,12 @@ int main(int argc, char **argv) {
     // dropped. A file is an artifact the harness can ask for whenever it
     // likes, which is this repo's own rule about waiting on the artifact
     // rather than on the timing.
-    utest_begin("wrap_test", "uui_label word wrapping", UTEST_VERDICT_FILE);
+    uitest_begin("wrap", "uui_label word wrapping");
 
     (void)argc; (void)argv;
     // Without this every measurement is zero and every check below
     // passes for the wrong reason -- see uapp.c on the font not being
     // free in ring 3.
-    ugfx_font_init();
     ok("the font loaded, so widths are real", ugfx_char_w() > 0, "char_w is 0");
 
     char line[128];
@@ -94,5 +93,5 @@ int main(int argc, char **argv) {
     ok("leading spaces are skipped", line[0] == 'i', line);
     ok("...and it still advanced", next > indented, "cursor did not move");
 
-    return utest_end();
+    return uitest_end();
 }

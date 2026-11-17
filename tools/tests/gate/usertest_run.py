@@ -129,9 +129,6 @@ TESTS = [
     ("uargs_test", 0, None, None),
     # base/ucharset.h, Latin-1 <-> UTF-8 (a VNC viewer's cut text).
     ("ucharset_test", 0, None, None),
-    # ui/uvterm.h's grid as UTF-8: a sequence split across two writes is
-    # one cell, a wide character two, a selection copies UTF-8.
-    ("uvterm_test", 0, None, None),
     # The controlling terminal: tcgetsid(), open("/dev/tty"), and the
     # hangup a session leader's exit and a closed master send. SPAWNED:
     # it starts sessions on ptys and waits for them.
@@ -322,10 +319,6 @@ TESTS = [
     # /bin/head, tail and wc on pipes, against a hand-worked fixture.
     # SPAWNED: it spawns them and waits.
     ("textcmd_test", None, None, None),
-    # ui/ucrt.h's scanline per SOURCE line (DOOM's 200 rows at any
-    # window height) and ucrt_apply_from() matching ucrt_apply() without
-    # writing its source.
-    ("ucrt_test", 0, ["all checks passed"], None),
     # base/ulru.h, the hash table + LRU list under ugfx's and uglyph's
     # glyph caches: find order, eviction, growth past 256 buckets.
     ("ulru_test", 0, ["all checks passed"], None),
@@ -357,71 +350,9 @@ TESTS = [
     # row stays spawned like dyn_test and dynlibc_test.
     ("hash_test", None,
      None, None),
-    # uui_label's word wrapping. Its load-bearing check is that a word
-    # wider than the line is BROKEN rather than refused: refusing it
-    # returns the same cursor and loops forever inside a draw call,
-    # which hangs the compositor rather than drawing something wrong.
-    ("wrap_test", None,
-     None, None),
-    # A focus indicator on every widget that accepts focus. Its
-    # load-bearing checks are the ROW ones: a ring round the whole box
-    # and a ring on the selected row both put accent pixels on the
-    # surface, and only the height tells them apart. Each widget is also
-    # asserted BOTH ways -- absent unfocused, present focused -- because
-    # a one-sided check passes on a control that rings itself
-    # unconditionally.
-    ("focusring_test", None,
-     None, None),
-    # uui_sizefield's two unit changes, which must differ: a CLICK on
-    # GiB converts what is shown, a typed `g` reinterprets the digits.
-    ("sizefield_test", None,
-     None, None),
-    # uui_droprows: an own row re-added MOVES rather than duplicating,
-    # the oldest is dropped, and the box goes back to the value in force
-    # after the action row -- not to whatever row now has its index.
-    ("droprows_test", None,
-     None, None),
-    # The .ui language (base/udecl) and the builder (ui/uui_builder):
-    # each rejection at its line, and the shipped crashreports.ui built
-    # with every name the app asks for, from /usr/share/ui.
-    ("uibuilder_test", None,
-     None, None),
-    # uui_scale_recommended(): the step Settings and First-boot setup
-    # offer first, on the two machines it was calibrated on and its ends.
-    ("scalerec_test", None,
-     None, None),
-    # Type-ahead in uui_listbox and uui_table. Its load-bearing checks
-    # are the SORTED ones: a table's rows are pulled and its app indices
-    # are not the order on screen, so a search walking app order cycles
-    # somewhere the user is not looking while every single-match check
-    # still passes. The fixture is stored in reverse for that reason.
-    ("typeahead_test", 0,
-     None, None),
-    # uui_table's groups, tree and heat -- Task Manager's Processes page.
-    # The fixture is stored OUT of screen order (children before parents,
-    # a cycle, a parent in another group), so an ordering that walked the
-    # app's array would fail rather than pass by coincidence.
-    ("table_tree_test", None,   # spawned: it draws, so it needs the font
-     None, None),
-    # uui_transfers: each state's status line (rate, time left, paused,
-    # waiting, items) and which button a click on each action reports --
-    # the Browser's plain row keeping its one Cancel.
-    ("transfers_test", None,    # spawned: the buttons' widths are the font's
-     None, None),
     # lib/ufind: the search filters' bands, and a contents match that
     # straddles the read's block boundary, on a short line and a long one.
     ("ufind_test", 0, None, None),
-    # uui_table's chosen and moved columns: defaults, hide, the locked
-    # first column, move, save/load (unknown ids, columns added since),
-    # a drag through the OPS table in both modes, and the header menu.
-    ("table_columns_test", None,  # spawned: column widths are the font's
-     None, None),
-    # The scrollbar state every scrolling widget embeds (ui/uui_sbar.h):
-    # no jump on grab, an absolute clamped drag, trough paging, the
-    # thumb at the right END -- read back through the painter's own
-    # geometry, so a from-the-top/from-the-bottom slip fails here.
-    ("sbar_test", None,         # spawned: the bar's width is the font's
-     None, None),
     # The audio decode path -- the half of media/usnd.h that needs no
     # sound card. Playback is judged on the HOST instead
     # (tools/tests/sweep/audio_test.py records what the device emitted), so these

@@ -12,7 +12,7 @@
 #include "ui/uui_table.h"
 #include "ui/uui_ctxmenu.h"
 #include "ui/uui_sbar.h"
-#include "base/utest.h"
+#include "uitest.h"
 #include "win_proto.h"   // WIN_CURSOR_*
 
 static void ok(const char *name, int cond, const char *detail) {
@@ -68,8 +68,7 @@ static void drag(struct uui_table *t, int col, int to_x) {
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-    ugfx_font_init();
-    utest_begin("table_columns_test", "uui_table: choosing and moving columns", UTEST_VERDICT_FILE);
+    uitest_begin("table_columns", "uui_table: choosing and moving columns");
     ok("the font loaded, so widths are real", ugfx_char_h() > 0, "char_h is 0");
 
     static struct uui_table t;
@@ -247,5 +246,5 @@ int main(int argc, char **argv) {
     uui_table_columns_reset(&t);
     ok("back to the declared widths: no bar, scrolled back", !uui_table_hbar_visible(&t), "");
 
-    return utest_end();
+    return uitest_end();
 }
