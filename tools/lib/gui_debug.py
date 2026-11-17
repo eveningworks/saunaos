@@ -1479,8 +1479,11 @@ def _hold_setting(c, name, value):
     def _restore():
         try:
             with DebugConsole(sock) as r:
-                r.send(f"sh config unset {name}")
-                r.send(f"sh rm {marker}")
+                # A console still held by a tool that died mid-send answers
+                # nothing: one wait, not two -- the marker stays, so the
+                # next run puts the value back instead.
+                if r.send(f"sh config unset {name}"):
+                    r.send(f"sh rm {marker}")
         except Exception:
             pass
     return _restore
