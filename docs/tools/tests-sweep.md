@@ -1398,10 +1398,12 @@ report is ON only after `enter_gui()`").
   to its end, at its pitch within 3%, for ~1.5 s, with NO WHOLE-CHUNK
   HOLE -- usnd's mixer playing silence for a queue it found empty.
   `--kvm` boots under KVM, which is how a hole was shown not to be TCG's
-  speed. **The hole check is RED through soundd today** (`docs/bugs.md`):
-  with soundd stopped the tone is clean. Seen red: the pitch and hole
-  checks before the soundd/usnd fixes; the length check with the driver
-  dropping every other buffer. On demand: it boots its own guest with
+  speed. Seen red: the pitch and hole checks with usnd's queue-wrap bug
+  (the second run added at the pass's start), the length check with the
+  driver dropping every other buffer, the close-time check with the
+  drain before the source closed, SDL2's run with the old wait (it hung
+  on a 16384-sample buffer). The driver is named twice by each program:
+  a kernel line landed inside the first once. On demand: it boots its own guest with
   extra hardware.
 - **`doom_sound_test.py`** -- **DOOM's effects and music, judged on the
   HOST**, and the only thing that exercises `userland/third_party/doom/glue/dg_sound.c`,

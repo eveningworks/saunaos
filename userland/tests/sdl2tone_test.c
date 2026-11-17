@@ -2,7 +2,7 @@
 // sdl2-compat, for tools/tests/sweep/sdl_audio_test.py: 1.5 s of 750 Hz,
 // mono S16 at 22.05 kHz, in buffers bigger than usnd's whole queue. A different pitch from sdltone_test's, so a
 // recording cannot be the other program's. Lines: "sdltone2: driver
-// <name>", then "sdltone2: played" or "sdltone2: failed: <why>".
+// <name>", then "sdltone2: played on <driver>" or "sdltone2: failed: <why>".
 #include <SDL2/SDL.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -60,8 +60,11 @@ int main(int argc, char **argv) {
     SDL_PauseAudioDevice(dev, 0);
     while (!SDL_AtomicGet(&g_done)) SDL_Delay(20);
     SDL_Delay(200);   // the callback's last buffer, still ahead of the card
+    const char *drv = SDL_GetCurrentAudioDriver();
+    char name[32];
+    SDL_strlcpy(name, drv ? drv : "none", sizeof name);
     SDL_CloseAudioDevice(dev);
     SDL_Quit();
-    say("played");
+    say("played on %s", name);
     return 0;
 }

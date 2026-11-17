@@ -3,7 +3,7 @@
 // 44.1 kHz, pushed into an SDL_AudioStream -- SDL converts it to the
 // device's stereo S16 at 48 kHz. The host records what the sound card
 // emitted and measures the pitch; this only plays, and says so on the
-// kernel log: "sdltone: driver <name>", then "sdltone: played" or
+// kernel log: "sdltone: driver <name>", then "sdltone: played on <driver>" or
 // "sdltone: failed: <why>". sdl2tone_test is the same through SDL2.
 #include <SDL3/SDL.h>
 #include <stdarg.h>
@@ -47,9 +47,11 @@ int main(void) {
     SDL_FlushAudioStream(st);
     SDL_ResumeAudioStreamDevice(st);
     while (SDL_GetAudioStreamQueued(st) > 0) SDL_Delay(20);
+    char name[32];
+    SDL_strlcpy(name, SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "none", sizeof name);
     SDL_DestroyAudioStream(st);   // closes the device: the driver drains what is queued
     SDL_free(tone);
     SDL_Quit();
-    say("played");
+    say("played on %s", name);
     return 0;
 }

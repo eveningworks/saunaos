@@ -88,12 +88,13 @@ def main():
                 deadline = time.time() + 90
                 while time.time() < deadline:
                     lines = [ln for ln in (dbg.send("sh dmesg") or "").splitlines() if prefix in ln]
-                    if any("played" in ln or "failed" in ln for ln in lines):
+                    if any("played on" in ln or "failed" in ln for ln in lines):
                         break
                     time.sleep(1.0)   # sleep-ok: polls the guest log for a line, bounded
-                res.check(f"{label}: SDL opens SaunaOS's driver", any("driver saunaos" in ln for ln in lines),
-                          f"{lines}")
-                res.check(f"{label}: ...and plays to the end", any(ln.endswith("played") for ln in lines),
+                # Named twice by the program: a kernel line can land inside one.
+                res.check(f"{label}: SDL opens SaunaOS's driver",
+                          any("driver saunaos" in ln or "played on saunaos" in ln for ln in lines), f"{lines}")
+                res.check(f"{label}: ...and plays to the end", any("played on" in ln for ln in lines),
                           f"{lines}")
                 # Guest time from open to done: 1.5 s of tone and the drain.
                 # Closing used to wait out usnd_drain()'s 2 s guard.

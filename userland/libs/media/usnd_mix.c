@@ -105,11 +105,20 @@ static void tap_store(const int32_t *src, long frames) {
 
 // PER CHANNEL, because panning is a different gain left and right --
 // which is the whole of what a game means by "the sound is over there".
-static void add_voice(const int32_t *src, long frames, int gain_l, int gain_r) {
+// Into the pass at frame `at` -- not always its start: a source read in
+// two runs (the pushed queue wrapping) adds the second where the first
+// ended. It used to add both at 0, summing them over each other and
+// leaving the rest of the pass silent: a hole every 8192 pushed frames.
+static void add_voice_at(long at, const int32_t *src, long frames, int gain_l, int gain_r) {
+    int64_t *acc = g_acc + at * 2;
     for (long f = 0; f < frames; f++) {
-        g_acc[f * 2]     += ((int64_t)src[f * 2]     * gain_l) >> 8;
-        g_acc[f * 2 + 1] += ((int64_t)src[f * 2 + 1] * gain_r) >> 8;
+        acc[f * 2]     += ((int64_t)src[f * 2]     * gain_l) >> 8;
+        acc[f * 2 + 1] += ((int64_t)src[f * 2 + 1] * gain_r) >> 8;
     }
+}
+
+static void add_voice(const int32_t *src, long frames, int gain_l, int gain_r) {
+    add_voice_at(0, src, frames, gain_l, gain_r);
 }
 
 // A USND_RATE source mixed into a pass at g_rate: linear interpolation
@@ -189,7 +198,7 @@ static void mix(long frames) {
             long run = USND_PUSH_FRAMES - idx;      // to the ring's end
             if (run > avail) run = avail;
             if (run > want) run = want;
-            add_voice(g_push + idx * USND_CHANNELS, run, g_push_gain, g_push_gain);
+            add_voice_at(frames - want, g_push + idx * USND_CHANNELS, run, g_push_gain, g_push_gain);
             g_push_tail += run;
             want -= run;
         }

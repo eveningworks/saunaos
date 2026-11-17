@@ -5,8 +5,7 @@ programs written for Linux, Windows or macOS already speak, so a port
 is a recompile and not a new backend each time. ScummVM is the first
 program it is for; DOSBox and most SDL games are the ones after.
 
-**STAGES 0, 1 AND 2 ARE BUILT (2026-11-17)**, stage 2 with a pacing
-defect open through soundd (below) -- SDL 3.4.20 and sdl2-compat 2.32.74
+**STAGES 0, 1 AND 2 ARE BUILT (2026-11-17)** -- SDL 3.4.20 and sdl2-compat 2.32.74
 are vendored, build as `/lib/libSDL3.so.0` and `/lib/libSDL2-2.0.so.0`,
 and pass `/tests/sdl3_test` and `/tests/sdl2_test` with SDL's own dummy
 video and disk audio drivers; an SDL program opens a real desktop
@@ -222,7 +221,7 @@ sat through the silent park the check used to wait for.
   `abi/win_proto.h` said so only for the UP; a client keeping a button
   set adds on a down and replaces on an up.
 
-### Stage 2 -- the audio driver, over usnd_push -- BUILT 2026-11-17, one defect open
+### Stage 2 -- the audio driver, over usnd_push -- BUILT 2026-11-17
 
 `PRIVATEAUDIO_bootstrap` (`glue/SDL_saunaos_audio.c`): the device is
 `usnd`'s format, always -- stereo S16 at `USND_RATE` -- and SDL converts
@@ -244,37 +243,30 @@ and no soundd is a failed open, as on Linux with nothing to connect to.
   ScummVM's shape -- 750 Hz as mono S16 at 22.05 kHz). Each must open
   the `saunaos` driver, play to its end, at its own pitch, for ~1.5 s,
   with no whole-chunk hole.
-- **The open defect: holes through soundd.** Straight to the card
-  (soundd stopped) the tone is clean, 1000.0 Hz with no hole. Through
-  soundd a pushed source -- SDL's, and by the same path DOOM's music --
-  gets one-chunk (10.7 ms) holes: 4-8 per 1.5 s at first, 0-4 after two
-  fixes found on the way (below). It is PACING: usnd's worker sleeps
-  10 ms and is not woken by a push, so it moves pushed audio into soundd's
-  341 ms client ring in lumps, while soundd pulls a client in bursts up
-  to its own 341 ms card ring ahead and, when the card's lead falls under
-  85 ms, commits silence for a client without a whole chunk (139 such
-  chunks in one 3 s run). `aplay` is clean through the same path because
-  a file always has the next chunk. Ruled out by measurement: the
-  driver's queue running dry (once in ~300 waits, at the start), its depth
-  (64 or 128 ms the same), lock contention (polling less made it worse),
-  TCG speed (KVM the same), and capping soundd's lead alone.
-- **Two fixes made on the way**, each a real defect on its own: **soundd
-  took a client's PARTIAL chunk** -- it treated a client as starved only
-  when `hw_pos == wr_pos`, so a writer part-way into a chunk had the
-  unwritten rest played as silence and its `hw_pos` moved past `wr_pos`;
-  and **usnd padded a short pushed source with silence whenever the sink
-  had room**, which for soundd's deep ring was always -- it now mixes a
-  pushed source only as far as it has arrived, padding for the device
-  sink (which plays on through an underrun) or for the other voices.
-
-**The choice the defect needs** (the maintainer's, next): (a) usnd's
-worker WOKEN by a push (a futex beside the queue), keeping soundd's
-client ring a set lead ahead rather than as full as it will go --
-PipeWire's shape, the producer's quantum drives the graph; (b) soundd
-pulling each client at the card's rate with a fixed per-client lead
-rather than in bursts -- PulseAudio's `tlength`/`minreq`; (c) both. Each
-touches every sound client, so each is gated by `audio_test.py` (both
-cards), `soundd_test.py`, `doom_sound_test.py` and a check on the ASUS.
+- **The holes it found, and their cause.** Through soundd the pushed
+  tone first reached the card with one-chunk (10.7 ms) holes, 4-8 per
+  1.5 s, straight to the card it looked clean. A run of probes (soundd's
+  view of each chunk, SDL's buffers, usnd's mixer, what usnd wrote)
+  located them: **usnd's mixer read the pushed queue in two runs when it
+  wrapped and added BOTH at the start of the pass** (`add_voice()` had no
+  offset) -- the runs summed over each other and the rest of the pass
+  was silence, once per 8192 pushed frames. DOOM's music takes the same
+  path. Fixed with `add_voice_at()`; the tone is 1000.0 Hz with no hole.
+  Straight to the card the wrap rarely split a pass, which is why it
+  looked like soundd's.
+- **Two more defects found on the way**, each real on its own: **soundd
+  took a client's PARTIAL chunk** -- starved only when `hw_pos == wr_pos`,
+  so a writer part-way into a chunk had the rest played as silence and
+  its `hw_pos` moved past `wr_pos`; and **usnd padded a short pushed
+  source with silence whenever the sink had room**, which soundd's deep
+  ring always had -- it now mixes a pushed source as far as it has
+  arrived, padding only for the device sink or the other voices.
+- **Ruled out on the way**, by measurement: the driver's queue running
+  dry, its depth, lock contention, TCG speed (KVM the same), and PACING.
+  A PipeWire/PulseAudio-shaped pacing change (usnd woken by a push,
+  soundd held to a 128 ms lead) was built on the pacing theory and
+  dropped once the cause was found: nothing needed it. Lower latency for
+  games is its own change, measured on the hardware.
 
 ### Stage 3 -- the rest a port reaches for
 
