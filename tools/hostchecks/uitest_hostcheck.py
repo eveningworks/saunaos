@@ -112,7 +112,7 @@ ABI_UNSAFE = {
 # something reaches it, and then wins over glibc's symbol of that name.
 LIBC_OWN = ["userland/libs/libc/stat.c", "userland/libs/libc/time.c", "userland/libs/libc/tz.c",
             "userland/libs/libc/locale.c", "userland/libs/libc/printf_float.c",
-            "userland/libs/libc/access.c"]
+            "userland/libs/libc/access.c", "userland/libs/libc/pthread.c"]
 
 # Each control: (source, before, after, cases that must go red). The edit
 # is applied to a COPY; the checked-in file is never touched.
@@ -142,6 +142,19 @@ CONTROLS = [
      "    return cx >= sv->x && cx < sv->x + sv->w && cy >= sv->y && cy < sv->y + sv->h;",
      "    (void)sv; (void)cx; (void)cy; return 1;",
      ["settings_rows"]),
+    # A button that commits on a release dragged OFF it -- the rule every
+    # control keeps; Calculator's own main must show the 9 it should not.
+    ("userland/libs/ui/uui_button.c",
+     "    int was = b->pressed;\n    b->pressed = 0;",
+     "    int was = 1;\n    b->pressed = 0;",
+     ["calculator_app"]),
+    # Minesweeper records a flag and never draws it -- "it responds" is
+    # not "it is drawn" (a spared-3x3 control would not do: the fixed
+    # board opens nine cells either way, the ~88% the GUI tool notes).
+    ("userland/apps/apps/mines/mines.c",
+     "        draw_flag(s, x, y + dy, c);",
+     "        (void)dy;",
+     ["mines_app"]),
 ]
 
 
@@ -239,8 +252,14 @@ def build_toolkit(jobs):
     return lib, len(todo), len(srcs)
 
 
+# An APP source a control edits: build_app() compiles the staged copy.
+APP_OVERRIDE = {}
+
+
 def control_archive(lib, control):
-    """A copy of the archive with one source rebuilt from an edited copy."""
+    """A copy of the archive with one source rebuilt from an edited copy --
+    or, for an app's own source (userland/apps/), the archive as it is and
+    the copy handed to build_app()."""
     src, before, after, _ = control
     pcdir = os.path.join(BUILD, "control")
     os.makedirs(pcdir, exist_ok=True)
@@ -250,6 +269,10 @@ def control_archive(lib, control):
     staged = os.path.join(pcdir, os.path.basename(src))
     with open(staged, "w") as fh:
         fh.write(body.replace(before, after, 1))
+    APP_OVERRIDE.clear()
+    if src.startswith("userland/apps/"):
+        APP_OVERRIDE[os.path.join(ROOT, src)] = staged
+        return lib
     obj = os.path.join(pcdir, obj_name(src))
     # The copy sits elsewhere, so its own directory's headers must still be found.
     _, rc, err = compile_one(src, obj, staged=staged)
@@ -282,6 +305,14 @@ def build_harness():
         if r.returncode:
             sys.exit(f"uitest_host: compile of {src} failed:\n{r.stderr}")
         own.append(obj)
+    # The app driver (stage 2) is in the archive too: only a case that
+    # drives an app reaches it, and only such a case has uitest_app_main.
+    obj = os.path.join(hdir, "uitest_app.o")
+    r = run([*GCC, *CASE_FLAGS, *INC_LIBC, *INC_API, "-I" + HARNESS, "-c", "-o", obj,
+             os.path.join(HARNESS, "uitest_app.c")])
+    if r.returncode:
+        sys.exit(f"uitest_host: compile of uitest_app.c failed:\n{r.stderr}")
+    own.append(obj)
     lib = os.path.join(hdir, "libtolibc_own.a")
     if os.path.exists(lib):
         os.unlink(lib)
@@ -289,6 +320,33 @@ def build_harness():
     if r.returncode:
         sys.exit(f"uitest_host: ar failed:\n{r.stderr}")
     return out, lib
+
+
+APP_LINE = re.compile(r"^//\s*uitest-app:\s*(\S+)")
+
+
+def build_app(case, bindir, name):
+    """A case whose first line is `// uitest-app: DIR` drives that app
+    (stage 2): DIR's sources, compiled as the guest compiles a program but
+    with main renamed uitest_app_main, which tools/lib/uitest/uitest_app.c
+    runs on its own stack. ([objects], error)."""
+    with open(case) as fh:
+        m = APP_LINE.match(fh.readline())
+    if not m:
+        return [], None
+    app = m.group(1).rstrip("/")
+    srcs = sorted(glob.glob(os.path.join(ROOT, app, "*.c")))
+    if not srcs:
+        return [], f"`uitest-app: {app}` names no directory with sources"
+    out = []
+    for src in srcs:
+        obj = os.path.join(bindir, f"{name}__app__{os.path.basename(src)[:-2]}.o")
+        r = run([*GCC, *TOOLKIT_FLAGS, *INC_LIBC, *INC_API, "-I" + os.path.join(ROOT, app),
+                 "-Dmain=uitest_app_main", "-c", "-o", obj, APP_OVERRIDE.get(src, src)])
+        if r.returncode:
+            return [], f"compile of {os.path.relpath(src, ROOT)} failed:\n{r.stderr}"
+        out.append(obj)
+    return out, None
 
 
 def link_case(case, harness, lib, bindir):
@@ -300,7 +358,10 @@ def link_case(case, harness, lib, bindir):
     r = run([*GCC, *CASE_FLAGS, *INC_LIBC, *INC_API, "-I" + HARNESS, "-Iuserland/tests", "-c", "-o", obj, case])
     if r.returncode:
         return name, None, f"compile failed:\n{r.stderr}"
-    r = run([*GCC, "-o", exe, obj, *harness, "-Wl,--start-group", lib, own, "-Wl,--end-group",
+    app_objs, err = build_app(case, bindir, name)
+    if err:
+        return name, None, err
+    r = run([*GCC, "-o", exe, obj, *app_objs, *harness, "-Wl,--start-group", lib, own, "-Wl,--end-group",
              "-Wl,--gc-sections", "-Wl,--wrap=fopen", "-lm"])
     if r.returncode:
         return name, None, f"link failed:\n{r.stderr}"
@@ -438,6 +499,7 @@ def main():
                 wrong.append(f"{name} stayed GREEN under the control in {src}")
             elif name not in reds and not ok:
                 wrong.append(f"{name} went red under the control in {src}, which it does not cover")
+    APP_OVERRIDE.clear()
     for w in wrong:
         print(f"uitest_host: {w}")
     print("uitest_host: positive control " + ("FAILED" if wrong else "passed: every control was caught"))

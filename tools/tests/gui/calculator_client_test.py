@@ -15,12 +15,12 @@ and arithmetic together without ever reading a digit -- and it is
 stricter than reading one, because it also catches a display that
 renders the right number in the wrong place.
 
-The most valuable check is the last one: press a button, drag OFF it,
-release. That must NOT commit. It is the rule every control in this GUI
-follows (docs/gui-guidelines.md), it is the reason ui_button_group
-exists at all, and it is the single behaviour most likely to be lost in
-a port -- a client that acted on WIN_EV_MOUSE_DOWN would pass every
-other check here and fail this one.
+ONE END-TO-END PASS since stage 2 of docs/gui-unittest-design.md: the
+arithmetic, the keyboard, C's round trip and the press dragged off a
+button run on the HOST against Calculator's real main
+(tools/hostchecks/uitest/calculator_app_uitest.c). This keeps the
+process, the composited frame, a click through the compositor and the
+close.
 
 Geometry is DERIVED from the window's own reported content size rather
 than hardcoded, so it stays correct if the font size changes.
@@ -217,52 +217,11 @@ def run(dbg, qmp, tmp, shot_dir, res):
     res.check("a mouse click on a button reaches the client and repaints",
               seven != zero)
 
-    for lbl in ("+", "3", "="):
-        click(lbl)
-    ten = display_pixels(qmp, tmp, "calc_10.png", box)
-    res.check("7 + 3 = renders a result different from both inputs",
-              ten != seven and ten != zero)
-
-    # The round trip: C must restore the display to byte-identical to
-    # its just-opened state. That is arithmetic AND rendering in one
-    # assertion, with no digit ever read.
-    click("C")
-    cleared = display_pixels(qmp, tmp, "calc_clear.png", box)
-    res.check("C restores the display to exactly its initial pixels",
-              cleared == zero)
-
-    # --- the keyboard path, which must agree with the mouse -----------
-    for k in ("7", "0x2b", "3", "0x0d"):   # 7 + 3 Enter
-        dbg.send(f"gui key {k}")
-        dbg.settle()
-        time.sleep(0.25)
-    kb_ten = display_pixels(qmp, tmp, "calc_kb10.png", box)
-    res.check("the keyboard produces the identical result to the mouse",
-              kb_ten == ten,
-              "keyboard and mouse paths disagree on 7 + 3 =")
-    click("C")
-
-    # --- the rule that matters: press, drag OFF, release --------------
-    #
-    # A client acting on button-down would pass everything above and
-    # fail here. The drag ends outside the window entirely, so the
-    # button is unambiguously not under the cursor at release.
-    bx, by = lay.button_center("9")
-    outside_x = lay.ox + lay.cw + 40
-    dbg.send(f"gui drag {bx} {by} {outside_x} {by}")
-    dbg.settle()
-    time.sleep(0.4)
-    after_drag = display_pixels(qmp, tmp, "calc_dragoff.png", box)
-    res.check("a press dragged off its button does NOT commit",
-              after_drag == zero,
-              "the display changed, so the drag-off still registered a click")
-
-    # And the control must still work normally afterwards -- a botched
-    # press-state reset would leave the button stuck.
-    click("9")
-    after_nine = display_pixels(qmp, tmp, "calc_nine.png", box)
-    res.check("the same button still works after the aborted press",
-              after_nine != zero)
+    # The arithmetic, C's exact round trip, the keyboard and the press
+    # dragged off a button are Calculator's OWN logic, and run on the host
+    # against its real main (tools/hostchecks/uitest/calculator_app_uitest.c);
+    # this tool keeps what needs the real stack: a ring-3 process, its frame
+    # composited onto the screen, a click from the compositor, the close.
 
     if shot_dir:
         qmp.screenshot(os.path.abspath(os.path.join(shot_dir, "ring3-calculator-result.png")))

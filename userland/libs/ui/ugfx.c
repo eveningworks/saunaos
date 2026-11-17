@@ -627,7 +627,15 @@ int ugfx_font_recheck(void) {
     return 1;
 }
 
+// Set once UI-regular was ADOPTED (ugfx_font_adopt): such a process has
+// no fontd to map from, and init keeps what it was given.
+static int g_adopted;
+
 int ugfx_font_init(void) {
+    if (g_adopted) {
+        g_font = &g_session[UGFX_FONT_SLOT_UI_REGULAR];
+        return 1;
+    }
     if (!map_session_font(UGFX_FONT_SLOT_UI_REGULAR,
                           &g_session[UGFX_FONT_SLOT_UI_REGULAR]))
         return 0;
@@ -706,7 +714,10 @@ void ugfx_font_adopt(int slot, const struct ugfx_font *f) {
     g_session[slot] = *f;
     g_from_fontd[slot] = 0;
     g_slot_asked[slot] = 1;
-    if (slot == UGFX_FONT_SLOT_UI_REGULAR) g_font = &g_session[slot];
+    if (slot == UGFX_FONT_SLOT_UI_REGULAR) {
+        g_font = &g_session[slot];
+        g_adopted = 1;
+    }
 }
 
 // --- a private font, rasterized by this app (tier 2) ------------------

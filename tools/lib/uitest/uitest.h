@@ -117,6 +117,10 @@ uint64_t uitest_now_ns(void);
 // A setting as sys_setting() and usetting_get() answer it (NULL value
 // forgets it). Settings not set here do not exist.
 void uitest_setting(const char *name, const char *value);
+// What the process has logged (base/ulog.h): a mark now, then the LAST
+// line after it containing `needle`, copied to `out`. 0 when none.
+size_t uitest_log_mark(void);
+int    uitest_log_find(size_t mark, const char *needle, char *out, size_t cap);
 
 // --- checks -----------------------------------------------------------------
 static inline void uitest_check_int(const char *what, long got, long want) {

@@ -26,4 +26,12 @@ int       uh_unlink(const char *guest);
 int       uh_rename(const char *from, const char *to);
 void      uh_die(const char *msg);
 
+// The app's coroutine: start it (not yet run), resume it until it yields
+// or returns, yield from inside it. done: its function returned.
+int       uh_coro_start(void (*fn)(void), unsigned long stack_bytes);
+void      uh_coro_resume(void);
+void      uh_coro_yield(void);
+int       uh_coro_in_app(void);
+int       uh_coro_done(void);
+
 #endif

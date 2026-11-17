@@ -27,6 +27,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <ucontext.h>
 #include <unistd.h>
 
 #include "uitest_host.h"
@@ -183,3 +184,48 @@ void uh_die(const char *msg) {
     fprintf(stderr, "uitest: %s\n", msg);
     exit(99);
 }
+
+// --- the app's coroutine (uitest_app.c) -------------------------------------
+//
+// ONE THREAD, TWO STACKS: the app's real main() runs on its own, and each
+// time it parks (a futex wait) it swaps back to the test, which serves it
+// as the compositor would and resumes it. No second thread, so nothing
+// races: the test runs only while the app is parked, which is exactly the
+// moment a real compositor's frame is settled.
+static ucontext_t g_test_ctx, g_app_ctx;
+static int g_in_app, g_app_done;
+static void (*g_app_fn)(void);
+
+static void app_entry(void) {
+    g_app_fn();
+    g_app_done = 1;
+    g_in_app = 0;
+    swapcontext(&g_app_ctx, &g_test_ctx);   // never resumed after this
+}
+
+int uh_coro_start(void (*fn)(void), unsigned long stack_bytes) {
+    void *stack = malloc(stack_bytes);
+    if (!stack || getcontext(&g_app_ctx) < 0) return -1;
+    g_app_ctx.uc_stack.ss_sp = stack;
+    g_app_ctx.uc_stack.ss_size = stack_bytes;
+    g_app_ctx.uc_link = NULL;
+    g_app_fn = fn;
+    g_app_done = 0;
+    makecontext(&g_app_ctx, app_entry, 0);
+    return 0;
+}
+
+void uh_coro_resume(void) {
+    if (g_app_done || g_in_app) return;
+    g_in_app = 1;
+    swapcontext(&g_test_ctx, &g_app_ctx);
+}
+
+void uh_coro_yield(void) {
+    if (!g_in_app) return;
+    g_in_app = 0;
+    swapcontext(&g_app_ctx, &g_test_ctx);
+}
+
+int uh_coro_in_app(void) { return g_in_app; }
+int uh_coro_done(void) { return g_app_done; }

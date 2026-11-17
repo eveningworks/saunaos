@@ -25,6 +25,7 @@
 #include "syscall_abi.h"
 #include "caltime.h"
 #include "win_proto.h"
+#include "query_abi.h"
 #include "uitest.h"
 #include "uitest_host.h"
 
@@ -58,7 +59,9 @@ int64_t sys_write(int fd, const void *buf, size_t len) {
     return n < 0 ? fail(n) : n;
 }
 
+static int shm_close(int fd);
 int sys_close(int fd) {
+    if (shm_close(fd)) return 0;
     int rc = uh_close(fd);
     return rc < 0 ? fail(rc) : 0;
 }
@@ -189,20 +192,112 @@ int closedir(DIR *d) {
     return 0;
 }
 
-// --- memory: no shared objects to map (no fontd, no compositor) -----------------
+// --- shared memory: named objects, one process ------------------------------------
+//
+// REAL ONES, because the window protocol is built of them: uapp's buffers
+// and its channel to the compositor (base/uchan.h) are shm objects, and
+// the stand-in compositor (uitest_app.c) maps the same objects by name.
+// EVERY MAPPING OF ONE OBJECT IS THE SAME MEMORY -- as two processes'
+// mappings of one shm object are the same pages -- so the server's view
+// of a ring is the client's. An object lives until it is unlinked AND
+// unmapped is not tracked: a test is short, so an unlinked object's
+// memory simply stays (nothing reads it again).
+
+struct shm_obj {
+    char name[64];
+    void *mem;
+    uint64_t bytes;
+    int creator, unlinked;
+};
+static struct shm_obj *g_shm;
+static int g_shm_count, g_shm_cap;
+#define SHM_FD_BASE (1 << 20)   // clear of the host's fds, which sys_open hands out
+
+static struct shm_obj *shm_find(const char *name) {
+    for (int i = g_shm_count - 1; i >= 0; i--)
+        if (!g_shm[i].unlinked && !strcmp(g_shm[i].name, name)) return &g_shm[i];
+    return NULL;
+}
+
+static int shm_close(int fd) { return fd >= SHM_FD_BASE && fd < SHM_FD_BASE + g_shm_count; }
+
+int sys_shm_open(const char *name, uint64_t length, int flags) {
+    if (!name || strlen(name) >= sizeof g_shm[0].name) return fail(-22);
+    struct shm_obj *o = shm_find(name);
+    if (o && (flags & SHM_CREATE) && (flags & SHM_EXCL)) return fail(-17);   // EEXIST
+    if (!o) {
+        if (!(flags & SHM_CREATE)) return fail(-2);
+        if (g_shm_count == g_shm_cap) {
+            int cap = g_shm_cap ? g_shm_cap * 2 : 32;
+            struct shm_obj *grown = realloc(g_shm, (size_t)cap * sizeof *grown);
+            if (!grown) return fail(-12);
+            g_shm = grown;
+            g_shm_cap = cap;
+        }
+        o = &g_shm[g_shm_count++];
+        memset(o, 0, sizeof *o);
+        strlcpy(o->name, name, sizeof o->name);
+        o->bytes = length;
+        o->creator = sys_getpid();
+        o->mem = calloc(1, length ? (size_t)length : 1);
+        if (!o->mem) { g_shm_count--; return fail(-12); }
+    }
+    return SHM_FD_BASE + (int)(o - g_shm);
+}
+
+int sys_shm_open_from(const char *name, int pid) {
+    struct shm_obj *o = shm_find(name);
+    if (!o || o->creator != pid) return fail(-2);
+    return SHM_FD_BASE + (int)(o - g_shm);
+}
+
+int sys_shm_unlink(const char *name) {
+    struct shm_obj *o = shm_find(name);
+    if (!o) return fail(-2);
+    o->unlinked = 1;
+    return 0;
+}
+
+int sys_shm_grant(const char *name, int pid) { (void)pid; return shm_find(name) ? 0 : fail(-2); }
 
 void *sys_mmap(void *addr, uint64_t length, int prot, int flags, int fd, uint64_t offset) {
-    (void)addr; (void)length; (void)prot; (void)flags; (void)fd; (void)offset;
-    g_errno = 38;   // ENOSYS
+    (void)addr; (void)prot; (void)flags;
+    if (fd >= SHM_FD_BASE && fd < SHM_FD_BASE + g_shm_count) {
+        struct shm_obj *o = &g_shm[fd - SHM_FD_BASE];
+        if (offset + length > o->bytes) { g_errno = 22; return (void *)-1; }
+        return (char *)o->mem + offset;
+    }
+    if (fd < 0) {   // anonymous
+        void *p = calloc(1, length ? (size_t)length : 1);
+        if (p) return p;
+        g_errno = 12;
+        return (void *)-1;
+    }
+    g_errno = 19;   // ENODEV: a file mapping is not stubbed
     return (void *)-1;
 }
 int sys_munmap(void *addr, uint64_t length) { (void)addr; (void)length; return 0; }
-// No server publishes anything (fontd's atlas, the clipboard's page).
-int sys_shm_open(const char *name, uint64_t length, int flags)
-{ (void)name; (void)length; (void)flags; return fail(-2); }
-int sys_shm_open_from(const char *name, int pid) { (void)name; (void)pid; return fail(-2); }
-int sys_shm_unlink(const char *name) { (void)name; return fail(-2); }
-int sys_shm_grant(const char *name, int pid) { (void)name; (void)pid; return fail(-2); }
+
+// ONE THREAD: a program that would start another (a player's audio thread)
+// is refused, and takes the path it has for that. tolibc's own pthread.c
+// is linked over these (its structs are not glibc's).
+int sys_thread_create(void (*entry)(void *), void *stack_top, void *arg,
+                      void *tls, int detached, unsigned stack_size) {
+    (void)entry; (void)stack_top; (void)arg; (void)tls; (void)detached; (void)stack_size;
+    return fail(-11);   // EAGAIN
+}
+// rt's thread-local block for a new thread: never reached, since the
+// create above is refused, but pthread_create names them first.
+uint64_t rt_tls_size(void) { return 64; }
+void *rt_tls_install(void *mem) { return mem; }
+void sys_thread_exit(int code) { (void)code; uh_die("sys_thread_exit with no thread to end"); }
+int sys_thread_join(int tid) { (void)tid; return fail(-3); }     // ESRCH
+int sys_thread_detach(int tid) { (void)tid; return fail(-3); }
+
+// No sound card: a program that would play takes its no-device path.
+int sys_snd_open(void) { return fail(-19); }   // ENODEV
+int sys_snd_ctl(int op) { (void)op; return fail(-19); }
+int sys_snd_format(uint32_t rate, uint32_t bits) { (void)rate; (void)bits; return fail(-19); }
 
 // No process table: clock() and friends take their failure path.
 int sys_proc_info(int index, struct proc_info *out) { (void)index; (void)out; return fail(-38); }
@@ -210,14 +305,79 @@ int sys_proc_info(int index, struct proc_info *out) { (void)index; (void)out; re
 // No compositor: WIN_REQ_FONT and the rest answer "no server".
 int sys_win_request(struct win_request_msg *req) { (void)req; return 0; }
 
-// No query records (the screen, the machine): a caller takes its default.
-int sys_query_record(unsigned cls, unsigned index, void *out, unsigned len)
-{ (void)cls; (void)index; (void)out; (void)len; return fail(-2); }
+// QUERY_SHM is answered (uchan's server finds its clients' rings by it);
+// every other class has no records, and a caller takes its default.
+int sys_query_record(unsigned cls, unsigned index, void *out, unsigned len) {
+    if (cls != QUERY_SHM || len < sizeof(struct query_shm)) return fail(-2);
+    int live = -1;
+    for (int i = 0; i < g_shm_count; i++) {
+        if (g_shm[i].unlinked || ++live != (int)index) continue;
+        struct query_shm r;
+        memset(&r, 0, sizeof r);
+        strlcpy(r.name, g_shm[i].name, sizeof r.name);
+        r.bytes = g_shm[i].bytes;
+        r.refs = 1;
+        r.creator_pid = g_shm[i].creator;
+        memcpy(out, &r, sizeof r);
+        return (int)sizeof r;
+    }
+    return 0;
+}
 
 // --- the console --------------------------------------------------------------
 
 int64_t sys_print(const char *s) { return sys_write(1, s, strlen(s)); }
-int64_t sys_eprint(const char *s) { return sys_write(2, s, strlen(s)); }
+// What the app logs (base/ulog.h writes through here) is KEPT as well as
+// printed: an app's own report of its state -- Minesweeper's `mines:
+// state ...` line -- is what a case asserts on, as the GUI tools read it
+// from the debug console.
+static char *g_log;
+static size_t g_log_len, g_log_cap;
+
+int64_t sys_eprint(const char *s) {
+    size_t n = strlen(s);
+    if (g_log_len + n + 1 > g_log_cap) {
+        size_t cap = g_log_cap ? g_log_cap * 2 : 65536;
+        while (cap < g_log_len + n + 1) cap *= 2;
+        char *grown = realloc(g_log, cap);
+        if (grown) { g_log = grown; g_log_cap = cap; }
+    }
+    if (g_log_len + n + 1 <= g_log_cap) {
+        memcpy(g_log + g_log_len, s, n + 1);
+        g_log_len += n;
+    }
+    return sys_write(2, s, n);
+}
+
+size_t uitest_log_mark(void) { return g_log_len; }
+
+int uitest_log_find(size_t mark, const char *needle, char *out, size_t cap) {
+    if (!g_log || mark > g_log_len) return 0;
+    int found = 0;
+    for (char *line = g_log + mark; line < g_log + g_log_len;) {
+        char *end = memchr(line, '\n', (size_t)(g_log + g_log_len - line));
+        size_t len = end ? (size_t)(end - line) : (size_t)(g_log + g_log_len - line);
+        char save = line[len];
+        line[len] = 0;
+        if (strstr(line, needle)) {
+            if (out && cap) strlcpy(out, line, cap);
+            found = 1;
+        }
+        line[len] = save;
+        line += len + (end ? 1 : 0);
+    }
+    return found;
+}
+
+// A FIXED sequence, so a game's board is the same on every run.
+int sys_getrandom(void *buf, unsigned long n) {
+    static uint32_t x = 0x2545F491u;
+    for (unsigned long i = 0; i < n; i++) {
+        x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+        ((unsigned char *)buf)[i] = (unsigned char)x;
+    }
+    return (int)n;
+}
 
 // --- one process, one thread ---------------------------------------------------
 
@@ -225,16 +385,25 @@ int sys_getpid(void) { return 1; }
 // uselocale()'s per-thread slot, which rt keeps beside errno.
 void **__toy_locale_location(void) { static void *loc; return &loc; }
 int sys_gettid(void) { return 1; }
+// No children: an app's reap of its spawned programs finds none.
+int sys_waitpid_nohang(int pid, int *status) { (void)pid; (void)status; return fail(-10); }   // ECHILD
 void sys_yield(void) {}
 
-// Nothing else runs, so a futex wait would wait for ever: it returns at
-// once as a timeout, and the caller's loop re-checks its word.
+// A FUTEX WAIT IS WHERE AN APP PARKS. With an app running under
+// uitest_app.c, the wait hands control to the stand-in compositor and the
+// test, and returns when they resume the app; otherwise nothing else runs,
+// so it returns at once as a timeout and the caller's loop re-checks.
+int (*uitest_futex_hook)(volatile uint32_t *word, uint32_t expected, int timeout_ms);
 int sys_futex_wait(volatile uint32_t *word, uint32_t expected, int timeout_ms) {
-    (void)word; (void)expected; (void)timeout_ms;
+    if (*word != expected) { g_errno = 11; return -1; }   // EAGAIN: it moved
+    if (uitest_futex_hook) return uitest_futex_hook(word, expected, timeout_ms);
     g_errno = 110;   // ETIMEDOUT
     return -1;
 }
 int sys_futex_wake(volatile uint32_t *word, int count) { (void)word; (void)count; return 0; }
+// The word the kernel would bump on an event; the stand-in wakes by the
+// ring's own words instead.
+int sys_wakeword(volatile uint32_t *word) { (void)word; return 0; }
 
 // --- the clock: it moves when the harness says ---------------------------------
 
@@ -244,7 +413,14 @@ void uitest_advance_ms(int ms) { g_now_ns += (uint64_t)((int64_t)ms * 1000000); 
 uint64_t uitest_now_ns(void) { return g_now_ns; }
 unsigned long long sys_monotonic_ns(void) { return g_now_ns; }
 unsigned long sys_ticks(void) { return (unsigned long)(g_now_ns / 10000000ull); }   // 100 Hz
-int sys_sleep_ms(int ms) { uitest_advance_ms(ms); return 0; }
+// A sleep under uitest_app.c is a park too: the app is waiting for the
+// other side (uchan_send_wait() on a full ring), which runs now.
+int (*uitest_sleep_hook)(int ms);
+int sys_sleep_ms(int ms) {
+    uitest_advance_ms(ms);
+    if (uitest_sleep_hook) uitest_sleep_hook(ms);
+    return 0;
+}
 
 // The wall clock: a FIXED date, so a widget that shows "today" draws the
 // same thing on every run -- Thursday 2026-01-15 12:00:00 UTC, moved on by

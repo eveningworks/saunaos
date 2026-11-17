@@ -351,70 +351,11 @@ def run(dbg, qmp, tmp, res):
               cover != backdrop,
               f"cell face {cover} is indistinguishable from the backdrop {backdrop}")
 
-    # --- the clock does not run before the first click ----------------
-    time.sleep(2.5)
-    idle = state_after(dbg, lambda: dbg.send("gui move %d %d" % lay.cell_centre(0, 0)))
-    # A move produces no state line; read the last one we have instead.
-    res.check("the clock does not start until the first click",
-              start["elapsed"] == 0 and (idle is None or idle["elapsed"] == 0),
-              f"elapsed={idle}")
-
-    # --- THE FIRST CLICK IS SAFE, AND IT OPENS AN AREA ----------------
-    #
-    # >= 9 revealed is what the 3x3 safe neighbourhood guarantees. Run
-    # over three fresh boards: one lucky board proves nothing.
-    #
-    # A WIN COUNTS AS PASSING. `phase` 1 is in progress and 2 is over;
-    # requiring 1 fails a board whose first click cascaded to every safe
-    # cell, which is a legal and occasionally-real Minesweeper outcome --
-    # measured once in four full-suite runs, board 9x9/10, all 71 safe
-    # cells opened at once. What this check is about is `boom` and the
-    # opened area, and a win satisfies both maximally. Requiring the
-    # game to still be running turned the luckiest possible board into a
-    # failure, and took the clock check below down with it, because a
-    # finished game's clock correctly stops.
-    ok_first, detail = True, ""
-    won_instantly = False
-    for i in range(3):
-        st = state_after(dbg, lambda: dbg.send("gui click %d %d" % lay.cell_centre(4, 4)))
-        if st is None or st["phase"] not in (1, 2) or st["boom"] != -1 or st["revealed"] < 9:
-            ok_first = False
-            detail = f"board {i}: {st}"
-            break
-        if st["phase"] == 2:
-            won_instantly = True
-        if i < 2:
-            state_after(dbg, lambda: dbg.send("gui click %d %d" % lay.face_centre()))
-    res.check("the first click never hits a mine and always opens an area",
-              ok_first, detail)
-
-    # --- the clock runs once a game is under way ----------------------
-    #
-    # Asserted as "it ADVANCES", not as "it reached N after N seconds of
-    # wall clock". The guest's own timer runs at whatever rate TCG can
-    # emulate -- measured here at well under half real time under load --
-    # so a check comparing guest seconds against host seconds is a flake
-    # dressed up as a measurement. A right-click on an already-open cell
-    # is the sampling poke: it logs the state and changes nothing.
-    #
-    # A GAME THAT ENDED CANNOT BE TIMED, so start a fresh one when the
-    # loop above finished on a won board -- otherwise this asserts that
-    # a stopped clock advances, which is the app behaving correctly.
-    if won_instantly:
-        state_after(dbg, lambda: dbg.send("gui click %d %d" % lay.face_centre()))
-        state_after(dbg, lambda: dbg.send("gui click %d %d" % lay.cell_centre(4, 4)))
-    sample = lay.cell_centre(4, 4)
-    t1 = state_after(dbg, lambda: dbg.rclick(*sample))
-    advanced = False
-    deadline = time.time() + 25
-    while t1 is not None and time.time() < deadline:
-        time.sleep(1.0)
-        t2 = state_after(dbg, lambda: dbg.rclick(*sample))
-        if t2 is not None and t2["elapsed"] > t1["elapsed"]:
-            advanced = True
-            break
-    res.check("the clock runs while a game is in progress", advanced,
-              f"elapsed stuck at {t1 and t1['elapsed']} for 25s of host time")
+    # The clock before and during a game, the first click's safe 3x3 and
+    # the press dragged off a cell are the GAME's own rules, and run on the
+    # HOST against its real main (tools/hostchecks/uitest/mines_app_uitest.c).
+    # What stays here needs the real stack: the right-click past the window
+    # manager, the window menu, the win's toast, the dialog, sound, the disk.
 
     # --- A RIGHT-CLICK REACHES THE CLIENT -----------------------------
     #
@@ -465,29 +406,11 @@ def run(dbg, qmp, tmp, res):
               "flagged cell changed=%s, untouched neighbour changed=%s"
               % (flag_after != flag_before, ctrl_after != ctrl_before))
 
-    # --- a flagged cell is protected from a dig -----------------------
-    protected = state_after(dbg, lambda: dbg.send("gui click %d %d" % lay.cell_centre(0, 0)))
-    res.check("a left-click on a flagged cell does nothing",
-              protected is not None and protected["revealed"] == 0
-              and protected["phase"] == 0,
-              f"state={protected}")
-
     # --- right-click again unflags ------------------------------------
     unflagged = state_after(dbg, lambda: dbg.rclick(*lay.cell_centre(0, 0)))
     res.check("a second right-click removes the flag",
               unflagged is not None and unflagged["flags"] == 0,
               f"flags={unflagged and unflagged['flags']}")
-
-    # --- press, drag OFF, release must NOT dig ------------------------
-    #
-    # The rule every control in this GUI follows. An app acting on
-    # button-DOWN passes every check above and fails this one.
-    bx, by = lay.cell_centre(0, 0)
-    outside = lay.ox + lay.cw + 40
-    dragged = state_after(dbg, lambda: dbg.drag(bx, by, outside, by), tries=8)
-    res.check("a press dragged off its cell does NOT dig it",
-              dragged is None or (dragged["revealed"] == 0 and dragged["phase"] == 0),
-              f"state={dragged}")
 
     # --- the smiley starts a new game ---------------------------------
     state_after(dbg, lambda: dbg.send("gui click %d %d" % lay.cell_centre(4, 4)))

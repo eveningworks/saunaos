@@ -430,7 +430,8 @@ const struct ugfx_font *ugfx_font_current(void);
 // (ugfx_font_load), for a process with no /bin/fontd to map one from --
 // the host widget harness, tools/lib/uitest/. Copied by value, so `f`
 // itself may go, but its ARENA must outlive every draw. The slot is then
-// never asked of fontd; adopting UI-regular also makes it current.
+// never asked of fontd; adopting UI-regular also makes it current, and
+// makes ugfx_font_init() keep these rather than ask a fontd there is not.
 void ugfx_font_adopt(int slot, const struct ugfx_font *f);
 
 // The kerning adjustment in pixels between two adjacent characters, 0
