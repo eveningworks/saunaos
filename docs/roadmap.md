@@ -1092,9 +1092,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] SDL windows follow a `display.scale` change while running -- the scale is read when a window opens
 - [ ] SDL's custom cursor images (`SDL_CreateColorCursor`) as `uapp_cursor_image()` cursors on a `uapp_window`
 - [x] ~~Stage 2: SDL's audio driver over `usnd_push`~~ DONE 2026-11-17 -- `sdl_audio_test.py`, both SDLs, by the card's recording
-- [ ] Stage 3: preferences folder, clipboard, open URL, message boxes, relative mouse, fullscreen, SDL in the SDK
+- [x] ~~Stage 3: preferences folder, clipboard, open URL, message boxes, relative mouse~~ DONE 2026-11-17 -- `sdl_stage3_test.py`
+- [ ] SDL in the SDK: SDL3's and SDL2's headers, `.pc` files and `sdl2-config`, over dynamic linking in the cross toolchain
 - [ ] Stage 4: ScummVM on its SDL backend, as a GPL optional component, with the freeware games' downloader
-- [ ] Decide where `SDL_GetPrefPath()` points -- XDG's shape under `/home`, `/var/games` as DOOM, or `/var/lib`
 - [ ] Per-thread signal masks and `pthread_sigmask()`, which would retire SDL's one patch
 - [ ] `tm_gmtoff` and `tm_zone` in tolibc's `struct tm` (POSIX.1-2024) -- the cross toolchain's libstdc++ must be rebuilt with it
 - [ ] `<semaphore.h>` in tolibc (`sem_init`, `sem_wait`, `sem_timedwait`, `sem_post`) -- SDL compiles its generic semaphore meanwhile

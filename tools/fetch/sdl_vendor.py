@@ -62,8 +62,9 @@ PINS = [
 
 # SDL3's translation units: CMakeLists.txt's generic globs, then one
 # directory per driver this configuration picks. pthread's semaphore is
-# left out for the generic one (tolibc has no <semaphore.h>), and the
-# Unix time and filesystem modules for glue/'s.
+# left out for the generic one (tolibc has no <semaphore.h>), the Unix
+# time and filesystem modules for glue/'s, and the dummy SDL_OpenURL for
+# glue/SDL_saunaos_url.c.
 SDL3_UNITS = [
     "src/*.c", "src/atomic/*.c", "src/audio/*.c", "src/camera/*.c",
     "src/core/*.c", "src/cpuinfo/*.c", "src/dynapi/*.c", "src/events/*.c",
@@ -84,7 +85,7 @@ SDL3_UNITS = [
     "src/dialog/dummy/*.c", "src/tray/dummy/*.c", "src/storage/generic/*.c",
     "src/main/generic/*.c",
 ]
-SDL3_EXCLUDE = ["src/thread/pthread/SDL_syssem.c"]
+SDL3_EXCLUDE = ["src/thread/pthread/SDL_syssem.c", "src/misc/dummy/SDL_sysurl.c"]
 
 # sdl2-compat's, from its CMakeLists.txt's SDL2COMPAT_SRCS.
 SDL2COMPAT_UNITS = ["src/sdl2_compat.c", "src/dynapi/SDL_dynapi.c"]

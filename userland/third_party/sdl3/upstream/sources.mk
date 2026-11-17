@@ -163,7 +163,6 @@ SDL3_SRCS = \
 	userland/third_party/sdl3/upstream/src/loadso/dlopen/SDL_sysloadso.c \
 	userland/third_party/sdl3/upstream/src/filesystem/posix/SDL_sysfsops.c \
 	userland/third_party/sdl3/upstream/src/locale/unix/SDL_syslocale.c \
-	userland/third_party/sdl3/upstream/src/misc/dummy/SDL_sysurl.c \
 	userland/third_party/sdl3/upstream/src/process/dummy/SDL_dummyprocess.c \
 	userland/third_party/sdl3/upstream/src/dialog/dummy/SDL_dummydialog.c \
 	userland/third_party/sdl3/upstream/src/tray/dummy/SDL_tray.c \

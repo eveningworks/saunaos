@@ -19,7 +19,7 @@
 #include "win_surface.h" // the compositor's framebuffer grant (M41 stage 4a)
 #include "timer.h"       // coarse_ticks() -- the ring-3 debug leg's deadline
 #include "win_input.h"   // the compositor's queue -- tell_compositor(), and reset with the role
-#include "mouse.h"       // mouse_set_position() -- WIN_REQ_WARP_POINTER
+#include "mouse.h"       // mouse_set_position(), mouse_want_rel() -- WARP_POINTER, RAW_MOTION
 #include "vga.h"         // vga_resume() -- hand the screen back (R7)
 #include "kfmt.h"        // klog_printf
 #include "ksignal.h"     // signal_dumps_core() -- a crash, not a kill
@@ -298,6 +298,12 @@ int win_server_request(int pid, struct win_request_msg *req) {
         req->b = (int32_t)my;
         return 0;
     }
+    // The deltas a pointer lock needs, same role gate (WIN_EV_RAW_REL).
+    if (req->type == WIN_REQ_RAW_MOTION) {
+        if (pid != g_comp_pid || !g_comp_pid) return -1;
+        mouse_want_rel(req->a != 0);
+        return 0;
+    }
     if (req->type == WIN_REQ_FB_CURSOR) {
         if (pid != g_comp_pid || !g_comp_pid) return -1;
         switch (req->a) {
@@ -517,6 +523,7 @@ int win_server_set_compositor(int pid, uint64_t pml4) {
             g_hw_cursor_armed = 0;
             gfx_hw_cursor_show(0);
         }
+        mouse_want_rel(0);   // a lock dies with the compositor that held it
     }
 
     // Was the role HELD, and is it being given up entirely? Only that

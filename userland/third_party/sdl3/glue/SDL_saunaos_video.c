@@ -6,6 +6,8 @@
 
 #include "SDL_saunaos_video.h"
 #include "events/SDL_events_c.h"
+#include "events/SDL_clipboardevents_c.h"
+#include "media/uclip.h"
 #include "query_abi.h"
 #include "rt/sys.h"
 #include "ui/uapp.h"
@@ -16,6 +18,65 @@ struct uapp *SAUNAOS_app;
 /* The app SDL's windows belong to: no toplevel, so each SDL window is a
  * uapp window with a taskbar button of its own. */
 static struct uapp_desc g_desc;
+
+/* --- the clipboard: text, through media/uclip.h ------------------------
+ * The system clipboard is one selection of three kinds (files, text, a
+ * picture); SDL hears only its text, as SDL's Windows driver hears only
+ * CF_UNICODETEXT. No primary selection: SaunaOS has none. */
+
+static struct uclip g_clip;   /* 64 KiB: never on the stack (uclip.h) */
+static unsigned g_clip_serial;
+
+static bool SAUNAOS_SetClipboardText(SDL_VideoDevice *_this, const char *text)
+{
+    (void)_this;
+    size_t n = SDL_strlen(text);
+    if (n == 0) {
+        return uclip_clear() ? true : SDL_SetError("The clipboard service refused");
+    }
+    if (n > UCLIP_TEXT_MAX || !uclip_set_text(text, (int)n)) {
+        return SDL_SetError("The clipboard holds at most %d bytes of text", UCLIP_TEXT_MAX);
+    }
+    g_clip_serial = uclip_peek_serial();   /* our own change is not an update */
+    return true;
+}
+
+static char *SAUNAOS_GetClipboardText(SDL_VideoDevice *_this)
+{
+    (void)_this;
+    int len = 0;
+    const char *t = NULL;
+    if (uclip_load(&g_clip) && uclip_op(&g_clip) != UCLIP_NONE) {
+        t = uclip_text(&g_clip, &len);
+    }
+    char *out = (char *)SDL_malloc((size_t)len + 1);
+    if (out) {
+        if (t) {
+            SDL_memcpy(out, t, (size_t)len);
+        }
+        out[len] = '\0';
+    }
+    return out;
+}
+
+static bool SAUNAOS_HasClipboardText(SDL_VideoDevice *_this)
+{
+    (void)_this;
+    int len = 0;
+    return uclip_load(&g_clip) && uclip_op(&g_clip) != UCLIP_NONE &&
+           uclip_text(&g_clip, &len) && len > 0;
+}
+
+/* Another program's copy is SDL_EVENT_CLIPBOARD_UPDATE: one shared-memory
+ * read per pump. */
+static void check_clipboard(void)
+{
+    unsigned serial = uclip_peek_serial();
+    if (serial != g_clip_serial) {
+        g_clip_serial = serial;
+        SDL_SendClipboardUpdate(false, NULL, 0);
+    }
+}
 
 float SAUNAOS_Scale(void)
 {
@@ -66,6 +127,7 @@ static bool SAUNAOS_VideoInit(SDL_VideoDevice *_this)
         return false;
     }
     SAUNAOS_InitInput();
+    g_clip_serial = uclip_peek_serial();
     return true;
 }
 
@@ -78,10 +140,16 @@ static void SAUNAOS_VideoQuit(SDL_VideoDevice *_this)
     }
 }
 
+static int g_pump_depth;
+
+bool SAUNAOS_InPump(void)
+{
+    return g_pump_depth > 0;
+}
+
 int SAUNAOS_Pump(int timeout_ms)
 {
     static bool told;
-    static int depth;
     if (!SAUNAOS_app) {
         return -1;
     }
@@ -89,12 +157,13 @@ int SAUNAOS_Pump(int timeout_ms)
      * dispatch, and a pump from there (SDL_UpdateWindowSurface,
      * SDL_PumpEvents) would hand SDL the next events in the middle of
      * this one. The outer pump paints what was marked. */
-    if (depth) {
+    if (g_pump_depth) {
         return 0;
     }
-    depth++;
+    g_pump_depth++;
     int handled = uapp_pump(SAUNAOS_app, timeout_ms);
-    depth--;
+    g_pump_depth--;
+    check_clipboard();
     if (handled < 0 && !told) {
         told = true;
         SDL_SendQuit();
@@ -152,6 +221,10 @@ static SDL_VideoDevice *SAUNAOS_CreateDevice(void)
     device->WaitEventTimeout = SAUNAOS_WaitEventTimeout;
     device->SendWakeupEvent = SAUNAOS_SendWakeupEvent;
     device->GetWindowSizeInPixels = SAUNAOS_GetWindowSizeInPixels;
+    device->ShowMessageBox = SAUNAOS_ShowMessageBox;
+    device->SetClipboardText = SAUNAOS_SetClipboardText;
+    device->GetClipboardText = SAUNAOS_GetClipboardText;
+    device->HasClipboardText = SAUNAOS_HasClipboardText;
     SAUNAOS_SetWindowHooks(device);
     device->free = SAUNAOS_DeleteDevice;
     return device;
@@ -160,7 +233,7 @@ static SDL_VideoDevice *SAUNAOS_CreateDevice(void)
 VideoBootStrap PRIVATE_bootstrap = {
     "saunaos", "SaunaOS desktop",
     SAUNAOS_CreateDevice,
-    NULL, /* SDL_ShowMessageBox: stage 3 */
+    SAUNAOS_ShowMessageBoxAlone,
     false
 };
 

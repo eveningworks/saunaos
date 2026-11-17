@@ -232,6 +232,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `screenshot_test.py` -- Screen capture: /bin/screenshot, the Screenshot app, and the region band
 - `scroll_test.py` -- Scrolling, as a person does it: the wheel goes the right way, the scrollbar thumb follows the view, a click in
 - `scrollbar_test.py` -- scrollbar BEHAVIOUR, against the ring-3 Notepad
+- `sdl_stage3_test.py` -- what an SDL port reaches for beyond
 - `sdl_window_test.py` -- an SDL3 program's window on the
 - `search_gui_test.py` -- Search into subfolders in the File Manager (fm_search.c over
 - `settings_gallery_test.py` -- System Settings' galleries and previews

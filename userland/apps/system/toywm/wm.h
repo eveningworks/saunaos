@@ -314,7 +314,8 @@ struct window {
     // on it raises this instead. Win32 disables the owner HWND for the
     // same effect; KDE raises and flashes.
     //
-    // ONE LEVEL: a dialog never owns a dialog, so nothing here recurses.
+    // ONE LEVEL: only a window wm_can_own() names owns a dialog, so
+    // nothing here recurses.
     int dialog;
     uint32_t dialog_owner;
     int modal;
@@ -340,6 +341,13 @@ struct window {
     // in its hints, which arrive after the create that restored it.
     uint32_t geom_state;
 };
+
+// Can `w` own a dialog: a toplevel, or an UNOWNED dialog -- the window of
+// a client with no toplevel (an SDL program's, w16's), a toplevel in all
+// but name. An owned dialog never can: the owner chain is one level.
+static inline int wm_can_own(const struct window *w) {
+    return !w->popup && (!w->dialog || w->dialog_owner == WIN_DIALOG_NO_OWNER);
+}
 
 // Height of a window's title bar in pixels. NOT the taskbar's, which is
 // a setting (`desktop.taskbar.height`, wm_taskbar.h) -- a panel and a

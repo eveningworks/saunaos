@@ -200,8 +200,8 @@ them (ScummVM) is the component.
 
 **Not yet**: custom cursor images (`uapp_cursor_image()` exists for a
 toplevel), following a `display.scale` change while running (the scale
-is read when a window opens), window position, relative mouse and
-pointer grab, message boxes.
+is read when a window opens), window position. (Relative mouse and
+message boxes are stage 3's.)
 
 **The desktop dying** reaches a program through `uapp_pump()`'s liveness
 check, once a park's length apart whatever the timeout -- SDL's own wait
@@ -268,12 +268,66 @@ and no soundd is a failed open, as on Linux with nothing to connect to.
   dropped once the cause was found: nothing needed it. Lower latency for
   games is its own change, measured on the hardware.
 
-### Stage 3 -- the rest a port reaches for
+### Stage 3 -- the rest a port reaches for -- BUILT 2026-11-17 (the SDK part follows)
 
-`SDL_GetPrefPath()` (an open question, below), the clipboard, opening a
-URL in the Web Browser, `SDL_ShowMessageBox` as a SaunaOS dialog,
-relative mouse mode and fullscreen, and SDL in the SDK so `cc`/`c++`
-(on the machine and cross) find `<SDL3/SDL.h>` and `-lSDL3`.
+The maintainer's picks from the "SDL message box options" canvas and
+the question round of the same day:
+
+- **`SDL_GetPrefPath()`** is `$XDG_DATA_HOME/<org>/<app>/`, else
+  `/home/.local/share/<org>/<app>/` -- SDL's Unix answer under the one
+  user's home, made if missing (an empty org is left out). Saves are the
+  person's data and travel with `/home`; `/var/lib` is system state
+  (browser, diskmark) and `/var/games` would fit games only.
+- **The clipboard** is `media/uclip.h`'s TEXT, as SDL's Windows driver
+  hears only `CF_UNICODETEXT`; another program's copy is
+  `SDL_EVENT_CLIPBOARD_UPDATE`, one shared-memory read of the serial per
+  pump. No primary selection: SaunaOS has none.
+- **`SDL_OpenURL()`** is `base/uopen.h`'s `uopen_url()` -- xdg-open's
+  job: http: and https: in the Web Browser (through `uapp_spawn()` while
+  the driver is up, so the app reaps it), file: in whatever opens the file
+  it names. Any other scheme is refused. `glue/SDL_saunaos_url.c`
+  replaces SDL's dummy, which `sdl_vendor.py` leaves out.
+- **`SDL_ShowMessageBox()`** is `ui/uui_msgbox.h` (M1 on the canvas): a
+  window of its own, MODAL over the SDL window that asked -- which needed
+  an unowned dialog to be able to own one (`wm_can_own()`; a window of a
+  `UAPP_NO_TOPLEVEL` app is a toplevel in all but name, and
+  `uapp_window_desc.owner` names it). Win32's MessageBox, KMessageBox
+  and SDL's own X11 box are separate windows too, and SDL allows a box
+  with no window at all -- the bootstrap's hook opens a uapp of its own
+  for it. The message is a `ui/uui_para.h` paragraph: selectable, and
+  Ctrl+C copies all of it with nothing selected, as MessageBox does. The
+  box pumps the app while it waits, so it is refused from inside an SDL
+  event watcher (`SAUNAOS_InPump()`).
+- **Relative mouse mode** is a POINTER LOCK, Wayland's shape
+  (zwp_locked_pointer_v1 with zwp_relative_pointer_v1) rather than X11's
+  warp-to-centre: `WIN_REQ_POINTER_LOCK` from the client, and the
+  compositor (`toywm/wm_ptrlock.c`) asks the kernel to HOLD the pointer
+  (`WIN_REQ_RAW_MOTION`) -- a relative device's motion then becomes
+  `WIN_EV_RAW_REL` instead of moving it, forwarded as `WIN_EV_MOUSE_REL`.
+  Held in the KERNEL, not warped back each frame, so a click lands where
+  the lock is however fast the mouse moved, and an edge stops nothing.
+  In force only while its window has the focus: Alt+Tab or another
+  window suspends it and the focus coming back resumes it -- the way out
+  every desktop gives. An absolute device (a tablet) still moves the
+  pointer and adds no motion. `SDL_WarpMouseInWindow` is
+  `uapp_window_set_pointer()`.
+- **Fullscreen** came with stage 1.
+- **Tests**: `tools/tests/gui/sdl_stage3_test.py` over
+  `/tests/sdlmisc_test` -- the pref path written and read back, the
+  clipboard across two SDL programs, both URL kinds and a refused one,
+  four message boxes (owner and modality, the badge's colour by pixel,
+  Ctrl+C, a click, Esc, Return, a close), a box before `SDL_Init`, and the
+  lock: held pointer, summed motion, a click, suspended by another
+  window, resumed, released. A KTEST checks the kernel's hold. Each part
+  seen red: the kernel not holding, `uui_para_key()` declining, the
+  badge in the accent.
+
+**Still to come in stage 3: SDL in the SDK** -- SDL3's and SDL2's
+headers, `.pc` files and `sdl2-config`, so `cc`/`c++` (on the machine
+and cross) find `<SDL3/SDL.h>` and `-lSDL3`. The cross toolchain links
+STATIC only (`docs/cc-design.md`) and sdl2-compat `dlopen()`s
+`libSDL3.so.0`, so it needs dynamic linking in the toolchain first --
+the maintainer's pick, the same day.
 
 ### Stage 4 -- ScummVM
 
@@ -283,12 +337,6 @@ Temptress, Drascula) through a downloader like DOOM's.
 
 ## Open questions
 
-- **Where `SDL_GetPrefPath()` points.** SDL's Unix answer is
-  `$HOME/.local/share/<org>/<app>/` (XDG). SaunaOS has no accounts and
-  `HOME=/`; DOOM keeps its saves in `/var/games/doom`. Candidates:
-  `/home/.local/share/...` (XDG's shape under the one user's home),
-  `/var/games/<app>/` (DOOM's precedent, games only) or
-  `/var/lib/<app>/`. Stage 0 answers "unsupported".
 - **Per-thread signal masks** (`pthread_sigmask`), which would retire
   the patch -- a `docs/signals-design.md` question, not an SDL one.
 

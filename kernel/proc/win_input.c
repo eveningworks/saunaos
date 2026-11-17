@@ -61,7 +61,7 @@ void win_input_reset(void) {
 static int is_input(uint32_t type) {
     switch (type) {
     case WIN_EV_RAW_MOUSE: case WIN_EV_RAW_KEY: case WIN_EV_RAW_KEY_UP: case WIN_EV_RAW_WHEEL:
-    case WIN_EV_RAW_KEY_PHYS:
+    case WIN_EV_RAW_KEY_PHYS: case WIN_EV_RAW_REL:
         return 1;
     default:
         return 0;
@@ -130,6 +130,15 @@ static int enqueue(const struct win_event *ev, int edge) {
             struct win_event *last = &q.ring[(q.head + q.count - 1) % WIN_EVENT_QUEUE_MAX];
             if (last->type == ev->type && last->mods == ev->mods) {
                 *last = *ev;
+                return 1;
+            }
+        }
+        // Relative motion is a SUM: two queued deltas are one, added.
+        if (ev->type == WIN_EV_RAW_REL && q.count > 0) {
+            struct win_event *last = &q.ring[(q.head + q.count - 1) % WIN_EVENT_QUEUE_MAX];
+            if (last->type == WIN_EV_RAW_REL) {
+                last->a += ev->a;
+                last->b += ev->b;
                 return 1;
             }
         }
@@ -413,4 +422,6 @@ void win_input_poll(void) {
         int wheel = mouse_get_wheel_delta();
         if (wheel != 0) push(WIN_EV_RAW_WHEEL, wheel, 0, 0);
     }
+    int rdx, rdy;                     // ...and so does a lock's motion
+    if (input_room() > 0 && mouse_get_rel_delta(&rdx, &rdy)) push(WIN_EV_RAW_REL, rdx, rdy, 0);
 }

@@ -8,6 +8,7 @@
 #include "base/urecent.h"
 #include "base/uconf.h"
 #include "base/ucapture.h"
+#include "base/ufileurl.h"
 #include "etc_config.h"
 #include "rt/sys.h"
 #include "kpath.h"
@@ -159,6 +160,20 @@ int uopen_spawn(const char *path) {
         urecent_app_of_exec(d.exec, app, sizeof app);
         urecent_add(path, app);
     }
+    return pid;
+}
+
+int uopen_url(const char *url) {
+    if (!url) return -1;
+    if (!strncasecmp(url, "http://", 7) || !strncasecmp(url, "https://", 8)) {
+        char *argv[] = { (char *)UOPEN_BROWSER, (char *)url, 0 };
+        return sys_spawn_argv(argv[0], argv);
+    }
+    size_t cap = strlen(url) + 1;   // decoding never lengthens it
+    char *path = malloc(cap);
+    int pid = -1;
+    if (path && ufileurl_to_path(url, path, cap) == 0) pid = uopen_spawn(path);
+    free(path);
     return pid;
 }
 

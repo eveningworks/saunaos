@@ -25,6 +25,7 @@
 #include "wm_anim.h"   // wm_damage_window_rect(): a window's rect plus its shadow
 #include "wm_taskbar.h" // taskbar_damage(): a first frame lists a button
 #include "wm_shortcut.h"
+#include "wm_ptrlock.h"
 #include "base/usaver.h"
 #include "wm_background.h"
 #include "wm_idle.h"
@@ -168,6 +169,14 @@ static void send_input(struct window *win, const struct win_event *ev) {
         struct win_event *last = line_at(l, l->count - 1);
         if (last->type == WIN_EV_MOUSE_MOVE && last->window == ev->window) {
             *last = *ev;
+            return;
+        }
+    }
+    if (ev->type == WIN_EV_MOUSE_REL && l->count) {   // a delta waiting is a sum
+        struct win_event *last = line_at(l, l->count - 1);
+        if (last->type == WIN_EV_MOUSE_REL && last->window == ev->window) {
+            last->a += ev->a;
+            last->b += ev->b;
             return;
         }
     }
@@ -515,10 +524,10 @@ static int on_dialog_created(int pid, uint32_t id, uint32_t owner_id,
     if (w <= 0 || h <= 0) return 0;
     int unowned = owner_id == WIN_DIALOG_NO_OWNER;
     int oi = unowned ? -1 : find_client_window(pid, owner_id);
-    // A DIALOG OF A DIALOG IS REFUSED rather than flattened: the owner
-    // chain is what `modal` is resolved against, and one level is all
-    // the client side can express anyway.
-    if (!unowned && (oi < 0 || windows[oi].popup || windows[oi].dialog)) return 0;
+    // A DIALOG OF AN OWNED DIALOG IS REFUSED rather than flattened: the
+    // owner chain is what `modal` is resolved against, and one level is
+    // all the client side can express anyway (wm_can_own()).
+    if (!unowned && (oi < 0 || !wm_can_own(&windows[oi]))) return 0;
     if (!wm_windows_reserve(window_count + 1)) return 0;
     const struct window *owner = unowned ? 0 : &windows[find_client_window(pid, owner_id)];
 
@@ -580,7 +589,7 @@ static int on_dialog_created(int pid, uint32_t id, uint32_t owner_id,
 int wm_dialog_blocker(int idx) {
     if (idx < 0 || idx >= window_count) return -1;
     const struct window *o = &windows[idx];
-    if (o->dialog || o->popup || !o->client_pid) return -1;
+    if (!wm_can_own(o) || !o->client_pid) return -1;
     for (int i = window_count - 1; i >= 0; i--)
         if (windows[i].dialog && windows[i].modal &&
             windows[i].client_pid == o->client_pid &&
@@ -675,7 +684,7 @@ void wm_dialogs_follow(void) {
 int wm_dialog_of(int idx, int after) {
     if (idx < 0 || idx >= window_count) return -1;
     const struct window *o = &windows[idx];
-    if (o->dialog || !o->client_pid) return -1;
+    if (!wm_can_own(o) || !o->client_pid) return -1;
     for (int i = after + 1; i < window_count; i++)
         if (windows[i].dialog && windows[i].client_pid == o->client_pid &&
             windows[i].dialog_owner == o->client_win) return i;
@@ -1539,6 +1548,10 @@ static void req_set_pointer(int from, struct wmchan_msg *m) {
     sys_win_request(&q);
 }
 
+static void req_pointer_lock(int from, struct wmchan_msg *m) {
+    wm_ptrlock_request(find_client_window(from, m->window), m->a != 0);
+}
+
 static void req_fullscreen(int from, struct wmchan_msg *m) {
     int idx = find_client_window(from, m->window);
     if (idx >= 0) wm_set_fullscreen(idx, m->a, 1);
@@ -1776,6 +1789,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_FULLSCREEN] = req_fullscreen,
     [WIN_REQ_WINDOW_STATE] = req_window_state,
     [WIN_REQ_SET_POINTER] = req_set_pointer,
+    [WIN_REQ_POINTER_LOCK] = req_pointer_lock,
     [WIN_REQ_CURSOR] = req_cursor,
     [WIN_REQ_CURSOR_IMAGE] = req_cursor_image,
     [WIN_REQ_DRAG_START] = req_drag_start,
@@ -2156,6 +2170,10 @@ void wm_client_route_phys_key(int keycode, int down, unsigned mods) {
     ev.b = down;
     ev.mods = mods;
     send_input(&windows[f], &ev);
+}
+
+void wm_client_send_input(struct window *win, const struct win_event *ev) {
+    if (wm_client_is_client_window(win)) send_input(win, ev);
 }
 
 void wm_client_send_mouse(struct window *win, int type, int x, int y, unsigned buttons) {

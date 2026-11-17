@@ -114,6 +114,16 @@ char *uopen_details(const char *path);
 // the user chose. Returns the pid, or a negative value.
 int uopen_spawn(const char *path);
 
+// The program a web address opens in. help and System Update spawn it
+// through uapp_spawn() so their app reaps it.
+#define UOPEN_BROWSER "/bin/wm/apps/browser"
+
+// Opens a URL, xdg-open's job: http: and https: in the Web Browser, file:
+// as uopen_spawn() opens the file it names. NOT waited for, and NOT reaped
+// -- a caller with a uapp spawns UOPEN_BROWSER through uapp_spawn()
+// instead. The pid, or negative for any other scheme or a failed spawn.
+int uopen_url(const char *url);
+
 // --- choosing what opens a type (Properties' "Opens with") ---------------
 
 struct uopen_app {

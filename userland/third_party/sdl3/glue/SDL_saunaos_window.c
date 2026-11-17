@@ -116,6 +116,7 @@ static void SAUNAOS_HideWindow(SDL_VideoDevice *_this, SDL_Window *window)
     (void)_this;
     SDL_WindowData *data = window->internal;
     if (data && data->uw) {
+        SAUNAOS_ForgetWindow(window);   /* the desktop drops a closed window's lock itself */
         uapp_window_close(data->uw);
         data->uw = NULL;
     }

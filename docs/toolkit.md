@@ -264,12 +264,14 @@ Private seams of a split module, not for apps: `ttf_internal.h`, `uimg_jpeg_int.
 | `uui_medialist.h` | uui_medialist -- a PLAYLIST: one row per item, a 16:9 picture, a title with a detail line under it, and a length at the right. |
 | `uui_menubar.h` | uui_menubar -- a menu bar with nested pull-down menus, the control Windows and KDE both put across the top of an application window. |
 | `uui_meter.h` | A MEASURED VALUE, shown big: a caption, a number, its unit, an optional detail line and an optional fill bar. |
+| `uui_msgbox.h` | uui_msgbox -- A MESSAGE BOX IN A WINDOW OF ITS OWN: a severity badge, the message, and a row of buttons on a footer strip, right-aligned. |
 | `uui_nameask.h` | ASK FOR A NAME: a small modal window -- a caption, a text field with a suggestion selected, a line for a complaint, Cancel and an OK button -- for "Save as new theme", "Rename" and their kind. |
 | `uui_nametpl.h` | uui_nametpl -- a FILE-NAME TEMPLATE FIELD: a text field, a row of chips that each type a <token> at the caret, and the name the template gives today under them ("Next file: shot-20261007-...qoi"),... |
 | `uui_netadapter.h` | uui_netadapter -- one network card's ADAPTER SETTINGS as a panel: Link speed, Energy Efficient Ethernet, Flow control and Interrupt moderation, each a setting row shown only when the card's driver... |
 | `uui_netshare.h` | THE TWO NETWORK-SHARE DIALOGS, for any app with a uui_dialog: "Add network share" (an address, a name, open it now) and "Sign in to <server>" (a user, a password, Remember). |
 | `uui_optlist.h` | A scrolling list of OPTIONS, one per row: a checkbox, the option's name, an optional value field edited in place, and a one-line description. |
 | `uui_paintcanvas.h` | uui_paintcanvas -- A PICTURE TO PAINT ON, ZOOMED AND SCROLLED: the view half of a paint program. |
+| `uui_para.h` | uui_para -- A PARAGRAPH A PERSON CAN SELECT AND COPY: read-only text, word-wrapped to its width, with drag, double and triple click, Ctrl+A, Ctrl+C and the shared right-click menu (Copy, Select All... |
 | `uui_pathbar.h` | A BREADCRUMB PATH: the folder you are in as a row of buttons, one per level, each of which takes you there -- Explorer's address bar, Dolphin's URL navigator, GTK's path bar. |
 | `uui_places.h` | PLACES AND DEVICES: the list down the left of a file window -- named folders a person goes to (Home, Documents, ...), then every mounted filesystem with how full it is. |
 | `uui_popup.h` | A POPUP SURFACE, as a widget sees it. |

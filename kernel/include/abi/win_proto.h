@@ -336,6 +336,12 @@
                             // driver's wheel is a read-and-reset
                             // accumulator, not part of the level state.
 
+// a, b: relative motion since the last, in screen pixels (after speed and
+// acceleration, never clamped at an edge) -- sent only while the
+// compositor holds the pointer with WIN_REQ_RAW_MOTION, for a pointer
+// lock. Coalesced by summing. An absolute device (a tablet) sends none.
+#define WIN_EV_RAW_REL 50
+
 // 13 -- WIN_EV_DEBUG_OUT, retired with the channel (abi/diag_abi.h).
 // **15-20 ARE RETIRED, NOT FREE.** They were the compositor's side of a
 // client's life: CREATED, PRESENT, DESTROYED, TITLE, HINTS, RESIZED.
@@ -1151,6 +1157,21 @@ struct win_cursor_image {
 // locked). No reply; the client hears the motion as usual.
 #define WIN_REQ_SET_POINTER 45
 
+// A POINTER LOCK: `window`, one of the caller's; a = 1 to lock, 0 to let
+// go. Wayland's pointer-constraints lock with relative-pointer beside it
+// (zwp_locked_pointer_v1, zwp_relative_pointer_v1), for a game that
+// steers by motion rather than by position. WHILE THE WINDOW HAS THE
+// FOCUS the pointer stays where it is -- put at the content's centre
+// first if it was outside -- and the window hears WIN_EV_MOUSE_REL for
+// every movement, never a WIN_EV_MOUSE_MOVE; buttons and the wheel arrive
+// as usual. Focus going anywhere else (Alt+Tab, Super, a click the
+// keyboard made) SUSPENDS it with the pointer free, and the focus coming
+// back resumes it: the lock is the window's until it lets go or closes.
+// No reply. The client hides its own cursor (WIN_REQ_CURSOR).
+#define WIN_REQ_POINTER_LOCK 55
+// `window`: the locked window; a, b: relative motion in screen pixels.
+#define WIN_EV_MOUSE_REL 51
+
 // --- popup surfaces (WIN_REQ_POPUP) ------------------------------------
 //
 // A POPUP IS A SECOND SURFACE OF THE SAME CLIENT, anchored to a rect of
@@ -1235,8 +1256,10 @@ struct win_popup_pos {
 // and its keys go nowhere. Without it the two windows are peers that
 // merely stack together -- a find bar, a palette.
 //
-// The owner going away takes its dialogs with it. A dialog never owns a
-// dialog: one level, which is all a modal chain can usefully be here.
+// The owner going away takes its dialogs with it. An OWNED dialog never
+// owns a dialog: one level, which is all a modal chain can usefully be
+// here. An unowned one may (below): it is that client's toplevel in all
+// but name.
 //
 // AN UNOWNED DIALOG (WIN_DIALOG_NO_OWNER) is a client's window before it
 // has a toplevel -- a 16-bit program's start-up message box: centred on
@@ -1367,6 +1390,12 @@ struct win_popup_pos {
                            // A device reporting ABSOLUTE positions
                            // overwrites it with its next report.
 #define WIN_REQ_INHIBIT_SHORTCUTS 35
+#define WIN_REQ_RAW_MOTION 54   // COMPOSITOR ONLY. a: 1 HOLDS the pointer where
+                                // it is and sends its relative motion as
+                                // WIN_EV_RAW_REL instead; 0 lets it go -- on
+                                // while a window's pointer lock is in force
+                                // (WIN_REQ_POINTER_LOCK). An absolute device
+                                // (a tablet) still moves it.
 // --- the client's WIDGET MAP, for testing ----------------------------
 //
 // **THE COMPOSITOR CANNOT KNOW WHAT IS INSIDE A WINDOW.** A client

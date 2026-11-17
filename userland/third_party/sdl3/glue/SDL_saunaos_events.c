@@ -70,6 +70,14 @@ static void on_motion(struct uapp_window *uw, int x, int y, unsigned buttons)
     motion(uw, x, y);
 }
 
+/* Relative mode's motion, in points: the desktop holds the pointer and
+ * hands over how far it would have gone (uapp_window_lock_pointer()). */
+static void on_rel_motion(struct uapp_window *uw, int dx, int dy)
+{
+    float s = SAUNAOS_Scale();
+    SDL_SendMouseMotion(0, data_of(uw)->window, SDL_DEFAULT_MOUSE_ID, true, dx / s, dy / s);
+}
+
 /* SDL_SetWindowHitTest's answer at a primary press: 0 for a normal
  * press, else it started a move (-1) or a resize (WIN_EDGE_* bits) and
  * the program hears no press -- X11's and Windows' rule. A BORDERLESS
@@ -205,6 +213,7 @@ void SAUNAOS_SetInputCallbacks(struct uapp_window_desc *desc)
     desc->on_release = on_release;
     desc->on_button = on_button;
     desc->on_leave = on_leave;
+    desc->on_rel_motion = on_rel_motion;
     desc->on_wheel = on_wheel;
     desc->on_phys_key = on_phys_key;
     desc->on_key = on_key;
@@ -293,6 +302,59 @@ static bool SAUNAOS_CaptureMouse(SDL_Window *window)
     return true;
 }
 
+/* --- relative mode: the desktop's pointer lock --------------------------
+ * Wayland's locked pointer, which SDL's Wayland driver uses too. The lock
+ * is on the window with the keyboard -- SDL turns relative mode off and
+ * on again as the focus moves -- and the desktop suspends it whenever the
+ * focus is elsewhere, so the way out is Alt+Tab, as everywhere. */
+
+static SDL_Window *g_locked;
+
+static void lock(SDL_Window *window, bool on)
+{
+    SDL_WindowData *data = window ? window->internal : NULL;
+    if (data && data->uw) {
+        uapp_window_lock_pointer(data->uw, on);
+    }
+}
+
+static bool SAUNAOS_SetRelativeMouseMode(bool enabled)
+{
+    SDL_Window *target = enabled ? SDL_GetKeyboardFocus() : NULL;
+    if (enabled && !target) {
+        return SDL_SetError("SaunaOS locks the pointer to a window with the keyboard focus");
+    }
+    if (g_locked && g_locked != target) {
+        lock(g_locked, false);
+    }
+    if (target && target != g_locked) {
+        lock(target, true);
+    }
+    g_locked = target;
+    return true;
+}
+
+/* A window going away takes its lock with it, at the desktop's end too. */
+void SAUNAOS_ForgetWindow(SDL_Window *window)
+{
+    if (g_locked == window) {
+        g_locked = NULL;
+    }
+}
+
+/* Points in the window, to its pixels: the desktop moves the pointer only
+ * within the focused window. */
+static bool SAUNAOS_WarpMouse(SDL_Window *window, float x, float y)
+{
+    SDL_WindowData *data = window ? window->internal : NULL;
+    if (!data || !data->uw) {
+        return SDL_SetError("The window is not showing");
+    }
+    float s = SAUNAOS_Scale();
+    uapp_window_set_pointer(data->uw, (int)SDL_lroundf(x * s), (int)SDL_lroundf(y * s));
+    return true;
+}
+
 void SAUNAOS_InitInput(void)
 {
     SDL_AddKeyboard(SDL_DEFAULT_KEYBOARD_ID, NULL);
@@ -302,6 +364,8 @@ void SAUNAOS_InitInput(void)
     mouse->ShowCursor = SAUNAOS_ShowCursor;
     mouse->FreeCursor = SAUNAOS_FreeCursor;
     mouse->CaptureMouse = SAUNAOS_CaptureMouse;
+    mouse->SetRelativeMouseMode = SAUNAOS_SetRelativeMouseMode;
+    mouse->WarpMouse = SAUNAOS_WarpMouse;
     SDL_SetDefaultCursor(make_cursor(WIN_CURSOR_DEFAULT));
 }
 

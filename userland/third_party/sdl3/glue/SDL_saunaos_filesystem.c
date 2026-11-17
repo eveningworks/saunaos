@@ -3,7 +3,8 @@
 // The program's path is the kernel's record of it (base/uself.h), not
 // /proc/self/exe, which SaunaOS has not got. The user's folders are the
 // personal folders base/udirs.h names; SaunaOS has no accounts, so
-// /home is the one user's home. Moving, listing and making files is
+// /home is the one user's home, and a program's own files go under
+// /home/.local/share (XDG's place). Moving, listing and making files is
 // SDL's POSIX fsops (SDL_FSOPS_POSIX), unchanged.
 #include "SDL_internal.h"
 
@@ -43,14 +44,24 @@ char *SDL_SYS_GetExeName(void)
     return path;
 }
 
-// Where a program keeps its own files is not decided yet
-// (docs/sdl-design.md, stage 3).
+// $XDG_DATA_HOME/<org>/<app>/, else /home/.local/share/<org>/<app>/ --
+// SDL's Unix answer under the one user's home (HOME is "/" here), made if
+// missing. An empty org is left out, as SDL's Unix driver does.
 char *SDL_SYS_GetPrefPath(const char *org, const char *app)
 {
-    (void)org;
-    (void)app;
-    SDL_Unsupported();
-    return NULL;
+    const char *base = SDL_getenv("XDG_DATA_HOME");
+    if (!base || !*base) {
+        base = "/home/.local/share";
+    }
+    char *path = NULL;
+    if (SDL_asprintf(&path, "%s/%s%s%s/", base, org, *org ? "/" : "", app) < 0) {
+        return NULL;
+    }
+    if (!SDL_CreateDirectory(path)) {
+        SDL_free(path);
+        return NULL;
+    }
+    return path;
 }
 
 char *SDL_SYS_GetUserFolder(SDL_Folder folder)

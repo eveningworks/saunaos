@@ -874,6 +874,9 @@ void wm_client_send_key(struct window *win, int key, unsigned mods);
 void wm_client_send_key_up(struct window *win, int key, unsigned mods);
 void wm_client_route_phys_key(int keycode, int down, unsigned mods);
 void wm_client_send_mouse(struct window *win, int type, int x, int y, unsigned buttons);
+// Any input event for `win`'s client, in line behind what it has not taken.
+struct win_event;
+void wm_client_send_input(struct window *win, const struct win_event *ev);
 void wm_client_send_close(struct window *win);
 
 // Tell a client its window gained (1) or lost (0) keyboard focus.

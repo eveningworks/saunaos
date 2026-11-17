@@ -211,6 +211,47 @@ KTEST("input", "a warp puts the pointer there, and cannot leave the bounds") {
     mouse_set_position(save_x, save_y);
 }
 
+KTEST("input", "a pointer lock holds the pointer and hands over its motion") {
+    int w = 0, h = 0;
+    mouse_get_bounds(&w, &h);
+    if (w <= 64 || h <= 64) KTEST_SKIP("the pointer has no usable bounds yet");
+
+    int save_x = 0, save_y = 0, x = 0, y = 0, dx = 0, dy = 0;
+    uint8_t buttons = 0;
+    mouse_get_state(&save_x, &save_y, &buttons);
+
+    // What a report moves the pointer by, free -- speed and acceleration
+    // are settings, so the expectation is measured, not assumed.
+    mouse_set_position(w / 2, h / 2);
+    mouse_feed_rel(6, 4);                       // PS/2 sense: +y is up
+    mouse_get_state(&x, &y, &buttons);
+    int mx = x - w / 2, my = y - h / 2;
+    KTEST_ASSERT(mx > 0 && my < 0);
+
+    mouse_set_position(w / 2, h / 2);
+    mouse_want_rel(1);
+    mouse_feed_rel(6, 4);
+    mouse_feed_rel(6, 4);
+    mouse_get_state(&x, &y, &buttons);
+    int got = mouse_get_rel_delta(&dx, &dy);
+    int again = mouse_get_rel_delta(&dx, &dy);  // read and reset
+    mouse_want_rel(0);
+    KTEST_ASSERT_EQ(x, w / 2);                  // held
+    KTEST_ASSERT_EQ(y, h / 2);
+    KTEST_ASSERT_EQ(got, 1);
+    KTEST_ASSERT_EQ(dx, 2 * mx);                // the motion, summed
+    KTEST_ASSERT_EQ(dy, 2 * my);
+    KTEST_ASSERT_EQ(again, 0);
+
+    // Let go: motion moves the pointer again and nothing accumulates.
+    mouse_feed_rel(6, 4);
+    mouse_get_state(&x, &y, &buttons);
+    int after = mouse_get_rel_delta(&dx, &dy);
+    mouse_set_position(save_x, save_y);
+    KTEST_ASSERT_EQ(x, w / 2 + mx);
+    KTEST_ASSERT_EQ(after, 0);
+}
+
 KTEST("input", "an absolute report lands where the arithmetic says") {
     // The POINTER's bounds, not the display's. They are usually the
     // same once a compositor has set them, and they are not the same on

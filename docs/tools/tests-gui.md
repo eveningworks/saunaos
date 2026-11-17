@@ -1944,6 +1944,24 @@ from the default (a sound card, a USB mouse, `--reboot`).
   second re-decodes once. The old "not older" rule tied on a same-second
   rewrite and served it stale, which was this tool's intermittent red.
   In `gui_regress.py`.
+- **`sdl_stage3_test.py`** -- what an SDL port reaches for beyond a window
+  and sound (`docs/sdl-design.md`, stage 3), over `/tests/sdlmisc_test`,
+  one mode per run, its answers on `sdlmisc:` lines. `SDL_GetPrefPath`
+  under `/home/.local/share`, written and read back; a clipboard text set
+  by one SDL program read back and heard by another as
+  `SDL_EVENT_CLIPBOARD_UPDATE`; `SDL_OpenURL` of a percent-escaped file:
+  URL starting Notepad, of an http: URL starting the Web Browser (on the
+  guest's loopback: nothing leaves), and refusing gopher:; four message
+  boxes -- a dialog OWNED by the SDL window and modal, its layout read
+  from the `msgbox: layout` lines (a dialog window sends no widget map),
+  the error badge's rim and the footer by pixel, Ctrl+C copying the whole
+  message, a click, Esc, a close answering -1, Return -- and one before
+  `SDL_Init(VIDEO)`, unowned; then relative mode: the pointer HELD, QMP's
+  relative reports summing to SDL's motion, a click still arriving,
+  another window's focus suspending the lock and closing it resuming it,
+  R releasing it. Controls: the kernel not holding the pointer fails both
+  "held" checks, `uui_para_key()` declining fails the Ctrl+C one, the
+  badge in the accent fails the colour one. In `gui_regress.py`.
 - **`sdl_window_test.py`** -- an SDL3 program's window on the desktop
   (`docs/sdl-design.md`, stage 1). Drives `/tests/sdlwin_test`, which
   paints red | blue | green bands in SDL points and logs every event SDL

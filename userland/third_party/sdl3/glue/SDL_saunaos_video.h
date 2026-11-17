@@ -36,6 +36,14 @@ float SAUNAOS_Scale(void);
  * (the desktop went away). What uapp_pump() returned. */
 int SAUNAOS_Pump(int timeout_ms);
 
+/* Is a SAUNAOS_Pump() under way: an SDL event watcher runs inside one. */
+bool SAUNAOS_InPump(void);
+
+/* SDL_saunaos_messagebox.c: the device's hook, and the bootstrap's, which
+ * needs no driver up. */
+bool SAUNAOS_ShowMessageBox(SDL_VideoDevice *_this, const SDL_MessageBoxData *data, int *buttonID);
+bool SAUNAOS_ShowMessageBoxAlone(const SDL_MessageBoxData *data, int *buttonID);
+
 /* The size SDL draws a window at: its pixels when it asked for them,
  * else its size in points. */
 void SAUNAOS_GetWindowSizeInPixels(SDL_VideoDevice *_this, SDL_Window *window, int *w, int *h);
@@ -50,5 +58,7 @@ void SAUNAOS_InitInput(void);
 int SAUNAOS_CursorShape(void);
 struct uapp_window_desc;
 void SAUNAOS_SetInputCallbacks(struct uapp_window_desc *desc);
+/* A window closing or hiding: its pointer lock goes with it. */
+void SAUNAOS_ForgetWindow(SDL_Window *window);
 
 #endif

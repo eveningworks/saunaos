@@ -24,12 +24,18 @@ static void caret_report(struct uapp_top *t, const struct ugfx_surface *s) {
 // on_draw_over. `a` is the main window's app, for its draw hooks; a
 // dialog window has none.
 void top_paint(struct uapp_top *t, struct ugfx_surface *s, struct uui_layout *layout,
-                      struct uapp *a) {
+                      struct uapp *a, struct uapp_window *dlg) {
     uui_caret_frame_begin();
     if (layout || t->router.count) ugfx_fill(s, UTHEME_PANEL_BG);
+    // The window's own pixels go AFTER that ground and before its widgets,
+    // a dialog's as the main window's.
     if (a && a->desc->on_draw) {
         struct uapp_draw d = { s, UTHEME_TEXT, UTHEME_PANEL_BG };
         a->desc->on_draw(a, &d);
+    }
+    if (dlg && dlg->desc.on_draw) {
+        struct uapp_draw d = { s, UTHEME_TEXT, UTHEME_PANEL_BG };
+        dlg->desc.on_draw(dlg, &d);
     }
     // THE LAYOUT IS PAINTED ONLY WHEN THE ROUTER DOES NOT ALREADY PAINT IT
     // (uui_router_covers_layout()): routing what it lays out drew every widget twice.
@@ -65,10 +71,6 @@ void dlg_flush(struct uapp_window *w) {
     struct uapp_surf *s = &g_surf[w->top.slot];
     if (!surf_back(s)) { w->top.dirty = 1; return; }   // drawn once a buffer is back
     if (w->desc.layout) uui_layout_run(w->desc.layout, 0, 0, s->w, s->h);
-    if (w->desc.on_draw) {
-        struct uapp_draw d = { &s->surface, UTHEME_TEXT, UTHEME_PANEL_BG };
-        w->desc.on_draw(w, &d);
-    }
     if (w->desc.log_prefix && layout_log_enabled()) {
         g_log_seen_n = 0;
         if (w->desc.layout) log_items(w->desc.log_prefix, w->desc.layout->items,
@@ -77,7 +79,7 @@ void dlg_flush(struct uapp_window *w) {
         if (w->top.router.extra && (uui_editmenu_is_open() || uui_ctxmenu_is_open())) log_items(w->desc.log_prefix, w->top.router.extra, 1);
         if (w->desc.on_log_layout) w->desc.on_log_layout(w);
     }
-    top_paint(&w->top, &s->surface, w->desc.layout, 0);
+    top_paint(&w->top, &s->surface, w->desc.layout, 0, w);
     layout_log_flush(1);
     surf_present(s);
     present_popups((uint32_t)w->top.slot);
@@ -108,8 +110,10 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
     m.window = (uint32_t)slot;
     m.a = w;
     m.b = h;
-    m.c = WIN_DIALOG_C(a->has_top ? a->window : WIN_DIALOG_NO_OWNER,
-                       (desc->flags & UAPP_WIN_MODAL) ? WIN_DIALOG_MODAL : 0);
+    uint32_t owner = desc->owner ? (uint32_t)desc->owner->top.slot
+                   : a->has_top ? a->window : WIN_DIALOG_NO_OWNER;
+    if (desc->owner && !desc->owner->top.slot) owner = WIN_DIALOG_NO_OWNER;   // closed meanwhile
+    m.c = WIN_DIALOG_C(owner, (desc->flags & UAPP_WIN_MODAL) ? WIN_DIALOG_MODAL : 0);
     strlcpy(m.text, d->title, sizeof m.text);
     if (!wmchan() ||
         uchan_call(&g_wmchan, &m, sizeof m, &r, sizeof r, UAPP_CALL_TIMEOUT_MS) < 0 ||
@@ -197,6 +201,14 @@ void uapp_window_set_cursor(struct uapp_window *w, int cursor) {
     if (w->top.cursor == cursor) return;
     w->top.cursor = cursor;
     wmchan_send(WIN_REQ_CURSOR, (uint32_t)w->top.slot, cursor, 0, 0, 0);
+}
+
+void uapp_window_set_pointer(struct uapp_window *w, int x, int y) {
+    if (w && w->top.slot) wmchan_send(WIN_REQ_SET_POINTER, (uint32_t)w->top.slot, x, y, 0, 0);
+}
+
+void uapp_window_lock_pointer(struct uapp_window *w, int on) {
+    if (w && w->top.slot) wmchan_send(WIN_REQ_POINTER_LOCK, (uint32_t)w->top.slot, on ? 1 : 0, 0, 0, 0);
 }
 
 void uapp_window_activate(struct uapp_window *w) {
@@ -644,6 +656,9 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
                  d->on_button) {
             d->on_button(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods), 0);
         }
+        return;
+    case WIN_EV_MOUSE_REL:
+        if (d->on_rel_motion) d->on_rel_motion(w, ev->a, ev->b);
         return;
     case WIN_EV_MOUSE_MOVE: {
         // A LEAVE is (-1,-1) with nothing held (toywm's hover): a drag

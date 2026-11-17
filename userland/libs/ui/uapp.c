@@ -75,7 +75,7 @@ static void flush(struct uapp *a) {
     }
     a->top.dirty = 0;
 
-    top_paint(&a->top, &a->surface, a->desc->layout, a);
+    top_paint(&a->top, &a->surface, a->desc->layout, a, 0);
     // The layout block this frame produced, emitted only if it differs
     // from the last -- see uapp_log_layout(). Here rather than in the
     // apps because only the toolkit knows when a frame has ended.

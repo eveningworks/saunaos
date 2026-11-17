@@ -90,6 +90,7 @@ static int switcher_app_key(int key) {
 #include "rt/sys.h"
 #include "apps/system/toywm/wm_log.h"
 #include "apps/system/toywm/wm_rawin.h"
+#include "apps/system/toywm/wm_ptrlock.h"
 
 struct window *windows = NULL;
 int window_count = 0;
@@ -250,7 +251,7 @@ int wm_focus_index(void) {
 static int dialog_owner_index(int i) {
     for (int j = 0; j < window_count; j++)
         if (j != i && windows[j].client_pid == windows[i].client_pid &&
-            windows[j].client_win == windows[i].dialog_owner && !windows[j].dialog)
+            windows[j].client_win == windows[i].dialog_owner && wm_can_own(&windows[j]))
             return j;
     return -1;
 }
@@ -285,7 +286,7 @@ const int *wm_stacking(const int **pos) {
             if (g_lay[i] != layer) continue;
             if (g_own[i] >= 0 && g_lay[g_own[i]] == layer) continue;   // drawn with its owner
             g_stack_pos[i] = n, g_stack[n++] = i;
-            if (windows[i].dialog || windows[i].popup) continue;
+            if (!wm_can_own(&windows[i])) continue;
             for (int k = 0; k < window_count; k++)
                 if (g_own[k] == i && g_lay[k] == layer) g_stack_pos[k] = n, g_stack[n++] = k;
         }
@@ -519,9 +520,9 @@ void raise_with_dialogs(int idx) {
     if (idx < 0 || idx >= window_count) return;
     int pid = windows[idx].client_pid;
     uint32_t win = windows[idx].client_win;
-    int dialog = windows[idx].dialog;
+    int owner = wm_can_own(&windows[idx]);
     bring_to_front(idx);
-    if (!dialog) wm_dialogs_raise(pid, win);
+    if (owner) wm_dialogs_raise(pid, win);
 }
 
 static int find_window_for_app(const struct gui_app *app) {
@@ -1588,6 +1589,7 @@ void wm_run(void) {
         // arrives on the channel. See base/uwmchan.h.
         wm_client_chan_pump();
         wm_rawin_mouse(&mx, &my, &buttons);
+        wm_ptrlock_frame(&mx, &my);   // a held pointer: where it is held
 
 
         // The `gui` command channel. Polled, not event-driven -- see

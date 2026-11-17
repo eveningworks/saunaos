@@ -51,6 +51,7 @@
 // literal for the keyboard now: a key event carries which edge it is.
 #include "wm_internal.h"
 #include "apps/system/toywm/wm_rawin.h"
+#include "apps/system/toywm/wm_ptrlock.h"
 #include "rt/sys.h"
 #include "win_proto.h"
 #include "keyboard.h"   // KEY_SHIFT / KEY_MOD_* -- the four modifier keys
@@ -217,6 +218,11 @@ void wm_rawin_pump(void) {
             // Straight through: no shortcut, overlay or focus-ring step
             // applies to a key by position (wm_client.c).
             wm_client_route_phys_key(ev.a, ev.b, ev.mods);
+            break;
+        case WIN_EV_RAW_REL:
+            // Straight to the locked window: a delta has no position to
+            // replay with an edge (wm_ptrlock.c).
+            wm_ptrlock_motion(ev.a, ev.b);
             break;
         case WIN_EV_RAW_WHEEL:
             // Accumulated, not replaced: two notches in one frame are

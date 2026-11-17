@@ -246,7 +246,7 @@ UAPP_HIDDEN struct uapp_window *dlg_for(uint32_t slot);
 UAPP_HIDDEN void dlg_flush(struct uapp_window *w);
 UAPP_HIDDEN void dlg_dispatch(struct uapp_window *w, const struct win_event *ev);
 UAPP_HIDDEN void top_paint(struct uapp_top *t, struct ugfx_surface *s, struct uui_layout *layout,
-                           struct uapp *a);
+                           struct uapp *a, struct uapp_window *dlg);
 UAPP_HIDDEN void top_key(struct uapp_top *t, const struct win_event *ev);
 UAPP_HIDDEN void top_press(struct uapp_top *t, int x, int y, unsigned kmods);
 UAPP_HIDDEN void top_motion(struct uapp_top *t, int x, int y, unsigned held, unsigned kmods);

@@ -91,4 +91,13 @@ void mouse_get_bounds(int *w, int *h);
 // just never reports anything here.
 int mouse_get_wheel_delta(void);
 
+// A POINTER LOCK (the compositor's WIN_REQ_RAW_MOTION): while wanted, a
+// relative device's motion -- after speed and acceleration, in screen
+// directions, never clamped -- is ACCUMULATED INSTEAD OF MOVING THE
+// POINTER, Wayland's locked pointer with relative-pointer beside it. An
+// ABSOLUTE device still moves it and adds nothing. mouse_get_rel_delta():
+// 1 with a non-zero delta, and the accumulator reset.
+void mouse_want_rel(int on);
+int  mouse_get_rel_delta(int *dx, int *dy);
+
 #endif

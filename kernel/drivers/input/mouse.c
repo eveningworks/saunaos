@@ -42,6 +42,7 @@ static uint8_t packet[4];
 static int packet_index = 0;
 static int packet_size = 3;
 static int wheel_delta = 0;
+static int rel_wanted, rel_dx, rel_dy;   // mouse_get_rel_delta()'s accumulator
 
 static void wait_input_clear(void) {
     int timeout = 100000;
@@ -265,6 +266,13 @@ void mouse_feed_rel(int dx, int dy) {
         if (dy < -g_accel_threshold) dy += dy + g_accel_threshold;
     }
 
+    // A POINTER LOCK HOLDS THE POINTER: the motion becomes a delta and the
+    // position stays, so a click lands where the lock is.
+    if (rel_wanted) {
+        rel_dx += dx;
+        rel_dy -= dy;
+        return;
+    }
     mouse_x += dx;
     mouse_y -= dy; // PS/2 Y increases upward; screen Y increases downward
     clamp_to_bounds();
@@ -373,6 +381,19 @@ void mouse_set_scroll_step(int step)  { scroll_step = step >= 1 ? step : 1; }
 void mouse_set_scroll_invert(int on)  { scroll_invert = on ? 1 : 0; }
 int  mouse_scroll_step(void)          { return scroll_step; }
 int  mouse_scroll_invert(void)        { return scroll_invert; }
+
+void mouse_want_rel(int on) {
+    rel_wanted = on != 0;
+    rel_dx = rel_dy = 0;
+}
+
+int mouse_get_rel_delta(int *dx, int *dy) {
+    if (!rel_dx && !rel_dy) return 0;
+    *dx = rel_dx;
+    *dy = rel_dy;
+    rel_dx = rel_dy = 0;
+    return 1;
+}
 
 int mouse_get_wheel_delta(void) {
     int d = wheel_delta;

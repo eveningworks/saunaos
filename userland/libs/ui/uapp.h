@@ -460,7 +460,9 @@ int uapp_has_desktop(void);
 // process's and is already running.
 //
 // ONE LEVEL: a dialog cannot open a dialog. The compositor refuses it,
-// because the owner chain is what modality is resolved against.
+// because the owner chain is what modality is resolved against -- except
+// over a window of an app with no main window (UAPP_NO_TOPLEVEL), which
+// is a toplevel in all but name: `desc.owner` names it.
 struct uapp_window;
 
 // The owner takes no input while this is up; a press on it raises this
@@ -485,6 +487,11 @@ struct uapp_window_desc {
     unsigned flags;        // UAPP_WIN_*
     int min_w, min_h;      // UAPP_WIN_RESIZABLE's floor; 0 is the size it opens at
     int place_x, place_y;  // UAPP_WIN_PLACED's offset
+    // The window this one belongs to: NULL for the app's main window (none
+    // in a UAPP_NO_TOPLEVEL app: unowned, with a taskbar button of its
+    // own). Else a window of such an app -- an SDL program's message box
+    // over the game it stops. A dialog's dialog is refused.
+    struct uapp_window *owner;
 
     // The content. `widgets` is routed AND drawn, exactly as
     // uapp_desc.widgets is; `layout` (optional) places them, run at the
@@ -540,6 +547,9 @@ struct uapp_window_desc {
     // The pointer left the window. NULL for most: only a program keeping
     // its own idea of where the pointer is (SDL's mouse focus) needs it.
     void (*on_leave)(struct uapp_window *w);
+    // While uapp_window_lock_pointer() is in force: the pointer moved by
+    // (dx, dy) screen pixels, and stayed where it is.
+    void (*on_rel_motion)(struct uapp_window *w, int dx, int dy);
 
     // What the layout log calls this window (ui/uui_describe.h's
     // vocabulary). Set it and the toolkit emits the report itself each
@@ -583,6 +593,14 @@ void uapp_window_set_cursor(struct uapp_window *w, int cursor);
 // closes. Its size follows the compositor's proposal (on_draw sees it in
 // uapp_window_width/height); a window that is not RESIZABLE takes it too.
 void uapp_window_set_fullscreen(struct uapp_window *w, int on);
+// The pointer to (x, y) in the window's content: uapp_set_pointer() for a
+// window of its own -- only while it has the focus and the point is in it.
+void uapp_window_set_pointer(struct uapp_window *w, int x, int y);
+// A POINTER LOCK (abi/win_proto.h's WIN_REQ_POINTER_LOCK): while the
+// window has the focus the pointer is held and every movement arrives at
+// desc.on_rel_motion instead; it is suspended while the focus is
+// elsewhere. Hide the cursor yourself. 0 lets go.
+void uapp_window_lock_pointer(struct uapp_window *w, int on);
 // A secondary window sized by its program (a dialog that grows, Windows' MoveWindow): its next frame
 // is presented at width x height and the compositor adopts it -- a resize sends nothing, as
 // uapp_resize()'s does not. 0 when its buffer could not be made.
