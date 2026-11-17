@@ -1974,8 +1974,14 @@ static void launch_entry(const struct gui_app_entry *e) {
             open_app(&gui_app_registry[k]);
             return;
         }
-    char *const argv[] = { (char *)e->exec, 0 };
+    char *words, **argv = uopen_exec_argv(e->exec, NULL, &words);
+    if (!argv) {
+        wm_logf("desktop: could not run %s", e->exec);
+        return;
+    }
     spawn_argv(argv);
+    free(argv);
+    free(words);
 }
 
 // The Start menu's "Add to desktop": a launcher file in the folder, as
@@ -2351,8 +2357,11 @@ static int drop_onto_target(char paths[][PATH_BUF], int n) {
         for (int i = 0; a && i < n && opened < 8; i++) {
             const char *ext = ext_of(paths[i]);
             if (!ext || !uopen_ext_matches(a->handles, ext)) continue;
-            char *const argv[] = { (char *)a->exec_path, paths[i], 0 };
+            char *words, **argv = uopen_exec_argv(a->exec_path, paths[i], &words);
+            if (!argv) continue;
             spawn_argv(argv);
+            free(argv);
+            free(words);
             opened++;
         }
         wm_logf("desktop: opened %d item(s) with %s", opened, item_name(t));

@@ -303,28 +303,28 @@ void uopen_actions_free(struct uopen_action *a, int n) {
     free(a);
 }
 
-// An Exec line's words, `%f` made `path` -- ONE argument, spaces and all.
-// No quoting: an entry's own lines name programs and flags, not paths.
-static char **exec_argv(const char *line, const char *path, char **words) {
-    *words = strdup(line);
+char **uopen_exec_argv(const char *line, const char *path, char **words) {
+    *words = line ? strdup(line) : 0;
     if (!*words) return 0;
-    int cap = 4, n = 0;
+    int cap = 4, n = 0, placed = 0;
     char **argv = malloc(sizeof *argv * (size_t)cap), *save = 0;
     for (char *w = argv ? strtok_r(*words, " \t", &save) : 0; w; w = strtok_r(0, " \t", &save)) {
-        if (n + 2 > cap) {
+        if (n + 3 > cap) {
             char **g = realloc(argv, sizeof *argv * (size_t)(cap *= 2));
             if (!g) { free(argv); argv = 0; break; }
             argv = g;
         }
-        argv[n++] = !strcmp(w, "%f") ? (char *)path : w;
+        if (strcmp(w, "%f")) argv[n++] = w;
+        else if (path && !placed++) argv[n++] = (char *)path;
     }
+    if (argv && n && path && !placed) argv[n++] = (char *)path;
     if (argv) argv[n] = 0;
     if (!argv || !n) { free(argv); free(*words); return 0; }
     return argv;
 }
 
 int uopen_action_run(const struct uopen_action *a, const char *path) {
-    char *words, **argv = exec_argv(a->exec, path, &words);
+    char *words, **argv = uopen_exec_argv(a->exec, path, &words);
     if (!argv) return -1;
     int pid = sys_spawn_argv(argv[0], argv);
     free(argv);
@@ -361,7 +361,7 @@ static const char *details_line(const char *path) {
 char *uopen_details(const char *path) {
     const char *line = details_line(path);
     if (!line) return 0;
-    char *words, **argv = exec_argv(line, path, &words);
+    char *words, **argv = uopen_exec_argv(line, path, &words);
     if (!argv) return 0;
     char *out = ucapture(argv[0], argv);
     free(argv);

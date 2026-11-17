@@ -103,6 +103,12 @@ int  uopen_actions(const char *path, struct uopen_action **out);
 void uopen_actions_free(struct uopen_action *a, int n);
 // Spawns one for `path`, not waited for; the pid, or negative.
 int  uopen_action_run(const struct uopen_action *a, const char *path);
+// An Exec= line -- an entry's or an action's -- as an argv: its words,
+// with `path` where `%f` is (ONE argument, spaces and all), or last when
+// the line has no `%f`; a NULL path adds nothing. No quoting: an entry's
+// lines name programs and flags, not paths. NULL when empty or out of
+// memory; otherwise free() the argv and `*words`.
+char **uopen_exec_argv(const char *line, const char *path, char **words);
 // The opening app's X-Details answer for `path`, allocated; NULL for none.
 // WAITS for the command, so a caller asks once per file shown.
 char *uopen_details(const char *path);

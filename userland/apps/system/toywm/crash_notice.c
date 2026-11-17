@@ -31,6 +31,7 @@
 #include "base/ulog.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>   // strcspn: an Exec= line's program word
 
 #define MAX_NOTICES   3
 #define SHOW_NS       12000000000ull   // a notice stays 12 s, longer while hovered
@@ -97,7 +98,9 @@ static int g_hover_card = -1;            // the card under it, which does not ex
 static const struct gui_app *app_by_exec(const char *exec) {
     for (int i = 0; i < gui_app_visible_count(GUI_SHOW_ALL); i++) {
         const struct gui_app *a = gui_app_visible_at(GUI_SHOW_ALL, i);
-        if (a && a->exec_path && k_strcmp(a->exec_path, exec) == 0) return a;
+        if (!a || !a->exec_path) continue;
+        size_t n = strcspn(a->exec_path, " \t");   // the program, not its flags
+        if (k_strlen(exec) == n && k_strncmp(a->exec_path, exec, n) == 0) return a;
     }
     return 0;
 }

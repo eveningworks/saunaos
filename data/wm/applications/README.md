@@ -176,9 +176,14 @@ Your icon ARRANGEMENT survives a reload: positions live in
 
 ## Exec
 
-One form. Every entry names a real ring-3 binary:
+One form. Every entry names a real ring-3 binary, and may give it
+flags -- the line is split on spaces (`uopen_exec_argv()`, no quoting):
 
     Exec=/bin/wm/apps/calculator     spawn that binary (a ring-3 client)
+    Exec=/bin/wm/apps/scummvm --games
+
+`%f` is where a file opened with the entry goes, and a file dropped on
+a launcher without one goes last.
 
 `Exec=builtin:<name>` named a kernel-space app through a callback table
 and is GONE, along with the last kernel-space app -- the kernel image

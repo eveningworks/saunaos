@@ -25,7 +25,8 @@
 // TWO KINDS OF ENTRY, and the reason the file format has to know:
 //
 //   Exec=/bin/wm/apps/calculator   spawn that binary; the process makes
-//                                  its own window over TWP.
+//                                  its own window over TWP. Flags may
+//                                  follow (uopen_exec_argv() splits it).
 //
 // There is no second form any more. `Exec=builtin:<name>` named a
 // kernel-space app whose callbacks were compiled in; it was removed

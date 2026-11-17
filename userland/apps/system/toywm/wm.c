@@ -27,6 +27,7 @@
 #include <limits.h>
 #include <stdlib.h>   // free: the client widget map; realloc: the window table
 #include "wm_internal.h"
+#include "base/uopen.h"     // uopen_exec_argv(): an entry's Exec= line as words
 #include "wm_shadow.h"
 #include "wm_glass.h"
 #include "wm_anim.h"   // wm_damage_window_rect(): a window's rect plus its shadow
@@ -551,15 +552,19 @@ void open_app(const struct gui_app *app) {
     if (start_menu_recent_on()) start_store_record_launch(app->app_id);
 
     if (app->exec_path) {
-        int pid = sys_spawn(app->exec_path, 0, -1);
+        // Exec= is a command line (`scummvm --games`), not a path.
+        char *words, **argv = uopen_exec_argv(app->exec_path, NULL, &words);
+        int pid = argv ? sys_spawn_argv(argv[0], argv) : -1;
+        free(argv);
+        if (argv) free(words);
         wm_logf("wm: launched %s (%s) as pid %d\n",
                      app->name, app->exec_path, pid);
         if (pid > 0) wm_track_launched(pid);
-        // pid 0 means no free process slot, or the binary is missing
-        // from /bin. Say so in the log rather than failing silently --
-        // from the desktop the only symptom is a menu item that does
-        // nothing, which is indistinguishable from a missed click.
-        if (pid == 0) {
+        // No pid means no free process slot, or the binary is missing.
+        // Say so in the log rather than failing silently -- from the
+        // desktop the only symptom is a menu item that does nothing,
+        // which is indistinguishable from a missed click.
+        if (pid <= 0) {
             wm_logf("wm: launch FAILED -- no process slot, or no %s\n",
                          app->exec_path);
         }
