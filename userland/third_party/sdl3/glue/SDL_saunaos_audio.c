@@ -28,23 +28,34 @@ struct SDL_PrivateAudioData {
     Uint8 *mixbuf;
 };
 
+/* How far ahead of usnd's mixer to stay: three buffers, at least LEAD,
+ * at most the queue. A buffer bigger than the queue (SDL2's `samples` can
+ * be 16384) goes in pieces (PlayDevice). */
 static long lead_frames(const SDL_AudioDevice *device)
 {
     long lead = (long)device->sample_frames * 3;
-    return lead > LEAD ? lead : LEAD;
+    if (lead < LEAD) {
+        lead = LEAD;
+    }
+    return lead < USND_PUSH_FRAMES ? lead : USND_PUSH_FRAMES;
+}
+
+/* Waits for the queue to drain to `below` frames, or for shutdown. */
+static void wait_queue(SDL_AudioDevice *device, long below)
+{
+    while (!SDL_GetAtomicInt(&device->shutdown) && USND_PUSH_FRAMES - usnd_push_space() > below) {
+        /* Half a mixer pass: the queue drains at USND_RATE. */
+        SDL_Delay(512 * 1000 / USND_RATE / 2 + 1);
+    }
 }
 
 static bool SAUNAOSAUDIO_WaitDevice(SDL_AudioDevice *device)
 {
-    const long want = device->sample_frames, lead = lead_frames(device);
-    while (!SDL_GetAtomicInt(&device->shutdown)) {
-        long queued = USND_PUSH_FRAMES - usnd_push_space();
-        if (queued + want <= lead && queued + want <= USND_PUSH_FRAMES) {
-            return true;
-        }
-        /* Half a mixer pass: the queue drains at USND_RATE. */
-        SDL_Delay(512 * 1000 / USND_RATE / 2 + 1);
+    long want = device->sample_frames, lead = lead_frames(device);
+    if (want > lead) {
+        want = lead;
     }
+    wait_queue(device, lead - want);
     return true;
 }
 
@@ -52,9 +63,16 @@ static bool SAUNAOSAUDIO_PlayDevice(SDL_AudioDevice *device, const Uint8 *buffer
 {
     const int16_t *pcm = (const int16_t *)buffer;
     long frames = buflen / (long)(sizeof(int16_t) * USND_CHANNELS);
-    /* The wait made room for all of it; a short take means the source was
-     * closed under us, and the rest is dropped rather than waited for. */
-    usnd_push(pcm, frames);
+    /* All of it, in as many pieces as the queue takes: the wait made room
+     * for a whole buffer unless the buffer is bigger than the queue. */
+    while (frames > 0 && !SDL_GetAtomicInt(&device->shutdown)) {
+        long n = usnd_push(pcm, frames);
+        pcm += n * USND_CHANNELS;
+        frames -= n;
+        if (frames > 0) {
+            wait_queue(device, lead_frames(device) / 2);
+        }
+    }
     return true;
 }
 
@@ -69,8 +87,14 @@ static void SAUNAOSAUDIO_CloseDevice(SDL_AudioDevice *device)
     if (!device->hidden) {
         return;
     }
-    usnd_drain();         /* the last buffer is heard, not cut off */
+    /* The last buffer is heard, not cut off: the queue played out (a
+     * pushed source keeps usnd's voices busy while it is OPEN, so it is
+     * closed before usnd_drain() waits on the sink), then the sink. */
+    for (int guard = 0; guard < 100 && usnd_push_space() < USND_PUSH_FRAMES; guard++) {
+        SDL_Delay(5);
+    }
     usnd_push_close();
+    usnd_drain();
     usnd_shutdown();
     SDL_free(device->hidden->mixbuf);
     SDL_free(device->hidden);

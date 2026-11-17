@@ -581,6 +581,10 @@ static void owed_release(struct uapp *a) {
     if (!g_release_owed) return;
     g_release_owed = 0;
     struct win_event up = g_press_up;
+    // The PRIMARY's release only: another button of the chord is still
+    // down, and naming none would read as its release too -- the edit
+    // menu opening under a held right button.
+    up.mods = (up.mods & ~0xFFu) | (g_btn_held & ~0x1u);
     dispatch(a, &up);
 }
 
@@ -1080,10 +1084,10 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
                    top_secondary(&a->top, ev->a, ev->b, 0)) {
             break;   // over editable text: the shared edit menu's (uapp_window.c)
         }
-        if (d->on_press) {
-            a->press_heard = 1;
-            d->on_press(a, ev->a, ev->b, ev->mods);
-        }
+        // HEARD whether or not the app has an on_press: an app with only
+        // on_release still hears the press end.
+        a->press_heard = 1;
+        if (d->on_press) d->on_press(a, ev->a, ev->b, ev->mods);
         break;
 
     case WIN_EV_MOUSE_MOVE: {

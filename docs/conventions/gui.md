@@ -4043,8 +4043,8 @@ real scanout hardware does. Do not write a pixel assertion for one.
   routes by that, never by what is still held: the primary's release is
   the widgets' and `uapp_window_desc.on_release`'s, the secondary's the
   edit menu's or `on_button`'s. `uapp_desc.on_release` hears the press
-  END -- once, at the last button's release, and only after an
-  `on_press` -- so a stroke is not ended by a chord's other button;
+  END -- once, at the last button's release, for a press the app was
+  given -- so a stroke is not ended by a chord's other button;
   `UAPP_EVERY_RELEASE` (w16) hears each. A client keeping its own set
   (SDL's driver) ADDS a down's button and REPLACES the set on an up.
   Until 2026-11-17 the WM tracked one button, then a set that the middle

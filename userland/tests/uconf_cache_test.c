@@ -18,8 +18,13 @@
 static uint64_t my_file_reads(void) {
     int me = sys_getpid();
     struct query_procio r;
-    QUERY_FOREACH(QUERY_PROCIO, r, i) {
-        if (r.pid == me) return r.file_reads;
+    // A FEW WALKS: records are read by index, so a process before ours
+    // exiting mid-walk shifts ours down one and the walk steps over it
+    // (seen once in the ring-3 suite, 2026-11-17).
+    for (int walk = 0; walk < 4; walk++) {
+        QUERY_FOREACH(QUERY_PROCIO, r, i) {
+            if (r.pid == me) return r.file_reads;
+        }
     }
     return (uint64_t)-1;   // no slot of our own: SPAWN this test, never `run` it
 }

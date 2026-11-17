@@ -1,6 +1,6 @@
 // A tone through SDL2's audio CALLBACK -- ScummVM's shape -- by way of
 // sdl2-compat, for tools/tests/sweep/sdl_audio_test.py: 1.5 s of 750 Hz,
-// mono S16 at 22.05 kHz. A different pitch from sdltone_test's, so a
+// mono S16 at 22.05 kHz, in buffers bigger than usnd's whole queue. A different pitch from sdltone_test's, so a
 // recording cannot be the other program's. Lines: "sdltone2: driver
 // <name>", then "sdltone2: played" or "sdltone2: failed: <why>".
 #include <SDL2/SDL.h>
@@ -49,7 +49,7 @@ int main(int argc, char **argv) {
     want.freq = RATE;
     want.format = AUDIO_S16SYS;
     want.channels = 1;
-    want.samples = 512;
+    want.samples = 16384;   // twice usnd's queue: the driver must push it in pieces
     want.callback = fill;
     SDL_AudioDeviceID dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
     if (!dev) {

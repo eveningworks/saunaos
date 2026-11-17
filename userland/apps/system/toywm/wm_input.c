@@ -941,7 +941,9 @@ void wm_press_arm(int fi, unsigned bit, int mx, int my) {
 // and the first one's release would never come. A WM-drawn window takes
 // a left-only press, so another button is swallowed while it lasts.
 unsigned wm_press_join(int mx, int my, unsigned downs, uint8_t buttons) {
-    if (!downs || content_pressed < 0) return 0;
+    // A modal overlay takes what a held press would: the WM's own paths
+    // decide (the left's reaches the overlay, the others are dropped).
+    if (!downs || content_pressed < 0 || wm_overlay_modal_open()) return 0;
     if (!((unsigned)buttons & (unsigned)content_pressed_btn)) return 0;   // that press is over
     struct window *w = &windows[content_pressed];
     if (!wm_client_is_client_window(w)) return downs;

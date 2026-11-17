@@ -70,10 +70,6 @@ static void on_motion(struct uapp_window *uw, int x, int y, unsigned buttons)
     motion(uw, x, y);
 }
 
-/* A PRESS names the button just pressed, not the others held; a RELEASE
- * names those STILL held, never the one let go (abi/win_proto.h). So a
- * press is added to what is known to be down and a release replaces it --
- * whichever callback each took. */
 /* SDL_SetWindowHitTest's answer at a primary press: 0 for a normal
  * press, else it started a move (-1) or a resize (WIN_EDGE_* bits) and
  * the program hears no press -- X11's and Windows' rule. A BORDERLESS
@@ -110,6 +106,10 @@ static int hit_test(struct uapp_window *uw, int x, int y)
     return 0;
 }
 
+/* A PRESS names the button just pressed, not the others held; a RELEASE
+ * names those STILL held, never the one let go (abi/win_proto.h). So a
+ * press is added to what is known to be down and a release replaces it --
+ * whichever callback each took. */
 static void on_press(struct uapp_window *uw, int x, int y, unsigned buttons)
 {
     if (hit_test(uw, x, y)) {

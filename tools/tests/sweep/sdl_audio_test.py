@@ -9,9 +9,12 @@ oracle and its measure()):
      44.1 kHz into an SDL_AudioStream. SDL converts to the driver's
      stereo S16 at 48 kHz; the driver pushes into usnd (usnd_push).
   2. /tests/sdl2tone_test -- SDL2's CALLBACK API through sdl2-compat
-     (ScummVM's shape), 1.5 s of 750 Hz as mono S16 at 22.05 kHz.
+     (ScummVM's shape), 1.5 s of 750 Hz as mono S16 at 22.05 kHz, in
+     16384-sample buffers -- twice usnd's queue, so the driver must push
+     a buffer in pieces.
 
-Each must name the "saunaos" driver, play to its end, and come out at
+Each must name the "saunaos" driver, play to its end, close within
+2.6 s of opening (closing once waited out a 2 s drain guard), and come out at
 ITS pitch for about 1.5 s. A different pitch per boot means one boot's
 recording cannot pass for the other's; a driver that dropped or
 repeated buffers is caught by the tone's length, one that did not
@@ -92,6 +95,13 @@ def main():
                           f"{lines}")
                 res.check(f"{label}: ...and plays to the end", any(ln.endswith("played") for ln in lines),
                           f"{lines}")
+                # Guest time from open to done: 1.5 s of tone and the drain.
+                # Closing used to wait out usnd_drain()'s 2 s guard.
+                t = {k: float(ln.split("]")[0].strip("[ ")) for ln in lines for k in ("driver", "played")
+                     if f"{prefix} {k}" in ln and ln.startswith("[")}
+                took = t.get("played", 99) - t.get("driver", 0)
+                res.check(f"{label}: ...and closes within 2.6 s of opening (1.5 s of tone + the drain)",
+                          took <= 2.6, f"{took:.2f} s")
                 dbg.close()
             finally:
                 vm("stop")

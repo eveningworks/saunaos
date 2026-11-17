@@ -239,7 +239,16 @@ static long push_room(long room) {
     for (int v = 0; v < USND_VOICES && !others; v++) others = g_voices[v].active;
     if (g_sink->pending() < MIX_FRAMES && (g_sink != &usnd_sink_daemon || others)) return room;
     long avail = g_push_head - g_push_tail;          // at USND_RATE
-    long out = g_rate == USND_RATE ? avail : (long)((uint64_t)avail * g_rate / USND_RATE);
+    long out = avail;
+    if (g_rate != USND_RATE) {
+        // EXACTLY what add_converted() makes of it: output frame f reads
+        // input (frac + f * step) >> 16, which must be < avail. An
+        // estimate one over left a zero frame at the end of a pass -- a
+        // click per pass on a card not at USND_RATE.
+        uint64_t step = ((uint64_t)USND_RATE << 16) / g_rate;
+        uint64_t span = (uint64_t)avail << 16;
+        out = span > g_push_frac ? (long)((span - g_push_frac + step - 1) / step) : 0;
+    }
     return out < room ? out : room;
 }
 

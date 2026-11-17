@@ -342,9 +342,10 @@ struct uapp_desc {
     // these still fire, so an app can mix routed controls with its own
     // hit-testing (Shapes' checkbox, Notepad's text area).
     // on_press hears EVERY button, `buttons` the one pressed. on_release
-    // hears the press END -- once, when the LAST button comes up, and only
-    // after an on_press -- so a stroke is not ended by a chord's other
-    // button (UAPP_EVERY_RELEASE asks for each one).
+    // hears the press END -- once, when the LAST button comes up, for a
+    // press the app was given (not one the edit menu took) -- so a stroke
+    // is not ended by a chord's other button (UAPP_EVERY_RELEASE asks for
+    // each one).
     void (*on_press)(struct uapp *a, int x, int y, unsigned buttons);
     void (*on_release)(struct uapp *a, int x, int y, unsigned buttons);
     void (*on_motion)(struct uapp *a, int x, int y, unsigned buttons);
