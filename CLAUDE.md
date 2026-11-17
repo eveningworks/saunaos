@@ -44,6 +44,10 @@ programs written against the SDK (`docs/cc-design.md`).
   Not for a one-line obvious fix.
 - **Keep chat compact and terse.** Don't restate what a diff or a build
   log already shows.
+- **"WHAT'S NEXT?" (or anything like it) IS ANSWERED WITH INTERACTIVE
+  CHOICES** (standing instruction, 2026-11-17): `AskUserQuestion` with
+  the real next steps as options, the recommended one first -- not a
+  prose list to reply to.
 - **MOCK UP ANYTHING VISIBLE BEFORE CODING IT** (standing instruction,
   2026-09-29): a Design canvas, one artboard per option, in SaunaOS's own
   palette and with real data, published BEFORE the choice is asked and
