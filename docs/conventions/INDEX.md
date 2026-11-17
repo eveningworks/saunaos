@@ -1232,6 +1232,9 @@ whenever a headline here tells you something you did not already know.
 - **A PROGRAM FROM A GPL-ONLY PORT GOES IN A GPL OPTIONAL COMPONENT, OR
   THE BUILD FAILS** -- `data/components/`; a file is the longest
   covering path's
+- **A SHARED LIBRARY THAT CALLS ITS OWN EXPORTED API IS LINKED
+  `-Bsymbolic` WHEN ANOTHER LIBRARY MAY EXPORT THE SAME NAMES** --
+  SDL3 under sdl2-compat failed video init with no error without it
 - **A VENDORED PORT IS NEVER EDITED IN PLACE: OUR CHANGE TO IT IS A
   PATCH FILE** -- `userland/third_party/<port>/patches/`, applied before
   the host build

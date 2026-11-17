@@ -698,6 +698,18 @@ this the obvious way), not from how much history it accumulated.
   inside Demos and tests' `/tests/`); a new demo or `/tests` program
   joins Demos and tests by its directory, with no edit. The definitions
   and icons stay in the base, so a removed component is still listed.
+- **A SHARED LIBRARY THAT CALLS ITS OWN EXPORTED API IS LINKED
+  `-Bsymbolic` WHEN ANOTHER LIBRARY MAY EXPORT THE SAME NAMES.** An
+  exported function's call from inside its own library goes through the
+  PLT, and ld-toy -- like every ELF loader -- resolves it in the global
+  search order first, where an earlier library defining the same name
+  wins. sdl2-compat exports SDL's names with SDL2's meanings, so SDL3's
+  `SDL_VideoInit` ran sdl2-compat's `SDL_InitSubSystem`, read its 0 as
+  failure and failed with NO error set: the symptom points nowhere near
+  the cause. `-Bsymbolic` binds the library's calls to itself at link
+  time; `readelf -d` shows `FLAGS SYMBOLIC`. Remember a recipe change
+  does not relink (`.claude/rules/makefile.md`): delete the `.so` first.
+  `docs/decisions/build.md`, the SDL entry.
 - **A VENDORED PORT IS NEVER EDITED IN PLACE: OUR CHANGE TO IT IS A
   PATCH FILE.** `tools/fetch/netsurf_vendor.py` deletes and recopies every
   port directory it owns, so an edit under `userland/third_party/<port>/upstream/` is

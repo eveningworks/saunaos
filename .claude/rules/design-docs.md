@@ -32,7 +32,10 @@ work), `update-design.md`, `software-design.md` (optional components + the Softw
 `kernel/proc/win_*.c`), `kdebug-design.md` (the GDB stub: serial BUILT,
 the network BUILT, on QEMU's e1000 and on real r8169s -- the Lenovo,
 the desktop),
-`netstack-design.md` (the network stack in ring 3, PLANNED -- before
+`sdl-design.md` (SDL3 + sdl2-compat as the platform layer for ported
+programs, SaunaOS an SDL private platform; stage 0 BUILT 2026-11-17 --
+before `userland/third_party/sdl3/`, SDL's drivers, or a port that
+wants SDL), `netstack-design.md` (the network stack in ring 3, PLANNED -- before
 socket or `kernel/net/` work), `trace-design.md` (`strace` decoding in
 ring 3 and a debugger's stop, stages 1-3 BUILT -- before `strace.c` or
 `ptrace` work), `input-policy-design.md` (keymaps in the compositor, the pointer

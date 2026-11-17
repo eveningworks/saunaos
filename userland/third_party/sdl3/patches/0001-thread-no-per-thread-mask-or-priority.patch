@@ -1,0 +1,38 @@
+SaunaOS: no per-thread signal mask and no thread priority on a private platform.
+
+SaunaOS's signal mask belongs to the PROCESS (every thread shares one
+pid and one mask), and tolibc has no pthread_sigmask(). Blocking SIGINT,
+SIGTERM and SIGHUP in each new thread, as SDL does elsewhere, would block
+them for the whole program. Thread priority is skipped the way SDL
+already skips it on RISC OS. Both come back with per-thread masks and a
+per-thread scheduling class (docs/sdl-design.md).
+
+--- a/src/thread/pthread/SDL_systhread.c	2026-11-17 10:13:19.938273718 +0200
++++ b/src/thread/pthread/SDL_systhread.c	2026-11-17 10:13:19.949053876 +0200
+@@ -57,7 +57,7 @@
+ #include <kernel/OS.h>
+ #endif
+ 
+-#ifdef HAVE_SIGNAL_H
++#if defined(HAVE_SIGNAL_H) && !defined(SDL_PLATFORM_PRIVATE)
+ // List of signals to mask in the subthreads
+ static const int sig_list[] = {
+     SIGHUP, SIGINT, SIGQUIT, SIGPIPE, SIGALRM, SIGTERM, SIGWINCH,
+@@ -162,7 +162,7 @@
+ #endif
+     }
+ 
+-#ifdef HAVE_SIGNAL_H
++#if defined(HAVE_SIGNAL_H) && !defined(SDL_PLATFORM_PRIVATE)
+     // Mask asynchronous signals for this thread
+     sigemptyset(&mask);
+     for (i = 0; sig_list[i]; ++i) {
+@@ -187,7 +187,7 @@
+ 
+ bool SDL_SYS_SetThreadPriority(SDL_ThreadPriority priority)
+ {
+-#ifdef SDL_PLATFORM_RISCOS
++#if defined(SDL_PLATFORM_RISCOS) || defined(SDL_PLATFORM_PRIVATE)
+     // FIXME: Setting thread priority does not seem to be supported
+     return true;
+ #else

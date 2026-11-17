@@ -105,6 +105,7 @@
 | `urename.h` | RENAMING MANY FILES AT ONCE: the new names a rule gives a set of names, and whether the set can be renamed as planned -- Dolphin's "Rename items", Thunar's Bulk Rename, PowerToys' PowerRename. |
 | `urgn.h` | A GROWABLE REGION: any number of disjoint rectangles, with the set operations Windows' GDI regions have -- intersect, union, subtract, xor -- and offset, equality, containment. |
 | `usaver.h` | Where the savers are. |
+| `uself.h` | THE RUNNING PROGRAM'S OWN PATH -- Linux's /proc/self/exe, Windows' GetModuleFileName(NULL): the full path this process was spawned or exec'd from, as the KERNEL recorded it (QUERY_PROCPATH), never... |
 | `usetting.h` | One setting, by qualified name, for a ring-3 program: the GET and SET halves of `SYS_SETTING` with the message built here rather than in every caller. |
 | `usetting_schema.h` | A setting DECLARED by a file, and owned by ring 3. |
 | `usetting_text.h` | The human-facing text for a setting: its description, and a display name per choice. |

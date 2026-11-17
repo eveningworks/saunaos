@@ -80,8 +80,8 @@ the font.
 
 Third-party code
 
-This repository vendors five third-party programs and the libraries
-the fifth is built from. None is covered by the MIT License
+This repository vendors five third-party programs, the libraries
+the fifth is built from, and SDL. None is covered by the MIT License
 above, and each keeps its own license file in its own directory.
 A built image carries each of those license files, and this file, in
 /usr/share/licenses/ (<port>.txt and saunaos.txt), so the notices travel
@@ -247,6 +247,21 @@ with the binaries as their licenses require.
         commits (expat at its release tag); each directory's README.md
         names its commit, and any patch SaunaOS applies to it, from
         userland/third_party/<port>/patches/.
+
+  userland/third_party/sdl3/upstream/    SDL 3, Simple DirectMedia Layer,
+  userland/third_party/sdl2compat/upstream/
+                          and sdl2-compat, SDL 2's API over SDL 3, both
+                          Copyright (C) 1997-2026 Sam Lantinga, under
+                          the zlib License. Full texts: LICENSE.txt in
+                          each directory.
+
+        Built as /lib/libSDL3.so.0 and /lib/libSDL2-2.0.so.0, the
+        platform layer for ported programs (docs/sdl-design.md). The
+        zlib License asks that an altered version be plainly marked:
+        SaunaOS's one change is the patch in
+        userland/third_party/sdl3/patches/, named in that directory's
+        README.md, and its own SDL code is in
+        userland/third_party/sdl3/glue/, under the MIT License above.
 
   Duktape, the JavaScript engine NetSurf carries INSIDE its own tree,
   in duktape.c and duktape.h under

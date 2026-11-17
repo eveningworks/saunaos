@@ -140,3 +140,20 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   oracle links the host's own -- so its file set is `lib/Makefile.am`'s
   unconditional sources plus `random_getentropy.c`, headers by `gcc
   -MM` against our `userland/third_party/expat/glue/expat_config.h`.
+
+- **`sdl_vendor.py`** -- vendors SDL 3 and sdl2-compat into
+  `userland/third_party/sdl3/upstream/` and `.../sdl2compat/upstream/` from
+  the release tarballs pinned in its `PINS` table, by SHA-256
+  (`docs/sdl-design.md`). Downloads each into `~/.cache/saunaos/sdl`,
+  refuses a tarball whose hash differs, and copies the translation units
+  SaunaOS's configuration compiles (`SDL3_UNITS`: SDL's CMake globs plus
+  one directory per driver), every header they reach (`gcc -MM` with
+  SaunaOS's own flags and `sdl3/glue/SDL_build_config_private.h`), the
+  public `include/` trees whole and the licence -- plus each port's
+  `sources.mk`, its `README.md` (pin and patches), and the one header
+  sdl2-compat's CMake would generate (`SDL_config_unix.h`, X11 off).
+  **No host CMake**: SaunaOS is an SDL "private platform" whose
+  configuration is our own header. Patches (`userland/third_party/<port>/patches/`)
+  are applied to the COPY, so the cached tree stays pristine. Run it to
+  move a pin or to add a driver directory. Reaches github.com (redirected
+  to release-assets.githubusercontent.com).

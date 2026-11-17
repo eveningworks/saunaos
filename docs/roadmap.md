@@ -1082,6 +1082,20 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Browser: opacity between 0 and 1 -- drawn opaque; 0 hides only a form control
 - [x] ~~Liberation Serif and the italic faces, so a page's serif and `<em>` text are not drawn in upright sans~~ DONE 2026-10-13
 
+### SDL: a platform layer for ported programs
+
+`docs/sdl-design.md` has the stages; SDL3 with sdl2-compat, SaunaOS as an SDL private platform.
+
+- [x] ~~Stage 0: SDL3 and sdl2-compat vendored, built and proven headless~~ DONE 2026-11-17 -- `sdl3_test`, `sdl2_test`
+- [ ] Stage 1: a `uapp` step API (open, pump, present) and SDL's video driver over it
+- [ ] Stage 2: SDL's audio driver over `usnd_push`
+- [ ] Stage 3: preferences folder, clipboard, open URL, message boxes, relative mouse, fullscreen, SDL in the SDK
+- [ ] Stage 4: ScummVM on its SDL backend, as a GPL optional component, with the freeware games' downloader
+- [ ] Decide where `SDL_GetPrefPath()` points -- XDG's shape under `/home`, `/var/games` as DOOM, or `/var/lib`
+- [ ] Per-thread signal masks and `pthread_sigmask()`, which would retire SDL's one patch
+- [ ] `tm_gmtoff` and `tm_zone` in tolibc's `struct tm` (POSIX.1-2024) -- the cross toolchain's libstdc++ must be rebuilt with it
+- [ ] `<semaphore.h>` in tolibc (`sem_init`, `sem_wait`, `sem_timedwait`, `sem_post`) -- SDL compiles its generic semaphore meanwhile
+
 ### Running 16-bit Windows programs (w16)
 **Needs:** nothing -- a ring-3 program; `docs/w16-design.md` is the plan.
 

@@ -80,11 +80,13 @@ FAMILIES = (
     ("Apache-", "Apache License"),
     ("MIT", "Permission is hereby granted"),
     ("BSD-", "Redistribution and use in source and binary forms"),
+    ("Zlib", "Permission is granted to anyone to use this software for any purpose"),
 )
 
 
 # The words a permissive or public-domain notice always contains.
 BURIED = re.compile(r"Permission is hereby granted|Redistribution and use in source"
+                    r"|Permission is granted to anyone to use this software"
                     r"|Licensed under the Apache License|placed in the public domain")
 
 

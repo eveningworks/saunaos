@@ -474,6 +474,8 @@ PORT_LICENSE_expat          = MIT
 PORT_LICENSE_libparserutils = MIT
 PORT_LICENSE_libwapcaplet   = MIT
 PORT_LICENSE_indeo3         = LGPL-2.1-or-later
+PORT_LICENSE_sdl3           = Zlib
+PORT_LICENSE_sdl2compat     = Zlib
 
 # ...and the programs built from it, under userland/ without the .c.
 # DECLARED, not read off EXTRA_OBJS_<program>: those are defined further
@@ -1669,7 +1671,7 @@ $(BUILD)/userland/utils/reboot.elf: $(BUILD)/userland/utils/reboot.o $(USERLAND_
 LDSO    = $(BUILD)/lib/ld-toy.so
 DYNLIBS = $(BUILD)/lib/libhello.so $(BUILD)/lib/libplug.so $(BUILD)/lib/libhash.so $(LIBSSL_SO) $(LIBHTTP_SO) \
           $(BUILD)/lib/libinit_a.so $(BUILD)/lib/libinit_b.so \
-          $(LIBSMB_SO)
+          $(LIBSMB_SO) $(LIBSDL3_SO) $(LIBSDL2_SO)
 
 # /lib/snd/<name>.so -- one sound driver per chip, dlopen'd by
 # /bin/snddrv. **ADDING A CARD IS A FILE HERE AND NOTHING ELSE**: the
@@ -1927,6 +1929,76 @@ $(LIBSMB_SO): $(LIBSMB_OBJS) $(LIBSSL_SO) $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO) 
 	@$(TOOLKIT_LAYERS) --below $(LIBSSL_SO) $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO) \
 	      -- $@ || { rm -f $@; exit 1; }
 
+# libSDL3.so.0 and libSDL2-2.0.so.0 -- SDL3, and SDL2's API over it
+# (sdl2-compat), as SaunaOS's platform layer for ported programs
+# (docs/sdl-design.md). Both zlib-licensed, so they ship in the base image.
+#
+# SaunaOS IS AN SDL "PRIVATE PLATFORM" (-DSDL_PLATFORM_PRIVATE): SDL reads
+# glue/SDL_build_config_private.h for its configuration and finds
+# SaunaOS's drivers by name, so the vendored tree is unpatched. __unix__
+# stays defined (POSIX threads, timers, dlopen) and every Linux macro GCC
+# predefines goes, __linux included -- SDL's platform check reads all
+# three spellings. -nostdinc for mbedTLS's reason.
+#
+# THE FILE NAMES ARE SONAMES: sdl2-compat dlopen()s "libSDL3.so.0" at
+# start, and ld-toy looks a bare name up in /lib.
+#
+# -Bsymbolic ON libSDL3, OR SDL2 PROGRAMS CANNOT START VIDEO. SDL3 calls
+# its own API by its public names, and libSDL2 -- loaded first, so first
+# in the search order -- exports the same names with SDL2's meanings:
+# SDL3's SDL_VideoInit called sdl2-compat's SDL_InitSubSystem, read its
+# 0 ("success" in SDL2) as false, and failed with no error set. Upstream
+# avoids it on Linux through its dynamic API layer, which renames every
+# internal call (SDL_Foo_REAL) and is off on a private platform.
+include $(wildcard userland/third_party/sdl3/upstream/sources.mk userland/third_party/sdl2compat/upstream/sources.mk)
+
+SDL_PORT_CFLAGS = -nostdinc -isystem $(GCC_FREESTANDING_INC) \
+                  -U__linux__ -U__linux -U__gnu_linux__ -Ulinux \
+                  -DSDL_PLATFORM_PRIVATE -DSDL_PLATFORM_PRIVATE_NAME='"SaunaOS"' -DNDEBUG \
+                  -fvisibility=hidden \
+                  -Iuserland/third_party/sdl3/glue -Iuserland/third_party/sdl3/upstream/include \
+                  -Iuserland/third_party/sdl3/upstream/include/build_config \
+                  -Iuserland/third_party/sdl3/upstream/src
+# Warnings off for the vendored tree, the frame warning kept but sized
+# for it -- NetSurf's split.
+SDL_UPSTREAM_CFLAGS = $(subst -Wframe-larger-than=2048,-Wframe-larger-than=16384,\
+                        $(subst -Wextra,,$(subst -Wall,-w,$(LIBC_PIC_CFLAGS)))) $(SDL_PORT_CFLAGS)
+
+SDL3_OBJS = $(patsubst userland/%.c,$(BUILD)/userland-pic/%.o,$(SDL3_SRCS))
+SDL3_GLUE_SRCS = $(shell find userland/third_party/sdl3/glue -name '*.c' 2>/dev/null | sort)
+SDL3_GLUE_OBJS = $(patsubst userland/%.c,$(BUILD)/userland-pic/%.o,$(SDL3_GLUE_SRCS))
+
+$(BUILD)/userland-pic/third_party/sdl3/upstream/%.o: userland/third_party/sdl3/upstream/%.c $(BUILD)/.sanitize-flag
+	@mkdir -p $(dir $@)
+	$(CC) $(SDL_UPSTREAM_CFLAGS) $< -o $@
+
+# OUR drivers keep every warning, as DOOM's and mbedTLS's glue do.
+$(BUILD)/userland-pic/third_party/sdl3/glue/%.o: userland/third_party/sdl3/glue/%.c $(BUILD)/.sanitize-flag
+	@mkdir -p $(dir $@)
+	$(CC) $(LIBC_PIC_CFLAGS) $(SDL_PORT_CFLAGS) $< -o $@
+
+LIBSDL3_SO = $(BUILD)/lib/libSDL3.so.0
+$(LIBSDL3_SO): $(SDL3_OBJS) $(SDL3_GLUE_OBJS) $(LIBBASE_SO) $(LIBC_SO) $(TOOLKIT_EXE_SIDE) \
+               tools/build/check_lib_layers.py
+	@mkdir -p $(dir $@)
+	$(LD) -shared -Bsymbolic --hash-style=sysv -z max-page-size=4096 -soname libSDL3.so.0 -o $@ \
+	      $(SDL3_OBJS) $(SDL3_GLUE_OBJS) $(LIBBASE_SO) $(LIBC_SO)
+	@$(TOOLKIT_LAYERS) --below $(LIBBASE_SO) $(LIBC_SO) -- $@ || { rm -f $@; exit 1; }
+
+SDL2COMPAT_OBJS = $(patsubst userland/%.c,$(BUILD)/userland-pic/%.o,$(SDL2COMPAT_SRCS))
+$(BUILD)/userland-pic/third_party/sdl2compat/upstream/%.o: userland/third_party/sdl2compat/upstream/%.c $(BUILD)/.sanitize-flag
+	@mkdir -p $(dir $@)
+	$(CC) $(SDL_UPSTREAM_CFLAGS) -Iuserland/third_party/sdl2compat/upstream/include \
+	      -Iuserland/third_party/sdl2compat/upstream/include/SDL2 $< -o $@
+
+# NOT linked against libSDL3: sdl2-compat finds it with dlopen(), which
+# is how it lets a newer SDL3 be dropped in under an old program.
+LIBSDL2_SO = $(BUILD)/lib/libSDL2-2.0.so.0
+$(LIBSDL2_SO): $(SDL2COMPAT_OBJS) $(LIBC_SO)
+	@mkdir -p $(dir $@)
+	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libSDL2-2.0.so.0 -o $@ \
+	      $(SDL2COMPAT_OBJS) $(LIBC_SO)
+
 # The one test with its own link line: a DYNAMIC executable.
 # link-dyn.ld adds the .interp/.dynamic/GOT/PLT homes the static script
 # has no segments for; --export-dynamic is what lets the library call
@@ -1962,6 +2034,23 @@ $(BUILD)/userland/tests/imgshare_test.elf: $(BUILD)/userland/tests/imgshare_test
 # link cannot reach.
 $(BUILD)/userland/tests/nsmonkey.elf: $(BUILD)/userland/tests/nsmonkey.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,nsmonkey) $(ULIB_SO_nsmonkey)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(call uextra,nsmonkey) $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(ULIB_SO_nsmonkey) $(TOOLKIT_LINK)
+
+# /tests/sdl3_test and /tests/sdl2_test are DYNAMIC for hash_test's
+# reason -- what they judge is the library in /lib -- and link the way a
+# /bin program does (TOOLKIT_LINK): libSDL3 takes pthread_* from the
+# PROGRAM, so a program built with a narrower line fails sdl2-compat's
+# dlopen() of it, unresolved, where a real one would not. sdl2_test links
+# only libSDL2, which dlopen()s libSDL3 itself -- that load is half its
+# point, so libSDL3 is a prerequisite and NOT on its link line. A
+# program built against SDL sees what the SaunaOS cross compiler
+# predefines: no Linux macros.
+SDL_APP_CFLAGS = -U__linux__ -U__linux -U__gnu_linux__ -Ulinux
+$(BUILD)/userland/tests/sdl3_test.o: USERLAND_CFLAGS += $(SDL_APP_CFLAGS) -Iuserland/third_party/sdl3/upstream/include
+$(BUILD)/userland/tests/sdl2_test.o: USERLAND_CFLAGS += $(SDL_APP_CFLAGS) -Iuserland/third_party/sdl2compat/upstream/include
+$(BUILD)/userland/tests/sdl3_test.elf: $(BUILD)/userland/tests/sdl3_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LIBSDL3_SO) $(LDSO)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBSDL3_SO) $(TOOLKIT_LINK)
+$(BUILD)/userland/tests/sdl2_test.elf: $(BUILD)/userland/tests/sdl2_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LIBSDL2_SO) $(LIBSDL3_SO) $(LDSO)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBSDL2_SO) $(TOOLKIT_LINK)
 
 # --gc-sections drops every section nothing reaches, which is what
 # makes linking against one archive cheap: `hello` references nothing in

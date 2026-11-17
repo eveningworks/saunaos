@@ -1055,6 +1055,29 @@ Beside the library: `/bin/sh` (dash -- a hard link of it since 2026-11-09 -- whi
 with shell syntax under) and `rm -f`, which a `clean` rule means and
 `/bin/rm` did not take.
 
+## Stage 16 -- what SDL needed (2026-11-17)
+
+SDL 3 (`docs/sdl-design.md`) is the first port that ADDED nothing to
+tolibc: 162 of its 167 units compiled on the first try, and the link
+of `libSDL3.so.0` named no C-library function as missing. What it
+found instead were four things tolibc has on purpose or not yet, each
+routed around in SDL's glue rather than faked here:
+
+- **No `pthread_sigmask()`**, because the signal mask belongs to the
+  PROCESS. A version that set the process's mask would have let SDL
+  block SIGINT and SIGTERM for the whole program from its first
+  thread; SDL is patched to skip the per-thread mask instead.
+- **No `<semaphore.h>`**: SDL's generic semaphore, over a mutex and a
+  condition variable, is compiled in place of its pthread one.
+- **No `tm_gmtoff` in `struct tm`** (POSIX.1-2024). Adding it grows the
+  struct, and the cross toolchain's prebuilt libstdc++ would hand
+  `localtime_r()` a buffer of the old size; SDL's time module takes
+  `tz_offset_seconds()` instead.
+- **`sigaction` has no `sa_sigaction`**, so SDL is told so
+  (`HAVE_SA_SIGACTION` unset) and uses `sa_handler`.
+
+`tm_gmtoff`, `<semaphore.h>` and per-thread masks are on the roadmap, under SDL.
+
 ## printf, scanf and strtod agree with glibc (2026-11-10)
 
 A corpus building one C program against glibc on the host and against

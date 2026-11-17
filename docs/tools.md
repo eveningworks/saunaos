@@ -632,6 +632,7 @@ Full entries: [`docs/tools/fetch.md`](tools/fetch.md).
 - `fetch_video.py` -- a real film for the Video Player: Big Buck Bunny
 - `fetch_wad.py` -- put a Doom IWAD where the build will seed it
 - `netsurf_vendor.py` -- Vendor NetSurf and its libraries into userland/third_party/<port>/upstream/, at pinned commits
+- `sdl_vendor.py` -- Vendor SDL3 and sdl2-compat into userland/third_party/{sdl3,sdl2compat}/upstream/, at pinned releases
 
 <!-- END folder index -->
 

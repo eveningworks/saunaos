@@ -2769,3 +2769,51 @@ nothing behind. Then a removed component could not be listed at all --
 not by name, not by size, not offered back -- without asking the
 network, and the state file's `removed doom` would name nothing. A few
 hundred bytes each is the price of a list that works offline.
+
+## SDL is SDL3 with sdl2-compat, built as an SDL "private platform"
+
+**2026-11-17.** SaunaOS's platform layer for ported games and media
+programs is SDL 3 (`/lib/libSDL3.so.0`), with sdl2-compat
+(`/lib/libSDL2-2.0.so.0`) carrying SDL2's API over it. SDL is built
+with `-DSDL_PLATFORM_PRIVATE`: our `SDL_build_config_private.h` in
+place of a CMake config, and SaunaOS's own modules and drivers in
+`userland/third_party/sdl3/glue/` under the names SDL looks up
+(`PRIVATE_bootstrap`, `PRIVATEAUDIO_bootstrap`, `SDL_TIME_PRIVATE`,
+`SDL_FILESYSTEM_PRIVATE`). `docs/sdl-design.md` has the stages.
+
+**Why SDL3 and sdl2-compat, not SDL2 alone.** SDL2 is in maintenance;
+new platform work is SDL3's, and sdl2-compat runs SDL2 programs on it
+-- Linux distributions have begun shipping it in place of SDL2. One SDL
+is ported and both APIs work. The price is a run-time `dlopen()` of
+SDL3 by sdl2-compat, which ld-toy already does.
+
+**Why a private platform, not a new upstream-style driver directory.**
+SDL3 offers the hooks precisely so a platform outside its tree needs no
+edits inside it -- consoles live this way. The vendored tree stays
+upstream's and a re-vendor is a re-run of `tools/fetch/sdl_vendor.py`.
+No host CMake either: the configuration is our header. The one thing
+the hooks cannot reach is a patch (`sdl3/patches/`), applied to the
+copy -- there is no host oracle to keep in step, unlike NetSurf's.
+
+**Why the video driver will sit on a uapp STEP API, not uapp on a
+second thread or the raw window protocol.** SDL programs own their
+loop (`SDL_PollEvent`), as X11 (`XPending`) and Win32 (`PeekMessage`)
+programs do; `uapp_run()` owns it instead. Haiku's SDL driver bridges
+that with a thread for its `BApplication`, which shares the surface
+between two threads; speaking the window protocol directly, as SDL's
+Wayland driver does, would repeat what the toolkit already does
+(scaling, the window channel). Giving `uapp` open/pump/present lets the
+toolkit keep that work, and any later port with its own loop uses the
+same three calls.
+
+**Why `-Bsymbolic` on libSDL3.** With the dynamic API layer off (it is
+on a private platform), SDL3 calls its own functions by their public
+names, and libSDL2 -- earlier in the search order -- exports the same
+names with SDL2's meanings. Unbound, SDL3's video init called
+sdl2-compat's `SDL_InitSubSystem`, read SDL2's 0 as failure, and failed
+with no error. On Linux, SDL avoids it by routing internal calls
+through `SDL_Foo_REAL`; here the link binds them inside the library.
+
+**Why not a native ScummVM backend** (one `OSystem` class, as DOOM's
+doomgeneric glue). Smaller for ScummVM alone, but DOSBox and every
+other port would each need their own; SDL is that work once.
