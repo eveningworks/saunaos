@@ -232,6 +232,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `screenshot_test.py` -- Screen capture: /bin/screenshot, the Screenshot app, and the region band
 - `scroll_test.py` -- Scrolling, as a person does it: the wheel goes the right way, the scrollbar thumb follows the view, a click in
 - `scrollbar_test.py` -- scrollbar BEHAVIOUR, against the ring-3 Notepad
+- `scummvm_data_test.py` -- ScummVM's free-games card, the download, and ScummVM starting on it
 - `sdl_stage3_test.py` -- what an SDL port reaches for beyond
 - `sdl_window_test.py` -- an SDL3 program's window on the
 - `search_gui_test.py` -- Search into subfolders in the File Manager (fm_search.c over
@@ -570,6 +571,7 @@ Full entries: [`docs/tools/build.md`](tools/build.md).
 - `build_conf.py` -- Resolve build.conf: which drivers are modules, and how the build is tuned
 - `build_native_make.sh` -- GNU make that RUNS ON SaunaOS
 - `build_native_toolchain.sh` -- GCC and binutils that RUN ON SaunaOS
+- `build_scummvm.sh` -- ScummVM, cross-built for SaunaOS
 - `build_toolchain.sh` -- the x86_64-saunaos cross toolchain
 - `check_lib_layers.py` -- Refuse a shared library that uses a symbol from a library to its RIGHT
 - `gen_kconfig.sh` -- Writes the kernel's build-time timer configuration as a header:
@@ -630,6 +632,7 @@ Full entries: [`docs/tools/fetch.md`](tools/fetch.md).
 
 - `fetch_ca_bundle.py` -- Fetch Mozilla's CA root bundle into data/etc/ssl/certs/
 - `fetch_extras.py` -- the optional, differently-licensed material
+- `fetch_scummvm.py` -- the ScummVM, zlib, libogg and libvorbis source tarballs
 - `fetch_soundfont.py` -- put a full General MIDI SoundFont where the
 - `fetch_toolchain.py` -- the GCC, binutils, GMP, MPFR, MPC and GNU make source tarballs
 - `fetch_video.py` -- a real film for the Video Player: Big Buck Bunny

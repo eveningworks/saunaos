@@ -34,6 +34,7 @@ or the D-Bus activation none of which exist here.
                a file (see below)
     NoDisplay  1 to keep it out of the menu and off the desktop
     ShowIn     which surfaces this appears on (see below)
+    TryExec    a file the entry needs on the image (see below)
 
 ## Category
 
@@ -187,6 +188,14 @@ so at the top.
 There is no `Terminal=` key: every entry here is a GUI program, and a
 program that needs a terminal has no way to be launched from the desktop
 yet. See `docs/roadmap.md`.
+
+## TryExec
+
+freedesktop's key, read at BUILD time: the seed step (Makefile, `seed`)
+leaves out an entry whose `TryExec=` path the image will not hold.
+ScummVM's two entries name `/usr/bin/scummvm`, which only a checkout
+that ran `make scummvm` carries, and never a `NOGPL=1` build. Nothing
+on the machine reads it: a removed component takes its entries with it.
 
 ## Why the binaries moved under /bin/wm/
 

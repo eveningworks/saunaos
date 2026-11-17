@@ -701,6 +701,8 @@ help:
 	@echo "                 fetches its GPL-3 source first; kept by make clean)"
 	@echo "  native-toolchain  Build GCC, binutils and GNU make that run ON SaunaOS into"
 	@echo "                 toolchain/native; every later image carries them in /usr (not under NOGPL=1)"
+	@echo "  scummvm        Cross-build ScummVM (SDL stage 4) into toolchain/scummvm (EXTRAS=1"
+	@echo "                 fetches its source); every later image carries it in /usr (not under NOGPL=1)"
 	@echo "  iso            Build saunaos.iso, a bootable GRUB ISO (implies all)"
 	@echo "  run            Boot SaunaOS in QEMU with an SDL window (the DISK, once"
 	@echo "                 it carries GRUB; BOOT=cd for the ISO -- implies iso)"
@@ -1768,6 +1770,17 @@ native-toolchain: toolchain
 	tools/build/build_native_toolchain.sh --cross $(TOOLCHAIN) --sysroot $(SYSROOT)
 	tools/build/build_native_make.sh --cross $(TOOLCHAIN) --sysroot $(SYSROOT)
 
+# SCUMMVM (docs/sdl-design.md, stage 4): ScummVM on its SDL2 backend,
+# cross-built by the toolchain above from a pinned tarball into a staged
+# /usr tree in toolchain/scummvm/, the native compiler's shape: OPT-IN,
+# carried to the image only while it exists, never under NOGPL=1.
+# EXTRAS=1 fetches the tarballs (the scummvm row, licences shown).
+SCUMMVM_STAGE ?= toolchain/scummvm
+.PHONY: scummvm
+scummvm: toolchain
+	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only scummvm,@true)
+	tools/build/build_scummvm.sh --cross $(TOOLCHAIN) --sysroot $(SYSROOT)
+
 # The codec parser comes off the -fpic shared path, so the graph walk
 # in ring 3 is the kernel's own implementation (the geom.c rule).
 $(BUILD)/lib/snd/hda.so: $(BUILD)/userland-pic/drivers/snd/hda.o $(BUILD)/userland-pic/shared/hda_codec.o $(LIBC_SO)
@@ -2323,7 +2336,14 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	    echo "seed: the native toolchain ($(NATIVE_TC)) goes in /usr"; \
 	    cp -r --preserve=links $(NATIVE_TC)/usr/. $(SEED_DIR)/sync/usr/; \
 	    cp $(SYSROOT)/usr/bin/sdl2-config $(SEED_DIR)/sync/usr/bin/; fi)
-	printf '# image directories tfs3_writer.py sync mirrors exactly (Makefile, seed)\n/usr/include\n/usr/lib\n/usr/bin\n/usr/libexec\n' > $(SEED_DIR)/exact
+	# ScummVM, when this checkout built it (`make scummvm`) and NOGPL is
+	# off: /usr/bin/scummvm, /usr/share/scummvm, its licences. Its data
+	# directory is mirrored exactly, as /usr/bin is.
+	rm -rf $(SEED_DIR)/sync/usr/share/scummvm
+	$(if $(NOGPL),@true,@if [ -x $(SCUMMVM_STAGE)/usr/bin/scummvm ]; then \
+	    echo "seed: ScummVM ($(SCUMMVM_STAGE)) goes in /usr"; \
+	    cp -r $(SCUMMVM_STAGE)/usr/. $(SEED_DIR)/sync/usr/; fi)
+	printf '# image directories tfs3_writer.py sync mirrors exactly (Makefile, seed)\n/usr/include\n/usr/lib\n/usr/bin\n/usr/libexec\n/usr/share/scummvm\n' > $(SEED_DIR)/exact
 	# Destination comes from the SOURCE DIRECTORY, not from a list:
 	# build/userland/{gui,bin}/x.elf -> /bin/x, build/userland/tests/x.elf
 	# -> /tests/x, with $(call seed_name,...) applying the three renames.
@@ -2413,6 +2433,14 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# sync/ is a build-staging tree `make clean` deletes wholesale.
 	mkdir -p $(SEED_DIR)/sync/usr/wm/applications $(SEED_DIR)/sync/usr/wm/startup
 	cp data/wm/applications/*.desktop $(SEED_DIR)/sync/usr/wm/applications/
+	# TryExec= (freedesktop's): an entry whose program this build does not
+	# carry is left out -- ScummVM's two, without `make scummvm` or under
+	# NOGPL=1 -- and so is ScummVM's front, which has nothing to start.
+	@for f in $(SEED_DIR)/sync/usr/wm/applications/*.desktop; do \
+	    t=$$(sed -n 's/^TryExec=//p' "$$f"); \
+	    if [ -n "$$t" ] && [ ! -e "$(SEED_DIR)/sync$$t" ]; then rm -f "$$f"; echo "seed: no $$t, so no $$(basename $$f)"; fi; \
+	done
+	@[ -e $(SEED_DIR)/sync/usr/bin/scummvm ] || rm -f $(SEED_DIR)/sync/bin/wm/apps/scummvm
 	# NOGPL=1: no entry for a program that was not built, and none of the
 	# program itself left in staging by an earlier full build (sync/ only
 	# adds, so a disk image needs `make clean-disk` too -- docs/building.md).
@@ -2660,6 +2688,10 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# /etc/environment: what init puts in every process's environment
 	# (userland/services/init/init.c, seed_environment()).
 	cp data/etc/environment $(SEED_DIR)/sync/etc/environment
+	# ...and the XDG base directories it names: a program makes only its
+	# own folder under them (ScummVM's scummvm/), so a missing one sent
+	# its settings to the working directory.
+	mkdir -p $(SEED_DIR)/sync/home/.config $(SEED_DIR)/sync/home/.local/share $(SEED_DIR)/sync/home/.cache
 	# /etc/locales: the regional formats, the same kind of shipped table
 	# (userland/libs/libc/locale.c reads it).
 	cp data/etc/locales $(SEED_DIR)/sync/etc/locales

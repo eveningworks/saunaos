@@ -1,0 +1,7 @@
+# ScummVM's free games card -- see this directory's README.md.
+Name=Free Adventure Games
+Exec=/bin/wm/apps/scummvm --games
+TryExec=/usr/bin/scummvm
+Category=games
+Comment=Download the four freeware games ScummVM plays
+Icon=cat-games

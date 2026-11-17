@@ -2271,6 +2271,20 @@ from the default (a sound card, a USB mouse, `--reboot`).
   capture a Terminal's content focused, take focus away and require it
   to CHANGE, give focus back and require it to match the first capture
   EXACTLY -- "it changed" alone is satisfied by almost anything.
+- **`scummvm_data_test.py`** -- ScummVM's front (`userland/apps/apps/scummvm/`,
+  `docs/sdl-design.md` stage 4): with no game, the free-games card
+  (`ui/uui_datacard.h`, several at once: a click ticks and unticks); a
+  download from a mirror on loopback (`/etc/scummvm-games.conf`'s
+  `mirror=`) -- **the control first**: a zip with one byte flipped is
+  refused on its SHA-256 and leaves no folder, not even its `.part` --
+  then Lure for real, unpacked into `/usr/share/games/lure/`, registered
+  by ScummVM itself (`path=` in `scummvm.ini` under `XDG_CONFIG_HOME`),
+  its own licence saved; the next start hands over with no card, and
+  `scummvm lure` draws the game (lit pixels in its window). Needs an
+  image from `make scummvm`, and `data/scummvm/lure-1.1.zip`
+  (`fetch_scummvm.py --games`) for everything after the control; says
+  which it skipped. Seen red with the SHA-256 check removed from
+  `base/udatafetch.c`.
 - **`doom_data_test.py`** -- DOOM's front end (`userland/apps/apps/doom/`): with
   no IWAD the game-data card, a download, the launcher page, and F1's key
   sheet over a level. **The download never leaves the machine**: the

@@ -11,6 +11,10 @@
 /toolchain/build-native/
 /toolchain/build-native-make/
 /toolchain/native/
+# ...and ScummVM (make scummvm, docs/sdl-design.md stage 4): its build
+# tree and the staged /usr the seed step copies to the image.
+/toolchain/build-scummvm/
+/toolchain/scummvm/
 /iso/
 /saunaos.iso
 # The compact USB image (make usb-image) -- half a gigabyte of build
@@ -160,6 +164,9 @@ ci-virtio.img
 # project's git history is a different act, and not one this repo needs
 # to perform to work. See docs/decisions.md.
 /data/doom/
+# A ScummVM freeware game's zip for scummvm_data_test.py to serve
+# (`tools/fetch/fetch_scummvm.py --games`): fetched, not committed, as above.
+/data/scummvm/
 # A fetched SoundFont (tools/fetch/fetch_soundfont.py) -- somebody else's ~31 MB
 # of samples, seeded only under EXTRAS=1. The built-in bank is tracked.
 /data/soundfonts/

@@ -212,6 +212,7 @@ a command), and the `gui3`/`nano` aliases.
 ### Graphics and the desktop
 
 - [`screenshot`](screenshot.md)
+- [`scummvm`](scummvm.md)
 - [`thumb`](thumb.md)
 - [`vplay`](vplay.md)
 - [`webcontent`](webcontent.md)

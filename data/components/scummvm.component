@@ -1,0 +1,12 @@
+# The optional component ScummVM (docs/software-design.md), from
+# toolchain/scummvm when this checkout built it (docs/sdl-design.md,
+# stage 4); its four freeware games download separately, from its card.
+Name=ScummVM
+Summary=Plays classic adventure games. The four free games download separately
+Project=ScummVM
+Category=games
+License=GPL-3.0-or-later
+Icon=cat-games
+Needs=
+Built=if-present
+Paths=/usr/bin/scummvm /usr/share/scummvm/ /bin/wm/apps/scummvm /usr/wm/applications/scummvm.desktop /usr/wm/applications/scummvm-games.desktop

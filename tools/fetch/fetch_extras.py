@@ -253,6 +253,34 @@ EXTRAS = [
         fetch=[sys.executable, toolpath.tool("fetch_toolchain.py"), "--set", "make"],
         in_image=False,
     ),
+    Extra(
+        name="scummvm",
+        what="The ScummVM 2026.4.0 source tarball (~213 MiB) and zlib 1.3.1, "
+             "libogg 1.3.6 and libvorbis 1.3.7 (~3 MiB) that `make scummvm` "
+             "cross-builds into the ScummVM optional component. Once built, "
+             "an image made by this checkout carries it in /usr.",
+        licence="GPL-3.0-or-later (ScummVM); Zlib (zlib); BSD-3-Clause (libogg, libvorbis)",
+        summary=(
+            "ScummVM is free software under the GNU GPL, version 3 or later: "
+            "use, study, change and share it, and anyone you give a BUILT "
+            "copy to must be offered its source -- here the pinned tarball, "
+            "userland/third_party/scummvm/patches/ and "
+            "tools/build/build_scummvm.sh. zlib, libogg and libvorbis are "
+            "permissive libraries linked into it. An image carrying it holds "
+            "the licences in /usr/share/licenses and must not be published "
+            "without offering that source. The games it plays are separate "
+            "downloads with their own freeware licences, fetched on the "
+            "machine. Pinned by SHA-256."
+        ),
+        source="https://downloads.scummvm.org/, https://zlib.net/fossils/, "
+               "https://downloads.xiph.org/ -- see tools/fetch/fetch_scummvm.py",
+        dest=("toolchain/tarballs/scummvm-2026.4.0.tar.xz",
+              "toolchain/tarballs/zlib-1.3.1.tar.gz",
+              "toolchain/tarballs/libogg-1.3.6.tar.xz",
+              "toolchain/tarballs/libvorbis-1.3.7.tar.xz"),
+        fetch=[sys.executable, toolpath.tool("fetch_scummvm.py")],
+        in_image=False,
+    ),
 ]
 
 

@@ -1,0 +1,8 @@
+# ScummVM -- see this directory's README.md for the format. Seeded only
+# when the build carries /usr/bin/scummvm (TryExec, `make scummvm`).
+Name=ScummVM
+Exec=/bin/wm/apps/scummvm
+TryExec=/usr/bin/scummvm
+Category=games
+Comment=Plays classic adventure games
+Icon=cat-games
