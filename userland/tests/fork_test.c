@@ -218,6 +218,22 @@ int main(int argc, char **argv) {
     utest_checkf(wait_code(pid) == 0 && strcmp(buf, "via path\n") == 0,
                  "execvp found echo on PATH: \"%s\"", buf);
 
+    // --- 9b. execlp: the same walk, its arguments in the call
+    utest_check(pipe(fds) == 0, "pipe (5b)");
+    pid = fork();
+    if (pid == 0) {
+        dup2(fds[1], 1);
+        close(fds[0]); close(fds[1]);
+        setenv("PATH", "/nowhere:/bin", 1);
+        execlp("echo", "echo", "listed", "in", "the", "call", (char *)0);
+        _exit(99);
+    }
+    close(fds[1]);
+    read_all(fds[0], buf, sizeof buf);
+    close(fds[0]);
+    utest_checkf(wait_code(pid) == 0 && strcmp(buf, "listed in the call\n") == 0,
+                 "execlp passed its argument list: \"%s\"", buf);
+
     // --- 10. frames come back. Measured in WINDOWS after a warm-up,
     // because this test runs a second after boot while services are
     // still demand-paging their heaps and the /lib image cache is

@@ -110,6 +110,11 @@ pid_t fork(void);
 int execve(const char *path, char *const argv[], char *const envp[]);
 int execv(const char *path, char *const argv[]);   // environ
 int execvp(const char *file, char *const argv[]);  // PATH walk, then environ
+// The arguments in the call, ended by a NULL; execle's environment
+// follows that NULL.
+int execl(const char *path, const char *arg0, ...);
+int execlp(const char *file, const char *arg0, ...);
+int execle(const char *path, const char *arg0, ...);
 
 int pipe(int fds[2]);
 int setpgid(pid_t pid, pid_t pgid);

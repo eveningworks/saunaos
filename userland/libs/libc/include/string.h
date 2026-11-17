@@ -88,10 +88,16 @@ int memcmp(const void *a, const void *b, size_t n);
 // the symbol; Linux's x86 string_64.h has used the same macros. One
 // consequence is C's own: a memset() over a buffer that is dead after it
 // may now be deleted, so wiping a secret is explicit_bzero() (below).
+// **FREESTANDING C ONLY.** A hosted compiler (the cross gcc, the one on
+// the machine) already knows these names as builtins, and C++ forbids
+// masking a library function with a macro: ScummVM's `Std::memcpy`
+// template and every `std::memcpy(...)` expanded into nonsense.
+#if !defined(__cplusplus) && !__STDC_HOSTED__
 #define memcpy(d, s, n)  __builtin_memcpy((d), (s), (n))
 #define memmove(d, s, n) __builtin_memmove((d), (s), (n))
 #define memset(d, c, n)  __builtin_memset((d), (c), (n))
 #define memcmp(a, b, n)  __builtin_memcmp((a), (b), (n))
+#endif
 
 // --- the toolkit's, under C's names (libc/string.c) -----------------
 size_t strlen(const char *s);
