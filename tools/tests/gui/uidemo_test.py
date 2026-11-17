@@ -587,7 +587,8 @@ def check_focus_is_visible(d, qmp, tmp):
     unconditionally, which is a control lying about holding the keyboard
     rather than one saying nothing.
 
-    The counterpart at the widget level is /tests/focusring_test, which
+    The counterpart at the widget level is the host case
+    tools/hostchecks/uitest/focusring_uitest.c, which
     covers all eleven of them off-screen; what this adds is that the
     ring survives the compositor and reaches the glass.
 

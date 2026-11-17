@@ -102,7 +102,8 @@ most often:
     pass `uui_scrollbar_flip()`'s answer, never your own top-based
     position -- three widgets passed it raw and drew the thumb mirrored,
     unseen until a folder gave the Launcher's grid a few hundred rows.
-    Add the view to `tools/tests/gui/scroll_test.py`; a view with room for all its
+    Add the view to `tools/hostchecks/uitest/scroll_uitest.c` (host, seconds;
+    `scroll_test.py` keeps one view end to end); a view with room for all its
     rows has no bar to look at, so the test needs MORE ROWS THAN FIT.
 
 **Interaction states come from `enum ui_state` / `ui_state_bg()`**,

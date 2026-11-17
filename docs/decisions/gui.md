@@ -5696,7 +5696,7 @@ side say nothing about which one is listening. Windows greys an
 unfocused ListView's selection and GTK dims it for the same reason.
 
 See `docs/conventions/gui.md` for the rule, and
-`/tests/focusring_test` for the assertion -- each widget checked both
+`tools/hostchecks/uitest/focusring_uitest.c` for the assertion -- each widget checked both
 ways, because a one-sided check passes on a control that rings itself
 unconditionally.
 
@@ -11254,7 +11254,7 @@ condition that makes the exception safe, and the reason it is not the
 toolkit's default: a list's rows run to its edge with no margin to hide
 a thumb in.
 
-`sbar_test` holds the state to the guidelines' rules through the
+`sbar_uitest.c` holds the state to the guidelines' rules through the
 painter's own geometry, so a from-the-top/from-the-bottom slip -- the
 classic upside-down thumb -- fails there.
 

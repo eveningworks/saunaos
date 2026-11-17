@@ -1,10 +1,9 @@
 // uui_label's word wrapping, asserted directly.
 //
-// WHY THIS IS A RING-3 TEST AND NOT A KTEST. Wrapping measures text
-// with ugfx_text_fit_chars(), which needs a loaded FONT -- and the font
-// lives in ring 3's copy of the toolkit (ugfx_font_init(), see uapp.c's
-// note about what a ring-0 component loses when it becomes a process).
-// A KTEST runs inside the kernel and cannot reach any of it.
+// WHY THIS IS NOT A KTEST. Wrapping measures text with
+// ugfx_text_fit_chars(), which needs a loaded FONT, and the font lives in
+// ring 3's copy of the toolkit; the kernel has none. It runs on the HOST
+// against the real toolkit (tools/lib/uitest/).
 //
 // THE CHECK THAT MATTERS IS THE THIRD ONE. A word wider than the whole
 // line has no word boundary to break at, and the natural implementation
@@ -32,19 +31,11 @@ static void ok(const char *name, int cond, const char *detail) {
 }
 
 int main(int argc, char **argv) {
-    // AND THE VERDICT TO A FILE (UTEST_VERDICT_FILE). This test has to
-    // be SPAWNED rather than `run` (the font needs a real scheduler slot
-    // -- see the top of this file), and a spawned program's console
-    // output arrives while the harness is between commands, where it is
-    // dropped. A file is an artifact the harness can ask for whenever it
-    // likes, which is this repo's own rule about waiting on the artifact
-    // rather than on the timing.
     uitest_begin("wrap", "uui_label word wrapping");
 
     (void)argc; (void)argv;
-    // Without this every measurement is zero and every check below
-    // passes for the wrong reason -- see uapp.c on the font not being
-    // free in ring 3.
+    // Without a font every measurement is zero and every check below
+    // passes for the wrong reason.
     ok("the font loaded, so widths are real", ugfx_char_w() > 0, "char_w is 0");
 
     char line[128];

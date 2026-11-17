@@ -188,7 +188,7 @@ return uapp_run(&desc);
   Viewer's only pixel difference). It now skips the layout's own paint
   when the router already draws it -- an item holding the layout, or
   every visible item the layout holds (`uui_router_covers_layout()`,
-  tested in `uibuilder_test`).
+  tested in `uibuilder_uitest.c`).
 - **An app-drawn `custom` area is sized by the app**, which owns what it
   draws (Theme Editor's role list and contrast lines).
 - **The whole file is built at load**, every window in it, so a mistake

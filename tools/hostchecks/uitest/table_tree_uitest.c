@@ -1,6 +1,6 @@
 // uui_table's groups, tree and heat -- the orderings Task Manager's
-// Processes page is built from. A ring-3 test because the toolkit is
-// ring 3's (see typeahead_test.c).
+// Processes page is built from. On the host, against the real toolkit
+// (tools/lib/uitest/).
 //
 // THE FIXTURE IS STORED OUT OF SCREEN ORDER, deliberately: children
 // before their parents, a group's rows scattered, a two-row cycle and a

@@ -114,7 +114,7 @@ void uui_label_set_wrap(struct uui_label *l, int rows);
 // must be. Returning `src` unchanged there would be the natural
 // "refuse to break a word" behaviour and would loop forever inside a
 // draw call, i.e. hang the compositor rather than draw something ugly.
-// `userland/tests/wrap_test.c` asserts exactly that.
+// `tools/hostchecks/uitest/wrap_uitest.c` asserts exactly that.
 //
 // Public so it can be tested, and because a future multi-line widget
 // wants the same rule rather than a second copy of it.

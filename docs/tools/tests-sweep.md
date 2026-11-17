@@ -326,7 +326,7 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   console that ignores cursor movement entirely. **The scrolling region
   is read as NUMBERED ROWS, in both terminals**: `/tests/ansiregion`
   marks row n at column 20 + n and moves the rows about inside a DECSTBM
-  region (`userland/tests/ansiregion_seq.h`, which `uvterm_test` runs
+  region (`userland/tests/ansiregion_seq.h`, which `uvterm_uitest.c` runs
   against the grid too), so a wrong shift reads as the wrong number, not
   as "ink". It runs in a GUI Terminal window first (geometry from the
   window's layout line) and then on the console, and ends with `#\n#`

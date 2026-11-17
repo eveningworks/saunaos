@@ -2,8 +2,10 @@
 
 A staged plan for a FAST test layer under `gui_regress.py`: widgets and
 then whole apps driven in memory, with no guest, no compositor and no QMP
--- what KTESTs are to the kernel. **PLANNED (the maintainer's pick,
-2026-11-17) to follow SDL stage 4, ahead of the toolkit's C++ headers.** Nothing here is built yet.
+-- what KTESTs are to the kernel. **The maintainer's pick, 2026-11-17, after
+SDL stage 4 and ahead of the toolkit's C++ headers. Stage 1 BUILT
+2026-11-17** (`tools/hostchecks/uitest_hostcheck.py`, `tools/lib/uitest/`);
+stages 2 and 3 not.
 
 ## The measurement that decided it
 
@@ -50,15 +52,65 @@ pixels on the real screen.
 
 ## What exists to build on
 
-- **20 `/tests` programs already drive widgets in-process**
-  (`droprows_test`, `focusring_test`, `sbar_test`, `table_tree_test`,
-  ...), reporting through `base/utest.h` -- but each in the guest, and
-  each building its own scaffolding.
+- **Thirteen `/tests` programs drove widgets in-process** (the sbar,
+  droprows, focus-ring, table and builder tests), reporting through
+  `base/utest.h` -- but each in the guest, with its own scaffolding. All
+  thirteen are host cases now (stage 1); `spacepath_test`, which spawns
+  an app, stayed.
 - **Host checks compile toolkit sources with the host gcc** and sweep
   them in seconds: `ugfx_text_hostcheck.py` (the real `ugfx_text.c` and
   `uui_textbox.c`), `ugfx_fill_`, `ugfx_pix_`, `utext_`, `caret_`.
 
-## Stage 1: a widget harness on the host
+## Stage 1: a widget harness on the host -- BUILT
+
+**As built** (the maintainer's picks, 2026-11-17): the harness in
+`tools/lib/uitest/`, the cases in `tools/hostchecks/uitest/`, one gate
+host check that builds the WHOLE real toolkit (every `.c` in
+`userland/libs/{base,net,media,ui}/` and the shared `kernel/lib`
+sources, read from the Makefile) with the host gcc into `build/hostui/`
+-- ~6 s cold, incremental after -- and links each case with
+`--gc-sections`. Liberation Sans 14 px through the toolkit's own `ttf.c`
+(`ugfx_font_adopt()`). The thirteen in-guest widget tests moved onto it,
+and `scroll_test`'s four rules over six widgets (`scroll_uitest.c`);
+`settings_rows_uitest.c` holds System Settings' row controls.
+`docs/tools/hostchecks.md` has the reference.
+
+**Measured.** `scroll_test` went from a 190 s median to 45 s, keeping
+the Retro Launcher's grid end to end. The host cases together take a
+couple of seconds warm. `settings_test` lost nothing: every check it makes is the APP's
+(staging, the registry, the bytes on disk), which is stage 2's.
+
+**It found a bug on its first round**: Esc in an open dropdown closed
+it but KEPT the choice the arrows had moved to, where a Windows combo box
+and Qt's put back the one the list opened with (`settings_rows_uitest.c`;
+fixed, and a positive control).
+
+**What the build taught**, each now refused by the check rather than
+left to the next session:
+
+- **The seam is `sys_*`, and it is small**: a listbox driven through the
+  router needed 13 calls, and the first round of cases a few dozen, each
+  a one-line answer for one process with no compositor. A call nobody stubbed is a
+  LINK error naming it.
+- **Two C libraries meet in one binary.** The toolkit compiles against
+  tolibc's headers and links glibc, so a glibc call taking a struct the
+  two lay out differently would be handed the wrong layout (tolibc's
+  `d_name` is at offset 1, glibc's at 19). The check refuses a binary
+  importing one of `ABI_UNSAFE` from glibc; tolibc's own `stat.c`,
+  `time.c`, `tz.c` and `locale.c` are linked over the stubs instead.
+- **One executable has one `stat`.** The half compiled against the host's
+  headers must reach the host kernel by number (`syscall(2)`), or it
+  calls tolibc's `stat` -- which is how the first font load came back
+  ENOENT.
+- **A raw `syscall` instruction runs on LINUX** with SaunaOS's number. The
+  linked text is disassembled and one is refused; ugfx.c's baked-font
+  request now goes through rt's `sys_win_request()`.
+- **One frame is not a settled frame**: a key that glides a table draws
+  the glide's first step. `uitest_settle()` runs frames at uapp's rate
+  while anything asks for one, as `QMPSession.screenshot()` waits for a
+  settled frame in the guest.
+
+### The plan it was built from
 
 A test builds a widget tree -- the same `struct uui_item` arrays and
 layouts an app declares -- into an IN-MEMORY `ugfx_surface`, and drives
@@ -74,7 +126,8 @@ deterministic font, so the whole set runs in seconds with no QEMU.
 - A `hostchecks/` runner, `gate`, so `preflight.sh` runs it.
 - Port first: the checks `gui_regress` tools make that are pure widget
   logic, starting with the slowest tools' (`scroll_test`'s scrolling
-  rules, `settings_test`'s rows). A ported check leaves the GUI tool.
+  rules, `settings_test`'s rows). A ported check leaves the GUI tool,
+  which keeps ONE end-to-end check of what moved.
 
 ## Stage 2: whole apps headless -- an offscreen `uapp`
 

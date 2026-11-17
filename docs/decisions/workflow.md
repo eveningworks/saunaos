@@ -427,3 +427,44 @@ noisy diff with its own regressions; they go as their tools are touched.
 the host's load -- slower, and measured nowhere yet), and quarantining
 tools by a measured flake rate.
 
+
+## Widgets are tested on the HOST against the real toolkit, with only the platform stubbed
+
+Chosen 2026-11-17 (`docs/gui-unittest-design.md`, stage 1), when the GUI
+suite's 151 tools had grown to ~16.5 minutes and the time was measured
+to be inside them -- serial round trips, frame waits and pixel reads
+under TCG -- not in booting.
+
+**The real toolkit, not a stub of it.** `ugfx_text_hostcheck.py`'s shape
+-- compile the one widget under test and stub everything it draws
+through -- is cheap for geometry and useless for pixels, and every stub
+is a copy of a contract kept in step by hand. Building ALL of
+`userland/libs/{base,net,media,ui}/` with the host gcc costs ~6 s cold
+and nothing after, and `--gc-sections` keeps only what a case reaches.
+Qt's QTest, GTK's test suite and Chromium's `views_unittests` all draw
+the same line: the real widget library over a stand-in PLATFORM (Qt's
+offscreen QPA plugin, a headless GDK backend, a test Ozone/aura). Here
+the platform is `sys_*` (`tools/lib/uitest/uitest_sys.c`).
+
+**glibc underneath, tolibc's headers above, and the meeting point
+guarded.** Building tolibc itself for the host would make every libc
+call a SaunaOS one, but would need its start code, TLS, allocator and
+stdio running on Linux -- a second port of the C library to keep alive.
+glibc does the work instead, and the one way that goes wrong -- a call
+whose struct the two libcs lay out differently -- is REFUSED at link
+(`ABI_UNSAFE`), with tolibc's own source for those calls compiled over
+the stubs. A raw `syscall` instruction, which would run a Linux syscall
+by a SaunaOS number, is refused the same way.
+
+**A fixed font and a fixed clock.** Liberation Sans 14 px, the default
+desktop's face and size, rasterized by the toolkit's own `ttf.c`; never a
+host font, which would make a measurement depend on the machine. The
+clock moves only when the harness moves it (a second before each press,
+so clicks never become double clicks by accident), and the wall clock
+is a fixed date.
+
+**What moves down keeps one check above it.** A stand-in can lie, so a
+GUI tool whose checks moved keeps one end-to-end view of the same
+behaviour (`scroll_test.py` keeps the Retro Launcher's grid). An app's
+own logic -- staging, the registry, files -- stays in its GUI tool until
+stage 2's offscreen uapp can run the app's real code.

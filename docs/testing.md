@@ -13,6 +13,13 @@ the question:
 3. QMP (`qmp_test.py`, `gui_flow.py`) -- does it LOOK right? Only when
    the answer genuinely depends on pixels.
 
+**A widget's own logic skips the queue**: a hit test, a scroll position,
+focus, the pixels of a selected state are a case in
+`tools/hostchecks/uitest/` -- the real toolkit on the host, driven by
+widget name, seconds and no guest (`docs/tools/hostchecks.md`,
+`uitest_hostcheck.py`). The GUI tools are for the compositor, the
+protocol, real input and the app's own logic.
+
 A text transcript says nothing about whether a button is drawn in the
 right place; a clean boot log says nothing about rendering. But a
 screenshot is the most expensive evidence there is, and the worst to

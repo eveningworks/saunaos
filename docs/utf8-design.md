@@ -234,7 +234,7 @@ paste as themselves into any field.
 - BUILT: `uvterm` cells hold a codepoint and a width (`UVTERM_WIDE`, then
   a `UVTERM_CONT` cell); the decoder's pending bytes live in `struct
   uvterm` beside the ANSI state, so a sequence split across two reads
-  draws once (`/tests/uvterm_test`). A row draws in runs at the cell
+  draws once (`tools/hostchecks/uitest/uvterm_uitest.c`). A row draws in runs at the cell
   pitch, a glyph not exactly a cell wide on its own; selection copies
   UTF-8 and a word includes letters past ASCII; the OSC title is cut
   between characters; the find bar matches characters. A cell is eight
@@ -352,7 +352,7 @@ Each step's checks go red on the build before it (the positive control):
   of `żż` shows two stars.
 - **The static check** red on a planted byte loop.
 - **Step 2**: a sequence split across two pty reads draws once
-  (`/tests/uvterm_test`); a folder `Kesä` lists in four cells and `cd
+  (`tools/hostchecks/uitest/uvterm_uitest.c`); a folder `Kesä` lists in four cells and `cd
   Kesä` typed on the Finnish layout lands there; Polish, Romanian and an
   Estonian dead key type `ą` `ș` `š` into the Terminal (`cat`) and into
   Notepad (saved bytes) -- `uterm_test.py --only utf8`,

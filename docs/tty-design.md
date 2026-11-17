@@ -503,7 +503,7 @@ what leaves the top of the WHOLE screen.
 **Tests.** KTESTs in `kernel/tty/tty_test.c` (ONLCR on and off, OPOST
 as the master switch, TAB3 against the column, an echoed Enter, a pty
 write sized by ONLCR) and `kernel/lib/ansi_test.c` (each sequence, each
-rule); `uvterm_test` runs `userland/tests/ansiregion_seq.h`'s numbered
+rule); `uvterm_uitest.c` runs `userland/tests/ansiregion_seq.h`'s numbered
 rows against the grid; `tools/tests/sweep/ansi_cursor_test.py` reads
 the same scenario as pixels in a Terminal window and on the console,
 plus `#\n#` under `OPOST` on and off. Each went red on a deliberately

@@ -43,8 +43,7 @@ it is saved.
 - **`usertest_run.py`** -- runs the self-checking ring-3 diagnostics in
   `/tests` (`libc_test`, `fpu_test`, `klineedit_test`, `newsyscalls_test`,
   `file_test`, `write_test`, `exit_test`, `random_test`, `memtest`,
-  `guard_test`, `malloc_test`, `wrap_test`, `focusring_test`,
-  `uvterm_test` -- the Terminal's grid as UTF-8 -- `imgshare_test` --
+  `guard_test`, `malloc_test`, `imgshare_test` --
   two instances of a program share its code through the image cache,
   judged per file and by the second instance's SHARED vs private
   bytes -- and more) as one
@@ -87,10 +86,11 @@ it is saved.
   **An expected exit code of `None` means SPAWN IT INSTEAD**, and judge
   it by what it printed. That was the answer to the legacy loader `run`
   used to be (no scheduler slot), and rows keep it until someone
-  re-measures them under `run`: `wrap_test` needs a real font
-  (`ugfx_font_init()` goes through `SYS_WIN_REQUEST`) and once measured
+  re-measures them under `run`: a test that needs a real font
+  (`ugfx_font_init()` goes through `SYS_WIN_REQUEST`) once measured
   nothing at all under `run`, where every width came back 0 and every
-  check passed for the wrong reason. A spawned test has no exit code to read, so its printed
+  check passed for the wrong reason. (The widget tests that were such
+  rows run on the host now: `uitest_hostcheck.py`.) A spawned test has no exit code to read, so its printed
   verdict carries the whole assertion, and it writes that verdict to
   `/tmp/<name>.out`: a spawned program's console output arrives while
   the harness is between commands, where it is dropped, so the harness
@@ -107,14 +107,7 @@ it is saved.
   from atomic context` line** -- such a take only HANGS when its holder
   happens to be asleep, so a green run is no evidence
   (`docs/conventions/kernel.md`, "A KMUTEX IS NEVER TAKEN FROM A CONTEXT
-  THAT CAN NEITHER SLEEP NOR BE ROTATED AWAY"). `focusring_test` is
-  the same shape and covers the eleven widgets that accept keyboard
-  focus, drawing each into a plain surface and counting accent pixels
-  -- **both ways**, absent unfocused and present focused, since a
-  one-sided check passes on a control that rings itself
-  unconditionally. Its load-bearing checks are the ROW ones: a ring
-  round the whole box and a ring on the selected row both put accent
-  pixels down, and only the height tells them apart.
+  THAT CAN NEITHER SLEEP NOR BE ROTATED AWAY").
 - **`/bin/mkfiles`** (a guest program, not a host tool, but this is
   where anyone looks for it) -- fills a directory with N files to test
   the filesystem at scale: `mkfiles /big 5000`, `mkfiles /docs 100 512`,

@@ -2,7 +2,8 @@
 #define ANSIREGION_SEQ_H
 
 // One scrolling-region scenario, shared by the two tests that run it:
-// uvterm_test (the GUI Terminal's grid, read as cells) and /tests/
+// tools/hostchecks/uitest/uvterm_uitest.c (the GUI Terminal's grid, read
+// as cells, on the host) and /tests/
 // ansiregion (painted on whichever terminal runs it, read as pixels by
 // tools/tests/sweep/ansi_cursor_test.py, whose ANSIREGION_WANT is this
 // file's AR_WANT).

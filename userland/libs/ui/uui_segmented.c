@@ -113,7 +113,7 @@ void uui_segmented_draw(struct ugfx_surface *s, const struct uui_segmented *sg) 
                                  !chosen ? fg : sg->disabled ? off_fg : UTHEME_ACCENT_TEXT, bg);
     }
     // Round the WHOLE control, outside it: the chosen segment is
-    // accent-filled, so a ring on it would not show (focusring_test).
+    // accent-filled, so a ring on it would not show (focusring_uitest.c).
     if (sg->focused && !sg->disabled)
         uui_focus_ring(s, sg->x - 2, sg->y - 2, sg->w + 4, sg->h + 4);
 }

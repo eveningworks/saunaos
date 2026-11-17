@@ -19,8 +19,8 @@
 // unseekable NON-terminal is tested. A spawned program's console output
 // arrives while the harness is between commands, where it is dropped,
 // so the verdict also goes to a FILE the harness can ask for whenever
-// it likes (wait on the artifact, not on the timing -- the same shape
-// wrap_test.c uses and for the same reason).
+// it likes (wait on the artifact, not on the timing -- base/utest.h's
+// UTEST_VERDICT_FILE, for the same reason).
 //
 // Prints one line per check and exits with the number of failures.
 #include <stdint.h>

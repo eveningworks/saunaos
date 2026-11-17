@@ -1,9 +1,9 @@
 // Type-ahead, in the two widgets that have it: uui_listbox and
 // uui_table. See ui/uui_seek.h.
 //
-// WHY THIS IS A RING-3 TEST AND NOT A KTEST. The toolkit is ring 3's
-// (userland/libs/ui/); the kernel image contains no widget code at all, so
-// a KTEST cannot reach a line of this.
+// WHY THIS IS NOT A KTEST. The toolkit is ring 3's (userland/libs/ui/);
+// the kernel contains no widget code, so this runs on the HOST against
+// the real toolkit (tools/lib/uitest/), with the font loaded.
 //
 // THE CHECKS THAT MATTER ARE THE SORTED ONES. A table's rows are
 // PULLED, and the app's row indices are not the order on screen -- so a

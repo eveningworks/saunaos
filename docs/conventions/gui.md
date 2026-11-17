@@ -4472,7 +4472,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   the list is the control answering the arrows, so two lists side by
   side say nothing about which one is listening.
 
-  Tested at the widget level by `/tests/focusring_test` (all eleven,
+  Tested at the widget level by `tools/hostchecks/uitest/focusring_uitest.c` (all eleven,
   off-screen, each asserted BOTH ways -- absent unfocused, present
   focused, since a one-sided check passes on a control that rings itself
   unconditionally) and on-screen by `uidemo_test.py`. **Its
@@ -6131,7 +6131,7 @@ keyed by what the row IS (Task Manager: the pid), and calls set_rows(). A
 row index moves on every refresh, so a table that remembered "row 7 is
 folded" would fold whichever process slid into row 7. Cell HEAT
 (`uui_table_set_heat()`, 0..255) is shaded in the theme's accent, and
-selection outranks it. `userland/tests/table_tree_test.c` covers all of
+selection outranks it. `tools/hostchecks/uitest/table_tree_uitest.c` covers all of
 it with a fixture stored out of screen order.
 
 ## A BUTTON'S CLICK IS `on_action`; `on_widget` NEVER CARRIES A COMMAND, AND A HOVER REACHES IT ONLY IF ASKED
@@ -6303,7 +6303,7 @@ main()'s local.
   (`uui_sbar_place()` + `uui_sbar_set()`, positions from the START) before
   every draw and every event, offers press/motion/release to it first,
   and reads `top` back when an answer carries `UUI_SBAR_MOVED`. All nine
-  list-shaped widgets and the Terminal do; `sbar_test` holds it to the
+  list-shaped widgets and the Terminal do; `sbar_uitest.c` holds it to the
   guidelines.
 - **Draw from a COPY in a const draw**: fill a local `struct uui_sbar`
   from the widget's and draw that -- the easing is a function of time
@@ -6535,6 +6535,21 @@ What?; **implementing a call moves its block onto the handler**, as
 `PARTLY` and loses its three fields together (`--check`'s Partly and the
 page then agree).
 
+## A WIDGET'S OWN LOGIC IS TESTED ON THE HOST, AND THE GUI TOOL ABOVE IT KEEPS ONE END-TO-END CHECK
+
+**The rule.** What a widget decides by itself -- a hit test, a layout, focus, an edit, a scroll position, the colour
+of its selected state -- is a case in `tools/hostchecks/uitest/` (`tools/lib/uitest/uitest.h`): the widget tree an
+app declares, drawn into memory and driven by NAME through the real router, in seconds, in every preflight. A GUI
+tool in `tools/tests/gui/` is for what needs the real stack: the compositor, the protocol, real input, several
+windows, the app's own logic and files. When a check moves down, the tool KEEPS one end-to-end check of the same
+behaviour (`scroll_test.py` keeps the Retro Launcher's grid), because a stand-in can lie.
+
+**The traps** are the host check's to refuse, not the case's to remember: a glibc call whose struct differs from
+tolibc's (`ABI_UNSAFE`), a raw `syscall` instruction, a `sys_*` nobody stubbed (a link error). Two that are the
+case's: **one frame after a key that glides is the glide's first** -- read pixels after `uitest_settle()`, never
+`uitest_frame()` -- and **a widget's zero field may mean "my default"** (`uui_radio_list.row_h`): measure from its
+bounds, not its struct. `docs/tools/hostchecks.md` has the rest.
+
 ## A NEW SCROLLING VIEW IS TESTED FOR SCROLLING, AND A TOP-BASED POSITION IS NEVER PASSED TO THE PAINTER RAW
 
 **What happened.** In the Retro Launcher, a folder of hundreds of programs gave the program grid something to
@@ -6547,12 +6562,14 @@ rows has no bar, so nothing had ever looked.
 **The rule.** A view whose position counts from the top **embeds `uui_sbar`** (it converts once, inside), or
 passes `uui_scrollbar_flip(total, visible, position)` on the way in -- to the painter, the hit test and the thumb
 rectangle -- and again on the offset a drag returns (it is its own inverse and clamps). **And a new scrolling view
-is tested before it is called done**: `tools/tests/gui/scroll_test.py` opens it with more rows than fit and checks, from the
-thumb's own pixels with the pointer parked off the bar, that it opens at the top, that the wheel down moves the
+is tested before it is called done**: `tools/hostchecks/uitest/scroll_uitest.c` builds it, on the host, with more rows
+than fit and checks, from the thumb's own pixels with the pointer parked off the bar, that it opens at the top, that the wheel down moves the
 thumb down and the wheel up moves it back, that a click in the trough below pages down and above pages up, and that
 dragging the thumb down moves the view down. Where the view takes Home and End the test uses them; where it takes no
 keys (the Launcher's grid takes none: roadmap) the independent fact is that it opens at the top. Add the new view to
-that file -- it is the same ten lines per view.
+that file -- a fixture and one `check_view()` call. `tools/tests/gui/scroll_test.py` keeps the Launcher's grid END
+TO END in the guest; add a view there too only when its APP's wiring is the risk (a view the app feeds or places by
+hand).
 
 **Why from pixels.** A wheel check on the content passes when the thumb is wrong, and a thumb check on a view that
 fits passes because there is none. The mirrored thumb was visible only as a picture.

@@ -1,6 +1,6 @@
 // uui_sizefield: a number and a MiB/GiB unit, driven through its OPS
 // TABLE -- what the router calls -- with a font loaded so the geometry
-// is real (focusring_test.c says why that needs ring 3).
+// is real (tools/lib/uitest/ loads Liberation Sans).
 //
 // THE LOAD-BEARING PAIR is the two unit changes, which must DIFFER:
 // clicking GiB converts what is shown (1536 MiB -> 2 GiB), typing `g`

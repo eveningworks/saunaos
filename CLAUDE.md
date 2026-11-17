@@ -167,9 +167,11 @@ rather than shrink. `tools/checks/check_widget_ops.py` enforces the first.
 bite most are in `userland/CLAUDE.md`.** The one that bites outside it:
 `gfx_draw_string()` does not clip -- `gfx_draw_string_clipped()` in any
 fixed box. **A new scrolling view is TESTED for scrolling** (wheel
-direction, thumb vs view, trough, drag: `tools/tests/gui/scroll_test.py`, rule 10
-there) -- a mirrored scrollbar hid in three widgets until a folder gave one
-enough rows.
+direction, thumb vs view, trough, drag: `tools/hostchecks/uitest/scroll_uitest.c`,
+rule 10 there) -- a mirrored scrollbar hid in three widgets until a folder gave
+one enough rows. **A widget's own logic is tested ON THE HOST**
+(`tools/hostchecks/uitest/`, in every preflight), its GUI tool keeping one
+end-to-end check (`docs/conventions/gui.md`).
 
 ### The line editor
 

@@ -1,8 +1,8 @@
 // EVERY WIDGET THAT ACCEPTS FOCUS DRAWS AN INDICATOR, asserted as pixels.
 //
-// WHY THIS IS A RING-3 TEST AND NOT A KTEST. The toolkit lives entirely
-// in ring 3 and its measurements need a loaded FONT (ugfx_font_init()),
-// which a KTEST cannot reach -- the same reason wrap_test.c exists.
+// WHY THIS IS NOT A KTEST. The toolkit is ring 3's (userland/libs/ui/);
+// the kernel contains no widget code, so this runs on the HOST against
+// the real toolkit (tools/lib/uitest/), with the font loaded.
 //
 // WHY IT IS NOT A GUI TOOL EITHER. Only three of these widgets are in
 // any app's focus ring today, so a screenshot-driven check could cover
@@ -48,11 +48,6 @@
 static uint32_t g_px[SURF_W * SURF_H];
 static uint32_t g_unfocused[SURF_W * SURF_H];
 static struct ugfx_surface g_surf;
-// UTEST_VERDICT_FILE carries the per-check lines rather than only the
-// count -- a spawned program's console output arrives while the harness
-// is between commands and is dropped, so "0 failure(s)" alone would be
-// the only thing anyone could ever read back. See wrap_test.c on why
-// the file exists at all.
 #include "uitest.h"
 
 // The call sites here read `ok(name, cond, detail)`; the harness takes
@@ -114,8 +109,6 @@ static void cell_fn(void *ctx, int row, int col, char *out, int cap) {
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-    // Without this every metric is zero and every check below passes for
-    // the wrong reason -- see uapp.c on the font not being free in ring 3.
 
     g_surf.pixels = g_px;
     g_surf.w = SURF_W;
