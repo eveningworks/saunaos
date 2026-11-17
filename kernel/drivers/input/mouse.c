@@ -316,7 +316,10 @@ void mouse_feed_abs(int x, int y, int max_x, int max_y) {
 // press and a release a long way apart, drained in one pass, must not
 // both read the pass's final position (a click becomes a drag).
 #define BTN_TRANS_MAX 32
-static struct { uint8_t mask; int x, y; } btn_trans[BTN_TRANS_MAX];
+// rdx/rdy: a pointer lock's motion made BEFORE this edge (mouse_want_rel),
+// taken out of the accumulator, so the poll can hand it over first --
+// an evdev frame's REL before its BTN.
+static struct { uint8_t mask; int x, y, rdx, rdy; } btn_trans[BTN_TRANS_MAX];
 static int btn_trans_head, btn_trans_tail;
 
 // FIVE BITS: left, right, middle, then the two thumb buttons (SIDE and
@@ -335,11 +338,18 @@ static void set_buttons(uint8_t mask) {
         int next = (btn_trans_head + 1) % BTN_TRANS_MAX;
         // Dropping the OLDEST keeps the most recent releases, which are
         // the ones that un-stick a button -- keyboard.c's rule.
-        if (next == btn_trans_tail)
+        if (next == btn_trans_tail) {
+            int lost = btn_trans_tail;   // its motion goes on to the next edge
             btn_trans_tail = (btn_trans_tail + 1) % BTN_TRANS_MAX;
+            btn_trans[btn_trans_tail].rdx += btn_trans[lost].rdx;
+            btn_trans[btn_trans_tail].rdy += btn_trans[lost].rdy;
+        }
         btn_trans[btn_trans_head].mask = mask;
         btn_trans[btn_trans_head].x = mouse_x;
         btn_trans[btn_trans_head].y = mouse_y;
+        btn_trans[btn_trans_head].rdx = rel_dx;
+        btn_trans[btn_trans_head].rdy = rel_dy;
+        rel_dx = rel_dy = 0;
         btn_trans_head = next;
     }
     mouse_buttons = mask;
@@ -355,13 +365,20 @@ void mouse_inject_buttons(uint8_t mask) {
     set_buttons(g_dev_buttons | g_inj_buttons);
 }
 
-int mouse_try_get_button_edge(uint8_t *out_mask, int *out_x, int *out_y) {
+int mouse_try_get_button_edge_rel(uint8_t *out_mask, int *out_x, int *out_y,
+                                  int *out_rdx, int *out_rdy) {
     if (btn_trans_tail == btn_trans_head) return 0;
     if (out_mask) *out_mask = btn_trans[btn_trans_tail].mask;
     if (out_x) *out_x = btn_trans[btn_trans_tail].x;
     if (out_y) *out_y = btn_trans[btn_trans_tail].y;
+    if (out_rdx) *out_rdx = btn_trans[btn_trans_tail].rdx;
+    if (out_rdy) *out_rdy = btn_trans[btn_trans_tail].rdy;
     btn_trans_tail = (btn_trans_tail + 1) % BTN_TRANS_MAX;
     return 1;
+}
+
+int mouse_try_get_button_edge(uint8_t *out_mask, int *out_x, int *out_y) {
+    return mouse_try_get_button_edge_rel(out_mask, out_x, out_y, 0, 0);
 }
 
 int mouse_button_edge_pending(void) { return btn_trans_tail != btn_trans_head; }

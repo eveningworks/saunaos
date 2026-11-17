@@ -1171,7 +1171,11 @@ declared header whether or not a section landed in it: without
 at address 0, which a reader that trusts it then parses. Every link line
 in the Makefile, `sdk_test.py`'s and `x86_64-saunaos-gcc`'s specs pass
 it. The same scripts KEEP whatever `.eh_frame` the objects carry and
-end it with the zero-length entry libgcc's unwinder walks to. **The
+end it with the zero-length entry libgcc's unwinder walks to.
+**libgcc FINDS the tables through `dl_iterate_phdr()` and each object's
+`PT_GNU_EH_FRAME`** (since 2026-11-17, `toolchain/patches/gcc/0002`):
+nothing registers them, so a shared library a throw crosses needs its
+own header too -- `libc.so` is linked `--eh-frame-hdr` for that. **The
 tree's C compiles WITHOUT tables, libc and `rt/tls.o` WITH them** (the
 Makefile, by `USERLAND_CFLAGS`): a C++ exception crosses libc's frames
 out of a callback, so a function that calls one back stays in libc or

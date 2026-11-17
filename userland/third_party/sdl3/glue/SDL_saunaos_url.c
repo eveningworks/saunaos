@@ -11,15 +11,10 @@
 
 bool SDL_SYS_OpenURL(const char *url)
 {
-    int pid;
-    /* With the video driver up, the app reaps the browser when it exits;
-     * without it nothing does until this program ends, as for any
-     * uopen_url() caller. */
-    if (SAUNAOS_app && uopen_is_web_url(url)) {
-        pid = uapp_spawn(SAUNAOS_app, UOPEN_BROWSER, url);
-    } else {
-        pid = uopen_url(url);
-    }
+    /* With the video driver up, the app reaps what it started; without
+     * it nothing does until this program ends, as for any uopen_url()
+     * caller. */
+    int pid = SAUNAOS_app ? uapp_open_url(SAUNAOS_app, url) : uopen_url(url);
     if (pid < 0) {
         return SDL_SetError("Nothing on SaunaOS opens %s", url);
     }

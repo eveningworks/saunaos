@@ -114,8 +114,8 @@ char *uopen_details(const char *path);
 // the user chose. Returns the pid, or a negative value.
 int uopen_spawn(const char *path);
 
-// The program a web address opens in. An app with a uapp spawns it
-// through uapp_spawn(), so its app reaps it (Help, System Update, SDL).
+// The program a web address opens in. An app with a uapp opens a URL with
+// ui/uapp.h's uapp_open_url(), which reaps what it started.
 #define UOPEN_BROWSER "/bin/wm/apps/browser"
 
 // Is it an address the Web Browser opens: http: or https:, either case.

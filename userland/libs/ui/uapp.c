@@ -1,6 +1,7 @@
 // See ui/uapp.h for what this is and why.
 #include "ui/uapp_internal.h"
 #include "base/uutf8.h"   // a title cut between characters
+#include "base/uopen.h"   // uapp_open_url()
 #include "rt/ulock.h"
 #include <errno.h>
 
@@ -531,6 +532,12 @@ void uapp_track_child(struct uapp *a, int pid) {
     for (int i = 0; i < UAPP_CHILDREN; i++)
         if (!g_children[i]) { g_children[i] = pid; return; }
     ulogf("uapp: child table full -- pid %d will not be reaped\n", pid);
+}
+
+int uapp_open_url(struct uapp *a, const char *url) {
+    int pid = uopen_url(url);
+    if (pid > 0 && a) uapp_track_child(a, pid);
+    return pid;
 }
 
 int uapp_spawn(struct uapp *a, const char *path, const char *arg) {

@@ -1161,9 +1161,15 @@ this the obvious way), not from how much history it accumulated.
   - **`gui windows --json` SAYS SO**: `dialog`, `owner`, `modal` beside
     `popup`/`parent`. A dialog is a toplevel with chrome, so `popup`
     cannot tell a test one from an ordinary window.
-  - **ONE LEVEL.** A dialog never owns a dialog -- the compositor
+  - **ONE LEVEL.** An OWNED dialog never owns a dialog -- the compositor
     refuses it, because the owner chain is what `modal` is resolved
-    against.
+    against. An UNOWNED one may (toywm's `wm_can_own()`): the window of
+    a `UAPP_NO_TOPLEVEL` app is a toplevel in all but name, and
+    `uapp_window_desc.owner` names it -- an SDL program's message box,
+    modal over the game it stops.
+  - **A DIALOG'S `on_draw` PAINTS AFTER THE PANEL GROUND AND BEFORE ITS
+    WIDGETS**, as the main window's does -- before 2026-11-17 the ground
+    was filled over it whenever the dialog had widgets.
   - **BEFORE THE TOPLEVEL, A DIALOG HAS NO OWNER.** An app started with
     `UAPP_NO_TOPLEVEL` runs its loop with no window (`on_start`, then
     `uapp_open_toplevel()` when it has one -- GApplication's shape); a

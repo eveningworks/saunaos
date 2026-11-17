@@ -72,6 +72,10 @@ int mouse_try_get_button_transition(uint8_t *out_mask);
 // The same, with the position the pointer had when the edge was
 // reported -- what an event for it must carry.
 int mouse_try_get_button_edge(uint8_t *out_mask, int *out_x, int *out_y);
+// The same, with the pointer lock's motion made before this edge (0, 0
+// with no lock) -- what to hand over ahead of the edge.
+int mouse_try_get_button_edge_rel(uint8_t *out_mask, int *out_x, int *out_y,
+                                  int *out_rdx, int *out_rdy);
 // Whether an edge is waiting, WITHOUT consuming it -- for a reader that
 // must not let later state overtake it while it has no room to take it.
 int mouse_button_edge_pending(void);

@@ -157,6 +157,20 @@ int wm_overlay_modal_open(void) {
     return 0;
 }
 
+// An overlay that takes the POINTER is up: a menu, a flyout, the switcher,
+// the Leave page -- what a pointer lock steps aside for (wm_ptrlock.c). Not
+// the passive ones, and not the three that sit beside the pointer without
+// taking it: a tooltip, the taskbar's peek, the on-screen keyboard.
+int wm_overlay_takes_pointer(void) {
+    for (int i = 0; i < OVERLAY_COUNT; i++) {
+        const char *n = g_overlays[i].name;
+        if (g_overlays[i].passive || !k_strcmp(n, "tooltip") || !k_strcmp(n, "peek") || !k_strcmp(n, "osk"))
+            continue;
+        if (g_overlays[i].is_open()) return 1;
+    }
+    return 0;
+}
+
 int wm_overlay_any_open(void) {
     for (int i = 0; i < OVERLAY_COUNT; i++)
         if (!g_overlays[i].passive && g_overlays[i].is_open()) return 1;

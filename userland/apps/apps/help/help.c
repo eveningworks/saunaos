@@ -25,7 +25,6 @@
 // without the engine (NOGPL=1) draws the page with uui_markdown as
 // before.
 #include "ui/uapp.h"
-#include "base/uopen.h"   // UOPEN_BROWSER
 #include "ui/uui.h"
 #include "ui/uui_markdown.h"
 #include "ui/uui_webview.h"
@@ -486,7 +485,7 @@ static void wv_changed(struct uui_webview *v, unsigned what) {
 // An http(s) link in the manual opens in the Web Browser.
 static void wv_external(struct uui_webview *v, const char *url) {
     (void)v;
-    if (g_app) uapp_spawn(g_app, UOPEN_BROWSER, url);
+    if (g_app) uapp_open_url(g_app, url);
 }
 
 static const struct uui_webview_host HOST = {

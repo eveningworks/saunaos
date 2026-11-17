@@ -1964,9 +1964,11 @@ from the default (a sound card, a USB mouse, `--reboot`).
   R releasing it. Controls: the kernel not holding the pointer fails both
   "held" checks, `uui_para_key()` declining fails the Ctrl+C one, the
   badge in the accent fails the colour one, the lock blind to overlays
-  fails the Start menu one. The answered-once check cannot see the double
-  answer it guards against unless a reply opens the next box, which no
-  SDL path does. In `gui_regress.py`.
+  fails the Start menu one. The answered-once check is red against the
+  first box (by reading: its `finish()` kept the buttons, so the Enter the
+  window heard after the focus ring answered again); against today's
+  `finish()`, which clears them, a second answer needs a reply that opens
+  the next box -- what `uapp`'s spent key now prevents. In `gui_regress.py`.
 - **`sdl_window_test.py`** -- an SDL3 program's window on the desktop
   (`docs/sdl-design.md`, stage 1). Drives `/tests/sdlwin_test`, which
   paints red | blue | green bands in SDL points and logs every event SDL

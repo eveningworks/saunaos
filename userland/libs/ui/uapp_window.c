@@ -486,9 +486,15 @@ void top_key(struct uapp_top *t, const struct win_event *ev) {
         // AND THE APP IS TOLD, by the same id a click on that widget
         // reports: a value the keyboard changed is as much a change as a
         // clicked one. Not Tab, which moved focus and changed no value.
-        if (ev->a != '\t' && t->hears && t->focus->current >= 0) {
+        // A LONE BUTTON's commit is its click -- on_action, which needs no
+        // on_widget -- and the key that made it is then SPENT: passed on to
+        // on_key as well, a dialog answering Enter with its default button
+        // answered twice (the button, then the default).
+        if (ev->a != '\t' && t->focus->current >= 0) {
             int id = uui_router_id_of(&t->router, t->focus->items[t->focus->current].widget);
-            t->ops->tell(t, id, UUI_REASON_KEY, 1);
+            int lone = id && lone_button(&t->router, id) != 0;
+            if (t->hears || lone) t->ops->tell(t, id, UUI_REASON_KEY, 1);
+            if (lone && (ev->a == '\n' || ev->a == '\r' || ev->a == ' ')) return;
         }
     }
     t->ops->key(t, ev->a, ev->mods);

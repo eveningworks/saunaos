@@ -131,11 +131,6 @@ static void w_action(struct uapp_window *w, int code) {
     if (code >= ID_BUTTON && code < ID_BUTTON + g_count) finish(g_b[code - ID_BUTTON].code);
 }
 
-static void w_widget(struct uapp_window *w, int id, int reason) {
-    (void)id; (void)reason;
-    if (g_win) uapp_window_redraw(w);
-}
-
 static void w_key(struct uapp_window *w, int key, unsigned mods) {
     if (uui_para_key(&g_para, key, mods)) {
         uapp_window_redraw(w);
@@ -246,7 +241,6 @@ int uui_msgbox_open(struct uapp *a, const struct uui_msgbox *m, uui_msgbox_fn do
         .widget_count = 2,
         .layout = &g_root_l,
         .focus = &g_focus,
-        .on_widget = w_widget,
         .on_action = w_action,
         .on_key = w_key,
         .on_close = w_close,

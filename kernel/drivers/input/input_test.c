@@ -21,6 +21,7 @@
 #include "keyboard_layout.h" // the parity check asks the LAYOUT what it maps
 #include "kfmt.h"            // klog_printf -- name the unreachable key
 #include "mouse.h"
+#include "irqflags.h"         // irq_save(): the pointer-lock test samples with interrupts off
 #include "tty.h"              // the bypass: which side of the split a key lands on
 #include "win_proto.h"        // the raw event types a compositor is handed
 #include "win_input.h"        // the real drain and queue, for window_events()
@@ -218,10 +219,11 @@ KTEST("input", "a pointer lock holds the pointer and hands over its motion") {
 
     int save_x = 0, save_y = 0, x = 0, y = 0, dx = 0, dy = 0;
     uint8_t buttons = 0;
-    // win_input_poll() runs from scheduler_idle() and drains the same
-    // accumulator, so nothing else runs between a feed and its read; a
-    // compositor's own lock is put back after.
-    scheduler_preempt_disable();
+    // INTERRUPTS OFF: win_input_poll() (from scheduler_idle()) and a
+    // device's IRQ both reach the same accumulator, so nothing feeds or
+    // drains it between a feed here and its read. A compositor's lock is
+    // put back after; motion it had accumulated is dropped, once.
+    uint64_t irqf = irq_save();
     int was_wanted = mouse_rel_wanted();
     mouse_want_rel(0);
     mouse_get_state(&save_x, &save_y, &buttons);
@@ -243,13 +245,31 @@ KTEST("input", "a pointer lock holds the pointer and hands over its motion") {
     mouse_want_rel(0);
     int hx = x, hy = y, hdx = dx, hdy = dy;
 
+    // IN ORDER WITH A CLICK: motion before a button edge travels with that
+    // edge, motion after it stays in the accumulator for after it.
+    mouse_set_position(w / 2, h / 2);
+    mouse_want_rel(1);
+    while (mouse_try_get_button_edge(0, 0, 0)) {}
+    uint8_t held = 0;
+    mouse_get_state(&x, &y, &held);
+    mouse_feed_rel(6, 4);
+    mouse_feed_buttons((uint8_t)(held ^ 0x10));   // the EXTRA button: nothing acts on it here
+    mouse_feed_rel(6, 4);
+    mouse_feed_buttons(held);
+    uint8_t em = 0;
+    int ex = 0, ey = 0, erdx = 0, erdy = 0, e2dx = 1, e2dy = 1, adx = 0, ady = 0;
+    int edge1 = mouse_try_get_button_edge_rel(&em, &ex, &ey, &erdx, &erdy);
+    int edge2 = mouse_try_get_button_edge_rel(&em, &ex, &ey, &e2dx, &e2dy);
+    int rest = mouse_get_rel_delta(&adx, &ady);
+    mouse_want_rel(0);
+
     // Let go: motion moves the pointer again and nothing accumulates.
     mouse_feed_rel(6, 4);
     mouse_get_state(&x, &y, &buttons);
     int after = mouse_get_rel_delta(&dx, &dy);
     mouse_set_position(save_x, save_y);
     mouse_want_rel(was_wanted);
-    scheduler_preempt_enable();
+    irq_restore(irqf);
     // Asserted only now: a failed assert returns, and must not leave
     // preemption off or a compositor's lock cleared.
     KTEST_ASSERT(mx > 0 && my < 0);
@@ -259,6 +279,14 @@ KTEST("input", "a pointer lock holds the pointer and hands over its motion") {
     KTEST_ASSERT_EQ(hdx, 2 * mx);               // the motion, summed
     KTEST_ASSERT_EQ(hdy, 2 * my);
     KTEST_ASSERT_EQ(again, 0);
+    KTEST_ASSERT_EQ(edge1, 1);
+    KTEST_ASSERT_EQ(erdx, mx);                  // the flick before the press...
+    KTEST_ASSERT_EQ(erdy, my);
+    KTEST_ASSERT_EQ(edge2, 1);
+    KTEST_ASSERT_EQ(e2dx, mx);                  // ...the one between press and release...
+    KTEST_ASSERT_EQ(e2dy, my);
+    KTEST_ASSERT_EQ(rest, 0);                   // ...and nothing left after the release
+    KTEST_ASSERT_EQ(adx, 0);
     KTEST_ASSERT_EQ(x, w / 2 + mx);
     KTEST_ASSERT_EQ(after, 0);
 }

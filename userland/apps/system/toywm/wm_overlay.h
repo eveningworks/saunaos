@@ -284,6 +284,8 @@ void wm_overlay_set_parent(const char *name);
 // Is ANY overlay up? What the lease policy asks: an overlay is drawn by
 // this compositor, and a compositor that is not presenting cannot show it.
 int wm_overlay_any_open(void);
+// A menu, flyout, the switcher or the Leave page: an overlay taking the pointer.
+int wm_overlay_takes_pointer(void);
 // A modal overlay is up (the `modal` field): input under it goes nowhere.
 int wm_overlay_modal_open(void);
 // Is the point covered by an open overlay? Then no window under it may

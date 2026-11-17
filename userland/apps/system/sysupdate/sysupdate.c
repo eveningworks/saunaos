@@ -33,7 +33,6 @@
 #include "base/uinitctl.h"
 #include "base/human.h"
 #include "ui/uapp.h"
-#include "base/uopen.h"   // UOPEN_BROWSER
 #include "ui/uui.h"
 #include "ui/uui_label.h"
 #include "ui/uui_markdown.h"
@@ -421,7 +420,7 @@ static void notes_changed(struct uui_webview *v, unsigned what) {
 // A link in the notes to the web opens in the Web Browser.
 static void notes_external(struct uui_webview *v, const char *url) {
     (void)v;
-    if (g_app) uapp_spawn(g_app, UOPEN_BROWSER, url);
+    if (g_app) uapp_open_url(g_app, url);
 }
 
 static const struct uui_webview_host NOTES_HOST = {

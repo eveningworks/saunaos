@@ -738,6 +738,11 @@ void uapp_quit(struct uapp *a, int status);
 // launch, because only it knows what it was trying to start.
 int uapp_spawn(struct uapp *a, const char *path, const char *arg);
 
+// Opens a URL -- base/uopen.h's uopen_url(): http(s) in the Web Browser,
+// file: in the file's own opener -- and has `a` reap what it started.
+// The pid, or negative for a scheme nothing opens or a failed spawn.
+int uapp_open_url(struct uapp *a, const char *url);
+
 // A PROGRAM THE COMPOSITOR STARTS for this one, which may not start one itself (a sandbox without
 // `proc`): argv NULL-terminated, argv[0] the program. The compositor's policy decides what it
 // starts (abi/win_proto.h, WIN_REQ_LAUNCH) -- today only a Win16 program, for w16. The pid, or a
