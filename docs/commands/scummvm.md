@@ -35,7 +35,11 @@ fetches them from another server.
 
 Its list and options are `/home/.config/scummvm/scummvm.ini`, its saves
 `/home/.local/share/scummvm/saves/` -- ScummVM's own rule for
-`XDG_CONFIG_HOME` and `XDG_DATA_HOME`, which `/etc/environment` sets.
+`XDG_CONFIG_HOME` and `XDG_DATA_HOME`, which `/etc/environment` sets (the
+front sets the same defaults when started without them, or ScummVM would
+write its list into its working directory). A game counts as added once
+ScummVM's list names it; a folder ScummVM does not take is offered again
+at the next start, and `dmesg` says `ScummVM did not list <id>`.
 
 ## What it deliberately does not do
 

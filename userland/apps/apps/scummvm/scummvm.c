@@ -7,10 +7,12 @@
 //
 // THE GAMES ARE REGISTERED BY SCUMMVM ITSELF: `scummvm --add --path=DIR`
 // detects a game and writes it to scummvm.ini, so this never writes
-// ScummVM's file. Each game is offered to it ONCE (`added_<id>` in
-// GAMES_CONF): a game the person then removes from ScummVM's list stays
-// removed, and a folder ScummVM cannot detect is not retried every start.
-// That runs a ScummVM per new game, seconds each, so it happens after the
+// ScummVM's file. A game is marked offered (`added_<id>` in GAMES_CONF)
+// once ScummVM's list NAMES it, so one the person then removes from that
+// list stays removed -- and a folder ScummVM did not take is asked again
+// at the next start rather than hidden for good (marking every attempt
+// is how a failed add once kept a game out of the list for ever). That
+// runs a ScummVM per new game, seconds each, so it happens after the
 // card's window has closed, never inside its event loop.
 #include "base/uconf.h"
 #include "base/udatafetch.h"
@@ -129,13 +131,19 @@ static int run_wait(char *const argv[]) {
     return waitpid(pid, &st, 0) == pid && WIFEXITED(st) ? WEXITSTATUS(st) : -1;
 }
 
-// The XDG base directories /etc/environment names, made if missing (a
-// machine updated from before they were shipped): ScummVM makes only its
-// own folder under them, and without them writes scummvm.ini into the
-// working directory.
+// The XDG base directories, SET when the environment lacks them and made
+// when missing (a machine updated from before they were shipped).
+// ScummVM makes only its own folder under them, and without them writes
+// scummvm.ini into its working directory -- where this front never looks,
+// so the game it just added was in a list nobody read. The defaults are
+// /etc/environment's, for a ScummVM started with no environment at all
+// (the kernel shell, the debug console's `sh`).
 static void make_xdg_dirs(void) {
     static const char *const VARS[] = { "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME" };
+    static const char *const DEFAULTS[] = { "/home/.config", "/home/.local/share", "/home/.cache" };
     for (int i = 0; i < 3; i++) {
+        const char *now = getenv(VARS[i]);
+        if (!now || *now != '/') setenv(VARS[i], DEFAULTS[i], 1);
         const char *v = getenv(VARS[i]);
         char *p = v && *v == '/' ? strdup(v) : NULL;
         for (char *s = p ? p + 1 : NULL; s; s = strchr(s + 1, '/')) {
@@ -161,10 +169,15 @@ static void register_games(void) {
             asprintf(&arg, "--path=%s", dir) >= 0) {
             char *argv[] = { SCUMMVM, "--add", arg, NULL };
             int rc = run_wait(argv);
-            char key[48];
-            snprintf(key, sizeof key, "added_%s", GAMES[i].id);
-            uconf_set(GAMES_CONF, key, "yes");
-            ulogf("scummvm: added %s to ScummVM's list (exit %d)\n", GAMES[i].id, rc);
+            if (registered(dir)) {
+                char key[48];
+                snprintf(key, sizeof key, "added_%s", GAMES[i].id);
+                uconf_set(GAMES_CONF, key, "yes");
+                ulogf("scummvm: added %s to ScummVM's list (exit %d)\n", GAMES[i].id, rc);
+            } else {
+                ulogf("scummvm: ScummVM did not list %s (exit %d); asked again next start\n",
+                      GAMES[i].id, rc);
+            }
         }
         free(arg);
         free(dir);

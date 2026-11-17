@@ -273,6 +273,24 @@ def run(dbg, qmp, mirror, tmp):
           str([w["title"] for w in dbg.windows()]))
     check("...and opens no card", not wait_log(dbg, "game data card", 1))
     kill_all(dbg)
+
+    # --- 4b. a folder ScummVM does not take is NOT marked offered -------------
+    # Marking every attempt kept a game out of the list for good once an add
+    # failed; now only a game ScummVM's list names is marked, and the rest are
+    # asked again at the next start.
+    dbg.send("sh mkdir /usr/share/games/bass")
+    dbg.send("sh write /usr/share/games/bass/readme.txt not a game")
+    for attempt in ("first", "second"):
+        dbg.logs("scummvm:", clear=True)
+        dbg.send(f"gui spawn {EXEC}")
+        check(f"a folder ScummVM does not detect is reported, {attempt} start",
+              bool(wait_log(dbg, "ScummVM did not list bass", 60)))
+        poll(lambda: running(dbg), 30)
+        kill_all(dbg)
+    conf = dbg.send("sh cat /etc/scummvm-games.conf") or ""
+    check("...and is never marked offered, so it is asked again", "added_bass" not in conf, conf.strip()[-120:])
+    check("...while Lure, which ScummVM listed, is", "added_lure=yes" in conf, conf.strip()[-120:])
+    dbg.send("sh rm -r /usr/share/games/bass")
     dbg.send("gui spawn /usr/bin/scummvm lure")
     win = poll(lambda: next((w for w in dbg.windows() if w["title"].startswith("Lure of the Temptress")),
                             None), 60, step=0.5)
