@@ -119,6 +119,12 @@ CONTROLS = [
      "uui_scrollbar_flip(content_h(g), g->h, g->scroll), uui_grid_c_bg(g)",
      "g->scroll, uui_grid_c_bg(g)",
      ["scroll"]),
+    # Esc in an open dropdown keeps what the arrows moved to, instead of
+    # the choice the list opened with: the bug this harness found first.
+    ("userland/libs/ui/uui_dropdown.c",
+     "        d->list.selected = d->opened_with;\n",
+     "",
+     ["settings_rows"]),
 ]
 
 

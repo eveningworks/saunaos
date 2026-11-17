@@ -69,6 +69,7 @@ static void dd_place_list(struct uui_dropdown *d) {
 static void dd_open(struct uui_dropdown *d) {
     if (d->open) return;
     d->open = 1;
+    d->opened_with = d->list.selected;
     dd_place_list(d);
     // THE CURRENT CHOICE IS IN VIEW when the list opens, in the middle of
     // it where the ends allow -- Windows' combo box and Qt's both scroll to
@@ -238,7 +239,11 @@ int uui_dropdown_key(struct uui_dropdown *d, int key) {
         if (key > ' ' && key < 0x7F) return uui_listbox_key(&d->list, key);
         return 0;
     }
-    if (key == 0x1B) { dd_close(d); return 1; }             // Esc dismisses
+    if (key == 0x1B) {                                        // Esc cancels
+        d->list.selected = d->opened_with;
+        dd_close(d);
+        return 1;
+    }
     if (key == '\n' || key == '\r') { dd_close(d); return 1; } // Enter commits
     return uui_listbox_key(&d->list, key);
 }

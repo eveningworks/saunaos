@@ -37,6 +37,9 @@ struct uui_dropdown {
     // in-window. OWNED; every open/close goes through dd_open/dd_close
     // so the surface cannot outlive the `open` flag.
     int popup;
+    // The choice when the list opened: what Esc puts back after the
+    // arrows have moved it, as a Windows combo box and Qt's do. OWNED.
+    int opened_with;
     // A press that can end in a choice: one in the list, or the one that
     // opened it (press on the box, drag into the list, release). The
     // choice is made on RELEASE -- a press-commit closed the popup under
