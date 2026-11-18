@@ -890,15 +890,18 @@ static void on_window_present(int pid, uint32_t id, int front, uint32_t gen,
 // abi/win_proto.h's WIN_REQ_WIDGET -- a compositor cannot see inside a
 // window, so this is the client exporting its own tree the way an
 // AT-SPI client does.
+// The batch goes into `widgets_pending`; readers see `widgets`, which
+// only a COMMIT replaces.
 static void on_widget_reset(int pid, uint32_t id) {
     int idx = find_client_window(pid, id);
     if (idx < 0) return;
     struct window *w = &windows[idx];
-    if (!w->widgets) {
-        w->widgets = malloc(sizeof *w->widgets * WIN_WIDGET_MAX);
-        if (!w->widgets) return;   // debug data; a machine short of memory
-    }                              // has better uses for it than this
-    w->widget_count = 0;
+    if (!w->widgets_pending) {
+        w->widgets_pending = malloc(sizeof *w->widgets_pending * WIN_WIDGET_MAX);
+        if (!w->widgets_pending) return;   // debug data; a machine short of memory
+    }                                      // has better uses for it than this
+    w->pending_count = 0;
+    w->pending_open = 1;
 }
 
 static void on_widget(int pid, uint32_t id, const struct wmchan_msg *m) {
@@ -908,8 +911,8 @@ static void on_widget(int pid, uint32_t id, const struct wmchan_msg *m) {
     // NO RESET SEEN YET, so there is nowhere to put it. Dropping is
     // right: a map that began mid-batch would be a partial set claiming
     // to be whole.
-    if (!w->widgets || w->widget_count >= WIN_WIDGET_MAX) return;
-    struct wm_widget *e = &w->widgets[w->widget_count++];
+    if (!w->pending_open || w->pending_count >= WIN_WIDGET_MAX) return;
+    struct wm_widget *e = &w->widgets_pending[w->pending_count++];
     unsigned k = 0;
     while (m->text[k] && k < sizeof e->name - 1) { e->name[k] = m->text[k]; k++; }
     e->name[k] = '\0';
@@ -917,6 +920,20 @@ static void on_widget(int pid, uint32_t id, const struct wmchan_msg *m) {
     e->y = m->b;
     e->w = WIN_WIDGET_W(m->c);
     e->h = WIN_WIDGET_H(m->c);
+}
+
+// Swapped, not copied: the old map's buffer is the next batch's.
+static void on_widget_commit(int pid, uint32_t id, int sent) {
+    int idx = find_client_window(pid, id);
+    if (idx < 0) return;
+    struct window *w = &windows[idx];
+    if (!w->pending_open) return;
+    w->pending_open = 0;
+    if (w->pending_count != sent) return;   // a rect lost on the way: keep the old map
+    struct wm_widget *old = w->widgets;
+    w->widgets = w->widgets_pending;
+    w->widget_count = w->pending_count;
+    w->widgets_pending = old;
 }
 
 static void on_window_destroyed(int pid, uint32_t id) {
@@ -1748,6 +1765,10 @@ static void req_widget(int from, struct wmchan_msg *m) {
     on_widget(from, m->window, m);
 }
 
+static void req_widget_commit(int from, struct wmchan_msg *m) {
+    on_widget_commit(from, m->window, m->a);
+}
+
 static void req_timer(int from, struct wmchan_msg *m) {
     if (wm_bg_timer(from, m->window, (unsigned)m->a)) return;
     on_window_timer(from, m->window, (unsigned)m->a);
@@ -1858,6 +1879,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_DESTROY] = req_destroy,
     [WIN_REQ_WIDGET_RESET] = req_widget_reset,
     [WIN_REQ_WIDGET] = req_widget,
+    [WIN_REQ_WIDGET_COMMIT] = req_widget_commit,
     [WIN_REQ_TIMER] = req_timer,
     [WIN_REQ_INHIBIT_SHORTCUTS] = req_inhibit_shortcuts,
     [WIN_REQ_CARET_RECT] = req_caret_rect,

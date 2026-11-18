@@ -73,6 +73,12 @@ struct window {
     // the ordinary state and every reader checks it.
     struct wm_widget *widgets;
     int widget_count;
+    // The batch being received (WIN_REQ_WIDGET_RESET .. _COMMIT), swapped
+    // with `widgets` at the commit; readers never look at it.
+    struct wm_widget *widgets_pending;
+    int pending_count;
+    uint8_t pending_open;                  // a RESET seen, its COMMIT not yet
+
     int x, y, w, h;                        // current geometry, screen coords,
                                             // (x,y) = top-left incl. title bar
     int saved_x, saved_y, saved_w, saved_h; // geometry to restore to after

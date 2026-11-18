@@ -1413,16 +1413,23 @@ struct win_popup_pos {
 // already has `uui_describe.h`, modelled on QAccessible/AT-SPI, where
 // every widget reports its own bounds by name.
 //
-// RESET THEN N RECTS, and the set replaces whatever the window had.
-// Sent only when the map CHANGES, which is a resize or a layout swap --
-// not per frame. A dropped message (a full inbox) costs an out-of-date
-// map until the next change; this is debug data and nothing decides
-// anything on it, which is why it does not round-trip.
-#define WIN_REQ_WIDGET_RESET 37 // `window`: whose map to empty.
+// RESET, N RECTS, COMMIT -- DOUBLE-BUFFERED, as Wayland's surface state
+// is applied at wl_surface.commit: the compositor builds a PENDING map
+// and swaps it in whole at the commit, so `gui widgets` never answers
+// from a batch half received (it did, and a test read a three-widget
+// map as the window's whole). Sent only when the map CHANGES, which is
+// a resize or a layout swap -- not per frame. A dropped message (a full
+// inbox) costs an out-of-date map until the next change, never a torn
+// one; this is debug data, which is why it does not round-trip.
+#define WIN_REQ_WIDGET_RESET 37 // `window`: whose PENDING map to start.
 #define WIN_REQ_WIDGET     38 // `window`: whose. a, b: x, y. c: w and h
                            // packed, WIN_WIDGET_WH(). text: the name,
                            // from uui_item.name -- the app's own word
                            // for it, which is what a test already uses.
+#define WIN_REQ_WIDGET_COMMIT 56 // `window`: whose. a: how many rects the
+                           // batch sent. The pending map replaces the
+                           // window's only when it holds exactly that
+                           // many -- a batch that lost one is dropped.
 #define WIN_WIDGET_WH(w, h) (int32_t)(((w) << 16) | ((h) & 0xffff))
 #define WIN_WIDGET_W(c)     (int)(((uint32_t)(c) >> 16) & 0xffff)
 #define WIN_WIDGET_H(c)     (int)((uint32_t)(c) & 0xffff)

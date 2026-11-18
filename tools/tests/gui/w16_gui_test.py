@@ -3023,14 +3023,16 @@ def retro_round(dbg, qmp, res):
         dbg.settle()
         if ok:
             dbg.click(*at(ok))
-        poll(lambda: dbg.window(OPTIONS_TITLE) is None, 6)
+        closed = poll(lambda: dbg.window(OPTIONS_TITLE) is None, 6)
+        said = dbg.logs("retrolauncher options:", clear=False)
+        now = (dbg.window(OPTIONS_TITLE) or {}).get("content")
         # The file may land after the window goes: polled on what is asserted.
         saved = lambda c: "cd_drives=D" in c and "label_d=DK1" in c
         conf = poll(lambda: (lambda c: c if saved(c) else None)(sh(dbg, f"cat {WIN16_CONF}")), 6) \
             or sh(dbg, f"cat {WIN16_CONF}")
         res.check("OK saves D:'s Type and Label: cd_drives=D, label_d=DK1",
                   "cd_drives=D" in conf and "label_d=DK1" in conf,
-                  f"the file {conf!r}; type {ty} label {lb} ok {ok}")
+                  f"the file {conf!r}; type {ty} label {lb} ok {ok}; closed {closed}, said {said[-4:]}; origin {(oc['x'], oc['y'])} now {now and (now['x'], now['y'])}")
     if dbg.window(OPTIONS_TITLE):
         dbg.close_window(OPTIONS_TITLE)
     dbg.close_window("Retro Launcher")
@@ -3155,7 +3157,13 @@ def missing_dll(dbg, qmp, res):
     lines = layout_lines(dbg, "retrolauncher", lambda a: any(want in ln for ln in a), 20)
     res.check("the panel says what it needs, and Run is greyed: " + want.split("|")[1],
               any(want in ln for ln in lines), f"{[ln for ln in lines if 'layout needs' in ln][-2:]}")
-    w = dbg.wait_widget("Retro Launcher", "add-file") and dbg.widgets("Retro Launcher")
+    # The map for THIS size: the window reopens at its remembered width, and that map holds add-file
+    # too, at a place the 1100-wide frame does not draw it.
+    def sized():
+        win, m = dbg.window("Retro Launcher"), dbg.widgets("Retro Launcher")
+        a = m.get("add-file")
+        return m if win and a and a["x"] + a["w"] <= win["content"]["w"] == 1100 else None
+    w = dbg.wait_widget("Retro Launcher", "add-file") and (poll(sized, 6) or dbg.widgets("Retro Launcher"))
     add, run = (w or {}).get("add-file"), (w or {}).get("run")
     im = shot(qmp, os.path.join(TMP, "w16_launcher_needs.png"))
     accent = add and button_px(im, add)
@@ -3170,7 +3178,9 @@ def missing_dll(dbg, qmp, res):
                   f"chooser {ok} {dbg.logs('retrolauncher: add', clear=False)[-2:]}")
         dbg.send("gui resize 1100 641")          # a fresh frame, so the layout is reported again
         lines = layout_lines(dbg, "retrolauncher", lambda a: any("layout needs 0 - run enabled" in ln for ln in a), 15)
-        w = dbg.widgets("Retro Launcher")
+        # The map comes over another wire than the log, after the draw: waited for on what is asserted.
+        ready = lambda m: m if "run" in m and "add-file" not in m else None
+        w = poll(lambda: ready(dbg.widgets("Retro Launcher")), 6) or dbg.widgets("Retro Launcher")
         res.check("...then the row goes and Run is enabled", any("layout needs 0 - run enabled" in ln for ln in lines)
                   and "add-file" not in w, f"{[ln for ln in lines if 'layout needs' in ln][-2:]} widgets {sorted(w)}")
         im = shot(qmp, os.path.join(TMP, "w16_launcher_ready.png"))

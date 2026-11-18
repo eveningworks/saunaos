@@ -9379,8 +9379,20 @@ concurrent ping. Adding a WM-initiated question would have meant either
 a new `WIN_EV_*`/`WIN_REQ_*` pair correlated by a serial (the
 PING/PONG pattern, the only precedent) or a second reply slot in
 `uchan_page.h`. Both are real machinery for debug data. The client
-already knows its rects, so it sends them: `WIN_REQ_WIDGET_RESET` then
-N × `WIN_REQ_WIDGET`, and the compositor keeps the set per window.
+already knows its rects, so it sends them: `WIN_REQ_WIDGET_RESET`, then
+N × `WIN_REQ_WIDGET`, then `WIN_REQ_WIDGET_COMMIT` carrying N, and the
+compositor keeps the set per window.
+
+**Double-buffered, as Wayland applies surface state at
+`wl_surface.commit`.** The batch fills a PENDING map that the commit swaps
+in whole, and only when it holds exactly N. Before the commit existed the
+compositor emptied the map at the reset and appended each rect, so a `gui
+widgets` landing mid-batch answered a partial map that claimed to be whole:
+w16_gui_test read `menu`, `toolbar` as the launcher's entire map and failed
+on a missing Run button (3 runs in 19). A count in the reset, with no new
+message, was the smaller alternative; it was passed over because a short
+batch would then never publish and need handling of its own, where a
+commit that does not match simply keeps the old map.
 
 **Sent only when the map CHANGES.** The toolkit walks its named items
 every frame -- a few dozen pointer dereferences and no formatting -- and
@@ -9397,8 +9409,8 @@ bare-metal laptop by a test tool, which turned one boot's persistent log
 into 183 KiB of layout lines, eleven times its neighbours. A debugging
 facility that floods the evidence is the wrong trade twice over.
 
-**A dropped message costs an out-of-date map and nothing else.** It does
-not round-trip and nothing decides anything on it; the next layout
+**A dropped message costs an out-of-date map and nothing else** -- never
+a torn one. It does not round-trip and nothing decides anything on it; the next layout
 change replaces the set. `WIN_WIDGET_MAX` bounds one window's map at 48,
 and the allocation is made on first report rather than living in every
 `struct window`, because most windows never report one -- a

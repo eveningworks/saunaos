@@ -498,6 +498,48 @@ def check_widget_map(d):
     cx, cy = d.dbg.widget_center(name, "UI Demo")
     got = d.dbg.widget_at(cx, cy)
     d.check_is(f"gui probe at {name}'s centre names {name}", got == name, got)
+    check_map_whole(d)
+
+
+def check_map_whole(d, rounds=40):
+    """A map read while the client resends it is the old one or the new
+    one, never part of a batch (abi/win_proto.h, WIN_REQ_WIDGET_COMMIT).
+
+    On Retro Launcher, not UI Demo: UI Demo's layout does not stretch, so
+    a resize sends it no new map and there is nothing to tear. Two sizes,
+    each map taken settled; then every resize is read at once, no settle,
+    as a test reading the map after a log line does. A torn read names
+    fewer widgets than the whole map (164 reads in 450 before the commit)."""
+    title = "Retro Launcher"
+    if not d.dbg.spawn("/bin/wm/apps/retrolauncher", title):
+        d.check_is("Retro Launcher opens for the map check", False)
+        return
+    d.dbg.settle()
+    win = d.dbg.window(title)
+    w0, h0 = win["content"]["w"], win["content"]["h"]
+    sizes = [(w0, h0), (w0 + 64, h0 + 48)]
+    rects, names = [], []
+    for w, h in sizes:
+        d.dbg.send(f"gui resize {w} {h}")
+        d.dbg.settle()
+        m = d.dbg.widgets(title)
+        rects.append(sorted((k, v["x"], v["y"], v["w"], v["h"]) for k, v in m.items()))
+        names.append(frozenset(m))
+    d.check_is("a resize sends the launcher a new map: the two sizes' rects differ",
+               names[0] and rects[0] != rects[1], f"{rects}")
+    torn, reads = [], 0
+    for i in range(rounds):
+        w, h = sizes[i % 2]
+        d.dbg.send(f"gui resize {w} {h}")
+        for _ in range(3):
+            got = frozenset(d.dbg.widgets(title))
+            reads += 1
+            if got not in names:
+                torn.append(sorted(got))
+    d.dbg.close_window(title)
+    d.check_is(f"{rounds} resizes: every one of {reads} map reads is a whole one",
+               names[0] and not torn,
+               f"{len(torn)} torn, first {torn[:1]}; whole {[len(s) for s in names]}")
 
 
 def check_containment(d, qmp, tmp):

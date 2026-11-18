@@ -244,6 +244,7 @@ void wmap_sync(struct uapp *a) {
                     WIN_WIDGET_WH(e->w, e->h), e->name);
         g_wmap_sent[i] = *e;
     }
+    wmchan_send(WIN_REQ_WIDGET_COMMIT, a->window, g_wmap_n, 0, 0, 0);
     g_wmap_sent_n = g_wmap_n;
 }
 

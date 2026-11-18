@@ -919,8 +919,12 @@ void close_window(int idx) {
     // pointer with the next window's. Freed here or it leaks one
     // allocation per window closed, forever.
     free(windows[idx].widgets);
+    free(windows[idx].widgets_pending);
     windows[idx].widgets = 0;
+    windows[idx].widgets_pending = 0;
     windows[idx].widget_count = 0;
+    windows[idx].pending_count = 0;
+    windows[idx].pending_open = 0;
     wm_window_free_text(&windows[idx]);
 
     for (int i = idx; i < window_count - 1; i++) windows[i] = windows[i + 1];

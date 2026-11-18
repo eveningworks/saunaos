@@ -258,10 +258,14 @@ from the default (a sound card, a USB mouse, `--reboot`).
   THEME_BUTTON_BG, which only ever worked for a Yes/No dialog and
   cannot measure the wider "Force Quit"/"Wait" one.
 - **`uidemo_test.py`** -- drives UI Demo's widgets and asserts on its
-  log (27 checks: click selection, cancel paths, keyboard navigation,
+  log (click selection, cancel paths, keyboard navigation,
   Tab/Shift-Tab focus cycling, Space activating a focused button,
   wheel-scrolls-without-selecting, the dropdown popup's open/commit/
-  dismiss/Esc, and keyboard focus). Exits non-zero on a failed check.
+  dismiss/Esc, and keyboard focus), and the WIDGET MAP: `gui widgets`
+  against the layout log, and on Retro Launcher -- whose layout
+  stretches, where UI Demo's does not -- that a map read during
+  back-to-back resizes is never part of a batch
+  (`WIN_REQ_WIDGET_COMMIT`). Exits non-zero on a failed check.
   Run it after touching anything in `apps/ui/`. Geometry comes from the
   app's own `uidemo: layout ...` lines rather than from re-deriving row
   offsets in Python -- the Python copy drifts silently the moment a row
