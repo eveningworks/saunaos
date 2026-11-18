@@ -1229,6 +1229,27 @@ freezes the `time.sleep(` calls already in `tools/tests/*/*_test.py` (a ratchet,
 2026-10-29) and refuses a new one; a sleep that IS the test -- real time
 passing, a rate measured -- says so with `# sleep-ok: <why>`.
 
+**`settle()` waits for the app to be IDLE and no longer adds a pause**
+(2026-11-18), so a test that leaned on a pause now races. The shapes that
+did, each closed by a helper:
+
+- **A check of guest state AFTER AN ACTION waits for it**:
+  `Results.check_eventually(name, probe, ok)` (Qt's `QTRY_VERIFY`) or
+  `harness.poll()` on the very condition asserted. A poll on something
+  WEAKER -- any new window, when the assertion is about its title; a
+  layout that already had the field -- returns early.
+- **Two wires have no order**: a line in the kernel log (the app's layout
+  log) says nothing about the WM's widget map. `settle()` before reading
+  one after the other -- the sync answer follows the map on the app's
+  channel.
+- **A program with no window** finishes unseen by any sync:
+  `dbg.run_and_wait(command)` waits for it to exit.
+- **Work in another process** (fontd re-rendering for a scale): wait for
+  its result where it shows (`wait_scale()`).
+
+An app's own background work is the toolkit's to count, not the test's:
+`uapp_work_begin()`, the wait cursor, `uapp_set_idle_check()` (`docs/testing.md`).
+
 ## A TEST'S FOLDER IS ITS RUNNER, AND A TOOL IS NAMED BY BASENAME, NEVER BY A PATH BUILT FROM ITS FOLDER
 
 `tools/` is split by role (`docs/tools.md`, "How tools/ is laid out").

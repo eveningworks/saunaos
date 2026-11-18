@@ -209,10 +209,9 @@ def main():
     # moving -- taking it afterwards would race the app's own repaint.
     ref = out("qmp_ref.png")
     qmp.screenshot(ref)
-    dbg.send(f"sh spawn /bin/screenshot {SHOT_DIR}/t.qoi")
     # A PROGRAM WITH NO WINDOW: no sync can see it finish, so wait for it
     # to exit -- its file is written in place, and whole only then.
-    poll(lambda: not dbg.processes_named("screenshot"), 15)
+    dbg.run_and_wait(f"/bin/screenshot {SHOT_DIR}/t.qoi")
     dbg.send("sh sync")
     time.sleep(0.3)
 
@@ -241,8 +240,7 @@ def main():
           f"{incur} pixels differ inside the pointer")
 
     # --- 2. --pointer puts it back -------------------------------------
-    dbg.send(f"sh spawn /bin/screenshot -p {SHOT_DIR}/p.qoi")
-    poll(lambda: not dbg.processes_named("screenshot"), 15)   # no window: wait for it to exit
+    dbg.run_and_wait(f"/bin/screenshot -p {SHOT_DIR}/p.qoi")
     dbg.send("sh sync")
     time.sleep(0.3)
     pgot = out("guest_ptr.qoi")
@@ -267,8 +265,7 @@ def main():
     wins = [w for w in dbg.windows() if w["title"] == "Calculator"]
     if check("Calculator opened, to capture", len(wins) == 1):
         w = wins[0]
-        dbg.send(f"sh spawn /bin/screenshot -w {SHOT_DIR}/w.qoi")
-        poll(lambda: not dbg.processes_named("screenshot"), 15)   # no window: wait for it to exit
+        dbg.run_and_wait(f"/bin/screenshot -w {SHOT_DIR}/w.qoi")
         dbg.send("sh sync")
         time.sleep(0.3)
         wgot = out("guest_win.qoi")

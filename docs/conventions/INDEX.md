@@ -1341,7 +1341,8 @@ whenever a headline here tells you something you did not already know.
   THE DISK IMAGE TAKES THEM** -- `make iso TODISK=1`, never the live ISO or
   the USB image
 - **A TEST WAITS ON WHAT IT ASSERTS, NEVER A GUESSED INTERVAL -- AND A TEST
-  TOOL MAY NOT GAIN A FIXED SLEEP** (`settle()` syncs, `harness.poll()`,
+  TOOL MAY NOT GAIN A FIXED SLEEP** (`settle()` waits for idle,
+  `check_eventually()`, `run_and_wait()`, `harness.poll()`,
   `check_test_sleeps.py`)
 - **A TEST'S FOLDER IS ITS RUNNER, AND A TOOL IS NAMED BY BASENAME**
   (`tools/tests/<runner>/` + a `RUNNER` header; `toolpath.tool("vm.py")`,

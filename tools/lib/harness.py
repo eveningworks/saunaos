@@ -59,6 +59,21 @@ class Results:
 
     ok = check
 
+    def check_eventually(self, name, probe, ok=bool, timeout=5.0, detail=None):
+        """QTRY_VERIFY's shape: ask `probe()` until `ok(value)` holds or
+        `timeout` passes, then record. THE WAY TO CHECK GUEST STATE AFTER AN
+        ACTION -- a value read once can land before the app moved, which is
+        the flake a fixed pause used to hide. `detail(value)` (else repr)
+        says what was seen last; returns the last value."""
+        import time
+        deadline = time.time() + timeout
+        v = probe()
+        while not ok(v) and time.time() < deadline:
+            time.sleep(0.05)
+            v = probe()
+        self.check(name, ok(v), (detail(v) if detail else repr(v)[:200]))
+        return v
+
     def skip(self, name, why):
         """A check this run could not judge -- SAID, never silently dropped."""
         self.skips.append((name, why))

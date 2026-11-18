@@ -93,7 +93,9 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   a RAM-backed `/tmp`, and one that filled up on 2026-11-14 paused
   guests mid-test -- apps whose windows never opened, read as GUI bugs
   in two full runs. `--sleep-profile DIR` times every tool's
-  `time.sleep()` by call site (`tools/lib/sleep_profile.py` ranks them).
+  `time.sleep()` by call site (`tools/lib/sleep_profile.py` ranks them);
+  `--repeat N` runs each picked tool N times, each on its own guest, and
+  tallies them -- a flake's rate, measured on purpose.
   This is the standard check
   after touching `apps/ui/`, `userland/`, or anything the WM draws.
   Tools are **STARTED longest-first** (`pick_order()`), because a

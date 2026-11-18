@@ -281,6 +281,41 @@ def show_matches(rows, pattern):
     return 0
 
 
+def flaky(rows, days, min_runs=2, clean=False):
+    """Every check that failed at least once in the last `days` days, with
+    its rate over THAT TOOL's runs in the window -- a flake measured, not
+    remembered. A run that never got as far as the check still counts as
+    a run, so a rate is a floor, and a check that fails every time is
+    listed too: it is broken, not flaky, and the rate says which."""
+    import time as _t
+    cutoff = _t.time() - days * 86400
+    def when(r):
+        try:
+            return _t.mktime(_t.strptime(r.get("time", "")[:19], "%Y-%m-%dT%H:%M:%S"))
+        except ValueError:
+            return 0
+    window = [r for r in rows if when(r) >= cutoff and r.get("verdict") in ("PASS", "FAIL")
+              and r.get("tool") != "gui_regress" and not (clean and r.get("dirty"))]
+    runs, fails, last, commits = {}, {}, {}, {}
+    for r in window:
+        runs[r["tool"]] = runs.get(r["tool"], 0) + 1
+        for f in set(check_name(x) for x in r.get("failures") or []):
+            k = (r["tool"], f)
+            fails[k] = fails.get(k, 0) + 1
+            last[k] = r.get("time", "")[:16]
+            commits.setdefault(k, set()).add(r.get("commit", "?"))
+    out = sorted(((fails[k] / runs[k[0]], k) for k in fails if runs[k[0]] >= min_runs), reverse=True)
+    if not out:
+        print(f"test_history: no check failed in the last {days} day(s)")
+        return 0
+    print(f"checks that failed in the last {days} day(s), by rate over their tool's runs:")
+    for rate, (tool, check) in out:
+        n = fails[(tool, check)]
+        print(f"  {100 * rate:5.1f}%  {n:3d}/{runs[tool]:<3d} {tool:<24} {check[:70]}"
+              f"   last {last[(tool, check)]}, {len(commits[(tool, check)])} commit(s)")
+    return 0
+
+
 def show_log(d, rows, run_id):
     r = next((r for r in rows if r["id"] == run_id or r["id"].startswith(run_id)), None)
     if not r:
@@ -344,6 +379,11 @@ def main():
     ap.add_argument("--show", metavar="ID", help="print one run's record and log")
     ap.add_argument("--json", action="store_true", help="the matching records, one JSON object a line")
     ap.add_argument("--selftest", action="store_true", help="check this module against a scratch store")
+    ap.add_argument("--flaky", type=float, nargs="?", const=7, metavar="DAYS",
+                    help="every check that failed in the last DAYS days (default 7), by its rate")
+    ap.add_argument("--clean", action="store_true",
+                    help="with --flaky: only runs of a committed tree -- not a test being written "
+                         "or a positive control's break")
     a = ap.parse_args()
     if a.selftest:
         return selftest()
@@ -360,6 +400,8 @@ def main():
         for r in rows[-a.last:]:
             print(json.dumps(r))
         return 0
+    if a.flaky is not None:
+        return flaky(rows, a.flaky, clean=a.clean)
     if a.pattern:
         return show_matches(rows, a.pattern)
     if not rows:

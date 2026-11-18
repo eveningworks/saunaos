@@ -607,6 +607,9 @@ def run():
                          "instead of QEMU guests (serial, one machine; see "
                          "tools/lib/remote_gui.py). local_info.txt has the addresses")
     ap.add_argument("--list", action="store_true", help="list the tools and exit")
+    ap.add_argument("--repeat", type=int, default=1, metavar="N",
+                    help="run each picked tool N times, each on its own guest -- a flake's "
+                         "rate, measured (test_history.py --flaky)")
     ap.add_argument("--sleep-profile", metavar="DIR", default=None,
                     help="time every tool's time.sleep() calls by call site into DIR; "
                          "tools/lib/sleep_profile.py DIR ranks them")
@@ -636,6 +639,18 @@ def run():
     if not picked:
         print(f"gui_regress: nothing matched {args.only}")
         return 2
+    # --repeat N: each tool N times, as tasks of their own ("name.2"), so
+    # a flake is MEASURED as a rate (test_history.py --flaky reads them).
+    if args.repeat > 1:
+        rep = []
+        for name, script, what in picked:
+            for i in range(1, args.repeat + 1):
+                rep.append((f"{name}.{i}", script, what))
+                if name in EXTRA_VM_ARGS:
+                    EXTRA_VM_ARGS[f"{name}.{i}"] = EXTRA_VM_ARGS[name]
+                if name in COST_S:
+                    COST_S[f"{name}.{i}"] = COST_S[name]
+        picked = rep
 
     if args.logs:
         os.makedirs(args.logs, exist_ok=True)
@@ -751,6 +766,14 @@ def run():
         print(f"  {status:<5} {name:<12} {secs:5.0f}s  {summary}")
 
     report_skips(results)
+    if args.repeat > 1:
+        print("\ngui_regress: per tool, of %d runs each:" % args.repeat)
+        tally = {}
+        for name, status, _secs, _summary in results:
+            base = name.rsplit(".", 1)[0]
+            tally.setdefault(base, [0, 0])[status == "FAIL"] += 1
+        for base, (ok, bad) in sorted(tally.items()):
+            print(f"  {base:<14} {ok} passed, {bad} failed")
     failed = [r[0] for r in results if r[1] == "FAIL"]
     if failed:
         print(f"\ngui_regress: FAILED -- {', '.join(failed)}")

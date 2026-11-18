@@ -760,6 +760,19 @@ class DebugConsole:
                          "state": f[3], "cpu": cpu, "name": f[-1]})
         return rows
 
+    def run_and_wait(self, command, timeout=30.0):
+        """`sh spawn` a program with NO WINDOW and wait for it to exit --
+        no sync can see one finish (it has no client to ask), so a test
+        that only settles reads its output before it is written. True
+        once it is gone; False if it did not start or outlived `timeout`."""
+        from harness import poll
+        m = re.search(r"started as pid (\d+)", self.send(f"sh spawn {command}") or "")
+        if not m:
+            return False
+        pid = int(m.group(1))
+        return bool(poll(lambda: not any(p["pid"] == pid and p["state"] != "zombie"
+                                         for p in self.processes()), timeout))
+
     def processes_named(self, prefix, include_zombies=False):
         """Every process whose name starts with `prefix`. Zombies are
         excluded by default -- see processes()."""

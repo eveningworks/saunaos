@@ -793,6 +793,13 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
       python3 tools/lib/test_history.py "sched_test.c:114"  # first/last seen, by commit, hosts
       python3 tools/lib/test_history.py --tool ktest_run --last 50
       python3 tools/lib/test_history.py --show <id>         # one run's record and log
+      python3 tools/lib/test_history.py --flaky 7 --clean   # every check that failed this week, by rate
+
+  `--flaky DAYS` lists each check that failed in the window with its rate
+  over that tool's runs, its last failure and how many commits it failed
+  at; `--clean` counts only runs of a committed tree, leaving out a test
+  being written and a positive control's break. Pair it with
+  `gui_regress.py --repeat N` to measure one on purpose.
 
   When a run fails, it prints a `history:` line per failed check: how
   many of the tool's last 20 runs failed it, and when the tool last
