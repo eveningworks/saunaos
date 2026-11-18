@@ -9,8 +9,8 @@ what earns a comment its length).
 
 WHY THIS IS A TOOL AND NOT A `wc -l`. The answer depends entirely on
 knowing which files are GENERATED, and that list is not guessable:
-kernel/drivers/font_ttf.c alone is ~16,700 lines of baked glyph tables
-from tools/gen/genttf.py, which is a fifth of the whole tree and says
+kernel/drivers/font_ttf.c alone is baked glyph tables from
+tools/gen/genttf.py, more lines than the rest of the kernel, and says
 nothing about how much code anyone wrote. The list lives in GENERATED
 below; anything tools/gen_*.py writes into the source tree belongs in
 it.
@@ -24,11 +24,12 @@ them.
     python3 tools/dev/loc.py --by-dir     # one row per top-level directory
     python3 tools/dev/loc.py --files 20   # the twenty largest files
 
-Counts C, headers, NASM, GAS, Python and shell. Skips build/, .git/,
-iso/ and data/ (binary artefacts and disk images).
+Counts C, headers, NASM, GAS, Python and shell, in TRACKED files only
+(git ls-files), skipping build/, iso/ and data/.
 """
 import argparse
 import os
+import subprocess
 
 import sys  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
@@ -51,9 +52,13 @@ GENERATED = {
     "userland/libs/media/usnd_mp3_tables.h",   # tools/gen/gen_mp3_tables.py -- ISO's
                                         # Layer III tables, recovered and
                                         # cross-checked rather than written
+    "userland/libs/base/uwcwidth_table.h",  # tools/gen/gen_wcwidth.py
+    "userland/libs/base/uemoji_table.h",    # tools/gen/gen_emojidata.py
+    "userland/libs/libc/math_tables.h",     # tools/gen/gen_libm_tables.py
 }
 
-SKIP_DIRS = {"build", ".git", "iso", "data"}
+# Directories whose tracked contents are not source (disk images, staged data).
+SKIP_DIRS = {"build", "iso", "data"}
 
 
 def strip_c(text):
@@ -122,24 +127,32 @@ def nonblank(text):
     return sum(1 for line in text.splitlines() if line.strip())
 
 
+def tracked():
+    """Every TRACKED file, relative to ROOT.
+
+    **GIT'S LIST, NOT THE DIRECTORY TREE.** A walk counts what a build
+    left behind -- toolchain/'s GCC sources and builds, seed/'s staging
+    -- which once reported two million lines of other people's code as
+    "written here"."""
+    out = subprocess.run(["git", "-C", ROOT, "ls-files", "-z"],
+                         capture_output=True, check=True).stdout
+    return [f for f in out.decode(errors="replace").split("\0") if f]
+
+
 def walk():
     """(rel, kind, code, raw) for every counted file."""
-    for dirpath, dirnames, filenames in os.walk(ROOT):
-        dirnames[:] = [d for d in dirnames
-                       if d not in SKIP_DIRS and not d.startswith(".")]
-        for fn in sorted(filenames):
-            rel = os.path.relpath(os.path.join(dirpath, fn), ROOT)
-            if rel in GENERATED:
-                continue
-            kind_strip = KINDS.get(os.path.splitext(fn)[1])
-            if not kind_strip:
-                continue
-            kind, strip = kind_strip
-            try:
-                text = open(os.path.join(dirpath, fn), errors="replace").read()
-            except OSError:
-                continue
-            yield rel, kind, nonblank(strip(text)), nonblank(text)
+    for rel in sorted(tracked()):
+        if rel in GENERATED or rel.split("/")[0] in SKIP_DIRS:
+            continue
+        kind_strip = KINDS.get(os.path.splitext(rel)[1])
+        if not kind_strip:
+            continue
+        kind, strip = kind_strip
+        try:
+            text = open(os.path.join(ROOT, rel), errors="replace").read()
+        except OSError:
+            continue
+        yield rel, kind, nonblank(strip(text)), nonblank(text)
 
 
 def main():

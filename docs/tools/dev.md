@@ -660,9 +660,12 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   generated files, comments and blank lines all excluded, and the
   with-comments figure beside it. Not `wc -l`, because the answer
   depends entirely on knowing which files are GENERATED and that list is
-  not guessable -- `kernel/drivers/font_ttf.c` alone is ~16,700 lines of
-  baked glyph tables from `genttf.py`, a fifth of the tree, and says
-  nothing about how much code anyone wrote. The list is `GENERATED` at
+  not guessable -- `kernel/drivers/font_ttf.c` alone is baked glyph
+  tables from `genttf.py`, more than the rest of the kernel, and says
+  nothing about how much code anyone wrote. **It counts TRACKED files
+  only** (`git ls-files`): a directory walk counted `toolchain/`'s GCC
+  trees and `seed/`'s staging as two million lines "written here".
+  `--by-origin` splits what was written here from the vendored ports. The list is `GENERATED` at
   the top of the script; **anything a `tools/gen_*` writes into the
   source tree has to be added to it**, since a missed entry inflates the
   count silently, which is this script's one failure mode. Its comment
