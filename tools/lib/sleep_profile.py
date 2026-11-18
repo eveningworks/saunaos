@@ -43,7 +43,7 @@ def install(directory):
     _sites = {}   # (thread kind, caller, test line) -> [count, seconds]
 
     def _where(code, line):
-        path = code.co_filename
+        path = os.path.normpath(code.co_filename)
         i = path.find("/tools/")
         return f"{path[i + 1:] if i >= 0 else os.path.basename(path)}:{line}:{code.co_name}"
 
@@ -58,7 +58,9 @@ def install(directory):
             test = None
             g = f
             while g is not None:
-                if "/tools/tests/" in g.f_code.co_filename:
+                # NORMALISED: a library reached as tools/tests/gui/../../lib
+                # is not a test line.
+                if "/tools/tests/" in os.path.normpath(g.f_code.co_filename):
                     test = _where(g.f_code, g.f_lineno)
                     break
                 g = g.f_back
