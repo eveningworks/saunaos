@@ -373,14 +373,14 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [x] ~~Decide the internal representation~~ DONE 2026-10-28 -- UTF-8 in every `char *`, decoded at the edges
 - [x] ~~Column width vs byte length vs codepoint count~~ DONE 2026-10-28 -- `utext`, the terminal's cells, `uline_paint()`
 - [x] ~~Cursor movement and backspace over multi-byte characters in `klineedit.c`~~ DONE 2026-10-28
-- [x] ~~Combining marks, or an explicit decision to reject them~~ DONE 2026-10-28 -- a mark draws as its own character
+- [x] ~~Combining marks, or an explicit decision to reject them~~ DONE 2026-11-18 -- a letter and its marks are one cluster, composed
 - [x] ~~Invalid sequences as their Latin-1 letter~~ DONE 2026-10-28 -- ring 3, the terminal, the line editor, the console
 - [x] ~~A conversion tool for existing Latin-1 files on disk~~ DONE 2026-10-28 -- `utf8migrate --root DIR` for a later disk
 - [ ] w16 passes file names as bytes: a UTF-8 name on its drives is mojibake to a program -- convert to Windows-1252
 - [ ] Paint's `.ora` layer names still Latin-1 (`media/uora.c`): written byte by byte as `&#N;`, `&#N;` past 255 read as `?`
 - [ ] A FAT short name with bytes past ASCII (a DOS code-page name, no long name) is passed through as bytes, not decoded from code page 437
 - [x] ~~`uglyph` (Character Map, the browser) onto the glyph cache's hash/LRU core~~ DONE 2026-11-02 -- `base/ulru.h`
-- [ ] Kerning across a cached glyph: Greek and Cyrillic pairs sit at plain advances (step 1's written-down trade)
+- [x] ~~Kerning across a cached glyph: Greek and Cyrillic pairs sit at plain advances~~ DONE 2026-11-18 -- any pair of one face, by glyph id
 
 ### A scripting language
 **Needs:** Runtime + interop -- a scripting language with no allocator is an exercise in avoiding one.
@@ -838,7 +838,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~No weights: one face, one weight~~ DONE 2026-08-21 -- a `-bold` file is a weight of its family, synthesized where there is none
 - [x] ~~Hinting~~ DONE 2026-11-16 -- light vertical autohint, `media/ttf_hint.c`; 16 sub-scanlines; the line grows to hinted accents
 - [x] ~~Kerning pairs from the font's own tables~~ DONE 2026-08-21 -- format-0 `kern`, baked into the atlas as a dense slot matrix
-- [ ] Kerning from GPOS, which is where most modern faces keep it -- needs a shaping engine, and is where this deliberately stops
+- [x] ~~Kerning from GPOS, which is where most modern faces keep it~~ DONE 2026-11-18 -- PairPos by script, then `kern`
+- [ ] Standard ligatures (`liga`) for a face someone installs -- no offered face has them; needs a shaped-run API through every text loop
+- [ ] Mark attachment (GPOS lookup type 4) for a mark with no precomposed form -- centred over its letter today
 - [x] ~~`gfx_text_width()` that measures rather than multiplies~~ DONE 2026-08-20
 - [x] ~~Multiple faces live at once, selected per widget~~ DONE 2026-08-21 -- two tiers, and a widget takes a `struct ugfx_font *`
 - [ ] Only `uui_label` takes a font so far -- every other widget draws in whatever is current
@@ -851,9 +853,11 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Colour emoji~~ DONE 2026-11-16 -- COLR v0 over CPAL in `ttf.c`, Twemoji, in ugfx, `utext` and `uglyph`
 - [x] ~~The terminal's cells (`uvterm`) do not tag a variation selector~~ DONE 2026-11-16 -- `uvterm_cell_cp()`
 - [x] ~~An emoji picker~~ DONE 2026-11-16 -- Super+period at the caret (`WIN_REQ_CARET_RECT`), Character Map's Emoji page, `:name:`
-- [ ] The emoji picker lists single code points only: no ZWJ sequences, flags, skin tones or keycaps until shaping
+- [x] ~~The emoji picker lists single code points only~~ DONE 2026-11-18 -- families, flags and keycaps listed; skin tones on a right-click
 - [ ] `:name:` completion reaches a routed `uui_textbox` only: not a composite's inner field (find bar, spinbox, path bar) or `utext`
-- [ ] Emoji sequences (ZWJ families, flags, skin tones) draw as their parts -- they are GSUB ligatures, step 5's shaping
+- [x] ~~Emoji sequences (ZWJ families, flags, skin tones) draw as their parts~~ DONE 2026-11-18 -- the face's `ccmp` ligatures
+- [ ] An emoji sequence at a terminal row's last column stays one cell -- kitty re-wraps it
+- [ ] The kernel console draws a grapheme cluster's parts, one cell each
 - [ ] A COLR layer in "the text colour" draws black: the glyph cache keys an emoji without the colour
 - [ ] Note the boundary: complex-script shaping
 

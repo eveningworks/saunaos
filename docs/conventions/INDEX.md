@@ -390,10 +390,12 @@ whenever a headline here tells you something you did not already know.
   SELECTED, AND `ugfx_set_font()` IS PER PROCESS**
 - **AN ATLAS IS THE 191 BAKED SLOTS, AND RING 3 DRAWS THE REST FROM A
   GLYPH CACHE.**
-- **A VARIATION SELECTOR IS PART OF THE CHARACTER BEFORE IT:
-  `ugfx_text_decode()` steps over it and TAGS the code point; a loop that
-  decodes by itself tags with `ugfx_cp_with_next()`.** With `show_ws`, a
-  character that draws nothing takes its label's cells.
+- **A STEP IS A GRAPHEME CLUSTER, AND A CLUSTER IS ONE VALUE:
+  `ugfx_text_decode()` returns a code point (tagged by a selector,
+  composed) or a `UGFX_CP_CLUSTER` token whose value is past U+10FFFF.**
+  Backspace is not the reverse of a step; a grid counts
+  `uwcwidth_cluster()` cells. With `show_ws`, a character that draws
+  nothing takes its label's cells.
 - **A WIDGET THAT DRAWS A TEXT CARET SAYS WHERE WITH `uui_caret_at()`,
   EVERY FRAME, WHATEVER THE BLINK.**
 - **`:name:` COMPLETION IS EVERY ROUTED `uui_textbox`'s; A FIELD WHOSE

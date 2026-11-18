@@ -369,36 +369,39 @@ this the obvious way), not from how much history it accumulated.
   `ugfx.c` -- and records its file, so characters past them take the
   cache path too.)
 
-- **A VARIATION SELECTOR IS PART OF THE CHARACTER BEFORE IT:
-  `ugfx_text_decode()` steps over it and TAGS the code point
-  (`UGFX_CP_EMOJI`/`UGFX_CP_TEXT`); a loop that decodes by itself tags
-  with `ugfx_cp_with_next()`.** U+FE0F makes a character an emoji (❤️ the
-  red heart, ❤ the text one) and U+FE0E makes an emoji text. The selector
-  belongs to WHATEVER character precedes it, ASCII too -- a keycap is '1'
-  then U+FE0F -- except a line break, and `base/uemoji.h`'s
-  `uemoji_selector_utf8()` is the one test for it; an ASCII character
-  still draws from the atlas. A RUN of selectors pairs as decoding forward
-  pairs it, (c S1)(S2 S3)..., and stepping back must agree
-  (`uemoji_run_attached()`): `ugfx_text_prev()`, `uui_edit`, `utext` and
-  the shared line editor (`klineedit.c`, which cannot include the header
-  and repeats the rule) all do, and `klineedit_cases.h` asserts it in both
-  rings. In `utext`'s grid ❤️ is one character two cells wide. Every loop
-  that measures AND draws through `ugfx_text_decode()` agrees by
-  construction; one that decodes with `uutf8_decode()` and calls
-  `ugfx_cp_advance()` on the bare value draws ❤️ as a black heart and
-  nothing fails. Compare a returned code point with a letter as it is
-  (the tags sit past U+10FFFF), or with `& UGFX_CP_VALUE` for its value.
-  `uui_edit` steps over the pair as one character, so a caret never
-  splits it. **With `utext`'s `show_ws` a character that draws nothing
+- **A STEP IS A GRAPHEME CLUSTER, AND A CLUSTER IS ONE VALUE:
+  `ugfx_text_decode()` returns a code point (TAGGED `UGFX_CP_EMOJI`/
+  `UGFX_CP_TEXT` by a selector, COMPOSED when "e" U+0301 has a precomposed
+  form) or a `UGFX_CP_CLUSTER` token; a grid that keeps cells makes one
+  with `ugfx_cluster_token()`.** The clusters are UAX #29's
+  (`api/kgrapheme.h`, compiled into the kernel and libbase), so a letter
+  with its accents, ❤️, a ZWJ family, a flag and a skin-toned hand are each
+  one character to measure, draw, hit-test, step over and select -- in
+  `ugfx_text_prev()`/`_next()`, `uui_edit`, `utext`, `uvterm` and the shared
+  line editor (`klineedit.c`, whose `klineedit_cases.h` asserts it in both
+  rings). Two deliberate gaps: `\r\n` stays two characters (GB3 is not
+  applied) and an Indic conjunct is two (no GB9c). **A token's VALUE is past
+  U+10FFFF**, so a loop that masks `UGFX_CP_VALUE` and compares with `'\n'`
+  or a letter never mistakes a cluster for one; ask `ugfx_cluster_cps()`
+  for its code points. Every loop that measures AND draws through
+  `ugfx_text_decode()` agrees by construction; one that decodes with
+  `uutf8_decode()` and calls `ugfx_cp_advance()` on a bare value draws a
+  family as three people and nothing fails. **Backspace is not the reverse
+  of a step** (`ugfx_text_backspace()`, `kgrapheme_backspace()`, Pango's
+  rule): an emoji cluster goes whole, any other loses its last code point,
+  so a decomposed accent goes and its letter stays. **A fixed grid gives a
+  cluster `uwcwidth_cluster()`'s cells** -- an emoji sequence two, a
+  letter's marks none -- and the terminal and the line editor's columns
+  both count with it, so the caret the shell puts lands where the
+  terminal drew. **With `utext`'s `show_ws` a character that draws nothing
   TAKES ITS LABEL'S CELLS** ("ZWSP", "ESC", base/uunicode.h's
   `uunicode_abbrev()`), and a selector folded into the character before
   it adds its own ("VS16") -- `cells_at()` counts them, so the caret, a
-  click and a wrap agree with what is drawn; a label painted OVER the
-  text without cells would put every one after it a label's width off.
-  The wrap index is keyed on `show_ws` and the tab width as well as the
-  text, the width and the wrap mode, since each changes how many cells a
-  character takes. The terminal's cells tag through `uvterm_cell_cp()`, the
-  selector keeping a blank cell of its own.
+  click and a wrap agree with what is drawn. The wrap index is keyed on
+  `show_ws` and the tab width as well as the text, the width and the wrap
+  mode, since each changes how many cells a character takes. The
+  terminal joins a character that extends the one before it into that
+  cell (`uvterm.c`'s `join_prev()`), as VTE and kitty do.
 
 - **A WIDGET THAT DRAWS A TEXT CARET SAYS WHERE WITH `uui_caret_at()`,
   EVERY FRAME, WHATEVER THE BLINK.** uapp brackets each window's paint

@@ -270,8 +270,10 @@ paste as themselves into any field.
   (`ucharset_cp1252_byte()`).
 - NOT NEEDED: `ls` and `ps` pad no name -- a name is their last column.
 - NOT DONE: the kernel's own `gfx_draw_string()` (ring-0 GUI text) still
-  draws bytes; nothing reaches it with UTF-8 today. Combining marks stay
-  one cell (the non-goal).
+  draws bytes; nothing reaches it with UTF-8 today. Since 2026-11-18 a
+  combining mark joins its letter's cell in the GUI terminal (a grapheme
+  cluster, `uvterm.c`'s `join_prev()`); the kernel console still gives it
+  a cell of its own.
 
 ### Step 3 -- the disk
 
@@ -369,9 +371,10 @@ Each step's checks go red on the build before it (the positive control):
 ## Non-goals, written down
 
 Right-to-left text and bidirectional layout; shaping (Arabic joining,
-Indic scripts); composing combining marks (one is drawn as a character
-of its own); normalisation (names compare bytewise, Linux's rule, not
-macOS's); input methods; translations. **A CJK font** is not shipped
+Indic scripts); normalisation of what is STORED (names compare bytewise,
+Linux's rule, not macOS's -- a decomposed name is only DRAWN composed,
+since 2026-11-18's grapheme clusters, docs/decisions/gui.md); input
+methods; translations. **A CJK font** is not shipped
 (DejaVu and Liberation have no CJK, and Noto Sans CJK is tens of
 megabytes a weight); CJK draws as boxes until a font is decided on.
 

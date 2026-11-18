@@ -223,7 +223,13 @@ mounted at once.
 Mono baked to bitmaps at build time as the guaranteed fallback, and a
 fixed-point TrueType rasterizer that loads a `.ttf` from
 `/usr/share/fonts` at runtime — so any size works, and a proportional
-face gets genuine per-glyph advances and real kerning. Small text is
+face gets genuine per-glyph advances and real kerning -- from the face's
+own GPOS or `kern` table, by glyph id, Greek and Cyrillic included. Text
+steps by **grapheme cluster**: a letter with its accents, a family emoji,
+a flag or a skin-toned hand is one character to draw, select, step over
+and delete, everywhere from a text field to the Terminal's cells and the
+shell's line editor, and a decomposed accent (a Mac's file names) is drawn
+as the face's own accented letter. Small text is
 light-hinted -- fitted to the pixel grid vertically only, the way
 FreeType's light autohinter and DirectWrite do it -- so 9-14 px text sits
 on whole rows instead of smearing across two. A face is a
@@ -247,7 +253,8 @@ Map; ❤ is a text heart and ❤️ (with U+FE0F) the red one, as Unicode
 says -- in the Terminal's cells too. **Super+period** opens the emoji
 picker at the text caret, Windows 11's shape: search, category tabs,
 Recently used, and Enter or a click types the emoji into the focused
-window. Character Map has an Emoji page, and typing `:hea` in a text
+window -- families, flags and keycaps included, and a right-click on a
+person or a hand offers its five skin tones. Character Map has an Emoji page, and typing `:hea` in a text
 field offers the emoji whose names hold it. The honest
 limits: the kernel console draws only the baked ASCII + Latin-1 set (a
 character past it is `?`), and

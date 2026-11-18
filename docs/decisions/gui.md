@@ -3683,14 +3683,14 @@ it, and so needs no new ABI field.
 has an atlas and an index. That also means the matrix is meaningless
 outside its own atlas, which is correct: it is scaled to that size.
 
-**Only format 0, and that is a stopping point rather than an
-oversight.** Modern faces keep kerning in GPOS, which is a shaping
-engine's job -- HarfBuzz is ~50k lines and exists because doing it
-properly means lookups, contextual rules and script logic. Of the faces
-shipped, `liberation-sans` has a 908-pair `kern` table (and
-`liberation-serif`, added for the browser, one of its own) and
-`dejavu-sans-mono` has none (it is monospace, so kerning it would be
-wrong). A GPOS-only face renders unkerned, exactly as before.
+**GPOS first, the old table second (since 2026-11-18).** The matrix is
+filled by `ttf_kern_units()`, which reads a face's GPOS PairPos lookups for
+Latin and falls back to the format-0 `kern` table, so a GPOS-only face is
+kerned too. A pair with a character OUTSIDE the atlas (Greek, Cyrillic) is
+kerned by glyph id at draw time ("Grapheme clusters, pair kerning and emoji
+sequences" below); the matrix stays for the pairs it can answer, the same
+numbers by construction. `dejavu-sans-mono` has no kerning at all (it is
+monospace, so kerning it would be wrong).
 
 **The trap, and it only exists in ring 0.** A glyph cell there is
 OPAQUE -- every pixel is written, background included, which is what
@@ -13308,12 +13308,13 @@ have); Noto Color Emoji (10.7 MB of PNGs, a decode and a downscale, soft
 at 14 px); monochrome Noto Emoji (no colour path to build, but line art
 where people expect emoji); OpenMoji (CC BY-SA, and muddier at 14 px).
 
-**Left open:** emoji sequences -- ZWJ families, flags, skin tones -- are
-GSUB ligatures and draw as their parts until step 5's shaping; a COLR
-layer in the text colour draws black (Twemoji has none). The terminal's
+**Left open:** a COLR layer in the text colour draws black (Twemoji has
+none). Emoji sequences -- ZWJ families, flags, skin tones, keycaps -- are
+the face's GSUB ligatures, drawn as one glyph since step 5 ("Grapheme
+clusters, pair kerning and emoji sequences"). The terminal's
 cells tag a selector since the emoji picker's round (`uvterm_cell_cp()`).
 
-## The emoji picker is a compositor overlay at the caret, fed by a caret report, listing single code points only
+## The emoji picker is a compositor overlay at the caret, fed by a caret report; skin tones on a right-click
 
 Chosen 2026-11-16 from a mockup canvas (option A, compact at the caret).
 There was no way to type an emoji except pasting one from Character Map.
@@ -13362,12 +13363,89 @@ client for its caret only when the picker opens (a round trip the
 compositor would wait on, from a process that may be busy -- the report
 is pushed instead, as Wayland's is); sequences in the list.
 
-**No sequences yet.** Only fully-qualified entries that are ONE code
-point, optionally followed by U+FE0F, are listed (about a third of Unicode 16.0's
-fully-qualified emoji), and only those Twemoji maps: a ZWJ family, a flag, a
-skin-tone variant or a keycap is a GSUB ligature in the face, and
-inserted it would draw as its parts until shaping exists. The Component
-and Flags groups are left out for the same reason.
+**Sequences since 2026-11-18** (the next entry): the list holds every
+fully-qualified emoji the emoji face draws as ONE glyph -- ZWJ families,
+flags, keycaps -- and the picker types a sequence as one key per code
+point, the field joining them into one character. **Skin tones are a
+right-click** (or the Menu key, or Shift+F10) on a people emoji: a strip of
+its six forms over its cell in `uui_emojigrid`, so the picker and Character
+Map share it -- GTK's and macOS's shape, chosen from a canvas over
+Windows 11's one tone setting for the whole panel and over listing every
+tone in the grid. Nothing is remembered: recents keep the entry itself.
+The list carries a TEMPLATE per people emoji (the medium tone, `~` where a
+tone goes, one per person), kept when the face draws all five as one glyph.
+
+## Grapheme clusters, pair kerning and emoji sequences -- not a shaping engine
+
+Chosen 2026-11-18 (font round step 5) from a canvas of real renders, after
+the research turned the planned step around.
+
+**The finding.** The step was planned as "GPOS kerning and standard
+ligatures". Measured on the shipped faces: **no face SaunaOS offers as the
+interface font has a `liga` feature** (Liberation keeps fi/fl only in
+`dlig`, which every system leaves off; DejaVu Sans Mono's `liga` is for
+Arabic), and **Liberation's old `kern` table holds exactly its GPOS
+kerning**, Greek and Cyrillic included. So ligatures would change nothing
+on the desktop. The visible defects were elsewhere: Greek and Cyrillic sat
+unkerned because the kern matrix is in ATLAS SLOT space (Latin-1 only); a
+ZWJ family, a flag, a skin tone and a keycap drew as their parts; and a
+decomposed accent (a Mac's NFD file names) drew as a letter beside a
+floating mark.
+
+**What others do.** Pango, DirectWrite and CoreText shape a RUN with
+HarfBuzz (or their own engine) into glyphs and a cluster map; the caret
+moves by grapheme cluster (ICU's BreakIterator, Pango's log attrs, UAX
+#29); HarfBuzz composes a letter and its marks to the face's precomposed
+glyph before shaping; an emoji sequence is the emoji face's own GSUB
+ligature. Inside a ligature the caret positions are split evenly. Pango
+lets Backspace delete one code point of most clusters
+(`backspace_deletes_character`) but a whole emoji.
+
+**SaunaOS takes the cluster model and the three cheap parts of shaping.**
+`ugfx_text_decode()` -- the one loop every measure, draw, fit and hit-test
+already went through -- returns one value per GRAPHEME CLUSTER
+(`kernel/lib/kgrapheme.c`, UAX #29, compiled into the kernel and libbase
+like the line editor): a code point, tagged by a selector or COMPOSED
+(`base/ucompose.h`), or an interned `UGFX_CP_CLUSTER` token. Kerning is
+between clusters' first characters BY GLYPH ID (`ttf_pair_kern_units()`:
+GPOS PairPos for the character's script, else the `kern` table). An emoji
+sequence is drawn as the emoji face's `ccmp` ligature (`ttf_ligate()`,
+GSUB type 4); a cluster no face ligates draws as its parts, a mark with no
+precomposed form centred over its letter (HarfBuzz's fallback). The
+toolkit's editors, `utext`, the terminal's cells and the shared line
+editor step and select by cluster; Backspace follows Pango
+(`kgrapheme_backspace()`). The terminal puts a character that extends the
+one before it INTO that cell, as VTE and kitty do, and an emoji sequence
+takes two cells (UTS #51) -- counted by `uwcwidth_cluster()` in both the
+terminal and the line editor, so the shell's caret lands where the
+terminal drew: the wcwidth disagreement that misplaces carets between
+shells and terminals elsewhere cannot happen when both ends are ours.
+
+**Why tokens rather than runs.** A shaped-run API (glyph ids, positions,
+a cluster map) is what general ligatures need, and it would have meant
+rewriting every text loop in the toolkit. Clusters fit the existing
+one-value-per-step loops unchanged -- every loop that measures AND draws
+through the decoder agrees by construction. The token's VALUE is past
+U+10FFFF, because a loop that masks `UGFX_CP_VALUE` and compares with
+`'\n'` would otherwise take cluster number 10 for a line break. The
+intern table only grows: a grid keeps tokens, so a token must outlive any
+cache.
+
+**Two deliberate gaps from UAX #29.** GB3 is not applied -- `\r\n` stays
+two characters, as every caller treats a line break as one of its own --
+and GB9c (Indic conjuncts) is not either, as SaunaOS does no Indic shaping
+to draw one as a unit. `tools/hostchecks/grapheme_hostcheck.py` holds the
+rest to Perl's `\X`.
+
+**Not chosen:** HarfBuzz (tens of thousands of lines of C++, for features
+no offered face uses); general `liga` over shaped runs (artboard E: it
+helps only a face someone installs); GPOS mark attachment (lookup type 4)
+and contextual lookups; GDEF ligature carets.
+
+**Left open** (`docs/roadmap.md`): ligatures for an installed face, which
+need the run API; mark attachment for marks with no precomposed form; an
+emoji sequence at a terminal row's last column, which stays one cell; the
+ring-0 console, which still draws a cluster's parts.
 
 ## A long window title travels in pieces, and the compositor keeps it sized to fit
 
