@@ -35,6 +35,7 @@ the symptoms is not a diagnosis.
 it has exonerated one this session and convicted another.
 
 
+- [ ] **`fm_places_menu_test`'s "Restore default places brings it back" FAILS UNDER `gui_regress.py --race-delay 300`** (2026-11-18, acbda9f4; 1 amplified run, not yet seen in a normal one): the right-click on the Places heading after an unpin opened no menu within 8 s (`got=None`), then the tool died on a `None` layout. Some File Manager work after the unpin is not counted as work, or the test reads a stale heading row; cause NOT established
 - [ ] **`notepad_client_test`'S SECOND-CLOSE PROMPT DID NOT COME WITH THREE BUTTONS WITHIN 6 s, ONCE IN 6 FULL RUNS** (2026-11-18, 94ad0946+, the runs without settle()'s grace): after Don't Save, tabs `(1, 0)` and the file's title were right but `dialog_buttons()` read 2, and the window then stayed open. First seen once the grace went, so likely a wait the grace covered; cause NOT established
 - [ ] **`w16_gui_test`'s "OK saves D:'s Type and Label" FAILED IN 3 OF 8 RUNS ON 2026-11-18, THEN PASSED IN 4 IN A ROW** (94ad0946+, without the grace): the file held neither value, so the Options window's clicks or its OK did not land. The check now prints the rects it used (`type`, `label`, `ok`) for the next failure; cause NOT established
 - [ ] **`fm_search_filter_test` FAILED 3 CHECKS ONCE IN 5 RUNS** (2026-11-14, a full `gui_regress.py` run): the Contents chip did not latch, so the content search and its Match column never came. Cause not established.
