@@ -119,12 +119,18 @@ static int page_w(const struct uui_webview *v) {
     return w > 1 ? w : 1;
 }
 
+static void work_hold(struct uui_webview *v);
+static void work_release(struct uui_webview *v);
+
 static void send_size(struct uui_webview *v) {
     if (!v->ready || (v->sent_w == page_w(v) && v->sent_h == v->h)) return;
     struct wv_size s = { page_w(v), v->h > 1 ? v->h : 1, ugfx_char_h() };
     if (send_rec(v, WV_RESIZE, &s, sizeof s) == 0) {
         v->sent_w = s.w;
         v->sent_h = s.h;
+        // A new size is a frame owed: work until the engine answers.
+        work_hold(v);
+        v->work_req = 1;
     }
 }
 
@@ -769,6 +775,8 @@ static void handle(const struct ubulk_msg *m) {
         break;
     case WV_FRAME:
         if (m->len >= sizeof(struct wv_frame)) on_frame(v, m->data);
+        v->work_req = 0;
+        if (!v->st.loading) work_release(v);
         break;
     case WV_TITLE:
         copy_str(v->title, sizeof v->title, m, 0, m->len);

@@ -4,7 +4,9 @@
 #include "base/uopen.h"   // uapp_open_url()
 #include "rt/ulock.h"
 #include "base/uworker.h"   // uworker_pending(): a job in flight is not idle
+#include "base/urace.h"     // a worker's post held back, for tests
 #include <errno.h>
+#include <stdlib.h>   // uapp_thread_start()'s hand-off
 
 // One process, one TOPLEVEL -- plus its popups, which are surfaces of
 // the same app (g_surf[] above) rather than apps of their own. A single
@@ -146,6 +148,34 @@ void uapp_kick(struct uapp *a) {
     loop_kick();
 }
 
+struct work_thread { struct uapp *a; void *(*fn)(void *); void *arg; };
+
+static void *work_thread_main(void *p) {
+    struct work_thread t = *(struct work_thread *)p;
+    free(p);
+    void *r = t.fn(t.arg);
+    uapp_work_end(t.a);
+    return r;
+}
+
+int uapp_thread_start(struct uapp *a, pthread_t *out, void *(*fn)(void *), void *arg) {
+    struct work_thread *t = malloc(sizeof *t);
+    if (!t) return ENOMEM;
+    *t = (struct work_thread){ a, fn, arg };
+    pthread_t th;
+    pthread_attr_t at;
+    pthread_attr_init(&at);
+    if (!out) pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+    uapp_work_begin(a);
+    int rc = pthread_create(out ? out : &th, &at, work_thread_main, t);
+    pthread_attr_destroy(&at);
+    if (rc != 0) {
+        free(t);
+        uapp_work_end(a);
+    }
+    return rc;
+}
+
 static int idle(void) {
     post_lock();
     int posts = g_post_head != g_post_tail;
@@ -156,8 +186,13 @@ static int idle(void) {
            !uui_anim_pending() && (!g_idle_fn || g_idle_fn(g_idle_arg));
 }
 
+// The thread uapp_run() runs on: a post from any OTHER thread is a
+// worker's result, which the race amplifier holds back (base/urace.h).
+static int g_main_tid;
+
 int uapp_post(struct uapp *a, int a0, int a1) {
     (void)a;
+    if (g_main_tid && sys_gettid() != g_main_tid) urace_delay();
     post_lock();
     int room = g_post_head - g_post_tail < UAPP_POST_MAX;
     if (room) {
@@ -1383,6 +1418,7 @@ int uapp_open_toplevel(struct uapp *a) { return a && !a->has_top && a->running ?
 int uapp_has_toplevel(const struct uapp *a) { return a && a->has_top; }
 
 int uapp_open(struct uapp **out, const struct uapp_desc *desc) {
+    g_main_tid = sys_gettid();
     struct uapp *a = &g_app;
     // EVERY GUI APP SPEAKS THE SYSTEM'S REGION, and follows a change to
     // it (WIN_EV_SETTING below) -- what the person chose in System

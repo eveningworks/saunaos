@@ -421,7 +421,8 @@ that asked for another frame (`uui_anim.h`), and nothing marked with
 `uui_webview` holds from a navigation until its page is at rest -- and an
 app's own answer where the toolkit cannot see (`uapp_set_idle_check()`:
 w16 is idle when the emulated program waits for a message with none
-queued and no paint owed). The compositor's own sync waits for its
+queued and no paint owed), a one-shot job started with
+`uapp_thread_start()`, and a `uui_webview` frame owed after a resize. The compositor's own sync waits for its
 workers and a taskbar button still gliding. Work in
 ANOTHER process is still the test's to wait for -- a program with no
 window, fontd re-rendering for a new scale (`gui state`'s `scale`,

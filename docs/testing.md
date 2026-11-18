@@ -876,7 +876,8 @@ old wait and no grace (`tools/tests/gui/sync_test.py --positive-control`).
 **The app answers only once it is IDLE** -- nothing a worker still has
 to post, no `uworker` job, no animation asking for another frame, nothing
 marked `uapp_work_begin()` or under the wait cursor, no `uui_webview`
-page still loading, and the app's own idle check if it set one
+page still loading or frame owed, no `uapp_thread_start()` job still
+running, and the app's own idle check if it set one
 (`uapp_set_idle_check()`: w16's emulated program) -- so **no grace
 follows an answered sync** (it cost 29% of the suite, 2026-11-18).
 `settle(x)` still waits `x` on top for a caller that asks. Work in ANOTHER
@@ -887,6 +888,16 @@ uapp) is waited out for 3 s and then the old 0.25 s; `settle(sync=False)`
 is the old wait. **`logs()` and `events()` wait for the log port by a
 `mark`** (a debug-console command that writes a line to the kernel log),
 not a pause.
+
+**THE RACE AMPLIFIER finds the waits that are still missing**:
+`gui_regress.py --race-delay 300` sets `desktop.test_race_delay` for each
+tool, and every app then holds a background result back 300 ms -- a
+worker's `uapp_post()`, a `uworker` job, w16's program taking input -- at
+most once a second (`base/urace.h`), so a test racing such work fails
+EVERY run instead of one in six. Shown on the Image Viewer's decode race:
+1 failure in several runs without it, 3 in 3 with it. A failure under it
+is either work the app does not count (count it: `uapp_thread_start()`,
+`uapp_work_begin()`) or a test reading once (`check_eventually()`).
 
 **A WINDOW, A WIDGET OR A CLOSE IS WAITED FOR BY THE WM, NOT POLLED WITH
 THE HOST'S CLOCK** (`docs/gui-test-sync-design.md`): `wait_window(title,

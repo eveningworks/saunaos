@@ -101,6 +101,7 @@
 | `uprefs.h` | uprefs -- an app's options file described as a TABLE: one row per key names the field it fills, its type, its range or words and its default, and load, save and Defaults all walk that one table --... |
 | `uprocio.h` | Each process's I/O RATE, from two reads of QUERY_PROCIO (Linux's /proc/<pid>/io) and the time between them -- what iotop and Windows' Resource Monitor show. |
 | `uprogress.h` | A one-line transfer meter, redrawn in place with `\r`. |
+| `urace.h` | A RACE AMPLIFIER FOR GUI TESTS: `desktop.test_race_delay` milliseconds slept wherever background work hands its result over -- a worker's uapp_post(), a uworker job's finish, w16's program taking a... |
 | `urange.h` | A FILE READ BY RANGE, through a small page cache, never held whole: a hex viewer's bytes, a structure decoder's fields -- whatever reads a few bytes here and a few there from a file that may be gig... |
 | `urecent.h` | RECENT FILES: what was opened lately, by any app, and in which -- freedesktop's recently-used.xbel and Windows' Recent Items, as one plain-text list in /var/lib/recent. |
 | `uregion.h` | A REGION: a bounded list of disjoint rectangles, cut by subtraction -- what the compositor draws each window inside once the opaque windows above it are taken away (pixman's region32, which wlroots... |

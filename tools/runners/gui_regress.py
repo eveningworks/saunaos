@@ -607,6 +607,9 @@ def run():
                          "instead of QEMU guests (serial, one machine; see "
                          "tools/lib/remote_gui.py). local_info.txt has the addresses")
     ap.add_argument("--list", action="store_true", help="list the tools and exit")
+    ap.add_argument("--race-delay", type=int, default=0, metavar="MS",
+                    help="the race amplifier: every app's background results held back MS ms "
+                         "(desktop.test_race_delay), so a test racing one fails every time")
     ap.add_argument("--repeat", type=int, default=1, metavar="N",
                     help="run each picked tool N times, each on its own guest -- a flake's "
                          "rate, measured (test_history.py --flaky)")
@@ -654,6 +657,8 @@ def run():
 
     if args.logs:
         os.makedirs(args.logs, exist_ok=True)
+    if args.race_delay > 0:
+        os.environ["SAUNAOS_RACE_DELAY_MS"] = str(args.race_delay)
     if args.sleep_profile:
         global SLEEP_PROFILE
         SLEEP_PROFILE = os.path.abspath(args.sleep_profile)

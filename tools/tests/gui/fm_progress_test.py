@@ -77,7 +77,9 @@ def select(dbg, win, name):
 
 
 def click(dbg, qmp, lay, r):
-    dbg.warp_cursor(qmp, lay.ox + r[0] + r[2] // 2, lay.oy + r[1] + r[3] // 2)
+    # NOT SETTLED: a copy is work until it ends, and this test acts while
+    # one runs; what each click changes is polled for below.
+    dbg.warp_cursor(qmp, lay.ox + r[0] + r[2] // 2, lay.oy + r[1] + r[3] // 2, settle=False)
     time.sleep(0.3)
     qmp.click()
 
@@ -100,7 +102,9 @@ def run(dbg, qmp, res):
 
     # 1.
     res.check("big/ is selected", select(dbg, win, "big") is not None, "type-ahead missed")
-    dbg.key(fm.K_F5)
+    # NOT SETTLED: the copy is work (uapp_thread_start), and settle() would
+    # wait for it to END -- this test has to act while it runs.
+    dbg.key(fm.K_F5, settle=False)
     lay = fm.wait_layout(dbg, win, lambda l: 0 in l.ops and l.ops[0][0] == RUNNING
                          and l.ops[0][2] > 0 and l.ops[0][1] > 0, timeout=20.0) or fm.last_layout()
     row = lay.ops.get(0) if lay else None

@@ -917,7 +917,7 @@ class DebugConsole:
         recognising a 15x21 sprite in a screenshot."""
         return self.state()["cursor"].get("shape", 0)
 
-    def warp_cursor(self, qmp, x, y, tries=8, tol=1):
+    def warp_cursor(self, qmp, x, y, tries=8, tol=1, settle=True):
         """Move the REAL cursor to (x, y) and confirm it arrived.
 
         Needed because QMPSession.goto() is open-loop: it sends chunked
@@ -963,7 +963,11 @@ class DebugConsole:
                     qmp.pos[0], qmp.pos[1] = cx, cy
                 except (AttributeError, TypeError):
                     pass
-                self.settle()   # let the compositor take the raw event
+                # Let the compositor take the raw event -- and the app go
+                # idle, which a test acting DURING a long job must not
+                # wait for (settle=False; the job is work until it ends).
+                if settle:
+                    self.settle()
                 return (cx, cy)
 
         # An older guest: aim through the emulator, ask where it got to,
@@ -1493,6 +1497,28 @@ def changed_rows(rest_png, hover_png, box, threshold=1.0):
 #
 # Restored only if this process is what turned it ON -- a machine that
 # already had it set was told to, and is not ours to change back.
+# THE RACE AMPLIFIER (userland/libs/base/urace.h), set for the run when
+# gui_regress.py --race-delay asks: every worker's result is held back
+# this many ms, so a test racing one fails every time. Before any app
+# starts -- each reads it once.
+RACE_DELAY_ENV = "SAUNAOS_RACE_DELAY_MS"
+
+
+def _race_delay(sock):
+    ms = os.environ.get(RACE_DELAY_ENV)
+    if not ms or not ms.isdigit() or int(ms) <= 0:
+        return
+    with DebugConsole(sock) as c:
+        c.send(f"sh config set desktop.test_race_delay {int(ms)}")
+    def _restore():
+        try:
+            with DebugConsole(sock) as c:
+                c.send("sh config unset desktop.test_race_delay")
+        except Exception:
+            pass
+    atexit.register(_restore)
+
+
 def _enable_layout_log(sock):
     with DebugConsole(sock) as c:
         was_on = "on" in c.send("sh config get desktop.layout_log")
@@ -1694,6 +1720,7 @@ def enter_gui(qmp, sock=".vm.serial", timeout=8.0):
     try:
         _enable_layout_log(sock)
         _steady_caret(sock)
+        _race_delay(sock)
     except Exception:
         # A tool that cannot reach the console has bigger problems than
         # the layout log, and its own first assertion will say so more

@@ -319,11 +319,7 @@ static void start_job(struct uapp *a, int job) {
         g_row_count = 0;
         show_notes();   // the worker frees the plan the page points into
     }
-    pthread_attr_t at;
-    pthread_attr_init(&at);
-    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
-    pthread_t th;
-    if (pthread_create(&th, &at, worker, (void *)(long)job) != 0) {
+    if (uapp_thread_start(a, NULL, worker, (void *)(long)job) != 0) {
         worker((void *)(long)job);   // no thread: the window freezes for it, but it still works
     }
     ulogf("sysupdate: %s started\n", job == JOB_CHECK ? "check" : "install");
@@ -727,11 +723,7 @@ static void start_test(struct uapp *a) {
     snprintf(line, sizeof line, "Testing %s ...", g_test_url);
     test_say(line, "");
     g_job = JOB_TEST;
-    pthread_attr_t at;
-    pthread_attr_init(&at);
-    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
-    pthread_t th;
-    if (pthread_create(&th, &at, worker, (void *)(long)JOB_TEST) != 0) worker((void *)(long)JOB_TEST);
+    if (uapp_thread_start(a, NULL, worker, (void *)(long)JOB_TEST) != 0) worker((void *)(long)JOB_TEST);
     refresh(a);
 }
 

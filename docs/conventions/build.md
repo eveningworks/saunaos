@@ -1248,7 +1248,15 @@ did, each closed by a helper:
   its result where it shows (`wait_scale()`).
 
 An app's own background work is the toolkit's to count, not the test's:
-`uapp_work_begin()`, the wait cursor, `uapp_set_idle_check()` (`docs/testing.md`).
+a one-shot job's thread starts with `uapp_thread_start()`, not
+`pthread_create()`; otherwise `uapp_work_begin()`, the wait cursor,
+`uapp_set_idle_check()` (`docs/testing.md`). `gui_regress.py --race-delay
+300` finds what is still uncounted: a racing test fails every run.
+**A long job is work until it ends**, so a test that acts WHILE one runs
+(Pause during a copy) passes `settle=False` to `key()`, `click()` and
+`warp_cursor()` and polls what it then asserts; a job waiting on the
+person (paused, asking) lets its count go (`fm_jobs.c`'s
+`waiting_for_user()`).
 
 ## A TEST'S FOLDER IS ITS RUNNER, AND A TOOL IS NAMED BY BASENAME, NEVER BY A PATH BUILT FROM ITS FOLDER
 

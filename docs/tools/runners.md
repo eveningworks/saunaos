@@ -95,7 +95,10 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   in two full runs. `--sleep-profile DIR` times every tool's
   `time.sleep()` by call site (`tools/lib/sleep_profile.py` ranks them);
   `--repeat N` runs each picked tool N times, each on its own guest, and
-  tallies them -- a flake's rate, measured on purpose.
+  tallies them -- a flake's rate, measured on purpose. `--race-delay MS`
+  is the race amplifier (`docs/testing.md`): every app's background
+  results held back MS ms, at most once a second, so a test racing one
+  fails every run.
   This is the standard check
   after touching `apps/ui/`, `userland/`, or anything the WM draws.
   Tools are **STARTED longest-first** (`pick_order()`), because a

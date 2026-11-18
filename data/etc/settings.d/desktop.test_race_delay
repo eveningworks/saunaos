@@ -1,0 +1,12 @@
+Type=int
+File=/etc/desktop.conf
+Label=Delay background work (testing)
+Category=System
+Group=Diagnostics
+Default=0
+Min=0
+Max=2000
+Step=50
+Unit=ms
+Description=Holds every background result back this long, so a GUI test that races one fails every time. For testing only.
+Advanced=1

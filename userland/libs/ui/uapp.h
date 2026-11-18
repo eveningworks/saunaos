@@ -1,6 +1,7 @@
 #ifndef UAPP_H
 #define UAPP_H
 
+#include <pthread.h>
 #include <stdint.h>
 #include "ui/ugfx.h"
 #include "ui/uui_button_group.h"
@@ -658,6 +659,13 @@ void uapp_work_end(struct uapp *a);
 // goes idle calls uapp_kick() so the loop asks again. NULL removes it.
 void uapp_set_idle_check(struct uapp *a, int (*idle)(void *arg), void *arg);
 void uapp_kick(struct uapp *a);
+
+// A ONE-SHOT BACKGROUND JOB'S THREAD, counted as work (uapp_work_begin)
+// from here until `fn` returns -- after its last uapp_post(), which is
+// then counted until handled -- so a test's sync waits for the job. What
+// pthread_create() answers; `out` NULL starts it detached. Not for a
+// thread that runs for the program's life (a reader): that is never done.
+int uapp_thread_start(struct uapp *a, pthread_t *out, void *(*fn)(void *arg), void *arg);
 
 // Marks the content dirty. The loop draws and presents ONCE before it
 // next blocks, so a mouse drag crossing three buttons costs one present

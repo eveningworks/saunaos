@@ -30,6 +30,7 @@
 #include "win_proto.h"   // WIN_CURSOR_*
 #include "ui/ugfx.h"
 #include "ui/uapp.h"     // uapp_kick(): the loop asks the idle check again
+#include "base/urace.h"
 
 // CW_USEDEFAULT's size on the 640x480 screen GetSystemMetrics reports:
 // what 3.11 gave Notepad there -- the width less the frame's inset, the
@@ -874,6 +875,11 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
     if (m->message >= WM_KEYDOWN && m->message <= 0x0108) w->key_mods = m->mods;
     w->waiting = 0;
     pthread_mutex_unlock(&w->lock);
+    // The race amplifier (base/urace.h): the program takes a test's input
+    // late. Input only -- a paint or a timer held back would only be slow.
+    if ((m->message >= WM_KEYDOWN && m->message <= 0x0108) ||
+        (m->message >= WM_MOUSEMOVE && m->message <= 0x0209))
+        urace_delay();
     return 1;
 }
 

@@ -455,9 +455,20 @@ static char g_conflict_rename[PATH_MAX_LEN];
 
 // --- the policy the worker supplies to the engine ---------------------
 
+// WAITING FOR THE PERSON IS NOT WORK: the job's count (uapp_thread_start)
+// is let go while it waits on a pause or a question, so a test can act
+// on the window then -- and taken again when it goes on.
+static void waiting_for_user(int on) {
+    if (on) uapp_work_end(g_app);
+    else uapp_work_begin(g_app);
+}
+
 // Waits out a pause; 0 once cancelled.
 static int pause_point(void) {
+    if (!g_paused || g_cancel) return !g_cancel;
+    waiting_for_user(1);
     while (g_paused && !g_cancel) sys_sleep_ms(50);
+    waiting_for_user(0);
     return !g_cancel;
 }
 
@@ -573,7 +584,9 @@ static int worker_conflict(void *ctx, const char *src, const char *dst,
     // it is TRUTHY, so `!g_conflict_answer` fell through instantly: the
     // worker never waited, read -1 as a decision, and overwrote the file
     // while the dialog was still on screen asking about it.
+    waiting_for_user(1);
     while (g_conflict_answer < 0 && !g_cancel) sys_sleep_ms(30);
+    waiting_for_user(0);
     if (g_cancel) {
         pthread_mutex_lock(&g_lock);
         g_conflict_pending = 0;   // nobody is asking any more: no card to raise later
@@ -1034,7 +1047,7 @@ static int start_job(void) {
     }
     g_running = 1;
     g_job_failures = g_job_ran = 0;
-    if (pthread_create(&g_worker, 0, worker_main, 0) != 0) {
+    if (uapp_thread_start(g_app, &g_worker, worker_main, 0) != 0) {
         // NOT LEFT INSTALLED: a job with no worker is "busy" for ever, and
         // the ones waiting behind it would never start.
         g_running = 0;

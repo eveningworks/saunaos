@@ -3,6 +3,7 @@
 #include "base/uworker.h"
 #include <sys/resource.h>   // PRIO_PROCESS
 #include "rt/sys.h"
+#include "base/urace.h"
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
@@ -33,6 +34,7 @@ static void *worker(void *arg) {
         j->state = UWORKER_RUNNING;
         pthread_mutex_unlock(&g_lock);
         j->run(j);   // no lock held: this is where the waiting happens
+        urace_delay();   // a test's race amplifier (base/urace.h); 0 by default
         pthread_mutex_lock(&g_lock);
         j->state = UWORKER_DONE;
         pthread_mutex_unlock(&g_lock);
