@@ -65,7 +65,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui          # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
-import port_guard                                       # noqa: E402
+import port_guard
+from harness import poll                               # noqa: E402
 
 try:
     from PIL import Image
@@ -209,7 +210,9 @@ def main():
     ref = out("qmp_ref.png")
     qmp.screenshot(ref)
     dbg.send(f"sh spawn /bin/screenshot {SHOT_DIR}/t.qoi")
-    dbg.settle()
+    # A PROGRAM WITH NO WINDOW: no sync can see it finish, so wait for it
+    # to exit -- its file is written in place, and whole only then.
+    poll(lambda: not dbg.processes_named("screenshot"), 15)
     dbg.send("sh sync")
     time.sleep(0.3)
 
@@ -239,7 +242,7 @@ def main():
 
     # --- 2. --pointer puts it back -------------------------------------
     dbg.send(f"sh spawn /bin/screenshot -p {SHOT_DIR}/p.qoi")
-    dbg.settle()
+    poll(lambda: not dbg.processes_named("screenshot"), 15)   # no window: wait for it to exit
     dbg.send("sh sync")
     time.sleep(0.3)
     pgot = out("guest_ptr.qoi")
@@ -265,7 +268,7 @@ def main():
     if check("Calculator opened, to capture", len(wins) == 1):
         w = wins[0]
         dbg.send(f"sh spawn /bin/screenshot -w {SHOT_DIR}/w.qoi")
-        dbg.settle()
+        poll(lambda: not dbg.processes_named("screenshot"), 15)   # no window: wait for it to exit
         dbg.send("sh sync")
         time.sleep(0.3)
         wgot = out("guest_win.qoi")
@@ -302,7 +305,7 @@ def scanout_checks(dbg, disk, out, qmp):
         dbg.send(f"sh spawn /bin/screenshot -s {SHOT_DIR}/s.qoi")
         dbg.settle()
         dbg.send(f"sh spawn /bin/screenshot {SHOT_DIR}/b.qoi")
-        dbg.settle()
+        poll(lambda: not dbg.processes_named("screenshot"), 15)   # both: no window, wait for them to exit
         dbg.send("sh sync")
         time.sleep(0.3)  # sleep-ok: the same settle-then-sync the captures above use
         sgot, bgot = out("guest_scan.qoi"), out("guest_back.qoi")

@@ -84,7 +84,10 @@ PROMPT = "dbg> "
 # The commands remain asynchronous BY DESIGN -- they cannot block,
 # because they are dispatched from inside the very loop that drains
 # them (see wm_debug.h). Polling from the host side is the way to wait.
-SETTLE_S = 0.25       # post-drain grace, and the fallback when polling can't run
+SETTLE_S = 0.25       # the fallback wait when polling can't run (an older WM)
+# log_caught_up(): the marker's prefix, and how long the log port may lag.
+LOG_MARK = "logsync:"
+LOG_MARK_TIMEOUT_S = 3.0
 SPAWN_TIMEOUT_S = 60.0  # how long spawn() waits for a client's window: the WM decides (`gui wait`), so a
                         # fast start costs nothing, a crash at start fails at once, and only a hang waits it out
 SH_TIMEOUT_S = 60.0     # send(): `sh PROGRAM` runs a guest program, which under the parallel suite can take
@@ -157,6 +160,8 @@ class DebugConsole:
         self._lock = threading.Lock()
         self._all_log = []
         self._mark = self._prev_mark = self._consumed = 0
+        self._marks_seen = set()   # log_caught_up()'s, as the log port delivers them
+        self._mark_n = 0
         self._closing = False
         self._log_thread = None
         import port_guard
@@ -436,12 +441,38 @@ class DebugConsole:
         # after a moment for the tail of it to cross the wire.
         # `_consumed` stops two sweeps in a row returning the same lines:
         # both would otherwise start at the previous command's mark.
-        time.sleep(0.05)
+        # The start is taken BEFORE the catch-up: its `mark` is a command
+        # too, and would move the previous command's mark past the click.
         with self._lock:
             start = max(self._prev_mark, self._consumed)
+        self.log_caught_up()
+        with self._lock:
             new = self._all_log[start:]
             self._consumed = len(self._all_log)
         return [l for l in new if l.startswith(prefix)]
+
+    def log_caught_up(self, timeout=LOG_MARK_TIMEOUT_S):
+        """The kernel log's own port has delivered everything logged up to
+        now: a `mark` goes into the log and this waits until the log
+        reader sees it -- a wait on the wire, not a guessed pause. Without
+        a log port there is nothing to wait for; against a kernel with no
+        `mark` command it falls back to the old 0.05 s."""
+        if self._log_thread is None:
+            return True
+        self._mark_n += 1
+        tag = f"{os.getpid()}.{self._mark_n}"
+        reply = self.send(f"mark {LOG_MARK}{tag}") or ""
+        if "unknown command" in reply:
+            time.sleep(0.05)
+            return True
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._lock:
+                if tag in self._marks_seen:
+                    self._marks_seen.discard(tag)
+                    return True
+            time.sleep(0.002)
+        return False
 
     def logs(self, match="", clear=True):
         """Every console line seen so far containing `match`, newest last.
@@ -452,8 +483,7 @@ class DebugConsole:
         message the kernel emitted since the last command is included.
         """
         self.send("")
-        if self._log_thread is not None:
-            time.sleep(0.05)   # the log's own port may be a moment behind
+        self.log_caught_up()   # the log's own port may be a moment behind
         with self._lock:
             hits = [l for l in self.log_lines if match in l]
             if clear:
@@ -495,7 +525,7 @@ class DebugConsole:
         return [h for h in self.logs("DAMAGE BUG", clear=clear)
                 if any(v in h for v in self.VOID_VERDICTS)]
 
-    def settle(self, seconds=SETTLE_S, sync=True):
+    def settle(self, seconds=None, sync=True):
         """Wait for queued synthetic input to actually drain, then pause
         `seconds` for the frame it caused to finish.
 
@@ -525,7 +555,7 @@ class DebugConsole:
             except (ValueError, KeyError):
                 pending, anims = None, 0
             if pending is None:      # kernel without the field -- old behaviour
-                time.sleep(seconds)
+                time.sleep(SETTLE_S if seconds is None else seconds)
                 return
             if pending == 0 and anims == 0:
                 break
@@ -536,15 +566,18 @@ class DebugConsole:
                 "is the WM loop still running?")
         # DELIVERED IS NOT DRAWN: the input is in the clients' queues, and
         # `gui sync` asks them (abi/win_proto.h, WIN_EV_SYNC) to say when
-        # it is handled and its frame is on the screen. THE GRACE STAYS
-        # AFTER IT: work an app does after its frame -- a window another
-        # process opens, a decode on a worker, a file written -- is not
-        # the frame, and the first full run without the grace lost four
-        # tools that leaned on it (2026-10-29). settle(0) is the frame and
-        # nothing more, for a test that asserts only the frame.
-        if sync:
-            self.sync()
-        time.sleep(seconds)
+        # it is handled, its frame is on the screen AND the app is idle --
+        # no worker's result still to post, nothing it marked busy
+        # (uapp_work_begin()). So no grace follows a sync that answered:
+        # the 0.25 s that did cost 29% of the suite's time (2026-11-18).
+        # `seconds` waits on top, for a caller that asks; a sync nobody
+        # could answer (an older WM, a client that is not uapp) falls
+        # back to the old pause.
+        answered = self.sync() if sync else False
+        if seconds is None:
+            seconds = 0 if answered else SETTLE_S
+        if seconds:
+            time.sleep(seconds)
 
     def sync(self, timeout=SYNC_TIMEOUT_S, title=None):
         """One `gui sync` round trip: True once the clients holding the
@@ -1382,6 +1415,12 @@ def _read_log(wself, path, first=None):
             c = wself()
             if lines and c is not None:
                 with c._lock:
+                    # A catch-up MARK (log_caught_up()) is noted and
+                    # dropped: no test should ever match on one.
+                    for l in lines:
+                        if LOG_MARK in l:
+                            c._marks_seen.add(l.split(LOG_MARK, 1)[1].strip())
+                    lines = [l for l in lines if LOG_MARK not in l]
                     c.log_lines.extend(lines)
                     c._all_log.extend(lines)
             del c
@@ -1460,6 +1499,14 @@ def _config_value(reply):
     """The value `sh config get NAME` printed: its last word."""
     lines = [l.strip() for l in (reply or "").splitlines() if l.strip()]
     return lines[-1].split()[-1] if lines else ""
+
+
+def wait_scale(c, pct, timeout=60.0):
+    """True once the compositor draws at `pct` -- display.scale reaches it
+    through fontd, which re-renders every font first (seconds, under the
+    parallel suite), so a `config set` returning says nothing yet."""
+    from harness import poll
+    return bool(poll(lambda: c.state().get("scale") == int(pct), timeout))
 
 
 def _hold_setting(c, name, value):

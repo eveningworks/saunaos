@@ -506,7 +506,7 @@ def _parse(win):
     return None
 
 
-def layout_now(dbg, win, tries=25):
+def layout_now(dbg, win, tries=100):
     """The app's CURRENT layout report, polled rather than slept for.
 
     Only lines arriving DURING this call answer it: the cached block is
@@ -522,7 +522,7 @@ def layout_now(dbg, win, tries=25):
             lay = _parse(win)
             if lay:
                 return lay
-        time.sleep(0.2)
+        time.sleep(0.05)   # sleep-ok: the step of a poll, 5 s in all as before
     return None
 
 

@@ -2929,7 +2929,11 @@ def retro_round(dbg, qmp, res):
     if btn and win:
         before = {w["title"] for w in dbg.windows()}
         dbg.click(win["content"]["x"] + btn[0] + btn[2] // 2, win["content"]["y"] + btn[1] + btn[3] // 2)
-        new = poll(lambda: {w["title"] for w in dbg.windows()} - before, 10) or set()
+        # Notepad opens as "untitled" and names the file once it is read:
+        # polled on the title asserted, not on any new window.
+        opened = lambda: {t for t in {w["title"] for w in dbg.windows()} - before
+                          if "FAULT.INI" in t or "Notepad" in t}
+        new = poll(opened, 10) or ({w["title"] for w in dbg.windows()} - before)
         made = "FAULT.INI" in sh(dbg, "ls /home/Win16/WINDOWS")
         res.check("Make one... makes FAULT.INI in C:\\WINDOWS and opens it in Notepad",
                   made and any("FAULT.INI" in t or "Notepad" in t for t in new), f"made {made}, new windows {new}")
@@ -3020,9 +3024,13 @@ def retro_round(dbg, qmp, res):
         if ok:
             dbg.click(*at(ok))
         poll(lambda: dbg.window(OPTIONS_TITLE) is None, 6)
-        conf = sh(dbg, f"cat {WIN16_CONF}")
+        # The file may land after the window goes: polled on what is asserted.
+        saved = lambda c: "cd_drives=D" in c and "label_d=DK1" in c
+        conf = poll(lambda: (lambda c: c if saved(c) else None)(sh(dbg, f"cat {WIN16_CONF}")), 6) \
+            or sh(dbg, f"cat {WIN16_CONF}")
         res.check("OK saves D:'s Type and Label: cd_drives=D, label_d=DK1",
-                  "cd_drives=D" in conf and "label_d=DK1" in conf, f"the file {conf!r}")
+                  "cd_drives=D" in conf and "label_d=DK1" in conf,
+                  f"the file {conf!r}; type {ty} label {lb} ok {ok}")
     if dbg.window(OPTIONS_TITLE):
         dbg.close_window(OPTIONS_TITLE)
     dbg.close_window("Retro Launcher")

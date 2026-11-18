@@ -75,6 +75,7 @@ static void dbg_cmd_help(void) {
     dbg_write("  tsh <line>    - one /bin/sh command line, verbatim: ; && | > $? quotes\r\n");
     dbg_write("  gui <sub>     - inspect/drive the window manager (`gui help`)\r\n");
     dbg_write("  diag [name [cmd]] - ask any registered service; no args lists them\r\n");
+    dbg_write("  mark <text>   - write `mark <text>` to the kernel log\r\n");
 }
 
 // The one command here that isn't read-only inspection. This console's
@@ -539,6 +540,13 @@ static void dbg_dispatch(char *line) {
     else if (k_strcmp(line, "ktest") == 0) dbg_cmd_ktest(arg);
     else if (k_strcmp(line, "sh") == 0) dbg_cmd_sh((char *)arg);
     else if (k_strcmp(line, "tsh") == 0) dbg_cmd_tsh(arg);
+    // A LINE ON THE KERNEL LOG, so a tool reading the log on its own port
+    // knows that port has caught up to this moment once the mark arrives
+    // -- a wait on the log, not a guessed pause (gui_debug.py's logs()).
+    else if (k_strcmp(line, "mark") == 0) {
+        klog_printf("mark %s\n", arg);
+        dbg_write("ok\r\n");
+    }
     else {
         dbg_write("unknown command: ");
         dbg_write(line);

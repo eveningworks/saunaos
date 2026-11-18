@@ -410,12 +410,24 @@ its grace showed a stale label 4-5 times in 20; with the sync, none
 (`tools/tests/gui/sync_test.py`).
 
 **What it cannot see is work after the frame** -- a window another
-process opens, a decode on a worker, a file written -- and no generic
-mechanism can: only the test knows what it is waiting for. So the old
-0.25 s grace STAYS after the sync: the first full suite without it lost
-four tools that leaned on it, and settle() now never waits less than it
-did. A test that asserts only the frame takes `settle(0)`; one waiting
-for later work polls what it asserts (`harness.poll()`).
+process opens, a decode on a worker, a file written. The 0.25 s grace
+kept after the sync for that (2026-10-29) cost 29% of the suite's tool
+time, measured by `gui_regress.py --sleep-profile` (2026-11-18), so it
+went, and the app now says what it is still doing -- Espresso's
+IdlingResource: uapp answers a sync only once IDLE, meaning no worker's
+`uapp_post()` still queued, no `uworker` job in flight, no animation
+that asked for another frame (`uui_anim.h`), and nothing marked with
+`uapp_work_begin()` or the wait cursor (`uapp_busy_begin()`) -- which a
+`uui_webview` holds from a navigation until its page is at rest -- and an
+app's own answer where the toolkit cannot see (`uapp_set_idle_check()`:
+w16 is idle when the emulated program waits for a message with none
+queued and no paint owed). The compositor's own sync waits for its
+workers and a taskbar button still gliding. Work in
+ANOTHER process is still the test's to wait for -- a program with no
+window, fontd re-rendering for a new scale (`gui state`'s `scale`,
+`wait_scale()`) -- and a test polls what it asserts (`harness.poll()`).
+A sync no client could answer still falls back to the 0.25 s. The suite
+went from 863 s to about 680 s.
 
 **New fixed sleeps are refused, the old ones are not rewritten.**
 `check_test_sleeps.py` is a ratchet like `check_chains.py`: the existing

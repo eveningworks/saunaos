@@ -278,6 +278,11 @@ def main():
     c = win["content"]
     dbg.send(f"gui move {c['x'] + px + pw // 2} {c['y'] + py + ph // 2}")
     dbg.send("gui wheel -1")
+    # SETTLED BEFORE THE MAP IS READ: the layout log and the widget map
+    # travel different wires (the kernel log, the app's channel), so the
+    # log saying "scrolled" says nothing yet about the WM's map. The sync
+    # answer follows the map on the same channel.
+    dbg.settle()
     lay = wait_layout(dbg, lambda l: l.get("pane.scroll", 0) > 0, 3.0)
     wid = dbg.widgets(TITLE)
     scrolled = lay.get("pane.scroll", 0)

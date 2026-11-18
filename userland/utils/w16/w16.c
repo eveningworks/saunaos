@@ -938,8 +938,19 @@ static void on_start(struct uapp *a) {
     else start_task(a);
 }
 
+// A test's sync waits for the PROGRAM, not only this loop's frame: caught
+// up (waiting for a message) with nothing queued for it.
+static int program_idle(void *arg) {
+    struct w16 *w = (struct w16 *)arg;
+    pthread_mutex_lock(&w->lock);
+    int idle = w->waiting && w->qhead == w->qtail && !w16_wnd_next_paint(w);   // a paint owed is a message
+    pthread_mutex_unlock(&w->lock);
+    return idle;
+}
+
 static void start_task(struct uapp *a) {
     static pthread_t task;
+    uapp_set_idle_check(a, program_idle, &g_w16);
     if (pthread_create(&task, NULL, w16_task_main, &g_w16) != 0) {
         fprintf(stderr, "w16: cannot start the program's thread\n");
         uapp_quit(a, 1);

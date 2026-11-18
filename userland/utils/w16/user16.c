@@ -29,6 +29,7 @@
 #include "keyboard.h"
 #include "win_proto.h"   // WIN_CURSOR_*
 #include "ui/ugfx.h"
+#include "ui/uapp.h"     // uapp_kick(): the loop asks the idle check again
 
 // CW_USEDEFAULT's size on the 640x480 screen GetSystemMetrics reports:
 // what 3.11 gave Notepad there -- the width less the frame's inset, the
@@ -843,6 +844,12 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
             if (played) continue;
         }
         if (wait_ms == 0 || w->cpu.fault) {
+            // An empty PeekMessage is caught up too: a program that polls
+            // instead of waiting must not read as busy for ever.
+            if (wait_ms == 0 && !w->waiting) {
+                w->waiting = 1;
+                if (w->app) uapp_kick(w->app);
+            }
             pthread_mutex_unlock(&w->lock);
             return 0;
         }
@@ -855,11 +862,17 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
             nanosleep(&ts, 0);
             pthread_mutex_lock(&w->lock);
         }
-        else if (wait_ms < 0) pthread_cond_wait(&w->cond, &w->lock);
+        else if (wait_ms < 0) {
+            w->waiting = 1;
+            if (w->app) uapp_kick(w->app);
+            pthread_cond_wait(&w->cond, &w->lock);
+            w->waiting = 0;
+        }
         else if (w16_now_ms() >= deadline) { pthread_mutex_unlock(&w->lock); return 0; }
         else timed_wait(w);
     }
     if (m->message >= WM_KEYDOWN && m->message <= 0x0108) w->key_mods = m->mods;
+    w->waiting = 0;
     pthread_mutex_unlock(&w->lock);
     return 1;
 }

@@ -115,12 +115,19 @@ def run(dbg, qmp):
     check("...on the page that shows what the bins hold", bool(seen) and "1 bin(s)" in seen[-1], str(seen))
     # The sidebar scrolls to the page it opened on: Recycle Bin is one of
     # the last rows, below the first screenful.
-    lines = dbg.logs("settings:", clear=False)
-    rows = [re.search(r"settings: row (\d+) id \d+ y -?\d+ depth \d+ (.+)", ln) for ln in lines]
-    row = max((int(m.group(1)) for m in rows if m and m.group(2).strip() == "Recycle Bin"), default=-1)
-    sb = [re.search(r"settings: sidebar top (-?\d+) visible (\d+)", ln) for ln in lines]
-    sb = [m for m in sb if m]
-    top, vis = (int(sb[-1].group(1)), int(sb[-1].group(2))) if sb else (-1, 0)
+    # POLLED ON WHAT IS ASSERTED: the sidebar reports its scroll in a
+    # frame of its own, which may come after the usage line above.
+    def sidebar():
+        lines = dbg.logs("settings:", clear=False)
+        rows = [re.search(r"settings: row (\d+) id \d+ y -?\d+ depth \d+ (.+)", ln) for ln in lines]
+        row = max((int(m.group(1)) for m in rows if m and m.group(2).strip() == "Recycle Bin"), default=-1)
+        sb = [re.search(r"settings: sidebar top (-?\d+) visible (\d+)", ln) for ln in lines]
+        sb = [m for m in sb if m]
+        top, vis = (int(sb[-1].group(1)), int(sb[-1].group(2))) if sb else (-1, 0)
+        return row, top, vis
+    in_view = lambda r: r[0] >= 0 and r[1] <= r[0] < r[1] + r[2]
+    row, top, vis = wait_for(lambda: (lambda r: r if in_view(r) else None)(sidebar()), timeout=10) \
+        or sidebar()
     check("...with its row scrolled into the sidebar's view", row >= 0 and top <= row < top + vis,
           f"row {row}, sidebar top {top} visible {vis}")
     dbg.close_window("System Settings")

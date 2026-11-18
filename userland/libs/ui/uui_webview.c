@@ -266,7 +266,26 @@ static void hist_clear(struct uui_webview *v) {
     v->nhist = v->hist_at = 0;
 }
 
+// A PAGE LOADING IS WORK (uapp_work_begin): held from a navigation's
+// request until the engine first answers, and whenever the engine says
+// it is loading -- a link the page followed itself too; let go at rest
+// once no request waits, or when the content process dies. A request
+// the engine turns into a download never loads a page, so its first
+// answer ends the hold rather than a page that will not come.
+static void work_hold(struct uui_webview *v) {
+    if (v->work_held) return;
+    v->work_held = 1;
+    uapp_work_begin(g_app);
+}
+
+static void work_release(struct uui_webview *v) {
+    if (!v->work_held) return;
+    v->work_held = 0;
+    uapp_work_end(g_app);
+}
+
 void uui_webview_destroy(struct uui_webview *v) {
+    work_release(v);
     end_process(v);
     hist_clear(v);
     free(v->copy);
@@ -314,6 +333,8 @@ static void navigate_as(struct uui_webview *v, const char *url, int upgraded) {
     // the new one: an app shown the new address beside the old page's
     // finished state would take the old page for the new.
     if (!v->ready) snprintf(v->url, sizeof v->url, "%s", url);
+    work_hold(v);
+    v->work_req = 1;
     if (v->ready) {
         send_rec(v, type, url, (uint32_t)strlen(url));
         return;
@@ -371,6 +392,8 @@ static void go_entry(struct uui_webview *v) {
     v->hist_live = 0;
     v->unloaded = 0;
     hist_sync(v);
+    work_hold(v);
+    v->work_req = 1;
     if (v->ready) {
         send_go(v);
     } else {
@@ -766,6 +789,8 @@ static void handle(const struct ubulk_msg *m) {
         break;
     }
     case WV_URL:
+        v->work_req = 0;
+        if (!v->st.loading) work_release(v);
         copy_str(v->url, sizeof v->url, m, 0, m->len);
         v->nlinks = 0;   // a new page's links come after it
         changed(v, UUI_WV_URL);
@@ -780,10 +805,13 @@ static void handle(const struct ubulk_msg *m) {
             memcpy(&v->st, m->data, sizeof v->st);
             // Only a page at rest says where it was left: a navigation
             // resets the scroll as it starts, before its commit arrives.
+            v->work_req = 0;
+            if (v->st.loading) work_hold(v);
             if (!v->st.loading) {
                 v->hist_live = 1;
                 v->live_sx = v->st.sx;
                 v->live_sy = v->st.sy;
+                work_release(v);
             }
             // The shape arrives a moment after the motion that asked for
             // it, and the toolkit asks a widget only ON a motion: a
@@ -881,6 +909,7 @@ static void died(int pid, int code) {
     struct uui_webview *v = by_pid(pid);
     if (!v) return;
     uui_webview_history_snapshot(v);
+    work_release(v);
     v->pid = 0;
     v->ready = 0;
     unmap_buf(v);

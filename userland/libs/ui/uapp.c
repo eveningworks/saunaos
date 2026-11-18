@@ -3,6 +3,7 @@
 #include "base/uutf8.h"   // a title cut between characters
 #include "base/uopen.h"   // uapp_open_url()
 #include "rt/ulock.h"
+#include "base/uworker.h"   // uworker_pending(): a job in flight is not idle
 #include <errno.h>
 
 // One process, one TOPLEVEL -- plus its popups, which are surfaces of
@@ -115,6 +116,44 @@ static int post_take(int *a0, int *a1) {
     }
     post_unlock();
     return have;
+}
+
+// uapp_work_begin()'s count, and whether a test's sync may be answered.
+static int g_work;
+
+void uapp_work_begin(struct uapp *a) {
+    (void)a;
+    __atomic_add_fetch(&g_work, 1, __ATOMIC_SEQ_CST);
+}
+
+void uapp_work_end(struct uapp *a) {
+    (void)a;
+    // The loop re-asks at its next pass, so the last end wakes it.
+    if (__atomic_sub_fetch(&g_work, 1, __ATOMIC_SEQ_CST) <= 0) loop_kick();
+}
+
+static int (*g_idle_fn)(void *);
+static void *g_idle_arg;
+
+void uapp_set_idle_check(struct uapp *a, int (*fn)(void *arg), void *arg) {
+    (void)a;
+    g_idle_arg = arg;
+    g_idle_fn = fn;
+}
+
+void uapp_kick(struct uapp *a) {
+    (void)a;
+    loop_kick();
+}
+
+static int idle(void) {
+    post_lock();
+    int posts = g_post_head != g_post_tail;
+    post_unlock();
+    // An animation that asked for another frame (uui_anim.h) is a frame
+    // still to come: a click mid-glide lands on a row still moving.
+    return !posts && __atomic_load_n(&g_work, __ATOMIC_SEQ_CST) <= 0 && !uworker_pending() &&
+           !uui_anim_pending() && (!g_idle_fn || g_idle_fn(g_idle_arg));
 }
 
 int uapp_post(struct uapp *a, int a0, int a1) {
@@ -398,6 +437,8 @@ int uapp_set_tick(struct uapp *a, unsigned ms) {
 }
 
 void uapp_busy_begin(struct uapp *a) {
+    // The wait cursor is work too: a test's sync waits it out.
+    uapp_work_begin(a);
     a->cursor_before_busy = a->top.cursor;
     uapp_set_cursor(a, WIN_CURSOR_WAIT);
     // The shape has to be ON THE WIRE before the caller blocks, and
@@ -407,6 +448,7 @@ void uapp_busy_begin(struct uapp *a) {
 
 void uapp_busy_end(struct uapp *a) {
     uapp_set_cursor(a, a->cursor_before_busy);
+    uapp_work_end(a);
 }
 
 void uapp_set_fullscreen(struct uapp *a, int on) {
@@ -1542,8 +1584,10 @@ int uapp_pump(struct uapp *a, int timeout_ms) {
     for (int i = 1; i < WIN_CLIENT_MAX; i++)
         if (g_dlg[i].top.slot) dlg_flush(&g_dlg[i]);
     // A sync is answered once nothing is left to draw: a frame held for a
-    // free buffer, or a fullscreen's first, keeps it owed until it goes out.
-    if (g_sync_owed && !a->top.dirty) {
+    // free buffer, or a fullscreen's first, keeps it owed until it goes out
+    // -- and once the program is IDLE (uapp_work_begin()): a worker's
+    // result still to post is a frame still to come.
+    if (g_sync_owed && !a->top.dirty && idle()) {
         int clean = 1;
         for (int i = 1; i < WIN_CLIENT_MAX; i++)
             if (g_dlg[i].top.slot && g_dlg[i].top.dirty) clean = 0;

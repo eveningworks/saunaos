@@ -872,14 +872,21 @@ behind the input to the clients holding the keyboard and the pointer;
 uapp answers once that loop's frame has been presented, and the WM marks
 it done once the frame is composited (`gui state`'s `sync`). Measured on
 the counter demo: 0 stale labels in 20 clicks with it, 4-5 in 20 with the
-old wait and no grace (`tools/tests/gui/sync_test.py --positive-control`). **The
-0.25 s grace still follows it**, for work an app does AFTER its frame --
-a window another process opens, a decode on a worker, a file written:
-the first full suite without it lost four tools that leaned on it
-(`crash`, `filedialog`, `imgview`, `shot`). `settle(0)` is the frame alone
-(~25 ms); a test waiting for after-frame work polls what it then asserts
-(`harness.poll()`). A client that does not answer (not uapp) is waited
-out for 3 s; `settle(sync=False)` is the old wait.
+old wait and no grace (`tools/tests/gui/sync_test.py --positive-control`).
+**The app answers only once it is IDLE** -- nothing a worker still has
+to post, no `uworker` job, no animation asking for another frame, nothing
+marked `uapp_work_begin()` or under the wait cursor, no `uui_webview`
+page still loading, and the app's own idle check if it set one
+(`uapp_set_idle_check()`: w16's emulated program) -- so **no grace
+follows an answered sync** (it cost 29% of the suite, 2026-11-18).
+`settle(x)` still waits `x` on top for a caller that asks. Work in ANOTHER
+process is the test's to wait for: a program with no window (wait for it
+to exit), fontd re-rendering for a new scale (`wait_scale()`); poll what
+you then assert (`harness.poll()`). A client that does not answer (not
+uapp) is waited out for 3 s and then the old 0.25 s; `settle(sync=False)`
+is the old wait. **`logs()` and `events()` wait for the log port by a
+`mark`** (a debug-console command that writes a line to the kernel log),
+not a pause.
 
 **A WINDOW, A WIDGET OR A CLOSE IS WAITED FOR BY THE WM, NOT POLLED WITH
 THE HOST'S CLOCK** (`docs/gui-test-sync-design.md`): `wait_window(title,

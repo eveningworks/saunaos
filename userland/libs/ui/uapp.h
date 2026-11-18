@@ -641,6 +641,24 @@ void uapp_window_popup_end(unsigned prev);
 // that puts it somewhere both threads agreed on and posts an index.
 int uapp_post(struct uapp *a, int a0, int a1);
 
+// WORK THIS PROGRAM DOES AWAY FROM ITS FRAME -- a thread decoding, a
+// child it waits on, a file operation -- said while it runs, so a test's
+// `gui sync` (WIN_EV_SYNC) is answered only once it is done: Espresso's
+// IdlingResource. A count, callable from any thread; end() as often as
+// begin(). A post a worker queued (uapp_post) and a uworker job in
+// flight count by themselves -- mark only what neither covers, the span
+// from starting the work to its post. Nothing reads it but a test's sync;
+// uapp_busy_begin(), the wait cursor, counts here too.
+void uapp_work_begin(struct uapp *a);
+void uapp_work_end(struct uapp *a);
+
+// AN APP'S OWN ANSWER to "is everything caught up?", for work the toolkit
+// cannot see at all -- an emulated program's message queue (w16). Asked
+// at the sync check, on the main thread: nonzero when idle. A thread that
+// goes idle calls uapp_kick() so the loop asks again. NULL removes it.
+void uapp_set_idle_check(struct uapp *a, int (*idle)(void *arg), void *arg);
+void uapp_kick(struct uapp *a);
+
 // Marks the content dirty. The loop draws and presents ONCE before it
 // next blocks, so a mouse drag crossing three buttons costs one present
 // rather than three, and an app can call this from as many places as it

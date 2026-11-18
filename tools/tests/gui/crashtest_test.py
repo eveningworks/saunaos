@@ -279,6 +279,9 @@ def no_reopen(dbg, note):
     check("the restart notice's Details opens the desktop's crash dialog", dlg is not None)
     if not dlg:
         return
+    # The map fills in as the dialog draws: wait for the button asserted
+    # PRESENT before asserting the other one absent.
+    dbg.wait_widget("toywm crashed", "close", timeout=10)
     w = dbg.widgets("toywm crashed")
     check("...which offers no Reopen for a service, and Close instead",
           "reopen" not in w and "close" in w, ", ".join(sorted(w)))

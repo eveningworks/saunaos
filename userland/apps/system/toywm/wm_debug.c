@@ -1663,6 +1663,10 @@ static void cmd_state(struct dbg_out *o, int json) {
                      wm_overlay_close_pending() ? "true" : "false", wm_debug_input_pending());
         dbg_out_printf(o, "\"scene_repaints\":%u,\"clock_ticks\":%u,",
                      wm_scene_frames(), wm_clock_ticks());
+        // The display scale this compositor draws at -- fontd's beacon,
+        // published once every font is re-rendered: a test that changes
+        // display.scale waits on this, since no sync can see fontd.
+        dbg_out_printf(o, "\"scale\":%d,", ugfx_scale_pct());
         dbg_out_printf(o, "\"hwcursor\":%s,",
                      wm_hwcursor_active() ? "true" : "false");
         // Ghosts in flight (wm_anim.h): a test that reads pixels waits

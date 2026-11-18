@@ -2239,7 +2239,10 @@ void wm_run(void) {
         }
         if (!rendered && (redraw_pending || overlay_close_frame())) g_frames_paced++;
         // A job still on the worker (a refresh, a decode) is owed as well.
-        wm_debug_sync_frame(redraw_pending || overlay_close_frame() || uworker_pending());
+        // A taskbar button still gliding into its slot is a frame still
+        // to come, as an app's animation is (uapp's idle()).
+        wm_debug_sync_frame(redraw_pending || overlay_close_frame() || uworker_pending() ||
+                            taskbar_glide_wait_ms() >= 0);
         wm_debug_waits_frame();
 
         // THE DESKTOP IS USABLE AT ITS FIRST COMPOSITED FRAME, and that

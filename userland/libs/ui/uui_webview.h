@@ -65,6 +65,10 @@ struct uui_wv_entry {
 
 struct uui_webview {
     int x, y, w, h;
+    // A page loading holds the app's work count (uapp_work_begin), so a
+    // test's sync waits for it: work_req while a navigation waits for the
+    // engine's first word, then for as long as the engine says loading.
+    int work_held, work_req;
     const struct uui_webview_host *host;
     void *user;                    // the app's
     const char *net;               // the network process's channel; NULL: local pages only

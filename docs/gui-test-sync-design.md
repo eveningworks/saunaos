@@ -3,8 +3,8 @@
 **Status: stages 1 and 2 BUILT** (`userland/apps/system/toywm/wm_debug_wait.c`
 and `wm_debug.c`'s `gui input`; `gui_debug.py`'s `wait*()`, `input()`,
 `tap()`; `tools/tests/gui/wait_test.py`, `input_test.py`); stage 3's diagnosis is done and its `sh` fix
-BUILT (left: the four unread flakes, and the app-busy protocol only if one
-needs it); stage 4 PLANNED. Asked for on
+BUILT (left: the four unread flakes); the app-busy protocol BUILT
+2026-11-18; stage 4 PLANNED. Asked for on
 2026-11-05 after a measurement of the GUI suite's flakes (below); the
 alternative, a test runner inside the OS, was put after this because
 the measurement did not point at the transport.
@@ -168,12 +168,21 @@ needed it -- every one explained was a host deadline or a race in the
 test. It stays the answer if one of the four unread turns out to be work
 an app finishes after its frame.
 
-### Planned only if needed: an app says when it is busy
+### BUILT 2026-11-18: an app says when it is busy
 
-- uapp counts BUSY: posts queued from worker threads (`uapp_post`), a
-  `uapp_busy_begin()/end()` pair for work an app starts (a file
-  operation, a child it waits on). A client answers `gui sync` only once
-  it is idle, and says so.
+Built for speed rather than for a flake: the 0.25 s grace after every
+sync was 29% of the suite's tool time (`gui_regress.py --sleep-profile`).
+
+- uapp answers `gui sync` only once IDLE: no `uapp_post()` still queued,
+  no `uworker` job in flight, no animation that asked for another frame,
+  and nothing marked with `uapp_work_begin()/end()` or the wait cursor
+  (`uapp_busy_begin()`). `settle()` adds no grace after an answered sync.
+- What dropping the grace turned red, and how each was fixed: a click
+  mid-glide (`uidemo`, `devmgr`, `help` -- the animation term); the
+  Image Viewer's decode (its wait cursor now counts); fontd's re-render
+  for a new scale (`gui state`'s `scale`, `wait_scale()`); a program with
+  no window (`screenshot_test` waits for it to exit); a poll weaker than
+  its assertion (`trash_limits_test`, `devmgr_test`'s map read after a log line, `crashtest_test`'s dialog map); and a page loading in a `uui_webview` (`help`), which now holds the work count until the page is at rest; the taskbar's button glide (`taskbar_style`), now an owed frame in the compositor's sync; w16's emulated program, which answers through `uapp_set_idle_check()`. Two left open in `docs/bugs.md`.
 - Mark the work the E tools wait on: the File Manager's operations, Hex
   Viewer's clipboard, Device Manager's `devctl`.
 - What stays red after this is a candidate real bug, and goes to

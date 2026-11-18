@@ -62,7 +62,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
-from gui_debug import DebugConsole, enter_gui, _hold_setting  # noqa: E402
+from gui_debug import DebugConsole, enter_gui, _hold_setting, wait_scale  # noqa: E402
 from qmp_test import QMPSession                                 # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
@@ -422,7 +422,7 @@ def main():
             r = _hold_setting(dbg, "display.scale", scale)
             if r:
                 restores.append(r)
-            dbg.settle()
+            res.check(f"{scale}%: the compositor draws at it", wait_scale(dbg, scale))
             phase(dbg, qmp, log, res, args.shot)
     finally:
         for p in dbg.processes_named("sdlwin_test"):

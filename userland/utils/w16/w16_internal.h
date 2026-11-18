@@ -504,6 +504,10 @@ struct w16 {
     int fb_dirty;                                // a window DC drew: post a repaint
     unsigned screen_draws;                       // ...counted, for a journal's pace (input16.c)
     int ptr_waiting, ptr_x, ptr_y;               // w16_post_pointer()'s, under `lock`
+    // The program is CAUGHT UP: blocked for a message, or its last
+    // PeekMessage found none. Under `lock`; w16.c's idle check reads it
+    // with the queue, so a test's sync waits for the program itself.
+    int waiting;
     uint16_t *wing;                              // wing16.c: every WinG bitmap's handle, grown
     int nwing, wing_cap, wing_pulled;            // ...and how many owe a push
     uint64_t committed_ms;                       // when w16_gdi_flush() last took a frame

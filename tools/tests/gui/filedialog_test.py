@@ -99,7 +99,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 import port_guard  # noqa: E402
 from qmp_test import QMPSession  # noqa: E402
 from gui_debug import DebugConsole, enter_gui  # noqa: E402
-from harness import Results  # noqa: E402
+from harness import poll, Results  # noqa: E402
 
 NOTEPAD = "/bin/wm/apps/notepad"
 IMGVIEW = "/bin/wm/apps/imgview"
@@ -195,7 +195,12 @@ def place_owner(dbg, w, x=8, y=8):
 def open_chooser(dbg, path, title, timeout=8.0):
     """Spawn an app, pin it where the chooser cannot cover all of it,
     and press Ctrl-O. Returns (owner, dialog)."""
+    before = {w.get("client_pid") for w in windows(dbg)}
     dbg.spawn(path, title=title)
+    # WITHOUT A TITLE spawn() waits for nothing: wait for the new client's
+    # window, or Ctrl-O below can land before it exists.
+    if title is None:
+        poll(lambda: [w for w in windows(dbg) if w.get("client_pid") not in before], 15)
     dbg.settle()
     ws = [w for w in windows(dbg) if w.get("client_pid")]
     if ws:
