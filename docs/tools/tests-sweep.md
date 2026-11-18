@@ -140,11 +140,12 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   header in the sysroot compiles as C++ on its own (the toolkit's are
   `cxx_headers_hostcheck.py`'s; SDL's are checked as a C++ port includes
   them, `<SDL3/SDL.h>` and SDL2's `"SDL.h"` with `sdl2-config`'s flags),
-  and prints the binary's size. Counter over the C++ layer
-  (`userland/libs/uixx/examples/counter/`) is built against the SDK's
-  `uixx/` headers with no warning, spawned on the guest, and must report
-  its four widgets by name and log `counter: count 2` after two `gui
-  click`s on +1 -- the clicks reached the button's lambda.
+  and prints the binary's size. Each C++ layer example
+  (`userland/libs/uixx/examples/`, `UIXX_EXAMPLES`) is built against the
+  SDK's `uixx/` headers with no warning, spawned on the guest, and must
+  report its widgets by name and log its line after `gui click`s
+  (Counter's `counter: count 2`, Widgets' `widgets: hidden 1`) -- the
+  clicks reached a C++ lambda.
   `--positive-control eh_frame` (or
   `init_array`) links with a copy of the sysroot's `saunaos-dyn.ld` that
   discards that section, `libc_eh_frame` a `-static` link whose

@@ -88,11 +88,16 @@ the rest in the sweep. Each stays a standalone script with its own
   kept (`uitest_log_find`), `sys_getrandom` is fixed, a second thread is
   refused (tolibc's `pthread.c` is linked), and POPUP/DIALOG/NOTICE are
   refused, so popups draw in the window. Cases: `calculator_app`,
-  `mines_app`, and `counterxx_app` -- Counter over the C++ layer
-  (`docs/uixx-design.md`), whose `.cpp` is built with the HOST g++ against
+  `mines_app`, and three for the C++ layer: `counterxx_app` and
+  `widgetsxx_app` (the value widgets' `on_change`, input only), and
+  `throwxx_app` (a throwing `on_click` reaches `main()`; its fixture is
+  `uitest/throwxx/`). Each is a C++ app
+  over `docs/uixx-design.md`'s headers, whose `.cpp` is built with the HOST g++ against
   glibc and libstdc++ (tolibc's headers cannot sit under libstdc++'s;
   the kernel's go `-idirafter`, since abi/ has its own `errno.h`) and
   linked with g++, its argument-less `main` called from a C-linkage shim.
+  The toolkit is built with the guest's `-fno-asynchronous-unwind-tables`,
+  so a C++ exception unwinding into it terminates here as it does there.
   A control may edit an APP's source (`APP_OVERRIDE`).
   `--keep DIR` writes `uitest_keep()` frames as PPMs; names run a subset;
   `--list`. Needs gcc and objdump, and g++ for a C++ app.

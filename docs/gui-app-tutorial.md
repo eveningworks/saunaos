@@ -352,6 +352,11 @@ What changes from the C version:
   the layout put it, and `redraw()` asks for a repaint.
 - **Strings are owned.** `label_.set_text(std::string)` keeps the text,
   where the C label keeps a pointer to yours.
+- **A value widget reports through `on_change`** -- `ui::Checkbox`,
+  `ui::Switch`, `ui::Textbox`, `ui::Dropdown`, `ui::Slider`,
+  `ui::Listbox` -- with the new value, on input only: a `set_*()` from
+  your own code never calls it. `userland/libs/uixx/examples/widgets/`
+  is a form of all of them.
 - **Name a child, or write a Row in place -- never a temporary
   widget.** A named member is referenced; a nested `ui::Row{...}` is
   owned by its parent; `ui::Column{ui::Label{"x"}}` does not compile.

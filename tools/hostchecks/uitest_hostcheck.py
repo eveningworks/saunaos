@@ -79,8 +79,12 @@ GXX = (["ccache"] if shutil.which("ccache") else []) + ["g++"]
 
 INC_LIBC = ["-Iuserland/libs/libc/include"]
 INC_API = ["-Ikernel/include/api", "-Ikernel/include/abi", "-Ibuild/gen", "-Iuserland", "-Iuserland/libs"]
+# -fno-asynchronous-unwind-tables as on the guest: a C++ exception that
+# unwinds into the toolkit must terminate here as it does there, or a case
+# could not see the C++ layer's guard missing (throwxx_app).
 TOOLKIT_FLAGS = ["-std=gnu11", "-ffreestanding", "-O2", "-g", "-w", "-fno-strict-aliasing",
-                 "-ffunction-sections", "-fdata-sections", "-fno-tree-loop-distribute-patterns"]
+                 "-ffunction-sections", "-fdata-sections", "-fno-tree-loop-distribute-patterns",
+                 "-fno-asynchronous-unwind-tables"]
 EXTRA = {   # per-source flags the Makefile adds
     "userland/libs/media/uvid_indeo3.c": ["-Iuserland/third_party/indeo3/upstream",
                                           "-Iuserland/third_party/indeo3/glue"],

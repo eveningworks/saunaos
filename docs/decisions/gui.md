@@ -13431,6 +13431,15 @@ here does yet.
 `on_action`; many listeners and connection objects are machinery for a
 need no caller has. A signal can be added beside a slot when one does.
 
+**Why `on_change` reports user input only** (stage 2, the same day).
+A value widget's slot runs when a click, drag, key or paste left its
+value different, never on a `set_*()` -- Qt's `textEdited`, not
+`valueChanged`, and the C toolkit's rule for `on_widget`. Reporting
+every change gives one place that sees all of them, but two handlers
+that set each other's widgets then loop, which is why GTK has signal
+blocking. An option list's value is its index, as the C widget's is,
+not a typed `Dropdown<T>`.
+
 **The trap it carries:** the toolkit is built
 `-fno-asynchronous-unwind-tables`, so an exception that unwinds into its
 frames terminates the program. Every trampoline back into C++ catches,
