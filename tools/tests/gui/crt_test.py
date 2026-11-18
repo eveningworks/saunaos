@@ -30,6 +30,7 @@ corner it is bezel, and the app walks in to the same word.)
 RUNNER = {"covers": "the Terminal's screen effect: toggle, Options, the curve's pointer"}
 
 import os
+import tempfile
 import re
 import sys
 import time
@@ -117,7 +118,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
     ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     args = ap.parse_args()
     port_guard.resolve_instance(args, "crt_test")
 

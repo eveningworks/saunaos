@@ -29,6 +29,7 @@ RUNNER = {"name": "caret", "covers": "the text caret blinks, stops solid, and ne
 import argparse
 import hashlib
 import os
+import tempfile
 import sys
 import time
 
@@ -146,7 +147,7 @@ def run(dbg, qmp, tmp, res):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)   # --instance N, or the legacy --sock/--qmp-port
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     ap.add_argument("--in-gui", action="store_true")   # accepted; nothing to enter
     args = ap.parse_args()
     port_guard.resolve_instance(args, "caret_blink_test")

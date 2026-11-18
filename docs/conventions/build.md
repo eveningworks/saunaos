@@ -1269,6 +1269,19 @@ a one-shot job's thread starts with `uapp_thread_start()`, not
 person (paused, asking) lets its count go (`fm_jobs.c`'s
 `waiting_for_user()`).
 
+## A TEST'S HOST-SIDE SCRATCH FILES GO UNDER `tempfile.gettempdir()`, NEVER A LITERAL `/tmp`
+
+`gui_regress.py` gives every guest a private `TMPDIR` (`private_tmp.py`),
+and `--repeat` runs several copies of ONE tool at once. A tool that
+writes its screendumps to a literal `/tmp` shares each file name with its
+twin: one copy reads the other's half-written PPM ("OSError: image file
+is truncated") or a file the other already deleted
+(`FileNotFoundError`). A `--tmp`/`--logs` default, a module-level `TMP`,
+a fixed name joined to a directory -- all `tempfile.gettempdir()`, which
+honours `TMPDIR`. A GUEST path (`/tmp/zip-open` inside SaunaOS) is not
+this rule's business. Fixed in two rounds (c1645b79 for fifteen tools,
+the rest with the widget map's commit).
+
 ## A TEST'S FOLDER IS ITS RUNNER, AND A TOOL IS NAMED BY BASENAME, NEVER BY A PATH BUILT FROM ITS FOLDER
 
 `tools/` is split by role (`docs/tools.md`, "How tools/ is laid out").

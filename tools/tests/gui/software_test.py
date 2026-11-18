@@ -50,6 +50,7 @@ RUNNER = {"covers": "the Software app: cards, the queue, Apply (remove and add b
 import argparse
 import http.server
 import os
+import tempfile
 import re
 import sys
 import threading
@@ -240,7 +241,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
     ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     ap.add_argument("--positive-control", action="store_true",
                     help="serve no per-build route: the Install must fail")
     args = ap.parse_args()

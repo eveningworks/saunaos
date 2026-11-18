@@ -29,6 +29,7 @@ RUNNER = {"covers": "Help and System Update draw their Markdown with no Web page
 
 import argparse
 import os
+import tempfile
 import re
 import sys
 
@@ -83,7 +84,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
     ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     args = ap.parse_args()
     port_guard.resolve_instance(args, "engineless_test")
     res = Results()

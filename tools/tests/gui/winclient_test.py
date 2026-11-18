@@ -31,6 +31,7 @@ RUNNER = {"covers": "the ring-3 window protocol"}
 
 import argparse
 import os
+import tempfile
 import sys
 import time
 
@@ -220,7 +221,7 @@ def main():
     ap.add_argument("--in-gui", action="store_true",
                     help="the VM already shows the desktop; don't type `gui` first")
     ap.add_argument("--shot", metavar="DIR", help="write proof screenshots here")
-    ap.add_argument("--tmp", default="/tmp", help="scratch dir for sampled screenshots")
+    ap.add_argument("--tmp", default=tempfile.gettempdir(), help="scratch dir for sampled screenshots")
     args = ap.parse_args()
     port_guard.resolve_instance(args, "winclient_test")
 

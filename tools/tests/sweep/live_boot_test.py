@@ -59,6 +59,7 @@ RUNNER = {
 
 import argparse
 import os
+import tempfile
 import re
 import shutil
 import socket
@@ -259,7 +260,7 @@ def main():
     # the whole thing off the CD before the kernel starts and that cost
     # belongs to the image that needs it. See the Makefile.
     ap.add_argument("--iso", default="saunaos-live.iso")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     ap.add_argument("--phase", choices=("both", "nodisk", "policy"),
                     default="both", help="which phase to run")
     args = ap.parse_args()

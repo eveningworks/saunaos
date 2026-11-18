@@ -1350,6 +1350,8 @@ whenever a headline here tells you something you did not already know.
   TOOL MAY NOT GAIN A FIXED SLEEP** (`settle()` waits for idle,
   `check_eventually()`, `run_and_wait()`, `harness.poll()`,
   `check_test_sleeps.py`)
+- **A TEST'S HOST-SIDE SCRATCH FILES GO UNDER `tempfile.gettempdir()`**,
+  never a literal `/tmp`: `--repeat` runs twins that share it
 - **A TEST'S FOLDER IS ITS RUNNER, AND A TOOL IS NAMED BY BASENAME**
   (`tools/tests/<runner>/` + a `RUNNER` header; `toolpath.tool("vm.py")`,
   never a path built from a folder)

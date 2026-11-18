@@ -51,6 +51,7 @@ RUNNER = {"covers": "every SATA drive; which disk is root"}
 
 import argparse
 import os
+import tempfile
 import subprocess
 import sys
 import time
@@ -331,7 +332,7 @@ def phase_cd(res, tmp):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     ap.add_argument("--phase", choices=("sata", "blank", "two", "refresh", "cd", "all"), default="all")
     args = ap.parse_args()
 

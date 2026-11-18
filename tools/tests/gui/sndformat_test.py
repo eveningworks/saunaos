@@ -31,6 +31,7 @@ RUNNER = {
 }
 
 import os
+import tempfile
 import re
 import sys
 import time
@@ -164,7 +165,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
     ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     ap.add_argument("--wav", default=None, metavar="PATH",
                     help="the guest's --audio-wav recording: also judge the Test card by ear")
     args = ap.parse_args()

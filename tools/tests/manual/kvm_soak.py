@@ -77,6 +77,7 @@ RUNNER = {
 
 import argparse
 import os
+import tempfile
 import re
 import subprocess
 import sys
@@ -339,7 +340,7 @@ def main():
                     help="fail on any WM frame at least this long (default 300)")
     ap.add_argument("--changes", type=int, default=2,
                     help="setting changes per row (default 2)")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     ap.add_argument("--keep", metavar="DIR", help="write each boot's log here")
     args = ap.parse_args()
 

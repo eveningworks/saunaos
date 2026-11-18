@@ -41,6 +41,7 @@ RUNNER = {"covers": "a menu leaves its window: popup surfaces"}
 
 import argparse
 import os
+import tempfile
 import sys
 import time
 
@@ -253,7 +254,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     port_guard.add_instance_args(ap)
     ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     args = ap.parse_args()
     port_guard.resolve_instance(args, "popup_test")
 

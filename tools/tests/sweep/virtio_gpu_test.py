@@ -44,6 +44,7 @@ import sys
 import time
 
 import os  # noqa: E402
+import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole            # noqa: E402
@@ -302,7 +303,7 @@ def wait_for_desktop(n, timeout_s):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--instance", type=int, default=0)
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     ap.add_argument("--keep", action="store_true",
                     help="leave the guest running (for poking at it by hand)")
     args = ap.parse_args()

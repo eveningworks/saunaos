@@ -35,6 +35,7 @@ RUNNER = {
 
 import argparse
 import os
+import tempfile
 import sys
 import time
 from collections import Counter
@@ -177,7 +178,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     port_guard.add_instance_args(ap)
     ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     args = ap.parse_args()
     port_guard.resolve_instance(args, "scroll_test")
     res = Results()

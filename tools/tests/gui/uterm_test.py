@@ -33,6 +33,7 @@ RUNNER = {"covers": "Terminal + the ring-3 shell"}
 
 import argparse
 import os
+import tempfile
 import sys
 import time
 
@@ -1337,7 +1338,7 @@ def check_tab_legibility(dbg, qmp, res):
         return
 
     from PIL import Image
-    shot = os.path.abspath(os.path.join("/tmp", "ut_tabs_legible.png"))
+    shot = os.path.abspath(os.path.join(tempfile.gettempdir(), "ut_tabs_legible.png"))
     qmp.stable_pixels(shot)
     c = win["content"]
     with Image.open(shot) as raw:
@@ -2133,7 +2134,7 @@ def main():
     port_guard.add_instance_args(ap)   # --instance N, or the legacy --sock/--qmp-port
     ap.add_argument("--in-gui", action="store_true")
     ap.add_argument("--shot", metavar="DIR")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     ap.add_argument("--only", choices=("utf8", "env"),
                     help="run one block: utf8 (the UTF-8 checks, step 2), "
                          "env (the shell's environment)")

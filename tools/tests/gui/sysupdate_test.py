@@ -36,6 +36,7 @@ RUNNER = {"covers": "System Update: finds, shows and installs a change, by pixel
 
 import http.server
 import os
+import tempfile
 import re
 import sys
 import threading
@@ -251,7 +252,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
     ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     ap.add_argument("--positive-control", action="store_true",
                     help="serve NO notes and still expect them drawn")
     args = ap.parse_args()

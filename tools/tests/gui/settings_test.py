@@ -50,6 +50,7 @@ RUNNER = {"covers": "the settings registry, in ring 3"}
 
 import argparse
 import os
+import tempfile
 import re
 import sys
 import time
@@ -360,7 +361,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)   # --instance N, or the legacy --sock/--qmp-port
     ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     args = ap.parse_args()
     port_guard.resolve_instance(args, "settings_test")
 
@@ -1959,7 +1960,6 @@ def main():
     # chosen segment's label in its own fill colour, a blank grey box --
     # found on the laptop, the first time any segmented control was
     # disabled while showing a choice.
-    import tempfile
     # WAIT FOR THE APP'S REFRESH, never a sleep: it rebuilds the sidebar,
     # which can move its scroll position, and a row aimed at through the
     # position from before lands on its neighbour.

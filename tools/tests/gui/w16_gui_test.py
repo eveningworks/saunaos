@@ -199,6 +199,7 @@ import sys
 import time
 
 import os  # noqa: E402
+import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui          # noqa: E402
@@ -2497,7 +2498,7 @@ def calls(dbg, res):
     dbg.close_window("GDI test - calls")
 
 
-TMP = "/tmp"
+TMP = tempfile.gettempdir()
 
 
 SHAPES_TITLE = "Shapes (Win16)"
@@ -3197,7 +3198,7 @@ def main():
     port_guard.add_instance_args(ap)
     ap.add_argument("--in-gui", action="store_true")
     ap.add_argument("--logs", default=None)
-    ap.add_argument("--tmp", default="/tmp", help="where screendumps go")
+    ap.add_argument("--tmp", default=tempfile.gettempdir(), help="where screendumps go")
     ap.add_argument("--only", default=None, help="run just these checks, comma-separated (shapes,own_cursor)")
     args = ap.parse_args()
     port_guard.resolve_instance(args, "w16_gui_test")

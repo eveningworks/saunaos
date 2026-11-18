@@ -55,6 +55,7 @@ RUNNER = {"covers": "Minesweeper, and a secondary click reaching a client"}
 
 import argparse
 import os
+import tempfile
 import sys
 import time
 
@@ -522,7 +523,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     port_guard.add_instance_args(ap)   # --instance N, or the legacy --sock/--qmp-port
     ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     args = ap.parse_args()
     port_guard.resolve_instance(args, "mines_test")
 

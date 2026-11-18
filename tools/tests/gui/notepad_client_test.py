@@ -38,6 +38,7 @@ RUNNER = {"name": "notepad", "covers": "Notepad in ring 3"}
 
 import argparse
 import os
+import tempfile
 import sys
 import time
 
@@ -1410,7 +1411,7 @@ def main():
     port_guard.add_instance_args(ap)   # --instance N, or the legacy --sock/--qmp-port
     ap.add_argument("--in-gui", action="store_true")
     ap.add_argument("--shot", metavar="DIR")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     ap.add_argument("--only", choices=("second-close", "utf8"),
                     help="run only this section")
     args = ap.parse_args()

@@ -36,6 +36,7 @@ import sys
 import time
 
 import os  # noqa: E402
+import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 import port_guard                                      # noqa: E402
@@ -147,7 +148,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
     ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--logs", default="/tmp")
+    ap.add_argument("--logs", default=tempfile.gettempdir())
     args = ap.parse_args()
     port_guard.resolve_instance(args, "screensaver_test")
 

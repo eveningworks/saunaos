@@ -47,6 +47,7 @@ RUNNER = {"covers": "two disks, two drivers, root="}
 
 import argparse
 import os
+import tempfile
 import socket
 import subprocess
 import sys
@@ -257,7 +258,7 @@ def make_boot_image(tmp, kcmdline):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     args = ap.parse_args()
 
     res = Result()

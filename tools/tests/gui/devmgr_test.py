@@ -52,6 +52,7 @@ expanded and scrolled to the top.
 RUNNER = {"covers": "the device tree and its icons, disable/enable through the dialog"}
 
 import os
+import tempfile
 import re
 import sys
 import time
@@ -176,7 +177,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
     ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--tmp", default=tempfile.gettempdir())
     args = ap.parse_args()
     port_guard.resolve_instance(args, "devmgr_test")
 
