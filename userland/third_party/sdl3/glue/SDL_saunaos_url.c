@@ -9,12 +9,18 @@
 #include "base/uopen.h"
 #include "ui/uapp.h"
 
+#include <string.h>   /* strerror() */
+
 bool SDL_SYS_OpenURL(const char *url)
 {
     /* With the video driver up, the app reaps what it started; without
      * it nothing does until this program ends, as for any uopen_url()
      * caller. */
     int pid = SAUNAOS_app ? uapp_open_url(SAUNAOS_app, url) : uopen_url(url);
+    if (pid < 0 && uopen_is_web_url(url)) {
+        /* The browser exists; its spawn failed, and the errno says why. */
+        return SDL_SetError("The Web Browser did not start for %s: %s", url, strerror(-pid));
+    }
     if (pid < 0) {
         return SDL_SetError("Nothing on SaunaOS opens %s", url);
     }
