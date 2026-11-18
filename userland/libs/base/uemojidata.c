@@ -180,8 +180,11 @@ static int same_emoji(const char *a, int n, const char *b) {
 int uemojidata_find_seq(const struct uemojidata *d, const char *utf8, int n) {
     if (!utf8 || n <= 0) return -1;
     char toned[64];
+    int k;
+    uint32_t first = uutf8_decode(utf8, n, &k);
     for (int i = 0; i < d->count; i++) {
         const struct uemoji_entry *e = &d->entries[i];
+        if (e->cp != first) continue;            // every form starts with the entry's character
         if (same_emoji(utf8, n, e->seq)) return i;
         for (int t = 1; e->toned && t <= UEMOJI_TONES; t++)
             if (uemojidata_toned(e, t, toned, sizeof toned) && same_emoji(utf8, n, toned)) return i;

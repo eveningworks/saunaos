@@ -16,35 +16,41 @@
 // (base/uutf8.h): a stray byte is one character, never split.
 // A STEP IS A GRAPHEME CLUSTER (api/kgrapheme.h), as ugfx_text_next()/prev()
 // draw it: a letter with its accents, a family emoji, a flag. The ops reach
-// the text a byte at a time, so a step copies a WINDOW of it and segments
-// that, doubling the window until the answer cannot depend on what lies
-// past its edge -- a cluster is a few bytes and "zalgo" text a few hundred.
+// the text a byte at a time, so a step segments a WINDOW of it -- and a
+// window's edge can cut a UTF-8 sequence or start inside a cluster, which
+// makes a false boundary near it. So the answer is believed only when a
+// window TWICE as wide gives the same one, or the window is the whole text
+// on that side. A cluster is a few bytes; "zalgo" text a few hundred.
 enum { STEP_NEXT, STEP_PREV, STEP_BACKSPACE };
+
+// The step from `i` inside the window [from, to): absolute, or -1 when out
+// of memory.
+static int window_step(const struct uui_edit_ops *ops, void *text, int i, int from, int to, int how,
+                       char *small, int cap) {
+    char *b = to - from + 1 <= cap ? small : malloc((size_t)(to - from + 1));
+    if (!b) return -1;
+    for (int k = from; k < to; k++) b[k - from] = ops->at(text, k);
+    b[to - from] = 0;
+    int j = how == STEP_NEXT ? kgrapheme_next(b, to - from, i - from)
+          : how == STEP_PREV ? kgrapheme_prev(b, i - from) : kgrapheme_backspace(b, i - from);
+    if (b != small) free(b);
+    return from + j;
+}
 
 static int cluster_step(const struct uui_edit_ops *ops, void *text, int i, int len, int how) {
     if (how == STEP_NEXT ? i >= len : i <= 0) return how == STEP_NEXT ? len : 0;
     if (ugfx_font_codepage()) return how == STEP_NEXT ? i + 1 : i - 1;   // one byte, one character
-    char small[128], *b = small;
-    for (int w = 64;; w *= 2) {
+    char small[160];
+    int last = -2;
+    for (int w = 32;; w *= 2) {
         int from = how == STEP_NEXT ? i : (i > w ? i - w : 0);
         int to = how == STEP_NEXT ? (len - i > w ? i + w : len) : i;
-        if (to - from + 1 > (int)sizeof small) {
-            char *nb = realloc(b == small ? 0 : b, (size_t)(to - from + 1));
-            if (!nb) break;
-            b = nb;
-        }
-        for (int k = from; k < to; k++) b[k - from] = ops->at(text, k);
-        b[to - from] = 0;
-        int j = how == STEP_NEXT ? kgrapheme_next(b, to - from, 0)
-              : how == STEP_PREV ? kgrapheme_prev(b, to - from) : kgrapheme_backspace(b, to - from);
-        // Settled when the answer is inside the window, or the window is
-        // the whole text on that side.
-        if (how == STEP_NEXT ? (j < to - from || to == len) : (j > 0 || from == 0)) {
-            if (b != small) free(b);
-            return from + j;
-        }
+        int whole = how == STEP_NEXT ? to == len : from == 0;
+        int got = window_step(ops, text, i, from, to, how, small, (int)sizeof small);
+        if (got < 0) break;
+        if (whole || got == last) return got;
+        last = got;
     }
-    if (b != small) free(b);
     return how == STEP_NEXT ? i + 1 : i - 1;   // out of memory: a byte, never past the text
 }
 
@@ -92,14 +98,19 @@ static int cp_step(const struct uui_edit_ops *ops, void *text, int i, int len) {
     return i + (l > 0 ? l : 1);
 }
 
-// The kind of the CLUSTER at `i`: an emoji when what follows its first code
-// point makes it one (U+FE0F, a joiner, a skin tone, a keycap, a flag's pair).
+// The kind of the CLUSTER at `i`: an emoji when it is more than one code
+// point and kgrapheme_is_emoji() says so -- the one list of what makes a
+// cluster an emoji (U+FE0F, a joiner, a skin tone, a keycap, a flag, a tag).
 static int kind_at(const struct uui_edit_ops *ops, void *text, int i, int len) {
     int end = char_next(ops, text, i, len), emoji = 0;
-    for (int j = cp_step(ops, text, i, len); j < end && !emoji; j = cp_step(ops, text, j, len)) {
-        uint32_t c = cp_at(ops, text, j, len);
-        emoji = c == 0xFE0F || c == 0x200D || c == 0x20E3 || (c >= 0x1F1E6 && c <= 0x1F1FF) ||
-                (c >= 0x1F3FB && c <= 0x1F3FF);
+    if (end > cp_step(ops, text, i, len)) {
+        char small[64], *b = end - i < (int)sizeof small ? small : malloc((size_t)(end - i + 1));
+        if (b) {
+            for (int k = i; k < end; k++) b[k - i] = ops->at(text, k);
+            b[end - i] = 0;
+            emoji = kgrapheme_is_emoji(b, 0, end - i);
+            if (b != small) free(b);
+        }
     }
     return char_kind(cp_at(ops, text, i, len), emoji);
 }

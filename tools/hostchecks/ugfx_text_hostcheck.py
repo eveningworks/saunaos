@@ -557,6 +557,13 @@ def edit_checks(exe, fails):
     case("Right steps over a whole family", fam + "y", 0, [RIGHT], fam + "y", 18)
     case("Left steps back over a letter and its mark", "ae\u0301", 4, [LEFT], "ae\u0301", 1)
     case("Delete takes a whole cluster, mark and all", "e\u0301x", 0, [DEL], "x", 0)
+    # LONGER THAN A STEP'S FIRST WINDOW (uui_edit reads the text in windows
+    # it doubles): one Right or Left still crosses the whole cluster.
+    zalgo = "e" + "\u0301" * 40 + "x"                                 # 82 bytes, the cluster 81
+    case("Right crosses a cluster of 40 marks in one step", zalgo, 0, [RIGHT], zalgo, 81)
+    case("Left crosses it back in one step", zalgo, 81, [LEFT], zalgo, 0)
+    chain = "a" + "\u200d".join(["\U0001F468"] * 12)                 # one ZWJ chain, 81 bytes
+    case("Left crosses a long ZWJ chain in one step", chain, len(chain.encode()), [LEFT], chain, 1)
     got = run(exe, reqs)
     for (label, hx, cur), g in zip(want, got):
         parts = g.split("\t")

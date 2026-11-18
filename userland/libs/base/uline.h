@@ -30,6 +30,11 @@ int uline_width(const char *s);
 // The terminal's width in columns, asked of the kernel rather than
 // assumed -- a resized window reports the new width. 80 if fd 0 cannot
 // answer.
+// What the GUI Terminal puts in its shell's TERM_PROGRAM: a terminal that
+// draws a grapheme cluster in one cell (uvterm), so the painter counts
+// clusters; anywhere else it counts code points, as the kernel console draws.
+#define ULINE_TERM_PROGRAM "saunaos-terminal"
+
 int uline_cols(void);
 
 // Repaints `prompt` + the edit buffer and leaves the caret at

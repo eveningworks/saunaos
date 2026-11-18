@@ -137,7 +137,9 @@ static int walk(struct uglyph_face *f, int px, const char *s, size_t len, char_f
                                                                                  prev, gid)),
                                                    ttf_scale_for_px(&f->f, px))) : 0;
         int adv = missing_w(px);
-        if (gid) {
+        if (gid && nx == i + (size_t)n) {
+            adv = ttf_advance_px(&f->f, gid, px);   // one character: its own advance, as before clusters
+        } else if (gid) {
             // The cluster's own width: its accents composed, an emoji
             // sequence ligated, as uglyph_text() draws it.
             char *b = nx - i < sizeof small ? small : malloc(nx - i + 1);

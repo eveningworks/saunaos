@@ -168,7 +168,7 @@ int font_atlas_render(const struct ttf_font *t, const struct font_atlas_plan *p,
     // it has no cmap and no `kern` table, so anything not baked in now is
     // unavailable to it forever.
     int8_t *kern = (int8_t *)(out + p->glyph_bytes + count);
-    if (t->kern_pairs) {
+    if (ttf_has_kerning(t)) {
         for (int l = 0; l < count; l++) {
             for (int r = 0; r < count; r++) {
                 int k = ttf_kern_px(t, p->gids[l], p->gids[r], p->px);

@@ -892,7 +892,7 @@ int ugfx_font_load(const char *path, int px, int bold,
     for (int i = 0; i < PRIV_SLOTS; i++) blob[glyph_bytes + i] = advs[i];
 
     signed char *kern = (signed char *)(blob + glyph_bytes + PRIV_SLOTS);
-    if (t.kern_pairs) {
+    if (ttf_has_kerning(&t)) {
         for (int l = 0; l < PRIV_SLOTS; l++)
             for (int r = 0; r < PRIV_SLOTS; r++) {
                 int k = ttf_kern_px(&t, gids[l], gids[r], px);
@@ -975,7 +975,8 @@ int ugfx_kern(int prev, int c) {
     // Two atlas characters: the atlas's own matrix, in slot space. Any
     // other pair: the face's GPOS or kern table by glyph id, as the matrix
     // was made -- the same numbers for the pairs both could answer.
-    if (l <= 0xFF && r <= 0xFF && !ugfx_font_codepage())
+    // A CODE-PAGE font (w16's) kerns its bytes through its matrix too.
+    if (l <= 0xFF && r <= 0xFF)
         return g_font->kern ? win_font_kern(g_font->kern, g_glyph_count,
                                             glyph_index((unsigned char)l), glyph_index((unsigned char)r)) : 0;
     if (ugfx_font_codepage() || !g_font->src_path) return 0;

@@ -14,6 +14,7 @@
 #include "base/uwcwidth.h" // ...and a wide one takes two cells
 #include "base/uemoji.h"   // a selector cell decides the cell before it
 #include "kgrapheme.h"      // a mark or a joiner goes into the cell before it
+#include "base/uline.h"     // ULINE_TERM_PROGRAM: what the shell is told draws it
 
 // --- the buffers ---------------------------------------------------------------
 
@@ -451,6 +452,9 @@ int uvterm_spawn(struct uvterm *t, const char *prog, const char *dir) {
     // reaches the job on it and no other (abi/syscall_abi.h's SPAWN_SETSID).
     // OUR ENVIRONMENT, passed on: a NULL one is EMPTY, not inherited, and a
     // shell with no PATH left GCC's driver unable to find cc1.
+    // The shell is told what draws its text (base/uline.h): a cluster to a
+    // cell here, which its line painter counts by.
+    setenv("TERM_PROGRAM", ULINE_TERM_PROGRAM, 1);
     t->child = sys_spawn_flags(t->prog, 0, -1, environ, PGID_NEW, SPAWN_SETSID);
     if (moved) chdir(back);
     if (in0  >= 0) { sys_dup2(in0, 0);  sys_close(in0); }

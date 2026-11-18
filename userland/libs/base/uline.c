@@ -32,9 +32,29 @@ void uline_erase(int *row_shown) {
     *row_shown = 0;
 }
 
+// WHICH TERMINAL DRAWS THIS LINE decides its columns: the GUI Terminal
+// puts a cluster in one cell (an emoji sequence in two) and says so with
+// TERM_PROGRAM (ULINE_TERM_PROGRAM), as macOS's Terminal and VS Code's do;
+// the kernel's virtual terminals draw every code point in a cell of its
+// own. Each counts as it draws, or the caret lands short of the text.
+static int clusters_in_cells(void) {
+    static int known = -1;
+    if (known < 0) {
+        const char *t = getenv("TERM_PROGRAM");
+        known = t && !strcmp(t, ULINE_TERM_PROGRAM);
+    }
+    return known;
+}
+
 // The cells of the cluster [i, end) of `s`: uwcwidth_cluster()'s rule over
-// its code points, decoded in a buffer sized to the cluster.
+// its code points, decoded in a buffer sized to the cluster -- or, on a
+// terminal that draws code points, one cell (two for a wide one) each.
 static int cluster_cells(const char *s, int i, int end) {
+    if (!clusters_in_cells()) {
+        int w = 0;
+        for (int j = i, n; j < end; j += n > 0 ? n : 1) w += uwcwidth(uutf8_decode(s + j, end - j, &n));
+        return w;
+    }
     uint32_t small[16], *cps = small;
     if (end - i > 16 && !(cps = malloc((size_t)(end - i) * sizeof *cps))) cps = small, end = i + 16;
     int n = 0;

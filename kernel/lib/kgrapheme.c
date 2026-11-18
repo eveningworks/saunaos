@@ -84,19 +84,23 @@ int kgrapheme_next(const char *s, int n, int i) {
 int kgrapheme_prev(const char *s, int i) {
     if (!s || i <= 0) return 0;
     // Back to a SAFE START: a code point that begins a cluster whatever
-    // precedes it -- one of class Other or a line break, not after a
-    // Prepend (GB9b). Anything else (an extender, a pictograph a ZWJ may
-    // have joined, a regional indicator whose pairing depends on the whole
-    // run, a Hangul jamo) might belong to the cluster before it.
+    // precedes it, judged by the code point before it alone -- class Other
+    // or a line break (not after a Prepend, GB9b); a pictograph not after a
+    // ZWJ (GB11); a Hangul L, LV or LVT not after an L (GB6). What is left
+    // (an extender, a regional indicator whose pairing depends on the whole
+    // run, a V or T jamo) might belong to the cluster before it. Judging by
+    // one neighbour keeps a walk back over a run of emoji or Korean linear.
     int q = kutf8_prev(s, i);
     while (q > 0) {
-        int len;
-        enum kgrapheme_class k = kgrapheme_class(at(s, i, q, &len));   // never read past `i`
-        if (k == KGB_OTHER || is_break_class(k)) {
-            int p = kutf8_prev(s, q);
-            if (kgrapheme_class(at(s, i, p, &len)) != KGB_PREPEND) break;
-        }
-        q = kutf8_prev(s, q);
+        int len, p = kutf8_prev(s, q);
+        uint32_t before = at(s, i, p, &len);
+        enum kgrapheme_class k = kgrapheme_class(at(s, i, q, &len)), pk = kgrapheme_class(before);
+        int safe = pk != KGB_PREPEND &&
+                   ((k == KGB_OTHER || is_break_class(k)) ||
+                    (k == KGB_EP && before != 0x200D) ||
+                    ((k == KGB_L || k == KGB_LV || k == KGB_LVT) && pk != KGB_L));
+        if (safe) break;
+        q = p;
     }
     // Then forward: the last boundary before `i`.
     int start = q;

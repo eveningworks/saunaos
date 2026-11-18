@@ -157,7 +157,20 @@ public:
     void set_max_length(int bytes) {
         if (bytes > 0) uui_textbox_set_max(&c_, bytes);
     }
-    void set_masked(bool on) {   // a password field
+    // A password field. A MASKED FIELD NEVER HAS A HEAP BUFFER (ui/uui_textbox.h:
+    // its stars are drawn from the inline one), so masking a field that grew
+    // one moves its text back inline, cut to fit as typing would cut it.
+    void set_masked(bool on) {
+        if (on && c_.big) {
+            std::string keep = text();
+            std::free(c_.big);
+            c_.big = nullptr;
+            c_.max = 0;
+            c_.len = 0;
+            c_.buf[0] = '\0';
+            c_.masked = 1;
+            uui_textbox_set_text(&c_, keep.c_str());
+        }
         c_.masked = on;
         request_redraw();
     }
@@ -169,6 +182,7 @@ public:
 private:
     std::string current() const override { return text(); }
     void fit(size_t bytes) {
+        if (c_.masked) return;   // a masked field stays inline: set_masked()
         int need = static_cast<int>(bytes);
         int cap = c_.max > 0 ? c_.max : UUI_TEXTBOX_MAX - 1;
         if (need > cap) uui_textbox_set_max(&c_, need);

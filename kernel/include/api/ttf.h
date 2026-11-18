@@ -83,10 +83,9 @@ struct ttf_font {
     // The format-0 horizontal `kern` subtable's PAIR ARRAY, not the
     // table's own offset -- ttf_open() walks past the headers once so
     // that a lookup is a binary search and nothing else. 0 (with
-    // kern_pairs 0) when the font has no kerning this understands,
-    // which is the common case: a monospace face has none by
-    // definition, and a modern proportional face may carry its kerning
-    // only in GPOS (see ttf_kern_units()).
+    // kern_pairs 0) when the face has no such table: a monospace face
+    // has none by definition, and a modern proportional face keeps its
+    // kerning in GPOS instead -- ttf_has_kerning() asks about both.
     uint32_t kern_pairs_off;
     int kern_pairs;
 
@@ -207,6 +206,12 @@ int ttf_pair_kern_units(const struct ttf_font *f, enum ttf_script script,
 
 // ttf_pair_kern_units() for Latin -- what an atlas of Latin-1 is kerned by.
 int ttf_kern_units(const struct ttf_font *f, int left_gid, int right_gid);
+
+// Whether the face kerns at all, through GPOS or the `kern` table: what
+// decides whether an atlas's kern matrix is worth filling.
+static inline int ttf_has_kerning(const struct ttf_font *f) {
+    return f && (f->kern_pairs || f->gpos);
+}
 
 // GSUB LIGATURES (lookup type 4) of `feature` -- TTF_FEATURE('c','c','m','p')
 // for the emoji face's ZWJ sequences, flags, skin tones and keycaps -- applied
