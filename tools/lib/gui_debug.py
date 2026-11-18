@@ -1197,7 +1197,7 @@ class DebugConsole:
             logged = self._all_log[start:]
         return "\n".join(logged + ([reply] if reply else []))
 
-    def damage_verify(self, on=True):
+    def damage_verify(self, on=True, skew_ms=None):
         """Turn the damage-invariant checker on/off. Pair with
         damage_bugs() after exercising whatever you changed -- see
         docs/gui-guidelines.md's damage-invariant section.
@@ -1206,7 +1206,16 @@ class DebugConsole:
         the WM loop slows by roughly an order of magnitude while it's on.
         settle() polls rather than sleeps precisely so that doesn't
         matter to a test's timing.
+
+        `skew_ms` (0..100) takes the check's render that much later, so a
+        draw that reads the clock rather than the frame's (wm_frame_ns())
+        differs from itself on every animated frame, not by luck. Turning
+        the check off clears it.
         """
+        if skew_ms is not None:
+            said = self.send(f"gui damage verify skew {int(skew_ms)}")
+            if f"skew {int(skew_ms)} ms" not in said:
+                raise RuntimeError(f"damage verify skew {skew_ms} refused: {said.strip()!r}")
         return self.send(f"gui damage verify {'on' if on else 'off'}")
 
     def move(self, x, y, settle=True):

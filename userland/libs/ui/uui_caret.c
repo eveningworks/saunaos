@@ -1,5 +1,6 @@
 // See ui/uui_caret.h.
 #include "ui/uui_caret.h"
+#include "ui/uui_anim.h"   // uui_anim_now_ns(): a pinned frame's instant
 #include "base/usetting.h"
 #include "rt/sys.h"
 
@@ -22,7 +23,7 @@ static int read_setting(void) {
 static int phase(void) {
     if (g_blink < 0) g_blink = read_setting();
     if (!g_blink || !g_t0_ns) return LAST_PHASE;
-    unsigned long long ms = (sys_monotonic_ns() - g_t0_ns) / 1000000ULL;
+    unsigned long long ms = (uui_anim_now_ns() - g_t0_ns) / 1000000ULL;
     unsigned long long p = ms / UUI_CARET_HALF_MS;
     return p >= LAST_PHASE ? LAST_PHASE : (int)p;
 }

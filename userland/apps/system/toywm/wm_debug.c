@@ -2560,6 +2560,7 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "                        and how much input it has dropped\r\n");
     dbg_out_write(o, "  damage [verify on|off]  the damage rect; verify renders every frame\r\n");
     dbg_out_write(o, "                        twice and reports pixels the damage rect missed\r\n");
+    dbg_out_write(o, "  damage verify skew <ms> the check's render that much later, 0..100\r\n");
     dbg_out_write(o, "  apps                  the gui_app registry\r\n");
     dbg_out_write(o, "  open <AppName>        open a window directly (no menu clicking)\r\n");
     dbg_out_write(o, "  close <index>         close window <index> from `gui windows`\r\n");
@@ -2755,8 +2756,20 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
         if (arg && k_strcmp(arg, "verify") == 0) {
             char *onoff = next_tok(&p);
             if (!onoff) {
-                dbg_out_printf(o, "damage verification is %s\r\n",
-                             wm_damage_verify_enabled() ? "on" : "off");
+                dbg_out_printf(o, "damage verification is %s, skew %d ms\r\n",
+                             wm_damage_verify_enabled() ? "on" : "off",
+                             wm_damage_verify_skew_ms());
+                return 1;
+            }
+            if (k_strcmp(onoff, "skew") == 0) {
+                char *ms = next_tok(&p);
+                int v = 0;
+                if (!parse_int(ms, &v) || v < 0 || v > 100) {
+                    dbg_out_write(o, "usage: damage verify skew <0..100 ms>\r\n");
+                    return 1;
+                }
+                wm_damage_verify_skew(v);
+                dbg_out_printf(o, "damage verify skew %d ms\r\n", v);
                 return 1;
             }
             wm_damage_verify_set(k_strcmp(onoff, "on") == 0);

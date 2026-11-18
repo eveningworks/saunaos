@@ -17,7 +17,11 @@ int uui_anim_take(void) {
 
 int uui_anim_pending(void) { return g_frame_wanted; }
 
-unsigned long long uui_anim_now_ns(void) { return sys_monotonic_ns(); }
+static unsigned long long g_frame_ns;   // 0 = no frame pinned
+
+unsigned long long uui_anim_now_ns(void) { return g_frame_ns ? g_frame_ns : sys_monotonic_ns(); }
+void uui_anim_frame_begin(unsigned long long now_ns) { g_frame_ns = now_ns; }
+void uui_anim_frame_end(void) { g_frame_ns = 0; }
 
 int uui_smooth_scroll_enabled(void) {
     char v[8];

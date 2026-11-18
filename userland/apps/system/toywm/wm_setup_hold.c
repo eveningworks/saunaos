@@ -68,7 +68,8 @@ static int setup_on_screen(void) {
     return 0;
 }
 
-static int phase_now(void) { return (int)((sys_monotonic_ns() / SPIN_STEP_NS) % SPIN_DOTS); }
+static int phase_at(uint64_t ns) { return (int)((ns / SPIN_STEP_NS) % SPIN_DOTS); }
+static int phase_now(void) { return phase_at(sys_monotonic_ns()); }
 
 void wm_setup_hold_poll(void) {
     if (!g_hold) return;
@@ -140,7 +141,7 @@ void wm_setup_hold_draw(struct ugfx_surface *s) {
     // The eighths without a sine table: cos 45 is about 181/256.
     static const int DX[SPIN_DOTS] = { 0, 181, 256, 181, 0, -181, -256, -181 };
     static const int DY[SPIN_DOTS] = { -256, -181, 0, 181, 256, 181, 0, -181 };
-    g_phase = phase_now();
+    g_phase = phase_at(wm_frame_ns());
     g_drawn = 1;
     for (int i = 0; i < SPIN_DOTS; i++) {
         int k = (g_phase - i + SPIN_DOTS) % SPIN_DOTS;   // 0 = the lead dot

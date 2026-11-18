@@ -16,7 +16,7 @@ int wm_flash_open(void) { return g_until && sys_monotonic_ns() < g_until; }
 
 void wm_flash_draw(int mx, int my) {
     (void)mx; (void)my;
-    uint64_t now = sys_monotonic_ns();
+    uint64_t now = wm_frame_ns();
     if (!g_until || now >= g_until) return;
     struct ugfx_surface *s = wm_surface();
     uint8_t a = (uint8_t)(FLASH_PEAK * (g_until - now) / FLASH_NS);

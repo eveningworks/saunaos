@@ -16,6 +16,7 @@
 #include "context_menu.h"
 #include "calendar_popup.h"
 #include "ui/uui_popup.h"
+#include "ui/uui_anim.h"     // the frame's pinned instant (wm_frame_ns())
 #include "volume_popup.h"
 #include "wm_overlay.h"
 #include "confirm_dialog.h"
@@ -2397,6 +2398,12 @@ static int prev_cursor_box_x, prev_cursor_box_y;
 static int prev_cursor_box_w, prev_cursor_box_h;
 static int verify_enabled;
 static int verify_reported; // report each distinct failure once, not per frame
+// `gui damage verify skew <ms>`: sleep that long before the unrestricted
+// render, so a draw that reads the clock instead of wm_frame_ns() differs
+// from itself on every animated frame rather than by luck under load.
+// Under the frame watchdog's bound, and cleared when verification is.
+#define VERIFY_SKEW_MAX_MS 100
+static int verify_skew_ms;
 
 // Called by wm_run() when a GUI session begins, so the next frame is a
 // full repaint even if the previous session left state behind.
@@ -2409,11 +2416,17 @@ void wm_render_reset(void) {
 void wm_damage_verify_set(int on) {
     verify_enabled = on ? 1 : 0;
     verify_reported = 0;
+    if (!on) verify_skew_ms = 0;
     if (!on) ugfx_verify_release(&g_wm_screen);
     wm_logf("wm: damage verification %s\n", on ? "ON (every frame rendered twice)" : "off");
 }
 
 int wm_damage_verify_enabled(void) { return verify_enabled; }
+
+void wm_damage_verify_skew(int ms) {
+    verify_skew_ms = ms < 0 ? 0 : ms > VERIFY_SKEW_MAX_MS ? VERIFY_SKEW_MAX_MS : ms;
+}
+int wm_damage_verify_skew_ms(void) { return verify_skew_ms; }
 
 // Damage recorded and not yet composed: what a site asks a frame for.
 int wm_damage_pending(void) { return damage_x1 > damage_x0; }
@@ -2590,7 +2603,20 @@ static void cast_pointer_moved(int mx, int my) {
     wm_screenshot_pointer_damage(box[0], box[1], box[2], box[3]);
 }
 
+uint64_t wm_frame_ns(void) { return uui_anim_now_ns(); }
+
+static void render_frame(int mx, int my);
+
+// The frame's instant is pinned for every render of it and released
+// after, so a debug query or an event between frames reads the real clock
+// rather than the last frame's.
 void wm_render_frame(int mx, int my) {
+    uui_anim_frame_begin(sys_monotonic_ns());
+    render_frame(mx, my);
+    uui_anim_frame_end();
+}
+
+static void render_frame(int mx, int my) {
     // The lease decision first: while a client holds the display's
     // buffers this compositor's frame is not on screen, so it is not
     // drawn. Ending a lease inside update() asks for a full repaint,
@@ -2650,6 +2676,7 @@ void wm_render_frame(int mx, int my) {
         // A full frame that culled nothing is trivially equal to itself.
         if (ugfx_verify_snapshot(&g_wm_screen)) {
             g_cull_off = 1;
+            if (verify_skew_ms) sys_sleep_ms(verify_skew_ms);
             render_scene(mx, my, 0);
             // MASK OUT CLIENT CONTENT, per pixel. Those pixels come from
             // another process's memory and can differ between two

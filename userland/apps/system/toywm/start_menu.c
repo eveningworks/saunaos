@@ -558,7 +558,7 @@ static int sb_max_first(const struct sm_layout *L) {
 
 static int sb_offset(const struct sm_layout *L) { return sb_max_first(L) - scroll; }
 
-static unsigned long long sb_now(void) { return sys_monotonic_ns(); }
+static unsigned long long sb_now(void) { return wm_frame_ns(); }
 
 // Head for wide (1) or thin (0). Widening starts now; thinning is
 // scheduled, and a return before it fires cancels it.

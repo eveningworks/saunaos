@@ -715,7 +715,7 @@ void network_draw(int mx, int my) {
         // placed from the clock rather than counted, so a late frame
         // lands where it should have been.
         int bw = g.w / 4;
-        int pos = (int)(sys_monotonic_ns() / 1000000ull % BUSY_PERIOD_MS) * (g.w + bw) /
+        int pos = (int)(wm_frame_ns() / 1000000ull % BUSY_PERIOD_MS) * (g.w + bw) /
                   BUSY_PERIOD_MS - bw;
         int x0 = pos < 0 ? 0 : pos, x1 = pos + bw > g.w ? g.w : pos + bw;
         if (x1 > x0) ugfx_fill_rect(s, g.x + x0, g.y + g.hero_h - 1, x1 - x0, 2, UTHEME_ACCENT);

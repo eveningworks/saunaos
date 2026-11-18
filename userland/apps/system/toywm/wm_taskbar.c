@@ -1392,7 +1392,7 @@ int taskbar_gliding(void) { return g_gliding_prev; }
 uint32_t taskbar_glide_frames(void) { return g_glide_frames; }
 
 int taskbar_draw_x(const struct taskbar_button *b) {
-    unsigned long long now = sys_monotonic_ns();
+    unsigned long long now = wm_frame_ns();
     if (g_glide_cap <= 0) glide_reserve(1);
     if (g_glide_cap <= 0) return b->x;   // out of memory: no glide
     struct glide *e = 0, *oldest = &g_glide[0];

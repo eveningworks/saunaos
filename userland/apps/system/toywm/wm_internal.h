@@ -648,6 +648,8 @@ unsigned wm_client_presents_full(void);
 void wm_render_reset(void);
 
 void wm_damage_verify_set(int on);
+void wm_damage_verify_skew(int ms);   // a pause before the check's render, 0..100; off clears it
+int  wm_damage_verify_skew_ms(void);
 int  wm_damage_verify_enabled(void);
 
 // The title-bar button layout (minimize/maximize/close rects) -- needed
@@ -825,6 +827,13 @@ void wm_update_title_hover(int mx, int my);
 // exists).
 void wm_render_frame(int mx, int my);
 void wm_render_cursor_move(int mx, int my);
+
+// THE FRAME'S CLOCK: uui_anim_now_ns(), pinned by wm_render_frame() for
+// the whole frame, so every render of it sees one instant -- the damage
+// verifier draws a frame two or three times and compares them -- and the
+// real clock between frames. Anything the WM DRAWS from the time reads
+// this, never sys_monotonic_ns(); libui's widgets already do.
+uint64_t wm_frame_ns(void);
 
 // Has the shape changed since it was last drawn? A client answers a
 // motion event frames later, so the shape moves while the mouse is

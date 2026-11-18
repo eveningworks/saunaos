@@ -923,7 +923,7 @@ void crash_notice_draw(int mx, int my) {
         // THE TIME beside the title -- "now", "2 min" -- where a remote
         // request's countdown stands instead.
         if (n->kind != KIND_REMOTE) {
-            uint64_t age = (sys_monotonic_ns() - n->shown_at) / 1000000000ull;
+            uint64_t age = (wm_frame_ns() - n->shown_at) / 1000000000ull;
             char when[16];
             if (age < 60) k_strlcpy(when, "now", sizeof when);
             else snprintf(when, sizeof when, "%d min", (int)(age / 60));
@@ -937,7 +937,7 @@ void crash_notice_draw(int mx, int my) {
         if (n->kind == KIND_REMOTE) {
             // THE TIME LEFT, where the close box would be: unanswered
             // means denied, and the person should see when.
-            uint64_t now = sys_monotonic_ns();
+            uint64_t now = wm_frame_ns();
             int left = now >= n->until ? 0 : (int)((n->until - now + 999999999ull) / 1000000000ull);
             char cd[8];
             snprintf(cd, sizeof cd, "0:%02d", left);
@@ -1004,7 +1004,7 @@ void crash_notice_draw(int mx, int my) {
         // THE TIMEOUT LINE (T2): what is left of the card's time, along its
         // foot. A card that stays until answered has none; hovering holds it.
         if (n->until != UINT64_MAX && n->kind != KIND_REMOTE && n->until > n->shown_at) {
-            uint64_t now = sys_monotonic_ns();
+            uint64_t now = wm_frame_ns();
             uint64_t left = now >= n->until ? 0 : n->until - now, all = n->until - n->shown_at;
             int lw = (int)((uint64_t)(w - 2 * r) * left / all);
             ugfx_fill_rect(s, x + r, y + h - 4, w - 2 * r, 2, uui_popup_border());

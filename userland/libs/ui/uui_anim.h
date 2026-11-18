@@ -24,8 +24,14 @@ int uui_anim_take(void);
 // uapp: peek without clearing, to size the wait.
 int uui_anim_pending(void);
 
-// The clock every toolkit animation paces by (sys_monotonic_ns).
+// The clock every toolkit animation paces by: sys_monotonic_ns(), or the
+// instant a frame_begin() pinned. A compositor that draws one frame
+// twice (toywm's damage verifier) pins it, so both renders see one
+// instant -- GdkFrameClock's frame time. Event handlers read it too:
+// outside a pinned frame it is the real clock.
 unsigned long long uui_anim_now_ns(void);
+void uui_anim_frame_begin(unsigned long long now_ns);
+void uui_anim_frame_end(void);
 
 // `base_ms` through `desktop.animations` and `desktop.animation_speed`,
 // for an APP's own motion: 0 when animations are off or the speed is
