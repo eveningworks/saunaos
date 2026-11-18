@@ -3025,7 +3025,7 @@ def retro_round(dbg, qmp, res):
         if ok:
             dbg.click(*at(ok))
         closed = poll(lambda: dbg.window(OPTIONS_TITLE) is None, 6)
-        said = dbg.logs("retrolauncher options:", clear=False)
+        said = [ln for ln in dbg.logs("retrolauncher options:", clear=False) if ": layout " not in ln]
         now = (dbg.window(OPTIONS_TITLE) or {}).get("content")
         # The file may land after the window goes: polled on what is asserted.
         saved = lambda c: "cd_drives=D" in c and "label_d=DK1" in c
@@ -3033,7 +3033,7 @@ def retro_round(dbg, qmp, res):
             or sh(dbg, f"cat {WIN16_CONF}")
         res.check("OK saves D:'s Type and Label: cd_drives=D, label_d=DK1",
                   "cd_drives=D" in conf and "label_d=DK1" in conf,
-                  f"the file {conf!r}; type {ty} label {lb} ok {ok}; closed {closed}, said {said[-4:]}; origin {(oc['x'], oc['y'])} now {now and (now['x'], now['y'])}")
+                  f"the file {conf!r}; type {ty} label {lb} ok {ok}; closed {closed}, said {said[-6:]}; origin {(oc['x'], oc['y'])} now {now and (now['x'], now['y'])}")
     if dbg.window(OPTIONS_TITLE):
         dbg.close_window(OPTIONS_TITLE)
     dbg.close_window("Retro Launcher")
@@ -3159,11 +3159,12 @@ def missing_dll(dbg, qmp, res):
     res.check("the panel says what it needs, and Run is greyed: " + want.split("|")[1],
               any(want in ln for ln in lines), f"{[ln for ln in lines if 'layout needs' in ln][-2:]}")
     # The map for THIS size: the window reopens at its remembered width, and that map holds add-file
-    # too, at a place the 1100-wide frame does not draw it.
+    # too, at a place the 1100-wide frame does not draw it. The window's size changes before the
+    # client's new map arrives, so the map's own width is what says which one it is: the status bar
+    # spans the window.
     def sized():
-        win, m = dbg.window("Retro Launcher"), dbg.widgets("Retro Launcher")
-        a = m.get("add-file")
-        return m if win and a and a["x"] + a["w"] <= win["content"]["w"] == 1100 else None
+        m = dbg.widgets("Retro Launcher")
+        return m if "add-file" in m and m.get("status", {}).get("w") == 1100 else None
     w = dbg.wait_widget("Retro Launcher", "add-file") and (poll(sized, 6) or dbg.widgets("Retro Launcher"))
     add, run = (w or {}).get("add-file"), (w or {}).get("run")
     im = shot(qmp, os.path.join(TMP, "w16_launcher_needs.png"))

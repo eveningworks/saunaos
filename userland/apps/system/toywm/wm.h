@@ -78,6 +78,7 @@ struct window {
     struct wm_widget *widgets_pending;
     int pending_count;
     uint8_t pending_open;                  // a RESET seen, its COMMIT not yet
+    uint8_t widgets_live;                  // an old client's batch, written straight into `widgets`
 
     int x, y, w, h;                        // current geometry, screen coords,
                                             // (x,y) = top-left incl. title bar

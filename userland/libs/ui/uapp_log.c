@@ -237,7 +237,7 @@ void wmap_sync(struct uapp *a) {
     }
     if (same) return;
 
-    wmchan_send(WIN_REQ_WIDGET_RESET, a->window, 0, 0, 0, 0);
+    wmchan_send(WIN_REQ_WIDGET_RESET, a->window, WIN_WIDGET_BUFFERED, 0, 0, 0);
     for (int i = 0; i < g_wmap_n; i++) {
         const struct wmap_entry *e = &g_wmap[i];
         wmchan_send(WIN_REQ_WIDGET, a->window, e->x, e->y,

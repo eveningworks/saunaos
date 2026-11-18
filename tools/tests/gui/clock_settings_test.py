@@ -40,6 +40,7 @@ import argparse
 import os
 import re
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -252,7 +253,7 @@ def clock_changes(dbg, qmp, window_s):
     tb = dbg.taskbar()
     sw = dbg.state()["screen"]["w"]
     box = (tb["tray_x"], tb["y"], sw, tb["y"] + tb["h"])
-    path = "/tmp/clock_seconds_%d.png"
+    path = os.path.join(tempfile.gettempdir(), "clock_seconds_%d.png")
     qmp.screenshot(path % 0, stable=False)
     first = Image.open(path % 0).convert("RGB").crop(box).tobytes()
     end = time.time() + window_s

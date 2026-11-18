@@ -925,6 +925,7 @@ void close_window(int idx) {
     windows[idx].widget_count = 0;
     windows[idx].pending_count = 0;
     windows[idx].pending_open = 0;
+    windows[idx].widgets_live = 0;
     wm_window_free_text(&windows[idx]);
 
     for (int i = idx; i < window_count - 1; i++) windows[i] = windows[i + 1];

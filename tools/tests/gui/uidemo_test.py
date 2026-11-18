@@ -57,6 +57,7 @@ RUNNER = {"covers": "userland/libs/ui/ widgets, in a ring-3 client"}
 import argparse
 import os
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -536,6 +537,10 @@ def check_map_whole(d, rounds=40):
             reads += 1
             if got not in names:
                 torn.append(sorted(got))
+    # Back to the size it opened at: the WM remembers the launcher's geometry,
+    # and w16_gui_test reads its layout at the size it reopens with.
+    d.dbg.send(f"gui resize {w0} {h0}")
+    d.dbg.settle()
     d.dbg.close_window(title)
     d.check_is(f"{rounds} resizes: every one of {reads} map reads is a whole one",
                names[0] and not torn,
@@ -697,9 +702,9 @@ def main():
     check_widget_map(d)
 
     print("\n== containment ==")
-    check_widgets_drawn(d, qmp, "/tmp")
-    check_focus_is_visible(d, qmp, "/tmp")
-    check_containment(d, qmp, "/tmp")
+    check_widgets_drawn(d, qmp, tempfile.gettempdir())
+    check_focus_is_visible(d, qmp, tempfile.gettempdir())
+    check_containment(d, qmp, tempfile.gettempdir())
 
     if args.shot:
         if qmp is None:

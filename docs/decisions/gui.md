@@ -9392,7 +9392,10 @@ w16_gui_test read `menu`, `toolbar` as the launcher's entire map and failed
 on a missing Run button (3 runs in 19). A count in the reset, with no new
 message, was the smaller alternative; it was passed over because a short
 batch would then never publish and need handling of its own, where a
-commit that does not match simply keeps the old map.
+commit that does not match simply keeps the old map. A client built
+before the commit sends RESET with `a` 0 and never commits; its rects
+still go straight into the map as they come, torn reads and all, since a
+map that never shows is worse for a debug facility than one that can tear.
 
 **Sent only when the map CHANGES.** The toolkit walks its named items
 every frame -- a few dozen pointer dereferences and no formatting -- and
@@ -9412,7 +9415,8 @@ facility that floods the evidence is the wrong trade twice over.
 **A dropped message costs an out-of-date map and nothing else** -- never
 a torn one. It does not round-trip and nothing decides anything on it; the next layout
 change replaces the set. `WIN_WIDGET_MAX` bounds one window's map at 48,
-and the allocation is made on first report rather than living in every
+and its two buffers (the published map and the pending one) are allocated
+on first report rather than living in every
 `struct window`, because most windows never report one -- a
 kernel-space app has no toolkit behind it.
 

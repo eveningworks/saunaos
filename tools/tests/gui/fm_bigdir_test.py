@@ -28,6 +28,7 @@ RUNNER = {
 import argparse
 import os
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -94,8 +95,8 @@ def run(dbg, qmp, res):
         px, py, pw, ph = lay.pane[0]
         c = win["content"]
         from PIL import Image
-        qmp.screenshot(os.path.join("/tmp", f"fmbig_{os.getpid()}.png"))
-        im = Image.open(os.path.join("/tmp", f"fmbig_{os.getpid()}.png")).convert("RGB")
+        qmp.screenshot(os.path.join(tempfile.gettempdir(), f"fmbig_{os.getpid()}.png"))
+        im = Image.open(os.path.join(tempfile.gettempdir(), f"fmbig_{os.getpid()}.png")).convert("RGB")
         ink = sum(1 for y in range(c["y"] + py + 8, c["y"] + py + ph - 8, 3)
                   for x in range(c["x"] + px + 8, c["x"] + px + pw - 20, 3)
                   if sum(im.getpixel((x, y))) < 600)

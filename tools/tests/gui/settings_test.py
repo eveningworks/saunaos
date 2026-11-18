@@ -1787,7 +1787,7 @@ def main():
             m = dbg.widgets("System Settings").get("saver_monitor")
             if not m:
                 return None
-            path = f"/tmp/settings_monitor_{tag}.png"
+            path = os.path.join(tempfile.gettempdir(), f"settings_monitor_{tag}.png")
             qmp.screenshot(path)
             im = Image.open(path).convert("RGB")
             x, y, w, h = m["screen"]["x"], m["screen"]["y"], m["w"], m["h"]

@@ -1422,6 +1422,11 @@ struct win_popup_pos {
 // inbox) costs an out-of-date map until the next change, never a torn
 // one; this is debug data, which is why it does not round-trip.
 #define WIN_REQ_WIDGET_RESET 37 // `window`: whose PENDING map to start.
+                           // a: WIN_WIDGET_BUFFERED -- a COMMIT ends the
+                           // batch. 0 is a client older than the commit:
+                           // its rects replace the map as they come, torn
+                           // reads and all, rather than never showing.
+#define WIN_WIDGET_BUFFERED 1
 #define WIN_REQ_WIDGET     38 // `window`: whose. a, b: x, y. c: w and h
                            // packed, WIN_WIDGET_WH(). text: the name,
                            // from uui_item.name -- the app's own word

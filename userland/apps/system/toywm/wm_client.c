@@ -891,17 +891,26 @@ static void on_window_present(int pid, uint32_t id, int front, uint32_t gen,
 // window, so this is the client exporting its own tree the way an
 // AT-SPI client does.
 // The batch goes into `widgets_pending`; readers see `widgets`, which
-// only a COMMIT replaces.
-static void on_widget_reset(int pid, uint32_t id) {
+// only a COMMIT replaces -- unless the client predates the commit
+// (`buffered` 0), whose rects go straight into `widgets` as they come.
+static void on_widget_reset(int pid, uint32_t id, int buffered) {
     int idx = find_client_window(pid, id);
     if (idx < 0) return;
     struct window *w = &windows[idx];
-    if (!w->widgets_pending) {
-        w->widgets_pending = malloc(sizeof *w->widgets_pending * WIN_WIDGET_MAX);
-        if (!w->widgets_pending) return;   // debug data; a machine short of memory
-    }                                      // has better uses for it than this
-    w->pending_count = 0;
-    w->pending_open = 1;
+    struct wm_widget **buf = buffered ? &w->widgets_pending : &w->widgets;
+    w->pending_open = 0;
+    w->widgets_live = 0;
+    if (!*buf) {
+        *buf = malloc(sizeof **buf * WIN_WIDGET_MAX);
+        if (!*buf) return;   // debug data; a machine short of memory
+    }                        // has better uses for it than this
+    if (buffered) {
+        w->pending_count = 0;
+        w->pending_open = 1;
+    } else {
+        w->widget_count = 0;
+        w->widgets_live = 1;
+    }
 }
 
 static void on_widget(int pid, uint32_t id, const struct wmchan_msg *m) {
@@ -911,8 +920,13 @@ static void on_widget(int pid, uint32_t id, const struct wmchan_msg *m) {
     // NO RESET SEEN YET, so there is nowhere to put it. Dropping is
     // right: a map that began mid-batch would be a partial set claiming
     // to be whole.
-    if (!w->pending_open || w->pending_count >= WIN_WIDGET_MAX) return;
-    struct wm_widget *e = &w->widgets_pending[w->pending_count++];
+    struct wm_widget *e;
+    if (w->pending_open && w->pending_count < WIN_WIDGET_MAX)
+        e = &w->widgets_pending[w->pending_count++];
+    else if (w->widgets_live && w->widget_count < WIN_WIDGET_MAX)
+        e = &w->widgets[w->widget_count++];
+    else
+        return;
     unsigned k = 0;
     while (m->text[k] && k < sizeof e->name - 1) { e->name[k] = m->text[k]; k++; }
     e->name[k] = '\0';
@@ -1758,7 +1772,7 @@ static void req_destroy(int from, struct wmchan_msg *m) {
 }
 
 static void req_widget_reset(int from, struct wmchan_msg *m) {
-    on_widget_reset(from, m->window);
+    on_widget_reset(from, m->window, m->a == WIN_WIDGET_BUFFERED);
 }
 
 static void req_widget(int from, struct wmchan_msg *m) {
