@@ -500,6 +500,7 @@ void log_layout(void) {
                               g_toast_btn.x, g_toast_btn.y, g_toast_btn.w, g_toast_btn.h,
                               g_toast.action[0] ? g_toast.action : "-");
     }
+    // LAST UNCONDITIONAL LINE: the tests read a report as whole once it arrives.
     uapp_logf_layout("files: layout dialog %d %d\n",
                       uui_dialog_is_open(&g_dialog), g_dialog.hot);
     if (uui_menubar_popup_rect(&g_ctx, 0, &x, &y, &w, &h))

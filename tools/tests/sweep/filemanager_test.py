@@ -356,7 +356,12 @@ class Layout:
             self.drop = (int(p[1]), int(p[2]), p[3])
 
     def complete(self):
-        return 0 in self.pane and 1 in self.pane and self.active is not None
+        """The whole report arrived. **`dialog` IS ITS LAST UNCONDITIONAL
+        LINE** (fm_view.c's log_layout): a read that split the block after
+        `active` once parsed as complete with no `treerow` lines, so
+        "the Music row is gone" held on an empty tree."""
+        return (0 in self.pane and 1 in self.pane and self.active is not None
+                and self.dialog is not None)
 
     def pane_centre(self, i):
         x, y, w, h = self.pane[i]
