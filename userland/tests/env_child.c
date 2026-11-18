@@ -21,17 +21,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "strvec_digest.h"
 
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--digest")) {
-        unsigned long h = 1469598103934665603UL;
-        size_t n = 0, bytes = 0;
-        for (; environ && environ[n]; n++)
-            for (const char *c = environ[n]; ; c++) {
-                h = (h ^ (unsigned char)*c) * 1099511628211UL;
-                bytes++;
-                if (!*c) break;
-            }
+        size_t n = 0, bytes;
+        while (environ && environ[n]) n++;
+        unsigned long h = strvec_fnv(environ, &bytes);
         printf("n=%zu bytes=%zu fnv=%lx\n", n, bytes, h);
         return 0;
     }

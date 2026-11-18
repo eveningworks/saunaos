@@ -436,6 +436,39 @@ static void spawn_blob_release(struct spawn_blob *b) {
     b->mapped = 0;
 }
 
+// The bytes of a NULL-terminated string vector, every NUL included.
+static size_t vec_bytes(char *const *v) {
+    size_t n = 0;
+    if (v)
+        for (int i = 0; v[i]; i++) {
+            size_t len = 0;
+            while (v[i][len]) len++;
+            n += len + 1;
+        }
+    return n;
+}
+
+// Lays `v`'s strings back to back into `b`, which vec_bytes() sized.
+// Returns where the last one ended.
+static size_t spawn_blob_fill(struct spawn_blob *b, char *const *v) {
+    size_t at = 0;
+    if (v)
+        for (int i = 0; v[i]; i++)
+            for (size_t k = 0; ; k++) {
+                b->p[at++] = v[i][k];
+                if (!v[i][k]) break;
+            }
+    return at;
+}
+
+size_t sys_env_bytes(char *const *env) {
+    return vec_bytes(env) + 1;   // + the empty string that ends the run
+}
+
+// What a common environment fits in without a mapping; init's is a few
+// hundred bytes.
+static char g_envblob[2048];
+
 // Flattens `env` into the blob SYS_SPAWN takes: "K=V\0K=V\0\0", at most
 // `cap` bytes -- what the arguments left of SPAWN_ARGS_MAX, the budget
 // the two share (the kernel holds the same line).
@@ -443,31 +476,11 @@ static void spawn_blob_release(struct spawn_blob *b) {
 // 1 with `b` filled, or 0 with g_errno E2BIG (past `cap`) or ENOMEM.
 // REFUSED rather than truncated: a child missing half its variables is
 // worse than a child that failed to start.
-static char g_envblob[2048];
-
-size_t sys_env_bytes(char *const *env) {
-    size_t n = 1;   // the empty string that ends the run
-    if (env)
-        for (int i = 0; env[i]; i++) {
-            size_t len = 0;
-            while (env[i][len]) len++;
-            n += len + 1;
-        }
-    return n;
-}
-
 static int flatten_env(char *const *env, size_t cap, struct spawn_blob *b) {
     size_t n = sys_env_bytes(env);
     if (n > cap) { g_errno = E2BIG; return 0; }
     if (!spawn_blob_reserve(b, g_envblob, sizeof g_envblob, n)) return 0;
-    size_t at = 0;
-    if (env)
-        for (int i = 0; env[i]; i++)
-            for (size_t k = 0; ; k++) {
-                b->p[at++] = env[i][k];
-                if (!env[i][k]) break;
-            }
-    b->p[at] = '\0';
+    b->p[spawn_blob_fill(b, env)] = '\0';
     return 1;
 }
 
@@ -1207,21 +1220,10 @@ static char g_argblob[SPAWN_ARGSTR_MAX];
 // 1 with `b` filled, or 0 with g_errno set: E2BIG past SPAWN_ARGS_MAX
 // (or for an empty vector), ENOMEM if the mapping is refused.
 static int flatten_argv(char *const *argv, struct spawn_blob *b) {
-    size_t n = 0;
-    for (int i = 0; argv[i]; i++) {
-        size_t len = 0;
-        while (argv[i][len]) len++;
-        n += len + 1;
-        if (n > SPAWN_ARGS_MAX) { g_errno = E2BIG; return 0; }
-    }
-    if (!n) { g_errno = E2BIG; return 0; }
+    size_t n = vec_bytes(argv);
+    if (!n || n > SPAWN_ARGS_MAX) { g_errno = E2BIG; return 0; }
     if (!spawn_blob_reserve(b, g_argblob, sizeof g_argblob, n)) return 0;
-    size_t at = 0;
-    for (int i = 0; argv[i]; i++)
-        for (size_t k = 0; ; k++) {
-            b->p[at++] = argv[i][k];
-            if (!argv[i][k]) break;
-        }
+    spawn_blob_fill(b, argv);
     return 1;
 }
 

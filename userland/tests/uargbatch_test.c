@@ -2,6 +2,7 @@
 // and the environment together within SPAWN_ARGS_MAX. The "spawn" here records what it was handed,
 // so the test reads every batch back rather than trusting a count.
 #include <string.h>
+#include <errno.h>
 #include <stdlib.h>
 #include "syscall_abi.h"
 #include "rt/sys.h"
@@ -70,6 +71,7 @@ static void case_never_fits(void) {
     char *items[3] = { g_items[0], huge, g_items[1] };
     struct seen s = { 0 };
     KTEST_ASSERT_EQ(uargbatch(HEAD, 2, items, 3, record, &s), -1);
+    KTEST_ASSERT_EQ(errno, ENAMETOOLONG);
     KTEST_ASSERT_EQ(s.runs, 1);
     KTEST_ASSERT_EQ(s.too_long, 0);
 }
@@ -92,11 +94,32 @@ static void case_env_shares(void) {
     KTEST_ASSERT_EQ(s.too_long, 0);
 }
 
+// An environment that leaves no room for the head runs nothing and
+// says so with E2BIG, not as a path too long.
+static void case_env_full(void) {
+    setup();
+    // "UARGBATCH_FULL=" + value + NUL, leaving 5 bytes: less than the head.
+    size_t want = SPAWN_ARGS_MAX - 5 - sys_env_bytes(environ) - sizeof "UARGBATCH_FULL=";
+    static char val[SPAWN_ARGS_MAX];
+    memset(val, 'f', want);
+    val[want] = '\0';
+    KTEST_ASSERT_EQ(setenv("UARGBATCH_FULL", val, 1), 0);
+    struct seen s = { 0 };
+    errno = 0;
+    int r = uargbatch(HEAD, 2, g_items, 3, record, &s);
+    int e = errno;
+    unsetenv("UARGBATCH_FULL");
+    KTEST_ASSERT_EQ(r, -1);
+    KTEST_ASSERT_EQ(e, E2BIG);
+    KTEST_ASSERT_EQ(s.runs, 0);
+}
+
 static const struct uktest_case CASES[] = {
     { "paths beyond one spawn split into batches, every one within SPAWN_ARGS_MAX, each path once in order", case_split },
     { "a list that fits is one spawn, and an empty one none", case_fits_once },
     { "an item too long for any spawn is skipped and reported, the rest still run", case_never_fits },
     { "a big environment makes the batches smaller, each still within the shared budget", case_env_shares },
+    { "an environment leaving no room for the head runs nothing, E2BIG", case_env_full },
 };
 
 int main(void) {

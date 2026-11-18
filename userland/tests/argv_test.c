@@ -29,6 +29,7 @@
 #include "rt/sys.h"
 #include "syscall_abi.h"   // SPAWN_ARGS_MAX
 #include "base/utest.h"
+#include "strvec_digest.h"
 
 #define PROBE "/tests/argv_test"
 
@@ -60,15 +61,9 @@ static int collect(const char *path, const char *args, char *const *argv,
     return (int)n;
 }
 
-// FNV-1a over every argument after argv[1], each NUL included.
+// The digest over every argument after argv[1].
 static unsigned long digest(int argc, char *const *argv) {
-    unsigned long h = 1469598103934665603UL;
-    for (int i = 2; i < argc; i++)
-        for (const char *c = argv[i]; ; c++) {
-            h = (h ^ (unsigned char)*c) * 1099511628211UL;
-            if (!*c) break;
-        }
-    return h;
+    return argc > 2 ? strvec_fnv(argv + 2, 0) : strvec_fnv(0, 0);
 }
 
 static void probe(int argc, char **argv) {

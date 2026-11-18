@@ -10227,7 +10227,10 @@ the question. The kernel measures the blob in chunks that never cross a
 page, allocates exactly that and re-checks the terminator after the
 copy (another thread may rewrite it in between). The environment is
 copied AFTER the arguments, so it is charged what they left, including
-the string form's split vector, which libsys cannot count. A caller
+the string form's split vector, which libsys cannot count, and with no
+arguments the path the loader still places as argv[0]. An unreadable
+environment is `EFAULT`, never `EINVAL`, which libsys would take for a
+kernel without `SPAWN_ARGV` and retry with the arguments joined. A caller
 packing arguments up to the budget leaves room for the environment it
 passes: `uargbatch()` subtracts `sys_env_bytes(environ)`, as GNU xargs
 subtracts the environment from `ARG_MAX`.

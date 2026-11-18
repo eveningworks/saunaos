@@ -1960,7 +1960,10 @@ static void spawn_paths(const char *prog, const char *opt, desk_path *paths, int
     for (int i = 0; i < n; i++) items[i] = paths[i];
     char *const head[] = { (char *)prog, (char *)opt };
     if (uargbatch(head, 2, items, n, spawn_batch, 0) < 0)
-        wm_logf("desktop: %s skipped a path too long to pass", prog);
+        wm_logf("desktop: %s: %s", prog,
+                errno == ENAMETOOLONG ? "skipped a path too long to pass" :
+                errno == E2BIG        ? "the environment leaves no room for any path" :
+                                        "no memory to run it");
     free(items);
 }
 

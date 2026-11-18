@@ -1,4 +1,5 @@
 // uargbatch.h: an argument list split to fit SPAWN_ARGS_MAX.
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include "syscall_abi.h"   // SPAWN_ARGS_MAX
@@ -12,9 +13,11 @@ int uargbatch(char *const *head, int nhead, char *const *items, int nitems,
     size_t cap = env < SPAWN_ARGS_MAX ? SPAWN_ARGS_MAX - env : 0;
     size_t head_len = 0;
     for (int i = 0; i < nhead; i++) head_len += strlen(head[i]) + 1;
+    // Not even the shortest item (an empty one) fits beside the head.
+    if (nitems > 0 && head_len + 1 > cap) { errno = E2BIG; return -1; }
     // At most every item in one batch, plus the head and the NULL.
     char **argv = malloc((size_t)(nhead + nitems + 1) * sizeof *argv);
-    if (!argv) return -1;
+    if (!argv) { errno = ENOMEM; return -1; }
     for (int i = 0; i < nhead; i++) argv[i] = head[i];
 
     int runs = 0, skipped = 0, at = 0;
@@ -34,5 +37,6 @@ int uargbatch(char *const *head, int nhead, char *const *items, int nitems,
         runs++;
     }
     free(argv);
-    return skipped ? -1 : runs;
+    if (skipped) { errno = ENAMETOOLONG; return -1; }
+    return runs;
 }

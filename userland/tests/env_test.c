@@ -30,6 +30,7 @@
 #include "rt/sys.h"
 #include "syscall_abi.h"   // SPAWN_ARGS_MAX
 #include "base/utest.h"
+#include "strvec_digest.h"
 
 
 static char putenv_buf[] = "PUTENV_VAR=static-storage";
@@ -67,14 +68,9 @@ static int spawn_child(const char *args, char *const *argv, char **env,
 
 // What env_child --digest prints for `env`.
 static void env_digest(char *const *env, char *out, size_t cap) {
-    unsigned long h = 1469598103934665603UL;
-    size_t n = 0, bytes = 0;
-    for (; env[n]; n++)
-        for (const char *c = env[n]; ; c++) {
-            h = (h ^ (unsigned char)*c) * 1099511628211UL;
-            bytes++;
-            if (!*c) break;
-        }
+    size_t n = 0, bytes;
+    while (env[n]) n++;
+    unsigned long h = strvec_fnv(env, &bytes);
     snprintf(out, cap, "n=%zu bytes=%zu fnv=%lx\n", n, bytes, h);
 }
 
@@ -289,6 +285,14 @@ int main(void) {
     spawn_child(longarg, 0, env, out, sizeof out, &pid);
     utest_check(pid < 0 && sys_errno() == E2BIG,
                 "the kernel counts string-form arguments against the same budget (E2BIG)");
+
+    // 5. With NO arguments the loader still places the path as argv[0],
+    //    and the kernel charges it: an environment of the whole budget
+    //    is refused even though libsys counted nothing for the arguments.
+    env = make_env(10, SPAWN_ARGS_MAX);
+    spawn_child(0, 0, env, out, sizeof out, &pid);
+    utest_check(pid < 0 && sys_errno() == E2BIG,
+                "an argless spawn is charged its path as argv[0] (E2BIG)");
 
     return utest_end();
 }

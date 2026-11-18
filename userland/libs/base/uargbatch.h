@@ -11,9 +11,10 @@
 
 // Calls `run` once per batch with a NULL-terminated argv: the `nhead`
 // strings of `head` (the program and its fixed options), then as many of
-// `items` as fit, in order. Returns how many batches ran. An item that
-// cannot fit even alone is skipped, the rest still run, and the result
-// is -1 -- as is out of memory for the argv, which runs nothing.
+// `items` as fit, in order. Returns how many batches ran, or -1 with
+// errno saying why: ENAMETOOLONG -- an item that cannot fit even alone
+// was skipped, the rest still ran; E2BIG -- the environment and the head
+// leave no room for any item, and nothing ran; ENOMEM -- nothing ran.
 int uargbatch(char *const *head, int nhead, char *const *items, int nitems,
               void (*run)(char *const *argv, void *ctx), void *ctx);
 

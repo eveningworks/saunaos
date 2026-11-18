@@ -469,18 +469,20 @@ int sys_kill(struct syscall_ctx *c) {
 // the copy's last bytes are checked again: whatever it holds, the kernel
 // sees a terminated run no longer than it measured.
 //
-// The length (terminator included), or -E2BIG past `cap` and -EINVAL
-// for an unreadable blob -- REFUSED, never truncated.
+// The length (terminator included), or -E2BIG past `cap`, -ENOMEM, and
+// -EFAULT for an unreadable blob -- REFUSED, never truncated. Never
+// -EINVAL: libsys reads that on a vector spawn as "this kernel predates
+// SPAWN_ARGV" and retries with the arguments joined by spaces.
 static long copy_env_from_user(uint64_t pml4, uint64_t uptr, size_t cap, char **out) {
     *out = 0;
-    if (!uptr) return -EINVAL;
+    if (!uptr) return -EFAULT;
     size_t n = 0;
     int prev_nul = 0;
     for (;;) {
         char chunk[256];
         size_t want = 4096 - (size_t)((uptr + n) & 4095);
         if (want > sizeof chunk) want = sizeof chunk;
-        if (!vmm_copy_from_user(pml4, chunk, uptr + n, want)) return -EINVAL;
+        if (!vmm_copy_from_user(pml4, chunk, uptr + n, want)) return -EFAULT;
         size_t i = 0;
         for (; i < want; i++) {
             if (chunk[i] != '\0') { prev_nul = 0; continue; }
@@ -497,7 +499,7 @@ static long copy_env_from_user(uint64_t pml4, uint64_t uptr, size_t cap, char **
     if (!vmm_copy_from_user(pml4, buf, uptr, n) || buf[n - 1] != '\0' ||
         (n > 1 && buf[n - 2] != '\0')) {
         kfree(buf);
-        return -EINVAL;
+        return -EFAULT;
     }
     *out = buf;
     return (long)n;
@@ -637,13 +639,17 @@ static int spawn_args_collect(uint64_t pml4, const struct spawn_msg *msg,
         return -EINVAL;
     }
     // AFTER the arguments: the environment gets what they left of the
-    // one SPAWN_ARGS_MAX budget.
+    // one SPAWN_ARGS_MAX budget. With no arguments the loader still
+    // places the path as argv[0], so that is what they took.
     if (msg->env) {
-        long n = copy_env_from_user(pml4, (uint64_t)(uintptr_t)msg->env,
-                                    SPAWN_ARGS_MAX - a->args_len, &a->envbuf);
+        size_t used = a->args ? a->args_len : k_strlen(a->path) + 1;
+        size_t left = used < SPAWN_ARGS_MAX ? SPAWN_ARGS_MAX - used : 0;
+        long n = copy_env_from_user(pml4, (uint64_t)(uintptr_t)msg->env, left, &a->envbuf);
         if (n < 0) {
-            klog_printf(KLOG_ERR "syscall: %s() rejected -- %s environment\n", who,
-                        n == -E2BIG ? "oversized" : "bad");
+            klog_printf(KLOG_ERR "syscall: %s() rejected -- %s\n", who,
+                        n == -E2BIG  ? "arguments and environment over SPAWN_ARGS_MAX" :
+                        n == -ENOMEM ? "no memory for the environment" :
+                                       "unreadable environment");
             spawn_args_free(a);
             return (int)n;
         }
