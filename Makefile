@@ -988,6 +988,7 @@ LIBBASE_OBJS  = $(patsubst userland/%.c,$(BUILD)/userland/%.o,$(LIBBASE_SRCS)) \
                $(BUILD)/userland/shared/fixed.o \
                $(BUILD)/userland/shared/ansi.o \
                $(BUILD)/userland/shared/klineedit.o \
+               $(BUILD)/userland/shared/kgrapheme.o \
                $(BUILD)/userland/shared/termkey.o \
                $(BUILD)/userland/shared/completion.o \
                $(BUILD)/userland/shared/histsearch.o \

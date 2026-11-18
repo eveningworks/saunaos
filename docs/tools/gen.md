@@ -287,15 +287,27 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   newer Perl brings a newer Unicode.
 - **`gen_emojidata.py`** -- the emoji a person can PICK:
   `data/usr/share/unicode/emoji`, groups in CLDR order and one line per
-  entry (its code points, then its CLDR name), read by
+  entry (its code points, its CLDR name, and for a people emoji a third
+  field, its skin-tone template with `~` where a tone goes), read by
   `base/uemojidata.h` for the emoji picker and Character Map's Emoji page.
   Its input is VENDORED, `tools/gen/data/emoji-test.txt` (Unicode's
   emoji-test.txt, Unicode License v3 -- `LICENSE`), so nothing is fetched.
-  Keeps fully-qualified entries that are one code point, optionally with
-  U+FE0F, that `data/fonts/fallback/twemoji.ttf` maps; drops ZWJ
-  sequences, skin tones, flags, keycaps and the Component group, which
-  need shaping. `--check` fails on a stale file. Re-run when either input
-  changes.
+  Keeps every fully-qualified emoji `data/fonts/fallback/twemoji.ttf`
+  draws as ONE glyph -- a character, or a ZWJ sequence, flag or keycap its
+  `ccmp` ligatures make one (read with `tools/lib/otl.py`) -- and leaves
+  out the Component group. A skin-toned variant is not an entry: the
+  medium one becomes the template, kept when all five tones are one
+  glyph. `--check` fails on a stale file. Re-run when either input changes.
+- **`gen_grapheme.py`** -- the Unicode tables text is SEGMENTED and
+  COMPOSED by: `kernel/include/api/kgrapheme_table.h`, every code point's
+  UAX #29 Grapheme_Cluster_Break class and Extended_Pictographic as sorted
+  ranges (Hangul syllables computed, not listed), for `kernel/lib/kgrapheme.c`;
+  and `userland/libs/base/ucompose_table.h`, every canonical composition
+  of a pair, exclusions left out, for `base/ucompose.c`. Perl's regex
+  engine carries the break properties and Python's `unicodedata` the
+  decompositions, so nothing is fetched (each version goes into its
+  header). `--check` fails on a stale table. Re-run when a newer Perl or
+  Python brings a newer Unicode.
 - **`gen_wcwidth.py`** -- the East Asian Wide table a grid of cells
   measures with (`wcwidth()`'s rule: 2 cells for W and F, 1 otherwise)
   into `userland/libs/base/uwcwidth_table.h` (tracked), read by

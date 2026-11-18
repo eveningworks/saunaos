@@ -968,13 +968,38 @@ the rest in the sweep. Each stays a standalone script with its own
 - **`uemojidata_hostcheck.py`** (gate) -- the emoji list
   (`base/uemojidata.c`): the shipped `data/usr/share/unicode/emoji` parsed
   by the tree's C and by the script's own reading, entry for entry and
-  group for group (U+FE0F where the file says); name searches with the
-  case changed and a search for the emoji itself; and the recents value
-  -- a pick to the front, a duplicate dropped, cut at 16 and at the
-  settings ABI's 63 bytes on a character boundary, decoded back with an
-  unknown character skipped. `--positive-control` makes the search case
-  sensitive, keeps duplicates and drops U+FE0F in the parse; each must
-  go RED.
+  group for group (a sequence whole, U+FE0F where the file says), and a
+  people emoji's five skin tones made from its template; name searches
+  with the case changed and a search for the emoji itself, toned or not;
+  and the recents value a whole emoji at a time -- a pick to the front, a
+  duplicate dropped, cut at 16 and at the settings ABI's 63 bytes, decoded
+  back with a family whole and an unknown character skipped.
+  `--positive-control` makes the search case sensitive, keeps duplicates
+  and leaves a tone slot empty; each must go RED.
+- **`otl_hostcheck.py`** (gate) -- OpenType layout in `ttf.c`: GPOS pair
+  kerning (`ttf_pair_kern_units()`) and GSUB ligatures (`ttf_ligate()`)
+  against oracles in the same files the C never reads for the same
+  answer. The Liberation faces carry their kerning twice, so every
+  Latin/Greek/Cyrillic pair (~105,000 a face) must kern through GPOS as
+  the old `kern` table says; Twemoji names each sequence glyph after its
+  code points (`post`), so all ~2,270 named sequences in emoji-test.txt
+  must ligate to their own glyph, and `tools/lib/otl.py` must agree; and,
+  when the host has HarfBuzz's headers, every same-script pair of Noto
+  Sans (class-pair, format 2 lookups) and Liberation Sans must kern as
+  HarfBuzz shapes it -- measured as the pair's whole offset, since
+  HarfBuzz splits an old `kern` value over both glyphs. `--positive-control`
+  swaps a class pair's classes and matches a ligature one position early;
+  each must go RED. About seven seconds.
+- **`grapheme_hostcheck.py`** (gate) -- grapheme clusters
+  (`kernel/lib/kgrapheme.c`) against PERL's `\X`, an independent UAX #29:
+  every emoji-test.txt sequence between letters, letters with marks in
+  three scripts, regional-indicator runs, Hangul, a Prepend and 3,000
+  random strings over every class split the same both FORWARD
+  (`kgrapheme_next()`) and BACK (`kgrapheme_prev()`), plus
+  `kgrapheme_backspace()`'s cases. The inputs leave out CR (`\r\n` is two
+  characters here, deliberately) and Indic conjunct linkers (GB9c is not
+  applied); a tab stands in for a line break. `--positive-control` drops
+  the indicator pairing and GB11's ZWJ join; each must go RED.
 - **`emoji_hostcheck.py`** (gate) -- colour emoji: `ttf.c`'s COLR v0
   compositing (`ttf_render_color_glyph()`, layers of outlines filled from
   CPAL) against FreeType's own COLR render of the same Twemoji glyphs,

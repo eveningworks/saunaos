@@ -100,7 +100,8 @@ indexed by headline in the next section.
 **Check `kernel/lib/` before hand-rolling a digit loop, a formatter, a
 path join or a rasteriser.** Reachable through `kapi.h`, each with
 KTESTs: `string.h`, `knum.h`, `kfmt.h`, `kpath.h`, `fixed.h`, `geom.h`,
-`krandom.h`, `hid_parse.h`. **In ring 3, check
+`krandom.h`, `hid_parse.h`, `kgrapheme.h` (UAX #29 clusters -- what a caret
+steps over). **In ring 3, check
 `docs/toolkit.md` first** -- every `userland/libs/{base,net,media,ui}/`
 header in one line, GENERATED from the headers (`gen_toolkit_index.py`;
 a new header needs a top comment saying what it is). **THE RING-3

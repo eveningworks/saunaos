@@ -104,6 +104,8 @@ struct ttf_font {
     uint32_t hdmx, hdmx_len;   // 0 when absent: ttf_vdmx(), ttf_hdmx()
     uint32_t colr, colr_len;   // COLR v0 and CPAL, 0 when absent or another
     uint32_t cpal, cpal_len;   // version: ttf_render_color_glyph()
+    uint32_t gpos, gpos_len;   // OpenType layout, 0 when absent:
+    uint32_t gsub, gsub_len;   // ttf_pair_kern_units(), ttf_ligate()
 
     // The autohinter's BLUE ZONES, measured by ttf_open() from the face's
     // own Latin letters' bounding boxes, font units, y up. `ref` is where
@@ -178,23 +180,43 @@ static inline fx_t ttf_scale_for_px(const struct ttf_font *f, int px) {
 // proportional text possible at all -- see gfx_char_advance().
 int ttf_advance_px(const struct ttf_font *f, int gid, int px);
 
-// Kerning adjustment for the ordered pair (left, right) in font units,
-// or 0 when the font does not kern that pair. Almost always negative:
-// kerning tucks a pair closer than their advances alone would put them
-// ("AV", "To"), which is why text that ignores it looks loose rather
-// than broken.
+// The script a pair or a run is in, which picks the OpenType LangSys whose
+// features apply. A script the face does not list falls back to DFLT, then
+// latn, HarfBuzz's order.
+enum ttf_script { TTF_SCRIPT_LATIN, TTF_SCRIPT_GREEK, TTF_SCRIPT_CYRILLIC, TTF_SCRIPT_OTHER };
+
+// The script a character kerns in, by its block: Greek and Greek Extended,
+// Cyrillic and its Supplement, else Latin -- the three this OS kerns.
+static inline enum ttf_script ttf_script_for(uint32_t cp) {
+    if ((cp >= 0x370 && cp <= 0x3FF) || (cp >= 0x1F00 && cp <= 0x1FFF)) return TTF_SCRIPT_GREEK;
+    if (cp >= 0x400 && cp <= 0x52F) return TTF_SCRIPT_CYRILLIC;
+    return TTF_SCRIPT_LATIN;
+}
+
+// Kerning adjustment for the ordered pair (left, right) in font units, or 0
+// when the font does not kern that pair. Almost always negative: kerning
+// tucks a pair closer than their advances alone would put them ("AV", "To").
 //
-// **Only the legacy format-0 horizontal `kern` subtable is read**, and
-// that is a deliberate stopping point rather than an oversight. A
-// modern OpenType face expresses kerning in GPOS, which is a shaping
-// engine's job -- HarfBuzz is ~50k lines and exists because doing this
-// properly means lookups, contextual rules and script logic. Reading
-// `kern` is ~40 lines and covers what this OS actually draws: the
-// Liberation faces carry format-0 tables (liberation-sans 908 pairs)
-// and dejavu-sans-mono has none at all (it is monospace, so kerning it
-// would be wrong anyway). A face with GPOS-only kerning simply renders
-// unkerned, exactly as it does today.
+// From the GPOS `kern` feature's PairPos lookups (formats 1 and 2, the first
+// glyph's XAdvance) when the face's GPOS has one for `script`, else the old
+// format-0 `kern` table. That is ALL of OpenType positioning this reads: no
+// contextual kerning, no mark attachment (docs/decisions/gui.md, "Grapheme
+// clusters, pair kerning and emoji sequences").
+int ttf_pair_kern_units(const struct ttf_font *f, enum ttf_script script,
+                        int left_gid, int right_gid);
+
+// ttf_pair_kern_units() for Latin -- what an atlas of Latin-1 is kerned by.
 int ttf_kern_units(const struct ttf_font *f, int left_gid, int right_gid);
+
+// GSUB LIGATURES (lookup type 4) of `feature` -- TTF_FEATURE('c','c','m','p')
+// for the emoji face's ZWJ sequences, flags, skin tones and keycaps -- applied
+// in place to `gids[0..n)` in the font's lookup order. Returns the new count:
+// a ligature replaces its components with one glyph. Other lookup types are
+// skipped, not half-applied.
+#define TTF_FEATURE(a, b, c, d) (((uint32_t)(a) << 24) | ((uint32_t)(b) << 16) \
+                               | ((uint32_t)(c) << 8) | (uint32_t)(d))
+int ttf_ligate(const struct ttf_font *f, enum ttf_script script, uint32_t feature,
+               uint16_t *gids, int n);
 
 // The same adjustment rounded to pixels at `px`. Rounded per pair
 // rather than accumulated in font units, because the caller adds it to

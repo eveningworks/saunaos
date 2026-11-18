@@ -3,10 +3,9 @@
 // no allocation, every read bounds-checked) and why a font parser in
 // ring 0 needs that third one in particular.
 //
-// COMPILED TWICE, kernel and userland (Makefile's build/userland/shared/
-// rule), the same way geom.c and klineedit.c are -- so it may not
-// reference anything kernel-only. It includes fixed.h and <stdint.h> and
-// nothing else, deliberately.
+// RING 3 ONLY since the kernel stopped parsing fonts (f34019fc): libmedia,
+// for /bin/fontd and every process's glyph cache. It still includes fixed.h
+// and <stdint.h> and nothing else, so a host check compiles it as-is.
 #include "ttf.h"
 #include "ttf_internal.h"
 #include <stddef.h>
@@ -89,6 +88,8 @@ int ttf_open(struct ttf_font *f, const uint8_t *data, uint32_t len) {
         case TAG('h', 'd', 'm', 'x'): f->hdmx = off; f->hdmx_len = tlen; break;
         case TAG('C', 'O', 'L', 'R'): f->colr = off; f->colr_len = tlen; break;
         case TAG('C', 'P', 'A', 'L'): f->cpal = off; f->cpal_len = tlen; break;
+        case TAG('G', 'P', 'O', 'S'): f->gpos = off; f->gpos_len = tlen; break;
+        case TAG('G', 'S', 'U', 'B'): f->gsub = off; f->gsub_len = tlen; break;
         default: break;
         }
     }
@@ -253,8 +254,8 @@ int ttf_advance_px(const struct ttf_font *f, int gid, int px) {
 
 // --- kerning ---------------------------------------------------------
 
-int ttf_kern_units(const struct ttf_font *f, int left_gid, int right_gid) {
-    if (!f || !f->kern_pairs || left_gid < 0 || right_gid < 0) return 0;
+static int kern_table_units(const struct ttf_font *f, int left_gid, int right_gid) {
+    if (!f->kern_pairs) return 0;
     // The pair array is sorted by the 32-bit key (left << 16) | right,
     // which the spec guarantees and which is what makes this a binary
     // search over 908 entries rather than a scan per character pair.
@@ -273,10 +274,256 @@ int ttf_kern_units(const struct ttf_font *f, int left_gid, int right_gid) {
     return 0;
 }
 
+// --- OpenType layout: GPOS pair kerning, GSUB ligatures ----------------
+//
+// THE SMALL SUBSET OF A SHAPER THIS OS USES (docs/decisions/gui.md,
+// "Grapheme clusters, pair kerning and emoji sequences"): a PairPos lookup's
+// XAdvance between two glyphs, and a ligature lookup over a few glyphs. No
+// contextual lookups, no mark positioning, no lookup flags -- a lookup that
+// is not type 2 (GPOS) or 4 (GSUB) is skipped, and so is a flag's "ignore
+// marks", which only matters when marks sit between the glyphs, which the
+// caller never passes. Every offset is read through rd_*, and every loop is
+// bounded by a count read from the file AND by the table's own length.
+
+// A script's DEFAULT LangSys -> the Feature table tagged `feature`, or 0.
+// Missing script: DFLT, then latn (HarfBuzz's fallback order).
+static uint32_t otl_feature(const struct ttf_font *f, uint32_t table, uint32_t tlen,
+                            uint32_t script, uint32_t feature) {
+    if (!table || tlen < 10) return 0;
+    uint32_t sl = table + rd_u16(f, table + 4), fl = table + rd_u16(f, table + 6);
+    uint32_t nscripts = rd_u16(f, sl), nfeat = rd_u16(f, fl);
+    if (!in_range(f, sl + 2, nscripts * 6) || !in_range(f, fl + 2, nfeat * 6)) return 0;
+    const uint32_t order[3] = { script, TAG('D', 'F', 'L', 'T'), TAG('l', 'a', 't', 'n') };
+    for (int o = 0; o < 3; o++) {
+        for (uint32_t i = 0; i < nscripts; i++) {
+            if (rd_u32(f, sl + 2 + i * 6) != order[o]) continue;
+            uint32_t so = sl + rd_u16(f, sl + 6 + i * 6);
+            uint32_t def = rd_u16(f, so);
+            if (!def) break;                        // no default LangSys: try the next script
+            uint32_t ls = so + def, n = rd_u16(f, ls + 4);
+            for (uint32_t k = 0; k < n && k < 1024; k++) {
+                uint32_t fi = rd_u16(f, ls + 6 + k * 2);
+                if (fi < nfeat && rd_u32(f, fl + 2 + fi * 6) == feature)
+                    return fl + rd_u16(f, fl + 6 + fi * 6);
+            }
+            return 0;   // the script is there and does not use this feature
+        }
+    }
+    return 0;
+}
+
+// Coverage index of `gid`, or -1.
+static int otl_coverage(const struct ttf_font *f, uint32_t cov, int gid) {
+    uint32_t fmt = rd_u16(f, cov), n = rd_u16(f, cov + 2);
+    int lo = 0, hi = (int)n - 1;
+    if (fmt == 1) {
+        if (!in_range(f, cov + 4, n * 2)) return -1;
+        while (lo <= hi) {
+            int mid = lo + (hi - lo) / 2;
+            int g = (int)rd_u16(f, cov + 4 + (uint32_t)mid * 2);
+            if (g == gid) return mid;
+            if (g < gid) lo = mid + 1; else hi = mid - 1;
+        }
+    } else if (fmt == 2) {
+        if (!in_range(f, cov + 4, n * 6)) return -1;
+        while (lo <= hi) {
+            int mid = lo + (hi - lo) / 2;
+            uint32_t r = cov + 4 + (uint32_t)mid * 6;
+            int a = (int)rd_u16(f, r), z = (int)rd_u16(f, r + 2);
+            if (gid < a) hi = mid - 1;
+            else if (gid > z) lo = mid + 1;
+            else return (int)rd_u16(f, r + 4) + gid - a;
+        }
+    }
+    return -1;
+}
+
+static int otl_class(const struct ttf_font *f, uint32_t cd, int gid) {
+    uint32_t fmt = rd_u16(f, cd);
+    if (fmt == 1) {
+        int start = (int)rd_u16(f, cd + 2), n = (int)rd_u16(f, cd + 4);
+        if (gid < start || gid >= start + n) return 0;
+        return (int)rd_u16(f, cd + 6 + (uint32_t)(gid - start) * 2);
+    }
+    if (fmt == 2) {
+        int lo = 0, hi = (int)rd_u16(f, cd + 2) - 1;
+        while (lo <= hi) {
+            int mid = lo + (hi - lo) / 2;
+            uint32_t r = cd + 4 + (uint32_t)mid * 6;
+            int a = (int)rd_u16(f, r), z = (int)rd_u16(f, r + 2);
+            if (gid < a) hi = mid - 1;
+            else if (gid > z) lo = mid + 1;
+            else return (int)rd_u16(f, r + 4);
+        }
+    }
+    return 0;
+}
+
+// A ValueRecord's size, and its XAdvance (format bit 0x0004) at `vr`.
+static uint32_t vr_size(uint32_t fmt) {
+    uint32_t n = 0;
+    for (int b = 0; b < 8; b++) n += (fmt >> b) & 1;
+    return n * 2;
+}
+static int vr_xadvance(const struct ttf_font *f, uint32_t fmt, uint32_t vr) {
+    if (!(fmt & 0x0004)) return 0;
+    uint32_t skip = vr_size(fmt & 0x0003);
+    return (int)rd_i16(f, vr + skip);
+}
+
+// One PairPos subtable: 1 with *units set when it APPLIES (OpenType: the
+// first subtable that applies ends the lookup), 0 otherwise.
+static int pairpos(const struct ttf_font *f, uint32_t st, int l, int r, int *units) {
+    uint32_t fmt = rd_u16(f, st);
+    if (otl_coverage(f, st + rd_u16(f, st + 2), l) < 0) return 0;
+    uint32_t vf1 = rd_u16(f, st + 4), vf2 = rd_u16(f, st + 6);
+    uint32_t s1 = vr_size(vf1), s2 = vr_size(vf2);
+    if (fmt == 1) {
+        int ci = otl_coverage(f, st + rd_u16(f, st + 2), l);
+        if ((uint32_t)ci >= rd_u16(f, st + 8)) return 0;
+        uint32_t ps = st + rd_u16(f, st + 10 + (uint32_t)ci * 2);
+        uint32_t n = rd_u16(f, ps), rec = 2 + s1 + s2;
+        if (!in_range(f, ps + 2, n * rec)) return 0;
+        int lo = 0, hi = (int)n - 1;
+        while (lo <= hi) {                      // PairSets are sorted by the second glyph
+            int mid = lo + (hi - lo) / 2;
+            uint32_t pr = ps + 2 + (uint32_t)mid * rec;
+            int g = (int)rd_u16(f, pr);
+            if (g == r) { *units = vr_xadvance(f, vf1, pr + 2); return 1; }
+            if (g < r) lo = mid + 1; else hi = mid - 1;
+        }
+        return 0;
+    }
+    if (fmt == 2) {
+        uint32_t n1 = rd_u16(f, st + 12), n2 = rd_u16(f, st + 14);
+        uint32_t c1 = (uint32_t)otl_class(f, st + rd_u16(f, st + 8), l);
+        uint32_t c2 = (uint32_t)otl_class(f, st + rd_u16(f, st + 10), r);
+        if (c1 >= n1 || c2 >= n2) return 0;
+        *units = vr_xadvance(f, vf1, st + 16 + (c1 * n2 + c2) * (s1 + s2));
+        return 1;
+    }
+    return 0;
+}
+
+// A lookup's subtable `k`, through an Extension (GPOS 9, GSUB 7) if it is
+// one; *type gets the real lookup type.
+static uint32_t lookup_subtable(const struct ttf_font *f, uint32_t lk, uint32_t k,
+                                uint32_t ext_type, uint32_t *type) {
+    uint32_t st = lk + rd_u16(f, lk + 6 + k * 2);
+    *type = rd_u16(f, lk);
+    if (*type == ext_type && rd_u16(f, st) == 1) {
+        *type = rd_u16(f, st + 2);
+        st += rd_u32(f, st + 4);
+    }
+    return st;
+}
+
+// Calls `fn` on each LOOKUP of `feature` (its table offset), in lookup
+// order, until it answers nonzero.
+typedef int (*otl_fn)(const struct ttf_font *f, uint32_t lookup, void *ctx);
+static void otl_each(const struct ttf_font *f, uint32_t table, uint32_t tlen,
+                     uint32_t script, uint32_t feature, otl_fn fn, void *ctx) {
+    uint32_t ft = otl_feature(f, table, tlen, script, feature);
+    if (!ft) return;
+    uint32_t ll = table + rd_u16(f, table + 8), nl = rd_u16(f, ll);
+    uint32_t n = rd_u16(f, ft + 2);
+    for (uint32_t i = 0; i < n && i < 1024; i++) {
+        uint32_t li = rd_u16(f, ft + 4 + i * 2);
+        if (li < nl && fn(f, ll + rd_u16(f, ll + 2 + li * 2), ctx)) return;
+    }
+}
+
+#define OTL_MAX_SUBTABLES 4096u   // a bound on a hostile count, not on a real font
+
+// Every lookup of the feature applies, each adding its own adjustment; inside
+// one lookup the first subtable that applies is the only one.
+struct pair_ctx { int l, r, units; };
+static int pair_fn(const struct ttf_font *f, uint32_t lk, void *ctx) {
+    struct pair_ctx *c = ctx;
+    uint32_t nsub = rd_u16(f, lk + 4);
+    for (uint32_t k = 0; k < nsub && k < OTL_MAX_SUBTABLES; k++) {
+        int u = 0;
+        uint32_t type, st = lookup_subtable(f, lk, k, 9, &type);
+        if (type == 2 && pairpos(f, st, c->l, c->r, &u)) { c->units += u; break; }
+    }
+    return 0;
+}
+
+static uint32_t script_tag(enum ttf_script s) {
+    switch (s) {
+    case TTF_SCRIPT_GREEK: return TAG('g', 'r', 'e', 'k');
+    case TTF_SCRIPT_CYRILLIC: return TAG('c', 'y', 'r', 'l');
+    case TTF_SCRIPT_LATIN: return TAG('l', 'a', 't', 'n');
+    default: return TAG('D', 'F', 'L', 'T');
+    }
+}
+
+int ttf_pair_kern_units(const struct ttf_font *f, enum ttf_script script, int left_gid, int right_gid) {
+    if (!f || left_gid < 0 || right_gid < 0) return 0;
+    // A face whose GPOS kerns this script is believed over its old `kern`
+    // table, which a modern face keeps only for old software, if at all.
+    if (otl_feature(f, f->gpos, f->gpos_len, script_tag(script), TAG('k', 'e', 'r', 'n'))) {
+        struct pair_ctx c = { left_gid, right_gid, 0 };
+        otl_each(f, f->gpos, f->gpos_len, script_tag(script), TAG('k', 'e', 'r', 'n'), pair_fn, &c);
+        return c.units;
+    }
+    return kern_table_units(f, left_gid, right_gid);
+}
+
+int ttf_kern_units(const struct ttf_font *f, int left_gid, int right_gid) {
+    return ttf_pair_kern_units(f, TTF_SCRIPT_LATIN, left_gid, right_gid);
+}
+
 int ttf_kern_px(const struct ttf_font *f, int left_gid, int right_gid, int px) {
     int units = ttf_kern_units(f, left_gid, right_gid);
     if (!units) return 0;
     return fx_round(fx_mul(fx_from_int(units), ttf_scale_for_px(f, px)));
+}
+
+// One ligature at position `i` from LigatureSubst subtable `st`: the
+// components it consumed (0 = none matched); the ligature replaces g[i].
+static int lig_at(const struct ttf_font *f, uint32_t st, uint16_t *g, int n, int i) {
+    if (rd_u16(f, st) != 1) return 0;
+    int ci = otl_coverage(f, st + rd_u16(f, st + 2), g[i]);
+    if (ci < 0 || (uint32_t)ci >= rd_u16(f, st + 4)) return 0;
+    uint32_t ls = st + rd_u16(f, st + 6 + (uint32_t)ci * 2), nl = rd_u16(f, ls);
+    for (uint32_t k = 0; k < nl && k < OTL_MAX_SUBTABLES; k++) {
+        uint32_t lg = ls + rd_u16(f, ls + 2 + k * 2);
+        uint32_t comp = rd_u16(f, lg + 2);
+        if (comp < 2 || (int)comp > n - i || !in_range(f, lg + 4, (comp - 1) * 2)) continue;
+        uint32_t j = 1;
+        while (j < comp && rd_u16(f, lg + 4 + (j - 1) * 2) == g[i + (int)j]) j++;
+        if (j == comp) { g[i] = (uint16_t)rd_u16(f, lg); return (int)comp; }   // the set's order is the font's preference
+    }
+    return 0;
+}
+
+struct lig_ctx { uint16_t *g; int n; };
+// One lookup over the whole run, left to right; at each position the first
+// subtable that matches applies (OpenType's rule), and the run closes up.
+static int lig_fn(const struct ttf_font *f, uint32_t lk, void *ctx) {
+    struct lig_ctx *c = ctx;
+    uint32_t nsub = rd_u16(f, lk + 4);
+    int out = 0;
+    for (int i = 0; i < c->n;) {
+        int used = 0;
+        for (uint32_t k = 0; k < nsub && k < OTL_MAX_SUBTABLES && !used; k++) {
+            uint32_t type, st = lookup_subtable(f, lk, k, 7, &type);
+            if (type == 4) used = lig_at(f, st, c->g, c->n, i);
+        }
+        c->g[out++] = c->g[i];
+        i += used ? used : 1;
+    }
+    c->n = out;
+    return 0;
+}
+
+int ttf_ligate(const struct ttf_font *f, enum ttf_script script, uint32_t feature,
+               uint16_t *gids, int n) {
+    if (!f || !gids || n < 2) return n < 0 ? 0 : n;
+    struct lig_ctx c = { gids, n };
+    otl_each(f, f->gsub, f->gsub_len, script_tag(script), feature, lig_fn, &c);
+    return c.n;
 }
 
 // --- synthetic bold --------------------------------------------------

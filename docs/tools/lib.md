@@ -3,6 +3,12 @@
 One entry per tool in `tools/lib/`: what it does, why it exists, and the traps it
 encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` finds a tool.
 
+- **`otl.py`** -- a TrueType face's `cmap`, format-0 `kern` table,
+  `post` glyph names and GSUB ligatures (lookup type 4 of one feature) in
+  pure Python, for tools that must not lean on the tree's C:
+  `gen_emojidata.py` keeps an emoji sequence only when the emoji face
+  draws it as one glyph, and `otl_hostcheck.py` takes its oracles from it.
+  For the faces this repository ships, not for untrusted fonts.
 - **`toolpath.py`** -- where everything in `tools/` lives. A script in
   any folder puts `lib/` on `sys.path` and imports it first; it then puts
   EVERY tools/ folder on `sys.path`, so `import harness` or `import

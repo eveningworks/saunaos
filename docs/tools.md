@@ -429,6 +429,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `emoji_hostcheck.py` -- Colour emoji (COLR v0 over CPAL) against FreeType's, and the emoji table, on the HOST
 - `exfat_hostcheck.py` -- SaunaOS's exFAT, judged by the host: fsck.exfat and an independent reader
 - `filemanager_harness_hostcheck.py` -- filemanager_test.py's own harness, checked on the host with no guest
+- `grapheme_hostcheck.py` -- Grapheme cluster boundaries (kernel/lib/kgrapheme.c) against Perl's `\X`, on the HOST
 - `hash_hostcheck.py` -- Check /lib/libhash.so's algorithms against hashlib and zlib, on the HOST
 - `heap_hostcheck.py` -- Fuzz kernel/lib/heap_core.c on the HOST, with its own invariants checked
 - `hid_parse_hostcheck.py` -- Check kernel/lib/hid_parse.c against REAL report descriptors, on the host
@@ -437,6 +438,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `mediaparse_hostcheck.py` -- The kernel's removable-media parsers against a hostile stick, on the host
 - `midi_hostcheck.py` -- Check the MIDI codec and SoundFont synth on the HOST, against FluidSynth
 - `ora_hostcheck.py` -- Check lib/uora (OpenRaster) against Python's zipfile, ElementTree and Pillow, on the HOST
+- `otl_hostcheck.py` -- GPOS pair kerning and GSUB ligatures in ttf.c, against the font's own data, on the HOST
 - `regex_hostcheck.py` -- tolibc's regex against glibc's, on the HOST
 - `settings_harness_hostcheck.py` -- settings_test.py's own wait and geometry logic, on the host, no guest
 - `smb_hostcheck.py` -- Check the SMB client (/lib/libsmb.so's protocol) against a real Samba, on the HOST
@@ -516,6 +518,7 @@ Full entries: [`docs/tools/lib.md`](tools/lib.md).
 - `hostcheck.py` -- The build half every `*_hostcheck.py` had written for itself
 - `iso_guard.py` -- Refuse to boot a stale saunaos.iso
 - `mkpart_test.py` -- writes a synthetic legacy MBR or GPT
+- `otl.py` -- read a TrueType face's cmap, kern table, glyph names and
 - `panic_resolve.py` -- Resolve a pasted panic into function names and source lines
 - `pixel_probe.py` -- Read exact pixel values out of a screenshot, and compare them across
 - `port_guard.py` -- Refuse to start a guest on a QMP or VNC port another guest already holds
@@ -606,6 +609,7 @@ Full entries: [`docs/tools/gen.md`](tools/gen.md).
 - `gen_decisions_index.py` -- regenerate docs/decisions.md from docs/decisions/
 - `gen_emoji.py` -- which characters are drawn as EMOJI by default
 - `gen_emojidata.py` -- the emoji the picker and Character Map list
+- `gen_grapheme.py` -- the Unicode tables text is segmented and composed by
 - `gen_icons.py` -- Draw the application icons into data/icons/*.qoi
 - `gen_imgdata.py` -- Generate the image data this repo ships: the test vectors and the wallpapers
 - `gen_kbs.py` -- generates /usr/share/kbs/<layout> keyboard-layout data
