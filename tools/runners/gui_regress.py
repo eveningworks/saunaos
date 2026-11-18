@@ -315,10 +315,18 @@ def run_one(name, script, disk_src, timeout, keep_logs, slot, kvm=False):
     return (status_of(rc), time.time() - started, summary)
 
 
+# --sleep-profile DIR: every tool's sleeps timed by call site
+# (tools/lib/sleep_profile.py records them and ranks them).
+SLEEP_PROFILE = None
+
+
 def _child_env(base=None):
     """A tool's environment: this run records its row (test_history.py)."""
     env = dict(base if base is not None else os.environ)
     env[test_history.BY_PARENT_ENV] = "1"
+    if SLEEP_PROFILE:
+        hook = os.path.join(SLEEP_PROFILE, ".hook")
+        env["PYTHONPATH"] = os.pathsep.join(p for p in (hook, env.get("PYTHONPATH")) if p)
     return env
 
 
@@ -597,6 +605,9 @@ def run():
                          "instead of QEMU guests (serial, one machine; see "
                          "tools/lib/remote_gui.py). local_info.txt has the addresses")
     ap.add_argument("--list", action="store_true", help="list the tools and exit")
+    ap.add_argument("--sleep-profile", metavar="DIR", default=None,
+                    help="time every tool's time.sleep() calls by call site into DIR; "
+                         "tools/lib/sleep_profile.py DIR ranks them")
     ap.add_argument("--kvm", action="store_true",
                     help="run the guests under KVM instead of TCG -- much "
                          "faster, and deliberately NOT the default: every "
@@ -626,6 +637,13 @@ def run():
 
     if args.logs:
         os.makedirs(args.logs, exist_ok=True)
+    if args.sleep_profile:
+        global SLEEP_PROFILE
+        SLEEP_PROFILE = os.path.abspath(args.sleep_profile)
+        os.makedirs(os.path.join(SLEEP_PROFILE, ".hook"), exist_ok=True)
+        with open(os.path.join(SLEEP_PROFILE, ".hook", "sitecustomize.py"), "w") as f:
+            f.write(f"import sys\nsys.path.insert(0, {os.path.join(HERE, 'lib')!r})\n"
+                    f"import sleep_profile\nsleep_profile.install({SLEEP_PROFILE!r})\n")
     import tree_lock
     tree_lock.hold()   # the fresh disk and every tool read this build
 

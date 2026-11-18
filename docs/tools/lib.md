@@ -122,6 +122,14 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   hash, utween, umd, utext, hid_parse and teapot; divti3, midi, regex,
   usnd, ugfx_text, uimg and uimg_codec build differently enough
   (sanitizers, shim headers, two compilers) to keep their own.
+- **`sleep_profile.py`** -- where a GUI suite run spent its time
+  asleep. `gui_regress.py --sleep-profile DIR` puts a `sitecustomize.py`
+  calling `install()` on each tool's `PYTHONPATH`, so every
+  `time.sleep()` is timed and charged to the line that called it and
+  the nearest `tools/tests/` line behind it; `sleep_profile.py DIR`
+  ranks them by caller, by test line and by tool against its wall time.
+  Real seconds, not the literal: a poll step that ends early costs what
+  it cost. Only the main thread's sleeps count against a test.
 - **`serial_boot.py`** -- the TCP-serial plumbing the controller boot
   tests (`virtio_boot_test`, `ahci_test`, `partition_test`,
   `poweroff_test`) each had: `connect()`, `read_until()`, and

@@ -92,7 +92,9 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `space_guard()`), saying so, and refuses with none: the copies sit in
   a RAM-backed `/tmp`, and one that filled up on 2026-11-14 paused
   guests mid-test -- apps whose windows never opened, read as GUI bugs
-  in two full runs. This is the standard check
+  in two full runs. `--sleep-profile DIR` times every tool's
+  `time.sleep()` by call site (`tools/lib/sleep_profile.py` ranks them).
+  This is the standard check
   after touching `apps/ui/`, `userland/`, or anything the WM draws.
   Tools are **STARTED longest-first** (`pick_order()`), because a
   parallel run cannot end before its slowest member does and `forcequit`

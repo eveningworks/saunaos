@@ -524,6 +524,7 @@ Full entries: [`docs/tools/lib.md`](tools/lib.md).
 - `serial_boot.py` -- Boot a guest whose serial console is a TCP server, and drive it
 - `serial_console.py` -- Boot a guest with COM1 as a SOCKET, and drive it as text in / text out
 - `shell_flow.py` -- a named, composable QMP flow for the PHYSICAL
+- `sleep_profile.py` -- where a GUI suite run spent its time asleep
 - `test_history.py` -- A local record of every test run: when did this check last fail, or pass?
 - `toolpath.py` -- Where everything in tools/ lives, for scripts that live in its folders
 - `tree_lock.py` -- The TEST LOCK: nothing rebuilds or edits the tree while a test is using it
