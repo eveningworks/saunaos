@@ -877,6 +877,22 @@ undefined symbols, so `libc_nonshared.a` (pthread) is linked WHOLE into
 every dynamic program -- as it effectively was while libuapp.so was
 everyone's `DT_NEEDED`.
 
+## A SHARED LIBRARY NEVER CALLS AN rt FUNCTION NEWER THAN THE PROGRAMS IN USE
+
+rt (libsys: the `sys_*` wrappers, `environ`, errno, the canary) and
+`libc_nonshared.a` are linked INTO each program, not shared, so a
+library's call into them is resolved from the executable. A program
+built before a function existed does not have it, and a library calling
+it then fails to load in that program -- under `RTLD_NOW` the whole
+`dlopen` fails. ScummVM, built separately from the tree, aborted with
+"Failed loading SDL3 library" when libbase began calling the new
+`sys_env_bytes()` (2026-11-18); nothing in the gate saw it, because the
+gate relinks every program. The work a library needs goes in the
+library. `tools/build/lib_exe_symbols.txt` lists the executable-side
+symbols the checked libraries may use, and `check_lib_layers.py
+--exe-surface` fails the build on one not listed; add a line only for a
+symbol every program in use already exports.
+
 ## A SHARED LIBRARY IS `userland/dynlib/` PLUS ONE MAKEFILE LINE, AND A PROGRAM OPTS IN
 
 `/lib/libc.so` is special (every `/bin` and GUI program links it, and it

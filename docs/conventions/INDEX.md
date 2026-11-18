@@ -1312,6 +1312,8 @@ whenever a headline here tells you something you did not already know.
   number.**
 - **SHARED RING-3 CODE GOES IN THE LOWEST TOOLKIT LIBRARY ITS NEEDS
   ALLOW: base < net < media < ui**
+- **A SHARED LIBRARY NEVER CALLS AN rt FUNCTION NEWER THAN THE PROGRAMS IN
+  USE**
 - **A SHARED LIBRARY IS `userland/dynlib/` PLUS ONE MAKEFILE LINE, AND A
   PROGRAM OPTS IN**
 - **A FLASH REPLACES THE KERNEL, NEVER THE BOOTLOADER -- AND `install

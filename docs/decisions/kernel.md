@@ -10232,7 +10232,7 @@ arguments the path the loader still places as argv[0]. An unreadable
 environment is `EFAULT`, never `EINVAL`, which libsys would take for a
 kernel without `SPAWN_ARGV` and retry with the arguments joined. A caller
 packing arguments up to the budget leaves room for the environment it
-passes: `uargbatch()` subtracts `sys_env_bytes(environ)`, as GNU xargs
+passes: `uargbatch()` subtracts what `environ` takes, as GNU xargs
 subtracts the environment from `ARG_MAX`.
 
 **The fault.** A ring-3 fault with no handler ended the process with

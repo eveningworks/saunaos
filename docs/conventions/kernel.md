@@ -4783,7 +4783,9 @@ program a list it did not choose the length of (a Delete over a band, a
 batch of thumbnails) passes the fixed head and the items to
 `base/uargbatch.h`, which runs the program as many times as the list
 needs, each argv within what `environ` leaves of the bound
-(`sys_env_bytes()`) -- `xargs` against `ARG_MAX`. The
+(counted by `uargbatch()` itself, not rt's `sys_env_bytes()`: build.md,
+"A shared library never calls an rt function newer than the programs in
+use") -- `xargs` against `ARG_MAX`. The
 desktop built one argv for its whole selection until 2026-10-23, so a
 selection whose paths ran past the bound was refused whole, logged only
 as "could not run /bin/trash".

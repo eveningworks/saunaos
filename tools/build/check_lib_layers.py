@@ -23,6 +23,12 @@ undefined, non-weak dynamic symbol of the library must be defined by a
 
 `--search` names the directory of the other libraries' objects, so a
 finding says which module the symbol belongs to. Exits 1 on a finding.
+
+`--exe-surface FILE` also refuses an executable-side symbol the library
+needs that FILE does not list (tools/build/lib_exe_symbols.txt): the
+runtime is linked INTO each program, so a program built before a new rt
+function lacks it, and a library calling it fails to load there --
+ScummVM, built separately, aborted on `sys_env_bytes` (2026-11-18).
 """
 import argparse
 import os
@@ -75,11 +81,31 @@ def main():
     ap.add_argument("--below", nargs="*", default=[], help="the libraries it may use")
     ap.add_argument("--exe", nargs="*", default=[], help="what every executable provides")
     ap.add_argument("--search", default=None, help="objects to name a finding's owner from")
+    ap.add_argument("--exe-surface", default=None,
+                    help="the executable-side symbols a library may use, one a line")
     a = ap.parse_args()
     have = set()
     for p in a.below + a.exe:
         have |= defined(p)
-    missing = undefined(a.so) - have
+    need = undefined(a.so)
+    if a.exe_surface:
+        exe_side = set()
+        for p in a.exe:
+            exe_side |= defined(p)
+        with open(a.exe_surface) as f:
+            allowed = {l.strip() for l in f if l.strip() and not l.startswith("#")}
+        new = (need & exe_side) - allowed
+        if new:
+            print(f"check_lib_layers: {os.path.basename(a.so)} needs {len(new)} runtime symbol(s) "
+                  f"from the EXECUTABLE that {a.exe_surface} does not list:", file=sys.stderr)
+            for n in sorted(new):
+                print(f"  {n}", file=sys.stderr)
+            print("The runtime is linked into each program, so one built before this symbol "
+                  "existed (an SDK port) cannot load the library. Do the work in the library "
+                  "instead; list it only if every program in use already exports it.",
+                  file=sys.stderr)
+            return 1
+    missing = need - have
     if not missing:
         return 0
     who = owners(a.search, missing) if a.search else {}

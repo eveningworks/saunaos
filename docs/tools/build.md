@@ -222,7 +222,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   module the symbol is in. It is `ld -z defs` with the executable's half
   named -- plain `-z defs` fails every library here on the `sys_*`
   wrappers and pthread that live in the executable on purpose. Shown red
-  on a libbase call into libmedia's `uimg_free`.
+  on a libbase call into libmedia's `uimg_free`. **`--exe-surface`**
+  also refuses an executable-side symbol `tools/build/lib_exe_symbols.txt`
+  does not list (libSDL3 is checked too): a program built before a new rt
+  function lacks it, so a library calling it fails to load there. Shown
+  red on `uargbatch.c` calling `sys_env_bytes()`, which aborted ScummVM.
 - **`seed_disk.py`** -- the format-aware seeding front-end the
   Makefile's `seed` target calls: probes the image's magic, delegates
   `sync` to the matching writer, and formats a blank image with the

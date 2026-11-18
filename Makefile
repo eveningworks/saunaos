@@ -1552,7 +1552,7 @@ $(LIBC_SO): $(LIBC_PIC_OBJS)
 SO_LINK = $(LD) -shared --hash-style=sysv -z max-page-size=4096
 TOOLKIT_EXE_SIDE = $(USERLAND_RT) $(LIBC_NONSHARED)
 TOOLKIT_LAYERS = python3 tools/build/check_lib_layers.py --search $(BUILD)/userland-pic/libs \
-                 --exe $(TOOLKIT_EXE_SIDE)
+                 --exe-surface tools/build/lib_exe_symbols.txt --exe $(TOOLKIT_EXE_SIDE)
 
 LIBBASE_PIC_OBJS  = $(patsubst $(BUILD)/userland/%.o,$(BUILD)/userland-pic/%.o,$(LIBBASE_OBJS))
 LIBNET_PIC_OBJS   = $(patsubst $(BUILD)/userland/%.o,$(BUILD)/userland-pic/%.o,$(LIBNET_OBJS))
@@ -1566,22 +1566,22 @@ LIBUI_SO    = $(BUILD)/lib/libui.so
 # DT_NEEDED then lists the ones it calls, and nobody keeps a list.
 TOOLKIT_SO  = $(LIBUI_SO) $(LIBMEDIA_SO) $(LIBNET_SO) $(LIBBASE_SO)
 
-$(LIBBASE_SO): $(LIBBASE_PIC_OBJS) $(LIBC_SO) $(TOOLKIT_EXE_SIDE) tools/build/check_lib_layers.py
+$(LIBBASE_SO): $(LIBBASE_PIC_OBJS) $(LIBC_SO) $(TOOLKIT_EXE_SIDE) tools/build/check_lib_layers.py tools/build/lib_exe_symbols.txt
 	@mkdir -p $(dir $@)
 	$(SO_LINK) -soname libbase.so -o $@ $(LIBBASE_PIC_OBJS) --as-needed $(LIBC_SO)
 	@$(TOOLKIT_LAYERS) --below $(LIBC_SO) -- $@ || { rm -f $@; exit 1; }
 
-$(LIBNET_SO): $(LIBNET_PIC_OBJS) $(LIBBASE_SO) $(LIBC_SO) $(TOOLKIT_EXE_SIDE) tools/build/check_lib_layers.py
+$(LIBNET_SO): $(LIBNET_PIC_OBJS) $(LIBBASE_SO) $(LIBC_SO) $(TOOLKIT_EXE_SIDE) tools/build/check_lib_layers.py tools/build/lib_exe_symbols.txt
 	@mkdir -p $(dir $@)
 	$(SO_LINK) -soname libnet.so -o $@ $(LIBNET_PIC_OBJS) --as-needed $(LIBBASE_SO) $(LIBC_SO)
 	@$(TOOLKIT_LAYERS) --below $(LIBBASE_SO) $(LIBC_SO) -- $@ || { rm -f $@; exit 1; }
 
-$(LIBMEDIA_SO): $(LIBMEDIA_PIC_OBJS) $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO) $(TOOLKIT_EXE_SIDE) tools/build/check_lib_layers.py
+$(LIBMEDIA_SO): $(LIBMEDIA_PIC_OBJS) $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO) $(TOOLKIT_EXE_SIDE) tools/build/check_lib_layers.py tools/build/lib_exe_symbols.txt
 	@mkdir -p $(dir $@)
 	$(SO_LINK) -soname libmedia.so -o $@ $(LIBMEDIA_PIC_OBJS) --as-needed $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO)
 	@$(TOOLKIT_LAYERS) --below $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO) -- $@ || { rm -f $@; exit 1; }
 
-$(LIBUI_SO): $(LIBUI_PIC_OBJS) $(LIBMEDIA_SO) $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO) $(TOOLKIT_EXE_SIDE) tools/build/check_lib_layers.py
+$(LIBUI_SO): $(LIBUI_PIC_OBJS) $(LIBMEDIA_SO) $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO) $(TOOLKIT_EXE_SIDE) tools/build/check_lib_layers.py tools/build/lib_exe_symbols.txt
 	@mkdir -p $(dir $@)
 	$(SO_LINK) -soname libui.so -o $@ $(LIBUI_PIC_OBJS) --as-needed $(LIBMEDIA_SO) $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO)
 	@$(TOOLKIT_LAYERS) --below $(LIBMEDIA_SO) $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO) -- $@ || { rm -f $@; exit 1; }
@@ -1929,7 +1929,7 @@ $(LIBSSL_SO): $(MBEDTLS_OBJS) $(MBEDTLS_BACKEND_OBJS) $(LIBC_SO)
 LIBHTTP_SO = $(BUILD)/lib/libhttp.so
 $(LIBHTTP_SO): $(BUILD)/userland/dynlib/uhttp.o $(BUILD)/userland/dynlib/uhttp_download.o \
                $(LIBSSL_SO) $(BUILD)/lib/libhash.so $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO) \
-               $(TOOLKIT_EXE_SIDE) tools/build/check_lib_layers.py
+               $(TOOLKIT_EXE_SIDE) tools/build/check_lib_layers.py tools/build/lib_exe_symbols.txt
 	@mkdir -p $(dir $@)
 	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libhttp.so -o $@ \
 	      $(BUILD)/userland/dynlib/uhttp.o $(BUILD)/userland/dynlib/uhttp_download.o \
