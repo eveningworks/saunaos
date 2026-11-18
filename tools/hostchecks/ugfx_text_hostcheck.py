@@ -68,6 +68,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
@@ -107,20 +108,55 @@ def decode(b, i, end):
     return cp, n
 
 
-def chars(b, n=-1):
-    """[(start, codepoint)] of the first n bytes, decoded as the C does.
-    A VARIATION SELECTOR (U+FE0E/U+FE0F) after ANY character is part of
-    that character: no boundary of its own, and no width."""
-    end = len(b) if n < 0 else min(n, len(b))
+# The oracle's CLUSTERS come from Perl's `\X` (UAX #29), an implementation
+# that shares nothing with kernel/lib/kgrapheme.c. Every string the checks
+# will ask about is segmented in ONE perl run, up front (prime()).
+_CLUSTERS = {}
+CLUSTER = 0x110000   # a cluster drawn as one far glyph: FAR_W wide, never kerned
+
+
+def _decoded(b):
     out, i = [], 0
-    while i < end:
-        cp, k = decode(b, i, end)
+    while i < len(b):
+        cp, k = decode(b, i, len(b))
         out.append((i, cp))
         i += k
-        if i < end and cp != 0x0A:   # a line break takes no selector
-            sel, m = decode(b, i, end)
-            if sel in (0xFE0E, 0xFE0F):
-                i += m
+    return out
+
+
+def prime(strings):
+    todo = sorted({bytes(x) for x in strings} - set(_CLUSTERS))
+    if not todo:
+        return
+    lines = [" ".join("%X" % cp for _, cp in _decoded(x)) for x in todo]
+    perl = r"""
+    while (my $l = <STDIN>) { chomp $l;
+        my $s = join('', map { chr(hex($_)) } split(' ', $l));
+        print join(' ', map { length } ($s =~ /(\X)/g)), "\n"; }"""
+    r = subprocess.run(["perl", "-e", perl], input="\n".join(lines) + "\n", capture_output=True, text=True, check=True)
+    for x, sizes in zip(todo, r.stdout.splitlines()):
+        _CLUSTERS[x] = [int(n) for n in sizes.split()]
+
+
+def chars(b, n=-1):
+    """[(start, value)] of the first n bytes, segmented as the C does: one
+    entry per grapheme CLUSTER. Its value is its code point when it is one
+    (a selector after it adds nothing here), the composed character when
+    its marks compose (NFC), else CLUSTER."""
+    end = len(b) if n < 0 else min(n, len(b))
+    pre = bytes(b[:end])
+    prime([pre])
+    cps, out, k = _decoded(pre), [], 0
+    for size in _CLUSTERS[pre]:
+        part = [cp for _, cp in cps[k:k + size]]
+        base = [cp for cp in part if cp not in (0xFE0E, 0xFE0F)] or part[:1]
+        if len(part) == 1 or (len(base) == 1 and part[0] == base[0]):
+            v = part[0]
+        else:
+            nfc = unicodedata.normalize("NFC", "".join(map(chr, part)))
+            v = ord(nfc) if len(nfc) == 1 else CLUSTER
+        out.append((cps[k][0], v))
+        k += size
     return out
 
 
@@ -130,6 +166,8 @@ def bounds(b):
 
 
 def advance(cp):
+    if cp == CLUSTER:
+        return FAR_W
     if cp > 0xFF:
         return FAR_W
     ch = chr(cp)
@@ -187,6 +225,7 @@ static int in_set(const char *set, uint32_t c) {
     return 0;
 }
 int ugfx_cp_advance(uint32_t c) {
+    if (c & UGFX_CP_CLUSTER) return %(far_w)d;   // a cluster: one glyph from the cache
     c &= 0x001FFFFFu;   // ugfx.h's UGFX_CP_VALUE: a selector's tag is not a width here
     if (c > 0xFF) return %(far_w)d;
     if (in_set(NARROW, c)) return %(narrow_w)d;
@@ -248,6 +287,11 @@ const struct utheme *utheme_current(void) { return (const struct utheme *)&g_stu
 
 uint32_t uui_state_bg(uint32_t base, enum uui_state st) { (void)st; return base; }
 size_t k_strlen(const char *s) { size_t n = 0; while (s[n]) n++; return n; }
+void ulogf(const char *fmt, ...) { (void)fmt; }   // ugfx_cluster.c's one-time notice
+// Every press is a single click here: double and triple click select by
+// word and line, which this harness does not measure.
+struct udclick_run;
+int udclick_count(struct udclick_run *r, int x, int y) { (void)r; (void)x; (void)y; return 1; }
 
 // The clipboard verbs live in ui/uui_edit_clip.c, which needs the
 // clipboard service; nothing here copies or pastes.
@@ -375,7 +419,11 @@ CASES = [
     "I \u2764\ufe0f it \u2764\ufe0e and \u2b50\ufe0e!",   # variation selectors: one character with the one before
     "#\ufe0f\u20e3 1\ufe0f\u20e3 key",   # a selector after ASCII: a keycap's first two are one character
     "\u00a9\ufe0f and \u00ae\ufe0e",   # ...and after Latin-1
-    "a\ufe0f\ufe0fb \ufe0f\ufe0f\ufe0fc",   # RUNS of selectors: prev pairs them as next did
+    "a\ufe0f\ufe0fb \ufe0f\ufe0f\ufe0fc",   # RUNS of selectors: all one cluster with what they follow
+    "Cafe\u0301 \u00c5ngstro\u0308m",           # decomposed accents: composed, one character each
+    "q\u0301 x\u0323\u0302y",                   # marks with no precomposed form: one cluster each
+    "\U0001F468\u200d\U0001F469\u200d\U0001F467 & \U0001F1EB\U0001F1EE\U0001F1EB",  # a ZWJ family, a flag, a lone indicator
+    "AV\u0301AV",                                # a mark between a kern pair's letters
 ]
 
 FIELD_WIDTHS = [40, 60, 120, 400]
@@ -414,6 +462,14 @@ def build(tmp, control=False, bytes_control=False):
                        "    if (len) *len = 1; return (unsigned char)s[0];\n")
         assert u2 != u, "the bytes control matched nothing in uutf8.h"
         open(os.path.join(tmp, "lib", "uutf8.h"), "w").write(u2)
+        # ...and the segmenter's decoder, which kgrapheme.c reads through kutf8.h.
+        k = open(os.path.join(ROOT, "kernel", "include", "api", "kutf8.h")).read()
+        k2 = k.replace("static inline uint32_t kutf8_decode(const char *s, int avail, int *len) {\n",
+                       "static inline uint32_t kutf8_decode(const char *s, int avail, int *len) {\n"
+                       "    if (avail == 0 || !s[0]) { if (len) *len = 0; return 0; }\n"
+                       "    if (len) *len = 1; return (unsigned char)s[0];\n")
+        assert k2 != k, "the bytes control matched nothing in kutf8.h"
+        open(os.path.join(tmp, "kutf8.h"), "w").write(k2)
     if control:
         # THE POSITIVE CONTROL: put the cell arithmetic back, exactly as
         # it was before this was fixed, and require the suite to notice.
@@ -437,7 +493,12 @@ def build(tmp, control=False, bytes_control=False):
 
     exe = os.path.join(tmp, "hostcheck")
     cmd = ["gcc", "-O2", "-Wall", "-Wextra", "-o", exe, src, edit,
-           os.path.join(ROOT, "userland", "libs", "ui", "uui_undo.c")]   # uui_edit's undo
+           os.path.join(ROOT, "userland", "libs", "ui", "uui_undo.c"),     # uui_edit's undo
+           # The decoder steps grapheme clusters: the segmenter, the cluster
+           # tokens and canonical composition are the real ones.
+           os.path.join(ROOT, "kernel", "lib", "kgrapheme.c"),
+           os.path.join(ROOT, "userland", "libs", "ui", "ugfx_cluster.c"),
+           os.path.join(ROOT, "userland", "libs", "base", "ucompose.c")]
     if control or bytes_control:
         cmd.append("-I" + tmp)          # BEFORE the real tree: first match wins
     cmd += ["-I" + os.path.join(ROOT, "userland"), "-I" + os.path.join(ROOT, "userland", "libs"),
@@ -488,6 +549,14 @@ def edit_checks(exe, fails):
     case("a stray Latin-1 byte is ONE character to Backspace", b"x\xe5", 2, [BKSP], "x", 1)
     case("Right over a stray byte moves one byte", b"\xe5y", 0, [RIGHT], b"\xe5y", 1)
     case("a Private Use key types nothing", "ab", 1, [0xE000], "ab", 1)
+    fam = "\U0001F468\u200d\U0001F469\u200d\U0001F467"           # 18 bytes
+    flag = "\U0001F1EB\U0001F1EE"                                   # 8 bytes
+    case("Backspace takes a whole ZWJ family", "x" + fam, 19, [BKSP], "x", 1)
+    case("Backspace takes a whole flag", "x" + flag, 9, [BKSP], "x", 1)
+    case("Backspace takes a decomposed accent and leaves its letter", "e\u0301x", 3, [BKSP], "ex", 1)
+    case("Right steps over a whole family", fam + "y", 0, [RIGHT], fam + "y", 18)
+    case("Left steps back over a letter and its mark", "ae\u0301", 4, [LEFT], "ae\u0301", 1)
+    case("Delete takes a whole cluster, mark and all", "e\u0301x", 0, [DEL], "x", 0)
     got = run(exe, reqs)
     for (label, hx, cur), g in zip(want, got):
         parts = g.split("\t")
@@ -510,6 +579,7 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         exe = build(tmp, control=control, bytes_control=bytes_control)
+        prime([as_bytes(c)[:n] for c in CASES for n in range(len(as_bytes(c)) + 1)])
 
         # --- 1. measurement against the oracle ------------------------
         reqs, want = [], []

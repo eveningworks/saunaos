@@ -62,6 +62,9 @@ static int base_cells(const struct utext *t, uint32_t c, int col) {
     if (lab) return label_cells(lab);
     if (v != '\t' || t->tab_width <= 1) {
         if (v == '\t') return 1;
+        const uint32_t *cps;
+        int n = ugfx_cluster_cps(c, &cps);
+        if (n) return uwcwidth_cluster(cps, n);
         return (c & UGFX_CP_EMOJI) && v > 0x7F ? 2 : uwcwidth(v);
     }
     return t->tab_width - col % t->tab_width;
@@ -72,23 +75,17 @@ static int cells_at(const struct utext *t, uint32_t c, int col) {
     return base_cells(t, c, col) + (vs ? label_cells(vs) : 0);
 }
 
-// The character at byte `k`: its codepoint, and the index after it. A
-// VARIATION SELECTOR after it is part of it, as ugfx_text_decode() and
-// uui_edit have it (base/uemoji.h's one rule): stepped over, and its
-// choice TAGGED onto the code point (ugfx.h's UGFX_CP_*) -- so a click, a
-// wrap and a column never land between ❤ and its U+FE0F. Compare a
-// returned code point with a letter by its value.
+// The character -- the grapheme CLUSTER -- at byte `k`: its value and the
+// index after it, exactly as ugfx_text_decode() steps text (ugfx.h): a
+// selector tags the code point, decomposed accents arrive composed, and an
+// emoji sequence is one token -- so a click, a wrap and a column never land
+// inside ❤️ or a family. Compare a returned value with a letter by its value.
 static int char_at(const struct utext *t, int k, uint32_t *cp) {
     if (k >= t->count) { *cp = 0; return t->count; }
-    int n;
-    *cp = uutf8_decode(t->buf + k, t->count - k, &n);
-    int nx = k + (n > 0 ? n : 1);
-    uint32_t sel = nx < t->count && *cp != '\n' ? uemoji_selector_utf8(t->buf + nx, t->count - nx) : 0;
-    if (sel) {
-        *cp |= sel == UEMOJI_VS_EMOJI ? UGFX_CP_EMOJI : UGFX_CP_TEXT;
-        nx += 3;
-    }
-    return nx;
+    int nx = ugfx_text_decode(t->buf, k, t->count, cp);
+    if (nx > k) return nx;
+    *cp = 0;            // a NUL in the buffer: a character of its own, never a stall
+    return k + 1;
 }
 
 int utext_char(const struct utext *t, int i, uint32_t *cp) { return char_at(t, i, cp); }
@@ -96,17 +93,7 @@ int utext_char(const struct utext *t, int i, uint32_t *cp) { return char_at(t, i
 static int char_before(const struct utext *t, int k) {
     if (k <= 0) return 0;
     if (k > t->count) k = t->count;
-    // A run of selectors pairs as char_at() paired it going forward.
-    int n = 0, q = k;
-    while (q >= 3 && uemoji_selector_utf8(t->buf + q - 3, 3)) { n++; q -= 3; }
-    if (n) {
-        if (!uemoji_run_attached(n, q > 0 && t->buf[q - 1] != '\n')) return k - 3;
-        if (n > 1) return k - 6;
-        k = q;   // the character before the run
-        if (k <= 0) return 0;
-    }
-    int from = k > 4 ? k - 4 : 0;
-    return from + uutf8_prev(t->buf + from, k - from);
+    return ugfx_text_prev(t->buf, k);
 }
 
 // The column of index `k` on the visual row that begins at `row`.
@@ -930,8 +917,9 @@ void utext_delete(struct utext *t) {
 
 void utext_backspace(struct utext *t) {
     if (t->ed.cursor <= 0) return;
-    t->ed.cursor = char_before(t, t->ed.cursor);
-    utext_delete(t);
+    int at = ugfx_text_backspace(t->buf, t->ed.cursor < t->count ? t->ed.cursor : t->count);
+    uui_edit_erase(&t->ed, &UTEXT_EDIT_OPS, t, at, t->ed.cursor);
+    t->ed.cursor = at;
 }
 
 // --- the shared edit core's view of this buffer ------------------------

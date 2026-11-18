@@ -32,6 +32,11 @@ static const int k_ctrl_d_mid[]  = { 'a','b','c', KEY_HOME, CTRL('d') };
 static const int k_vs_bksp[]     = { 'a', 0x2764, 0xFE0F, 0x7F };
 static const int k_vs_left[]     = { 'a', 0x2764, 0xFE0F, KEY_ARROW_LEFT, 'x' };
 static const int k_vs_delete[]   = { 0x2764, 0xFE0F, 'b', KEY_HOME, KEY_DELETE };
+// A GRAPHEME CLUSTER is one step (api/kgrapheme.h): a family emoji goes whole
+// to Backspace, a decomposed accent loses only its mark, Left skips a flag.
+static const int k_gc_family[]   = { 'a', 0x1F468, 0x200D, 0x1F469, 0x7F };
+static const int k_gc_mark[]     = { 'e', 0x301, 0x7F };
+static const int k_gc_flag[]     = { 0x1F1EB, 0x1F1EE, KEY_ARROW_LEFT, 'x' };
 static const int k_transpose[]   = { 'a','b', CTRL('t') };
 // Alt-T, transpose WORDS -- a different code path from Ctrl-T, and one
 // that had no case at all until it was rewritten as an in-place rotate.
@@ -85,6 +90,9 @@ const struct kline_case kline_cases[] = {
     CASE("Backspace takes a heart and its selector", k_vs_bksp, "a",   1),
     CASE("Left steps over a heart and its selector", k_vs_left, "ax\xE2\x9D\xA4\xEF\xB8\x8F", 2),
     CASE("Delete takes a heart and its selector",    k_vs_delete, "b", 0),
+    CASE("Backspace takes a whole ZWJ family",       k_gc_family, "a", 1),
+    CASE("Backspace takes a mark and keeps its letter", k_gc_mark, "e", 1),
+    CASE("Left steps over a whole flag",             k_gc_flag, "x\xF0\x9F\x87\xAB\xF0\x9F\x87\xAE", 1),
 };
 
 const int kline_case_count = (int)(sizeof kline_cases / sizeof kline_cases[0]);

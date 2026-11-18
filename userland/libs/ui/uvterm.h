@@ -33,8 +33,11 @@ struct uapp;
 // ONE CELL OF THE GRID: a CHARACTER, not a byte (docs/utf8-design.md,
 // step 2). An East Asian Wide character takes two cells -- the first
 // UVTERM_WIDE with the character, the second UVTERM_CONT with none -- so
-// the column arithmetic stays one cell per column. A combining mark is a
-// character of its own here (the design's non-goal), one cell wide.
+// the column arithmetic stays one cell per column. A character that EXTENDS
+// the one before it (a combining mark, a selector, a ZWJ and what it joins,
+// a skin tone) goes into that cell, whose `ch` becomes the CLUSTER's value
+// (ugfx.h: a tagged code point, a composed one, or a UGFX_CP_CLUSTER token);
+// an emoji sequence takes two cells (base/uwcwidth.h).
 enum { UVTERM_NARROW = 0, UVTERM_WIDE = 1, UVTERM_CONT = 2 };
 struct uvterm_cell { uint32_t ch; uint8_t fg, bg, wide, pad_; };
 
@@ -230,9 +233,8 @@ void uvterm_draw(const struct uvterm *t, struct ugfx_surface *s, int x, int y,
 void uvterm_draw_caret(const struct uvterm *t, struct ugfx_surface *s, int x, int y,
                        const struct uvterm_look *look);
 
-// Cell `q` of `row`'s character for drawing: tagged with the variation
-// selector in the cell after it (ugfx_cp_with_next()), so U+2764 U+FE0F
-// draws the emoji heart. The selector's own cell draws nothing.
+// Cell `q` of `row`'s character for drawing: its cluster value, which
+// already carries a selector, so U+2764 U+FE0F draws the emoji heart.
 uint32_t uvterm_cell_cp(const struct uvterm *t, const struct uvterm_cell *row, int q);
 
 #ifdef __cplusplus

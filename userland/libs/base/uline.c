@@ -7,6 +7,8 @@
 #include "rt/sys.h"   // sys_tcgetwinsz -- the width comes from the kernel
 #include "base/uutf8.h"     // the line is UTF-8: columns are CHARACTERS
 #include "base/uwcwidth.h"  // ...and a wide one takes two
+#include "kgrapheme.h"       // a column is a CLUSTER: a mark sits on its letter
+#include <stdlib.h>
 
 static void put(const char *s) { write(1, s, (size_t)strlen(s)); }
 
@@ -30,15 +32,25 @@ void uline_erase(int *row_shown) {
     *row_shown = 0;
 }
 
+// The cells of the cluster [i, end) of `s`: uwcwidth_cluster()'s rule over
+// its code points, decoded in a buffer sized to the cluster.
+static int cluster_cells(const char *s, int i, int end) {
+    uint32_t small[16], *cps = small;
+    if (end - i > 16 && !(cps = malloc((size_t)(end - i) * sizeof *cps))) cps = small, end = i + 16;
+    int n = 0;
+    for (int j = i; j < end && n < (cps == small ? 16 : end - i);) {
+        int len;
+        cps[n++] = uutf8_decode(s + j, end - j, &len);
+        j += len > 0 ? len : 1;
+    }
+    int w = uwcwidth_cluster(cps, n);
+    if (cps != small) free(cps);
+    return w;
+}
+
 int uline_width(const char *s) {
     int w = 0;
-    for (int i = 0; s[i]; ) {
-        int n;
-        uint32_t cp = uutf8_decode(s + i, -1, &n);
-        if (n <= 0) break;
-        w += uwcwidth(cp);
-        i += n;
-    }
+    for (int i = 0, nx; (nx = kgrapheme_next(s, -1, i)) > i; i = nx) w += cluster_cells(s, i, nx);
     return w;
 }
 
@@ -48,11 +60,12 @@ struct obuf { char b[256]; int n; };
 static void ob_flush(struct obuf *o) { if (o->n) write(1, o->b, (size_t)o->n); o->n = 0; }
 static void ob_put(struct obuf *o, const char *s, int n) {
     if (o->n + n > (int)sizeof o->b) ob_flush(o);
+    if (n > (int)sizeof o->b) { write(1, s, (size_t)n); return; }   // a cluster of many marks
     memcpy(o->b + o->n, s, (size_t)n);
     o->n += n;
 }
 
-// **COLUMNS ARE CHARACTERS, NOT BYTES** (docs/utf8-design.md, step 2):
+// **COLUMNS ARE CLUSTERS, NOT BYTES** (docs/utf8-design.md, step 2):
 // `ä` is two bytes and one cell, a CJK character one character and two
 // cells. A character that would not fit at a row's end starts the next
 // row, as the terminal itself wraps it -- so a wide one never straddles.
@@ -70,16 +83,17 @@ void uline_paint(const char *prompt, const struct kline_edit *ed, int *row_shown
     for (int seg = 0; seg < 2; seg++) {
         const char *s = seg ? ed->buf : p;
         int n = seg ? ed->len : (int)strlen(p);
-        for (int i = 0; i < n; ) {
-            int len;
-            uint32_t cp = uutf8_decode(s + i, n - i, &len);
-            if (len <= 0) break;
-            int cw = uwcwidth(cp);
+        // A CLUSTER at a time (api/kgrapheme.h), as the terminal fills its
+        // cells: a mark adds no column, a family emoji is two.
+        for (int i = 0, len; i < n; i += len) {
+            int nx = kgrapheme_next(s, n, i);
+            if (nx <= i) break;
+            len = nx - i;
+            int cw = cluster_cells(s, i, nx);
             if (col + cw > w) { ob_put(&o, "\n", 1); row++; col = 0; }
             if (seg && i == ed->cursor && cur_row < 0) { cur_row = row; cur_col = col; }
             ob_put(&o, s + i, len);
             col += cw;
-            i += len;
         }
     }
     // The caret past the last character: a row filled to its last column

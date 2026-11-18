@@ -4,6 +4,8 @@
 #include "base/ulru.h"
 #include "base/ulog.h"
 #include "base/uunicode.h"
+#include "base/ucompose.h"
+#include "kgrapheme.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -18,7 +20,7 @@
 struct cached {
     struct ulru_node node;        // first: a node IS its entry
     const struct uglyph_face *face;
-    uint32_t cp;
+    int gid;                      // KEYED BY GLYPH: a ligature has no character
     int px;
     int w, h;                     // the INK box
     int bx, by;                   // its top-left from the pen at the baseline
@@ -39,7 +41,7 @@ int uglyph_open(struct uglyph_face *face, const char *path) {
     return face->ok;
 }
 
-static struct cached *render(struct uglyph_face *face, uint32_t cp, int px);
+static struct cached *render_gid(struct uglyph_face *face, int gid, int px);
 
 // A colour glyph in its own colours, any other in `color`.
 static void blit(struct ugfx_surface *s, const struct cached *c, int x, int y, uint32_t color) {
@@ -47,21 +49,61 @@ static void blit(struct ugfx_surface *s, const struct cached *c, int x, int y, u
     else ugfx_blit_tinted(s, x, y, c->w, c->h, c->pix, c->w, color);
 }
 
+// The glyphs grapheme cluster [p, p+n) is drawn with, into `g`: one when
+// its accents compose (base/ucompose.h) or the face ligates it (its `ccmp`
+// lookups: an emoji sequence in an emoji face), else one per character the
+// face has. Returns the count; `*first` gets the cluster's first character,
+// what it kerns as.
+static int cluster_glyphs(const struct uglyph_face *face, const char *p, int n,
+                          uint16_t *g, int cap, uint32_t *first) {
+    uint32_t cps[32];
+    int k = 0;
+    for (int i = 0; i < n && k < 32;) {
+        int len;
+        cps[k++] = uunicode_utf8_decode(p + i, &len);
+        i += len > 0 ? len : 1;
+    }
+    *first = cps[0];
+    k = ucompose_cluster(cps, k);
+    int m = 0;
+    for (int i = 0; i < k && m < cap; i++) {
+        int gid = ttf_glyph_index(&face->f, cps[i]);
+        if (gid || i == 0) g[m++] = (uint16_t)gid;
+    }
+    if (m > 1) m = ttf_ligate(&face->f, TTF_SCRIPT_OTHER, TTF_FEATURE('c', 'c', 'm', 'p'), g, m);
+    // What no ligature took up is the parts, minus the ones that only
+    // join or choose (a selector, ZWJ): drawn, they would be a box or a gap.
+    if (m > 1) {
+        int vs15 = ttf_glyph_index(&face->f, 0xFE0E), vs16 = ttf_glyph_index(&face->f, 0xFE0F);
+        int zwj = ttf_glyph_index(&face->f, 0x200D), o = 1;
+        for (int i = 1; i < m; i++)
+            if (!g[i] || (g[i] != vs15 && g[i] != vs16 && g[i] != zwj)) g[o++] = g[i];
+        m = o;
+    }
+    return m;
+}
+
 int uglyph_text(struct ugfx_surface *s, struct uglyph_face *face, const char *utf8, int px,
                 int x, int baseline, uint32_t color) {
     if (!face->ok) return 0;
     int pen = x, prev = 0;
-    for (const char *p = utf8; *p;) {
-        int n;
-        uint32_t cp = uunicode_utf8_decode(p, &n);
-        p += n;
-        int gid = ttf_glyph_index(&face->f, cp);
-        if (prev && gid) pen += ttf_kern_px(&face->f, prev, gid, px);
-        prev = gid;
-        struct cached *c = gid ? render(face, cp, px) : 0;
-        if (!c) continue;
-        if (s && c->pix) blit(s, c, pen + c->bx, baseline + c->by, color);
-        pen += c->adv;
+    int len = (int)strlen(utf8);
+    // A GRAPHEME CLUSTER at a time (api/kgrapheme.h), kerned between
+    // clusters by glyph id in the script of the one on the right.
+    for (int i = 0, nx; (nx = kgrapheme_next(utf8, len, i)) > i; i = nx) {
+        uint16_t g[32];
+        uint32_t first;
+        int m = cluster_glyphs(face, utf8 + i, nx - i, g, 32, &first);
+        if (prev && g[0]) pen += fx_round(fx_mul(fx_from_int(ttf_pair_kern_units(&face->f, ttf_script_for(first),
+                                                                                prev, g[0])),
+                                                  ttf_scale_for_px(&face->f, px)));
+        prev = g[0];
+        for (int j = 0; j < m; j++) {
+            struct cached *c = g[j] ? render_gid(face, g[j], px) : 0;
+            if (!c) continue;
+            if (s && c->pix) blit(s, c, pen + c->bx, baseline + c->by, color);
+            pen += c->adv;
+        }
     }
     return pen - x;
 }
@@ -142,28 +184,27 @@ int uglyph_has(const struct uglyph_face *face, uint32_t cp) {
 }
 
 // Rasterizes into a cell twice the em, then keeps only the ink's box.
-struct ckey { const struct uglyph_face *face; uint32_t cp; int px; };
+struct ckey { const struct uglyph_face *face; int gid; int px; };
 
 static int cached_is(const struct ulru_node *n, const void *key) {
     const struct cached *c = (const struct cached *)n;
     const struct ckey *k = key;
-    return c->face == k->face && c->cp == k->cp && c->px == k->px;
+    return c->face == k->face && c->gid == k->gid && c->px == k->px;
 }
 
-static unsigned ckey_hash(const struct uglyph_face *face, uint32_t cp, int px) {
-    unsigned h = cp * 2654435761u ^ (unsigned)px * 40503u ^ (unsigned)((uintptr_t)face >> 4) * 97u;
+static unsigned ckey_hash(const struct uglyph_face *face, int gid, int px) {
+    unsigned h = (unsigned)gid * 2654435761u ^ (unsigned)px * 40503u ^ (unsigned)((uintptr_t)face >> 4) * 97u;
     return h ^ (h >> 15);
 }
 
 // The cached glyph, rasterized on a miss. A glyph with no ink (a space)
 // is cached too, as an entry with no pixels: its advance is the answer.
-static struct cached *render(struct uglyph_face *face, uint32_t cp, int px) {
-    unsigned hv = ckey_hash(face, cp, px);
-    struct ckey key = { face, cp, px };
+static struct cached *render_gid(struct uglyph_face *face, int gid, int px) {
+    if (gid <= 0) return 0;
+    unsigned hv = ckey_hash(face, gid, px);
+    struct ckey key = { face, gid, px };
     struct cached *hit = (struct cached *)ulru_find(&g_lru, hv, cached_is, &key);
     if (hit) return hit;
-    int gid = ttf_glyph_index(&face->f, cp);
-    if (!gid) return 0;
     int cw = px * 2, ch = px * 2;
     if (cw > TTF_MAX_CELL_W) cw = ch = TTF_MAX_CELL_W;
     uint8_t *cov = calloc((size_t)cw * (size_t)ch, 1);
@@ -196,7 +237,7 @@ static struct cached *render(struct uglyph_face *face, uint32_t cp, int px) {
     if (!slot) { free(cov); free(rgba); return 0; }
     slot->color = rgba != 0;
     slot->face = face;
-    slot->cp = cp;
+    slot->gid = gid;
     slot->px = px;
     slot->adv = ttf_advance_px(&face->f, gid, px);
     slot->bx = x0 - cw / 4;
@@ -231,10 +272,11 @@ static struct cached *render(struct uglyph_face *face, uint32_t cp, int px) {
     return slot;
 }
 
-int uglyph_draw(struct ugfx_surface *s, struct uglyph_face *face, uint32_t cp, int px,
-                int x, int y, int w, int h, uint32_t color) {
+// Glyph `gid` centred across the rect on the face's baseline (uglyph_draw()).
+static int draw_gid(struct ugfx_surface *s, struct uglyph_face *face, int gid, int px,
+                    int x, int y, int w, int h, uint32_t color) {
     if (!face->ok || px <= 0) return 0;
-    struct cached *c = render(face, cp, px);
+    struct cached *c = render_gid(face, gid, px);
     if (!c) return 0;
     if (!c->pix) return UGLYPH_NO_INK;
     int em = face->f.units_per_em > 0 ? face->f.units_per_em : 1;
@@ -244,4 +286,20 @@ int uglyph_draw(struct ugfx_surface *s, struct uglyph_face *face, uint32_t cp, i
     if (top < y) top = y;
     blit(s, c, x + (w - c->w) / 2, top, color);
     return 1;
+}
+
+int uglyph_draw(struct ugfx_surface *s, struct uglyph_face *face, uint32_t cp, int px,
+                int x, int y, int w, int h, uint32_t color) {
+    if (!face->ok) return 0;
+    return draw_gid(s, face, ttf_glyph_index(&face->f, cp), px, x, y, w, h, color);
+}
+
+int uglyph_draw_cluster(struct ugfx_surface *s, struct uglyph_face *face, const char *utf8, int px,
+                        int x, int y, int w, int h, uint32_t color) {
+    if (!face->ok || !utf8 || !utf8[0]) return 0;
+    uint16_t g[32];
+    uint32_t first;
+    int len = (int)strlen(utf8);
+    int m = cluster_glyphs(face, utf8, kgrapheme_next(utf8, len, 0), g, 32, &first);
+    return m == 1 ? draw_gid(s, face, g[0], px, x, y, w, h, color) : 0;
 }

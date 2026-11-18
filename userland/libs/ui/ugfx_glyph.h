@@ -24,6 +24,23 @@ extern "C" {
 int ugfx_glyph_get(const struct ugfx_font *f, uint32_t cp, int emoji,
                    const unsigned char **cov, int *w, int *h, int *adv, int *color);
 
+// The ONE glyph an emoji face draws cluster `token` as (its `ccmp`
+// ligature), or 0 when none does -- then the caller draws the parts. Both
+// answers are cached.
+int ugfx_glyph_cluster(const struct ugfx_font *f, uint32_t token,
+                       const unsigned char **cov, int *w, int *h, int *adv, int *color);
+
+// Combining mark `cp` with no precomposed form, as a cell `over` pixels wide
+// (the letter it sits on) with its ink centred -- HarfBuzz's fallback
+// placement. Advance 0.
+int ugfx_glyph_mark(const struct ugfx_font *f, uint32_t cp, int over,
+                    const unsigned char **cov, int *w, int *h, int *adv, int *color);
+
+// Kerning in pixels between characters `l` and `r` of `f`'s own face, by
+// glyph id from its GPOS or kern table (ttf_pair_kern_units()); 0 when either
+// is not in the face.
+int ugfx_glyph_kern(const struct ugfx_font *f, uint32_t l, uint32_t r);
+
 #ifdef __cplusplus
 }
 #endif

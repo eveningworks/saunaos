@@ -120,5 +120,62 @@ int main(void) {
                  "an inserted line is blanked in the current background (bg %d)",
                  ins ? ins[0].bg : -1);
     uvterm_free(&t);
+
+    // A CLUSTER IS ONE CELL'S (api/kgrapheme.h): a mark goes into the cell of
+    // its letter, a ZWJ family into one wide cell, and a copy gets every
+    // byte back.
+    static struct uvterm c;   // zeroed: uvterm_init() frees what a reused struct held
+    if (!uvterm_init(&c, 4, 20, 8, 7, 0)) {
+        utest_check(0, "uvterm_init (4x20)");
+        return uitest_end();
+    }
+    static const char FAMILY[] = "\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7";
+    uvterm_write(&c, "q\xCC\x81x", 4);              // q, U+0301 (no precomposed form), x
+    const struct uvterm_cell *cr = uvterm_line(&c, c.sb_count);
+    const uint32_t *cps;
+    utest_checkf(ugfx_cluster_cps(cr[0].ch, &cps) == 2 && cps[0] == 'q' && cps[1] == 0x301 && cr[1].ch == 'x' &&
+                 c.cc == 2, "a mark joins its letter's cell (x in cell %d, cursor %d)", cr[1].ch == 'x' ? 1 : -1, c.cc);
+    uvterm_write(&c, "e\xCC\x81", 3);
+    utest_checkf(cr[2].ch == 0xE9 && c.cc == 3, "e and U+0301 compose in their cell (U+%04X)", (unsigned)cr[2].ch);
+    uvterm_write(&c, FAMILY, (int)sizeof FAMILY - 1);
+    utest_checkf(ugfx_cluster_cps(cr[3].ch, &cps) == 5 && cr[3].wide == UVTERM_WIDE && cr[4].wide == UVTERM_CONT &&
+                 c.cc == 5, "a ZWJ family is ONE cluster in one wide cell (cursor %d)", c.cc);
+    uvterm_sel_all(&c);
+    char copied[64];
+    int gn = uvterm_sel_text(&c, copied, sizeof copied);
+    static const char WANT[] = "q\xCC\x81x\xC3\xA9\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7";
+    utest_checkf(gn >= (int)sizeof WANT - 1 && !memcmp(copied, WANT, sizeof WANT - 1),
+                 "a copy gives every code point of each cell back (%d bytes)", gn);
+    // DRAWN, a cluster cell shows ITS letter: a cell value that is a token is
+    // not a code point, and in the batched string it came out as another
+    // glyph entirely. Every pixel of a plain 'q' cell must be inked in the
+    // cell holding q and U+0301.
+    {
+        enum { SW = 400, SH = 60 };
+        static uint32_t px[SW * SH], plain[SW * SH];
+        static const uint32_t pal[16] = { 0x000000, 0xAA0000, 0x00AA00, 0xAA5500, 0x0000AA, 0xAA00AA, 0x00AAAA, 0xAAAAAA,
+                                          0x555555, 0xFF5555, 0x55FF55, 0xFFFF55, 0x5555FF, 0xFF55FF, 0x55FFFF, 0xFFFFFF };
+        // In the MONO face, as the Terminal draws: there a letter's advance
+        // IS the cell, which is what sends a cell down the batched path.
+        const struct ugfx_font *was = ugfx_set_font(ugfx_font_mono(UGFX_FONT_REGULAR));
+        int cw = ugfx_char_w(), chh = ugfx_char_h();
+        struct uvterm_look look = { .cw = cw, .ch = chh, .pal = pal, .cursor_rgb = 0xFFFFFF, .caret = 0 };
+        static struct uvterm q;
+        uvterm_init(&q, 4, 20, 8, 7, 0);
+        uvterm_write(&q, "qx", 2);
+        struct ugfx_surface a = { .pixels = px, .w = SW, .h = SH }, b = { .pixels = plain, .w = SW, .h = SH };
+        uvterm_sel_clear(&c);
+        uvterm_draw(&c, &a, 0, 0, &look);
+        uvterm_draw(&q, &b, 0, 0, &look);
+        int need = 0, missing = 0;
+        for (int y = 0; y < chh && y < SH; y++)
+            for (int x = 0; x < cw; x++)
+                if (plain[y * SW + x] & 0xFFFFFF) { need++; missing += !(px[y * SW + x] & 0xFFFFFF); }
+        utest_checkf(need > 10 && missing == 0, "cell 0 (q and U+0301, one cluster) draws its q: %d of %d pixels missing",
+                     missing, need);
+        ugfx_set_font(was);
+        uvterm_free(&q);
+    }
+    uvterm_free(&c);
     return uitest_end();
 }

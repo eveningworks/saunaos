@@ -13,6 +13,7 @@
 #include "base/uutf8.h"   // cells hold characters; the stream is UTF-8
 #include "base/uwcwidth.h" // ...and a wide one takes two cells
 #include "base/uemoji.h"   // a selector cell decides the cell before it
+#include "kgrapheme.h"      // a mark or a joiner goes into the cell before it
 
 // --- the buffers ---------------------------------------------------------------
 
@@ -177,6 +178,65 @@ static void unpair(const struct uvterm *t, struct uvterm_cell *row, int c) {
     if (row[c].wide == UVTERM_WIDE && c + 1 < t->cap_cols) blank_cell(&row[c + 1]);
 }
 
+// A cell's code points: a cluster token's, a tagged character and its
+// selector, or the character. `small` holds the latter two.
+static int cell_cps(uint32_t ch, uint32_t small[2], const uint32_t **cps) {
+    int n = ugfx_cluster_cps(ch, cps);
+    if (n) return n;
+    small[0] = ch & UGFX_CP_VALUE;
+    *cps = small;
+    if (!(ch & (UGFX_CP_EMOJI | UGFX_CP_TEXT))) return 1;
+    small[1] = ch & UGFX_CP_EMOJI ? UEMOJI_VS_EMOJI : UEMOJI_VS_TEXT;
+    return 2;
+}
+
+// A CHARACTER THAT EXTENDS THE ONE BEFORE IT (api/kgrapheme.h) -- a mark, a
+// selector, a joiner and what it joins, a skin tone, a flag's second
+// indicator -- goes INTO that cell, as VTE and kitty put a combining
+// character in the cell it combines with: the cell's value becomes the
+// cluster's (ugfx_cluster_token()), and an emoji sequence widens to two
+// cells (uwcwidth_cluster()) when there is room. 1 when it joined.
+static int join_prev(struct uvterm *t, uint32_t c) {
+    int pc = t->cc - 1;                         // cc == cols: a pending wrap
+    struct uvterm_cell *row = grid_row(t, t->cr);
+    if (pc >= 0 && row[pc].wide == UVTERM_CONT) pc--;
+    if (pc < 0 || row[pc].ch == ' ' || row[pc].ch == 0) return 0;
+    uint32_t small[2];
+    const uint32_t *old;
+    int n = cell_cps(row[pc].ch, small, &old);
+    // THE COMMON CASE, WITHOUT A WORD OF ALLOCATION: an ordinary character
+    // (every letter, every ASCII byte) joins only a Prepend, and a
+    // pictograph only a ZWJ -- this runs for every character printed.
+    enum kgrapheme_class k = kgrapheme_class(c), last = kgrapheme_class(old[n - 1]);
+    if (k == KGB_OTHER && last != KGB_PREPEND) return 0;
+    if (k == KGB_EP && old[n - 1] != 0x200D) return 0;
+    uint32_t *cps = malloc((size_t)(n + 1) * sizeof *cps);
+    char *u = malloc((size_t)(n + 1) * 4 + 1);
+    if (!cps || !u) { free(cps); free(u); return 0; }
+    int len = 0;
+    for (int i = 0; i < n; i++) { cps[i] = old[i]; len += uutf8_encode(old[i], u + len); }
+    cps[n] = c;
+    len += uutf8_encode(c, u + len);
+    u[len] = 0;
+    int joined = kgrapheme_next(u, len, 0) == len;
+    free(u);
+    if (!joined) { free(cps); return 0; }
+    int w = uwcwidth_cluster(cps, n + 1);
+    uint32_t v = ugfx_cluster_token(cps, n + 1);
+    free(cps);
+    row[pc].ch = v;
+    if (w == 2 && row[pc].wide == UVTERM_NARROW && pc + 1 < t->cols) {
+        unpair(t, row, pc + 1);
+        row[pc].wide = UVTERM_WIDE;
+        row[pc + 1].ch = 0;
+        row[pc + 1].fg = row[pc].fg;
+        row[pc + 1].bg = row[pc].bg;
+        row[pc + 1].wide = UVTERM_CONT;
+        t->cc = pc + 2;
+    }
+    return 1;
+}
+
 // One decoded CHARACTER into the grid.
 static void putc_raw(struct uvterm *t, uint32_t c) {
     // LF, and VT and FF which xterm treats as LF. The column stays.
@@ -195,6 +255,7 @@ static void putc_raw(struct uvterm *t, uint32_t c) {
     // Anything else unprintable is dropped: the C0 controls, and the C1
     // ones a UTF-8 stream can name (U+0080-U+009F).
     if (c < 32 || (c >= 0x80 && c < 0xA0)) return;
+    if (join_prev(t, c)) return;
     int w = uwcwidth(c);
     if (w > t->cols) w = 1;
     // A WIDE CHARACTER NEVER STRADDLES THE EDGE: one that does not fit
@@ -740,9 +801,15 @@ int uvterm_sel_text(const struct uvterm *t, char *out, int cap) {
         // (`cap`) never splits a sequence.
         for (int c = c0; row && c < end; c++) {
             if (row[c].wide == UVTERM_CONT) continue;
+            // A cell may hold a whole cluster: its every code point, the
+            // copy cut only between clusters.
+            uint32_t small[2];
+            const uint32_t *cps;
+            int m = cell_cps(row[c].ch, small, &cps), k = 0;
             char u[4];
-            int k = uutf8_encode(row[c].ch, u);
-            if (out && n + k <= cap) memcpy(out + n, u, (size_t)k);
+            for (int q = 0; q < m; q++) k += uutf8_encode(cps[q], u);
+            if (out && n + k <= cap)
+                for (int q = 0, at = n; q < m; q++) at += uutf8_encode(cps[q], out + at);
             n += k;
         }
         if (line < to.line) { if (out && n < cap) out[n] = '\n'; n++; }
@@ -753,14 +820,11 @@ int uvterm_sel_text(const struct uvterm *t, char *out, int cap) {
 
 // --- drawing -------------------------------------------------------------------
 
-// CELL `q`'s CHARACTER, TAGGED FOR THE SELECTOR THAT FOLLOWS IT: U+FE0F after
-// a heart makes it the red emoji heart (docs/conventions/gui.md's selector
-// rule). The selector keeps a blank cell of its own, as VTE and xterm give it
-// one; a wide character's continuation cell is stepped over.
+// CELL `q`'s CHARACTER for drawing: its value already carries its selector
+// or IS its cluster (join_prev()), so ❤️ and a family draw from one cell.
 uint32_t uvterm_cell_cp(const struct uvterm *t, const struct uvterm_cell *row, int q) {
-    int n = q + 1;
-    while (n < t->cols && row[n].wide == UVTERM_CONT) n++;
-    return ugfx_cp_with_next(row[q].ch, n < t->cols ? row[n].ch : 0);
+    (void)t;
+    return row[q].ch;
 }
 
 static int is_selector_cell(const struct uvterm_cell *c) { return uemoji_invisible(c->ch); }
@@ -783,7 +847,10 @@ static void draw_run(const struct uvterm *t, struct ugfx_surface *s, int x, int 
     if ((bg & 15) != t->bg) ugfx_fill_rect(s, x + i * k->cw, y, (j - i) * k->cw, k->ch, b);
     int n = 0, from = i;
     for (int q = i; q <= j; q++) {
+        // A cell holding a CLUSTER or a tagged character is drawn on its
+        // own: its value is not a code point the string's UTF-8 can carry.
         int plain = q < j && row[q].wide == UVTERM_NARROW &&
+                    !(row[q].ch & (UGFX_CP_CLUSTER | UGFX_CP_EMOJI | UGFX_CP_TEXT)) &&
                     (row[q].ch < 0x80 || ugfx_cp_advance(row[q].ch) == k->cw) &&
                     !is_selector_cell(&row[q]) &&
                     !(q + 1 < t->cols && is_selector_cell(&row[q + 1]));

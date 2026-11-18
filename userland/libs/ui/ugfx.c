@@ -11,6 +11,7 @@
 #include "base/ulog.h"  // which source a client got its glyphs from
 #include "ui/ugfx_glyph.h" // characters past the atlas
 #include "base/uemoji.h"     // which of them are drawn as emoji
+#include "kgrapheme.h"       // which characters of a cluster are marks
 #include "font_face.h" // FONT_BOLD_SUFFIX: the file a bold slot came from
 #include <stdlib.h>
 #include <stdio.h>   // snprintf -- the shm object's name
@@ -956,13 +957,29 @@ const struct ugfx_font *ugfx_font_caption(void) {
     return bold_at(&s, px < 9 ? 9 : px);
 }
 
+// The character a value kerns as: a cluster's first (its letter), a tagged
+// one's value; 0 for an emoji, which no face kerns against text.
+static uint32_t kern_base(int v) {
+    if (v <= 0) return 0;
+    uint32_t cp = (uint32_t)v;
+    const uint32_t *cps;
+    if (ugfx_cluster_cps(cp, &cps)) cp = cps[0];
+    else if (cp & UGFX_CP_EMOJI) return 0;
+    cp &= UGFX_CP_VALUE;
+    return uemoji_presentation(cp) ? 0 : cp;
+}
+
 int ugfx_kern(int prev, int c) {
-    // ONLY BETWEEN TWO ATLAS CHARACTERS: the table is in slot space and a
-    // cached glyph has no slot (ugfx.h says what that costs).
-    if (!prev || !g_font->kern || prev < 0 || c < 0 || prev > 0xFF || c > 0xFF) return 0;
-    return win_font_kern(g_font->kern, g_glyph_count,
-                         glyph_index((unsigned char)prev),
-                         glyph_index((unsigned char)c));
+    uint32_t l = kern_base(prev), r = kern_base(c);
+    if (!l || !r) return 0;
+    // Two atlas characters: the atlas's own matrix, in slot space. Any
+    // other pair: the face's GPOS or kern table by glyph id, as the matrix
+    // was made -- the same numbers for the pairs both could answer.
+    if (l <= 0xFF && r <= 0xFF && !ugfx_font_codepage())
+        return g_font->kern ? win_font_kern(g_font->kern, g_glyph_count,
+                                            glyph_index((unsigned char)l), glyph_index((unsigned char)r)) : 0;
+    if (ugfx_font_codepage() || !g_font->src_path) return 0;
+    return ugfx_glyph_kern(g_font, l, r);
 }
 
 // How far the pen moves after drawing `c`.
@@ -981,15 +998,9 @@ static int c1_of(unsigned char c) {
 
 int ugfx_font_codepage(void) { return g_font->c1_glyphs != 0; }
 
-uint32_t ugfx_cp_with_next(uint32_t cp, uint32_t next) {
-    if (next == UEMOJI_VS_EMOJI) return cp | UGFX_CP_EMOJI;
-    if (next == UEMOJI_VS_TEXT) return cp | UGFX_CP_TEXT;
-    return cp;
-}
-
 // Whether `cp` (tagged or not) is drawn as an emoji, and its plain value.
-// The callers keep ASCII in the atlas whatever a selector asked: a keycap's
-// '1' is a '1' until the keycap sequence can be shaped (font round step 5).
+// The callers keep ASCII in the atlas whatever a selector asked: '1' with
+// U+FE0F alone is a '1'; the keycap is the cluster with U+20E3, a ligature.
 static int presentation(uint32_t cp, uint32_t *value) {
     *value = cp & UGFX_CP_VALUE;
     if (cp & UGFX_CP_EMOJI) return 1;
@@ -997,7 +1008,51 @@ static int presentation(uint32_t cp, uint32_t *value) {
     return uemoji_presentation(*value);
 }
 
+static void draw_cov(struct ugfx_surface *s, int x, int y, const unsigned char *glyph,
+                     int gw, int gh, uint32_t color, uint32_t bg);
+
+static int is_mark(uint32_t cp) {
+    enum kgrapheme_class k = kgrapheme_class(cp);
+    return (k == KGB_EXTEND || k == KGB_SPACINGMARK) && !(cp >= 0x1F3FB && cp <= 0x1F3FF);
+}
+
+// A cluster no face draws as one glyph, AS ITS PARTS: each character at its
+// advance, joiners and selectors unseen, a combining mark centred over the
+// character before it with no advance of its own. Draws when `s` is set;
+// the width either way.
+static int cluster_parts(struct ugfx_surface *s, int x, int y, const uint32_t *cps, int n,
+                         uint32_t color, uint32_t bg) {
+    int pen = x, last_x = x, last_w = 0;
+    for (int i = 0; i < n; i++) {
+        uint32_t c = cps[i];
+        if (uemoji_invisible(c) || c == 0x200D || c == 0x200C) continue;
+        if (i > 0 && is_mark(c)) {
+            const unsigned char *cov;
+            int w, h, adv, rgba;
+            if (s && g_glyphs && ugfx_glyph_mark(g_font, c, last_w, &cov, &w, &h, &adv, &rgba))
+                draw_cov(s, last_x + (last_w - w) / 2, y, cov, w, h, color, bg);
+            continue;
+        }
+        uint32_t next = i + 1 < n ? cps[i + 1] : 0;
+        uint32_t v = c | (next == UEMOJI_VS_EMOJI ? UGFX_CP_EMOJI : next == UEMOJI_VS_TEXT ? UGFX_CP_TEXT : 0);
+        int adv = ugfx_cp_advance(v);
+        if (s) ugfx_draw_cp(s, pen, y, v, color, bg);
+        last_x = pen;
+        last_w = adv;
+        pen += adv;
+    }
+    return pen - x;
+}
+
 int ugfx_cp_advance(uint32_t cp) {
+    const uint32_t *cps;
+    int n = ugfx_cluster_cps(cp, &cps);
+    if (n) {
+        const unsigned char *cov;
+        int w, h, adv, color;
+        if (g_glyphs && ugfx_glyph_cluster(g_font, cp, &cov, &w, &h, &adv, &color)) return adv;
+        return cluster_parts(0, 0, 0, cps, n, 0, 0);
+    }
     uint32_t v;
     int emoji = presentation(cp, &v);
     if (v > 0xFF || (emoji && v > 0x7F)) {
@@ -1129,6 +1184,20 @@ int ugfx_set_color_glyphs(int on) {
 void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
                   uint32_t color, uint32_t bg) {
     if (!s || !s->pixels || !g_glyphs) return;
+    const uint32_t *cps;
+    int n = ugfx_cluster_cps(cp, &cps);
+    if (n) {
+        const unsigned char *cov;
+        int w, h, adv, rgba;
+        if (ugfx_glyph_cluster(g_font, cp, &cov, &w, &h, &adv, &rgba)) {
+            if (rgba && g_color_glyphs) draw_rgba(s, x, y, cov, w, h, bg);
+            else if (rgba) draw_rgba_mask(s, x, y, cov, w, h, color, bg);
+            else draw_cov(s, x, y, cov, w, h, color, bg);
+        } else {
+            cluster_parts(s, x, y, cps, n, color, bg);
+        }
+        return;
+    }
     uint32_t v;
     int emoji = presentation(cp, &v);
     if (v > 0xFF || (emoji && v > 0x7F)) {

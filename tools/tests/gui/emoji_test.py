@@ -14,10 +14,14 @@ and the editor's own rectangle (between its `tabs` and `status` widgets) is
 read:
   - four U+1F600 draw Twemoji's yellow face (a colour no text is drawn in);
   - four U+2764 U+FE0F draw its red heart;
-  - four U+2764 with no selector draw NO red: a text heart, in the ink.
+  - four U+2764 with no selector draw NO red: a text heart, in the ink;
+  - four U+1F44D U+1F3FD draw the medium-tone thumb and NO neutral yellow --
+    drawn as its parts it would be a yellow thumb beside a swatch;
+  - four ZWJ families end where four thumbs do: one glyph in two cells each,
+    not three people apiece.
 
 `--positive-control` first rewrites the guest's /etc/fonts/fallback.conf
-WITHOUT the emoji face, so the first two checks must go red -- the same
+WITHOUT the emoji face, so the colour checks must go red -- the same
 images, the same reads, only the face gone.
 
   python3 tools/tests/gui/emoji_test.py [--instance N] [--positive-control]
@@ -44,6 +48,10 @@ FILES = {
     "/tmp/emoji_face.txt":  "\U0001F600" * 4,
     "/tmp/emoji_heart.txt": "❤️" * 4,
     "/tmp/emoji_text.txt":  "❤" * 4,
+    # SEQUENCES (the emoji face's own ligatures, ttf_ligate()): a toned thumb
+    # and a ZWJ family, each ONE glyph in two cells.
+    "/tmp/emoji_tone.txt":  "\U0001F44D\U0001F3FD" * 4,
+    "/tmp/emoji_family.txt": "\U0001F468\u200D\U0001F469\u200D\U0001F467" * 4,
 }
 NO_EMOJI_LIST = ["noto-sans", "noto-sans-symbols2", "noto-sans-symbols", "noto-sans-math",
                  "dejavu-sans-mono"]
@@ -52,6 +60,22 @@ NO_EMOJI_LIST = ["noto-sans", "noto-sans-symbols2", "noto-sans-symbols", "noto-s
 def yellow(p):
     r, g, b = p[:3]
     return r > 220 and 150 < g < 230 and b < 110
+
+
+def skin(p):
+    """Twemoji's medium skin tone (U+1F3FD), (212, 171, 136) give or take."""
+    r, g, b = p[:3]
+    return 195 < r < 230 and 150 < g < 190 and 115 < b < 155
+
+
+def colour_extent(pixels, width):
+    """The rightmost column holding a COLOURED pixel (a channel spread past
+    60): where the last emoji's ink ends."""
+    right = -1
+    for i, p in enumerate(pixels):
+        if max(p[:3]) - min(p[:3]) > 60:
+            right = max(right, i % width)
+    return right
 
 
 def red(p):
@@ -73,6 +97,7 @@ def editor_pixels(dbg, qmp, title, tmp):
     png = os.path.join(tmp, "shot.png")
     qmp.screenshot(png)
     raw = Image.open(png).convert("RGB").crop((x0, y0, x1, y1)).tobytes()
+    editor_pixels.width = x1 - x0
     return [raw[i:i + 3] for i in range(0, len(raw), 3)]
 
 
@@ -113,6 +138,21 @@ def main():
         res.check("U+2764 U+FE0F draws the red heart", n_red > 40, f"{n_red} red pixels")
         res.check("a bare U+2764 draws as text: no red", n_red_text == 0,
                   f"{n_red_text} red pixels")
+        # Drawn as PARTS a toned thumb is a yellow thumb and a swatch; as the
+        # face's ligature it is one thumb in the tone, with no yellow at all.
+        tone = seen["/tmp/emoji_tone.txt"] or []
+        n_skin = sum(1 for p in tone if skin(p))
+        n_tone_yellow = sum(1 for p in tone if yellow(p))
+        res.check("U+1F44D U+1F3FD draws ONE thumb in the medium tone", n_skin > 40 and n_tone_yellow == 0,
+                  f"{n_skin} skin pixels, {n_tone_yellow} yellow")
+        # A family as one glyph ends where four thumbs do (two cells each);
+        # as its three people it runs on past them.
+        fam = seen["/tmp/emoji_family.txt"] or []
+        w = getattr(editor_pixels, "width", 1)
+        fam_right, tone_right = colour_extent(fam, w), colour_extent(tone, w)
+        cell = max(1, tone_right // 8)
+        res.check("a ZWJ family draws as ONE glyph in two cells", 0 <= fam_right <= tone_right + cell,
+                  f"family ink ends at x={fam_right}, four thumbs at x={tone_right}")
     return res.finish("emoji_test")
 
 

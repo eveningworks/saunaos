@@ -5,52 +5,55 @@
 #include "ui/uui_widget.h" // uui_key_is_shortcut
 #include "ui/uui_undo.h"
 #include "base/uutf8.h"   // stepping by CHARACTER: docs/utf8-design.md
-#include "base/uemoji.h"  // a variation selector goes with its character
+#include "base/uemoji.h"  // which characters are drawn as emoji
+#include "kgrapheme.h"    // a step is a grapheme cluster
+#include "ui/ugfx.h"      // ugfx_font_codepage()
+#include <stdlib.h>
 
 // The text is UTF-8 and every index here is a byte offset on a character
 // boundary. The ops reach the text a byte at a time, so these copy the
 // at-most-four bytes a step needs and decode them with the Latin-1 rule
 // (base/uutf8.h): a stray byte is one character, never split.
-// A VARIATION SELECTOR belongs to the character before it, whatever it is
-// (base/uemoji.h's rule) -- ❤️ and 1️⃣'s first two are one character to
-// step, delete and select, as ugfx_text_next()/prev() draw it.
-static int selector_at(const struct uui_edit_ops *ops, void *text, int i, int len) {
-    if (i + 3 > len) return 0;
-    char b[3] = { ops->at(text, i), ops->at(text, i + 1), ops->at(text, i + 2) };
-    return uemoji_selector_utf8(b, 3) != 0;
-}
+// A STEP IS A GRAPHEME CLUSTER (api/kgrapheme.h), as ugfx_text_next()/prev()
+// draw it: a letter with its accents, a family emoji, a flag. The ops reach
+// the text a byte at a time, so a step copies a WINDOW of it and segments
+// that, doubling the window until the answer cannot depend on what lies
+// past its edge -- a cluster is a few bytes and "zalgo" text a few hundred.
+enum { STEP_NEXT, STEP_PREV, STEP_BACKSPACE };
 
-static int char_step(const struct uui_edit_ops *ops, void *text, int i, int len) {
-    char b[4];
-    int n = 0;
-    while (n < 4 && i + n < len) { b[n] = ops->at(text, i + n); n++; }
-    int l;
-    uutf8_decode(b, n, &l);
-    return i + (l > 0 ? l : 1);
+static int cluster_step(const struct uui_edit_ops *ops, void *text, int i, int len, int how) {
+    if (how == STEP_NEXT ? i >= len : i <= 0) return how == STEP_NEXT ? len : 0;
+    if (ugfx_font_codepage()) return how == STEP_NEXT ? i + 1 : i - 1;   // one byte, one character
+    char small[128], *b = small;
+    for (int w = 64;; w *= 2) {
+        int from = how == STEP_NEXT ? i : (i > w ? i - w : 0);
+        int to = how == STEP_NEXT ? (len - i > w ? i + w : len) : i;
+        if (to - from + 1 > (int)sizeof small) {
+            char *nb = realloc(b == small ? 0 : b, (size_t)(to - from + 1));
+            if (!nb) break;
+            b = nb;
+        }
+        for (int k = from; k < to; k++) b[k - from] = ops->at(text, k);
+        b[to - from] = 0;
+        int j = how == STEP_NEXT ? kgrapheme_next(b, to - from, 0)
+              : how == STEP_PREV ? kgrapheme_prev(b, to - from) : kgrapheme_backspace(b, to - from);
+        // Settled when the answer is inside the window, or the window is
+        // the whole text on that side.
+        if (how == STEP_NEXT ? (j < to - from || to == len) : (j > 0 || from == 0)) {
+            if (b != small) free(b);
+            return from + j;
+        }
+    }
+    if (b != small) free(b);
+    return how == STEP_NEXT ? i + 1 : i - 1;   // out of memory: a byte, never past the text
 }
 
 static int char_next(const struct uui_edit_ops *ops, void *text, int i, int len) {
-    if (i >= len) return len;
-    int j = char_step(ops, text, i, len);
-    return ops->at(text, i) != '\n' && selector_at(ops, text, j, len) ? j + 3 : j;
-}
-
-static int char_back(const struct uui_edit_ops *ops, void *text, int i) {
-    int from = i > 4 ? i - 4 : 0;
-    char b[4];
-    for (int k = from; k < i; k++) b[k - from] = ops->at(text, k);
-    return from + uutf8_prev(b, i - from);
+    return cluster_step(ops, text, i, len, STEP_NEXT);
 }
 
 static int char_prev(const struct uui_edit_ops *ops, void *text, int i) {
-    if (i <= 0) return 0;
-    // As ugfx_text_prev(): a run of selectors pairs the way stepping
-    // forward paired it (base/uemoji.h).
-    int k = 0, q = i;
-    while (q >= 3 && selector_at(ops, text, q - 3, q)) { k++; q -= 3; }
-    if (!k) return char_back(ops, text, i);
-    if (!uemoji_run_attached(k, q > 0 && ops->at(text, q - 1) != '\n')) return i - 3;
-    return k == 1 ? char_back(ops, text, q) : i - 6;
+    return cluster_step(ops, text, i, i, STEP_PREV);
 }
 
 // --- word and line selection ------------------------------------------
@@ -79,10 +82,26 @@ static int char_kind(uint32_t c, int emoji_sel) {
     return 2;
 }
 
+// One code point on from `i`.
+static int cp_step(const struct uui_edit_ops *ops, void *text, int i, int len) {
+    char b[4];
+    int n = 0;
+    while (n < 4 && i + n < len) { b[n] = ops->at(text, i + n); n++; }
+    int l;
+    uutf8_decode(b, n, &l);
+    return i + (l > 0 ? l : 1);
+}
+
+// The kind of the CLUSTER at `i`: an emoji when what follows its first code
+// point makes it one (U+FE0F, a joiner, a skin tone, a keycap, a flag's pair).
 static int kind_at(const struct uui_edit_ops *ops, void *text, int i, int len) {
-    int j = char_step(ops, text, i, len);
-    return char_kind(cp_at(ops, text, i, len), j < len && selector_at(ops, text, j, len) &&
-                                                   ops->at(text, j + 2) == (char)0x8F);
+    int end = char_next(ops, text, i, len), emoji = 0;
+    for (int j = cp_step(ops, text, i, len); j < end && !emoji; j = cp_step(ops, text, j, len)) {
+        uint32_t c = cp_at(ops, text, j, len);
+        emoji = c == 0xFE0F || c == 0x200D || c == 0x20E3 || (c >= 0x1F1E6 && c <= 0x1F1FF) ||
+                (c >= 0x1F3FB && c <= 0x1F3FF);
+    }
+    return char_kind(cp_at(ops, text, i, len), emoji);
 }
 
 void uui_edit_select_word(struct uui_edit *e, const struct uui_edit_ops *ops, void *text, int index) {
@@ -312,9 +331,9 @@ int uui_edit_key(struct uui_edit *e, const struct uui_edit_ops *ops, void *text,
     case '\b':
         if (uui_edit_delete_selection(e, ops, text)) return 1;
         if (e->cursor > 0) {
-            // The whole CHARACTER: both bytes of a ż, not the half that
-            // would leave a stray lead byte drawn as a Latin-1 letter.
-            int at = char_prev(ops, text, e->cursor);
+            // A whole emoji, or one code point of anything else -- never a
+            // byte of a ż (api/kgrapheme.h, Pango's rule).
+            int at = cluster_step(ops, text, e->cursor, e->cursor, STEP_BACKSPACE);
             uui_edit_erase(e, ops, text, at, e->cursor);
             e->cursor = at;
         }

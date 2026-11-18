@@ -31,6 +31,7 @@
 #include "string.h"
 #include "keyboard.h"
 #include "kutf8.h"
+#include "kgrapheme.h"
 
 // Control codes, named. Writing 0x17 in the switch below and trusting
 // the reader to know it is Ctrl-W is how a keymap becomes unreadable.
@@ -135,31 +136,19 @@ static int word_before(const char *buf, int len, int i) {
 }
 
 
-// A VARIATION SELECTOR (U+FE0E/U+FE0F, EF B8 8E/8F) belongs to the character
-// before it, whatever it is -- the toolkit's one rule (userland
-// base/uemoji.h, which this shared source cannot include): ❤️ is one
-// character to step over and to delete, as every text field has it. A run
-// of selectors pairs as stepping forward pairs it: (c S1)(S2 S3)...
-static int vs_at(const char *b, int len, int i) {
-    return i >= 0 && i + 3 <= len && (unsigned char)b[i] == 0xEF && (unsigned char)b[i + 1] == 0xB8 &&
-           ((unsigned char)b[i + 2] == 0x8E || (unsigned char)b[i + 2] == 0x8F);
-}
-
+// A STEP IS A GRAPHEME CLUSTER (api/kgrapheme.h): a letter with its accents,
+// ❤️ with its selector, a family emoji or a flag is ONE character to step
+// over and to delete forward, as every text field in the toolkit has it.
+// Backspace takes a whole emoji but only the last code point of anything
+// else (kgrapheme_backspace(), Pango's rule).
 static int ch_next(const char *b, int len, int i) {
     if (i >= len) return len;
-    int j = kutf8_next(b, len, i);
-    return b[i] != '\n' && vs_at(b, len, j) ? j + 3 : j;
+    int j = kgrapheme_next(b, len, i);
+    return j > i ? j : i + 1;
 }
 
 static int ch_prev(const char *b, int i) {
-    if (i <= 0) return 0;
-    int k = 0, q = i;
-    while (q >= 3 && vs_at(b, i, q - 3)) { k++; q -= 3; }
-    if (!k) return kutf8_prev(b, i);
-    int has_base = q > 0 && b[q - 1] != '\n';
-    int attached = has_base ? (k % 2 == 1) : (k % 2 == 0);
-    if (!attached) return i - 3;
-    return k == 1 ? kutf8_prev(b, q) : i - 6;
+    return i <= 0 ? 0 : kgrapheme_prev(b, i);
 }
 
 int kline_word_start(const char *buf, int len, int from) {
@@ -551,7 +540,7 @@ enum kline_action kline_key(struct kline_edit *e, int key) {
     case '\b':
     case 0x7F: // some keyboards/terminals send DEL for backspace
         if (e->cursor == 0) return KLINE_IGNORED;
-        delete_range(e, ch_prev(e->buf, e->cursor), e->cursor, 0);
+        delete_range(e, kgrapheme_backspace(e->buf, e->cursor), e->cursor, 0);
         return KLINE_REDRAW;
     case KEY_DELETE:
         if (e->cursor >= e->len) return KLINE_IGNORED;

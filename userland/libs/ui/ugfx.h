@@ -344,12 +344,18 @@ int ugfx_char_advance(char c);
 // past U+00FF) comes from a per-process glyph cache rasterized from the
 // font's own .ttf, then the fallback list's faces (base/ufontfallback.h),
 // then an outlined box the advance wide. An emoji goes to the emoji face
-// first (base/uemoji.h). A VARIATION SELECTOR decides the character before
-// it and is not a character of its own: ugfx_text_decode() steps over it
-// and TAGS the code point it returns (UGFX_CP_EMOJI / UGFX_CP_TEXT), so
-// every loop that measures and draws through it agrees on what ❤️ is. Kerning applies only BETWEEN TWO ATLAS CHARACTERS: a
-// cached glyph sits at its plain advance, which is visible on some Greek
-// and Cyrillic pairs (step 1's written-down trade).
+// first (base/uemoji.h).
+//
+// **A STEP IS A GRAPHEME CLUSTER** (api/kgrapheme.h, UAX #29), not a code
+// point: ugfx_text_decode() returns one value per cluster, so every loop
+// that measures, draws, fits or hit-tests through it steps over a letter
+// with its accents, a family emoji or a flag as ONE character. The value
+// is the code point when the cluster is one -- a selector after it TAGS it
+// (UGFX_CP_EMOJI / UGFX_CP_TEXT), and "e" U+0301 arrives COMPOSED as U+00E9
+// (base/ucompose.h) -- and a UGFX_CP_CLUSTER token otherwise, drawn as the
+// emoji face's ligature for the sequence when it has one, else as its parts.
+// Kerning is between two clusters' base characters BY GLYPH ID, from the
+// font's own GPOS or kern table, for any two characters of the face.
 //
 // ugfx_char_advance()/ugfx_draw_char() take ONE BYTE, as Latin-1: right
 // for a literal ('n', '0', '-') and wrong for a byte of a string --
@@ -366,9 +372,21 @@ void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
 #define UGFX_CP_EMOJI 0x40000000u   // U+FE0F followed it
 #define UGFX_CP_TEXT  0x20000000u   // U+FE0E followed it
 #define UGFX_CP_VALUE 0x001FFFFFu
-// `cp` tagged for the character `next` that follows it -- for a grid that
-// decodes by itself (utext) and keeps the selector as a cell of its own.
-uint32_t ugfx_cp_with_next(uint32_t cp, uint32_t next);
+#define UGFX_CP_CLUSTER 0x10000000u // the value is a cluster token, not a code point
+// A cluster token's VALUE is at least this -- past U+10FFFF, so masking
+// UGFX_CP_VALUE and comparing with a character can never match one.
+#define UGFX_CLUSTER_FIRST 0x110000u
+
+// The token for one cluster's code points (`cps`, which this may compose in
+// place): the code point itself when the cluster is one, tagged or composed
+// as above, else an interned token -- equal clusters, equal tokens, valid
+// for the life of the process. For a grid that keeps cells (uvterm).
+uint32_t ugfx_cluster_token(uint32_t *cps, int n);
+
+// The code points behind a UGFX_CP_CLUSTER token (`*cps`, kept by ugfx) and
+// their count; 0 for anything else.
+int ugfx_cluster_cps(uint32_t cp, const uint32_t **cps);
+
 
 // COLOUR GLYPHS (an emoji) are drawn in their own colours unless this is
 // off: then they draw as coverage in the text's colour, as any glyph does
@@ -377,7 +395,8 @@ uint32_t ugfx_cp_with_next(uint32_t cp, uint32_t next);
 // returns the old setting, which the caller puts back.
 int ugfx_set_color_glyphs(int on);
 
-// The character at byte `i` of `str`: its codepoint in `*cp` and the
+// The character -- the grapheme CLUSTER -- at byte `i` of `str`: its value
+// in `*cp` (a code point, tagged, or a cluster token; see above) and the
 // byte index after it as the return value -- `i` itself, with `*cp` 0,
 // at the end. `end` bounds the walk (bytes of `str`), or -1 for up to the
 // NUL. Decodes UTF-8 with the Latin-1 rule above, or one byte per
@@ -545,11 +564,16 @@ int ugfx_text_elide(char *dst, int cap, const char *src, int max_w);
 // cursor) that needs the count rather than the drawing.
 int ugfx_text_fit_chars(const char *str, int max_w);
 
-// Step one character forward/back from byte `i`, clamped to
-// [0, length]: over a whole UTF-8 sequence, or one byte for a stray one
-// (the Latin-1 rule) and under a code-page font.
+// Step one character -- one grapheme cluster -- forward/back from byte
+// `i`, clamped to [0, length]: a stray byte is one (the Latin-1 rule), and
+// under a code-page font every byte is.
 int ugfx_text_next(const char *str, int i);
 int ugfx_text_prev(const char *str, int i);
+
+// Where BACKSPACE at byte `i` deletes back to: a whole emoji cluster, else
+// one code point -- so a decomposed accent goes and its letter stays
+// (api/kgrapheme.h, Pango's rule). Delete forward takes a whole cluster.
+int ugfx_text_backspace(const char *str, int i);
 
 // Which character boundary of `str` sits at `x` pixels from its start
 // -- the inverse of ugfx_text_width_n(), and what places a caret by

@@ -16,33 +16,47 @@
 // a caret drifting by a pixel or two per scroll step.
 //
 // AND EVERY INDEX IS A BYTE OFFSET ON A CHARACTER BOUNDARY: the strings
-// are UTF-8 (docs/utf8-design.md), decoded here one character at a time,
-// and a caller slices with what these return rather than with `i + 1`.
+// are UTF-8 (docs/utf8-design.md), decoded here one GRAPHEME CLUSTER at a
+// time (api/kgrapheme.h), and a caller slices with what these return
+// rather than with `i + 1`.
 #include "ui/ugfx.h"
 #include "base/uutf8.h"
-#include "base/uemoji.h"
+#include "kgrapheme.h"
+#include <stdlib.h>
 
-// A VARIATION SELECTOR at `at` belongs to the character just decoded
-// (base/uemoji.h's rule): its tag, and `*nx` moved past it. Read only inside
-// `end`, so a slice measures exactly what it draws.
-static uint32_t take_selector(const char *str, int *nx, int end) {
-    uint32_t sel = uemoji_selector_utf8(str + *nx, end < 0 ? -1 : end - *nx);
-    if (!sel) return 0;
-    *nx += 3;
-    return sel == UEMOJI_VS_EMOJI ? UGFX_CP_EMOJI : UGFX_CP_TEXT;
+// The CLUSTER at [i, nx) as one value (ugfx.h): its code points decoded
+// into a buffer sized to it -- a cluster is usually two to eight code
+// points, and "zalgo" text a few hundred -- then ugfx_cluster_token().
+static uint32_t cluster_value(const char *str, int i, int nx) {
+    uint32_t small[16], *cps = small;
+    int cap = (int)(sizeof small / sizeof small[0]), n = 0;
+    if (nx - i > cap) {                        // never more code points than bytes
+        cps = malloc((size_t)(nx - i) * sizeof *cps);
+        if (!cps) { int len; return uutf8_decode(str + i, nx - i, &len); }
+    }
+    for (int j = i; j < nx;) {
+        int len;
+        cps[n++] = uutf8_decode(str + j, nx - j, &len);
+        j += len > 0 ? len : 1;
+    }
+    uint32_t v = ugfx_cluster_token(cps, n);
+    if (cps != small) free(cps);
+    return v;
 }
 
 int ugfx_text_decode(const char *str, int i, int end, uint32_t *cp) {
     // ASCII FIRST: one compare, the same answer in both modes -- this is
-    // under every glyph every text call measures or draws. The selector
-    // check after it is one more byte compare (0xEF is not ASCII).
+    // under every glyph every text call measures or draws. An ASCII
+    // character followed by another ASCII byte (or the end) is a cluster of
+    // one whatever the font; only a byte past 0x7F after it can extend it.
     if (str && i >= 0 && (end < 0 || i < end)) {
         unsigned char c = (unsigned char)str[i];
         if (c && c < 0x80) {
             int nx = i + 1;
             *cp = c;
-            if ((end < 0 || nx < end) && (unsigned char)str[nx] == 0xEF && c != '\n' && !ugfx_font_codepage())
-                *cp |= take_selector(str, &nx, end);
+            if ((end >= 0 && nx >= end) || (unsigned char)str[nx] < 0x80 || ugfx_font_codepage()) return nx;
+            nx = kgrapheme_next(str, end, i);
+            if (nx > i + 1) *cp = cluster_value(str, i, nx);
             return nx;
         }
     }
@@ -52,11 +66,10 @@ int ugfx_text_decode(const char *str, int i, int end, uint32_t *cp) {
         *cp = (unsigned char)str[i];
         return i + 1;
     }
-    int n;
+    int n, nx = kgrapheme_next(str, end, i);
     *cp = uutf8_decode(str + i, end < 0 ? -1 : end - i, &n);
-    int nx = i + (n > 0 ? n : 1);
-    if (end < 0 || nx < end) *cp |= take_selector(str, &nx, end);
-    return nx;
+    if (nx > i + (n > 0 ? n : 1)) *cp = cluster_value(str, i, nx);
+    return nx > i ? nx : i + 1;
 }
 
 int ugfx_text_width_n(const char *str, int n) {
@@ -172,11 +185,11 @@ int ugfx_text_next(const char *str, int i) {
 int ugfx_text_prev(const char *str, int i) {
     if (!str || i <= 0) return 0;
     if (ugfx_font_codepage()) return i - 1;
-    // Back over a variation selector AND its character, exactly as decode()
-    // pairs them forward -- a RUN of selectors included (base/uemoji.h).
-    int k = 0, q = i;
-    while (q >= 3 && uemoji_selector_utf8(str + q - 3, 3)) { k++; q -= 3; }
-    if (!k) return uutf8_prev(str, i);
-    if (!uemoji_run_attached(k, q > 0 && str[q - 1] != '\n')) return i - 3;   // a selector alone
-    return k == 1 ? uutf8_prev(str, q) : i - 6;                  // with what precedes it
+    return kgrapheme_prev(str, i);
+}
+
+int ugfx_text_backspace(const char *str, int i) {
+    if (!str || i <= 0) return 0;
+    if (ugfx_font_codepage()) return i - 1;
+    return kgrapheme_backspace(str, i);
 }

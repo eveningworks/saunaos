@@ -16,6 +16,8 @@
 #include "utils/webcontent/ns_font.h"
 #include "base/uunicode.h"
 #include "ui/uglyph.h"
+#include "kgrapheme.h"   // a step is a grapheme cluster
+#include <stdlib.h>
 
 #include "netsurf/layout.h"
 #include "netsurf/plot_style.h"
@@ -114,25 +116,42 @@ int ns_font_px(const plot_font_style_t *st) {
 // shape and a box can be drawn where the character should be.
 static int missing_w(int px) { return px / 2 > 1 ? px / 2 : 1; }
 
-// Walks `s[0..len)`, calling `each` with every character's byte offset,
-// the pen before it and its advance (kerning against the previous one
-// folded in). Stops early when `each` returns nonzero. Returns the pen.
-typedef int (*char_fn)(void *ctx, size_t off, int pen, int adv, uint32_t cp, int gid);
+// Walks `s[0..len)` a GRAPHEME CLUSTER at a time (api/kgrapheme.h), calling
+// `each` with every cluster's byte offset and length, the pen before it and
+// its advance (kerning against the previous one folded in). Stops early when
+// `each` returns nonzero. Returns the pen.
+typedef int (*char_fn)(void *ctx, size_t off, size_t n, int pen, int adv, uint32_t cp, int gid);
 
 static int walk(struct uglyph_face *f, int px, const char *s, size_t len, char_fn each, void *ctx) {
     int pen = 0, prev = 0;
     size_t i = 0;
+    char small[64];
     while (i < len) {
         int n;
         uint32_t cp = uunicode_utf8_decode(s + i, &n);
         if (n <= 0 || i + (size_t)n > len) n = 1;          // a truncated tail: one byte
+        size_t nx = (size_t)kgrapheme_next(s + i, (int)(len - i), 0) + i;
+        if (nx < i + (size_t)n) nx = i + (size_t)n;
         int gid = f->ok ? ttf_glyph_index(&f->f, cp) : 0;
-        int kern = (prev && gid) ? ttf_kern_px(&f->f, prev, gid, px) : 0;
-        int adv = gid ? ttf_advance_px(&f->f, gid, px) : missing_w(px);
-        if (each && each(ctx, i, pen + kern, adv, cp, gid)) return pen + kern;
+        int kern = (prev && gid) ? fx_round(fx_mul(fx_from_int(ttf_pair_kern_units(&f->f, ttf_script_for(cp),
+                                                                                 prev, gid)),
+                                                   ttf_scale_for_px(&f->f, px))) : 0;
+        int adv = missing_w(px);
+        if (gid) {
+            // The cluster's own width: its accents composed, an emoji
+            // sequence ligated, as uglyph_text() draws it.
+            char *b = nx - i < sizeof small ? small : malloc(nx - i + 1);
+            if (b) {
+                memcpy(b, s + i, nx - i);
+                b[nx - i] = 0;
+                adv = uglyph_text_width(f, b, px);
+                if (b != small) free(b);
+            }
+        }
+        if (each && each(ctx, i, nx - i, pen + kern, adv, cp, gid)) return pen + kern;
         pen += kern + adv;
         prev = gid;
-        i += (size_t)n;
+        i = nx;
     }
     return pen;
 }
@@ -144,14 +163,15 @@ static nserror nf_width(const plot_font_style_t *st, const char *s, size_t len, 
 
 // position(): the character whose box holds x -- its offset, and the
 // nearer of its two edges.
-struct pos { int x; size_t off; int at; int found; };
+struct pos { int x; size_t off, n; int at; int found; };
 
-static int pos_each(void *ctx, size_t off, int pen, int adv, uint32_t cp, int gid) {
+static int pos_each(void *ctx, size_t off, size_t n, int pen, int adv, uint32_t cp, int gid) {
     (void)cp; (void)gid;
     struct pos *p = ctx;
     if (p->x < pen + adv) {
         int right = p->x >= pen + adv / 2;
         p->off = off;
+        p->n = n;
         p->at = right ? pen + adv : pen;
         p->found = right ? 2 : 1;
         return 1;
@@ -161,16 +181,14 @@ static int pos_each(void *ctx, size_t off, int pen, int adv, uint32_t cp, int gi
 
 static nserror nf_position(const plot_font_style_t *st, const char *s, size_t len,
                            int x, size_t *off, int *actual_x) {
-    struct pos p = { x, len, 0, 0 };
+    struct pos p = { x, len, 0, 0, 0 };
     int end = walk(face_for(st), ns_font_px(st), s, len, pos_each, &p);
     if (!p.found) {
         *off = len;
         *actual_x = end;
     } else if (p.found == 2) {
-        // The right edge: the offset is of the NEXT character.
-        int n;
-        uunicode_utf8_decode(s + p.off, &n);
-        *off = p.off + (size_t)(n > 0 ? n : 1);
+        // The right edge: the offset is of the NEXT cluster.
+        *off = p.off + p.n;
         if (*off > len) *off = len;
         *actual_x = p.at;
     } else {
@@ -184,8 +202,8 @@ static nserror nf_position(const plot_font_style_t *st, const char *s, size_t le
 // that, the first space after it; failing that, the whole string.
 struct split { int x; size_t fit_off; int fit_x; size_t over_off; int over_x; int have_fit; };
 
-static int split_each(void *ctx, size_t off, int pen, int adv, uint32_t cp, int gid) {
-    (void)adv; (void)gid;
+static int split_each(void *ctx, size_t off, size_t n, int pen, int adv, uint32_t cp, int gid) {
+    (void)adv; (void)gid; (void)n;
     struct split *p = ctx;
     if (cp != ' ' || off == 0) return 0;
     if (pen <= p->x) {
@@ -225,17 +243,17 @@ struct gui_layout_table *ns_layout_table = &g_layout;
 
 // --- drawing ------------------------------------------------------------
 
-struct draw { struct ugfx_surface *s; struct uglyph_face *f; int px, x, baseline; uint32_t color; };
+struct draw { struct ugfx_surface *s; struct uglyph_face *f; int px, x, baseline; uint32_t color; const char *text; };
 
-static int draw_each(void *ctx, size_t off, int pen, int adv, uint32_t cp, int gid) {
-    (void)off;
+static int draw_each(void *ctx, size_t off, size_t n, int pen, int adv, uint32_t cp, int gid) {
     struct draw *d = ctx;
     if (gid) {
-        char one[5];
-        int n = uunicode_utf8(cp, one);
-        if (n > 0) {
-            one[n] = '\0';
-            uglyph_text(d->s, d->f, one, d->px, d->x + pen, d->baseline, d->color);
+        char small[64], *b = n < sizeof small ? small : malloc(n + 1);
+        if (b) {
+            memcpy(b, d->text + off, n);
+            b[n] = '\0';
+            uglyph_text(d->s, d->f, b, d->px, d->x + pen, d->baseline, d->color);
+            if (b != small) free(b);
         }
     } else if (cp != ' ' && cp != 0xA0) {
         // A character no shipped face has: an outlined box where it goes.
@@ -247,6 +265,6 @@ static int draw_each(void *ctx, size_t off, int pen, int adv, uint32_t cp, int g
 
 int ns_font_draw(struct ugfx_surface *s, const plot_font_style_t *st, int x, int baseline,
                  const char *text, size_t len, uint32_t color) {
-    struct draw d = { s, face_for(st), ns_font_px(st), x, baseline, color };
+    struct draw d = { s, face_for(st), ns_font_px(st), x, baseline, color, text };
     return walk(d.f, d.px, text, len, draw_each, &d);
 }

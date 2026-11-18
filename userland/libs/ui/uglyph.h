@@ -44,9 +44,19 @@ int  uglyph_has(const struct uglyph_face *face, uint32_t cp);
 int  uglyph_draw(struct ugfx_surface *s, struct uglyph_face *face, uint32_t cp, int px,
                  int x, int y, int w, int h, uint32_t color);
 
+// The FIRST grapheme cluster of `utf8` -- an emoji ZWJ sequence, a flag, a
+// letter and its accents -- drawn as uglyph_draw() draws a character, when
+// the face draws it as ONE glyph (composed, or its own `ccmp` ligature);
+// 0 when it does not.
+int  uglyph_draw_cluster(struct ugfx_surface *s, struct uglyph_face *face, const char *utf8, int px,
+                         int x, int y, int w, int h, uint32_t color);
+
 // A run of UTF-8 text in `face` at `px`, its baseline at `baseline`,
-// starting at `x`, kerned as the face kerns it; returns the advance.
-// Characters the face lacks are skipped by their advance of nothing.
+// starting at `x`, a grapheme cluster at a time (api/kgrapheme.h) -- its
+// accents composed and an emoji sequence ligated where the face can --
+// and kerned between clusters as the face kerns them (GPOS or kern, by
+// script); returns the advance. Characters the face lacks are skipped by
+// their advance of nothing.
 int  uglyph_text(struct ugfx_surface *s, struct uglyph_face *face, const char *utf8, int px,
                  int x, int baseline, uint32_t color);
 // The same run's width, drawing nothing.
