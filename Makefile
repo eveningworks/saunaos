@@ -1725,6 +1725,7 @@ SDK_STAMP  = $(SYSROOT)/.staged
 SDK_INPUTS = $(filter-out kernel/include/api/build_stamp.h,$(shell find userland/libs/libc/include \
                userland/libs/base userland/libs/net userland/libs/media userland/libs/ui \
                kernel/include/api kernel/include/abi -name '*.h' 2>/dev/null)) \
+             $(wildcard userland/libs/uixx/*.hpp) \
              userland/libs/rt/sys.h userland/libs/rt/link.ld userland/libs/rt/link-dyn.ld \
              $(LIBC) $(LIBC_NONSHARED) $(TOOLKIT_A) $(USERLAND_RT) tools/build/stage_sdk.py \
              $(LIBC_SO) $(TOOLKIT_SO) $(BUILD)/lib/libSDL3.so.0 $(BUILD)/lib/libSDL2-2.0.so.0 \

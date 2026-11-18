@@ -35,6 +35,11 @@ applied to a COPY of its source, and requires every case the control
 names to go red while the others stay green. `--keep DIR` writes each
 case's uitest_keep() frames there as PPMs. `--list` names the cases;
 positional names run a subset. Needs gcc.
+
+A C++ APP (`uitest-app:` naming a directory of .cpp sources, the uixx
+layer's examples) is built with the host g++ against glibc and libstdc++,
+not tolibc, and linked with g++; its `main()` takes no arguments. Without
+g++ on PATH that case fails to compile, naming it.
 """
 
 # The toolkit's widgets, driven by name through the real router on the
@@ -70,6 +75,7 @@ SHARED_SKIP = {"heap_core", "ubsan", "ubsan_cases"}
 # preflight starts from `make clean`, which takes build/hostui/ with it,
 # and ccache turns that cold rebuild of every toolkit source into lookups.
 GCC = (["ccache"] if shutil.which("ccache") else []) + ["gcc"]
+GXX = (["ccache"] if shutil.which("ccache") else []) + ["g++"]
 
 INC_LIBC = ["-Iuserland/libs/libc/include"]
 INC_API = ["-Ikernel/include/api", "-Ikernel/include/abi", "-Ibuild/gen", "-Iuserland", "-Iuserland/libs"]
@@ -83,6 +89,13 @@ EXTRA = {   # per-source flags the Makefile adds
 # guest's positional initialisers and utest.h's bounded lines trip.
 CASE_FLAGS = ["-std=gnu11", "-ffreestanding", "-O1", "-g", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
               "-Wno-missing-field-initializers", "-Wno-format-truncation"]
+# A C++ app (the uixx layer's, docs/uixx-design.md) is compiled HOSTED,
+# against glibc and the host's libstdc++: tolibc's headers cannot sit under
+# libstdc++'s, and the kernel's come AFTER the system's, since abi/ has an
+# errno.h of its own. Only the toolkit's headers are shared, and they lay
+# out nothing a libc defines.
+CXX_FLAGS = ["-std=c++20", "-O1", "-g", "-Wall", "-Wextra", "-Werror", "-Iuserland", "-Iuserland/libs",
+             "-idirafter", "kernel/include/api", "-idirafter", "kernel/include/abi", "-idirafter", "build/gen"]
 
 # glibc calls whose argument or result is a struct tolibc lays out
 # differently (or whose state the toolkit reads through tolibc's macros).
@@ -329,16 +342,33 @@ def build_app(case, bindir, name, override):
     if not m:
         return [], None
     app = m.group(1).rstrip("/")
-    srcs = sorted(glob.glob(os.path.join(ROOT, app, "*.c")))
+    srcs = sorted(glob.glob(os.path.join(ROOT, app, "*.c")) + glob.glob(os.path.join(ROOT, app, "*.cpp")))
     if not srcs:
         return [], f"`uitest-app: {app}` names no directory with sources"
     out = []
     for src in srcs:
-        obj = os.path.join(bindir, f"{name}__app__{os.path.basename(src)[:-2]}.o")
-        r = run([*GCC, *TOOLKIT_FLAGS, *INC_LIBC, *INC_API, "-I" + os.path.join(ROOT, app),
-                 "-Dmain=uitest_app_main", "-c", "-o", obj, override.get(src, src)])
+        base, ext = os.path.splitext(os.path.basename(src))
+        obj = os.path.join(bindir, f"{name}__app__{base}.o")
+        if ext == ".cpp":
+            # main() keeps C++ linkage, so it is renamed again and called from
+            # a C-linkage shim with uitest_app_main's signature.
+            cmd = [*GXX, *CXX_FLAGS, "-I" + os.path.join(ROOT, app), "-Dmain=uitest_cxx_main"]
+        else:
+            cmd = [*GCC, *TOOLKIT_FLAGS, *INC_LIBC, *INC_API, "-I" + os.path.join(ROOT, app),
+                   "-Dmain=uitest_app_main"]
+        r = run([*cmd, "-c", "-o", obj, override.get(src, src)])
         if r.returncode:
             return [], f"compile of {os.path.relpath(src, ROOT)} failed:\n{r.stderr}"
+        out.append(obj)
+    if any(s.endswith(".cpp") for s in srcs):
+        shim = os.path.join(bindir, f"{name}__cxx_main.cpp")
+        with open(shim, "w") as fh:
+            fh.write('int uitest_cxx_main();\n'
+                     'extern "C" int uitest_app_main(int, char **) { return uitest_cxx_main(); }\n')
+        obj = shim[:-4] + ".o"
+        r = run([*GXX, *CXX_FLAGS, "-c", "-o", obj, shim])
+        if r.returncode:
+            return [], f"compile of the C++ main shim failed:\n{r.stderr}"
         out.append(obj)
     return out, None
 
@@ -355,7 +385,9 @@ def link_case(case, harness, lib, bindir, override):
     app_objs, err = build_app(case, bindir, name, override)
     if err:
         return name, None, err
-    r = run([*GCC, "-o", exe, obj, *app_objs, *harness, "-Wl,--start-group", lib, own, "-Wl,--end-group",
+    # g++ links a C++ app, so libstdc++ comes with it.
+    linker = GXX if any(o.endswith("__cxx_main.o") for o in app_objs) else GCC
+    r = run([*linker, "-o", exe, obj, *app_objs, *harness, "-Wl,--start-group", lib, own, "-Wl,--end-group",
              "-Wl,--gc-sections", "-Wl,--wrap=fopen", "-lm"])
     if r.returncode:
         return name, None, f"link failed:\n{r.stderr}"

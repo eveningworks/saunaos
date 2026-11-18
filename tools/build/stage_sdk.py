@@ -18,6 +18,7 @@ kernel's). So:
     /usr/include/             userland/libs/libc/include/, verbatim
     /usr/include/rt/sys.h     the syscall layer the POSIX headers are inline over
     /usr/include/{base,net,media,ui}/   the toolkit's headers ("base/x.h")
+    /usr/include/uixx/        the C++ layer over them, header-only ("uixx/app.hpp")
     /usr/include/saunaos/     every kernel/include/{api,abi} and build/gen
                               header the above reach -- searched AFTER
                               /usr/include (`-idirafter`), as -I put them after
@@ -69,6 +70,9 @@ REPO = toolpath.REPO
 LIBC_INC = "userland/libs/libc/include"
 RT_SYS = "userland/libs/rt/sys.h"
 TOOLKIT = ("base", "net", "media", "ui")
+# The C++ layer (docs/uixx-design.md): headers only, and outside the -M
+# closure below, which compiles as C -- everything it includes is ui/'s.
+UIXX = "userland/libs/uixx"
 KERNEL_DIRS = ("kernel/include/api", "kernel/include/abi")   # + <build>/gen
 
 ARCHIVES = ("libc.a", "libc_nonshared.a", "libbase.a", "libnet.a", "libmedia.a", "libui.a")
@@ -207,6 +211,9 @@ def plan(build, cc):
     public = public_headers()
     files = {k: (v, False) for k, v in public.items()}
     files.update({k: (v, False) for k, v in kernel_closure(build, cc, public).items()})
+    for f in sorted(os.listdir(os.path.join(REPO, UIXX))):
+        if f.endswith(".hpp"):
+            files[f"usr/include/uixx/{f}"] = (f"{UIXX}/{f}", False)
     ub = rel(os.path.join(build, "userland"))
     for a in ARCHIVES:
         files["usr/lib/" + a] = (f"{ub}/{a}", True)

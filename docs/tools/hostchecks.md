@@ -88,9 +88,14 @@ the rest in the sweep. Each stays a standalone script with its own
   kept (`uitest_log_find`), `sys_getrandom` is fixed, a second thread is
   refused (tolibc's `pthread.c` is linked), and POPUP/DIALOG/NOTICE are
   refused, so popups draw in the window. Cases: `calculator_app`,
-  `mines_app`. A control may edit an APP's source (`APP_OVERRIDE`).
+  `mines_app`, and `counterxx_app` -- Counter over the C++ layer
+  (`docs/uixx-design.md`), whose `.cpp` is built with the HOST g++ against
+  glibc and libstdc++ (tolibc's headers cannot sit under libstdc++'s;
+  the kernel's go `-idirafter`, since abi/ has its own `errno.h`) and
+  linked with g++, its argument-less `main` called from a C-linkage shim.
+  A control may edit an APP's source (`APP_OVERRIDE`).
   `--keep DIR` writes `uitest_keep()` frames as PPMs; names run a subset;
-  `--list`. Needs gcc and objdump.
+  `--list`. Needs gcc and objdump, and g++ for a C++ app.
 - **`smb_hostcheck.py`** -- the SMB client's protocol
   (names UTF-8 both ways since UTF-8 step 3: a CJK name, and a stray
   Latin-1 byte reaching its file as its letter; red on the sniffing

@@ -13395,3 +13395,43 @@ ends a title that does not fit in `..`, as the taskbar already did.
 **Declined: a bigger fixed field.** Raising `WIN_TITLE_LEN` would grow
 every channel slot -- a present per frame carries the same union -- and
 would still be a cap, which "size it to the data" rules out.
+
+## The C++ toolkit is header-only classes over libui, widgets as members, one slot per event
+
+**2026-11-18.** `userland/libs/uixx/` is a C++ layer in gtkmm's shape --
+a `ui::Window` subclass holds its widgets as members, a `ui::Button`'s
+click is a lambda, a `ui::Widget` subclass overrides `draw()` -- and it
+is HEADERS ONLY, staged in the SDK's `/usr/include/uixx/` for
+`x86_64-saunaos-g++`. libui stays the implementation, in C, and no C
+caller changes (`docs/uixx-design.md`).
+
+**Why not rewrite libui in C++.** Two hundred C files embed its structs
+and fill its ops tables, the kernel compiles some of its code, and
+libstdc++ is static only, so a C++ libui could not be a shared library.
+A layer gives C++ programs the API without moving anything.
+
+**Why header-only and SDK-only.** A compiled C++ library would need
+libstdc++ built `-fpic` to be shared, which it is not; header-only has no
+second library to build or version, and a program pays for the classes
+it uses. The in-tree build compiles C with the system gcc and tolibc, and
+libstdc++ for SaunaOS exists only in the optional cross toolchain, so the
+layer is for SDK programs and ports. A WTL-style subset with no
+libstdc++ (no exceptions, its own callback type) would also build in the
+tree, but it is not the C++ a port is written in.
+
+**Why members, not parent-owned heap widgets** (`Gtk::make_managed`,
+Qt's parent pointer). The C toolkit's widgets are static structs; members
+are the same rule in C++, nothing allocates per widget, and an Item can
+be neither copied nor moved because the C side keeps its address.
+Heap ownership is a second rule for UI built at run time, which nothing
+here does yet.
+
+**Why one slot per event, not signals** (sigc++, Qt's `connect`).
+`on_click(fn)` replaces the previous handler, as the C toolkit has one
+`on_action`; many listeners and connection objects are machinery for a
+need no caller has. A signal can be added beside a slot when one does.
+
+**The trap it carries:** the toolkit is built
+`-fno-asynchronous-unwind-tables`, so an exception that unwinds into its
+frames terminates the program. Every trampoline back into C++ catches,
+and `ui::Window::run()` rethrows the first exception after the loop.

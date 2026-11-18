@@ -339,3 +339,13 @@ Private seams of a split module, not for apps: `ttf_internal.h`, `uimg_jpeg_int.
 | `uwmf_draw.h` | uwmf_draw -- plays a 16-bit Windows metafile (media/uwmf.h decodes it) into a box of a ugfx surface: the metafile's window (SetWindowOrg/Ext) is mapped onto the box, MM_ANISOTROPIC's way, so the pi... |
 
 Private seams of a split module, not for apps: `uapp_internal.h`.
+
+## `userland/libs/uixx/` -- uixx: the C++ layer over libui, header-only, for the SDK's g++ (`docs/uixx-design.md`)
+
+| Header | What it is |
+|---|---|
+| `app.hpp` | uixx/app.hpp -- the C++ layer over the toolkit, all of it: ui::Window and ui::run, ui::Label, ui::Button, ui::Row/ui::Column, and ui::Widget for a widget of your own. |
+| `box.hpp` | uixx/box.hpp -- ui::Row and ui::Column, a uui_layout whose item array is built from the children named in the constructor. |
+| `controls.hpp` | uixx/controls.hpp -- ui::Label and ui::Button, the C toolkit's uui_label and uui_button held by value, with the text they point at owned by the object (the C structs keep a caller-owned pointer). |
+| `widget.hpp` | uixx/widget.hpp -- the C++ layer's base classes: ui::Item, anything a layout can hold, and ui::Widget, a widget written in C++ by overriding virtuals (gtkmm's Gtk::Widget::on_draw shape). |
+| `window.hpp` | uixx/window.hpp -- ui::Window, one uapp window whose widgets are its subclass's MEMBERS, and ui::run<W>(), which opens it. |

@@ -138,9 +138,14 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   `dl_iterate_phdr()`. It
   also checks `g++ -v` says `Thread model: posix`, that every C library
   header in the sysroot compiles as C++ on its own (the toolkit's are
-  left out: not C++-clean yet; SDL's are checked as a C++ port includes
+  `cxx_headers_hostcheck.py`'s; SDL's are checked as a C++ port includes
   them, `<SDL3/SDL.h>` and SDL2's `"SDL.h"` with `sdl2-config`'s flags),
-  and prints the binary's size. `--positive-control eh_frame` (or
+  and prints the binary's size. Counter over the C++ layer
+  (`userland/libs/uixx/examples/counter/`) is built against the SDK's
+  `uixx/` headers with no warning, spawned on the guest, and must report
+  its four widgets by name and log `counter: count 2` after two `gui
+  click`s on +1 -- the clicks reached the button's lambda.
+  `--positive-control eh_frame` (or
   `init_array`) links with a copy of the sysroot's `saunaos-dyn.ld` that
   discards that section, `libc_eh_frame` a `-static` link whose
   `saunaos.ld` discards libc.a's tables, and each must fail. A SKIP (77) without a toolchain, or with a stage-1 one

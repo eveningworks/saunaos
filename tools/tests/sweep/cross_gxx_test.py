@@ -13,7 +13,9 @@ A second program does `import std` (-std=c++23 -fmodules
 --compile-std-module), which needs the same, and must match the host too.
 And every header in the sysroot compiles as C++ on its own, and a C++
 program calling into libbase, libmedia and libui -- a window opened, drawn
-and closed -- runs on the guest.
+and closed -- runs on the guest, and so does Counter written over the C++
+layer (uixx/app.hpp, docs/uixx-design.md): two clicks on its +1 reach the
+button's lambda.
 
 WHAT A BROKEN VERSION WOULD STILL PASS, and what is asserted instead:
   - "it links" passes a program whose constructors never run (the stage-1
@@ -44,6 +46,7 @@ RUNNER = {"covers": "x86_64-saunaos-g++'s default build runs C++ on a guest and 
           "needs": ["cross_gcc", "no x86_64-saunaos toolchain -- `make toolchain EXTRAS=1`"]}
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -59,6 +62,7 @@ REPO = toolpath.REPO
 TARGET = "x86_64-saunaos"
 GUEST_BIN = "/tmp/cxx_hello"
 GUEST_OUT = "/tmp/cxx_hello.out"
+COUNTERXX = os.path.join(REPO, "userland/libs/uixx/examples/counter/counter.cpp")
 END = "cxx: global destroyed"
 
 SHARED_H = r"""
@@ -399,6 +403,35 @@ def main():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def counter_on_guest(res, vm, exe):
+    """Counter++ on the real compositor: its widget map names the buttons
+    the C++ tree declared, and two clicks on +1 reach its lambda -- the
+    log's `counter: count 2`, which no amount of drawing can fake."""
+    guest = GUEST_BIN + "_counter"
+    vm("put", exe, guest)
+    vm("exec", "--raw", f"gui spawn {guest}")
+
+    def widgets():
+        for line in reversed(vm("exec", "--raw", "gui widgets Counter --json").splitlines()):
+            try:
+                return {w["name"]: w for w in json.loads(line).get("widgets", [])}
+            except ValueError:
+                continue
+        return {}
+
+    got = poll(lambda: (lambda w: w if {"label", "bar", "add", "reset"} <= set(w) else None)(widgets()), 60) or {}
+    if not res.check("Counter++'s window reports the label, bar, +1 and Reset by name",
+                     {"label", "bar", "add", "reset"} <= set(got), f"got {sorted(got)}"):
+        return
+    add = got["add"]
+    x, y = add["screen"]["x"] + add["w"] // 2, add["screen"]["y"] + add["h"] // 2
+    for _ in range(2):
+        vm("exec", "--raw", f"gui click {x} {y}")
+    log = poll(lambda: (lambda t: t if "counter: count 2" in t else None)(vm("exec", "dmesg")), 30) or ""
+    res.check("two clicks on +1 reach the button's C++ handler (`counter: count 2` in the log)",
+              "counter: count 2" in log, "\n".join(l for l in log.splitlines() if "counter" in l)[-600:])
+
+
 def run(args, gxx, tmp):
     res = Results()
     for name, text in (("shared.h", SHARED_H), ("thrower.cpp", THROWER), ("main.cpp", MAIN)):
@@ -514,6 +547,16 @@ def run(args, gxx, tmp):
     res.check("a C++ program using base, media, ui and the kernel lib compiles and links",
               tb.returncode == 0 and not tb.stderr.strip(), (tb.stdout + tb.stderr).strip()[:1200])
 
+    # 3d. The C++ layer over the toolkit (docs/uixx-design.md): Counter from
+    # the SDK's uixx/ headers, built here, clicked on the guest below. The
+    # host's uitest case (counterxx_app) tests what it does; this, that the
+    # SDK carries the layer and its window works on the real compositor.
+    cx_exe = os.path.join(tmp, "counterxx")
+    cb = subprocess.run([gxx, *extra, "-std=c++20", "-O2", "-Wall", "-Wextra", COUNTERXX, "-o", cx_exe,
+                         "-lui", "-lmedia", "-lnet", "-lbase"], cwd=tmp, capture_output=True, text=True)
+    res.check("Counter in C++ over the SDK's uixx/app.hpp compiles and links with no warning",
+              cb.returncode == 0 and not cb.stderr.strip(), (cb.stdout + cb.stderr).strip()[:1200])
+
     # 4. The oracle: the same source, the host's plain g++, run here.
     host_exe = os.path.join(tmp, "cxx_hello-host")
     subprocess.run(["g++", "-std=c++17", "-O2", "-pthread", *srcs, "-o", host_exe], check=True)
@@ -572,6 +615,8 @@ def run(args, gxx, tmp):
             res.check("the toolkit program runs on the guest: a path, a file type, a decoded "
                       "image, a window drawn and closed", gt == TOOLKIT_WANT,
                       f"    want: {TOOLKIT_WANT!r}\n    got:  {gt!r}")
+        if cb.returncode == 0:
+            counter_on_guest(res, vm, cx_exe)
     finally:
         vm("stop")
     return res.finish("cross_gxx_test")

@@ -32,6 +32,7 @@ DIRS = [
     ("userland/libs/net", "libnet: DHCP, DNS, network mounts, site data"),
     ("userland/libs/media", "libmedia: image, sound and video codecs, fonts"),
     ("userland/libs/ui", "libui: widgets, the theme and the app framework (`uapp`)"),
+    ("userland/libs/uixx", "uixx: the C++ layer over libui, header-only, for the SDK's g++ (`docs/uixx-design.md`)"),
 ]
 MAX_LINE = 200
 
@@ -96,7 +97,7 @@ def build():
     missing = []
     for rel, title in DIRS:
         d = os.path.join(REPO, rel)
-        headers = sorted(f for f in os.listdir(d) if f.endswith(".h"))
+        headers = sorted(f for f in os.listdir(d) if f.endswith((".h", ".hpp")))
         out += ["", f"## `{rel}/` -- {title}", "",
                 "| Header | What it is |", "|---|---|"]
         internal = []

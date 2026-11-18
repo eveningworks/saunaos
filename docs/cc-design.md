@@ -196,7 +196,9 @@ is done: `--enable-languages=c,c++` adds `cc1plus` and `g++`, and
 libstdc++ is already there because GCC itself needs it. Two levels:
 
 - **C++ programs FOR SaunaOS, cross-built on the host** -- arrives with
-  stage 2. Enough to port C++ software as `/bin` programs.
+  stage 2. Enough to port C++ software as `/bin` programs; a GUI one has
+  the toolkit through `extern "C"` headers and a C++ layer over it,
+  `uixx/app.hpp` (`docs/uixx-design.md`).
 - **`g++` ON SaunaOS** -- arrives with stage 3, at the cost of another
   `cc1plus`-sized binary on the disk.
 

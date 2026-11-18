@@ -313,6 +313,53 @@ A new test tool joins `tools/runners/gui_regress.py`'s list, and
 `docs/testing.md` has the rest, including the ways a GUI test passes
 without testing anything.
 
+## 10. The same app in C++
+
+With the SDK's cross compiler (`make toolchain EXTRAS=1`), `uixx/app.hpp`
+is a C++ layer over the same toolkit, in gtkmm's shape
+(`docs/uixx-design.md`). The widgets become MEMBERS of a window class,
+the layout is written as nested constructors, and a click is a lambda.
+`userland/libs/uixx/examples/counter/counter.cpp` is this page's Counter,
+whole:
+
+```cpp
+class Counter : public ui::Window {
+public:
+    Counter() : Window("Counter", "counterxx") {
+        set_root(ui::Column{label_.name("label"), bar_.fill().name("bar"),
+                            ui::Row{add_.name("add"), reset_.name("reset")}.name("row")});
+        add_.on_click([this] { set_count(count_ + 1); });
+        reset_.on_click([this] { set_count(0); });
+    }
+protected:
+    void on_key(int key, unsigned) override { ... }   // as section 4's
+private:
+    ui::Label label_{"Clicked 0 times"};
+    Bar bar_;                                         // a ui::Widget: overrides draw()
+    ui::Button add_{"+1"}, reset_{"Reset"};
+};
+int main() { return ui::run<Counter>(); }            // the font first, then the window
+```
+
+What changes from the C version:
+
+- **No ids and no `on_action` switch.** `set_root()` numbers the items
+  and routes each commit back to its button's `on_click`.
+- **No focus ring to declare.** Every widget that takes keys joins the
+  Tab ring in tree order.
+- **Section 3's custom item is a subclass**: override `natural_size()`
+  and `draw()`, and `press()`/`key()` if it takes input; `rect()` is where
+  the layout put it, and `redraw()` asks for a repaint.
+- **Strings are owned.** `label_.set_text(std::string)` keeps the text,
+  where the C label keeps a pointer to yours.
+- **Name a child, or write a Row in place -- never a temporary
+  widget.** A named member is referenced; a nested `ui::Row{...}` is
+  owned by its parent; `ui::Column{ui::Label{"x"}}` does not compile.
+
+Build it on the host and copy it in:
+
+    x86_64-saunaos-g++ -std=c++20 -O2 counter.cpp -o counter++ -lui -lmedia -lnet -lbase
+
 ## Where to read next
 
 - `userland/apps/system/about/about.c` -- free drawing with `on_draw`, footer
@@ -320,5 +367,6 @@ without testing anything.
 - `userland/apps/apps/calculator/calculator.c` -- a grid layout and a button group.
 - `userland/apps/demos/uidemo/uidemo.c` -- every stock widget in one window.
 - `userland/libs/ui/uapp.h` -- every callback and flag, with the reason for each.
+- `docs/uixx-design.md` -- the C++ layer, and how it maps onto the C one.
 - `docs/gui-guidelines.md` and `docs/conventions/gui.md` -- how things
   must look and behave, and why.

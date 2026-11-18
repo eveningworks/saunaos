@@ -118,6 +118,7 @@ in check_layout.py changes with it.)
 | `/usr/include/net` | `libnet`'s headers | build | present |
 | `/usr/include/media` | `libmedia`'s headers | build | present |
 | `/usr/include/ui` | `libui`'s headers | build | present |
+| `/usr/include/uixx` | The C++ layer over `libui`, header-only (`"uixx/app.hpp"`, `docs/uixx-design.md`); no archive of its own | build | present |
 | `/usr/include/SDL3` | SDL3's public headers, `<SDL3/SDL.h>` (`docs/sdl-design.md`, stage 3) | build | present |
 | `/usr/include/SDL2` | SDL2's, sdl2-compat's: `"SDL.h"` with `-I=/usr/include/SDL2`, as `sdl2-config --cflags` says | build | present |
 | `/usr/include/c++/**` | libstdc++'s headers, `16.2.0/` and its tree (`bits/`, `ext/`, `x86_64-saunaos/bits/` for the target's `c++config.h`, ...) -- upstream's layout. With the native compiler only | build | optional |

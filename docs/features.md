@@ -737,7 +737,10 @@ sdl3` or `sdl2-config`, as on Linux.
 (found through `dl_iterate_phdr()`, so a throw crosses `libc.so`),
 the standard containers, iostream and `std::thread` on POSIX threads --
 and the toolkit callable from C++ (every SDK header carries `extern
-"C"`; a C++ program opens a `uapp` window with a lambda for `on_draw`) --
+"C"`; a C++ program opens a `uapp` window with a lambda for `on_draw`),
+with a C++ layer over it in `uixx/app.hpp` -- a window class whose
+widgets are members, a lambda per button, a `ui::Widget` subclass for
+your own drawing (`docs/uixx-design.md`) --
 over a runtime that runs constructors and destructors in glibc's order,
 for C's `__attribute__((constructor))` too, in static and dynamic
 programs alike (stage 2) -- and `<cmath>` whole and `import std`, because

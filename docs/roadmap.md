@@ -1759,7 +1759,10 @@ the design doc says why in its first section.
 - [ ] `<complex.h>` and `<tgmath.h>`, so libstdc++'s `std::complex` uses C99's `cexp` and friends
 - [ ] The wide-string and wide-I/O families in tolibc, so libstdc++ can be built with `wchar_t` (`std::wstring`, `std::wcout`)
 - [x] ~~The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++~~ DONE 2026-11-18 -- `cxx_headers_hostcheck.py`
-- [ ] A C++ layer over the toolkit, gtkmm's shape -- classes, lambdas for callbacks; the C library stays the implementation
+- [x] ~~A C++ layer over the toolkit, gtkmm's shape~~ DONE 2026-11-18 -- `uixx/` stage 1, `docs/uixx-design.md`
+- [ ] The C++ layer's value widgets -- Textbox, Checkbox, Switch, Dropdown, Slider, Listbox, Tabs, Progress -- each with an `on_change` slot
+- [ ] The C++ layer's menus and dialogs -- a menu bar with `item_flags` from a lambda, `ui::message_box`, a timer
+- [ ] An in-tree C++ program -- the build compiles C only; a `.cpp` component needs the cross toolchain, which is optional
 - [x] ~~The cross compiler links dynamically by default; `-static` opts out~~ DONE 2026-11-17 -- tables via `dl_iterate_phdr()`
 - [ ] A shared library built by the cross toolchain, with C++ in it -- needs libstdc++ built `-fpic` (its TLS is local-exec)
 - [x] ~~GCC and binutils running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000`~~ DONE 2026-11-08 -- `make native-toolchain`, opt-in
