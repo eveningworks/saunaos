@@ -31,6 +31,7 @@ import argparse
 import os
 import re
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -510,7 +511,7 @@ def main():
     ap.add_argument("--logs", default=None, help="directory for screenshots")
     args = ap.parse_args()
     port_guard.resolve_instance(args, "animation_test")
-    tmp = args.logs or "/tmp"
+    tmp = args.logs or tempfile.gettempdir()
     os.makedirs(tmp, exist_ok=True)
 
     res = Result()

@@ -63,6 +63,7 @@ RUNNER = {
 import argparse
 import os
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -107,7 +108,7 @@ def main():
     args = ap.parse_args()
     port_guard.resolve_instance(args, "network_tray_test")
 
-    outdir = args.logs or "/tmp"
+    outdir = args.logs or tempfile.gettempdir()
     os.makedirs(outdir, exist_ok=True)
     shot = lambda n: os.path.join(outdir, n)  # noqa: E731
 

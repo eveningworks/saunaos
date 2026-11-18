@@ -55,6 +55,7 @@ RUNNER = {"name": "files", "covers": "the File Manager: panes, marks, file ops",
 import argparse
 import os
 import sys
+import tempfile
 import time
 import json
 
@@ -3370,7 +3371,7 @@ def main():
     args = ap.parse_args()
     port_guard.resolve_instance(args, "filemanager_test")
 
-    tmp = args.logs or "/tmp"
+    tmp = args.logs or tempfile.gettempdir()
     os.makedirs(tmp, exist_ok=True)
 
     res = Result()

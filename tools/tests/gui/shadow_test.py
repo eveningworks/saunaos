@@ -26,6 +26,7 @@ RUNNER = {"covers": "drop shadows under windows and menus, and desktop.shadows t
 import argparse
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
@@ -193,7 +194,7 @@ def main():
     ap.add_argument("--logs", default=None, help="directory for screenshots")
     args = ap.parse_args()
     port_guard.resolve_instance(args, "shadow_test")
-    tmp = args.logs or "/tmp"
+    tmp = args.logs or tempfile.gettempdir()
     os.makedirs(tmp, exist_ok=True)
 
     res = Result()
