@@ -40,8 +40,8 @@ struct gui_app {
 
     // Which app_id a WINDOW of this entry reports, so the taskbar can
     // find the icon for a window it did not launch. Defaults to the
-    // basename of Exec, which is right for every app here but one --
-    // Shapes runs /bin/wm/demos/shapes and calls itself "gfxdemo".
+    // basename of Exec's program, which is right for every app here but
+    // one -- Shapes runs /bin/wm/demos/shapes and calls itself "gfxdemo".
     //
     // This is freedesktop's StartupWMClass, which exists for exactly
     // this mismatch: the window's own identity and the launcher's file

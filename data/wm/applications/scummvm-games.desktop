@@ -1,6 +1,8 @@
 # ScummVM's free games card -- see this directory's README.md.
 Name=Free Adventure Games
 Exec=/bin/wm/apps/scummvm --games
+# Its own: the default (Exec's program) is the ScummVM entry's.
+AppId=scummvm-games
 TryExec=/usr/bin/scummvm
 Category=games
 Comment=Download the four freeware games ScummVM plays

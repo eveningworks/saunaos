@@ -8,6 +8,7 @@
 #include "kpath.h"   // k_path_basename, for AppId's default
 #include "base/ucomponent.h"   // the GPL switch: which entries are hidden
 #include <stdlib.h>
+#include <string.h>   // strcspn: Exec='s program word
 
 // The Start menu and the desktop icons are built from DATA ON DISK --
 // one file per app in /usr/wm/applications/, scanned at desktop startup.
@@ -237,10 +238,16 @@ static int read_entry(struct vals *v, const struct etc_config_buf *cfg, const ch
     if (icon < 0) icon = put(v, "");
     e->glyph = v->p[icon];
     if (v->p[icon] && !v->p[icon + 1]) icon = put(v, "");
-    // AppId defaults to the basename of Exec, which is right everywhere
-    // but Shapes -- see gui_apps.h on why the entry gets to say.
+    // AppId defaults to the basename of Exec's PROGRAM, which is right
+    // everywhere but Shapes -- see gui_apps.h on why the entry gets to
+    // say. Never the flags: a pin list is space-separated.
     int appid = val(v, cfg, "AppId");
-    if (appid < 0) appid = put(v, k_path_basename(v->p + exec));
+    if (appid < 0 && (appid = put(v, v->p + exec)) >= 0) {
+        // A copy of Exec= cut at its first blank; its basename points
+        // into that copy, which is the value.
+        v->p[appid + (int)strcspn(v->p + appid, " \t")] = '\0';
+        appid = (int)(k_path_basename(v->p + appid) - v->p);
+    }
     unsigned room = v->cap - v->used;
     int key = (int)v->used;
     unsigned klen = (unsigned)wm_app_key(v->p + exec, v->p + appid, v->p + key, (int)room);

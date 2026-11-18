@@ -164,7 +164,7 @@ def main():
     sock = args.sock or port_guard.instance_sock(n)
 
     res = Result()
-    tmp = scratch_dir("soundd_test_")
+    tmp = scratch_dir("soundd_test_", keep=args.keep)
     wav_path = os.path.join(tmp, "out.wav")
     img = os.path.join(tmp, "disk.img")
     copy_disk("disk.img", img, cwd=REPO)
