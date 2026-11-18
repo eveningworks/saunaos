@@ -199,7 +199,6 @@ struct uapp_window {
     struct uapp_top top;    // FIRST: window_of() casts back from it; top.slot 0 = closed
     struct uapp *app;
     struct uapp_window_desc desc;
-    char title[WIN_TITLE_LEN];
     int fullscreen;         // uapp_window_set_fullscreen(): its resize proposals adopted whatever the flags
     int windowed_w, windowed_h;   // a FIXED window's size before fullscreen, given back after; 0 = none
 };
@@ -210,6 +209,9 @@ UAPP_HIDDEN extern struct uchan_client g_wmchan;
 UAPP_HIDDEN int  wmchan(void);
 UAPP_HIDDEN int  comp_pid(void);
 UAPP_HIDDEN int  wmchan_send(uint32_t type, uint32_t window, int aa, int bb, int cc, const char *text);
+// A title or tab label of any length up to WIN_TEXT_MAX: one message when
+// it fits, else in pieces (c: WIN_TEXT_PIECE, abi/win_proto.h).
+UAPP_HIDDEN int  wmchan_send_text(uint32_t type, uint32_t window, int aa, int bb, const char *text);
 UAPP_HIDDEN int  wmchan_call(uint32_t type, uint32_t window, int aa, int bb, int cc,
                              const char *text, int fail);
 UAPP_HIDDEN int  wmchan_send_damage(uint32_t type, uint32_t window, int aa, int bb, int cc,

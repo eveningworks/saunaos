@@ -29,7 +29,7 @@ struct wait {
     unsigned ticket;
     int kind, state, pid;
     unsigned input;   // W_INPUT: `gui input`'s sequence
-    char title[WIN_TITLE_MAX];
+    char title[WM_TEXT_MAX];
     char name[WIN_TITLE_MAX];
     uint64_t start_ms, deadline_ms, end_ms;
 };

@@ -781,6 +781,14 @@ from the default (a sound card, a USB mouse, `--reboot`).
   tab's own Back history is checked with a step only that tab took --
   a history shared between tabs would stay put. Its positive control
   stops a tab from restoring its history: that check reddens.
+- **`title_text_test.py`** -- a window title or tab label longer than
+  one channel message (`WIN_TEXT_PIECE`): 300-byte texts from
+  `/tests/titleclient`, a two-byte character straddling the 31-byte
+  pieces, arrive whole in `gui windows --json`; a short title is still
+  one message; a 2000-byte one is cut on a character boundary at
+  `WIN_TEXT_MAX`. Pixels: the long title's text reaches the caption
+  buttons and the short one's does not. Its positive control makes the
+  compositor ignore pieces: the four long-text checks redden.
 - **`launch_test.py`** -- running programs and scripts (`base/ulaunch.h`,
   `ui/uui_runask.h`, `/bin/wm/system/runask`, Terminal's `-e`) from the
   File Manager and through `/bin/open`: the "Run hello.sh?" card and

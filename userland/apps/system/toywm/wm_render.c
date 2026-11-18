@@ -251,8 +251,8 @@ static void draw_title_tabs(const struct window *win, int idx, uint32_t bar, uin
             }
         }
         int room = t.close_x[i] - 4 - tx;
-        ugfx_draw_string_clipped(wm_surface(), tx, t.y + (t.h - ugfx_char_h()) / 2, room,
-                                 win->tab[i], fg, bg);
+        ugfx_draw_string_elided(wm_surface(), tx, t.y + (t.h - ugfx_char_h()) / 2, room,
+                                win->tab[i], fg, bg);
         // The close box: a cross, in a disc when hovered.
         int cs = t.close_size, cx = t.close_x[i], cy = t.close_y;
         if (idx >= 0 && title_hover_win == idx && title_hover_kind == 4 && title_tab_idx == i)
@@ -1324,7 +1324,7 @@ static void draw_window_chrome(struct window *win, int idx, int focused) {
     // subject to the same width budget as the name -- appending it after
     // the truncation would draw straight over the buttons, which is this
     // codebase's most-repeated drawing bug (docs/gui-guidelines.md).
-    char full[WIN_TITLE_MAX + 20];
+    char full[WM_TEXT_MAX + 20];
     const char *shown = win->title;
     if (win->not_responding) {
         k_snprintf(full, sizeof full, "%s (Not Responding)", win->title);
@@ -1348,37 +1348,31 @@ static void draw_window_chrome(struct window *win, int idx, int focused) {
         text_x = ix + isz + 5;
     }
 
-    // **MEASURED, NOT DIVIDED.** `avail_px / ugfx_char_w()` asks how
-    // many of the WIDEST glyph fit, which is the right answer only on a
-    // monospace face -- with a proportional interface face it cuts a
-    // title several characters early and every window reads as
-    // truncated. ugfx_text_fit_chars() exists for exactly this
-    // (ui/ugfx.h's "no widget does character arithmetic on a string").
     if (win->ntabs > 0) {
         draw_title_tabs(win, idx, glass ? UTHEME_ACCENT : titlebar, titletext);
         shown = "";
     }
-    char title_buf[WIN_TITLE_MAX + 20];
+    // MEASURED, never `avail_px / ugfx_char_w()` (a proportional face),
+    // and ELIDED when it does not fit, as KWin and Windows end a long
+    // title -- `..` (ugfx_draw_string_elided()), the taskbar's mark too.
     int avail_px = r.min_x - text_x;
-    int max_chars = avail_px > 0 ? ugfx_text_fit_chars(shown, avail_px) : 0;
-    int i = max_chars;   // bytes, ending on a character boundary
-    if (i > (int)sizeof title_buf - 1) {
-        // The BUFFER is short, not the pixels: cut between characters.
-        i = 0;
-        for (int nx; (nx = ugfx_text_next(shown, i)) > i && nx <= (int)sizeof title_buf - 1;) i = nx;
+    int ty = win->y + (WM_TITLEBAR_H - ugfx_char_h()) / 2;
+    int tw = ugfx_text_width(shown);
+    if (tw > avail_px) {
+        if (avail_px > 0)
+            ugfx_draw_string_elided(wm_surface(), text_x, ty, avail_px, shown,
+                                    titletext, glass ? UGFX_TRANSPARENT : titlebar);
+    } else {
+        if (th->title_align == UTHEME_TITLE_CENTER && !win->ntabs) {
+            // Centred on the WINDOW, as GNOME does, but never left of where
+            // the icon ends or into the buttons.
+            int cx = win->x + (win->w - tw) / 2;
+            if (cx + tw > r.min_x - 4) cx = r.min_x - 4 - tw;
+            if (cx > text_x) text_x = cx;
+        }
+        ugfx_draw_string(wm_surface(), text_x, ty, shown,
+                         titletext, glass ? UGFX_TRANSPARENT : titlebar);
     }
-    for (int k = 0; k < i; k++) title_buf[k] = shown[k];
-    title_buf[i] = '\0';
-    if (th->title_align == UTHEME_TITLE_CENTER && !win->ntabs) {
-        // Centred on the WINDOW, as GNOME does, but never left of where
-        // the icon ends or into the buttons.
-        int tw = ugfx_text_width(title_buf);
-        int cx = win->x + (win->w - tw) / 2;
-        if (cx + tw > r.min_x - 4) cx = r.min_x - 4 - tw;
-        if (cx > text_x) text_x = cx;
-    }
-    ugfx_draw_string(wm_surface(), text_x, win->y + (WM_TITLEBAR_H - ugfx_char_h()) / 2, title_buf,
-                     titletext, glass ? UGFX_TRANSPARENT : titlebar);
 
     // A DISC's glyph contrasts with the disc; a RECTANGLE sits on the
     // bar, so its glyph is the title's colour and its face appears only

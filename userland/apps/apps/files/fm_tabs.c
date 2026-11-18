@@ -23,12 +23,12 @@ struct tab {
     char dir[2][PATH_MAX_LEN];
     int active;
     unsigned char hist[2][HIST_BYTES];
-    char label[WIN_TITLE_LEN];
+    char label[WIN_TEXT_MAX];
 };
 
 static struct tab g_tabs[WIN_TABS_MAX];   // static: tens of KB each
 static int g_ntabs, g_cur;
-static char g_sent[WIN_TABS_MAX][WIN_TITLE_LEN];   // what the compositor last got
+static char g_sent[WIN_TABS_MAX][WIN_TEXT_MAX];   // what the compositor last got
 static int g_sent_n = -1, g_sent_cur = -1;
 
 static const char *real_dir(int pane) {
@@ -37,7 +37,7 @@ static const char *real_dir(int pane) {
     return sc ? sc : d;
 }
 
-// Cut to the compositor's title size on a character boundary, so a long
+// Cut to the compositor's text bound on a character boundary, so a long
 // non-Latin folder name does not end in half a character.
 static void label_of(const char *dir, char *out, int cap) {
     const char *l = !strcmp(dir, FM_BIN) ? "Recycle Bin"

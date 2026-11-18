@@ -18,6 +18,9 @@
 struct gui_app; // full definition in gui_apps.h
 
 #define WIN_TITLE_MAX 32
+// Mirrors abi/win_proto.h's WIN_TEXT_MAX: a title or tab label's ceiling,
+// NUL included (asserted in wm_client.c).
+#define WM_TEXT_MAX 1024
 
 // Mirrors abi/win_proto.h's WIN_APP_ID_LEN, the same way WIN_TITLE_MAX
 // mirrors WIN_TITLE_LEN -- this header is app-facing and deliberately
@@ -46,7 +49,9 @@ struct wm_widget {
 };
 
 struct window {
-    char title[WIN_TITLE_MAX];
+    // Sized to it, and never NULL while the window exists: set through
+    // wm_window_set_title(), freed by close_window().
+    char *title;
 
     // When it opened, relative to the others (wm_next_open_seq()) -- a
     // window's identity for the taskbar and peek, since windows[] is
@@ -246,10 +251,15 @@ struct window {
     int not_responding;   // no answer within WM_PING_TIMEOUT_TICKS
     // TITLE-BAR TABS (WIN_REQ_TABS), drawn in place of the title; the
     // client decides what they are, this only draws and reports clicks.
-    char tab[WIN_TABS_MAX][WIN_TITLE_MAX];
+    char *tab[WIN_TABS_MAX];      // wm_window_set_tab(); valid below ntabs
     int tab_icon[WIN_TABS_MAX];   // WIN_TAB_ICON_*
     int ntabs;            // 0 = no tabs: the title as ever
     int active_tab;
+    // A long title or tab label arriving in pieces (WIN_TEXT_PIECE): the
+    // bytes so far, which text they build (-1 the title, else a tab) and
+    // the piece expected next.
+    char *text_part;
+    int text_part_len, text_part_key, text_part_next;
     uint64_t ping_blocked_tick;   // since when a ping found the inbox full; 0 = it did not
 
     // --- events the client's inbox could not take (stage 8) --------
@@ -472,6 +482,12 @@ void tray_unregister(int tray_id);
 // The window manager's entry point -- this is what gui_main() calls.
 // Runs until the user presses Esc, then returns.
 void wm_run(void);
+
+// A window's title and tab labels, copied to fit. Out of memory keeps the
+// old text (and logs). wm_window_free_text() is close_window()'s.
+void wm_window_set_title(struct window *w, const char *s);
+void wm_window_set_tab(struct window *w, int i, const char *s);
+void wm_window_free_text(struct window *w);
 
 // --- read-only window introspection (Task Manager's data source) ---
 //

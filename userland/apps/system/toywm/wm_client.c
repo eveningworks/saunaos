@@ -16,6 +16,7 @@
 // comment.
 #include "apps/system/toywm/wm_watch.h" // WIN_EV_FSWATCH / WIN_EV_SETTING land there
 #include <stdlib.h>   // malloc: the client widget map
+#include <string.h>   // memcpy: a long title's pieces
 #include "wm_internal.h"
 #include "wm_prof.h"
 #include "crash_notice.h"
@@ -316,6 +317,8 @@ static int find_client_window(int pid, uint32_t id) {
 // two ever disagree the failure is silent and nasty: ids truncate to the
 // shorter one, so two apps whose names share a prefix start matching
 // each other and raising each other's windows.
+_Static_assert(WM_TEXT_MAX == WIN_TEXT_MAX, "wm.h's WM_TEXT_MAX mirrors WIN_TEXT_MAX");
+_Static_assert(WIN_TEXT_PIECES_MAX <= 0xff, "a piece count fits WIN_TEXT_PIECE's byte");
 _Static_assert(WIN_APP_ID_MAX == WIN_APP_ID_LEN,
                 "wm.h's WIN_APP_ID_MAX must match abi/win_proto.h's WIN_APP_ID_LEN");
 _Static_assert(WM_PROCPATH_MAX == QUERY_PROCPATH_MAX,
@@ -402,10 +405,7 @@ static int on_window_created(int pid, uint32_t id,
     // A placeholder until the client sends WIN_REQ_TITLE. Deliberately
     // not left blank: an untitled window is indistinguishable from a
     // broken one on screen.
-    const char *deflt = "Client";
-    int i = 0;
-    for (; deflt[i] && i < WIN_TITLE_MAX - 1; i++) win->title[i] = deflt[i];
-    win->title[i] = '\0';
+    wm_window_set_title(win, "Client");
 
     // A new window steals focus; wm_focus_sync() tells both clients.
 
@@ -502,7 +502,7 @@ static int on_popup_created(int pid, uint32_t id, uint32_t parent_id, int w, int
     win->client_buf = win->client_px[0];
     win->client_last_mx = INT32_MIN;
     win->client_last_my = INT32_MIN;
-    k_strlcpy(win->title, "Popup", sizeof win->title);
+    wm_window_set_title(win, "Popup");
 
     windows[window_count].open_seq = wm_next_open_seq();
     window_count++;
@@ -571,7 +571,7 @@ static int on_dialog_created(int pid, uint32_t id, uint32_t owner_id,
     win->client_buf = win->client_px[0];
     win->client_last_mx = INT32_MIN;
     win->client_last_my = INT32_MIN;
-    k_strlcpy(win->title, (title && title[0]) ? title : "Dialog", sizeof win->title);
+    wm_window_set_title(win, (title && title[0]) ? title : "Dialog");
 
     // The owner is losing focus to it (wm_focus_sync() says so), and its
     // title bar shows it.
@@ -978,9 +978,7 @@ static void on_window_title(int pid, uint32_t id, const char *title) {
     int idx = find_client_window(pid, id);
     if (idx < 0) return;
 
-    int i = 0;
-    for (; title[i] && i < WIN_TITLE_MAX - 1; i++) windows[idx].title[i] = title[i];
-    windows[idx].title[i] = '\0';
+    wm_window_set_title(&windows[idx], title);
 
     // The title bar -- see on_window_present() on over-damaging.
     wm_damage_rect(windows[idx].x, windows[idx].y, windows[idx].w, WM_TITLEBAR_H);
@@ -1435,8 +1433,62 @@ void wm_client_chan_wait(int timeout_ms) {
 // "something changed" event through the kernel and then a
 // WIN_REQ_WINDOW_INFO to read the detail back, because struct
 // win_event is 24 bytes and none of them fits.
+// The whole text a TITLE or TAB message completes (`key`: -1 the title,
+// else the tab), or NULL while pieces are still coming or after a
+// sequence was dropped. A one-message text lands in `one`; a pieced one
+// is the window's `text_part`, which the caller frees with
+// text_part_done() once it has copied it.
+static const char *text_of(struct window *w, int key, const struct wmchan_msg *m,
+                           char one[WIN_TITLE_LEN]) {
+    if (m->c == 0) {
+        memcpy(one, m->text, WIN_TITLE_LEN - 1);
+        one[WIN_TITLE_LEN - 1] = '\0';
+        return one;
+    }
+    int i = WIN_TEXT_PIECE_I(m->c), n = WIN_TEXT_PIECE_N(m->c);
+    const char *why = 0;
+    if (n < 1 || n > WIN_TEXT_PIECES_MAX || i >= n) why = "a piece count past WIN_TEXT_MAX";
+    else if (i == 0) {
+        free(w->text_part);
+        w->text_part = malloc((size_t)n * (WIN_TITLE_LEN - 1) + 1);
+        w->text_part_len = 0;
+        w->text_part_key = key;
+        w->text_part_next = 0;
+        if (!w->text_part) why = "no memory";
+    } else if (!w->text_part || w->text_part_key != key || w->text_part_next != i)
+        why = "a piece out of order";
+    if (why) {
+        wm_logf("wm: '%s' -- a long title or label dropped: %s\n", w->title, why);
+        free(w->text_part);
+        w->text_part = 0;
+        return 0;
+    }
+    int k = 0;
+    while (k < WIN_TITLE_LEN - 1 && m->text[k]) k++;
+    memcpy(w->text_part + w->text_part_len, m->text, (size_t)k);
+    w->text_part_len += k;
+    w->text_part_next++;
+    if (i < n - 1) return 0;
+    w->text_part[w->text_part_len] = '\0';
+    return w->text_part;
+}
+
+// Only a text text_of() assembled is freed: a one-message one must not
+// end another text's pieces still in flight.
+static void text_part_done(struct window *w, const char *t) {
+    if (t != w->text_part) return;
+    free(w->text_part);
+    w->text_part = 0;
+}
+
 static void req_title(int from, struct wmchan_msg *m) {
-    on_window_title(from, m->window, m->text);
+    int idx = find_client_window(from, m->window);
+    if (idx < 0) return;
+    char one[WIN_TITLE_LEN];
+    const char *t = text_of(&windows[idx], -1, m, one);
+    if (!t) return;
+    on_window_title(from, m->window, t);
+    text_part_done(&windows[idx], t);
 }
 
 // TITLE-BAR TABS: the count and the active one, then the labels one
@@ -1448,7 +1500,7 @@ static void req_tabs(int from, struct wmchan_msg *m) {
     struct window *w = &windows[idx];
     int n = m->a < 0 ? 0 : m->a > WIN_TABS_MAX ? WIN_TABS_MAX : m->a;
     for (int i = w->ntabs; i < n; i++) {
-        w->tab[i][0] = '\0';
+        wm_window_set_tab(w, i, "");
         w->tab_icon[i] = WIN_TAB_ICON_FOLDER;
     }
     w->ntabs = n;
@@ -1461,9 +1513,11 @@ static void req_tab(int from, struct wmchan_msg *m) {
     int idx = find_client_window(from, m->window);
     if (idx < 0 || m->a < 0 || m->a >= windows[idx].ntabs) return;
     struct window *w = &windows[idx];
-    int i = 0;
-    for (; m->text[i] && i < WIN_TITLE_MAX - 1; i++) w->tab[m->a][i] = m->text[i];
-    w->tab[m->a][i] = '\0';
+    char one[WIN_TITLE_LEN];
+    const char *t = text_of(w, m->a, m, one);
+    if (!t) return;
+    wm_window_set_tab(w, m->a, t);
+    text_part_done(w, t);
     w->tab_icon[m->a] = m->b;
     wm_damage_rect(w->x, w->y, w->w, WM_TITLEBAR_H);
     WM_REDRAW();

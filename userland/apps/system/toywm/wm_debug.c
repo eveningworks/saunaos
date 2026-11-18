@@ -237,6 +237,29 @@ void dbg_out_printf(struct dbg_out *o, const char *fmt, ...) {
     dbg_out_write(o, line);
 }
 
+// A JSON string's body, any length: a window's title or tab label may be
+// past what one dbg_out_printf() line holds, and a line that does not
+// fit is written as NOTHING (kfmt.h), which would drop the whole window.
+static void dbg_out_jstr(struct dbg_out *o, const char *s) {
+    char buf[64];
+    int n = 0;
+    for (; s && *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        // Flushed only BETWEEN characters: the console's reader decodes
+        // each write, and half a UTF-8 sequence reads as U+FFFD.
+        if (n > (int)sizeof buf - 8 && (c & 0xC0) != 0x80) {
+            buf[n] = '\0';
+            dbg_out_write(o, buf);
+            n = 0;
+        }
+        if (c == '"' || c == '\\') { buf[n++] = '\\'; buf[n++] = (char)c; }
+        else if (c < 0x20) n += k_snprintf(buf + n, sizeof buf - (size_t)n, "\\u%04x", c);
+        else buf[n++] = (char)c;
+    }
+    buf[n] = '\0';
+    dbg_out_write(o, buf);
+}
+
 // ---------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------
@@ -378,8 +401,9 @@ static void cmd_windows(struct dbg_out *o, int json) {
             if (o->overflow) break;
             int mark = dbg_out_mark(o);
             const struct window *w = &windows[i];
-            dbg_out_printf(o, "%s{\"z\":%d,\"title\":\"%s\",\"app\":\"%s\",\"app_id\":\"%s\",",
-                         i ? "," : "", i, w->title,
+            dbg_out_printf(o, "%s{\"z\":%d,\"title\":\"", i ? "," : "", i);
+            dbg_out_jstr(o, w->title);
+            dbg_out_printf(o, "\",\"app\":\"%s\",\"app_id\":\"%s\",",
                          w->app ? w->app->name : "", w->app_id);
             dbg_out_printf(o, "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,",
                          w->x, w->y, w->w, w->h);
@@ -433,11 +457,14 @@ static void cmd_windows(struct dbg_out *o, int json) {
                 struct tab_rects t;
                 title_tabs(w, &t);
                 dbg_out_printf(o, "\"active_tab\":%d,\"tabs\":[", w->ntabs ? w->active_tab : -1);
-                for (int k = 0; k < t.n; k++)
-                    dbg_out_printf(o, "%s{\"label\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                for (int k = 0; k < t.n; k++) {
+                    dbg_out_printf(o, "%s{\"label\":\"", k ? "," : "");
+                    dbg_out_jstr(o, w->tab[k]);
+                    dbg_out_printf(o, "\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
                                  "\"close\":{\"x\":%d,\"y\":%d,\"size\":%d}}",
-                                 k ? "," : "", w->tab[k], t.x[k], t.y, t.w[k], t.h,
+                                 t.x[k], t.y, t.w[k], t.h,
                                  t.close_x[k], t.close_y, t.close_size);
+                }
                 if (t.n)
                     dbg_out_printf(o, "],\"new_tab\":{\"x\":%d,\"y\":%d,\"size\":%d},",
                                  t.new_x, t.new_y, t.new_size);
@@ -555,9 +582,9 @@ static void cmd_widgets(struct dbg_out *o, const char *title, int json) {
     int ox = window_content_x(w), oy = window_content_y(w);
 
     if (json) {
-        dbg_out_printf(o, "{\"window\":%d,\"title\":\"%s\","
-                     "\"content\":{\"x\":%d,\"y\":%d},\"widgets\":[",
-                     hit, w->title, ox, oy);
+        dbg_out_printf(o, "{\"window\":%d,\"title\":\"", hit);
+        dbg_out_jstr(o, w->title);
+        dbg_out_printf(o, "\",\"content\":{\"x\":%d,\"y\":%d},\"widgets\":[", ox, oy);
         for (int i = 0; i < w->widget_count; i++) {
             const struct wm_widget *e = &w->widgets[i];
             dbg_out_printf(o, "%s{\"name\":\"%s\",\"x\":%d,\"y\":%d,"
@@ -568,8 +595,8 @@ static void cmd_widgets(struct dbg_out *o, const char *title, int json) {
         dbg_out_write(o, "]}\r\n");
         return;
     }
-    dbg_out_printf(o, "%s -- %d named widget(s), content-relative\r\n",
-                 w->title, w->widget_count);
+    dbg_out_write(o, w->title);
+    dbg_out_printf(o, " -- %d named widget(s), content-relative\r\n", w->widget_count);
     for (int i = 0; i < w->widget_count; i++) {
         const struct wm_widget *e = &w->widgets[i];
         dbg_out_printf(o, "  %-16s %4d %4d %4dx%-4d  screen %4d %4d\r\n",
@@ -626,10 +653,10 @@ static void cmd_probe(struct dbg_out *o, int px, int py, int json) {
         // question when a corner is reported too eagerly.
         int pedges = 0;
         (void)wm_find_resize_zone(px, py, &pedges);
-        dbg_out_printf(o, "{\"x\":%d,\"y\":%d,\"window\":%d,\"title\":\"%s\","
-                     "\"region\":\"%s\",\"overlay\":\"%s\","
-                     "\"edges\":%d,\"cursor\":%d", px, py, hit,
-                     hit >= 0 ? windows[hit].title : "", region, overlay,
+        dbg_out_printf(o, "{\"x\":%d,\"y\":%d,\"window\":%d,\"title\":\"", px, py, hit);
+        dbg_out_jstr(o, hit >= 0 ? windows[hit].title : "");
+        dbg_out_printf(o, "\",\"region\":\"%s\",\"overlay\":\"%s\","
+                     "\"edges\":%d,\"cursor\":%d", region, overlay,
                      pedges, (int)wm_cursor_kind_at(px, py));
         if (hit >= 0) {
             const struct window *w = &windows[hit];
@@ -652,8 +679,9 @@ static void cmd_probe(struct dbg_out *o, int px, int py, int json) {
     }
     if (hit >= 0) {
         const struct window *w = &windows[hit];
-        dbg_out_printf(o, " of window %d \"%s\"; content-relative (%d,%d)",
-                     hit, w->title,
+        dbg_out_printf(o, " of window %d \"", hit);
+        dbg_out_write(o, w->title);
+        dbg_out_printf(o, "\"; content-relative (%d,%d)",
                      px - window_content_x(w), py - window_content_y(w));
     }
     if (k_strcmp(overlay, "none") != 0) {

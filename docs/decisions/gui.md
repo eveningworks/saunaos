@@ -13368,3 +13368,30 @@ fully-qualified emoji), and only those Twemoji maps: a ZWJ family, a flag, a
 skin-tone variant or a keycap is a GSUB ligature in the face, and
 inserted it would draw as its parts until shaping exists. The Component
 and Flags groups are left out for the same reason.
+
+## A long window title travels in pieces, and the compositor keeps it sized to fit
+
+A title and a tab label rode one channel message's 32-byte `text`, so
+every title stopped at 31 bytes -- unseen while toolkit apps had short
+ones, until ScummVM named its window "Flight of the Amazon Queen
+(CD/DOS/English)" and the bar showed "...(CD/" with room to spare. The
+compositor mirrored the same 32 bytes in every window's struct.
+
+**What real systems do.** Wayland's `xdg_toplevel.set_title` is a
+string argument of any length, bounded only by the 4 KiB wire message;
+X11's `_NET_WM_NAME` and Windows' `SetWindowText` have no practical
+bound. KWin and Windows end a title that does not fit with an ellipsis.
+
+**What SaunaOS does.** A text longer than one message goes in 31-byte
+pieces (`WIN_TEXT_PIECE` in `c`), the shape a notice's path and a
+notification's fields already had, and the compositor allocates each
+window's title and tab labels to fit. The whole text is bounded by
+`WIN_TEXT_MAX` (1 KiB) -- a wire bound, as Wayland's message is, so a
+client cannot grow the compositor without limit; a client cuts past it
+between characters and logs. A short text is still one message with
+`c == 0`, which is also what every client before pieces sent. The bar
+ends a title that does not fit in `..`, as the taskbar already did.
+
+**Declined: a bigger fixed field.** Raising `WIN_TITLE_LEN` would grow
+every channel slot -- a present per frame carries the same union -- and
+would still be a cap, which "size it to the data" rules out.

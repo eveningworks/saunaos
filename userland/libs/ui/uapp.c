@@ -258,6 +258,39 @@ int wmchan_send(uint32_t type, uint32_t window,
     return wmchan_send_damage(type, window, aa, bb, cc, text, 0);
 }
 
+int wmchan_send_text(uint32_t type, uint32_t window, int aa, int bb, const char *text) {
+    if (!text) text = "";
+    int len = (int)strlen(text);
+    if (len > WIN_TEXT_MAX - 1) {
+        // CUT BETWEEN CHARACTERS, past the wire's bound (abi/win_proto.h).
+        len = uutf8_cut(text, len, WIN_TEXT_MAX - 1);
+        ulogf("uapp: a %d-byte title or label cut to %d (WIN_TEXT_MAX)\n",
+              (int)strlen(text), len);
+    }
+    int piece = WIN_TITLE_LEN - 1;
+    if (len <= piece) {
+        char one[WIN_TITLE_LEN];
+        memcpy(one, text, (size_t)len);
+        one[len] = '\0';
+        return wmchan_send(type, window, aa, bb, 0, one);
+    }
+    // In pieces of raw bytes: the compositor joins them before it reads
+    // a character, so a piece may end inside one.
+    int n = (len + piece - 1) / piece;
+    int ok = 1;
+    for (int i = 0; i < n && ok; i++) {
+        struct wmchan_msg m;
+        memset(&m, 0, sizeof m);
+        m.type = type;
+        m.window = window;
+        m.a = aa; m.b = bb; m.c = WIN_TEXT_PIECE(i, n);
+        int k = len - i * piece < piece ? len - i * piece : piece;
+        memcpy(m.text, text + i * piece, (size_t)k);
+        ok = wmchan() && uchan_send_wait(&g_wmchan, &m, sizeof m, WMCHAN_SEND_WAIT_MS) == 0;
+    }
+    return ok;
+}
+
 int uapp_notice(struct uapp *a, int kind, unsigned flags, const char *path) {
     (void)a;
     int piece = WIN_TITLE_LEN - 1;
@@ -455,7 +488,7 @@ int uapp_set_tabs(struct uapp *a, const char *const *labels, int n, int active) 
     if (n > WIN_TABS_MAX) n = WIN_TABS_MAX;
     int ok = wmchan_send(WIN_REQ_TABS, a->window, n, active, 0, 0);
     for (int i = 0; i < n && ok; i++)
-        ok = wmchan_send(WIN_REQ_TAB, a->window, i, g_tab_icon[i], 0, labels[i] ? labels[i] : "");
+        ok = wmchan_send_text(WIN_REQ_TAB, a->window, i, g_tab_icon[i], labels[i]);
     return ok;
 }
 
@@ -467,7 +500,7 @@ int uapp_set_title(struct uapp *a, const char *title) {
     // THE CHANNEL IS THE ONLY PATH NOW. The kernel used to take this
     // request, store the string and tell the compositor to read it back;
     // it stores nothing of the sort any more.
-    return wmchan_send(WIN_REQ_TITLE, a->window, 0, 0, 0, title ? title : "");
+    return wmchan_send_text(WIN_REQ_TITLE, a->window, 0, 0, title);
 }
 
 // Asks the window manager to close every window belonging to `pid` --

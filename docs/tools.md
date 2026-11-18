@@ -260,6 +260,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `taskmgr_test.py` -- Drive the ring-3 Task Manager: its three pages, the table, and its verbs
 - `theme_test.py` -- themes (userland/libs/ui/utheme_file.h), the
 - `thumbcache_test.py` -- The File Manager's thumbnail RATE, and the disk cache under it
+- `title_text_test.py` -- A window title or tab label longer than one channel message
 - `trash_gui_test.py` -- The Recycle Bin in the File Manager: Delete, Shift+Delete, the bin's
 - `trash_limits_test.py` -- the Recycle Bin's settings: shown or not,
 - `tray_press_test.py` -- The notification area's feedback: a rounded fill on hover, a

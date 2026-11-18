@@ -102,7 +102,6 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
     struct uapp_window *d = &g_dlg[slot];
     memset(d, 0, sizeof *d);
     d->desc = *desc;
-    strlcpy(d->title, desc->title ? desc->title : "Dialog", sizeof d->title);
 
     struct wmchan_msg m, r;
     memset(&m, 0, sizeof m);
@@ -114,7 +113,8 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
                    : a->has_top ? a->window : WIN_DIALOG_NO_OWNER;
     if (desc->owner && !desc->owner->top.slot) owner = WIN_DIALOG_NO_OWNER;   // closed meanwhile
     m.c = WIN_DIALOG_C(owner, (desc->flags & UAPP_WIN_MODAL) ? WIN_DIALOG_MODAL : 0);
-    strlcpy(m.text, d->title, sizeof m.text);
+    const char *title = desc->title ? desc->title : "Dialog";
+    strlcpy(m.text, title, sizeof m.text);
     if (!wmchan() ||
         uchan_call(&g_wmchan, &m, sizeof m, &r, sizeof r, UAPP_CALL_TIMEOUT_MS) < 0 ||
         r.a < 0) {
@@ -124,6 +124,9 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
     }
 
     d->top.slot = slot;
+    // The create carried what one message holds; the rest follows.
+    if (strlen(title) > sizeof m.text - 1)
+        wmchan_send_text(WIN_REQ_TITLE, (uint32_t)slot, 0, 0, title);
     d->top.ops = &WIN_OPS;
     d->top.focus = desc->focus;
     d->top.hears = desc->on_widget != 0;
@@ -192,8 +195,7 @@ int uapp_window_height(const struct uapp_window *w) { return w && w->top.slot ? 
 
 void uapp_window_set_title(struct uapp_window *w, const char *title) {
     if (!w || !w->top.slot || !title) return;
-    strlcpy(w->title, title, sizeof w->title);
-    wmchan_send(WIN_REQ_TITLE, (uint32_t)w->top.slot, 0, 0, 0, w->title);
+    wmchan_send_text(WIN_REQ_TITLE, (uint32_t)w->top.slot, 0, 0, title);
 }
 
 void uapp_window_set_cursor(struct uapp_window *w, int cursor) {

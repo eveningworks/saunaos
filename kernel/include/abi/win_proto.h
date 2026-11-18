@@ -498,7 +498,8 @@ struct win_event {
                            // client's buffer objects are its own to
                            // unlink.
 #define WIN_REQ_TITLE   4 // `window`: which one; the title comes from
-                           // the request's `text` field.
+                           // the request's `text` field, a long one in
+                           // pieces (c: WIN_TEXT_PIECE).
 #define WIN_REQ_HINTS   6 // How this window should BEHAVE. a: WIN_HINT_*
                            // flags, b/c: minimum content w/h (0 = the
                            // server's floor). Sent once after create,
@@ -1494,8 +1495,8 @@ struct win_popup_pos {
 // which keeps the title bar it owns (moving, the buttons, the menu) as
 // KWin's window tabs did. WIN_REQ_TABS: a = how many (0 = none, the
 // title again), b = the active one; then one WIN_REQ_TAB each: a =
-// index, b = its icon (WIN_TAB_ICON_*), text = its label. Clicks come
-// back as WIN_EV_TAB.
+// index, b = its icon (WIN_TAB_ICON_*), text = its label (a long one in
+// pieces, c: WIN_TEXT_PIECE). Clicks come back as WIN_EV_TAB.
 #define WIN_REQ_TABS 41
 #define WIN_REQ_TAB  42
 #define WIN_TABS_MAX 8
@@ -1667,10 +1668,9 @@ struct win_shot {
 // the same politeness WIN_EV_CLOSE has: see "a client window's close
 // button is a handshake, not a seizure" in docs/decisions.md.
 
-// Longest window title a client may set, including the NUL. Matches the
-// window manager's own WIN_TITLE_MAX -- a client that sends more gets
-// it truncated at this boundary rather than refused, since a too-long
-// title is a cosmetic problem and not worth failing a request over.
+// The text one message carries, including the NUL: a window title or a
+// tab label that fits, an app id, a piece of anything longer
+// (WIN_TEXT_PIECE below). A message is one 64-byte channel slot.
 #define WIN_TITLE_LEN 32
 
 // Longest app id, including the NUL. Rides the same `text` field as a
@@ -1685,6 +1685,23 @@ struct win_shot {
 // two programs can never collide on an id; the price, a moved binary
 // forgetting its remembered size, is docs/decisions/gui.md's.
 #define WIN_APP_ID_LEN WIN_TITLE_LEN
+
+// A TITLE OR TAB LABEL LONGER THAN ONE MESSAGE travels in pieces of
+// WIN_TITLE_LEN - 1 bytes, as a notice's path does: WIN_REQ_TITLE and
+// WIN_REQ_TAB carry c = WIN_TEXT_PIECE(i, n), piece i of n, in order on
+// the client's ring, and the compositor shows the text once piece n - 1
+// arrives. c == 0 is the whole text in one message -- what a short one
+// sends, and what every client before pieces sent.
+//
+// WIN_TEXT_MAX is the whole text's ceiling, NUL included: a wire bound
+// (Wayland's is its 4 KiB message), so a client cannot grow the
+// compositor without limit. A client cuts past it between characters
+// and logs; the compositor drops a sequence that claims more.
+#define WIN_TEXT_MAX          1024
+#define WIN_TEXT_PIECE(i, n)  (int32_t)(0x10000 | ((n) << 8) | (i))
+#define WIN_TEXT_PIECE_I(c)   ((int)((uint32_t)(c) & 0xff))
+#define WIN_TEXT_PIECE_N(c)   ((int)(((uint32_t)(c) >> 8) & 0xff))
+#define WIN_TEXT_PIECES_MAX   ((WIN_TEXT_MAX - 1 + WIN_TITLE_LEN - 2) / (WIN_TITLE_LEN - 1))
 
 // Largest client window, in pixels: a CEILING, not the limit a user
 // meets. uapp clamps every buffer to the screen it is on (ui/uapp.c's

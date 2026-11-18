@@ -26,6 +26,7 @@
 #include "apps/system/toywm/wm_watch.h" // the config pollers' change counters
 #include <limits.h>
 #include <stdlib.h>   // free: the client widget map; realloc: the window table
+#include <string.h>   // a window's title, copied to fit
 #include "wm_internal.h"
 #include "base/uopen.h"     // uopen_exec_argv(): an entry's Exec= line as words
 #include "wm_shadow.h"
@@ -625,9 +626,7 @@ void open_app(const struct gui_app *app) {
     win->resizable = app && app->resizable;
     win->open = 1;
 
-    int i = 0;
-    for (; app->name[i] && i < WIN_TITLE_MAX - 1; i++) win->title[i] = app->name[i];
-    win->title[i] = '\0';
+    wm_window_set_title(win, app->name);
 
     win->open_seq = wm_next_open_seq();
     window_count++;
@@ -770,7 +769,7 @@ static void wm_offer_force_quit(int idx) {
     if (confirm_dialog_open) return;   // already asking about something
     if (idx < 0 || idx >= window_count) return;
 
-    static char msg[WIN_TITLE_MAX + 32];
+    static char msg[WM_TEXT_MAX + 32];
     k_snprintf(msg, sizeof msg, "%s is not responding.", windows[idx].title);
 
     g_force_quit_pid = windows[idx].client_pid;
@@ -813,6 +812,45 @@ void wm_request_close(int idx) {
         idx = wm_window_by_seq(seq);
     }
     send_close(idx, 0);
+}
+
+// What a title or label points at when there is no memory for one: never
+// freed, so a window's text is always a string.
+static char g_no_text[] = "";
+
+static char *text_copy(const char *s, const char *what) {
+    size_t n = strlen(s ? s : "") + 1;
+    char *p = malloc(n);
+    if (p) memcpy(p, s ? s : "", n);
+    else wm_logf("wm: no memory for a %u-byte %s -- the old one stays\n", (unsigned)n, what);
+    return p;
+}
+
+static void text_free(char *p) {
+    if (p && p != g_no_text) free(p);
+}
+
+void wm_window_set_title(struct window *w, const char *s) {
+    char *p = text_copy(s, "title");
+    if (!p) { if (!w->title) w->title = g_no_text; return; }
+    text_free(w->title);
+    w->title = p;
+}
+
+void wm_window_set_tab(struct window *w, int i, const char *s) {
+    if (i < 0 || i >= WIN_TABS_MAX) return;
+    char *p = text_copy(s, "tab label");
+    if (!p) { if (!w->tab[i]) w->tab[i] = g_no_text; return; }
+    text_free(w->tab[i]);
+    w->tab[i] = p;
+}
+
+void wm_window_free_text(struct window *w) {
+    text_free(w->title);
+    w->title = 0;
+    for (int i = 0; i < WIN_TABS_MAX; i++) { text_free(w->tab[i]); w->tab[i] = 0; }
+    free(w->text_part);
+    w->text_part = 0;
 }
 
 void close_window(int idx) {
@@ -883,6 +921,7 @@ void close_window(int idx) {
     free(windows[idx].widgets);
     windows[idx].widgets = 0;
     windows[idx].widget_count = 0;
+    wm_window_free_text(&windows[idx]);
 
     for (int i = idx; i < window_count - 1; i++) windows[i] = windows[i + 1];
     window_count--;

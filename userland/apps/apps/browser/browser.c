@@ -66,7 +66,7 @@ static struct uapp *g_app;
 
 static struct uui_webview *g_tabs[WIN_TABS_MAX];
 static int g_ntabs, g_cur = -1;
-static char g_label[WIN_TABS_MAX][WIN_TITLE_LEN];
+static char g_label[WIN_TABS_MAX][WIN_TEXT_MAX];
 static int g_zoom_logged[WIN_TABS_MAX];
 
 static struct uui_webview *active(void) { return g_cur >= 0 ? g_tabs[g_cur] : NULL; }
@@ -100,7 +100,7 @@ static void sync_tabs(void) {
     }
     uapp_set_tab_icons(g_app, icons, g_ntabs);
     uapp_set_tabs(g_app, labels, g_ntabs, g_cur);
-    char title[WIN_TITLE_LEN + 16];
+    char title[WIN_TEXT_MAX];
     snprintf(title, sizeof title, "%s - Web Browser", tab_name(g_tabs[g_cur]));
     uapp_set_title(g_app, title);
 }

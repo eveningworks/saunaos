@@ -1103,7 +1103,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Stage 4: ScummVM on its SDL backend, a GPL component, with the freeware games' downloader~~ DONE 2026-11-17 -- `make scummvm`
 - [ ] zlib, libogg and libvorbis in the SDK, for the second port that needs them -- ScummVM links its own copies statically
 - [ ] `uzip` reads a member's compressed bytes as it inflates them, rather than holding them all in memory
-- [ ] Window titles past 32 bytes are cut with no ellipsis (`WIN_TITLE_MAX`) -- ScummVM's game titles
+- [x] ~~Window titles past 32 bytes are cut with no ellipsis~~ DONE 2026-11-18 -- in pieces up to 1 KiB, ended in `..`
 - [ ] A pointer lock with an absolute device (a tablet): relative motion from the change in position
 - [ ] More than one message box at a time in a program (`uui_msgbox` keeps one)
 - [ ] SDL and the toolkit built with unwind tables, so a C++ throw may cross an SDL callback

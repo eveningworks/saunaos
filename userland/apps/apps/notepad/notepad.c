@@ -391,10 +391,10 @@ static int looks_like_markdown(const char *path) {
 
 // The title is the path with a dirty marker, and is sent only when it
 // changed -- not a TWP message per keystroke saying the same thing.
-static char g_shown_title[WIN_TITLE_LEN];
+static char g_shown_title[WIN_TEXT_MAX];
 
 static void set_title(struct uapp *a) {
-    char t[WIN_TITLE_LEN];
+    char t[WIN_TEXT_MAX];
     struct doc *d = cur();
     snprintf(t, sizeof t, "%s%s", doc_dirty(d) ? "*" : "", d->path[0] ? d->path : "untitled");
     if (strcmp(t, g_shown_title) == 0) return;

@@ -56,6 +56,7 @@ import json as _json
 import os
 import re
 import atexit
+import codecs
 import contextlib
 import socket
 import sys
@@ -187,10 +188,13 @@ class DebugConsole:
 
     def _read_to_prompt(self, timeout=None):
         buf = ""
+        # INCREMENTAL: a character split between two reads is two halves,
+        # and decoding each alone turns it into two U+FFFD.
+        dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
         deadline = time.time() + (timeout or self.timeout)
         while time.time() < deadline and not buf.endswith(PROMPT):
             try:
-                buf += self._s.recv(65536).decode("utf-8", errors="replace")
+                buf += dec.decode(self._s.recv(65536))
             except socket.timeout:
                 continue   # the deadline decides, not one quiet recv
         return buf
@@ -316,6 +320,7 @@ class DebugConsole:
         # holding, so the marker arrives as a line of its own.
         self._s.sendall(("\n" + tag + "\n").encode())
         buf = ""
+        dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
         deadline = time.time() + 2 * self.timeout
         while time.time() < deadline:
             i = buf.find(want)
@@ -323,7 +328,7 @@ class DebugConsole:
                 self._stale = False
                 break
             try:
-                buf += self._s.recv(65536).decode("utf-8", errors="replace")
+                buf += dec.decode(self._s.recv(65536))
             except socket.timeout:
                 break
         self.log_lines.extend(l for l in buf.replace("\r", "").splitlines()
@@ -1361,6 +1366,7 @@ def _read_log(wself, path, first=None):
             s.close()
             return
         part = ""
+        dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
         while alive():
             try:
                 data = s.recv(65536)
@@ -1370,7 +1376,7 @@ def _read_log(wself, path, first=None):
                 break
             if not data:
                 break
-            part += data.decode("utf-8", errors="replace").replace("\r", "")
+            part += dec.decode(data).replace("\r", "")
             *lines, part = part.split("\n")
             lines = [l for l in lines if l.strip()]
             c = wself()
