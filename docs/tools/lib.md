@@ -81,7 +81,10 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   reports as SKIP and counts on its own), `poll(fn, timeout)`, a
   bounded wait on an observable, and `.finish(tool)` printing the
   `<tool>: N passed, M failed` line `gui_regress.py` reads),
-  `copy_disk(src, dst, cwd=None)` (the sparse, reflinked copy), and
+  `copy_disk(src, dst, cwd=None)` (the sparse, reflinked copy),
+  `scratch_dir(prefix, keep=False)` (a temporary directory for that
+  copy, removed at exit unless `keep` -- /tmp is RAM, and
+  `gui_regress.py` sizes its guest count from what it has free), and
   `BodyServer` (a threaded HTTP(S) server on this machine answering
   with one body or a route table, reached from a guest as 10.0.2.2).
   `Results` also RECORDS the run in the local test history

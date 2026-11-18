@@ -57,7 +57,6 @@ import os
 import struct
 import subprocess
 import sys
-import tempfile
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -68,7 +67,7 @@ REPO = os.path.dirname(HERE)
 from gui_debug import DebugConsole, enter_gui   # noqa: E402
 from qmp_test import QMPSession                 # noqa: E402
 from port_guard import port_is_free             # noqa: E402
-from harness import copy_disk  # noqa: E402
+from harness import copy_disk, scratch_dir  # noqa: E402
 
 # A 50 ms window counts as carrying sound above this peak. Well clear of
 # the dither the recorder adds and well below any real effect.
@@ -189,7 +188,7 @@ def main():
         print("doom_sound_test: SKIPPED -- no IWAD (tools/fetch/fetch_wad.py).")
         return 0
 
-    tmp = tempfile.mkdtemp(prefix="doom_sound_")
+    tmp = scratch_dir("doom_sound_", keep=args.keep)
     img = os.path.join(tmp, "disk.img")
     copy_disk("disk.img", img, cwd=REPO)
     wav_music = os.path.join(tmp, "music.wav")

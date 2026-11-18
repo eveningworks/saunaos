@@ -53,14 +53,13 @@ import os
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 import port_guard                      # noqa: E402 -- the serial socket's path
-from harness import copy_disk          # noqa: E402
+from harness import copy_disk, scratch_dir          # noqa: E402
 import remote as rmod                  # noqa: E402 -- WANT_BLKSIZE/WANT_WINDOW
 
 HERE = toolpath.TOOLS
@@ -110,7 +109,7 @@ def remote(*args, timeout=120):
 def main():
     global DISK
     r = Result()
-    tmp = tempfile.mkdtemp(prefix="remote_test_")
+    tmp = scratch_dir("remote_test_")
     DISK = copy_disk(os.path.join(REPO, "disk.img"), os.path.join(tmp, "disk.img"))
     print("remote_test: booting a guest with telnet and tftp forwarded")
     vm("stop")

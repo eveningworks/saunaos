@@ -25,11 +25,14 @@ run that only skipped exits 77, automake's SKIP), and
 summary line `finish()` prints is the one `gui_regress.py` reads:
 `<tool>: N passed, M failed`, with `, K skipped` after it when any were.
 """
+import atexit
 import http.server
 import os
+import shutil
 import ssl
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -139,6 +142,18 @@ def copy_disk(src, dst, cwd=None):
     it means an edit cannot quietly lose it)."""
     subprocess.run(["cp", "--reflink=auto", "--sparse=always", src, dst], check=True, cwd=cwd)
     return dst
+
+
+
+def scratch_dir(prefix, keep=False):
+    """A temporary directory for a tool's disk copy and recordings, removed
+    when the tool exits -- by an exception too -- unless `keep`. /tmp is
+    a tmpfs here: a ~280 MB copy left behind on every run is RAM, and
+    gui_regress sizes its guest count from what /tmp has free."""
+    d = tempfile.mkdtemp(prefix=prefix)
+    if not keep:
+        atexit.register(shutil.rmtree, d, True)
+    return d
 
 
 class BodyServer:

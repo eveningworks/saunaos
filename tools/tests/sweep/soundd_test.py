@@ -37,7 +37,6 @@ import os
 import struct
 import subprocess
 import sys
-import tempfile
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -47,7 +46,7 @@ REPO = os.path.dirname(HERE)
 
 from gui_debug import DebugConsole          # noqa: E402
 import port_guard                           # noqa: E402
-from harness import copy_disk  # noqa: E402
+from harness import copy_disk, scratch_dir  # noqa: E402
 
 TONE_A_HZ = 1000   # /tests/sine1k.wav
 TONE_B_HZ = 440    # /tests/sine440.wav
@@ -165,7 +164,7 @@ def main():
     sock = args.sock or port_guard.instance_sock(n)
 
     res = Result()
-    tmp = tempfile.mkdtemp(prefix="soundd_test_")
+    tmp = scratch_dir("soundd_test_")
     wav_path = os.path.join(tmp, "out.wav")
     img = os.path.join(tmp, "disk.img")
     copy_disk("disk.img", img, cwd=REPO)

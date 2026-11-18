@@ -36,7 +36,6 @@ import argparse
 import os
 import subprocess
 import sys
-import tempfile
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -46,7 +45,7 @@ REPO = os.path.dirname(HERE)
 
 from audio_test import measure, wait_serial  # noqa: E402  -- one oracle, not two
 from qmp_test import QMPSession  # noqa: E402
-from harness import Results, copy_disk  # noqa: E402
+from harness import Results, copy_disk, scratch_dir  # noqa: E402
 
 
 Result = Results
@@ -371,7 +370,7 @@ def main():
     args = ap.parse_args()
 
     res = Result()
-    tmp = tempfile.mkdtemp(prefix="usb_audio_test_")
+    tmp = scratch_dir("usb_audio_test_", keep=args.keep)
     usb_only = os.path.join(tmp, "usb_only.wav")
     ac97_wav = os.path.join(tmp, "two_ac97.wav")
     usb_wav = os.path.join(tmp, "two_usb.wav")

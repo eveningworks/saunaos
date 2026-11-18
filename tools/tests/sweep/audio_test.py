@@ -60,7 +60,6 @@ import re
 import subprocess
 import sys
 import struct
-import tempfile
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -69,7 +68,7 @@ HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
 
 from gui_debug import DebugConsole  # noqa: E402
-from harness import Results, copy_disk  # noqa: E402
+from harness import Results, copy_disk, scratch_dir  # noqa: E402
 
 # abi/sound_abi.h's SND_CONFIG_FILE. Named once because two phases have
 # to agree on it, and neither can read the header.
@@ -329,7 +328,7 @@ def main():
     sock = ".vm.serial" if n == 0 else f".vm.{n}.serial"
 
     res = Result()
-    tmp = tempfile.mkdtemp(prefix="audio_test_")
+    tmp = scratch_dir("audio_test_", keep=args.keep)
     wav_path = os.path.join(tmp, "out.wav")
     wav2_path = os.path.join(tmp, "out_wavplay.wav")
     wav3_path = os.path.join(tmp, "out_mp3play.wav")
