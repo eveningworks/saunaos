@@ -180,6 +180,30 @@ def _feeds(path: Path, artifact: str, repo: Path):
 
 BYPASS_ENV = "SAUNAOS_ALLOW_STALE_ISO"
 
+# CHECKED ONCE FOR A RUN: the full check walks the source tree (~5 s, all
+# CPU), and a suite that starts 150 guests against media that cannot
+# change under it (tools/lib/tree_lock.py) paid it 150 times as each
+# guest started. A runner checks once, then gives its children
+# checked_env(); a start whose media still carry the same mtimes skips
+# the walk, and one after a rebuild does it again.
+CHECKED_ENV = "SAUNAOS_ISO_CHECKED"
+
+
+def _media_token(repo: Path, iso_name: str, medium: str):
+    parts = [medium]
+    for name in (iso_name, "disk.img"):
+        p = repo / name
+        parts.append(f"{name}={p.stat().st_mtime_ns if p.exists() else 0}")
+    return ";".join(parts)
+
+
+def checked_env(repo: Path = REPO, iso_name: str = "saunaos.iso", medium: str = "cd"):
+    """The full check now (exits on a stale image, as assert_iso_fresh()),
+    then {CHECKED_ENV: token} for a runner's children, so each start
+    skips the walk while the media are the ones checked here."""
+    assert_iso_fresh(repo, iso_name, medium)
+    return {CHECKED_ENV: _media_token(repo, iso_name, medium)}
+
 
 # Trees that feed NO seeded artifact, and so must not make the seed look
 # stale -- the guard's own rule applied to a new tree: pair each tree
@@ -412,6 +436,9 @@ def assert_iso_fresh(repo: Path = REPO, iso_name: str = "saunaos.iso",
     if os.environ.get(BYPASS_ENV) == "1":
         print(f"iso_guard: {BYPASS_ENV}=1 -- booting {iso_name} without checking it "
               f"is current.", file=sys.stderr)
+        return
+
+    if os.environ.get(CHECKED_ENV) == _media_token(repo, iso_name, medium):
         return
 
     problems = check_iso_fresh(repo, iso_name, medium)

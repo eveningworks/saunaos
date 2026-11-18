@@ -635,7 +635,12 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   to prove a failure predates your work. A w16 SAMPLE (`userland/utils/w16/
   samples/*.asm`) lands in `seed/sync/`, not `build/userland`, so the
   `seed` step touches `build/userland/.w16-samples` after building them: an
-  edited sample otherwise read as a build that never ran.
+  edited sample otherwise read as a build that never ran. The check
+  walks the source tree, ~5 s of CPU, so a runner starting many guests
+  checks once (`checked_env()`) and hands its children a token of the
+  media's mtimes (`SAUNAOS_ISO_CHECKED`): a start skips the walk while
+  the media are the ones checked, and does it again after a rebuild.
+  `gui_regress.py` does.
 
   **It guards the STAGING tree and single staged FILES too, which is the
   same trap one layer down.** `make all` writes `build/` and stops;

@@ -2379,6 +2379,11 @@ cold boot's 6.6 s, while the tools themselves ran 21 s (`uidemo`) to
 tool is 1-2% of the suite, not worth a QEMU line that must match the
 saved one device for device; openQA's snapshots pay off because its
 boots are minutes long. The time is in the tools, not the boots.
+Re-measured 2026-11-18: 5.3 s restored against 8.6 s cold, and 5.1 s
+of EVERY start -- cold or restored -- was `iso_guard`'s check walking
+the source tree. The suite checks its media once per run now
+(`iso_guard.checked_env()`), which takes more off each start than a
+snapshot would, with no QEMU line to keep matched.
 
 ## The compiler on the machine is GCC with binutils, because only GCC gives C++
 

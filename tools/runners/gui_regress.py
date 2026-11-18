@@ -83,6 +83,8 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
 import fresh_disk  # noqa: E402
+import install_grub  # noqa: E402
+import iso_guard  # noqa: E402
 from harness import copy_disk  # noqa: E402
 from private_tmp import private_tmp  # noqa: E402
 import test_history  # noqa: E402
@@ -677,6 +679,12 @@ def run():
     if shutil.which("qemu-system-x86_64") is None:
         print("gui_regress: qemu-system-x86_64 not on PATH")
         return 2
+
+    # THE MEDIA CHECKED ONCE for the run, not at every guest's start: the
+    # check walks the source tree (~5 s of CPU), and 150 starts paid it 150
+    # times. A stale image still refuses here (iso_guard.checked_env()).
+    os.environ.update(iso_guard.checked_env(
+        medium=install_grub.boot_medium(disk, None, uefi=False)))
 
     lock, holder = acquire_run_lock()
     if lock is None:
