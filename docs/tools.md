@@ -65,6 +65,9 @@ replace `dirname(dirname(__file__))`, whose depth is now per folder.
 | Where is a tool? | `tools/t which NAME`, `tools/t list [PATTERN]` -- the folder index below |
 | Is it MINE, or already broken? | `predates.py "<command>"` -- "it predates me" is a MEASUREMENT |
 | When did this check last fail, or pass -- at which commit, on which host? | `test_history.py "<check>"` -- every local run recorded, logs kept |
+| Which checks flake, and how often? | `test_history.py --flaky 7 --clean`; measure one with `gui_regress.py --repeat N -k <tool>` |
+| Does a GUI test race an app's background work? | `gui_regress.py --race-delay 300` -- a racing test fails every run |
+| Where does the GUI suite's time go? | `gui_regress.py --sleep-profile DIR`, then `sleep_profile.py DIR` |
 | Can my test SEE the break? | `mutate.py --edit FILE OLD NEW -- <test>` -- restores and rebuilds itself |
 | Does my window look the same as before -- every rect, every pixel? | `ui_snapshot.py boot OUT` before and after, then `compare` -- takes each twice to show the noise |
 | Is it safe to commit? | `preflight.sh` (**stop your `vm.py` guest first**) |

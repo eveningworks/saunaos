@@ -227,7 +227,7 @@ them run as one preflight step, `tools/runners/checks.py`.
 | `check_control_states.py` | a menu bar or toolbar with no `item_flags`: no command is ever greyed | `flags-ok:` |
 | `check_layout.py` | a staged file with no tracked source behind it | -- |
 | `check_components.py` | a program directory (`userland/apps/<class>/<name>/`, `services/<name>/`, a multi-file `utils/<name>/`) with no `component.mk`, or a manifest setting anything but `EXTRA`/`ULIBS`/`INSTALL_AS`/`NEEDS_PORT` | -- |
-| `check_test_sleeps.py` | a `tools/tests/*/*_test.py` that gained a `time.sleep(` past its frozen count -- wait on what you assert (`settle()` syncs, `harness.poll()`) | `sleep-ok:` |
+| `check_test_sleeps.py` | a `tools/tests/*/*_test.py` that gained a `time.sleep(` past its frozen count -- wait on what you assert (`settle()` waits for idle, `check_eventually()`, `harness.poll()`) | `sleep-ok:` |
 
 ### Files, comments and history
 
@@ -298,6 +298,12 @@ look fine.
   **Settled is not caught up**: a frame is evidence about the
   FRAMEBUFFER, never the machine -- ask the serial console before
   writing "hung".
+- **`settle()` WAITS FOR THE APP TO BE IDLE AND ADDS NO PAUSE** (2026-11-18):
+  background work an app does not count as work races every test after
+  it -- start one-shot jobs with `uapp_thread_start()`, and find the rest
+  with `gui_regress.py --race-delay 300`, which makes a racing test fail
+  every run. A test acting DURING a long job passes `settle=False`.
+  `docs/conventions/build.md`, "A test waits on what it asserts".
 - **Verify GUI changes by reading PIXEL VALUES** (`tools/lib/pixel_probe.py`),
   and always sample a control that should NOT have changed.
 - **A hover state needs `DebugConsole.hover_frames()`, never `gui

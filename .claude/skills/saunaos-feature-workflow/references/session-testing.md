@@ -282,12 +282,14 @@ twice more.**
     preflight and CI, so you rarely run it by hand.
   - `python3 tools/runners/gui_regress.py` -- ALL of the app-level ones above
     plus the ring-3 client tests, each on its own fresh disk copy and
-    its own VM, as one pass/fail table (~300 checks across twenty-three
-    tools, a couple of minutes at the default -j4). **Always pass
+    its own VM, as one pass/fail table (every tool in `tools/tests/gui/`;
+    its wall time is in `test_history.py --tool gui_regress`). **Always pass
     `--logs DIR`**: an intermittent too rare to reproduce on demand can
     only be diagnosed by a capture that was already running, and that
     cost one flake three sessions of anonymity. Reach for this first;
     drop to an individual tool only when one fails.
+- **`settle()` WAITS FOR THE APP TO BE IDLE, with no pause after**
+  (2026-11-18; `docs/testing.md`). What follows is its history.
 - **`settle()` POLLS now** (`gui state`'s `pending` = the WM's
   undelivered-event count). Never replace it with a sleep: the loop is
   not a metronome -- a drag takes ~110ms normally and ~800ms under

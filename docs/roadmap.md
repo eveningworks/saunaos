@@ -799,7 +799,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Input timed by the guest~~ DONE 2026-11-05 -- `gui input`; switcher, pins and paint converted
 - [ ] `snap` and `drag_image` onto `gui input`; the animation checks onto the WM's own frame record
 - [x] ~~Stage 3's diagnosis~~ DONE 2026-11-05 -- host deadlines behind `sh`, not app state; `sh` gets 60 s
-- [ ] Read the four flakes stage 3 left; an app-busy protocol only if one needs it
+- [x] ~~An app-busy protocol~~ DONE 2026-11-18 -- a sync waits for the app to be idle; settle() lost its grace
+- [ ] Read the flakes still open in docs/bugs.md, by rate (`test_history.py --flaky`)
 - [ ] Measure the suite again, by the same classification
 
 ### GUI unit tests: the toolkit and apps in-process
