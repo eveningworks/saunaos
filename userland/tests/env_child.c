@@ -14,11 +14,27 @@
 //             to lose.
 //   path   -- PATH, which nothing here set: if it is /bin then init's
 //             seeding reached a grandchild, so the whole chain works.
+//
+// `env_child --digest` instead prints "n=<entries> bytes=<b> fnv=<h>"
+// over its whole environment as crt0 found it -- for one too big to
+// echo back.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 int main(int argc, char **argv) {
+    if (argc > 1 && !strcmp(argv[1], "--digest")) {
+        unsigned long h = 1469598103934665603UL;
+        size_t n = 0, bytes = 0;
+        for (; environ && environ[n]; n++)
+            for (const char *c = environ[n]; ; c++) {
+                h = (h ^ (unsigned char)*c) * 1099511628211UL;
+                bytes++;
+                if (!*c) break;
+            }
+        printf("n=%zu bytes=%zu fnv=%lx\n", n, bytes, h);
+        return 0;
+    }
     const char *name = (argc > 1) ? argv[1] : "PATH";
 
     const char *v = getenv(name);

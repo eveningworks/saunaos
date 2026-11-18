@@ -1071,10 +1071,16 @@ int sys_spawn(const char *path, const char *args, int stdout_fd);
 // a library function passing your environment for you is what
 // inheritance actually is (abi/syscall_abi.h).
 //
-// Returns -1 with errno E2BIG if the environment does not fit
-// SYS_ENV_MAX -- refused rather than truncated, because a child missing
-// half its variables is worse than one that failed to start.
+// Returns -1 with errno E2BIG if the environment and the arguments
+// together pass SPAWN_ARGS_MAX -- refused rather than truncated, because
+// a child missing half its variables is worse than one that failed to
+// start.
 int sys_spawn_env(const char *path, const char *args, int stdout_fd, char **env);
+
+// The bytes `env` takes of a spawn's SPAWN_ARGS_MAX, every NUL and the
+// blob's terminator included -- what is left for the arguments, as
+// xargs reckons it. 1 for an empty or NULL environment.
+size_t sys_env_bytes(char *const *env);
 
 // The same, plus the process GROUP the child starts in -- 0 to inherit
 // the caller's, which is what sys_spawn_env() passes.

@@ -1,8 +1,10 @@
 // lib/uargbatch: a long argument list split across spawns, each argv
-// within SPAWN_ARGS_MAX. The "spawn" here records what it was handed,
+// and the environment together within SPAWN_ARGS_MAX. The "spawn" here records what it was handed,
 // so the test reads every batch back rather than trusting a count.
 #include <string.h>
+#include <stdlib.h>
 #include "syscall_abi.h"
+#include "rt/sys.h"
 #include "base/uargbatch.h"
 #include "base/uktest.h"
 
@@ -21,7 +23,7 @@ static void record(char *const *argv, void *ctx) {
     s->runs++;
     size_t len = 0;
     for (int i = 0; argv[i]; i++) len += strlen(argv[i]) + 1;
-    if (len > SPAWN_ARGS_MAX) s->too_long++;
+    if (len + sys_env_bytes(environ) > SPAWN_ARGS_MAX) s->too_long++;
     if (strcmp(argv[0], "/bin/trash") || strcmp(argv[1], "put")) s->bad_head++;
     // Every item once, in order, across the batches.
     for (int i = 2; argv[i]; i++, s->items++)
@@ -72,10 +74,29 @@ static void case_never_fits(void) {
     KTEST_ASSERT_EQ(s.too_long, 0);
 }
 
+// The environment shares the budget: a big one makes every batch
+// smaller, and none overflows once the environment is counted.
+static void case_env_shares(void) {
+    setup();
+    struct seen small = { 0 };
+    int base = uargbatch(HEAD, 2, g_items, ITEMS, record, &small);
+    static char big[100 * 1024];
+    memset(big, 'e', sizeof big - 1);
+    KTEST_ASSERT_EQ(setenv("UARGBATCH_BIG", big, 1), 0);
+    struct seen s = { 0 };
+    int runs = uargbatch(HEAD, 2, g_items, ITEMS, record, &s);
+    unsetenv("UARGBATCH_BIG");
+    KTEST_ASSERT(runs > base);
+    KTEST_ASSERT_EQ(s.items, ITEMS);
+    KTEST_ASSERT_EQ(s.bad_head, 0);
+    KTEST_ASSERT_EQ(s.too_long, 0);
+}
+
 static const struct uktest_case CASES[] = {
     { "paths beyond one spawn split into batches, every one within SPAWN_ARGS_MAX, each path once in order", case_split },
     { "a list that fits is one spawn, and an empty one none", case_fits_once },
     { "an item too long for any spawn is skipped and reported, the rest still run", case_never_fits },
+    { "a big environment makes the batches smaller, each still within the shared budget", case_env_shares },
 };
 
 int main(void) {

@@ -25,7 +25,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first  *(`fork()`/`exec()`-style process model)*
-- [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 - [ ] The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are  *(Programming on the machine)*
 <!-- END next-up -->
@@ -238,7 +237,7 @@ only expensive part of it.
 - [ ] A `/dev` that lists and `stat()`s -- the devices are names `sys_open()` knows, so `ls /dev` is empty and `stat("/dev/null")` ENOENT
 - [x] ~~tolibc's mutex, rwlock and stdio locks park on a futex~~ DONE 2026-11-16 -- one `rt/ulock.h` for every ring-3 lock, malloc's too
 - [x] ~~`execl`/`execlp` in tolibc~~ DONE 2026-11-17 -- with `execle`, for ScummVM; `fork_test`
-- [ ] **NEXT** The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob
+- [x] ~~The environment sized to the call, as the arguments are~~ DONE 2026-11-18 -- shares `SPAWN_ARGS_MAX` with argv, as `ARG_MAX` does
 - [x] ~~`brk`-style growable per-process heap~~ DONE -- `SYS_SBRK` reserves and `uheap_fault()` maps on touch; the heap is per process
 
 ### Multi-user & file permissions

@@ -457,34 +457,50 @@ int sys_kill(struct syscall_ctx *c) {
     return 0;
 }
 
-// Copies the environment blob out of user memory. It is NOT a C string
+// Copies the environment blob out of user memory into a kmalloc'd
+// buffer sized to it (`*out`, the caller's to free). It is NOT a C string
 // -- it is a run of them ending in an empty one -- so it cannot go
 // through vmm_copy_string_from_user(), which would stop at the first
 // entry's terminator and hand back one variable out of ten.
 //
-// Copied a byte at a time through the validated-range helper rather
-// than in one block, because the total length is not known until the
-// double NUL is found, and validating a range this has not measured
-// would be validating a guess.
+// Two passes: MEASURE in small chunks that never cross a page (a range
+// this has not measured is not validated as one), then copy exactly that
+// many bytes. Another thread may rewrite the blob between the passes, so
+// the copy's last bytes are checked again: whatever it holds, the kernel
+// sees a terminated run no longer than it measured.
 //
-// Returns the number of bytes written (including the terminator), or 0
-// for a malformed or oversized blob -- REFUSED, never truncated.
-static size_t copy_env_from_user(uint64_t pml4, uint64_t uptr, char *out, size_t cap) {
-    if (!uptr) return 0;
+// The length (terminator included), or -E2BIG past `cap` and -EINVAL
+// for an unreadable blob -- REFUSED, never truncated.
+static long copy_env_from_user(uint64_t pml4, uint64_t uptr, size_t cap, char **out) {
+    *out = 0;
+    if (!uptr) return -EINVAL;
     size_t n = 0;
     int prev_nul = 0;
-    while (n < cap) {
-        char ch;
-        if (!vmm_copy_from_user(pml4, &ch, uptr + n, 1)) return 0;
-        out[n++] = ch;
-        if (ch == '\0') {
-            if (prev_nul || n == 1) return n;   // the empty string that ends it
+    for (;;) {
+        char chunk[256];
+        size_t want = 4096 - (size_t)((uptr + n) & 4095);
+        if (want > sizeof chunk) want = sizeof chunk;
+        if (!vmm_copy_from_user(pml4, chunk, uptr + n, want)) return -EINVAL;
+        size_t i = 0;
+        for (; i < want; i++) {
+            if (chunk[i] != '\0') { prev_nul = 0; continue; }
+            if (prev_nul || n + i == 0) break;   // the empty string that ends it
             prev_nul = 1;
-        } else {
-            prev_nul = 0;
         }
+        if (i < want) { n += i + 1; break; }
+        n += want;
+        if (n >= cap) return -E2BIG;
     }
-    return 0; // ran past the cap without finding the end
+    if (n > cap) return -E2BIG;
+    char *buf = kmalloc(n);
+    if (!buf) return -ENOMEM;
+    if (!vmm_copy_from_user(pml4, buf, uptr, n) || buf[n - 1] != '\0' ||
+        (n > 1 && buf[n - 2] != '\0')) {
+        kfree(buf);
+        return -EINVAL;
+    }
+    *out = buf;
+    return (long)n;
 }
 
 // One of the child's standard streams, resolved to a description index
@@ -526,9 +542,9 @@ static int spawn_err_desc(uint64_t pml4, int fd) {
 // environment -- copied out of the caller's address space into memory
 // the kernel owns, for a spawn and for an exec alike (an exec's copies
 // outlive the address space they came from). `envbuf`/`argbuf` are
-// kmalloc'd, on the heap for the reason SYS_ENV_MAX and SPAWN_ARGS_MAX
-// give: neither belongs on a 16 KiB kernel stack, and a STATIC buffer
-// held across an ELF load would be overwritten by a concurrent spawn.
+// kmalloc'd and sized to the call: neither belongs on a 16 KiB kernel
+// stack, and a STATIC buffer held across an ELF load would be overwritten
+// by a concurrent spawn.
 // 0 or -errno; on an error nothing is held.
 struct spawn_args {
     // Pooled, not inline: a struct spawn_args is a LOCAL in sys_spawn()
@@ -556,16 +572,6 @@ static int spawn_args_collect(uint64_t pml4, const struct spawn_msg *msg,
     k_memset(a, 0, sizeof *a);
     a->path = kpath_get();
     if (!a->path) return -ENOMEM;
-    if (msg->env) {
-        a->envbuf = kmalloc(SYS_ENV_MAX);
-        if (!a->envbuf) return -ENOMEM;
-        if (!copy_env_from_user(pml4, (uint64_t)(uintptr_t)msg->env, a->envbuf, SYS_ENV_MAX)) {
-            klog_printf(KLOG_ERR "syscall: %s() rejected -- bad or oversized environment\n", who);
-            spawn_args_free(a);
-            return -EINVAL;
-        }
-        a->env = a->envbuf;
-    }
     // RESOLVED AGAINST THE CWD, like every other path a syscall takes
     // (kernel/syscalls.h). This used to be a raw copy, so `./prog` was
     // looked up from the ROOT and failed with ENOENT from the very
@@ -629,6 +635,19 @@ static int spawn_args_collect(uint64_t pml4, const struct spawn_msg *msg,
         klog_printf(KLOG_ERR "syscall: %s() rejected -- bad or oversized arguments\n", who);
         spawn_args_free(a);
         return -EINVAL;
+    }
+    // AFTER the arguments: the environment gets what they left of the
+    // one SPAWN_ARGS_MAX budget.
+    if (msg->env) {
+        long n = copy_env_from_user(pml4, (uint64_t)(uintptr_t)msg->env,
+                                    SPAWN_ARGS_MAX - a->args_len, &a->envbuf);
+        if (n < 0) {
+            klog_printf(KLOG_ERR "syscall: %s() rejected -- %s environment\n", who,
+                        n == -E2BIG ? "oversized" : "bad");
+            spawn_args_free(a);
+            return (int)n;
+        }
+        a->env = a->envbuf;
     }
     return 0;
 }

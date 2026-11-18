@@ -16,8 +16,8 @@ long sysconf(int name) {
     case _SC_CLK_TCK:  return 1000000L;
     case _SC_PAGESIZE: return 4096L;
     case _SC_NPROCESSORS_ONLN: return 1L;   // no SMP yet (docs/smp-design.md)
-    // The ABI's own ceiling for an exec's argument vector (POSIX counts
-    // the environment too; here that has its own, SYS_ENV_MAX).
+    // The ABI's own ceiling for an exec's arguments and environment
+    // together, as POSIX counts it.
     case _SC_ARG_MAX:  return (long)SPAWN_ARGS_MAX;
     // _SC_OPEN_MAX is deliberately NOT answered. The descriptor table
     // has a size, but nothing in the ABI states it, and a number

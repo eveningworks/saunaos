@@ -871,7 +871,8 @@ struct getdents_request {
 // ("A=1\0B=2\0\0"), or NULL for no environment -- one blob rather than
 // a char** the kernel would walk pointer by pointer, validating each
 // entry out of user memory, which is the same reasoning that makes
-// `args` a single string.
+// `args` a single string. Its bytes count against SPAWN_ARGS_MAX with
+// the arguments'.
 //
 // There is no inheritance HERE, deliberately. On Unix `execve()` is the
 // primitive and takes envp explicitly; `execv()` is the C LIBRARY
@@ -1069,13 +1070,6 @@ struct spawn_msg {
 #define SPAWN_FLAGS_ALL (SPAWN_TRACE | SPAWN_FOREGROUND | SPAWN_ARGV | SPAWN_SETSID | \
                          SPAWN_STDERR | SPAWN_DETACH | SPAWN_TRACE_RING | \
                          SPAWN_TRACE_FOLLOW | SPAWN_SANDBOX | SPAWN_STOPPED)
-
-// The most an environment blob may be, including its terminator. It has
-// to fit the child's single argv/env stack page alongside the strings
-// argv already needs, so this is a ceiling rather than a promise: a
-// long argv leaves less. An oversized environment is REFUSED, never
-// truncated -- a silently missing variable is a bug somewhere else.
-#define SYS_ENV_MAX 2048
 
 #define SYS_WNOHANG 1
 
@@ -2509,10 +2503,11 @@ struct mmap_msg {
 // every time.
 #define SYS_SLEEP_MAX_MS 3600000
 
-// The most a spawn's or exec's argument VECTOR may carry, in bytes,
-// every NUL included: POSIX's ARG_MAX, which sysconf(_SC_ARG_MAX)
-// reports. A ceiling, not a buffer size -- the kernel allocates what a
-// call carries and maps as many stack pages as its strings need
+// The most a spawn's or exec's argument VECTOR and ENVIRONMENT may carry
+// TOGETHER, in bytes, every NUL included: POSIX's ARG_MAX, which counts
+// both and sysconf(_SC_ARG_MAX) reports; past it is E2BIG, whichever
+// part tipped it. A ceiling, not a buffer size -- the kernel allocates
+// what a call carries and maps as many stack pages as its strings need
 // (elf_run.c), so a short command line costs what it always did.
 // Linux allows 2 MiB in all, a quarter of the default stack rlimit;
 // this is 256 KiB, well inside a quarter of UADDR_STACK_MAX_PAGES.

@@ -10213,7 +10213,24 @@ An oversized vector is `E2BIG`, never `EINVAL`: libsys reads `EINVAL` on
 a vector as "a kernel from before `SPAWN_ARGV`" and retried with the
 string form -- which cut the line at 1 KiB, so the child ran with part
 of its arguments. That fallback now refuses a line it cannot carry whole.
-The environment keeps its own 2 KiB (`SYS_ENV_MAX`) for now.
+
+**The environment** (2026-11-18) is sized the same way and shares the
+one budget: argv and the environment together are at most
+`SPAWN_ARGS_MAX`, and past it is `E2BIG` whichever part tipped it. It had
+a fixed 2 KiB of its own (`SYS_ENV_MAX`), refused past that. POSIX's
+`ARG_MAX` counts both, and Linux charges both against one quarter of the
+stack rlimit, so `sysconf(_SC_ARG_MAX)` now answers the POSIX question.
+Separate ceilings were the alternative, and were declined: they double
+the kernel's largest spawn allocation -- the reason the ceiling is 256
+KiB rather than Linux's 2 MiB -- and leave `_SC_ARG_MAX` answering half
+the question. The kernel measures the blob in chunks that never cross a
+page, allocates exactly that and re-checks the terminator after the
+copy (another thread may rewrite it in between). The environment is
+copied AFTER the arguments, so it is charged what they left, including
+the string form's split vector, which libsys cannot count. A caller
+packing arguments up to the budget leaves room for the environment it
+passes: `uargbatch()` subtracts `sys_env_bytes(environ)`, as GNU xargs
+subtracts the environment from `ARG_MAX`.
 
 **The fault.** A ring-3 fault with no handler ended the process with
 exit code -1, which no `WIF*` macro decodes: `waitpid()` succeeded and

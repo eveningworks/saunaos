@@ -404,32 +404,70 @@ int sys_notify_ready(void) { return (int)err(syscall0(SYS_NOTIFY_READY)); }
 // pointer. There is one environment per process and this is it.
 char **environ;
 
-// Flattens `environ` into the blob SYS_SPAWN takes: "K=V\0K=V\0\0".
+// A flattened argv or environment on its way into SYS_SPAWN/SYS_EXEC.
 //
-// A STATIC buffer, not malloc: libsys sits BELOW the C library and must
-// not depend on an allocator that tolibc provides -- a program can link
-// libsys alone. The cost is that spawn is not re-entrant, which is
+// SIZED TO THE CALL. libsys sits BELOW the C library and must not
+// depend on the allocator tolibc provides -- a program can link libsys
+// alone -- so a blob that fits its small static buffer (nearly every
+// spawn) costs nothing, and a bigger one gets an anonymous mapping that
+// spawn_blob_release() returns. A static buffer of SPAWN_ARGS_MAX would
+// sit in every process's memory. Spawn is not re-entrant, which is
 // already true of it for other reasons.
-//
-// Returns 0 if the environment does not fit, and sys_spawn() then
-// refuses rather than passing a truncated one: a child missing half its
-// variables is worse than a child that failed to start.
-static char g_envblob[SYS_ENV_MAX];
+struct spawn_blob { char *p; size_t len; size_t mapped; };
 
-static int flatten_env(char **env) {
-    size_t n = 0;
-    if (env) {
+// `n` bytes, from `small` when they fit. 0 with g_errno ENOMEM if the
+// mapping is refused.
+static int spawn_blob_reserve(struct spawn_blob *b, char *small, size_t small_cap, size_t n) {
+    b->p = small;
+    b->len = n;
+    b->mapped = 0;
+    if (n <= small_cap) return 1;
+    size_t bytes = (n + 4095) & ~(size_t)4095;
+    void *p = sys_mmap(0, bytes, SYS_PROT_READ | SYS_PROT_WRITE,
+                       SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
+    if (p == (void *)-1) { g_errno = ENOMEM; return 0; }
+    b->p = (char *)p;
+    b->mapped = bytes;
+    return 1;
+}
+
+static void spawn_blob_release(struct spawn_blob *b) {
+    if (b->mapped) sys_munmap(b->p, b->mapped);
+    b->mapped = 0;
+}
+
+// Flattens `env` into the blob SYS_SPAWN takes: "K=V\0K=V\0\0", at most
+// `cap` bytes -- what the arguments left of SPAWN_ARGS_MAX, the budget
+// the two share (the kernel holds the same line).
+//
+// 1 with `b` filled, or 0 with g_errno E2BIG (past `cap`) or ENOMEM.
+// REFUSED rather than truncated: a child missing half its variables is
+// worse than a child that failed to start.
+static char g_envblob[2048];
+
+size_t sys_env_bytes(char *const *env) {
+    size_t n = 1;   // the empty string that ends the run
+    if (env)
         for (int i = 0; env[i]; i++) {
-            const char *e = env[i];
             size_t len = 0;
-            while (e[len]) len++;
-            if (n + len + 2 > sizeof g_envblob) return 0;  // + its NUL + the final one
-            for (size_t k = 0; k < len; k++) g_envblob[n++] = e[k];
-            g_envblob[n++] = '\0';
+            while (env[i][len]) len++;
+            n += len + 1;
         }
-    }
-    if (n + 1 > sizeof g_envblob) return 0;
-    g_envblob[n++] = '\0';   // the empty string that ends the run
+    return n;
+}
+
+static int flatten_env(char *const *env, size_t cap, struct spawn_blob *b) {
+    size_t n = sys_env_bytes(env);
+    if (n > cap) { g_errno = E2BIG; return 0; }
+    if (!spawn_blob_reserve(b, g_envblob, sizeof g_envblob, n)) return 0;
+    size_t at = 0;
+    if (env)
+        for (int i = 0; env[i]; i++)
+            for (size_t k = 0; ; k++) {
+                b->p[at++] = env[i][k];
+                if (!env[i][k]) break;
+            }
+    b->p[at] = '\0';
     return 1;
 }
 
@@ -1162,20 +1200,13 @@ int sys_spawn_flags(const char *path, const char *args, int stdout_fd,
 }
 
 // The argv vector, flattened: "a\0b\0", sized by LENGTH rather than
-// env's double NUL, because an argument may be empty.
-//
-// SIZED TO THE CALL. libsys sits below the allocator (flatten_env()'s
-// reason), so a vector that fits the small static buffer -- nearly every
-// spawn -- costs nothing, and a bigger one, up to SPAWN_ARGS_MAX, gets an
-// anonymous mapping that argblob_release() returns. A static buffer of
-// SPAWN_ARGS_MAX would sit in every process's memory.
+// env's double NUL, because an argument may be empty. Its static buffer
+// doubles as the string form's (the fallback below).
 static char g_argblob[SPAWN_ARGSTR_MAX];
-
-struct argblob { char *p; size_t len; size_t mapped; };
 
 // 1 with `b` filled, or 0 with g_errno set: E2BIG past SPAWN_ARGS_MAX
 // (or for an empty vector), ENOMEM if the mapping is refused.
-static int flatten_argv(char *const *argv, struct argblob *b) {
+static int flatten_argv(char *const *argv, struct spawn_blob *b) {
     size_t n = 0;
     for (int i = 0; argv[i]; i++) {
         size_t len = 0;
@@ -1184,29 +1215,14 @@ static int flatten_argv(char *const *argv, struct argblob *b) {
         if (n > SPAWN_ARGS_MAX) { g_errno = E2BIG; return 0; }
     }
     if (!n) { g_errno = E2BIG; return 0; }
-    b->p = g_argblob;
-    b->mapped = 0;
-    if (n > sizeof g_argblob) {
-        size_t bytes = (n + 4095) & ~(size_t)4095;
-        void *p = sys_mmap(0, bytes, SYS_PROT_READ | SYS_PROT_WRITE,
-                           SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
-        if (p == (void *)-1) { g_errno = ENOMEM; return 0; }
-        b->p = (char *)p;
-        b->mapped = bytes;
-    }
+    if (!spawn_blob_reserve(b, g_argblob, sizeof g_argblob, n)) return 0;
     size_t at = 0;
     for (int i = 0; argv[i]; i++)
         for (size_t k = 0; ; k++) {
             b->p[at++] = argv[i][k];
             if (!argv[i][k]) break;
         }
-    b->len = n;
     return 1;
-}
-
-static void argblob_release(struct argblob *b) {
-    if (b->mapped) sys_munmap(b->p, b->mapped);
-    b->mapped = 0;
 }
 
 void sys_spawn_opts_init(struct sys_spawn_opts *o) {
@@ -1222,25 +1238,28 @@ void sys_spawn_opts_init(struct sys_spawn_opts *o) {
 }
 
 int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
-    if (!flatten_env(o->env)) { g_errno = E2BIG; return -1; }
     struct spawn_msg msg;
     msg.path = path;
     msg.args = o->args;
     unsigned flags = o->flags;
     msg.args_len = 0;
-    struct argblob blob = { 0, 0, 0 };
+    struct spawn_blob blob = { 0, 0, 0 }, envb = { 0, 0, 0 };
     if (o->argv) {
         if (!flatten_argv(o->argv, &blob)) return -1;
         msg.args = blob.p;
         msg.args_len = (uint32_t)blob.len;
         flags |= SPAWN_ARGV;
     }
+    if (!flatten_env(o->env, SPAWN_ARGS_MAX - blob.len, &envb)) {
+        spawn_blob_release(&blob);
+        return -1;
+    }
     // An EMPTY environment is still an environment: the blob is the
     // single terminating NUL, and the child gets envp[0] == NULL rather
     // than no envp at all. Passing NULL here would be "no environment",
     // which is what a kernel-side spawner means and not what a program
     // with an empty one means.
-    msg.env = g_envblob;
+    msg.env = envb.p;
     msg.stdout_fd = o->stdout_fd;
     msg.stdin_fd = o->stdin_fd;
     msg.stderr_fd = o->stderr_fd;
@@ -1262,7 +1281,7 @@ int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
     // which is what stranded a machine mid-flash on 2026-09-10. What
     // the fallback loses is exactly what the vector added: an argument
     // holding a space arrives split.
-    argblob_release(&blob);   // the kernel has copied it either way
+    spawn_blob_release(&blob);   // the kernel has copied it either way
     if (rc == -EINVAL && (flags & SPAWN_ARGV)) {
         // A line that does not fit is REFUSED, never cut: a child
         // started with half its arguments is worse than one not started.
@@ -1271,7 +1290,11 @@ int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
             const char *a = o->argv[i];
             size_t len = 0;
             while (a[len]) len++;
-            if (n + (i > 1) + len + 1 > sizeof g_argblob) { g_errno = E2BIG; return -1; }
+            if (n + (i > 1) + len + 1 > sizeof g_argblob) {
+                spawn_blob_release(&envb);
+                g_errno = E2BIG;
+                return -1;
+            }
             if (i > 1) g_argblob[n++] = ' ';
             for (size_t k = 0; k < len; k++) g_argblob[n++] = a[k];
         }
@@ -1281,6 +1304,7 @@ int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
         msg.flags = flags & ~(unsigned)SPAWN_ARGV;
         rc = syscall1(SYS_SPAWN, (uint64_t)(uintptr_t)&msg);
     }
+    spawn_blob_release(&envb);
     return (int)err(rc);
 }
 
@@ -1291,26 +1315,30 @@ int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
 // SYS_EXEC takes SYS_SPAWN's message; the child-only fields stay at
 // their "none" values, which the kernel insists on.
 int sys_execve(const char *path, char *const argv[], char *const envp[]) {
-    if (!flatten_env(envp)) { g_errno = E2BIG; return -1; }
     struct spawn_msg msg;
     msg.path = path;
     msg.args = 0;
     msg.args_len = 0;
     msg.flags = 0;
-    struct argblob blob = { 0, 0, 0 };
+    struct spawn_blob blob = { 0, 0, 0 }, envb = { 0, 0, 0 };
     if (argv && argv[0]) {
         if (!flatten_argv(argv, &blob)) return -1;
         msg.args = blob.p;
         msg.args_len = (uint32_t)blob.len;
         msg.flags = SPAWN_ARGV;
     }
-    msg.env = g_envblob;
+    if (!flatten_env(envp, SPAWN_ARGS_MAX - blob.len, &envb)) {
+        spawn_blob_release(&blob);
+        return -1;
+    }
+    msg.env = envb.p;
     msg.stdout_fd = -1;
     msg.stdin_fd = -1;
     msg.stderr_fd = -1;
     msg.pgid = 0;
     int64_t rc = syscall1(SYS_EXEC, (uint64_t)(uintptr_t)&msg);
-    argblob_release(&blob);   // only a FAILED exec returns here
+    spawn_blob_release(&blob);   // only a FAILED exec returns here
+    spawn_blob_release(&envb);
     return (int)err(rc);
 }
 

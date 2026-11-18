@@ -26,14 +26,84 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 #include "rt/sys.h"
-
-
-
+#include "syscall_abi.h"   // SPAWN_ARGS_MAX
 #include "base/utest.h"
 
 
 static char putenv_buf[] = "PUTENV_VAR=static-storage";
+
+// Spawns /tests/env_child with `env` and collects its one line. The
+// spawn's return (a pid, or -1 with errno) goes to `*pid_out`.
+static int spawn_child(const char *args, char *const *argv, char **env,
+                       char *out, size_t cap, int *pid_out) {
+    int p[2];
+    *pid_out = -1;
+    out[0] = '\0';
+    if (sys_pipe(p) != 0) return -1;
+    struct sys_spawn_opts o;
+    sys_spawn_opts_init(&o);
+    o.args = args;
+    o.argv = argv;
+    o.env = env;
+    o.stdout_fd = p[1];
+    int pid = sys_spawn_opts("/tests/env_child", &o);
+    sys_close(p[1]);
+    *pid_out = pid;
+    if (pid < 0) { sys_close(p[0]); return -1; }
+    size_t n = 0;
+    for (;;) {
+        long r = sys_read(p[0], out + n, cap - 1 - n);
+        if (r <= 0) break;
+        n += (size_t)r;
+        if (n >= cap - 1) break;
+    }
+    out[n] = '\0';
+    sys_close(p[0]);
+    sys_waitpid(pid, 0);
+    return (int)n;
+}
+
+// What env_child --digest prints for `env`.
+static void env_digest(char *const *env, char *out, size_t cap) {
+    unsigned long h = 1469598103934665603UL;
+    size_t n = 0, bytes = 0;
+    for (; env[n]; n++)
+        for (const char *c = env[n]; ; c++) {
+            h = (h ^ (unsigned char)*c) * 1099511628211UL;
+            bytes++;
+            if (!*c) break;
+        }
+    snprintf(out, cap, "n=%zu bytes=%zu fnv=%lx\n", n, bytes, h);
+}
+
+// A test environment: `count` entries "E<i>=<pattern>", lengths varying
+// with i, then one "BIG=" entry filling the blob to `total` bytes in all
+// (its double-NUL terminator included). Static: one at a time.
+enum { ENV_N_MAX = 3000 };
+static char env_strings[ENV_N_MAX][80];
+static char env_big[SPAWN_ARGS_MAX];
+static char *env_vec[ENV_N_MAX + 2];
+
+static char **make_env(int count, size_t total) {
+    size_t used = 1;   // the empty string that ends the blob
+    for (int i = 0; i < count; i++) {
+        int len = snprintf(env_strings[i], 16, "E%d=", i);
+        int vlen = 1 + (i * 13) % 60;
+        for (int k = 0; k < vlen; k++) env_strings[i][len + k] = (char)('a' + (i * 7 + k) % 26);
+        env_strings[i][len + vlen] = '\0';
+        env_vec[i] = env_strings[i];
+        used += (size_t)(len + vlen) + 1;
+    }
+    size_t biglen = total - used - 1;   // its own NUL
+    memcpy(env_big, "BIG=", 4);
+    for (size_t k = 4; k < biglen; k++) env_big[k] = (char)('A' + k % 23);
+    env_big[biglen] = '\0';
+    env_vec[count] = env_big;
+    env_vec[count + 1] = 0;
+    return env_vec;
+}
 
 int main(void) {
     utest_begin("env_test", "getenv/setenv, and a child inheriting", UTEST_VERDICT_FILE);
@@ -165,15 +235,60 @@ int main(void) {
         // ancestry rather than the mechanism, and would fail whenever
         // the chain is short.
         const char *mypath = getenv("PATH");
-        static char want[128];
-        snprintf(want, sizeof want, "passed-down|kept|%s\n",
+        static char want1[128];
+        snprintf(want1, sizeof want1, "passed-down|kept|%s\n",
                  mypath ? mypath : "(unset)");
-        utest_check(strcmp(buf, want) == 0,
+        utest_check(strcmp(buf, want1) == 0,
               "the CHILD inherited it, kept it across a heap move, and mirrors PATH");
-        if (strcmp(buf, want) != 0) {
-            utest_notef("child said \"%s\", wanted \"%s\"", buf, want);
+        if (strcmp(buf, want1) != 0) {
+            utest_notef("child said \"%s\", wanted \"%s\"", buf, want1);
         }
     }
+
+    // --- an environment sized to the call ----------------------------
+    //
+    // It shares SPAWN_ARGS_MAX with the arguments, as POSIX's ARG_MAX
+    // counts both. It was a fixed 2 KiB of its own.
+    static char out[256], want[256];
+    char *const digest_argv[] = { "env_child", "--digest", 0 };
+    const size_t argv_bytes = sizeof "env_child" + sizeof "--digest";
+    int pid;
+
+    // 1. Most of the budget, over many stack pages and thousands of
+    //    entries, arrives whole and in order.
+    char **env = make_env(ENV_N_MAX, 200 * 1024);
+    env_digest(env, want, sizeof want);
+    spawn_child(0, digest_argv, env, out, sizeof out, &pid);
+    utest_checkf(pid > 0 && !strcmp(out, want),
+                 "a 200 KiB environment of %d entries arrives whole (want %s got %s)",
+                 ENV_N_MAX + 1, want, pid > 0 ? out : "a refused spawn");
+
+    // 2. The whole budget, less the arguments, still spawns...
+    env = make_env(10, SPAWN_ARGS_MAX - argv_bytes);
+    env_digest(env, want, sizeof want);
+    spawn_child(0, digest_argv, env, out, sizeof out, &pid);
+    utest_checkf(pid > 0 && !strcmp(out, want),
+                 "an environment filling the budget the arguments leave spawns (got %s)",
+                 pid > 0 ? out : "a refused spawn");
+
+    // 3. ...and one byte more is E2BIG, refused in libsys.
+    env = make_env(10, SPAWN_ARGS_MAX - argv_bytes + 1);
+    spawn_child(0, digest_argv, env, out, sizeof out, &pid);
+    utest_check(pid < 0 && sys_errno() == E2BIG,
+                "one byte past the shared budget is refused with E2BIG");
+
+    // 4. The KERNEL charges the same budget. The string form's arguments
+    //    are split in the kernel, so libsys cannot count them: an
+    //    environment that fits alone, plus 200 bytes of string-form
+    //    arguments, must be refused there.
+    static char longarg[208];
+    memcpy(longarg, "--digest ", 9);
+    memset(longarg + 9, 'y', 190);
+    longarg[199] = '\0';
+    env = make_env(10, SPAWN_ARGS_MAX - 64);
+    spawn_child(longarg, 0, env, out, sizeof out, &pid);
+    utest_check(pid < 0 && sys_errno() == E2BIG,
+                "the kernel counts string-form arguments against the same budget (E2BIG)");
 
     return utest_end();
 }

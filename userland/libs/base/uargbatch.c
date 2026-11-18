@@ -2,10 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "syscall_abi.h"   // SPAWN_ARGS_MAX
+#include "rt/sys.h"         // environ, sys_env_bytes
 #include "uargbatch.h"
 
 int uargbatch(char *const *head, int nhead, char *const *items, int nitems,
               void (*run)(char *const *argv, void *ctx), void *ctx) {
+    // The environment the spawn passes shares the budget.
+    size_t env = sys_env_bytes(environ);
+    size_t cap = env < SPAWN_ARGS_MAX ? SPAWN_ARGS_MAX - env : 0;
     size_t head_len = 0;
     for (int i = 0; i < nhead; i++) head_len += strlen(head[i]) + 1;
     // At most every item in one batch, plus the head and the NULL.
@@ -19,8 +23,8 @@ int uargbatch(char *const *head, int nhead, char *const *items, int nitems,
         int k = nhead;
         for (; at < nitems; at++) {
             size_t one = strlen(items[at]) + 1;
-            if (head_len + one > SPAWN_ARGS_MAX) { skipped = 1; continue; }   // never fits
-            if (len + one > SPAWN_ARGS_MAX) break;                            // the next batch's
+            if (head_len + one > cap) { skipped = 1; continue; }   // never fits
+            if (len + one > cap) break;                            // the next batch's
             argv[k++] = items[at];
             len += one;
         }
