@@ -5,6 +5,7 @@
 #include "wm_flyout.h"
 #include "wm_debug.h"
 #include "emoji_picker.h"
+#include "kutf8.h"
 #include "kapi.h"
 #include "keyboard.h"
 #include "base/uemojidata.h"
@@ -227,28 +228,60 @@ void emoji_picker_toggle(void) {
     else open_now();
 }
 
-// THE CHARACTERS GO AS KEYS, the base and then U+FE0F where the list says
-// -- 32-bit code points, which is what WIN_EV_KEY carries (api/keyboard.h)
-// -- to the window real keys go to. Windows closes its panel after a pick.
-static void insert(int entry) {
+// THE CHARACTERS GO AS KEYS, one per code point of the emoji -- a sequence's
+// joiners and selectors included, the field putting the cluster back
+// together -- as 32-bit code points, which is what WIN_EV_KEY carries
+// (api/keyboard.h), to the window real keys go to. `seq` is what to type:
+// the entry's own, or the toned form its strip gave. Windows closes its
+// panel after a pick.
+static void insert_seq(int entry, const char *seq) {
     const struct uemojidata *d = uemojidata();
     if (entry < 0 || entry >= d->count) return;
     const struct uemoji_entry *e = &d->entries[entry];
+    if (!seq || !seq[0]) seq = e->seq;
     int kt = wm_key_target(wm_focus_index());
     emoji_picker_close();
     if (kt < 0 || !wm_client_is_client_window(&windows[kt])) {
-        ulogf("emoji: nothing to type U+%04X into\n", (unsigned)e->cp);
+        ulogf("emoji: nothing to type %s into\n", e->name);
         return;
     }
-    wm_client_send_key(&windows[kt], (int)e->cp, 0);
-    wm_client_send_key_up(&windows[kt], (int)e->cp, 0);
-    if (e->vs16) {
-        wm_client_send_key(&windows[kt], 0xFE0F, 0);
-        wm_client_send_key_up(&windows[kt], 0xFE0F, 0);
+    int len = (int)k_strlen(seq), o = 0;
+    char codes[160] = "";
+    for (int i = 0, n; i < len; i += n > 0 ? n : 1) {
+        uint32_t cp = kutf8_decode(seq + i, len - i, &n);
+        wm_client_send_key(&windows[kt], (int)cp, 0);
+        wm_client_send_key_up(&windows[kt], (int)cp, 0);
+        if (o < (int)sizeof codes - 10)
+            o += k_snprintf(codes + o, sizeof codes - (size_t)o, "%sU+%04X", o ? " " : "", (unsigned)cp);
     }
     uemojidata_recent_add(entry);
-    ulogf("emoji: inserted U+%04X%s (%s) into window %d\n", (unsigned)e->cp, e->vs16 ? " U+FE0F" : "",
-          e->name, kt);
+    ulogf("emoji: inserted %s (%s) into window %d\n", codes, e->name, kt);
+}
+
+static void insert(int entry) { insert_seq(entry, 0); }
+
+// What the grid activated -- a cell, or a form from its skin-tone strip.
+static void insert_taken(void) {
+    char seq[128];
+    int e = uui_emojigrid_take_seq(&g_grid, seq, sizeof seq);
+    if (e >= 0) insert_seq(e, seq);
+    else emoji_picker_damage();
+}
+
+// A RIGHT-CLICK on a cell opens its skin tones (uui_emojigrid_variants());
+// anywhere else in the panel it is inert. 1 when the panel took it.
+int emoji_picker_right_click(int mx, int my) {
+    if (!emoji_picker_open) return 0;
+    struct ep_geom g;
+    geometry(&g);
+    if (!uui_hit(g.x, g.y, g.w, g.h, mx, my)) return 0;
+    if (uui_hit(g.gx, g.gy, g.gw, g.gh, mx, my)) {
+        int i = uui_emojigrid_index_at(&g_grid, mx, my);
+        if (i >= 0 && uui_emojigrid_variants(&g_grid, i))
+            ulogf("emoji: tones of %s\n", uemojidata()->entries[g_grid.items[i]].name);
+        emoji_picker_damage();
+    }
+    return 1;
 }
 
 // --- input ------------------------------------------------------------------------
@@ -262,7 +295,8 @@ int emoji_picker_hover_at(int mx, int my) {
     g_hot_recent = recent_at(&g, mx, my);
     if (!uui_hit(g.x, g.y, g.w, g.h, mx, my)) return 0;
     return 1 + (g_hot_tab + 1) + 100 * (g_hot_recent + 1) + 10000 * (g_grid.grid.hot + 1) +
-           (g_grid.grid.bar_hot ? 5000000 : 0);
+           (g_grid.grid.bar_hot ? 5000000 : 0) +
+           (uui_emojigrid_variants_open(&g_grid) ? 10000000 * (g_grid.var_sel + 1) : 0);
 }
 
 int emoji_picker_handle_click(int mx, int my) {
@@ -278,6 +312,12 @@ int emoji_picker_handle_click(int mx, int my) {
     if (t >= 0) { set_tab(t); return 1; }
     int r = recent_at(&g, mx, my);
     if (r >= 0) { insert(g_recent[r]); return 1; }
+    if (uui_emojigrid_variants_open(&g_grid)) {
+        // The strip's: a form inserts, anywhere else shuts it.
+        uui_emojigrid_ops.press(&g_grid, mx, my, 0);
+        insert_taken();
+        return 1;
+    }
     if (uui_hit(g.gx, g.gy, g.gw, g.gh, mx, my)) {
         // A CLICK INSERTS: the cell the press lands on, as Windows' panel.
         // The overlay bar inside the grid is the grid's: dragged below.
@@ -320,6 +360,15 @@ int emoji_picker_key(int key, uint8_t mods) {
     struct ep_geom g;
     geometry(&g);
     uui_caret_reset();
+    // THE SKIN-TONE STRIP has the keys while it is up: Esc shuts only it,
+    // Enter takes its form. The Menu key or Shift+F10 opens it.
+    if (uui_emojigrid_variants_open(&g_grid) || key == KEY_MENU || (key == KEY_F10 && (mods & KEY_MOD_SHIFT))) {
+        int was_open = uui_emojigrid_variants_open(&g_grid);
+        int took = uui_emojigrid_ops.key(&g_grid, key, mods);
+        if (was_open && (key == '\n' || key == '\r' || key == ' ')) { insert_taken(); return 1; }
+        emoji_picker_damage();
+        if (took || key == 0x1B) return 1;
+    }
     if (key == 0x1B) { emoji_picker_close(); return 1; }
     if (key == '\n' || key == '\r') {
         int e = uui_emojigrid_focused(&g_grid);
@@ -387,9 +436,16 @@ static void draw_tab(struct ugfx_surface *s, const struct ep_geom *g, int i) {
     }
 }
 
+// "U+1F468 U+200D U+1F469": every code point, as many as fit.
 static void codes(const struct uemoji_entry *e, char *out, int cap) {
-    if (e->vs16) k_snprintf(out, (size_t)cap, "U+%04X U+FE0F", (unsigned)e->cp);
-    else k_snprintf(out, (size_t)cap, "U+%04X", (unsigned)e->cp);
+    int o = 0, len = (int)k_strlen(e->seq);
+    out[0] = '\0';
+    for (int i = 0, n; i < len && o < cap - 1; i += n > 0 ? n : 1) {
+        uint32_t cp = kutf8_decode(e->seq + i, len - i, &n);
+        int w = k_snprintf(out + o, (size_t)(cap - o), "%sU+%04X", o ? " " : "", (unsigned)cp);
+        if (w <= 0 || o + w >= cap) { out[o] = '\0'; break; }
+        o += w;
+    }
 }
 
 void emoji_picker_draw(int mx, int my) {
@@ -477,8 +533,8 @@ void emoji_picker_report(struct dbg_out *o, int json) {
     dbg_out_printf(o, "\"caret\":{\"known\":%s,\"x\":%d,\"y\":%d,\"h\":%d},",
                    g_caret_ok ? "true" : "false", g_cx, g_cy, g_ch);
     if (e >= 0)
-        dbg_out_printf(o, "\"focused\":{\"cp\":\"%04X\",\"vs16\":%d,\"name\":\"%s\"},",
-                       (unsigned)d->entries[e].cp, d->entries[e].vs16, d->entries[e].name);
+        dbg_out_printf(o, "\"focused\":{\"cp\":\"%04X\",\"vs16\":%d,\"tones\":%d,\"name\":\"%s\"},",
+                       (unsigned)d->entries[e].cp, d->entries[e].vs16, d->entries[e].toned != 0, d->entries[e].name);
     else
         dbg_out_printf(o, "\"focused\":null,");
     int cx, cy, cw, ch;
@@ -487,6 +543,8 @@ void emoji_picker_report(struct dbg_out *o, int json) {
     dbg_out_printf(o, "\"columns\":%d,\"grid\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d},",
                    uui_grid_columns(&g_grid.grid), g.gx, g.gy, g.gw, g.gh);
     dbg_out_printf(o, "\"search\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d},", g.sx, g.sy, g.sw, g.sh);
+    dbg_out_printf(o, "\"strip\":{\"open\":%s,\"sel\":%d},",
+                   uui_emojigrid_variants_open(&g_grid) ? "true" : "false", g_grid.var_sel);
     dbg_out_printf(o, "\"recent_row\":%s,\"recent_cell\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d},\"recent\":[",
                    g.recent ? "true" : "false", g.gx, g.ry, g.cell, g.cell);
     for (int i = 0; i < g_nrecent; i++)

@@ -8,16 +8,18 @@ uemojidata.c with the host gcc (the file and settings calls stubbed) and
 compares it with this script's own reading of the same file, which shares no
 code with it:
 
-  - every entry: its characters (with U+FE0F where the file says), its group
-    and its name; every group's name, tab word, first entry and count;
+  - every entry: its characters (a sequence whole, U+FE0F where the file
+    says), its group and its name, and a people emoji's five SKIN TONES made
+    from its template; every group's name, tab word, first entry and count;
   - searches by substring of the name with the case changed ("HEART", "Cat");
-  - the recents value: a pick moved to the front, a duplicate dropped, the
-    row cut at 16 and at the settings ABI's 63 bytes on a character boundary,
-    and a value decoded back to entries (an unknown character skipped).
+  - the recents value, a whole emoji at a time: a pick moved to the front, a
+    duplicate dropped, the row cut at 16 and at the settings ABI's 63 bytes,
+    and a value decoded back to entries (a family whole, an unknown character
+    skipped); a pasted emoji, toned or not, found as its entry.
 
 `--positive-control` breaks three things in a copy -- a case-sensitive
-search, recents that keep duplicates, a parse that drops U+FE0F -- and each
-must go RED.
+search, recents that keep duplicates, a tone template's slot left empty --
+and each must go RED.
 
   python3 tools/hostchecks/uemojidata_hostcheck.py [--positive-control]
 """
@@ -39,7 +41,7 @@ ROOT = toolpath.REPO
 TOOL = "uemojidata_hostcheck"
 DATA = os.path.join(ROOT, "data", "usr", "share", "unicode", "emoji")
 QUERIES = ["\u00f1", "\u2019", "heart", "HEART", "Cat", "face with", "o’clock", "zzzqqq", "x", "\U0001F600", "\u2764\ufe0f",
-           "\U0001F600\U0001F600"]
+           "\u2764", "\U0001F600\U0001F600", "\U0001F1EB\U0001F1EE", "\U0001F44B\U0001F3FD", "flag: f"]
 VALUE_MAX = 64          # SETTING_ABI_VALUE_MAX
 RECENT_MAX = 16
 
@@ -91,9 +93,16 @@ int main(int argc, char **argv) {
         printf("E\t%X\t%d\t%d\t%s\t", d.entries[i].cp, d.entries[i].vs16, d.entries[i].group, d.entries[i].name);
         hexs(d.entries[i].seq);
         printf("\n");
+        for (int t = 1; t <= UEMOJI_TONES && d.entries[i].toned; t++) {
+            char out[128];
+            int n = uemojidata_toned(&d.entries[i], t, out, sizeof out);
+            printf("T\t%d\t%d\t%d\t", i, t, n);
+            hexs(n ? out : "");
+            printf("\n");
+        }
     }
     // Queries, one per line on stdin, then recents cases.
-    char line[256];
+    char line[1024];
     static int out[4096];
     while (fgets(line, sizeof line, stdin)) {
         line[strcspn(line, "\n")] = 0;
@@ -111,7 +120,11 @@ int main(int argc, char **argv) {
             int k = 0;
             for (; h[0] && h[1]; h += 2) { unsigned b; sscanf(h, "%2x", &b); was[k++] = (char)b; }
             was[k] = 0;
-            int n = uemojidata_recent_push(was, (unsigned)strtoul(sp + 1, 0, 16), now, sizeof now);
+            char seq[128] = "";
+            int m = 0;
+            for (const char *x = sp + 1; x[0] && x[1]; x += 2) { unsigned b; sscanf(x, "%2x", &b); seq[m++] = (char)b; }
+            seq[m] = 0;
+            int n = uemojidata_recent_push(was, seq, now, sizeof now);
             printf("P\t%d\t", n); hexs(now); printf("\n");
         } else if (!strncmp(line, "D\t", 2)) {
             char was[256] = "";
@@ -134,62 +147,72 @@ CONTROLS = [
      "static char lower(char c) { return c >= 'A' && c <= 'Z' ? (char)(c - 'A' + 'a') : c; }",
      "static char lower(char c) { return c; }"),
     ("recents keep duplicates",
-     "if (c != cp && c != 0xFE0F && c != 0xFE0E) {",
-     "if (c != 0xFE0F && c != 0xFE0E) {"),
-    ("U+FE0F dropped by the parse",
-     "e->vs16 = sel == 0xFE0F;",
-     "e->vs16 = 0;"),
+     "if ((sn && same_emoji(value + i, k, seq)) || (k == 3 && !memcmp(value + i, \"\\xEF\\xB8\", 2))) continue;",
+     "if (k == 3 && !memcmp(value + i, \"\\xEF\\xB8\", 2)) continue;"),
+    ("a tone template's slot left empty",
+     "        if (*p == UEMOJI_TONE_SLOT) { memcpy(out + o, u, (size_t)t); o += t; }",
+     "        if (*p == UEMOJI_TONE_SLOT) { }"),
 ]
 
 
 def oracle():
-    """This script's own reading of the file: groups, entries."""
-    groups, entries = [], []
+    """This script's own reading of the file: groups, entries, tone forms."""
+    groups, entries, toned = [], [], {}
     for raw in open(DATA, encoding="utf-8"):
         raw = raw.rstrip("\n")
         if raw.startswith("@"):
             name = raw[1:]
             groups.append([name, name.split(" ")[0][:15], len(entries), 0])
         elif raw and not raw.startswith("#") and groups:
-            cps, name = raw.split(";", 1)
-            cps = [int(x, 16) for x in cps.split()]
-            entries.append((cps[0], int(len(cps) == 2), len(groups) - 1, name,
-                            "".join(chr(c) for c in cps).encode().hex().upper()))
+            fields = raw.split(";")
+            cps, name = [int(x, 16) for x in fields[0].split()], fields[1]
+            if len(fields) > 2:
+                tpl = fields[2].split()
+                toned[len(entries)] = ["".join(chr(0x1F3FA + t) if x == "~" else chr(int(x, 16)) for x in tpl)
+                                       for t in range(1, 6)]
+            entries.append((cps[0], int(len(cps) == 2 and cps[1] == 0xFE0F), len(groups) - 1, name,
+                            "".join(chr(c) for c in cps).encode().hex().upper(), "".join(map(chr, cps))))
             groups[-1][3] += 1
-    return groups, entries
+    return groups, entries, toned
 
 
-def push(value, cp):
-    """The recents rule, written again: front, no duplicates, 16 and 63 bytes."""
-    out = [chr(cp)]
-    for ch in value:
-        if ord(ch) in (cp, 0xFE0F, 0xFE0E) or len(out) >= RECENT_MAX:
+def push(units, seq):
+    """The recents rule, written again over whole emoji: front, no
+    duplicates, 16 and 63 bytes."""
+    out = [seq]
+    for u in units:
+        if u.replace("️", "") == seq.replace("️", "") or len(out) >= RECENT_MAX:
             continue
-        if len("".join(out + [ch]).encode()) > VALUE_MAX - 1:
+        if len("".join(out + [u]).encode()) > VALUE_MAX - 1:
             break
-        out.append(ch)
+        out.append(u)
     return "".join(out)
 
 
 def cases(entries):
-    smile, heart, party, cat = 0x1F600, 0x2764, 0x1F389, 0x1F431
-    many = "".join(chr(e[0]) for e in entries if e[0] > 0xFFFF)[:20]
+    by = {e[3]: e[5] for e in entries}
+    smile, heart, party, cat = by["grinning face"], by["red heart"], by["party popper"], by["cat face"]
+    fam, fin = by["family: man, woman, girl"], by["flag: Finland"]
+    many = [e[5] for e in entries if e[0] > 0xFFFF and len(e[5]) == 1][:20]
     return [
-        ("", smile),
-        (chr(party) + chr(smile), smile),                  # a repeat moves to the front, once
-        (chr(heart) + "️" + chr(cat), party),         # a stray selector is dropped
-        (many, heart),                                     # cut at 16 and at 63 bytes
+        ([], smile),
+        ([party, smile], smile),                  # a repeat moves to the front, once
+        ([heart, cat], party),
+        (many, heart),                            # cut at 16 and at 63 bytes
         (many[:15], smile),
-        ("abc", cat),                                      # not emoji: kept as written, decoded away
+        ([fam, fin, smile], fin),                 # sequences are whole emoji
+        ([fin, fam], cat),
     ]
 
 
 def run(exe, quiet=False):
-    groups, entries = oracle()
+    groups, entries, toned = oracle()
     pushes = cases(entries)
     stdin = "".join(f"Q\t{q}\n" for q in QUERIES)
-    stdin += "".join(f"P\t{v.encode().hex()}\t{cp:X}\n" for v, cp in pushes)
-    decode_in = chr(0x1F431) + "z" + chr(0x2764) + chr(0x1F600)
+    stdin += "".join(f"P\t{''.join(v).encode().hex()}\t{seq.encode().hex()}\n" for v, seq in pushes)
+    fam = [e[5] for e in entries if e[3] == "family: man, woman, girl"][0]
+    decode_units = [chr(0x1F431), "z", chr(0x2764), fam, chr(0x1F600)]
+    decode_in = "".join(decode_units)
     stdin += f"D\t{decode_in.encode().hex()}\n"
     r = subprocess.run([exe, DATA], input=stdin, capture_output=True, text=True, encoding="utf-8")
     if r.returncode != 0:
@@ -209,25 +232,35 @@ def run(exe, quiet=False):
     got_e = [ln.split("\t")[1:] for ln in lines if ln.startswith("E\t")]
     want_e = [["%X" % e[0], str(e[1]), str(e[2]), e[3], e[4]] for e in entries]
     check(got_e == want_e, f"{len(want_e)} entries: characters, U+FE0F, group, name "
-                           f"({sum(e[1] for e in entries)} with the selector)")
+                           f"({sum(e[1] for e in entries)} with the selector, "
+                           f"{sum(len(e[5]) > 1 + e[1] for e in entries)} sequences)")
+    got_t = [ln.split("\t")[1:] for ln in lines if ln.startswith("T\t")]
+    want_t = [[str(i), str(t), str(len(f.encode())), f.encode().hex().upper()]
+              for i, forms in sorted(toned.items()) for t, f in enumerate(forms, 1)]
+    check(got_t == want_t and len(toned) >= 200, f"{len(toned)} entries' five skin tones, from the template")
     got_q = [ln for ln in lines if ln.startswith("Q\t")]
     for q, line in zip(QUERIES, got_q):
-        one = [i for i, e in enumerate(entries) if q in (chr(e[0]), chr(e[0]) + "\ufe0f")]
+        bare = q.replace("\ufe0f", "")
+        one = [i for i, e in enumerate(entries)
+               if bare == e[5].replace("\ufe0f", "") or bare in [f.replace("\ufe0f", "") for f in toned.get(i, [])]]
         want = one[:1] or [i for i, e in enumerate(entries) if q.lower() in e[3].lower()]
         parts = line.split("\t")[1].split()
         check(int(parts[0]) == len(want) and list(map(int, parts[1:])) == want,
               f"search {q!r}: {len(want)} match(es)")
     got_p = [ln.split("\t") for ln in lines if ln.startswith("P\t")]
-    for (v, cp), line in zip(pushes, got_p):
-        want = push(v, cp)
+    for (v, seq), line in zip(pushes, got_p):
+        want = push(v, seq)
         got = bytes.fromhex(line[2]).decode("utf-8", errors="replace") if len(line) > 2 else ""
         check(got == want and int(line[1]) == len(want.encode()),
-              f"recents: U+{cp:X} onto {len(v)} character(s) -> {len(want)} kept, {len(want.encode())} bytes")
+              f"recents: {seq!r} onto {len(v)} emoji -> {len(want.encode())} bytes")
     d = [ln for ln in lines if ln.startswith("D\t")]
-    find = {e[0]: i for i, e in reversed(list(enumerate(entries)))}
-    want_d = [find[ord(c)] for c in decode_in if ord(c) in find]
+    want_d = []
+    for u in decode_units:
+        hit = [i for i, e in enumerate(entries) if e[5].replace("\ufe0f", "") == u.replace("\ufe0f", "")]
+        if hit:
+            want_d.append(hit[0])
     check(bool(d) and list(map(int, d[0].split("\t")[1].split()[1:])) == want_d,
-          "a recents value decodes to its entries, an unknown character skipped")
+          "a recents value decodes to its entries, a sequence whole, an unknown character skipped")
     return bad
 
 
@@ -238,10 +271,13 @@ def build(tmp, control=None):
     hostcheck.stage(inc, "userland/libs/base/uemojidata.h", dest="base/uemojidata.h", tool=TOOL)
     hostcheck.stage(inc, "userland/libs/base/uutf8.h", dest="base/uutf8.h", tool=TOOL)
     hostcheck.stage(inc, "kernel/include/api/kutf8.h", tool=TOOL)
+    hostcheck.stage(inc, "kernel/include/api/kgrapheme.h", tool=TOOL)
+    hostcheck.stage(inc, "kernel/include/api/kgrapheme_table.h", tool=TOOL)
+    seg = hostcheck.stage(tmp, "kernel/lib/kgrapheme.c", tool=TOOL)
     edits = [(control[1], control[2])] if control else []
     src = hostcheck.stage(tmp, "userland/libs/base/uemojidata.c", edits=edits, apply=bool(edits), tool=TOOL)
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
-    return hostcheck.compile(tmp, "uemojidata_check", [drv, src], flags=["-O2", "-Wall", "-Wextra"],
+    return hostcheck.compile(tmp, "uemojidata_check", [drv, src, seg], flags=["-O2", "-Wall", "-Wextra"],
                              includes=[inc], tool=TOOL)
 
 

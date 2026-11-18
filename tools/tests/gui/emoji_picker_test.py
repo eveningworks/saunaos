@@ -16,8 +16,11 @@ THE CHECKS, each one a broken version would fail. Over Notepad holding /tmp/pick
      its UTF-8 -- a code point past U+FFFF -- and the editor draws it in colour;
   4. opened again, the Recently used row starts with it, and a click on that cell types it a second time;
   5. Esc closes the panel;
+  5b. "waving hand" focuses a hand that takes tones; a right-click on it opens the tone strip (the panel stays), Esc
+     shuts only the strip, and Right x3 then Enter types the MEDIUM tone -- U+1F44B U+1F3FD, two keys the field
+     joins into one emoji -- which the saved file holds;
   6. over the Terminal, which reports no caret, the panel centres in the window's lower half, and "red heart" typed
-     into the shell draws RED in the Terminal's cells -- U+FE0F in a cell of its own decides the heart before it;
+     into the shell draws RED in the Terminal's cells -- U+FE0F joined into the heart's own cell decides it;
   7. Character Map's Emoji page draws its grid in colour, and ":grinning" then Tab in its search field completes
      to the emoji itself, which the search then finds alone.
 
@@ -47,6 +50,7 @@ from PIL import Image                           # noqa: E402
 PATH = "/tmp/picker.txt"
 CHARMAP = "Character Map"
 K_ENTER, K_ESC, K_TAB, K_SAVE, K_END = "0x0a", "0x1b", "0x09", "0x13", "0xf787"
+K_RIGHT = "0xf785"
 
 
 def red(p):
@@ -163,6 +167,36 @@ def notepad_part(dbg, qmp, res, tmp):
     opened = picker(dbg)["open"]
     dbg.key(K_ESC)
     res.check("Esc closes the picker", opened and not picker(dbg)["open"])
+
+    # 6. Skin tones: a right-click on a hand opens its six forms; Esc shuts
+    # only them; Right three times and Enter types the MEDIUM tone, the
+    # sequence U+1F44B U+1F3FD, as two keys the field joins into one.
+    dbg.key(".", mods="super")
+    typed(dbg, "waving hand")
+    j = picker(dbg)
+    cell = j.get("cell")
+    res.check("'waving hand' focuses U+1F44B, which takes tones",
+              bool(j["focused"]) and j["focused"]["cp"] == "1F44B" and j["focused"].get("tones") == 1, str(j["focused"]))
+    if cell:
+        dbg.rclick(cell["x"] + cell["w"] // 2, cell["y"] + cell["h"] // 2)
+    j = picker(dbg)
+    res.check("a right-click on it opens the tone strip, the picker still up",
+              j["open"] and j.get("strip", {}).get("open"), str(j.get("strip")))
+    dbg.key(K_ESC)
+    j = picker(dbg)
+    res.check("Esc shuts the strip, not the picker", j["open"] and not j.get("strip", {}).get("open"), str(j.get("strip")))
+    if cell:
+        dbg.rclick(cell["x"] + cell["w"] // 2, cell["y"] + cell["h"] // 2)
+    for _ in range(3):
+        dbg.key(K_RIGHT)
+    dbg.logs("emoji: inserted", clear=True)
+    dbg.key(K_ENTER)
+    logged = poll(lambda: [ln for ln in dbg.logs("emoji: inserted", clear=False) if "U+1F44B U+1F3FD" in ln], 10, 0.3)
+    res.check("Right x3 then Enter types the medium tone", bool(logged) and not picker(dbg)["open"], str(logged))
+    dbg.key(K_SAVE)
+    toned = "\U0001F44B\U0001F3FD"
+    text = poll(lambda: (lambda t: t if t and toned in t else None)(read_file(dbg, PATH)), 10, 0.5)
+    res.check("the saved file holds U+1F44B U+1F3FD", text is not None, repr(read_file(dbg, PATH)))
     dbg.close_window(PATH)
 
 

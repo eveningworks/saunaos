@@ -13,6 +13,7 @@
 #include "volume_popup.h"
 #include "brightness_popup.h"
 #include "wm_overlay.h"
+#include "emoji_picker.h"
 #include "wm_taskbar.h"
 #include "wm_tray.h"
 #include "confirm_dialog.h"
@@ -957,6 +958,8 @@ unsigned wm_press_join(int mx, int my, unsigned downs, uint8_t buttons) {
 
 void wm_handle_right_click(int mx, int my) {
     if (wm_setup_hold_active()) return;
+    // The emoji picker's own: a cell's skin tones, not a dismissal.
+    if (emoji_picker_right_click(mx, my)) return;
     // A right-click always resolves to at most one popup -- close
     // whatever's already open before deciding what (if anything) the
     // new click should show, so right-clicks never stack menus.

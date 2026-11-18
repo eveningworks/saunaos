@@ -361,20 +361,32 @@ static const struct uemoji_entry *selected_emoji(void) {
     return e >= 0 ? &uemojidata()->entries[e] : 0;
 }
 
-// Its characters: the base, and U+FE0F where the list writes one.
-static int emoji_cps(const struct uemoji_entry *e, uint32_t out[2]) {
-    out[0] = e->cp;
-    out[1] = 0xFE0F;
-    return e->vs16 ? 2 : 1;
+// An emoji's code points -- a character, its U+FE0F, or a whole sequence --
+// from its UTF-8 (the entry's own, or a toned form), at most `cap`.
+static int seq_cps(const char *seq, uint32_t *out, int cap) {
+    int n = 0, len = (int)strlen(seq);
+    for (int i = 0, k; i < len && n < cap; i += k > 0 ? k : 1) out[n++] = uunicode_utf8_decode(seq + i, &k);
+    return n;
+}
+
+// Into the text to copy: the WHOLE emoji or none of it.
+static void add_emoji_seq(const char *seq) {
+    uint32_t cps[32];
+    int n = seq ? seq_cps(seq, cps, 32) : 0;
+    if (!n || g_ntext + n > MAX_TEXT) return;
+    for (int i = 0; i < n; i++) g_text[g_ntext++] = cps[i];
+    ulogf("charmap: text %d character(s)\n", g_ntext);
 }
 
 static void add_emoji(void) {
     const struct uemoji_entry *e = selected_emoji();
-    uint32_t cps[2];
-    int n = e ? emoji_cps(e, cps) : 0;
-    if (!n || g_ntext + n > MAX_TEXT) return;
-    for (int i = 0; i < n; i++) g_text[g_ntext++] = cps[i];
-    ulogf("charmap: text %d character(s)\n", g_ntext);
+    if (e) add_emoji_seq(e->seq);
+}
+
+// What the grid activated: a cell, or a form from its skin-tone strip.
+static void add_taken(void) {
+    char seq[128];
+    if (uui_emojigrid_take_seq(&g_egrid, seq, sizeof seq) >= 0) add_emoji_seq(seq);
 }
 
 // --- pages -------------------------------------------------------------------
@@ -590,10 +602,14 @@ static void draw_emoji_detail(struct ugfx_surface *s, int cw) {
     const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
     ugfx_draw_string_clipped(s, x, ty, room, e->name, UTHEME_TEXT, panel);
     ugfx_set_font(was);
-    char cps[32], hex[32] = "", line[160];
-    snprintf(cps, sizeof cps, e->vs16 ? "U+%04X U+FE0F" : "U+%04X", (unsigned)e->cp);
-    for (int i = 0; e->seq[i] && i < 10; i++)
-        snprintf(hex + i * 3, sizeof hex - (size_t)i * 3, "%02X ", (unsigned char)e->seq[i]);
+    // Every code point and byte of a sequence, as many as the line holds;
+    // the drawing clips what does not fit.
+    char cps[96] = "", hex[96] = "", line[240];
+    uint32_t cp[32];
+    for (int i = 0, n = seq_cps(e->seq, cp, 32), o = 0; i < n && o < (int)sizeof cps - 10; i++)
+        o += snprintf(cps + o, sizeof cps - (size_t)o, "%sU+%04X", i ? " " : "", (unsigned)cp[i]);
+    for (int i = 0, o = 0; e->seq[i] && o < (int)sizeof hex - 4; i++)
+        o += snprintf(hex + o, sizeof hex - (size_t)o, "%02X ", (unsigned char)e->seq[i]);
     int b = uunicode_block_of(e->cp);
     snprintf(line, sizeof line, "%s    UTF-8 %s   %s", cps, hex, b >= 0 ? uunicode_block(b)->name : "");
     ugfx_draw_string_clipped(s, x, ty + lh + pad / 2, room, line, dim, panel);
@@ -747,7 +763,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         else if (!g_egroup.open) { uui_textbox_set_text(&g_esearch, ""); efill(); }
         break;
     case ID_EGRID:
-        if (uui_emojigrid_take(&g_egrid) >= 0) add_emoji();
+        add_taken();
         break;
     case ID_FONT: if (g_chips.selected != g_cur) choose_font(g_chips.selected); break;
     case ID_FONTLIST: if (uui_dropdown_selected(&g_fontlist) != g_cur) choose_font(uui_dropdown_selected(&g_fontlist)); break;
@@ -763,13 +779,23 @@ static void on_widget(struct uapp *a, int id, int reason) {
     uapp_redraw(a);
 }
 
+// A RIGHT-CLICK on an emoji opens its skin tones (uui_emojigrid_variants()).
+static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
+    if (g_page != PAGE_EMOJI || !(buttons & WIN_MOUSE_BTN_SECONDARY)) return;
+    int i = uui_emojigrid_index_at(&g_egrid, x, y);
+    if (i >= 0 && uui_emojigrid_variants(&g_egrid, i)) {
+        ulogf("charmap: tones of %s\n", uemojidata()->entries[g_egrid.items[i]].name);
+        uapp_redraw(a);
+    }
+}
+
 static void on_action(struct uapp *a, int code) {
     uint32_t cp = selected_cp();
     char what[16];           // the status bar is Latin-1: name it, don't show it
     if (g_page == PAGE_EMOJI && (code == ID_COPY || code == ID_ADD)) {
         const struct uemoji_entry *e = selected_emoji();
-        uint32_t cps[2];
-        if (e && code == ID_COPY) copy_text(cps, emoji_cps(e, cps), e->name);
+        uint32_t cps[32];
+        if (e && code == ID_COPY) copy_text(cps, seq_cps(e->seq, cps, 32), e->name);
         if (e && code == ID_ADD) add_emoji();
         uapp_redraw(a);
         return;
@@ -822,7 +848,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
             efill();
         }
         last_group = gi;
-        if (at == RING_GRID && uui_emojigrid_take(&g_egrid) >= 0) add_emoji();
+        if (at == RING_GRID) add_taken();
     }
     uapp_redraw(a);
 }
@@ -903,6 +929,7 @@ int main(void) {
         .on_widget = on_widget,
         .on_action = on_action,
         .on_key = on_key,
+        .on_press = on_press,
     };
     int rc = uapp_run(&desc);
     for (int i = 0; i < g_nfaces; i++) {

@@ -3,6 +3,7 @@
 #include "base/ufile.h"
 #include "base/usetting.h"
 #include "base/uutf8.h"
+#include "kgrapheme.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +27,7 @@ static uint32_t hex_cp(char **p) {
 
 void uemojidata_free(struct uemojidata *d) {
     free(d->text);
+    free(d->arena);
     free(d->entries);
     free(d->groups);
     memset(d, 0, sizeof *d);
@@ -43,7 +45,11 @@ int uemojidata_parse(char *text, int len, struct uemojidata *out) {
     }
     out->entries = malloc(sizeof *out->entries * (size_t)lines);
     out->groups = malloc(sizeof *out->groups * (size_t)(ats + 1));
-    if (!out->entries || !out->groups) {
+    // A code point's UTF-8 is never longer than its hex and a space, so the
+    // sequences fit in the file's own size plus a NUL each.
+    out->arena = malloc((size_t)len + 2u * (size_t)lines);
+    char *ar = out->arena;
+    if (!out->entries || !out->groups || !ar) {
         uemojidata_free(out);
         return 0;
     }
@@ -60,26 +66,46 @@ int uemojidata_parse(char *text, int len, struct uemojidata *out) {
             g->first = out->count;
             g->count = 0;
         } else if (*p != '#' && out->ngroups) {
-            // "1F600;name" or "2764 FE0F;name". Anything else -- a sequence
-            // the generator should not have written -- is skipped, not guessed.
-            char *q = p;
-            uint32_t cp = hex_cp(&q), sel = 0;
-            if (*q == ' ') { q++; sel = hex_cp(&q); }
-            if (cp && *q == ';' && q[1] && (!sel || sel == 0xFE0F)) {
+            // "CPS;name" or "CPS;name;TEMPLATE": hex code points, one space
+            // apart, '~' in the template where a tone goes. Anything else is
+            // skipped, not guessed.
+            char *q = p, *seq = ar;
+            int n = 0, k = 0;
+            uint32_t first = 0, second = 0;
+            for (uint32_t cp; (cp = hex_cp(&q)) != 0;) {
+                if (!k) first = cp;
+                if (k == 1) second = cp;
+                k++;
+                n += uutf8_encode(cp, seq + n);
+                if (*q != ' ') break;
+                q++;
+            }
+            char *semi = *q == ';' ? strchr(q + 1, ';') : 0;
+            if (k && n && *q == ';' && q[1] && (!semi || semi[1])) {
+                seq[n] = '\0';
+                ar += n + 1;
                 struct uemoji_entry *e = &out->entries[out->count];
-                char u[4];
-                int n = uutf8_encode(cp, u);
-                if (n > 0) {
-                    e->cp = cp;
-                    e->vs16 = sel == 0xFE0F;
-                    e->group = out->ngroups - 1;
-                    e->name = q + 1;
-                    memcpy(e->seq, u, (size_t)n);
-                    if (e->vs16) n += uutf8_encode(0xFE0F, e->seq + n);
-                    e->seq[n] = '\0';
-                    out->count++;
-                    out->groups[out->ngroups - 1].count++;
+                e->cp = first;
+                e->vs16 = k == 2 && second == 0xFE0F;
+                e->group = out->ngroups - 1;
+                e->name = q + 1;
+                e->seq = seq;
+                e->toned = 0;
+                if (semi) {
+                    *semi = '\0';
+                    char *t = semi + 1, *tpl = ar;
+                    int m = 0;
+                    while (*t) {
+                        if (*t == '~') { tpl[m++] = UEMOJI_TONE_SLOT; t++; }
+                        else { uint32_t cp = hex_cp(&t); if (!cp) break; m += uutf8_encode(cp, tpl + m); }
+                        if (*t == ' ') t++;
+                    }
+                    tpl[m] = '\0';
+                    ar += m + 1;
+                    if (m) e->toned = tpl;
                 }
+                out->count++;
+                out->groups[out->ngroups - 1].count++;
             }
         }
         if (!nl) break;
@@ -117,14 +143,59 @@ static int holds(const char *name, const char *q, int qn) {
     return 0;
 }
 
+int uemojidata_toned(const struct uemoji_entry *e, int tone, char *out, int cap) {
+    if (!e || !out || cap <= 0) return 0;
+    if (tone == 0) {
+        int n = (int)strlen(e->seq);
+        if (n >= cap) return 0;
+        memcpy(out, e->seq, (size_t)n + 1);
+        return n;
+    }
+    if (!e->toned || tone < 1 || tone > UEMOJI_TONES) return 0;
+    char u[4];
+    int t = uutf8_encode(0x1F3FA + (uint32_t)tone, u), o = 0;
+    for (const char *p = e->toned; *p; p++) {
+        int need = *p == UEMOJI_TONE_SLOT ? t : 1;
+        if (o + need >= cap) return 0;
+        if (*p == UEMOJI_TONE_SLOT) { memcpy(out + o, u, (size_t)t); o += t; }
+        else out[o++] = *p;
+    }
+    out[o] = '\0';
+    return o;
+}
+
+// Whether `a` (`n` bytes) spells `b`, a U+FE0F in either being optional --
+// a pasted or typed emoji often lacks the one the list writes.
+static int same_emoji(const char *a, int n, const char *b) {
+    int i = 0, j = 0, bn = (int)strlen(b);
+    while (i < n || j < bn) {
+        if (i + 3 <= n && !memcmp(a + i, "\xEF\xB8\x8F", 3)) { i += 3; continue; }
+        if (j + 3 <= bn && !memcmp(b + j, "\xEF\xB8\x8F", 3)) { j += 3; continue; }
+        if (i >= n || j >= bn || a[i] != b[j]) return 0;
+        i++, j++;
+    }
+    return 1;
+}
+
+int uemojidata_find_seq(const struct uemojidata *d, const char *utf8, int n) {
+    if (!utf8 || n <= 0) return -1;
+    char toned[64];
+    for (int i = 0; i < d->count; i++) {
+        const struct uemoji_entry *e = &d->entries[i];
+        if (same_emoji(utf8, n, e->seq)) return i;
+        for (int t = 1; e->toned && t <= UEMOJI_TONES; t++)
+            if (uemojidata_toned(e, t, toned, sizeof toned) && same_emoji(utf8, n, toned)) return i;
+    }
+    return -1;
+}
+
 int uemojidata_search(const struct uemojidata *d, const char *q, int *out, int cap) {
     int qn = q ? (int)strlen(q) : 0, found = 0;
     if (!qn) return 0;
-    // THE EMOJI ITSELF, pasted or completed into the field: that entry alone.
-    int k;
-    uint32_t c = uutf8_decode(q, qn, &k);
-    if (c >= 0x80 && (k == qn || (qn - k == 3 && !memcmp(q + k, "\xEF\xB8\x8F", 3)))) {
-        int e = uemojidata_find(d, c);
+    // THE EMOJI ITSELF, pasted or completed into the field -- one whole
+    // grapheme cluster: that entry alone.
+    if ((unsigned char)q[0] >= 0x80 && kgrapheme_next(q, qn, 0) == qn) {
+        int e = uemojidata_find_seq(d, q, qn);
         if (e >= 0) {
             if (cap > 0) out[0] = e;
             return 1;
@@ -147,35 +218,26 @@ int uemojidata_find(const struct uemojidata *d, uint32_t cp) {
 
 int uemojidata_recent_decode(const struct uemojidata *d, const char *value, int *out, int cap) {
     int n = 0, len = value ? (int)strlen(value) : 0;
-    for (int i = 0; i < len && n < cap;) {
-        int k;
-        uint32_t cp = uutf8_decode(value + i, len - i, &k);
-        i += k > 0 ? k : 1;
-        int e = uemojidata_find(d, cp);
+    for (int i = 0, nx; i < len && n < cap && (nx = kgrapheme_next(value, len, i)) > i; i = nx) {
+        int e = uemojidata_find_seq(d, value + i, nx - i);
         if (e >= 0) out[n++] = e;
     }
     return n;
 }
 
-int uemojidata_recent_push(const char *value, uint32_t cp, char *out, int cap) {
+int uemojidata_recent_push(const char *value, const char *seq, char *out, int cap) {
     if (cap <= 0) return 0;
-    int o = 0, kept = 0, len = value ? (int)strlen(value) : 0;
-    char u[4];
-    int n = uutf8_encode(cp, u);
-    if (n > 0 && n < cap) { memcpy(out, u, (size_t)n); o = n; kept = 1; }
-    for (int i = 0; i < len && kept < UEMOJI_RECENT_MAX;) {
-        int k;
-        uint32_t c = uutf8_decode(value + i, len - i, &k);
-        if (k <= 0) k = 1;
-        // A selector or a duplicate is dropped; what does not fit ends the
-        // list, whole characters only.
-        if (c != cp && c != 0xFE0F && c != 0xFE0E) {
-            if (o + k > cap - 1) break;
-            memcpy(out + o, value + i, (size_t)k);
-            o += k;
-            kept++;
-        }
-        i += k;
+    int o = 0, kept = 0, len = value ? (int)strlen(value) : 0, sn = seq ? (int)strlen(seq) : 0;
+    if (sn > 0 && sn < cap) { memcpy(out, seq, (size_t)sn); o = sn; kept = 1; }
+    for (int i = 0, nx; i < len && kept < UEMOJI_RECENT_MAX && (nx = kgrapheme_next(value, len, i)) > i; i = nx) {
+        // A duplicate, or a selector left over from an older value, is
+        // dropped; what does not fit ends the list, whole emoji only.
+        int k = nx - i;
+        if ((sn && same_emoji(value + i, k, seq)) || (k == 3 && !memcmp(value + i, "\xEF\xB8", 2))) continue;
+        if (o + k > cap - 1) break;
+        memcpy(out + o, value + i, (size_t)k);
+        o += k;
+        kept++;
     }
     out[o] = '\0';
     return o;
@@ -192,6 +254,6 @@ int uemojidata_recent_add(int entry) {
     if (entry < 0 || entry >= d->count) return 0;
     char was[SETTING_ABI_VALUE_MAX], now[SETTING_ABI_VALUE_MAX];
     if (!usetting_get(UEMOJI_RECENT_SET, was, sizeof was)) was[0] = '\0';
-    uemojidata_recent_push(was, d->entries[entry].cp, now, sizeof now);
+    uemojidata_recent_push(was, d->entries[entry].seq, now, sizeof now);
     return usetting_set(UEMOJI_RECENT_SET, now) > 0;
 }

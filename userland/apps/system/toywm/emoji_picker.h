@@ -24,6 +24,7 @@ void emoji_picker_toggle(void);
 // The overlay registry's ops -- see wm_overlay.h.
 void emoji_picker_draw(int mx, int my);
 int  emoji_picker_handle_click(int mx, int my);
+int  emoji_picker_right_click(int mx, int my);   // a cell's skin tones; 1 when the panel took it
 int  emoji_picker_hover_at(int mx, int my);
 void emoji_picker_damage(void);
 int  emoji_picker_rect(int *x, int *y, int *w, int *h);
