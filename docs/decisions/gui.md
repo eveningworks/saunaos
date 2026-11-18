@@ -13420,6 +13420,10 @@ takes two cells (UTS #51) -- counted by `uwcwidth_cluster()` in both the
 terminal and the line editor, so the shell's caret lands where the
 terminal drew: the wcwidth disagreement that misplaces carets between
 shells and terminals elsewhere cannot happen when both ends are ours.
+The kernel's virtual terminals still draw each code point in a cell of
+its own, so the GUI Terminal tells its shell `TERM_PROGRAM=saunaos-terminal`
+(macOS's Terminal and VS Code set the same variable) and the line painter
+counts clusters only then; elsewhere it counts code points.
 
 **Why tokens rather than runs.** A shaped-run API (glyph ids, positions,
 a cluster map) is what general ligatures need, and it would have meant

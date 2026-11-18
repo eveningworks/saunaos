@@ -393,7 +393,9 @@ this the obvious way), not from how much history it accumulated.
   cluster `uwcwidth_cluster()`'s cells** -- an emoji sequence two, a
   letter's marks none -- and the terminal and the line editor's columns
   both count with it, so the caret the shell puts lands where the
-  terminal drew. **With `utext`'s `show_ws` a character that draws nothing
+  terminal drew -- in the GUI Terminal, which says so with
+  `TERM_PROGRAM` (`base/uline.h`); on a kernel virtual terminal, which
+  draws each code point in its own cell, the painter counts code points. **With `utext`'s `show_ws` a character that draws nothing
   TAKES ITS LABEL'S CELLS** ("ZWSP", "ESC", base/uunicode.h's
   `uunicode_abbrev()`), and a selector folded into the character before
   it adds its own ("VS16") -- `cells_at()` counts them, so the caret, a
