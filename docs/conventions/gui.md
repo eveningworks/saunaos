@@ -2882,6 +2882,20 @@ real scanout hardware does. Do not write a pixel assertion for one.
   `tools/tests/gui/occlusion_test.py` is the check (`docs/decisions/gui.md`, "A
   window is drawn only where it can be seen").
 
+- **A COMPOSITOR DRAW READS THE FRAME'S CLOCK, `wm_frame_ns()`, NEVER
+  `sys_monotonic_ns()`.** `wm_render_frame()` pins one instant in
+  libui (`uui_anim_frame_begin()`), so every render of a frame is the
+  same picture, and releases it after, so an event or a debug query
+  between frames reads the real clock. A libui widget the WM hosts
+  reads it through `uui_anim_now_ns()` (the caret, `uui_sbar`,
+  `uui_scrollanim`) -- a new time-driven widget does too. A draw that
+  reads the clock itself makes `render_scene()` disagree with itself
+  mid-animation, and `gui damage verify on` reports that as missed
+  damage. The check: `gui damage verify skew <ms>` (0..100, cleared by
+  `verify off`) takes the reference render that much later, so a draw
+  on the clock differs on every animated frame (`glass_test.py` runs
+  skewed; `docs/decisions/gui.md`, "Drawing reads one clock per frame").
+
 - **A PRESENT CARRIES ITS DAMAGE, AND UAPP MEASURES IT.** `struct
   win_damage` rides the present's `text` field (`abi/win_proto.h`);
   `WIN_DAMAGE_LIST` unset -- any zeroed message -- means the whole

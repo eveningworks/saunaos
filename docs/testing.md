@@ -830,6 +830,13 @@ scrollbar depending on their extent) and a verdict from a THIRD render
 of the same frame -- `scene stable (real missed damage)` means the
 comparison is trustworthy, `SCENE UNSTABLE -- verdict void` means
 `render_scene()` disagreed with itself and the report proves nothing.
+**`scene stable` is not proof for anything ANIMATED**: the third render
+can land after a tween has ended and agree with the second, so a draw
+reading the clock reported as real missed damage, and only under a
+loaded host (the taskbar's glide, 2026-11-18). `gui damage verify skew
+<ms>` (`damage_verify(skew_ms=)`, 0..100, cleared by `verify off`) takes
+the reference render that much later, which makes such a draw differ on
+every animated frame.
 See `docs/decisions.md`. Turn it on whenever you touch drawing, damage, focus or
 chrome; `docs/gui-guidelines.md` has the invariant it enforces.
 

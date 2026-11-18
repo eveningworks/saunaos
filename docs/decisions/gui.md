@@ -13538,3 +13538,37 @@ loop inside the call.
 `-fno-asynchronous-unwind-tables`, so an exception that unwinds into its
 frames terminates the program. Every trampoline back into C++ catches,
 and `ui::Window::run()` rethrows the first exception after the loop.
+
+## Drawing reads one clock per frame
+
+**What:** `wm_render_frame()` pins one instant in libui for the whole
+frame (`uui_anim_frame_begin()`/`_end()`), and anything the compositor
+draws from the time reads it: through `wm_frame_ns()` the taskbar's
+button glide, Start's scrollbar width, the network card's busy bar, a
+toast's age and timeout line, the setup spinner and the screenshot
+flash, and through `uui_anim_now_ns()` the libui widgets it hosts (the
+caret's blink, `uui_sbar`, `uui_scrollanim`). Between frames the pin is
+released and both read the real clock, so a tween an event starts, or a
+debug query, is not dated to the last frame -- GdkFrameClock's shape,
+the clock in the toolkit rather than in each caller.
+
+**Why:** a frame must be a pure function of the WM's state, or two
+renders of it disagree. The damage verifier renders a frame two or
+three times and compares them, so a draw that read the clock itself
+made `glass_test` fail whenever the glide was in flight and the host was
+slow enough to move it between renders: 14 runs in 101 from
+2026-10-31, all in full parallel suites. It also makes
+one frame internally consistent; two things animated from one clock no
+longer drift apart by the time spent drawing between them. Mutter's
+and KWin's frame clocks do the same, and Wayland gives a client one
+timestamp per frame callback.
+
+**Not chosen:** making the verifier ignore animated regions. That
+removes the check from exactly the pixels most likely to go stale, and
+it does nothing for a frame's consistency.
+
+**The check that keeps it:** `gui damage verify skew <ms>` sleeps before
+the reference render (at most 100 ms, under the frame watchdog's bound;
+`verify off` clears it). With 60 ms, a draw that reads the clock differs on
+every animated frame instead of by luck: the glide put back on the raw
+clock failed `glass_test` 3 runs in 3, and the fix passed 3 in 3.
