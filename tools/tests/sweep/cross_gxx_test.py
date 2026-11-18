@@ -14,8 +14,9 @@ A second program does `import std` (-std=c++23 -fmodules
 And every header in the sysroot compiles as C++ on its own, and a C++
 program calling into libbase, libmedia and libui -- a window opened, drawn
 and closed -- runs on the guest, and so does Counter written over the C++
-layer (uixx/app.hpp, docs/uixx-design.md) and the layer's value-widget
-example: a click on each reaches the C++ lambda behind it.
+layer (uixx/app.hpp, docs/uixx-design.md) and the layer's other examples:
+clicks and keys reach the C++ lambdas behind them, and Notes opens and
+answers its About box.
 
 WHAT A BROKEN VERSION WOULD STILL PASS, and what is asserted instead:
   - "it links" passes a program whose constructors never run (the stage-1
@@ -405,40 +406,61 @@ def main():
 
 # The C++ layer's examples (docs/uixx-design.md), each spawned on the guest:
 # (source directory, window title, the names its widget map must report,
-# the widget to click and how often, the log line the clicks must produce).
-# The line comes from a lambda the click reached, which no drawing fakes.
+# then steps). A step clicks a named widget, sends a key code, waits for a
+# window by title, or waits for a log line -- which comes from a lambda the
+# input reached, and no drawing fakes. Notes' About box is a window of its
+# own: the host harness refuses one, so it is opened here.
+KEY_F1, KEY_ENTER = 0xF79A, 0x0A
 UIXX_EXAMPLES = [
-    ("counter", "Counter", {"label", "bar", "add", "reset"}, "add", 2, "counter: count 2"),
+    ("counter", "Counter", {"label", "bar", "add", "reset"},
+     [("click", "add"), ("click", "add"), ("log", "counter: count 2")]),
     ("widgets", "Widgets", {"name", "hidden", "dark", "size", "quality", "recent", "progress", "reset"},
-     "hidden", 1, "widgets: hidden 1"),
+     [("click", "hidden"), ("log", "widgets: hidden 1")]),
+    ("notes", "Notes", {"menu", "tabs", "text"},
+     [("click", "text"), ("key", KEY_F1), ("log", "notes: about shown 1"), ("window", "About Notes"),
+      ("key", KEY_ENTER), ("log", "notes: about answered 0")]),
 ]
 
 
-def example_on_guest(res, vm, exe, title, names, click, times, want):
+def example_on_guest(res, vm, exe, title, names, steps):
     guest = f"{GUEST_BIN}_{os.path.basename(exe)}"
     vm("put", exe, guest)
     vm("exec", "--raw", f"gui spawn {guest}")
 
-    def widgets():
-        for line in reversed(vm("exec", "--raw", f"gui widgets {title} --json").splitlines()):
+    def last_json(command):
+        for line in reversed(vm("exec", "--raw", command).splitlines()):
             try:
-                return {w["name"]: w for w in json.loads(line).get("widgets", [])}
+                return json.loads(line)
             except ValueError:
                 continue
         return {}
+
+    def widgets():
+        return {w["name"]: w for w in last_json(f"gui widgets {title} --json").get("widgets", [])}
 
     got = poll(lambda: (lambda w: w if names <= set(w) else None)(widgets()), 60) or {}
     if not res.check(f"{title}++'s window reports its widgets by name ({', '.join(sorted(names))})",
                      names <= set(got), f"got {sorted(got)}"):
         return
-    c = got[click]
-    x, y = c["screen"]["x"] + c["w"] // 2, c["screen"]["y"] + c["h"] // 2
-    for _ in range(times):
-        vm("exec", "--raw", f"gui click {x} {y}")
-    log = poll(lambda: (lambda t: t if want in t else None)(vm("exec", "dmesg")), 30) or ""
-    prefix = want.split(":")[0] + ":"
-    res.check(f"{times} click(s) on {click} reach its C++ handler (`{want}` in the log)",
-              want in log, "\n".join(l for l in log.splitlines() if prefix in l)[-600:])
+    done = []
+    for kind, arg in steps:
+        if kind == "click":
+            c = got[arg]
+            vm("exec", "--raw", f"gui click {c['screen']['x'] + c['w'] // 2} {c['screen']['y'] + c['h'] // 2}")
+            done.append(f"click {arg}")
+        elif kind == "key":
+            vm("exec", "--raw", f"gui key {arg:#x}")
+            done.append(f"key {arg:#x}")
+        elif kind == "window":
+            up = poll(lambda: any(w.get("title") == arg for w in last_json("gui windows --json").get("windows", [])), 30)
+            if not res.check(f"{title}++: after {', '.join(done)}, a window titled {arg!r} opens", bool(up)):
+                return
+        else:
+            log = poll(lambda: (lambda t: t if arg in t else None)(vm("exec", "dmesg")), 30) or ""
+            prefix = arg.split(":")[0] + ":"
+            if not res.check(f"{title}++: {', '.join(done)} reach its C++ handler (`{arg}` in the log)",
+                             arg in log, "\n".join(l for l in log.splitlines() if prefix in l)[-600:]):
+                return
 
 
 def run(args, gxx, tmp):

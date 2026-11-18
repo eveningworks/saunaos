@@ -13440,6 +13440,18 @@ that set each other's widgets then loop, which is why GTK has signal
 blocking. An option list's value is its index, as the C widget's is,
 not a typed `Dropdown<T>`.
 
+**Why menus are a tree with lambdas, and their shortcut text binds**
+(stage 3, the same day). A `ui::MenuBar` is written in place, each
+entry carrying its run, enabled and checked lambdas, so a command is
+greyed by the same object that runs it; `ui::Action` objects shared with
+a toolbar (QAction) wait for a toolbar. The shortcut a menu SHOWS is
+parsed with `keycombo_parse()` and BOUND -- the C toolkit's display-only
+text let the shown and the handled shortcut disagree. A timer is a member
+built with its Window and stopped when destroyed (QTimer with a parent),
+not an id to cancel, so a lambda capturing `this` cannot outlive it; and
+`ui::message_box` answers through a lambda (GTK4) rather than pumping the
+loop inside the call.
+
 **The trap it carries:** the toolkit is built
 `-fno-asynchronous-unwind-tables`, so an exception that unwinds into its
 frames terminates the program. Every trampoline back into C++ catches,

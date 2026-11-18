@@ -278,21 +278,38 @@ private:
     uui_listbox c_{};
 };
 
-// A bar from 0 to 1000 per mille. No busy mode yet: its block slides on
-// a timer, and the layer has none (docs/uixx-design.md).
+// A bar from 0 to 1000 per mille, or BUSY: a block that slides, for
+// work whose total is unknown (Windows' PBS_MARQUEE). The window ticks
+// it while it is busy.
 class Progress : public Item {
 public:
     explicit Progress(int per_mille = 0) : Item(&uui_progress_ops, &c_) {
         uui_progress_init(&c_);
         set_value(per_mille);
     }
-    int value() const { return c_.value; }
+    int value() const { return c_.value < 0 ? 0 : c_.value; }
+    bool busy() const { return c_.value < 0; }
     void set_value(int per_mille) {
         uui_progress_set(&c_, per_mille < 0 ? 0 : per_mille);
+        if (host()) host()->animate(this, false);
+        request_redraw();
+    }
+    void set_busy() {
+        uui_progress_set_busy(&c_);
+        if (host()) host()->animate(this, true);
         request_redraw();
     }
 
 private:
+    void placed(int) override {
+        if (busy()) host()->animate(this, true);
+    }
+    bool tick() override {
+        if (!uui_progress_tick(&c_)) return false;
+        request_redraw();
+        return true;
+    }
+
     uui_progress c_{};
 };
 

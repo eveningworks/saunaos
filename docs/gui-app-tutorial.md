@@ -357,6 +357,14 @@ What changes from the C version:
   `ui::Listbox` -- with the new value, on input only: a `set_*()` from
   your own code never calls it. `userland/libs/uixx/examples/widgets/`
   is a form of all of them.
+- **Menus, pages, timers and questions are classes too.** A
+  `ui::MenuBar` is a tree of `ui::Menu`/`ui::MenuItem`/`ui::MenuCheck`
+  whose shortcut text ("Ctrl+L") is also its key binding; `ui::Tabs`
+  holds pages added before `set_root()`; a `ui::Timer` member calls a
+  lambda every so often; `ui::message_box` asks a question and hands the
+  answer to a lambda. `userland/libs/uixx/examples/notes/` uses them all.
+- **Size a window in character cells** -- `set_size_cells(40, 10)` --
+  which follows the font, as section 5's sizes do.
 - **Name a child, or write a Row in place -- never a temporary
   widget.** A named member is referenced; a nested `ui::Row{...}` is
   owned by its parent; `ui::Column{ui::Label{"x"}}` does not compile.

@@ -1761,8 +1761,8 @@ the design doc says why in its first section.
 - [x] ~~The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++~~ DONE 2026-11-18 -- `cxx_headers_hostcheck.py`
 - [x] ~~A C++ layer over the toolkit, gtkmm's shape~~ DONE 2026-11-18 -- `uixx/` stage 1, `docs/uixx-design.md`
 - [x] ~~The C++ layer's value widgets, each with an `on_change` slot~~ DONE 2026-11-18 -- `uixx/values.hpp`, user input only
-- [ ] The C++ layer's menus and dialogs -- a menu bar with `item_flags` from a lambda, `ui::message_box`
-- [ ] The C++ layer's `ui::Tabs` with pages and `ui::Timer` -- then `ui::Progress`'s busy mode
+- [x] ~~The C++ layer's menus and dialogs~~ DONE 2026-11-18 -- `ui::MenuBar` with bound shortcuts, `ui::message_box`
+- [x] ~~The C++ layer's `ui::Tabs` with pages and `ui::Timer`~~ DONE 2026-11-18 -- and `ui::Progress`'s busy mode
 - [ ] An in-tree C++ program -- the build compiles C only; a `.cpp` component needs the cross toolchain, which is optional
 - [x] ~~The cross compiler links dynamically by default; `-static` opts out~~ DONE 2026-11-17 -- tables via `dl_iterate_phdr()`
 - [ ] A shared library built by the cross toolchain, with C++ in it -- needs libstdc++ built `-fpic` (its TLS is local-exec)

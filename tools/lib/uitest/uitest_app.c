@@ -272,6 +272,12 @@ int uitest_app_widget(const char *name, int *x, int *y, int *w, int *h) {
     return 0;
 }
 
+int uitest_app_has_widget(const char *name) {
+    for (int i = 0; i < g.nwidgets; i++)
+        if (!strcmp(g.widgets[i].name, name)) return 1;
+    return 0;
+}
+
 void uitest_app_move_to(int x, int y, unsigned buttons) {
     send_event(WIN_EV_MOUSE_MOVE, x, y, buttons);
     uitest_advance_ms(10);

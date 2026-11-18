@@ -44,6 +44,7 @@ const char *uitest_app_title(void);
 // A widget's rect from the window's widget map (the app's uui_item names,
 // as `gui widgets` reads them). 0 and a FAIL when there is none.
 int  uitest_app_widget(const char *name, int *x, int *y, int *w, int *h);
+int  uitest_app_has_widget(const char *name);      // the same lookup, failing nothing
 
 // Input, window-relative, each followed by a settle.
 void uitest_app_click_at(int x, int y);

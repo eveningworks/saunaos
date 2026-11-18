@@ -6,9 +6,10 @@ your own is a subclass that overrides `draw()`. The C library stays the
 implementation; the layer is headers that build `struct uui_item` arrays
 and fill `uapp_desc` for it.
 
-**STAGES 1 AND 2 ARE BUILT (2026-11-18)**: `ui::Window` and
+**STAGES 1 TO 3 ARE BUILT (2026-11-18)**: `ui::Window` and
 `ui::run<W>()`, `ui::Label`, `ui::Button`, `ui::Row`/`ui::Column`,
-`ui::Widget`, and the value widgets of `uixx/values.hpp`.
+`ui::Widget`, the value widgets of `uixx/values.hpp`, and
+`ui::MenuBar`, `ui::Tabs`, `ui::Timer` and `ui::message_box`.
 Counter is rewritten over it (`userland/libs/uixx/examples/counter/`),
 tested headless on the host (`tools/hostchecks/uitest/counterxx_app_uitest.c`)
 and clicked on a guest (`tools/tests/sweep/cross_gxx_test.py`). The
@@ -57,6 +58,9 @@ only, `docs/cc-design.md`), and a program pays for the classes it uses.
            ├─ box.hpp      ui::Row, ui::Column        ──>  uui_layout + uui_item[]
            ├─ controls.hpp ui::Label, ui::Button      ──>  uui_label, uui_button (by value)
            ├─ values.hpp   Checkbox ... Progress      ──>  uui_checkbox ... uui_progress
+           ├─ menu.hpp     ui::MenuBar                ──>  uui_menubar (+ keycombo, libc)
+           ├─ tabs.hpp     ui::Tabs                   ──>  uui_tabs + uui_stack
+           ├─ dialog.hpp   ui::message_box            ──>  uui_msgbox_open
            └─ widget.hpp   ui::Item, ui::Widget       ──>  one uui_widget_ops of trampolines
 ```
 
@@ -122,8 +126,7 @@ that. A text field of any length: `ui::Textbox` grows the C field past
 its 128-byte inline buffer (`uui_textbox_set_max`) before setting a
 longer text, and frees it.
 
-**Not yet:** `ui::Progress` has no busy mode -- its block slides on a
-timer, and the layer has none.
+`ui::Progress` gained its busy mode in stage 3, with the timers.
 
 **Testing.** `widgetsxx_app` logs what each slot was handed and reads it
 back after real input, and asserts that the constructor's and Reset's
@@ -135,16 +138,85 @@ built with the guest's `-fno-asynchronous-unwind-tables`, so with the
 guard's catch removed the process terminates, and with it main() catches
 the rethrown exception.
 
-## Stage 3: menus, dialogs, tabs, timers
+## Stage 3: menus, tabs, timers, a message box -- BUILT
 
-On the roadmap: a menu bar whose `item_flags` come from a lambda (rule 7
-of `userland/CLAUDE.md`) -- the C callback takes no context pointer, so
-the Window must be reachable from a static -- `ui::message_box` over
-`uui_msgbox_open` (whose callback does take one), `ui::Tabs` with pages
-(`uui_tabs` and `uui_stack`, QTabWidget's shape), and `ui::Timer`,
-several multiplexed over uapp's one `on_tick`. Add a class when a program
-needs it, against `uui_widget.h` and the C widget's header -- never
-against another wrapper.
+The picks (2026-11-18):
+
+- **A menu bar is a TREE WRITTEN IN PLACE**, each entry carrying its
+  own lambdas -- `ui::MenuItem` (run, `.enabled_when`), `ui::MenuCheck`
+  (get, set), `ui::Separator`, `ui::Menu` for a title or a submenu --
+  gtkmm's `Gio::Menu` read as data, without action names. Not chosen:
+  `ui::Action` objects shared by a menu and a toolbar (QAction's shape),
+  which pays off once there is a toolbar.
+- **THE SHORTCUT SHOWN IS THE SHORTCUT BOUND.** The text ("Ctrl+S",
+  "F1") is parsed by `keycombo_parse()` -- the grammar the compositor and
+  System Settings already share -- and the key runs the entry, greyed
+  ones refusing it, before the window's `on_key` (Qt's
+  `QAction::setShortcut` does both). Not chosen: display-only text, the C
+  toolkit's way, where the shown and handled shortcuts can disagree.
+- **A timer is a MEMBER built with its Window** -- `start(ms, fn)`,
+  `start_once`, `stop()`, stopped when destroyed, so a lambda capturing
+  `this` cannot outlive it (QTimer with a parent). Not chosen:
+  `every()`/`cancel(id)`, GLib's `g_timeout_add` shape.
+- **`ui::message_box` is ASYNC**: it returns at once and a lambda hears
+  the answer (GTK4's only shape; it removed `gtk_dialog_run`). Not
+  chosen: a modal return over `uui_msgbox_run`, which pumps the loop
+  inside the call and must never run from a callback.
+- **`ui::Tabs` is a notebook** -- the strip and the pages in one widget
+  (QTabWidget, GtkNotebook) -- over `uui_tabs` and a `uui_stack`.
+
+**How each maps onto C.**
+
+- **Menu codes are process-wide.** The C bar's `item_flags` is a plain
+  `unsigned (*)(int code)` with no context pointer, so every entry gets a
+  code unique in the process, and a registry turns a code back into its
+  entry and bar; a destroyed bar clears its codes. The flags are asked
+  each time the menu draws, from the entry's lambdas.
+- **The menu's bounds are the window's.** A menu drawn inside the window
+  (when the compositor grants no popup surface) is clamped to the bar's
+  bounds, which default to the bar's own rect and push it up over the
+  bar. The layer wraps `uui_menubar_ops.press`, and every key, to set
+  them to the window's content first.
+- **F10 and the arrows while the bar is shut** reach it through a hook
+  every Item has, `window_key()`, asked before `on_key`; an open menu
+  takes keys through the router before both.
+- **Timers share uapp's one tick**, re-armed with `uapp_set_tick()` to
+  the nearest due time (an hour when nothing is due), on the toolkit's
+  own clock (`sys_monotonic_ns()`), which the host harness moves. A
+  `ui::Progress` that is busy asks its Window to tick it every 40 ms
+  until it is not.
+- **A page is a container whose children are PAGES**: the Window's walk
+  records, for every focusable control, the `uui_item` of the page it is
+  on (`uui_focus.page`), so the Tab ring and the keys skip a hidden
+  page's controls. Pages are added before `set_root()`, which hands the
+  arrays to C; a container re-points its children's slots whenever its
+  array grows before then.
+- **A window's size is in CHARACTER CELLS** (`set_size_cells`, uapp's
+  `cells_w`/`cells_h`): uapp ranks a layout's natural size above a pixel
+  `w`/`h`, so stage 1's pixel `set_size()` set nothing and is gone.
+
+**Testing.** `notesxx_app` drives the Notes example: a greyed item's
+shortcut does nothing and runs once enabled; F10, Right, Down, Enter
+commits from the keyboard; a 1-second timer has not fired at 400 ms,
+fires at 1.1 s and 2.1 s, and stops; a busy bar's block moves between
+ticks; keys typed while the focused field's page is hidden do not reach
+it; a tab click is reported and a menu-chosen page is not; and a click
+on File, before any key, opens the menu below the bar with View's title
+untouched. Seen red, one at a time: shortcuts unbound, a greyed
+shortcut running, a timer firing before it is due, no animation tick,
+the press not fitting the bounds, no page pointers in the ring, and a
+tab choice not reported. The About box is a separate window, which the
+host harness refuses: `cross_gxx_test.py` opens it on a guest with F1
+and answers it with Enter.
+
+## Stage 4
+
+Not planned. Candidates when a program needs them: a toolbar sharing
+the menu's entries (then `ui::Action`), `ui::Window::post()` over
+`uapp_post` for a worker thread's results, context menus, and the
+remaining widgets (tree, table, text view). Add a class against
+`uui_widget.h` and the C widget's header -- never against another
+wrapper.
 
 ## The case against
 

@@ -14,13 +14,18 @@
 #include <exception>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "ui/ugfx.h"
 #include "ui/uui_widget.h"
 
+struct uapp;
+
 namespace ui {
 
 class Box;
+class Container;
+class Item;
 class Window;
 
 struct Rect {
@@ -39,6 +44,9 @@ class Host {
 public:
     virtual void redraw() = 0;
     virtual void fail(std::exception_ptr e) = 0;
+    virtual uapp *app() const = 0;   // null outside run()
+    // An item that animates (a busy bar) asks to be ticked, or stops.
+    virtual void animate(Item *it, bool on) = 0;
 
 protected:
     ~Host() = default;
@@ -120,15 +128,24 @@ protected:
         if (host_) host_->redraw();
     }
 
-    // The Window's three ways into an Item: it was given its id, a
-    // control committed (uapp_desc.on_action, a button's code), or a
-    // widget changed (on_widget, with an enum uui_reason).
+    // The Window's ways into an Item: it was given its id, a control
+    // committed (uapp_desc.on_action, a button's code), a widget changed
+    // (on_widget, with an enum uui_reason), a key reached the window
+    // before its own on_key (a menu bar's F10 and shortcuts; true takes
+    // it), and a tick while it animates (false: done animating).
     virtual void placed(int id) { (void)id; }
     virtual void action(int code) { (void)code; }
     virtual void changed(int reason) { (void)reason; }
+    virtual bool window_key(int key, unsigned mods) { (void)key; (void)mods; return false; }
+    virtual bool tick() { return false; }
+
+    // A container's children, for the Window's walk; and whether they are
+    // PAGES, one shown at a time (the Tab ring skips a hidden page's).
+    virtual std::vector<Item *> *children() { return nullptr; }
+    virtual bool pages() const { return false; }
 
 private:
-    friend class Box;
+    friend class Container;
     friend class Window;
 
     uui_item &item() { return slot_ ? *slot_ : proto_; }

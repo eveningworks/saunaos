@@ -21,27 +21,58 @@
 
 namespace ui {
 
-class Box : public Item {
+// What holds children: the `struct uui_item` array the C side walks,
+// the Items behind it, and the boxes it owns. Each child writes through
+// to its slot in `items_`, so when the array moves every slot is
+// re-pointed -- and a container may only grow before its Window's
+// set_root(), which hands the array to C.
+class Container : public Item {
+public:
+    std::vector<Item *> *children() override { return &kids_; }
+
+protected:
+    Container(const uui_widget_ops *ops, void *widget, size_t expect) : Item(ops, widget) {
+        items_.reserve(expect);
+        kids_.reserve(expect);
+    }
+    // The vectors' buffers move with them, so every child's slot stays.
+    Container(Container &&o) noexcept
+        : Item(std::move(o)), items_(std::move(o.items_)), kids_(std::move(o.kids_)), owned_(std::move(o.owned_)) {}
+
+    void add(Item &kid) { place(kid); }
+    void add(Box &&kid);
+    // A temporary that is not a box dies before the first draw.
+    void add(Item &&kid) = delete;
+
+    void place(Item &kid) {
+        const uui_item *was = items_.data();
+        items_.push_back(kid.proto_);
+        kids_.push_back(&kid);
+        if (items_.data() != was)
+            for (size_t i = 0; i < kids_.size(); i++) kids_[i]->slot_ = &items_[i];
+        else
+            kid.slot_ = &items_.back();
+        placed_items();
+    }
+    // The array may have moved: point the C struct at it again.
+    virtual void placed_items() {}
+
+    std::vector<uui_item> items_;
+    std::vector<Item *> kids_;
+    std::vector<std::unique_ptr<Box>> owned_;
+};
+
+class Box : public Container {
 public:
     template <class... Kids>
-    explicit Box(uui_dir dir, Kids &&...kids) : Item(&uui_layout_ops, &c_) {
+    explicit Box(uui_dir dir, Kids &&...kids) : Container(&uui_layout_ops, &c_, sizeof...(Kids)) {
         c_.dir = dir;
-        // EXACTLY sized before the first child: each child keeps a pointer
-        // to its slot, so the array must never reallocate.
-        items_.reserve(sizeof...(Kids));
-        kids_.reserve(sizeof...(Kids));
         (add(std::forward<Kids>(kids)), ...);
-        c_.items = items_.data();
-        c_.count = static_cast<int>(items_.size());
     }
 
-    // The vectors' buffers move with them, so every child's slot pointer
-    // stays good; only the pointers at this object's own members move.
-    Box(Box &&o) noexcept
-        : Item(std::move(o)), c_(o.c_), items_(std::move(o.items_)), kids_(std::move(o.kids_)),
-          owned_(std::move(o.owned_)) {
+    Box(Box &&o) noexcept : Container(std::move(o)), c_(o.c_) {
         rebind(&c_);
-        c_.items = items_.data();
+        placed_items();
     }
 
     // The fluent setters again, for a box written in place:
@@ -58,25 +89,18 @@ public:
 private:
     friend class Window;
 
-    void add(Item &kid) { place(kid); }
-    void add(Box &&kid) {
-        owned_.push_back(std::make_unique<Box>(std::move(kid)));
-        place(*owned_.back());
-    }
-    // A temporary that is not a box dies before the first draw.
-    void add(Item &&kid) = delete;
-
-    void place(Item &kid) {
-        items_.push_back(kid.proto_);
-        kid.slot_ = &items_.back();
-        kids_.push_back(&kid);
+    void placed_items() override {
+        c_.items = items_.data();
+        c_.count = static_cast<int>(items_.size());
     }
 
     uui_layout c_{};
-    std::vector<uui_item> items_;
-    std::vector<Item *> kids_;
-    std::vector<std::unique_ptr<Box>> owned_;
 };
+
+inline void Container::add(Box &&kid) {
+    owned_.push_back(std::make_unique<Box>(std::move(kid)));
+    place(*owned_.back());
+}
 
 class Row : public Box {
 public:

@@ -78,7 +78,8 @@ the rest in the sweep. Each stays a standalone script with its own
   **WHOLE APPS, TOO (stage 2)**: a case whose first line is
   `// uitest-app: DIR` builds that app's sources with `main` renamed and
   drives its REAL main through `tools/lib/uitest/uitest_app.h` --
-  `uitest_app_start`, `_click(name)` from the window's widget map,
+  `uitest_app_start`, `_click(name)` from the window's widget map
+  (`_has_widget(name)` asks without failing, for a hidden page),
   `_rclick_at`, `_key`, `_type`, `_tick`, `_settle`, `_pixel` of the
   presented frame, `_close`. `uitest_app.c` is a stand-in compositor
   serving the app's real `base/uchan.h` channel over the stubs' shared
@@ -88,10 +89,11 @@ the rest in the sweep. Each stays a standalone script with its own
   kept (`uitest_log_find`), `sys_getrandom` is fixed, a second thread is
   refused (tolibc's `pthread.c` is linked), and POPUP/DIALOG/NOTICE are
   refused, so popups draw in the window. Cases: `calculator_app`,
-  `mines_app`, and three for the C++ layer: `counterxx_app` and
-  `widgetsxx_app` (the value widgets' `on_change`, input only), and
-  `throwxx_app` (a throwing `on_click` reaches `main()`; its fixture is
-  `uitest/throwxx/`). Each is a C++ app
+  `mines_app`, and four for the C++ layer: `counterxx_app`,
+  `widgetsxx_app` (the value widgets' `on_change`, input only),
+  `notesxx_app` (menus, bound shortcuts, timers on the harness's clock, a
+  busy bar, tabbed pages) and `throwxx_app` (a throwing `on_click`
+  reaches `main()`; its fixture is `uitest/throwxx/`). Each is a C++ app
   over `docs/uixx-design.md`'s headers, whose `.cpp` is built with the HOST g++ against
   glibc and libstdc++ (tolibc's headers cannot sit under libstdc++'s;
   the kernel's go `-idirafter`, since abi/ has its own `errno.h`) and

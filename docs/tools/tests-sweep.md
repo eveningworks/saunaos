@@ -143,9 +143,12 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   and prints the binary's size. Each C++ layer example
   (`userland/libs/uixx/examples/`, `UIXX_EXAMPLES`) is built against the
   SDK's `uixx/` headers with no warning, spawned on the guest, and must
-  report its widgets by name and log its line after `gui click`s
-  (Counter's `counter: count 2`, Widgets' `widgets: hidden 1`) -- the
-  clicks reached a C++ lambda.
+  report its widgets by name, then run its steps -- `gui click`s and
+  `gui key`s, each followed by the log line a C++ lambda writes
+  (Counter's `counter: count 2`, Widgets' `widgets: hidden 1`), and for
+  Notes F1, a window titled "About Notes", and Enter answering it
+  (`notes: about answered 0`): a message box is a window of its own, which
+  the host harness refuses.
   `--positive-control eh_frame` (or
   `init_array`) links with a copy of the sysroot's `saunaos-dyn.ld` that
   discards that section, `libc_eh_frame` a `-static` link whose

@@ -344,9 +344,12 @@ Private seams of a split module, not for apps: `uapp_internal.h`.
 
 | Header | What it is |
 |---|---|
-| `app.hpp` | uixx/app.hpp -- the C++ layer over the toolkit, all of it: ui::Window and ui::run, ui::Label, ui::Button, ui::Row/ui::Column, the value widgets of uixx/values.hpp, and ui::Widget for a widget of yo... |
+| `app.hpp` | uixx/app.hpp -- the C++ layer over the toolkit, all of it: ui::Window, ui::run and ui::Timer, ui::Label, ui::Button, ui::Row/ui::Column, the value widgets of uixx/values.hpp, ui::MenuBar, ui::Tabs,... |
 | `box.hpp` | uixx/box.hpp -- ui::Row and ui::Column, a uui_layout whose item array is built from the children named in the constructor. |
 | `controls.hpp` | uixx/controls.hpp -- ui::Label and ui::Button, the C toolkit's uui_label and uui_button held by value, with the text they point at owned by the object (the C structs keep a caller-owned pointer). |
+| `dialog.hpp` | uixx/dialog.hpp -- ui::message_box, a question in its own small window over uui_msgbox_open: it returns at once, and `done` hears which button was chosen (its index), or -1 when the box was closed. |
+| `menu.hpp` | uixx/menu.hpp -- ui::MenuBar, a uui_menubar written as a tree in place, each entry carrying its own lambdas: |
+| `tabs.hpp` | uixx/tabs.hpp -- ui::Tabs, a notebook: a strip of tabs over pages, one page shown (QTabWidget's and GtkNotebook's shape), over uui_tabs and a uui_stack sized to the largest page. |
 | `values.hpp` | uixx/values.hpp -- the widgets that hold a value a person changes: ui::Checkbox, ui::Switch, ui::Textbox, ui::Dropdown, ui::Slider and ui::Listbox, each with ONE on_change slot, and ui::Progress, w... |
 | `widget.hpp` | uixx/widget.hpp -- the C++ layer's base classes: ui::Item, anything a layout can hold, and ui::Widget, a widget written in C++ by overriding virtuals (gtkmm's Gtk::Widget::on_draw shape). |
-| `window.hpp` | uixx/window.hpp -- ui::Window, one uapp window whose widgets are its subclass's MEMBERS, and ui::run<W>(), which opens it. |
+| `window.hpp` | uixx/window.hpp -- ui::Window, one uapp window whose widgets are its subclass's MEMBERS, ui::Timer, and ui::run<W>(), which opens it. |
