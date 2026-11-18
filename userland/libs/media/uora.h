@@ -16,6 +16,10 @@
 
 #include "media/uimg.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UORA_NAME_MAX 64
 #define UORA_ATTRS_MAX 16
 
@@ -48,5 +52,9 @@ int uora_save(const char *path, const struct uora_layer *layers, int n, const st
 int uora_load(const char *path, struct uora_layer **out, int *n, int *w, int *h, char *err, int errcap);
 // Frees the layers' pixels and attribute values, and the array.
 void uora_free(struct uora_layer *layers, int n);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,6 +1,10 @@
 #ifndef ULIB_UFONTFALLBACK_H
 #define ULIB_UFONTFALLBACK_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The FONT FALLBACK LIST: the faces tried, in order, for a character the
 // interface face has no glyph for -- Android's fonts.xml shape, one ordered
 // list, the first face with the character drawing it. Read once per process
@@ -37,5 +41,9 @@ const struct ufont_fallback *ufont_fallback(void);
 // ran out. Exposed for the host test; ufont_fallback() is the one to call.
 int ufont_fallback_parse(const char *text, int (*exists)(const char *path),
                          struct ufont_fallback *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

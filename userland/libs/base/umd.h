@@ -38,6 +38,10 @@
 // arrive as three boxes each.
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // --- the inline rules, for a SECOND renderer --------------------------
 //
 // `code`, **bold**, [text](link), the one backslash escape and the
@@ -174,5 +178,9 @@ struct umd_html_opts {
                               // with UMD_HTML_DETAILS_ONLY: a "back" link first, or NULL
 };
 void umd_html(const char *src, int len, const struct umd_html_opts *opts, struct umd_out *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UMD_H

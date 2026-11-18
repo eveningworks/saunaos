@@ -8,6 +8,10 @@
 
 #include "mount_abi.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Draws `p` to stderr as `prog`'s line, over the previous one; `*width`
 // is that one's length, kept between calls (start it at 0). A record not
 // running draws nothing.
@@ -15,5 +19,9 @@ void ustageline_draw(const char *prog, const struct fs_check_progress *p, int *w
 
 // Blanks the line and returns the cursor to its start; `*width` becomes 0.
 void ustageline_clear(int *width);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

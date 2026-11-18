@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "etc_config.h" // the SHARED parser -- see below
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // /etc access for a ring-3 program: reading and writing `name=value`
 // documents.
 //
@@ -92,5 +96,9 @@ int uconf_set_in(const char *path, const char *section,
 // because "set it to nothing" and "take it out" are different requests
 // and only one of them is what a NULL means here.
 int uconf_unset(const char *path, const char *key);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UCONF_H

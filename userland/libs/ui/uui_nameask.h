@@ -14,6 +14,10 @@
 #include "ui/uui_layout.h"
 #include "ui/uui_focus.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_nameask {
     struct uapp_window *win;
     struct uui_label caption, err, gap;
@@ -35,5 +39,9 @@ void uui_nameask_open(struct uui_nameask *q, struct uapp *a, const char *title,
                       const char *(*check)(void *ctx, const char *name),
                       void (*done)(void *ctx, const char *name), void *ctx);
 int  uui_nameask_is_open(const struct uui_nameask *q);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

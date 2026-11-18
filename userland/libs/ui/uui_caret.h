@@ -1,6 +1,10 @@
 #ifndef UUI_CARET_H
 #define UUI_CARET_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // THE TEXT CARET'S BLINK -- one phase for the whole process, asked by
 // every widget that draws a caret (uui_textbox, utext, so uui_textview).
 // Windows (GetCaretBlinkTime, 530 ms), Qt (cursorFlashTime, 1000 ms a
@@ -40,5 +44,9 @@ void uui_caret_at(const struct ugfx_surface *s, int x, int y, int w, int h);
 void uui_caret_frame_begin(void);
 // The last caret placed on `s` since _begin: 1 and its rect, or 0 for none.
 int  uui_caret_frame_end(const struct ugfx_surface *s, int *x, int *y, int *w, int *h);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -11,6 +11,10 @@
 #include <stdint.h>
 #include "win_proto.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct unotify {
     const char *app;      // the sender's name as people know it; NULL: "Notification"
     const char *icon;     // an icon_cache name; NULL: the app's own, or a bell
@@ -34,5 +38,9 @@ int unotify_close(uint32_t id);
 // when the desktop went away. For a program with no event loop of its
 // own -- a GUI app hears WIN_EV_NOTIFY through uapp_desc.on_notify.
 int unotify_wait(uint32_t id, int timeout_ms, int *action);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

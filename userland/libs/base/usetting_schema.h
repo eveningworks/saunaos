@@ -5,6 +5,10 @@
 #include "setting_abi.h"
 #include "base/usetting_text.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A setting DECLARED by a file, and owned by ring 3.
 //
 // The kernel's registry (kernel/include/api/setting.h) holds settings
@@ -245,5 +249,9 @@ int uschema_group_text(const char *category, const char *group,
 // Removes the key, so the setting falls back to `Default=` at the next
 // read. SETTING_OP_UNSET's half.
 int uschema_unset(const struct uschema *s);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_USETTING_SCHEMA_H

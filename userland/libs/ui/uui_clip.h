@@ -10,6 +10,10 @@
 // the view is.
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_clip {
     struct uui_item child;          // caller-owned widget, any ops
     int vx, vy, vw, vh;             // the viewport, window-relative
@@ -23,5 +27,9 @@ void uui_clip_set_viewport(struct uui_clip *c, int x, int y, int w, int h);
 int uui_clip_visible(const struct uui_clip *c);
 
 extern const struct uui_widget_ops uui_clip_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

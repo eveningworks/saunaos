@@ -20,6 +20,10 @@
 // the ETA of one that just stalled.
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uprogress {
     int fd;                        // -1 once disabled: nothing is drawn
     unsigned long long total;      // 0 when the size is not known ahead
@@ -39,5 +43,9 @@ void uprogress_add(struct uprogress *p, unsigned long long n);
 // Final redraw and a newline, so whatever prints next starts clean.
 // Safe on a meter that was never begun or that disabled itself.
 void uprogress_end(struct uprogress *p);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

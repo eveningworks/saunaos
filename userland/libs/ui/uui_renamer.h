@@ -12,6 +12,10 @@
 #include "ui/uapp.h"
 #include "base/urename.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // `olds[i]` becomes `news[i]` for each of the `n` that change, all in
 // `dir`. Called once, on Rename; the window is closed after.
 typedef void (*uui_renamer_done)(void *ctx, const char *dir, char (*olds)[URENAME_NAME],
@@ -22,4 +26,9 @@ typedef void (*uui_renamer_done)(void *ctx, const char *dir, char (*olds)[URENAM
 void uui_renamer_open(struct uapp *a, const char *dir, char (*names)[URENAME_NAME], int n,
                       uui_renamer_done done, void *ctx);
 int  uui_renamer_is_open(void);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

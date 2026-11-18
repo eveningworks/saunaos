@@ -28,6 +28,10 @@
 // `termkey_cases.h` asserts as a round trip in both rings.
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The longest sequence encode() produces, including no terminator.
 #define TERMKEY_MAX 8
 
@@ -90,5 +94,9 @@ int termkey_refeed(struct termkey_state *st);
 // not turned into a key, so a caller can process them itself. `*len` is
 // how many.
 const char *termkey_pending(const struct termkey_state *st, int *len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

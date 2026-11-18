@@ -21,6 +21,10 @@
 
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_stack {
     int x, y, w, h;
     struct uui_item *pages;   // caller-owned
@@ -36,5 +40,9 @@ void uui_stack_set(struct uui_stack *s, int index);
 int uui_stack_show(struct uui_stack *s, const struct uui_item *page);
 
 extern const struct uui_widget_ops uui_stack_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

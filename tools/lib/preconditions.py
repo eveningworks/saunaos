@@ -96,6 +96,9 @@ def precondition_met(kind):
         # Host gcc only. A skip rather than a failure on a checkout
         # without it, same rule as host_audio above.
         return shutil.which("gcc") is not None, why
+    if key == "host_cxx":
+        # Host gcc and g++: a header read as C++ needs the C++ front end.
+        return all(shutil.which(t) for t in ("gcc", "g++")), why
     if key == "cross_gcc":
         # The x86_64-saunaos toolchain is an EXTRAS=1 build (`make
         # toolchain EXTRAS=1`), so a clean checkout has none: a skip.

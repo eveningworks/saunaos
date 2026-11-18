@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ROWS OF THINGS, EACH WITH ITS OWN BUTTONS: a title, a dim line under
 // it, and up to two buttons at the right of the row -- "Disconnect" on a
 // remote session, "Remove" on a trusted address. Windows 11 Settings'
@@ -54,5 +58,9 @@ int uui_actionlist_press(struct uui_actionlist *l, int cx, int cy);
 int uui_actionlist_release(struct uui_actionlist *l, int cx, int cy);
 
 extern const struct uui_widget_ops uui_actionlist_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

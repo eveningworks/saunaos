@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "fixed.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Geometry primitives: lines, polylines, circles, ellipses, and their
 // filled forms. Everything this kernel's GUI could previously only
 // approximate with rectangles.
@@ -199,5 +203,9 @@ struct geom_pt3 geom_face_normal3(struct geom_pt3 a, struct geom_pt3 b,
 // direction `light`, 0..255 -- the cosine between them, 0 for a face
 // turned away. Neither vector need be unit length.
 int geom_shade(struct geom_pt3 n, struct geom_pt3 light);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

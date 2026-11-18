@@ -6,6 +6,10 @@
 #include "ui/uui_widget.h"
 #include "media/uimg.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_thumbstrip -- a row of thumbnails with one selected: a filmstrip,
 // Windows Photos' and Gwenview's thumbnail bar.
 //
@@ -51,5 +55,9 @@ int uui_thumbstrip_cell_rect(const struct uui_thumbstrip *t, int index,
                              int *x, int *y, int *w, int *h);
 
 extern const struct uui_widget_ops uui_thumbstrip_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

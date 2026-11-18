@@ -5,6 +5,10 @@
 #include <stdint.h>
 #include "setting_abi.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // One setting, by qualified name, for a ring-3 program: the GET and SET
 // halves of `SYS_SETTING` with the message built here rather than in
 // every caller.
@@ -122,5 +126,9 @@ int usetting_group_order(const char *category, const char *group);
 // or its own. System Settings hides those until "Kernel and debugging
 // settings" is ticked (Android's Developer options). 0 when no file says.
 int usetting_page_debug(const char *category, const char *group);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_USETTING_H

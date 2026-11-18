@@ -6,6 +6,10 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_menubar -- a menu bar with nested pull-down menus, the control
 // Windows and KDE both put across the top of an application window.
 //
@@ -334,5 +338,9 @@ int uui_menubar_depth(const struct uui_menubar *m);
 // under a `desktop.menu_spacing` word -- NULL for the one in force -- so a
 // picture of a menu, Settings' spacing cards, measures as menus do.
 void uui_menu_spacing_metrics(const char *spacing, int *row_h, int *air_px);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -9,6 +9,10 @@
 #include "ui/ugfx.h"
 #include "media/uimg.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uambient {
     uint32_t centre, edge;   // the stage: lit middle, deep edge
     uint32_t strip;          // a band under it (the viewer's filmstrip)
@@ -30,5 +34,9 @@ struct uambient_stage { uint32_t *grad; int w, h; uint32_t c, e; };
 void uambient_paint(struct uambient_stage *st, const struct uambient *a,
                     struct ugfx_surface *s, int x, int y, int w, int h);
 void uambient_stage_free(struct uambient_stage *st);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

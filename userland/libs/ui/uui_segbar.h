@@ -19,6 +19,10 @@
 #include <stdint.h>
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_SEGBAR_MAX 16
 
 struct uui_segbar_seg {
@@ -52,5 +56,9 @@ void uui_segbar_set(struct uui_segbar *b, const struct uui_segbar_seg *segs, int
 int  uui_segbar_rect(const struct uui_segbar *b, int i, int *x, int *y, int *w, int *h);
 
 extern const struct uui_widget_ops uui_segbar_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

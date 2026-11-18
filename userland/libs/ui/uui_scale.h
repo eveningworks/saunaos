@@ -6,6 +6,10 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A CONTINUOUS value on a range, dragged with the pointer -- a media
 // player's position bar, a volume control, a percentage.
 //
@@ -82,5 +86,9 @@ int  uui_scale_key(struct uui_scale *s, int key);
 
 extern const struct uui_widget_ops uui_scale_ops;
 extern const struct uui_widget_ops uui_scale_focus_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

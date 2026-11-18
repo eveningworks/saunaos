@@ -20,6 +20,10 @@
 #include "ui/uui_segmented.h"
 #include "ui/uui_button.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum uui_byteinspect_event {
     UUI_BI_NONE = 0,
     UUI_BI_ENDIAN,      // `big_endian` changed
@@ -64,5 +68,9 @@ int  uui_byteinspect_offset(const struct uui_byteinspect *bi, uint64_t *out);
 int  uui_byteinspect_take(struct uui_byteinspect *bi);
 
 extern const struct uui_widget_ops uui_byteinspect_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

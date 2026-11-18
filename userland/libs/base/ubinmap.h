@@ -23,6 +23,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Where the bytes come from: `read` copies up to `n` bytes at `off` and
 // returns how many it got -- short only at the end of the file
 // (base/urange.h's urange_reader is one).
@@ -97,5 +101,9 @@ struct ubinmap_format {
 };
 extern const struct ubinmap_format ubinmap_formats[];
 extern const int ubinmap_format_count;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

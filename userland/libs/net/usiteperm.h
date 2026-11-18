@@ -1,6 +1,10 @@
 #ifndef ULIB_USITEPERM_H
 #define ULIB_USITEPERM_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // usiteperm -- PER-SITE PERMISSIONS: for a host and a kind ("javascript"),
 // Allow or Block, or nothing kept and the global setting decides --
 // Chrome's content-settings exceptions, Firefox's permissions.sqlite. The
@@ -42,5 +46,9 @@ int usiteperm_set(struct usiteperm *t, const char *host, const char *kind, int v
 // (NUL-terminated), what net/webview_proto.h's WV_PERMS carries. The
 // length written, or -1 when it does not fit -- and then nothing.
 int usiteperm_list(const struct usiteperm *t, const char *kind, char *out, int cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

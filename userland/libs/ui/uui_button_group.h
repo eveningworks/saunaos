@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "ui/uui_button.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Split out of the single uwidgets.c/.h this used to be, one file per
 // widget -- the same shape as apps/ui/, so a widget's kernel-side and
 // ring-3 versions live at matching paths. See ui/uui.h.
@@ -58,5 +62,9 @@ int uui_button_group_take_activated(struct uui_button_group *g);
 // of in every app.
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_button_group_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

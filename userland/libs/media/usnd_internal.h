@@ -3,6 +3,10 @@
 
 #include "media/usnd.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Shared between usnd.c and its codecs. Not for apps.
 
 // Records the sentence usnd_last_error() returns. A codec calls this on
@@ -59,5 +63,9 @@ int usnd_mp3_selftest(void);
 // find in /usr/share/soundfonts; NULL restores the search. For tests,
 // which need a bank whose every sample they know.
 void usnd_mid_set_soundfont(const char *path);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

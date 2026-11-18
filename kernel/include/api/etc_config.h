@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "setting_abi.h" // enum setting_result -- see the note at the bottom
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A small shared name=value config-file reader/writer for anything
 // under /etc -- see kernel/lib/etc_config.c's top comment for the
 // exact file format, and CLAUDE.md's `/etc` bullet for the convention
@@ -298,5 +302,9 @@ int etc_config_unset_in(const char *path, const char *section, const char *key);
 // copy of the enum in the ABI header, which could drift from this one
 // -- and a drift there would mean a client reporting "saved" for a
 // value that was not.
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

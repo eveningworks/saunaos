@@ -5,6 +5,10 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Split out of the single uwidgets.c/.h this used to be, one file per
 // widget -- the same shape as apps/ui/, so a widget's kernel-side and
 // ring-3 versions live at matching paths. See ui/uui.h.
@@ -53,5 +57,9 @@ void uui_button_draw_one(struct ugfx_surface *s, const struct uui_button *b);
 
 // So a button can sit in a uui_layout. See ui/uui_widget.h.
 extern const struct uui_widget_ops uui_button_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

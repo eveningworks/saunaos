@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // PURE CALENDAR ARITHMETIC -- the proleptic Gregorian calendar and
 // nothing else. No timezone, no DST, no clock, no filesystem.
 //
@@ -56,5 +60,9 @@ void cal_civil_from_days(int64_t days, int *year, int *month, int *day);
 // Day of the year, 0-based (0 = January 1) -- what a struct tm's
 // tm_yday wants.
 int cal_day_of_year(int year, int month, int day);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

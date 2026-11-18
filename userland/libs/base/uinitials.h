@@ -10,7 +10,15 @@
 // a non-ASCII character is copied whole (UTF-8), never split.
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Into `out` (at most `cap` bytes, NUL-terminated); "" for an empty name.
 void uinitials(const char *name, char *out, size_t cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

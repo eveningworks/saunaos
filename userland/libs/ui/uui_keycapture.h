@@ -4,6 +4,10 @@
 #include "uui_widget.h"
 #include "keycombo.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A CONTROL THAT RECORDS A KEY COMBINATION BY HAVING YOU PRESS IT.
 //
 // Click it and it says "Press the new shortcut"; the next real
@@ -61,5 +65,9 @@ void uui_keycapture_set(struct uui_keycapture *k, const char *value);
 void uui_keycapture_cancel(struct uui_keycapture *k);
 
 extern const struct uui_widget_ops uui_keycapture_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

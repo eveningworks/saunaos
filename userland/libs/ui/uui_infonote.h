@@ -11,6 +11,10 @@
 
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_infonote {
     int x, y, w, h;
     const char *text;   // not owned
@@ -19,5 +23,9 @@ struct uui_infonote {
 void uui_infonote_init(struct uui_infonote *n, const char *text);
 
 extern const struct uui_widget_ops uui_infonote_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

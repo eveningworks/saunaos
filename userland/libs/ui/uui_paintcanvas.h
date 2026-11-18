@@ -6,6 +6,10 @@
 #include "ui/uui_sbar.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_paintcanvas -- A PICTURE TO PAINT ON, ZOOMED AND SCROLLED: the view
 // half of a paint program. It shows the caller's struct uimg at a zoom,
 // centres it when it is smaller than the view, scrolls it with two bars
@@ -77,5 +81,9 @@ void uui_paintcanvas_to_screen(const struct uui_paintcanvas *c, int x, int y, in
 void uui_paintcanvas_picture_rect(const struct uui_paintcanvas *c, int *x, int *y, int *w, int *h);
 
 extern const struct uui_widget_ops uui_paintcanvas_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

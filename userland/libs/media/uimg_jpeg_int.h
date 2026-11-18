@@ -5,6 +5,10 @@
 #include <stddef.h>
 #include "media/uimg.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // What the JPEG DECODER and ENCODER share, and nothing else does.
 //
 // They live in two files because they are two concerns -- uimg_jpeg.c
@@ -34,5 +38,9 @@ extern const uint8_t uimg_jpeg_std_ac_chr_bits[17], uimg_jpeg_std_ac_chr_vals[16
 void uimg_set_error(const char *msg);
 
 int uimg_jpeg_encode(const struct uimg *im, uint8_t **out, size_t *out_len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // UIMG_JPEG_INT_H

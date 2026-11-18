@@ -22,6 +22,10 @@
 #include "ui/uui_label.h"
 #include "ui/uui_button.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_WIZARD_STEPS_MAX 10
 #define UUI_WIZARD_ID_BASE   0x7E00   // the wizard's codes; an app's stay below
 
@@ -101,5 +105,9 @@ int uui_wizard_focusables(struct uui_wizard *w, const struct uui_widget_ops **op
                           void **widgets, int max);
 
 extern const struct uui_widget_ops uui_wizard_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -21,6 +21,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum uui_keymap_board { UUI_KEYMAP_PICTURE, UUI_KEYMAP_TYPING };
 
 struct uui_keymap {
@@ -65,5 +69,9 @@ int uui_keymap_key_at(const struct uui_keymap *k, int mx, int my);
 int uui_keymap_find(const struct uui_keymap *k, const char *name);
 
 extern const struct uui_widget_ops uui_keymap_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

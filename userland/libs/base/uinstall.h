@@ -26,6 +26,10 @@
 #include "base/ucomponent.h"
 #include "base/udiskscan.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UINSTALL_PAYLOAD     "/install"   // what every SaunaOS root carries to install itself
 #define UINSTALL_TARGET      "/mnt"       // where the target's root is mounted
 #define UINSTALL_TARGET_BOOT "/mnt/boot"
@@ -210,5 +214,9 @@ const char *uinstall_write_bootloader(const char *disk, int mbr, int in_use);
 // without GRUB's EFI target), and the disk boots BIOS/CSM only; -1 with
 // *why on a failure.
 int uinstall_write_efi(const char *boot, const char **why);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "base/uclip_page.h"   // the page layout, shared with /bin/clipboardd
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uclip -- the system clipboard, for a ring-3 app.
 //
 // **THE CLIPBOARD IS NOT IN THE KERNEL.** It is a named shared-memory
@@ -173,5 +177,9 @@ void uclip_drag_begin(struct uclip *c);
 int  uclip_drag_commit(struct uclip *c);
 int  uclip_drag_load(struct uclip *c);
 int  uclip_drag_clear(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UCLIP_H

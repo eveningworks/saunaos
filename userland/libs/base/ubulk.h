@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "base/uchan.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ubulk -- records of any size, up to UBULK_REC_MAX, between two ring-3
 // processes: a uchan channel for the doorbells, the discovery and the
 // death of a client, and beside each client's uchan ring ONE MORE shm
@@ -131,5 +135,9 @@ int  ubulk_server_send(struct ubulk_server *s, int pid, uint32_t type, uint32_t 
 // has rung since the last call -- what a listener thread beside a
 // toolkit loop calls before it uapp_post()s. 1 if something rang.
 int  ubulk_server_wait_change(struct ubulk_server *s, int timeout_ms);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // chart -- a value over TIME, which is the one thing uui_meter cannot
 // show.
 //
@@ -153,5 +157,9 @@ void uui_chart_set_geometry(struct uui_chart *c, int x, int y, int w, int h);
 void uui_chart_draw(struct ugfx_surface *s, const struct uui_chart *c);
 
 extern const struct uui_widget_ops uui_chart_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

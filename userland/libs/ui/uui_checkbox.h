@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_primitives.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The ring-3 checkbox, an OBJECT -- it holds its own geometry, checked
 // state and hover, like uui_button/uui_listbox. It used to be three
 // free functions told (x, y, size, label, checked, hovered) on every
@@ -76,5 +80,9 @@ int  uui_checkbox_key(struct uui_checkbox *cb, int key);
 // the widget's once this is declared.
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_checkbox_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

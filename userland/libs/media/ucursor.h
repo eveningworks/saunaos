@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // One cursor SHAPE, as /usr/share/cursors/<theme>/<shape> describes it --
 // the file format, shared by the compositor (userland/apps/system/toywm/cursor_theme.c,
 // which owns the live theme) and anything that only SHOWS a theme
@@ -83,5 +87,9 @@ int ucursor_load(const char *theme, const char *name, int pct, struct cursor_sha
 // into straight ARGB as `fill_rgb` over a black rim. 0 outside.
 uint32_t ucursor_pixel(const struct cursor_shape *s, int dx, int dy, int step,
                        uint32_t fill_rgb);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UCURSOR_H

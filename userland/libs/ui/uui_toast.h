@@ -11,6 +11,10 @@
 
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //
 // AN ACTION ("Undo") widens the pill and leaves a slot at its right end;
 // the toast still takes no input -- the app puts a real button over
@@ -58,5 +62,9 @@ int uui_toast_close_rect(const struct uui_toast *t, int x, int y, int w, int h,
 // The action slot, once risen; 0 when there is no action or no toast.
 int uui_toast_action_rect(const struct uui_toast *t, int x, int y, int w, int h,
                           int *rx, int *ry, int *rw, int *rh);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // UUI_TOAST_H

@@ -15,6 +15,10 @@
 
 #include "ui/uui_dropdown.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_DROPROWS_FIXED 8
 #define UUI_DROPROWS_OWN   4
 #define UUI_DROPROWS_LABEL 256   // a path: UUI_FILEVIEW_PATH_MAX
@@ -63,5 +67,9 @@ void uui_droprows_reselect(struct uui_droprows *r);
 int uui_droprows_kind(const struct uui_droprows *r, int row, int *index);
 // The same for the row the dropdown shows now.
 int uui_droprows_picked(const struct uui_droprows *r, int *index);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

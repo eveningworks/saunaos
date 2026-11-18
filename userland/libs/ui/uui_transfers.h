@@ -18,6 +18,10 @@
 // app's, as they are uui_findbar's.
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum uui_xfer_state {
     UUI_XFER_RUNNING, UUI_XFER_DONE, UUI_XFER_FAILED, UUI_XFER_CANCELLED,
     UUI_XFER_PAUSED,   // stopped by the person, Resume to go on
@@ -61,5 +65,9 @@ int uui_transfers_row_h(void);
 int uui_transfers_take(struct uui_transfers *t, int *row);
 
 extern const struct uui_widget_ops uui_transfers_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

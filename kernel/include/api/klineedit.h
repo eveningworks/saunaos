@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include "termkey.h"   // kline_feed() decodes what a terminal sends
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A readline-style line editor, as pure logic: a buffer, a cursor, a
 // kill ring and an undo stack, with no idea how any of it gets drawn.
 //
@@ -193,5 +197,9 @@ enum kline_action kline_feed(struct kline_edit *e, struct termkey_state *st,
 int kline_word_start(const char *buf, int len, int from);       // alnum words
 int kline_word_end(const char *buf, int len, int from);
 int kline_ws_word_start(const char *buf, int len, int from);    // whitespace-delimited
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

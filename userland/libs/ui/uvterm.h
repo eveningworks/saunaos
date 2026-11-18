@@ -24,6 +24,10 @@
 #include "kutf8.h"       // the stream decoder: a read can split a character
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uapp;
 
 // ONE CELL OF THE GRID: a CHARACTER, not a byte (docs/utf8-design.md,
@@ -230,5 +234,9 @@ void uvterm_draw_caret(const struct uvterm *t, struct ugfx_surface *s, int x, in
 // selector in the cell after it (ugfx_cp_with_next()), so U+2764 U+FE0F
 // draws the emoji heart. The selector's own cell draws nothing.
 uint32_t uvterm_cell_cp(const struct uvterm *t, const struct uvterm_cell *row, int q);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

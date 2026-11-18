@@ -1,6 +1,10 @@
 #ifndef ULIB_ULAUNCH_H
 #define ULIB_ULAUNCH_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ulaunch -- is this file something to RUN, and how should it run?
 //
 // The question a double-click asks before uopen.h's "which app opens
@@ -89,5 +93,9 @@ int ulaunch_allow(const char *path);
 #define ULAUNCH_EDIT_EXEC     "/bin/wm/apps/notepad"
 #define ULAUNCH_ASK_EXEC      "/bin/wm/system/runask"
 int ulaunch_argv(const char *path, int kind, int act, char **argv);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

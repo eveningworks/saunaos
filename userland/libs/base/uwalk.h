@@ -27,6 +27,10 @@
 #include "rt/sys.h"
 #include "base/ulistdir.h"   // struct ulist_entry
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UWALK_PATH  256    // a size for CALLERS' own path buffers; the walk has no limit
 #define UWALK_DEPTH 48     // levels; a deeper subtree is skipped, and counted
 
@@ -65,5 +69,9 @@ int uwalk_step(struct uwalk *w, uwalk_fn fn, void *ctx);
 // ZEROED one never begun -- so a walk lives in zeroed memory (static,
 // calloc), never plain malloc: there it would free garbage.
 void uwalk_end(struct uwalk *w);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

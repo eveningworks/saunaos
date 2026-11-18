@@ -1,6 +1,10 @@
 #ifndef ULIB_URECENT_H
 #define ULIB_URECENT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // RECENT FILES: what was opened lately, by any app, and in which --
 // freedesktop's recently-used.xbel and Windows' Recent Items, as one
 // plain-text list in /var/lib/recent. Written where files are OPENED for
@@ -38,5 +42,9 @@ int urecent_clear(void);
 // The name a person knows `exec` by -- its desktop entry's Name=, else
 // the program's file name. For a caller that has only the program.
 void urecent_app_of_exec(const char *exec, char *out, int cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

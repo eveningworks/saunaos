@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "base/uprefs.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ufolderopts -- how files are shown and opened, in File Manager windows
 // AND on the desktop: Explorer's Folder Options, which apply to both. The
 // File Manager's Options window edits them (its View, General and Rename
@@ -32,5 +36,9 @@ void ufolderopts_load(struct ufolderopts *o);
 
 // Whether a file of `size` bytes gets a thumbnail at all.
 int ufolderopts_thumb_ok(const struct ufolderopts *o, uint64_t size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_primitives.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // AN ON/OFF SWITCH -- a sliding knob in a capsule, with the state spelled
 // beside it ("On"/"Off", Windows 11's shape; KDE and GNOME show the knob
 // alone). For a SETTING that takes effect as a state; a checkbox stays the
@@ -40,5 +44,9 @@ int  uui_switch_toggle(struct uui_switch *sw);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_switch_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

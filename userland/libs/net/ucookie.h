@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ucookie -- an HTTP cookie jar, RFC 6265: what /bin/webnet keeps for
 // the Web Browser (docs/browser-design.md, stage 5). Set-Cookie parsed
 // as section 5.2 says (Expires in the 5.1.1 date grammar, Max-Age
@@ -71,5 +75,9 @@ int ucookie_import_netsurf(struct ucookie_jar *j, const char *path, int64_t now)
 
 // An RFC 6265 5.1.1 cookie date as a UTC epoch; -1 when it is not one.
 int64_t ucookie_parse_date(const char *s);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

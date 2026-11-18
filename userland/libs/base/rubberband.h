@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Rubber-band selection: drag a rectangle over a set of items and select
 // what it touches, the way every desktop and file manager does it.
 //
@@ -117,5 +121,9 @@ int rb_rect(const struct rubberband *rb, int *x, int *y, int *w, int *h);
 // exclusive edge convention is exactly how they come to disagree.
 int rb_overlaps(int ax, int ay, int aw, int ah,
                  int bx, int by, int bw, int bh);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

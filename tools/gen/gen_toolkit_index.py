@@ -48,7 +48,8 @@ def first_sentence(path):
         for raw in fh:
             line = raw.strip()
             if not started:
-                if not line or line.startswith("#"):
+                # The C++ linkage block opens before a header's comment.
+                if not line or line.startswith("#") or line == 'extern "C" {':
                     continue
                 if not (line.startswith("//") or line.startswith("/*")):
                     return None          # code before any comment

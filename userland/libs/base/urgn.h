@@ -17,6 +17,10 @@
 
 #include "uregion.h"   // struct urect
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct urgn {
     int n, cap;
     struct urect *r;
@@ -49,5 +53,9 @@ long long urgn_area(const struct urgn *g);
 int  urgn_contains(const struct urgn *g, int x, int y);
 int  urgn_overlaps(const struct urgn *g, int x, int y, int w, int h);   // any of the rect in it
 int  urgn_equal(const struct urgn *a, const struct urgn *b);           // the same pixels
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

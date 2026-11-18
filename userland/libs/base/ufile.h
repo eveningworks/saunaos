@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Reading a whole file into one allocation, in one place.
 //
 // WHY THIS IS SHARED. Three callers wrote the same twenty lines --
@@ -63,5 +67,9 @@ size_t ufile_read_head(const char *path, uint8_t *buf, size_t cap);
 // this file.
 enum ufile_result ufile_read_into(const char *path, void *buf, size_t cap,
                                   size_t *out_len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UFILE_H

@@ -6,6 +6,10 @@
 #include "ui/uui_menubar.h" // UUI_MI_* -- see item_flags below
 #include "ui/uui_tip.h"     // its tooltips, and UUI_TOOLTIP_DELAY_TICKS
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_toolbar -- a strip of icon buttons under the menu bar.
 //
 // THE ITEMS ARE THE MENU'S COMMANDS, PRESENTED AGAIN. Win32's toolbar,
@@ -209,5 +213,9 @@ int  uui_toolbar_take_code(struct uui_toolbar *t);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_toolbar_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

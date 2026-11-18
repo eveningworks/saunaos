@@ -14,6 +14,10 @@
 // frame.
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct upixscale {
     int sw, sh, dw, dh;
     // Per destination column (x*) and row (y*): the two source indices
@@ -34,5 +38,9 @@ void upixscale_run(const struct upixscale *s, const uint32_t *src, int src_strid
                    uint32_t *dst, int dst_stride);
 
 void upixscale_free(struct upixscale *s);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

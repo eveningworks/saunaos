@@ -1,6 +1,10 @@
 #ifndef ULOG_H
 #define ULOG_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Toolkit diagnostics: one line to the app's stderr, which the kernel
 // routes to its log and to a QMP test's console (CLAUDE.md's "diagnostics
 // go to stderr"). Every ring-3 app hand-rolled this -- a `logf_`/
@@ -19,5 +23,9 @@
 // waiting for it never sees it.
 void ulog(const char *s);
 void ulogf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

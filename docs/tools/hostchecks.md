@@ -8,6 +8,22 @@ the ones whose `RUNNER` says `gate` also in every preflight (`--gate`),
 the rest in the sweep. Each stays a standalone script with its own
 `--positive-control`, built through `tools/lib/hostcheck.py`.
 
+- **`cxx_headers_hostcheck.py`** (gate) -- every header the SDK ships
+  outside libc (the toolkit's `base/ net/ media/ ui/`, `rt/sys.h`, and the
+  kernel headers they reach -- `stage_sdk.py`'s own set, not a list) is
+  usable from C++. **Two checks, because a compile sees only one of the
+  two faults**: a header with no `extern "C"` compiles as C++ silently and
+  fails the LINK. So LINKAGE comes from gcc's `-aux-info` (each
+  non-static declaration, by line, must sit inside the `#ifdef
+  __cplusplus` block, and no `#include` inside it), and SYNTAX from the
+  host g++ compiling each header on its own as C++17 with `-Wall`. Under
+  half a second. **Every compile runs in an EMPTY directory with absolute
+  `-I` paths**: a quoted `#include` read from stdin searches the working
+  directory first, which once let the repo's own copy shadow the positive
+  control's broken one and the control passed. `--positive-control`
+  checks a copy of `ui/uapp.h` without its block and one of
+  `base/uchan_page.h` with a field named `class`; both must FAIL.
+  libc's headers are `cross_gxx_test.py`'s, against the cross compiler.
 - **`uitest_hostcheck.py`** (gate) -- THE HOST WIDGET HARNESS
   (`docs/gui-unittest-design.md`, stage 1): every
   `tools/hostchecks/uitest/*_uitest.c`, each a widget tree drawn into

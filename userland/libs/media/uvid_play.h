@@ -23,6 +23,10 @@
 #include <stdint.h>
 #include "media/uvid.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uvid_play;
 
 #define UVID_PLAY_MUTE 0x01     // never touches usnd: a wallpaper, a preview
@@ -60,5 +64,9 @@ struct uvid_play_stats {
     int sound;                  // the sound is playing and is the clock
 };
 void uvid_play_stats(const struct uvid_play *p, struct uvid_play_stats *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

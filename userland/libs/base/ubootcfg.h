@@ -18,6 +18,10 @@
 
 #include "base/ubootmenu.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UBOOTCFG_MAX      (32 * 1024)
 #define UBOOTCFG_LINES    1024
 #define UBOOTCFG_WORDS    32
@@ -181,5 +185,9 @@ int ubootcfg_undo(const char *path, const char **why);
 void ubootcfg_diff(const char *a, int alen, const char *b, int blen,
                    void (*line)(char sign, const char *s, int n, void *ctx),
                    void *ctx);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

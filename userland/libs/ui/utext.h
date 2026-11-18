@@ -6,6 +6,10 @@
 #include "ui/uui_edit.h"
 #include "ui/uui_scrollanim.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // utext -- a wrapped, scrollable, editable text buffer with a cursor
 // and a selection.
 //
@@ -316,5 +320,9 @@ int utext_insert_text(struct utext *t, const char *s, int n);
 // consumed. Enter is deliberately NOT consumed -- a document inserts a
 // newline and a field commits, and that is the caller's call.
 int utext_key(struct utext *t, int key, unsigned mods);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

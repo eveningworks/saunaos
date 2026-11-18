@@ -19,6 +19,10 @@
 #include "ui/uui_sbar.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_layerrow {
     const char *name;          // not owned
     const struct uimg *img;    // the layer's pixels, for its thumbnail; not owned
@@ -59,5 +63,9 @@ int  uui_layerlist_row_h(void);
 enum uui_layer_event uui_layerlist_take(struct uui_layerlist *l, int *row, int *to);
 
 extern const struct uui_widget_ops uui_layerlist_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

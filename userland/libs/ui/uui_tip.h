@@ -15,6 +15,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ~500ms at the PIT's 100 Hz -- every desktop delays about this long.
 #define UUI_TOOLTIP_DELAY_TICKS 50
 #define UUI_TIP_PAD 4 // inset around the tip's text
@@ -46,5 +50,9 @@ void uui_tip_draw(struct ugfx_surface *s, const struct uui_tip *t, const char *t
 void uui_tip_hide(struct uui_tip *t);
 // Resting on something whose tip is not up yet: tick soon.
 int  uui_tip_waiting(const struct uui_tip *t);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

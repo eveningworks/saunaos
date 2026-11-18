@@ -6,6 +6,10 @@
 #include "ui/uui_widget.h"
 #include "media/uimg.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A decoded picture, in a layout.
 //
 // The widget owns NO image and decodes nothing: an app hands it a
@@ -140,5 +144,9 @@ void uui_image_draw(struct ugfx_surface *s, const struct uui_image *im);
 void uui_image_natural_size(const struct uui_image *im, int *out_w, int *out_h);
 
 extern const struct uui_widget_ops uui_image_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

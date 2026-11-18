@@ -1,6 +1,10 @@
 #ifndef ULIB_UARGBATCH_H
 #define ULIB_UARGBATCH_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A LONG ARGUMENT LIST SPLIT ACROSS AS MANY SPAWNS AS IT NEEDS -- xargs'
 // job against ARG_MAX, here against SPAWN_ARGS_MAX: a spawn's whole
 // argv and environment, every string's NUL included, fit in that many
@@ -17,5 +21,9 @@
 // leave no room for any item, and nothing ran; ENOMEM -- nothing ran.
 int uargbatch(char *const *head, int nhead, char *const *items, int nitems,
               void (*run)(char *const *argv, void *ctx), void *ctx);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

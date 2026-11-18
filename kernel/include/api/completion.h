@@ -30,6 +30,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define COMPLETION_MAX_CANDIDATES 48
 #define COMPLETION_MAX_LEN        64
 // Matches FS_PATH_MAX. Stated here rather than included, because this
@@ -119,5 +123,9 @@ struct completion_env {
 //     filesystem paths resolved against the shell's current directory
 int completion_run_env(const struct completion_env *env, const char *line,
                         int cursor, struct completion_result *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -14,6 +14,10 @@
 
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct umonofont {
     struct ugfx_font font;
     void *arena;
@@ -24,5 +28,9 @@ struct umonofont {
 // The font to draw in at `px` (0: the session's monospace face), loading
 // it on a change. `who` prefixes the log line a failed load writes.
 const struct ugfx_font *umonofont_get(struct umonofont *m, int px, const char *who);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

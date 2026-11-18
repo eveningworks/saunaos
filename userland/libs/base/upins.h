@@ -1,6 +1,10 @@
 #ifndef ULIB_UPINS_H
 #define ULIB_UPINS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // PLACES: the list down the top of a file window's side pane, in the
 // person's order -- Explorer's Quick access and Dolphin's Places panel,
 // ONE list: Recent, Home, the personal folders and the Recycle Bin are
@@ -73,5 +77,9 @@ int upins_dev_order(char (*out)[64], int cap);
 // takes its slot, and the saved points not among them keep theirs after.
 // 0 or -errno.
 int upins_dev_set_order(char (*points)[64], int n);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

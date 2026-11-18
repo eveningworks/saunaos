@@ -1,6 +1,10 @@
 #ifndef ULIB_UFBS_H
 #define ULIB_UFBS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // First-boot setup (FBS): whether it should run this boot, and the
 // marker that says it has -- for the wizard (/bin/wm/system/firstboot),
 // `fbs` and System Settings.
@@ -77,5 +81,9 @@ int ufbs_write_answered(const char *root, unsigned pages);
 unsigned ufbs_answered(void);
 // Remove UFBS_ANSWERED. 0, or -1.
 int ufbs_clear_answered(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

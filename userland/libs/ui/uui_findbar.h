@@ -4,6 +4,10 @@
 #include "ui/uui_textbox.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_findbar -- a find control: a lens, a query field, an "N of M"
 // readout, previous / next, and close. The shape of Konsole's search
 // bar and Windows Terminal's find box.
@@ -69,5 +73,9 @@ int uui_findbar_button_rect(const struct uui_findbar *f, int which,
                             int *x, int *y, int *w, int *h);
 
 extern const struct uui_widget_ops uui_findbar_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

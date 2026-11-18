@@ -3,6 +3,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Latin-1 (ISO 8859-1) and Windows-1252 to and from UTF-8, for a protocol
 // or format older than UTF-8 meeting SaunaOS's text: RFB's cut text, an
 // ID3v1 tag, a Windows program's ANSI text.
@@ -32,5 +36,9 @@ long ucharset_utf8_to_cp1252(char *dst, size_t cap, const char *src, size_t n, c
 // ONE code point's Windows-1252 byte, or -1 when it has none -- for a
 // typed key, which is a code point rather than a string.
 int ucharset_cp1252_byte(unsigned cp);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -12,6 +12,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // One volume on a removable disk: a partition, or the disk itself when
 // it has no table. `name` is what a person reads: its label, else the
 // disk's model, else "USB drive".
@@ -119,5 +123,9 @@ int udrive_mount_image_wait(const char *path, char *point, size_t cap, int timeo
 // The service's next answer, if one has come: 1 with it in `out`, else 0.
 // How a refusal ("still in use") reaches the person who asked.
 int udrive_take_reply(struct udrive_msg *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

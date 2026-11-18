@@ -13,6 +13,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uunicode_block {
     uint32_t lo, hi;
     const char *name;
@@ -53,5 +57,9 @@ int uunicode_utf8(uint32_t cp, char out[5]);
 // The first code point of a UTF-8 string, and its length in `*len`;
 // U+FFFD and length 1 for a malformed byte.
 uint32_t uunicode_utf8_decode(const char *s, int *len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

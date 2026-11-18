@@ -736,6 +736,8 @@ sdl3` or `sdl2-config`, as on Linux.
 **And C++**: `x86_64-saunaos-g++` with a static libstdc++ -- exceptions
 (found through `dl_iterate_phdr()`, so a throw crosses `libc.so`),
 the standard containers, iostream and `std::thread` on POSIX threads --
+and the toolkit callable from C++ (every SDK header carries `extern
+"C"`; a C++ program opens a `uapp` window with a lambda for `on_draw`) --
 over a runtime that runs constructors and destructors in glibc's order,
 for C's `__attribute__((constructor))` too, in static and dynamic
 programs alike (stage 2) -- and `<cmath>` whole and `import std`, because

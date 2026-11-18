@@ -1,6 +1,10 @@
 #ifndef ULIB_UHLPMAC_H
 #define ULIB_UHLPMAC_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uhlpmac -- THE WINHELP MACRO LANGUAGE: the text a help file runs when it opens (|SYSTEM's macros and a
 // topic's own), when a hotspot is clicked (`JumpId("file.hlp", "ctx")`) or a button is pressed,
 // parsed and run against a table of what the viewer can do. The viewer is `/bin/wm/apps/hlpview`;
@@ -46,5 +50,9 @@ struct uhlpmac_ops {
 // Runs `text`. The number of macros run (those nested in an argument or run from a string count too), or -1
 // with a static reason in `*err` when it did not parse -- and then none of it ran.
 int uhlpmac_run(const char *text, const struct uhlpmac_ops *ops, const char **err);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

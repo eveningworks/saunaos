@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Q16.16 fixed-point arithmetic and trigonometry.
 //
 // Exists because this kernel has no floating point available to it at
@@ -54,5 +58,9 @@ static inline fx_t fx_div(fx_t a, fx_t b) {
 // so an ever-increasing rotation counter never needs clamping.
 fx_t fx_sin(fx_t turns);
 fx_t fx_cos(fx_t turns);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

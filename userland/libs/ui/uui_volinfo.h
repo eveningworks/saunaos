@@ -13,6 +13,10 @@
 #include "ui/ugfx.h"
 #include "net/uvolinfo.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_volinfo {
     int x, y, w, h;
     const struct uvolinfo *vi;   // caller-owned; NULL draws nothing
@@ -32,5 +36,9 @@ int  uui_volinfo_ring_rect(const struct uui_volinfo *w, int *x, int *y, int *d);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_volinfo_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

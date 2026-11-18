@@ -27,6 +27,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct udecl_attr {
     const char *key;
     const char *value;   // NULL for a bare flag
@@ -80,5 +84,9 @@ const char *udecl_text(struct udecl_node *n);
 
 // -1 naming the first attribute (or text) on `n` nothing read; else 0.
 int udecl_unused(struct udecl *d, struct udecl_node *n);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

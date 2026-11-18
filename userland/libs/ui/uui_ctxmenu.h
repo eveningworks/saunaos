@@ -4,6 +4,10 @@
 #include "ui/uui_menubar.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_ctxmenu -- a WIDGET'S OWN right-click menu, hosted by uapp: a
 // table header's column chooser is the first. The widget answers
 // uui_widget_ops.context_menu with its rows and two callbacks; uapp
@@ -44,5 +48,9 @@ int  uui_ctxmenu_take(int *out_target_id);
 // A key while it is open: 0 not taken, 1 taken, 2 taken and the widget
 // changed (*out_target_id).
 int  uui_ctxmenu_key(int key, int *out_target_id);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

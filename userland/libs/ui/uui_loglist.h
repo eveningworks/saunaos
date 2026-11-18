@@ -14,6 +14,10 @@
 #include "ui/uui_widget.h"
 #include "base/ulogset.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // What changed since uui_loglist_take_changes() was last asked.
 #define UUI_LOGLIST_SEL    0x01   // the selected line
 #define UUI_LOGLIST_FOLLOW 0x02   // following stopped -- the reader scrolled up
@@ -57,5 +61,9 @@ void uui_loglist_set_geometry(void *w, int x, int y, int width, int height);
 void uui_loglist_draw(struct ugfx_surface *s, const void *w);
 
 extern const struct uui_widget_ops uui_loglist_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

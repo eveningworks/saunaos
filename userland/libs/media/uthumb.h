@@ -5,6 +5,10 @@
 #include "media/uimg.h"
 #include "rt/sys.h"   // struct rtc_time
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uthumb -- thumbnails: a LOOKUP on the draw path, a decode on a WORKER
 // THREAD, and a copy on disk (/var/cache/thumbnails) that outlives the
 // process. The File Manager's icons view, the Image Viewer's filmstrip
@@ -95,5 +99,9 @@ int uthumb_sandbox(char *const *files, int n);
 // another format placed under the cache's name reaches no other decoder.
 // 0 and `*out` filled (the caller frees it), or -1.
 int uthumb_load_cached(const char *path, const struct rtc_time *mtime, int px, struct uimg *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

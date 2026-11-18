@@ -21,6 +21,10 @@
 #include "ui/uui_form.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // What the dialog asks. Every string is copied; NULL leaves a part out.
 struct uui_signin_spec {
     const char *title;           // "Sign in to example.com"
@@ -60,5 +64,9 @@ int  uui_signin_answer(struct uui_signin *s, int code, char *user, size_t ucap, 
 // The answer was refused: the dialog again, with `error`, the user name
 // kept and the password field focused.
 void uui_signin_reask(struct uui_signin *s, const char *error);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

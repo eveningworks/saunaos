@@ -16,6 +16,10 @@
 #include "ui/ugfx.h"
 #include "ttf.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uglyph_face {
     struct ttf_font f;
     uint8_t *data;
@@ -58,5 +62,9 @@ int  uglyph_family(const struct uglyph_face *face, char *out, int cap);
 // Forgets every cached glyph of `face` -- after closing it, so a later
 // face at the same address cannot be served the old one's.
 void uglyph_forget(const struct uglyph_face *face);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -12,6 +12,10 @@
 #include <stdint.h>
 #include "query_abi.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uprocio_rate {
     int pid;                        // 0 = the kernel
     uint64_t read_bps, write_bps;   // disk bytes a second
@@ -39,5 +43,9 @@ int uprocio_rate(const struct uprocio *u, int pid, struct uprocio_rate *out);
 int uprocio_rate_at(const struct uprocio *u, int i, struct uprocio_rate *out);
 
 void uprocio_free(struct uprocio *u);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

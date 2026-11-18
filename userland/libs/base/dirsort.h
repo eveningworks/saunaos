@@ -4,6 +4,10 @@
 #include "syscall_abi.h" // struct ulist_entry
 #include "base/ulistdir.h"   // struct ulist_entry
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Ordering a directory listing, in one place.
 //
 // WHY THIS IS SHARED RATHER THAN WRITTEN TWICE. SYS_LISTDIR returns
@@ -46,5 +50,9 @@ void dirsort(struct ulist_entry *e, int n, enum dirsort_key key, int reverse);
 // convention -- see uui_fileview.c.
 int dirsort_cmp(const struct ulist_entry *a, const struct ulist_entry *b,
                  enum dirsort_key key);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // USERLAND_LIB_DIRSORT_H

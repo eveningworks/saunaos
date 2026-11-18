@@ -18,6 +18,10 @@
 #include <stddef.h>
 #include "klineedit.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // How many terminal COLUMNS `s` (UTF-8) takes: one per character, two
 // for an East Asian Wide one -- never its byte count, which pads a name
 // with `ä` in it one column short.
@@ -80,5 +84,9 @@ void uline_insert_last_arg(struct kline_edit *ed, const char *previous);
 // visible in CR2 (that is how this signature was arrived at).
 void uline_list_candidates(const char *prompt, struct kline_edit *ed, int *row_shown,
                            const char *candidates, int count, int stride);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

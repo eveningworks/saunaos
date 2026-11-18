@@ -32,6 +32,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uimg;
 
 // What a frame's pixels are. YUV is what the codecs produce natively
@@ -120,5 +124,9 @@ void uvid_frame_draw(const struct uvid_frame *f, int sx, int sy, int sw, int sh,
 // caller frees with uimg_free().
 int uvid_frame_to_uimg(const struct uvid_frame *f, int max_w, int max_h, struct uimg *out);
 int uvid_still(const char *path, uint32_t ms, int max_w, int max_h, struct uimg *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

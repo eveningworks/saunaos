@@ -19,6 +19,10 @@
 #include "ui/uui_spinbox.h"
 #include "ui/uui_focus.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A card. `w` <= 0 is CUSTOM: no size of its own, chosen by typing.
 struct uui_sizepick_preset {
     const char *name;
@@ -59,5 +63,9 @@ int  uui_sizepick_on_widget(struct uui_sizepick *p, int id);
 // Adopts what is typed in either field; 1 if the size changed.
 int  uui_sizepick_commit(struct uui_sizepick *p);
 void uui_sizepick_size(const struct uui_sizepick *p, int *w, int *h);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -27,6 +27,10 @@
 #ifndef UUI_DESCRIBE_H
 #define UUI_DESCRIBE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_describe {
     void (*line)(void *ctx, const char *line);   // one line, newline included
     void *ctx;
@@ -45,5 +49,9 @@ void uui_describe_int(const struct uui_describe *d, const char *part, int v);
 // line like every other, so a test reads it the same way; the value is
 // last and may contain spaces, which is what makes a path safe here.
 void uui_describe_str(const struct uui_describe *d, const char *part, const char *v);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

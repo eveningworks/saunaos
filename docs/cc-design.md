@@ -402,7 +402,8 @@ What building it found:
 - **The headers had never been read by a C++ compiler**: no `extern "C"`
   anywhere but `<dlfcn.h>` (GCC 16 no longer adds it implicitly),
   `_Static_assert` at file scope in three `abi/` headers, and a parameter
-  named `template`. All fixed; the toolkit's headers are still C-only.
+  named `template`. All fixed; the toolkit's headers and the kernel headers
+  they reach followed on 2026-11-18, kept so by `cxx_headers_hostcheck.py`.
 - **What tolibc gained**, each with a check: the exit list grows past
   32 and holds `__cxa_atexit`/`__cxa_finalize`; `dl_iterate_phdr()`,
   `<link.h>`, `<elf.h>`; pthread keys, mutex types (recursive,

@@ -14,6 +14,10 @@
 #include "ui/uui_sbar.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_entry {
     char title[96];
     char sub[128];      // the dim second line; empty for a heading
@@ -42,5 +46,9 @@ void uui_entrylist_reset(struct uui_entrylist *l);
 int uui_entrylist_take(struct uui_entrylist *l, int *row);
 
 extern const struct uui_widget_ops uui_entrylist_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

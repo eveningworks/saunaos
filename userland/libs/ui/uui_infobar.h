@@ -15,6 +15,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_button.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_infobar {
     int x, y, w, h;
     const char *text;          // caller-owned
@@ -35,5 +39,9 @@ int uui_infobar_take(struct uui_infobar *b);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_infobar_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

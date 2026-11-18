@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_primitives.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 // Split out of the single uwidgets.c/.h this used to be, one file per
 // widget -- the same shape as apps/ui/, so a widget's kernel-side and
@@ -56,5 +60,9 @@ void uui_canvas_fill_polygon(struct ugfx_surface *s, const struct uui_canvas *c,
                               const int *xs, const int *ys, int count, uint32_t color);
 
 int uui_canvas_hit(const struct uui_canvas *c, int cx, int cy);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

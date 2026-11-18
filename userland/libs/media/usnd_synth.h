@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "media/usnd_sf2.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A General MIDI synthesiser over a SoundFont bank: sixteen channels of
 // MIDI state and a pool of sample-playing voices. Fed channel messages,
 // asked for PCM. It knows nothing about files or time -- usnd_mid.c
@@ -35,5 +39,9 @@ void usynth_render(struct usynth *s, int32_t *out, long frames);
 void usynth_align(struct usynth *s, uint64_t frame);
 
 int usynth_active_voices(const struct usynth *s);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

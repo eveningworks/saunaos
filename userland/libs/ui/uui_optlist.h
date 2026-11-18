@@ -18,6 +18,10 @@
 #include "ui/uui_scrollanim.h"
 #include "ui/uui_textbox.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The value lives in the embedded field, so the two share one bound.
 #define UUI_OPTLIST_VALUE_MAX UUI_TEXTBOX_MAX
 
@@ -107,5 +111,9 @@ int  uui_optlist_wheel(struct uui_optlist *ol, int notches);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_optlist_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

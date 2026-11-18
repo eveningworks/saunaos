@@ -6,6 +6,10 @@
 #include "ui/uui_widget.h"
 #include "ui/uui_layout.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A CARD THAT HOLDS A GROUP: a title and a line under it, an optional
 // control at the right of that header -- a switch that turns the whole
 // group on -- and a column of items below. WinUI's SettingsExpander
@@ -35,5 +39,9 @@ void uui_card_init(struct uui_card *c, const char *title, const char *subtitle,
                    struct uui_item header, struct uui_item *items, int count);
 
 extern const struct uui_widget_ops uui_card_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

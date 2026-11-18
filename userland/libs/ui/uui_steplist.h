@@ -14,6 +14,10 @@
 
 #include "ui/uui_table.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum { UUI_STEP_WAITING, UUI_STEP_RUNNING, UUI_STEP_DONE, UUI_STEP_FAILED, UUI_STEP_NOT_RUN };
 
 struct uui_step {
@@ -41,5 +45,9 @@ void uui_steplist_set(struct uui_steplist *sl, const struct uui_step *steps, int
 int  uui_steplist_take_remove(struct uui_steplist *sl);
 // The height that shows the header and `rows` steps.
 int  uui_steplist_height(const struct uui_steplist *sl, int rows);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

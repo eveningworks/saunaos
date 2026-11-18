@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ONE SETTING AS A CARD: its name and a line or two of description on
 // the left, its control on the right -- or, for a control too wide to sit
 // beside the text (a radio list, a long field), under it. The row shape
@@ -50,5 +54,9 @@ int  uui_setting_row_fit(struct uui_setting_row *r);
 int  uui_setting_row_text_w(const struct uui_setting_row *r);
 
 extern const struct uui_widget_ops uui_setting_row_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

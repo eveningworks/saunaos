@@ -6,6 +6,10 @@
 // app that reads files for it both have to agree on.
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The absolute path a file: URL names, percent-escapes decoded:
 // "file:///home/a%20b.html" and "file://localhost/home/a b.html" are both
 // "/home/a b.html". A query or fragment is not part of it. 0, or -1 --
@@ -18,5 +22,9 @@ int ufileurl_to_path(const char *url, char *out, size_t cap);
 // "text/html" for .html, "image/png" for .png. "text/plain" for anything
 // it does not know -- shown, never run.
 const char *ufileurl_mime(const char *path);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

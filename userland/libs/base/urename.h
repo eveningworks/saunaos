@@ -2,6 +2,10 @@
 #define ULIB_URENAME_H
 #include "base/ulistdir.h"   // struct ulist_entry
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // RENAMING MANY FILES AT ONCE: the new names a rule gives a set of names,
 // and whether the set can be renamed as planned -- Dolphin's "Rename
 // items", Thunar's Bulk Rename, PowerToys' PowerRename. The rule is one
@@ -51,5 +55,9 @@ enum { URENAME_OK, URENAME_SAME, URENAME_BAD, URENAME_CLASH };
 // BAD or CLASH means do not rename (the plan says which).
 int urename_plan(const struct urename_rule *r, const char *dir, char (*names)[URENAME_NAME],
                  int n, char (*news)[URENAME_NAME], int *status);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

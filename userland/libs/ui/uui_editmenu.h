@@ -4,6 +4,10 @@
 #include "ui/uui_edit.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_editmenu -- THE right-click menu of every editable text: Undo,
 // Redo / Cut, Copy, Paste, Delete / Select All, run through the edit
 // core on whatever widget answered uui_widget_ops.edit_target.
@@ -43,5 +47,9 @@ int uui_editmenu_take(int *out_target_id);
 // A key while the menu is open: arrows, Enter, Esc. 0 = not taken; 1 =
 // taken; 2 = taken, committed a row and changed the text (*out_target_id).
 int uui_editmenu_key(int key, int *out_target_id);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

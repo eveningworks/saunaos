@@ -8,8 +8,16 @@
 // installed beside its program (SDL_GetBasePath()).
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Copies the path into `buf` (NUL-terminated). Its length, or -1 when
 // the kernel has no path for this process or it does not fit in `cap`.
 int uself_path(char *buf, size_t cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

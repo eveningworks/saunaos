@@ -7,6 +7,10 @@
 #include "ui/uui_scrollanim.h"
 #include "ui/uui_route.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_scrollview -- a viewport onto a layout that is taller than it.
 //
 // WHY THIS EXISTS
@@ -143,5 +147,9 @@ int uui_scrollview_set_offset(struct uui_scrollview *sv, int px);
 int uui_scrollview_reveal(struct uui_scrollview *sv, int y, int h);
 
 extern const struct uui_widget_ops uui_scrollview_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -7,6 +7,10 @@
 #include "ui/uui_sbar.h"
 #include "ui/uui_scrollanim.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A TREE: rows at a depth, with collapsible parents.
 //
 // Written for System Settings' sidebar (KDE System Settings' shape --
@@ -298,5 +302,9 @@ int  uui_tree_key(struct uui_tree *t, int key);
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_tree_focus_ops;
 extern const struct uui_widget_ops uui_tree_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

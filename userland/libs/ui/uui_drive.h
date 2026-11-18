@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // REMOVABLE DRIVES, A ROW EACH -- USB sticks and disc images mounted as
 // CD drives: the stick's icon, its name, what it holds
 // ("32.0 GiB FAT32 \xb7 25.3 GiB free"), then Open and an Eject button at
@@ -78,5 +82,9 @@ int  uui_drive_press(struct uui_drive *l, int cx, int cy);
 int  uui_drive_release(struct uui_drive *l, int cx, int cy);
 
 extern const struct uui_widget_ops uui_drive_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

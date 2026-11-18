@@ -19,6 +19,10 @@
 #include <stdint.h>
 #include "media/uimg.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uimg_reduce {
     int sw, sh, kx, ky;
     int alpha;              // weigh colour by alpha
@@ -41,5 +45,9 @@ void uimg_reduce_abort(struct uimg_reduce *r);
 // headroom the precise resampler then needs for a clean last step. 1
 // along an axis not shrunk by 4x or more.
 void uimg_reduce_factors(int sw, int sh, int dw, int dh, int *kx, int *ky);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

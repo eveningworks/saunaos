@@ -22,6 +22,10 @@
 #include "ui/uambient.h"
 #include "media/ufileinfo.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_FI_SECTIONS 8
 #define UUI_FI_ROWS     8
 #define UUI_FI_VALUE    96
@@ -79,5 +83,9 @@ void uui_fileinfo_draw(struct ugfx_surface *s, const struct uui_fileinfo *w);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_fileinfo_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

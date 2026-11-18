@@ -13,6 +13,10 @@
 #include "ui/uui_grid.h"
 #include "ui/uglyph.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_emojigrid {
     struct uui_grid grid;       // FIRST: the grid's own ops take this pointer
     const int *items;           // entry indices into uemojidata()
@@ -39,5 +43,9 @@ int uui_emojigrid_draw_entry(struct ugfx_surface *s, struct uglyph_face *face, i
                              int x, int y, int w, int h);
 
 extern const struct uui_widget_ops uui_emojigrid_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -15,6 +15,10 @@
 // 64 bits of milliseconds.
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // 1 and *out_ms on success; 0 and *out_ms untouched on anything else.
 int uduration_parse_ms(const char *s, uint64_t *out_ms);
 
@@ -22,5 +26,9 @@ int uduration_parse_ms(const char *s, uint64_t *out_ms);
 // "1:17", "1:02:03" -- whole seconds, truncated, so a clock never shows
 // a second that has not arrived yet.
 void uduration_clock(uint64_t ms, char *out, unsigned long cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

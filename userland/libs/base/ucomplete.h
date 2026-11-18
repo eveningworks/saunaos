@@ -14,8 +14,16 @@
 
 #include "completion.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The env tosh hands to completion_run_env(). One instance, since a
 // process has one current directory and one PATH.
 const struct completion_env *ucomplete_env(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

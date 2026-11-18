@@ -1,6 +1,10 @@
 #ifndef ULIB_UBOOTMODE_H
 #define ULIB_UBOOTMODE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The screen size GRUB sets at boot, for a display SaunaOS cannot set
 // itself -- a VESA framebuffer on a card with no driver here (an RTX on
 // a BIOS boot). Linux's GRUB_GFXMODE, chosen from Settings or `bootcfg
@@ -64,5 +68,9 @@ int ubootmode_drop(void);
 // lists, so a size refused on one is still offered on the other.
 int ubootmode_refused(const char *size);
 int ubootmode_refuse(const char *size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

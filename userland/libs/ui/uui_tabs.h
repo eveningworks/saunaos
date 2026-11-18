@@ -5,6 +5,10 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A ROW OF TABS -- one selected, the rest waiting, each optionally with
 // a close box. Konsole's, GNOME Terminal's, Windows Terminal's: the tab
 // strip is the application's, not the window manager's.
@@ -169,5 +173,9 @@ int uui_tabs_rect(const struct uui_tabs *t, int index,
 int uui_tabs_new_rect(const struct uui_tabs *t, int *x, int *y, int *w, int *h);
 
 extern const struct uui_widget_ops uui_tabs_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -22,6 +22,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UPILE_PARTS 512
 
 enum { UPILE_GRAIN, UPILE_SHARD };
@@ -70,5 +74,9 @@ int upile_floor(const struct upile *p, int x0, int x1);
 
 // The box of `bake` changed since the last call; 0 when nothing did.
 int upile_take_dirty(struct upile *p, int *x0, int *y0, int *x1, int *y1);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UPILE_H

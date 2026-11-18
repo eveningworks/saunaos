@@ -21,6 +21,10 @@
 #include <stdint.h>
 #include "base/uinflate.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UTAR_NAME_MAX 256
 
 enum utar_kind { UTAR_NONE, UTAR_TAR, UTAR_TGZ, UTAR_GZ };
@@ -78,5 +82,9 @@ int utar_add_file(struct utar_writer *w, const char *name, const char *src_path,
 int utar_add_dir(struct utar_writer *w, const char *name, char *err, int errcap);
 int utar_create_end(struct utar_writer *w, char *err, int errcap);
 void utar_create_abort(struct utar_writer *w);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -19,6 +19,10 @@
 // returns, which is what a pager with nowhere to page owes its caller.
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Page `text` (`len` bytes). `label` names it in its own status line --
 // "less", or "doc cmd/ls". `truncated` puts TRUNCATED there; the CALLER
 // decides, because the caller owns the buffer that filled up.
@@ -73,5 +77,9 @@ int upager_width(const char *s, int n);
 // The longest prefix of `s` (at most `n` bytes) that occupies no more
 // than `cols` display columns. Never splits an escape sequence.
 int upager_clip(const char *s, int n, int cols);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UPAGER_H

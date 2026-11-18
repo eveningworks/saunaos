@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_primitives.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A line of text the LAYOUT knows about.
 //
 // The missing primitive. Every app here that wanted a caption drew it in
@@ -127,5 +131,9 @@ void uui_label_draw(struct ugfx_surface *s, const struct uui_label *l);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_label_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

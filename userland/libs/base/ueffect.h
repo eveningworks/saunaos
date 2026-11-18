@@ -3,6 +3,10 @@
 
 #include "base/usaver.h" // struct usaver -- the declared-option set
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A WINDOW EFFECT'S OPTIONS -- what it declares, and what the user
 // chose. The screensavers' arrangement, applied to the compositor's
 // minimize effects:
@@ -39,5 +43,9 @@ int ueffect_load(const char *effect, struct usaver *out);
 // Where `effect`'s values are written. One place, because System
 // Settings writes this path and the compositor reads it.
 void ueffect_conf_path(const char *effect, char *out, size_t cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UEFFECT_H

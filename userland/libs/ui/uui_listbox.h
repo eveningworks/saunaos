@@ -8,6 +8,10 @@
 #include "ui/uui_seek.h"
 #include "ui/uui_scrollanim.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 // Split out of the single uwidgets.c/.h this used to be, one file per
 // widget -- the same shape as apps/ui/, so a widget's kernel-side and
@@ -82,5 +86,9 @@ extern const struct uui_widget_ops uui_listbox_focus_ops;
 // app that declares a listbox with this needs no input code at all --
 // selection, scrollbar paging and thumb dragging are the widget's.
 extern const struct uui_widget_ops uui_listbox_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

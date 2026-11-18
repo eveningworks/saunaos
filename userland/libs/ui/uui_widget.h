@@ -6,6 +6,10 @@
 #include "ui/uui_describe.h"
 #include "keyboard.h"   // KEY_MOD_*, IS_PRINTABLE_KEY
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_widget_ops -- the ONE table a widget exports to be handled
 // generically: laid out, drawn, hit-tested, focused.
 //
@@ -327,5 +331,9 @@ static inline int uui_key_is_shortcut(int key, unsigned mods) {
 // live (api/keyboard.h), and the surrogates, which are not characters. A
 // field inserts it as UTF-8 (docs/utf8-design.md).
 static inline int uui_key_is_text(int key) { return IS_PRINTABLE_KEY(key); }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

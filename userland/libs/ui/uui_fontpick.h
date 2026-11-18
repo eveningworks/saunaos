@@ -20,6 +20,10 @@
 #include "ui/uui_togglebar.h"
 #include "ui/uui_focus.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_FONTPICK_IDS 3
 #define UUI_FONTPICK_FAMILIES 8
 
@@ -58,5 +62,9 @@ void uui_fontpick_set(struct uui_fontpick *p, const struct uui_fontchoice *c);
 // The face's file, and whether it must be emboldened by the rasterizer
 // (Bold chosen, the family has no bold file). 1, or 0 when none fits.
 int  uui_fontpick_path(const struct uui_fontpick *p, char *out, int cap, int *embolden);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

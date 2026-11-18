@@ -17,6 +17,10 @@
 #include <stdint.h>
 #include "trace_abi.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A syscall's name, or NULL for a number with no row.
 const char *utrace_name(int nr);
 // The number for a name, or -1.
@@ -47,5 +51,9 @@ void utrace_printer_init(struct utrace_printer *p, void (*emit)(void *, const ch
 void utrace_feed(struct utrace_printer *p, const struct trace_rec *r);
 // An entry left over at the end (the tracee died in it) as "<unfinished ...>".
 void utrace_flush(struct utrace_printer *p);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

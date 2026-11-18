@@ -10,6 +10,10 @@
 #include "ui/uui_menubar.h"     // the column chooser's rows
 #include "base/utween.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // --- table: rows in columns, with a header ---------------------------
 //
 // The widget Task Manager is built from, and the first one here with
@@ -478,5 +482,9 @@ int  uui_table_key(struct uui_table *t, int key);           // arrows/home/end/p
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_table_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

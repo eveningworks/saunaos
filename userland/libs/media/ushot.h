@@ -5,6 +5,10 @@
 #include "win_proto.h"
 #include "base/uchan.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Taking a screenshot, from the asking side of WIN_REQ_SCREENSHOT.
 //
 // The split this library sits on: THE COMPOSITOR COPIES PIXELS AND THE
@@ -119,5 +123,9 @@ void ushot_close(struct ushot *s);
 // ones whose errno alone would be misleading (-EBUSY is "a fullscreen
 // program has the display", not "try again shortly").
 const char *ushot_strerror(int rc);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_USHOT_H

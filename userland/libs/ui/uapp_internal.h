@@ -44,6 +44,10 @@
 #include <locale.h>
 #include <time.h>       // tzset()
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 #define UAPP_HIDDEN __attribute__((visibility("hidden")))
 
@@ -266,5 +270,9 @@ UAPP_HIDDEN int  layout_log_enabled(void);
 UAPP_HIDDEN void layout_log_flush(int src);
 UAPP_HIDDEN void log_items(const char *prefix, struct uui_item *items, int count);
 UAPP_HIDDEN void wmap_sync(struct uapp *a);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

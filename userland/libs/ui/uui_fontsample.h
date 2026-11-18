@@ -13,6 +13,10 @@
 #include "ui/ugfx.h"
 #include "ui/uglyph.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_FONT_DIR "/usr/share/fonts"
 
 struct uui_fontface {
@@ -46,5 +50,9 @@ enum uui_fontsample_style {
 // offered as monospace).
 void uui_fontsample_draw(struct ugfx_surface *s, struct uui_fontface *f, int style,
                          int x, int y, int w, int h, uint32_t bg, int dim);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

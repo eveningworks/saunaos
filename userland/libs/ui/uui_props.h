@@ -27,6 +27,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_PROPS_SECTIONS 12
 #define UUI_PROPS_ROWS     72
 #define UUI_PROPS_KEY      20
@@ -104,5 +108,9 @@ void uui_props_draw(struct ugfx_surface *s, const struct uui_props *w);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_props_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

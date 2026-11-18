@@ -18,6 +18,10 @@
 #include <stdint.h>
 #include "rt/sys.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define ULIST_NAME_MAX 256   // FS_NAME_MAX (255) and its NUL
 
 // One entry, with struct sys_dirent's field names (that struct is
@@ -52,5 +56,9 @@ int ulistdir_first(const char *path, struct ulist_entry *out, int max);
 // and `*pos` moved past it; 0 past the last. A name too long for `*e`
 // is stepped over (the header's note).
 int ulistdir_next(const char *page, int len, int *pos, struct ulist_entry *e);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

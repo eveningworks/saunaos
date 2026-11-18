@@ -13,6 +13,10 @@
 #include "ui/uui_textbox.h"
 #include "base/unametpl.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_widget_ops;
 
 struct uui_nametpl_chip {
@@ -45,4 +49,9 @@ const char *uui_nametpl_text(const struct uui_nametpl *t);
 int uui_nametpl_valid(const struct uui_nametpl *t);
 
 extern const struct uui_widget_ops uui_nametpl_ops;
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

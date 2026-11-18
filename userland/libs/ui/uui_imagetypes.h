@@ -13,6 +13,10 @@
 
 #include "ui/uui_filedialog.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern const struct uui_filedialog_filter uui_imagetypes_open[];
 extern const int uui_imagetypes_open_count;
 extern const struct uui_filedialog_filter uui_imagetypes_save[];
@@ -21,5 +25,9 @@ extern const int uui_imagetypes_save_count;
 // The Save row for a codec name ("png", "jpeg", "qoi"); 0 (PNG) when it
 // is not one this build writes.
 int uui_imagetypes_save_index(const char *format);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

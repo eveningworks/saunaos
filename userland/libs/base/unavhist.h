@@ -1,6 +1,10 @@
 #ifndef ULIB_UNAVHIST_H
 #define ULIB_UNAVHIST_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // unavhist -- BACK AND FORWARD through the folders a view has shown: the
 // File Manager's panes and the file chooser.
 //
@@ -34,5 +38,9 @@ int  unavhist_can(const struct unavhist *h, int delta);
 const char *unavhist_step(struct unavhist *h, int delta,
                           int (*ok)(void *ctx, const char *dir), void *ctx,
                           const char **skipped);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

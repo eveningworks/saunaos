@@ -6,6 +6,10 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 // Split out of the single uwidgets.c/.h this used to be, one file per
 // widget -- the same shape as apps/ui/, so a widget's kernel-side and
@@ -61,5 +65,9 @@ int  uui_focus_key(struct uui_focus *f, int key, unsigned mods);
 
 // Moves focus to whatever was clicked. Returns 1 if focus changed.
 int  uui_focus_click(struct uui_focus *f, int cx, int cy);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

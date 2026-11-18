@@ -24,6 +24,10 @@
 // dialog says so beside the checkbox.
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UNETMOUNT_DIR  "/etc/mounts.d"
 #define UNETMOUNT_ROOT "/net"
 #define UNETMOUNT_NAME_MAX 32
@@ -85,5 +89,9 @@ int unetmount_is_session(const char *point);
 // (USERFS_CTL_SAVE to the mount's server). 0, or -errno: -EEXIST when a
 // share of that name is saved already.
 int unetmount_save_session(const char *point, const char *name);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

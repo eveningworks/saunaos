@@ -32,6 +32,10 @@
 #include <stdint.h>
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uvid_play;
 
 enum { UUI_VIDEO_NONE = 0, UUI_VIDEO_CLICK, UUI_VIDEO_DOUBLE };
@@ -62,5 +66,9 @@ void uui_video_free(struct uui_video *v);
 int  uui_video_take(struct uui_video *v);
 
 extern const struct uui_widget_ops uui_video_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

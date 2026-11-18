@@ -37,6 +37,10 @@
 #include "ui/uui_widget.h"
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_BUILDER_DIR "/usr/share/ui"
 
 struct uui_builder_name {
@@ -138,5 +142,9 @@ int uui_builder_run_error(struct uui_builder *b);
 // How long the file took to read and build, in microseconds (a test's
 // number, and the log line's).
 unsigned uui_builder_build_us(const struct uui_builder *b);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -26,6 +26,10 @@
 #include "ui/uui_signin.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum {
     UUI_NETSHARE_IDLE = 0,   // nothing happening (closed, or waiting for the user)
     UUI_NETSHARE_BUSY,       // a sign-in or a mount is under way: keep polling
@@ -71,5 +75,9 @@ void uui_netshare_answer(struct uui_netshare *n, int code);
 // the folder to open for UUI_NETSHARE_OPEN.
 int uui_netshare_poll(struct uui_netshare *n, char *out_point, size_t cap);
 int uui_netshare_is_open(const struct uui_netshare *n);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

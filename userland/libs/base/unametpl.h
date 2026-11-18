@@ -1,6 +1,10 @@
 #ifndef ULIB_UNAMETPL_H
 #define ULIB_UNAMETPL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A FILE-NAME TEMPLATE: literal text with <tokens> the caller fills --
 // "shot-<date>-<time>" -> "shot-20261007-142233". Spectacle's filename
 // template, GNOME's `auto-save-directory` cousin; Windows has none.
@@ -34,5 +38,9 @@ int unametpl_valid(const char *tpl, const struct unametpl_var *vars, int n);
 // '-' kept, every other run of characters one '-', none at either end,
 // at most `cap - 1` bytes. "notes.md -- Notepad" -> "notes.md-Notepad".
 void unametpl_clean(const char *in, char *out, int cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

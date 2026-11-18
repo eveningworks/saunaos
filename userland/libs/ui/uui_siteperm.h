@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_segmented.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_siteperm -- A SITE'S PERMISSION, SHOWN TWO WAYS: as a ROW to set it
 // (a caption, then Default / Allow / Block -- Chrome's page-info rows),
 // and as an ASK when something was refused (a card under the badge that
@@ -69,5 +73,9 @@ void uui_permask_close(struct uui_permask *a);
 int uui_permask_take(struct uui_permask *a);
 
 extern const struct uui_widget_ops uui_permask_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

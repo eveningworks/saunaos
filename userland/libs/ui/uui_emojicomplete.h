@@ -1,6 +1,10 @@
 #ifndef UUI_EMOJICOMPLETE_H
 #define UUI_EMOJICOMPLETE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // :NAME: COMPLETION in a text field -- Slack's, GitHub's and Discord's: ':'
 // then two or more letters lists up to UUI_EMOJICOMPLETE_MAX emoji whose
 // names hold them, under the field and inside the window. Tab or Enter puts
@@ -31,5 +35,9 @@ void uui_emojicomplete_draw(struct ugfx_surface *s, const struct uui_textbox *f)
 int  uui_emojicomplete_press(struct uui_textbox *f, int cx, int cy);
 // Dismisses whatever is open.
 void uui_emojicomplete_cancel(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

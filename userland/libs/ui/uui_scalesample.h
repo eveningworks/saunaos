@@ -12,6 +12,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_fontsample.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_scalesample {
     struct uui_fontface face;   // the session face, opened by _open()
     int have_face;
@@ -33,5 +37,9 @@ void uui_scalesample_draw(struct ugfx_surface *s, struct uui_scalesample *ss,
 // and a 27" 4K monitor on 125%, a step under Windows' 150% -- else the
 // width over 2048 (2560 wide: 125%, 1920: 100%).
 int uui_scale_recommended(int width_px, int width_mm);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

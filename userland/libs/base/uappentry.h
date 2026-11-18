@@ -1,6 +1,10 @@
 #ifndef ULIB_UAPPENTRY_H
 #define ULIB_UAPPENTRY_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The desktop's application entries -- /usr/wm/applications/*.desktop --
 // read one, walk them, or find the one that launches a given program.
 //
@@ -36,5 +40,9 @@ int uappentry_each_all(int (*fn)(const struct uappentry *e, void *ctx), void *ct
 
 // The entry whose Exec= program is `exec`. 1 and `out` filled, else 0.
 int uappentry_find_exec(const char *exec, struct uappentry *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

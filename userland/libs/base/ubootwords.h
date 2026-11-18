@@ -1,6 +1,10 @@
 #ifndef ULIB_UBOOTWORDS_H
 #define ULIB_UBOOTWORDS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The kernel's boot words, as a table: GENERATED from docs/boot-flags.md
 // (tools/gen/gen_bootwords.py), which is the only list of them -- the kernel
 // matches its command line by substring and keeps no registry. For
@@ -23,5 +27,9 @@ const struct ubootword *ubootword_find(const char *word);
 // The nearest key to a word that is NOT one, for "did you mean" -- an
 // edit distance of at most 2 on the part before any '=', or NULL.
 const struct ubootword *ubootword_suggest(const char *word);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

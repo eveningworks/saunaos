@@ -2,6 +2,10 @@
 #define ULIB_UWMF_H
 #include <stddef.h>
 #include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 // Windows metafiles (MS-WMF): a 16-bit metafile's records, decoded and
 // checked, one at a time, for a caller that draws them -- w16's
 // PlayMetaFile into a GDI DC, or an image viewer into a canvas. The
@@ -122,4 +126,9 @@ int uwmf_open(struct uwmf *m, const void *data, size_t n);
 // out exactly), -1 for a malformed record -- stop drawing there.
 int uwmf_next(struct uwmf *m, struct uwmf_rec *r);
 void uwmf_close(struct uwmf *m);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A PROGRESS BAR: a track and a fill, determinate or busy.
 //
 // Not uui_meter, whose bar is one row of a READING (caption, value,
@@ -39,5 +43,9 @@ void uui_progress_draw(struct ugfx_surface *s, const struct uui_progress *p);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_progress_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

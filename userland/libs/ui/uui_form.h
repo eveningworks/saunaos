@@ -22,6 +22,10 @@
 #include "ui/uui_checkbox.h"
 #include "ui/uui_segmented.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_FORM_ROWS 8
 
 enum { UUI_FORM_TEXT, UUI_FORM_PASSWORD, UUI_FORM_CHECK, UUI_FORM_NOTE, UUI_FORM_CHOICE };
@@ -74,5 +78,9 @@ void uui_form_wipe_passwords(struct uui_form *f);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_form_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

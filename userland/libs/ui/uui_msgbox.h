@@ -3,6 +3,10 @@
 
 #include "ui/uapp.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_msgbox -- A MESSAGE BOX IN A WINDOW OF ITS OWN: a severity badge,
 // the message, and a row of buttons on a footer strip, right-aligned.
 // Win32's MessageBox, KDE's KMessageBox, GTK's GtkMessageDialog -- and
@@ -63,5 +67,9 @@ int uui_msgbox_open(struct uapp *a, const struct uui_msgbox *m, uui_msgbox_fn do
 int uui_msgbox_run(struct uapp *a, const struct uui_msgbox *m, int *code);
 
 int uui_msgbox_is_open(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

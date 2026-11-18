@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_gallery -- one choice out of a few, each shown as a CARD: a picture
 // the caller paints and a label under it. KDE's Cursors and Global Theme
 // pages, Windows 11's Themes grid. A radio list whose options are seen
@@ -59,5 +63,9 @@ int uui_gallery_key(struct uui_gallery *g, int key);
 // Routed: a stacked FILL_W control in a uui_setting_row, or any layout.
 // `describe` reports `card i` and `tile i` and `selected`.
 extern const struct uui_widget_ops uui_gallery_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Microsoft's COMPRESS.EXE formats undone -- what EXPAND.EXE and
 // LZEXPAND.DLL did: SZDD (Windows 3.1, MS-DOS 6) and KWAJ (Windows for
 // Workgroups 3.11, MS-DOS 6.2x), the `FILE.EX_` on every setup disk.
@@ -68,5 +72,9 @@ int umsx_expand(const uint8_t *in, size_t n, struct umsx_scratch *s,
 // stored name when it has one, else SZDD's missing character in place of
 // the trailing '_', else `disk_name` itself. Into `out` (cap >= 13).
 void umsx_name(const struct umsx_info *info, const char *disk_name, char *out, size_t cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

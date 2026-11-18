@@ -3,6 +3,10 @@
 
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A POPUP SURFACE, as a widget sees it.
 //
 // A menu, a dropdown list or a tooltip wants to be drawn OUTSIDE the
@@ -96,5 +100,9 @@ typedef void (*uui_glass_painter)(struct ugfx_surface *s, int x, int y, int w, i
                                   int radius, uint32_t tint);
 void uui_popup_set_glass(uui_glass_painter fn);
 uui_glass_painter uui_popup_glass(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -48,7 +48,7 @@ void ansi_init(struct ansi_parser *p, enum vga_color fg, enum vga_color bg) {
     p->nparam = 0;
     p->bold = 0;
     p->reverse = 0;
-    p->private = 0;
+    p->private_seq = 0;
     for (int i = 0; i < ANSI_MAX_PARAMS; i++) p->param[i] = 0;
     p->fg = fg;
     p->bg = bg;
@@ -179,7 +179,7 @@ static uint16_t param_or(const struct ansi_parser *p, int i, uint16_t dflt) {
 // Resolves a cursor/erase final byte into an op plus normalised
 // arguments, or ANSI_OP_NONE for a sequence this does not implement.
 static enum ansi_op resolve_ctrl(struct ansi_parser *p, unsigned char b) {
-    if (p->private) {
+    if (p->private_seq) {
         // Only DECTCEM, the cursor-visibility pair. Every other private
         // sequence stays swallowed: they are terminal-specific modes
         // this console has no equivalent of, and guessing at one is
@@ -331,7 +331,7 @@ enum ansi_result ansi_feed(struct ansi_parser *p, char c) {
         if (b == '[') {
             p->state = IN_CSI;
             p->nparam = 0;
-            p->private = 0;
+            p->private_seq = 0;
             for (int i = 0; i < ANSI_MAX_PARAMS; i++) p->param[i] = 0;
             return ANSI_EATEN;
         }
@@ -397,13 +397,13 @@ enum ansi_result ansi_feed(struct ansi_parser *p, char c) {
             return ANSI_EATEN;
         }
         if (b == '?' || b == '<' || b == '=' || b == '>') {
-            p->private = 1; // a private sequence -- swallowed whole
+            p->private_seq = 1; // a private sequence -- swallowed whole
             return ANSI_EATEN;
         }
         if (b >= 0x40 && b <= 0x7E) {
             // A final byte ends the sequence, whatever it is.
             p->state = GROUND;
-            if (b == 'm' && !p->private) {
+            if (b == 'm' && !p->private_seq) {
                 apply_sgr(p);
                 return ANSI_SGR;
             }

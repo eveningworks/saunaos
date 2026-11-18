@@ -26,6 +26,10 @@
 #include "ui/ugfx.h"
 #include "ui/ugfx_tex.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum usolid_shape { USOLID_CUBE = 0, USOLID_PYRAMID, USOLID_BALL, USOLID_SHAPES };
 
 // The ball's grid, which is the largest mesh: 24 x 12 cells.
@@ -134,5 +138,9 @@ enum { USOLID_HIT_LEFT = 1, USOLID_HIT_RIGHT = 2, USOLID_HIT_TOP = 4, USOLID_HIT
 // already heading away.
 int usolid_bounce(struct usolid_motion *m, const struct usolid_box *box,
                   int w, int h, int dt_ms);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_USOLID_H

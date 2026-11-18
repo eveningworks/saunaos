@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Where mixed samples go. INTERNAL to usnd -- an app includes usnd.h
 // and never learns which of these it got.
 //
@@ -65,5 +69,9 @@ extern const struct usnd_sink usnd_sink_device;
 // returns -ENODEV when no daemon is running, which is the ordinary
 // case on a machine that never started one.
 extern const struct usnd_sink usnd_sink_daemon;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

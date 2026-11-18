@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Windows 3.x installed from its own disks into w16's drive C: -- what its
 // Setup did in Express mode on a VGA PC with a PS/2 mouse, file for file:
 // SETUP.INF says which disk holds each file and whether it goes to
@@ -84,5 +88,9 @@ struct uws_group_item {
 };
 int uwinsetup_groups(const struct uwinsetup *s);
 int uwinsetup_group(const struct uwinsetup *s, int g, char *name, size_t cap, int *open, struct uws_group_item **items);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

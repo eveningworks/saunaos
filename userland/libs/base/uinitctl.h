@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "base/uchan_page.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The control protocol between init and its clients -- `/bin/service`,
 // and everything that restarts or powers off the machine -- over uchan.
 //
@@ -73,5 +77,9 @@ int uinitctl_shutdown(int reboot);
 // result, or -1 when init could not be asked; on INITCTL_OK the granted
 // class is in *got_policy / *got_prio (either may be NULL).
 int uinitctl_realtime(int pid, int policy, int prio, int *got_policy, int *got_prio);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

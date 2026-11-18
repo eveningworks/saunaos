@@ -33,6 +33,10 @@
 #include "ui/uui_focus.h"
 #include "media/usnd.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The ids it reports under: code_base .. code_base + UUI_SNDTEST_IDS - 1,
 // the tiles' as on_widget ids and Both's as an on_action code.
 #define UUI_SNDTEST_IDS 3
@@ -91,5 +95,9 @@ int uui_sndtest_tick(struct uui_sndtest *t);
 
 // Stops a test and gives the card back; harmless when none runs.
 void uui_sndtest_stop(struct uui_sndtest *t);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

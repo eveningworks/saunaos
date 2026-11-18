@@ -6,6 +6,10 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A DRAGGABLE DIVIDER between two things that share a run of space --
 // Qt's QSplitter, GTK's GtkPaned, Explorer's navigation-pane divider.
 //
@@ -93,5 +97,9 @@ int  uui_splitter_hover(struct uui_splitter *sp, int cx, int cy);
 int  uui_splitter_key(struct uui_splitter *sp, int key);
 
 extern const struct uui_widget_ops uui_splitter_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

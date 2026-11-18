@@ -5,6 +5,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // PLACES AND DEVICES: the list down the left of a file window -- named
 // folders a person goes to (Home, Documents, ...), then every mounted
 // filesystem with how full it is. Explorer's navigation pane, Dolphin's
@@ -96,5 +100,9 @@ void uui_places_short_note(const struct uui_place *r, char *out, int cap);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_places_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

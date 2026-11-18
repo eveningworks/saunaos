@@ -1,6 +1,10 @@
 #ifndef TOSH_H
 #define TOSH_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // tosh -- the SaunaOS shell (t + OS + h), running in ring 3. See tosh.c
 // for what that means and why it is not a front-end to the kernel's
 // own shell.
@@ -111,5 +115,9 @@ int tosh_run_line(struct tosh *sh, const char *line);
 // running command is exactly what this timing exists to avoid. Cheap
 // when there are no jobs, which is the normal case.
 void tosh_reap_jobs(struct tosh *sh);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

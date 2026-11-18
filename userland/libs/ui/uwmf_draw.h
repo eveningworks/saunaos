@@ -18,6 +18,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct ugfx_surface;
 struct ugfx_font;
 
@@ -30,5 +34,9 @@ typedef const struct ugfx_font *(*uwmf_font_fn)(void *ctx, const char *face, int
 // there, keeping what was drawn. Puts back the font it found.
 int uwmf_draw(struct ugfx_surface *s, const void *data, size_t n, int x, int y, int w, int h,
               uwmf_font_fn font, void *ctx);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

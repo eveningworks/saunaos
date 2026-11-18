@@ -13,6 +13,10 @@
 
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_anchor {
     int x, y, w, h;
     int selected;          // 0..8
@@ -25,5 +29,9 @@ void uui_anchor_init(struct uui_anchor *a, int selected);
 void uui_anchor_xy(const struct uui_anchor *a, int *col, int *row);
 
 extern const struct uui_widget_ops uui_anchor_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -16,6 +16,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UELFSYM_SEGS 8
 
 struct uelfsym {
@@ -50,5 +54,9 @@ int uelfsym_name(const struct uelfsym *e, uint64_t va, char *out, int cap, uint6
 // `n` bytes of the file at `va`: 1, or 0 when they are not all in a
 // segment's file-backed part.
 int uelfsym_read(const struct uelfsym *e, uint64_t va, void *buf, int n);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

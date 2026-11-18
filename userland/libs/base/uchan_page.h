@@ -31,6 +31,12 @@
 // needs an atomic read-modify-write. There is no compare-and-swap in
 // this codebase to build the shared-ring version on.
 
+// C++ spells C11's _Static_assert `static_assert`; each protocol header
+// asserts its message fits a slot here, and the SDK ships them to C++.
+#if defined(__cplusplus) && !defined(_Static_assert)
+#define _Static_assert static_assert
+#endif
+
 #define UCHAN_MAGIC      0x4E414843u  // "CHAN"
 #define UCHAN_SLOT_BYTES 64           // one message
 #define UCHAN_SLOTS      32           // messages in flight

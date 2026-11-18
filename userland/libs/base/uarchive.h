@@ -13,6 +13,10 @@
 #include <stdint.h>
 #include "syscall_abi.h"   // struct rtc_time
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum uarchive_kind { UARC_NONE, UARC_ZIP, UARC_TAR, UARC_TGZ, UARC_GZ };
 
 // By name. UARC_NONE for anything else.
@@ -72,5 +76,9 @@ int uarchive_extract_many(const char *path, uarchive_route route, void *ctx,
 int uarchive_create(const char *out_path, enum uarchive_kind kind, int level,
                     const char *dir, const char *const *names, int count,
                     uarchive_progress progress, void *ctx, char *err, int errcap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

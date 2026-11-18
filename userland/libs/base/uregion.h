@@ -19,6 +19,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UREGION_MAX 32
 
 struct urect { int x, y, w, h; };
@@ -55,5 +59,9 @@ int  uregion_contains(const struct uregion *g, int x, int y);
 // compositor's client does it to declare damage at all.
 void uregion_diff(struct uregion *g, const uint32_t *a, const uint32_t *b,
                   int w, int h, int stride, int max, int gap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

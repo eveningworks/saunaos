@@ -1,6 +1,10 @@
 #ifndef UUI_SEEK_H
 #define UUI_SEEK_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // --- type-ahead, shared by every list-shaped widget -------------------
 //
 // A printable key jumps to the first item starting with it, and keys
@@ -51,5 +55,9 @@ int uui_seek_key(struct uui_seek *s, int key, int count, int current,
 // one. KEY_* specials are all >= 0x91 (api/keyboard.h), so this cannot
 // catch an arrow.
 static inline int uui_seek_is_key(int key) { return key > ' ' && key < 0x7F; }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

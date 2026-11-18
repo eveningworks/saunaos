@@ -1,6 +1,10 @@
 #ifndef ULIB_UWORKER_H
 #define ULIB_UWORKER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A background thread for a program's blocking work: one per process,
 // started on the first submit, running JOBS one at a time in the order
 // they were asked for -- GIO's g_task_run_in_thread shape, with one
@@ -39,5 +43,9 @@ int uworker_busy(struct uworker_job *job);
 // Jobs not IDLE, across the process -- what a "is everything caught up"
 // question (a test's sync) waits on.
 int uworker_pending(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UWORKER_H

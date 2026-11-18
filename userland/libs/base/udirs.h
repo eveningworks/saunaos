@@ -1,6 +1,10 @@
 #ifndef ULIB_UDIRS_H
 #define ULIB_UDIRS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // THE PERSONAL FOLDERS -- Desktop, Documents, Music, Pictures, Videos,
 // Downloads and Screenshots -- asked for BY NAME, never by path: XDG's
 // user-dirs (`xdg-user-dir MUSIC`) and Windows' Known Folders. Each is
@@ -43,5 +47,9 @@ int udir_make(enum udir d);
 // new place, or -- when an update has already seeded the new one --
 // emptied into it entry by entry and removed. How many moved.
 int udir_migrate(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

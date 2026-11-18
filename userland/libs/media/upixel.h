@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "media/uimg.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // upixel -- PAINTING ON A PICTURE: a brush stamp, a stroke of them, a
 // flood fill, on a struct uimg's 0xAARRGGBB pixels. What a paint
 // program's tools are made of, kept apart from any one program.
@@ -221,5 +225,9 @@ void upix_sel_paint(const struct upix_sel *s, struct uimg *im, uint32_t colour, 
 // size) -- what keeps a brush, a fill or a shape inside the selection.
 void upix_sel_keep_outside(const struct upix_sel *s, struct uimg *im, const struct uimg *before,
                            const struct upix_rect *r);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

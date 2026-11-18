@@ -4,6 +4,10 @@
 #include "ui/uapp.h"
 #include "base/ulaunch.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_runask -- "Run backup.sh?": the card that asks what to do with a
 // program or a script before anything runs. KDE's "Open Executable
 // File" dialog, with Windows' OpenWith.exe's arrangement for callers
@@ -48,5 +52,9 @@ int uui_runask_always(void);
 // Spawns `act` on `path` and tracks the child on `a` (uapp_track_child).
 // The pid, or negative.
 int uui_runask_start(struct uapp *a, const char *path, int kind, int act);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

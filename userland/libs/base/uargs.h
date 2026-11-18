@@ -1,6 +1,10 @@
 #ifndef ULIB_UARGS_H
 #define ULIB_UARGS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A /bin program's arguments from a DECLARED TABLE: one table is both
 // what the parser accepts and what -h/--help prints, so the help cannot
 // list an option the program does not take (clap's, argparse's and git's
@@ -75,5 +79,9 @@ void uargs_help(const struct uargs_prog *p);
 // "NAME: <message>" and the Try line on stderr; returns UARGS_USAGE.
 int uargs_error(const struct uargs_prog *p, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

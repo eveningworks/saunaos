@@ -3,6 +3,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Reading ONE member out of a .zip archive into a file or memory, and
 // writing a new archive -- PKWARE's
 // APPNOTE, the subset every archiver writes: stored (method 0) and
@@ -83,5 +87,9 @@ int uzip_add_dir(struct uzip_writer *w, const char *name, char *err, int errcap)
 int uzip_create_end(struct uzip_writer *w, char *err, int errcap);
 // Gives up: closes and removes the `.part`, frees the directory.
 void uzip_create_abort(struct uzip_writer *w);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

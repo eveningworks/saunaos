@@ -1,6 +1,10 @@
 #ifndef UTEXTFLOW_H
 #define UTEXTFLOW_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // utextflow -- PLAIN TEXT IN LINES, PROPORTIONALLY: where each line of a
 // string breaks at a pixel width, where character `index` is drawn, and
 // which index a point is nearest. utext's job in pixels instead of
@@ -32,5 +36,9 @@ int  utextflow_index(const char *s, int n, int wrap_w, int x, int line);
 int  utextflow_line_bounds(const char *s, int n, int wrap_w, int line, int *end);
 // The pixel width of s[from, to), measured the way a line is (no kerning).
 int  utextflow_width(const char *s, int from, int to);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

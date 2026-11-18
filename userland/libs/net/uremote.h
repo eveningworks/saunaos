@@ -5,6 +5,10 @@
 #include <stddef.h>
 #include "query_abi.h"   // struct query_remotesess
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The remote desktop, from any program: /etc/remote.conf (what
 // /bin/remoted serves and who may connect), the sessions open now, and
 // the two things anyone may do to one -- end it, or make it view only.
@@ -85,5 +89,9 @@ int uremote_is_desktop(const struct query_remotesess *s);
 void uremote_describe(const struct query_remotesess *s, char *out, size_t cap);
 int uremote_disconnect(int pid);
 int uremote_set_view_only(int pid, int on);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

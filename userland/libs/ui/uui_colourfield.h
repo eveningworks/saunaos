@@ -16,6 +16,10 @@
 #include "ui/uui_widget.h"
 #include "base/ucolour.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum uui_colourfield_kind { UUI_CF_SQUARE, UUI_CF_HUE };
 
 struct uui_colourfield {
@@ -35,5 +39,9 @@ void uui_colourfield_init(struct uui_colourfield *f, enum uui_colourfield_kind k
 void uui_colourfield_free(struct uui_colourfield *f);
 
 extern const struct uui_widget_ops uui_colourfield_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

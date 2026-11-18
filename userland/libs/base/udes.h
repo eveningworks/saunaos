@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // DES (FIPS 46-3), one 64-bit block at a time -- for the protocols that
 // still require it, which here means VNC's password check (RFB 7.2.2).
 //
@@ -19,5 +23,9 @@ struct udes_key { uint64_t sub[16]; };   // the 16 round keys, 48 bits each
 void udes_set_key(struct udes_key *k, const uint8_t key[8]);
 void udes_encrypt(const struct udes_key *k, const uint8_t in[8], uint8_t out[8]);
 void udes_decrypt(const struct udes_key *k, const uint8_t in[8], uint8_t out[8]);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

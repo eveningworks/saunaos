@@ -17,6 +17,10 @@
 #include "ui/uui_segmented.h"
 #include "ui/uui_slider.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_CRTPICK_CARDS (1 + UCRT_PRESET_COUNT)
 #define UUI_CRTPICK_IDS 8          // the widget ids it takes, from `first_id` on
 
@@ -60,5 +64,9 @@ void uui_crtpick_set(struct uui_crtpick *p, int on, const struct ucrt_look *look
 
 // The cards' effect buffers, from the window's on_close.
 void uui_crtpick_free(struct uui_crtpick *p);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

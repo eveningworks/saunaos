@@ -10,6 +10,10 @@
 #include "ui/uui_scrollanim.h"
 #include "ui/uui_textbox.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // --- fileview: a directory, as a widget -------------------------------
 //
 // THE FOURTH IMPLEMENTATION IS WHY THIS EXISTS. Before it, three places
@@ -517,5 +521,9 @@ const char *uui_fileview_drop_target(const struct uui_fileview *fv);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_fileview_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

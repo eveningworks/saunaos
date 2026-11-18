@@ -30,6 +30,10 @@
 
 #include "ui/uui_edit.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_undo {
     unsigned char *buf;  // the caller's; NULL = no history
     int cap;
@@ -70,5 +74,9 @@ int uui_undo_apply(struct uui_undo *u, int redo, const struct uui_edit_ops *ops,
 
 void uui_undo_mark_clean(struct uui_undo *u);
 int  uui_undo_is_clean(const struct uui_undo *u);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

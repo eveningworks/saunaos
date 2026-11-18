@@ -18,6 +18,10 @@
 
 #include "uhttp.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // How a downloaded part becomes the item.
 enum udata_unpack {
     UDATA_FILE,     // the download IS the item's file
@@ -92,5 +96,9 @@ struct udata_fetch {
 };
 // 0, or -1 with `err` filled.
 int udata_fetch_run(struct udata_fetch *f, const struct udata_item *it);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

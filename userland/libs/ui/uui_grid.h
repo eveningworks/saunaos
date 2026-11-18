@@ -19,6 +19,10 @@
 #include <stdint.h>
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum { UUI_GRID_SELECTED = 1, UUI_GRID_HOT = 2, UUI_GRID_FOCUSED = 4 };
 
 // Paint cell `index` in the rect given; `state` is UUI_GRID_* bits. The
@@ -60,5 +64,9 @@ int  uui_grid_columns(const struct uui_grid *g);
 int  uui_grid_cell_rect(const struct uui_grid *g, int index, int *x, int *y, int *w, int *h);
 
 extern const struct uui_widget_ops uui_grid_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

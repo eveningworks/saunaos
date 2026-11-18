@@ -36,6 +36,10 @@
 
 #include "base/utween.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_scrollanim {
     int inited;      // has sync() seen a position yet
     int last_px;     // the position at the last sync
@@ -56,5 +60,9 @@ static inline int uui_scrollanim_extra_rows(int disp, int row_h) {
     int d = disp < 0 ? -disp : disp;
     return row_h > 0 ? (d + row_h - 1) / row_h : 0;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // UUI_SCROLLANIM_H

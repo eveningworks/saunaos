@@ -28,6 +28,10 @@
 #include "query_abi.h"
 #include "sound_abi.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The ids it reports under: id_base .. id_base + UUI_SNDFORMAT_IDS - 1.
 #define UUI_SNDFORMAT_IDS 16
 
@@ -77,5 +81,9 @@ int uui_sndformat_focusables(struct uui_sndformat *s, struct uui_focusable *out,
 // setting has been saved, and the panel may have changed shape (the
 // Allowed rates row shows only under Match) -- lay out and redraw.
 int uui_sndformat_on_widget(struct uui_sndformat *s, int id);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

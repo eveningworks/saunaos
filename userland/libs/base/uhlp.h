@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uhlp -- WINDOWS HELP FILES (.HLP, the WinHelp 3.0/3.1 format) read in
 // ring 3: the internal directory, the topics, their text and formatting,
 // the pictures, and the tables that find a topic (context hashes, map
@@ -204,5 +208,9 @@ const char *uhlp_doc_str(const struct uhlp_doc *d, int pool_off);
 // The plain text of a topic (runs joined, paragraphs separated by '\n'),
 // allocated, for Find. NULL on failure.
 char *uhlp_topic_text(const struct uhlp *h, int topic);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

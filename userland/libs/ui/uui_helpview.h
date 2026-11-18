@@ -6,6 +6,10 @@
 #include "ui/uui_sbar.h"
 #include "base/uhlp.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_helpview -- ONE WINDOWS HELP TOPIC, drawn as a document: the text
 // in the fonts the file names, links and pop-ups as clickable runs,
 // pictures with their hotspots, tables, and the non-scrolling heading
@@ -151,5 +155,9 @@ int uui_helpview_content_height(const struct uui_helpview *v);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_helpview_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

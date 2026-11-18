@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The files on a FAT12 or FAT16 disk IMAGE held in memory -- the 1.44 MB
 // floppies (and DMF's 1.68 MB) Windows 3.x and DOS shipped on, read so
 // w16's installer can take `Disk01.img` as it is. Read-only, 8.3 names
@@ -56,5 +60,9 @@ int ufatimg_find(const struct ufatimg *v, uint32_t dir, const char *name, struct
 // when `out` returns non-zero.
 int ufatimg_read(const struct ufatimg *v, const struct ufatimg_ent *e,
                  int (*out)(void *ctx, const uint8_t *data, size_t n), void *ctx);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

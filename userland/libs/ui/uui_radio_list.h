@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_primitives.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 // Split out of the single uwidgets.c/.h this used to be, one file per
 // widget -- the same shape as apps/ui/, so a widget's kernel-side and
@@ -89,5 +93,9 @@ int uui_radio_list_key(struct uui_radio_list *l, int key);
 // option is the widget's job once this is declared, not the app's.
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_radio_list_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

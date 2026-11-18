@@ -15,6 +15,10 @@
 // and an app sizes it to what it will show.
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define ULOG_TEXT_MAX 160
 #define ULOG_SRC_MAX  16
 #define ULOG_SUB_MAX  24
@@ -104,5 +108,9 @@ int ulog_filter_unmute(struct ulog_filter *f, const char *name);
 // One line as text in logd's own form, "[tag   ] [S.cc] <L> text", so a
 // saved file reopens here -- what Copy and Save write.
 int ulogset_format(const struct ulogset *s, int i, char *out, int cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

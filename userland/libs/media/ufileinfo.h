@@ -14,6 +14,10 @@
 #include <stdint.h>
 #include "rt/sys.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UFI_PATH 256
 #define UFI_TEXT 64
 
@@ -79,5 +83,9 @@ int ufileinfo_rename(struct ufileinfo *fi, const char *newname, const char **why
 
 // The permission bits, applied and reloaded. 0, or -1 with `*why`.
 int ufileinfo_chmod(struct ufileinfo *fi, unsigned mode, const char **why);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

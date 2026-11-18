@@ -22,6 +22,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_para.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The posted events it handles, from its worker (uapp_post's a0).
 #define UUI_DATACARD_EV_PROGRESS 0x5DC1
 #define UUI_DATACARD_EV_DONE     0x5DC2
@@ -103,5 +107,9 @@ int uui_datacard_key(struct uui_datacard *c, int key, unsigned mods);
 void uui_datacard_phys(struct uui_datacard *c, int keycode, int down);
 // The worker's events: 1 when `a0` was one.
 int uui_datacard_user(struct uui_datacard *c, int a0, int a1);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

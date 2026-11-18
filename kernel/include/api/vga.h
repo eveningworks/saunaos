@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum vga_color {
     VGA_BLACK = 0, VGA_BLUE = 1, VGA_GREEN = 2, VGA_CYAN = 3,
     VGA_RED = 4, VGA_MAGENTA = 5, VGA_BROWN = 6, VGA_LIGHT_GREY = 7,
@@ -271,5 +275,9 @@ void vga_cursor_hide(void);
 void vga_scroll_back(int lines);     // toward older output
 void vga_scroll_forward(int lines);  // back toward live
 int vga_scrolled_back(void);         // 1 while showing history
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -17,6 +17,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_keysheet_row {
     const char *action;
     const char *keys;
@@ -48,5 +52,9 @@ void uui_keysheet_draw(struct ugfx_surface *s, const struct uui_keysheet *k);
 int uui_keysheet_keys_width(const char *keys);
 
 extern const struct uui_widget_ops uui_keysheet_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uimg -- decoding an image file into pixels, in RING 3.
 //
 // WHY THIS IS NOT IN THE KERNEL, stated once because it is the whole
@@ -295,5 +299,9 @@ extern const struct uimg_codec uimg_codec_png;
 // either.
 extern const struct uimg_codec uimg_codec_bmp;
 extern const struct uimg_codec uimg_codec_gif;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

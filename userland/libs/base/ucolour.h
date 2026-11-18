@@ -8,6 +8,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct ucolour_hsl {
     int h;   // 0..359 degrees
     int s;   // 0..100 percent
@@ -33,5 +37,9 @@ uint32_t ucolour_from_hsv(const struct ucolour_hsv *c);
 // white). 45 is AA for body text, 30 for large text and for a control's
 // edge against what is around it.
 int ucolour_contrast10(uint32_t a, uint32_t b);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

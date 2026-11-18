@@ -1,6 +1,10 @@
 #ifndef ULRU_H
 #define ULRU_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ulru -- a hash table with a least-recently-used list, INTRUSIVE: the
 // caller's entry embeds a `struct ulru_node`, and the caller keeps the
 // key, the bytes and the budget. What a cache of rendered things needs
@@ -42,5 +46,9 @@ struct ulru_node *ulru_oldest(const struct ulru *l);
 void ulru_remove(struct ulru *l, struct ulru_node *n);
 // Frees the bucket array; the entries are the caller's to have freed.
 void ulru_free(struct ulru *l);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

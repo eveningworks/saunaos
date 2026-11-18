@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uvisits -- the pages a person browsed to (a browser's History; the
 // shell's command history is base/uhistory.h): one entry per address, with
 // when it was last visited, how often, and its title. Kept in one file, a
@@ -39,5 +43,9 @@ int  uvisits_forget(struct uvisits *h, const char *url);
 // NetSurf's URL file (its urldb's, format 106-107): every address it
 // says was visited. Returns how many were taken.
 int  uvisits_import_netsurf(struct uvisits *h, const char *path, int64_t now);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

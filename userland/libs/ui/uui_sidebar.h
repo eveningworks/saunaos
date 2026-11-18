@@ -7,6 +7,10 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A NAVIGATION SIDEBAR: bold section headings with selectable items
 // under them.
 //
@@ -169,5 +173,9 @@ void uui_sidebar_set_geometry(struct uui_sidebar *s, int x, int y, int w, int h)
 void uui_sidebar_draw(struct ugfx_surface *surf, const struct uui_sidebar *s);
 
 extern const struct uui_widget_ops uui_sidebar_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,6 +1,10 @@
 #ifndef UPATH_H
 #define UPATH_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // PATH lookup for a ring-3 program that has to RUN another one.
 //
 // **EXTRACTED WHEN IT GOT ITS SECOND REAL CALLER**, which is the bar
@@ -37,5 +41,9 @@ int upath_find_program(const char *name, char *out, int cap);
 // so one engine can walk either (api/completion.h).
 int upath_dir_count(void);
 const char *upath_dir(int index);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

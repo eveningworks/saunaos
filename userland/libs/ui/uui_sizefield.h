@@ -7,6 +7,10 @@
 #include "ui/uui_segmented.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A SIZE YOU CAN TYPE: a number and its unit, MiB or GiB -- Disk Mark's
 // test size and Disks' new partition. KDE Partition Manager's size box
 // with its unit picker, in this toolkit's parts: a uui_spinbox for the
@@ -49,5 +53,9 @@ void uui_sizefield_set_geometry(struct uui_sizefield *f, int x, int y, int w, in
 void uui_sizefield_draw(struct ugfx_surface *s, const struct uui_sizefield *f);
 
 extern const struct uui_widget_ops uui_sizefield_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

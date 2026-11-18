@@ -24,6 +24,10 @@
 #include "ui/uui_sbar.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uapp;
 struct uui_webview;
 
@@ -190,5 +194,9 @@ char *uui_webview_markdown_page(const char *title, const char *md, int md_len,
                                 const struct umd_html_opts *opts, int *len);
 
 extern const struct uui_widget_ops uui_webview_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

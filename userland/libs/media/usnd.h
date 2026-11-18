@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // usnd -- decoding and playing audio files, in RING 3.
 //
 // The kernel gives out ONE exclusive PCM stream and never mixes
@@ -333,5 +337,9 @@ void usnd_set_app_name(const char *name);
 // for display, not a recording: nothing guarantees it is contiguous
 // with the last call. Returns the frames copied, 0 while nothing plays.
 long usnd_peek(int16_t *dst, long frames);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

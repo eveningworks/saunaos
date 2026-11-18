@@ -17,6 +17,10 @@
 #include <stdint.h>
 #include "partition.h"   // PART_MAX_ENTRIES
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A disk's partitions are the KERNEL's bound, mirrored: QUERY_PARTITION
 // reports at most PART_MAX_ENTRIES of one table. The disks and the RAM
 // volumes are as many as there are, grown (base/ugrow.h).
@@ -100,5 +104,9 @@ const char *udisk_fs_title(const char *type);
 // The filesystem it holds, for display: as mounted, else as recognised;
 // "" for neither.
 const char *udisk_part_fs(const struct udisk_part *p);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

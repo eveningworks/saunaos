@@ -1,6 +1,10 @@
 #ifndef UFILETYPE_H
 #define UFILETYPE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // WHAT KIND OF FILE A NAME IS, in words and as an icon -- the File
 // Manager's Type column, its details pane and Properties all ask, and
 // three private tables would drift into three answers.
@@ -36,5 +40,9 @@ const char *ufiletype_kind_name(enum ufiletype_kind k);
 // type is one the table knows -- an unknown extension is part of what the
 // name says, and a folder has none. Explorer's rule.
 void ufiletype_display_name(const char *name, int is_dir, int hide_ext, char *out, int cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

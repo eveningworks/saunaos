@@ -5,6 +5,10 @@
 #include "rt/sys.h"
 #include "base/ulistdir.h"   // struct ulist_entry
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ufileop -- copying, moving and deleting files and trees, once.
 //
 // **THE PRIMITIVE AND THE WALK ARE SHARED; THE POLICY IS THE CALLER'S.**
@@ -167,5 +171,9 @@ int ufileop_resolve_dest(const char *src, const char *dst, char *out, int cap);
 // terminates; coreutils refuses it too, and finding out by filling the
 // disk is a bad way to learn.
 int ufileop_inside(const char *src, const char *dst);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UFILEOP_H

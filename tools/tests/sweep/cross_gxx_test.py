@@ -11,7 +11,9 @@ virtual call, iostream, std::thread with a mutex, and <cmath>'s C99 half
 overloads) -- which libstdc++ has only when tolibc's <math.h> is ALL of C99.
 A second program does `import std` (-std=c++23 -fmodules
 --compile-std-module), which needs the same, and must match the host too.
-And every C library header in the sysroot compiles as C++ on its own.
+And every header in the sysroot compiles as C++ on its own, and a C++
+program calling into libbase, libmedia and libui -- a window opened, drawn
+and closed -- runs on the guest.
 
 WHAT A BROKEN VERSION WOULD STILL PASS, and what is asserted instead:
   - "it links" passes a program whose constructors never run (the stage-1
@@ -288,6 +290,70 @@ int main() {
 }
 """
 
+# THE TOOLKIT FROM C++: one call into each of its four libraries and the
+# kernel's shared lib, through the SDK's headers and -l flags. A header
+# missing its extern "C" fails the LINK (every call mangled); one that is
+# not C++ fails the compile. The window is real: on_draw must run.
+TOOLKIT = r"""
+#include <cstdio>
+#include <string>
+#include <kpath.h>
+#include <base/ufiletype.h>
+#include <media/uimg.h>
+#include <ui/uapp.h>
+#include <ui/ugfx.h>
+
+static const unsigned char BMP[] = { @BMP@ };
+static bool g_drawn;
+
+int main() {
+    char buf[64];
+    k_path_join("/home", "notes.txt", buf, sizeof buf);
+    std::printf("cxx: path %s\n", std::string(buf).c_str());
+    std::printf("cxx: type %s\n", ufiletype_name("photo.jpg", 0));
+    struct uimg im = {};
+    int rc = uimg_decode(BMP, sizeof BMP, &im);
+    std::printf("cxx: image %d %dx%d %08x %08x\n", rc, im.w, im.h,
+                im.px ? (unsigned)im.px[0] : 0u, im.px ? (unsigned)im.px[1] : 0u);
+    uimg_free(&im);
+    std::printf("cxx: desktop %d\n", uapp_has_desktop());
+    uapp_desc desc{};
+    desc.title = "C++ toolkit";
+    desc.w = 240;
+    desc.h = 120;
+    desc.on_draw = [](struct uapp *, struct uapp_draw *d) {
+        struct ugfx_surface *s = uapp_surface(d);
+        ugfx_fill_rect(s, 0, 0, s->w, s->h, 0xFF2C7A3D);
+        g_drawn = true;
+    };
+    struct uapp *app = nullptr;
+    if (!uapp_open(&app, &desc)) {
+        std::printf("cxx: no window\n");
+        return 1;
+    }
+    for (int i = 0; i < 100 && !g_drawn; i++)
+        uapp_pump(app, 100);
+    std::printf("cxx: window drawn %d\n", g_drawn ? 1 : 0);
+    std::printf("cxx: closed %d\n", uapp_close(app));
+    return 0;
+}
+"""
+TOOLKIT_WANT = ["cxx: path /home/notes.txt", "cxx: type JPEG image",
+                "cxx: image 0 2x1 ffff0000 ff0000ff", "cxx: desktop 1",
+                "cxx: window drawn 1", "cxx: closed 0"]
+
+
+def bmp_2x1():
+    """A 24-bit 2x1 BMP, red then blue: the bytes uimg_decode is handed."""
+    row = bytes([0, 0, 255, 255, 0, 0, 0, 0])          # BGR red, BGR blue, pad to 4
+    dib = (40).to_bytes(4, "little") + (2).to_bytes(4, "little") + (1).to_bytes(4, "little") \
+        + (1).to_bytes(2, "little") + (24).to_bytes(2, "little") + bytes(4) \
+        + len(row).to_bytes(4, "little") + bytes(16)
+    size = 14 + len(dib) + len(row)
+    head = b"BM" + size.to_bytes(4, "little") + bytes(4) + (14 + len(dib)).to_bytes(4, "little")
+    return head + dib + row
+
+
 # The two breaks the control can make, as edits to a copy of saunaos.ld.
 # Each break edits the script ITS build links with: the default is dynamic
 # (saunaos-dyn.ld); libc.a's tables exist only in a -static link (saunaos.ld) --
@@ -364,17 +430,18 @@ def run(args, gxx, tmp):
     res.check("g++ reports the POSIX thread model", "Thread model: posix" in v.stderr,
               v.stderr.strip()[-200:])
 
-    # 2. Every C library header compiles as C++ on its own: extern "C"
-    # around it, no C-only keyword, no C++ keyword as a name. The toolkit's
-    # headers (base/ net/ media/ ui/) are not C++-clean yet, and are left out;
-    # SDL's are not the C library's (its other platforms' config headers are
-    # not meant to compile here), and are checked through SDL.h below.
+    # 2. Every header the SDK ships compiles as C++ on its own: extern "C"
+    # around it, no C-only keyword, no C++ keyword as a name -- libc's and
+    # the toolkit's (base/ net/ media/ ui/ saunaos/; their LINKAGE is
+    # cxx_headers_hostcheck.py's). SDL's are not ours (its other platforms'
+    # config headers are not meant to compile here), and are checked
+    # through SDL.h below.
     inc = os.path.join(sysroot, "usr/include")
     bad = []
     headers = sorted(os.path.relpath(os.path.join(d, f), inc)
                      for d, dirs, files in os.walk(inc)
                      if os.path.relpath(d, inc).split(os.sep)[0] not in
-                     ("base", "net", "media", "ui", "saunaos", "SDL2", "SDL3")
+                     ("SDL2", "SDL3")
                      for f in files if f.endswith(".h"))
     for h in headers:
         r = subprocess.run([gxx, *extra, "-std=c++17", "-Wall", "-fsyntax-only", "-x", "c++", "-"],
@@ -382,7 +449,7 @@ def run(args, gxx, tmp):
                            capture_output=True, text=True)
         if r.returncode or r.stderr.strip():
             bad.append(f"{h}: {r.stderr.strip().splitlines()[0] if r.stderr.strip() else r.returncode}")
-    res.check(f"every C library header compiles as C++ ({len(headers)})",
+    res.check(f"every SDK header compiles as C++ ({len(headers)})",
               bool(headers) and not bad, "\n    ".join(bad)[:1200])
     # SDL as a C++ port includes it: SDL3's way, and SDL2's through the
     # flags sdl2-config gives (an `=` path, the sysroot's).
@@ -438,6 +505,15 @@ def run(args, gxx, tmp):
     want_mod = clean_lines(subprocess.run([os.path.join(host_mod, "mod")], capture_output=True,
                                           text=True).stdout)
 
+    # 3c. The toolkit from C++: built here, run below.
+    tk_exe = os.path.join(tmp, "cxx_toolkit")
+    with open(os.path.join(tmp, "toolkit.cpp"), "w") as f:
+        f.write(TOOLKIT.replace("@BMP@", ", ".join(str(b) for b in bmp_2x1())))
+    tb = subprocess.run([gxx, *extra, "-std=c++17", "-O2", "-Wall", "toolkit.cpp", "-o", tk_exe,
+                         "-lui", "-lmedia", "-lnet", "-lbase"], cwd=tmp, capture_output=True, text=True)
+    res.check("a C++ program using base, media, ui and the kernel lib compiles and links",
+              tb.returncode == 0 and not tb.stderr.strip(), (tb.stdout + tb.stderr).strip()[:1200])
+
     # 4. The oracle: the same source, the host's plain g++, run here.
     host_exe = os.path.join(tmp, "cxx_hello-host")
     subprocess.run(["g++", "-std=c++17", "-O2", "-pthread", *srcs, "-o", host_exe], check=True)
@@ -486,6 +562,16 @@ def run(args, gxx, tmp):
                 clean_lines(vm("exec", f"cat {GUEST_OUT}_mod"))), 60) or []
             res.check(f"`import std`'s program matches the host's, line for line ({len(want_mod)} lines)",
                       bool(want_mod) and gm == want_mod, f"    host: {want_mod!r}\n    test: {gm!r}")
+        if tb.returncode == 0:
+            vm("put", tk_exe, GUEST_BIN + "_tk")
+            vm("exec", f"rm {GUEST_OUT}_tk")
+            vm("exec", f"spawn /bin/tosh -c {GUEST_BIN}_tk > {GUEST_OUT}_tk")
+            gt = poll(lambda: (lambda lines: lines if any(x.startswith("cxx: closed") for x in lines)
+                               else None)(clean_lines(vm("exec", f"cat {GUEST_OUT}_tk"))), 60) \
+                or clean_lines(vm("exec", f"cat {GUEST_OUT}_tk"))
+            res.check("the toolkit program runs on the guest: a path, a file type, a decoded "
+                      "image, a window drawn and closed", gt == TOOLKIT_WANT,
+                      f"    want: {TOOLKIT_WANT!r}\n    got:  {gt!r}")
     finally:
         vm("stop")
     return res.finish("cross_gxx_test")

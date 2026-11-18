@@ -12,6 +12,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UVOL_POINT 64
 #define UVOL_ROWS  10
 
@@ -68,5 +72,9 @@ int uvolinfo_fits(const struct uvolinfo *v, uint64_t bytes);
 int uvolinfo_used_pm(const struct uvolinfo *v);
 // A share: drop its connection; the next access makes a new one. 0 or -errno.
 int uvolinfo_disconnect(const char *point);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

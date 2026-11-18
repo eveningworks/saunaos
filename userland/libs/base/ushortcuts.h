@@ -1,6 +1,10 @@
 #ifndef API_SHORTCUTS_CONFIG_H
 #define API_SHORTCUTS_CONFIG_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The desktop's global keyboard shortcuts. See shortcuts_config.c for
 // why they are registry settings and why the compositor owns matching.
 //
@@ -25,5 +29,9 @@ const struct shortcut_action *shortcut_action_at(int i);
 int shortcut_value_valid(const char *value);
 
 void shortcuts_setting_register(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

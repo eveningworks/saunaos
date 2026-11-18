@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // udclick -- the double-click time: how soon a second click must follow
 // the first to count as a double click. ONE value for the whole desktop,
 // `system.double_click` (Input > Mouse), as Windows' GetDoubleClickTime()
@@ -36,5 +40,9 @@ struct udclick_run {
     int x, y, n;
 };
 int udclick_count(struct udclick_run *r, int x, int y);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

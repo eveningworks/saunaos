@@ -3,6 +3,10 @@
 
 #include "ui/uapp.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_countdown -- A QUESTION THAT ANSWERS ITSELF: a bold line, a
 // sentence, a bar running down beside "Restarting in 9 seconds", and two
 // buttons; when the time runs out the timeout's answer is taken.
@@ -36,5 +40,9 @@ typedef void (*uui_countdown_fn)(void *ctx, int code);
 // spec's strings must outlive the app.
 void uui_countdown_app_desc(struct uapp_desc *d, const struct uui_countdown_spec *s,
                             uui_countdown_fn done, void *ctx);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

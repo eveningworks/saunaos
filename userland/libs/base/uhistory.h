@@ -1,6 +1,10 @@
 #ifndef ULIB_UHISTORY_H
 #define ULIB_UHISTORY_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Command history for a ring-3 line editor.
 //
 // klineedit.c owns the LINE; a front end owns history, completion and
@@ -107,5 +111,9 @@ void uhist_load_from(struct uhistory *h, const char *path);
 // Appends one line. Called per accepted line rather than at exit,
 // because a Terminal tab is closed by a signal and has no exit to run at.
 void uhist_persist(const char *line);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

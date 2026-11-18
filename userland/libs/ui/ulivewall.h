@@ -26,6 +26,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define LIVEWALL_DIR       "/bin/wm/wallpapers"
 #define LIVEWALL_DESC_DIR  "/usr/wm/wallpapers"
 #define LIVEWALL_CONF_DIR  "/etc/wallpapers"
@@ -86,5 +90,9 @@ uint32_t ulivewall_colour(const char *word);
 // A wallpaper program's main(): a resizable client that steps on a
 // timer and draws. Returns uapp_run()'s status.
 int ulivewall_main(const char *name);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_ULIVEWALL_H

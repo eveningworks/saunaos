@@ -5,6 +5,10 @@
 #include "net_abi.h"
 #include "query_abi.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // THE DHCP CLIENT, AS A LIBRARY -- one implementation, two front ends.
 //
 // It was all of /bin/dhcp, whose supervision loop held ONE lease in
@@ -99,5 +103,9 @@ static inline int udhcp_is_link_local(uint64_t ip) { return (ip >> 16) == 0xA9FE
 
 // Give the address up: forget the remembered lease and reset to INIT.
 void udhcp_release(struct udhcp *u);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

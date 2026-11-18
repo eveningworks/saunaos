@@ -7,6 +7,10 @@
 #include "ui/uui_sbar.h"
 #include "ui/uui_primitives.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_textview -- the ring-3 port of apps/ui/ui_textview.c: a utext, its
 // scrollbar, the geometry that splits the two, and all of the input
 // handling that makes scrolling work, as ONE control.
@@ -127,5 +131,9 @@ int uui_textview_hit(const struct uui_textview *tv, int cx, int cy);
 // are the widget's.
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_textview_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

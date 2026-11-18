@@ -1,6 +1,10 @@
 #ifndef UUI_EDIT_H
 #define UUI_EDIT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_edit -- what EDITING TEXT means, in one place.
 //
 // WHY THIS EXISTS
@@ -188,5 +192,9 @@ struct uui_edit_target {
     void *text;
     int x, y;
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

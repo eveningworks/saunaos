@@ -3,6 +3,10 @@
 
 #include "media/uimg.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Application icons: name -> a decoded, scaled picture, kept.
 //
 // **THE CACHE IS THE WHOLE POINT.** An icon is a file on disk that has
@@ -77,5 +81,9 @@ int icon_cache_count(void);
 // is below the working set, which is the thrash this cache exists to
 // avoid -- reported by `gui icons`.
 int icon_cache_evictions(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

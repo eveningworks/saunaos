@@ -5,6 +5,10 @@
 #include "win_proto.h"
 #include "geom.h" // enum geom_aa -- the geometry module is SHARED with the kernel
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ugfx -- the userland drawing runtime for ring-3 window clients.
 //
 // The ring-3 counterpart of the kernel's gfx.c, and deliberately much
@@ -938,5 +942,9 @@ int ugfx_verify_diff_masked(struct ugfx_screen *sc, struct ugfx_diff *out,
 // on the next snapshot. Keeping it makes repeated verification cost one
 // allocation for the life of the process.
 void ugfx_verify_release(struct ugfx_screen *sc);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

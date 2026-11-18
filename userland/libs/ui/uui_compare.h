@@ -13,6 +13,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_checkbox.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uimg;
 
 struct uui_compare_side {
@@ -43,5 +47,9 @@ void uui_compare_set_picture(struct uui_compare *c, int i, const struct uimg *pi
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_compare_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

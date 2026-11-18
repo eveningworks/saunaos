@@ -14,6 +14,10 @@
 #include "rt/sys.h"
 #include "base/ulistdir.h"   // struct ulist_entry
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum ufind_age {
     UFIND_ANY_DATE, UFIND_TODAY, UFIND_THIS_WEEK, UFIND_THIS_MONTH, UFIND_THIS_YEAR,
     UFIND_OLDER, UFIND_AGES
@@ -60,5 +64,9 @@ int ufind_name_has(const char *name, const char *query);
 // per block.
 int ufind_contains(const char *path, const char *needle, int *line_no, char *line, int cap,
                    const volatile int *cancel);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

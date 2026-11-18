@@ -5,6 +5,10 @@
 #include "ui/uui_edit.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_para -- A PARAGRAPH A PERSON CAN SELECT AND COPY: read-only text,
 // word-wrapped to its width, with drag, double and triple click, Ctrl+A,
 // Ctrl+C and the shared right-click menu (Copy, Select All) -- the
@@ -42,5 +46,9 @@ void uui_para_free(struct uui_para *p);
 int uui_para_key(struct uui_para *p, int key, unsigned mods);
 
 extern const struct uui_widget_ops uui_para_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

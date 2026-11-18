@@ -1,6 +1,10 @@
 #ifndef TOSH_JOBS_H
 #define TOSH_JOBS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The shell's JOB TABLE: what `jobs`, `fg` and `bg` are lists of.
 //
 // **A JOB IS A PROCESS GROUP, AND THE TABLE IS THE ONLY PLACE IT HAS A
@@ -77,5 +81,9 @@ int tosh_jobs_cap(void);
 
 // The id of the current job, or 0.
 int tosh_jobs_current(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

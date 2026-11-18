@@ -6,6 +6,10 @@
 #include "media/uimg.h"
 #include "media/upixel.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // upixundo -- UNDO FOR A PICTURE BEING PAINTED: Paint.NET's history
 // shape. Each step keeps only the RECTANGLE a change touched, before and
 // after, so a dab of the brush on a 4000x3000 photo costs the dab and
@@ -94,5 +98,9 @@ int upixundo_redo(struct upixundo *u, struct upix_rect *changed);
 // the one taken at a save to know whether the picture is unsaved. 0 is
 // "no step done".
 unsigned upixundo_state(const struct upixundo *u);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

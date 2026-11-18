@@ -3,6 +3,10 @@
 
 #include "tmppath.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A SCRATCH PATH IN ONE EXPRESSION, for ring 3.
 //
 // api/tmppath.h's tmppath() writes into a caller's buffer, which is the
@@ -23,5 +27,9 @@
 // unless it asks not to be, where kernel-side module scratch is exactly
 // the shape vfs.c holds a preemption guard for.
 const char *utest_path(enum tmp_kind kind, const char *name);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

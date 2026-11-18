@@ -18,6 +18,10 @@
 // Keycodes are Linux evdev numbers; a character is a Unicode codepoint.
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UKEYMAP_KEYS 256   // the kernel's KB_KEYCODE_MAX
 
 enum ukeymap_level { UKEYMAP_BASE, UKEYMAP_SHIFT, UKEYMAP_ALTGR, UKEYMAP_SHIFT_ALTGR };
@@ -44,5 +48,9 @@ int ukeymap_load(struct ukeymap *m, const char *name);
 // The character key `kc` gives on `level` (0 for none), and whether it
 // is a dead key there.
 int ukeymap_char(const struct ukeymap *m, int kc, enum ukeymap_level level, int *is_dead);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

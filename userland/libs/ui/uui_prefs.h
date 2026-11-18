@@ -31,6 +31,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uapp;
 struct uui_widget_ops;
 struct uui_sidebar_row;
@@ -121,5 +125,9 @@ int uui_prefs_open(struct uapp *a);
 int uui_prefs_is_open(void);
 void uui_prefs_close(void);
 void uui_prefs_redraw(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

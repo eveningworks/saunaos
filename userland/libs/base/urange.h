@@ -16,6 +16,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define URANGE_PAGE  4096
 #define URANGE_PAGES 16      // the cache: 64 KiB -- a policy, not a bound on the file
 
@@ -44,5 +48,9 @@ size_t urange_read(struct urange *r, uint64_t off, void *buf, size_t n);
 // urange_read() in the shape a callback takes (`ctx` is the urange):
 // base/ubinmap.h's source and ui/uui_hexview.h's reader.
 size_t urange_reader(void *ctx, uint64_t off, void *buf, size_t n);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

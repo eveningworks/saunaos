@@ -28,6 +28,10 @@
 #include "ui/uui_focus.h"
 #include "query_abi.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The ids (and the button's action code) it uses: id_base ..
 // id_base + UUI_NETADAPTER_IDS - 1.
 #define UUI_NETADAPTER_IDS 8
@@ -77,5 +81,9 @@ int uui_netadapter_focusables(struct uui_netadapter *n, struct uui_focusable *ou
 // refusal said in the panel's note) -- redraw.
 int uui_netadapter_on_widget(struct uui_netadapter *n, int id);
 int uui_netadapter_on_action(struct uui_netadapter *n, int code);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

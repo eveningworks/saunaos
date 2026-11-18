@@ -30,6 +30,10 @@
 #include "ui/uui_sbar.h"
 #include "ui/uui_menubar.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef size_t (*uui_hexview_read_fn)(void *ctx, uint64_t off, void *buf, size_t n);
 // A byte's wash, 0xRRGGBB, or UUI_HEXVIEW_NO_TINT.
 typedef uint32_t (*uui_hexview_tint_fn)(void *ctx, uint64_t off);
@@ -94,5 +98,9 @@ int  uui_hexview_take_cmd(struct uui_hexview *v);
 int  uui_hexview_take_changed(struct uui_hexview *v);
 
 extern const struct uui_widget_ops uui_hexview_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

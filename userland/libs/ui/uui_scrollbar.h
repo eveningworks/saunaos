@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_primitives.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 // Split out of the single uwidgets.c/.h this used to be, one file per
 // widget -- the same shape as apps/ui/, so a widget's kernel-side and
@@ -155,5 +159,9 @@ void uui_scrollbar_thumb_rect(int y, int h, int total_lines, int visible_rows,
 int uui_scrollbar_offset_for_drag(int y, int h, int total_lines, int visible_rows,
                                    int py, int grab_offset_in_thumb,
                                    int bar_w, unsigned flags);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

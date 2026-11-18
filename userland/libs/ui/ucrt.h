@@ -23,6 +23,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UCRT_LEVEL_MAX 3       // scanlines/glow/vignette: off, low, medium, high
 
 enum ucrt_curve { UCRT_CURVE_OFF, UCRT_CURVE_SLIGHT, UCRT_CURVE_SUBTLE, UCRT_CURVE_STRONG, UCRT_CURVE_COUNT };
@@ -123,5 +127,9 @@ int ucrt_source_point(const struct ucrt *c, int px, int py, int *sx, int *sy);
 // for an app that places the pointer (SetCursorPos) on what it drew. 1,
 // or 0 when no glass pixel shows it within a pixel (*px/*py the nearest).
 int ucrt_glass_point(const struct ucrt *c, int sx, int sy, int *px, int *py);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

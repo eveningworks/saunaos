@@ -7,6 +7,10 @@
 // / UTHEME_*), so the one header they all include carries it.
 #include "ui/utheme.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Split out of the single uwidgets.c/.h this used to be, one file per
 // widget -- the same shape as apps/ui/, so a widget's kernel-side and
 // ring-3 versions live at matching paths. See ui/uui.h.
@@ -157,5 +161,9 @@ void uui_button_draw(struct ugfx_surface *s, int x, int y, int w, int h,
 void uui_button_draw_label(struct ugfx_surface *s, int x, int y, int w, int h,
                            const char *label, uint32_t fg, uint32_t fill,
                            enum uui_state state);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

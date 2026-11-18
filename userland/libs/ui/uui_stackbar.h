@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A STACKED BAR WITH A LEGEND: how one whole splits into parts, each a
 // coloured segment and a legend row (swatch, label, value). Windows 11's
 // "Memory composition" and a disk-usage bar are the shape. Not
@@ -45,5 +49,9 @@ void uui_stackbar_draw(struct ugfx_surface *s, const struct uui_stackbar *b);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_stackbar_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

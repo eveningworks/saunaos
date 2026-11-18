@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "query_abi.h"   // QUERY_DEVEVENT_TEXT, struct query_devevent
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // THE MACHINE'S DEVICES, as one list -- what /bin/devctl prints and the
 // Device Manager shows. Built from what the kernel already reports
 // (QUERY_PCIDEV + SYS_PCI_INFO, QUERY_USB, QUERY_DRIVER, QUERY_CPUS),
@@ -142,5 +146,9 @@ int udevice_props_text(const struct udev_prop *p, int np, const char *title,
 // out of a report somebody will share.
 void udevice_report(const struct udevice *list, int n, unsigned flags,
                     void (*emit)(void *ctx, const char *line), void *ctx);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

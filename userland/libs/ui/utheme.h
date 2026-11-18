@@ -3,6 +3,10 @@
 
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The ring-3 toolkit's THEME: a PALETTE (colour roles, Qt's QPalette /
 // GTK's named colours) and METRICS (font-derived sizes and spacing,
 // Qt's QStyle). One live theme that every widget reads through, so a
@@ -242,5 +246,9 @@ void utheme_settings_reload(void);
 
 // The window title bar's height: the font's plus the theme's padding.
 int  utheme_titlebar_h(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Special key codes pushed into the input stream alongside characters.
 //
 // **THEY LIVE ABOVE EVERY CHARACTER THE KEYBOARD TYPES**, in Unicode's
@@ -442,5 +446,9 @@ uint8_t keyboard_mods_now(void);
 // Blocking read of one line into buf (max len-1 chars + null terminator).
 // Echoes typed characters to the VGA console and handles backspace.
 void keyboard_read_line(char *buf, unsigned int len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

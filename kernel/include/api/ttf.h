@@ -44,6 +44,10 @@
 #include <stdint.h>
 #include "fixed.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Caps on one glyph's complexity. A Latin glyph in DejaVu Sans Mono
 // peaks around 120 points and 40 contours' worth of nothing; these are
 // generous by an order of magnitude and are REFUSALS, not truncations
@@ -289,5 +293,9 @@ int ttf_render_glyph(const struct ttf_font *f, int gid, int px,
                      uint8_t *cov, int w, int h,
                      int x_origin, int baseline,
                      struct ttf_scratch *sc);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

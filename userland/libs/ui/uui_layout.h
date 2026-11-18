@@ -3,6 +3,10 @@
 
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_layout -- places widgets so apps stop doing coordinate
 // arithmetic.
 //
@@ -133,5 +137,9 @@ void uui_layout_draw(struct ugfx_surface *s, const struct uui_layout *l);
 // A layout is itself a widget, so containers nest -- which is how
 // Calculator becomes "a column of [display area, button grid]".
 extern const struct uui_widget_ops uui_layout_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

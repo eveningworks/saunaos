@@ -30,6 +30,10 @@
 #include "ui/uui_widget.h"
 #include "ui/uui_sbar.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum { UUI_APPCARD_CARDS = 0, UUI_APPCARD_ROWS, UUI_APPCARD_CHECKS };
 
 // What the button does, which is what colours it.
@@ -91,5 +95,9 @@ int  uui_appcards_item_rect(const struct uui_appcards *v, int i, int *x, int *y,
 int  uui_appcards_button_rect(const struct uui_appcards *v, int i, int *x, int *y, int *w, int *h);
 
 extern const struct uui_widget_ops uui_appcards_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

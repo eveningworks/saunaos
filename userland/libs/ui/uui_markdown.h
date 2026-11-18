@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_scrollbar.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_markdown -- a Markdown DOCUMENT, drawn as a document: proportional
 // text, headings at real sizes, code in a monospace face on a tinted
 // ground, lists with hanging indents, rules, and tables.
@@ -149,5 +153,9 @@ int uui_markdown_take_link(struct uui_markdown *m, char *out, int cap);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_markdown_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

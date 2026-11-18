@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // DEFLATE, both directions, in ring 3 -- RFC 1951, plus the zlib (RFC
 // 1950) and gzip (RFC 1952) wrappers around it.
 //
@@ -167,5 +171,9 @@ int udeflate_sync(struct udeflate_stream *st, const void *src, size_t n,
 size_t udeflate_bound(size_t n);
 
 const char *uinflate_error(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UINFLATE_H

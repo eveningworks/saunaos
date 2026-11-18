@@ -3,6 +3,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Path manipulation, in one place.
 //
 // Three separate resolvers existed before this: `shell.c`'s
@@ -101,5 +105,9 @@ int k_path_dirname(const char *path, char *out, size_t cap);
 // 64 costs 512 bytes of segment stack and is past anything this
 // filesystem's layout produces.
 #define KPATH_MAX_DEPTH 64
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

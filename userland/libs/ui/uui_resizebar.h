@@ -19,6 +19,10 @@
 #include <stdint.h>
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_resizebar {
     int x, y, w, h;
     // The run drawn, [0, span), in one unit. [0, start) is what lies
@@ -45,5 +49,9 @@ int  uui_resizebar_set_end(struct uui_resizebar *b, uint64_t end);
 void uui_resizebar_handle(const struct uui_resizebar *b, int *x, int *y, int *w, int *h);
 
 extern const struct uui_widget_ops uui_resizebar_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

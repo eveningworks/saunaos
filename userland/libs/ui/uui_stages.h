@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_progress.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A JOB'S STAGES AND HOW FAR IT HAS GOT: "Stage 2 of 3: ...", a bar, a
 // count under it, and every stage listed -- done, running, or still to
 // come -- each with a line of its own. Windows' chkdsk and its "Scanning
@@ -42,5 +46,9 @@ void uui_stages_draw(struct ugfx_surface *surf, const struct uui_stages *s);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_stages_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

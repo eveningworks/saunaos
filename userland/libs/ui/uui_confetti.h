@@ -19,6 +19,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_CONFETTI_MAX 72
 
 struct uui_confetti_piece {
@@ -58,5 +62,9 @@ int uui_confetti_draw(struct ugfx_surface *s, struct uui_confetti *c,
 static inline int uui_confetti_active(const struct uui_confetti *c) {
     return c->dur_ms != 0;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // UUI_CONFETTI_H

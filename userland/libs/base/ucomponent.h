@@ -26,6 +26,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UCOMPONENT_DIR    "/usr/share/components"
 #define UCOMPONENT_STATE  "/var/lib/update/components"
 #define UCOMPONENT_ID_MAX 24              // 23 bytes and the NUL: components.py's ID
@@ -140,5 +144,9 @@ void ucomponent_view_free(struct ucomponent_view *v);
 
 // The Category= key as a person reads it ("devtools" -> "Developer tools").
 const char *ucomponent_category_label(const char *key);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

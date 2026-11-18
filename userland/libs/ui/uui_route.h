@@ -3,6 +3,10 @@
 
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_route -- pointer input, delivered to widgets by the toolkit
 // instead of by every app.
 //
@@ -235,5 +239,9 @@ int uui_router_edit_at(const struct uui_router *r, int cx, int cy,
 // Drops any grab -- for an app that tears down or replaces its widgets
 // while the button is held.
 void uui_router_reset(struct uui_router *r);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

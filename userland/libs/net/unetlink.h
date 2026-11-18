@@ -20,6 +20,10 @@
 #include "query_abi.h"
 #include "etc_config.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UNETLINK_CONF "/etc/net.conf"
 
 // The sections that can address a card, MOST SPECIFIC FIRST -- its MAC,
@@ -67,5 +71,9 @@ int unetlink_set(const struct query_netdev *d, const struct net_linkcfg *want);
 
 // The driver's own values back, and the card's keys out of its section.
 int unetlink_reset(const struct query_netdev *d);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UNETLINK_H

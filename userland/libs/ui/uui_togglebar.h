@@ -15,6 +15,10 @@
 #include "ui/uui_widget.h"
 #include "ui/uui_tip.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_toggle {
     const char *label;        // a word ("Fill"), or NULL for an icon alone
     const char *tip;          // what it does: its tooltip, the layout log's, a test's
@@ -42,5 +46,9 @@ int  uui_togglebar_tick(struct uui_togglebar *t);
 int  uui_togglebar_tip_waiting(const struct uui_togglebar *t);
 
 extern const struct uui_widget_ops uui_togglebar_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

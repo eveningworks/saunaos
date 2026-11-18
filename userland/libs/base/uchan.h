@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "base/uchan_page.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uchan -- a message channel between two ring-3 processes.
 //
 // **ASYNCHRONOUS BY DEFAULT.** A send writes a slot and returns; it does
@@ -171,5 +175,9 @@ uint32_t uchan_client_dropped(const struct uchan_client *c);
 // ring was granted to. Cheap enough to ask on a wait timeout, not on
 // every wake.
 int uchan_client_server_alive(const struct uchan_client *c);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

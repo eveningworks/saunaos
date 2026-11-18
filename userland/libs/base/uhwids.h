@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Names for hardware ids, from the pci.ids / usb.ids databases -- the
 // files a Linux distribution ships as hwdata, refreshed by /bin/hwdata.
 // One streaming parser for lspci, lsusb and the Device Manager.
@@ -41,5 +45,9 @@ struct uhwids_entry {
 // Fills every entry's names from `path`. 0, or -1 when the file cannot
 // be opened (every name then "").
 int uhwids_resolve(const char *path, struct uhwids_entry *e, int n);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

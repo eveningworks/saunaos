@@ -23,6 +23,10 @@
 #include "base/ucolour.h"
 #include "ui/uui_colourfield.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The ids it reports under: id_base .. id_base + UUI_COLOURPICK_IDS - 1.
 #define UUI_COLOURPICK_IDS 6
 
@@ -54,5 +58,9 @@ struct uui_item uui_colourpick_item(struct uui_colourpick *c);
 int uui_colourpick_focusables(struct uui_colourpick *c, struct uui_focusable *out, int max);
 // 1 when `id` was one of its controls AND the colour changed.
 int uui_colourpick_on_widget(struct uui_colourpick *c, int id);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

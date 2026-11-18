@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A SoundFont 2 bank, parsed and FLATTENED. Shared between usnd_synth.c,
 // usnd_mid.c and their tests; not for apps.
 //
@@ -107,5 +111,9 @@ void sf2_put(struct sf2_bank *b);
 // (bank, program), or NULL. No fallback here -- that is GM policy and
 // belongs to the synth.
 const struct sf2_preset *sf2_find(const struct sf2_bank *b, int bank, int program);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

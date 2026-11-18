@@ -19,6 +19,10 @@
 #include <stdint.h>
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uimg;
 
 typedef void (*uui_medialist_text_fn)(void *ctx, int row, char *title, int tcap,
@@ -51,5 +55,9 @@ int  uui_medialist_take(struct uui_medialist *m);
 int  uui_medialist_row_h(void);
 
 extern const struct uui_widget_ops uui_medialist_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

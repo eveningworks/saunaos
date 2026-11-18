@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Turning a name into an address: DNS over UDP, in ring 3.
 //
 // A LIBRARY RATHER THAN A DAEMON, and rather than a copy inside each
@@ -38,5 +42,9 @@ int uresolv_lookup(const char *name, uint32_t server, uint32_t *out_ip);
 // because every caller of the above wants to try this FIRST -- looking
 // up "10.0.2.2" would be a query for a name that is already an answer.
 int uresolv_parse_ip(const char *s, uint32_t *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_URESOLV_H

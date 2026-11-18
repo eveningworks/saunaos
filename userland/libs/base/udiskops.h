@@ -21,6 +21,10 @@
 #include "partition_abi.h"
 #include "base/udiskscan.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum { UDISKOP_CREATE = 1, UDISKOP_DELETE, UDISKOP_RESIZE, UDISKOP_FORMAT };
 
 // A step's text, sized from what goes into it -- a device and a disk, a
@@ -109,5 +113,9 @@ int udiskops_run(const struct udiskop *op, char *why, size_t cap,
 // reason in `why` and `*stage` 1 when the table refused, 2 the filesystem.
 int udiskops_resize_part(const char *dev, uint64_t now, uint64_t want, int has_fs, struct fs_resize_info *info,
                          char *why, size_t cap, int *stage);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

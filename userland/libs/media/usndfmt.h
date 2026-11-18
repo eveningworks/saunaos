@@ -10,6 +10,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // THE RATE POLICY. `match`: follow what plays -- a stream starting on an
 // idle card takes the card to its own rate when `allowed` holds it, and
 // everything else is resampled to whatever the card runs at. Otherwise
@@ -45,5 +49,9 @@ uint32_t usndfmt_pick_bits(const struct usndfmt *f, uint32_t card_depths);
 
 // "44.1 kHz", "48 kHz", "192 kHz" -- for a person.
 const char *usndfmt_rate_label(uint32_t hz, char *buf, uint32_t size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_USNDFMT_H

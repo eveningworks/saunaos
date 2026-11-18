@@ -1,6 +1,10 @@
 #ifndef ICON_GRID_H
 #define ICON_GRID_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A small reusable icon-grid geometry + drag-to-reposition helper.
 // First caller: the desktop icon grid (userland/apps/system/toywm/desktop.c); built as a
 // standalone widget (not desktop.c-local) so a future file manager's
@@ -58,5 +62,9 @@ void icon_drag_update(const struct icon_drag *drag, const struct icon_grid *grid
                        int mx, int my, int *out_col, int *out_row);
 
 void icon_drag_end(struct icon_drag *drag);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

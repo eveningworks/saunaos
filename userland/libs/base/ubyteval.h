@@ -12,6 +12,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum ubyteval_row {
     UBV_BINARY, UBV_INT8, UBV_INT16, UBV_INT32, UBV_INT64, UBV_HEX64,
     UBV_FLOAT32, UBV_FLOAT64, UBV_UTF8, UBV_ROWS
@@ -53,5 +57,9 @@ int ubyteval_c_array(const uint8_t *b, size_t n, char *out, size_t cap);
 // How big each of those is for `n` bytes, NUL included -- to allocate.
 size_t ubyteval_hex_size(size_t n);
 size_t ubyteval_c_size(size_t n);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

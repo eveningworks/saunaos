@@ -13,6 +13,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_primitives.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 // Split out of the single uwidgets.c/.h this used to be, one file per
 // widget -- the same shape as apps/ui/, so a widget's kernel-side and
@@ -185,5 +189,9 @@ extern const struct uui_widget_ops uui_textbox_focus_ops;
 // the caret. Everything a text field does with the KEYBOARD is still
 // uui_textbox_key()'s.
 extern const struct uui_widget_ops uui_textbox_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

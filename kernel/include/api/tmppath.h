@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // WHERE SCRATCH GOES, asked for rather than spelled out.
 //
 // There are two scratch directories and they promise different things:
@@ -66,5 +70,9 @@ const char *tmpdir_for(enum tmp_kind kind);
 // every caller-side path buffer here is 64 bytes, so "/tmp/x" fits and
 // a hand-set "/mnt/scratch/deep/x" may not.
 int tmppath(char *out, uint32_t cap, enum tmp_kind kind, const char *name);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

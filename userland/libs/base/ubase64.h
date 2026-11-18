@@ -5,11 +5,19 @@
 // what an HTTP Basic credential, a data: URL or a MIME part carries.
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The encoded length of `n` bytes, without the terminator.
 #define UBASE64_LEN(n) ((((n) + 2) / 3) * 4)
 
 // Encodes `n` bytes into `out` and terminates it. Returns the length, or
 // -1 -- writing NOTHING -- when `cap` cannot hold it and the NUL.
 int ubase64_encode(const void *in, size_t n, char *out, size_t cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

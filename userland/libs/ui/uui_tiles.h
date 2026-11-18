@@ -14,6 +14,10 @@
 #include "media/ucursor.h"
 #include "media/uimg.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_TILES_MAX 16
 // The desktop's own colour (desktop.c's DESKTOP_BG): behind a cursor
 // set's lower half, and under a picture that has not loaded.
@@ -54,5 +58,9 @@ void uui_picture_tiles_reset(struct uui_picture_tiles *c);
 // directory is this with the directory as `ctx`: uui_tile_load_dir.
 int uui_tile_load_cover(const char *dir, const char *stem, int w, int h, struct uimg *out);
 int uui_tile_load_dir(const char *name, int w, int h, struct uimg *out, void *dir);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -18,6 +18,10 @@
 // holds UEMOJI_RECENT_MAX or as many as fit, whichever is fewer.
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UEMOJI_DATA_PATH    "/usr/share/unicode/emoji"
 #define UEMOJI_RECENT_SET   "desktop.emoji.recent"
 #define UEMOJI_RECENT_MAX   16
@@ -77,5 +81,9 @@ int uemojidata_recent_push(const char *value, uint32_t cp, char *out, int cap);
 // registry). _add returns 1 when the setting took it.
 int uemojidata_recents(int *out, int cap);
 int uemojidata_recent_add(int entry);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

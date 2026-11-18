@@ -26,6 +26,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // How many pixels share one exact divide. A power of two so the
 // step is a shift. 16 is Quake's number and the error at that length is
 // below a pixel of texture for anything not nearly edge-on; drop it to
@@ -119,5 +123,9 @@ void ugfx_tri3d(struct ugfx_surface *s, struct ugfx_zbuffer *zb,
 // obvious, which a photograph hides.
 void ugfx_texture_checker(uint32_t *px, int w, int h, int cell,
                           uint32_t a, uint32_t b);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

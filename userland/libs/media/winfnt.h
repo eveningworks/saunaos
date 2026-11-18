@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Windows' bitmap fonts: a .FON -- an NE module whose RT_FONT resources
 // are FNT 2.0 or 3.0 raster fonts, one face at one size each -- or a bare
 // .FNT. What Windows 3.x drew its System, Fixedsys and MS Sans Serif text
@@ -49,5 +53,9 @@ int winfnt_width(const struct winfnt *f, unsigned ch);
 // `stride` bytes at `out`; cut to `max_w` columns. Its advance, or -1
 // (a vector font, or the glyph's bitmap lies outside the file).
 int winfnt_glyph(const struct winfnt *f, unsigned ch, uint8_t *out, int stride, int max_w);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

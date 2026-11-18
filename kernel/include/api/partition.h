@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // MBR/GPT partition tables: reading them, and writing them.
 //
 // THIS IS ON THE BOOT PATH NOW. It was read-only and diagnostic-only
@@ -214,5 +218,9 @@ int partition_edit_of(const struct block_device *dev, enum partition_edit_op op,
                       int slot, uint64_t sectors, const char **why);
 int partition_validate_on(const struct block_device *dev,
                           const struct partition_table *in, const char **why);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

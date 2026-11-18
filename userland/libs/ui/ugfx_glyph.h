@@ -9,6 +9,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The glyph for `cp` in font `f`: a coverage cell `*w` wide and `*h`
 // (== f->char_h) tall with the baseline on the atlas's row, and the pen
 // advance. `emoji` asks for emoji presentation (a variation selector's
@@ -19,5 +23,9 @@
 // eviction may free it.
 int ugfx_glyph_get(const struct ugfx_font *f, uint32_t cp, int emoji,
                    const unsigned char **cov, int *w, int *h, int *adv, int *color);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -15,6 +15,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct ugfx_pix_ops {
     const char *name;
 
@@ -61,5 +65,9 @@ extern const struct ugfx_pix_ops ugfx_pix_c, ugfx_pix_sse2;
 // The table in use: chosen on first call from UGFX_SIMD in the
 // environment ("off" = C), then whatever ugfx_simd_set() last chose.
 const struct ugfx_pix_ops *ugfx_pix(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

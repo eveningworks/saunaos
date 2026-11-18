@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A KEY COMBINATION AS TEXT, both ways: "Ctrl+Alt+T" <-> (key, mods).
 //
 // It is here rather than in the compositor because THREE places need the
@@ -71,5 +75,9 @@ int keycombo_format(const struct keycombo *c, char *out, size_t cap);
 // combination naming Ctrl matches on the CONTROL CODE, and the caller
 // does not have to know that happened.
 int keycombo_matches(const struct keycombo *c, int key, uint8_t mods);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

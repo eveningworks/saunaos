@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_primitives.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A slider with DISCRETE STOPS -- one per option, not a continuous range.
 //
 // Written for System Settings' pointer acceleration, where the values
@@ -75,5 +79,9 @@ int  uui_slider_wheel(struct uui_slider *s, int notches);
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_slider_focus_ops;
 extern const struct uui_widget_ops uui_slider_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -6,6 +6,10 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A MODAL over the app's own window: a title, some lines, and a row of
 // buttons. Qt's QMessageBox, GTK's GtkMessageDialog, Win32's
 // MessageBox -- the control every toolkit has because every app
@@ -152,5 +156,9 @@ void uui_dialog_draw(struct ugfx_surface *s, const struct uui_dialog *d);
 int  uui_dialog_key(struct uui_dialog *d, int key);
 
 extern const struct uui_widget_ops uui_dialog_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // UUI_DIALOG_H

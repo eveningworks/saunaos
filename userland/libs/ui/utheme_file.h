@@ -15,6 +15,10 @@
 #include "ui/utheme.h"
 #include "setting_abi.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UTHEME_SHIPPED_DIR "/usr/share/themes"
 #define UTHEME_LOCAL_DIR   "/etc/themes"
 #define UTHEME_STEM_MAX    32
@@ -75,5 +79,9 @@ int utheme_save(const char *path, const struct utheme *t, const struct utheme_bu
 // how many bundled settings were applied, or -1 when `stem` loads
 // nothing.
 int utheme_apply(const char *stem);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

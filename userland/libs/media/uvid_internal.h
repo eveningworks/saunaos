@@ -7,6 +7,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Records the sentence uvid_last_error() returns.
 void uvid_fail(const char *msg);
 
@@ -117,5 +121,9 @@ struct uvid {
     // at the target; that frame is handed out by the next uvid_next().
     const struct uvid_frame *held;
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

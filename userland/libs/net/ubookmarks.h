@@ -1,6 +1,10 @@
 #ifndef ULIB_UBOOKMARKS_H
 #define ULIB_UBOOKMARKS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ubookmarks -- a list of bookmarked pages, kept in one file: a line per
 // bookmark, "URL<tab>title", in the order they were added, readable with
 // `less`. The Web Browser's (docs/browser-design.md, stage 5), with
@@ -30,5 +34,9 @@ void ubookmarks_remove(struct ubookmarks *bm, int i);
 // NetSurf's hotlist (the Netscape bookmark HTML it writes): every link
 // in it, in order. Returns how many were added.
 int  ubookmarks_import_netsurf(struct ubookmarks *bm, const char *path);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

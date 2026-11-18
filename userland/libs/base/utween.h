@@ -20,6 +20,10 @@
 #include <stdint.h>
 #include "fixed.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // WHICH CURVE. Ease-out is the default and everything that existed
 // before this uses it -- a scroll, a window opening in place. Travel
 // is the case it reads wrong for: a window flying to the taskbar
@@ -72,5 +76,9 @@ fx_t utween_ease_out(fx_t t);
 // endpoints and the same monotonicity as ease-out, so a caller can
 // swap between them without any other assumption changing.
 fx_t utween_ease_in_out(fx_t t);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UTWEEN_H

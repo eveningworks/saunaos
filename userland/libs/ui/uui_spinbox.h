@@ -6,6 +6,10 @@
 #include "ui/uui_textbox.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A NUMBER YOU CAN TYPE OR STEP: a text field with up/down steppers,
 // bounded by min/max and moved by `step`.
 //
@@ -98,5 +102,9 @@ void uui_spinbox_set_geometry(struct uui_spinbox *s, int x, int y, int w, int h)
 void uui_spinbox_draw(struct ugfx_surface *surf, const struct uui_spinbox *s);
 
 extern const struct uui_widget_ops uui_spinbox_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

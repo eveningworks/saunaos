@@ -1,6 +1,10 @@
 #ifndef ULIB_UBOOTMENU_H
 #define ULIB_UBOOTMENU_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // GRUB's menu, read from its grub.cfg, and the ONE-SHOT choice of which
 // entry the next boot takes -- `grub-reboot`'s mechanism, for `reboot
 // --entry` and the Leave page's "Restart into".
@@ -74,5 +78,9 @@ int ubootmenu_env_set_at(const char *env_path, const char *name, const char *val
 // is not mounted or the remount failed (it is put back read-only).
 int uboot_writable(char *dev, int cap);
 void uboot_restore(const char *dev);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

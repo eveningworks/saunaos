@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_swatches -- A GRID OF COLOURS TO PICK FROM: a paint program's
 // palette and its recent colours, Windows Paint's colour box and
 // KolourPaint's. Square cells, wrapped to the width it is given; a click
@@ -33,5 +37,9 @@ int  uui_swatches_at(const struct uui_swatches *s, int cx, int cy);
 int  uui_swatches_take(struct uui_swatches *s, uint32_t *rgb);
 
 extern const struct uui_widget_ops uui_swatches_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

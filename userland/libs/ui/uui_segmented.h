@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_primitives.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A SEGMENTED CONTROL: two to four mutually-exclusive choices as one row
 // of joined buttons, the chosen one filled -- macOS's NSSegmentedControl,
 // Windows' and KDE's view switchers. The same data as uui_radio_list
@@ -45,5 +49,9 @@ int  uui_segmented_at(const struct uui_segmented *sg, int cx, int cy);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_segmented_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

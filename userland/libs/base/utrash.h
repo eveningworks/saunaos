@@ -32,6 +32,10 @@
 #include <stdint.h>
 #include "rtctime.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UTRASH_PATH 256
 
 struct utrash_item {
@@ -113,5 +117,9 @@ int utrash_usage(struct utrash_usage *out, int cap);
 // caller's (tens of KB). The number deleted, or -errno.
 struct ufileop;
 int utrash_expire(const struct utrash_limits *l, struct ufileop *op);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,6 +1,10 @@
 #ifndef ULIB_UHOSTNAME_H
 #define ULIB_UHOSTNAME_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // This computer's name -- `system.hostname`, what About shows, what a VNC
 // viewer's title bar says and what the remote-desktop certificate names.
 // A setting rather than Linux's /etc/hostname + sethostname(): nothing in
@@ -17,5 +21,9 @@ void uhostname_get(char *out, int cap);
 // with '-'. A parser that REJECTS rather than guesses -- "My PC" is not
 // turned into "My-PC" behind anyone's back. 1 when valid.
 int uhostname_valid(const char *name);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

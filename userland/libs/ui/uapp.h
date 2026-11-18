@@ -7,6 +7,10 @@
 #include "ui/uui_button_group.h"
 #include "ui/uui_layout.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uapp -- Toykit's application layer: describe your app, supply
 // callbacks, and let the library own the window handshake and the event
 // loop.
@@ -958,5 +962,9 @@ struct ugfx_surface *uapp_surface(struct uapp_draw *d);
 // calls SDL_PollEvent from its own while, and SDL's video driver pumps
 // uapp from there. Anything that only needs to paint early still wants
 // uapp_flush(), not this.
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

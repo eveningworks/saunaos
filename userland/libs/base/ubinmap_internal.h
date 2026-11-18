@@ -6,6 +6,10 @@
 // their range clipped. Shared by ubinmap.c and every ubinmap_<kind>.c.
 #include "base/ubinmap.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct ubinmap_ctx {
     const struct ubinmap_src *src;
     struct ubinmap *m;
@@ -54,5 +58,9 @@ int ubinmap_fat(struct ubinmap_ctx *c);
 int ubinmap_mbr(struct ubinmap_ctx *c);
 int ubinmap_qoi(struct ubinmap_ctx *c);
 int ubinmap_bmp(struct ubinmap_ctx *c);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

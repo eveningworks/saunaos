@@ -22,6 +22,10 @@
 #include <time.h>
 #include "base/ulistdir.h"   // struct ulist_entry
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UCRASH_MAPS   64
 #define UCRASH_FRAMES 32
 #define UCRASH_LOG    6144   // the kernel log's tail, as the report carries it
@@ -99,5 +103,9 @@ void ucrash_headline(const struct ucrash *r, char *out, int cap);
 // "Killed by SIGSEGV" -> "pid 20", from the log's `kill(pid N, ...) by
 // pid M` line; "" when nothing sent it.
 void ucrash_sender(const struct ucrash *r, char *out, int cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

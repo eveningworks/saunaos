@@ -20,6 +20,10 @@
 #include "ui/uui_toolbar.h"
 #include "base/ulistdir.h"   // struct ulist_entry
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // --- the file chooser, as a window ------------------------------------
 //
 // ONE CHOOSER FOR EVERY APP, in a window of its own -- Win32's
@@ -186,5 +190,9 @@ int uui_filedialog_is_open(const struct uui_filedialog *fd);
 // a chooser is up. The ordinary ends (a choice, Cancel, the X) all go
 // through the callback instead.
 void uui_filedialog_close_window(struct uui_filedialog *fd);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // UUI_FILEDIALOG_H

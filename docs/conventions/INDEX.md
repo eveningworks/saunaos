@@ -1332,9 +1332,11 @@ whenever a headline here tells you something you did not already know.
   REACHES THEM ONLY BY `make native-toolchain`** -- `make iso` copies
   `toolchain/native/` as it is; the stamp rebuilds on an SDK change
 - **A C OR POSIX FUNCTION IN tolibc IS A REAL SYMBOL, NEVER A `static
-  inline` IN ITS HEADER, AND A tolibc HEADER IS C++-CLEAN** -- a hosted
+  inline` IN ITS HEADER, AND EVERY SDK HEADER IS C++-CLEAN** -- a hosted
   gcc calls `strlen`/`snprintf` by name, and autoconf finds a function
-  by LINKING a call; `extern "C"` with the includes outside it
+  by LINKING a call; `extern "C"` with the includes outside it, the
+  toolkit's too, and a missing block fails only the LINK
+  (`cxx_headers_hostcheck.py`)
 - **A LINK WITH `link.ld` OR `link-dyn.ld` PASSES `--eh-frame-hdr`, OR ITS
   PT_GNU_EH_FRAME POINTS AT ADDRESS 0**
 - **FILES THAT MUST NOT BE PUBLISHED GO IN `todisk/` (git-ignored), AND ONLY

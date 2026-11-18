@@ -5,6 +5,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_primitives.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A MEASURED VALUE, shown big: a caption, a number, its unit, an
 // optional detail line and an optional fill bar.
 //
@@ -125,5 +129,9 @@ void uui_meter_draw(struct ugfx_surface *s, const struct uui_meter *m);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_meter_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_sbar -- one scrollbar's STATE, for a widget to embed: the
 // overlay bar in a reserved strip, its hover, its thumb grab and its
 // track paging, so every scrolling view looks and behaves the same
@@ -72,5 +76,9 @@ int  uui_sbar_motion(struct uui_sbar *b, int cx, int cy, unsigned buttons);
 int  uui_sbar_release(struct uui_sbar *b);
 // The pointer left the widget: the bar goes thin unless a drag holds it.
 int  uui_sbar_leave(struct uui_sbar *b);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

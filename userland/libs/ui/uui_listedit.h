@@ -19,6 +19,10 @@
 #include "ui/uui_table.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_LISTEDIT_BUTTONS_MAX 8   // a column of buttons, not data
 
 struct uui_listedit {
@@ -50,5 +54,9 @@ int  uui_listedit_selected(const struct uui_listedit *l);       // a row, or -1
 void uui_listedit_select(struct uui_listedit *l, int row);
 
 extern const struct uui_widget_ops uui_listedit_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

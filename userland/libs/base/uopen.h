@@ -3,6 +3,10 @@
 
 #include "base/ulaunch.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uopen -- which program opens this file?
 //
 // FREEDESKTOP'S SPLIT, WITHOUT THE DAEMON. Two layers, asked in order:
@@ -151,5 +155,9 @@ int uopen_apps_for(const char *path, struct uopen_app *out, int max, int *curren
 // `open -s` writes. 0, or -1 when the path has no extension or the file
 // cannot be written.
 int uopen_set_default(const char *path, const char *entry);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,6 +1,10 @@
 #ifndef ULIB_UBOOTLAYOUT_H
 #define ULIB_UBOOTLAYOUT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Where GRUB's files are on the boot volume, and the one-time move from
 // the layout before this one.
 //
@@ -40,5 +44,9 @@ void ubootlayout_drop_flat(void);
 // Remove /boot/boot, once the core image reading /boot/grub is in place.
 // 0, or -1 with `*why`.
 int ubootlayout_drop_legacy(const char **why);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

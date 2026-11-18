@@ -17,6 +17,10 @@
 #include "ui/uui_segbar.h"
 #include "base/udiskscan.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UUI_DISKPLAN_NEW_MAX 4
 
 struct uui_diskplan_new {
@@ -47,5 +51,9 @@ void uui_diskplan_set(struct uui_diskplan *p, const struct udisk *disk,
 void uui_diskplan_colour(struct uui_segbar_seg *s, int role, int strong);
 
 extern const struct uui_widget_ops uui_diskplan_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -12,6 +12,10 @@
 #include <stdint.h>
 #include "query_abi.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct umem_comp {
     uint64_t in_use;
     uint64_t apps, shared, graphics, kernel;
@@ -24,5 +28,9 @@ void umem_comp_from(const struct query_meminfo *m, uint64_t apps, struct umem_co
 
 // Both reads done here. 1 on success, 0 when the kernel answered short.
 int umem_comp_read(struct umem_comp *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

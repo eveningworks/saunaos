@@ -1128,7 +1128,7 @@ its loads, measured 3x faster in a plain host build and 2x SLOWER on
 the ASUS (`tools/hostchecks/ucrt_hostcheck.py --bench` compiles freestanding for
 this reason).
 
-## A C OR POSIX FUNCTION IN tolibc IS A REAL SYMBOL, NEVER A `static inline` IN ITS HEADER, AND A tolibc HEADER IS C++-CLEAN
+## A C OR POSIX FUNCTION IN tolibc IS A REAL SYMBOL, NEVER A `static inline` IN ITS HEADER, AND EVERY SDK HEADER IS C++-CLEAN
 
 The section above is true of the TREE's compiler line, not of every
 compiler that reads tolibc's headers. `x86_64-saunaos-gcc` and `g++` are
@@ -1158,8 +1158,19 @@ linkage), no C-only keyword at file scope (`abi/` spells
 `_Static_assert` through a C++ fallback at the top), and no C++ keyword
 as a parameter name (`mkstemp(char *template)` was one). GCC 16 no
 longer wraps system headers in `extern "C"` for a target that does not
-ask. `tools/tests/sweep/cross_gxx_test.py` compiles every libc header as
-C++ on its own.
+ask. `tools/tests/sweep/cross_gxx_test.py` compiles every SDK header as
+C++ on its own, against the cross compiler.
+
+**THE SAME GOES FOR THE TOOLKIT AND THE KERNEL HEADERS IT REACHES**
+(since 2026-11-18): every `userland/libs/{base,net,media,ui}/` header that
+declares a function, and every `kernel/include/api` one the SDK ships,
+carries the block. **A header with no `extern "C"` COMPILES as C++ without
+a word** -- the program then fails to LINK, every call mangled -- so
+`tools/hostchecks/cxx_headers_hostcheck.py`, in every preflight, checks
+LINKAGE (gcc's `-aux-info` lists each declaration by line; every
+non-static one must sit inside the block) as well as compiling each header
+as C++ with the host g++. A protocol header asserting its message size
+uses `_Static_assert` through the fallback in `base/uchan_page.h`.
 
 ## THE MACHINE'S `cc`, `as`, `ld` AND `ar` ARE STATIC: A tolibc CHANGE REACHES THEM ONLY BY `make native-toolchain`
 

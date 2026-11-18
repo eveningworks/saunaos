@@ -6,6 +6,10 @@
 // kernel's (kernel/fs/iso9660.c), mounted through base/udrive.h.
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // 1 when `path` is an ISO 9660 image (a primary volume descriptor at
 // sector 16), 0 when it is not, -1 when it cannot be read.
 int uiso_is_image(const char *path);
@@ -13,5 +17,9 @@ int uiso_is_image(const char *path);
 // Its volume label into `out` (UTF-8, trailing blanks dropped; "" when the
 // disc has none). 0, or -1 when it is no disc image or cannot be read.
 int uiso_label(const char *path, char *out, size_t cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

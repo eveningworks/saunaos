@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // uui_statusbar -- the strip along the bottom of an application window,
 // as Windows (the common control, `msctls_statusbar32`) and KDE
 // (KStatusBar / QStatusBar) both have it.
@@ -75,5 +79,9 @@ int uui_statusbar_pane_rect(const struct uui_statusbar *sb, int index,
 // `hit` slot would make it swallow clicks.
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_statusbar_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

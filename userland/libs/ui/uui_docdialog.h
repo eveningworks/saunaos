@@ -10,8 +10,17 @@
 // Program Compatibility Assistant's "what is wrong" page.
 #include "ui/uapp.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // `title` and `markdown` (`len` bytes) are copied.
 void uui_docdialog_open(struct uapp *a, const char *title, const char *markdown, int len);
 int  uui_docdialog_is_open(void);
 void uui_docdialog_close(void);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

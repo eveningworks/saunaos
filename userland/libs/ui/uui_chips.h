@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // FILTER CHIPS: a row of rounded pills, each a label and a count, one
 // chosen -- "All 50", "USER 26", "KERNEL 9" over a list the choice
 // filters. Material's filter chips and GNOME's pill rows; uui_segmented
@@ -41,5 +45,9 @@ int  uui_chips_at(const struct uui_chips *c, int cx, int cy);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_chips_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

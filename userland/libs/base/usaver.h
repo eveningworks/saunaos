@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Where the savers are. A program in here is a choice in System
 // Settings, because the setting's choice list IS this directory
 // (/etc/settings.d/desktop.screensaver's ChoiceDir).
@@ -155,5 +159,9 @@ void usaver_conf_path(const char *saver, char *out, size_t cap);
 // Choice.<key>.<value>= line per choice would be format for its own
 // sake.
 void usaver_display(const char *value, char *out, size_t cap);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_USAVER_H

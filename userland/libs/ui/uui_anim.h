@@ -1,6 +1,10 @@
 #ifndef UUI_ANIM_H
 #define UUI_ANIM_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // FRAMES FOR THINGS THAT MOVE ON THEIR OWN. Toykit draws when an event
 // asks it to and then blocks; a widget mid-animation has no event. It
 // calls uui_anim_request() from its draw instead, and uapp's pump
@@ -46,5 +50,9 @@ int uui_wheel_step_px(void);
 
 // How long a scroll glides. Qt animates a scrollbar over ~150 ms.
 #define UUI_SCROLL_MS 150
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // UUI_ANIM_H

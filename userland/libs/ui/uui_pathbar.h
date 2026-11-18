@@ -4,6 +4,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_textbox.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // A BREADCRUMB PATH: the folder you are in as a row of buttons, one per
 // level, each of which takes you there -- Explorer's address bar,
 // Dolphin's URL navigator, GTK's path bar. A click past the last
@@ -72,5 +76,9 @@ int  uui_pathbar_segment_count(const struct uui_pathbar *p);
 
 struct uui_widget_ops;
 extern const struct uui_widget_ops uui_pathbar_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

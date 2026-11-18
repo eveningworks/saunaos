@@ -16,6 +16,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum {
     UPREF_BOOL,   // int; `on` / `off` (read: `1`/`0` and `yes`/`no` too)
     UPREF_INT,    // int in lo..hi, decimal
@@ -60,5 +64,9 @@ void uprefs_read(const struct uprefs *p, void *obj);
 // is NULL. The number written, or -1 if any write failed: a save that
 // failed on the fifth key has half-applied the change and must say so.
 int uprefs_save(const struct uprefs *p, const void *obj, const void *was);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

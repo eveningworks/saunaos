@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // An X11 KEYSYM -- what a VNC viewer sends for a key (RFB 7.5.4) -- as
 // something SaunaOS's input core takes: a Latin-1 character to type on
 // the active layout, or an evdev keycode (abi/input_keys.h) for a key
@@ -18,5 +22,9 @@ enum ukeysym_kind { UKEYSYM_NONE, UKEYSYM_CHAR, UKEYSYM_KEY };
 
 // Classifies `keysym`; fills `*out` with the character or the keycode.
 enum ukeysym_kind ukeysym_lookup(uint32_t keysym, uint16_t *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

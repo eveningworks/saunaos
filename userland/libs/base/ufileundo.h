@@ -31,6 +31,10 @@
 
 #include "base/ufileop.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UFU_PATH  256    // the File Manager's PATH_MAX_LEN, mirrored
 #define UFU_DEPTH 8      // operations kept -- how far back Undo reaches
 // Two names and the words around them: "Moved <name> to <folder>".
@@ -93,5 +97,9 @@ void ufileundo_done(struct ufileundo *u, int redo);
 // them is ufileundo_done(). 0, or -1 out of memory, when the cursor
 // moves over the whole operation as ufileundo_done() would.
 int ufileundo_done_part(struct ufileundo *u, int redo, int ran);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "vga.h" // enum vga_color -- what an SGR parameter resolves to
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ANSI escape sequences as a pure state machine: the SGR (colour)
 // subset, plus cursor movement and erasing.
 //
@@ -142,7 +146,7 @@ struct ansi_parser {
     uint8_t bold;       // SGR 1 -- brightens the foreground
     uint8_t reverse;    // SGR 7 -- fg and bg swap, and the parser does
                         // the swapping, so a caller never sees this
-    uint8_t private;    // a `?`-style private sequence, swallowed whole
+    uint8_t private_seq; // a `?`-style private sequence, swallowed whole
     uint16_t param[ANSI_MAX_PARAMS];
     enum vga_color fg;  // the colours a completed ANSI_SGR resolves to
     enum vga_color bg;
@@ -202,5 +206,9 @@ int ansi_region_op(const struct ansi_region *r, int rows, enum ansi_op op,
 // mapping is the part worth asserting, and a caller writing escapes
 // (userland) needs the inverse of what the parser does.
 enum vga_color ansi_color(int index, int bright);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // API_ANSI_H

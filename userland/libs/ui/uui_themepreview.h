@@ -13,6 +13,10 @@
 #include "ui/utheme.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct uui_themepreview {
     int x, y, w, h;
     const struct utheme *theme;   // borrowed; NULL draws the live one
@@ -25,5 +29,9 @@ void uui_themepreview_init(struct uui_themepreview *p, const struct utheme *t);
 void uui_themepreview_draw(struct ugfx_surface *s, const struct uui_themepreview *p);
 
 extern const struct uui_widget_ops uui_themepreview_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

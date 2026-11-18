@@ -6,6 +6,10 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_listbox.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 // Split out of the single uwidgets.c/.h this used to be, one file per
 // widget -- the same shape as apps/ui/, so a widget's kernel-side and
@@ -111,5 +115,9 @@ extern const struct uui_widget_ops uui_dropdown_focus_ops;
 // before anything is hit-tested -- the popup is drawn outside this
 // widget's own rect, so nothing else can route it correctly.
 extern const struct uui_widget_ops uui_dropdown_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

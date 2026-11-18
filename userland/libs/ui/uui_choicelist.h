@@ -4,6 +4,10 @@
 #include "ui/ugfx.h"
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ONE CHOICE OUT OF A FEW, EACH A ROW THAT SAYS WHAT IT IS: a radio, a
 // bold title with small tags beside it ("default", "internal"), a line of
 // description under it, a value at the right and a badge under that
@@ -46,5 +50,9 @@ void uui_choicelist_draw(struct ugfx_surface *s, const struct uui_choicelist *l)
 int  uui_choicelist_at(const struct uui_choicelist *l, int cx, int cy);
 
 extern const struct uui_widget_ops uui_choicelist_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

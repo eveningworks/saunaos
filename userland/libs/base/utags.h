@@ -17,6 +17,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UTAGS_TEXT_MAX 64
 
 struct utags {
@@ -53,5 +57,9 @@ size_t utags_id3_size(const uint8_t *head, size_t len);
 // bits found (0: nothing, or not a format this reads).
 int utags_read(const char *path, struct utags *t, int want_art);
 void utags_free(struct utags *t);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

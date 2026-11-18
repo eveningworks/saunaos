@@ -17,6 +17,10 @@
 #include <stdint.h>
 #include "ui/uui_widget.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum { UUI_TRANSPORT_NONE = 0, UUI_TRANSPORT_PREV, UUI_TRANSPORT_PLAY, UUI_TRANSPORT_NEXT };
 
 struct uui_transport {
@@ -38,5 +42,9 @@ void uui_transport_part(const struct uui_transport *t, int part,
                         int *x, int *y, int *w, int *h);
 
 extern const struct uui_widget_ops uui_transport_ops;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
