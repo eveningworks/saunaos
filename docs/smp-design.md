@@ -422,6 +422,29 @@ stage 6's):
   is freed, and a kernel-map change goes to every core. Per-page ranges
   wait for a measurement.
 
+**Found 2026-11-19, reading for the build: three paths free a thread
+that is in ring 3, which on one core means "not running" and from
+stage 5 does not.** Each is safe today and a use-after-free of a kernel
+stack and an address space the moment a sibling runs on another core:
+
+- `scheduler_exit_group()` (`sched_exit.c`): after `group_defer_death()`
+  finds no sibling mid-call, `group_release_threads_but()` frees the
+  rest in place -- "every other thread is in ring 3".
+- `scheduler_exec()` (`sched_fork.c`): `group_release_threads()` frees
+  every sibling, then the old space is destroyed.
+- `scheduler_kill()`: a victim neither READY nor BLOCKED is refused as
+  "running (handled above)" -- on another core it is simply not killed.
+
+The fix is Linux's shape, and this kernel already has its first half:
+**a thread RUNNING on another core is counted as one parked mid-call**
+(`group_parked()`), so the death is deferred -- a pending SIGKILL, which
+that thread takes at its next kernel entry and leaves on its own -- and
+the sender kicks its core with a reschedule IPI rather than waiting out
+its slice (Linux's `kick_process()`). exec, which has no deferred form,
+must wait for those siblings to be gone first (Linux's `de_thread()`).
+Under the kernel lock a thread RUNNING elsewhere is in ring 3 or
+queued for the lock, never mid-call, so this is the whole set.
+
 `find_next_runnable()` becomes "find a runnable slot no other core is
 running", and `switch_to()` writes the per-CPU `current` rather than a
 global. One global run queue under the kernel lock is the right first
