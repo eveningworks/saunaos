@@ -140,6 +140,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `caption_corner_test.py` -- a maximized window's close button owns
 - `caret_blink_test.py` -- The text caret blinks, stops solid, and costs nothing once it stops
 - `charmap_test.py` -- Character Map (userland/apps/apps/charmap/charmap.c)
+- `cjk_text_test.py` -- Chinese, Japanese and Korean text draws from the fallback list's CJK face, its member by index
 - `clipboard_test.py` -- Drive the SYSTEM TEXT CLIPBOARD across two apps and assert on it
 - `clock_settings_test.py` -- System Settings' Date & time page: setting the clock by hand, and its lock
 - `compositor_death_test.py` -- The compositor death path -- The GUI in ring 3's R7

@@ -54,8 +54,10 @@ def cut(text, limit):
     return text.encode()[:limit].decode("utf-8", errors="ignore")
 
 
-def open_client(dbg, args, want, timeout=15.0):
-    """Spawns titleclient and waits for a window titled `want`. Returns
+def open_client(dbg, args, want, timeout=15.0, ready=None):
+    """Spawns titleclient and waits for a window titled `want` -- and, with
+    `ready`, until ready(window) is true too: its tabs come after its title,
+    so a wait on the title alone reads a window with no tabs yet. Returns
     (window, pid); the window is the last one seen if it never matched."""
     out = dbg.send(f"gui spawn {CLIENT} {args}") or ""
     m = re.search(r"as pid (\d+)", out)
@@ -66,7 +68,7 @@ def open_client(dbg, args, want, timeout=15.0):
         for w in dbg.windows():
             if w["title"].startswith(want[:8]):
                 seen[:] = [w]
-                if w["title"] == want:
+                if w["title"] == want and (ready is None or ready(w)):
                     return w
         return None
     win = harness.poll(match, timeout)
@@ -115,9 +117,10 @@ def run(dbg, qmp, res, scratch):
     close_client(dbg, pid, long_title)
 
     # 2. Long tab labels.
-    win, pid = open_client(dbg, "300 tabs", long_title)
-    labels = [t.get("label") for t in (win or {}).get("tabs", [])]
     want = [make("A:", 300), make("B:", 300)]
+    win, pid = open_client(dbg, "300 tabs", long_title,
+                           ready=lambda w: [t.get("label") for t in w.get("tabs", [])] == want)
+    labels = [t.get("label") for t in (win or {}).get("tabs", [])]
     res.check("two 300-byte tab labels arrive whole, each its own",
               labels == want,
               f"got {[len((l or '').encode()) for l in labels]} bytes")

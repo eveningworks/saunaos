@@ -20,11 +20,17 @@
 
 #define IMGCACHE_KEY_LOADED(seg, va) ((1ULL << 63) | ((uint64_t)(seg) << 48) | (va))
 
-// 1 if the cache may hold pages of `path`: under /bin/, /lib/ or
-// /tests/ (what the build seeds, rewritten only through the vfs calls
-// that forget) and spelled canonically -- a second spelling of one file
-// would be a second key that imgcache_forget() does not know about.
+// 1 if the cache may hold pages of `path`: under /bin/, /lib/, /tests/
+// or /usr/share/fonts/ (what the build seeds, rewritten only through the
+// vfs calls that forget) and spelled canonically -- a second spelling of
+// one file would be a second key that imgcache_forget() does not know
+// about.
 int imgcache_path_ok(const char *path);
+
+// 1 if `path` is the system image's CODE: imgcache_path_ok() and not the
+// fonts. What a sandbox without PROMISE_PROT_EXEC may still map
+// executable (mm/mmap.c) -- a font is data, and shares pages only.
+int imgcache_code_path_ok(const char *path);
 
 // The cached frame for (path, key), MARKED LENT -- the caller maps it
 // borrowed and it is never freed -- or 0 on a miss. Never sleeps.

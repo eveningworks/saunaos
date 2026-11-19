@@ -127,7 +127,8 @@ never was on a Linux machine with decades of mixed files.
 - **The four open questions, answered the same day**: an invalid byte is
   drawn as its LATIN-1 letter; step 3 converts the contents of `/etc` AND
   of text files under `/home` (`.txt`, `.md`, `.conf`, `.desktop`,
-  `.ini`; never w16's drives); NO CJK font for now -- boxes; the static
+  `.ini`; never w16's drives); NO CJK font for now -- boxes (one ships
+  since 2026-11-19); the static
   check on byte loops FAILS THE BUILD.
 
 ## Decided here, and why
@@ -345,7 +346,8 @@ paste as themselves into any field.
 Each step's checks go red on the build before it (the positive control):
 
 - **A corpus**, `data/tests/utf8/`: Polish, Greek, Cyrillic, box drawing,
-  a CJK line (tofu, by design), an invalid byte, and a Latin-1 file.
+  a CJK line (tofu until 2026-11-19, glyphs since), an invalid byte, and
+  a Latin-1 file.
 - **Drawing**: Notepad opened on the corpus, compared by PIXELS against
   uglyph rendering the same text (an independent path); the Latin-1 file
   still shows `å` (the transition rule's control).
@@ -374,9 +376,11 @@ Right-to-left text and bidirectional layout; shaping (Arabic joining,
 Indic scripts); normalisation of what is STORED (names compare bytewise,
 Linux's rule, not macOS's -- a decomposed name is only DRAWN composed,
 since 2026-11-18's grapheme clusters, docs/decisions/gui.md); input
-methods; translations. **A CJK font** is not shipped
+methods; translations. **A CJK font** was not shipped at first
 (DejaVu and Liberation have no CJK, and Noto Sans CJK is tens of
-megabytes a weight); CJK draws as boxes until a font is decided on.
+megabytes a weight); since 2026-11-19 Noto Sans CJK Regular ships as an
+optional component and a fallback face (docs/decisions/gui.md, "Chinese,
+Japanese and Korean from one Noto Sans CJK collection").
 
 ## Answered (2026-10-28)
 

@@ -297,8 +297,20 @@ def main():
         res.check("...and All brings every card back", r is not None and st and st["cat"] == 1, str(st))
 
         def press(cid):
-            i = app.cards().get(cid, (None,))[0]
-            r = app.rect("cards.button", i) if i is not None else None
+            # A card cut off by the grid's bottom still reports its button,
+            # and the button may be below the edge: scroll it into view
+            # first, as a person would -- the wheel goes where the REAL
+            # pointer is, so park it on the grid.
+            r = None
+            for _ in range(8):
+                i = app.cards().get(cid, (None,))[0]
+                r = app.rect("cards.button", i) if i is not None else None
+                grid = app.rect("cards")
+                if not r or not grid or r[1] + r[3] <= grid[1] + grid[3]:
+                    break
+                c = win["content"]
+                qmp.goto(c["x"] + grid[0] + grid[2] // 2, c["y"] + grid[1] + grid[3] // 2)
+                dbg.wheel(-1)
             if r:
                 click_rect(dbg, win, r)
             return r is not None

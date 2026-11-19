@@ -2522,7 +2522,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# face picker and fontd, which list /usr/share/fonts itself, never offer
 	# a symbol or emoji font as the interface face.
 	mkdir -p $(SEED_DIR)/sync/usr/share/fonts/fallback
-	cp data/fonts/fallback/*.ttf data/fonts/fallback/LICENSE-*.txt $(SEED_DIR)/sync/usr/share/fonts/fallback/
+	cp data/fonts/fallback/*.ttf data/fonts/fallback/*.ttc data/fonts/fallback/LICENSE-*.txt $(SEED_DIR)/sync/usr/share/fonts/fallback/
 	# The Doom IWAD, and ONLY under EXTRAS=1. It is the one seeded file
 	# deliberately NOT in the repository -- `tools/fetch/fetch_wad.py` puts it
 	# in data/doom/, and a clean checkout has no such directory (see

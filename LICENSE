@@ -65,6 +65,12 @@ lacks (/etc/fonts/fallback.conf orders them):
   noto-sans-math.ttf                Version 1.1. Full text:
                                     data/fonts/fallback/LICENSE-Noto.txt.
 
+  noto-sans-cjk-regular.ttc         Noto Sans CJK Regular (Chinese,
+                                    Japanese and Korean), (c) 2014-2021
+                                    Adobe, under the SIL Open Font
+                                    License, Version 1.1. Full text:
+                                    data/fonts/fallback/LICENSE-Noto-CJK.txt.
+
   twemoji.ttf                       Twemoji Mozilla, the emoji face:
                                     artwork by Twitter, Inc and other
                                     contributors under CC BY 4.0 (credited

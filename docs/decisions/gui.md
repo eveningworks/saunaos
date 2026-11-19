@@ -13505,6 +13505,41 @@ table, which is a different format. A refused glyph draws as nothing and
 the fallback list moves on. A collection's member is named `file:N` where a
 list names a face (`fallback.conf`, from the CJK step on).
 
+## Chinese, Japanese and Korean from one Noto Sans CJK collection, mapped and shared
+
+**Decided 2026-11-19, from a canvas of real renders.** Han, kana and
+Hangul come from Noto Sans CJK Regular, the whole `.ttc` (19.5 MB),
+committed under `data/fonts/fallback/` and listed in `fallback.conf` as
+`noto-sans-cjk-regular:2` -- its Simplified Chinese member. It is an
+OPTIONAL COMPONENT ("Chinese, Japanese and Korean fonts"), so a machine
+that never shows CJK can remove it in the Software app.
+
+**One file, any region.** All ten members of the collection share one
+15.5 MB CFF table; a member is its own `cmap` (and layout tables), which
+points a code point at its region's form. So shipping one region costs
+what shipping all five does, and the member index alone picks the shapes
+骨, 過 or 写 take. **Simplified Chinese by default**, Android's first CJK
+fallback (Windows' Segoe UI font link reaches a Japanese face first);
+a user changes the number. Choosing the member by the TEXT'S language,
+as Pango does, needs a language on every string: the roadmap's.
+
+**Committed, not fetched.** Like the four Noto faces and Twemoji: CJK text
+works on a fresh install with no network, and the build depends on no
+host font. The cost is the repository (+19.5 MB) and one System Update
+that carries the file. Ruled out: an `EXTRAS=1` fetch (a default build
+would draw boxes) and a download from the Software app (CJK text needs
+the internet first).
+
+**Mapped, and shared through the system image cache.** The glyph cache
+(`ui/ugfx_glyph.c`) maps a fallback face read-only instead of reading it
+in, and `/usr/share/fonts/` joined `kernel/mm/imgcache.c`'s paths, so a
+page of a font is one frame however many processes draw from it -- what
+Linux's page cache does for fontconfig's mapped fonts. Measured: a
+Notepad drawing CJK holds 4.4 MB (4.1 without the face), and the cache
+held 504 KB of the collection with no page unshared. The fonts are not
+CODE to that cache: `imgcache_code_path_ok()` keeps a sandbox's W^X
+exception to `/bin`, `/lib` and `/tests`.
+
 ## A long window title travels in pieces, and the compositor keeps it sized to fit
 
 A title and a tab label rode one channel message's 32-byte `text`, so

@@ -26,9 +26,11 @@
 #include "base/ulog.h"
 #include "base/ufontfallback.h"
 #include "ttf.h"
+#include "rt/sys.h"
 #include <stdlib.h>
 #include <string.h>
 
+// A face that cannot be mapped is read in instead, up to this size.
 #define FACE_FILE_MAX (8u << 20)
 
 // The budget. A glyph at the default size is a couple of hundred bytes,
@@ -38,6 +40,7 @@
 
 struct face {
     char *path;
+    int index;                 // the member of a collection
     unsigned char *data;
     struct ttf_font t;
     int ok;                    // opened and parsed; 0 = tried and failed
@@ -69,12 +72,31 @@ void ugfx_glyph_cache_stats(int *entries, unsigned long *bytes,
     if (evicted) *evicted = g_evicted;
 }
 
-// The face behind `path`, opened on first use and REMEMBERED IF IT FAILS
-// -- a missing file must not be retried on every character. -1 for none.
-static int face_for(const char *path) {
+// The file's bytes MAPPED, read-only: a face is read only where its glyphs
+// are, and /usr/share/fonts is in the system image cache
+// (kernel/mm/imgcache.c), so every process shares one frame per page --
+// Noto Sans CJK is 19.5 MB, and copying it into each process would be the
+// whole cost. NULL when it cannot be mapped.
+static unsigned char *map_face(const char *path, size_t *len) {
+    int fd = sys_open(path, 0);   // read-only
+    if (fd < 0) return NULL;
+    long long size = sys_lseek(fd, 0, SYS_SEEK_END);
+    void *p = (void *)-1;
+    if (size > 0 && size <= 0xFFFFFFFFll) {
+        p = sys_mmap(0, (uint64_t)size, SYS_PROT_READ, SYS_MAP_PRIVATE, fd, 0);
+        *len = (size_t)size;
+    }
+    sys_close(fd);   // the mapping keeps its file
+    return p == (void *)-1 ? NULL : p;
+}
+
+// The face behind `path` (member `index` of a collection), opened on first
+// use and REMEMBERED IF IT FAILS -- a missing file must not be retried on
+// every character. -1 for none.
+static int face_for(const char *path, int index) {
     if (!path || !path[0]) return -1;
     for (int i = 0; i < g_nfaces; i++)
-        if (!strcmp(g_faces[i]->path, path)) return g_faces[i]->ok ? i : -1;
+        if (g_faces[i]->index == index && !strcmp(g_faces[i]->path, path)) return g_faces[i]->ok ? i : -1;
     if (g_nfaces == g_capfaces) {
         int cap = g_capfaces ? g_capfaces * 2 : 4;
         struct face **nf = realloc(g_faces, (size_t)cap * sizeof *nf);
@@ -86,16 +108,20 @@ static int face_for(const char *path) {
     if (!f) return -1;
     f->path = strdup(path);
     if (!f->path) { free(f); return -1; }
+    f->index = index;
     size_t len = 0;
     // A sandboxed process that did not unveil /usr/share/fonts lands
     // here too, and draws boxes: said once, so it is not a mystery.
-    if (ufile_slurp(path, FACE_FILE_MAX, &f->data, &len) == UFILE_OK &&
-        ttf_open(&f->t, f->data, (uint32_t)len))
+    unsigned char *mapped = map_face(path, &len);
+    if (mapped) f->data = mapped;
+    else if (ufile_slurp(path, FACE_FILE_MAX, &f->data, &len) != UFILE_OK) f->data = 0;
+    if (f->data && ttf_open_index(&f->t, f->data, (uint32_t)len, index))
         f->ok = 1;
     else {
-        free(f->data);
+        if (mapped) sys_munmap(mapped, len);
+        else free(f->data);
         f->data = 0;
-        ulogf("ugfx: %s will not open; characters past the atlas fall back\n", path);
+        ulogf("ugfx: %s:%d will not open; characters past the atlas fall back\n", path, index);
     }
     g_faces[g_nfaces++] = f;
     return f->ok ? g_nfaces - 1 : -1;
@@ -261,7 +287,7 @@ static struct gent *from_list(uint32_t cp, int emoji, int skip, int px, int base
     const struct ufont_fallback *fb = ufont_fallback();
     for (int i = 0; i < fb->n; i++) {
         if (fb->faces[i].emoji != emoji) continue;
-        int fi = face_for(fb->faces[i].path);
+        int fi = face_for(fb->faces[i].path, fb->faces[i].index);
         if (fi < 0 || fi == skip) continue;
         struct gent *e = render(fi, cp, px, base, cell_h, smear);
         if (e) return e;
@@ -277,7 +303,7 @@ static void key_for(const struct ugfx_font *f, struct gkey *k) {
     if (k->px < 4) k->px = 4;
     if (k->base >= k->cell_h) k->base = k->cell_h - 1;
     k->smear = f->src_smear;
-    k->face = face_for(f->src_path);
+    k->face = face_for(f->src_path, 0);
     k->emoji = 0;
     k->mark = 0;
 }
@@ -345,7 +371,7 @@ int ugfx_glyph_cluster(const struct ugfx_font *f, uint32_t token,
     const struct ufont_fallback *fb = ufont_fallback();
     for (int i = 0; g && i < fb->n && !e; i++) {
         if (!fb->faces[i].emoji) continue;
-        int fi = face_for(fb->faces[i].path);
+        int fi = face_for(fb->faces[i].path, fb->faces[i].index);
         if (fi < 0) continue;
         int all = 1;
         for (int j = 0; j < n && all; j++) all = (g[j] = (uint16_t)ttf_glyph_index(&g_faces[fi]->t, cps[j])) != 0;
@@ -375,7 +401,7 @@ int ugfx_glyph_mark(const struct ugfx_font *f, uint32_t cp, int over,
     int fi = k.face >= 0 && ttf_glyph_index(&g_faces[k.face]->t, cp) ? k.face : -1;
     const struct ufont_fallback *fb = ufont_fallback();
     for (int i = 0; i < fb->n && fi < 0; i++) {
-        int c = fb->faces[i].emoji ? -1 : face_for(fb->faces[i].path);
+        int c = fb->faces[i].emoji ? -1 : face_for(fb->faces[i].path, fb->faces[i].index);
         if (c >= 0 && ttf_glyph_index(&g_faces[c]->t, cp)) fi = c;
     }
     if (fi < 0 || !(g_scratch || (g_scratch = malloc(sizeof *g_scratch)))) return 0;
@@ -413,7 +439,7 @@ int ugfx_glyph_kern(const struct ugfx_font *f, uint32_t l, uint32_t r) {
     int size = f->src_px > 0 ? f->src_px : f->line_h * 3 / 4;
     if (g_kern[slot].f == f && g_kern[slot].l == l && g_kern[slot].r == r && g_kern[slot].size == size)
         return g_kern[slot].px;
-    int fi = face_for(f->src_path), px = 0;
+    int fi = face_for(f->src_path, 0), px = 0;
     if (fi >= 0) {
         struct ttf_font *t = &g_faces[fi]->t;
         int gl = ttf_glyph_index(t, l), gr = ttf_glyph_index(t, r);

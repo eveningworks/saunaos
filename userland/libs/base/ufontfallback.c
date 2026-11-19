@@ -14,6 +14,7 @@ static const char DEFAULT_LIST[] =
     "noto-sans-symbols2\n"
     "noto-sans-symbols\n"
     "noto-sans-math\n"
+    "noto-sans-cjk-regular:2\n"
     "emoji twemoji\n"
     "dejavu-sans-mono\n";
 
@@ -48,13 +49,33 @@ int ufont_fallback_parse(const char *text, int (*exists)(const char *path),
             len -= 6;
             while (len && (line[0] == ' ' || line[0] == '\t')) { line++; len--; }
         }
-        if (!stem_ok(line, len)) {
+        // NAME:N -- member N of a collection.
+        int index = 0, stem = len;
+        for (int i = len - 1; i > 0; i--) {
+            if (line[i] >= '0' && line[i] <= '9') continue;
+            if (line[i] == ':' && i < len - 1 && len - 1 - i <= 4) {
+                stem = i;
+                for (int k = i + 1; k < len; k++) index = index * 10 + (line[k] - '0');
+            }
+            break;
+        }
+        if (!stem_ok(line, stem)) {
             if (!said++) ulogf("fonts: %s: skipping a line that is not a face name\n", UFONT_FALLBACK_CONF);
             continue;
         }
+        // The first of NAME.ttf, .otf, .ttc in the fallback folder, then the
+        // fonts folder; none there names the fallback folder's .ttf, which
+        // then fails to open as a missing face does.
+        static const char *const ext[] = { "ttf", "otf", "ttc" };
+        static const char *const dir[] = { UFONT_FALLBACK_DIR, UFONT_DIR };
         char path[160];
-        snprintf(path, sizeof path, "%s/%.*s.ttf", UFONT_FALLBACK_DIR, len, line);
-        if (!exists(path)) snprintf(path, sizeof path, "%s/%.*s.ttf", UFONT_DIR, len, line);
+        int found = 0;
+        for (int d = 0; d < 2 && !found; d++)
+            for (int e = 0; e < 3 && !found; e++) {
+                snprintf(path, sizeof path, "%s/%.*s.%s", dir[d], stem, line, ext[e]);
+                found = exists(path);
+            }
+        if (!found) snprintf(path, sizeof path, "%s/%.*s.ttf", UFONT_FALLBACK_DIR, stem, line);
         if (out->n == cap) {
             int ncap = cap ? cap * 2 : 8;
             struct ufont_fallback_face *nf = realloc(out->faces, (size_t)ncap * sizeof *nf);
@@ -66,6 +87,7 @@ int ufont_fallback_parse(const char *text, int (*exists)(const char *path),
         if (!dup) return 0;
         out->faces[out->n].path = dup;
         out->faces[out->n].emoji = emoji;
+        out->faces[out->n].index = index;
         out->n++;
     }
     return 1;

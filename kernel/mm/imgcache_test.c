@@ -18,6 +18,11 @@ KTEST("imgcache", "the path policy: the system image only, spelled one way") {
     KTEST_ASSERT(!imgcache_path_ok("/bin/../home/x"));
     KTEST_ASSERT(!imgcache_path_ok("/lib/./libc.so"));
     KTEST_ASSERT(!imgcache_path_ok(0));
+    // The fonts share pages, and are not code a sandbox may execute.
+    KTEST_ASSERT(imgcache_path_ok("/usr/share/fonts/fallback/noto-sans-cjk-regular.ttc"));
+    KTEST_ASSERT(!imgcache_code_path_ok("/usr/share/fonts/fallback/noto-sans-cjk-regular.ttc"));
+    KTEST_ASSERT(imgcache_code_path_ok("/lib/libc.so"));
+    KTEST_ASSERT(!imgcache_path_ok("/usr/share/fontsx/a.ttf"));
 }
 
 // 600 pages: past the first page table (256 buckets) twice over, and past

@@ -851,7 +851,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~OpenType CFF outlines and `.ttc` collections~~ DONE 2026-11-19 -- `media/ttf_cff.c`, name- and CID-keyed; `ttf_open_index()`
 - [ ] CFF2, the variable-font table, is refused -- `ttf_open()` reads CFF version 1 only
 - [ ] A CFF glyph built by `seac` (an accent by reference, deprecated in OpenType) is refused, not drawn
-- [ ] Chinese, Japanese and Korean text draws boxes: no CJK face ships -- the parser reads Noto Sans CJK; the face is the next step
+- [x] ~~Chinese, Japanese and Korean text draws boxes~~ DONE 2026-11-19 -- Noto Sans CJK, `noto-sans-cjk-regular:2`, an optional component
+- [ ] Web pages draw a character their face lacks as a box: `uglyph` (the browser's text) has no fallback list
+- [ ] Han characters take one region's shapes whatever the text's language -- the list names one member; Pango picks by language
 - [ ] An `.otf` or `.ttc` in `/usr/share/fonts` is not offered as a face -- the registry and the pickers list `.ttf` files
 - [ ] Apply a composite glyph's 2x2 transform instead of skipping it (accents are pure translations, so nothing needs it yet)
 - [x] ~~A font fallback chain past DejaVu Sans Mono~~ DONE 2026-11-16 -- `/etc/fonts/fallback.conf`, four Noto faces

@@ -12,9 +12,11 @@ extern "C" {
 // without the file or a process that cannot read it (a sandbox).
 //
 //   # a comment
-//   noto-sans              a face: /usr/share/fonts/fallback/NAME.ttf,
-//   emoji twemoji          else /usr/share/fonts/NAME.ttf
-//                          the face an emoji goes to FIRST (base/uemoji.h)
+//   noto-sans              a face: NAME.ttf, .otf or .ttc, the first found
+//                          in /usr/share/fonts/fallback, then /usr/share/fonts
+//   noto-sans-cjk-regular:2  member 2 of a collection (.ttc): fontconfig's
+//                          `:index=`, FreeType's face_index; no `:N` is 0
+//   emoji twemoji          the face an emoji goes to FIRST (base/uemoji.h)
 //
 // A name is a file stem, never a path; a line that is neither form is
 // skipped and said once in the log.
@@ -25,6 +27,7 @@ extern "C" {
 struct ufont_fallback_face {
     char *path;     // where the file is (the fallback folder's when it is there)
     int emoji;      // 1 for the emoji face
+    int index;      // the member of a collection; 0 for a lone font
 };
 
 struct ufont_fallback {

@@ -18,6 +18,15 @@ from the default (a sound card, a USB mouse, `--reboot`).
   draws in colour and `:grinning` + Tab in its search completes to the
   emoji, which the search finds alone. `gui emoji --json` is how it reads
   the panel.
+- **`cjk_text_test.py`** -- Chinese, Japanese and Korean text from the
+  fallback list's Noto Sans CJK (a `.ttc` member, CFF outlines): Notepad
+  draws four 龍, four 힣 and four 一, and the first two must hold over 2x
+  and 1.6x the ink of the third (as boxes all three are the same picture);
+  four 骨 under `:2` and then `:0` (the list rewritten, a new Notepad) must
+  differ, so the member index reaches the glyphs; and the Notepad must
+  hold well under the face's 19.5 MB, since the face is mapped and shared
+  through the image cache. `--positive-control` drops the face from the
+  list; the ink checks must go RED. Puts the shipped list back.
 - **`emoji_test.py`** -- emoji draw in COLOUR from the fallback list's
   emoji face, and U+FE0F decides: Notepad opens three files and the
   editor's own rectangle (between its `tabs` and `status` widgets) is

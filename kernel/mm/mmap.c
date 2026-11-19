@@ -315,7 +315,7 @@ int sys_mmap(struct syscall_ctx *c) {
         // the dynamic loader maps /lib under SPAWN_SANDBOX before main()
         // runs, and a sandbox with wpath could otherwise write a file
         // and map it executable -- W^X through the filesystem.
-        if ((m.prot & SYS_PROT_EXEC) && !imgcache_path_ok(f->file.name) &&
+        if ((m.prot & SYS_PROT_EXEC) && !imgcache_code_path_ok(f->file.name) &&
             !sandbox_allows(PROMISE_PROT_EXEC)) {
             exec_refused = 1; goto out;
         }

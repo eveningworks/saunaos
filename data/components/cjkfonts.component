@@ -1,0 +1,12 @@
+# The optional component Chinese, Japanese and Korean fonts
+# (docs/software-design.md): Noto Sans CJK, the fallback face that draws
+# Han, kana and Hangul (/etc/fonts/fallback.conf names its member). Its
+# licence, /usr/share/fonts/fallback/LICENSE-Noto-CJK.txt, stays in the base.
+Name=Chinese, Japanese and Korean fonts
+Summary=Noto Sans CJK: Chinese, Japanese and Korean text instead of boxes
+Project=Noto
+Category=system
+License=OFL-1.1
+Icon=charmap
+Needs=
+Paths=/usr/share/fonts/fallback/noto-sans-cjk-regular.ttc

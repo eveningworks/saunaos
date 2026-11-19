@@ -19,8 +19,8 @@ UTF-8 (docs/utf8-design.md, step 1): Notepad opened on the corpus in
 with it -- Python counts the characters and their cells, and each line's
 rightmost ink must land in the cell of its LAST CHARACTER, not of its
 last byte (drawn a byte at a time, `ż` is the two glyphs `Å¼` and the
-line runs long). The CJK line draws as identical boxes, the Greek one as
-glyphs that are not boxes. The TRANSITION RULE's control: a Latin-1 file
+line runs long). The CJK line and the Greek one draw glyphs, inked and
+distinct (a missing face would draw one identical box per character). The TRANSITION RULE's control: a Latin-1 file
 and the same text in UTF-8 draw pixel-identically. And EDITING is read
 back from the SAVED FILE's bytes, not the screen: Right, Right,
 Backspace, X and a typed U+017C over "aż" must save "aXż" exactly.
@@ -959,14 +959,15 @@ def utf8_checks(dbg, qmp, tmp, res):
                       start <= got <= start + width - 1,
                       f"rightmost ink in cell {got}, last character at {start}..{start + width - 1}")
 
-        # Tofu: every CJK character is the SAME outlined box (no CJK font
-        # ships), and a Greek letter is a glyph, not that box.
+        # Every CJK character is a GLYPH from the fallback list's Noto Sans
+        # CJK -- inked and distinct, where a missing face draws the SAME
+        # outlined box for each -- and a Greek letter is a glyph too.
         cjk = cells(UTF8_LINES[4])
-        boxes = [cell(4, s, 2) for s, w in cjk[7:]]
-        blank = bytes(bg) * (len(boxes[0]) // 3)
-        res.check("utf8: the CJK line draws one identical box per character (no CJK font)",
-                  len(set(boxes)) == 1 and boxes[0] != blank,
-                  f"{len(set(boxes))} distinct cells")
+        han = [cell(4, s, 2) for s, w in cjk[7:]]   # 日本語のテキスト, eight different characters
+        blank = bytes(bg) * (len(han[0]) // 3)
+        res.check("utf8: the CJK line draws glyphs: inked, distinct, not one box",
+                  all(gl != blank for gl in han) and len(set(han)) == len(han),
+                  f"{len(set(han))} distinct cells of {len(han)}")
         greek = [cell(1, s) for s, w in cells(UTF8_LINES[1])[9:17]]   # Ελληνικά
         res.check("utf8: Greek letters are glyphs: inked, distinct, not the box",
                   all(gl != blank for gl in greek) and len(set(greek)) >= 6

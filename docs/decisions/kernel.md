@@ -6281,7 +6281,10 @@ will want to re-argue:
   system image. The price, measured: text of a program that has EXITED
   stays resident until reboot -- about 200 KiB on an idle desktop,
   boot-time programs mostly. A map count is what would reclaim it.
-- **THE PATH POLICY IS A PREFIX LIST, `/bin/`, `/lib/`, `/tests/`, AND
+- **THE PATH POLICY IS A PREFIX LIST, `/bin/`, `/lib/`, `/tests/`
+  (and `/usr/share/fonts/` since 2026-11-19, whose pages are shared but
+  are never code: `imgcache_code_path_ok()` keeps a sandbox's W^X rule to
+  the first three), AND
   CANONICAL SPELLINGS ONLY.** What the build seeds; a program a user
   built in their home is never cached, so a rewrite of it cannot serve
   stale code whatever path the write took. Inside the policy, every

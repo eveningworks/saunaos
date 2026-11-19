@@ -76,17 +76,24 @@ static uint64_t g_epoch;
 
 #define FALLBACK_LOGGED 4   // CLAUDE.md's probe rule: the first few, then the counter
 
-static const char *const g_prefixes[] = { "/bin/", "/lib/", "/tests/" };
+// The system image: its code first (NCODE of them), then its fonts --
+// shared like code (a 19.5 MB CJK face mapped by every process that
+// draws text), but never code.
+static const char *const g_prefixes[] = { "/bin/", "/lib/", "/tests/", "/usr/share/fonts/" };
 #define NPREFIX (sizeof g_prefixes / sizeof g_prefixes[0])
+#define NCODE   3
 
-int imgcache_path_ok(const char *path) {
+static int under(const char *path, size_t n) {
     if (!path) return 0;
-    int under = 0;
-    for (size_t i = 0; i < NPREFIX && !under; i++)
-        under = k_strncmp(path, g_prefixes[i], k_strlen(g_prefixes[i])) == 0;
+    int in = 0;
+    for (size_t i = 0; i < n && !in; i++)
+        in = k_strncmp(path, g_prefixes[i], k_strlen(g_prefixes[i])) == 0;
     // "/." also refuses a dot file, which costs nothing worth having.
-    return under && !k_strstr(path, "//") && !k_strstr(path, "/.");
+    return in && !k_strstr(path, "//") && !k_strstr(path, "/.");
 }
+
+int imgcache_path_ok(const char *path) { return under(path, NPREFIX); }
+int imgcache_code_path_ok(const char *path) { return under(path, NCODE); }
 
 static uint32_t page_bucket(const struct imgfile *f, uint64_t key, uint32_t nb) {
     uint64_t x = (uint64_t)(uintptr_t)f ^ (key * 0x9E3779B97F4A7C15ULL);

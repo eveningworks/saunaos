@@ -246,8 +246,11 @@ it *itself*, in ring 3, with the same rasterizer — what every Wayland
 client does. A GUI app's text past U+00FF (Greek, Cyrillic, box
 drawing) comes from a per-process glyph cache rasterized from the face's
 own `.ttf`, then the fallback list's faces in order -- Noto Sans, its
-Symbols, Symbols 2 and Math, DejaVu Sans Mono (`/etc/fonts/fallback.conf`)
--- then an outlined box. Emoji are drawn in colour from Twemoji's
+Symbols, Symbols 2 and Math, Noto Sans CJK (Chinese, Japanese and Korean;
+an optional component, its Simplified Chinese member by default), DejaVu
+Sans Mono (`/etc/fonts/fallback.conf`) -- then an outlined box. Fonts with
+CFF outlines (`.otf`) and collections (`.ttc`) are read as well as
+TrueType ones. Emoji are drawn in colour from Twemoji's
 COLR layers, by SaunaOS's own rasterizer, in every app and in Character
 Map; ❤ is a text heart and ❤️ (with U+FE0F) the red one, as Unicode
 says -- in the Terminal's cells too. **Super+period** opens the emoji
@@ -567,8 +570,8 @@ mounted or not, recognised by signature as `lsblk -f` does.
 
 **Software** adds and removes the system's OPTIONAL COMPONENTS --
 DOOM, the Web page engine (NetSurf) and the Web Browser, the compiler
-and GNU make when the build carries them, Windows 3.x support, the demos
-and `/tests` -- Windows' Optional features and ChromeOS's DLC in shape:
+and GNU make when the build carries them, Windows 3.x support, the
+Chinese, Japanese and Korean fonts, the demos and `/tests` -- Windows' Optional features and ChromeOS's DLC in shape:
 each is a named set of the build's own files (`data/components/`), its
 licence on a badge, its size summed by the build. Store cards by
 default, a list with a details pane as a view; Install and Remove QUEUE,
