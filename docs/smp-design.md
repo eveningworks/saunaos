@@ -395,6 +395,29 @@ retake it, as Linux 2.0's `schedule()` did. The lost-wakeup arguments in
 
 ### Stage 5 -- the scheduler picks per core
 
+**Decided 2026-11-19, before building** (the maintainer's picks, with
+stage 6's):
+
+- **Behind an opt-in boot flag, off by default**, until a KVM soak and
+  the ASUS are clean -- the `syscall_irq` precedent. So stages 5 and 6
+  may land as separate commits: the unsafe half never runs unless asked.
+  Flipping the default is its own later change.
+- **The APs run processes only.** Each gets its own idle loop that picks
+  runnable processes; everything the kernel context does stays on the
+  BSP -- the ring-0 shell, the debug console, and the idle work (disk
+  write-back, `net_poll()`, input polling). Linux's per-CPU idle task,
+  with the work left where it is.
+- **Device interrupts stay on the BSP.** The I/O APIC and every MSI keep
+  targeting it; an AP gets its own LAPIC timer for preemption, and IPIs.
+  Linux before irqbalance.
+- **Stage 6's first shootdown flushes the whole space**: each address
+  space keeps the set of cores that have it loaded (Linux's
+  `mm_cpumask`; a core idling in the kernel context keeps the last CR3,
+  so it stays in the set -- lazy TLB), an unmap sends those cores one
+  IPI to reload CR3 and waits for every acknowledgement before the frame
+  is freed, and a kernel-map change goes to every core. Per-page ranges
+  wait for a measurement.
+
 `find_next_runnable()` becomes "find a runnable slot no other core is
 running", and `switch_to()` writes the per-CPU `current` rather than a
 global. One global run queue under the kernel lock is the right first
