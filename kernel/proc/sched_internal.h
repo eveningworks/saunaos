@@ -205,6 +205,10 @@ struct sched_process {
     // its bounds at SYS_THREAD_CREATE and a signal frame is checked
     // against THEM (signal.c's frame_fits()). Both 0 for the main stack.
     uint64_t ustack_lo, ustack_hi;
+    // SYS_SET_TID_ADDRESS's word, which this thread's exit zeroes and
+    // futex-wakes (Linux's clear_child_tid): how pthread.c learns a
+    // DETACHED thread is off its stack and may free it. 0 = none.
+    uint64_t clear_tid;
 
     // Nobody will join this thread, so its exit frees the slot outright
     // rather than leaving a zombie for a join that is not coming.

@@ -116,6 +116,7 @@ void mmap_regions_reset(struct sched_mm *mm) {
     kfree(mm->regions);
     mm->regions = 0;
     mm->region_cap = 0;
+    mm->hidden_pages = 0;   // the pages went with the regions
 }
 
 void mmap_release_regions(uint64_t pml4_phys) {
@@ -226,7 +227,8 @@ int mm_data_allows(struct sched_mm *mm, uint64_t more) {
     if (mm->data_cur == SYS_RLIM_INFINITY) return 1;
     // + the shm objects it made: charged at every caller, so the order of
     // an object and a map cannot decide whether the limit holds.
-    uint64_t used = mm->brk - mm->heap_base + shm_created_bytes(scheduler_current_tgid());
+    uint64_t used = mm->brk - mm->heap_base + shm_created_bytes(scheduler_current_tgid()) +
+                    mm->hidden_pages * 4096ULL;
     for (int i = 0; i < mm->region_cap; i++)
         if (mm->regions[i].base && is_data(&mm->regions[i]))
             used += mm->regions[i].npages * 4096ULL;
@@ -733,6 +735,7 @@ int sys_munmap(struct syscall_ctx *c) {
         for (uint64_t v = p; v < pe; ) {           // untouched pages: nothing there
             uint64_t n = vmm_user_skip_absent(c->pml4, v);
             if (n != v) { v = n; continue; }
+            if (vmm_page_hidden(c->pml4, v) && mm->hidden_pages) mm->hidden_pages--;
             vmm_release_user_page(c->pml4, v);
             v += 4096;
         }
@@ -813,7 +816,20 @@ static void coalesce_at(struct sched_mm *mm, uint64_t va) {
 // EVERY BYTE MAPPED, AND ALL OF IT ANONYMOUS: a file page may be the image cache's one frame for
 // every process, and an shm or device page somebody else's -- only memory the process made
 // itself changes protection.
-int mmap_protect_check(struct sched_mm *mm, uint64_t addr, uint64_t len, uint32_t prot) {
+// The hidden pages in [p, end) -- already charged, so not charged again.
+static uint64_t hidden_in(uint64_t pml4, uint64_t p, uint64_t end) {
+    uint64_t n = 0;
+    while (p < end) {
+        uint64_t next = vmm_user_skip_absent(pml4, p);
+        if (next != p) { p = next; continue; }
+        n += vmm_page_hidden(pml4, p) != 0;
+        p += 4096;
+    }
+    return n;
+}
+
+int mmap_protect_check(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len,
+                       uint32_t prot) {
     int rc = mmap_prot_check(prot);
     if (rc) return rc;
     if (!len || (addr & 0xFFF) || !uaddr_is_mmap_range(addr)) return -EINVAL;
@@ -826,8 +842,10 @@ int mmap_protect_check(struct sched_mm *mm, uint64_t addr, uint64_t len, uint32_
         if (!r) return -ENOMEM;
         if (r->kind != MMAP_KIND_ANON) return -EACCES;
         uint64_t rend = r->base + r->npages * 4096ULL;
-        if (r->prot == SYS_PROT_NONE && prot != SYS_PROT_NONE)
-            unhidden += (rend < end ? rend : end) - p;
+        if (r->prot == SYS_PROT_NONE && prot != SYS_PROT_NONE) {
+            uint64_t e = rend < end ? rend : end;
+            unhidden += (e - p) - hidden_in(pml4, p, e) * 4096ULL;
+        }
         p = rend;
     }
     // Charged here, where it becomes the process's memory (is_data()).
@@ -837,7 +855,7 @@ int mmap_protect_check(struct sched_mm *mm, uint64_t addr, uint64_t len, uint32_
 
 int mmap_protect(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len,
                  uint32_t prot) {
-    int rc = mmap_protect_check(mm, addr, len, prot);
+    int rc = mmap_protect_check(mm, pml4, addr, len, prot);
     if (rc) return rc;
     uint64_t end = addr + ((len + 4095) & ~0xFFFULL);
 
@@ -855,9 +873,14 @@ int mmap_protect(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len
         for (uint64_t p = addr; p < end; ) {
             uint64_t n = vmm_user_skip_absent(pml4, p);
             if (n != p) { p = n; continue; }
-            if (prot == SYS_PROT_NONE) vmm_hide_user_page(pml4, p);
-            else vmm_protect_user_page(pml4, p, (prot & SYS_PROT_WRITE) != 0,
-                                       (prot & SYS_PROT_EXEC) != 0);
+            if (prot == SYS_PROT_NONE) {
+                mm->hidden_pages += (uint64_t)vmm_hide_user_page(pml4, p);
+            } else {
+                int was_hidden = vmm_page_hidden(pml4, p);
+                vmm_protect_user_page(pml4, p, (prot & SYS_PROT_WRITE) != 0,
+                                      (prot & SYS_PROT_EXEC) != 0);
+                if (was_hidden && mm->hidden_pages) mm->hidden_pages--;
+            }
             p += 4096;
         }
     }
@@ -873,7 +896,7 @@ int sys_mprotect(struct syscall_ctx *c) {
     mm_lock(mm);
     // A call that would fail answers its errno, so a program can probe; one that would succeed
     // with EXEC -- anonymous memory, always -- needs the promise, and is ended with nothing held.
-    ret = mmap_protect_check(mm, c->a0, c->a1, prot);
+    ret = mmap_protect_check(mm, c->pml4, c->a0, c->a1, prot);
     if (!ret && (prot & SYS_PROT_EXEC) && !sandbox_allows(PROMISE_PROT_EXEC)) {
         mm_unlock(mm);
         sandbox_violation("mprotect PROT_EXEC", PROMISE_PROT_EXEC, c->regs);
@@ -884,6 +907,17 @@ int sys_mprotect(struct syscall_ctx *c) {
 out:
     c->regs[14] = (uint64_t)ret;
     return 0;
+}
+
+int mmap_is_guard_below(uint64_t va, uint64_t lo) {
+    struct sched_mm *mm = caller_mm();
+    // From a fault: never wait for the lock (mmap_fault_in()'s reason).
+    if (!mm || !kmutex_trylock(mm_mutex(mm))) return 0;
+    const struct mmap_region *r = region_of(mm, va);
+    int hit = r && r->kind == MMAP_KIND_ANON && r->prot == SYS_PROT_NONE &&
+              r->base + r->npages * 4096ULL == lo;
+    mm_unlock(mm);
+    return hit;
 }
 
 int mmap_inherits_at(void *mm, uint64_t va) {
@@ -978,9 +1012,11 @@ static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) 
     // over: the fresh map below would call it occupied and the access
     // would fault again forever. mmap_protect() restores every leaf it
     // covers, so this is the backstop, not the path.
-    if (vmm_page_hidden(pml4_phys, page))
+    if (vmm_page_hidden(pml4_phys, page)) {
+        if (mm->hidden_pages) mm->hidden_pages--;
         return vmm_protect_user_page(pml4_phys, page, (r->prot & SYS_PROT_WRITE) != 0,
                                      (r->prot & SYS_PROT_EXEC) != 0);
+    }
 
     if (r->kind == MMAP_KIND_SHM) {
         // BORROWED: the frames belong to the object, not to this address

@@ -203,7 +203,7 @@ first before re-litigating it from scratch.
 - [The spawn's string form splits with quotes, because its caller has no lexer](decisions/kernel.md#the-spawns-string-form-splits-with-quotes-because-its-caller-has-no-lexer)
 - [Log levels arrive in-band, and are stored as text in the timestamp](decisions/kernel.md#log-levels-arrive-in-band-and-are-stored-as-text-in-the-timestamp)
 - [A dynamic program carries an ABI stamp, and the loader refuses a mismatch by name](decisions/kernel.md#a-dynamic-program-carries-an-abi-stamp-and-the-loader-refuses-a-mismatch-by-name)
-- [Shared libraries hold thread-local data, with a DTV and blocks mapped on first use](decisions/kernel.md#shared-libraries-hold-thread-local-data-with-a-dtv-and-blocks-mapped-on-first-use)
+- [Shared libraries hold thread-local data, with a DTV and blocks carved on first use](decisions/kernel.md#shared-libraries-hold-thread-local-data-with-a-dtv-and-blocks-carved-on-first-use)
 - [The settings generation starts at 1, so 0 can mean "never asked"](decisions/kernel.md#the-settings-generation-starts-at-1-so-0-can-mean-never-asked)
 - [The mmap region list is allocated and grown, not a fixed array](decisions/kernel.md#the-mmap-region-list-is-allocated-and-grown-not-a-fixed-array)
 - [The fd tables grow, and "address spaces that may hold fds" is not a number](decisions/kernel.md#the-fd-tables-grow-and-address-spaces-that-may-hold-fds-is-not-a-number)

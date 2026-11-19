@@ -189,9 +189,9 @@
 // per-client buffers and the compositor's view of them), which is what
 // makes the map above short again.
 //
-// 32 GiB of address space. A reservation like the heap and stack:
-// pages arrive on touch, so the size costs nothing and bounds only how
-// much a process may MAP, not what the machine must have.
+// 64 TiB of address space (UADDR_MMAP_LIMIT). A reservation like the heap
+// and stack: pages arrive on touch, so the size costs nothing and bounds
+// only how much a process may MAP, not what the machine must have.
 // The PCM stream's shared ring: a control page and SND_RING_BYTES of
 // samples, mapped BORROWED into whichever process holds the stream
 // open. The VALUE lives in abi/sound_abi.h (the app computes with it,

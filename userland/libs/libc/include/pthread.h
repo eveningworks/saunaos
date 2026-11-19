@@ -14,10 +14,11 @@
 //     it** (no pthread_attr_setguardsize): its own mapping, a PROT_NONE
 //     page below it, so an overrun faults and the crash report says
 //     "Stack overflow". A frame bigger than a page can step over it.
-//   - **A DETACHED THREAD'S STACK IS NOT RECLAIMED** until the process
-//     exits -- nothing can safely free memory a dying thread is still
-//     standing on, which is what Linux's CLONE_CHILD_CLEARTID futex
-//     wake exists to solve. Join a thread if you want its memory back.
+//   - **A DETACHED THREAD'S MEMORY IS FREED BY A LATER pthread_create()**,
+//     not at its exit: the kernel zeroes a word when the thread is off
+//     its stack (Linux's clear_child_tid), and the next create frees
+//     every detached thread whose word reads 0, as glibc's stack cache
+//     does.
 //   - **CANCELLATION IS DEFERRED, AND HONOURED IN THREE PLACES ONLY**:
 //     pthread_testcancel(), pthread_cond_wait() and
 //     pthread_cond_timedwait(). The blocking calls POSIX also makes

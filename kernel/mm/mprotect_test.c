@@ -351,6 +351,33 @@ KTEST("mm", "PROT_NONE is not charged to RLIMIT_DATA until made accessible, and 
     KTEST_ASSERT_EQ(again, 0);
 }
 
+// A HIDDEN page still holds memory, so hiding must not free the limit:
+// touch, hide, and the room is still gone; show it again and it is the
+// same pages, not charged twice.
+KTEST("mm", "a hidden page stays charged to RLIMIT_DATA, and showing it is not charged again") {
+    struct fixture f = {0};
+    KTEST_ASSERT(fx_open(&f));
+    uint64_t b = UADDR_MMAP_BASE;
+    f.mm->data_cur = 4 * PG;
+    KTEST_ASSERT(fx_region(&f, b, 8, RW, MMAP_KIND_ANON));     // 8 pages: the region is charged...
+    f.mm->data_cur = SYS_RLIM_INFINITY;
+    for (int i = 0; i < 3; i++) KTEST_ASSERT_EQ(mmap_fault_in(f.mm, f.as, b + i * PG), 1);
+    KTEST_ASSERT_EQ(mmap_protect(f.mm, f.as, b, 8 * PG, NONE), 0);
+    uint64_t hidden = f.mm->hidden_pages;
+    f.mm->data_cur = 4 * PG;                                     // 3 hidden, room for 1 more
+    int one = mm_data_allows(f.mm, PG);
+    int two = mm_data_allows(f.mm, 2 * PG);
+    int show = mmap_protect(f.mm, f.as, b, 3 * PG, RW);          // the 3 hidden: no new charge
+    uint64_t after = f.mm->hidden_pages;
+    fx_close(&f);
+
+    KTEST_ASSERT_EQ(hidden, 3);
+    KTEST_ASSERT_EQ(one, 1);
+    KTEST_ASSERT_EQ(two, 0);
+    KTEST_ASSERT_EQ(show, 0);
+    KTEST_ASSERT_EQ(after, 0);
+}
+
 // A loop over a reservation must visit what was touched, not every page:
 // 1 TiB page by page is 268 million walks.
 KTEST("mm", "mprotect over a 1 TiB reservation skips the page tables that were never built") {

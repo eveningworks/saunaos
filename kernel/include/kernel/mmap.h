@@ -90,7 +90,13 @@ int mmap_clone_regions(struct sched_mm *dst, const struct sched_mm *src);
 int mmap_protect(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len,
                  uint32_t prot);
 // mmap_protect()'s refusals alone, nothing changed: 0 or -errno. Lock held.
-int mmap_protect_check(struct sched_mm *mm, uint64_t addr, uint64_t len, uint32_t prot);
+int mmap_protect_check(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len,
+                       uint32_t prot);
+
+// Whether `va` lies in the calling process's PROT_NONE anonymous region
+// that ends exactly at `lo` -- a thread stack's guard, however big libc
+// made it. For the fault reporter; 0 when the lock is held elsewhere.
+int mmap_is_guard_below(uint64_t va, uint64_t lo);
 // The prot both calls take, or -errno: W|X is -EACCES.
 int mmap_prot_check(uint32_t prot);
 

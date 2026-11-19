@@ -162,6 +162,9 @@ struct dobj {
     // its static offset below tp -- 0 for a module dlopen()ed after the
     // layout, whose blocks are mapped per thread on first use.
     uint64_t tls_image, tls_filesz, tls_memsz, tls_align, tls_offset;
+    // Loaded by a dlopen() that then failed: it stays mapped (nothing is
+    // unloaded) but is never a handle, a dependency or a definition again.
+    int failed;
 };
 
 enum { INIT_NONE, INIT_RUNNING, INIT_DONE, INIT_FINISHED };
@@ -192,7 +195,10 @@ static struct dobj *obj(int i) {
 static void *ld_mmap(uint64_t addr, uint64_t len, int prot, int flags,
                      int fd, uint64_t off);
 
-// A new zeroed row at the end, or NULL when no page could be mapped.
+// The row past the end, its storage mapped, or NULL when no page could
+// be. NOT counted yet: obj_publish() does that once the row is filled, so
+// a thread reading g_nobjs (tls_alloc, iterate_phdr) never sees a row
+// half-written by a dlopen() in another.
 static struct dobj *obj_append(void) {
     struct dobj_block *b = &g_block0;
     int i = g_nobjs;
@@ -206,9 +212,15 @@ static struct dobj *obj_append(void) {
         }
         b = b->next;
     }
-    g_nobjs++;
     return &b->o[i];
 }
+
+static void obj_publish(void) {
+    __atomic_store_n(&g_nobjs, g_nobjs + 1, __ATOMIC_RELEASE);
+}
+
+// The row count as another thread may read it: rows are complete to it.
+static int nobjs_now(void) { return __atomic_load_n(&g_nobjs, __ATOMIC_ACQUIRE); }
 
 // A LOAD FAILURE IS FATAL AT STARTUP AND A RETURN VALUE FOR dlopen.
 // There is no program without the libraries it links against, so the
@@ -257,7 +269,7 @@ static uint32_t elf_hash(const char *name) {
 // object importing the name, not defining it -- skipping those is what
 // stops a lookup answering "the exe references it" for "it exists".
 static const struct sym64 *lookup_in(const struct dobj *o, const char *name) {
-    if (!o->hash || !o->symtab || !o->strtab) return 0;
+    if (o->failed || !o->hash || !o->symtab || !o->strtab) return 0;
     uint32_t nbucket = o->hash[0];
     if (!nbucket) return 0;
     for (uint32_t i = o->hash[2 + elf_hash(name) % nbucket]; i;
@@ -344,7 +356,8 @@ static void note_tls(struct dobj *o, const struct phdr64 *ph, uint64_t phnum);
 
 static int load_object(const char *name) {
     for (int i = 0; i < g_nobjs; i++)
-        if (ld_streq(obj(i)->name, name)) return 0; // already loaded
+        if (ld_streq(obj(i)->name, name))   // already loaded -- or already refused
+            return obj(i)->failed ? ld_fail("an earlier dlopen() of it failed", name) : 0;
 
     char path[96];
     {
@@ -459,7 +472,11 @@ static int load_object(const char *name) {
     o->phdr = mapped_ph;
     o->phnum = mapped_ph ? phnum : 0;
     note_tls(o, ph, phnum);            // ph is still this object's g_hdr
+    // A block past a page is one no mapping here aligns -- refused at
+    // startup and at dlopen() alike (tls_layout() says it once more).
+    if (o->tls_align > PAGE) return ld_fail("thread-local data aligned past a page", name);
     parse_dynamic(o);
+    obj_publish();
     return 0;
 }
 
@@ -543,8 +560,11 @@ static void run_fini(void) {
 
 // --- dl_iterate_phdr ---------------------------------------------------
 
+static const uint64_t *current_dtv(void);
+
 static int iterate_phdr(int (*cb)(struct ldso_phdr_info *, uint64_t, void *), void *data) {
-    for (int i = 0; i < g_nobjs; i++) {
+    int n = nobjs_now();
+    for (int i = 0; i < n; i++) {
         const struct dobj *o = obj(i);
         if (!o->phdr) continue;
         struct ldso_phdr_info info;
@@ -555,8 +575,11 @@ static int iterate_phdr(int (*cb)(struct ldso_phdr_info *, uint64_t, void *), vo
         info.phnum = o->phnum;
         info.adds  = (uint64_t)g_nobjs;   // nothing is ever unloaded
         if (o->tls_memsz) {
+            // glibc's meaning: THIS thread's block, or NULL before its
+            // first use of a dlopen()ed module -- never the template.
+            const uint64_t *dtv = current_dtv();
             info.tls_modid = (uint64_t)i + 1;
-            info.tls_data = (void *)(uintptr_t)o->tls_image;
+            info.tls_data = dtv && (uint64_t)i + 1 <= dtv[0] ? (void *)(uintptr_t)dtv[i + 1] : 0;
         }
         int r = cb(&info, sizeof info, data);
         if (r) return r;
@@ -579,21 +602,20 @@ static int iterate_phdr(int (*cb)(struct ldso_phdr_info *, uint64_t, void *), vo
 // THE STATIC PART IS EVERY MODULE LOADED AT STARTUP, the executable
 // nearest tp -- exactly where its local-exec offsets put it, so rt/tls.c's
 // layout and this one agree for a program with no TLS library. A module
-// dlopen()ed later has no static offset: its block is mapped the first
+// dlopen()ed later has no static offset: its block is carved the first
 // time a thread asks __tls_get_addr() for it (libc's fast path misses,
 // and calls tls_get_addr below), and a library that reaches its TLS
 // initial-exec (R_X86_64_TPOFF64) cannot be dlopen()ed -- glibc's static
 // surplus, which this does not keep, is the only way that works.
 //
 // THE DTV GROWS: a thread created before a dlopen has a table too short
-// for the new module, and the slow path maps a longer one. tcb[1] always
-// points at the live table; tcb[2]/tcb[3] record a mapped one (address,
-// length) so a thread's teardown can give it back.
+// for the new module, and the slow path gives it a longer one. Grown
+// tables and dynamic blocks come from ONE per-thread arena of chained
+// mappings (tcb[2] the newest, tcb[3]/tcb[4] its free span), so a thread
+// costs a mapping or two, not one per block; tls_free() unmaps the chain.
 //
-// RACES ACCEPTED: dlopen appends rows while another thread may read
-// g_nobjs here. Rows never move (the table grows in blocks) and a row is
-// complete before g_nobjs counts it, so a reader sees an old count or a
-// whole row.
+// dlopen() publishes a row only once it is filled (obj_publish()), and
+// rows never move, so a thread reading the count here sees whole rows.
 
 #define PT_TLS 7
 #define STT_TLS 6
@@ -602,7 +624,10 @@ static int iterate_phdr(int (*cb)(struct ldso_phdr_info *, uint64_t, void *), vo
 #define R_X86_64_TPOFF64  18
 #define R_X86_64_TLSDESC  36
 
-#define TCB_WORDS 8   // self, dtv, mapped dtv, its length, spare -- rt/tls.c's 64 bytes
+// The TCB's words, rt/tls.c's 64 bytes: tp itself, the live DTV, the
+// arena's newest chunk and its free span, and the area's own length.
+enum { TCB_SELF, TCB_DTV, TCB_CHUNK, TCB_BUMP, TCB_END, TCB_AREA_LEN = 7, TCB_WORDS = 8 };
+#define ARENA_CHUNK_MIN (4 * PAGE)   // a step, not a cap: a bigger block gets a bigger chunk
 
 static uint64_t g_tls_static;  // bytes of static TLS, a multiple of g_tls_align
 static uint64_t g_tls_align = 16;
@@ -627,7 +652,6 @@ static void tls_layout(void) {
     for (int i = 0; i < g_nobjs; i++) {
         struct dobj *o = obj(i);
         if (!o->tls_memsz) continue;
-        if (o->tls_align > PAGE) die("thread-local data aligned past a page", o->name[0] ? o->name : "the executable");
         off = align_up(off + o->tls_memsz, o->tls_align);
         o->tls_offset = off;
         if (o->tls_align > g_tls_align) g_tls_align = o->tls_align;
@@ -642,51 +666,9 @@ static void ld_memcpy(void *d, const void *s, uint64_t n) {
 
 // The module numbered `modid`, or 0.
 static struct dobj *tls_module(uint64_t modid) {
-    if (!modid || modid > (uint64_t)g_nobjs) return 0;
+    if (!modid || modid > (uint64_t)nobjs_now()) return 0;
     struct dobj *o = obj((int)modid - 1);
     return o->tls_memsz ? o : 0;
-}
-
-// One thread's area: static blocks from their templates, the TCB, and a
-// DTV sized to every module loaded now. Returns tp, or 0 with no memory.
-static void *tls_alloc(void) {
-    uint64_t cap = (uint64_t)g_nobjs;
-    uint64_t base_len = g_tls_static + TCB_WORDS * 8 + (cap + 1) * 8;
-    uint64_t len = align_up(base_len, PAGE);
-    void *m = ld_mmap(0, len, SYS_PROT_READ | SYS_PROT_WRITE,
-                      SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
-    if (m == (void *)-1) return 0;
-    uint8_t *tp = (uint8_t *)m + g_tls_static;
-    uint64_t *tcb = (uint64_t *)tp;
-    uint64_t *dtv = tcb + TCB_WORDS;
-    dtv[0] = cap;
-    for (int i = 0; i < g_nobjs; i++) {
-        struct dobj *o = obj(i);
-        if (!o->tls_memsz || !o->tls_offset) continue;   // none, or dynamic
-        uint8_t *block = tp - o->tls_offset;
-        ld_memcpy(block, (const void *)(uintptr_t)o->tls_image, o->tls_filesz);
-        dtv[i + 1] = (uint64_t)(uintptr_t)block;          // the rest is zero already
-    }
-    tcb[0] = (uint64_t)(uintptr_t)tp;                     // %fs:0 reads tp itself
-    tcb[1] = (uint64_t)(uintptr_t)dtv;
-    tcb[TCB_WORDS - 1] = len;                             // the area's length, for tls_free
-    return tp;
-}
-
-// Gives back a thread's area, its mapped DTV and every dynamic block.
-// `tp` must not be the caller's own (a thread frees another's, at join).
-static void tls_free(void *tpv) {
-    if (!tpv) return;
-    uint64_t *tcb = (uint64_t *)tpv;
-    uint64_t *dtv = (uint64_t *)(uintptr_t)tcb[1];
-    for (uint64_t m = 1; dtv && m <= dtv[0]; m++) {
-        struct dobj *o = tls_module(m);
-        if (o && !o->tls_offset && dtv[m])
-            sc3(SYS_MUNMAP, dtv[m], align_up(o->tls_memsz, PAGE), 0);
-    }
-    if (tcb[2]) sc3(SYS_MUNMAP, tcb[2], tcb[3], 0);
-    uint64_t len = tcb[TCB_WORDS - 1];
-    sc3(SYS_MUNMAP, (uint64_t)(uintptr_t)tpv - g_tls_static, len, 0);
 }
 
 static uint64_t *current_tcb(void) {
@@ -695,33 +677,89 @@ static uint64_t *current_tcb(void) {
     return tcb;
 }
 
+static const uint64_t *current_dtv(void) {
+    return (const uint64_t *)(uintptr_t)current_tcb()[TCB_DTV];
+}
+
+// `size` zeroed bytes aligned to `align` (at most a page) from the
+// calling thread's arena, or 0 with no memory. A chunk starts with the
+// link to the one before it, for tls_free.
+static void *arena_alloc(uint64_t *tcb, uint64_t size, uint64_t align) {
+    uint64_t p = align_up(tcb[TCB_BUMP], align);
+    if (!tcb[TCB_CHUNK] || p + size > tcb[TCB_END]) {
+        uint64_t len = ALIGN_UP(16 + align + size);
+        if (len < ARENA_CHUNK_MIN) len = ARENA_CHUNK_MIN;
+        uint64_t *c = ld_mmap(0, len, SYS_PROT_READ | SYS_PROT_WRITE,
+                              SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
+        if (c == (void *)-1) return 0;
+        c[0] = tcb[TCB_CHUNK];
+        c[1] = len;
+        tcb[TCB_CHUNK] = (uint64_t)(uintptr_t)c;
+        tcb[TCB_END] = (uint64_t)(uintptr_t)c + len;
+        p = align_up((uint64_t)(uintptr_t)c + 16, align);
+    }
+    tcb[TCB_BUMP] = p + size;
+    return (void *)(uintptr_t)p;
+}
+
+// One thread's area: static blocks from their templates, the TCB, and a
+// DTV sized to every module loaded now. Returns tp, or 0 with no memory.
+static void *tls_alloc(void) {
+    int n = nobjs_now();
+    uint64_t len = ALIGN_UP(g_tls_static + TCB_WORDS * 8 + ((uint64_t)n + 1) * 8);
+    void *m = ld_mmap(0, len, SYS_PROT_READ | SYS_PROT_WRITE,
+                      SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
+    if (m == (void *)-1) return 0;
+    uint8_t *tp = (uint8_t *)m + g_tls_static;
+    uint64_t *tcb = (uint64_t *)tp;
+    uint64_t *dtv = tcb + TCB_WORDS;
+    dtv[0] = (uint64_t)n;
+    for (int i = 0; i < n; i++) {
+        struct dobj *o = obj(i);
+        if (!o->tls_memsz || !o->tls_offset) continue;   // none, or dynamic
+        uint8_t *block = tp - o->tls_offset;
+        ld_memcpy(block, (const void *)(uintptr_t)o->tls_image, o->tls_filesz);
+        dtv[i + 1] = (uint64_t)(uintptr_t)block;          // the rest is zero already
+    }
+    tcb[TCB_SELF] = (uint64_t)(uintptr_t)tp;              // %fs:0 reads tp itself
+    tcb[TCB_DTV] = (uint64_t)(uintptr_t)dtv;
+    tcb[TCB_AREA_LEN] = len;
+    return tp;
+}
+
+// Gives back a thread's area and its arena. `tp` must not be the
+// caller's own (a thread frees another's: at join, or once detached and
+// exited).
+static void tls_free(void *tpv) {
+    if (!tpv) return;
+    uint64_t *tcb = (uint64_t *)tpv;
+    for (uint64_t c = tcb[TCB_CHUNK]; c; ) {
+        uint64_t next = ((uint64_t *)(uintptr_t)c)[0];
+        sc3(SYS_MUNMAP, c, ((uint64_t *)(uintptr_t)c)[1], 0);
+        c = next;
+    }
+    sc3(SYS_MUNMAP, (uint64_t)(uintptr_t)tpv - g_tls_static, tcb[TCB_AREA_LEN], 0);
+}
+
 // __tls_get_addr()'s slow path, for the CALLING thread: the DTV grown to
-// cover every module, and module `modid`'s block mapped from its template.
+// cover every module, and module `modid`'s block carved from its template.
 static void *tls_get_addr(uint64_t modid, uint64_t off) {
     struct dobj *o = tls_module(modid);
     if (!o) die("__tls_get_addr: no such TLS module", 0);
     uint64_t *tcb = current_tcb();
-    uint64_t *dtv = (uint64_t *)(uintptr_t)tcb[1];
+    uint64_t *dtv = (uint64_t *)(uintptr_t)tcb[TCB_DTV];
     if (modid > dtv[0]) {
-        uint64_t cap = (uint64_t)g_nobjs;
-        uint64_t len = align_up((cap + 1) * 8, PAGE);
-        uint64_t *nd = ld_mmap(0, len, SYS_PROT_READ | SYS_PROT_WRITE,
-                               SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
-        if (nd == (void *)-1) die("__tls_get_addr: no memory for a longer DTV", o->name);
+        uint64_t cap = (uint64_t)nobjs_now();
+        uint64_t *nd = arena_alloc(tcb, (cap + 1) * 8, 8);
+        if (!nd) die("__tls_get_addr: no memory for a longer DTV", o->name);
         ld_memcpy(nd + 1, dtv + 1, dtv[0] * 8);
         nd[0] = cap;
-        uint64_t old = tcb[2], old_len = tcb[3];
-        tcb[1] = (uint64_t)(uintptr_t)nd;
-        tcb[2] = (uint64_t)(uintptr_t)nd;
-        tcb[3] = len;
-        if (old) sc3(SYS_MUNMAP, old, old_len, 0);
+        tcb[TCB_DTV] = (uint64_t)(uintptr_t)nd;   // the old one stays in the area or arena
         dtv = nd;
     }
     if (!dtv[modid]) {
-        uint64_t len = align_up(o->tls_memsz, PAGE);
-        uint8_t *b = ld_mmap(0, len, SYS_PROT_READ | SYS_PROT_WRITE,
-                             SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
-        if (b == (void *)-1) die("__tls_get_addr: no memory for a TLS block", o->name);
+        uint8_t *b = arena_alloc(tcb, o->tls_memsz, o->tls_align);
+        if (!b) die("__tls_get_addr: no memory for a TLS block", o->name);
         ld_memcpy(b, (const void *)(uintptr_t)o->tls_image, o->tls_filesz);
         dtv[modid] = (uint64_t)(uintptr_t)b;
     }
@@ -864,6 +902,10 @@ static void *dl_open(const char *path, int flags) {
                 // no handle escapes.
                 if (!g_reloc_failed) handle = obj(first);
             }
+            // What this call loaded is unusable if it failed: a retry, or
+            // another plugin needing it, must fail too, not half-work.
+            if (!handle)
+                for (int i = first; i < g_nobjs; i++) obj(i)->failed = 1;
         }
     }
     g_nonfatal = 0;
@@ -925,7 +967,9 @@ uint64_t ldso_main(uint64_t *sp) {
     exe->phdr = ph;
     exe->phnum = (uint16_t)at_phnum;
     note_tls(exe, ph, at_phnum);
+    if (exe->tls_align > PAGE) die("thread-local data aligned past a page", "the executable");
     parse_dynamic(exe);
+    obj_publish();
 
     // Load every needed library, breadth-first: a library's own
     // DT_NEEDED entries land on the end of the table and are walked in

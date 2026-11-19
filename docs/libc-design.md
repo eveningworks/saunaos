@@ -177,8 +177,9 @@ rwlocks, `pthread_cond_timedwait` and deferred cancellation. What it
 deliberately does NOT have is listed in the header itself and is about
 the kernel underneath rather than about the library: cancellation
 honoured only at `pthread_testcancel()` and the two condition waits, no
-asynchronous cancellation, no barriers, and a detached thread's stack
-never reclaimed. Every lock parks on the futex (d9369aa9, ee5f2078): the
+asynchronous cancellation, and no barriers. A detached thread's stack is
+freed by the next `pthread_create()` once the kernel has zeroed its
+`SYS_SET_TID_ADDRESS` word (2026-11-19). Every lock parks on the futex (d9369aa9, ee5f2078): the
 mutex, stdio and malloc locks on a `rt/ulock.h` word, three-state and woken
 one at a time; a condition variable's, a rwlock's and pthread_once's
 waiters on a word of their own, woken together.

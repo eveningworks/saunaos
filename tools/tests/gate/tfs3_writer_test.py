@@ -148,6 +148,22 @@ def hard_links(tmp):
     check(ci4 is None and gi4 == gi3 and gl4 == 1 and gd4 == b,
           f"pruning cc leaves gcc whole with one link (cc ino {ci4}, gcc ino {gi3} -> {gi4}, links {gl4})")
     check(allocated(img) == before, f"...and frees nothing -- allocated {before} -> {allocated(img)}")
+
+    # An `exact` line naming a FILE: deleted once sync/ drops it, while the
+    # rest of its directory (a running system's files) stays.
+    libdir = os.path.join(seed, "sync", "lib")
+    os.makedirs(libdir)
+    for n in ("libstdc++.so.6", "other.so"):
+        with open(os.path.join(libdir, n), "wb") as f:
+            f.write(b"L" * 100)
+    run("sync", img, seed)
+    os.unlink(os.path.join(libdir, "libstdc++.so.6"))
+    os.unlink(os.path.join(libdir, "other.so"))
+    with open(os.path.join(seed, "exact"), "w") as f:
+        f.write("/usr/bin\n/lib/libstdc++.so.6\n")
+    run("sync", img, seed)
+    check(node(img, "/lib/libstdc++.so.6")[0] is None and node(img, "/lib/other.so")[0] is not None,
+          "an exact FILE line prunes that file alone, and its directory keeps the rest")
     _ = base
 
 

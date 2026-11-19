@@ -439,6 +439,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     procs[slot].fs_base  = 0;
     procs[slot].detached = 0;
     procs[slot].ustack_lo = procs[slot].ustack_hi = 0;
+    procs[slot].clear_tid = 0;
 
     // THE CHILD'S FILE DESCRIPTORS, built here because this is where
     // its address space first exists. It inherits the caller's whole
@@ -662,6 +663,7 @@ int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
     procs[slot].detached = detached ? 1 : 0;
     procs[slot].ustack_hi = user_rsp;
     procs[slot].ustack_lo = stack_size <= user_rsp ? user_rsp - stack_size : 0;
+    procs[slot].clear_tid = 0;
     // Its parent is its leader, which is what makes `ps --tree` show a
     // thread under the process it belongs to. Every walk over a
     // process's CHILDREN skips threads, so this is a display fact and
@@ -770,6 +772,7 @@ int scheduler_fork(const uint64_t *regs) {
     // The child runs on the stack the forking THREAD was on.
     procs[slot].ustack_lo = procs[caller].ustack_lo;
     procs[slot].ustack_hi = procs[caller].ustack_hi;
+    procs[slot].clear_tid = 0;   // Linux's fork leaves the child none too
     fd_clone(as, procs[leader].pml4_phys);
     procs[slot].ppid = procs[leader].pid;
     sched_class_reset(slot, caller);
@@ -861,6 +864,7 @@ int scheduler_exec(const char *path, const char *argvec, size_t argvec_len,
     procs[me].ready = 0;
     procs[me].fs_base = 0;
     procs[me].ustack_lo = procs[me].ustack_hi = 0;   // the new image's main stack
+    procs[me].clear_tid = 0;
     arch_set_fs_base(0);            // this return does not go through switch_to()
     fpu_init_state(procs[me].fpu);
     fpu_restore(procs[me].fpu);     // ...so the CPU's state is loaded here too

@@ -1201,7 +1201,9 @@ def prune_exact(img, seed_dir):
     there too) and wrong for a tree the BUILD owns outright, where a stale
     file is a lie: an SDK header the tree deleted still #includes fine. Each
     line of `exact` (written by the Makefile's seed step) is an image
-    directory mirrored exactly; the deletions stay inside it.
+    directory mirrored exactly, the deletions staying inside it -- or one
+    FILE, deleted when sync/ no longer holds it (the shared C++ runtime in
+    /lib, whose other files a running system owns).
     """
     listing = os.path.join(seed_dir, "exact")
     if not os.path.isfile(listing):
@@ -1230,8 +1232,15 @@ def prune_exact(img, seed_dir):
 
     for root in roots:
         if not root.startswith("/") or root.rstrip("/") in ("", "/"):
-            raise SystemExit(f"sync: {listing}: {root!r} is not a directory below /")
-        walk(disk_path(root))
+            raise SystemExit(f"sync: {listing}: {root!r} is not a path below /")
+        path = disk_path(root)
+        ino = img.lookup(path)
+        if ino is not None and img.read_inode(ino)["type"] != TYPE_DIR:
+            if not os.path.isfile(os.path.join(sync_root, host_path(path).lstrip("/"))):
+                delete_path(img, path)
+                pruned += 1
+            continue
+        walk(path)
     return pruned
 
 

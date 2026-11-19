@@ -322,7 +322,7 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [x] ~~User threads (a second thread sharing one address space)~~ DONE 2026-08-26 -- a slot whose `tgid` names another
 - [x] ~~Thread-local storage (FS.base)~~ DONE 2026-08-26 -- `__thread` in ring 3, a per-thread errno, reloaded on every switch
 - [x] ~~A futex, so a mutex can BLOCK~~ DONE 2026-09-08 -- `SYS_FUTEX_WAIT`/`WAKE`, keyed on the FRAME so shm works
-- [ ] Reclaim a detached thread's stack -- leaked until its process exits; Linux's `CLONE_CHILD_CLEARTID` is the shape
+- [x] ~~Reclaim a detached thread's stack~~ DONE 2026-11-19 -- `SYS_SET_TID_ADDRESS`; the next `pthread_create()` frees it
 - [x] ~~Image Viewer decodes on a worker thread~~ DONE 2026-09-16 -- one at a time, a later request supersedes it
 - [x] ~~File Manager thumbnails decode on a worker thread, with no batch size~~ DONE 2026-09-17 -- measured 24/s against the old 4/s ceiling
 - [x] ~~A thumbnail cache that survives a reboot~~ DONE 2026-09-17 -- `/var/cache/thumbnails`, one QOI named after its source

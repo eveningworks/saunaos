@@ -264,6 +264,12 @@ int scheduler_thread_detach(int tid);
 // on every switch. 0, or a negative errno.
 int scheduler_set_tls(uint64_t base);
 
+// SYS_SET_TID_ADDRESS: the calling thread's exit will zero the 32-bit word
+// at `uaddr` and futex-wake it (0 = none). The tid, or a negative errno.
+int scheduler_set_clear_tid(uint64_t uaddr);
+// The calling thread's word, or 0.
+uint64_t scheduler_clear_tid(void);
+
 // SYS_NOTIFY_READY: record that the process currently in a syscall has
 // finished starting up. Returns 1 if there was a slot to record it in,
 // 0 for a caller the scheduler does not manage (the kernel context, the
@@ -435,6 +441,10 @@ struct sched_mm {
     // Requests refused at data_cur since this image started; the first
     // is logged, the rest only counted (a runaway asks thousands of times).
     uint32_t data_refused;
+    // Pages PROT_NONE hid that still hold a frame (vmm_hide_user_page()):
+    // charged to data_cur like accessible memory, which they are -- only
+    // a reservation never touched is free. Kept by mmap.c.
+    uint64_t hidden_pages;
     // SYS_SET_ABORT_MSG's buffer, in THIS address space, read only when
     // a crash report is written. Reset by mm_reset(): an exec'd image
     // has none.

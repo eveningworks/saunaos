@@ -551,7 +551,9 @@ this the obvious way), not from how much history it accumulated.
   there when the page is made accessible again. So teardown, `munmap`,
   fork and the audit each test `held_frame()` (present OR hidden), never
   `PAGE_PRESENT` alone; fork shares a hidden frame and the later
-  `mprotect()` gives it back COW. A loop over a mapping's pages skips page
+  `mprotect()` gives it back COW. A hidden page stays CHARGED to the data
+  limit (`sched_mm.hidden_pages`, kept by every path that hides, shows or
+  releases one). A loop over a mapping's pages skips page
   tables that were never built (`vmm_user_skip_absent()`): a reservation
   is terabytes long, and page by page that is minutes.
 - **A USER MAPPING SAYS WHETHER IT OWNS ITS FRAME, and getting that
@@ -2666,9 +2668,10 @@ TLS block, the return value, the descriptor -- is `userland/libs/libc/pthread.c`
 Two consequences are worth knowing before writing threaded code: a thread
 stack is its own mapping with **one `PROT_NONE` guard page** below it (a
 frame bigger than a page can step over it), and a
-**detached thread's stack is never reclaimed**, because nothing can
-safely free memory a dying thread is still standing on. Linux solves the
-second with `CLONE_CHILD_CLEARTID` and a futex wake.
+**detached thread's stack is freed by a LATER `pthread_create()`**, not
+at its exit: nothing can free memory a dying thread is still standing
+on, so the kernel zeroes its `SYS_SET_TID_ADDRESS` word once it is off
+the stack (Linux's `clear_child_tid`), and the next create reaps it.
 
 **SIGNAL DISPOSITIONS ARE PER THREAD HERE**, where POSIX makes them per
 process and only the MASK per thread. A new thread inherits a copy of its

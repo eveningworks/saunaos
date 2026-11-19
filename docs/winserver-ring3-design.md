@@ -200,7 +200,8 @@ again is the herd this channel mechanism exists to avoid.
 
 It retires a roadmap item with two callers of its own: tolibc's mutex
 spun and yielded then (it parks on one since ee5f2078, `rt/ulock.h`),
-and a detached thread's stack cannot be reclaimed without one.
+and a detached thread's stack could not be reclaimed without one (it is,
+since 2026-11-19, through `SYS_SET_TID_ADDRESS`).
 
 **THE RING IS BUILT (2026-09-08), and it needed no kernel support at
 all** -- `userland/libs/base/uchan.h` over shm, the futex and the wakeword,

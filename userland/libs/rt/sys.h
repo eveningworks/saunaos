@@ -245,6 +245,9 @@ int     sys_thread_detach(int tid);
 // Point this thread's %fs at `base`. userland/libs/rt/tls.c owns the layout
 // behind it; a program should not call this directly.
 int     sys_set_tls(void *base);
+// The calling thread's exit zeroes *word and futex-wakes it (Linux's
+// set_tid_address). The tid, or -1.
+int     sys_set_tid_address(volatile int *word);
 
 // Announce that this process has finished starting up -- see
 // SYS_NOTIFY_READY in abi/syscall_abi.h. Returns 0, or -1 for a caller

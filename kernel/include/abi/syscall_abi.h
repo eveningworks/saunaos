@@ -2108,10 +2108,19 @@ struct sys_stat {
 // unless the prot is PROT_NONE.
 //
 // **PROT_NONE KEEPS THE DATA**: a touched page is hidden, not freed, and
-// comes back as it was when made accessible again. A PROT_NONE page is
-// not charged to RLIMIT_DATA; making one accessible charges it, and
-// -ENOMEM past the limit changes nothing (Linux's accounting).
+// comes back as it was when made accessible again. A PROT_NONE page that
+// was never touched is not charged to RLIMIT_DATA, so a reservation is
+// free; a hidden one still holds memory and stays charged (stricter than
+// Linux, which lets hiding escape the limit). Making untouched pages
+// accessible charges them, and -ENOMEM past the limit changes nothing.
 #define SYS_MPROTECT 167
+
+// SYS_SET_TID_ADDRESS -- RDI = a 4-byte-aligned user address, or 0. When
+// the CALLING thread exits, the kernel writes 0 to the 32-bit word there
+// and futex-wakes it: Linux's set_tid_address() and clear_child_tid.
+// pthread.c's reaper frees a detached thread's stack once its word reads
+// 0, which is the first moment nothing runs on it. Returns the tid.
+#define SYS_SET_TID_ADDRESS 168
 
 #define SYS_SHM_OPEN 99   // RDI = pointer to a `struct shm_open_msg`.
                           // Returns a descriptor naming a SHARED

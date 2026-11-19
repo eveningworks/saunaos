@@ -379,6 +379,42 @@ static void guard_checks(void) {
                  "a thread that overflows its stack faults on the guard (SIGSEGV; exit %d)", code);
 }
 
+// --- detached threads are freed --------------------------------------
+//
+// Each thread's stack is two regions (guard + stack) out of a process's
+// 1024, so DETACHED threads whose stacks leaked would make the 600 below
+// fail part way; and the map is counted, so a slower leak shows too.
+static void *quick(void *arg) { (void)arg; return NULL; }
+
+static int anon_regions(void) {
+    struct query_procmap q;
+    int n = 0;
+    for (unsigned i = 0; sys_query_record(QUERY_PROCMAP, i, &q, sizeof q) >= (int)sizeof q; i++)
+        if ((int)q.pid == sys_getpid() && q.kind == QUERY_PROCMAP_ANON) n++;
+    return n;
+}
+
+static void detached_checks(void) {
+    pthread_attr_t a;
+    pthread_attr_init(&a);
+    pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
+    int before = anon_regions(), made = 0;
+    for (int i = 0; i < 600; i++) {
+        pthread_t t;
+        if (pthread_create(&t, &a, quick, NULL) != 0) break;
+        made++;
+    }
+    // The last few may still be running; one more create reaps the rest.
+    for (int i = 0; i < 50; i++) sys_yield();
+    pthread_t t;
+    int last = pthread_create(&t, NULL, quick, NULL) == 0;
+    if (last) pthread_join(t, NULL);
+    int after = anon_regions();
+    utest_checkf(made == 600, "600 detached threads start, one after another (%d did)", made);
+    utest_checkf(last && after <= before + 8,
+                 "...and their stacks are freed: %d anonymous regions before, %d after", before, after);
+}
+
 int main(void) {
     utest_begin("thread_test", "threads, TLS and mutual exclusion", UTEST_VERDICT_FILE);
 
@@ -642,6 +678,7 @@ int main(void) {
     }
 
     guard_checks();
+    detached_checks();
 
     // A THREAD LEFT RUNNING AT EXIT, on purpose and never joined.
     // Without it nothing here reaches the group teardown at all: every

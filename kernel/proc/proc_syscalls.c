@@ -14,6 +14,7 @@
 #include "vmm.h"
 #include "pmm.h"
 #include "scheduler.h"
+#include "futex.h"   // futex_wake_addr() -- a thread's clear_tid at exit
 #include "process.h"
 #include "pipe.h"
 #include "signal_abi.h" // PGID_NEW -- SYS_SPAWN's three-way group argument
@@ -124,6 +125,12 @@ int sys_thread_exit(struct syscall_ctx *c) {
     // that path does need the cleanup -- so it goes through sys_exit()'s
     // code rather than around it.
     if (scheduler_current_pid() && scheduler_current_tgid() != scheduler_current_pid()) {
+        // OFF ITS STACK NOW: zero the word and wake it, before the slot
+        // goes -- a reaper that sees 0 may unmap the stack at once.
+        uint64_t ct = scheduler_clear_tid();
+        uint32_t zero = 0;
+        if (ct && vmm_copy_to_user(c->pml4, ct, &zero, sizeof zero))
+            futex_wake_addr(c->pml4, ct);
         scheduler_on_thread_exit(code);
         return 0;
     }
@@ -163,6 +170,11 @@ int sys_thread_detach(struct syscall_ctx *c) {
 int sys_gettid(struct syscall_ctx *c) {
     int tid = scheduler_current_pid();
     c->regs[14] = (uint64_t)(int64_t)(tid > 0 ? tid : -1);
+    return 0;
+}
+
+int sys_set_tid_address(struct syscall_ctx *c) {
+    c->regs[14] = (uint64_t)(int64_t)scheduler_set_clear_tid(c->a0);
     return 0;
 }
 

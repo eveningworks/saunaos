@@ -86,6 +86,12 @@ int sys_futex_wait(struct syscall_ctx *c) {
     return 0;
 }
 
+int futex_wake_addr(uint64_t pml4, uint64_t uaddr) {
+    const void *key;
+    if (futex_key(pml4, uaddr, &key) < 0) return 0;
+    return scheduler_wake_n(key, 0, 0);
+}
+
 int sys_futex_wake(struct syscall_ctx *c) {
     const void *key;
     int64_t ret = futex_key(c->pml4, c->a0, &key);

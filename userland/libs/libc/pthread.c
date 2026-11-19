@@ -29,6 +29,11 @@ struct pthread {
     void  *tls;      // ditto -- a static program's block
     void  *tls_tp;   // a dynamic program's: the loader's area, by its tp
     int    detached;
+    // 1 while the thread may still run on its stack; the KERNEL zeroes it
+    // at the thread's exit (sys_set_tid_address), the first moment the
+    // stack and TLS are free to unmap.
+    volatile int alive;
+    struct pthread *next_detached;   // on g_detached until reaped
     void **tsd;      // pthread_setspecific()'s values, indexed by key
     unsigned ntsd;
     volatile int cancel_pending;
@@ -50,6 +55,7 @@ static void tsd_run_destructors(struct pthread *t);
 
 static void thread_entry(void *p) {
     struct pthread *t = (struct pthread *)p;
+    sys_set_tid_address(&t->alive);   // before anything: an exit must clear it
     g_self = t;
     t->retval = t->start(t->arg);
     tsd_run_destructors(t);
@@ -75,9 +81,43 @@ static void thread_tls_free(struct pthread *t) {
     free(t->tls);
 }
 
+// DETACHED THREADS ARE FREED BY THE NEXT pthread_create(), glibc's
+// shape: nothing can free a stack its own thread is still on, so a
+// detached thread waits on g_detached until the kernel zeroes its
+// `alive` at exit. Before this, every detached thread leaked its stack.
+static struct pthread *g_detached;
+static volatile int g_detached_lock;
+
+static void thread_free(struct pthread *t) {
+    thread_tls_free(t);
+    if (t->stack) munmap(t->stack, t->stack_mapped);
+    free(t->tsd);
+    free(t);
+}
+
+static void detached_add(struct pthread *t) {
+    ulock_take(&g_detached_lock);
+    t->next_detached = g_detached;
+    g_detached = t;
+    ulock_drop(&g_detached_lock);
+}
+
+static void reap_detached(void) {
+    struct pthread *done = NULL;
+    ulock_take(&g_detached_lock);
+    for (struct pthread **pp = &g_detached; *pp; ) {
+        struct pthread *t = *pp;
+        if (!t->alive) { *pp = t->next_detached; t->next_detached = done; done = t; }
+        else pp = &t->next_detached;
+    }
+    ulock_drop(&g_detached_lock);
+    while (done) { struct pthread *n = done->next_detached; thread_free(done); done = n; }
+}
+
 int pthread_create(pthread_t *out, const pthread_attr_t *attr,
                    void *(*start)(void *), void *arg) {
     if (!out || !start) return EINVAL;
+    reap_detached();
 
     size_t stacksize = PTHREAD_STACK_DEFAULT;
     int detached = PTHREAD_CREATE_JOINABLE;
@@ -93,6 +133,7 @@ int pthread_create(pthread_t *out, const pthread_attr_t *attr,
     t->start = start;
     t->arg = arg;
     t->detached = detached == PTHREAD_CREATE_DETACHED;
+    t->alive = 1;
 
     // ITS OWN MAPPING, WITH A PROT_NONE GUARD PAGE BELOW IT (glibc's
     // shape): an overflow faults on the guard, and the kernel names it a
@@ -137,6 +178,7 @@ int pthread_create(pthread_t *out, const pthread_attr_t *attr,
     }
     t->tid = tid;
     *out = t;
+    if (t->detached) detached_add(t);   // last: the reaper may free it at once
     return 0;
 }
 
@@ -147,10 +189,7 @@ int pthread_join(pthread_t t, void **retval) {
     if (retval) *retval = t->retval;
     // Safe HERE and nowhere earlier: the kernel has reported the thread
     // reaped, so nothing is standing on this stack any more.
-    free(t->tsd);
-    thread_tls_free(t);
-    munmap(t->stack, t->stack_mapped);
-    free(t);
+    thread_free(t);
     return 0;
 }
 
@@ -158,9 +197,7 @@ int pthread_detach(pthread_t t) {
     if (!t || t == &g_main || t->detached) return EINVAL;
     if (sys_thread_detach(t->tid) < 0) return ESRCH;
     t->detached = 1;
-    // The stack, the TLS and this descriptor are deliberately LEAKED --
-    // see <pthread.h>. Nothing here can know when the thread has
-    // stopped using its own stack.
+    detached_add(t);                    // freed once it has exited
     return 0;
 }
 

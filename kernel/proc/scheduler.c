@@ -1840,6 +1840,17 @@ int scheduler_set_tls(uint64_t base) {
     return 0;
 }
 
+int scheduler_set_clear_tid(uint64_t uaddr) {
+    if (current_index < 0) return -EPERM;
+    if ((uaddr & 3) || (uaddr && !uaddr_is_user(uaddr))) return -EINVAL;
+    procs[current_index].clear_tid = uaddr;
+    return procs[current_index].pid;
+}
+
+uint64_t scheduler_clear_tid(void) {
+    return current_index < 0 ? 0 : procs[current_index].clear_tid;
+}
+
 int scheduler_current_pid(void) {
     return current_index < 0 ? 0 : procs[current_index].pid;
 }

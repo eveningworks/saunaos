@@ -5958,15 +5958,16 @@ ran off which stack; a malloc'd stack's overrun walked into the next
 allocation. A frame bigger than a page can still step over it, as on
 Linux.
 
-**A detached thread's stack is never reclaimed.** Nothing can safely
-free memory a dying thread is still standing on: between "I am about to
-exit" and the syscall that ends it, the thread is still pushing. Linux
-solves it with `CLONE_CHILD_CLEARTID` — the kernel zeroes a word in the
-dying thread's memory and futex-wakes whoever is watching, *after* the
-stack is no longer in use. That needs a futex, which is the same missing
-primitive the mutex is spinning around, so both are one roadmap item.
-Joining a thread reclaims everything; the leak is the price of not
-joining, and it ends at process exit.
+**A detached thread's stack is freed by the next `pthread_create()`,
+since 2026-11-19.** Nothing can safely free memory a dying thread is
+still standing on: between "I am about to exit" and the syscall that
+ends it, the thread is still pushing. Linux's answer is copied:
+`SYS_SET_TID_ADDRESS` names a word, and the kernel zeroes it and
+futex-wakes it at the thread's exit, *after* the stack is no longer in
+use (`clear_child_tid`). pthread.c keeps detached threads on a list and
+frees each whose word reads 0 at the next create, glibc's shape. Until
+then every detached thread leaked its stack. Once each stack became two
+mappings, a busy process ran out of its 1024 at ~500 threads.
 
 ## errno became thread-local before anything could see it be wrong
 
@@ -8289,7 +8290,7 @@ arguments. NOT adding a new exported function; an old program never
 calls it, and a new program against an old library already fails to
 resolve it by name, which reports itself clearly.
 
-## Shared libraries hold thread-local data, with a DTV and blocks mapped on first use
+## Shared libraries hold thread-local data, with a DTV and blocks carved on first use
 
 Chosen 2026-11-19, so a C++ runtime can be a shared library: libstdc++
 keeps its exception state and `call_once` in `__thread` variables, and
@@ -8308,9 +8309,16 @@ whole of glibc's and musl's design over a startup-only subset:
   `__tls_get_addr()` is libc's, because the loader has no `.dynsym`. It
   takes the fast path through the DTV and asks the loader for anything
   else.
-- **A dlopen()ed module's blocks are mapped per thread on first use**,
+- **A dlopen()ed module's blocks are carved per thread on first use**,
   and a thread's DTV grows when it meets a module newer than itself.
-  That is glibc's lazy allocation, without its generation counter.
+  That is glibc's lazy allocation, without its generation counter. Both
+  come from one per-thread arena of chained mappings, never a mapping
+  per block, which would spend a page and a region slot on a few bytes.
+- **A dlopen() that fails poisons what it loaded**: the objects stay
+  mapped (nothing is unloaded) but are never a handle, a dependency or a
+  definition again, so a retry fails too instead of half-working.
+  `dl_iterate_phdr()`'s `dlpi_tls_data` is the calling thread's block, or
+  NULL, as glibc reports it.
 - **Initial-exec in a dlopen()ed library is refused by name.** glibc
   reserves a static surplus for it; that surplus is a cap this loader
   does not invent. TLS descriptors (`-mtls-dialect=gnu2`) are refused
@@ -10415,11 +10423,16 @@ pages. Linux's shape in each part:
   would be simpler and is wrong: POSIX says a page made accessible again
   has what it had, and a GC that protects a heap page to catch a stray
   access relies on it.
-- **Not charged to `RLIMIT_DATA` until made accessible**, then charged by
-  the `mprotect()`, which fails with ENOMEM past the limit and changes
-  nothing -- Linux's `is_data_mapping()` (only writable private memory
-  counts) and its commit accounting at `mprotect`. Charging at `mmap`
-  would refuse a 4 GiB reservation under the browser's 160 MiB tab cap.
+- **A reservation is not charged to `RLIMIT_DATA` until made
+  accessible**, then charged by the `mprotect()`, which fails with
+  ENOMEM past the limit and changes nothing. That is Linux's
+  `is_data_mapping()` (only writable private memory counts) and its
+  commit accounting at `mprotect`. Charging at `mmap` would refuse a
+  4 GiB reservation under the browser's 160 MiB tab cap.
+- **A hidden page STAYS charged** (`sched_mm.hidden_pages`), which is
+  stricter than Linux. There, touch-then-hide takes memory out of the
+  limit while it stays resident, and here that limit is the browser's
+  per-tab cap. Only a page never touched is free.
 - **Anonymous memory only.** A hidden file or shm page is one
   `mprotect()` could not give back (it changes anonymous memory only).
 - **`MAP_NORESERVE` is accepted and changes nothing**: every mapping

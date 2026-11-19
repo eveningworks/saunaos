@@ -1679,6 +1679,7 @@ LDSO    = $(BUILD)/lib/ld-toy.so
 DYNLIBS = $(BUILD)/lib/libhello.so $(BUILD)/lib/libplug.so $(BUILD)/lib/libhash.so $(LIBSSL_SO) $(LIBHTTP_SO) \
           $(BUILD)/lib/libinit_a.so $(BUILD)/lib/libinit_b.so \
           $(BUILD)/lib/libtlsdyn.so $(BUILD)/lib/libtlsplug.so $(BUILD)/lib/libtlsie.so \
+          $(BUILD)/lib/libtlsalign.so \
           $(LIBSMB_SO) $(LIBSDL3_SO) $(LIBSDL2_SO)
 
 # /lib/snd/<name>.so -- one sound driver per chip, dlopen'd by
@@ -1828,13 +1829,14 @@ $(BUILD)/lib/libinit_b.so: $(BUILD)/userland/dynlib/initfini_b.o $(BUILD)/lib/li
 	@mkdir -p $(dir $@)
 	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libinit_b.so -o $@ $< $(BUILD)/lib/libinit_a.so
 
-# libtlsdyn.so, libtlsplug.so and libtlsie.so -- /tests/tls_dyn_test's
-# thread-local storage in shared objects: one linked at startup, one
-# dlopen()ed, one whose initial-exec TLS a dlopen() must refuse. Their
+# libtlsdyn.so, libtlsplug.so, libtlsie.so and libtlsalign.so --
+# /tests/tls_dyn_test's thread-local storage in shared objects: one linked
+# at startup, one dlopen()ed, and two a dlopen() must refuse (initial-exec
+# TLS; a block aligned past a page). Their
 # objects compile WITHOUT the tree's -ftls-model=local-exec, which no
 # shared object can use: -fpic's default, global-dynamic.
 TLS_DL_CFLAGS = $(subst -ftls-model=local-exec,,$(subst -fpie,-fpic,$(USERLAND_CFLAGS)))
-$(BUILD)/userland/dynlib/tls_lib.o $(BUILD)/userland/dynlib/tls_plug.o $(BUILD)/userland/dynlib/tls_plug_ie.o: USERLAND_CFLAGS := $(TLS_DL_CFLAGS)
+$(BUILD)/userland/dynlib/tls_lib.o $(BUILD)/userland/dynlib/tls_plug.o $(BUILD)/userland/dynlib/tls_plug_ie.o $(BUILD)/userland/dynlib/tls_plug_align.o: USERLAND_CFLAGS := $(TLS_DL_CFLAGS)
 $(BUILD)/lib/libtlsdyn.so: $(BUILD)/userland/dynlib/tls_lib.o $(LIBC_SO)
 	@mkdir -p $(dir $@)
 	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libtlsdyn.so -o $@ $< $(LIBC_SO)
@@ -1844,6 +1846,9 @@ $(BUILD)/lib/libtlsplug.so: $(BUILD)/userland/dynlib/tls_plug.o $(LIBC_SO)
 $(BUILD)/lib/libtlsie.so: $(BUILD)/userland/dynlib/tls_plug_ie.o $(LIBC_SO)
 	@mkdir -p $(dir $@)
 	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libtlsie.so -o $@ $< $(LIBC_SO)
+$(BUILD)/lib/libtlsalign.so: $(BUILD)/userland/dynlib/tls_plug_align.o $(LIBC_SO)
+	@mkdir -p $(dir $@)
+	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libtlsalign.so -o $@ $< $(LIBC_SO)
 
 # libhash.so -- the first shared library here that exists to be USED
 # rather than to prove the loader works. kcrc.o and ksha256.o come off
@@ -2367,6 +2372,9 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# (`make toolchain`) and NOGPL is off: /lib/libstdc++.so.6 and
 	# /lib/libgcc_s.so.1, which every C++ program it builds links by
 	# default, as on Linux (docs/cc-design.md, "A shared C++ runtime").
+	# REMOVED FIRST, and named in seed/exact below: a NOGPL image, or one
+	# after the toolchain is gone, must not keep the last build's copies.
+	rm -f $(SEED_DIR)/sync/lib/libstdc++.so.6 $(SEED_DIR)/sync/lib/libgcc_s.so.1
 	$(if $(NOGPL),@true,@if [ -f $(TOOLCHAIN)/x86_64-saunaos/lib/libstdc++.so.6 ]; then \
 	    echo "seed: the shared C++ runtime ($(TOOLCHAIN)) goes in /lib"; \
 	    cp -L $(TOOLCHAIN)/x86_64-saunaos/lib/libstdc++.so.6 $(TOOLCHAIN)/x86_64-saunaos/lib/libgcc_s.so.1 \
@@ -2378,7 +2386,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	$(if $(NOGPL),@true,@if [ -x $(SCUMMVM_STAGE)/usr/bin/scummvm ]; then \
 	    echo "seed: ScummVM ($(SCUMMVM_STAGE)) goes in /usr"; \
 	    cp -r $(SCUMMVM_STAGE)/usr/. $(SEED_DIR)/sync/usr/; fi)
-	printf '# image directories tfs3_writer.py sync mirrors exactly (Makefile, seed)\n/usr/include\n/usr/lib\n/usr/bin\n/usr/libexec\n/usr/share/scummvm\n' > $(SEED_DIR)/exact
+	printf '# image directories (and files) tfs3_writer.py sync mirrors exactly (Makefile, seed)\n/usr/include\n/usr/lib\n/usr/bin\n/usr/libexec\n/usr/share/scummvm\n/lib/libstdc++.so.6\n/lib/libgcc_s.so.1\n' > $(SEED_DIR)/exact
 	# Destination comes from the SOURCE DIRECTORY, not from a list:
 	# build/userland/{gui,bin}/x.elf -> /bin/x, build/userland/tests/x.elf
 	# -> /tests/x, with $(call seed_name,...) applying the three renames.

@@ -23,6 +23,9 @@
 //
 // Called from the event-post path, including from interrupt context.
 void futex_note_ready(int pid);
+// Wake every waiter on the user word at `uaddr` in address space `pml4`,
+// SYS_FUTEX_WAKE's from the kernel (a thread's clear_tid at exit).
+int futex_wake_addr(uint64_t pml4, uint64_t uaddr);
 
 // Drops the registration for an address space that is going away. The
 // word is a user page; a stale physical address here would be a write

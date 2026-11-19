@@ -18,6 +18,7 @@
 #include <string.h>
 #include <errno.h>
 #include <dlfcn.h>
+#include <link.h>
 #include <pthread.h>
 #include "rt/sys.h"
 #include "query_abi.h"
@@ -81,6 +82,36 @@ static void *late_thread(void *arg) {         // started after it
     return 0;
 }
 static void *nothing(void *arg) { (void)arg; (void)*tls_lib_gd_addr(); return 0; }
+
+// dl_iterate_phdr()'s dlpi_tls_data for a library named `want`: the
+// CALLING thread's block, glibc's meaning.
+struct tls_q { const char *want; void *data; uint64_t modid; };
+static int tls_cb(struct dl_phdr_info *info, size_t size, void *arg) {
+    (void)size;
+    struct tls_q *q = arg;
+    if (info->dlpi_name && strstr(info->dlpi_name, q->want)) {
+        q->data = info->dlpi_tls_data;
+        q->modid = info->dlpi_tls_modid;
+        return 1;
+    }
+    return 0;
+}
+static void *tls_data_of(const char *want) {
+    struct tls_q q = { want, 0, 0 };
+    dl_iterate_phdr(tls_cb, &q);
+    return q.data;
+}
+static int in_block(void *block, void *var) {
+    return block && (char *)var >= (char *)block && (char *)var < (char *)block + 64;
+}
+static void *g_thread_block, *g_thread_gd, *g_thread_plug_block;
+static void *block_thread(void *arg) {
+    (void)arg;
+    g_thread_block = tls_data_of("libtlsdyn.so");
+    g_thread_gd = tls_lib_gd_addr();
+    g_thread_plug_block = tls_data_of("libtlsplug.so");   // never touched here: NULL
+    return 0;
+}
 
 static int region_count(void) {
     struct query_procmap q;
@@ -151,6 +182,23 @@ int main(void) {
     utest_checkf(!ie && why && strstr(why, "initial-exec"),
                  "a dlopen() of a library using initial-exec TLS is refused, saying why (%s)",
                  why ? why : "no reason");
+    void *again = dlopen("/lib/libtlsie.so", RTLD_NOW);
+    utest_check(!again, "...and refused again: a second dlopen() of it is no handle either");
+    void *al = dlopen("/lib/libtlsalign.so", RTLD_NOW);
+    const char *awhy = al ? 0 : dlerror();
+    utest_checkf(!al && awhy && strstr(awhy, "aligned"),
+                 "a library whose TLS is aligned past a page is refused (%s)", awhy ? awhy : "no reason");
+
+    void *mine = tls_data_of("libtlsdyn.so");
+    utest_check(in_block(mine, tls_lib_gd_addr()),
+                "dl_iterate_phdr's dlpi_tls_data is this thread's block, holding its variable");
+    pthread_t bt;
+    int bmade = pthread_create(&bt, 0, block_thread, 0) == 0;
+    if (bmade) pthread_join(bt, 0);
+    utest_check(bmade && g_thread_block != mine && in_block(g_thread_block, g_thread_gd),
+                "...and another thread's is its own");
+    utest_check(bmade && !g_thread_plug_block,
+                "...and NULL for a dlopen()ed module the thread has not used yet");
 
     int before = region_count();
     int all = 1;

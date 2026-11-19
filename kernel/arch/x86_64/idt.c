@@ -24,6 +24,7 @@
 #include "process.h"
 #include "crash_report.h" // crash_report_write() -- the ring-3 report
 #include "uaddr.h" // uaddr_is_stack_guard() -- naming a stack overflow as one
+#include "mmap.h"  // mmap_is_guard_below() -- a thread stack's guard, by its region
 #include "ksyms.h" // a panic names the function, not just an address
 #include "version.h" // SAUNAOS_VERSION_FULL -- a photographed panic identifies its build
 #include "clocksource.h" // uptime, so a panic says WHEN
@@ -609,12 +610,12 @@ static void isr_dispatch_body(uint64_t *regs) {
         // labelling it.
         int stack_overflow = vector == 14 && (cs & 3) == 3 &&
                               uaddr_is_stack_guard(cr2);
-        // A pthread's stack has its guard page right below the range it
-        // was created with (libc's pthread.c maps it PROT_NONE).
+        // A pthread's stack has its guard right below the range it was
+        // created with: whatever PROT_NONE region ends there.
         uint64_t tlo = 0, thi = 0;
         int thread_overflow = vector == 14 && (cs & 3) == 3 && !stack_overflow &&
             scheduler_thread_stack(scheduler_current_pid(), &tlo, &thi) &&
-            tlo >= 4096 && cr2 < tlo && cr2 >= tlo - 4096;
+            cr2 < tlo && mmap_is_guard_below(cr2, tlo);
         if (thread_overflow) stack_overflow = 1;
 
         // The KERNEL's own stacks have guard pages too (scheduler.c), so
