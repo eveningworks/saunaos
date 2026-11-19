@@ -1678,6 +1678,7 @@ $(BUILD)/userland/utils/reboot.elf: $(BUILD)/userland/utils/reboot.o $(USERLAND_
 LDSO    = $(BUILD)/lib/ld-toy.so
 DYNLIBS = $(BUILD)/lib/libhello.so $(BUILD)/lib/libplug.so $(BUILD)/lib/libhash.so $(LIBSSL_SO) $(LIBHTTP_SO) \
           $(BUILD)/lib/libinit_a.so $(BUILD)/lib/libinit_b.so \
+          $(BUILD)/lib/libtlsdyn.so $(BUILD)/lib/libtlsplug.so $(BUILD)/lib/libtlsie.so \
           $(LIBSMB_SO) $(LIBSDL3_SO) $(LIBSDL2_SO)
 
 # /lib/snd/<name>.so -- one sound driver per chip, dlopen'd by
@@ -1826,6 +1827,23 @@ $(BUILD)/lib/libinit_a.so: $(BUILD)/userland/dynlib/initfini_a.o
 $(BUILD)/lib/libinit_b.so: $(BUILD)/userland/dynlib/initfini_b.o $(BUILD)/lib/libinit_a.so
 	@mkdir -p $(dir $@)
 	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libinit_b.so -o $@ $< $(BUILD)/lib/libinit_a.so
+
+# libtlsdyn.so, libtlsplug.so and libtlsie.so -- /tests/tls_dyn_test's
+# thread-local storage in shared objects: one linked at startup, one
+# dlopen()ed, one whose initial-exec TLS a dlopen() must refuse. Their
+# objects compile WITHOUT the tree's -ftls-model=local-exec, which no
+# shared object can use: -fpic's default, global-dynamic.
+TLS_DL_CFLAGS = $(subst -ftls-model=local-exec,,$(subst -fpie,-fpic,$(USERLAND_CFLAGS)))
+$(BUILD)/userland/dynlib/tls_lib.o $(BUILD)/userland/dynlib/tls_plug.o $(BUILD)/userland/dynlib/tls_plug_ie.o: USERLAND_CFLAGS := $(TLS_DL_CFLAGS)
+$(BUILD)/lib/libtlsdyn.so: $(BUILD)/userland/dynlib/tls_lib.o $(LIBC_SO)
+	@mkdir -p $(dir $@)
+	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libtlsdyn.so -o $@ $< $(LIBC_SO)
+$(BUILD)/lib/libtlsplug.so: $(BUILD)/userland/dynlib/tls_plug.o $(LIBC_SO)
+	@mkdir -p $(dir $@)
+	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libtlsplug.so -o $@ $< $(LIBC_SO)
+$(BUILD)/lib/libtlsie.so: $(BUILD)/userland/dynlib/tls_plug_ie.o $(LIBC_SO)
+	@mkdir -p $(dir $@)
+	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libtlsie.so -o $@ $< $(LIBC_SO)
 
 # libhash.so -- the first shared library here that exists to be USED
 # rather than to prove the loader works. kcrc.o and ksha256.o come off
@@ -2042,6 +2060,13 @@ $(BUILD)/userland/tests/dyn_test.elf: $(BUILD)/userland/tests/dyn_test.o $(USERL
 # FIRST on purpose (the rule above libinit_a.so says why).
 $(BUILD)/userland/tests/initfini_dyn_test.elf: $(BUILD)/userland/tests/initfini_dyn_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO) $(BUILD)/lib/libinit_a.so $(BUILD)/lib/libinit_b.so $(LDSO)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(BUILD)/lib/libinit_a.so $(BUILD)/lib/libinit_b.so $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO)
+
+# /tests/tls_dyn_test: the executable reaches a library's variable with
+# `extern __thread`, which local-exec cannot name -- initial-exec, and the
+# loader's TPOFF64.
+$(BUILD)/userland/tests/tls_dyn_test.o: USERLAND_CFLAGS := $(subst -ftls-model=local-exec,-ftls-model=initial-exec,$(USERLAND_CFLAGS))
+$(BUILD)/userland/tests/tls_dyn_test.elf: $(BUILD)/userland/tests/tls_dyn_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO) $(BUILD)/lib/libtlsdyn.so $(LDSO)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(BUILD)/lib/libtlsdyn.so $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO)
 
 # /tests/hash_test is DYNAMIC, and that is the point of it: the code it
 # checks now lives in /lib/libhash.so, so a static link would prove the

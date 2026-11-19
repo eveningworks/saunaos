@@ -2,8 +2,9 @@
 // and this program, builds an auxv (abi/auxv.h), and enters HERE;
 // everything dynamic happens in ring 3 (Linux's split). Eagerly, in
 // this order: find the executable's PT_DYNAMIC through the auxv, load
-// every DT_NEEDED library with Stage-0 mmap, apply every relocation,
-// jump to AT_ENTRY. The libraries' constructors run LATER, when the
+// every DT_NEEDED library with Stage-0 mmap, lay out thread-local
+// storage, apply every relocation, install the first thread's TLS, jump
+// to AT_ENTRY. The libraries' constructors run LATER, when the
 // program's libc asks through the vector (ldso_api.h's run_init).
 //
 // FREESTANDING BY NECESSITY, not taste: tolibc is what this program
@@ -157,6 +158,10 @@ struct dobj {
     // loaded segment holds them, and the object is then not reported.
     const struct phdr64 *phdr;
     uint16_t phnum;
+    // Its PT_TLS, if it has one: the template (biased), its sizes, and
+    // its static offset below tp -- 0 for a module dlopen()ed after the
+    // layout, whose blocks are mapped per thread on first use.
+    uint64_t tls_image, tls_filesz, tls_memsz, tls_align, tls_offset;
 };
 
 enum { INIT_NONE, INIT_RUNNING, INIT_DONE, INIT_FINISHED };
@@ -335,6 +340,8 @@ static uint8_t g_hdr[4096];
 // GIVEN. That is the DT_NEEDED rule, and dlopen("/lib/snd/hda.so")
 // wants the other half. Returns 0, or -1 with the reason recorded (see
 // ld_fail: fatal at startup, a return value inside dlopen).
+static void note_tls(struct dobj *o, const struct phdr64 *ph, uint64_t phnum);
+
 static int load_object(const char *name) {
     for (int i = 0; i < g_nobjs; i++)
         if (ld_streq(obj(i)->name, name)) return 0; // already loaded
@@ -451,6 +458,7 @@ static int load_object(const char *name) {
     o->dynamic = (const struct dyn64 *)(uintptr_t)(bias + dyn_vaddr);
     o->phdr = mapped_ph;
     o->phnum = mapped_ph ? phnum : 0;
+    note_tls(o, ph, phnum);            // ph is still this object's g_hdr
     parse_dynamic(o);
     return 0;
 }
@@ -546,9 +554,183 @@ static int iterate_phdr(int (*cb)(struct ldso_phdr_info *, uint64_t, void *), vo
         info.phdr  = o->phdr;
         info.phnum = o->phnum;
         info.adds  = (uint64_t)g_nobjs;   // nothing is ever unloaded
+        if (o->tls_memsz) {
+            info.tls_modid = (uint64_t)i + 1;
+            info.tls_data = (void *)(uintptr_t)o->tls_image;
+        }
         int r = cb(&info, sizeof info, data);
         if (r) return r;
     }
+    return 0;
+}
+
+// --- thread-local storage ----------------------------------------------
+//
+// THE x86-64 psABI's VARIANT II, WITH A DTV, glibc's and musl's shape.
+// Every object with a PT_TLS is a MODULE, numbered by its row + 1 (sparse:
+// a row without TLS wastes one DTV slot, and nothing else). Each thread's
+// area is one anonymous mapping:
+//
+//     +-- static TLS --------------------------+-- TCB --+-- DTV --------+
+//     | ...lib 2's block | lib 1 | the exe     | self,dtv| cap, m1, m2...|
+//     +----------------------------------------+---------+---------------+
+//                                              ^ tp = %fs.base
+//
+// THE STATIC PART IS EVERY MODULE LOADED AT STARTUP, the executable
+// nearest tp -- exactly where its local-exec offsets put it, so rt/tls.c's
+// layout and this one agree for a program with no TLS library. A module
+// dlopen()ed later has no static offset: its block is mapped the first
+// time a thread asks __tls_get_addr() for it (libc's fast path misses,
+// and calls tls_get_addr below), and a library that reaches its TLS
+// initial-exec (R_X86_64_TPOFF64) cannot be dlopen()ed -- glibc's static
+// surplus, which this does not keep, is the only way that works.
+//
+// THE DTV GROWS: a thread created before a dlopen has a table too short
+// for the new module, and the slow path maps a longer one. tcb[1] always
+// points at the live table; tcb[2]/tcb[3] record a mapped one (address,
+// length) so a thread's teardown can give it back.
+//
+// RACES ACCEPTED: dlopen appends rows while another thread may read
+// g_nobjs here. Rows never move (the table grows in blocks) and a row is
+// complete before g_nobjs counts it, so a reader sees an old count or a
+// whole row.
+
+#define PT_TLS 7
+#define STT_TLS 6
+#define R_X86_64_DTPMOD64 16
+#define R_X86_64_DTPOFF64 17
+#define R_X86_64_TPOFF64  18
+#define R_X86_64_TLSDESC  36
+
+#define TCB_WORDS 8   // self, dtv, mapped dtv, its length, spare -- rt/tls.c's 64 bytes
+
+static uint64_t g_tls_static;  // bytes of static TLS, a multiple of g_tls_align
+static uint64_t g_tls_align = 16;
+
+static uint64_t align_up(uint64_t v, uint64_t a) { return (v + a - 1) & ~(a - 1); }
+
+// Records an object's PT_TLS (biased), from its program headers.
+static void note_tls(struct dobj *o, const struct phdr64 *ph, uint64_t phnum) {
+    for (uint64_t i = 0; i < phnum; i++) {
+        if (ph[i].p_type != PT_TLS || !ph[i].p_memsz) continue;
+        o->tls_image  = o->bias + ph[i].p_vaddr;
+        o->tls_filesz = ph[i].p_filesz;
+        o->tls_memsz  = ph[i].p_memsz;
+        o->tls_align  = ph[i].p_align ? ph[i].p_align : 1;
+    }
+}
+
+// Fixes the static offsets of every module loaded so far. Called once,
+// after startup loading and before any relocation reads an offset.
+static void tls_layout(void) {
+    uint64_t off = 0;
+    for (int i = 0; i < g_nobjs; i++) {
+        struct dobj *o = obj(i);
+        if (!o->tls_memsz) continue;
+        if (o->tls_align > PAGE) die("thread-local data aligned past a page", o->name[0] ? o->name : "the executable");
+        off = align_up(off + o->tls_memsz, o->tls_align);
+        o->tls_offset = off;
+        if (o->tls_align > g_tls_align) g_tls_align = o->tls_align;
+    }
+    g_tls_static = align_up(off, g_tls_align);
+}
+
+static void ld_memcpy(void *d, const void *s, uint64_t n) {
+    uint8_t *dd = d; const uint8_t *ss = s;
+    while (n--) *dd++ = *ss++;
+}
+
+// The module numbered `modid`, or 0.
+static struct dobj *tls_module(uint64_t modid) {
+    if (!modid || modid > (uint64_t)g_nobjs) return 0;
+    struct dobj *o = obj((int)modid - 1);
+    return o->tls_memsz ? o : 0;
+}
+
+// One thread's area: static blocks from their templates, the TCB, and a
+// DTV sized to every module loaded now. Returns tp, or 0 with no memory.
+static void *tls_alloc(void) {
+    uint64_t cap = (uint64_t)g_nobjs;
+    uint64_t base_len = g_tls_static + TCB_WORDS * 8 + (cap + 1) * 8;
+    uint64_t len = align_up(base_len, PAGE);
+    void *m = ld_mmap(0, len, SYS_PROT_READ | SYS_PROT_WRITE,
+                      SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
+    if (m == (void *)-1) return 0;
+    uint8_t *tp = (uint8_t *)m + g_tls_static;
+    uint64_t *tcb = (uint64_t *)tp;
+    uint64_t *dtv = tcb + TCB_WORDS;
+    dtv[0] = cap;
+    for (int i = 0; i < g_nobjs; i++) {
+        struct dobj *o = obj(i);
+        if (!o->tls_memsz || !o->tls_offset) continue;   // none, or dynamic
+        uint8_t *block = tp - o->tls_offset;
+        ld_memcpy(block, (const void *)(uintptr_t)o->tls_image, o->tls_filesz);
+        dtv[i + 1] = (uint64_t)(uintptr_t)block;          // the rest is zero already
+    }
+    tcb[0] = (uint64_t)(uintptr_t)tp;                     // %fs:0 reads tp itself
+    tcb[1] = (uint64_t)(uintptr_t)dtv;
+    tcb[TCB_WORDS - 1] = len;                             // the area's length, for tls_free
+    return tp;
+}
+
+// Gives back a thread's area, its mapped DTV and every dynamic block.
+// `tp` must not be the caller's own (a thread frees another's, at join).
+static void tls_free(void *tpv) {
+    if (!tpv) return;
+    uint64_t *tcb = (uint64_t *)tpv;
+    uint64_t *dtv = (uint64_t *)(uintptr_t)tcb[1];
+    for (uint64_t m = 1; dtv && m <= dtv[0]; m++) {
+        struct dobj *o = tls_module(m);
+        if (o && !o->tls_offset && dtv[m])
+            sc3(SYS_MUNMAP, dtv[m], align_up(o->tls_memsz, PAGE), 0);
+    }
+    if (tcb[2]) sc3(SYS_MUNMAP, tcb[2], tcb[3], 0);
+    uint64_t len = tcb[TCB_WORDS - 1];
+    sc3(SYS_MUNMAP, (uint64_t)(uintptr_t)tpv - g_tls_static, len, 0);
+}
+
+static uint64_t *current_tcb(void) {
+    uint64_t *tcb;
+    __asm__ volatile ("mov %%fs:0, %0" : "=r"(tcb));
+    return tcb;
+}
+
+// __tls_get_addr()'s slow path, for the CALLING thread: the DTV grown to
+// cover every module, and module `modid`'s block mapped from its template.
+static void *tls_get_addr(uint64_t modid, uint64_t off) {
+    struct dobj *o = tls_module(modid);
+    if (!o) die("__tls_get_addr: no such TLS module", 0);
+    uint64_t *tcb = current_tcb();
+    uint64_t *dtv = (uint64_t *)(uintptr_t)tcb[1];
+    if (modid > dtv[0]) {
+        uint64_t cap = (uint64_t)g_nobjs;
+        uint64_t len = align_up((cap + 1) * 8, PAGE);
+        uint64_t *nd = ld_mmap(0, len, SYS_PROT_READ | SYS_PROT_WRITE,
+                               SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
+        if (nd == (void *)-1) die("__tls_get_addr: no memory for a longer DTV", o->name);
+        ld_memcpy(nd + 1, dtv + 1, dtv[0] * 8);
+        nd[0] = cap;
+        uint64_t old = tcb[2], old_len = tcb[3];
+        tcb[1] = (uint64_t)(uintptr_t)nd;
+        tcb[2] = (uint64_t)(uintptr_t)nd;
+        tcb[3] = len;
+        if (old) sc3(SYS_MUNMAP, old, old_len, 0);
+        dtv = nd;
+    }
+    if (!dtv[modid]) {
+        uint64_t len = align_up(o->tls_memsz, PAGE);
+        uint8_t *b = ld_mmap(0, len, SYS_PROT_READ | SYS_PROT_WRITE,
+                             SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
+        if (b == (void *)-1) die("__tls_get_addr: no memory for a TLS block", o->name);
+        ld_memcpy(b, (const void *)(uintptr_t)o->tls_image, o->tls_filesz);
+        dtv[modid] = (uint64_t)(uintptr_t)b;
+    }
+    return (uint8_t *)(uintptr_t)dtv[modid] + off;
+}
+
+// The row `o` is, for a relocation naming its own module.
+static int row_of(const struct dobj *o) {
+    for (int i = 0; i < g_nobjs; i++) if (obj(i) == o) return i;
     return 0;
 }
 
@@ -586,8 +768,54 @@ static void apply_rela(const struct dobj *o, const struct rela64 *r,
             *where = v + (type == R_X86_64_64 ? (uint64_t)r->r_addend : 0);
             break;
         }
+        case R_X86_64_DTPMOD64:
+        case R_X86_64_DTPOFF64:
+        case R_X86_64_TPOFF64: {
+            // THE DEFINING MODULE, not an address: a TLS symbol's value
+            // is an offset into its module's block, so the bias is never
+            // added. Interposition as for the rest: by name, exe first.
+            int def = -1;
+            uint64_t sv = 0;
+            if (symi) {
+                const struct sym64 *s = &o->symtab[symi];
+                const char *nm = o->strtab + s->st_name;
+                for (int i = 0; i < g_nobjs && def < 0; i++) {
+                    const struct sym64 *d = lookup_in(obj(i), nm);
+                    if (d && (d->st_info & 0xF) == STT_TLS) { def = i; sv = d->st_value; }
+                }
+                if (def < 0 && s->st_shndx != 0) { def = row_of(o); sv = s->st_value; }
+                if (def < 0) {
+                    if (g_nonfatal) { g_reloc_failed = 1; ld_fail("undefined thread-local symbol", nm); }
+                    else die("undefined thread-local symbol", nm);
+                    break;
+                }
+            } else {
+                def = row_of(o);              // the module's own, local-dynamic
+            }
+            const struct dobj *m = obj(def);
+            if (type == R_X86_64_DTPMOD64) {
+                *where = (uint64_t)def + 1;
+            } else if (type == R_X86_64_DTPOFF64) {
+                *where = sv + (uint64_t)r->r_addend;
+            } else if (!m->tls_offset) {
+                // INITIAL-EXEC NEEDS A STATIC OFFSET, which a module
+                // loaded after startup does not have (glibc keeps a
+                // surplus for it; this loader does not).
+                g_reloc_failed = 1;
+                ld_fail("initial-exec TLS in a library loaded after startup "
+                        "(rebuild it -ftls-model=global-dynamic)",
+                        o->name[0] ? o->name : "the executable");
+            } else {
+                *where = sv + (uint64_t)r->r_addend - m->tls_offset;
+            }
+            break;
+        }
+        case R_X86_64_TLSDESC:
+            die("TLS descriptors are not supported (rebuild with -mtls-dialect=gnu)",
+                o->name[0] ? o->name : "the executable");
+            break;
         default:
-            die("unsupported relocation type (TLS in a library?)",
+            die("unsupported relocation type",
                 o->name[0] ? o->name : "the executable");
         }
     }
@@ -696,6 +924,7 @@ uint64_t ldso_main(uint64_t *sp) {
     if (!exe->dynamic) die("executable has no PT_DYNAMIC", 0);
     exe->phdr = ph;
     exe->phnum = (uint16_t)at_phnum;
+    note_tls(exe, ph, at_phnum);
     parse_dynamic(exe);
 
     // Load every needed library, breadth-first: a library's own
@@ -742,6 +971,9 @@ uint64_t ldso_main(uint64_t *sp) {
         }
     }
 
+    // Static TLS offsets before relocation: a TPOFF64 is computed from them.
+    tls_layout();
+
     // Relocate LIBRARIES first, the executable last -- order matters
     // only in that everything must be loaded before anything resolves,
     // which the loop above already guaranteed.
@@ -749,6 +981,14 @@ uint64_t ldso_main(uint64_t *sp) {
         const struct dobj *o = obj(i);
         if (o->rela)   apply_rela(o, o->rela, o->relasz);
         if (o->jmprel) apply_rela(o, o->jmprel, o->pltrelsz);
+    }
+
+    // THE FIRST THREAD'S TLS, sized to every module: crt0's rt/tls.c sees
+    // tls_alloc filled in below and leaves %fs alone.
+    {
+        void *tp = tls_alloc();
+        if (!tp) die("no memory for thread-local storage", 0);
+        sc1(SYS_SET_TLS, (uint64_t)(uintptr_t)tp);
     }
 
     // HAND libc THE ENTRY POINTS, after relocation so the vector is a
@@ -767,6 +1007,9 @@ uint64_t ldso_main(uint64_t *sp) {
             api->run_init = run_init;
             api->run_fini = run_fini;
             api->iterate_phdr = iterate_phdr;
+            api->tls_alloc = tls_alloc;
+            api->tls_free = tls_free;
+            api->tls_get_addr = tls_get_addr;
             api->magic   = LDSO_API_MAGIC; // LAST: it is the ready flag
         }
     }

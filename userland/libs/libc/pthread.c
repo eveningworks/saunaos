@@ -15,6 +15,9 @@
 #include <sys/mman.h>
 
 #define PTHREAD_GUARD_SIZE 4096 // one page, glibc's default guardsize
+#include "ldso_api.h"
+
+extern struct ldso_api __ldso_api __attribute__((weak));
 
 struct pthread {
     int    tid;
@@ -23,7 +26,8 @@ struct pthread {
     void  *retval;
     void  *stack;    // the stack's mapping, guard page first; NULL for the initial thread
     size_t stack_mapped; // its length, guard included
-    void  *tls;      // ditto
+    void  *tls;      // ditto -- a static program's block
+    void  *tls_tp;   // a dynamic program's: the loader's area, by its tp
     int    detached;
     void **tsd;      // pthread_setspecific()'s values, indexed by key
     unsigned ntsd;
@@ -66,6 +70,11 @@ static void *aligned_block(size_t size, void **out_raw) {
     return (void *)a;
 }
 
+static void thread_tls_free(struct pthread *t) {
+    if (t->tls_tp) __ldso_api.tls_free(t->tls_tp);
+    free(t->tls);
+}
+
 int pthread_create(pthread_t *out, const pthread_attr_t *attr,
                    void *(*start)(void *), void *arg) {
     if (!out || !start) return EINVAL;
@@ -101,20 +110,29 @@ int pthread_create(pthread_t *out, const pthread_attr_t *attr,
     t->stack = map;
     t->stack_mapped = mapped;
 
-    void *tls_raw = NULL;
-    void *tls_mem = aligned_block((size_t)rt_tls_size(), &tls_raw);
-    if (!tls_mem) { munmap(map, mapped); free(t); return EAGAIN; }
-    t->tls = tls_raw;
     // EVERY THREAD GETS ITS OWN COPY OF EVERY `__thread` VARIABLE,
-    // initialised from the program's template -- which is what makes
-    // errno per thread and g_self above possible at all.
-    void *tp = rt_tls_install(tls_mem);
+    // initialised from the templates -- which is what makes errno per
+    // thread and g_self above possible at all. A dynamic program's area
+    // is the loader's (every library's block, and a DTV); a static one's
+    // is the executable's block alone.
+    void *tp;
+    if (rt_tls_by_loader()) {
+        tp = __ldso_api.tls_alloc();
+        if (!tp) { munmap(map, mapped); free(t); return EAGAIN; }
+        t->tls_tp = tp;
+    } else {
+        void *tls_raw = NULL;
+        void *tls_mem = aligned_block((size_t)rt_tls_size(), &tls_raw);
+        if (!tls_mem) { munmap(map, mapped); free(t); return EAGAIN; }
+        t->tls = tls_raw;
+        tp = rt_tls_install(tls_mem);
+    }
 
     // The stack grows DOWN from the top of the block.
     int tid = sys_thread_create(thread_entry, stack + stacksize, t, tp,
                                 t->detached, (unsigned)stacksize);
     if (tid < 0) {
-        free(tls_raw); munmap(map, mapped); free(t);
+        thread_tls_free(t); munmap(map, mapped); free(t);
         return EAGAIN;
     }
     t->tid = tid;
@@ -130,7 +148,7 @@ int pthread_join(pthread_t t, void **retval) {
     // Safe HERE and nowhere earlier: the kernel has reported the thread
     // reaped, so nothing is standing on this stack any more.
     free(t->tsd);
-    free(t->tls);
+    thread_tls_free(t);
     munmap(t->stack, t->stack_mapped);
     free(t);
     return 0;

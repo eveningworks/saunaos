@@ -511,6 +511,10 @@ TESTS = [
     # child wrote, destructors included, which is why both are spawned.
     ("initfini_test", None, None, None),
     ("initfini_dyn_test", None, None, None),
+    # Thread-local storage in shared libraries: the static block, the
+    # DTV, a dlopen()ed library's blocks per thread, an initial-exec one
+    # refused. Spawned: dynamic, and it creates threads.
+    ("tls_dyn_test", None, None, None),
     # Two instances of a program share its code and a library's through
     # the image cache (kernel/mm/imgcache.c): the second adds no frame
     # and its rodata counts as SHARED. Spawned: dynamic, and it reads

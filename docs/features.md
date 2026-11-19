@@ -177,7 +177,7 @@ executable range and is read-only, with CR0.WP set so ring 0 honours it.
 SMEP and SMAP wherever the CPU reports them, with kernel code reaching
 user memory only through copy helpers that go via the kernel's own map,
 so **EFLAGS.AC is never set anywhere** and there is no STAC/CLAC window.
-Guard pages below user stacks and kernel stacks, randomised stack
+Guard pages below user stacks, thread stacks and kernel stacks, randomised stack
 canaries, heap red-zones behind a runtime switch, and **kernel ASLR** —
 the kernel relocates itself to a random base at boot and patches ~7,400
 of its own absolute references. A mapping records whether it OWNS its
@@ -727,7 +727,8 @@ sources build `/lib/libc.so` (a second `-fpic` compile, the
 compiled-twice pattern one axis over), the toolkit builds
 the toolkit's four (`libbase`, `libnet`, `libmedia`, `libui`) beside it,
 `/lib/ld-toy.so` loads what each needs into every
-`/bin` and GUI program, and it stays *ours* on purpose — porting
+`/bin` and GUI program -- thread-local data in a library included, a
+`dlopen()`ed one's too -- and it stays *ours* on purpose — porting
 musl was sized and declined, because musl is Linux-only by
 construction and the port is really a Linux-syscall-compat project
 (see `docs/decisions.md`). **The machine carries its own SDK**:

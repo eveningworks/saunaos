@@ -341,8 +341,13 @@ this the obvious way), not from how much history it accumulated.
   psABI's variant II -- a `__thread` variable lives at a NEGATIVE offset
   from the thread pointer. `USERLAND_CFLAGS` carries
   `-ftls-model=local-exec` so an access is a fixed `%fs:offset` and
-  nothing else; the other three models need a `__tls_get_addr()` and a
-  GOT that only a dynamic linker fills in.
+  nothing else. **A shared object may NOT use local-exec**: one with
+  `__thread` data compiles without it (the Makefile's `TLS_DL_CFLAGS`),
+  and `/lib/ld-toy.so` lays out every module's block, installs the first
+  thread's TLS itself, and gives `pthread_create()` its areas
+  (`ldso_api.h`'s `tls_alloc`). In a dynamic program, `rt/tls.c` then
+  leaves `%fs` alone. A library that `dlopen()` loads must use
+  global-dynamic; initial-exec is refused by name.
   **Two traps, both paid for.** The block must be
   `align_up(memsz, the SEGMENT's alignment)` -- rounding to anything
   else silently shifts every variable under the offsets that read it.

@@ -8289,6 +8289,36 @@ arguments. NOT adding a new exported function; an old program never
 calls it, and a new program against an old library already fails to
 resolve it by name, which reports itself clearly.
 
+## Shared libraries hold thread-local data, with a DTV and blocks mapped on first use
+
+Chosen 2026-11-19, so a C++ runtime can be a shared library: libstdc++
+keeps its exception state and `call_once` in `__thread` variables, and
+`/lib/ld-toy.so` refused any TLS relocation. The maintainer picked the
+whole of glibc's and musl's design over a startup-only subset:
+
+- **Variant II with a DTV.** Every object with a `PT_TLS` is a module
+  numbered by its row in the loader's table. Each module loaded at
+  startup gets a static offset below the thread pointer, with the
+  executable nearest it, exactly where its local-exec offsets already
+  put it (so `rt/tls.c`'s layout and the loader's agree). A thread's
+  area is one mapping: the static blocks, a TCB (`%fs:0` = itself,
+  `%fs:8` = the DTV) and the DTV.
+- **All four relocation models.** `DTPMOD64`/`DTPOFF64` for global- and
+  local-dynamic code (`-fpic`'s default), `TPOFF64` for initial-exec.
+  `__tls_get_addr()` is libc's, because the loader has no `.dynsym`. It
+  takes the fast path through the DTV and asks the loader for anything
+  else.
+- **A dlopen()ed module's blocks are mapped per thread on first use**,
+  and a thread's DTV grows when it meets a module newer than itself.
+  That is glibc's lazy allocation, without its generation counter.
+- **Initial-exec in a dlopen()ed library is refused by name.** glibc
+  reserves a static surplus for it; that surplus is a cap this loader
+  does not invent. TLS descriptors (`-mtls-dialect=gnu2`) are refused
+  too, since GCC's default is the traditional dialect.
+- **Rejected: static TLS for startup libraries only**, with any dlopen()
+  of a TLS library refused. It is half the code, but a plugin with one
+  `thread_local` could never load.
+
 ## The settings generation starts at 1, so 0 can mean "never asked"
 
 Every cache holder that watches the settings registry keeps its own

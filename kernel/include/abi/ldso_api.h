@@ -54,6 +54,15 @@ struct ldso_api {
     void (*run_fini)(void);
     int  (*iterate_phdr)(int (*cb)(struct ldso_phdr_info *info, uint64_t size, void *data),
                          void *data);
+    // Thread-local storage (2026-11-19), NULL from an older loader -- and
+    // then rt/tls.c and pthread.c lay out the executable's block alone.
+    // tls_alloc: a new thread's area, every module's static block from its
+    // template, a TCB and a DTV; returns tp. tls_free: one a joined thread
+    // used. tls_get_addr: __tls_get_addr()'s slow path for the calling
+    // thread (libc's __tls_get_addr is the fast one: the DTV at %fs:8).
+    void *(*tls_alloc)(void);
+    void  (*tls_free)(void *tp);
+    void *(*tls_get_addr)(uint64_t modid, uint64_t offset);
 };
 
 #endif // LDSO_API_H

@@ -27,7 +27,17 @@
 // any ported code expects to find.
 #include "toyabi.h"
 #include "rt/sys.h"
+#include "ldso_api.h"
 #include <stdint.h>
+
+// In a DYNAMIC program the loader has already installed the first
+// thread's TLS -- every library's block beside this one's -- and says so
+// by filling in tls_alloc. Weak: a static program links no loader vector.
+extern struct ldso_api __ldso_api __attribute__((weak));
+
+int rt_tls_by_loader(void) {
+    return &__ldso_api && __ldso_api.magic == LDSO_API_MAGIC && __ldso_api.tls_alloc;
+}
 
 // From userland/libs/rt/link.ld: the template's address, and its geometry
 // as DATA -- link.ld writes three QUADs into .rodata. They were *ABS*
@@ -93,6 +103,7 @@ void *rt_tls_install(void *mem) {
 static char g_main_tls[TLS_STATIC_MAX + TCB_SIZE] __attribute__((aligned(TLS_MAX_ALIGN)));
 
 void __rt_tls_init(void) {
+    if (rt_tls_by_loader()) return;
     if (__rt_tlsdesc.align > TLS_MAX_ALIGN) {
         static const char msg[] =
             "rt: this program's thread-local storage is aligned past 16\n";

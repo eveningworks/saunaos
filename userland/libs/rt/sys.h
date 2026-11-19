@@ -191,6 +191,11 @@ int     sys_execve(const char *path, char *const argv[], char *const envp[]);
 // declaring a `__thread` variable, and crt0 has already installed the
 // initial thread's block before main() runs.
 
+// Whether /lib/ld-toy.so lays out this program's TLS (a dynamic program
+// whose loader is new enough): a thread's area is then the loader's
+// (ldso_api.h's tls_alloc/tls_free), not rt_tls_install()'s.
+int      rt_tls_by_loader(void);
+
 // Bytes rt_tls_install() needs, block plus TCB.
 uint64_t rt_tls_size(void);
 

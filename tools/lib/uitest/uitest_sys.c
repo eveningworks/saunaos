@@ -290,6 +290,8 @@ int sys_thread_create(void (*entry)(void *), void *stack_top, void *arg,
 // create above is refused, but pthread_create names them first.
 uint64_t rt_tls_size(void) { return 64; }
 void *rt_tls_install(void *mem) { return mem; }
+// No loader on the host: pthread.c takes rt's path (and is refused above).
+int rt_tls_by_loader(void) { return 0; }
 void sys_thread_exit(int code) { (void)code; uh_die("sys_thread_exit with no thread to end"); }
 int sys_thread_join(int tid) { (void)tid; return fail(-3); }     // ESRCH
 int sys_thread_detach(int tid) { (void)tid; return fail(-3); }
