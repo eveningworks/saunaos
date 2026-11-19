@@ -133,7 +133,7 @@ static void find_edges(struct ttf_scratch *sc, fx_t em) {
             // A round top or foot: an ON-curve point both neighbours are
             // past. (An off-curve one is the control polygon's corner, not
             // the curve's extreme.)
-            if (!sc->on[i]) continue;
+            if (sc->on[i] != TTF_PT_ON) continue;
             int top = sc->py[i] < sc->py[h] && sc->py[i] < sc->py[j];
             int foot = sc->py[i] > sc->py[h] && sc->py[i] > sc->py[j];
             fx_t through = sc->px[j] - sc->px[h];

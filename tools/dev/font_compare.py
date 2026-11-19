@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """tools/dev/font_compare.py -- small text from SaunaOS's rasterizer, beside a reference.
 
-Renders real UI strings with the tree's own `userland/libs/media/ttf.c`
-and its autohinter `ttf_hint.c` (compiled for the host from
+Renders real UI strings with the tree's own `userland/libs/media/ttf.c`,
+its CFF reader `ttf_cff.c` and its autohinter `ttf_hint.c` (compiled for the host from
 `font_compare.c`) and, when libfreetype is installed, with FreeType's LIGHT
 AUTOHINTER -- the vertical-only hinting SaunaOS's is built to match. Each
 VARIANT is a renderer and a blend:
@@ -20,6 +20,8 @@ with every variant side by side.
 
   tools/dev/font_compare.py --out /tmp/fc
   tools/dev/font_compare.py --variants hinted,ft --sizes 9-12 --face dejavu-sans-mono --out /tmp/fc
+  tools/dev/font_compare.py --face /usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc:2 --mono '' \
+      --text '设置 显示 文件' --out /tmp/fc        # a file, and member 2 of a collection
 
 THE TRAP: a comparison sheet is only fair at ACTUAL PIXELS -- judge the
 1x images at 100% zoom; the 3x ones are for seeing why. And blending is
@@ -73,7 +75,7 @@ MONO_LINE = (TERM, "$ ls -la /usr/share/fonts  # ÅÄÖ")
 
 
 def build(workdir, with_ft):
-    """The renderer, from the tree's ttf.c and ttf_hint.c."""
+    """The renderer, from the tree's ttf.c, ttf_cff.c and ttf_hint.c."""
     inc = os.path.join(workdir, "inc")
     os.makedirs(inc, exist_ok=True)
     api = os.path.join(ROOT, "kernel", "include", "api")
@@ -84,7 +86,8 @@ def build(workdir, with_ft):
         shutil.copy(h, inc)
     exe = os.path.join(workdir, "render_ft" if with_ft else "render")
     cmd = ["gcc", "-O2", "-I", inc, os.path.join(HERE, "font_compare.c"),
-           os.path.join(media, "ttf.c"), os.path.join(media, "ttf_hint.c"), "-o", exe]
+           os.path.join(media, "ttf.c"), os.path.join(media, "ttf_cff.c"),
+           os.path.join(media, "ttf_hint.c"), "-o", exe]
     if with_ft:
         cflags = subprocess.run(["pkg-config", "--cflags", "freetype2"], capture_output=True, text=True).stdout.split()
         libs = subprocess.run(["pkg-config", "--libs", "freetype2"], capture_output=True, text=True).stdout.split()
@@ -143,6 +146,11 @@ def strip(exe, renderer, font, px, text, colours, mode, workdir):
     return im
 
 
+def face_path(name):
+    """A face under data/fonts/ by stem, or a file's path (with any `:N`) as given."""
+    return name if os.sep in name else os.path.join(FONTS, name + ".ttf")
+
+
 def parse_sizes(s):
     out = []
     for part in s.split(","):
@@ -159,8 +167,9 @@ def main():
     ap.add_argument("--out", required=True, help="directory for the PNGs")
     ap.add_argument("--variants", default=",".join(VARIANTS), help="comma list of: " + ", ".join(VARIANTS))
     ap.add_argument("--sizes", default="9-14", help="em sizes in px, e.g. 9-14 or 10,12")
-    ap.add_argument("--face", default="liberation-sans", help="UI face under data/fonts/")
-    ap.add_argument("--mono", default="dejavu-sans-mono", help="terminal face under data/fonts/ ('' for none)")
+    ap.add_argument("--face", default="liberation-sans",
+                    help="UI face under data/fonts/, or a font file's path; PATH:N for a collection's member N")
+    ap.add_argument("--mono", default="dejavu-sans-mono", help="terminal face, as --face ('' for none)")
     ap.add_argument("--text", action="append", help="a line to draw instead of the built-in ones (repeatable)")
     args = ap.parse_args()
 
@@ -175,8 +184,8 @@ def main():
             print(f"font_compare: no libfreetype headers; skipping {', '.join(skipped)}")
         names = [v for v in names if VARIANTS[v][0] != "ft"]
     lines = [(DARK, t) for t in args.text] if args.text else LINES
-    face = os.path.join(FONTS, args.face + ".ttf")
-    mono = os.path.join(FONTS, args.mono + ".ttf") if args.mono else None
+    face = face_path(args.face)
+    mono = face_path(args.mono) if args.mono else None
     sizes = parse_sizes(args.sizes)
     os.makedirs(args.out, exist_ok=True)
 

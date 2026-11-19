@@ -3,12 +3,13 @@
 // userland/libs/media/ttf.c hinted (`ours`) or not (`raw`), or by FreeType's
 // light autohinter (`ft`).
 //
-// usage: font_compare <ours|raw|ft> <font.ttf> <px> <utf-8 text> <out.raw>
+// usage: font_compare <ours|raw|ft> <font[:N]> <px> <utf-8 text> <out.raw>
+// (`:N` picks member N of a collection, a .ttc.)
 // out.raw is "W H BASELINE\n" then W*H coverage bytes, row-major.
 //
 // BOTH RENDERERS ARE LAID OUT WITH ttf.c's ADVANCES AND KERNING, so two
-// strips differ only in the glyphs' pixels, never in where they sit. ttf.c
-// and ttf_hint.c are compiled from the tree as-is.
+// strips differ only in the glyphs' pixels, never in where they sit. ttf.c,
+// ttf_hint.c and ttf_cff.c are compiled from the tree as-is.
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,6 +50,12 @@ int main(int argc, char **argv) {
     }
     int ft = !strcmp(argv[1], "ft");
     int px = atoi(argv[3]);
+    int index = 0;
+    char *colon = strrchr(argv[2], ':');
+    if (colon && colon[1] && strspn(colon + 1, "0123456789") == strlen(colon + 1)) {
+        index = atoi(colon + 1);
+        *colon = 0;
+    }
     FILE *fp = fopen(argv[2], "rb");
     if (!fp) { perror(argv[2]); return 1; }
     fseek(fp, 0, SEEK_END);
@@ -59,14 +66,14 @@ int main(int argc, char **argv) {
     fclose(fp);
 
     struct ttf_font t;
-    if (!ttf_open(&t, data, (uint32_t)len)) { fprintf(stderr, "ttf_open refused %s\n", argv[2]); return 1; }
+    if (!ttf_open_index(&t, data, (uint32_t)len, index)) { fprintf(stderr, "ttf_open refused %s\n", argv[2]); return 1; }
     if (!strcmp(argv[1], "raw")) ttf_set_hinting(&t, 0);
     struct ttf_scratch *sc = malloc(sizeof *sc);
 #ifdef HAVE_FREETYPE
     FT_Library lib;
     FT_Face face;
     if (ft) {
-        if (FT_Init_FreeType(&lib) || FT_New_Face(lib, argv[2], 0, &face) ||
+        if (FT_Init_FreeType(&lib) || FT_New_Face(lib, argv[2], index, &face) ||
             FT_Set_Pixel_Sizes(face, 0, (FT_UInt)px)) { fprintf(stderr, "freetype failed\n"); return 1; }
     }
 #else

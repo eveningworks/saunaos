@@ -191,7 +191,7 @@ def build(tmp, control=None):
     for h in ("kernel/include/api/ttf.h", "kernel/include/api/fixed.h", "userland/libs/media/ttf_internal.h"):
         hostcheck.stage(inc, h, tool=TOOL)
     srcs = []
-    for rel in ("userland/libs/media/ttf.c", "userland/libs/media/ttf_hint.c"):
+    for rel in ("userland/libs/media/ttf.c", "userland/libs/media/ttf_hint.c", "userland/libs/media/ttf_cff.c"):
         edits = [(control[2], control[3])] if control and control[1] == rel else []
         srcs.append(hostcheck.stage(tmp, rel, edits=edits, apply=bool(edits), tool=TOOL))
     drv = hostcheck.write(tmp, "driver.c", DRIVER)

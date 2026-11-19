@@ -19,56 +19,63 @@
 // There is deliberately no "and I know this is in range" fast path: the
 // checks are two comparisons against a value already in a register, and
 // the one time somebody skips them is the one time it matters.
-static uint32_t rd_u8(const struct ttf_font *f, uint32_t off) {
-    if (off >= f->len) return 0;
-    return f->data[off];
-}
-
-static uint32_t rd_u16(const struct ttf_font *f, uint32_t off) {
-    if (off + 2 > f->len) return 0;
-    return ((uint32_t)f->data[off] << 8) | f->data[off + 1];
-}
-
-static int32_t rd_i16(const struct ttf_font *f, uint32_t off) {
-    return (int32_t)(int16_t)(uint16_t)rd_u16(f, off);
-}
-
-static uint32_t rd_u32(const struct ttf_font *f, uint32_t off) {
-    if (off + 4 > f->len) return 0;
-    return ((uint32_t)f->data[off] << 24) | ((uint32_t)f->data[off + 1] << 16)
-         | ((uint32_t)f->data[off + 2] << 8) | (uint32_t)f->data[off + 3];
-}
-
-static int in_range(const struct ttf_font *f, uint32_t off, uint32_t bytes) {
-    return off <= f->len && bytes <= f->len - off;
-}
-
-#define TAG(a, b, c, d) (((uint32_t)(a) << 24) | ((uint32_t)(b) << 16) \
-                       | ((uint32_t)(c) << 8) | (uint32_t)(d))
+// (rd_u8, rd_u16, rd_i16, rd_u32 and in_range are in ttf_internal.h,
+// shared with ttf_cff.c.)
 
 static void find_blues(struct ttf_font *f);
 
+// A collection's header: 'ttcf', a version, the member count, then one
+// table directory offset per member.
+static uint32_t ttc_members(const struct ttf_font *f) {
+    if (rd_u32(f, 0) != TAG('t', 't', 'c', 'f')) return 0;
+    uint32_t n = rd_u32(f, 8);
+    return n && n <= (f->len - 12) / 4 ? n : 0;   // every offset inside the file
+}
+
+int ttf_face_count(const uint8_t *data, uint32_t len) {
+    struct ttf_font f = { .data = data, .len = len };
+    if (!data || len < 12) return 0;
+    uint32_t n = ttc_members(&f);
+    if (n) return n > 0x7FFFFFFFu ? 0 : (int)n;
+    uint32_t ver = rd_u32(&f, 0);
+    return ver == 0x00010000u || ver == TAG('t', 'r', 'u', 'e') || ver == TAG('O', 'T', 'T', 'O');
+}
+
 int ttf_open(struct ttf_font *f, const uint8_t *data, uint32_t len) {
-    if (!f || !data || len < 12) return 0;
+    return ttf_open_index(f, data, len, 0);
+}
+
+int ttf_open_index(struct ttf_font *f, const uint8_t *data, uint32_t len, int index) {
+    if (!f || !data || len < 12 || index < 0) return 0;
     for (uint32_t i = 0; i < sizeof(*f); i++) ((uint8_t *)f)[i] = 0;
     f->data = data;
     f->len = len;
 
-    uint32_t ver = rd_u32(f, 0);
+    // A collection's member has its own table directory; its tables'
+    // offsets count from the start of the FILE, as a lone font's do.
+    uint32_t dir = 0, members = ttc_members(f);
+    if (members) {
+        if ((uint32_t)index >= members) return 0;
+        dir = rd_u32(f, 12 + (uint32_t)index * 4);
+    } else if (index != 0) {
+        return 0;
+    }
+    if (!in_range(f, dir, 12)) return 0;
+
     // 0x00010000 is TrueType outlines; 'true' is the old Apple tag for
-    // the same thing. 'OTTO' (CFF/Type2 outlines) and 'ttcf' (a
-    // collection) are REFUSED rather than half-supported -- there is no
-    // `glyf` in an OTTO font at all, so it would fail later and less
-    // clearly. font_face.c reports the refusal by name.
-    if (ver != 0x00010000u && ver != TAG('t', 'r', 'u', 'e')) return 0;
+    // the same thing; 'OTTO' is CFF outlines (ttf_cff.c). A collection
+    // inside a collection is not a font.
+    uint32_t ver = rd_u32(f, dir);
+    int otto = ver == TAG('O', 'T', 'T', 'O');
+    if (ver != 0x00010000u && ver != TAG('t', 'r', 'u', 'e') && !otto) return 0;
 
     uint32_t kern_off = 0, kern_len = 0;
-    uint32_t num_tables = rd_u16(f, 4);
+    uint32_t num_tables = rd_u16(f, dir + 4);
     if (num_tables == 0 || num_tables > 512) return 0;
-    if (!in_range(f, 12, num_tables * 16)) return 0;
+    if (!in_range(f, dir + 12, num_tables * 16)) return 0;
 
     for (uint32_t i = 0; i < num_tables; i++) {
-        uint32_t rec = 12 + i * 16;
+        uint32_t rec = dir + 12 + i * 16;
         uint32_t tag = rd_u32(f, rec);
         uint32_t off = rd_u32(f, rec + 8);
         uint32_t tlen = rd_u32(f, rec + 12);
@@ -90,11 +97,14 @@ int ttf_open(struct ttf_font *f, const uint8_t *data, uint32_t len) {
         case TAG('C', 'P', 'A', 'L'): f->cpal = off; f->cpal_len = tlen; break;
         case TAG('G', 'P', 'O', 'S'): f->gpos = off; f->gpos_len = tlen; break;
         case TAG('G', 'S', 'U', 'B'): f->gsub = off; f->gsub_len = tlen; break;
+        case TAG('C', 'F', 'F', ' '): f->cff = off; f->cff_len = tlen; break;
         default: break;
         }
     }
 
-    if (!f->glyf || !f->loca || !f->head || !f->hhea || !f->maxp) return 0;
+    if (!f->head || !f->hhea || !f->maxp) return 0;
+    if (otto ? !f->cff : (!f->glyf || !f->loca)) return 0;
+    if (!otto) f->cff = 0;   // a stray `CFF ` beside glyf is not what draws
 
     f->units_per_em = (int)rd_u16(f, f->head + 18);
     f->loca_long = (int)rd_i16(f, f->head + 50);
@@ -109,6 +119,7 @@ int ttf_open(struct ttf_font *f, const uint8_t *data, uint32_t len) {
     if (f->units_per_em < 16 || f->units_per_em > 16384) return 0;
     if (f->num_glyphs <= 0) return 0;
     if (f->descent < 0) f->descent = 0;
+    if (f->cff && !ttf_cff_open(f)) return 0;
 
     // `kern` is OPTIONAL, so nothing here may fail the open -- a font
     // whose kern table is malformed still draws, unkerned. That is the
@@ -567,10 +578,12 @@ static int loca_range(const struct ttf_font *f, int gid, uint32_t *start, uint32
 // --- blue zones --------------------------------------------------------
 
 // A glyph's vertical extent from its `glyf` header -- the bounding box the
-// font itself stores, so nothing is decoded. 0 for a missing or empty glyph.
+// font itself stores, so nothing is decoded -- or, for CFF, which stores
+// none, from its outline's points. 0 for a missing or empty glyph.
 static int glyph_ybox(const struct ttf_font *f, uint32_t cp, int *ymin, int *ymax) {
     int gid = ttf_glyph_index(f, cp);
     uint32_t start, end;
+    if (gid > 0 && f->cff) return ttf_cff_ybox(f, gid, ymin, ymax);
     if (gid <= 0 || !loca_range(f, gid, &start, &end) || start == end) return 0;
     uint32_t g = f->glyf + start;
     if (!in_range(f, g, 10)) return 0;
@@ -758,6 +771,7 @@ static int decode_outline(const struct ttf_font *f, int gid,
                           int32_t dx_fu, int32_t dy_fu, fx_t scale,
                           fx_t ox, fx_t oy, struct ttf_scratch *sc, int depth) {
     if (depth > 4) return 0; // a composite cycle is a hostile font, not a deep one
+    if (f->cff) return ttf_cff_decode(f, gid, scale, ox, oy, sc);
     uint32_t start, end;
     if (!loca_range(f, gid, &start, &end)) return 0;
     if (start == end) return 1; // no outline: a space, legitimately
@@ -806,6 +820,29 @@ static void add_quad(struct ttf_scratch *sc, fx_t x0, fx_t y0,
     }
 }
 
+// A cubic the same way, its segment count from the control polygon's
+// length. In 64 bits: t^3 times a coordinate is three fx_muls deep.
+static void add_cubic(struct ttf_scratch *sc, fx_t x0, fx_t y0, fx_t ax, fx_t ay,
+                      fx_t bx, fx_t by, fx_t x1, fx_t y1) {
+    fx_t d = fx_abs(ax - x0) + fx_abs(ay - y0) + fx_abs(bx - ax) + fx_abs(by - ay)
+           + fx_abs(x1 - bx) + fx_abs(y1 - by);
+    int n = 1 + fx_to_int(d) / 2;
+    if (n < 2) n = 2;
+    if (n > 32) n = 32;
+    fx_t pxp = x0, pyp = y0;
+    for (int i = 1; i <= n; i++) {
+        fx_t t = fx_div(fx_from_int(i), fx_from_int(n));
+        fx_t u = FX_ONE - t;
+        // B(t) = u^3*p0 + 3u^2t*a + 3ut^2*b + t^3*p1
+        fx_t uu = fx_mul(u, u), tt = fx_mul(t, t);
+        fx_t k0 = fx_mul(uu, u), k1 = 3 * fx_mul(uu, t), k2 = 3 * fx_mul(u, tt), k3 = fx_mul(tt, t);
+        fx_t nx = fx_mul(k0, x0) + fx_mul(k1, ax) + fx_mul(k2, bx) + fx_mul(k3, x1);
+        fx_t ny = fx_mul(k0, y0) + fx_mul(k1, ay) + fx_mul(k2, by) + fx_mul(k3, y1);
+        add_edge(sc, pxp, pyp, nx, ny);
+        pxp = nx; pyp = ny;
+    }
+}
+
 static fx_t mid(fx_t a, fx_t b) { return (a + b) / 2; }
 
 // Walks one contour's points into edges. The TrueType convention this
@@ -833,7 +870,15 @@ static void flatten_contour(struct ttf_scratch *sc, int first, int last) {
     fx_t cx = sx, cy = sy;
     for (int k = 0; k < n; k++) {
         int i = first + ((i0 - first) + k) % n;
-        if (sc->on[i]) {
+        if (sc->on[i] == TTF_PT_CUBIC) {
+            // CFF: two controls, then the end -- the contour's first
+            // point when the curve closes it (ttf_cff.c drops the copy).
+            int b = first + ((i0 - first) + k + 1) % n, e = first + ((i0 - first) + k + 2) % n;
+            if (k + 2 > n - 1) break;   // no end point left: close what there is
+            add_cubic(sc, cx, cy, sc->px[i], sc->py[i], sc->px[b], sc->py[b], sc->px[e], sc->py[e]);
+            cx = sc->px[e]; cy = sc->py[e];
+            k += 2;
+        } else if (sc->on[i]) {
             add_edge(sc, cx, cy, sc->px[i], sc->py[i]);
             cx = sc->px[i]; cy = sc->py[i];
         } else {

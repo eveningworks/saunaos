@@ -3,7 +3,15 @@
 One entry per tool in `tools/lib/`: what it does, why it exists, and the traps it
 encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` finds a tool.
 
-- **`otl.py`** -- a TrueType face's `cmap`, format-0 `kern` table,
+- **`cffgen.py`** -- writes CFF-outline OpenType fonts, and `.ttc`
+  collections of them, from a TrueType face's glyphs: quadratics raised
+  to cubics, Type 2 charstrings using every operator (the converted glyphs
+  for moves, lines and curves, synthetic ones at U+E000 for the rest),
+  local and global subroutines with 1,300 local ones so the 1131 bias is
+  in use, name-keyed or CID-keyed. Its `CFF ` table goes LAST in the file,
+  so a reader that overruns the table overruns the buffer, where ASan sees
+  it. For `cff_hostcheck.py`; not a general font compiler.
+- **`otl.py`** -- a lone font's or a collection member's (`Font(path, index)`) `cmap`, format-0 `kern` table,
   `post` glyph names and GSUB ligatures (lookup type 4 of one feature) in
   pure Python, for tools that must not lean on the tree's C:
   `gen_emojidata.py` keeps an emoji sequence only when the emoji face

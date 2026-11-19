@@ -145,10 +145,11 @@ def build(tmp, control=None):
     edits = [(control[1], control[2])] if control else []
     ttf = hostcheck.stage(tmp, "userland/libs/media/ttf.c", edits=edits, apply=bool(edits), tool=TOOL)
     hint = hostcheck.stage(tmp, "userland/libs/media/ttf_hint.c", tool=TOOL)
+    cff = hostcheck.stage(tmp, "userland/libs/media/ttf_cff.c", tool=TOOL)
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
     cflags = subprocess.run(["pkg-config", "--cflags", "freetype2"], capture_output=True, text=True).stdout.split()
     libs = subprocess.run(["pkg-config", "--libs", "freetype2"], capture_output=True, text=True).stdout.split()
-    return hostcheck.compile(tmp, "emoji_check", [drv, ttf, hint, *libs],
+    return hostcheck.compile(tmp, "emoji_check", [drv, ttf, hint, cff, *libs],
                              flags=list(hostcheck.STRICT) + cflags, includes=[inc], tool=TOOL)
 
 

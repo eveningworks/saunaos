@@ -6,7 +6,7 @@ table and `post` glyph names are data the C code under test never reads for
 the same answer), and `gen/gen_emojidata.py`, which keeps an emoji sequence
 only when the emoji face draws it as one glyph.
 
-Small on purpose: cmap formats 4 and 12, a format-0 `kern` table, `post`
+Small on purpose: a lone font or a collection's member, cmap formats 4 and 12, a format-0 `kern` table, `post`
 version 2 names, and GSUB lookup type 4 (ligatures, through Extension 7) of
 one feature in one script's default LangSys. Not a shaper, and not for
 untrusted fonts -- it reads the faces this repository ships.
@@ -30,12 +30,14 @@ def _u32(b, o):
 
 
 class Font:
-    def __init__(self, path):
+    def __init__(self, path, index=0):
+        """`index`: the member of a collection (a .ttc); 0 for a lone font."""
         b = self.b = open(path, "rb").read()
+        d = _u32(b, 12 + 4 * index) if b[:4] == b"ttcf" else 0
         self.tables = {}
-        for i in range(_u16(b, 4)):
-            tag = b[12 + 16 * i:16 + 16 * i].decode("latin1")
-            self.tables[tag] = _u32(b, 20 + 16 * i)
+        for i in range(_u16(b, d + 4)):
+            tag = b[d + 12 + 16 * i:d + 16 + 16 * i].decode("latin1")
+            self.tables[tag] = _u32(b, d + 20 + 16 * i)
         self._cmap = None
         self._names = None
 

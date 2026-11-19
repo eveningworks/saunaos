@@ -32,13 +32,16 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   else is reported unread. On the ASUS all 17 were Methods and none
   woke from S5.
 - **`font_compare.py`** (+ `font_compare.c`) -- small text from the
-  tree's own `ttf.c` and `ttf_hint.c`, compiled for the host, hinted
+  tree's own `ttf.c`, `ttf_cff.c` and `ttf_hint.c`, compiled for the host, hinted
   (`hinted`) or not (`unhinted`), beside FreeType's LIGHT AUTOHINTER
   (`ft`, the vertical-only hinting SaunaOS's is built to match; `ftdw`
   and `ftlin` blend it at gamma 1.8 or in linear light), as PNG sheets:
   real UI strings at 9-14 px in `utheme_default()`'s colours, at 1x and a
   3x zoom, plus `compare.png` side by side. Every renderer is laid out with ttf.c's advances and kerning, so
-  two sheets differ only in the glyphs' pixels. It is how the 2026-11-16
+  two sheets differ only in the glyphs' pixels. `--face` takes a stem
+  under `data/fonts/` or a file's path, `PATH:N` for a collection's member
+  N (`--face /usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc:2 --mono ''
+  --text '设置 显示'`). It is how the 2026-11-16
   hinting canvas was made; the autohinter's pass/fail check against
   FreeType is `hostchecks/ttf_hint_hostcheck.py`. Judge the 1x
   sheets at ACTUAL PIXELS. Needs gcc and Pillow; the FreeType variants

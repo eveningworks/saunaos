@@ -848,6 +848,11 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~A `/usr/share/fonts` convention and a command to list what loaded~~ DONE 2026-08-20 -- `fontface`
 - [x] ~~Keep the baked font as the guaranteed fallback, so the console works with no disk font~~ DONE 2026-08-20
 - [x] ~~Move the SESSION font's parsing out of ring 0~~ DONE 2026-09-09 -- `/bin/fontd`; the kernel image contains no TrueType parser
+- [x] ~~OpenType CFF outlines and `.ttc` collections~~ DONE 2026-11-19 -- `media/ttf_cff.c`, name- and CID-keyed; `ttf_open_index()`
+- [ ] CFF2, the variable-font table, is refused -- `ttf_open()` reads CFF version 1 only
+- [ ] A CFF glyph built by `seac` (an accent by reference, deprecated in OpenType) is refused, not drawn
+- [ ] Chinese, Japanese and Korean text draws boxes: no CJK face ships -- the parser reads Noto Sans CJK; the face is the next step
+- [ ] An `.otf` or `.ttc` in `/usr/share/fonts` is not offered as a face -- the registry and the pickers list `.ttf` files
 - [ ] Apply a composite glyph's 2x2 transform instead of skipping it (accents are pure translations, so nothing needs it yet)
 - [x] ~~A font fallback chain past DejaVu Sans Mono~~ DONE 2026-11-16 -- `/etc/fonts/fallback.conf`, four Noto faces
 - [x] ~~Colour emoji~~ DONE 2026-11-16 -- COLR v0 over CPAL in `ttf.c`, Twemoji, in ugfx, `utext` and `uglyph`

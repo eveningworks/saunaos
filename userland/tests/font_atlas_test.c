@@ -99,7 +99,7 @@ int main(void) {
         }
     }
 
-    struct ttf_font t;
+    static struct ttf_font t;   // static: with CFF's fields it tips main() past the frame limit
     utest_check(ttf_open(&t, bytes, len), "the face parses in ring 3");
     if (utest_failed()) return utest_end();
 

@@ -148,8 +148,9 @@ def build(tmp, control=None):
     edits = [(control[1], control[2])] if control else []
     ttf = hostcheck.stage(tmp, "userland/libs/media/ttf.c", edits=edits, apply=bool(edits), tool=TOOL)
     hint = hostcheck.stage(tmp, "userland/libs/media/ttf_hint.c", tool=TOOL)
+    cff = hostcheck.stage(tmp, "userland/libs/media/ttf_cff.c", tool=TOOL)
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
-    return hostcheck.compile(tmp, "otl_check", [drv, ttf, hint], includes=[inc], tool=TOOL)
+    return hostcheck.compile(tmp, "otl_check", [drv, ttf, hint, cff], includes=[inc], tool=TOOL)
 
 
 def build_hb(tmp):

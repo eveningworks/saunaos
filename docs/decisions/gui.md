@@ -13467,6 +13467,44 @@ need the run API; mark attachment for marks with no precomposed form; an
 emoji sequence at a terminal row's last column, which stays one cell; the
 ring-0 console, which still draws a cluster's parts.
 
+## CFF outlines run by our own Type 2 interpreter, and a collection's face picked by index
+
+**Decided 2026-11-19 (font round step 3).** An OpenType font with CFF
+outlines (an `OTTO` file, which is what Noto Sans CJK, Source Sans and
+most Adobe faces are) and a TrueType collection (`.ttc`, several faces
+sharing tables) both open in `ttf.c`, which refused them before.
+
+**What real systems do.** FreeType reads CFF with its own Type 2
+charstring interpreter (the `cff` driver over `psaux`), name-keyed and
+CID-keyed alike, and hints it with Adobe's CFF engine, which is itself
+vertical-only; DirectWrite and Core Text do the same work in-house.
+stb_truetype keeps the cubics and flattens them directly. A collection's
+member is a FACE INDEX everywhere: FreeType's `face_index`, fontconfig's
+`:index=`, DirectWrite's `IDWriteFontFace` index.
+
+**SaunaOS: an interpreter of its own (`media/ttf_cff.c`) writing into the
+same scaled outline the glyf decoder fills**, curves as `TTF_PT_CUBIC`
+point pairs that `flatten_contour()` flattens beside the quadratics -- so
+the autohinter, the fill and the colour-glyph path are shared, and
+nothing allocates. The light autohinter fits CFF faces too: one hinter
+for every face keeps CFF and TrueType text alike, and its blue zones come
+from the outline's points where glyf has a stored box. Measured against
+FreeType, unhinted, on Noto Sans CJK: mean 2.7/255, no pixel past 48 in
+676 glyphs at 14-48 px.
+
+**Ruled out.** Vendoring FreeType: a second parser of hostile input, with
+its own allocator and many times the code, for a format this reads in
+about 500 lines that are bounded (operators per glyph, subroutine depth,
+coordinates in ems) and fuzzed under ASan (`cff_hostcheck.py`).
+Converting cubics to quadratics at load: an approximation, and more points
+against `TTF_MAX_POINTS` (Noto Serif CJK already peaks at 995 of 1,024).
+
+**Refused rather than half-read:** `seac` accents (deprecated in OpenType
+CFF), the deprecated arithmetic operators, and CFF2, the variable-font
+table, which is a different format. A refused glyph draws as nothing and
+the fallback list moves on. A collection's member is named `file:N` where a
+list names a face (`fallback.conf`, from the CJK step on).
+
 ## A long window title travels in pieces, and the compositor keeps it sized to fit
 
 A title and a tab label rode one channel message's 32-byte `text`, so

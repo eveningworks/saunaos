@@ -421,6 +421,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `archive_hostcheck.py` -- Check lib/uzip and lib/utar against Python's zipfile, tarfile and gzip, on the HOST
 - `browser_hostcheck.py` -- Lay out the same pages with NetSurf on SaunaOS and on the host, and compare
 - `caret_hostcheck.py` -- Check userland/libs/ui/uui_caret.c -- the one blink every text caret shares --
+- `cff_hostcheck.py` -- CFF outlines and font collections in ttf.c, against FreeType and the TrueType originals, on the HOST
 - `components_hostcheck.py` -- The optional components' build half, on the HOST: the check, the staging, the manifest tags
 - `cpu16_hostcheck.py` -- Check w16's 16-bit CPU interpreter against the real CPU, and its JIT against the interpreter
 - `cxx_headers_hostcheck.py` -- Every header the SDK ships outside libc -- the toolkit's base/ net/
@@ -509,6 +510,7 @@ Full entries: [`docs/tools/checks.md`](tools/checks.md).
 
 Full entries: [`docs/tools/lib.md`](tools/lib.md).
 
+- `cffgen.py` -- write CFF-outline OpenType fonts (and a collection of
 - `components.py` -- The optional components (docs/software-design.md), read and checked on the host
 - `fresh_disk.py` -- A pristine disk image, and whether an existing one has drifted
 - `gcc_testsuite.py` -- GCC's own run tests as a corpus: gcc.c-torture/execute and libstdc++'s `dg-do run` tests

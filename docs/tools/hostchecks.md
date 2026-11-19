@@ -1009,6 +1009,26 @@ the rest in the sweep. Each stays a standalone script with its own
   U+FE0F and U+FE0E deciding). `--positive-control` reads CPAL's bytes in
   the wrong order and stacks the layers in reverse; each must go RED.
   Needs `pkg-config freetype2`; SKIPPED without it.
+- **`cff_hostcheck.py`** (gate) -- CFF outlines (`media/ttf_cff.c`, Type 2
+  charstrings) and `.ttc` members (`ttf_open_index()`), compiled with the
+  tree's `ttf.c` under ASan and UBSan. `tools/lib/cffgen.py` writes a
+  name-keyed font from Liberation Sans, a CID-keyed one (two font DICTs,
+  FDSelect format 3) from Liberation Serif, and a collection of the two;
+  every glyph at 12, 24 and 48 px must match FreeType's render of the same
+  bytes (mean under 4/255, under 2% of pixels past 48) and ttf.c's render
+  of the TrueType glyph it came from (worst glyph under 2/255; 0.46
+  measured). Thirteen synthetic glyphs each run one operator the converted
+  ones never write (the flexes, hh/vv/hv/vh curves, rcurveline,
+  rlinecurve, 16.16 operands, cntrmask), named in the output. Also: the
+  blue zones from CFF outlines equal glyf's, face counts and an index past
+  the end refused, and 1,500 seeded mutations of each font drawn under the
+  sanitizers. With Noto Sans CJK on the host, two members of that real
+  collection too (skipped, not failed, without it). `--positive-control`
+  breaks hvcurveto's alternation, the subroutine bias, FDSelect, the
+  member offset, the cubic flattening and the width before rmoveto, and
+  lets an INDEX item leave the table with `rd_u8()` unchecked (either alone
+  still keeps every read in the file); each must go RED. About 25 seconds.
+  Needs `pkg-config freetype2`; SKIPPED without it.
 - **`ttf_hint_hostcheck.py`** (gate) -- the light autohinter
   (`userland/libs/media/ttf_hint.c`) against FreeType's light autohinter,
   and `ttf_glyph_extent()` against the ink. Over the shipped faces at

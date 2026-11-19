@@ -1,11 +1,13 @@
 #ifndef TTF_H
 #define TTF_H
 
-// A TrueType parser and scanline rasterizer, in fixed point.
+// A TrueType/OpenType parser and scanline rasterizer, in fixed point.
 //
 // This is the runtime half of what tools/gen/genttf.py does offline: given
-// the bytes of a .ttf file it decodes glyph outlines (quadratic Bezier
-// contours) and fills them into an 8-bit coverage map, which is the
+// the bytes of a .ttf, .otf or .ttc file it decodes glyph outlines
+// (TrueType's quadratic contours from `glyf`, or CFF's cubic ones, which
+// media/ttf_cff.c runs from their Type 2 charstrings) and fills them into
+// an 8-bit coverage map, which is the
 // exact format font_ttf.h's baked tables already use -- so a glyph this
 // produces is a drop-in for a glyph that was baked at build time (see
 // kernel/drivers/font_face.c, which builds one atlas from either).
@@ -72,6 +74,11 @@ extern "C" {
 // zones their tops.
 enum { TTF_BLUE_BASE, TTF_BLUE_DESC, TTF_BLUE_X, TTF_BLUE_CAP, TTF_BLUE_ASC, TTF_BLUES };
 
+// A CFF INDEX (an array of variable-length items): `count` items whose
+// offsets, `osz` bytes each, start at `offs`; item offsets count from
+// `data`. All zero for an absent one.
+struct ttf_cff_index { uint32_t data, offs, count; uint8_t osz; };
+
 struct ttf_font {
     const uint8_t *data;
     uint32_t len;
@@ -106,6 +113,15 @@ struct ttf_font {
     uint32_t gpos, gpos_len;   // OpenType layout, 0 when absent:
     uint32_t gsub, gsub_len;   // ttf_pair_kern_units(), ttf_ligate()
 
+    // CFF OUTLINES (an 'OTTO' font): the `CFF ` table, 0 for a TrueType
+    // one -- whose outlines are glyf's. What ttf_cff.c reads each glyph
+    // through, found once by ttf_open(). A CID-keyed font (CJK) keeps its
+    // local subroutines per font DICT, picked by FDSelect, so `subrs` is
+    // only the name-keyed font's.
+    uint32_t cff, cff_len;
+    struct ttf_cff_index cff_chars, cff_gsubrs, cff_subrs, cff_fdarray;
+    uint32_t cff_fdselect;     // 0 = not CID-keyed
+
     // The autohinter's BLUE ZONES, measured by ttf_open() from the face's
     // own Latin letters' bounding boxes, font units, y up. `ref` is where
     // FLAT letters stop (the top of 'x', of 'H'), `shoot` where ROUND ones
@@ -116,6 +132,13 @@ struct ttf_font {
 };
 
 struct ttf_edge { fx_t x0, y0, x1, y1; int dir; };
+
+// What struct ttf_scratch's on[] says of a point. glyf's curves are
+// quadratic (one OFF point between two ONs, consecutive OFFs implying an
+// ON between them); CFF's are cubic, always two CUBIC points then an ON.
+#define TTF_PT_OFF   0
+#define TTF_PT_ON    1
+#define TTF_PT_CUBIC 2
 
 // One horizontal feature of an outline the autohinter fits to the grid: a
 // flat run or a round extremum, in pixel space (y down). `ink` is +1 when
@@ -130,7 +153,7 @@ struct ttf_scratch {
     // One glyph's outline, already scaled into pixel space.
     fx_t    px[TTF_MAX_POINTS];
     fx_t    py[TTF_MAX_POINTS];
-    uint8_t on[TTF_MAX_POINTS];      // 1 = on-curve point
+    uint8_t on[TTF_MAX_POINTS];      // TTF_PT_*
     uint8_t flags[TTF_MAX_POINTS];   // the file's own point flags, repeat-expanded
     int     contour_end[TTF_MAX_CONTOURS];
     int     npoints, ncontours;
@@ -152,10 +175,21 @@ struct ttf_scratch {
 
 // Parses the table directory and the handful of headers everything else
 // needs. Returns 1 on success, 0 for anything it does not understand or
-// cannot bounds-check -- a TrueType collection (`ttcf`), a CFF/OpenType
-// outline font (no `glyf`), a truncated file. `data` must stay alive and
-// unmodified for as long as `f` is used; nothing is copied.
+// cannot bounds-check -- a truncated file, CFF2 (a variable font), a CFF
+// font whose charstrings are not Type 2. Outlines may be TrueType's
+// (`glyf`) or CFF's (an 'OTTO' font, name-keyed or CID-keyed). `data`
+// must stay alive and unmodified for as long as `f` is used; nothing is
+// copied.
 int ttf_open(struct ttf_font *f, const uint8_t *data, uint32_t len);
+
+// The same for face `index` of a TrueType COLLECTION (`ttcf`, a .ttc:
+// several faces sharing tables), as FreeType's face_index and fontconfig's
+// `:index=` name one. A single font is a collection of one: index 0.
+int ttf_open_index(struct ttf_font *f, const uint8_t *data, uint32_t len, int index);
+
+// How many faces `data` holds: 1 for a font, the member count for a
+// collection, 0 for neither.
+int ttf_face_count(const uint8_t *data, uint32_t len);
 
 // Unicode codepoint -> glyph id, through `cmap`. Understands format 4
 // (the BMP subtable every real font has) and format 12; returns 0 (the
