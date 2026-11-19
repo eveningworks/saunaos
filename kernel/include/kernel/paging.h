@@ -67,9 +67,10 @@ int paging_set_kernel_exec(uint64_t phys, uint64_t size, int exec);
 
 // PAT and the MTRRs, the per-core memory-type registers: the BSP takes a
 // snapshot (smp.c, before the first AP starts) and each AP applies it,
-// so every core agrees on every page's type. Types changed AFTER the
-// snapshot reach the BSP alone -- see the trap in paging.c.
-void paging_memory_types_snapshot(void);
+// so every core agrees on every page's type; a later WC change takes a
+// new one and replays it (paging.c). Returns 1 when a register moved
+// since the last snapshot, or on the first.
+int paging_memory_types_snapshot(void);
 void paging_memory_types_apply(void);
 // The calling core's PAT and MTRRdefType (0 when absent), and the
 // snapshot's, for smp_test.c to compare.

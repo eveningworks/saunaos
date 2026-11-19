@@ -76,6 +76,7 @@ extern char __kimage_start[];
 #include "kversion.h" // kversion_banner(), kversion_query_init() -- QUERY_VERSION
 #include "driver.h"   // driver_query_init() -- QUERY_DRIVER
 #include "kdebug.h"    // kdebug_init() -- the GDB stub, when `kdebug=` asks
+#include "bkl.h"
 
 // Zero-padded 2-digit decimal, for the RTC boot-time log line below.
 // klog_write_dec() (klog.h) deliberately doesn't pad, so this used to
@@ -224,6 +225,9 @@ void kernel_main(uint64_t multiboot_info_addr) {
 
     gdt_init();
     klog_write("SaunaOS: GDT/TSS initialized\n");
+    // The kernel lock, held from here on: the boot core is in the kernel
+    // (bkl.h). After gdt_init(), since its depth lives behind GS.base.
+    bkl_boot();
 
     idt_init();
     klog_write("SaunaOS: IDT/PIC/PIT initialized, interrupts enabled\n");

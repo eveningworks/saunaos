@@ -39,6 +39,7 @@ struct tss {
 enum cpu_state {
     CPU_ABSENT = 0,   // never started (nosmp, maxcpus=, or not enabled by firmware)
     CPU_FAILED,       // did not call in before the deadline; sent back to INIT
+    CPU_WEDGED,       // started, then faulted or did not finish a call: no more calls
     CPU_STARTING,     // SIPI sent, the trampoline has not called in
     CPU_ALIVE,        // in C on its own stack, replaying the BSP's setup
     CPU_PARKED,       // set up and halted -- an AP's whole life until stage 5
@@ -58,6 +59,14 @@ struct cpu {
     // compares them, so a register the replay forgets shows as a red test
     // rather than as a fault the first time stage 5 runs code there.
     uint64_t seen_cr0, seen_cr4, seen_efer, seen_pat, seen_mtrr_def;
+    int bkl_depth;             // bkl.h: this core's nesting of the kernel lock
+    uint32_t pad1;
+    // smp_call()'s mailbox: the BSP writes fn/arg, then bumps call_seq
+    // and sends the IPI; the core runs it and stores call_seq to
+    // call_done.
+    void (*volatile call_fn)(void *);
+    void *volatile call_arg;
+    volatile uint32_t call_seq, call_done;
 };
 
 static inline struct cpu *this_cpu(void) {

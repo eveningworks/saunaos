@@ -4,20 +4,12 @@
 #include "barrier.h"   // cpu_relax()
 #include "kfmt.h"      // klog_printf
 #include "klog.h"
+#include "spinlock.h"
 
-// The test-and-set has to be indivisible against everything else that
-// can run on this CPU, and on one CPU that is exactly "no interrupt
-// lands in the middle". A real atomic is what SMP needs and what
-// docs/smp-design.md's later stage brings; `lock cmpxchg` here today
-// would be a more expensive way to say the same thing.
-static inline uint64_t irq_save(void) {
-    uint64_t f;
-    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(f) :: "memory");
-    return f;
-}
-static inline void irq_restore(uint64_t f) {
-    __asm__ volatile ("pushq %0; popfq" :: "r"(f) : "memory", "cc");
-}
+// depth/owner/handed change under the lock's own spinlock with this
+// core's interrupts off: the spinlock against another core, the irqsave
+// against an interrupt on this one -- Linux's mutex and its wait_lock.
+// Held for a few stores only, never across the park below.
 
 // **THE SPIN MUST NOT DISABLE PREEMPTION, and that is the opposite of
 // what a spinlock usually does.** The holder of this lock is allowed to
@@ -32,7 +24,9 @@ static inline void irq_restore(uint64_t f) {
 // with no slot. Behind a holder asleep in a disk wait (ata.c) it spins
 // forever. note_atomic_take() reports such a caller on entry; the fix is
 // always for that path to stop being atomic, never for this loop to
-// drop a guard it does not own.
+// drop a guard it does not own. It also spins HOLDING THE KERNEL LOCK
+// (bkl.h): on one core nothing changes, but from SMP stage 5 a holder on
+// another core needs that lock to finish.
 #define SPIN_COMPLAINT 2000000u
 
 static void spin_note(const struct kmutex *m, unsigned spins) {
@@ -83,12 +77,12 @@ void kmutex_lock(struct kmutex *m) {
     unsigned spins = 0;
     for (;;) {
         int me = scheduler_current_pid();
-        uint64_t f = irq_save();
+        uint64_t f = spin_lock_irqsave(&m->wait_lock);
         if (m->depth == 0) {
             m->depth = 1;
             m->owner = me;
             m->owned = 1;
-            irq_restore(f);
+            spin_unlock_irqrestore(&m->wait_lock, f);
             return;
         }
         // ALREADY OURS -- nest, or claim what an unlock handed us while
@@ -98,10 +92,10 @@ void kmutex_lock(struct kmutex *m) {
         if (m->owned && m->owner == me) {
             if (m->handed) m->handed = 0;   // depth is already 1
             else m->depth++;
-            irq_restore(f);
+            spin_unlock_irqrestore(&m->wait_lock, f);
             return;
         }
-        irq_restore(f);
+        spin_unlock_irqrestore(&m->wait_lock, f);
 
         // ARM BEFORE RE-TESTING. A kmutex_unlock() landing between the
         // test above and the park below would otherwise be lost, and
@@ -122,20 +116,20 @@ void kmutex_lock(struct kmutex *m) {
 
 int kmutex_trylock(struct kmutex *m) {
     int me = scheduler_current_pid();
-    uint64_t f = irq_save();
+    uint64_t f = spin_lock_irqsave(&m->wait_lock);
     int got = 0;
     if (m->depth == 0) {
         m->depth = 1; m->owner = me; m->owned = 1; got = 1;
     } else if (m->owned && m->owner == me && !m->handed) {
         m->depth++; got = 1;
     }
-    irq_restore(f);
+    spin_unlock_irqrestore(&m->wait_lock, f);
     return got;
 }
 
 void kmutex_unlock(struct kmutex *m) {
-    uint64_t f = irq_save();
-    if (m->depth > 1) { m->depth--; irq_restore(f); return; }  // still ours
+    uint64_t f = spin_lock_irqsave(&m->wait_lock);
+    if (m->depth > 1) { m->depth--; spin_unlock_irqrestore(&m->wait_lock, f); return; }  // still ours
 
     // **HANDED STRAIGHT TO A SLEEPING WAITER, NOT DROPPED.** Dropped,
     // the releaser -- still running, and usually about to make its next
@@ -147,13 +141,13 @@ void kmutex_unlock(struct kmutex *m) {
     if (next) {
         m->owner = next;
         m->handed = 1;           // depth stays 1, owned stays 1
-        irq_restore(f);
+        spin_unlock_irqrestore(&m->wait_lock, f);
         return;
     }
     m->depth = 0;
     m->owner = 0;
     m->owned = 0;
-    irq_restore(f);
+    spin_unlock_irqrestore(&m->wait_lock, f);
     // Nobody parked -- but somebody may have ARMED and be about to. The
     // arm/armed_woken pair makes that park decline and re-test.
     scheduler_wake(m, 0);

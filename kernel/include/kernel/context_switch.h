@@ -68,6 +68,8 @@ void process_context_restore_noirq(struct kernel_context *ctx, int value)
 // rip holds -- see the note above.
 void isr_return_to(uint64_t *regs) __attribute__((noreturn));
 void isr_resume_frame(void);
+// A fresh context's first resume: bkl_start_tail(), then isr_resume_frame.
+void isr_start_frame(void);
 
 // Start running `entry(arg)` on `stack_top`, and never come back here.
 //

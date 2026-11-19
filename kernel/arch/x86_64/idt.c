@@ -16,6 +16,9 @@
 #include "mouse.h"
 #include "syscall.h"
 #include "signal.h" // signal_deliver_pending()/_fault() -- see isr_dispatch
+#include "bkl.h"
+#include "spinlock.h" // spin_cpu_index()
+#include "smp.h"
 #include "signal_abi.h" // SIGSEGV/SIGILL/SIGFPE -- fault_signal() below
 #include "scheduler.h"
 #include "paging.h"   // paging_kernel_leaf() -- is this stack page mapped?
@@ -82,6 +85,7 @@ extern void isr68(void);
 extern void isr69(void);
 extern void isr70(void);
 extern void isr71(void);
+extern void isr251(void);   // SMP_CALL_VECTOR
 extern void isr255(void);
 
 void idt_set_gate(uint8_t vector, void (*handler)(void), uint8_t ist, uint8_t type_attr) {
@@ -227,6 +231,7 @@ void idt_init(void) {
     // ever enabled: a gate costs nothing and a vector delivered without
     // one is a #GP on top of whatever already went wrong.
     idt_set_gate(LAPIC_SPURIOUS_VECTOR, isr255, 0, 0x8E);
+    idt_set_gate(SMP_CALL_VECTOR, isr251, 0, 0x8E);
 
     // The DOUBLE FAULT gate runs on IST slot 1 (gdt.c's df_stack). It
     // is the ONLY gate that needs one, and it needs it for one reason:
@@ -872,7 +877,27 @@ trap_exit:
 // never restores the outer value. That is fine rather than merely
 // tolerated: it abandons the C stack the outer frame lived on, and
 // isr_reset_depth() covers the counter at the same landing point.
+// Which entries take the kernel lock: every one from ring 3 (a ring-3
+// int3 can end in a signal and a switch), and from ring 0 all but the
+// paranoid vectors -- an NMI inside take() on the holding core would
+// queue behind its own ticket, so those may touch nothing shared, and
+// stage 5's kdebug roundup stops the other cores instead -- and the call
+// IPI, whose sender waits for it with the lock held.
+static int takes_bkl(const uint64_t *regs) {
+    uint64_t vector = regs[15];
+    if (regs[18] & 3) return 1;
+    return vector != 1 && vector != 2 && vector != 3 && vector != 8 && vector != 18 &&
+           vector != SMP_CALL_VECTOR;
+}
+
 void isr_dispatch(uint64_t *regs) {
+    uint64_t vector = regs[15];
+    if (spin_cpu_index() != 0) {   // an AP: nothing shared, not even g_isr_depth
+        smp_ap_interrupt(vector);
+        return;
+    }
+    int bkl = takes_bkl(regs);
+    if (bkl) bkl_enter(regs);
     int outer_depth = g_isr_depth;
     g_isr_depth = outer_depth + 1;
     isr_dispatch_body(regs);
@@ -880,4 +905,5 @@ void isr_dispatch(uint64_t *regs) {
     // switch part-way through the body reloaded it for another one --
     // then put this stack's back when we were resumed.
     g_isr_depth = outer_depth;
+    if (bkl) bkl_exit(regs);
 }

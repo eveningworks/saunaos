@@ -3,7 +3,8 @@
 **Status: STAGE 1 IS BUILT (2026-08-30); STAGE 2 IS BUILT IN FULL (the
 Local APIC 2026-08-30, its TIMER 2026-09-06, the I/O APIC and the MADT
 interrupt source overrides 2026-09-10); STAGE 3 IS BUILT (2026-11-19:
-the APs started and parked); STAGES 4-7 ARE DESIGNED, NOT BUILT;
+the APs started and parked); STAGE 4 IS BUILT (2026-11-19: a ticket
+spinlock, the call IPI and the kernel lock); STAGES 5-7 ARE DESIGNED, NOT BUILT;
 RE-MEASURED AND RE-SIZED 2026-11-19.** The ACPI table walk and the MADT's processor list exist
 (`kernel/acpi/`, read by `/bin/acpi` and `/bin/lscpu`), the Local APIC is
 enabled and carries MSI-X for seven drivers, the tick runs on the LAPIC
@@ -11,8 +12,9 @@ timer through `kernel/clockevent.h`, and `kernel/arch/x86_64/ioapic.c`
 routes the legacy lines with the MADT's overrides applied -- so nothing
 goes through the 8259 any more. Stage 3's `kernel/arch/x86_64/smp.c`
 starts every enabled core and parks it, and GS.base is the per-CPU
-pointer on every entry; what remains is stage 4 onward -- nothing runs
-on a second core yet.
+pointer on every entry; stage 4's kernel lock is taken on every entry
+and a parked core runs what `smp_call()` hands it. What remains is
+stage 5 onward -- no process runs on a second core yet.
 The document is meant to be executed in order, each stage shippable and
 testable on its own, with the honest case against at the end.
 
@@ -92,14 +94,14 @@ futexes, swap, sandboxes and the image cache all arrived single-core.
 | SYSCALL entry | DONE (stage 3) -- `syscall_entry.asm` takes RSP0 and the user-RSP scratch word from this core's `struct cpu` through `gs:` | each AP writes its own `STAR`/`LSTAR`/`FMASK`/`EFER.SCE` (`idt_load_ap()`) |
 | GS.base | DONE (stage 3) -- this core's `struct cpu` (`percpu.h`), traded by `swapgs` on every entry; ring 3's is always 0 | the paranoid entry (NMI, #DB, #BP, #DF, #MC) tells whose GS is live from that 0; see stage 3's trap |
 | IDT | one, loaded once | shareable as-is -- the IDT is read-only to the CPU. Each core must still `lidt` it |
-| interrupt controller | DONE -- Local APIC + I/O APIC, MADT overrides applied (stage 2) | each AP enables its own LAPIC; IPIs are new code on the existing `lapic.c` |
+| interrupt controller | DONE -- Local APIC + I/O APIC, MADT overrides applied (stage 2); a fixed IPI (`lapic_send_ipi()`) and the call vector 0xFB (stage 4) | -- |
 | timer | DONE for the BSP -- LAPIC timer behind `kernel/clockevent.h`, whose device struct already has `per_cpu` | each AP needs its own instance, calibrated or copied from the BSP's |
 | clocksource | the TSC, used only when CPUID says INVARIANT (`clocksource_tsc.c`) | invariant is necessary, not sufficient: TSCs across cores must also be checked for SYNC (Linux's `tsc_sync`), or time steps backwards on a migration |
 | "what is running" | `current_index` (7 non-test files, all in `kernel/proc/` and `api/scheduler.h`), `rotation_pos` (14 refs), `g_next_kernel_rsp` (`kernel/proc/`, `arch/x86_64/idt.c`, `kernel/idt.h`, `drivers/ata.c`; `isr.asm` now takes its resume RSP back in `rax` from `isr_dispatch` and names it only in a comment), `kernel_saved_rsp` + `ROT_KERNEL` (the kernel's own rotation slot) | each has to become per CPU. Mostly in `kernel/proc/`; `g_next_kernel_rsp` reaches `idt.c` and `ata.c` too |
 | run queue | the process table, sized from RAM, scanned by `find_next_runnable()` (`kernel/proc/scheduler.c`) | correct under a lock; a per-core queue is a later optimisation, not a correctness fix |
 | preemption guard | `scheduler_preempt_disable()`: **73 sites in 24 files** (was 11 in 4) -- heap, klog, pipes, futex, sockets, tcp, shm, imgcache, sandbox, oom, vga, win_surface, usb, pci, tty, flock, module, kslots | turning preemption off on ONE core stops nothing on another. Every one is a critical section that needs a real lock |
 | interrupts off | `irq_save()`: **93 sites in 25 files**, not counted in 2026-08 | the same hole: `cli` excludes this core's IRQs only. These are the `spin_lock_irqsave` candidates |
-| sleeping locks | `kmutex` (`kernel/proc/kmutex.c`) and futexes exist; `kmutex`'s owner/depth/waiter state is guarded by `irq_save()` alone | its own state needs a spinlock inside, as Linux's `mutex` has `wait_lock` |
+| sleeping locks | DONE (stage 4) -- `kmutex`'s owner/depth/handoff state is under its own `wait_lock` spinlock, taken irqsave; futexes are still `irq_save()` | -- |
 | filesystem | one sleeping lock per MOUNT (`docs/fslock-design.md`), a `kmutex`, so two volumes are independent; inside one volume tfs3 is serialised by that lock | the right SHAPE already, but only as safe as `kmutex` (the row above): it is fixed when `kmutex` gains its inner spinlock, with the 13 other non-test files that use one (block, ata, ahci, nvme, usb_storage, userfs, mmap, query...) |
 | kernel heap | one free list + bins (`kernel/lib/heap_core.c`), guarded through ONE hook pair, `heap_os_lock()`/`heap_os_unlock()` in `kernel/mm/heap_os.c` | the hook is the whole split: stage 7's first item is a spinlock in those two lines |
 | physical frames | `kernel/mm/pmm.c`'s bitmap, zone counters and frame refcounts, guarded by `irq_save()` (8 sites, inside the 93 above) | the hottest allocator once several cores fault pages in and break COW at once: a double-handed frame puts one process's page in another's space. Its own spinlock, early in stage 7 -- or in stage 5 if the soak shows it first |
@@ -279,7 +281,83 @@ entry path gains the ring check above. **No scheduler change**: APs halt, so `cu
 global this stage. One session; testable in TCG (`-smp 4`, `lscpu`
 says four online) and on the ASUS (2 cores, 4 threads).
 
-### Stage 4 -- a real spinlock, and the kernel lock
+### Stage 4 -- a real spinlock, and the kernel lock -- DONE 2026-11-19
+
+**Built as below** (`kernel/proc/spinlock.c`, `kernel/proc/bkl.c`,
+`smp.c`'s `smp_call()`; KTESTs in `kernel/proc/spinlock_test.c`, in
+the `smp` suite), **with these differences and additions:**
+
+- **The kernel lock is OWNED BY A CORE AND RECURSIVE, Linux 2.0's
+  `kernel_flag`, and its depth TRAVELS WITH THE CONTEXT.** The depth is
+  in `struct cpu`; `switch_to()` saves the outgoing context's and loads
+  the incoming one's, as it does `isr_depth` and the preemption depth.
+  The core holds the lock across the switch, so "drop the BKL across
+  every sleep" needed no code at the sleeping paths: a sleeping context
+  holds nothing, and whoever resumes it is in the kernel. A fresh
+  context starts at depth 1 through `isr_start_frame`, which drops it
+  for a ring-3 frame (Linux's `ret_from_fork` shape).
+- **So the lock passes to another core only where, on one core, another
+  context could already run** -- a context preempted in the kernel holds
+  nothing once the one switched to returns to ring 3. Kernel code that
+  is safe against preemption on one core is safe under the lock on
+  many, and the 73 preemption-guard and 93 `irq_save()` sections keep
+  meaning what they mean. The first KTEST found this: an AP got the lock
+  during a 50 ms wait because a tick switched the test away.
+- **From ring 0, the paranoid vectors (NMI, #DB, #BP, #DF, #MC) do not
+  take it**; from ring 3 every entry does (an `int3` can end in a signal
+  and a switch). An NMI inside `take()` on the holding core would queue
+  behind its own ticket, so those handlers may touch nothing shared --
+  Linux's NMI rule; stage 5's kdebug roundup stops the other cores
+  instead.
+- **The parked cores take work through a call IPI** (vector 0xFB,
+  Linux's `CALL_FUNCTION_VECTOR`): a mailbox in `struct cpu`, `sti; hlt`
+  in the park loop, and `isr_dispatch()` sends an AP's interrupt to
+  `smp_ap_interrupt()` before its first global. The call vector does
+  not take the lock (its sender waits holding it). Stage 6's shootdown
+  is the same mechanism.
+- **A memory-type change after bring-up reaches every core**:
+  `paging_set_write_combining()` re-snapshots the PAT and MTRRs and each
+  AP replays them through the call IPI. Serially, not Linux's
+  `stop_machine()` rendezvous -- enough while the APs touch no memory;
+  stage 5 must revisit it.
+- **The idle halt drops the lock** (`clockevent_idle_halt()`), so the
+  other cores are not kept out by a halted BSP; the interrupt that wakes
+  it takes the lock for its own handler.
+- **The kmutex fallback spin still holds the kernel lock** (a caller that
+  cannot park spins with `cpu_relax()`): one core, nothing changes; from
+  stage 5 the holder on another core needs the lock to finish, so that
+  spin must drop it.
+- **The recursion assertion is four checks, counted by `bkl_faults()`**
+  and logged (`bkl: ...`, the first eight): an entry from ring 3 at a
+  non-zero depth, a return to ring 3 still holding it, an exit at depth
+  0, and a switch that does not hold it or loads a depth below 1. A
+  KTEST asserts the count is 0 after boot; a fresh context started at
+  depth 0 made it 28.
+- **A spin past a second logs once and keeps spinning** (`spinlock:
+  lockup suspected`, Linux's `CONFIG_DEBUG_SPINLOCK`), naming the
+  holder's core and call site; a recursive acquire panics. An AP only
+  counts (`spin_lockups()`) -- it may log nothing until stage 5.
+- **`spin_lock()` raises the preemption guard**, as Linux's implies
+  `preempt_disable()`: a preempted holder would keep the other cores
+  spinning for a slice, and the next context on its core to take the
+  lock would read as a recursive acquire. On the BSP only until stage 5
+  (the guard's depth is one global an AP may not touch). The kernel lock
+  takes its spinlock RAW -- it is held whenever the kernel runs.
+- **The idle halt drops the kernel lock only where another context
+  could run anyway**: interrupts on, preemptible, depth 1. A caller
+  halting inside a guarded section (`diag.c`'s wait) keeps it.
+- **A core that faults in a call, or does not finish one within a
+  second, is `CPU_WEDGED`** and given no more calls; a fault drops the
+  kernel lock it held first. `smp_call()` never waits with interrupts
+  off -- a mailbox still full is refused at once.
+- **A memory-type replay runs only when a register moved**, compared in
+  place by `paging_memory_types_snapshot()`, and one core at a time --
+  stage 5 must make it a rendezvous.
+- **Proven by positive controls**: counting without the ticket lock
+  lost 5992 of 8000 increments on four TCG vCPUs; an AP that skips the
+  kernel lock turns the exclusion KTEST red.
+
+The text below is the plan as written.
 
 Two things, in this order.
 

@@ -12,6 +12,7 @@
 #include "kfmt.h"
 #include "kdebug.h"     // kdebug_poll(), and a tick that stays on for it
 #include "lockup.h"
+#include "bkl.h"
 
 static const struct clockevent *g_ce;
 static uint32_t g_hz;
@@ -128,7 +129,17 @@ halt:
     // STI's one-instruction shadow makes `sti; hlt` atomic: an interrupt
     // that became pending while IF was clear wakes this hlt rather than
     // landing between the two and leaving it asleep.
+    // The halt holds no kernel lock (bkl.h), so another core may take it;
+    // the interrupt that wakes this one takes it for its own handler.
+    // ONLY where, on one core, another context could run here anyway:
+    // preemptible, interrupts on, and not nested in a handler. Otherwise
+    // a caller halting inside a guarded section (diag.c's wait) would let
+    // another core into the kernel half-way through it.
+    int bkl = 0;
+    if ((flags & (1ull << 9)) && scheduler_preempt_depth() == 0 && bkl_depth() == 1)
+        bkl = bkl_drop_all();
     __asm__ volatile ("sti; hlt; cli" ::: "memory");
+    bkl_retake(bkl);
     g_idle = 0;
     g_idle_wake_ns = 0;
     if (g_stopped) {

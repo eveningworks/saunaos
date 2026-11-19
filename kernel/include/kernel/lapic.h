@@ -84,6 +84,7 @@ uint8_t lapic_read_id(void);
 // the gaps between them; these do not wait for the target.
 int lapic_send_init(uint8_t apic_id);
 int lapic_send_startup(uint8_t apic_id, uint8_t page);
+int lapic_send_ipi(uint8_t apic_id, uint8_t vector);   // a fixed interrupt to one core
 
 // An AP's own LAPIC: enabled, every local vector masked (smp.c).
 void lapic_init_ap(void);

@@ -5,6 +5,7 @@
 #include "idt.h"
 #include "vga.h"
 #include "klog.h"
+#include "bkl.h"
 #include <stddef.h>
 
 // Physical address of the data frame, kept around so the fault-hook can
@@ -126,6 +127,7 @@ void ring3_test_run(void) {
 
     uint64_t user_rip = code_vaddr;
     uint64_t user_rsp = stack_vaddr + 4096;
+    bkl_drop_all();   // ring 3 holds none; the fault takes it again, and never returns
 
     __asm__ volatile (
         "mov %0, %%rax\n\t"

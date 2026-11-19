@@ -181,6 +181,13 @@ int lapic_send_startup(uint8_t apic_id, uint8_t page) {
     return icr_send(apic_id, ICR_DM_STARTUP | page);
 }
 
+// Fixed delivery: the SDM wants the level bit set for every mode but
+// an INIT de-assert.
+int lapic_send_ipi(uint8_t apic_id, uint8_t vector) {
+    if (!g_base) return 0;
+    return icr_send(apic_id, ICR_ASSERT | vector);
+}
+
 // An AP's LAPIC, parked: software-enabled so a later stage's IPIs reach
 // it, and every local source masked. LINT0 and LINT1 are the BSP's
 // alone -- ExtINT and NMI wired to two cores deliver twice.

@@ -99,6 +99,7 @@ ISR_NOERR i
 ; needs a gate for the same reason every vector does -- one delivered
 ; with no descriptor behind it is a #GP, and the spurious one arrives
 ; precisely when something has already gone slightly wrong.
+ISR_NOERR 251    ; SMP_CALL_VECTOR (smp.h)
 ISR_NOERR 255
 
 isr_common:
@@ -158,6 +159,20 @@ isr_common:
 ; start a process that has never run: its context is a hand-built
 ; kernel_context whose rsp is the trapframe and whose rip is
 ; isr_resume_frame, so a restore lands in the pops below.
+; A FRESH CONTEXT'S FIRST RESUME (proc_start_context()): rsp is its
+; frame. It starts holding the kernel lock at depth 1, as every context
+; resumes inside the kernel; a ring-3 frame drops it before the iretq.
+; Linux's ret_from_fork, which calls schedule_tail() for the same reason.
+global isr_start_frame
+extern bkl_start_tail
+isr_start_frame:
+    mov rbx, rsp                     ; scratch: the frame's rbx is popped below
+    and rsp, -16
+    mov rdi, rbx
+    call bkl_start_tail
+    mov rsp, rbx
+    jmp isr_resume_frame
+
 global isr_return_to
 isr_return_to:
     mov rsp, rdi

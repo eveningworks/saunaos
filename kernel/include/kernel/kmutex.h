@@ -1,6 +1,8 @@
 #ifndef KMUTEX_H
 #define KMUTEX_H
 
+#include "spinlock.h"
+
 // A SLEEPING LOCK: a contender that can sleep yields the CPU instead of
 // holding the machine still, which is the whole point of it existing.
 //
@@ -28,6 +30,7 @@ struct kmutex {
                  // "nobody"
     int handed;  // an unlock GAVE it to `owner`, which is still parked
                  // and has not resumed to claim it -- see kmutex_unlock()
+    struct spinlock wait_lock;   // guards the four above; zero is free
 };
 
 // Blocks until the lock is held. A caller with a scheduler slot and no

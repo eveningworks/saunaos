@@ -1588,12 +1588,14 @@ measurement of what is single-core in the tree today.
 - [x] ~~The tick on the LAPIC timer, not the PIT~~ DONE 2026-09-06 -- `kernel/clockevent.h`, rating `pit` against `lapic-timer`
 - [x] ~~Bring up application processors (INIT-SIPI-SIPI)~~ DONE 2026-11-19 -- stage 3, started and parked; `nosmp`, `maxcpus=`
 - [x] ~~Per-core GDT/IDT/stack~~ DONE 2026-11-19 -- `struct cpu` through GS.base, `swapgs` on every entry
-- [ ] A later memory-type change reaches every core, not only the BSP -- before stage 5
+- [x] ~~A later memory-type change reaches every core, not only the BSP~~ DONE 2026-11-19 -- stage 4, replayed through the call IPI
 - [ ] Scheduler aware of multiple cores
 - [ ] Per-core run queues instead of one global table
-- [ ] Inter-processor interrupts (IPIs)
+- [x] ~~Inter-processor interrupts (IPIs)~~ DONE 2026-11-19 -- stage 4, `smp_call()` on vector 0xFB
 - [ ] TLB shootdown on address-space changes
-- [ ] A real spinlock primitive, plus an audit of everything currently assuming single-threaded
+- [x] ~~A real spinlock primitive~~ DONE 2026-11-19 -- stage 4, a ticket lock with a lockup report
+- [x] ~~One kernel lock on every entry~~ DONE 2026-11-19 -- stage 4, the BKL; its depth travels with the context
+- [ ] An audit of everything currently assuming single-threaded -- stage 7, split the BKL in measured order
 
 ### Protecting kernel memory from device DMA
 

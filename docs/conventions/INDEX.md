@@ -259,7 +259,12 @@ whenever a headline here tells you something you did not already know.
   ARRIVES, AND A PCI PIN IS ROUTED BY `_PRT`**
 - **EVERY ROUTE TO RING 3 SWAPS GS, AND A PARKED CORE TOUCHES NOTHING
   SHARED** -- `cli; swapgs` before a hand-rolled `iretq`; ring 3's
-  GS.base is always 0; an AP logs nothing before stage 4
+  GS.base is always 0; an AP (and an `smp_call()` function) logs nothing
+  before stage 5
+- **THE KERNEL LOCK IS TAKEN ON EVERY ENTRY, AND A NEW ROUTE TO RING 3
+  DROPS IT** -- `bkl_drop_all()` before a hand-rolled `iretq`; contexts
+  start through `proc_start_context()`; no spinlock across a sleep; the
+  paranoid vectors from ring 0 take no lock
 - **THE TICK IS A CLOCKEVENT, AND ON A MACHINE WITH A LAPIC IT IS NOT
   THE PIT**
 - **THE TICK IS ONE DEADLINE AMONG SEVERAL, AND IT STOPS ONLY IN THE

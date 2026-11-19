@@ -2548,14 +2548,13 @@ the scheduler still runs on the BSP alone. Every entry path swaps GS
 #MC). The kernel debugger's roundup moved to stage 5: a parked core runs
 nothing for it to stop.
 
-### A later memory-type change reaches every core, not only the BSP -- before stage 5
-The APs copy the BSP's PAT and MTRRs once, at bring-up
-(`paging_memory_types_snapshot()`). A write-combining change after that
--- `display.c`'s mode switch, `intel_display.c` -- retypes the BSP
-alone. Harmless while the APs are parked, since they touch no memory;
-before stage 5 runs code on them it must reach every core, as Linux's
-`set_mtrr()` rendezvous does, or two cores disagree about a page's type
-(undefined per the SDM).
+**Stage 4 is DONE (2026-11-19)** -- a ticket spinlock
+(`kernel/proc/spinlock.c`), a call IPI that hands a parked core work
+(`smp_call()`), `kmutex`'s state under its own spinlock, memory-type
+changes replayed on every core, and the big kernel lock taken on every
+entry (`kernel/proc/bkl.c`): owned by a core, recursive, its depth
+saved and loaded by `switch_to()`. Nothing a person sees changes; the
+APs still run no process.
 
 **The finding that still shapes the rest** is the BKL. It is not a
 mistake to avoid: it is what makes SMP shippable before the locking

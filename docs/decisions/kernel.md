@@ -10631,6 +10631,43 @@ breakpoint, so stopping it buys nothing yet; it lands with the stage
 that runs code there (`docs/kdebug-design.md`).
 
 **The memory types are copied once, at bring-up.** A write-combining
-change after that reaches the BSP alone -- harmless while the others
-touch no memory, and a roadmap item before stage 5.
+change after that reached the BSP alone -- harmless while the others
+touch no memory; stage 4 replays it on every core through the call IPI.
 
+## The kernel lock belongs to a core, and its depth travels with the context
+
+SMP stage 4 (2026-11-19, `docs/smp-design.md`): one big kernel lock
+(`kernel/proc/bkl.c`) taken on every entry, a ticket spinlock under it,
+and a call IPI to hand a parked core work.
+
+**Owned by a CORE and recursive, Linux 2.0's `kernel_flag`, not by a
+task.** An interrupt landing on the holding core nests instead of
+deadlocking; a task-owned lock would make every interrupt handler a
+second owner to reconcile. The depth lives in `struct cpu`.
+
+**The depth is saved and loaded at every switch, as `isr_depth` and the
+preemption depth already were**, and the core keeps the lock across
+the switch. So no sleeping path drops it by hand -- the obvious reading
+of "drop the BKL across a sleep", and a site-by-site change to every
+park, wake and `kmutex` wait. A sleeping context simply holds nothing,
+and whoever resumes it is already in the kernel. The consequence, and
+the reason the shape is safe: the lock reaches another core only where,
+on one core, another context could already run. Kernel code that
+survives preemption on one core survives the BKL on many, so the 73
+preemption-guard and 93 `irq_save()` sections are not converted.
+
+**Every entry from ring 3 takes it; from ring 0 the paranoid vectors do
+not.** An NMI inside `take()` on the holding core would wait behind its
+own ticket. Linux's rule, that NMI handlers touch nothing shared,
+covers them, and stage 5's debugger roundup stops the other cores.
+
+**Work reaches a parked core by a call IPI, not an NMI.** The NMI would
+have woken a `cli; hlt` core without changing the park loop, but it
+cannot be masked and shares the vector with the watchdog and perf. A
+fixed vector (0xFB, Linux's `CALL_FUNCTION_VECTOR`) and `sti; hlt` give
+stage 6's shootdown its mechanism already.
+
+**A spinlock that spins past a second logs once and keeps spinning**
+rather than panicking: a slow TCG holder is legitimate, and the line
+names the holder's core and site. A recursive acquire is certain and
+panics.

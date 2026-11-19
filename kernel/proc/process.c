@@ -6,6 +6,7 @@
 #include "idt.h"
 #include "kstack.h" // this path has a real kernel stack now -- see below
 #include "mount.h"  // fs_exclusive_begin() -- held across the run, see below
+#include "bkl.h"
 
 // The currently "in-flight" kernel caller waiting for a ring-3 process
 // to exit. See process.h's note on why there's only one of these.
@@ -82,6 +83,8 @@ void process_context_recover(void) {
     process_context_restore(&g_process_ctx, -1);
 }
 
+static int g_legacy_bkl_depth;   // the kernel context's, while its program runs
+
 int process_run_ring3(uint64_t pml4_phys, uint64_t entry, uint64_t user_rsp) {
     return process_run_ring3_args(pml4_phys, entry, user_rsp, 0, 0);
 }
@@ -117,6 +120,9 @@ int process_run_ring3_args(uint64_t pml4_phys, uint64_t entry, uint64_t user_rsp
         // place to force that counter back to 0 instead of trusting the
         // now-unreachable decrements that should have run.
         isr_reset_depth();
+        // The kernel lock, likewise: the exit or fault that brought us
+        // here took it from ring 3, and its exit never runs.
+        bkl_load_depth(g_legacy_bkl_depth);
         // The abandoned frames' stack redzones, likewise (KASAN=1 only).
         {
             uint64_t sp;
@@ -151,6 +157,9 @@ int process_run_ring3_args(uint64_t pml4_phys, uint64_t entry, uint64_t user_rsp
     gdt_set_kernel_stack(kstack_top(&g_legacy_kstack));
 
     vmm_switch_address_space(pml4_phys);
+
+    // Ring 3 holds no kernel lock; its first syscall takes it again.
+    g_legacy_bkl_depth = bkl_drop_all();
 
     __asm__ volatile (
         "mov %0, %%rax\n\t"

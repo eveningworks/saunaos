@@ -5,6 +5,7 @@
 #include "uaddr.h"
 #include "string.h"
 #include "klog.h"
+#include "smp.h"    // smp_memory_types_changed()
 #include <stddef.h>
 
 // boot.asm identity-maps the first 4GiB with 2MiB pages: PML4[0] ->
@@ -743,10 +744,11 @@ static int mtrr_apply(uint64_t phys, uint64_t size) {
 // mtrr_ap_init() copies its saved set. The variable count is CPUID's
 // 8-bit MTRRCAP.VCNT, a bound the hardware sets.
 //
-// **THE TRAP: a type changed AFTER the snapshot reaches only the BSP.**
-// Harmless while the APs are parked (they touch no memory); before an AP
-// runs code (docs/smp-design.md, stage 5), a later WC change must reach
-// every core the way Linux's set_mtrr() does.
+// A type changed after bring-up is re-snapshotted and replayed on every
+// AP through the call IPI (paging_set_write_combining()). **ONE CORE AT
+// A TIME, NOT Linux's stop_machine() rendezvous**: the cores disagree
+// until the last one has replayed, harmless only while the APs touch no
+// memory -- stage 5 must make it a rendezvous (docs/smp-design.md).
 #define MSR_IA32_MTRR_FIX_64K   0x250u
 #define MSR_IA32_MTRR_FIX_16K   0x258u   // and 0x259
 #define MSR_IA32_MTRR_FIX_4K    0x268u   // through 0x26F
@@ -767,29 +769,38 @@ static uint32_t fixed_msr(int i) {
     return MSR_IA32_MTRR_FIX_4K + (uint32_t)(i - 3);
 }
 
-void paging_memory_types_snapshot(void) {
+// Stores v and notes whether it moved; compared in place, as a copy of
+// the set is 4 KiB.
+static void snap(uint64_t *slot, uint64_t v, int *changed) {
+    if (*slot != v) { *slot = v; *changed = 1; }
+}
+
+int paging_memory_types_snapshot(void) {
+    int changed = !g_types.taken;
     uint32_t edx = cpuid_edx1();
     g_types.has_pat = (edx & CPUID_EDX_PAT) != 0;
     g_types.has_mtrr = (edx & CPUID_EDX_MTRR) != 0;
-    if (g_types.has_pat) g_types.pat = rdmsr(MSR_IA32_PAT);
+    if (g_types.has_pat) snap(&g_types.pat, rdmsr(MSR_IA32_PAT), &changed);
     if (g_types.has_mtrr) {
         uint64_t cap = rdmsr(MSR_IA32_MTRRCAP);
         g_types.vcnt = (uint32_t)(cap & 0xFFu);
         g_types.has_fixed = (cap & (1u << 8)) != 0;
-        g_types.def = rdmsr(MSR_IA32_MTRR_DEF);
+        snap(&g_types.def, rdmsr(MSR_IA32_MTRR_DEF), &changed);
         for (uint32_t i = 0; i < 2 * g_types.vcnt; i++)
-            g_types.var[i] = rdmsr(MSR_IA32_MTRR_BASE + i);
+            snap(&g_types.var[i], rdmsr(MSR_IA32_MTRR_BASE + i), &changed);
         if (g_types.has_fixed)
-            for (int i = 0; i < 11; i++) g_types.fixed[i] = rdmsr(fixed_msr(i));
+            for (int i = 0; i < 11; i++) snap(&g_types.fixed[i], rdmsr(fixed_msr(i)), &changed);
     }
     g_types.taken = 1;
+    return changed;
 }
 
 void paging_memory_types_apply(void) {
     if (!g_types.taken) return;
     if (g_types.has_mtrr) {
         // SDM 11.11.8's change protocol, as mtrr_apply() above. Interrupts
-        // are already off: this runs on an AP before anything can arrive.
+        // are already off: this runs on an AP at bring-up, or in its call
+        // IPI (smp_memory_types_changed()).
         uint64_t cr0, cr4;
         __asm__ volatile ("mov %%cr0, %0" : "=r"(cr0));
         __asm__ volatile ("mov %%cr4, %0" : "=r"(cr4));
@@ -833,9 +844,17 @@ int paging_set_write_combining(uint64_t phys, uint64_t size) {
     int have_pat  = (edx >> 16) & 1u;
     int have_mtrr = (edx >> 12) & 1u;
 
-    if (have_pat && !nopat_requested()) return pat_apply(phys, size);
-    if (have_mtrr) return mtrr_apply(phys, size);
-    return PAGING_WC_NONE;
+    int r = PAGING_WC_NONE;
+    if (have_pat && !nopat_requested()) r = pat_apply(phys, size);
+    else if (have_mtrr) r = mtrr_apply(phys, size);
+    // The registers just changed are per core: the others take the same
+    // values, or they see the framebuffer with a conflicting memory type.
+    // Only when one did: a retype of page tables alone (a later mode set
+    // on a PAT machine) changes no register, and the replay is a cache
+    // disable and two wbinvds on every core.
+    if (r != PAGING_WC_NONE && smp_cpu_count() > 1 && paging_memory_types_snapshot())
+        smp_memory_types_changed();
+    return r;
 }
 
 const char *paging_wc_name(int result) {

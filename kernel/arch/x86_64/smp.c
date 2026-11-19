@@ -2,7 +2,9 @@
 // INIT-SIPI-SIPI one at a time, set up like the BSP and PARKED
 // (docs/smp-design.md, stage 3). Nothing is scheduled on them yet -- a
 // parked core sits in `cli; hlt` and runs no kernel code, which is why
-// the kernel debugger needs no roundup until stage 5.
+// the kernel debugger needs no roundup until stage 5. It wakes only for
+// smp_call(), which is how the BSP hands it work (stage 4's tests, the
+// memory types, stage 6's shootdown).
 //
 // The sequence and its delays are Linux's (arch/x86/kernel/smpboot.c,
 // do_boot_cpu() and wakeup_secondary_cpu_via_init()); one core at a time
@@ -22,6 +24,9 @@
 #include "cpuinfo.h"
 #include "clocksource.h"
 #include "barrier.h"
+#include "spinlock.h"
+#include "bkl.h"
+#include "irqflags.h"
 #include "klog.h"
 #include "kfmt.h"
 #include "knum.h"
@@ -162,7 +167,131 @@ static void __attribute__((noreturn)) ap_entry(struct cpu *c) {
     paging_memory_types_now(&c->seen_pat, &c->seen_mtrr_def);
 
     __atomic_store_n(&c->state, CPU_PARKED, __ATOMIC_RELEASE);
-    for (;;) __asm__ volatile ("cli; hlt" ::: "memory");
+    // Every local source is masked and the I/O APIC routes to the BSP,
+    // so what wakes this halt is the BSP's call IPI (smp_call()).
+    for (;;) __asm__ volatile ("sti; hlt; cli" ::: "memory");
+}
+
+// ---- running a function on another core ------------------------------
+//
+// Linux's smp_call_function_single(), NT's KeIpiGenericCall(): a
+// mailbox in the target's struct cpu and an IPI to say it is full.
+
+#define CALL_MS 1000
+
+static struct spinlock g_call_lock;   // one sender at a time
+
+static int wait_done(struct cpu *c, uint32_t seq, uint32_t ms) {
+    uint64_t end = clocksource_now_ns() + (uint64_t)ms * 1000000ull;
+    while (__atomic_load_n(&c->call_done, __ATOMIC_ACQUIRE) != seq) {
+        if (clocksource_now_ns() >= end) return 0;
+        cpu_relax();
+    }
+    return 1;
+}
+
+// **AN AP ANSWERS NOTHING BUT THE CALL VECTOR, AND TOUCHES NOTHING
+// SHARED ON THE WAY** -- isr_dispatch() sends it here before its first
+// global. A fault on an AP stops that core: nothing on it could report
+// one, and its caller's wait times out and says so. The kernel lock it
+// may hold is let go first, or the BSP's next entry waits on it forever;
+// a plain spinlock its call held stays held, which the lockup report
+// then names.
+void smp_ap_interrupt(uint64_t vector) {
+    struct cpu *c = this_cpu();
+    if (vector < 32) {
+        bkl_drop_all();
+        __atomic_store_n(&c->state, CPU_WEDGED, __ATOMIC_RELEASE);
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (vector == LAPIC_SPURIOUS_VECTOR) return;   // no EOI for a spurious one
+    lapic_eoi();
+    if (vector != SMP_CALL_VECTOR) return;
+    uint32_t seq = __atomic_load_n(&c->call_seq, __ATOMIC_ACQUIRE);
+    if (seq == c->call_done) return;
+    void (*fn)(void *) = c->call_fn;
+    if (fn) fn(c->call_arg);
+    __atomic_store_n(&c->call_done, seq, __ATOMIC_RELEASE);
+}
+
+// A core that did not finish a call is given no more: its next one
+// would wait again, and a caller may hold the kernel lock meanwhile.
+static void wedged(struct cpu *c, int index) {
+    __atomic_store_n(&c->state, CPU_WEDGED, __ATOMIC_RELEASE);
+    klog_printf(KLOG_WARN "smp: core %d did not finish a call within %d ms -- "
+                "given no more\n", index, CALL_MS);
+}
+
+int smp_call(int index, void (*fn)(void *), void *arg, int wait) {
+    if (index == 0) {   // the caller: only the BSP calls until stage 5
+        uint64_t f = irq_save();   // as fn runs on an AP
+        fn(arg);
+        irq_restore(f);
+        return 1;
+    }
+    if (!g_cpus || index < 0 || index >= g_cpu_count) return 0;
+    struct cpu *c = g_cpus[index];
+    if (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) != CPU_PARKED) return 0;
+
+    uint64_t f = spin_lock_irqsave(&g_call_lock);
+    // The last call to this core has to be finished before its mailbox
+    // is written again -- checked, never waited for here, with
+    // interrupts off. A wait = 0 caller waits with smp_call_wait().
+    uint32_t prev = c->call_seq;
+    if (__atomic_load_n(&c->call_done, __ATOMIC_ACQUIRE) != prev) {
+        spin_unlock_irqrestore(&g_call_lock, f);
+        klog_printf(KLOG_WARN "smp: core %d is still running its last call\n", index);
+        return 0;
+    }
+    c->call_fn = fn;
+    c->call_arg = arg;
+    uint32_t seq = prev + 1;
+    __atomic_store_n(&c->call_seq, seq, __ATOMIC_RELEASE);
+    int sent = lapic_send_ipi((uint8_t)c->apic_id, SMP_CALL_VECTOR);
+    spin_unlock_irqrestore(&g_call_lock, f);
+    if (!sent) {
+        klog_printf(KLOG_WARN "smp: the call IPI to core %d was not accepted\n", index);
+        return 0;
+    }
+    if (wait && !wait_done(c, seq, CALL_MS)) {
+        wedged(c, index);
+        return 0;
+    }
+    return 1;
+}
+
+int smp_call_wait(int index, uint32_t ms) {
+    if (index == 0) return 1;
+    if (!g_cpus || index < 0 || index >= g_cpu_count) return 0;
+    struct cpu *c = g_cpus[index];
+    if (wait_done(c, c->call_seq, ms)) return 1;
+    wedged(c, index);
+    return 0;
+}
+
+// A write-combining change after bring-up (paging_set_write_combining()):
+// each AP replays the BSP's new snapshot, and records what it now has
+// for smp_test.c, as at bring-up.
+static void memory_types_cb(void *arg) {
+    (void)arg;
+    struct cpu *c = this_cpu();
+    paging_memory_types_apply();
+    paging_memory_types_now(&c->seen_pat, &c->seen_mtrr_def);
+}
+
+void smp_memory_types_changed(void) {
+    int want = 0;
+    for (int i = 1; i < smp_cpu_count(); i++) want += online(smp_cpu_at(i));
+    int done = smp_call_others(memory_types_cb, 0);
+    if (done != want)
+        klog_printf(KLOG_WARN "smp: %d of %d other core(s) took the new memory types\n",
+                    done, want);
+}
+
+int smp_call_others(void (*fn)(void *), void *arg) {
+    int done = 0;
+    for (int i = 1; i < smp_cpu_count(); i++) done += smp_call(i, fn, arg, 1);
+    return done;
 }
 
 // ---- the BSP's side --------------------------------------------------

@@ -2,9 +2,9 @@
 #define IRQFLAGS_H
 
 // Interrupts off on THIS CPU, and back to how they were. Enough to keep
-// a handler out of a critical section while one CPU runs everything
-// (docs/smp-design.md: no application processor runs yet); NOT a lock
-// against another CPU. Several files still carry their own copy of
+// a handler out of a critical section on this core; NOT a lock against
+// another one -- spinlock.h is, and today the kernel lock (bkl.h) keeps
+// every other core out of the kernel anyway. Several files still carry their own copy of
 // these two -- they move here as they are touched.
 #include <stdint.h>
 

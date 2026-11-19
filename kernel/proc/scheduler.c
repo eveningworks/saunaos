@@ -92,6 +92,7 @@
 #include "uaddr.h" // uaddr_is_user() -- a thread pointer ring 3 may hold
 #include "sandbox.h"   // slot_free() drops the slot's reference
 #include "sched_internal.h"
+#include "bkl.h"
 #include "lockup.h"  // lockup_idle()
 #include "vmm.h"
 #include "process.h" // process_context_is_armed() -- see kernel_slot_runnable()
@@ -302,6 +303,7 @@ int current_index = -1;    // -1 = kernel/shell in control, not
 static int scheduler_armed = 0;
 static int kernel_saved_isr_depth = 0; // the kernel slot's isr_depth_get()
 static int kernel_preempt_depth = 0;   // and its scheduler_preempt_depth()
+static int kernel_bkl_depth = 1;       // and its bkl_depth(): it is always in the kernel
 static uint64_t kernel_offcpu_tsc, kernel_left_tsc; // and its off-CPU time
 static struct kernel_context kernel_kctx; // and where the kernel context
                                           // itself is parked -- rip 0
@@ -804,11 +806,12 @@ void proc_start_context(int slot, const uint64_t *tf) {
     struct kernel_context *k = &procs[slot].kctx;
     k_memset(k, 0, sizeof *k);
     k->rsp = (uint64_t)tf;
-    k->rip = (uint64_t)&isr_resume_frame;
+    k->rip = (uint64_t)&isr_start_frame;
     // Its own, not the spawner's: a slot is reused, and both of these
     // describe a context that does not exist yet.
     procs[slot].isr_depth = 0;
     procs[slot].preempt_depth = 0;
+    procs[slot].bkl_depth = 1;   // isr_start_frame drops it for a ring-3 frame
     procs[slot].parked_in_kernel = 0;
     procs[slot].preempted_in_kernel = 0;
     procs[slot].delay_tsc[0] = procs[slot].delay_tsc[1] = procs[slot].delay_tsc[2] = 0;
@@ -895,6 +898,7 @@ static void context_save_globals(int from) {
     int *preempt = from >= 0 ? &procs[from].preempt_depth : &kernel_preempt_depth;
     *depth = isr_depth_get();
     *preempt = g_preempt_depth;
+    *(from >= 0 ? &procs[from].bkl_depth : &kernel_bkl_depth) = bkl_depth();
     uint64_t now = arch_rdtsc();
     *(from >= 0 ? &procs[from].left_tsc : &kernel_left_tsc) = now;
     if (from >= 0) {
@@ -906,6 +910,7 @@ static void context_save_globals(int from) {
 static void context_load_globals(int to) {
     isr_depth_set(to >= 0 ? procs[to].isr_depth : kernel_saved_isr_depth);
     g_preempt_depth = to >= 0 ? procs[to].preempt_depth : kernel_preempt_depth;
+    bkl_load_depth(to >= 0 ? procs[to].bkl_depth : kernel_bkl_depth);
     uint64_t *left = to >= 0 ? &procs[to].left_tsc : &kernel_left_tsc;
     uint64_t *off  = to >= 0 ? &procs[to].offcpu_tsc : &kernel_offcpu_tsc;
     uint64_t now = arch_rdtsc();

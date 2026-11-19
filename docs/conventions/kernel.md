@@ -1433,13 +1433,47 @@ per-core pointer (`kernel/include/kernel/percpu.h`, `this_cpu()`), and
   before `syscall_entry`'s `swapgs`. Giving programs a GS.base
   (`ARCH_SET_GS`, CR4.FSGSBASE) breaks that test -- it would need
   Linux's compare against this core's own value.
-- **CODE AN AP RUNS BEFORE STAGE 4's LOCK TOUCHES NO SHARED KERNEL
-  STATE** -- no log line, no heap, no preemption guard
-  (`smp.c`'s `ap_entry()`). The first version logged through
+- **CODE AN AP RUNS TOUCHES NO SHARED KERNEL STATE UNTIL STAGE 5** --
+  no log line, no heap, no preemption guard (`smp.c`'s `ap_entry()`,
+  and every `smp_call()` function). The first version logged through
   `syscall_insn_init()`: the log interleaved, the racing preemption
   count stayed raised, and the boot locked up behind every kmutex. An
-  AP's work is registers, its own `struct cpu` and its own LAPIC; the
-  BSP reports what it did.
+  AP's work is registers, its own `struct cpu`, its own LAPIC and what
+  the caller of `smp_call()` arranged; the BSP reports what it did.
+  `isr_dispatch()` sends an AP's interrupt to `smp_ap_interrupt()`
+  before its first global.
+
+## THE KERNEL LOCK IS TAKEN ON EVERY ENTRY, AND A NEW ROUTE TO RING 3 DROPS IT
+
+Since SMP stage 4 (`docs/smp-design.md`) one core at a time is in the
+kernel: `isr_dispatch()` takes the big kernel lock (`bkl.h`) on entry
+and releases it when its depth reaches 0, which is the return to ring 3.
+The core owns it and it nests; the DEPTH travels with the context
+through `switch_to()`.
+
+- **A HAND-ROLLED ROUTE TO RING 3 CALLS `bkl_drop_all()` FIRST**, as the
+  two `iretq`s in `process.c` and `ring3_test.c` do, and a longjmp back
+  from ring 3 restores the depth it dropped (`bkl_load_depth()`). One
+  that forgets runs ring 3 holding the lock: harmless on one core,
+  every other core stopped from stage 5. `bkl_faults()` counts it and
+  the `smp` KTESTs assert 0.
+- **A NEW WAY TO START A CONTEXT GOES THROUGH `proc_start_context()`**,
+  whose `isr_start_frame` starts it at depth 1 and drops the lock for a
+  ring-3 frame. A context resumed at depth 0 is counted as a fault.
+- **A SPINLOCK IS NEVER HELD ACROSS A SLEEP OR A SWITCH** (`spinlock.h`):
+  `spin_lock()` raises the preemption guard so a tick cannot switch a
+  holder away, and a sleep with one held is a certain deadlock. A lock
+  an interrupt handler also takes is taken `spin_lock_irqsave()`. Only
+  the kernel lock takes its spinlock raw. A `kmutex` holds its own for a
+  few stores only.
+- **NMI, #DB, #BP, #DF AND #MC FROM RING 0 DO NOT TAKE THE KERNEL LOCK**
+  -- an NMI inside `take()` on the holding core waits behind its own
+  ticket -- so their handlers touch nothing shared. From ring 3 they
+  do take it.
+- **A KTEST THAT ASSERTS THIS CORE KEEPS THE LOCK RAISES THE
+  PREEMPTION GUARD**: a tick may switch it away, and the context
+  switched to releases the lock on its way to ring 3. That is the lock
+  working, not leaking.
 
 ## THE TICK IS A CLOCKEVENT, AND ON A MACHINE WITH A LAPIC IT IS NOT THE PIT
 
