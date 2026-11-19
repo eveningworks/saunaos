@@ -1592,7 +1592,7 @@ measurement of what is single-core in the tree today.
 - [ ] Scheduler aware of multiple cores
 - [ ] Per-core run queues instead of one global table
 - [x] ~~Inter-processor interrupts (IPIs)~~ DONE 2026-11-19 -- stage 4, `smp_call()` on vector 0xFB
-- [ ] TLB shootdown on address-space changes
+- [x] ~~TLB shootdown on address-space changes~~ DONE 2026-11-19 -- stage 6, ahead of stage 5; vector 0xFD, a whole-space CR3 reload
 - [x] ~~A real spinlock primitive~~ DONE 2026-11-19 -- stage 4, a ticket lock with a lockup report
 - [x] ~~One kernel lock on every entry~~ DONE 2026-11-19 -- stage 4, the BKL; its depth travels with the context
 - [ ] An audit of everything currently assuming single-threaded -- stage 7, split the BKL in measured order

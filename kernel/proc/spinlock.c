@@ -11,6 +11,7 @@
 #include "kfmt.h"
 #include "panic.h"
 #include "scheduler.h"   // the preemption guard a holder raises
+#include "tlb.h"         // tlb_service(): a spinner answers a shootdown
 
 static int g_percpu_ready;
 
@@ -58,6 +59,9 @@ static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
         int reported = 0;
         unsigned n = 0;
         while (__atomic_load_n(&l->serving, __ATOMIC_ACQUIRE) != ticket) {
+            // Interrupts are usually off here, and the holder may be a
+            // shootdown's sender waiting on this core (tlb.h).
+            tlb_service();
             cpu_relax();
             if ((++n & CHECK_EVERY) == 0 && !reported && arch_rdtsc() - start > limit) {
                 reported = 1;

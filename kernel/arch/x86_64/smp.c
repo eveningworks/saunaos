@@ -4,7 +4,7 @@
 // parked core sits in `cli; hlt` and runs no kernel code, which is why
 // the kernel debugger needs no roundup until stage 5. It wakes only for
 // smp_call(), which is how the BSP hands it work (stage 4's tests, the
-// memory types, stage 6's shootdown).
+// memory types), and for a kernel-map shootdown (tlb.h's own vector).
 //
 // The sequence and its delays are Linux's (arch/x86/kernel/smpboot.c,
 // do_boot_cpu() and wakeup_secondary_cpu_via_init()); one core at a time

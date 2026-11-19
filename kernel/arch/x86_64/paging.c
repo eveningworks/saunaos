@@ -6,6 +6,7 @@
 #include "string.h"
 #include "klog.h"
 #include "smp.h"    // smp_memory_types_changed()
+#include "tlb.h"    // tlb_flush_kernel(): a kernel-map change reaches every core
 #include <stddef.h>
 
 // boot.asm identity-maps the first 4GiB with 2MiB pages: PML4[0] ->
@@ -58,7 +59,10 @@ static int split_slot_count = 0;
 static uint64_t wx_tables[MAX_WX_TABLES][512] __attribute__((aligned(4096)));
 static int wx_table_count = 0;
 
-static void flush_tlb(void) {
+// THIS CORE ONLY, for the MTRR/PAT change protocol each core runs for
+// itself (smp_memory_types_changed()); every other kernel-map change is
+// tlb_flush_kernel(), which reaches the other cores too.
+static void flush_tlb_here(void) {
     __asm__ volatile (
         "mov %%cr3, %%rax\n\t"
         "mov %%rax, %%cr3\n\t"
@@ -129,7 +133,7 @@ static void extend_region_cb(const struct multiboot_mmap_region *r) {
 uint64_t paging_extend_identity_map(void) {
     g_extended_slots = 0;
     multiboot_mmap_foreach(extend_region_cb);
-    flush_tlb();
+    tlb_flush_kernel();
     return g_extended_slots * HUGE_SIZE;
 }
 
@@ -177,7 +181,7 @@ int paging_make_user_page(uint64_t vaddr) {
 
     pt[pte_index] = page_base | PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER;
 
-    flush_tlb();
+    tlb_flush_kernel();
     return 1;
 }
 
@@ -256,7 +260,7 @@ int paging_enforce_wx(void) {
     cr0 |= (1ULL << 16); // WP
     __asm__ volatile ("mov %0, %%cr0" : : "r"(cr0) : "memory");
 
-    flush_tlb();
+    tlb_flush_kernel();
     return 1;
 }
 
@@ -330,7 +334,7 @@ int paging_unmap_kernel_page(uint64_t vaddr) {
     }
 
     pt[pte_index] = 0; // not present -- the whole point
-    flush_tlb();
+    tlb_flush_kernel();
     return 1;
 }
 
@@ -592,7 +596,7 @@ static int pat_retype(uint64_t phys, uint64_t size, int wc) {
     // Nothing of an uncached region is in cache to write back -- but the
     // old translations are, and a stale TLB entry keeps the old type.
     __asm__ volatile ("wbinvd" ::: "memory");
-    flush_tlb();
+    tlb_flush_kernel();
     return ok;
 }
 
@@ -648,7 +652,7 @@ int paging_set_kernel_exec(uint64_t phys, uint64_t size, int exec) {
         if (exec) *e = (*e & ~(PAGE_NX | PAGE_WRITABLE));
         else      *e = (*e | PAGE_NX | PAGE_WRITABLE);
     }
-    flush_tlb();
+    tlb_flush_kernel();
     return 1;
 }
 
@@ -713,7 +717,7 @@ static int mtrr_apply(uint64_t phys, uint64_t size) {
     // CD=1, NW=0 -- no-fill cache mode.
     __asm__ volatile ("mov %0, %%cr0" :: "r"((cr0 | (1ULL << 30)) & ~(1ULL << 29)) : "memory");
     __asm__ volatile ("wbinvd" ::: "memory");
-    flush_tlb();
+    flush_tlb_here();
 
     uint64_t def = rdmsr(MSR_IA32_MTRR_DEF);
     wrmsr(MSR_IA32_MTRR_DEF, def & ~(1ULL << 11));   // E = 0
@@ -727,7 +731,7 @@ static int mtrr_apply(uint64_t phys, uint64_t size) {
     wrmsr(MSR_IA32_MTRR_DEF, def | (1ULL << 11));    // E = 1
 
     __asm__ volatile ("wbinvd" ::: "memory");
-    flush_tlb();
+    flush_tlb_here();
     __asm__ volatile ("mov %0, %%cr0" :: "r"(cr0) : "memory");
     if (cr4 != cr4_nopge) __asm__ volatile ("mov %0, %%cr4" :: "r"(cr4) : "memory");
 
@@ -808,7 +812,7 @@ void paging_memory_types_apply(void) {
         if (cr4 != cr4_nopge) __asm__ volatile ("mov %0, %%cr4" :: "r"(cr4_nopge) : "memory");
         __asm__ volatile ("mov %0, %%cr0" :: "r"((cr0 | (1ULL << 30)) & ~(1ULL << 29)) : "memory");
         __asm__ volatile ("wbinvd" ::: "memory");
-        flush_tlb();
+        flush_tlb_here();
         wrmsr(MSR_IA32_MTRR_DEF, g_types.def & ~(1ULL << 11));
         for (uint32_t i = 0; i < 2 * g_types.vcnt; i++)
             wrmsr(MSR_IA32_MTRR_BASE + i, g_types.var[i]);
@@ -817,13 +821,13 @@ void paging_memory_types_apply(void) {
         if (g_types.has_pat) wrmsr(MSR_IA32_PAT, g_types.pat);
         wrmsr(MSR_IA32_MTRR_DEF, g_types.def);
         __asm__ volatile ("wbinvd" ::: "memory");
-        flush_tlb();
+        flush_tlb_here();
         __asm__ volatile ("mov %0, %%cr0" :: "r"(cr0) : "memory");
         if (cr4 != cr4_nopge) __asm__ volatile ("mov %0, %%cr4" :: "r"(cr4) : "memory");
     } else if (g_types.has_pat) {
         wrmsr(MSR_IA32_PAT, g_types.pat);
         __asm__ volatile ("wbinvd" ::: "memory");
-        flush_tlb();
+        flush_tlb_here();
     }
 }
 
@@ -919,7 +923,7 @@ volatile void *paging_map_device(uint64_t phys, uint64_t size) {
             if (!v) return 0;
             if (!virt0) virt0 = v;
         }
-        flush_tlb();
+        tlb_flush_kernel();
     }
     return (volatile void *)(uintptr_t)(virt0 + (phys - first));
 }

@@ -1475,6 +1475,29 @@ through `switch_to()`.
   switched to releases the lock on its way to ring 3. That is the lock
   working, not leaking.
 
+## A PAGE-TABLE CHANGE FLUSHES THROUGH `tlb.h`, AND EVERY CR3 LOAD IS RECORDED
+
+Since SMP stage 6 (`docs/smp-design.md`) another core may hold a
+mapping in its TLB, and it is flushed only if the change says so.
+
+- **A CHANGE TO A PRESENT USER LEAF ENDS IN `tlb_flush_user_page()`**
+  (or `tlb_flush_user_space()` for a whole walk) -- never a bare
+  `invlpg`, which flushes this core alone. A frame unmapped is freed
+  only AFTER it: the call returns when every target has answered.
+  Making a NOT-present entry present needs nothing, as before.
+- **A KERNEL-MAP CHANGE ENDS IN `tlb_flush_kernel()`**, which reaches
+  every online core. A local CR3 reload is right only inside a protocol
+  each core runs for itself (`paging.c`'s `flush_tlb_here()`, the
+  MTRR/PAT change).
+- **A NEW CR3 LOAD GOES THROUGH `tlb_load_cr3()`** (what
+  `vmm_switch_address_space()` is). A raw `mov cr3` leaves `struct
+  cpu->cr3` naming the old space, so the new one's shootdowns miss this
+  core.
+- **A NEW SPIN THAT WAITS WITH INTERRUPTS OFF CALLS `tlb_service()`**,
+  as `spinlock.c`'s `take()` does: the sender holds the kernel lock and
+  waits for this core's answer, so a core that can neither take the IPI
+  nor answer it deadlocks the machine.
+
 ## THE TICK IS A CLOCKEVENT, AND ON A MACHINE WITH A LAPIC IT IS NOT THE PIT
 
 `kernel/clockevent.h` is the device that decides WHEN to interrupt --

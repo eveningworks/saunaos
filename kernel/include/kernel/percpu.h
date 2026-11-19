@@ -67,6 +67,13 @@ struct cpu {
     void (*volatile call_fn)(void *);
     void *volatile call_arg;
     volatile uint32_t call_seq, call_done;
+    // tlb.h: the address space this core last loaded -- kept while it
+    // idles in the kernel (lazy TLB), so a shootdown for that space
+    // still reaches it -- and its shootdown mailbox, written by the one
+    // sender the kernel lock allows.
+    volatile uint64_t cr3;
+    volatile uint64_t tlb_leave;   // a space being destroyed: load the kernel's if it is ours
+    volatile uint32_t tlb_seq, tlb_done;
 };
 
 static inline struct cpu *this_cpu(void) {

@@ -10671,3 +10671,38 @@ stage 6's shootdown its mechanism already.
 rather than panicking: a slow TCG holder is legitimate, and the line
 names the holder's core and site. A recursive acquire is certain and
 panics.
+
+## The TLB shootdown came before the per-core scheduler, and each core records its own CR3
+
+*Decided 2026-11-19 (SMP stage 6), the maintainer's pick of the order.*
+
+**Stage 6 was built before stage 5, unflagged.** The design said the two
+ship together, because per-core scheduling without a shootdown lets two
+threads of one program free a frame another core still maps. Built
+first, the shootdown is safe on every boot: every AP is parked on the
+kernel's CR3, so a user change has no target and costs one pass over
+the cores, while a kernel-map change reaches them through the real
+IPI. Stage 5 then lands on a mechanism already proven, and the
+`smp=run` flag never runs without it.
+
+**The set of cores holding a space is kept per core (`struct
+cpu->cr3`), not per space.** Linux's `mm_cpumask` is a bitmap in every
+`mm_struct`; here it would be a per-space allocation sized to the core
+count, set and cleared at every switch. The transposed form is one
+word each core writes when it loads CR3, and choosing targets is one
+pass over the cores, which a whole-space flush does anyway. A core
+idling on the kernel context keeps the last CR3 it loaded (lazy TLB),
+so it stays a target, and teardown moves it off first (Linux's
+`leave_mm()`).
+
+**The sender holds the kernel lock, and a spinning core answers.** One
+mailbox per core is then enough. The sender waits with interrupts off,
+and a core queued for the kernel lock has interrupts off too, so it
+could take neither the IPI nor the lock. Linux 2.0 met the same thing
+in `lock_kernel()`'s loop, which checked `smp_invalidate_needed`; here
+every ticket-lock spin calls `tlb_service()`.
+
+**The target reloads CR3, and that is the whole TLB**: no page is
+mapped global. Per-page ranges (`invlpg` on the target, Linux's
+`flush_tlb_func()` ceiling) wait for a measurement that shows the
+refill costing anything.

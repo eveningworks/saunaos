@@ -34,6 +34,7 @@
 #include "kdebug.h" // the kernel debugger takes #DB/#BP/NMI when armed
 #include "lockup.h" // lockup_nmi() -- the hard-lockup check's NMI
 #include "multiboot.h" // syscall_irq=off, read once at syscall_insn_init()
+#include "tlb.h"    // TLB_FLUSH_VECTOR, answered before anything shared
 #include "oom.h"    // a #PF with no frame left goes to the OOM killer
 
 struct idt_entry {
@@ -86,6 +87,7 @@ extern void isr69(void);
 extern void isr70(void);
 extern void isr71(void);
 extern void isr251(void);   // SMP_CALL_VECTOR
+extern void isr253(void);   // TLB_FLUSH_VECTOR
 extern void isr255(void);
 
 void idt_set_gate(uint8_t vector, void (*handler)(void), uint8_t ist, uint8_t type_attr) {
@@ -232,6 +234,7 @@ void idt_init(void) {
     // one is a #GP on top of whatever already went wrong.
     idt_set_gate(LAPIC_SPURIOUS_VECTOR, isr255, 0, 0x8E);
     idt_set_gate(SMP_CALL_VECTOR, isr251, 0, 0x8E);
+    idt_set_gate(TLB_FLUSH_VECTOR, isr253, 0, 0x8E);
 
     // The DOUBLE FAULT gate runs on IST slot 1 (gdt.c's df_stack). It
     // is the ONLY gate that needs one, and it needs it for one reason:
@@ -892,6 +895,13 @@ static int takes_bkl(const uint64_t *regs) {
 
 void isr_dispatch(uint64_t *regs) {
     uint64_t vector = regs[15];
+    // A shootdown's sender waits with the kernel lock held, on any core
+    // and from either ring: answered here, taking nothing (tlb.h).
+    if (vector == TLB_FLUSH_VECTOR) {
+        lapic_eoi();
+        tlb_service();
+        return;
+    }
     if (spin_cpu_index() != 0) {   // an AP: nothing shared, not even g_isr_depth
         smp_ap_interrupt(vector);
         return;

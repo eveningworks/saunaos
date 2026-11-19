@@ -4,6 +4,7 @@
 #include "pmm.h"
 #include "oom.h"   // oom_note()
 #include "swap.h"
+#include "tlb.h"    // every flush here reaches the other cores too
 #include "string.h" // k_memcpy() -- the user-copy helpers below
 #include "kfmt.h"   // klog_printf() -- the fork walk's refusals
 #include "klog.h"   // KLOG_ERR -- the level on a failure line
@@ -322,12 +323,9 @@ int vmm_unmap_user_page(uint64_t pml4_phys, uint64_t vaddr) {
         if (i >= 0 && g_acct[i].pages) g_acct[i].pages--;
     }
 
-    // Only worth an INVLPG if this address space is the live one. For
-    // any other, the stale TLB entry cannot be reached without a CR3
-    // load first, and writing CR3 flushes non-global entries anyway.
-    if (vmm_current_pml4() == pml4_phys) {
-        __asm__ volatile ("invlpg (%0)" : : "r"(vaddr) : "memory");
-    }
+    // Here and on every other core with this space loaded (tlb.h). A
+    // space nobody has loaded needs nothing: a CR3 load flushes.
+    tlb_flush_user_page(pml4_phys, vaddr);
     return 1;
 }
 
@@ -365,9 +363,7 @@ int vmm_release_user_page(uint64_t pml4_phys, uint64_t vaddr) {
         int i = acct_slot(pml4_phys, 0);
         if (i >= 0 && g_acct[i].pages) g_acct[i].pages--;
     }
-    if (vmm_current_pml4() == pml4_phys) {
-        __asm__ volatile ("invlpg (%0)" : : "r"(vaddr) : "memory");
-    }
+    tlb_flush_user_page(pml4_phys, vaddr);
     if (!(pte & PAGE_BORROWED)) pmm_free_frame(pte & ADDR_MASK);
     return 1;
 }
@@ -427,9 +423,7 @@ int vmm_set_swap_entry(uint64_t pml4_phys, uint64_t vaddr, uint32_t slot) {
     if (pmm_frame_refs(frame) > 1) return 0;
 
     pt[i] = swap_pte(slot);
-    if (vmm_current_pml4() == pml4_phys) {
-        __asm__ volatile ("invlpg (%0)" : : "r"(vaddr) : "memory");
-    }
+    tlb_flush_user_page(pml4_phys, vaddr);
     pmm_free_frame(frame);
     int a = acct_slot(pml4_phys, 0);
     if (a >= 0) {
@@ -462,7 +456,7 @@ static int drop_swap_entry(uint64_t *pt, int i) {
 }
 
 void vmm_switch_address_space(uint64_t pml4_phys) {
-    __asm__ volatile ("mov %0, %%cr3" : : "r"(pml4_phys) : "memory");
+    tlb_load_cr3(pml4_phys);   // and recorded: a shootdown's targets (tlb.h)
 }
 
 // The tear-down mirror of ensure_next_level() above: frees every present
@@ -505,6 +499,8 @@ static void destroy_pdpt(uint64_t pdpt_phys) {
 
 void vmm_destroy_address_space(uint64_t pml4_phys) {
     if (!pml4_phys) return;
+    // A core idling on it still walks these tables (tlb.h's lazy CR3).
+    tlb_leave_space(pml4_phys);
     uint64_t *pml4 = table_at(pml4_phys);
     // Start at 1, not 0 -- entry 0 is the shared kernel mapping every
     // address space's PML4 points at the SAME physical PDPT for (see
@@ -528,6 +524,9 @@ void vmm_destroy_address_space(uint64_t pml4_phys) {
 
 // --- fork: copy-on-write sharing ---------------------------------------
 
+// fork's per-page flush, THIS CORE ONLY: the other cores get one
+// shootdown at the end of vmm_fork_address_space(), Linux's
+// flush_tlb_mm() after dup_mmap().
 static void flush_if_live(uint64_t pml4_phys, uint64_t vaddr) {
     if (vmm_current_pml4() == pml4_phys)
         __asm__ volatile ("invlpg (%0)" : : "r"(vaddr) : "memory");
@@ -640,6 +639,9 @@ uint64_t vmm_fork_address_space(uint64_t parent, const struct vmm_fork_opts *o) 
             }
         }
     }
+    // Whatever was downgraded to COW, success or not: the other cores
+    // running the parent may still hold those pages writable.
+    tlb_flush_user_space(parent);
     if (why) {
         klog_printf(KLOG_ERR "vmm: fork of %#lx refused -- %s\n", parent, why);
         vmm_destroy_address_space(child);
@@ -659,7 +661,7 @@ int vmm_cow_break(uint64_t pml4_phys, uint64_t vaddr) {
     if (pmm_frame_refs(frame) <= 1) {
         // The other owner has gone: this page is private again.
         pt[i] = (pte & ~PAGE_COW) | PAGE_WRITABLE;
-        flush_if_live(pml4_phys, vaddr & ~0xFFFULL);
+        tlb_flush_user_page(pml4_phys, vaddr & ~0xFFFULL);
         return 1;
     }
     uint64_t nf = pmm_alloc_user_frame();
@@ -669,7 +671,7 @@ int vmm_cow_break(uint64_t pml4_phys, uint64_t vaddr) {
     }
     k_memcpy(table_at(nf), table_at(frame), 4096);
     pt[i] = (pte & ~(PAGE_COW | ADDR_MASK)) | nf | PAGE_WRITABLE;
-    flush_if_live(pml4_phys, vaddr & ~0xFFFULL);
+    tlb_flush_user_page(pml4_phys, vaddr & ~0xFFFULL);
     pmm_free_frame(frame); // one owner fewer
     return 1;
 }
@@ -695,9 +697,7 @@ int vmm_protect_user_page(uint64_t pml4_phys, uint64_t vaddr, int writable, int 
         npte |= pmm_frame_refs(pte & ADDR_MASK) > 1 ? PAGE_COW : PAGE_WRITABLE;
     if (npte != pte) {
         pt[i] = npte;
-        // One CPU (docs/smp-design.md, stage 1), so invlpg is the whole
-        // shootdown; a second CPU running this space needs an IPI here.
-        flush_if_live(pml4_phys, vaddr & ~0xFFFULL);
+        tlb_flush_user_page(pml4_phys, vaddr & ~0xFFFULL);
     }
     return 1;
 }
@@ -723,7 +723,7 @@ int vmm_hide_user_page(uint64_t pml4_phys, uint64_t vaddr) {
     uint64_t pte = pt[i];
     if (!(pte & PAGE_PRESENT) || (pte & PAGE_BORROWED)) return 0;
     pt[i] = (pte & ~PAGE_PRESENT) | PAGE_PROTNONE;
-    flush_if_live(pml4_phys, vaddr & ~0xFFFULL);
+    tlb_flush_user_page(pml4_phys, vaddr & ~0xFFFULL);
     return 1;
 }
 

@@ -4,7 +4,9 @@
 Local APIC 2026-08-30, its TIMER 2026-09-06, the I/O APIC and the MADT
 interrupt source overrides 2026-09-10); STAGE 3 IS BUILT (2026-11-19:
 the APs started and parked); STAGE 4 IS BUILT (2026-11-19: a ticket
-spinlock, the call IPI and the kernel lock); STAGES 5-7 ARE DESIGNED, NOT BUILT;
+spinlock, the call IPI and the kernel lock); STAGE 6 IS BUILT AHEAD OF
+STAGE 5 (2026-11-19: the TLB shootdown, `kernel/arch/x86_64/tlb.c`);
+STAGES 5 AND 7 ARE DESIGNED, NOT BUILT;
 RE-MEASURED AND RE-SIZED 2026-11-19.** The ACPI table walk and the MADT's processor list exist
 (`kernel/acpi/`, read by `/bin/acpi` and `/bin/lscpu`), the Local APIC is
 enabled and carries MSI-X for seven drivers, the tick runs on the LAPIC
@@ -135,13 +137,13 @@ working day of this project's usual size):
 | 3 -- APs up, parked | 1 session | TCG `-smp 4` + the ASUS: `lscpu` online count | `lscpu` / Task Manager list the cores; nothing else |
 | 4 -- ticket lock + BKL | 1-2 sessions | a KTEST with the APs contending for a ticket lock; the BKL taken on every entry, with its recursion assertion, on the BSP | nothing -- the APs are still parked |
 | 5 -- scheduler per core | 1-2 sessions | KVM soak with a positive control (drop the BKL on one path, soak goes red) + the ring-3 suite under `-smp`; the ASUS | per-core load in Task Manager; a two-thread program uses two cores |
-| 6 -- TLB shootdown | 1-2 sessions (user and kernel mappings) | a KTEST: thread on core B reads a page core A unmapped, must fault | nothing (it must land WITH stage 5) |
+| 6 -- TLB shootdown (DONE, before 5) | 1 session | a KTEST: a parked core that cached a page reads the new frame after a remap | nothing -- no user target until stage 5 |
 | 7 -- split the lock | open-ended, per measurement | per split: soak + its own positive control | `make -j` and the compositor stop queueing on the BKL |
 
-**Stages 5 and 6 ship together** -- stage 5 is the first stage that runs
-anything on an AP, and alone it lets two threads of one program run on
-two cores with no shootdown, which is a use-after-free of
-a page frame, not a slowdown.
+**Stage 6 came first, so stage 5 never runs without it** -- stage 5 is
+the first stage that runs anything on an AP, and alone it would let two
+threads of one program run on two cores with no shootdown, which is a
+use-after-free of a page frame, not a slowdown.
 
 ### Stage 1 -- ACPI tables, read-only -- DONE 2026-08-30
 
@@ -314,7 +316,8 @@ the `smp` suite), **with these differences and additions:**
   in the park loop, and `isr_dispatch()` sends an AP's interrupt to
   `smp_ap_interrupt()` before its first global. The call vector does
   not take the lock (its sender waits holding it). Stage 6's shootdown
-  is the same mechanism.
+  is the same shape on its own vector (0xFD), since it must reach a
+  core that is not parked.
 - **A memory-type change after bring-up reaches every core**:
   `paging_set_write_combining()` re-snapshots the PAT and MTRRs and each
   AP replays them through the call IPI. Serially, not Linux's
@@ -410,7 +413,8 @@ stage 6's):
 - **Device interrupts stay on the BSP.** The I/O APIC and every MSI keep
   targeting it; an AP gets its own LAPIC timer for preemption, and IPIs.
   Linux before irqbalance.
-- **Stage 6's first shootdown flushes the whole space**: each address
+- **Stage 6's first shootdown flushes the whole space** (BUILT, below,
+  with the set kept per core): each address
   space keeps the set of cores that have it loaded (Linux's
   `mm_cpumask`; a core idling in the kernel context keeps the last CR3,
   so it stays in the set -- lazy TLB), an unmap sends those cores one
@@ -432,7 +436,45 @@ With N cores it becomes the per-core idle loop, which is what
 saved trapframe (`kernel_saved_rsp`) is a uniprocessor idea and has to
 become per CPU.
 
-### Stage 6 -- TLB shootdown
+### Stage 6 -- TLB shootdown -- DONE 2026-11-19
+
+**Built before stage 5, unflagged** (the maintainer's pick): with every
+AP parked on the kernel's CR3 a user shootdown has no target, so it
+changes nothing on an ordinary boot, and stage 5 lands on a proven
+shootdown rather than with one. What was built (`kernel/include/kernel/tlb.h`):
+
+- **The set of cores is kept per CORE, not per space** --
+  `struct cpu->cr3`, written by every CR3 load (`tlb_load_cr3()`, which
+  `vmm_switch_address_space()` now is) and kept while the core idles
+  (lazy TLB). Linux's `mm_cpumask` transposed: no per-space bitmap to
+  size or grow, and choosing targets is one pass over the cores, which
+  is what a whole-space flush wants anyway.
+- **One mailbox per core and a sender that holds the kernel lock** --
+  vector 0xFD, answered in `isr_dispatch()` before anything shared on
+  any core and from either ring. The sender waits with interrupts off,
+  so **a core spinning for a lock answers from the spin**
+  (`spinlock.c`'s `take()` calls `tlb_service()`), Linux 2.0's
+  `smp_invalidate_needed` check in `lock_kernel()`. A target that does
+  not answer in a second is `CPU_WEDGED`, as an unfinished call is.
+- **The target reloads CR3** -- no global pages are mapped, so that is
+  the whole TLB. Every `vmm.c` site that changes a live user leaf
+  (unmap, release, swap-out, mprotect, hide, COW break) calls
+  `tlb_flush_user_page()`; fork's COW downgrade does one
+  `tlb_flush_user_space()` at the end of the walk (Linux's
+  `flush_tlb_mm()` after `dup_mmap()`); `paging.c`'s kernel-map changes
+  call `tlb_flush_kernel()`, every core; the MTRR/PAT protocol keeps a
+  local flush, since each core runs it for itself.
+- **Teardown is NOT safe by construction, as this section once said:**
+  a core idling on a dead process's CR3 still walks its tables, so
+  `vmm_destroy_address_space()` first sends `tlb_leave_space()` -- a
+  target on that space loads the kernel's (Linux's `leave_mm()`).
+- **Proven by** `tlb_test.c`: a parked core loads a test space and reads
+  a page, the BSP remaps the page to another frame, and the core must
+  read the new frame's bytes. With the shootdown removed it reads the
+  old one under TCG `-smp 4` (`FAIL: p.seen`), so the test sees the
+  break.
+
+The design as it was written before the build:
 
 Once two cores can be in one address space -- which threads make
 routine -- unmapping a page needs every core that has it cached to
