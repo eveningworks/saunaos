@@ -167,7 +167,7 @@ is the bookkeeping that makes any other kind of mapping possible.
 - [x] ~~A per-frame reference count~~ DONE 2026-09-11 -- `pmm_frame_ref()`, and `pmm_free_frame()` decrements
 - [x] ~~`MAP_SHARED` memory between two processes~~ DONE 2026-09-06 -- `SYS_SHM_OPEN` names an object, `MAP_SHARED` maps it
 - [x] ~~Copy-on-write, shared between this and `fork()`~~ DONE 2026-09-11 -- `PAGE_COW`, `vmm_fork_address_space()`/`vmm_cow_break()`
-- [ ] Guard pages around THREAD stacks -- kernel and user stacks have them; a thread stack is ring 3's own malloc and has none
+- [x] ~~Guard pages around THREAD stacks~~ DONE 2026-11-19 -- a mapping of its own, a `PROT_NONE` page below
 - [ ] Ring-3 ASLR: randomise the user stack, the mmap base and `ld-toy.so`'s base -- KASLR exists; ring 3 is laid out alike every run
 - [x] ~~A frame-size bound for ring 3~~ DONE 2026-08-18
 - [x] ~~A check on the ~1 MiB between a ring-3 image and its heap~~ DONE 2026-08-18
@@ -334,7 +334,8 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [x] ~~More than eight Terminal tabs~~ DONE 2026-10-23 -- the tab table and the kernel's tty/pty tables grow
 - [ ] Terminal tabs past the strip's width run off its right edge -- a scrolling strip (Ctrl+PgUp/PgDn still reach them)
 - [x] ~~A tab can be renamed by hand~~ DONE 2026-08-27 -- Terminal > Rename Tab; the name outranks the shell's OSC
-- [ ] A thread stack with a guard page, which needs `PROT_NONE` in `mprotect()`
+- [x] ~~A thread stack with a guard page, which needs `PROT_NONE` in `mprotect()`~~ DONE 2026-11-19 -- `PROT_NONE` keeps the data
+- [ ] `madvise(MADV_DONTNEED)`, and `MAP_FIXED` over a reservation -- how a JS engine gives memory back (FIXED is -EEXIST)
 - [ ] Signal dispositions shared by a thread group, as POSIX has them -- per thread here, inherited at create
 - [ ] Audit every `scheduler_current_pid()` that decides a PERMISSION -- shared memory asked the thread, not the process, until 2026-10-13
 - [ ] GCC's default (`%fs:0x28`) stack-protector guard in ring 3, now that TLS exists

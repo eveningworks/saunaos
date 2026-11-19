@@ -609,6 +609,13 @@ static void isr_dispatch_body(uint64_t *regs) {
         // labelling it.
         int stack_overflow = vector == 14 && (cs & 3) == 3 &&
                               uaddr_is_stack_guard(cr2);
+        // A pthread's stack has its guard page right below the range it
+        // was created with (libc's pthread.c maps it PROT_NONE).
+        uint64_t tlo = 0, thi = 0;
+        int thread_overflow = vector == 14 && (cs & 3) == 3 && !stack_overflow &&
+            scheduler_thread_stack(scheduler_current_pid(), &tlo, &thi) &&
+            tlo >= 4096 && cr2 < tlo && cr2 >= tlo - 4096;
+        if (thread_overflow) stack_overflow = 1;
 
         // The KERNEL's own stacks have guard pages too (scheduler.c), so
         // the same question gets asked of them. Two ways in: the
@@ -648,7 +655,13 @@ static void isr_dispatch_body(uint64_t *regs) {
         } else {
             vga_printf("error_code=0x%lx\n", error_code);
         }
-        if (stack_overflow) {
+        if (thread_overflow) {
+            vga_printf("A thread ran off its %lu KiB stack (0x%lx-0x%lx) onto the "
+                       "guard page below it.\n", (unsigned long)((thi - tlo) / 1024),
+                       tlo, thi);
+            vga_printf("Give it a bigger one (pthread_attr_setstacksize), "
+                       "or move a big local off it.\n");
+        } else if (stack_overflow) {
             vga_printf("The user stack hit its limit: it may grow down to "
                        "0x%lx (top 0x%lx) and went past it.\n",
                        (uint64_t)UADDR_STACK_FLOOR,

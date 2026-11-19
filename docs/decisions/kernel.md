@@ -5951,11 +5951,12 @@ three decisions bought for nothing.
 Two consequences that are real limitations rather than tidy trade-offs,
 and both are named in `<pthread.h>` rather than left to be discovered:
 
-**A thread stack has no guard page.** The initial thread's is grown on
-fault with a guard gap below it, and the kernel's own stacks have guard
-pages; a thread's is a malloc'd extent, so an overrun walks into another
-allocation instead of faulting. Fixing it needs `PROT_NONE` in
-`mprotect()`, which arrived (2026-11-15) without it.
+**A thread stack has ONE guard page, since 2026-11-19.** It is its own
+anonymous mapping with a `PROT_NONE` page below it (glibc's default
+guardsize), so an overrun faults and the crash report says which thread
+ran off which stack; a malloc'd stack's overrun walked into the next
+allocation. A frame bigger than a page can still step over it, as on
+Linux.
 
 **A detached thread's stack is never reclaimed.** Nothing can safely
 free memory a dying thread is still standing on: between "I am about to
@@ -6127,8 +6128,9 @@ user pages the address-space walk already frees. Sixteen regions is
 plenty for the dynamic loader this exists for (an executable's
 libraries are a handful of segments each); raising it is one constant.
 
-**The arena is its own range (`UADDR_MMAP_BASE`, 32 GiB above the
-window regions), not holes carved between existing regions.** Every
+**The arena is its own range (`UADDR_MMAP_BASE`, above the window
+regions; 32 GiB until 2026-11-19, 64 TiB since -- "`PROT_NONE` keeps the
+data" below), not holes carved between existing regions.** Every
 region below is either per-process-movable (`heap_base`,
 `stack_bottom`) or derived and gigabytes wide (the window strides), and
 carving between them is how the compositor's back buffer got landed on
@@ -10366,9 +10368,37 @@ per-thread switch (Apple's `MAP_JIT` with `pthread_jit_write_protect_np`).
   at a time holds a region per RUN of one protection, not one per flip.
   `munmap` spans adjacent regions for the same reason.
 
-**Not done: `PROT_NONE`.** `mmap` requires `PROT_READ` and so does
-`mprotect`; a guard page needs a present-but-inaccessible state the
-fault-in path does not have yet (the guard-page roadmap item).
+`PROT_NONE` came later (2026-11-19): "`PROT_NONE` keeps the data, costs
+nothing until made accessible, and the arena is 64 TiB" below.
+
+## `PROT_NONE` keeps the data, costs nothing until made accessible, and the arena is 64 TiB
+
+Chosen 2026-11-19, as groundwork for porting a big C++ program (a
+JavaScript engine reserves gigabytes it may never touch: V8's pointer
+cage, JavaScriptCore's Gigacage, any GC heap) and for thread-stack guard
+pages. Linux's shape in each part:
+
+- **A hidden page keeps its frame and its bytes.** x86 cannot make a
+  present user page unreadable (short of protection keys), so the PTE
+  goes non-present with a software bit, `PAGE_PROTNONE`, and the rest of
+  the entry unchanged -- `_PAGE_PROTNONE`. Freeing the frame instead
+  would be simpler and is wrong: POSIX says a page made accessible again
+  has what it had, and a GC that protects a heap page to catch a stray
+  access relies on it.
+- **Not charged to `RLIMIT_DATA` until made accessible**, then charged by
+  the `mprotect()`, which fails with ENOMEM past the limit and changes
+  nothing -- Linux's `is_data_mapping()` (only writable private memory
+  counts) and its commit accounting at `mprotect`. Charging at `mmap`
+  would refuse a 4 GiB reservation under the browser's 160 MiB tab cap.
+- **Anonymous memory only.** A hidden file or shm page is one
+  `mprotect()` could not give back (it changes anonymous memory only).
+- **`MAP_NORESERVE` is accepted and changes nothing**: every mapping
+  here is already a reservation whose frames arrive on first touch.
+- **The arena grew from 32 GiB to 64 TiB** (`UADDR_MMAP_LIMIT`, PML4[1]
+  to PML4[128]). An untouched range costs no page table, and V8's
+  sandbox alone asks for 1 TiB; Linux gives a process 128 TiB. Every
+  loop over a mapping's pages skips absent page tables, which made the
+  size free.
 
 
 ## A hung machine is caught three ways: the lockup detector, a warm panic, and init feeding the watchdog

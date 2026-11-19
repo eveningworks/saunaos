@@ -30,7 +30,7 @@
 #include "base/utest.h"
 
 #define ARENA_BASE 0x9000000000ULL
-#define ARENA_END  0x9800000000ULL
+#define ARENA_END  0x400000000000ULL
 
 static int in_arena(void *p) {
     uint64_t a = (uint64_t)p;
@@ -99,6 +99,7 @@ static int call_at(void *p) { return ((int (*)(void))p)(); }
 // 128 + SIGSEGV when it did (SIGNAL_EXIT_BASE), 0 if it survived.
 static void *g_fault_at;
 static void store_there(void) { *(volatile uint8_t *)g_fault_at = 0x90; }
+static void load_there(void) { (void)*(volatile uint8_t *)g_fault_at; }
 static void run_there(void) { call_at(g_fault_at); }
 static int child_code(void (*fn)(void)) {
     int pid = fork();
@@ -172,6 +173,43 @@ static void wx_checks(void) {
     void *lc = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     utest_check(lc != MAP_FAILED && mprotect(lc, 4096, PROT_READ) == 0 && munmap(lc, 4096) == 0,
                 "<sys/mman.h>'s mprotect() links and works");
+}
+
+// PROT_NONE: a reservation bigger than the old 32 GiB arena, uncharged;
+// a touch that faults; data that survives being hidden. Each fault is a
+// forked child's, so the fork of a hidden page is exercised too.
+static void none_checks(void) {
+    const int segv = SIGNAL_EXIT_BASE + SIGSEGV;
+    const uint64_t big = 64ULL << 30;
+
+    uint8_t *r = sys_mmap(0, big, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    utest_check(in_arena(r), "a 64 GiB PROT_NONE reservation maps, MAP_NORESERVE accepted");
+    if (!in_arena(r)) return;
+    uint64_t prot = 99;
+    utest_check(region_at(r, &prot) == big && prot == PROT_NONE, "pmap sees it as one ---p region");
+    g_fault_at = r + big / 2;
+    utest_check(child_code(load_there) == segv, "a load from the reservation faults");
+
+    uint8_t *mid = r + big / 2;
+    utest_check(sys_mprotect(mid, 2 * 4096, PROT_READ | PROT_WRITE) == 0,
+                "mprotect commits two pages in the middle RW");
+    fill(mid, 2 * 4096);
+    utest_check(sys_mprotect(mid, 4096, PROT_NONE) == 0, "mprotect hides the first again");
+    g_fault_at = mid;
+    utest_check(child_code(load_there) == segv, "a load from the hidden page faults");
+    g_fault_at = mid + 4096;
+    utest_check(child_code(store_there) == 0, "...and its RW neighbour still takes a store");
+    utest_check(sys_mprotect(mid, 4096, PROT_READ) == 0 && holds(mid, 2 * 4096),
+                "made readable, the hidden page has the bytes it was hidden with");
+    g_fault_at = mid;
+    utest_check(child_code(store_there) == segv, "...and PROT_READ still refuses a store");
+    utest_check(sys_munmap(r, big) == 0 && region_at(r, 0) == 0,
+                "one munmap takes the whole reservation and the pages it split off");
+
+    int fd = sys_open(FILE_PATH, 0);
+    void *e = fd < 0 ? 0 : sys_mmap(0, 4096, PROT_NONE, MAP_PRIVATE, fd, 0);
+    utest_check(e == MAP_FAILED && sys_errno() == EINVAL, "a PROT_NONE file mapping is EINVAL");
+    if (fd >= 0) sys_close(fd);
 }
 
 int main(void) {
@@ -404,6 +442,7 @@ int main(void) {
           "<sys/mman.h>'s mmap()/munmap() link and work");
 
     wx_checks();
+    none_checks();
 
     sys_unlink(FILE_PATH);
 

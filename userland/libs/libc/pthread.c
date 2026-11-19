@@ -12,13 +12,17 @@
 #include <errno.h>
 #include "rt/sys.h"
 #include "rt/ulock.h"
+#include <sys/mman.h>
+
+#define PTHREAD_GUARD_SIZE 4096 // one page, glibc's default guardsize
 
 struct pthread {
     int    tid;
     void *(*start)(void *);
     void  *arg;
     void  *retval;
-    void  *stack;    // the malloc'd block, NULL for the initial thread
+    void  *stack;    // the stack's mapping, guard page first; NULL for the initial thread
+    size_t stack_mapped; // its length, guard included
     void  *tls;      // ditto
     int    detached;
     void **tsd;      // pthread_setspecific()'s values, indexed by key
@@ -81,14 +85,25 @@ int pthread_create(pthread_t *out, const pthread_attr_t *attr,
     t->arg = arg;
     t->detached = detached == PTHREAD_CREATE_DETACHED;
 
-    void *stack_raw = NULL;
-    char *stack = (char *)aligned_block(stacksize, &stack_raw);
-    if (!stack) { free(t); return EAGAIN; }
-    t->stack = stack_raw;
+    // ITS OWN MAPPING, WITH A PROT_NONE GUARD PAGE BELOW IT (glibc's
+    // shape): an overflow faults on the guard, and the kernel names it a
+    // stack overflow, where a heap block's overflow wrote into its
+    // neighbour. The kernel is told the usable part only.
+    stacksize = (stacksize + 4095) & ~(size_t)4095;
+    size_t mapped = stacksize + PTHREAD_GUARD_SIZE;
+    char *map = (char *)mmap(NULL, mapped, PROT_READ | PROT_WRITE,
+                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (map == MAP_FAILED) { free(t); return EAGAIN; }
+    if (mprotect(map, PTHREAD_GUARD_SIZE, PROT_NONE) != 0) {
+        munmap(map, mapped); free(t); return EAGAIN;
+    }
+    char *stack = map + PTHREAD_GUARD_SIZE;
+    t->stack = map;
+    t->stack_mapped = mapped;
 
     void *tls_raw = NULL;
     void *tls_mem = aligned_block((size_t)rt_tls_size(), &tls_raw);
-    if (!tls_mem) { free(stack_raw); free(t); return EAGAIN; }
+    if (!tls_mem) { munmap(map, mapped); free(t); return EAGAIN; }
     t->tls = tls_raw;
     // EVERY THREAD GETS ITS OWN COPY OF EVERY `__thread` VARIABLE,
     // initialised from the program's template -- which is what makes
@@ -99,7 +114,7 @@ int pthread_create(pthread_t *out, const pthread_attr_t *attr,
     int tid = sys_thread_create(thread_entry, stack + stacksize, t, tp,
                                 t->detached, (unsigned)stacksize);
     if (tid < 0) {
-        free(tls_raw); free(stack_raw); free(t);
+        free(tls_raw); munmap(map, mapped); free(t);
         return EAGAIN;
     }
     t->tid = tid;
@@ -116,7 +131,7 @@ int pthread_join(pthread_t t, void **retval) {
     // reaped, so nothing is standing on this stack any more.
     free(t->tsd);
     free(t->tls);
-    free(t->stack);
+    munmap(t->stack, t->stack_mapped);
     free(t);
     return 0;
 }

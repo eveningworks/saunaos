@@ -215,9 +215,10 @@ static struct sched_mm *caller_mm(void) { return scheduler_current_mm(); }
 // anonymous region, which Linux does not need: its read faults map one
 // shared zero page, where mmap_fault_in() gives every touched page a frame
 // of its own, so an uncharged PROT_READ region was memory past the limit.
-// A read-only file mapping or an shm object is not the process's growth.
+// A read-only file mapping or an shm object is not the process's growth,
+// nor a PROT_NONE reservation until mprotect() makes it accessible.
 static int is_data(const struct mmap_region *r) {
-    if (r->kind == MMAP_KIND_ANON) return 1;
+    if (r->kind == MMAP_KIND_ANON) return r->prot != SYS_PROT_NONE;
     return r->kind == MMAP_KIND_FILE && (r->prot & SYS_PROT_WRITE);
 }
 
@@ -238,11 +239,12 @@ int mm_data_allows(struct sched_mm *mm, uint64_t more) {
     return 0;
 }
 
-// The prot SYS_MMAP and SYS_MPROTECT take, or -errno. PROT_READ is
-// required and nothing unknown may be set: a bit this kernel does not
-// implement must refuse, not silently grant. **W^X: WRITE WITH EXEC IS
-// -EACCES** (OpenBSD's) -- a page is written, or run, never both.
+// The prot SYS_MMAP and SYS_MPROTECT take, or -errno. PROT_NONE, or
+// PROT_READ with nothing unknown: a bit this kernel does not implement
+// must refuse, not silently grant. **W^X: WRITE WITH EXEC IS -EACCES**
+// (OpenBSD's) -- a page is written, or run, never both.
 int mmap_prot_check(uint32_t prot) {
+    if (prot == SYS_PROT_NONE) return 0;
     if (!(prot & SYS_PROT_READ) ||
         (prot & ~(uint32_t)(SYS_PROT_READ | SYS_PROT_WRITE | SYS_PROT_EXEC)))
         return -EINVAL;
@@ -268,10 +270,15 @@ int sys_mmap(struct syscall_ctx *c) {
     int shared = (m.flags & SYS_MAP_SHARED) != 0;
     if (shared == ((m.flags & SYS_MAP_PRIVATE) != 0) ||
         (m.flags & ~(SYS_MAP_SHARED | SYS_MAP_PRIVATE | SYS_MAP_FIXED |
-                     SYS_MAP_ANONYMOUS))) {
+                     SYS_MAP_ANONYMOUS | SYS_MAP_NORESERVE))) {
         ret = -EINVAL; goto out;
     }
     if (shared && (m.flags & SYS_MAP_ANONYMOUS)) { ret = -EINVAL; goto out; }
+    // PROT_NONE reserves or guards memory the process will make itself;
+    // a file or shm page hidden would be one mprotect() cannot reach.
+    if (m.prot == SYS_PROT_NONE && !(m.flags & SYS_MAP_ANONYMOUS)) {
+        ret = -EINVAL; goto out;
+    }
     // Executable memory a program WROTE needs `prot_exec`: anonymous here,
     // a file outside the system image below. Nothing is held yet.
     if ((m.prot & SYS_PROT_EXEC) && (m.flags & SYS_MAP_ANONYMOUS) && sandbox_active() &&
@@ -283,7 +290,8 @@ int sys_mmap(struct syscall_ctx *c) {
     if (m.length > UADDR_MMAP_LIMIT - UADDR_MMAP_BASE) { ret = -ENOMEM; goto out; }
 
     uint64_t npages = (m.length + 4095) / 4096;
-    int charged = !shared && ((m.flags & SYS_MAP_ANONYMOUS) || (m.prot & SYS_PROT_WRITE));
+    int charged = !shared && m.prot != SYS_PROT_NONE &&
+                  ((m.flags & SYS_MAP_ANONYMOUS) || (m.prot & SYS_PROT_WRITE));
     // HELD from here to the end: the descriptor (a close in another
     // thread must not free the object this maps, Linux's fdget()) and the
     // address space's lock (the list, the limit and the slot are one step).
@@ -722,8 +730,12 @@ int sys_munmap(struct syscall_ctx *c) {
         rend = r->base + r->npages * 4096ULL;
         uint64_t pe = end < rend ? end : rend;
         uint64_t npages = (pe - p) / 4096;
-        for (uint64_t v = p; v < pe; v += 4096)
-            vmm_release_user_page(c->pml4, v); // untouched pages: nothing there
+        for (uint64_t v = p; v < pe; ) {           // untouched pages: nothing there
+            uint64_t n = vmm_user_skip_absent(c->pml4, v);
+            if (n != v) { v = n; continue; }
+            vmm_release_user_page(c->pml4, v);
+            v += 4096;
+        }
         if (r->kind == MMAP_KIND_SHM) shm_unmap_range(c->pml4, p, npages);
 
         if (p == r->base && pe == rend) {
@@ -808,12 +820,18 @@ int mmap_protect_check(struct sched_mm *mm, uint64_t addr, uint64_t len, uint32_
     if (len > UADDR_MMAP_LIMIT - addr) return -ENOMEM;
     uint64_t end = addr + ((len + 4095) & ~0xFFFULL);
     if (end > UADDR_MMAP_LIMIT || !mm->regions) return -ENOMEM;
+    uint64_t unhidden = 0; // bytes of PROT_NONE this makes accessible
     for (uint64_t p = addr; p < end; ) {
         struct mmap_region *r = region_of(mm, p);
         if (!r) return -ENOMEM;
         if (r->kind != MMAP_KIND_ANON) return -EACCES;
-        p = r->base + r->npages * 4096ULL;
+        uint64_t rend = r->base + r->npages * 4096ULL;
+        if (r->prot == SYS_PROT_NONE && prot != SYS_PROT_NONE)
+            unhidden += (rend < end ? rend : end) - p;
+        p = rend;
     }
+    // Charged here, where it becomes the process's memory (is_data()).
+    if (unhidden && !mm_data_allows(mm, unhidden)) return -ENOMEM;
     return 0;
 }
 
@@ -834,9 +852,14 @@ int mmap_protect(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len
         }
         // Set before the leaves: a page faulted in from here on gets the
         // new prot from its region, an already-present one below.
-        for (uint64_t p = addr; p < end; p += 4096)
-            vmm_protect_user_page(pml4, p, (prot & SYS_PROT_WRITE) != 0,
-                                  (prot & SYS_PROT_EXEC) != 0);
+        for (uint64_t p = addr; p < end; ) {
+            uint64_t n = vmm_user_skip_absent(pml4, p);
+            if (n != p) { p = n; continue; }
+            if (prot == SYS_PROT_NONE) vmm_hide_user_page(pml4, p);
+            else vmm_protect_user_page(pml4, p, (prot & SYS_PROT_WRITE) != 0,
+                                       (prot & SYS_PROT_EXEC) != 0);
+            p += 4096;
+        }
     }
     coalesce_at(mm, addr);
     return rc;
@@ -950,6 +973,14 @@ static int same_region(const struct mmap_region *now, const struct mmap_region *
 static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) {
     struct mmap_region *r = region_of(mm, page);
     if (!r) return 0; // a wild pointer that happens to land in the arena
+    if (r->prot == SYS_PROT_NONE) return 0; // a guard or a reservation: SIGSEGV
+    // A hidden leaf in an accessible region is restored, never mapped
+    // over: the fresh map below would call it occupied and the access
+    // would fault again forever. mmap_protect() restores every leaf it
+    // covers, so this is the backstop, not the path.
+    if (vmm_page_hidden(pml4_phys, page))
+        return vmm_protect_user_page(pml4_phys, page, (r->prot & SYS_PROT_WRITE) != 0,
+                                     (r->prot & SYS_PROT_EXEC) != 0);
 
     if (r->kind == MMAP_KIND_SHM) {
         // BORROWED: the frames belong to the object, not to this address

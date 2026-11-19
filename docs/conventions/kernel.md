@@ -543,6 +543,17 @@ this the obvious way), not from how much history it accumulated.
   slot needs somewhere to live -- makes it a present mapping of a freed
   frame, which the existing audit correctly calls `dangling`. Nothing
   evicts yet; see `docs/swap-design.md` for the stage that will.
+- **A HIDDEN (`PROT_NONE`) PAGE IS A NON-PRESENT PTE THAT STILL HOLDS
+  ITS FRAME, AND A WALKER THAT READS ONE AS A HOLE LEAKS IT.**
+  `mprotect(PROT_NONE)` on a touched page clears `PAGE_PRESENT` and sets
+  `PAGE_PROTNONE` (bit 52), keeping the frame, its refcount and its bytes
+  -- Linux's `_PAGE_PROTNONE`, and POSIX's promise that the data is still
+  there when the page is made accessible again. So teardown, `munmap`,
+  fork and the audit each test `held_frame()` (present OR hidden), never
+  `PAGE_PRESENT` alone; fork shares a hidden frame and the later
+  `mprotect()` gives it back COW. A loop over a mapping's pages skips page
+  tables that were never built (`vmm_user_skip_absent()`): a reservation
+  is terabytes long, and page by page that is minutes.
 - **A USER MAPPING SAYS WHETHER IT OWNS ITS FRAME, and getting that
   wrong is silent.** `vmm_destroy_address_space()` frees every frame it
   finds in a dying process's page tables, so anything mapped in that the
@@ -743,8 +754,8 @@ this the obvious way), not from how much history it accumulated.
   to it. See `docs/decisions.md`.
 - **`SYS_MMAP` IS A REGION LIST, ITS ARENA IS ITS OWN RANGE, AND A
   FILE-BACKED FAULT-IN REFUSES INSIDE AN `FS_OP`.** `kernel/mm/mmap.c`;
-  the metadata is `struct sched_mm`'s fixed 16-slot array (lives and
-  dies with the slot -- nothing to leak), the mappings live in
+  the metadata is `struct sched_mm`'s region list, grown on demand
+  (`regions_grow()`) and freed with the address space, the mappings live in
   `UADDR_MMAP_BASE..LIMIT` above every window region (nothing in the
   existing map moved), and every mapping is a RESERVATION faulted in
   through `uheap_fault()`'s arena branch, exactly as the heap and stack
@@ -2653,7 +2664,8 @@ stack top and allocates nothing, which is `clone(2)`'s shape rather than
 `pthread_create()`'s. Everything with a malloc in it -- the stack, the
 TLS block, the return value, the descriptor -- is `userland/libs/libc/pthread.c`.
 Two consequences are worth knowing before writing threaded code: a thread
-stack has **no guard page** (`mprotect()` takes no `PROT_NONE` yet), and a
+stack is its own mapping with **one `PROT_NONE` guard page** below it (a
+frame bigger than a page can step over it), and a
 **detached thread's stack is never reclaimed**, because nothing can
 safely free memory a dying thread is still standing on. Linux solves the
 second with `CLONE_CHILD_CLEARTID` and a futex wake.

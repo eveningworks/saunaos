@@ -336,12 +336,26 @@ uint64_t vmm_fork_address_space(uint64_t parent, const struct vmm_fork_opts *o);
 // the page is not COW or no frame could be had.
 int vmm_cow_break(uint64_t pml4_phys, uint64_t vaddr);
 
-// SYS_MPROTECT's leaf: a PRESENT, OWNED page's W and NX bits rewritten
-// and its TLB entry flushed. Writable on a frame another address space
-// still shares (a fork) means COW, never W; read-only drops COW. 1 if it
-// changed a leaf, 0 for an absent, swapped or borrowed one -- the fault-in
-// maps those from the region's prot, which the caller has already set.
+// SYS_MPROTECT's leaf: a PRESENT or HIDDEN, OWNED page's W and NX bits
+// rewritten and its TLB entry flushed; a hidden one is made present
+// again, its frame and data intact. Writable on a frame another address
+// space still shares (a fork) means COW, never W; read-only drops COW. 1
+// if it changed a leaf, 0 for an absent, swapped or borrowed one -- the
+// fault-in maps those from the region's prot, which the caller has set.
 int vmm_protect_user_page(uint64_t pml4_phys, uint64_t vaddr, int writable, int executable);
+
+// PROT_NONE's leaf: a present, owned page made non-present but KEPT --
+// frame, refcount and contents -- so a later vmm_protect_user_page()
+// gives it back as it was (Linux's PROT_NONE PTE). Every teardown, fork
+// and audit walk counts the frame. 1 if it hid a leaf, 0 otherwise.
+int vmm_hide_user_page(uint64_t pml4_phys, uint64_t vaddr);
+// Whether the leaf at `vaddr` is a hidden (PROT_NONE) one. For the fault
+// path and KTESTs.
+int vmm_page_hidden(uint64_t pml4_phys, uint64_t vaddr);
+// `vaddr` if a page table covers it, else where the next one could start
+// (the end of the absent 2 MiB, 1 GiB or 512 GiB level) -- so a loop over
+// a reservation terabytes long visits only what was ever touched.
+uint64_t vmm_user_skip_absent(uint64_t pml4_phys, uint64_t vaddr);
 
 // What a present user leaf allows, as VMM_PAGE_* bits (readable is
 // implied), or -1 when nothing is mapped there. For KTESTs and audits.

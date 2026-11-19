@@ -32,6 +32,10 @@
 #include <pthread.h>
 #include <signal.h>
 #include "rt/sys.h"
+#include <unistd.h>       // fork, _exit
+#include <sys/mman.h>     // PROT_NONE
+#include "query_abi.h"    // QUERY_PROCMAP: where the guard page is
+#include "signal_abi.h"   // SIGNAL_EXIT_BASE, SIGSEGV
 
 
 
@@ -305,6 +309,76 @@ static void *forever(void *arg) {
 
 #define MANY 6
 
+// --- the stack's guard page -------------------------------------------
+//
+// Two halves, because each alone passes a broken version: a stack in the
+// heap ALSO dies of SIGSEGV eventually (the recursion walks down until it
+// reaches something unmapped), so the map is read too -- a PROT_NONE page
+// directly below the region holding the thread's stack.
+static uint64_t anon_region_of(uint64_t va, uint64_t *base, uint64_t *prot) {
+    struct query_procmap q;
+    for (unsigned i = 0; ; i++) {
+        if (sys_query_record(QUERY_PROCMAP, i, &q, sizeof q) < (int)sizeof q) return 0;
+        if ((int)q.pid == sys_getpid() && q.kind == QUERY_PROCMAP_ANON &&
+            va >= q.base && va < q.base + q.bytes) {
+            *base = q.base;
+            *prot = q.prot;
+            return q.bytes;
+        }
+    }
+}
+
+// Holds its stack until told: a joined thread's stack is unmapped.
+static volatile uint64_t g_stack_va;
+static volatile int g_stack_release;
+static void *stack_reporter(void *arg) {
+    (void)arg;
+    volatile int here = 0;
+    g_stack_va = (uint64_t)(uintptr_t)&here;
+    while (!g_stack_release) sys_yield();
+    return NULL;
+}
+
+// NOT INLINED: GCC folds a few levels into one frame otherwise, and a
+// frame past 4 KiB steps over the guard instead of onto it.
+static volatile int g_depth_cap = 1 << 30;   // never reached; quiets -Winfinite-recursion
+__attribute__((noinline)) static int recurse(int n) {
+    volatile char frame[512];
+    frame[0] = (char)n;
+    if (n >= g_depth_cap) return n;
+    return recurse(n + 1) + frame[0];
+}
+static void *overflower(void *arg) { (void)arg; return (void *)(intptr_t)recurse(0); }
+
+static void guard_checks(void) {
+    pthread_t t;
+    int made = pthread_create(&t, NULL, stack_reporter, NULL) == 0;
+    while (made && !g_stack_va) sys_yield();
+    uint64_t sb = 0, sp = 0, gb = 0, gp = 99;
+    uint64_t sbytes = g_stack_va ? anon_region_of(g_stack_va, &sb, &sp) : 0;
+    uint64_t gbytes = sbytes ? anon_region_of(sb - 4096, &gb, &gp) : 0;
+    g_stack_release = 1;
+    if (made) pthread_join(t, NULL);
+    uint64_t gone_b, gone_p;
+    utest_check(made && !anon_region_of(g_stack_va, &gone_b, &gone_p),
+                "joined, the thread's stack mapping is gone");
+    utest_check(sbytes && sp == (PROT_READ | PROT_WRITE),
+                "a thread's stack is an RW anonymous mapping of its own");
+    utest_check(gbytes == 4096 && gb == sb - 4096 && gp == PROT_NONE,
+                "...with one PROT_NONE guard page directly below it");
+
+    int pid = fork();
+    if (pid == 0) {
+        pthread_t o;
+        if (pthread_create(&o, NULL, overflower, NULL) == 0) pthread_join(o, NULL);
+        _exit(0);
+    }
+    int code = -1;
+    if (pid > 0) sys_waitpid(pid, &code);
+    utest_checkf(code == SIGNAL_EXIT_BASE + SIGSEGV,
+                 "a thread that overflows its stack faults on the guard (SIGSEGV; exit %d)", code);
+}
+
 int main(void) {
     utest_begin("thread_test", "threads, TLS and mutual exclusion", UTEST_VERDICT_FILE);
 
@@ -566,6 +640,8 @@ int main(void) {
             utest_check(g_park_got, "...and locks the stream once it is released");
         }
     }
+
+    guard_checks();
 
     // A THREAD LEFT RUNNING AT EXIT, on purpose and never joined.
     // Without it nothing here reaches the group teardown at all: every

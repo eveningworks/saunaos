@@ -26,6 +26,7 @@
 extern "C" {
 #endif
 
+#define PROT_NONE  0x0  // anonymous memory only: a reservation or a guard
 #define PROT_READ  0x1
 #define PROT_WRITE 0x2
 #define PROT_EXEC  0x4
@@ -34,6 +35,8 @@ extern "C" {
 #define MAP_PRIVATE   0x02
 #define MAP_FIXED     0x10
 #define MAP_ANONYMOUS 0x20
+#define MAP_ANON      MAP_ANONYMOUS
+#define MAP_NORESERVE 0x4000 // accepted; every mapping is a reservation here
 
 #define MAP_FAILED ((void *)-1)
 

@@ -34,6 +34,12 @@ extern uint64_t p4_table[512];
 // space after a fork; a write fault copies (or, for the last owner,
 // restores W). Only ever set with PRESENT set and WRITABLE clear.
 #define PAGE_COW      (1ULL << 11)
+// The fourth, only ever set with PRESENT CLEAR: a PROT_NONE page that
+// still HOLDS its frame -- the rest of the entry is the present leaf it
+// was, minus PRESENT (Linux's _PAGE_PROTNONE). A walker that reads it as
+// a hole leaks the frame; held_frame() is the test every walker uses.
+// Bit 52 because 9-11 are taken and a hidden leaf keeps BORROWED and COW.
+#define PAGE_PROTNONE (1ULL << 52)
 // #PF error-code bit 1: the access was a write.
 #define PF_WRITE      (1ULL << 1)
 #define PAGE_NX       (1ULL << 63) // requires EFER.NXE, set once in boot.asm
@@ -42,6 +48,11 @@ extern uint64_t p4_table[512];
 // levels ABOVE this one, which is why this constant is named for the
 // page size it is valid on. Every page this file maps is 4KiB.
 #define PAGE_PAT_4K   (1ULL << 7)
+
+// A leaf that holds a frame: present, or hidden by PROT_NONE.
+static inline int held_frame(uint64_t pte) {
+    return (pte & PAGE_PRESENT) || (pte & PAGE_PROTNONE);
+}
 #define ADDR_MASK     0x000FFFFFFFFFF000ULL
 
 // All of this runs with the kernel's own page tables still active (CR3
@@ -201,7 +212,7 @@ static int map_user(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr,
     // same address (win_server.c does exactly that on a window resize)
     // replaces one frame with another and must not count twice.
     uint64_t irq = irq_save();   // the test and the store, and the count
-    int was_present = (pt[pt_index] & PAGE_PRESENT) != 0;
+    int was_present = held_frame(pt[pt_index]);
     if (fresh && was_present) { irq_restore(irq); return VMM_MAP_EXISTS; }
     pt[pt_index] = (paddr & ADDR_MASK) | flags;
     if (!was_present) {
@@ -293,7 +304,7 @@ int vmm_unmap_user_page(uint64_t pml4_phys, uint64_t vaddr) {
     uint64_t *pd = table_at(pdpt[pdpt_index] & ADDR_MASK);
     if (!(pd[pd_index] & PAGE_PRESENT)) return 0;
     uint64_t *pt = table_at(pd[pd_index] & ADDR_MASK);
-    if (!(pt[pt_index] & PAGE_PRESENT)) {
+    if (!held_frame(pt[pt_index])) {
         // Not present is usually "nothing was mapped here" -- except
         // for a swapped page, whose storage is a slot rather than a
         // frame and which nobody else can give back.
@@ -340,7 +351,7 @@ int vmm_release_user_page(uint64_t pml4_phys, uint64_t vaddr) {
     if (!(pd[pd_index] & PAGE_PRESENT)) return 0;
     uint64_t *pt = table_at(pd[pd_index] & ADDR_MASK);
     uint64_t pte = pt[pt_index];
-    if (!(pte & PAGE_PRESENT)) {
+    if (!held_frame(pte)) {
         if (drop_swap_entry(pt, pt_index)) {
             int i = acct_slot(pml4_phys, 0);
             if (i >= 0 && g_acct[i].swapped) g_acct[i].swapped--;
@@ -469,7 +480,7 @@ static void destroy_pt(uint64_t pt_phys) {
         // a process that dies swapped would otherwise leak it with no
         // detector -- nothing audits slot usage the way meminfo audits
         // frames.
-        if (!(pt[i] & PAGE_PRESENT)) { drop_swap_entry(pt, i); continue; }
+        if (!held_frame(pt[i])) { drop_swap_entry(pt, i); continue; }
         if (pt[i] & PAGE_BORROWED) continue;
         pmm_free_frame(pt[i] & ADDR_MASK);
     }
@@ -602,6 +613,16 @@ uint64_t vmm_fork_address_space(uint64_t parent, const struct vmm_fork_opts *o) 
                 for (int l = 0; l < 512; l++) {
                     uint64_t pte = pt[l];
                     uint64_t va = base | ((uint64_t)l << 12);
+                    if (pte & PAGE_PROTNONE) {
+                        // Hidden, and shared hidden: whoever makes it
+                        // accessible again gets COW (vmm_protect_user_page).
+                        pmm_frame_ref(pte & ADDR_MASK);
+                        if (!child_set_leaf(child, va, pte)) {
+                            pmm_free_frame(pte & ADDR_MASK);
+                            why = "no memory"; break;
+                        }
+                        continue;
+                    }
                     if (!(pte & PAGE_PRESENT)) {
                         if (pte & PAGE_SWAPPED) { why = "a swapped page"; break; }
                         continue;
@@ -660,8 +681,10 @@ int vmm_protect_user_page(uint64_t pml4_phys, uint64_t vaddr, int writable, int 
     if (!pt) return 0;
     int i = (int)((vaddr >> 12) & 0x1FF);
     uint64_t pte = pt[i];
-    if (!(pte & PAGE_PRESENT) || (pte & PAGE_BORROWED)) return 0;
-    uint64_t npte = pte & ~(PAGE_WRITABLE | PAGE_COW | PAGE_NX);
+    if (!held_frame(pte) || (pte & PAGE_BORROWED)) return 0;
+    // A hidden leaf comes back with the frame -- and the data -- it had.
+    uint64_t npte = ((pte & ~PAGE_PROTNONE) | PAGE_PRESENT) &
+                    ~(PAGE_WRITABLE | PAGE_COW | PAGE_NX);
     if (!executable) npte |= PAGE_NX;
     // A FRAME ANOTHER SPACE STILL SHARES IS NEVER MADE WRITABLE HERE: it
     // goes back to COW and the next write copies. The other way round,
@@ -677,6 +700,36 @@ int vmm_protect_user_page(uint64_t pml4_phys, uint64_t vaddr, int writable, int 
         flush_if_live(pml4_phys, vaddr & ~0xFFFULL);
     }
     return 1;
+}
+
+uint64_t vmm_user_skip_absent(uint64_t pml4_phys, uint64_t vaddr) {
+    static const int shift[3] = { 39, 30, 21 };
+    uint64_t e, *t = table_at(pml4_phys);
+    for (int lv = 0; lv < 3; lv++) {
+        e = t[(vaddr >> shift[lv]) & 0x1FF];
+        if (!(e & PAGE_PRESENT) || !(e & PAGE_USER) || (lv && (e & PAGE_HUGE))) {
+            uint64_t span = 1ULL << shift[lv];
+            return (vaddr & ~(span - 1)) + span;
+        }
+        t = table_at(e & ADDR_MASK);
+    }
+    return vaddr;
+}
+
+int vmm_hide_user_page(uint64_t pml4_phys, uint64_t vaddr) {
+    uint64_t *pt = pt_for(pml4_phys, vaddr);
+    if (!pt) return 0;
+    int i = (int)((vaddr >> 12) & 0x1FF);
+    uint64_t pte = pt[i];
+    if (!(pte & PAGE_PRESENT) || (pte & PAGE_BORROWED)) return 0;
+    pt[i] = (pte & ~PAGE_PRESENT) | PAGE_PROTNONE;
+    flush_if_live(pml4_phys, vaddr & ~0xFFFULL);
+    return 1;
+}
+
+int vmm_page_hidden(uint64_t pml4_phys, uint64_t vaddr) {
+    uint64_t *pt = pt_for(pml4_phys, vaddr);
+    return pt && (pt[(vaddr >> 12) & 0x1FF] & PAGE_PROTNONE) != 0;
 }
 
 int vmm_user_page_prot(uint64_t pml4_phys, uint64_t vaddr) {
@@ -740,7 +793,7 @@ static void audit_pt(uint64_t pt_phys, uint64_t base_va, struct audit_ctx *c) {
     struct vmm_audit *a = c->a;
     uint64_t *pt = table_at(pt_phys);
     for (int i = 0; i < 512; i++) {
-        if (!(pt[i] & PAGE_PRESENT)) {
+        if (!held_frame(pt[i])) {
             // A SWAPPED PAGE IS COUNTED, NOT SKIPPED. This walk's
             // invariant is about frames, and a swapped page has none --
             // so it cannot be checked. Saying how many were not checked

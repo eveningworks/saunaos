@@ -200,8 +200,11 @@
 // mmap arena.
 #define UADDR_SND_BASE   SND_MAP_VADDR
 
+// 64 TiB, PML4[1] up to PML4[128]: an engine reserves address space it
+// may never touch (V8's sandbox, a GC heap), and an untouched range costs
+// no page table. The canonical lower half's last 64 TiB stay free.
 #define UADDR_MMAP_BASE  0x9000000000ULL
-#define UADDR_MMAP_LIMIT 0x9800000000ULL
+#define UADDR_MMAP_LIMIT 0x400000000000ULL
 
 // Is this address inside the mmap arena -- mapped or not? The envelope
 // check the fault path asks before consulting the region list.

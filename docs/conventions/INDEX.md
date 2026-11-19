@@ -127,6 +127,8 @@ whenever a headline here tells you something you did not already know.
 - **A SWAPPED PAGE IS A NON-PRESENT PTE THAT STILL RECORDS THE PAGE, and
   a walker that reads one as a hole LEAKS ITS SLOT -- which nothing
   audits.**
+- **A HIDDEN (`PROT_NONE`) PAGE IS A NON-PRESENT PTE THAT STILL HOLDS
+  ITS FRAME, AND A WALKER THAT READS ONE AS A HOLE LEAKS IT.**
 - **A USER MAPPING SAYS WHETHER IT OWNS ITS FRAME, and getting that
   wrong is silent.**
 - **Kernel code touches user memory ONLY through `vmm.h`'s copy

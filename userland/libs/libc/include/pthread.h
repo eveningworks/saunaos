@@ -10,11 +10,10 @@
 //
 // What this implementation does NOT do, stated rather than discovered:
 //
-//   - **A THREAD STACK HAS NO GUARD PAGE.** It is ordinary malloc'd
-//     memory, so an overrun quietly walks into another allocation
-//     instead of faulting. The kernel's own stacks have guard pages;
-//     giving one to a thread needs a PROT_NONE page, which mprotect()
-//     does not take yet (docs/roadmap.md).
+//   - **A THREAD STACK HAS ONE GUARD PAGE, and no attribute changes
+//     it** (no pthread_attr_setguardsize): its own mapping, a PROT_NONE
+//     page below it, so an overrun faults and the crash report says
+//     "Stack overflow". A frame bigger than a page can step over it.
 //   - **A DETACHED THREAD'S STACK IS NOT RECLAIMED** until the process
 //     exits -- nothing can safely free memory a dying thread is still
 //     standing on, which is what Linux's CLONE_CHILD_CLEARTID futex

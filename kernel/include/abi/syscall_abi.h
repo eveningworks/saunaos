@@ -2104,7 +2104,13 @@ struct sys_stat {
 // **W^X: PROT_WRITE WITH PROT_EXEC IS -EACCES, here and in SYS_MMAP**
 // (OpenBSD's rule and errno). Code is written RW, then made RX -- a JIT's
 // cycle. PROT_EXEC on anonymous memory also needs the `prot_exec`
-// promise (abi/sandbox_abi.h). PROT_READ is required, as in SYS_MMAP.
+// promise (abi/sandbox_abi.h). PROT_READ is required, as in SYS_MMAP,
+// unless the prot is PROT_NONE.
+//
+// **PROT_NONE KEEPS THE DATA**: a touched page is hidden, not freed, and
+// comes back as it was when made accessible again. A PROT_NONE page is
+// not charged to RLIMIT_DATA; making one accessible charges it, and
+// -ENOMEM past the limit changes nothing (Linux's accounting).
 #define SYS_MPROTECT 167
 
 #define SYS_SHM_OPEN 99   // RDI = pointer to a `struct shm_open_msg`.
@@ -2458,6 +2464,10 @@ struct openpty_msg {
 // wrapper passes POSIX's constants straight through, and a ported
 // program's `mmap(NULL, n, PROT_READ | PROT_WRITE, MAP_PRIVATE |
 // MAP_ANONYMOUS, -1, 0)` means here what it means there.
+// PROT_NONE alone, or READ with any of the others: nothing grants W or X
+// without R, as on x86 hardware. PROT_NONE is ANONYMOUS memory only -- a
+// reservation, or a guard page -- and costs nothing until made accessible.
+#define SYS_PROT_NONE  0x0
 #define SYS_PROT_READ  0x1
 #define SYS_PROT_WRITE 0x2
 #define SYS_PROT_EXEC  0x4
@@ -2480,11 +2490,14 @@ struct openpty_msg {
                                // addr silently unmapping live pages
                                // cannot be taken back.
 #define SYS_MAP_ANONYMOUS 0x20 // zero-filled; `fd` and `offset` ignored
+#define SYS_MAP_NORESERVE 0x4000 // accepted and changes nothing: every
+                                 // mapping here is a reservation already,
+                                 // its frames arriving on first touch
 
 struct mmap_msg {
     uint64_t addr;   // 0 = kernel picks; else a hint (FIXED: a demand)
     uint64_t length; // bytes; rounded up to whole pages
-    int32_t  prot;   // SYS_PROT_* -- PROT_READ is required
+    int32_t  prot;   // SYS_PROT_* -- PROT_READ required, or PROT_NONE alone
     int32_t  flags;  // SYS_MAP_* -- exactly one of PRIVATE/SHARED
     int32_t  fd;     // an open file or shm object; -1 with ANONYMOUS
     int32_t  reserved;
