@@ -16,6 +16,11 @@
 ; it runs on its own IST stack for exactly this (idt.c). A kernel
 ; debugger single-stepping through these lines steps on the user's stack.
 ;
+; GS: `swapgs` first thing in, last thing out, so everything between
+; runs on this core's struct cpu (percpu.h). An exit by iretq leaves the
+; swap to isr_resume_frame, which makes it for any frame returning to
+; ring 3.
+;
 ; LEAVING: SYSRET only when the frame is still what SYSCALL made it.
 ; Anything that rewrote it -- a signal, sigreturn, exec, a restart's
 ; rewind -- leaves RCX != RIP and goes out through iretq, which restores
@@ -27,12 +32,12 @@ bits 64
 
 extern isr_dispatch
 extern isr_resume_frame
-extern gdt_tss
 extern g_syscall_irq
 
 %define SEL_USER_DATA 0x1b   ; gdt.h's SEL_USER_DATA, RPL 3
 %define SEL_USER_CODE 0x23   ; gdt.h's SEL_USER_CODE, RPL 3
-%define TSS_RSP0      4      ; architectural: rsp0 follows a 4-byte reserved field
+%define CPU_USER_RSP  8      ; percpu.h's CPU_OFF_USER_RSP
+%define CPU_TSS_RSP0  36     ; percpu.h's CPU_OFF_TSS_RSP0
 %define RFLAGS_TF_RF  0x10100
 
 ; Frame slots, in 8-byte words from RSP once everything is pushed --
@@ -44,22 +49,19 @@ extern g_syscall_irq
 %define F_RFLAGS 19
 %define F_SS     21
 
-section .bss
-align 8
-; Ring 3's RSP for the two instructions between arriving and having a
-; stack to push it on. One CPU, IF clear until the frame is built (even
-; with interrupts on in syscalls): nothing else can be here.
-syscall_user_rsp: resq 1
-
 section .text
 
 global syscall_entry
 syscall_entry:
-    mov [rel syscall_user_rsp], rsp
-    mov rsp, [rel gdt_tss + TSS_RSP0]
+    swapgs
+    ; Ring 3's RSP waits in this core's struct cpu for the two
+    ; instructions until there is a stack to push it on. IF is clear
+    ; until the frame is built, so nothing else on this core is here.
+    mov [gs:CPU_USER_RSP], rsp
+    mov rsp, [gs:CPU_TSS_RSP0]
 
     push qword SEL_USER_DATA          ; ss
-    push qword [rel syscall_user_rsp] ; rsp
+    push qword [gs:CPU_USER_RSP]      ; rsp
     push r11                          ; rflags, as SYSCALL saved them
     push qword SEL_USER_CODE          ; cs
     push rcx                          ; rip, as SYSCALL saved it
@@ -129,6 +131,7 @@ syscall_exit_pops:
     pop rax
     add rsp, 16                       ; vector + error code
     mov rsp, [rsp + 24]               ; the frame's rsp: rip 0, cs 8, rflags 16
+    swapgs                            ; ring 3's GS from here: no gs: access below
     o64 sysret
 
 syscall_exit_iret:

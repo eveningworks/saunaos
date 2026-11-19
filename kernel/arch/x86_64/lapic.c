@@ -132,6 +132,69 @@ void lapic_init(void) {
                 LAPIC_VECTOR_BASE, LAPIC_VECTOR_LAST);
 }
 
+// ---- the other cores' half (smp.c) ----------------------------------
+
+#define LAPIC_REG_ICR_LO    0x300
+#define LAPIC_REG_ICR_HI    0x310
+#define LAPIC_REG_LVT_PERF  0x340
+#define LAPIC_REG_LVT_ERROR 0x370
+#define ICR_DM_INIT         (5u << 8)
+#define ICR_DM_STARTUP      (6u << 8)
+#define ICR_PENDING         (1u << 12)   // delivery status: still being sent
+#define ICR_ASSERT          (1u << 14)
+#define ICR_LEVEL           (1u << 15)
+
+// Every core sees ITS OWN LAPIC at the same physical address, so
+// g_base serves an AP unchanged; only g_id is the BSP's.
+uint8_t lapic_read_id(void) {
+    return g_base ? (uint8_t)(lapic_read(LAPIC_REG_ID) >> 24) : 0;
+}
+
+// 1 once the ICR has gone idle, 0 if it is still busy after ~10 ms --
+// a send that never completes is a LAPIC that is not listening.
+static int icr_wait_idle(void) {
+    for (int i = 0; i < 10; i++) {
+        for (int j = 0; j < 1000; j++)
+            if (!(lapic_read(LAPIC_REG_ICR_LO) & ICR_PENDING)) return 1;
+            else cpu_relax();
+        clocksource_delay_ms(1);
+    }
+    return 0;
+}
+
+static int icr_send(uint8_t apic_id, uint32_t lo) {
+    lapic_write(LAPIC_REG_ICR_HI, (uint32_t)apic_id << 24);
+    lapic_write(LAPIC_REG_ICR_LO, lo);   // writing the low half sends it
+    return icr_wait_idle();
+}
+
+int lapic_send_init(uint8_t apic_id) {
+    if (!g_base) return 0;
+    // Assert, then de-assert: Pentium-era parts need the second, every
+    // later one ignores it (Linux's wakeup_secondary_cpu_via_init()).
+    if (!icr_send(apic_id, ICR_DM_INIT | ICR_LEVEL | ICR_ASSERT)) return 0;
+    return icr_send(apic_id, ICR_DM_INIT | ICR_LEVEL);
+}
+
+int lapic_send_startup(uint8_t apic_id, uint8_t page) {
+    if (!g_base) return 0;
+    return icr_send(apic_id, ICR_DM_STARTUP | page);
+}
+
+// An AP's LAPIC, parked: software-enabled so a later stage's IPIs reach
+// it, and every local source masked. LINT0 and LINT1 are the BSP's
+// alone -- ExtINT and NMI wired to two cores deliver twice.
+void lapic_init_ap(void) {
+    if (!g_base) return;
+    lapic_write(LAPIC_REG_TPR, 0);
+    lapic_write(LAPIC_REG_LVT_TIMER, LVT_MASKED);
+    lapic_write(LAPIC_REG_LVT_LINT0, LVT_MASKED);
+    lapic_write(LAPIC_REG_LVT_LINT1, LVT_MASKED);
+    lapic_write(LAPIC_REG_LVT_PERF, LVT_MASKED);
+    lapic_write(LAPIC_REG_LVT_ERROR, LVT_MASKED);
+    lapic_write(LAPIC_REG_SVR, SVR_ENABLE | LAPIC_SPURIOUS_VECTOR);
+}
+
 int lapic_present(void) { return g_base != 0; }
 
 uint8_t lapic_id(void) { return g_id; }

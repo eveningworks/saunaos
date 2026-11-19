@@ -57,7 +57,7 @@ DEFAULT_PORT = 4555
 PROMPT_MARK = "dbg> "   # the debug console listening again -- see send()
 
 
-def launch_cmd(iso, disk, port, virtio_disk=None, memory=256, ahci_disk=None):
+def launch_cmd(iso, disk, port, virtio_disk=None, memory=256, ahci_disk=None, cpus=1):
     """The QEMU command line, as a list. No display, no QMP, no input
     head -- this channel needs none of them, which is most of why it is
     cheap enough to be the default for anything not about pixels."""
@@ -74,6 +74,7 @@ def launch_cmd(iso, disk, port, virtio_disk=None, memory=256, ahci_disk=None):
         # discard=unmap -- see kernel/drivers/ata.c's ata_trim().
         "-drive", f"file={disk},format=raw,if=ide,discard=unmap",
         "-m", str(memory),
+        "-smp", str(cpus),
         "-display", "none",
         # `server` WITHOUT `nowait` on purpose -- see the module
         # docstring. QEMU waits for our connection before booting.
@@ -153,7 +154,7 @@ class SerialGuest:
     """
 
     def __init__(self, iso, disk, port=DEFAULT_PORT, qemu_log="serial_qemu.log",
-                 virtio_disk=None, memory=256, ahci_disk=None):
+                 virtio_disk=None, memory=256, ahci_disk=None, cpus=1):
         self.ahci_disk = ahci_disk
         self.iso = iso
         self.disk = disk
@@ -161,6 +162,7 @@ class SerialGuest:
         self.qemu_log = qemu_log
         self.virtio_disk = virtio_disk
         self.memory = memory
+        self.cpus = cpus
 
         self.transcript = ""
         self._sent_at = None   # transcript length when the last command went out
@@ -176,7 +178,7 @@ class SerialGuest:
 
     def start(self):
         cmd = launch_cmd(self.iso, self.disk, self.port,
-                         virtio_disk=self.virtio_disk, memory=self.memory,
+                         virtio_disk=self.virtio_disk, memory=self.memory, cpus=self.cpus,
                          ahci_disk=self.ahci_disk)
         self.started_at = time.time()
         self._log = open(self.qemu_log, "wb")

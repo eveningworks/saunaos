@@ -219,28 +219,29 @@ int main(int argc, char **argv) {
         put(line);
     }
 
-    // The MADT's processors, if there was a MADT. Nothing runs on them:
-    // this kernel is single-core, and saying so beside the list is what
-    // keeps the list from reading as a claim.
+    // The MADT's processors, if there was a MADT, and which the kernel
+    // started -- `online` means started and parked until SMP stage 5.
     put("\nProcessors (MADT):\n");
-    int n = 0;
+    int n = 0, online = 0;
     struct query_cpu c;
     QUERY_FOREACH(QUERY_CPUS, c, i) {
         n++;
-        snprintf(line, sizeof line, "  cpu%-3u  %s id %-4llu  acpi id %-4llu  %s  online: no\n",
+        if (c.flags & QUERY_CPU_ONLINE) online++;
+        snprintf(line, sizeof line, "  cpu%-3u  %s id %-4llu  acpi id %-4llu  %s  online: %s\n",
                  i, (c.flags & QUERY_CPU_X2APIC) ? "x2apic" : "apic  ",
                  (unsigned long long)c.apic_id, (unsigned long long)c.acpi_id,
                  (c.flags & QUERY_CPU_ENABLED) ? "enabled "
-                   : (c.flags & QUERY_CPU_ONLINE_CAPABLE) ? "offline " : "disabled");
+                   : (c.flags & QUERY_CPU_ONLINE_CAPABLE) ? "offline " : "disabled",
+                 (c.flags & QUERY_CPU_ONLINE) ? "yes" : "no");
         put(line);
     }
     if (n == 0) {
         put("  none listed -- no MADT on this machine\n");
     } else {
         snprintf(line, sizeof line,
-                 "  %d listed, %llu I/O APIC(s), local APIC at 0x%llx\n"
-                 "  This kernel runs on one core; see docs/smp-design.md.\n",
-                 n, (unsigned long long)a.ioapic_count,
+                 "  %d listed, %d online, %llu I/O APIC(s), local APIC at 0x%llx\n"
+                 "  The scheduler runs on one core; the others are parked.\n",
+                 n, online, (unsigned long long)a.ioapic_count,
                  (unsigned long long)a.lapic_phys);
         put(line);
     }

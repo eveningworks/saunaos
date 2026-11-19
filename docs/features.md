@@ -168,8 +168,15 @@ so the log is the only thing that can tell you. There is **no AML
 interpreter**, and `_S5_` is the one deliberate exception: a `Name`
 holding a `Package` of constants is data with a fixed grammar, and the
 scan refuses any shape it does not recognise rather than guessing at a
-sleep type. `/bin/acpi` prints the lot; the MADT half is SMP's first
-stage, so the processor list exists and every core reports `online: no`.
+sleep type. `/bin/acpi` prints the lot, the MADT's processor list with
+which cores the kernel started.
+
+**Multi-core, started and parked.** Every core the firmware enables is
+brought up at boot (INIT-SIPI-SIPI), given its own GDT, TSS and stacks
+reached through GS.base and `swapgs`, made to match the boot core's
+control registers and memory types, and parked; `lscpu`, `acpi` and Task
+Manager count it online. The scheduler still runs on the boot core
+(`docs/smp-design.md`); `nosmp` and `maxcpus=N` start fewer.
 
 **Memory hardening.** NX and W^X from each ELF segment's real `p_flags`,
 and the kernel's own identity map is W^X too — `.text` is the only

@@ -74,6 +74,20 @@ void lapic_set_lvt_perf(uint32_t value);
 // its destination.
 uint8_t lapic_id(void);
 
+// The CALLING core's APIC id, read from its own LAPIC (lapic_id() is
+// the BSP's, cached at init). 0 without a LAPIC.
+uint8_t lapic_read_id(void);
+
+// INIT (assert + de-assert) and a STARTUP IPI at real-mode page `page`
+// (the trampoline's physical address >> 12), to the core `apic_id`.
+// 1 once the LAPIC has sent it, 0 if it never went idle. smp.c times
+// the gaps between them; these do not wait for the target.
+int lapic_send_init(uint8_t apic_id);
+int lapic_send_startup(uint8_t apic_id, uint8_t page);
+
+// An AP's own LAPIC: enabled, every local vector masked (smp.c).
+void lapic_init_ap(void);
+
 // Claims one MSI vector for `handler`, or 0 when none is free (or the
 // LAPIC is not up). The vector is what a device's MSI capability is
 // programmed with; the handler runs from the IDT gate for it, and the

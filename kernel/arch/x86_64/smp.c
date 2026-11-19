@@ -1,0 +1,364 @@
+// The application processors: found in the MADT, started with
+// INIT-SIPI-SIPI one at a time, set up like the BSP and PARKED
+// (docs/smp-design.md, stage 3). Nothing is scheduled on them yet -- a
+// parked core sits in `cli; hlt` and runs no kernel code, which is why
+// the kernel debugger needs no roundup until stage 5.
+//
+// The sequence and its delays are Linux's (arch/x86/kernel/smpboot.c,
+// do_boot_cpu() and wakeup_secondary_cpu_via_init()); one core at a time
+// as Linux did before 6.5's parallel bring-up, because the trampoline's
+// data page then holds one core's stack and nothing has to pick its own.
+#include "smp.h"
+#include "percpu.h"
+#include "gdt.h"
+#include "idt.h"
+#include "lapic.h"
+#include "acpi.h"
+#include "paging.h"
+#include "pmm.h"
+#include "heap.h"
+#include "msr.h"
+#include "multiboot.h"
+#include "cpuinfo.h"
+#include "clocksource.h"
+#include "barrier.h"
+#include "klog.h"
+#include "kfmt.h"
+#include "knum.h"
+#include "string.h"
+#include <stddef.h>
+
+_Static_assert(offsetof(struct cpu, self) == CPU_OFF_SELF, "percpu.h: CPU_OFF_SELF");
+_Static_assert(offsetof(struct cpu, user_rsp) == CPU_OFF_USER_RSP, "percpu.h: CPU_OFF_USER_RSP");
+_Static_assert(offsetof(struct cpu, tss) + offsetof(struct tss, rsp0) == CPU_OFF_TSS_RSP0,
+               "percpu.h: CPU_OFF_TSS_RSP0 (syscall_entry.asm's CPU_TSS_RSP0)");
+_Static_assert(sizeof(struct cpu) <= 4096, "an AP's struct cpu is one page");
+
+// smp_trampoline.asm's template and the labels it is entered by.
+extern const uint8_t smp_tramp_start[], smp_tramp_32[], smp_tramp_64[], smp_tramp_end[];
+
+// The trampoline's data page, one page after its code: the layout
+// smp_trampoline.asm's D_* offsets read.
+struct smp_tramp_data {
+    uint64_t gdt[4];         // 0x00: null, code32 (0x08), data32 (0x10), code64 (0x18)
+    uint16_t gdtr_limit;     // 0x20
+    uint32_t gdtr_base;      // 0x22
+    uint8_t  pad0[10];
+    uint32_t jmp32_off;      // 0x30
+    uint16_t jmp32_sel;
+    uint16_t pad1;
+    uint32_t jmp64_off;      // 0x38
+    uint16_t jmp64_sel;
+    uint16_t pad2;
+    uint64_t cr3;            // 0x40
+    uint64_t stack;          // 0x48
+    uint64_t cpu;            // 0x50
+    uint64_t entry;          // 0x58
+} __attribute__((packed));
+_Static_assert(offsetof(struct smp_tramp_data, gdtr_limit) == 0x20 &&
+               offsetof(struct smp_tramp_data, jmp32_off) == 0x30 &&
+               offsetof(struct smp_tramp_data, jmp64_off) == 0x38 &&
+               offsetof(struct smp_tramp_data, cr3) == 0x40 &&
+               offsetof(struct smp_tramp_data, entry) == 0x58,
+               "smp_trampoline.asm's D_* offsets");
+
+// Flat 4 GiB segments; the ACCESSED bit already set, because the CPU
+// otherwise writes it into the descriptor on the first load.
+#define TRAMP_CODE32 0x00CF9B000000FFFFULL
+#define TRAMP_DATA32 0x00CF93000000FFFFULL
+#define TRAMP_CODE64 0x00AF9B000000FFFFULL
+
+// An AP's own memory, one contiguous run: its struct cpu, then the
+// stack it parks on (also its RSP0 -- a parked core never enters from
+// ring 3), the #DF stack and the NMI stack, as gdt.c gives the BSP.
+#define AP_STACK_BYTES 16384
+#define AP_IST_BYTES   8192
+#define AP_PAGES ((4096 + AP_STACK_BYTES + 2 * AP_IST_BYTES) / 4096)
+
+// How long a core has to call in, and then to park. Linux gives a core
+// ten seconds; one is a hundred times what QEMU's TCG takes and a
+// thousand times real hardware, and a boot that waits ten seconds per
+// dead core is its own bug.
+#define CALLIN_MS 1000
+
+static struct cpu **g_cpus;  // [0] is the BSP (gdt_boot_cpu())
+static uint64_t g_tramp_phys;  // 0 until a page is found
+static int g_cpu_count = 1;
+
+// The BSP's control registers, replayed on each AP.
+static uint64_t g_bsp_cr0, g_bsp_cr4, g_bsp_efer;
+
+int smp_cpu_count(void) { return g_cpus ? g_cpu_count : 1; }
+
+const struct cpu *smp_cpu_at(int index) {
+    if (index == 0) return gdt_boot_cpu();
+    if (!g_cpus || index < 0 || index >= g_cpu_count) return 0;
+    return g_cpus[index];
+}
+
+static int online(const struct cpu *c) { return c && c->state >= CPU_PARKED; }
+
+int smp_online_count(void) {
+    int n = 0;
+    for (int i = 0; i < smp_cpu_count(); i++) n += online(smp_cpu_at(i));
+    return n;
+}
+
+int smp_apic_online(uint32_t apic_id) {
+    for (int i = 0; i < smp_cpu_count(); i++) {
+        const struct cpu *c = smp_cpu_at(i);
+        if (c && c->apic_id == apic_id) return online(c);
+    }
+    return 0;
+}
+
+uint64_t smp_trampoline_phys(void) { return g_tramp_phys; }
+
+static void delay_us(uint64_t us) {
+    uint64_t end = clocksource_now_ns() + us * 1000;
+    while (clocksource_now_ns() < end) cpu_relax();
+}
+
+// ---- the AP's side ---------------------------------------------------
+
+static uint64_t read_cr0(void) { uint64_t v; __asm__ volatile ("mov %%cr0, %0" : "=r"(v)); return v; }
+static uint64_t read_cr4(void) { uint64_t v; __asm__ volatile ("mov %%cr4, %0" : "=r"(v)); return v; }
+
+// Entered from the trampoline with interrupts off, on the kernel's page
+// tables and the trampoline's GDT, with GS.base unset -- so nothing here
+// may call anything that reads this_cpu() before gdt_load_cpu().
+//
+// **NOTHING HERE MAY TOUCH SHARED KERNEL STATE: NO LOG LINE, NO HEAP, NO
+// PREEMPTION GUARD.** The kernel has no lock that excludes another core
+// until stage 4. Its first version logged through syscall_insn_init():
+// the log interleaved, and the racing preemption count stayed raised,
+// so every later kmutex warned and the boot locked up. Registers, this
+// core's own struct cpu and its own LAPIC only; the BSP reports.
+//
+// **EVERY PER-CORE REGISTER THE BSP SET UP IS SET HERE AGAIN**, or this
+// core differs in a way nothing notices until stage 5 runs code on it:
+// CR0 (WP, the FPU's MP/NE), CR4 (SMEP, SMAP, OSFXSR, PGE...), EFER (NXE,
+// SCE), the SYSCALL MSRs, PAT and the MTRRs. smp_test.c compares what
+// this core read back.
+static void __attribute__((noreturn)) ap_entry(struct cpu *c) {
+    c->state = CPU_ALIVE;
+
+    uint8_t *base = (uint8_t *)c;
+    gdt_load_cpu(c, (uint64_t)(uintptr_t)(base + 4096 + AP_STACK_BYTES),
+                 (uint64_t)(uintptr_t)(base + 4096 + AP_STACK_BYTES + AP_IST_BYTES),
+                 (uint64_t)(uintptr_t)(base + 4096 + AP_STACK_BYTES + 2 * AP_IST_BYTES));
+
+    __asm__ volatile ("mov %0, %%cr0" :: "r"(g_bsp_cr0) : "memory");
+    __asm__ volatile ("mov %0, %%cr4" :: "r"(g_bsp_cr4) : "memory");
+    // LMA is the CPU's to set; Linux clears it from the copy too.
+    wrmsr(MSR_EFER, g_bsp_efer & ~(1ULL << 10));
+    idt_load_ap();
+    paging_memory_types_apply();
+    lapic_init_ap();
+
+    c->seen_cr0 = read_cr0();
+    c->seen_cr4 = read_cr4();
+    c->seen_efer = rdmsr(MSR_EFER);
+    paging_memory_types_now(&c->seen_pat, &c->seen_mtrr_def);
+
+    __atomic_store_n(&c->state, CPU_PARKED, __ATOMIC_RELEASE);
+    for (;;) __asm__ volatile ("cli; hlt" ::: "memory");
+}
+
+// ---- the BSP's side --------------------------------------------------
+
+// The highest free pair of pages below the EBDA: Linux's real-mode
+// blob is placed top-down below 1 MiB too. Page 0 holds the IVT and BDA.
+
+static void find_tramp_cb(const struct multiboot_mmap_region *r) {
+    if (r->type != 1) return;
+    uint64_t lo = (r->base + 0xFFF) & ~0xFFFull;
+    uint64_t hi = (r->base + r->length) & ~0xFFFull;
+    if (lo < 0x1000) lo = 0x1000;
+    if (hi > 0x9F000) hi = 0x9F000;
+    for (uint64_t p = hi; p >= lo + 0x2000; p -= 0x1000) {
+        uint64_t start = p - 0x2000;
+        if (start <= g_tramp_phys) return;     // not better than what we have
+        if (!pmm_boot_range_reserved(start, p)) { g_tramp_phys = start; return; }
+    }
+}
+
+// Linux's smp_quirk_init_udelay(): no 10 ms INIT wait on a modern part.
+static int init_delay_ms(void) {
+    struct cpu_info ci;
+    cpu_info_get(&ci);
+    if (k_strcmp(ci.vendor, "GenuineIntel") == 0 && ci.family >= 6) return 0;
+    if (k_strcmp(ci.vendor, "AuthenticAMD") == 0 && ci.family >= 0xF) return 0;
+    if (k_strcmp(ci.vendor, "HygonGenuine") == 0) return 0;
+    return 10;
+}
+
+static int wait_state(struct cpu *c, uint32_t at_least, uint32_t ms) {
+    uint64_t end = clocksource_now_ns() + (uint64_t)ms * 1000000ull;
+    while (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) < at_least) {
+        if (clocksource_now_ns() >= end) return 0;
+        cpu_relax();
+    }
+    return 1;
+}
+
+static int start_ap(struct cpu *c, struct smp_tramp_data *d, int init_ms) {
+    d->stack = (uint64_t)(uintptr_t)c + 4096 + AP_STACK_BYTES;
+    d->cpu = (uint64_t)(uintptr_t)c;
+    __atomic_store_n(&c->state, CPU_STARTING, __ATOMIC_RELEASE);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);   // the data page before the IPI
+
+    uint8_t page = (uint8_t)(g_tramp_phys >> 12);
+    if (!lapic_send_init((uint8_t)c->apic_id)) return 0;
+    if (init_ms) clocksource_delay_ms((uint32_t)init_ms);
+    // Two STARTUPs, the MP spec's sequence; a core already running
+    // ignores the second.
+    for (int i = 0; i < 2; i++) {
+        if (!lapic_send_startup((uint8_t)c->apic_id, page)) return 0;
+        delay_us(init_ms ? 300 : 10);
+        if (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) != CPU_STARTING) break;
+        delay_us(init_ms ? 200 : 10);
+    }
+    return wait_state(c, CPU_PARKED, CALLIN_MS);
+}
+
+void smp_init(void) {
+    struct cpu *boot = gdt_boot_cpu();
+    boot->index = 0;
+    boot->apic_id = lapic_read_id();
+    boot->state = CPU_RUNNING;
+
+    // `maxcpus=N` counts the BSP, and 0 is `nosmp`, as in Linux.
+    uint32_t max = 0;
+    char word[16];
+    if (multiboot_cmdline_value("maxcpus=", word, sizeof word)) {
+        if (!k_parse_u32(word, &max)) {
+            klog_printf("smp: maxcpus=%s is not a number -- ignored\n", word);
+            max = 0;
+        } else if (max <= 1) {
+            klog_printf("smp: maxcpus=%u -- one core\n", max);
+            return;
+        }
+    }
+    if (multiboot_cmdline_has("nosmp")) {
+        klog_write("smp: disabled by `nosmp` -- one core\n");
+        return;
+    }
+    if (!lapic_present()) {
+        klog_write("smp: no Local APIC -- one core\n");
+        return;
+    }
+
+    // Which cores: every MADT entry the firmware ENABLED, but this one.
+    // An xAPIC IPI names an 8-bit destination and 0xFF is broadcast, so
+    // an id above 254 (an x2APIC-only core) is out of reach here.
+    int want = 0;
+    for (int i = 0; i < acpi_cpu_count(); i++) {
+        const struct acpi_cpu *a = acpi_cpu_at(i);
+        if (!(a->flags & ACPI_CPU_ENABLED) || a->apic_id == boot->apic_id) continue;
+        if (a->apic_id > 254) {
+            klog_printf("smp: core with APIC id %u needs x2APIC -- not started\n", a->apic_id);
+            continue;
+        }
+        if (max && 1 + want >= (int)max) {
+            klog_printf("smp: maxcpus=%u -- APIC id %u not started\n", max, a->apic_id);
+            continue;
+        }
+        want++;
+    }
+    if (want == 0) {
+        klog_write("smp: no other core to start\n");
+        return;
+    }
+
+    multiboot_mmap_foreach(find_tramp_cb);
+    if (!g_tramp_phys) {
+        klog_write(KLOG_WARN "smp: no free pages below 1 MiB for the trampoline -- one core\n");
+        return;
+    }
+    uint64_t cr3;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+    cr3 &= ~0xFFFull;
+    if (cr3 >= 0x100000000ull) {
+        // The trampoline loads CR3 in 32-bit mode. The kernel's PML4 is in
+        // its own .bss, under 4 GiB by the link and the relocator.
+        klog_printf(KLOG_WARN "smp: kernel PML4 at 0x%lx is above 4 GiB -- one core\n", cr3);
+        return;
+    }
+
+    g_cpus = kzalloc((size_t)(1 + want) * sizeof *g_cpus);
+    if (!g_cpus) {
+        klog_write(KLOG_WARN "smp: out of memory for the core table -- one core\n");
+        return;
+    }
+    g_cpus[0] = boot;
+
+    // What every AP replays (ap_entry()).
+    g_bsp_cr0 = read_cr0();
+    g_bsp_cr4 = read_cr4();
+    g_bsp_efer = rdmsr(MSR_EFER);
+    paging_memory_types_snapshot();
+
+    // The code page first, while it is still writable; then executable
+    // for the bring-up (and read-only: never W+X).
+    uint8_t *code = (uint8_t *)(uintptr_t)g_tramp_phys;
+    struct smp_tramp_data *d = (struct smp_tramp_data *)(uintptr_t)(g_tramp_phys + 0x1000);
+    k_memset(code, 0, 0x2000);
+    k_memcpy(code, smp_tramp_start, (size_t)(smp_tramp_end - smp_tramp_start));
+    d->gdt[0] = 0;
+    d->gdt[1] = TRAMP_CODE32;
+    d->gdt[2] = TRAMP_DATA32;
+    d->gdt[3] = TRAMP_CODE64;
+    d->gdtr_limit = sizeof d->gdt - 1;
+    d->gdtr_base = (uint32_t)(g_tramp_phys + 0x1000);
+    d->jmp32_off = (uint32_t)(g_tramp_phys + (uint64_t)(smp_tramp_32 - smp_tramp_start));
+    d->jmp32_sel = 0x08;
+    d->jmp64_off = (uint32_t)(g_tramp_phys + (uint64_t)(smp_tramp_64 - smp_tramp_start));
+    d->jmp64_sel = 0x18;
+    d->cr3 = cr3;
+    d->entry = (uint64_t)(uintptr_t)ap_entry;
+    if (!paging_set_kernel_exec(g_tramp_phys, 4096, 1)) {
+        klog_write(KLOG_WARN "smp: could not make the trampoline executable -- one core\n");
+        return;
+    }
+
+    int init_ms = init_delay_ms();
+    uint64_t t0 = clocksource_now_ns();
+    int started = 0;
+    for (int i = 0; i < acpi_cpu_count() && g_cpu_count < 1 + want; i++) {
+        const struct acpi_cpu *a = acpi_cpu_at(i);
+        if (!(a->flags & ACPI_CPU_ENABLED) || a->apic_id == boot->apic_id || a->apic_id > 254)
+            continue;
+
+        uint64_t phys = pmm_alloc_contiguous(AP_PAGES, PMM_ZONE_ANY);
+        if (!phys) {
+            klog_write(KLOG_WARN "smp: out of memory for a core's stacks -- stopping here\n");
+            break;
+        }
+        struct cpu *c = (struct cpu *)(uintptr_t)phys;   // identity-mapped
+        k_memset(c, 0, sizeof *c);
+        c->self = c;
+        c->index = (uint32_t)g_cpu_count;
+        c->apic_id = a->apic_id;
+        g_cpus[g_cpu_count++] = c;
+
+        if (start_ap(c, d, init_ms)) {
+            started++;
+            continue;
+        }
+        // Back to wait-for-SIPI, so a core that is merely slow cannot wake
+        // later into a data page that names someone else's stack. Its
+        // memory stays allocated: it is not known to have stopped using it.
+        klog_printf(KLOG_WARN "smp: core with APIC id %u did not %s within %d ms -- left in INIT\n",
+                    c->apic_id, c->state == CPU_STARTING ? "call in" : "finish its setup",
+                    CALLIN_MS);
+        lapic_send_init((uint8_t)c->apic_id);
+        c->state = CPU_FAILED;
+    }
+
+    paging_set_kernel_exec(g_tramp_phys, 4096, 0);
+    uint64_t us = (clocksource_now_ns() - t0) / 1000;
+    klog_printf("smp: %d of %d core(s) online, %d parked; started in %lu us "
+                "(trampoline at 0x%lx, INIT delay %d ms)\n",
+                1 + started, 1 + want, started, us, g_tramp_phys, init_ms);
+}

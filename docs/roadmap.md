@@ -1584,10 +1584,11 @@ run on, not by order.
 Staged in `docs/smp-design.md`, including the case AGAINST and the
 measurement of what is single-core in the tree today.
 
-- [x] ~~Discover other cores via MADT~~ DONE 2026-08-30 -- `kernel/acpi/`, `/bin/acpi`; every core still reports `online: no`
+- [x] ~~Discover other cores via MADT~~ DONE 2026-08-30 -- `kernel/acpi/`, `/bin/acpi`
 - [x] ~~The tick on the LAPIC timer, not the PIT~~ DONE 2026-09-06 -- `kernel/clockevent.h`, rating `pit` against `lapic-timer`
-- [ ] Bring up application processors (INIT-SIPI-SIPI)
-- [ ] Per-core GDT/IDT/stack
+- [x] ~~Bring up application processors (INIT-SIPI-SIPI)~~ DONE 2026-11-19 -- stage 3, started and parked; `nosmp`, `maxcpus=`
+- [x] ~~Per-core GDT/IDT/stack~~ DONE 2026-11-19 -- `struct cpu` through GS.base, `swapgs` on every entry
+- [ ] A later memory-type change reaches every core, not only the BSP -- before stage 5
 - [ ] Scheduler aware of multiple cores
 - [ ] Per-core run queues instead of one global table
 - [ ] Inter-processor interrupts (IPIs)

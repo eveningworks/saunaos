@@ -193,15 +193,29 @@ extern void syscall_entry(void);
 // looks exactly like the change not working.
 uint8_t g_syscall_irq;   // syscall_entry.asm reads it: sti before the dispatch
 
-static void syscall_insn_init(void) {
-    g_syscall_irq = multiboot_cmdline_has("syscall_irq=off") ? 0 : 1;
+// The per-core half: registers only, so an AP can call it (idt_load_ap()).
+static void syscall_msrs_write(void) {
     wrmsr(MSR_STAR, (uint64_t)(SEL_USER_DATA - 8) << 48 | (uint64_t)SEL_KERNEL_CODE << 32);
     wrmsr(MSR_LSTAR, (uint64_t)(uintptr_t)syscall_entry);
     wrmsr(MSR_FMASK, RFLAGS_TF | RFLAGS_IF | RFLAGS_DF | RFLAGS_NT | RFLAGS_AC);
     wrmsr(MSR_EFER, rdmsr(MSR_EFER) | EFER_SCE);
+}
+
+static void syscall_insn_init(void) {
+    g_syscall_irq = multiboot_cmdline_has("syscall_irq=off") ? 0 : 1;
+    syscall_msrs_write();
     klog_printf(g_syscall_irq
                 ? "idt: syscall entry SYSCALL/SYSRET only (interrupts ON inside a call)\n"
                 : "idt: syscall entry SYSCALL/SYSRET only (IF clear for the whole call: syscall_irq=off)\n");
+}
+
+// An AP's half of idt_init(): the one IDT, which every core shares (the
+// CPU only reads it), and the SYSCALL MSRs, which are per core. No PIC,
+// no handlers, no log line -- those are the machine's, done once, and a
+// parked AP may touch nothing shared (smp.c's ap_entry()).
+void idt_load_ap(void) {
+    idt_load((uint64_t)&idtp);
+    syscall_msrs_write();
 }
 
 void idt_init(void) {

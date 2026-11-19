@@ -1,17 +1,14 @@
 // The MADT: which processors exist, and where the interrupt
 // controllers are. NOTHING IS STARTED -- this is a list of facts, and
-// `lscpu` printing "online: no" against every core is the honest
-// report until docs/smp-design.md's later stages exist.
+// Which of them the kernel started is smp.c's (QUERY_CPU_ONLINE).
 #include "acpi.h"
 #include "acpi_internal.h"
 #include "klog.h"
 #include "kfmt.h" // klog_printf
 #include "string.h"
 
-// Bounded by what `procs[]` could ever schedule, not by what a machine
-// could report. A host with more cores than this has the rest ignored,
-// which is a truthful "this kernel counted 64" rather than a walk off
-// the end of the array.
+// A fixed table because acpi_init() runs before the frame allocator.
+// A host with more cores than this has the rest ignored, and logged.
 #define ACPI_CPU_MAX 64
 
 static struct acpi_cpu g_cpus[ACPI_CPU_MAX];
@@ -31,7 +28,13 @@ const struct acpi_cpu *acpi_cpu_at(int index) {
 
 static void add_cpu(uint32_t acpi_id, uint32_t apic_id, uint32_t entry_flags, int x2) {
     struct acpi_state *s = acpi_state_mut();
-    if (s->cpu_count >= ACPI_CPU_MAX) return;
+    if (s->cpu_count >= ACPI_CPU_MAX) {
+        static int said;
+        if (!said++)
+            klog_printf(KLOG_WARN "acpi: MADT lists more than %d processors -- the rest ignored\n",
+                        ACPI_CPU_MAX);
+        return;
+    }
 
     struct acpi_cpu *c = &g_cpus[s->cpu_count++];
     c->acpi_id = acpi_id;

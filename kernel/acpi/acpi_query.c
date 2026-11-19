@@ -3,6 +3,7 @@
 // the MADT names (a list). The provider lives here, in the subsystem
 // that owns the numbers, the same rule kernel/mm/mem_query.c follows.
 #include "acpi.h"
+#include "smp.h"
 #include "acpi_internal.h"
 #include "query.h"
 #include "string.h"
@@ -187,7 +188,8 @@ static int cpu_fill(int index, void *out) {
     struct query_cpu *q = out;
     q->acpi_id = c->acpi_id;
     q->apic_id = c->apic_id;
-    q->flags   = c->flags;
+    // The firmware's facts, then the kernel's own state: started or not.
+    q->flags   = c->flags | (smp_apic_online(c->apic_id) ? QUERY_CPU_ONLINE : 0);
     return 1;
 }
 

@@ -6,6 +6,8 @@
 struct interrupt_frame;
 
 void idt_init(void);
+// On an AP: load the shared IDT and this core's SYSCALL MSRs (smp.c).
+void idt_load_ap(void);
 void idt_set_gate(uint8_t vector, void (*handler)(void), uint8_t ist, uint8_t type_attr);
 
 // Logs up to `max_shown` candidate return addresses found on the stack

@@ -759,6 +759,7 @@ help:
 	@echo "   make run NOGRAPHIC=1      serial only, no window -- use this over SSH"
 	@echo "   make run MENU=1           show the GRUB boot menu (5s) instead of booting"
 	@echo "   make run MEM=512          a smaller machine"
+	@echo "   make run CPUS=4           four vCPUs (the kernel starts and parks the others)"
 	@echo "   make run BALLOON=0        no virtio-balloon: freed guest memory is not"
 	@echo "                             handed back to the host (on by default)"
 	@echo "   make run LIVE=1           the live ISO, with NO disk attached (implies live-iso)"
@@ -3092,6 +3093,11 @@ COMMA := ,
 
 MEM ?= 2048
 
+# vCPUs. QEMU's default is one; the kernel starts the others and parks
+# them (docs/smp-design.md, stage 3), so CPUS=4 is what `lscpu` and
+# Task Manager count as online.
+CPUS ?= 1
+
 # FREE PAGE REPORTING, on by default: the guest hands memory it has
 # freed back to the host, so the VM costs what SaunaOS is using rather
 # than the most it ever touched (kernel/include/kernel/page_report.h).
@@ -3352,7 +3358,7 @@ QEMU_UEFI = $(if $(UEFI),-machine q35 $(or $(shell python3 tools/build/ovmf.py -
 
 QEMU_RUN = qemu-system-x86_64 $(QEMU_UEFI) $(QEMU_BOOT) $(QEMU_ACCEL) $(QEMU_DISK) \
 	  $(QEMU_INPUT) $(QEMU_USB) \
-	  -serial stdio -vga $(QEMU_VGA) -display $(QEMU_DISPLAY) $(QEMU_FULLSCREEN) -m $(MEM) \
+	  -serial stdio -vga $(QEMU_VGA) -display $(QEMU_DISPLAY) $(QEMU_FULLSCREEN) -m $(MEM) -smp $(CPUS) \
 	  $(QEMU_AUDIO) $(QEMU_NET) $(QEMU_BALLOON) $(QEMU_KDEBUG) $(QEMU_EXTRA)
 
 run: $(RUN_PREREQ)

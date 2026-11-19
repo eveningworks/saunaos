@@ -253,6 +253,7 @@ class TrapFrameUnwinder(gdb.unwinder.Unwinder):
     def __init__(self):
         super().__init__("SaunaOS trap frame")
         self.lo = self.hi = self.resume = self.sys_lo = self.sys_hi = None
+        self.par_lo = self.par_hi = None
         # (sp, pc) of every RING-3 frame this produced. User code has no
         # symbols here, so GDB's fallback would walk its stack into
         # garbage; asked about one of these, this ends the backtrace.
@@ -276,12 +277,15 @@ class TrapFrameUnwinder(gdb.unwinder.Unwinder):
             # whole from its `mov rdi, rsp` until the exit starts popping.
             self.sys_lo, self.sys_hi = self._after_frame_built(
                 addr("syscall_entry"), addr("syscall_exit_pops"), arch)
+            # NMI/#DB/#BP/#DF/#MC's paranoid entry (isr.asm) builds it too.
+            self.par_lo, self.par_hi = self._after_frame_built(
+                addr("isr_paranoid"), addr("isr_paranoid_end"), arch)
 
     def claims(self, pc, arch=None):
         """Whether RSP at `pc` points at a whole trap frame."""
         self._bounds(arch)
         return (self.lo <= pc < self.hi or self.sys_lo <= pc < self.sys_hi
-                or pc == self.resume)
+                or self.par_lo <= pc < self.par_hi or pc == self.resume)
 
     # A ring-3 frame goes on only once toy-symbols has loaded its program:
     # without them GDB's fallback walks the user stack into garbage.

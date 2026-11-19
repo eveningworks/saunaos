@@ -22,7 +22,8 @@ it is saved.
   `mkpart_test.regenerate_guids()` roots on IDE and fails), `--mem MIB`
   sizes the guest (256 by default, and the `mm` and `paging` above-4-GiB
   checks SKIP below 4096 -- `highmem_test.py` is the runner that refuses
-  the skip), and `-v` prints the WHOLE transcript, boot messages
+  the skip), and `--cpus N` sets the vCPUs (4 by default, so the `[smp]` KTESTs
+  start and park three cores), and `-v` prints the WHOLE transcript, boot messages
   included. **It stops the desktop before the suite** -- `service stop
   toywm`, after waiting for init to report it ready, because the
   winshare KTESTs need the compositor role and refuse to take it from a

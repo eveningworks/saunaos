@@ -2538,6 +2538,25 @@ started; nothing runs on the other cores and every entry reports
 `online: no`. The prediction that made it look cheap held exactly: no
 AML interpreter, four files.
 
+**Stage 3 is DONE (2026-11-19)** -- `kernel/arch/x86_64/smp.c` starts
+every core the MADT enables, one at a time, through a trampoline below
+1 MiB; each loads its own GDT and TSS from a `struct cpu` that GS.base
+points at, replays the BSP's CR0/CR4/EFER/SYSCALL MSRs/PAT/MTRRs, and
+parks in `cli; hlt`. `lscpu`, `acpi` and Task Manager count them online;
+the scheduler still runs on the BSP alone. Every entry path swaps GS
+(`isr.asm`'s ring check, and a paranoid entry for NMI, #DB, #BP, #DF and
+#MC). The kernel debugger's roundup moved to stage 5: a parked core runs
+nothing for it to stop.
+
+### A later memory-type change reaches every core, not only the BSP -- before stage 5
+The APs copy the BSP's PAT and MTRRs once, at bring-up
+(`paging_memory_types_snapshot()`). A write-combining change after that
+-- `display.c`'s mode switch, `intel_display.c` -- retypes the BSP
+alone. Harmless while the APs are parked, since they touch no memory;
+before stage 5 runs code on them it must reach every core, as Linux's
+`set_mtrr()` rendezvous does, or two cores disagree about a page's type
+(undefined per the SDM).
+
 **The finding that still shapes the rest** is the BKL. It is not a
 mistake to avoid: it is what makes SMP shippable before the locking
 audit is finished, which is exactly the position Linux 2.0 was in and

@@ -29,16 +29,36 @@ isr%1:
     jmp isr_common
 %endmacro
 
+; The vectors that can land where the saved CS does not say whose GS is
+; loaded -- see isr_paranoid below.
+%macro ISR_PARANOID_NOERR 1
+global isr%1
+isr%1:
+    push qword 0
+    push qword %1
+    jmp isr_paranoid
+%endmacro
+
+%macro ISR_PARANOID_ERR 1
+global isr%1
+isr%1:
+    push qword %1
+    jmp isr_paranoid
+%endmacro
+
+%define MSR_GS_BASE 0xC0000101
+%define F_CS        18   ; the saved CS, in words from RSP once all is pushed
+
 ; Exceptions 0-31. 8, 10-14, 17, 21, 29, 30 push an error code automatically.
 ISR_NOERR 0
-ISR_NOERR 1
-ISR_NOERR 2
-ISR_NOERR 3
+ISR_PARANOID_NOERR 1    ; #DB
+ISR_PARANOID_NOERR 2    ; NMI
+ISR_PARANOID_NOERR 3    ; #BP -- a kdebug breakpoint can sit in an entry window
 ISR_NOERR 4
 ISR_NOERR 5
 ISR_NOERR 6
 ISR_NOERR 7
-ISR_ERR   8
+ISR_PARANOID_ERR 8     ; #DF
 ISR_NOERR 9
 ISR_ERR   10
 ISR_ERR   11
@@ -48,7 +68,7 @@ ISR_ERR   14
 ISR_NOERR 15
 ISR_NOERR 16
 ISR_ERR   17
-ISR_NOERR 18
+ISR_PARANOID_NOERR 18   ; #MC
 ISR_NOERR 19
 ISR_NOERR 20
 ISR_ERR   21
@@ -82,6 +102,25 @@ ISR_NOERR i
 ISR_NOERR 255
 
 isr_common:
+    ; GS: ring 3's on an entry FROM ring 3, the kernel's otherwise (the
+    ; vectors for which that is not true go through isr_paranoid). The
+    ; saved CS is at [rsp + 24] here: vector, error code, rip, cs.
+    test byte [rsp + 24], 3
+    jnz .swap
+    ; ...and one exception to "ring 0 means the kernel's": a fault ON
+    ; the iretq below, which is after its swapgs (Linux's error_entry
+    ; checks the same). sigreturn refuses the frames that would do it.
+    push rax
+    lea rax, [rel isr_iretq]
+    cmp [rsp + 24], rax              ; the saved rip, one push further down
+    pop rax
+    jne .kernel_gs
+.swap:
+    swapgs
+.kernel_gs:
+    ; On BOTH paths: neither may run ahead on a mispredicted GS
+    ; (CVE-2019-1125, Linux's FENCE_SWAPGS_*_ENTRY).
+    lfence
     ; Ring 3 may have set the direction flag; the C below assumes it
     ; clear (k_memcpy is `rep movsb`), as the ABI does. The iret frame
     ; holds the interrupted RFLAGS, so this costs the interrupted code
@@ -142,4 +181,58 @@ isr_resume_frame:
     pop rax
 
     add rsp, 16           ; pop vector number + error code
+    ; Back to ring 3 means back to ring 3's GS -- every exit comes
+    ; through here, a new process's first one (isr_return_to) included.
+    test byte [rsp + 8], 3 ; the frame's cs: rip 0, cs 8
+    jz isr_iretq_kernel
+    swapgs
+isr_iretq:                 ; ONLY the ring-3 return: isr_common's fault
+    iretq                  ; guard must not match a ring-0 one, which never swapped
+isr_iretq_kernel:
     iretq
+
+; NMI, #DB, #BP, #DF and #MC: Linux's "paranoid" entry. Each can arrive
+; in ring 0 with RING 3's GS still loaded -- inside syscall_entry before
+; its swapgs, or after the one before sysret -- so the saved CS cannot
+; say which GS is live. GS.base can: ring 3's is always 0 (percpu.h).
+; r12 (saved in the frame, preserved by isr_dispatch) remembers a swap
+; this path must undo itself; one from ring 3 the ordinary exit undoes.
+isr_paranoid:
+    cld
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push rbp
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov ecx, MSR_GS_BASE
+    rdmsr
+    xor r12d, r12d
+    or eax, edx
+    jnz .kernel_gs                 ; non-zero: already the kernel's
+    swapgs
+    test byte [rsp + F_CS*8], 3
+    jnz .kernel_gs                 ; from ring 3: isr_resume_frame swaps back
+    mov r12d, 1                    ; ring 0 on ring 3's GS: ours to undo
+.kernel_gs:
+    lfence
+
+    mov rdi, rsp
+    call isr_dispatch
+
+    test r12d, r12d
+    jz isr_resume_frame
+    swapgs                         ; the pops below touch no gs:
+    jmp isr_resume_frame           ; ...and its own test sees ring 0
+global isr_paranoid_end
+isr_paranoid_end:

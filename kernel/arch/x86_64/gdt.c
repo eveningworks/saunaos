@@ -4,6 +4,8 @@
 // first interrupt that fires while the CPU is in ring 3 has no valid
 // kernel stack to switch to and the machine triple-faults immediately.
 #include "gdt.h"
+#include "percpu.h"
+#include "msr.h"
 #include <stddef.h>
 
 // Access-byte/flag bits for 64-bit code/data descriptors. Base and limit
@@ -21,18 +23,6 @@
 #define USER_DATA_DESC   (GDT_WRITABLE | GDT_S_CODEDATA | GDT_PRESENT | GDT_DPL3)
 #define USER_CODE_DESC   (GDT_EXECUTABLE | GDT_S_CODEDATA | GDT_PRESENT | GDT_LONG_MODE | GDT_DPL3)
 
-struct tss {
-    uint32_t reserved0;
-    uint64_t rsp0;
-    uint64_t rsp1;
-    uint64_t rsp2;
-    uint64_t reserved1;
-    uint64_t ist[7];
-    uint64_t reserved2;
-    uint16_t reserved3;
-    uint16_t iomap_base;
-} __attribute__((packed));
-
 struct gdt_ptr {
     uint16_t limit;
     uint64_t base;
@@ -41,12 +31,16 @@ struct gdt_ptr {
 // index: 0 null, 1 kernel code, 2 kernel data, 3 user data, 4 user code,
 // 5-6 TSS (a system-segment descriptor is 16 bytes -- two slots).
 // SYSRET derives its selectors from this ORDER: user data then user
-// code, 8 apart (idt.c's syscall_insn_init()).
-static uint64_t gdt[7];
-static struct gdt_ptr gdtp;
-// Not static: syscall_entry.asm loads the kernel stack from gdt_tss.rsp0,
-// since SYSCALL, unlike an interrupt, does not.
-struct tss gdt_tss;
+// code, 8 apart (idt.c's syscall_insn_init()). Each core's copy lives in
+// its struct cpu (percpu.h): a TSS descriptor goes BUSY on `ltr`, so two
+// cores cannot share one.
+//
+// The BSP's struct cpu is static -- this runs before the heap -- and
+// page-aligned so its TSS never straddles a page (the SDM's advice).
+// smp.c allocates the APs'.
+static struct cpu g_cpu_boot __attribute__((aligned(4096)));
+
+struct cpu *gdt_boot_cpu(void) { return &g_cpu_boot; }
 
 // A dedicated kernel stack used only for the switch back to ring 0 when
 // an interrupt/exception fires while running in ring 3.
@@ -84,26 +78,25 @@ static void set_tss_descriptor(uint64_t *desc_lo, uint64_t *desc_hi, uint64_t ba
     *desc_hi = (base >> 32) & 0xFFFFFFFFULL; // upper 32 bits of base; rest reserved (0)
 }
 
-void gdt_init(void) {
-    gdt[0] = 0;
-    gdt[1] = KERNEL_CODE_DESC;
-    gdt[2] = KERNEL_DATA_DESC;
-    gdt[3] = USER_DATA_DESC;
-    gdt[4] = USER_CODE_DESC;
+void gdt_load_cpu(struct cpu *c, uint64_t rsp0, uint64_t df_top, uint64_t nmi_top) {
+    c->self = c;
+    c->gdt[0] = 0;
+    c->gdt[1] = KERNEL_CODE_DESC;
+    c->gdt[2] = KERNEL_DATA_DESC;
+    c->gdt[3] = USER_DATA_DESC;
+    c->gdt[4] = USER_CODE_DESC;
 
-    for (size_t i = 0; i < sizeof(gdt_tss); i++) ((uint8_t *)&gdt_tss)[i] = 0;
-    gdt_tss.rsp0 = (uint64_t)(kernel_stack0 + sizeof(kernel_stack0));
+    for (size_t i = 0; i < sizeof(c->tss); i++) ((uint8_t *)&c->tss)[i] = 0;
+    c->tss.rsp0 = rsp0;
     // IST slot 1 (the descriptor's IST field is 1-based, this array is
     // not). idt_init() points the #DF gate at it.
-    gdt_tss.ist[0] = (uint64_t)(df_stack + sizeof(df_stack));
-    gdt_tss.ist[1] = (uint64_t)(nmi_stack + sizeof(nmi_stack));
-    gdt_tss.iomap_base = sizeof(struct tss); // beyond the limit => no IO bitmap
+    c->tss.ist[0] = df_top;
+    c->tss.ist[1] = nmi_top;
+    c->tss.iomap_base = sizeof(struct tss); // beyond the limit => no IO bitmap
 
-    set_tss_descriptor(&gdt[5], &gdt[6], (uint64_t)&gdt_tss, sizeof(struct tss) - 1);
+    set_tss_descriptor(&c->gdt[5], &c->gdt[6], (uint64_t)&c->tss, sizeof(struct tss) - 1);
 
-    gdtp.limit = sizeof(gdt) - 1;
-    gdtp.base = (uint64_t)&gdt;
-
+    struct gdt_ptr gdtp = { sizeof(c->gdt) - 1, (uint64_t)&c->gdt };
     __asm__ volatile ("lgdt %0" : : "m"(gdtp));
 
     __asm__ volatile (
@@ -131,8 +124,24 @@ void gdt_init(void) {
     );
 
     __asm__ volatile ("ltr %0" : : "r"((uint16_t)SEL_TSS));
+
+    // AFTER the selector loads above: `mov gs` zeroes GS.base. The
+    // kernel runs with GS.base = this core and KERNEL_GS_BASE = 0 (ring
+    // 3's, always 0 -- percpu.h); swapgs trades them at each ring
+    // crossing. FS.base is ring 3's TLS and the scheduler's (tls.h).
+    wrmsr(MSR_GS_BASE, (uint64_t)(uintptr_t)c);
+    wrmsr(MSR_KERNEL_GS_BASE, 0);
 }
 
+void gdt_init(void) {
+    gdt_load_cpu(&g_cpu_boot,
+                 (uint64_t)(kernel_stack0 + sizeof(kernel_stack0)),
+                 (uint64_t)(df_stack + sizeof(df_stack)),
+                 (uint64_t)(nmi_stack + sizeof(nmi_stack)));
+}
+
+// THIS core's TSS: the scheduler runs only on the BSP until stage 5 of
+// docs/smp-design.md, and then each core switches its own.
 void gdt_set_kernel_stack(uint64_t rsp0) {
-    gdt_tss.rsp0 = rsp0;
+    this_cpu()->tss.rsp0 = rsp0;
 }

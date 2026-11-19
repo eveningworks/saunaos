@@ -2,14 +2,17 @@
 
 **Status: STAGE 1 IS BUILT (2026-08-30); STAGE 2 IS BUILT IN FULL (the
 Local APIC 2026-08-30, its TIMER 2026-09-06, the I/O APIC and the MADT
-interrupt source overrides 2026-09-10); STAGES 3-7 ARE DESIGNED, NOT
-BUILT; RE-MEASURED AND RE-SIZED 2026-11-19.** The ACPI table walk and the MADT's processor list exist
+interrupt source overrides 2026-09-10); STAGE 3 IS BUILT (2026-11-19:
+the APs started and parked); STAGES 4-7 ARE DESIGNED, NOT BUILT;
+RE-MEASURED AND RE-SIZED 2026-11-19.** The ACPI table walk and the MADT's processor list exist
 (`kernel/acpi/`, read by `/bin/acpi` and `/bin/lscpu`), the Local APIC is
 enabled and carries MSI-X for seven drivers, the tick runs on the LAPIC
 timer through `kernel/clockevent.h`, and `kernel/arch/x86_64/ioapic.c`
 routes the legacy lines with the MADT's overrides applied -- so nothing
-goes through the 8259 any more. What remains is stage 3 onward: nothing
-starts a second core, and every MADT entry still reports `online: no`.
+goes through the 8259 any more. Stage 3's `kernel/arch/x86_64/smp.c`
+starts every enabled core and parks it, and GS.base is the per-CPU
+pointer on every entry; what remains is stage 4 onward -- nothing runs
+on a second core yet.
 The document is meant to be executed in order, each stage shippable and
 testable on its own, with the honest case against at the end.
 
@@ -86,8 +89,8 @@ futexes, swap, sandboxes and the image cache all arrived single-core.
 | | today | why SMP breaks it |
 |---|---|---|
 | GDT, TSS, `kernel_stack0` | one of each (`kernel/arch/x86_64/gdt.c`) | `TSS.RSP0` is per CPU: two cores sharing one would land two ring-3 traps on one stack |
-| SYSCALL entry | `syscall_entry.asm` reads `gdt_tss.rsp0` and parks the user RSP in one scratch word, `syscall_user_rsp` | both per CPU: Linux's `swapgs` and per-CPU area are the shape. The MSRs (`STAR`/`LSTAR`/`FMASK`/`EFER.SCE`) are per core too and each AP must write them |
-| GS.base | **unused** -- user TLS is FS.base only (`kernel/arch/x86_64/tls.c`) | GS is free to become the per-CPU pointer, with no user value to preserve. `swapgs` itself is NOT free: see stage 3's trap |
+| SYSCALL entry | DONE (stage 3) -- `syscall_entry.asm` takes RSP0 and the user-RSP scratch word from this core's `struct cpu` through `gs:` | each AP writes its own `STAR`/`LSTAR`/`FMASK`/`EFER.SCE` (`idt_load_ap()`) |
+| GS.base | DONE (stage 3) -- this core's `struct cpu` (`percpu.h`), traded by `swapgs` on every entry; ring 3's is always 0 | the paranoid entry (NMI, #DB, #BP, #DF, #MC) tells whose GS is live from that 0; see stage 3's trap |
 | IDT | one, loaded once | shareable as-is -- the IDT is read-only to the CPU. Each core must still `lidt` it |
 | interrupt controller | DONE -- Local APIC + I/O APIC, MADT overrides applied (stage 2) | each AP enables its own LAPIC; IPIs are new code on the existing `lapic.c` |
 | timer | DONE for the BSP -- LAPIC timer behind `kernel/clockevent.h`, whose device struct already has `per_cpu` | each AP needs its own instance, calibrated or copied from the BSP's |
@@ -103,7 +106,7 @@ futexes, swap, sandboxes and the image cache all arrived single-core.
 | TLB invalidation | user mappings: `kernel/mm/vmm.c` (4 `invlpg`s and `flush_if_live()`, which tests only THIS core's CR3). Kernel mappings, which every core shares: `kernel/arch/x86_64/paging.c`, 9 CR3-reload `flush_tlb()` sites reached at runtime by module load/unload (`paging_set_kernel_exec()`), device mapping at driver bind (ahci, nvme, hda, xhci, virtio_pci, bochs, intel_display), write-combining retypes, and kernel-stack guard pages (`kstack.c`) | two places, not one: user shootdown needs a per-address-space record of which cores have it loaded (Linux's `mm_cpumask`); kernel changes go to EVERY core |
 | FPU | eager `fxsave`/`fxrstor` per switch (`kernel/arch/x86_64/fpu.c`) | per-thread already; each AP must run the CR0/CR4 FPU setup |
 | per-core CPU setup | done once, on the BSP: EFER.NXE (`boot.asm`), IA32_PAT (`pat_install_wc_slot()`), the variable MTRRs (`mtrr_apply()`), CR4.SMEP/SMAP (`paging_enable_smep_smap()`), all in `kernel/arch/x86_64/` | each is a per-core register. An AP without NXE takes a reserved-bit fault on its first NX kernel page (W^X marks all kernel data NX); a different PAT/MTRR gives the WC framebuffer conflicting memory types (undefined per the SDM); no SMEP/SMAP silently drops the protection. Each AP replays the BSP's values |
-| kernel debugger | clears CR0.WP to plant a breakpoint (`kernel/debug/`) | must stop the other cores first (stage 3) |
+| kernel debugger | clears CR0.WP to plant a breakpoint (`kernel/debug/`) | must stop the other cores first (stage 5; parked cores run nothing) |
 | console | `vga.c`'s cursor and back buffer (under the preemption guard) | interleaved output, and a torn present |
 | ACPI | DONE -- tables and the MADT (`kernel/acpi/`) | -- |
 
@@ -208,7 +211,30 @@ ISA IRQ number is not the GSI. Ignoring them works on QEMU's default
 machine and fails on real hardware and on some QEMU machine types --
 which is exactly the class `tools/runners/qemu_matrix.py` exists to catch.
 
-### Stage 3 -- application processors, parked
+### Stage 3 -- application processors, parked -- DONE 2026-11-19
+
+**Built as below, with four differences** (`kernel/arch/x86_64/smp.c`,
+`smp_trampoline.asm`, `kernel/include/kernel/percpu.h`):
+
+- **No per-core clockevent yet.** Each AP's LAPIC is enabled with every
+  local vector masked, its timer included; registering one LAPIC timer
+  per core belongs to stage 5, the first stage with a tick to deliver
+  there.
+- **The kdebug roundup moved to stage 5** (`docs/kdebug-design.md`): a
+  parked core sits in `cli; hlt` and executes nothing while the
+  debugger writes a breakpoint, so there is nothing to stop yet.
+- **The paranoid entry covers #BP too** -- a kdebug breakpoint can sit
+  in an entry window -- and the ordinary entry also swaps for a fault
+  ON `isr_resume_frame`'s `iretq`, Linux's `error_entry` check.
+- **The memory types are copied once.** A WC change after bring-up
+  reaches the BSP alone; harmless while the APs are parked, and a
+  roadmap item before stage 5 (`docs/roadmap.md`, SMP).
+
+**The trap it found, now a convention** (`docs/conventions/kernel.md`,
+"EVERY ROUTE TO RING 3 SWAPS GS"): an AP must touch no shared kernel
+state before stage 4. The first version's AP logged a line; the racing
+preemption count stayed raised and the boot locked up.
+
 
 INIT-SIPI-SIPI each AP into a trampoline below 1 MiB that walks it from
 real mode to long mode and into a C entry point. Each AP gets its own

@@ -22,7 +22,16 @@
 // switch to and the CPU triple-faults.
 void gdt_init(void);
 
-// Updates the TSS's RSP0 -- the kernel stack the CPU switches to on the
+struct cpu;
+// Builds `c`'s GDT and TSS (RSP0 and the #DF/NMI IST stacks given),
+// loads them on THE CALLING CORE, and points its GS.base at `c`.
+// gdt_init() is this for the BSP; smp.c calls it on each AP.
+void gdt_load_cpu(struct cpu *c, uint64_t rsp0, uint64_t df_top, uint64_t nmi_top);
+
+// The BSP's struct cpu -- static, so it exists before the heap.
+struct cpu *gdt_boot_cpu(void);
+
+// Updates THIS CORE's TSS.RSP0 -- the kernel stack the CPU switches to on the
 // next ring3->ring0 transition (interrupt/exception/syscall). M8-M15
 // only ever needed one value here (kernel_stack0, set once by
 // gdt_init()); M16's scheduler (scheduler.c) calls this on every

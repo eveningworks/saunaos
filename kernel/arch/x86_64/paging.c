@@ -193,8 +193,8 @@ int paging_make_user_page(uint64_t vaddr) {
 //                                    MMIO              -- writable, NX
 //
 // Note the low 1MiB deliberately stays WRITABLE: 0xB8000 is the VGA text
-// buffer boot.asm's error path writes to, and nothing there is code the
-// kernel jumps to.
+// buffer boot.asm's error path writes to. The one code there is smp.c's
+// AP trampoline, made executable for the bring-up alone.
 static uint64_t wx_page_flags(uint64_t addr) {
     if (addr >= (uintptr_t)__ktext_start && addr < (uintptr_t)__ktext_end) {
         return PAGE_PRESENT;
@@ -733,6 +733,97 @@ static int mtrr_apply(uint64_t phys, uint64_t size) {
     __asm__ volatile ("pushq %0; popfq" :: "r"(flags) : "memory", "cc");
     return PAGING_WC_MTRR;
 }
+
+// ---- the same memory types on every core ------------------------------
+//
+// PAT and the MTRRs are per core, and the SDM (11.11.8, 11.12.4) wants
+// them identical everywhere: two cores that disagree about a page's type
+// are undefined behaviour. So the BSP's values -- the firmware's, plus
+// what paging_set_write_combining() has done -- are copied, as Linux's
+// mtrr_ap_init() copies its saved set. The variable count is CPUID's
+// 8-bit MTRRCAP.VCNT, a bound the hardware sets.
+//
+// **THE TRAP: a type changed AFTER the snapshot reaches only the BSP.**
+// Harmless while the APs are parked (they touch no memory); before an AP
+// runs code (docs/smp-design.md, stage 5), a later WC change must reach
+// every core the way Linux's set_mtrr() does.
+#define MSR_IA32_MTRR_FIX_64K   0x250u
+#define MSR_IA32_MTRR_FIX_16K   0x258u   // and 0x259
+#define MSR_IA32_MTRR_FIX_4K    0x268u   // through 0x26F
+#define CPUID_EDX_MTRR          (1u << 12)
+#define CPUID_EDX_PAT           (1u << 16)
+
+static struct {
+    int taken, has_pat, has_mtrr, has_fixed;
+    uint32_t vcnt;
+    uint64_t pat, def;
+    uint64_t var[2 * 255];
+    uint64_t fixed[11];
+} g_types;
+
+static uint32_t fixed_msr(int i) {
+    if (i == 0) return MSR_IA32_MTRR_FIX_64K;
+    if (i <= 2) return MSR_IA32_MTRR_FIX_16K + (uint32_t)(i - 1);
+    return MSR_IA32_MTRR_FIX_4K + (uint32_t)(i - 3);
+}
+
+void paging_memory_types_snapshot(void) {
+    uint32_t edx = cpuid_edx1();
+    g_types.has_pat = (edx & CPUID_EDX_PAT) != 0;
+    g_types.has_mtrr = (edx & CPUID_EDX_MTRR) != 0;
+    if (g_types.has_pat) g_types.pat = rdmsr(MSR_IA32_PAT);
+    if (g_types.has_mtrr) {
+        uint64_t cap = rdmsr(MSR_IA32_MTRRCAP);
+        g_types.vcnt = (uint32_t)(cap & 0xFFu);
+        g_types.has_fixed = (cap & (1u << 8)) != 0;
+        g_types.def = rdmsr(MSR_IA32_MTRR_DEF);
+        for (uint32_t i = 0; i < 2 * g_types.vcnt; i++)
+            g_types.var[i] = rdmsr(MSR_IA32_MTRR_BASE + i);
+        if (g_types.has_fixed)
+            for (int i = 0; i < 11; i++) g_types.fixed[i] = rdmsr(fixed_msr(i));
+    }
+    g_types.taken = 1;
+}
+
+void paging_memory_types_apply(void) {
+    if (!g_types.taken) return;
+    if (g_types.has_mtrr) {
+        // SDM 11.11.8's change protocol, as mtrr_apply() above. Interrupts
+        // are already off: this runs on an AP before anything can arrive.
+        uint64_t cr0, cr4;
+        __asm__ volatile ("mov %%cr0, %0" : "=r"(cr0));
+        __asm__ volatile ("mov %%cr4, %0" : "=r"(cr4));
+        uint64_t cr4_nopge = cr4 & ~(1ULL << 7);
+        if (cr4 != cr4_nopge) __asm__ volatile ("mov %0, %%cr4" :: "r"(cr4_nopge) : "memory");
+        __asm__ volatile ("mov %0, %%cr0" :: "r"((cr0 | (1ULL << 30)) & ~(1ULL << 29)) : "memory");
+        __asm__ volatile ("wbinvd" ::: "memory");
+        flush_tlb();
+        wrmsr(MSR_IA32_MTRR_DEF, g_types.def & ~(1ULL << 11));
+        for (uint32_t i = 0; i < 2 * g_types.vcnt; i++)
+            wrmsr(MSR_IA32_MTRR_BASE + i, g_types.var[i]);
+        if (g_types.has_fixed)
+            for (int i = 0; i < 11; i++) wrmsr(fixed_msr(i), g_types.fixed[i]);
+        if (g_types.has_pat) wrmsr(MSR_IA32_PAT, g_types.pat);
+        wrmsr(MSR_IA32_MTRR_DEF, g_types.def);
+        __asm__ volatile ("wbinvd" ::: "memory");
+        flush_tlb();
+        __asm__ volatile ("mov %0, %%cr0" :: "r"(cr0) : "memory");
+        if (cr4 != cr4_nopge) __asm__ volatile ("mov %0, %%cr4" :: "r"(cr4) : "memory");
+    } else if (g_types.has_pat) {
+        wrmsr(MSR_IA32_PAT, g_types.pat);
+        __asm__ volatile ("wbinvd" ::: "memory");
+        flush_tlb();
+    }
+}
+
+void paging_memory_types_now(uint64_t *pat, uint64_t *mtrr_def) {
+    uint32_t edx = cpuid_edx1();
+    *pat = (edx & CPUID_EDX_PAT) ? rdmsr(MSR_IA32_PAT) : 0;
+    *mtrr_def = (edx & CPUID_EDX_MTRR) ? rdmsr(MSR_IA32_MTRR_DEF) : 0;
+}
+
+uint64_t paging_memory_types_pat(void) { return g_types.pat; }
+uint64_t paging_memory_types_mtrr_def(void) { return g_types.def; }
 
 int paging_set_write_combining(uint64_t phys, uint64_t size) {
     if (size == 0) return PAGING_WC_NONE;

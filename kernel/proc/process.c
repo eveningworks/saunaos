@@ -163,6 +163,10 @@ int process_run_ring3_args(uint64_t pml4_phys, uint64_t entry, uint64_t user_rsp
         "push %3\n\t"             // RIP
         "mov %4, %%rdi\n\t"       // argc
         "mov %5, %%rsi\n\t"       // argv
+        // Ring 3's GS for ring 3 (isr.asm's exit does the same); IF off
+        // first, or an interrupt between the two sees ring 0 on it.
+        "cli\n\t"
+        "swapgs\n\t"
         "iretq\n\t"
         :
         : "i"(SEL_USER_DATA), "r"(user_rsp), "i"(SEL_USER_CODE), "r"(entry),

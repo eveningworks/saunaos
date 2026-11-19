@@ -9689,11 +9689,11 @@ stack.
   RCX == RIP and goes out through `isr_resume_frame`. The canonical check
   is the user half (RIP below 2^47), which also closes Intel's SYSRET
   #GP-in-ring-0 (CVE-2012-0217).
-- **The kernel stack comes from `gdt_tss.rsp0`**, which the scheduler
-  already sets per process; the user RSP waits in one scratch word for
-  two instructions. One CPU and IF clear make that safe, and it is
-  per-CPU state the day SMP starts a second core (`docs/smp-design.md`),
-  where Linux uses `swapgs` and per-CPU data.
+- **The kernel stack comes from this core's TSS.RSP0**, which the
+  scheduler already sets per process; the user RSP waits in a scratch
+  word for two instructions. Both live in the core's `struct cpu`,
+  reached through `swapgs` and GS.base since SMP stage 3 (2026-11-19,
+  `docs/smp-design.md`) -- Linux's shape.
 - **FMASK clears IF, TF, DF, AC and NT.** IF keeps the `0xEE` gate's
   rule -- IF clear for the whole call -- so the two entries cannot
   differ in what may preempt a call. **Only NMI moves to an IST stack**:
@@ -10596,3 +10596,41 @@ reads the same word after every boot, so it is overwritten in the boot
 path and the store has to move there (the panic store's roadmap entry);
 the warm reset stays the default because it costs nothing where it does
 not help and is what keeps RAM where nothing overwrites it.
+
+## The other cores start at every boot, one at a time, and park until the scheduler can use them
+
+SMP stage 3 (2026-11-19, `docs/smp-design.md`): every core the MADT
+marks enabled is started with INIT-SIPI-SIPI through a trampoline below
+1 MiB, given its own GDT, TSS and stacks in a `struct cpu`, made to
+replay the BSP's CR0, CR4, EFER, SYSCALL MSRs, PAT and MTRRs, and
+parked in `cli; hlt`. The scheduler still runs on the BSP alone.
+
+**On by default, with `nosmp` and `maxcpus=N`**, Linux's words, rather
+than an opt-in flag until a hardware soak (the `syscall_irq` precedent).
+A parked core runs nothing, so the only new risk is the start-up itself,
+and a core that does not call in within a second is sent back to INIT
+and the boot carries on. Linux has started every core by default since
+2.0.
+
+**One core at a time**, as Linux did before 6.5's parallel bring-up: the
+trampoline's data page then holds one core's stack, and no core has to
+find its own by APIC id. It costs about 1 ms for three cores under TCG.
+The 10 ms INIT wait is skipped on Intel family 6+ and AMD family 0Fh+,
+as Linux's `smp_quirk_init_udelay()` does.
+
+**`swapgs` on every entry from this stage, not stage 5**, so the
+per-CPU pointer is exercised by every syscall on one core before any
+second core runs code on it. The entry rule is Linux's: the saved CS
+decides on an ordinary entry, and NMI, #DB, #BP, #DF and #MC take a
+paranoid entry that reads GS.base -- possible because ring 3's GS.base
+is always 0 here (`docs/conventions/kernel.md`).
+
+**The kernel debugger's NMI roundup waits for stage 5.** A parked core
+executes nothing while the debugger clears CR0.WP and writes a
+breakpoint, so stopping it buys nothing yet; it lands with the stage
+that runs code there (`docs/kdebug-design.md`).
+
+**The memory types are copied once, at bring-up.** A write-combining
+change after that reaches the BSP alone -- harmless while the others
+touch no memory, and a roadmap item before stage 5.
+

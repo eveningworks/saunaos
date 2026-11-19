@@ -65,6 +65,18 @@ uint64_t paging_kernel_leaf(uint64_t vaddr);
 // must not run it.
 int paging_set_kernel_exec(uint64_t phys, uint64_t size, int exec);
 
+// PAT and the MTRRs, the per-core memory-type registers: the BSP takes a
+// snapshot (smp.c, before the first AP starts) and each AP applies it,
+// so every core agrees on every page's type. Types changed AFTER the
+// snapshot reach the BSP alone -- see the trap in paging.c.
+void paging_memory_types_snapshot(void);
+void paging_memory_types_apply(void);
+// The calling core's PAT and MTRRdefType (0 when absent), and the
+// snapshot's, for smp_test.c to compare.
+void paging_memory_types_now(uint64_t *pat, uint64_t *mtrr_def);
+uint64_t paging_memory_types_pat(void);
+uint64_t paging_memory_types_mtrr_def(void);
+
 // Undoes paging_set_write_combining() over a range (PAT only; an MTRR
 // range stays). For a TEST that types a frame and must give it back
 // cached; nothing in normal operation clears a type.

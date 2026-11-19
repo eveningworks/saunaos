@@ -10,6 +10,8 @@
 #define MSR_STAR   0xC0000081u   // the selectors SYSCALL and SYSRET load
 #define MSR_LSTAR  0xC0000082u   // SYSCALL's 64-bit entry point
 #define MSR_FMASK  0xC0000084u   // RFLAGS bits SYSCALL clears
+#define MSR_GS_BASE        0xC0000101u   // the kernel's: this core's struct cpu (percpu.h)
+#define MSR_KERNEL_GS_BASE 0xC0000102u   // what swapgs trades it with -- ring 3's, always 0
 
 static inline uint64_t rdmsr(uint32_t msr) {
     uint32_t lo, hi;

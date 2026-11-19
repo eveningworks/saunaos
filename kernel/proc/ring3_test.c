@@ -136,6 +136,8 @@ void ring3_test_run(void) {
         "mov %2, %%rax\n\t"
         "push %%rax\n\t"          // CS
         "push %3\n\t"             // RIP
+        "cli\n\t"                 // ring 3's GS for ring 3, as isr.asm's exit
+        "swapgs\n\t"
         "iretq\n\t"
         :
         : "i"(SEL_USER_DATA), "r"(user_rsp), "i"(SEL_USER_CODE), "r"(user_rip)

@@ -257,6 +257,9 @@ whenever a headline here tells you something you did not already know.
   OF A LINE**
 - **THE I/O APIC DELIVERS EVERY LINE, THE MADT SAYS WHERE AN ISA IRQ
   ARRIVES, AND A PCI PIN IS ROUTED BY `_PRT`**
+- **EVERY ROUTE TO RING 3 SWAPS GS, AND A PARKED CORE TOUCHES NOTHING
+  SHARED** -- `cli; swapgs` before a hand-rolled `iretq`; ring 3's
+  GS.base is always 0; an AP logs nothing before stage 4
 - **THE TICK IS A CLOCKEVENT, AND ON A MACHINE WITH A LAPIC IT IS NOT
   THE PIT**
 - **THE TICK IS ONE DEADLINE AMONG SEVERAL, AND IT STOPS ONLY IN THE

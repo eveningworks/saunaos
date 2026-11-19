@@ -37,6 +37,7 @@
 #include "lapic.h"  // lapic_init() -- the LAPIC, and the vectors MSI uses
 #include "ioapic.h" // ioapic_init() -- the lines, off the 8259
 #include "clockevent.h" // clockevent_init_lapic() -- the tick, per core
+#include "smp.h"    // smp_init() -- the other cores, parked
 #include "acpi.h"   // acpi_init() -- the firmware tables, and what poweroff needs from them
 #include "query.h"   // the fact registry -- query_init() and the core's providers
 #include "mm_audit.h" // mm_audit_query_init() -- QUERY_MMAUDIT
@@ -278,6 +279,13 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // with no APIC, or one booted with `nomsi`, keeps the PIT's tick and
     // nothing here fails.
     clockevent_init_lapic();
+
+    // The other cores, started and PARKED (docs/smp-design.md, stage 3):
+    // after the LAPIC (IPIs), cpu_info (the INIT delay depends on the
+    // CPU) and a clocksource that times microseconds; after the display
+    // too, so the PAT and MTRRs each core copies include the
+    // framebuffer's write-combining. Nothing runs on them yet.
+    smp_init();
 
     // The wall clock, seeded from the RTC and carried by the clocksource
     // just chosen (api/ktime.h). After clocksource_init_tsc() so the

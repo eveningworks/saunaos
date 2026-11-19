@@ -1413,6 +1413,34 @@ that moment and silences the PIC AFTER the entries are live, so no
 tick falls in the gap -- the PIT calibrates the LAPIC timer through
 the I/O APIC on every boot, which is the check.
 
+## EVERY ROUTE TO RING 3 SWAPS GS, AND A PARKED CORE TOUCHES NOTHING SHARED
+
+Since SMP stage 3 (`docs/smp-design.md`) GS.base is the kernel's
+per-core pointer (`kernel/include/kernel/percpu.h`, `this_cpu()`), and
+`swapgs` trades it for ring 3's at each crossing. Three things follow:
+
+- **A NEW WAY INTO RING 3 DOES `cli; swapgs` BEFORE ITS `iretq`/`sysret`.**
+  `isr_resume_frame` (and so `isr_return_to`) does it for any frame going
+  to ring 3, `syscall_entry` before `sysret`; the two hand-rolled `iretq`s
+  in `process.c` and `ring3_test.c` do it themselves. One that forgets
+  runs ring 3 on the kernel's GS, and the next syscall's `swapgs` loads
+  0: a double fault in `syscall_entry` with a garbage RSP. IF must be
+  clear between the two, or an interrupt there sees ring 0 holding
+  ring 3's GS.
+- **RING 3's GS.base IS ALWAYS 0, AND THE PARANOID ENTRY DEPENDS ON IT.**
+  NMI, #DB, #BP, #DF and #MC (`isr.asm`'s `isr_paranoid`) tell whose GS
+  is live from GS.base being non-zero, because they can land in ring 0
+  before `syscall_entry`'s `swapgs`. Giving programs a GS.base
+  (`ARCH_SET_GS`, CR4.FSGSBASE) breaks that test -- it would need
+  Linux's compare against this core's own value.
+- **CODE AN AP RUNS BEFORE STAGE 4's LOCK TOUCHES NO SHARED KERNEL
+  STATE** -- no log line, no heap, no preemption guard
+  (`smp.c`'s `ap_entry()`). The first version logged through
+  `syscall_insn_init()`: the log interleaved, the racing preemption
+  count stayed raised, and the boot locked up behind every kmutex. An
+  AP's work is registers, its own `struct cpu` and its own LAPIC; the
+  BSP reports what it did.
+
 ## THE TICK IS A CLOCKEVENT, AND ON A MACHINE WITH A LAPIC IT IS NOT THE PIT
 
 `kernel/clockevent.h` is the device that decides WHEN to interrupt --

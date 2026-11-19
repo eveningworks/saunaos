@@ -22,7 +22,7 @@ containment), `dynlink-design.md`, `signals-design.md` (signals, TTY and
 job control are ONE problem), `blocking-design.md` (stages 1-3 BUILT --
 before `switch_to()`, `block_common()` or `FS_OP()`),
 `fslock-design.md` (stages 0-4a, 5a, 5b, 5c BUILT, 5d's evidence taken bar the Lenovo -- before tfs3's journal, its scratch state or a
-caller sleeping under the fs lock), `smp-design.md` (stages 1-2 BUILT, 3-7 re-sized 2026-11-19 --
+caller sleeping under the fs lock), `smp-design.md` (stages 1-3 BUILT -- the APs parked 2026-11-19 --
 before a module-level buffer anything a syscall reaches uses),
 `modules-design.md`, `aml-design.md` (the ACPI namespace walk, stages
 0-2 BUILT; stage 4 -- method execution by a vendored uACPI -- SCHEDULED

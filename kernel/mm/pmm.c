@@ -127,6 +127,8 @@ static int overlaps(uint64_t a0, uint64_t a1, uint64_t b0, uint64_t b1) {
     return a0 < b1 && b0 < a1;
 }
 
+static int hits_handover(uint64_t start, uint64_t end, uint64_t *bump);
+
 // If [start, end) touches a reserved range, return 1 and set *bump to
 // the first frame-aligned address past that range.
 static int hits_reserved(uint64_t start, uint64_t end, uint64_t *bump) {
@@ -140,6 +142,12 @@ static int hits_reserved(uint64_t start, uint64_t end, uint64_t *bump) {
         *bump = align_up(kend);
         return 1;
     }
+    return hits_handover(start, end, bump);
+}
+
+// The second half of hits_reserved(): what the boot handed over in RAM,
+// wherever it sits -- the info block, the modules, the panic store.
+static int hits_handover(uint64_t start, uint64_t end, uint64_t *bump) {
     uint64_t s, e;
     if (multiboot_get_info_range(&s, &e) && overlaps(start, end, s, e)) {
         *bump = align_up(e);
@@ -159,6 +167,15 @@ static int hits_reserved(uint64_t start, uint64_t end, uint64_t *bump) {
         return 1;
     }
     return 0;
+}
+
+// Not hits_reserved(): its first range starts at 0 and so covers the
+// whole legacy area, which is exactly what this caller is searching.
+// The image itself is above 1 MiB; the handover can be anywhere.
+int pmm_boot_range_reserved(uint64_t start, uint64_t end) {
+    uint64_t bump;
+    if (end <= 0x100000) return hits_handover(start, end, &bump);
+    return hits_reserved(start, end, &bump);
 }
 
 static uint64_t bitmap_home = 0;  // physical address of the books: both bitmaps, then the refcounts

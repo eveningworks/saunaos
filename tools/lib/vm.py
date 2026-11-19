@@ -241,6 +241,7 @@ def cmd_start(args):
         # print rather than as one that never ran.
         *install_grub.qemu_boot_args(medium, args.iso),
         "-m", str(getattr(args, "mem", 0) or 2048),
+        "-smp", str(getattr(args, "cpus", 0) or 1),
     ]
     # UEFI: OVMF instead of SeaBIOS, booting the ESP's EFI/BOOT/BOOTX64.EFI
     # (or the ISO's EFI image) -- the path a machine with CSM off takes.
@@ -1090,6 +1091,8 @@ def main():
     ap.add_argument("--mem", type=int, default=0, metavar="MIB",
                     help="guest RAM in MiB (default 2048). Smaller makes "
                           "memory exhaustion reachable -- see tools/tests/sweep/mem_stress.py")
+    ap.add_argument("--cpus", type=int, default=0, metavar="N",
+                    help="vCPUs (default 1); the kernel starts and parks the others")
     ap.add_argument("--timeout", type=float, default=30.0)
     ap.add_argument("--machine", default=None, metavar="TYPE",
                     help="QEMU machine type (e.g. q35). q35 implies --disk-kind ahci; "

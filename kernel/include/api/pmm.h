@@ -94,6 +94,13 @@ unsigned pmm_frame_refs(uint64_t phys_addr);
 // buddy allocator would buy over this if fragmentation ever became a
 // real problem. First real caller: a future NIC driver's descriptor
 // ring (see README.md's TCP/IP entry).
+// 1 when [start, end) touches something the boot handed over and pmm
+// keeps off the free list -- the kernel image (both copies under ASLR),
+// a Multiboot2 module, the info block, the panic store. For a caller
+// claiming memory pmm never manages, the legacy area below 1 MiB (smp.c's
+// trampoline).
+int pmm_boot_range_reserved(uint64_t start, uint64_t end);
+
 uint64_t pmm_alloc_contiguous(uint64_t count, enum pmm_zone zone);
 
 // Frees `count` frames starting at `phys_addr` (a value previously

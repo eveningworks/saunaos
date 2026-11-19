@@ -483,12 +483,15 @@ static void fill_stats(void) {
         strlcpy(g_title_text, "CPU", sizeof g_title_text);
         // Both asked ONCE: neither changes, and CPUID is a VM exit.
         static char brand[64];
-        static int ncpu = -1;
+        static int ncpu = -1, nonline = 0;
         if (!brand[0]) udevice_cpu_brand(brand, sizeof brand);
         if (ncpu < 0) {
             ncpu = 0;
             struct query_cpu qc;
-            QUERY_FOREACH(QUERY_CPUS, qc, i) ncpu++;
+            QUERY_FOREACH(QUERY_CPUS, qc, i) {
+                if (qc.flags & QUERY_CPU_ENABLED) ncpu++;
+                if (qc.flags & QUERY_CPU_ONLINE) nonline++;
+            }
         }
         strlcpy(g_subtitle_text, brand, sizeof g_subtitle_text);
         unsigned long long s = sys_monotonic_ns() / 1000000000ULL;
@@ -497,6 +500,7 @@ static void fill_stats(void) {
         add_stat("Threads", "%d", g_threads);
         add_stat("Up time", "%llu:%02llu:%02llu", s / 3600, (s / 60) % 60, s % 60);
         add_stat("Logical CPUs", "%d", ncpu ? ncpu : 1);
+        add_stat("Online", "%d", nonline ? nonline : 1);
         break;
     }
     case DEV_MEM: {
