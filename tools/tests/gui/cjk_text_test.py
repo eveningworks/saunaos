@@ -8,7 +8,7 @@ rather than read into each process (the system image cache shares its
 pages). Every step can fail quietly: an unread collection or CFF outline
 draws the outlined box ugfx draws for a character nothing has, a lost
 `:N` draws another region's shapes, and a face read whole costs every
-process 19.5 MB. Only pixels and the process table can tell.
+process the whole file. Only pixels and the process table can tell.
 
 THE CHECKS, each one a broken version would fail. Notepad opens files and
 the editor's rectangle (between its `tabs` and `status` widgets) is read:
@@ -18,10 +18,12 @@ the editor's rectangle (between its `tabs` and `status` widgets) is read:
   - four 骨 under `:2` (Simplified Chinese) and under `:0` (Japanese, the
     list rewritten, a new Notepad) differ: the member index reaches the
     glyphs;
-  - the Notepad drawing them holds well under the face's 19.5 MB.
+  - the Notepad drawing them holds under half the face's size (the
+    file's own, read from the tree).
 
 `--positive-control` rewrites the list WITHOUT the CJK face first: the ink
-checks must go RED.
+checks must go RED. Either way the machine's own list is copied aside first
+and copied back, byte for byte, however the run ends.
 
   python3 tools/tests/gui/cjk_text_test.py [--instance N] [--positive-control]
 """
@@ -42,10 +44,11 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui   # noqa: E402
 from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
-from harness import Results                     # noqa: E402
+from harness import Results, poll               # noqa: E402
 from PIL import Image                           # noqa: E402
 
 CONF = "/etc/fonts/fallback.conf"
+SAVED = "/tmp/cjk_text_test.fallback.conf"
 LIST = ["noto-sans", "noto-sans-symbols2", "noto-sans-symbols", "noto-sans-math",
         "noto-sans-cjk-regular:2", "emoji twemoji", "dejavu-sans-mono"]
 FILES = {
@@ -54,7 +57,7 @@ FILES = {
     "/tmp/cjk_hangul.txt": "힣" * 4,
     "/tmp/cjk_bone.txt": "骨" * 4,
 }
-FACE_MB = 19.5
+FACE_FILE = os.path.join(toolpath.REPO, "data", "fonts", "fallback", "noto-sans-cjk-regular.ttc")
 
 
 def editor_ink(dbg, qmp, title, tmp):
@@ -89,22 +92,9 @@ def show(dbg, qmp, path, tmp):
     return ink, raw, kib
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
-    port_guard.add_instance_args(ap)
-    ap.add_argument("--in-gui", action="store_true")
-    ap.add_argument("--positive-control", action="store_true",
-                    help="remove the CJK face from the guest's list; the ink checks must go RED")
-    args = ap.parse_args()
-    port_guard.resolve_instance(args, "cjk_text_test")
-    res = Results()
-    qmp = QMPSession(port=args.qmp_port)
-    if not args.in_gui:
-        enter_gui(qmp, args.sock)
-    dbg = DebugConsole(args.sock)
-    print("cjk: Han and Hangul from the fallback list's CJK collection")
-    conf = [ln for ln in LIST if not ln.startswith("noto-sans-cjk")] if args.positive_control else LIST
-    res.check("the fallback list is written" + (" WITHOUT the CJK face (control)" if args.positive_control else ""),
+def run(dbg, qmp, res, control):
+    conf = [ln for ln in LIST if not ln.startswith("noto-sans-cjk")] if control else LIST
+    res.check("the fallback list is written" + (" WITHOUT the CJK face (control)" if control else ""),
               dbg.write_lines(CONF, conf))
     for path, text in FILES.items():
         res.check(f"{path} is written", dbg.write_lines(path, [text]))
@@ -122,18 +112,52 @@ def main():
         res.check("four 힣 hold over 1.6 times it (Hangul from the same face)", hangul > 1.6 * max(one, 1),
                   f"힣 {hangul}, 一 {one}")
         kib = seen["/tmp/cjk_dragon.txt"][2]
-        res.check(f"the Notepad drawing them holds well under the face's {FACE_MB} MB",
-                  kib is not None and kib < FACE_MB * 1024 / 2, f"{kib} KiB")
-        if not args.positive_control:
-            sc = seen["/tmp/cjk_bone.txt"][1]
-            res.check("the list naming member :0 instead is written",
-                      dbg.write_lines(CONF, [ln.replace("cjk-regular:2", "cjk-regular:0") for ln in LIST]))
-            _, jp, _ = show(dbg, qmp, "/tmp/cjk_bone.txt", tmp)
-            differ = sc is not None and jp is not None and len(sc) == len(jp) and \
-                sum(1 for a, b in zip(sc, jp) if abs(a - b) > 64)
-            res.check("骨 under :2 (SC) and :0 (JP) draws differently: the member index reaches the glyphs",
-                      bool(differ), f"{differ} pixels differ")
-    res.check("the shipped fallback list is put back", dbg.write_lines(CONF, LIST))
+        face_kib = os.path.getsize(FACE_FILE) // 1024
+        res.check(f"the Notepad drawing them holds under half the face's {face_kib} KiB",
+                  kib is not None and kib < face_kib / 2, f"{kib} KiB")
+        if control:
+            return
+        sc = seen["/tmp/cjk_bone.txt"][1]
+        res.check("the list naming member :0 instead is written",
+                  dbg.write_lines(CONF, [ln.replace("cjk-regular:2", "cjk-regular:0") for ln in LIST]))
+        _, jp, _ = show(dbg, qmp, "/tmp/cjk_bone.txt", tmp)
+        differ = sc is not None and jp is not None and len(sc) == len(jp) and \
+            sum(1 for a, b in zip(sc, jp) if abs(a - b) > 64)
+        res.check("骨 under :2 (SC) and :0 (JP) draws differently: the member index reaches the glyphs",
+                  bool(differ), f"{differ} pixels differ")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
+    port_guard.add_instance_args(ap)
+    ap.add_argument("--in-gui", action="store_true")
+    ap.add_argument("--positive-control", action="store_true",
+                    help="remove the CJK face from the guest's list; the ink checks must go RED")
+    args = ap.parse_args()
+    port_guard.resolve_instance(args, "cjk_text_test")
+    res = Results()
+    qmp = QMPSession(port=args.qmp_port)
+    if not args.in_gui:
+        enter_gui(qmp, args.sock)
+    dbg = DebugConsole(args.sock)
+    print("cjk: Han and Hangul from the fallback list's CJK collection")
+    # The machine's own list is set aside first and put back however the
+    # run ends: a test that leaves a setting changed changes every tool
+    # after it (CLAUDE.md).
+    # `sh` returns before its command is done: each copy is confirmed by
+    # reading it back.
+    original = dbg.send(f"sh cat {CONF}") or ""
+    dbg.send(f"sh cp {CONF} {SAVED}")
+    saved = "noto" in original and poll(lambda: (dbg.send(f"sh cat {SAVED}") or "") == original, 10)
+    res.check("the machine's own list is set aside", bool(saved))
+    if not saved:
+        return res.finish("cjk_text_test")
+    try:
+        run(dbg, qmp, res, args.positive_control)
+    finally:
+        dbg.send(f"sh cp {SAVED} {CONF}")
+        res.check("the machine's own list is put back, as it was",
+                  bool(poll(lambda: (dbg.send(f"sh cat {CONF}") or "") == original, 10)))
     return res.finish("cjk_text_test")
 
 

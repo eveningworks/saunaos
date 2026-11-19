@@ -1,6 +1,7 @@
 // The font fallback list (base/ufontfallback.h).
 #include "base/ufontfallback.h"
 #include "base/ufile.h"
+#include "base/ulistdir.h"
 #include "base/ulog.h"
 #include "rt/sys.h"
 #include <stdio.h>
@@ -93,7 +94,23 @@ int ufont_fallback_parse(const char *text, int (*exists)(const char *path),
     return 1;
 }
 
+// The two font folders, each listed ONCE while the list is parsed: a line
+// tries up to six names (three extensions, two folders), and a stat each
+// in every process that draws text was most of the parse's cost. A folder
+// that cannot be listed (a sandbox's unveil) falls back to a stat.
+static struct font_dir { const char *path; struct ulist_entry *e; int n; } g_dirs[2] = {
+    { UFONT_FALLBACK_DIR, 0, -1 }, { UFONT_DIR, 0, -1 },
+};
+
 static int file_exists(const char *path) {
+    for (int d = 0; d < 2; d++) {
+        size_t dl = strlen(g_dirs[d].path);
+        if (strncmp(path, g_dirs[d].path, dl) || path[dl] != '/' || strchr(path + dl + 1, '/')) continue;
+        if (g_dirs[d].n < 0) break;   // not listed: ask the filesystem
+        for (int i = 0; i < g_dirs[d].n; i++)
+            if (!g_dirs[d].e[i].is_dir && !strcmp(g_dirs[d].e[i].name, path + dl + 1)) return 1;
+        return 0;
+    }
     struct sys_stat st;
     return sys_stat(path, &st) == 0;
 }
@@ -114,8 +131,14 @@ const struct ufont_fallback *ufont_fallback(void) {
         text[len] = 0;
     }
     free(data);
+    for (int d = 0; d < 2; d++) g_dirs[d].n = ulistdir(g_dirs[d].path, &g_dirs[d].e);
     if (!ufont_fallback_parse(text ? text : DEFAULT_LIST, file_exists, &list))
         ulogf("fonts: no memory for the fallback list\n");
+    for (int d = 0; d < 2; d++) {
+        free(g_dirs[d].e);
+        g_dirs[d].e = 0;
+        g_dirs[d].n = -1;
+    }
     free(text);
     return &list;
 }

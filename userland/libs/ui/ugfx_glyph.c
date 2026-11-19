@@ -75,8 +75,9 @@ void ugfx_glyph_cache_stats(int *entries, unsigned long *bytes,
 // The file's bytes MAPPED, read-only: a face is read only where its glyphs
 // are, and /usr/share/fonts is in the system image cache
 // (kernel/mm/imgcache.c), so every process shares one frame per page --
-// Noto Sans CJK is 19.5 MB, and copying it into each process would be the
-// whole cost. NULL when it cannot be mapped.
+// a CJK face is tens of megabytes, and copying it into each process would
+// be the whole cost. NULL when it cannot be mapped (the host harness's
+// stub cannot), and the face is then read in.
 static unsigned char *map_face(const char *path, size_t *len) {
     int fd = sys_open(path, 0);   // read-only
     if (fd < 0) return NULL;

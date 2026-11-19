@@ -82,9 +82,9 @@ answer 404. A server that no longer keeps that build answers 404, and
 update waits for a restart. A file whose connection fails is fetched
 once more, with a `retrying once` line in the log.
 
-A file under `/lib` (none in the first components) is removed or added
-at the next boot, as an update's library is, since a running program
-may page it in by path; `add` and the Software app then say **restart
+A file under `/lib` or `/usr/share/fonts` (the Chinese, Japanese and
+Korean fonts) is removed or added at the next boot, as an update's library is,
+since a running program may page it in by path; `add` and the Software app then say **restart
 to finish**.
 
 **Removing the Web page engine** removes the Web Browser too; Help and

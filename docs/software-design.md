@@ -87,8 +87,9 @@ default, as a new Windows feature does, and a removed one stays removed.
   the server is dropped from the state file with a log line.
 - **Remove** deletes the component's `Paths=` on the machine (offline;
   the component file says what), through the same staged commit the
-  update uses, and writes the state. A component holding a `/lib` file
-  waits for the next boot, as an update does (none in the first round).
+  update uses, and writes the state. A component holding a `/lib` file or
+  a font waits for the next boot, as an update does -- the Chinese,
+  Japanese and Korean fonts' removal does.
 - **Add** fetches the component's lines from the manifest of the build
   the machine RUNS (`# commit` in its record), never the channel's
   newest -- ChromeOS's rule; a component newer than its base is two

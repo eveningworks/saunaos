@@ -300,20 +300,22 @@ def main():
             # A card cut off by the grid's bottom still reports its button,
             # and the button may be below the edge: scroll it into view
             # first, as a person would -- the wheel goes where the REAL
-            # pointer is, so park it on the grid.
-            r = None
+            # pointer is, so park it on the grid (warp_cursor, which
+            # confirms where it landed). A button still not in view is
+            # not clicked: the caller's check then fails here, not later.
             for _ in range(8):
                 i = app.cards().get(cid, (None,))[0]
                 r = app.rect("cards.button", i) if i is not None else None
                 grid = app.rect("cards")
-                if not r or not grid or r[1] + r[3] <= grid[1] + grid[3]:
-                    break
+                if not r or not grid:
+                    return False
+                if r[1] + r[3] <= grid[1] + grid[3]:
+                    click_rect(dbg, win, r)
+                    return True
                 c = win["content"]
-                qmp.goto(c["x"] + grid[0] + grid[2] // 2, c["y"] + grid[1] + grid[3] // 2)
+                dbg.warp_cursor(qmp, c["x"] + grid[0] + grid[2] // 2, c["y"] + grid[1] + grid[3] // 2)
                 dbg.wheel(-1)
-            if r:
-                click_rect(dbg, win, r)
-            return r is not None
+            return False
 
         # The queue: DOOM's Remove marks it, Discard drops it.
         res.check("DOOM has a card with a button", press("doom"))
@@ -356,11 +358,11 @@ def main():
 
         # Needs=: the engine takes the Browser with it -- and keeping the
         # Browser keeps the engine it needs.
-        press("webengine")
+        res.check("the Web page engine's button is in view and pressed", press("webengine"))
         st = app.wait(lambda s: s.get("queue") == 2)
         res.check("removing the Web page engine queues the Web Browser too",
                   st and state_of("browser") == "remove", f"{st} {app.cards()}")
-        press("browser")                   # Keep
+        res.check("the Web Browser's button is in view and pressed (Keep)", press("browser"))
         st = app.wait(lambda s: s.get("queue") == 0, 5)
         res.check("...and Keep on the Browser takes the engine's removal back too",
                   st and state_of("webengine") == "installed" and state_of("browser") == "installed",

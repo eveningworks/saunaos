@@ -389,9 +389,9 @@ int ucomponent_remove(const struct ucomponent_set *s, int idx, const struct ucom
     for (int i = 0; i < l.count; i++) {
         const char *f = l.path[i];
         int bad = 0;
-        if (!strncmp(f, "/lib/", 5)) {
-            // A library may be paged in by path under a running process:
-            // the kernel removes it at the next boot, before init.
+        if (update_paged_by_path(f)) {
+            // A library or a font may be paged in by path under a running
+            // process: the kernel removes it at the next boot, before init.
             if (pend < 0) {
                 mkdir_parents(UPDATE_PENDING_PATH);
                 pend = open(UPDATE_PENDING_PATH, O_WRONLY | O_CREAT | O_APPEND);
@@ -428,7 +428,7 @@ int ucomponent_remove(const struct ucomponent_set *s, int idx, const struct ucom
         return -1;
     }
     say(pr, "%s: removed %d file%s%s", c->id, files, files == 1 ? "" : "s",
-        staged ? " (the libraries at the next restart)" : "");
+        staged ? " (libraries and fonts at the next restart)" : "");
     return 0;
 }
 

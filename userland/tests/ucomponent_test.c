@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include "base/ucomponent.h"
 #include "base/utest.h"
+#include "update_abi.h"
 
 #define DIR_DEFS "/tmp/uct.defs"
 #define DIR_FILES "/tmp/uct.files"
@@ -110,10 +111,23 @@ static void partial_remove(void) {
     rmdir(DIR_FILES);
 }
 
+// Which files wait for the restart: what a running process may page in by
+// path -- libraries, and the fonts the glyph cache maps -- and nothing else,
+// prefixes matched whole.
+static void paged_by_path(void) {
+    utest_check(update_paged_by_path("/lib/libc.so"), "a library waits for the restart");
+    utest_check(update_paged_by_path("/usr/share/fonts/fallback/noto-sans-cjk-regular.ttc"),
+                "a font waits for the restart (the glyph cache maps it)");
+    utest_check(!update_paged_by_path("/bin/ls"), "a program does not");
+    utest_check(!update_paged_by_path("/library/x") && !update_paged_by_path("/usr/share/fontsx/a.ttf") &&
+                !update_paged_by_path("/usr/share/font"), "nor a path a prefix only starts");
+}
+
 int main(void) {
     utest_begin("ucomponent_test", "the optional components: definitions and Remove, in ring 3", 0);
     nameless();
     partial_remove();
+    paged_by_path();
     rmdir(DIR_DEFS);
     return utest_end();
 }

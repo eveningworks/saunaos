@@ -49,7 +49,7 @@ progress bar, and what this prints *is* the log that window shows.
     fetching 3 files
     /bin/hello: 173176 bytes, crc 1130093803 ok
     ...
-    staged 2 files for the next boot (a library is in the set)
+    staged 2 files for the next boot (a library or font is in the set)
     kernel: installed; the running kernel is kept as /boot/kernel.old
     done: 3 files staged, restart to finish
     update: restart to finish (`reboot`)

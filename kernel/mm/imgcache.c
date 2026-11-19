@@ -77,7 +77,7 @@ static uint64_t g_epoch;
 #define FALLBACK_LOGGED 4   // CLAUDE.md's probe rule: the first few, then the counter
 
 // The system image: its code first (NCODE of them), then its fonts --
-// shared like code (a 19.5 MB CJK face mapped by every process that
+// shared like code (the CJK face, tens of megabytes, mapped by every process that
 // draws text), but never code.
 static const char *const g_prefixes[] = { "/bin/", "/lib/", "/tests/", "/usr/share/fonts/" };
 #define NPREFIX (sizeof g_prefixes / sizeof g_prefixes[0])

@@ -1246,20 +1246,21 @@ static int apply_run(struct upd_plan *p, const struct upd_hooks *h) {
         return -1;
     }
 
-    // A LIBRARY OR THE KERNEL MEANS THE WHOLE SET WAITS FOR THE BOOT. A
-    // running process pages a library in by PATH, so replacing one under
-    // it mixes old and new code; and a new kernel may change an ABI the
-    // new userland already assumes. docs/update-design.md.
+    // A LIBRARY, A FONT OR THE KERNEL MEANS THE WHOLE SET WAITS FOR THE
+    // BOOT. A running process pages a library or a font in by PATH
+    // (update_paged_by_path()), so replacing one under it mixes old and
+    // new bytes; and a new kernel may change an ABI the new userland
+    // already assumes. docs/update-design.md.
     int kernel = -1, libs = 0;
     for (int i = 0; i < p->count; i++) {
         struct upd_file *f = &p->files[i];
-        // A stale LIBRARY waits for the boot too: something may map it.
-        if (f->change == UPD_REMOVE && !strncmp(f->path, "/lib/", 5)) libs++;
+        // A stale library or font waits for the boot too: something may map it.
+        if (f->change == UPD_REMOVE && update_paged_by_path(f->path)) libs++;
         if (!wanted(f)) continue;
         f->status = UPD_QUEUED;
         f->got = 0;
         if (is_kernel(f)) kernel = i;
-        else if (!strncmp(f->path, "/lib/", 5)) libs++;
+        else if (update_paged_by_path(f->path)) libs++;
     }
     int at_boot = libs || kernel >= 0;
     int previous = kernel >= 0 && booted_previous();
@@ -1291,7 +1292,7 @@ static int apply_run(struct upd_plan *p, const struct upd_hooks *h) {
         p->at_boot = 1;
         say(h, "staged %d file%s for the next boot (%s)", p->changed - (kernel >= 0),
             p->changed - (kernel >= 0) == 1 ? "" : "s",
-            libs ? "a library is in the set" : "the kernel is in the set");
+            libs ? "a library or font is in the set" : "the kernel is in the set");
     } else {
         char tmp[UPD_PATH_MAX + 8];
         for (int i = 0; i < p->count; i++) {

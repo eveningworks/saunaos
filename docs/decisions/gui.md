@@ -13540,6 +13540,22 @@ held 504 KB of the collection with no page unshared. The fonts are not
 CODE to that cache: `imgcache_code_path_ok()` keeps a sandbox's W^X
 exception to `/bin`, `/lib` and `/tests`.
 
+**The price, accepted 2026-11-19 after review:** the cache never gives a
+page back while its file is unchanged (it has no per-frame map count), so
+every font page any process touched stays resident until a restart --
+bounded by the faces' size on disk, and reached only by something that
+walks a face (Character Map scrolled through every Han character holds
+most of the collection's 15.5 MB outline table). Private pages were the
+alternative: freed when the process exits, but paid again by every
+process. A map count in the cache would remove the price for code and
+fonts alike (`docs/pagecache-design.md`).
+
+**A font is paged in by path, so it changes at a restart**, as a library
+does: System Update stages a set that replaces or removes one for the
+boot, and removing the component removes the face at the next restart
+(`update_paged_by_path()`). Deleted under a process that mapped it, the
+face's next unread page would kill that process.
+
 ## A long window title travels in pieces, and the compositor keeps it sized to fit
 
 A title and a tab label rode one channel message's 32-byte `text`, so

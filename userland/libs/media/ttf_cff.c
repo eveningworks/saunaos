@@ -31,7 +31,9 @@
 #define CS_DEPTH  10      // subroutine nesting (the same)
 #define CS_BUDGET 100000  // operators and operands one glyph may run
 #define CS_COORD  4       // |coordinate| past this many ems refuses the glyph: a point
-                          // scaled to pixels then stays far inside 16.16
+                          // scaled to pixels then stays far inside 16.16 ...
+#define CS_UNITS  16383   // ... and past this many units too: a coordinate is
+                          // 16.16 font units in an fx_t, so 2^15 would wrap
 
 // --- INDEX ------------------------------------------------------------
 
@@ -108,6 +110,7 @@ static int dict_parse(const struct ttf_font *f, uint32_t p, uint32_t end, struct
             int op = (int)b0;
             p++;
             if (b0 == 12) op = OP2(rd_u8(f, p++));
+            if (p > end) return 0;   // an escape cut off by the DICT's end
             switch (op) {
             case 17: if (n >= 1) d->charstrings = v[n - 1]; break;
             case 18: if (n >= 2) { d->priv_size = v[n - 2]; d->priv_off = v[n - 1]; } break;
@@ -136,7 +139,7 @@ static int dict_parse(const struct ttf_font *f, uint32_t p, uint32_t end, struct
         else if (b0 >= 247 && b0 <= 250) { val = ((int32_t)b0 - 247) * 256 + (int32_t)rd_u8(f, p + 1) + 108; p += 2; }
         else if (b0 >= 251 && b0 <= 254) { val = -((int32_t)b0 - 251) * 256 - (int32_t)rd_u8(f, p + 1) - 108; p += 2; }
         else return 0;   // reserved
-        if (n == CS_STACK) return 0;
+        if (p > end || n == CS_STACK) return 0;   // an operand cut off by the DICT's end
         v[n++] = val;
     }
     return 1;
@@ -206,7 +209,7 @@ static int fd_for(const struct ttf_font *f, int gid) {
     }
     // Format 3: ranges {first glyph, fd}, sorted, then a sentinel glyph.
     uint32_t n = rd_u16(f, p + 1);
-    if (!n || !in_range(f, p + 3, n * 3 + 2)) return -1;
+    if (!n || p + 3 > cff_end(f) || n * 3 + 2 > cff_end(f) - (p + 3)) return -1;   // inside the table
     uint32_t lo = 0, hi = n;
     while (lo < hi) {   // the last range whose first glyph is <= gid
         uint32_t mid = (lo + hi) / 2;
@@ -220,7 +223,7 @@ static int fd_for(const struct ttf_font *f, int gid) {
 
 // Glyph `gid`'s charstring and the local subroutines it calls.
 static int glyph_program(const struct ttf_font *f, int gid, uint32_t *start, uint32_t *end,
-                         struct ttf_cff_index *subrs) {
+                         struct ttf_cff_index *subrs, struct ttf_scratch *sc) {
     if (gid < 0 || gid >= f->num_glyphs) return 0;
     if (!cff_item(f, &f->cff_chars, (uint32_t)gid, start, end)) return 0;
     if (!f->cff_fdselect) {
@@ -228,11 +231,25 @@ static int glyph_program(const struct ttf_font *f, int gid, uint32_t *start, uin
         return 1;
     }
     int fd = fd_for(f, gid);
+    if (fd < 0) return 0;
+    if (sc && sc->cff_memo_data == f->data && sc->cff_memo_table == f->cff &&
+        sc->cff_memo_len == f->len && sc->cff_memo_fd == fd) {
+        *subrs = sc->cff_memo_subrs;
+        return 1;
+    }
     uint32_t a, b;
     struct cff_dict d;
-    if (fd < 0 || !cff_item(f, &f->cff_fdarray, (uint32_t)fd, &a, &b) || !dict_parse(f, a, b, &d))
+    if (!cff_item(f, &f->cff_fdarray, (uint32_t)fd, &a, &b) || !dict_parse(f, a, b, &d) ||
+        !private_subrs(f, d.priv_size, d.priv_off, subrs))
         return 0;
-    return private_subrs(f, d.priv_size, d.priv_off, subrs);
+    if (sc) {
+        sc->cff_memo_data = f->data;
+        sc->cff_memo_table = f->cff;
+        sc->cff_memo_len = f->len;
+        sc->cff_memo_fd = fd;
+        sc->cff_memo_subrs = *subrs;
+    }
+    return 1;
 }
 
 // --- the charstring interpreter ------------------------------------------
@@ -249,7 +266,8 @@ struct cs {
 };
 
 static void cs_point(struct cs *c, int kind) {
-    const int64_t lim = ((int64_t)CS_COORD * c->f->units_per_em) << 16;
+    int64_t units = (int64_t)CS_COORD * c->f->units_per_em;
+    const int64_t lim = (units < CS_UNITS ? units : CS_UNITS) << 16;
     if (c->x > lim || c->x < -lim || c->y > lim || c->y < -lim) { c->bad = 1; return; }
     if (!c->sc) {
         int lo = (int)(c->y >> 16), hi = (int)((c->y + 0xFFFF) >> 16);
@@ -344,13 +362,14 @@ static int cs_run(struct cs *c, uint32_t p, uint32_t end, const struct ttf_cff_i
             else if (b0 <= 250) { v = (((int32_t)b0 - 247) * 256 + (int32_t)rd_u8(f, p + 1) + 108) * 65536; p += 2; }
             else if (b0 <= 254) { v = (-((int32_t)b0 - 251) * 256 - (int32_t)rd_u8(f, p + 1) - 108) * 65536; p += 2; }
             else { v = (int32_t)rd_u32(f, p + 1); p += 5; }   // 255: 16.16 fixed
-            if (n == CS_STACK) return 0;
+            if (p > end || n == CS_STACK) return 0;   // an operand cut off by its program's end
             st[n++] = v;
             continue;
         }
         int op = (int)b0;
         p++;
         if (b0 == 12) op = OP2(rd_u8(f, p++));
+        if (p > end) return 0;
         int base = 0;
         // dispatch-ok: Type 2's operator set is fixed by the spec (TN #5177), and
         // each case works the interpreter's own stack and point in place.
@@ -365,6 +384,7 @@ static int cs_run(struct cs *c, uint32_t p, uint32_t end, const struct ttf_cff_i
             have_width = 1;
             nstems += (n - base) / 2;       // implied vstems
             p += (uint32_t)(nstems + 7) / 8;
+            if (p > end) return 0;          // the mask runs past the program
             break;
         }
         case 21:                            // rmoveto
@@ -494,7 +514,7 @@ int ttf_cff_decode(const struct ttf_font *f, int gid, fx_t scale, fx_t ox, fx_t 
                    struct ttf_scratch *sc) {
     uint32_t a, b;
     struct ttf_cff_index subrs;
-    if (!glyph_program(f, gid, &a, &b, &subrs)) return 0;
+    if (!glyph_program(f, gid, &a, &b, &subrs, sc)) return 0;
     struct cs c = { .f = f, .sc = sc, .scale = scale, .ox = ox, .oy = oy };
     return cs_run(&c, a, b, &subrs) && !c.bad;
 }
@@ -502,7 +522,7 @@ int ttf_cff_decode(const struct ttf_font *f, int gid, fx_t scale, fx_t ox, fx_t 
 int ttf_cff_ybox(const struct ttf_font *f, int gid, int *ymin, int *ymax) {
     uint32_t a, b;
     struct ttf_cff_index subrs;
-    if (!glyph_program(f, gid, &a, &b, &subrs)) return 0;
+    if (!glyph_program(f, gid, &a, &b, &subrs, 0)) return 0;
     struct cs c = { .f = f };
     if (!cs_run(&c, a, b, &subrs) || c.bad || !c.any) return 0;
     *ymin = c.ymin;

@@ -171,6 +171,15 @@ struct ttf_scratch {
     int     nhedges;
     fx_t    anc_o[TTF_MAX_HEDGES], anc_f[TTF_MAX_HEDGES];
     int     nanc;
+
+    // ttf_cff.c's memo: the last CID-keyed font DICT whose local
+    // subroutines a glyph needed, by the font's bytes, its table and the
+    // DICT -- Han glyphs share a few DICTs, and each would otherwise parse
+    // two DICTs again. Per scratch, so per renderer: no lock.
+    const uint8_t *cff_memo_data;
+    uint32_t cff_memo_table, cff_memo_len;
+    int     cff_memo_fd;
+    struct ttf_cff_index cff_memo_subrs;
 };
 
 // Parses the table directory and the handful of headers everything else

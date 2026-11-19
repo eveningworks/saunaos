@@ -30,4 +30,17 @@
 #define UPDATE_PENDING_FAILED_PATH "/var/lib/update/pending.failed"
 #define UPDATE_STAGED_SUFFIX ".upd"
 
+// A file a RUNNING process may page in by path: a library, and a font
+// (ring 3's glyph cache maps its fallback faces). Replacing or removing
+// one waits for the boot -- a page read after the change would come from
+// another file, or kill the process if the file is gone.
+static inline int update_starts_with(const char *s, const char *prefix) {
+    while (*prefix)
+        if (*s++ != *prefix++) return 0;
+    return 1;
+}
+static inline int update_paged_by_path(const char *path) {
+    return update_starts_with(path, "/lib/") || update_starts_with(path, "/usr/share/fonts/");
+}
+
 #endif

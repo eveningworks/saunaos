@@ -191,9 +191,11 @@ rename, or the atomic rename below -- feeds a running process's
 untouched pages from the new file. No ETXTBSY, no error: two builds in
 one process. So:
 
-- **A set with no `/lib` file and no kernel is installed LIVE**, each
-  file renamed over its target.
-- **A set touching `/lib` or the kernel waits for the next boot.** The
+- **A set with no `/lib` file, no font and no kernel is installed LIVE**,
+  each file renamed over its target.
+- **A set touching `/lib`, `/usr/share/fonts` or the kernel waits for the
+  next boot** (`update_paged_by_path()`: since 2026-11-19 the glyph cache
+  maps its fallback faces, so a font is paged in by path as a library is). The
   staged files stay `.upd`, their targets go in `/var/lib/update/pending`
   (`abi/update_abi.h`), and the KERNEL renames them into place in
   `kernel_main()` after the filesystems mount and before init --
