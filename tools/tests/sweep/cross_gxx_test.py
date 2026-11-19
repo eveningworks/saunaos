@@ -9,7 +9,9 @@ translation units, std::string, std::vector, std::map, std::unique_ptr, a
 virtual call, iostream, std::thread with a mutex, and <cmath>'s C99 half
 (std::round, std::cbrt, std::hypot, std::lround, the float and long double
 overloads) -- which libstdc++ has only when tolibc's <math.h> is ALL of C99.
-A second program does `import std` (-std=c++23 -fmodules
+The default build names the SHARED runtime (/lib/libstdc++.so.6 and
+libgcc_s.so.1), and the same program built -static-libstdc++ -static-libgcc
+and -static must match too. A second program does `import std` (-std=c++23 -fmodules
 --compile-std-module), which needs the same, and must match the host too.
 And every header in the sysroot compiles as C++ on its own, and a C++
 program calling into libbase, libmedia and libui -- a window opened, drawn
@@ -547,6 +549,23 @@ def run(args, gxx, tmp):
                             capture_output=True, text=True)
         res.check("`x86_64-saunaos-g++ -static` links it too", st.returncode == 0,
                   (st.stdout + st.stderr).strip()[:800])
+    # The C++ runtime is SHARED by default, as on Linux: the program names
+    # /lib's libstdc++.so.6 and libgcc_s.so.1, which the seed step put there.
+    # -static-libstdc++ -static-libgcc is the opt-out, and runs too.
+    dyn = subprocess.run(["readelf", "-dW", exe], capture_output=True, text=True).stdout
+    needed = re.findall(r"\(NEEDED\)\s+Shared library: \[([^\]]+)\]", dyn)
+    res.check("the default build needs the shared C++ runtime (libstdc++.so.6, libgcc_s.so.1)",
+              "libstdc++.so.6" in needed and "libgcc_s.so.1" in needed, f"NEEDED: {needed}")
+    selfc_exe = os.path.join(tmp, "cxx_hello_selfcontained")
+    sc = None
+    if not args.positive_control:
+        sc = subprocess.run([gxx, *extra, "-std=c++17", "-O2", "-static-libstdc++", "-static-libgcc",
+                             *srcs, "-o", selfc_exe], capture_output=True, text=True)
+        scdyn = subprocess.run(["readelf", "-dW", selfc_exe], capture_output=True, text=True).stdout \
+            if sc.returncode == 0 else ""
+        res.check("`-static-libstdc++ -static-libgcc` links it with no C++ runtime library needed",
+                  sc.returncode == 0 and "libstdc++" not in scdyn and "libgcc_s" not in scdyn,
+                  (sc.stdout + sc.stderr).strip()[:800])
     sections = subprocess.run(["readelf", "-SW", exe], capture_output=True, text=True).stdout
     res.check("the binary keeps .eh_frame and .init_array",
               bool(re.search(r"\.eh_frame\s", sections)) and ".init_array" in sections
@@ -615,6 +634,8 @@ def run(args, gxx, tmp):
         runs = [("", exe)]
         if st is not None and st.returncode == 0:
             runs.append(("-static: ", static_exe))
+        if sc is not None and sc.returncode == 0:
+            runs.append(("-static-libstdc++: ", selfc_exe))
         for label, binary in runs:
             out = vm("put", binary, GUEST_BIN)
             res.check(f"{label}the binary is copied in", "fail" not in out.lower(), out.strip()[:300])

@@ -1777,7 +1777,7 @@ the design doc says why in its first section.
 - [x] ~~The C++ layer's `ui::Tabs` with pages and `ui::Timer`~~ DONE 2026-11-18 -- and `ui::Progress`'s busy mode
 - [ ] An in-tree C++ program -- the build compiles C only; a `.cpp` component needs the cross toolchain, which is optional
 - [x] ~~The cross compiler links dynamically by default; `-static` opts out~~ DONE 2026-11-17 -- tables via `dl_iterate_phdr()`
-- [ ] A shared library built by the cross toolchain, with C++ in it -- needs libstdc++ built `-fpic` (its TLS is local-exec)
+- [x] ~~A shared library built by the cross toolchain, with C++ in it~~ DONE 2026-11-19 -- `/lib/libstdc++.so.6`, by default
 - [x] ~~GCC and binutils running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000`~~ DONE 2026-11-08 -- `make native-toolchain`, opt-in
 - [x] ~~`cc` and `c++` on the machine, with `docs/commands/` pages~~ DONE 2026-11-08 -- `native_cc_test.py` compares with the host
 - [x] ~~`cc` and `c++` as hard links of `gcc` and `g++` on the image~~ DONE 2026-11-09 -- `tfs3_writer.py` seeds a link as one

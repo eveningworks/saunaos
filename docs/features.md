@@ -744,7 +744,8 @@ defaults are this OS's ABI and link line, so `x86_64-saunaos-gcc hello.c
 by default against `/lib/libc.so`, as `/bin`'s programs are, `-static`
 for the other kind -- and an SDL3 or SDL2 port builds with `pkg-config
 sdl3` or `sdl2-config`, as on Linux.
-**And C++**: `x86_64-saunaos-g++` with a static libstdc++ -- exceptions
+**And C++**: `x86_64-saunaos-g++` with a shared libstdc++ (`/lib/libstdc++.so.6`,
+`-static-libstdc++` for a self-contained program) -- exceptions
 (found through `dl_iterate_phdr()`, so a throw crosses `libc.so`),
 the standard containers, iostream and `std::thread` on POSIX threads --
 and the toolkit callable from C++ (every SDK header carries `extern

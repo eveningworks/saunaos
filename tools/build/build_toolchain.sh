@@ -6,7 +6,9 @@
 # in toolchain/tarballs/ (fetched by `make toolchain EXTRAS=1`;
 # tools/fetch/fetch_toolchain.py) into toolchain/local/. docs/cc-design.md,
 # stages 1 and 2, is the plan; `make toolchain` is the way in. C and C++:
-# libstdc++ is built static, against tolibc, and installs in the prefix.
+# libstdc++ and libgcc are built static AND shared (libstdc++.so.6,
+# libgcc_s.so.1), against tolibc, and install in the prefix; the seed
+# step puts the two shared ones in an image's /lib.
 #
 #   tools/build/build_toolchain.sh [--prefix DIR] [--sysroot DIR] [--jobs N] [--force]
 #
@@ -71,7 +73,7 @@ BINUTILS_CONF=(--target="$TARGET" --prefix="$PREFIX"
 GCC_CONF=(--target="$TARGET" --prefix="$PREFIX"
     --with-sysroot="$PREFIX/$TARGET/sysroot"
     --enable-languages=c,c++ --disable-nls --disable-werror --disable-multilib
-    --disable-shared --disable-lto --enable-threads=posix --enable-initfini-array
+    --enable-shared --disable-lto --enable-threads=posix --enable-initfini-array
     --disable-libstdcxx-pch --enable-libstdcxx-time=yes
     --disable-libssp --disable-libquadmath --disable-libgomp
     --disable-libatomic --disable-libsanitizer --disable-libvtv)

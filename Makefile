@@ -2363,6 +2363,14 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	    echo "seed: the native toolchain ($(NATIVE_TC)) goes in /usr"; \
 	    cp -r --preserve=links $(NATIVE_TC)/usr/. $(SEED_DIR)/sync/usr/; \
 	    cp $(SYSROOT)/usr/bin/sdl2-config $(SEED_DIR)/sync/usr/bin/; fi)
+	# The shared C++ runtime, when this checkout's cross toolchain has one
+	# (`make toolchain`) and NOGPL is off: /lib/libstdc++.so.6 and
+	# /lib/libgcc_s.so.1, which every C++ program it builds links by
+	# default, as on Linux (docs/cc-design.md, "A shared C++ runtime").
+	$(if $(NOGPL),@true,@if [ -f $(TOOLCHAIN)/x86_64-saunaos/lib/libstdc++.so.6 ]; then \
+	    echo "seed: the shared C++ runtime ($(TOOLCHAIN)) goes in /lib"; \
+	    cp -L $(TOOLCHAIN)/x86_64-saunaos/lib/libstdc++.so.6 $(TOOLCHAIN)/x86_64-saunaos/lib/libgcc_s.so.1 \
+	       $(SEED_DIR)/sync/lib/; fi)
 	# ScummVM, when this checkout built it (`make scummvm`) and NOGPL is
 	# off: /usr/bin/scummvm, /usr/share/scummvm, its licences. Its data
 	# directory is mirrored exactly, as /usr/bin is.

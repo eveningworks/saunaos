@@ -2569,6 +2569,31 @@ include/c++}`, beside the compiler that uses it, and `make sdk`'s tree
 stage 3, when a `g++` runs there: before that it is tens of MB of
 headers and archives nothing on the machine can read.
 
+## The C++ runtime is a shared library by default, as on Linux
+
+Chosen 2026-11-19. `x86_64-saunaos-g++` links `/lib/libstdc++.so.6` and
+`/lib/libgcc_s.so.1` unless told `-static-libstdc++ -static-libgcc` (or
+`-static`). Kept static, every C++ program carries its own copy of
+libstdc++ and its own unwinder. That costs about 0.7 MB a program, and a
+C++ plugin `dlopen()`ed into a C++ program brings a second runtime, with
+its own exception globals and its own `std::call_once` state. One shared
+runtime is what a large C++ port (a browser engine, Qt) assumes.
+
+- **One unwinder, `libgcc_s.so.1`**, which `libstdc++.so.6` names: a
+  throw crosses the program, the runtime and any C++ library through
+  one registry. The driver knows it exists only through `t-slibgcc` in
+  the target's tmake file (`toolchain/patches/gcc/0003`). Without it the
+  specs say `-lgcc`, which with a shared libgcc no longer holds the
+  unwinder.
+- **On the image only while the toolchain has it**: the seed step copies
+  both from the prefix into `/lib`, never under `NOGPL=1` (libstdc++ is
+  GPL-3 with the runtime exception, which a NOGPL image keeps out
+  anyway). A checkout without a toolchain builds no C++ program to need
+  them.
+- **The compiler on the machine stays `--disable-shared`.** It is linked
+  `-static` by design (`docs/cc-design.md`, stage 3), and a program it
+  builds links libstdc++ statically.
+
 ## The compiler links dynamically by default, and libgcc FINDS unwind tables through dl_iterate_phdr()
 
 **2026-11-17** (`docs/cc-design.md`, "Dynamic by default"; asked for by

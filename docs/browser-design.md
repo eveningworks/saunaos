@@ -60,9 +60,11 @@ also what every real embedded web view does (below), and it is stage
   GTK, Qt, Windows, AmigaOS, Atari, BeOS/Haiku, a bare framebuffer, and
   `monkey` -- a headless one driven by text commands that prints what
   it would draw, which is this plan's first test oracle.
-- **Why not the others.** Ladybird and litehtml are C++, and SaunaOS
-  builds no C++ (no runtime, no unwinder); either would first need a
-  C++ runtime port, a project of its own. Our own engine was weighed and
+- **Why not the others.** Ladybird and litehtml are C++, and in 2026-10
+  SaunaOS built no C++ (no runtime, no unwinder); either needed a C++
+  runtime port first. That port exists since 2026-11 (`docs/cc-design.md`:
+  GCC, libstdc++ shared as `/lib/libstdc++.so.6`), so the obstacle now is
+  each engine's own size and dependencies, not the language. Our own engine was weighed and
   set aside: parsing tag soup correctly (the HTML5 algorithm) and the
   CSS cascade are the parts that take years to get right, and NetSurf
   brings both plus CSS 2.1 layout and `display: flex` (3.11).

@@ -452,8 +452,8 @@ What building it found:
   `g++` there.
 - **Static only, at first** -- a dynamic C++ program came with
   "Dynamic by default" (below), its tables FOUND by libgcc rather than
-  registered. A C++ shared library is still a roadmap line: libstdc++.a
-  is built for an executable (local-exec TLS), not `-fpic`.
+  registered, and the runtime itself became a shared library with "A
+  shared C++ runtime" (below).
 
 ### Stage 3 -- binutils and GCC built to run ON SaunaOS
 
@@ -736,6 +736,38 @@ by SDL in the SDK (`docs/sdl-design.md`, stage 3): sdl2-compat `dlopen()`s
   and runs an SDL3 program with `pkg-config` and an SDL2 one with
   `sdl2-config`; `cross_gxx_test.py` runs its C++ program both ways, and
   its controls break the script each build links with.
+
+### A shared C++ runtime -- BUILT 2026-11-19
+
+`libstdc++.so.6` and `libgcc_s.so.1`, which a C++ program links by
+default, as on Linux; `-static-libstdc++ -static-libgcc` opts out, and
+`-static` still gives the old link. What it took:
+
+- **Thread-local storage in shared objects.** libstdc++ keeps its
+  exception globals and `call_once` state in `__thread` variables, and
+  `/lib/ld-toy.so` applied no TLS relocation until the loader commit
+  before this one (`docs/decisions/kernel.md`, "Shared libraries hold
+  thread-local data, with a DTV and blocks mapped on first use").
+- **No forced `-ftls-model`.** The specs used to force local-exec on a
+  program and initial-exec on `-fpic` code, because the loader had
+  nothing else. GCC's own choice now stands: local-exec for a program's
+  own variables, initial-exec for one a library defines (the C++
+  headers' `extern __thread __once_callable`), global-dynamic for `-fpic`.
+- **libtool knows `saunaos*`** (`toolchain/patches/gcc/0003`): an ELF
+  system with GNU ld in the four `case $host_os` tables of
+  `libstdc++-v3/configure`. An unknown OS gets `ld_shlibs_CXX=no` and
+  `dynamic_linker=no`, and both quietly turn the shared build off. libgcc
+  takes `t-slibgcc t-slibgcc-gld t-slibgcc-elf-ver`, Linux's fragments.
+- **On the image**: the seed step copies both libraries from the
+  toolchain prefix into `/lib` while the prefix has them, and never under
+  `NOGPL=1`. A checkout with no toolchain builds no C++ program to need
+  them.
+- **The compiler on the machine is unchanged**: stage 3 is configured
+  `--disable-shared`, so its `g++` links libstdc++ statically.
+- **Tests**: `cross_gxx_test.py` checks the default build's `NEEDED`
+  names both libraries and runs it, the `-static-libstdc++ -static-libgcc`
+  build and the `-static` one on a guest, each line for line against the
+  host's output, throws and all.
 
 ## What would make us stop
 

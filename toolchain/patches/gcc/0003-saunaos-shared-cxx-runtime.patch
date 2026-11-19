@@ -1,0 +1,109 @@
+Let libstdc++ and libgcc build shared on x86_64-saunaos: libtool's saunaos* cases (an ELF system with GNU ld), libgcc_s.so.1's makefile fragments and the driver's t-slibgcc (so its specs name it), crtbeginS.o/crtendS.o for a -shared link, and no forced -ftls-model in saunaos.h now that ld-toy applies every TLS model.
+
+--- a/libstdc++-v3/configure
++++ b/libstdc++-v3/configure
+@@ -6999,7 +6999,8 @@
+   ;;
+ 
+ # This must be Linux ELF.
+-linux* | k*bsd*-gnu | kopensolaris*-gnu | uclinuxfdpiceabi)
++# Changed for SaunaOS, 2026-11-19: saunaos* added, an ELF system with GNU ld.
++linux* | k*bsd*-gnu | kopensolaris*-gnu | uclinuxfdpiceabi | saunaos*)
+   lt_cv_deplibs_check_method=pass_all
+   ;;
+ 
+@@ -11953,7 +11954,8 @@
+ # project, but have not yet been accepted: they are GCC-local changes
+ # for the time being.  (See
+ # https://lists.gnu.org/archive/html/libtool-patches/2018-05/msg00000.html)
+-linux* | k*bsd*-gnu | kopensolaris*-gnu | gnu* | uclinuxfdpiceabi)
++# Changed for SaunaOS, 2026-11-19: saunaos* added.
++linux* | k*bsd*-gnu | kopensolaris*-gnu | gnu* | uclinuxfdpiceabi | saunaos*)
+   version_type=linux
+   need_lib_prefix=no
+   need_version=no
+@@ -13948,7 +13950,8 @@
+         inherit_rpath_CXX=yes
+         ;;
+ 
+-      linux* | k*bsd*-gnu | kopensolaris*-gnu)
++      # Changed for SaunaOS, 2026-11-19: saunaos* added.
++      linux* | k*bsd*-gnu | kopensolaris*-gnu | saunaos*)
+         case $cc_basename in
+           KCC*)
+ 	    # Kuck and Associates, Inc. (KAI) C++ Compiler
+@@ -15703,7 +15706,8 @@
+ # project, but have not yet been accepted: they are GCC-local changes
+ # for the time being.  (See
+ # https://lists.gnu.org/archive/html/libtool-patches/2018-05/msg00000.html)
+-linux* | k*bsd*-gnu | kopensolaris*-gnu | gnu* | uclinuxfdpiceabi)
++# Changed for SaunaOS, 2026-11-19: saunaos* added.
++linux* | k*bsd*-gnu | kopensolaris*-gnu | gnu* | uclinuxfdpiceabi | saunaos*)
+   version_type=linux
+   need_lib_prefix=no
+   need_version=no
+--- a/libgcc/config.host
++++ b/libgcc/config.host
+@@ -762,6 +762,9 @@
+ 	# threads are in libc.a, not a library a weak reference may miss;
+ 	# t-eh-dw2-dip (2026-11-17): tables found by dl_iterate_phdr().
+ 	tmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic t-gthr-noweak t-eh-dw2-dip"
++	# 2026-11-19: libgcc_s.so.1 too, Linux's shape, for libstdc++.so.6.
++	tmake_file="$tmake_file t-slibgcc t-slibgcc-gld t-slibgcc-elf-ver"
++	extra_parts="$extra_parts crtbeginS.o crtendS.o"
+ 	extra_parts="$extra_parts crtbegin.o crtend.o"
+ 	;;
+ i[34567]86-*-dragonfly*)
+--- a/gcc/config/saunaos.h
++++ b/gcc/config/saunaos.h
+@@ -45,8 +45,10 @@
+    a copy relocation.
+    -mstack-protector-guard=global: the canary is __stack_chk_guard in
+    stack_chk.o, not %fs:0x28 -- %fs is the TLS block crt0 installs.
+-   -ftls-model=local-exec for an executable; a -fpic object (a shared
+-   library) cannot assume the block its linker laid out.
++   No -ftls-model: GCC's own choice, as on Linux -- local-exec for a
++   program's own variables, initial-exec for one a library defines (the
++   C++ headers' extern __thread __once_callable), global-dynamic for -fpic
++   code; ld-toy applies all three (changed 2026-11-19).
+    The stack protector is on, as it is for every program in the tree.  */
+ #undef  CC1_SPEC
+ #define CC1_SPEC \
+@@ -55,8 +57,6 @@
+   "%{!mdirect-extern-access:%{!mno-direct-extern-access:" \
+     "-mno-direct-extern-access}} " \
+   "%{!mstack-protector-guard=*:-mstack-protector-guard=global} " \
+-  "%{!ftls-model=*:%{fpic|fPIC|shared:-ftls-model=initial-exec;" \
+-    ":-ftls-model=local-exec}} " \
+   "%{!fno-stack-protector:%{!fstack-protector*:-fstack-protector-strong}}"
+ 
+ /* Userland links above 4 GiB, where a GOTPCRELX relaxed to a 32-bit
+@@ -93,10 +93,14 @@
+    registers the unwind tables instead, and crt0.o defines
+    __dso_handle.  */
+ #undef  STARTFILE_SPEC
+-#define STARTFILE_SPEC "%{!shared:crt0.o%s}"
++#define STARTFILE_SPEC "%{shared:crtbeginS.o%s;:crt0.o%s}"
+ 
++/* A shared library takes crtbeginS.o/crtendS.o, as on Linux: its own
++   hidden __dso_handle (libstdc++.so's static destructors name it), and
++   PIC code that reaches the weak frame-registry calls through the GOT,
++   so the executable's reason above does not apply (2026-11-19).  */
+ #undef  ENDFILE_SPEC
+-#define ENDFILE_SPEC ""
++#define ENDFILE_SPEC "%{shared:crtendS.o%s}"
+ 
+ /* ONE GROUP, because libgcc and libc need each other in a static link:
+    libgcc's unwinder locks with pthread_mutex_lock(), which is in libc.a
+--- a/gcc/config.gcc
++++ b/gcc/config.gcc
+@@ -934,6 +934,9 @@
+   ;;
+ *-*-saunaos*)
+   # Changed for SaunaOS, 2026-11-08.
++  # 2026-11-19: t-slibgcc, so the driver knows libgcc_s.so.1 exists and
++  # its specs name it (-shared-libgcc, as Linux's do).
++  tmake_file="${tmake_file} t-slibgcc"
+   gas=yes
+   gnu_ld=yes
+   # tolibc ships no <stdint.h>; GCC's own is the only one.
