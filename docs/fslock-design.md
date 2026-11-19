@@ -389,8 +389,12 @@ time**, three ways: reads are served from the staged journal image
 (`vol_read_sectors`), any `txn_begin()` commits somebody else's pending
 work, and a directory growing commits mid-operation (`dirent_insert`).
 Getting any of those wrong loses writes that already reported success,
-with nothing logged. And every automated test here runs TCG, which
-serialises, so a missing lock passes the suite. The evidence has to be
+with nothing logged. And every automated test here runs TCG on ONE
+vCPU, where a missing lock races only with a preemption landing inside
+its window -- which TCG's timing rarely does -- so a missing lock passes
+the suite. (Multi-threaded TCG does run a `-smp` guest's cores in
+parallel, `docs/smp-design.md`'s testing section, but nothing boots
+`-smp` until SMP's stage 3.) The evidence has to be
 a KVM soak with a positive control that removes one lock and shows the
 soak failing -- `docs/smp-design.md`'s testing section is the shape.
 `tools/tests/manual/kvm_soak.py` is that soak, and its sensitivity is MEASURED: with

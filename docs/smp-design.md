@@ -87,20 +87,22 @@ futexes, swap, sandboxes and the image cache all arrived single-core.
 |---|---|---|
 | GDT, TSS, `kernel_stack0` | one of each (`kernel/arch/x86_64/gdt.c`) | `TSS.RSP0` is per CPU: two cores sharing one would land two ring-3 traps on one stack |
 | SYSCALL entry | `syscall_entry.asm` reads `gdt_tss.rsp0` and parks the user RSP in one scratch word, `syscall_user_rsp` | both per CPU: Linux's `swapgs` and per-CPU area are the shape. The MSRs (`STAR`/`LSTAR`/`FMASK`/`EFER.SCE`) are per core too and each AP must write them |
-| GS.base | **unused** -- user TLS is FS.base only (`kernel/arch/x86_64/tls.c`) | nothing to untangle: GS is free to become the per-CPU pointer, and `swapgs` has no user value to clobber |
+| GS.base | **unused** -- user TLS is FS.base only (`kernel/arch/x86_64/tls.c`) | GS is free to become the per-CPU pointer, with no user value to preserve. `swapgs` itself is NOT free: see stage 3's trap |
 | IDT | one, loaded once | shareable as-is -- the IDT is read-only to the CPU. Each core must still `lidt` it |
 | interrupt controller | DONE -- Local APIC + I/O APIC, MADT overrides applied (stage 2) | each AP enables its own LAPIC; IPIs are new code on the existing `lapic.c` |
 | timer | DONE for the BSP -- LAPIC timer behind `kernel/clockevent.h`, whose device struct already has `per_cpu` | each AP needs its own instance, calibrated or copied from the BSP's |
 | clocksource | the TSC, used only when CPUID says INVARIANT (`clocksource_tsc.c`) | invariant is necessary, not sufficient: TSCs across cores must also be checked for SYNC (Linux's `tsc_sync`), or time steps backwards on a migration |
-| "what is running" | `current_index` (140 refs, 8 files, all in `kernel/proc/` and `api/scheduler.h`), `rotation_pos` (14), `g_next_kernel_rsp` (21, 9 files, read by `isr.asm`'s epilogue), `kernel_saved_rsp` + `ROT_KERNEL` (the kernel's own rotation slot) | each has to become per CPU. Contained in `kernel/proc/` is the good news |
+| "what is running" | `current_index` (7 non-test files, all in `kernel/proc/` and `api/scheduler.h`), `rotation_pos` (14 refs), `g_next_kernel_rsp` (`kernel/proc/`, `arch/x86_64/idt.c`, `kernel/idt.h`, `drivers/ata.c`; `isr.asm` now takes its resume RSP back in `rax` from `isr_dispatch` and names it only in a comment), `kernel_saved_rsp` + `ROT_KERNEL` (the kernel's own rotation slot) | each has to become per CPU. Mostly in `kernel/proc/`; `g_next_kernel_rsp` reaches `idt.c` and `ata.c` too |
 | run queue | the process table, sized from RAM, scanned by `find_next_runnable()` (`kernel/proc/scheduler.c`) | correct under a lock; a per-core queue is a later optimisation, not a correctness fix |
 | preemption guard | `scheduler_preempt_disable()`: **73 sites in 24 files** (was 11 in 4) -- heap, klog, pipes, futex, sockets, tcp, shm, imgcache, sandbox, oom, vga, win_surface, usb, pci, tty, flock, module, kslots | turning preemption off on ONE core stops nothing on another. Every one is a critical section that needs a real lock |
 | interrupts off | `irq_save()`: **93 sites in 25 files**, not counted in 2026-08 | the same hole: `cli` excludes this core's IRQs only. These are the `spin_lock_irqsave` candidates |
 | sleeping locks | `kmutex` (`kernel/proc/kmutex.c`) and futexes exist; `kmutex`'s owner/depth/waiter state is guarded by `irq_save()` alone | its own state needs a spinlock inside, as Linux's `mutex` has `wait_lock` |
-| filesystem | one sleeping lock per MOUNT (`docs/fslock-design.md`), so two volumes are independent; inside one volume tfs3 is serialised by that lock | already a real lock -- survives the BKL as-is, and is the first subsystem that does |
+| filesystem | one sleeping lock per MOUNT (`docs/fslock-design.md`), a `kmutex`, so two volumes are independent; inside one volume tfs3 is serialised by that lock | the right SHAPE already, but only as safe as `kmutex` (the row above): it is fixed when `kmutex` gains its inner spinlock, with the 13 other non-test files that use one (block, ata, ahci, nvme, usb_storage, userfs, mmap, query...) |
 | kernel heap | one free list + bins (`kernel/lib/heap_core.c`), guarded through ONE hook pair, `heap_os_lock()`/`heap_os_unlock()` in `kernel/mm/heap_os.c` | the hook is the whole split: stage 7's first item is a spinlock in those two lines |
-| TLB invalidation | every `invlpg` is in `kernel/mm/vmm.c` (4 sites; `flush_if_live()` already says "a second CPU running this space needs an IPI here") | central, which makes stage 6 one function, not an audit |
+| physical frames | `kernel/mm/pmm.c`'s bitmap, zone counters and frame refcounts, guarded by `irq_save()` (8 sites, inside the 93 above) | the hottest allocator once several cores fault pages in and break COW at once: a double-handed frame puts one process's page in another's space. Its own spinlock, early in stage 7 -- or in stage 5 if the soak shows it first |
+| TLB invalidation | user mappings: `kernel/mm/vmm.c` (4 `invlpg`s and `flush_if_live()`, which tests only THIS core's CR3). Kernel mappings, which every core shares: `kernel/arch/x86_64/paging.c`, 9 CR3-reload `flush_tlb()` sites reached at runtime by module load/unload (`paging_set_kernel_exec()`), device mapping at driver bind (ahci, nvme, hda, xhci, virtio_pci, bochs, intel_display), write-combining retypes, and kernel-stack guard pages (`kstack.c`) | two places, not one: user shootdown needs a per-address-space record of which cores have it loaded (Linux's `mm_cpumask`); kernel changes go to EVERY core |
 | FPU | eager `fxsave`/`fxrstor` per switch (`kernel/arch/x86_64/fpu.c`) | per-thread already; each AP must run the CR0/CR4 FPU setup |
+| per-core CPU setup | done once, on the BSP: EFER.NXE (`boot.asm`), IA32_PAT (`pat_install_wc_slot()`), the variable MTRRs (`mtrr_apply()`), CR4.SMEP/SMAP (`paging_enable_smep_smap()`), all in `kernel/arch/x86_64/` | each is a per-core register. An AP without NXE takes a reserved-bit fault on its first NX kernel page (W^X marks all kernel data NX); a different PAT/MTRR gives the WC framebuffer conflicting memory types (undefined per the SDM); no SMEP/SMAP silently drops the protection. Each AP replays the BSP's values |
 | kernel debugger | clears CR0.WP to plant a breakpoint (`kernel/debug/`) | must stop the other cores first (stage 3) |
 | console | `vga.c`'s cursor and back buffer (under the preemption guard) | interleaved output, and a torn present |
 | ACPI | DONE -- tables and the MADT (`kernel/acpi/`) | -- |
@@ -126,13 +128,14 @@ working day of this project's usual size):
 | Stage | Size | Proven by | What a person sees |
 |---|---|---|---|
 | 3 -- APs up, parked | 1 session | TCG `-smp 4` + the ASUS: `lscpu` online count | `lscpu` / Task Manager list the cores; nothing else |
-| 4 -- ticket lock + BKL | 1-2 sessions | KVM soak with a positive control (drop the BKL on one path, soak goes red) | nothing -- user code may run on any core |
-| 5 -- scheduler per core | 1-2 sessions | KVM soak + the ring-3 suite under `-smp`; the ASUS | per-core load in Task Manager; a two-thread program uses two cores |
-| 6 -- TLB shootdown | 1 session | a KTEST: thread on core B reads a page core A unmapped, must fault | nothing (it must land WITH stage 5 for threaded programs) |
+| 4 -- ticket lock + BKL | 1-2 sessions | a KTEST with the APs contending for a ticket lock; the BKL taken on every entry, with its recursion assertion, on the BSP | nothing -- the APs are still parked |
+| 5 -- scheduler per core | 1-2 sessions | KVM soak with a positive control (drop the BKL on one path, soak goes red) + the ring-3 suite under `-smp`; the ASUS | per-core load in Task Manager; a two-thread program uses two cores |
+| 6 -- TLB shootdown | 1-2 sessions (user and kernel mappings) | a KTEST: thread on core B reads a page core A unmapped, must fault | nothing (it must land WITH stage 5) |
 | 7 -- split the lock | open-ended, per measurement | per split: soak + its own positive control | `make -j` and the compositor stop queueing on the BKL |
 
-**Stages 5 and 6 ship together** -- stage 5 alone lets two threads of one
-program run on two cores with no shootdown, which is a use-after-free of
+**Stages 5 and 6 ship together** -- stage 5 is the first stage that runs
+anything on an AP, and alone it lets two threads of one program run on
+two cores with no shootdown, which is a use-after-free of
 a page frame, not a slowdown.
 
 ### Stage 1 -- ACPI tables, read-only -- DONE 2026-08-30
@@ -220,7 +223,16 @@ Linux's `this_cpu_ptr`, NT's `KPRCB`. `swapgs` on kernel entry and exit
 is the part that must not be got wrong: it is why the kernel entry path,
 not the scheduler, is the first thing to change in this stage.
 
-`cpuinfo` now reports the APs as online, which is the whole test.
+`lscpu` now counts the APs as online, which is the whole test.
+
+**The trap: `swapgs` only on an entry FROM RING 3.** `isr_common` is
+entered from ring 0 too -- a fault or IRQ in kernel code, and an
+NMI/#DB/#MC landing in the SYSCALL window before its own `swapgs`.
+An unconditional `swapgs` there hands kernel code the USER GS, and the
+next per-CPU access goes to 0 or user memory. Test the saved CS's RPL
+on entry; NMI, #DB and #MC need Linux's "paranoid" entry (read
+MSR_GS_BASE, do not trust the RPL), and the `swapgs` branch needs the
+LFENCE CVE-2019-1125 added against speculating past it.
 
 **The kernel debugger must stop the APs from here on.** `kernel/debug/`
 clears CR0.WP to write a breakpoint and assumes nothing else runs while
@@ -234,8 +246,10 @@ array sized from the MADT, IPI send in `lapic.c`; changed --
 `gdt.c` (a GDT+TSS+RSP0 stack per core), `syscall_entry.asm` and
 `isr.asm` (`swapgs`, `syscall_user_rsp` into `struct cpu`), the
 clockevent registration (one LAPIC timer per core, held stopped), the
-kdebug roundup. The table above says GS.base is unused, so `swapgs` is
-additive. **No scheduler change**: APs halt, so `current_index` stays a
+kdebug roundup, and the AP's replay of the BSP's per-core CPU setup
+(NXE, PAT, MTRRs, SMEP/SMAP, the FPU's CR0/CR4 -- the table's row).
+GS.base is unused, so the per-CPU pointer displaces nothing, but every
+entry path gains the ring check above. **No scheduler change**: APs halt, so `current_index` stays a
 global this stage. One session; testable in TCG (`-smp 4`, `lscpu`
 says four online) and on the ASUS (2 cores, 4 threads).
 
@@ -252,8 +266,12 @@ also record the holder for a diagnostic, because the first SMP deadlock
 is otherwise a machine that simply stops.
 
 **One lock around the kernel.** Taken on every entry from ring 3 --
-syscall, fault, interrupt -- and released on the way out. User code runs
-on every core in parallel; kernel code does not.
+syscall, fault, interrupt -- and released on the way out. Once stage 5
+lets the APs schedule, user code runs on every core in parallel and
+kernel code does not. **In this stage the APs stay parked**: running
+user code on them needs a per-CPU `current` (stage 5) and a shootdown
+(stage 6). The lock is proven by a KTEST that wakes the APs to contend
+for a ticket lock, and by the BKL's recursion assertion on the BSP.
 
 The rule that makes this safe is the one it is easy to get wrong: **an
 interrupt handler must take the same lock**, or an IRQ on core B walks
@@ -265,8 +283,9 @@ discipline Linux and NT's IRQL both encode.
 **Under the BKL the 73 preemption-guard and 93 `irq_save()` sites stay
 correct** -- the lock makes kernel code single-threaded again -- so this
 stage converts none of them. It must still change two things that are
-not kernel-entry-shaped: `kmutex`'s internal state (a spinlock inside),
-and every sleeping path, which must DROP the BKL across the sleep and
+not kernel-entry-shaped: `kmutex`'s internal state (a spinlock inside
+-- which is what makes the per-mount fs lock and the other `kmutex`
+users safe, not the BKL), and every sleeping path, which must DROP the BKL across the sleep and
 retake it, as Linux 2.0's `schedule()` did. The lost-wakeup arguments in
 `scheduler_block_current()` and `sys_waitpid()` are where that bites.
 
@@ -293,17 +312,30 @@ routine -- unmapping a page needs every core that has it cached to
 invalidate it. An IPI to the cores running that address space, and a
 wait for their acknowledgement, before the frame is freed.
 
-The paths that change a live mapping, all in `kernel/mm/vmm.c` (counted
-2026-11-19): `vmm_unmap_user_page()` (window revocation, `munmap`
+**User mappings** -- the paths that change a live one, all in
+`kernel/mm/vmm.c` (counted 2026-11-19): `vmm_unmap_user_page()` (window revocation, `munmap`
 in `mm/mmap.c`, the sound driver's shared buffer),
 `vmm_release_user_page()`, `vmm_set_swap_entry()` (swap-out), and
 `vmm_protect_user_page()` behind `mprotect()` and fork's COW downgrade
 -- plus the poisoning of a dead client's mapping. Teardown is safe by
 construction (the address space has no runners left); the rest are not.
-**Every one ends in `vmm.c`'s own `invlpg` or its `flush_if_live()`**,
-so the shootdown replaces those few lines rather than being an audit
-of callers -- and `flush_if_live()` already asks whether its space is
-live, which becomes the "which cores" question.
+Every one ends in `vmm.c`'s own `invlpg` or its `flush_if_live()`, so
+the IPI goes in those few lines rather than at every caller. But
+**`flush_if_live()` cannot say WHICH cores**: it compares the space
+against this core's CR3 only (the "needs an IPI here" comment is at
+`vmm_protect_user_page()`'s call). The address space needs a set of the
+cores that have it loaded, set and cleared by `switch_to()` -- Linux's
+`mm_cpumask` -- and the shootdown targets that set.
+
+**Kernel mappings** -- shared by every core, so a change goes to ALL of
+them. `kernel/arch/x86_64/paging.c` reloads CR3 (`flush_tlb()`) after
+nine kinds of change; the ones reached after boot are module load and
+unload (`paging_set_kernel_exec()` from `core/module.c` -- an unloaded
+module's text left executable on another core is a W^X hole), a
+driver's `paging_map_device()` at bind, a write-combining retype, and
+`kstack.c`'s guard page (`paging_unmap_kernel_page()`). Linux's
+`flush_tlb_kernel_range()` is the shape. This is an audit of
+`paging.c`, not of `vmm.c`'s callers.
 
 ### Stage 7 -- split the lock, in measured order
 
@@ -347,7 +379,7 @@ speed. `tools/tests/manual/kvm_soak.py` is the existing shape to extend,
 and the stages have very different testability:
 
 - Stages 1-3 are testable under TCG, because "how many cores are online"
-  is a fact, not a race. `cpuinfo` reporting four online cores under
+  is a fact, not a race. `lscpu` counting four online cores under
   `-smp 4` is a real check.
 - Stages 4-7 are meaningfully testable under KVM with `-smp` (and,
   more weakly, multi-threaded TCG), under load, for minutes -- and the honest statement is that a soak test

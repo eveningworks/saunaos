@@ -41,8 +41,9 @@
 // elsewhere is not an oversight to copy.
 //
 // AND THE HONEST PART: none of this is testable here. Every automated
-// test runs under TCG, which serialises execution, so a build with
-// every barrier deleted passes identically. These are correctness by
+// test runs a ONE-vCPU guest under TCG on an x86 host, whose timing is
+// nothing like hardware's, so a build with every barrier deleted passes
+// identically. These are correctness by
 // ARGUMENT, not by test -- the same standing caveat paging.h carries
 // about write-combining, and for the same reason.
 //
