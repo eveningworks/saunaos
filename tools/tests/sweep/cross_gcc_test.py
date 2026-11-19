@@ -9,7 +9,10 @@ toolchain/patches/gcc/ -- so this compiles with none and checks they arrived.
 The default is a DYNAMIC program, as /bin's are; -static is the static one.
 Both are built and both run. Then SDL, through the SDK: an SDL3 program built
 with `pkg-config sdl3` and an SDL2 one with `sdl2-config`, each run on the
-guest under SDL's dummy video driver.
+guest under SDL's dummy video driver. Then GNU C's nested functions, whose
+address-taken trampolines run on the heap by default (libgcc flips the page
+RW/RX) and on the stack with -ftrampoline-impl=stack, in a program whose
+PT_GNU_STACK asks for it -- main thread, a second thread, 300 alive at once.
 
 WHAT A BROKEN VERSION WOULD STILL PASS, and what is asserted instead:
   - "it produced a binary" passes a link with no crt0 (the entry falls back
@@ -20,10 +23,14 @@ WHAT A BROKEN VERSION WOULD STILL PASS, and what is asserted instead:
     guest's output is compared LINE FOR LINE with the same source built by
     the host's plain gcc and run here -- printf, malloc, a struct passed by
     value, varargs, setjmp/longjmp, floating point, errno;
-  - "the defaults are right" passes a spec that dropped the global stack
+  - "the defaults are right" passes a spec that kept the old global stack
     guard and still links (libc.a has both symbols): a protected function's
-    assembly must read __stack_chk_guard, not %fs:40, and __saunaos__ must
-    be predefined where __linux__ is not.
+    assembly must read %fs:40, not __stack_chk_guard, and __saunaos__ must
+    be predefined where __linux__ is not;
+  - "a stack trampoline ran" passes a kernel that maps every stack
+    executable: the same program linked -z noexecstack must DIE before its
+    first nested call's line, and a library asking for an executable stack
+    must be refused by dlopen() in a program whose stack is not.
 
   python3 tools/tests/sweep/cross_gcc_test.py [--instance N] [--toolchain DIR]
   python3 tools/tests/sweep/cross_gcc_test.py --positive-control
@@ -55,6 +62,107 @@ BASE = 0x8000000000          # userland/libs/rt/link.ld, VMM_USER_BASE
 GUEST_BIN = "/tmp/cc_hello"
 GUEST_OUT = "/tmp/cc_hello.out"
 END = "cc_hello: done"
+NESTED_END = "cc_nested: done"
+
+# GNU C nested functions whose ADDRESS is taken -- each one a trampoline:
+# called through apply() and qsort(), in a second thread, and 300 alive at
+# once in deep()'s frames, more than one 4 KiB trampoline page holds.
+NESTED_PROGRAM = r"""
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+static void apply(int *v, int n, void (*fn)(int *)) { for (int i = 0; i < n; i++) fn(&v[i]); }
+
+static int run_once(int base) {
+    int total = 0;
+    void add(int *x) { *x += base; total += *x; }
+    int cmp(const void *a, const void *b) {
+        int d = *(const int *)b - *(const int *)a;
+        return base > 0 ? d : -d;
+    }
+    int v[4] = {1, 2, 3, 4};
+    apply(v, 4, add);
+    qsort(v, 4, sizeof *v, cmp);
+    printf("cc_nested: base %d -> %d %d %d %d total %d\n", base, v[0], v[1], v[2], v[3], total);
+    return total;
+}
+
+static int deep(int n) {
+    int me = n;
+    int get(void) { return me; }
+    int (*volatile fp)(void) = get;
+    return n == 0 ? fp() : fp() + deep(n - 1);
+}
+
+static void *thread_main(void *arg) { *(int *)arg = run_once(100); return 0; }
+
+int main(int argc, char **argv) {
+#ifdef __saunaos__
+    // Every promise but prot_exec: an executable stack goes with it.
+    if (argc > 1 && !strcmp(argv[1], "pledge") &&
+        pledge("stdio rpath wpath cpath shm publish proc inet window tty settings "
+               "settings_write query device admin diag", 0) != 0) {
+        printf("cc_nested: pledge failed\n");
+        return 1;
+    }
+#else
+    (void)argc; (void)argv;
+#endif
+    printf("cc_nested: start\n");
+    fflush(stdout);
+    run_once(10);
+    run_once(-5);
+    int r = 0;
+    pthread_t t;
+    if (pthread_create(&t, 0, thread_main, &r) || pthread_join(t, 0)) {
+        printf("cc_nested: no thread\n");
+        return 1;
+    }
+    printf("cc_nested: thread total %d\n", r);
+    printf("cc_nested: deep %d\n", deep(300));
+    printf("cc_nested: done\n");
+    return 0;
+}
+"""
+
+# A library whose one function takes a nested function's address, and a
+# program that dlopen()s it: the stack-trampoline build of the library
+# needs an executable stack, so it loads only into a program that has one.
+NESTED_LIB = r"""
+int lib_sum(int n) {
+    int acc = 0;
+    void add(int i) { acc += i; }
+    void (*volatile f)(int) = add;
+    for (int i = 1; i <= n; i++) f(i);
+    return acc;
+}
+"""
+# ...and one that NEEDS it: loaded at startup all the same, with a warning,
+# so it starts -- and its library's stack trampoline faults.
+NEEDED_PROGRAM = r"""
+#include <stdio.h>
+int lib_sum(int n);
+int main(void) {
+    printf("cc_nested: needed start\n");
+    fflush(stdout);
+    printf("cc_nested: needed %d\n", lib_sum(10));
+    return 0;
+}
+"""
+DLOPEN_PROGRAM = r"""
+#include <dlfcn.h>
+#include <stdio.h>
+int main(void) {
+    void *h = dlopen("/tmp/libnested.so", RTLD_NOW);
+    if (!h) { printf("cc_nested: dlopen refused: %s\n", dlerror()); return 0; }
+    int (*f)(int) = (int (*)(int))dlsym(h, "lib_sum");
+    printf("cc_nested: dlopen ok %d\n", f ? f(10) : -1);
+    return 0;
+}
+"""
 
 # No `0` flag on a float conversion: tolibc ignores it (docs/bugs.md), and
 # this test is about the compiler, not that.
@@ -193,7 +301,16 @@ def clean_lines(text):
     """The program's lines out of a `sh cat` reply, console chatter dropped."""
     return [ln.rstrip() for ln in text.splitlines()
             if ln.startswith(("cc_hello:", "malloc:", "realloc:", "struct:", "varargs:",
-                              "longjmp:", "float:", "snprintf:", "errno:", "cc_sdl:"))]
+                              "longjmp:", "float:", "snprintf:", "errno:", "cc_sdl:",
+                              "cc_nested:"))]
+
+
+def gnu_stack_flags(path):
+    """PT_GNU_STACK's p_flags (PF_X is 1), or None when there is none."""
+    for p in elf_facts(path)[2]:
+        if p[0] == 0x6474E551:
+            return p[1]
+    return None
 
 
 def main():
@@ -252,12 +369,13 @@ def run(args, gcc, tmp):
               "#define __saunaos__ 1" in macros and "__linux__" not in macros)
     asm = subprocess.run([gcc, *extra, "-O2", "-S", "-o", "-", "-x", "c", "-"],
                          input=GUARDED, capture_output=True, text=True)
-    res.check("a protected function reads the GLOBAL guard (__stack_chk_guard, not %fs:40)",
-              "__stack_chk_guard" in asm.stdout and "%fs:40" not in asm.stdout,
+    res.check("a protected function reads the TLS guard (%fs:40, not __stack_chk_guard)",
+              "%fs:40" in asm.stdout and "__stack_chk_guard" not in asm.stdout,
               asm.stderr.strip()[:300])
-    res.check("it is position-independent (-fpie: the guard through the GOT or %rip)",
-              "__stack_chk_guard@GOTPCREL(%rip)" in asm.stdout
-              or "__stack_chk_guard(%rip)" in asm.stdout)
+    nasm = subprocess.run([gcc, *extra, "-O2", "-S", "-o", "-", "-x", "c", "-"],
+                          input=NESTED_LIB, capture_output=True, text=True)
+    res.check("a nested function's trampoline is the HEAP one (__gcc_nested_func_ptr_created)",
+              "__gcc_nested_func_ptr_created" in nasm.stdout, nasm.stderr.strip()[:300])
 
     # 2. The build, with no flags at all -- dynamic -- and with -static.
     exes = {}
@@ -307,6 +425,58 @@ def run(args, gcc, tmp):
             want_so = "libSDL3.so.0" if name == "sdl3" else "libSDL2-2.0.so.0"
             res.check(f"...needing {want_so} from /lib", want_so in interp_and_needed(exe)[1])
 
+    # 2c. Nested functions: heap trampolines by default, stack ones on request.
+    nsrc = os.path.join(tmp, "nested.c")
+    with open(nsrc, "w") as f:
+        f.write(NESTED_PROGRAM)
+    nested = {}
+    for kind, flags in (("heap", []), ("heap -static", ["-static"]),
+                        ("stack", ["-ftrampoline-impl=stack"]),
+                        ("stack -static", ["-ftrampoline-impl=stack", "-static"]),
+                        ("stack -z noexecstack", ["-ftrampoline-impl=stack", "-Wl,-z,noexecstack"])):
+        exe = os.path.join(tmp, "nested-" + kind.replace(" ", "_"))
+        cc = subprocess.run([gcc, *extra, "-O2", *flags, nsrc, "-o", exe],
+                            capture_output=True, text=True)
+        if not res.check(f"nested functions ({kind}) link", cc.returncode == 0,
+                         (cc.stdout + cc.stderr).strip()[:600]):
+            continue
+        nested[kind] = exe
+        fl = gnu_stack_flags(exe)
+        want_x = kind in ("stack", "stack -static")
+        res.check(f"nested ({kind}): PT_GNU_STACK {'asks for' if want_x else 'does not ask for'} "
+                  f"an executable stack", fl is not None and bool(fl & 1) == want_x, f"p_flags={fl}")
+    lsrc, dsrc = os.path.join(tmp, "libnested.c"), os.path.join(tmp, "dl.c")
+    with open(lsrc, "w") as f:
+        f.write(NESTED_LIB)
+    with open(dsrc, "w") as f:
+        f.write(DLOPEN_PROGRAM)
+    lib = os.path.join(tmp, "libnested.so")
+    dl = {}
+    cc = subprocess.run([gcc, *extra, "-O2", "-shared", "-fpic", "-ftrampoline-impl=stack",
+                         lsrc, "-o", lib], capture_output=True, text=True)
+    if res.check("a -ftrampoline-impl=stack library links", cc.returncode == 0,
+                 (cc.stdout + cc.stderr).strip()[:600]):
+        for kind, flags in (("plain", []), ("-z execstack", ["-Wl,-z,execstack"])):
+            exe = os.path.join(tmp, "dl-" + kind.replace(" ", "_"))
+            cc = subprocess.run([gcc, *extra, "-O2", *flags, dsrc, "-o", exe],
+                                capture_output=True, text=True)
+            if res.check(f"the dlopen() program ({kind}) links", cc.returncode == 0,
+                         (cc.stdout + cc.stderr).strip()[:600]):
+                dl[kind] = exe
+        nsrc2 = os.path.join(tmp, "needed.c")
+        with open(nsrc2, "w") as f:
+            f.write(NEEDED_PROGRAM)
+        exe = os.path.join(tmp, "needed")
+        cc = subprocess.run([gcc, *extra, "-O2", nsrc2, "-o", exe, f"-L{tmp}", "-lnested"],
+                            capture_output=True, text=True)
+        if res.check("a program NEEDING it links", cc.returncode == 0,
+                     (cc.stdout + cc.stderr).strip()[:600]):
+            dl["needed"] = exe
+    host_nested = os.path.join(tmp, "nested-host")
+    subprocess.run(["gcc", "-O2", nsrc, "-o", host_nested, "-pthread"], check=True,
+                   capture_output=True)
+    want_nested = clean_lines(subprocess.run([host_nested], capture_output=True, text=True).stdout)
+
     # 3. The oracle: the same source, the host's plain gcc, run here.
     host_exe = os.path.join(tmp, "hello-host")
     subprocess.run(["gcc", "-O2", src, "-o", host_exe], check=True)
@@ -325,17 +495,20 @@ def run(args, gcc, tmp):
     if not res.check("the guest came up", "ready" in vm("start", timeout=300)):
         return res.finish("cross_gcc_test")
     try:
-        def run_on_guest(exe, end):
+        def run_on_guest(exe, end, wait=30, arg=""):
             out = vm("put", exe, GUEST_BIN)
             res.check(f"{os.path.basename(exe)} is copied in", "fail" not in out.lower(), out.strip()[:300])
             vm("exec", f"rm {GUEST_OUT}")
-            vm("exec", f"spawn /bin/tosh -c {GUEST_BIN} > {GUEST_OUT}")
+            if arg:
+                vm("exec", f'spawn /bin/tosh -c "{GUEST_BIN} {arg} > {GUEST_OUT}"')
+            else:
+                vm("exec", f"spawn /bin/tosh -c {GUEST_BIN} > {GUEST_OUT}")
 
             def read():
                 return clean_lines(vm("exec", f"cat {GUEST_OUT}"))
             # Wait on what is asserted: the program's LAST line in the file.
             return poll(lambda: (lambda lines: lines if any(end in ln for ln in lines) else None)(read()),
-                        30) or read()
+                        wait) or read()
 
         for kind, exe in exes.items():
             got = run_on_guest(exe, END)
@@ -346,6 +519,52 @@ def run(args, gcc, tmp):
                     for w, g in zip(want + [""] * pad, got + [""] * pad) if w != g]
             res.check(f"{kind}: its output matches the host build's, line for line ({len(want)} lines)",
                       got == want, "\n".join(diff)[:1500])
+        for kind, exe in nested.items():
+            if kind == "stack -z noexecstack":
+                # The control: started, then killed at its first stack trampoline.
+                got = run_on_guest(exe, NESTED_END, wait=10)
+                res.check("nested (-z noexecstack): the stack trampoline FAULTS -- the program "
+                          "starts and never reaches its first nested call's line",
+                          "cc_nested: start" in got and len(got) == 1, f"got {got}")
+                continue
+            got = run_on_guest(exe, NESTED_END)
+            res.check(f"nested ({kind}): its output matches the host build's, line for line "
+                      f"({len(want_nested)} lines)", got == want_nested,
+                      f"host {want_nested}\n    test {got}"[:1500])
+            if kind == "stack":
+                got = run_on_guest(exe, NESTED_END, wait=10, arg="pledge")
+                res.check("nested (stack), pledging away prot_exec: the stack is NX again -- "
+                          "it starts and faults at its first trampoline",
+                          got == ["cc_nested: start"], f"got {got}")
+        if dl:
+            out = vm("put", lib, "/tmp/libnested.so")
+            res.check("libnested.so is copied in", "fail" not in out.lower(), out.strip()[:300])
+            got = run_on_guest(dl["plain"], "cc_nested: dlopen") if "plain" in dl else []
+            res.check("dlopen() refuses the stack-trampoline library in a program whose "
+                      "stack is not executable",
+                      any("dlopen refused" in ln and "executable stack" in ln for ln in got), f"got {got}")
+            got = run_on_guest(dl["-z execstack"], "cc_nested: dlopen") if "-z execstack" in dl else []
+            res.check("...and loads it into one linked -z execstack, whose trampoline then runs",
+                      "cc_nested: dlopen ok 55" in got, f"got {got}")
+            if "needed" in dl:
+                vm("put", lib, "/lib/libnested.so")   # DT_NEEDED is looked up in /lib alone
+                vm("put", dl["needed"], GUEST_BIN)
+                vm("exec", f"rm {GUEST_OUT}")
+                # stderr too, which tosh cannot merge: a script for /bin/sh (dash),
+                # since the kernel shell would hand -c's quotes over as characters.
+                script = os.path.join(tmp, "run.sh")
+                with open(script, "w") as f:
+                    f.write(f"#!/bin/sh\n{GUEST_BIN} > {GUEST_OUT} 2>&1\n")
+                vm("put", script, "/tmp/run.sh")
+                vm("exec", "spawn /bin/sh /tmp/run.sh")
+                raw = poll(lambda: (lambda t: t if "needed start" in t else None)(
+                    vm("exec", f"cat {GUEST_OUT}")), 10) or vm("exec", f"cat {GUEST_OUT}")
+                res.check("a program NEEDING it starts, ld-toy warning that the library asks "
+                          "for an executable stack",
+                          "cc_nested: needed start" in raw and "ld-toy: /lib/libnested.so: needs an "
+                          "executable stack" in raw, raw.strip()[:600])
+                res.check("...and the library's stack trampoline faults (the stack stayed NX)",
+                          "cc_nested: needed 55" not in raw, raw.strip()[:600])
         for name, version in (("sdl3", "3."), ("sdl2", "2.")):
             if name not in sdl:
                 continue

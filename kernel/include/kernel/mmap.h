@@ -89,6 +89,11 @@ int mmap_clone_regions(struct sched_mm *dst, const struct sched_mm *src);
 // -errno (abi/syscall_abi.h, SYS_MPROTECT).
 int mmap_protect(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len,
                  uint32_t prot);
+// A process that gives up `prot_exec` gives up an executable stack with it
+// (sched_mm.exec_stack): the main stack's pages and every RWX region --
+// only sys_mmap's MAP_STACK exception can be one -- become RW, mapped and
+// yet to fault in alike. Takes the lock; nothing to do without exec_stack.
+void mmap_drop_exec_stack(struct sched_mm *mm, uint64_t pml4);
 // mmap_protect()'s refusals alone, nothing changed: 0 or -errno. Lock held.
 int mmap_protect_check(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len,
                        uint32_t prot);

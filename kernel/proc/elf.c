@@ -43,6 +43,7 @@ struct elf64_phdr {
 
 #define PT_LOAD    1
 #define PT_INTERP  3
+#define PT_GNU_STACK 0x6474e551
 #define ET_EXEC    2
 #define EM_X86_64  62
 #define ELFCLASS64 2
@@ -242,6 +243,7 @@ int elf_load_from(const struct elf_reader *r, uint64_t pml4_phys,
         out_dyn->interp[0] = 0;
         out_dyn->phoff = 0;
         out_dyn->phnum = 0;
+        out_dyn->exec_stack = 0;
     }
 
     // Before the header is READ, not after -- reading a header out of a
@@ -284,6 +286,11 @@ int elf_load_from(const struct elf_reader *r, uint64_t pml4_phys,
     // of the file, with no side effects to unwind.
     for (uint16_t i = 0; i < eh->e_phnum; i++) {
         const struct elf64_phdr *ph = &phdrs[i];
+
+        if (ph->p_type == PT_GNU_STACK) {
+            if (out_dyn && (ph->p_flags & PF_X)) out_dyn->exec_stack = 1;
+            continue;
+        }
 
         // A dynamic executable names its interpreter here. With no
         // out_dyn the caller cannot load one, and silently ignoring

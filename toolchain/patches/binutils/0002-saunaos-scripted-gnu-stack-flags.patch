@@ -1,0 +1,21 @@
+SaunaOS: the userland link scripts name their segments with PHDRS, and ld
+gave a scripted PT_GNU_STACK with no FLAGS() the flags 0, ignoring the
+inputs' .note.GNU-stack and -z execstack. It takes the computed stack flags
+now, as the default layout does, so a program built with stack trampolines
+says so to the kernel.
+
+--- a/bfd/elf.c
++++ b/bfd/elf.c
+@@ -6771,6 +6771,12 @@
+ 	}
+       else if (p->p_type == PT_GNU_STACK)
+ 	{
++	  /* Changed for SaunaOS, 2026-11-19: a linker script's PT_GNU_STACK
++	     with no FLAGS takes the flags the inputs' .note.GNU-stack and
++	     -z execstack/noexecstack decided, as the default layout's does,
++	     instead of 0.  */
++	  if (!m->p_flags_valid && elf_stack_flags (abfd))
++	    p->p_flags = elf_stack_flags (abfd);
+ 	  if (m->p_size_valid)
+ 	    p->p_memsz = m->p_size;
+ 	}

@@ -37,6 +37,7 @@ extern "C" {
 #define MAP_ANONYMOUS 0x20
 #define MAP_ANON      MAP_ANONYMOUS
 #define MAP_NORESERVE 0x4000 // accepted; every mapping is a reservation here
+#define MAP_STACK     0x20000 // a thread's stack; RWX only if the executable asked (PT_GNU_STACK)
 
 #define MAP_FAILED ((void *)-1)
 

@@ -311,7 +311,8 @@ typedef struct { Elf64_Word n_namesz, n_descsz, n_type; } Elf64_Nhdr;
 #define NT_GNU_PROPERTY_TYPE_0 5
 
 // What the kernel places after envp (abi/auxv.h has which of these
-// SaunaOS passes, and to which programs).
+// SaunaOS passes, and to which programs); <sys/auxv.h>'s getauxval()
+// reads them.
 typedef struct { uint64_t a_type; union { uint64_t a_val; } a_un; } Elf64_auxv_t;
 
 #define AT_NULL   0
@@ -324,6 +325,7 @@ typedef struct { uint64_t a_type; union { uint64_t a_val; } a_un; } Elf64_auxv_t
 #define AT_BASE   7
 #define AT_FLAGS  8
 #define AT_ENTRY  9
+#define AT_RANDOM 25 // 16 random bytes; the stack canary's seed
 
 #ifdef __cplusplus
 }

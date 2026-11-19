@@ -45,13 +45,14 @@ _Static_assert(COARSE_HZ == USER_HZ, "SYS_TICKS returns coarse_ticks()");
 static uint64_t g_heap_pml4 = 0;
 static struct sched_mm g_legacy_mm;
 
-void syscall_reset_mm(uint64_t pml4_phys, uint64_t image_end) {
+void syscall_reset_mm(uint64_t pml4_phys, uint64_t image_end, int exec_stack) {
     uint64_t heap_base = image_end > UADDR_HEAP_MIN_BASE
                               ? image_end : UADDR_HEAP_MIN_BASE;
     g_heap_pml4 = pml4_phys;
     g_legacy_mm.heap_base    = heap_base;
     g_legacy_mm.brk          = heap_base;
     g_legacy_mm.stack_bottom = UADDR_STACK_INIT_BOTTOM;
+    g_legacy_mm.exec_stack   = (uint8_t)exec_stack;
     g_legacy_mm.data_cur     = SYS_RLIM_INFINITY;
     g_legacy_mm.data_max     = SYS_RLIM_INFINITY;
 }
@@ -292,7 +293,7 @@ int sys_sbrk(struct syscall_ctx *c) {
 // Zeroed, because a fresh page carrying somebody else's data is both a
 // surprise to the program and a disclosure between processes. sbrk's
 // eager version zeroed too; nothing changes for a caller.
-static int map_zeroed_user_page(uint64_t pml4_phys, uint64_t page) {
+static int map_zeroed_user_page(uint64_t pml4_phys, uint64_t page, int exec) {
     uint64_t frame = pmm_alloc_user_frame();
     if (!frame) {
         oom_note();
@@ -302,7 +303,7 @@ static int map_zeroed_user_page(uint64_t pml4_phys, uint64_t page) {
 
     // Only where still absent: another thread's fault-in of this page may
     // have won while we allocated, and its page is the one in use.
-    int r = vmm_map_user_fresh(pml4_phys, page, frame, 1, 0, 0);
+    int r = vmm_map_user_fresh(pml4_phys, page, frame, 1, exec, 0);
     if (r != 1) pmm_free_frame(frame);
     return r != 0;
 }
@@ -319,7 +320,7 @@ static int map_zeroed_user_page(uint64_t pml4_phys, uint64_t page) {
 static int grow_stack(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) {
     while (mm->stack_bottom > page) {
         uint64_t next = mm->stack_bottom - 4096;
-        if (!map_zeroed_user_page(pml4_phys, next)) return 0;
+        if (!map_zeroed_user_page(pml4_phys, next, mm->exec_stack)) return 0;
         // Committed one page at a time, so a failure part way down
         // leaves a SHORTER stack that is still entirely mapped rather
         // than a bottom pointing at a page that was never allocated.
@@ -364,7 +365,7 @@ static int uheap_fault(uint64_t pml4_phys, uint64_t vaddr) {
     // answered with memory instead of a fault report.
     if (page < hp->heap_base || page >= hp->brk) return 0;
 
-    return map_zeroed_user_page(pml4_phys, page);
+    return map_zeroed_user_page(pml4_phys, page, 0);
 }
 
 void uheap_fault_init(void) { vmm_set_fault_handler(uheap_fault); }

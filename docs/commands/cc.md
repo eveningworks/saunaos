@@ -28,8 +28,11 @@ stack protector on; the toolkit is there to name (`-lui -lmedia -lnet
 -lbase`, in that order), and SDL as `-lSDL3` or `-lSDL2`
 (`pkg-config sdl3`, `sdl2-config --cflags --libs`). A program built here runs as `./name` or under
 `spawn`. No flag is needed for any of it, and the flags the tree passes
-by hand (`-fpie`, `-mno-direct-extern-access`,
-`-mstack-protector-guard=global`) are the defaults.
+by hand (`-fpie`, `-mno-direct-extern-access`) are the defaults, and
+the stack protector reads GCC's usual `%fs:0x28` guard, random per
+process. A GNU C nested function's trampoline goes on the heap
+(`-ftrampoline-impl=heap` is the default); `-ftrampoline-impl=stack`
+marks the program as needing an executable stack, which it then gets.
 
 ## What it deliberately does not do
 

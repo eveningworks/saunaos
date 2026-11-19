@@ -59,6 +59,14 @@ static int ld_u32(char *out, uint32_t v) {
     return n;
 }
 
+// One line on stderr, the program carrying on.
+static void warn(const char *what, const char *detail) {
+    ld_write("ld-toy: ");
+    ld_write(what);
+    if (detail) { ld_write(": "); ld_write(detail); }
+    ld_write("\n");
+}
+
 static void die(const char *what, const char *detail) {
     ld_write("ld-toy: ");
     ld_write(what);
@@ -112,6 +120,8 @@ struct rela64 { uint64_t r_offset, r_info; int64_t r_addend; };
 #define PT_LOAD    1
 #define PT_DYNAMIC 2
 #define PT_PHDR    6
+#define PT_GNU_STACK 0x6474e551
+#define PF_X       1
 
 #define DT_NULL     0
 #define DT_NEEDED   1
@@ -229,6 +239,9 @@ static int nobjs_now(void) { return __atomic_load_n(&g_nobjs, __ATOMIC_ACQUIRE);
 // answers NULL. `g_nonfatal` is set only while a dlopen is running,
 // which is single-threaded here.
 static char g_dlerr[192];
+static int  g_exec_stack;   // the executable's PT_GNU_STACK said PF_X
+static uint64_t g_canary;   // ldso_seed_canary()'s, for every thread's TCB
+extern uintptr_t __stack_chk_guard;
 static int  g_nonfatal;
 static int  g_reloc_failed;
 
@@ -402,6 +415,19 @@ static int load_object(const char *name) {
             hi = ALIGN_UP(ph[i].p_vaddr + ph[i].p_memsz);
     }
     if (lo >= hi || !dyn_vaddr) return close_fail(fd, "no loadable segments", path);
+    // A library that builds code on the stack runs only in a process whose
+    // stack is executable, which the EXECUTABLE decides at exec: nothing
+    // later may make a stack RWX. A dlopen() of one is refused (glibc
+    // 2.41's rule); one the program NEEDS still loads, said once on
+    // stderr -- the flag often means only an object with no
+    // .note.GNU-stack, and refusing would stop the program for it.
+    for (int i = 0; i < eh->e_phnum; i++) {
+        if (ph[i].p_type != PT_GNU_STACK || !(ph[i].p_flags & PF_X) || g_exec_stack) continue;
+        static const char why[] = "needs an executable stack (PT_GNU_STACK RWX), and "
+                                  "this program's is not -- rebuild it with -ftrampoline-impl=heap";
+        if (g_nonfatal) return close_fail(fd, why, path);
+        warn(path, why);
+    }
 
     void *resv = ld_mmap(0, hi - lo, SYS_PROT_READ,
                          SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
@@ -626,7 +652,8 @@ static int iterate_phdr(int (*cb)(struct ldso_phdr_info *, uint64_t, void *), vo
 
 // The TCB's words, rt/tls.c's 64 bytes: tp itself, the live DTV, the
 // arena's newest chunk and its free span, and the area's own length.
-enum { TCB_SELF, TCB_DTV, TCB_CHUNK, TCB_BUMP, TCB_END, TCB_AREA_LEN = 7, TCB_WORDS = 8 };
+enum { TCB_SELF = TCB_WORD_SELF, TCB_DTV = TCB_WORD_DTV, TCB_CHUNK, TCB_BUMP, TCB_END,
+       TCB_CANARY = TCB_WORD_CANARY, TCB_AREA_LEN = 7, TCB_WORDS = 8 };
 #define ARENA_CHUNK_MIN (4 * PAGE)   // a step, not a cap: a bigger block gets a bigger chunk
 
 static uint64_t g_tls_static;  // bytes of static TLS, a multiple of g_tls_align
@@ -722,6 +749,7 @@ static void *tls_alloc(void) {
         dtv[i + 1] = (uint64_t)(uintptr_t)block;          // the rest is zero already
     }
     tcb[TCB_SELF] = (uint64_t)(uintptr_t)tp;              // %fs:0 reads tp itself
+    tcb[TCB_CANARY] = g_canary;                           // %fs:0x28, every thread's
     tcb[TCB_DTV] = (uint64_t)(uintptr_t)dtv;
     tcb[TCB_AREA_LEN] = len;
     return tp;
@@ -938,6 +966,19 @@ static int dl_close(void *handle) { (void)handle; return 0; }
 
 static const char *dl_error(void) { return g_dlerr[0] ? g_dlerr : 0; }
 
+// THE CANARY, from AT_RANDOM, before anything instrumented runs: entry.asm
+// calls this first, so no frame alive across the change can fail its check.
+// The loader's own code compares against __stack_chk_guard (it runs
+// before any %fs exists); every thread's TCB gets the same value.
+__attribute__((no_stack_protector))
+void ldso_seed_canary(uint64_t *sp) {
+    uint64_t *p = sp + 1 + sp[0] + 1;   // past argv and its NULL
+    while (*p) p++;                     // past envp
+    g_canary = auxv_canary(p + 1);
+    if (!g_canary) g_canary = (uint64_t)__stack_chk_guard;   // no AT_RANDOM: the built-in one
+    __stack_chk_guard = (uintptr_t)g_canary;
+}
+
 uint64_t ldso_main(uint64_t *sp) {
     // The SysV block: argc, argv..., NULL, envp..., NULL, auxv pairs.
     uint64_t argc = sp[0];
@@ -960,6 +1001,7 @@ uint64_t ldso_main(uint64_t *sp) {
     struct dobj *exe = obj_append();   // row 0, in the static block
     ld_memset(exe, 0, sizeof *exe);
     for (uint64_t i = 0; i < at_phnum; i++) {
+        if (ph[i].p_type == PT_GNU_STACK && (ph[i].p_flags & PF_X)) g_exec_stack = 1;
         if (ph[i].p_type == PT_DYNAMIC)
             exe->dynamic = (const struct dyn64 *)(uintptr_t)ph[i].p_vaddr;
     }

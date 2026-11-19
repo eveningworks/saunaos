@@ -21,6 +21,9 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include "ldso_api.h"
+#include "auxv.h"     // auxv_get(): the walk ld-toy and rt make
+#include <errno.h>
+#include <sys/auxv.h>
 
 typedef void (*rt_init_fn)(int argc, char **argv, char **envp);
 typedef void (*rt_fini_fn)(void);
@@ -46,6 +49,16 @@ void __libc_start_init(int argc, char **argv, char **envp, const struct rt_initf
 
 static const struct rt_initfini *g_prog;
 
+// The vector after envp, found here because crt0 hands this envp before
+// main() can move `environ` (setenv may reallocate it).
+static const uint64_t *g_auxv;
+
+unsigned long getauxval(unsigned long type) {
+    uint64_t v = g_auxv && type != AT_NULL ? auxv_get(g_auxv, type) : 0;
+    if (!v) errno = ENOENT;
+    return (unsigned long)v;
+}
+
 static int loader_has(void) {
     return __ldso_api.magic == LDSO_API_MAGIC;
 }
@@ -57,6 +70,9 @@ static void run_fini(void) {
 
 void __libc_start_init(int argc, char **argv, char **envp, const struct rt_initfini *t) {
     g_prog = t;
+    char **e = envp;
+    while (e && *e) e++;
+    if (e) g_auxv = (const uint64_t *)(e + 1);
     // The first entry on the exit list, so it runs LAST. It cannot fail:
     // the first 32 entries need no allocation.
     atexit(run_fini);

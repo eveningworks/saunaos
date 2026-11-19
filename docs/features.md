@@ -177,8 +177,9 @@ executable range and is read-only, with CR0.WP set so ring 0 honours it.
 SMEP and SMAP wherever the CPU reports them, with kernel code reaching
 user memory only through copy helpers that go via the kernel's own map,
 so **EFLAGS.AC is never set anywhere** and there is no STAC/CLAC window.
-Guard pages below user stacks, thread stacks and kernel stacks, randomised stack
-canaries, heap red-zones behind a runtime switch, and **kernel ASLR** —
+Guard pages below user stacks, thread stacks and kernel stacks, stack
+canaries random per boot in the kernel and per exec in each program, W^X
+everywhere bar a stack a program's ELF asks to run, heap red-zones behind a runtime switch, and **kernel ASLR** —
 the kernel relocates itself to a random base at boot and patches ~7,400
 of its own absolute references. A mapping records whether it OWNS its
 frame, so teardown cannot hand back memory somebody else is still using,

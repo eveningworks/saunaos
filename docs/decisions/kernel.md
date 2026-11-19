@@ -2538,6 +2538,49 @@ are worth knowing if this is ever revisited:
   deliberate-crash test: inlining can silently move a compiler-inserted
   check somewhere your test's control flow never reaches.
 
+Ring 3 moved to GCC's default guard on 2026-11-19: "Ring 3's canary is
+GCC's default `%fs:0x28` guard, random per exec from `AT_RANDOM`" below.
+The kernel keeps everything above.
+
+## Ring 3's canary is GCC's default `%fs:0x28` guard, random per exec from `AT_RANDOM`
+
+Picked 2026-11-19, once TLS existed in ring 3. Until then every program
+compared against one compiled-in constant, `0x5A3CC5AA9900DEB1` in
+`rt/stack_chk.c` -- the same in every process on every machine, so a
+stack overflow's author knew the canary before writing the overflow.
+
+**What real systems do.** Linux puts 16 random bytes on a new process's
+stack and points `AT_RANDOM` at them; glibc's ld.so takes the canary
+from them, zeroes its low byte (a string copy stops at it rather than
+reading past it), stores it in the TCB at `%fs:0x28`, and
+`pthread_create()` copies it into each new thread's TCB. musl does the
+same and keeps a global `__stack_chk_guard` too. Windows' `/GS` keeps a
+cookie per image, set by the CRT at startup.
+
+**What SaunaOS does: musl's shape.**
+- **Every process gets an auxv now** (it was a dynamic executable's
+  alone), with `AT_RANDOM` and its 16 bytes from `krandom` above the
+  argument strings, fresh per exec (`elf_build_argv_on_stack()`). A fork
+  keeps its parent's canary, as on Linux.
+- **The canary is in both places code reads it**: TCB word 5
+  (`%fs:0x28`, `abi/ldso_api.h`'s `TCB_WORD_CANARY`) for code built with
+  GCC's default guard -- the Makefile's `USERLAND_CFLAGS` and the cross
+  compiler's specs now -- and `__stack_chk_guard` for the code that runs
+  before `%fs` exists (`rt/` and ld-toy stay
+  `-mstack-protector-guard=global`) and for programs built before the
+  default changed. ld-toy seeds it in `ldso_seed_canary()`, called from
+  its entry before `ldso_main()`; a program's `__rt_tls_init()` seeds it
+  from the same bytes, so the two agree. Both are `no_stack_protector`:
+  changing the guard under a live instrumented frame fails that frame's
+  check.
+- **`pthread_create()` copies the creating thread's `%fs:0x28`** into
+  the new TCB, glibc's `THREAD_COPY_STACK_GUARD`.
+
+Why not keep the global and only randomise it: the TLS guard is one
+`%fs`-relative load where the global under `-fpie
+-mno-direct-extern-access` is two (the GOT, then the value), and it is
+what code built by anyone else's GCC for x86-64 reads.
+
 ## NX landed in userspace first, and the default mapper is the non-executable one
 
 Milestone 2's "NX bit enforcement" and "W^X on kernel + userspace
@@ -6209,8 +6252,8 @@ Three constraints the build carries so the loader can stay ~400 lines:
   direct `lea` in static links, so static binaries pay nothing.
 
 The auxv is minimal on purpose (AT_PHDR/AT_PHENT/AT_PHNUM/AT_ENTRY,
-abi/auxv.h): only a dynamic executable gets one, and a static
-program's stack is byte-identical to what it always was. AT_PHDR
+abi/auxv.h): only a dynamic executable gets those -- every process has
+had an auxv with `AT_RANDOM` since 2026-11-19 (the canary's seed). AT_PHDR
 points into the mapped image -- link-dyn.ld's first segment carries
 FILEHDR PHDRS -- so the kernel copies nothing.
 
@@ -10408,6 +10451,68 @@ per-thread switch (Apple's `MAP_JIT` with `pthread_jit_write_protect_np`).
 
 `PROT_NONE` came later (2026-11-19): "`PROT_NONE` keeps the data, costs
 nothing until made accessible, and the arena is 64 TiB" below.
+
+The one exception came later the same day: "A nested function's
+trampoline goes on the heap, and an executable stack only when the
+executable asks" below.
+
+## A nested function's trampoline goes on the heap, and an executable stack only when the executable asks
+
+Picked 2026-11-19 (the maintainer chose BOTH halves). A GNU C nested
+function whose address is taken needs a trampoline -- a few instructions
+that load the static chain and jump -- and GCC writes it ON THE STACK,
+so it runs only where the stack is executable. Here no stack ever was,
+and four cases of the cc corpus died of it.
+
+**What real systems do.** Linux maps the stack executable when the
+program's `PT_GNU_STACK` asks for PF_X (and, on x86-64, still when the
+header is missing); glibc's `allocate_stack()` then maps thread stacks
+`PROT_EXEC` too, and glibc 2.41 refuses to `dlopen()` a library that
+asks, since nothing may make a running process's stacks executable
+after the fact. OpenBSD never maps an executable stack. GCC 14 added
+`-ftrampoline-impl=heap` for Apple silicon, which forbids one too: the
+compiler calls `__gcc_nested_func_ptr_created()`/`_deleted()` and libgcc
+keeps per-thread pages of trampolines.
+
+**What SaunaOS does: heap by default, Linux's opt-in behind it.**
+- **The cross compiler's specs default to `-ftrampoline-impl=heap`**
+  (`gcc/config/saunaos.h`, patch 0004), and libgcc builds
+  `heap-trampoline.c` for saunaos with one change: the page is mapped
+  `PROT_READ|PROT_EXEC` and flipped to `PROT_READ|PROT_WRITE` only while
+  a trampoline is written into it, since W^X refuses both at once (the
+  JIT's FLIP, above). Each page is its creating thread's
+  (`_Thread_local`), so only a signal handler on that thread could meet
+  it writable. GCC's caveat stands: a `longjmp` out of the frames that
+  made trampolines leaks their slots.
+- **`-ftrampoline-impl=stack` still works, where the EXECUTABLE asks.**
+  `PT_GNU_STACK` with PF_X makes the process's main stack RWX -- its
+  first pages and every page it grows by -- and every `MAP_STACK`
+  mapping it makes, which is how tolibc's `pthread_create()` asks for a
+  thread stack. Logged at exec (`spawn: PATH asks for an executable
+  stack`), the one place W^X is waived. A MISSING header means NX here,
+  where Linux says executable. **ld writes the header's flags into a
+  linker script's PHDRS only with binutils patch 0002**: the userland
+  scripts list their segments, and stock ld gives a scripted
+  PT_GNU_STACK with no `FLAGS()` the flags 0 whatever the objects'
+  `.note.GNU-stack` or `-z execstack` say -- so the tree's own programs,
+  linked by the host's ld, carry 0, which is NX.
+- **A library cannot ask.** `dlopen()` refuses one whose `PT_GNU_STACK`
+  has PF_X in a program whose stack is not executable (glibc 2.41's
+  rule), naming `-ftrampoline-impl=heap`; a program linked `-z
+  execstack` loads it. One the program NEEDS still loads, with a warning
+  on stderr: the flag is often only an assembly object with no
+  `.note.GNU-stack`, and refusing would stop the program for it -- a
+  real stack trampoline in it faults.
+- **`prot_exec` covers the stack.** Under a sandbox without it a
+  `MAP_STACK` mapping stays NX, and a pledge or a sandboxed spawn or exec
+  that gives it up makes the main stack and every RWX stack mapping NX
+  (`mmap_drop_exec_stack()`).
+
+Why both rather than heap alone: GCC on the machine (`make
+native-toolchain`) builds stack trampolines until it is rebuilt with the
+new specs, and code compiled elsewhere has them. Why heap first rather
+than Linux's way alone: an executable stack is the textbook target of a
+stack overflow, and W^X with one named exception is still W^X.
 
 ## `PROT_NONE` keeps the data, costs nothing until made accessible, and the arena is 64 TiB
 

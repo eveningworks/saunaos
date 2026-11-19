@@ -206,7 +206,9 @@ they need are what's left:
   `-fstack-protector-strong` is on for both the kernel and userland now,
   with `-mstack-protector-guard=global` (a fixed constant, not random --
   no entropy source exists yet, see `docs/decisions.md`) since there's
-  no TLS/FS-base infrastructure for GCC's default guard to read. A
+  no TLS/FS-base infrastructure for GCC's default guard to read. (The
+  kernel's has been random since krandom; ring 3's moved to `%fs:0x28`,
+  random per exec from `AT_RANDOM`, on 2026-11-19.) A
   canary violation is caught and reported, not silently corrupting the
   stack -- verified for real with a deliberate userland self-test
   (`run stack_smash_test`), not just "the kernel still boots".
@@ -2076,11 +2078,11 @@ save/restore (eager FXSAVE/FXRSTOR in `scheduler.c`), and malloc/free
 that is no longer single-process-only). What is left is the libc
 itself, staged in `docs/libc-design.md`.
 
-TLS (FS.base) is still absent, and is the reason
+The KERNEL has no TLS (FS.base), which is why
 `kernel/lib/stack_protector.c`'s stack-canary guard uses
 `-mstack-protector-guard=global` instead of GCC's normal TLS-based
 default -- confirmed directly, not theoretical, see
-`docs/decisions.md`. **It is NOT a libc prerequisite**, despite having
+`docs/decisions.md`. Ring 3 has TLS (2026-11-19) and GCC's default guard. **It is NOT a libc prerequisite**, despite having
 been listed as one: with no threads, `errno` is a global behind
 `__errno_location()`, which is what musl itself does.
 

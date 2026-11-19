@@ -21,13 +21,17 @@
 // Getting the size wrong does not fail: it silently shifts every
 // variable, and the neighbouring bytes are the TCB.
 //
-// The self-pointer at tp[0] is what makes `%fs:0` read tp itself. This
-// build never needs it -- the stack-protector guard is `global` here,
-// so nothing reads %fs:0x28 -- but it costs one store and it is what
-// any ported code expects to find.
+// The self-pointer at tp[0] is what makes `%fs:0` read tp itself, and
+// TCB word 5 is the stack-protector canary every instrumented function
+// reads at %fs:0x28 (abi/ldso_api.h's TCB_WORD_*).
+//
+// THIS FILE RUNS BEFORE %fs EXISTS, so rt/ is built with the `global`
+// guard (__stack_chk_guard), never GCC's default %fs:0x28 one: a TLS
+// guard read here would fault at address 0x28.
 #include "toyabi.h"
 #include "rt/sys.h"
 #include "ldso_api.h"
+#include "auxv.h"
 #include <stdint.h>
 
 // In a DYNAMIC program the loader has already installed the first
@@ -78,6 +82,8 @@ static uint64_t tls_block_size(void) {
 
 uint64_t rt_tls_size(void) { return tls_block_size() + TCB_SIZE; }
 
+extern uintptr_t __stack_chk_guard;   // rt/stack_chk.c, seeded by __rt_tls_init()
+
 void *rt_tls_install(void *mem) {
     uint64_t block = tls_block_size();
     char *base = (char *)mem;
@@ -88,6 +94,7 @@ void *rt_tls_install(void *mem) {
     for (uint64_t i = filesz; i < block; i++) base[i] = 0;
     for (int i = 0; i < TCB_SIZE; i++) tp[i] = 0;
     *(void **)tp = tp; // %fs:0 reads the thread pointer, as variant II says
+    ((uint64_t *)tp)[TCB_WORD_CANARY] = (uint64_t)__stack_chk_guard;   // %fs:0x28
     return tp;
 }
 
@@ -102,8 +109,23 @@ void *rt_tls_install(void *mem) {
 #define TLS_STATIC_MAX 1024
 static char g_main_tls[TLS_STATIC_MAX + TCB_SIZE] __attribute__((aligned(TLS_MAX_ALIGN)));
 
-void __rt_tls_init(void) {
-    if (rt_tls_by_loader()) return;
+// Called by crt0 before ANYTHING instrumented, with main()'s arguments
+// still in their registers: the guard changes here, so no protected frame
+// may be live across this call.
+__attribute__((no_stack_protector))
+void __rt_tls_init(int argc, char **argv, char **envp) {
+    (void)argc; (void)argv;
+    char **p = envp;
+    while (*p) p++;
+    uint64_t canary = auxv_canary((const uint64_t *)(p + 1));   // ld-toy's, too
+    if (canary) __stack_chk_guard = (uintptr_t)canary;
+    if (rt_tls_by_loader()) {
+        // ld-toy already put it in this thread's TCB; an older loader did not.
+        uint64_t *tcb;
+        __asm__ ("mov %%fs:0, %0" : "=r"(tcb));
+        tcb[TCB_WORD_CANARY] = (uint64_t)__stack_chk_guard;
+        return;
+    }
     if (__rt_tlsdesc.align > TLS_MAX_ALIGN) {
         static const char msg[] =
             "rt: this program's thread-local storage is aligned past 16\n";

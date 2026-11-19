@@ -6,12 +6,11 @@
 // -instrumented function references both implicitly. No header --
 // nothing else includes this file, it's link-time-only runtime support.
 //
-// A fixed guard value, not random -- same reasoning as the kernel's
-// (no entropy source exists yet, see docs/roadmap.md's kernel ASLR
-// item) -- deliberately a DIFFERENT constant from the kernel's own
-// __stack_chk_guard (kernel/lib/stack_protector.c) since these are
-// two entirely separate address spaces/binaries with no reason to
-// share a bit pattern.
+// The value below is a FALLBACK: rt/tls.c and ld-toy replace it at
+// startup from the kernel's AT_RANDOM, before anything instrumented runs,
+// and copy it into each thread's TCB at %fs:0x28, where code built with
+// GCC's default guard reads it. This symbol is what the `global` guard
+// reads -- rt/, ld-toy, and programs built before the default changed.
 //
 // Unlike the kernel (which has nowhere to hand control back to on a
 // genuinely fatal error), a userland stack-smash is just an ordinary

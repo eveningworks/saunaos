@@ -18,6 +18,7 @@
 #include "fs.h"            // FS_PATH_MAX
 #include "kpath_buf.h"     // kpath_get(): a path may not be a kernel local
 #include "heap.h"
+#include "mmap.h"         // mmap_drop_exec_stack(): prot_exec covers the stack
 #include "klog.h"
 #include "kfmt.h"
 #include "string.h"
@@ -218,6 +219,8 @@ int sys_pledge(struct syscall_ctx *c) {
         struct sandbox *sb = writable();
         if (!sb) rc = -ENOMEM;
         else sb->promises &= keep;
+        if (!rc && !(sb->promises & PROMISE_PROT_EXEC))
+            mmap_drop_exec_stack(scheduler_current_mm(), c->pml4);
     }
     c->regs[14] = (uint64_t)rc;
     return 0;

@@ -675,7 +675,9 @@ own, 1,681 torture, 3,464 libstdc++) and 513 skipped by their own
   directory renamed over an empty one cleared `random_device`,
   `std::stold`, `from_chars`, and five `std::filesystem` tests. **21
   remain named**: four nested-function trampolines on the
-  non-executable stack, 12 wide-character facets libstdc++ was built
+  non-executable stack (runnable since 2026-11-19: heap trampolines by
+  default, and an executable stack for a program whose `PT_GNU_STACK`
+  asks; the corpus not re-run), 12 wide-character facets libstdc++ was built
   without, `create_directories` (`..` resolves by name here), and four
   tests marked to fail that pass here as on glibc. **A full `--kvm` re-run
   on 2026-11-12 (409c3611, in two parts) failed exactly those 21**, every

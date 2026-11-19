@@ -90,7 +90,7 @@ _start:
     mov     rbx, rdi
     mov     r12, rsi
     mov     r13, rdx
-    call    __rt_tls_init
+    call    __rt_tls_init           ; (argc, argv, envp): the canary, then %fs
 
     ; PUBLISH envp AS `environ` BEFORE main() RUNS. r13 holds it
     ; (computed above as one slot past argv's NULL terminator), and this

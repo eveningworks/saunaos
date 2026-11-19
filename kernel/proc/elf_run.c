@@ -16,6 +16,8 @@
 #include "strace.h"
 #include "uaddr.h"
 #include "errno.h"
+#include "krandom.h"
+#include "auxv.h"
 // Reserved, never-written padding at the top of the argv page, so a
 // string landing near the end still has mapped bytes after it. 64 is
 // what FS_PATH_MAX used to be, kept as the margin it actually was.
@@ -105,9 +107,9 @@ size_t elf_argv_stack_bytes(const char *path, const char *argv, size_t argv_len,
     int envc = env_count(env);
     size_t env_bytes = 0;
     if (env) for (const char *e = env; *e; e += k_strlen(e) + 1) env_bytes += k_strlen(e) + 1;
-    return ARGV_TAIL_MARGIN + argv_bytes + env_bytes + 16
+    return ARGV_TAIL_MARGIN + AT_RANDOM_BYTES + argv_bytes + env_bytes + 16
          + 8 + (size_t)(argc + 1) * 8 + (size_t)(envc + 1) * 8
-         + (auxc ? (size_t)(auxc + 1) * 16 : 0);
+         + (size_t)(auxc + 2) * 16;   // the caller's, AT_RANDOM, AT_NULL
 }
 
 // Pages for the above, or 0 past a quarter of the stack's reach -- Linux's
@@ -184,6 +186,16 @@ int elf_build_argv_on_stack(const uint64_t *frames, int nframes, uint64_t stack_
     // has to be small relative to a page, which is the reason it is a
     // number of its own.
     uint64_t at = stack_vaddr + 4096 - ARGV_TAIL_MARGIN;
+
+    // AT_RANDOM's 16 bytes, above every string (where Linux puts them):
+    // the canary is seeded from these, so they are fresh per exec.
+    uint8_t seed[AT_RANDOM_BYTES];
+    krandom_bytes(seed, sizeof seed);
+    at -= AT_RANDOM_BYTES;
+    uint64_t random_va = at;
+    stack_put(frames, stack_vaddr, random_va, seed, sizeof seed);
+    k_memset(seed, 0, sizeof seed);
+
     uint64_t str_lo = at;
     if (!argv) {
         str_lo -= k_strlen(path) + 1;
@@ -192,7 +204,7 @@ int elf_build_argv_on_stack(const uint64_t *frames, int nframes, uint64_t stack_
     }
     if (env) for (const char *e = env; *e; e += k_strlen(e) + 1) str_lo -= k_strlen(e) + 1;
     size_t block_bytes = 8 + (size_t)(argc + 1) * 8 + (size_t)(envc + 1) * 8
-                       + (auxc ? (size_t)(auxc + 1) * 16 : 0);
+                       + (size_t)(auxc + 2) * 16;
     uint64_t block = (str_lo - block_bytes) & ~(uint64_t)15; // SysV: 16-aligned AT ENTRY
 
     // The strings, argv[0] highest, each pointer written as its string
@@ -240,10 +252,9 @@ int elf_build_argv_on_stack(const uint64_t *frames, int nframes, uint64_t stack_
     //                     NULL              (envp terminator)
     //
     // This is the standard layout a real crt0 expects, and userland/
-    // crt0.asm is what reads it. An auxv (abi/auxv.h) follows the envp
-    // terminator ONLY when the caller passed one -- i.e. only for a
-    // dynamic executable, whose interpreter is the one consumer. A
-    // static program's stack is byte-identical to what it always was.
+    // crt0.asm is what reads it. The auxv (abi/auxv.h) follows the envp
+    // terminator: the caller's entries (a dynamic executable's, for its
+    // interpreter), then AT_RANDOM, which every process gets.
     //
     // **RSP is 16-byte ALIGNED at entry**, per SysV. That is a change,
     // and the previous convention is worth recording because it looked
@@ -263,15 +274,16 @@ int elf_build_argv_on_stack(const uint64_t *frames, int nframes, uint64_t stack_
     // makes no assumption about a pushed return address and realigns
     // before calling main. So the entry point moving into crt0.asm is
     // exactly what makes the standard 16-alignment correct here.
-    if (auxc) {
-        uint64_t av = envp + 8 * (uint64_t)(envc + 1);
-        for (int i = 0; i < auxc; i++) {
-            stack_put64(frames, stack_vaddr, av + 16 * (uint64_t)i, auxv[i][0]);
-            stack_put64(frames, stack_vaddr, av + 16 * (uint64_t)i + 8, auxv[i][1]);
-        }
-        stack_put64(frames, stack_vaddr, av + 16 * (uint64_t)auxc, 0);     // AT_NULL
-        stack_put64(frames, stack_vaddr, av + 16 * (uint64_t)auxc + 8, 0);
+    uint64_t av = envp + 8 * (uint64_t)(envc + 1);
+    for (int i = 0; i < auxc; i++) {
+        stack_put64(frames, stack_vaddr, av + 16 * (uint64_t)i, auxv[i][0]);
+        stack_put64(frames, stack_vaddr, av + 16 * (uint64_t)i + 8, auxv[i][1]);
     }
+    av += 16 * (uint64_t)auxc;
+    stack_put64(frames, stack_vaddr, av, AT_RANDOM);
+    stack_put64(frames, stack_vaddr, av + 8, random_va);
+    stack_put64(frames, stack_vaddr, av + 16, 0);     // AT_NULL
+    stack_put64(frames, stack_vaddr, av + 24, 0);
 
     *out_argc = (uint64_t)argc;
     *out_argv = block + 8;     // &argv[0], for callers that want it
@@ -307,8 +319,15 @@ int elf_run_from_fs(const char *path, const char *args) {
     // `size` comes from fs_read() above and used to be discarded here;
     // it is what bounds every offset in the file. On failure the address
     // space is destroyed rather than leaked -- see elf.h.
-    int loaded = elf_load(elf_phys, size, as, &entry, &image_end, 0, &src);
+    // A dyn info so PT_GNU_STACK is heard; a PT_INTERP file stays refused
+    // below, as a NULL one would refuse it -- this loader loads one image.
+    struct elf_dyn_info dyn;
+    int loaded = elf_load(elf_phys, size, as, &entry, &image_end, &dyn, &src);
     kfree(data);   // segments and phdrs are in the address space now
+    if (loaded == 0 && dyn.interp[0]) {
+        klog_write(KLOG_ERR "elf: refused -- dynamic executable (PT_INTERP), use spawn\n");
+        loaded = -ENOEXEC;
+    }
     if (loaded < 0) {
         vga_write("run: "); vga_write(path);
         vga_write(loaded == -ENOMEM ? ": out of memory loading it\n" : " isn't a valid ELF64 executable\n");
@@ -328,7 +347,8 @@ int elf_run_from_fs(const char *path, const char *args) {
             vga_write("run: out of physical memory for the stack\n");
             return -1;
         }
-        if (!vmm_map_user_page(as, UADDR_STACK_VADDR - (uint64_t)pg * 4096, frame)) {
+        if (!vmm_map_user_page_flags(as, UADDR_STACK_VADDR - (uint64_t)pg * 4096, frame, 1,
+                                     dyn.exec_stack)) {
             vga_write("run: failed to map a stack page\n");
             return -1;
         }
@@ -342,7 +362,7 @@ int elf_run_from_fs(const char *path, const char *args) {
     // called it, for the one binary that needed SYS_SBRK) -- made
     // universal here so any /bin binary can use it, not just the ones
     // whose bespoke kernel-side loader remembered to arm it.
-    syscall_reset_mm(as, image_end);
+    syscall_reset_mm(as, image_end, dyn.exec_stack);
 
     // The string form is split HERE, into a vector the builder takes --
     // never longer than the path and the string it came from.

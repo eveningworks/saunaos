@@ -18,6 +18,14 @@
 // jumping through a null pointer.
 #define LDSO_API_MAGIC 0x4F534C44u // 'DLSO'
 
+// THE TCB WORDS both sides read (psABI variant II: tp = %fs.base, the
+// TCB at tp): the self pointer at %fs:0, the DTV at %fs:8, and the
+// stack-protector canary at %fs:0x28 -- an offset GCC's default guard
+// compiles into every instrumented function, so the compiler fixes it.
+#define TCB_WORD_SELF   0
+#define TCB_WORD_DTV    1
+#define TCB_WORD_CANARY 5
+
 // What dl_iterate_phdr() reports per loaded object: <link.h>'s
 // `struct dl_phdr_info`, field for field (glibc's layout, which libgcc
 // and libunwind read by offset). libc's dlfcn.c asserts the two agree;

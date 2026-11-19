@@ -2502,6 +2502,9 @@ struct openpty_msg {
 #define SYS_MAP_NORESERVE 0x4000 // accepted and changes nothing: every
                                  // mapping here is a reservation already,
                                  // its frames arriving on first touch
+#define SYS_MAP_STACK     0x20000 // a thread's stack: RWX when the process's
+                                  // executable asked for an executable stack
+                                  // (PT_GNU_STACK PF_X), else no change
 
 struct mmap_msg {
     uint64_t addr;   // 0 = kernel picks; else a hint (FIXED: a demand)

@@ -2473,6 +2473,9 @@ from the tree's is an ABI break nothing reports (a `%fs:40` canary
 against a libc whose guard is a global, a copy relocation against a libc
 that reaches data through the GOT). The specs are the one place GCC
 lets a target say that, and they travel with the driver to stage 3.
+(2026-11-19: the guard became GCC's default `%fs:0x28` in the tree and
+the specs alike, and `-ftrampoline-impl=heap` joined the defaults --
+docs/decisions/kernel.md has both.)
 `-fpie` is a CC1 default rather than `--enable-default-pie`, because the
 latter also makes the DRIVER pass `-pie`, and the kernel loads only
 `ET_EXEC`.

@@ -6,11 +6,14 @@ bits 64
 section .text
 global _start
 extern ldso_main
+extern ldso_seed_canary
 
 _start:
     mov rbx, rsp        ; callee-saved: survives ldso_main
     mov rdi, rsp        ; the SysV block: argc, argv, envp, auxv
     and rsp, -16
+    call ldso_seed_canary ; first: nothing instrumented is on the stack yet
+    mov rdi, rbx
     call ldso_main      ; returns the executable's entry point
     mov rsp, rbx
     jmp rax

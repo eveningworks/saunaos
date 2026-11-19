@@ -283,11 +283,13 @@ DISK_IMG = disk.img
 # (512GiB) and nothing in the address map moved (dynlink Stage 1).
 # The one thing that could not survive the switch was the *ABS* TLS
 # geometry symbols; they are data now (userland/libs/rt/link.ld's QUADs).
-# Same stack-canary flags as CFLAGS above, and the same reasoning --
-# see that comment. Every userland ELF needs userland/libs/rt/stack_chk.c's
-# __stack_chk_guard/__stack_chk_fail linked in (see USERLAND_RT below)
-# since GCC emits implicit references to both from any protected
-# function in any userland .c file.
+# The stack canary is GCC's default TLS guard, %fs:0x28 -- each thread's
+# TCB holds a copy, seeded from the kernel's AT_RANDOM (rt/tls.c). rt/ and
+# ld-toy run BEFORE %fs is set, so they keep the `global` guard, which
+# reads userland/libs/rt/stack_chk.c's __stack_chk_guard (the same value);
+# every userland ELF links that object for it and for __stack_chk_fail.
+USERLAND_GUARD = -mstack-protector-guard=tls
+$(BUILD)/userland/libs/rt/%.o $(BUILD)/userland/libs/ldso/%.o: USERLAND_GUARD = -mstack-protector-guard=global
 # NOTE the deliberate asymmetry with CFLAGS above: userland ELFs are
 # built WITHOUT -mno-mmx/-mno-sse/-mno-sse2, so ring-3 code gets real
 # hardware floating point and SSE. The kernel (and kernel/shell/, which is ring
@@ -299,7 +301,7 @@ DISK_IMG = disk.img
 # with SSE on, GCC emits XMM in ordinary code (struct copies, inlined
 # memcpy), so an FP-enabled kernel would need an FXSAVE on every
 # interrupt vector rather than only where the scheduler swaps processes.
-USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-protector-guard=global -fpie \
+USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong $(USERLAND_GUARD) -fpie \
                    -mno-direct-extern-access -Wa,-mrelax-relocations=no \
                    -mno-red-zone -mcmodel=small -ftls-model=local-exec \
                    -Wall -Wextra -Wframe-larger-than=2048 -O2 -g -c $(LIBC_INCLUDES) $(API_INCLUDES) -Iuserland -Iuserland/libs \
@@ -2065,6 +2067,11 @@ $(BUILD)/userland/tests/dyn_test.elf: $(BUILD)/userland/tests/dyn_test.o $(USERL
 # FIRST on purpose (the rule above libinit_a.so says why).
 $(BUILD)/userland/tests/initfini_dyn_test.elf: $(BUILD)/userland/tests/initfini_dyn_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO) $(BUILD)/lib/libinit_a.so $(BUILD)/lib/libinit_b.so $(LDSO)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(BUILD)/lib/libinit_a.so $(BUILD)/lib/libinit_b.so $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO)
+
+# /tests/canary_dyn_test: canary_test's probe in a DYNAMIC program, where
+# ld-toy seeds the canary (userland/tests/canary_probe.h).
+$(BUILD)/userland/tests/canary_dyn_test.elf: $(BUILD)/userland/tests/canary_dyn_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO)
 
 # /tests/tls_dyn_test: the executable reaches a library's variable with
 # `extern __thread`, which local-exec cannot name -- initial-exec, and the

@@ -24,7 +24,6 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first  *(`fork()`/`exec()`-style process model)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
 
@@ -231,7 +230,8 @@ only expensive part of it.
 - [x] ~~Copy-on-write page-fault handler~~ DONE 2026-09-11 -- `vmm_fault_in()` carries the error code; `copy_user()` un-shares too
 - [x] ~~`argv`/`envp` passed to a new process~~ DONE -- `SYS_SPAWN` takes both (an env BLOB), and crt0 lands on an argc/argv stack
 - [x] ~~Zombie reaping + parent PID tracking~~ DONE -- `ppid`, reparenting to init, and `waitpid(-1)`
-- [ ] **NEXT** A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first
+- [x] ~~A nested function's trampoline runs~~ DONE 2026-11-19 -- heap trampolines by default; `PT_GNU_STACK` PF_X honoured for executables
+- [ ] GCC on the machine rebuilt with the 2026-11-19 specs (heap trampolines, the `%fs:0x28` guard) -- `make native-toolchain`
 - [x] ~~`/dev/null`~~ DONE 2026-11-11 -- with `/dev/zero` and `/dev/[u]random`, found by name in `sys_open()`
 - [ ] A `/dev` that lists and `stat()`s -- the devices are names `sys_open()` knows, so `ls /dev` is empty and `stat("/dev/null")` ENOENT
 - [x] ~~tolibc's mutex, rwlock and stdio locks park on a futex~~ DONE 2026-11-16 -- one `rt/ulock.h` for every ring-3 lock, malloc's too
@@ -338,7 +338,7 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [ ] `madvise(MADV_DONTNEED)`, and `MAP_FIXED` over a reservation -- how a JS engine gives memory back (FIXED is -EEXIST)
 - [ ] Signal dispositions shared by a thread group, as POSIX has them -- per thread here, inherited at create
 - [ ] Audit every `scheduler_current_pid()` that decides a PERMISSION -- shared memory asked the thread, not the process, until 2026-10-13
-- [ ] GCC's default (`%fs:0x28`) stack-protector guard in ring 3, now that TLS exists
+- [x] ~~GCC's default (`%fs:0x28`) stack-protector guard in ring 3~~ DONE 2026-11-19 -- random per exec from `AT_RANDOM`, copied per thread
 - [x] ~~`mmap`-style anonymous memory for userspace~~ DONE 2026-08-28 -- see Phase 2's demand-paging items
 - [x] ~~Time syscalls (a monotonic clock and wall-clock read)~~ DONE -- `sys_monotonic_ns()` for intervals, `sys_gettime()` for wall clock
 - [x] ~~A consistent `errno`-style error convention~~ DONE -- it became its own milestone, "Error codes: a failed syscall says WHY"

@@ -68,11 +68,16 @@ struct elf_dyn_info {
                           // directory with no search path.
     uint64_t phoff;
     uint16_t phnum;
+    // PT_GNU_STACK asked for PF_X: the program builds code on its stack
+    // (a GCC nested function's stack trampoline). A missing header means
+    // NOT executable here, where Linux on x86-64 still says executable.
+    uint8_t  exec_stack;
 };
 
 // `out_dyn` may be NULL, and that is a POLICY, not a shortcut: a NULL
 // keeps the old behaviour -- a PT_INTERP file is REFUSED -- which is
-// what the legacy `run` loader must do (it cannot load a second image)
+// what the legacy `run` loader must do (it cannot load a second image;
+// it passes one to hear PT_GNU_STACK, and refuses PT_INTERP itself)
 // and what the interpreter load itself passes (an interpreter with an
 // interpreter is refused by construction, not by a depth counter).
 //

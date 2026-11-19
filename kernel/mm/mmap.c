@@ -265,14 +265,23 @@ int sys_mmap(struct syscall_ctx *c) {
         ret = -EFAULT; goto out;
     }
 
-    if ((ret = mmap_prot_check(m.prot)) != 0) goto out;
+    // A thread's stack in a process whose executable asked for an
+    // executable one is RWX, asked for as RW or as RWX (glibc's
+    // allocate_stack() asks RWX there) -- W^X waived because the ELF asked
+    // at exec. Never under a sandbox that gave up prot_exec.
+    int stack_x = (m.flags & SYS_MAP_STACK) && mm->exec_stack &&
+                  (m.flags & SYS_MAP_ANONYMOUS) && !(m.flags & SYS_MAP_SHARED) &&
+                  (m.prot & SYS_PROT_WRITE) && sandbox_allows(PROMISE_PROT_EXEC);
+    if ((ret = mmap_prot_check(stack_x ? m.prot & ~(uint32_t)SYS_PROT_EXEC : m.prot)) != 0)
+        goto out;
+    if (stack_x) m.prot |= SYS_PROT_EXEC;
     // Exactly one of PRIVATE/SHARED, and nothing this kernel does not
     // implement. SHARED is meaningful only over an shm object, which
     // the fd check below enforces.
     int shared = (m.flags & SYS_MAP_SHARED) != 0;
     if (shared == ((m.flags & SYS_MAP_PRIVATE) != 0) ||
         (m.flags & ~(SYS_MAP_SHARED | SYS_MAP_PRIVATE | SYS_MAP_FIXED |
-                     SYS_MAP_ANONYMOUS | SYS_MAP_NORESERVE))) {
+                     SYS_MAP_ANONYMOUS | SYS_MAP_NORESERVE | SYS_MAP_STACK))) {
         ret = -EINVAL; goto out;
     }
     if (shared && (m.flags & SYS_MAP_ANONYMOUS)) { ret = -EINVAL; goto out; }
@@ -886,6 +895,28 @@ int mmap_protect(struct sched_mm *mm, uint64_t pml4, uint64_t addr, uint64_t len
     }
     coalesce_at(mm, addr);
     return rc;
+}
+
+void mmap_drop_exec_stack(struct sched_mm *mm, uint64_t pml4) {
+    if (!mm || !mm->exec_stack) return;
+    mm_lock(mm);
+    mm->exec_stack = 0;     // first: a page grow_stack() adds from here is NX
+    for (uint64_t p = mm->stack_bottom; p <= UADDR_STACK_VADDR; p += 4096)
+        vmm_protect_user_page(pml4, p, 1, 0);
+    const uint8_t rwx = SYS_PROT_READ | SYS_PROT_WRITE | SYS_PROT_EXEC;
+    for (int i = 0; i < mm->region_cap; i++) {
+        struct mmap_region *r = &mm->regions[i];
+        if (!r->base || r->prot != rwx) continue;
+        r->prot = SYS_PROT_READ | SYS_PROT_WRITE;
+        uint64_t end = r->base + r->npages * 4096ULL;
+        for (uint64_t p = r->base; p < end; ) {
+            uint64_t n = vmm_user_skip_absent(pml4, p);
+            if (n != p) { p = n; continue; }
+            vmm_protect_user_page(pml4, p, 1, 0);
+            p += 4096;
+        }
+    }
+    mm_unlock(mm);
 }
 
 int sys_mprotect(struct syscall_ctx *c) {

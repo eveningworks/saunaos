@@ -191,6 +191,10 @@ TESTS = [
     # ring 3 is a user address. SPAWNED: each probe is a child. The
     # sigreturn probe is evidence under KVM (--kvm), not TCG.
     ("canon_test", None, None, None),
+    # The stack canary: random per exec (AT_RANDOM), the same at %fs:0x28,
+    # in __stack_chk_guard and in a second thread, static and dynamic.
+    # SPAWNED: children and a thread.
+    ("canary_test", None, None, None),
     # ...and a /tmp file past ramfs's largest size is refused: an 8 TiB
     # offset spun the kernel forever. SPAWNED: each probe is a child.
     ("bigoff_test", None, None, None),
@@ -680,6 +684,7 @@ EXCLUDED = [
     ("abortmsg_test",    "aborts on purpose; tools/tests/sweep/faulttest_run.py reads its report"),
     ("nx_test",          "faults on purpose (jumps into a data page) -- see faulttest_run.py"),
     ("stack_smash_test", "faults on purpose (trips the stack canary)"),
+    ("canary_dyn_test",  "canary_test's dynamic half: it spawns this and compares the line it prints"),
     ("stackovf_test",    "runs off the stack on purpose; the assertion is the KERNEL's "
                           "report, not an exit code -- see its own top comment"),
     ("write_bad_test",   "hands the kernel a bad pointer on purpose"),

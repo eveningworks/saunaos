@@ -40,6 +40,11 @@ PHDRS
     data     PT_LOAD FLAGS(6);
     tls      PT_TLS  FLAGS(4);
     eh_frame PT_GNU_EH_FRAME FLAGS(4);
+    /* No FLAGS: the cross toolchain's ld (binutils patch 0002) takes the
+       inputs' .note.GNU-stack and -z execstack, so a program built with
+       stack trampolines asks the kernel for an executable stack; any other
+       ld writes 0, which the kernel reads as NX. */
+    stack    PT_GNU_STACK;
 }
 
 SECTIONS

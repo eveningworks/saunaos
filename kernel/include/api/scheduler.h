@@ -420,6 +420,11 @@ struct sched_mm {
     // past UADDR_STACK_FLOOR.
     uint64_t stack_bottom;
 
+    // The executable's PT_GNU_STACK said PF_X: the main stack's pages and
+    // every MAP_STACK mapping are mapped writable AND executable, the
+    // one exception to W^X (elf.h's exec_stack). Inherited by fork.
+    uint8_t exec_stack;
+
     // SYS_MMAP's mappings, kernel/mm/mmap.c's to manage. NULL until the
     // first mmap; `region_cap` is how many slots are behind it, and a
     // free slot is one whose `base` is 0. See MMAP_REGIONS_INIT above

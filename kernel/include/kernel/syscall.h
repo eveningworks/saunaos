@@ -42,7 +42,7 @@ void syscall_dispatch(uint64_t *regs);
 // them had ever asked for memory.
 // `image_end` is where the loaded ELF ends (elf_load's out_image_end);
 // the heap starts there, or at UADDR_HEAP_MIN_BASE if that is higher.
-void syscall_reset_mm(uint64_t pml4_phys, uint64_t image_end);
+void syscall_reset_mm(uint64_t pml4_phys, uint64_t image_end, int exec_stack);
 
 // Frees everything a process privately owned once it's gone -- a normal
 // SYS_EXIT, or a ring-3 fault idt.c caught and is recovering from. Two

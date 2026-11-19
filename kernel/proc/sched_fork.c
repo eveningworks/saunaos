@@ -4,6 +4,7 @@
 
 #include "uaddr.h" // uaddr_is_user() -- a new thread's RIP, RSP and FS
 #include "sandbox.h"   // a child inherits it, at spawn and at fork
+#include "sandbox_abi.h" // PROMISE_PROT_EXEC: an executable stack needs it
 #include "sched_internal.h"
 #include "futex.h"
 #include "mmap.h"   // a fork's view of the mmap arena
@@ -187,7 +188,8 @@ static int load_file(const char *path, uint64_t fsz, uint64_t as, uint64_t *entr
 // held. `*out_image_end` is where the heap starts.
 static int build_elf_image_once(const char *path, const char *argvec, size_t argvec_len,
                                 const char *env, uint64_t *out_as, uint64_t *out_entry,
-                                uint64_t *out_rsp, uint64_t *out_image_end) {
+                                uint64_t *out_rsp, uint64_t *out_image_end,
+                                int *out_exec_stack) {
     uint64_t fsz = fs_size(path);
     if (fsz == 0) return fs_exists(path) ? -ENOEXEC : -ENOENT;   // empty, or not there
     uint64_t as = vmm_create_address_space();
@@ -259,7 +261,7 @@ static int build_elf_image_once(const char *path, const char *argvec, size_t arg
     for (int pg = 0; pg < npages; pg++) {
         uint64_t frame = pmm_alloc_user_frame();
         uint64_t va = UADDR_STACK_VADDR - (uint64_t)pg * 4096;
-        if (!frame || !vmm_map_user_page(as, va, frame)) {
+        if (!frame || !vmm_map_user_page_flags(as, va, frame, 1, dyn.exec_stack)) {
             // An unmapped frame is not the address space's to reclaim --
             // free it here, then let the address space take what IS mapped.
             if (frame) pmm_free_frame(frame);
@@ -288,6 +290,15 @@ static int build_elf_image_once(const char *path, const char *argvec, size_t arg
     *out_entry = entry;
     *out_rsp = user_rsp;
     *out_image_end = image_end;
+    *out_exec_stack = dyn.exec_stack;
+    // W^X's one exception, so it is said out loud -- once the image is
+    // built, and for the first few only, as the sandbox's refusals are.
+    static int exec_stack_logged;
+    if (dyn.exec_stack && exec_stack_logged < 8) {
+        exec_stack_logged++;
+        klog_printf("spawn: %s asks for an executable stack (PT_GNU_STACK RWX)%s\n", path,
+                    exec_stack_logged == 8 ? " -- not logged again this boot" : "");
+    }
     return 0;
 }
 
@@ -295,18 +306,20 @@ static int build_elf_image_once(const char *path, const char *argvec, size_t arg
 // and then the caller hears EAGAIN rather than getting a mixed image.
 static int build_elf_image(const char *path, const char *argvec, size_t argvec_len,
                            const char *env, uint64_t *out_as, uint64_t *out_entry,
-                           uint64_t *out_rsp, uint64_t *out_image_end) {
+                           uint64_t *out_rsp, uint64_t *out_image_end,
+                           int *out_exec_stack) {
     int rc = -EAGAIN;
     for (int tries = 0; tries < 3 && rc == -EAGAIN; tries++)
         rc = build_elf_image_once(path, argvec, argvec_len, env, out_as, out_entry,
-                                  out_rsp, out_image_end);
+                                  out_rsp, out_image_end, out_exec_stack);
     return rc;
 }
 
 int sched_test_build_image(const char *path, uint64_t *out_as) {
     uint64_t entry = 0, rsp = 0, end = 0;
+    int xs = 0;
     *out_as = 0;
-    return build_elf_image(path, 0, 0, 0, out_as, &entry, &rsp, &end);
+    return build_elf_image(path, 0, 0, 0, out_as, &entry, &rsp, &end, &xs);
 }
 
 void sched_test_drop_image(uint64_t as) {
@@ -321,7 +334,7 @@ void sched_test_drop_image(uint64_t as) {
 // stack has its initial working set, and no mmap region exists yet. A
 // recycled slot still holds its previous owner's regions, and the
 // frames behind them are long freed, so the wipe is load-bearing.
-static void mm_reset(int slot, uint64_t image_end, uint64_t user_rsp) {
+static void mm_reset(int slot, uint64_t image_end, uint64_t user_rsp, int exec_stack) {
     uint64_t heap_base = image_end > UADDR_HEAP_MIN_BASE
                               ? image_end : UADDR_HEAP_MIN_BASE;
     procs[slot].mm.heap_base    = heap_base;
@@ -331,6 +344,7 @@ static void mm_reset(int slot, uint64_t image_end, uint64_t user_rsp) {
     uint64_t rsp_page = user_rsp & ~4095ULL;
     procs[slot].mm.stack_bottom = user_rsp && rsp_page < UADDR_STACK_INIT_BOTTOM
                                       ? rsp_page : UADDR_STACK_INIT_BOTTOM;
+    procs[slot].mm.exec_stack = (uint8_t)exec_stack;
     procs[slot].mm.data_refused = 0;
     procs[slot].mm.abort_msg_va = 0;
     procs[slot].mm.abort_msg_len = 0;
@@ -347,7 +361,8 @@ static void mm_reset(int slot, uint64_t image_end, uint64_t user_rsp) {
 // 0, or a negative errno (build_elf_image()).
 static int build_image(const char *path, const char *argvec, size_t argvec_len,
                        const char *env, uint64_t *out_as, uint64_t *out_entry,
-                       uint64_t *out_rsp, uint64_t *out_image_end) {
+                       uint64_t *out_rsp, uint64_t *out_image_end,
+                       int *out_exec_stack) {
     char interp[SHEBANG_MAX_LINE], arg[SHEBANG_MAX_LINE];
     char *owned = 0;
 
@@ -369,7 +384,7 @@ static int build_image(const char *path, const char *argvec, size_t argvec_len,
     }
 
     int rc = build_elf_image(path, argvec, argvec_len, env,
-                             out_as, out_entry, out_rsp, out_image_end);
+                             out_as, out_entry, out_rsp, out_image_end, out_exec_stack);
     kfree(owned);
     return rc;
 }
@@ -400,7 +415,9 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     if (slot < 0) return -1;
 
     uint64_t as = 0, entry = 0, user_rsp = 0, image_end = 0;
-    if (build_image(path, argvec, argvec_len, env, &as, &entry, &user_rsp, &image_end) < 0) {
+    int exec_stack = 0;
+    if (build_image(path, argvec, argvec_len, env, &as, &entry, &user_rsp, &image_end,
+                    &exec_stack) < 0) {
         slot_unclaim(slot);
         return -1;
     }
@@ -537,7 +554,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     // The max() is belt and braces: elf_load() cannot report an end
     // below ELF_IMAGE_BASE, but a heap starting under the floor would be
     // a silent aliasing bug rather than a loud one.
-    mm_reset(slot, image_end, user_rsp);
+    mm_reset(slot, image_end, user_rsp, exec_stack);
     // The data limit is the spawner's, as setrlimit(2)'s are across
     // fork and exec; the kernel context spawns with none.
     {
@@ -559,6 +576,8 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     // NOTHING -- an empty promise set ends it at its first syscall.
     if (sandbox_for_child(&procs[slot].ext->sandbox) < 0)
         sandbox_lockout(&procs[slot].ext->sandbox);
+    if (!(sandbox_promises(procs[slot].ext->sandbox) & PROMISE_PROT_EXEC))
+        mmap_drop_exec_stack(&procs[slot].mm, as);   // the ELF asked; the sandbox says no
 
     // WHAT A REMOTE SESSION STARTS IS RECORDED, auditd's execve shape --
     // here rather than in sys_spawn() because every spawn funnels
@@ -840,7 +859,9 @@ int scheduler_exec(const char *path, const char *argvec, size_t argvec_len,
         return -EPERM;
     }
     uint64_t as = 0, entry = 0, user_rsp = 0, image_end = 0;
-    int brc = build_image(path, argvec, argvec_len, env, &as, &entry, &user_rsp, &image_end);
+    int exec_stack = 0;
+    int brc = build_image(path, argvec, argvec_len, env, &as, &entry, &user_rsp, &image_end,
+                          &exec_stack);
     if (brc < 0) return brc;   // ENOENT, ENOEXEC, ENOMEM, E2BIG -- never one for all
 
     uint64_t old = procs[me].pml4_phys;
@@ -868,7 +889,9 @@ int scheduler_exec(const char *path, const char *argvec, size_t argvec_len,
     arch_set_fs_base(0);            // this return does not go through switch_to()
     fpu_init_state(procs[me].fpu);
     fpu_restore(procs[me].fpu);     // ...so the CPU's state is loaded here too
-    mm_reset(me, image_end, user_rsp);
+    mm_reset(me, image_end, user_rsp, exec_stack);
+    if (!sandbox_allows(PROMISE_PROT_EXEC))
+        mmap_drop_exec_stack(&procs[me].mm, as);     // a sandbox outlives exec
     proc_name_from_path(procs[me].name, sizeof procs[me].name, path);
     k_strlcpy(procs[me].ext->exec_path, path ? path : "", sizeof procs[me].ext->exec_path);
     // REALTIME ENDS AT EXEC; nice is kept. Init grants RT to a PROGRAM

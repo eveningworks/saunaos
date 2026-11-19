@@ -1,0 +1,93 @@
+SaunaOS: a nested function's trampoline goes on the heap by default
+(-ftrampoline-impl=heap), in pages libgcc flips between RW and RX since
+W^X refuses both at once; and the stack protector's guard is GCC's
+default %fs:0x28, the TCB slot rt/tls.c and ld-toy seed from AT_RANDOM.
+
+--- a/gcc/config/saunaos.h
++++ b/gcc/config/saunaos.h
+@@ -43,20 +43,29 @@
+    fixed base (ET_EXEC; the kernel loads nothing else).
+    -mno-direct-extern-access: libc.a reaches data through the GOT, never
+    a copy relocation.
+-   -mstack-protector-guard=global: the canary is __stack_chk_guard in
+-   stack_chk.o, not %fs:0x28 -- %fs is the TLS block crt0 installs.
++   The stack protector's guard is GCC's default, %fs:0x28 -- each
++   thread's TCB holds the canary, seeded from AT_RANDOM.
++   -ftrampoline-impl=heap: a nested function's trampoline is written to
++   a page libgcc flips between writable and executable, because a stack
++   is executable here only when the program's PT_GNU_STACK asks (W^X);
++   -ftrampoline-impl=stack makes it ask.
+    No -ftls-model: GCC's own choice, as on Linux -- local-exec for a
+    program's own variables, initial-exec for one a library defines (the
+    C++ headers' extern __thread __once_callable), global-dynamic for -fpic
+    code; ld-toy applies all three (changed 2026-11-19).
+    The stack protector is on, as it is for every program in the tree.  */
++/* The canary at %fs:0x28 is TCB word 5 (abi/ldso_api.h), as glibc's is:
++   GCC's i386 backend picks the TLS guard only where this is defined, and
++   the global one otherwise.  */
++#define TARGET_THREAD_SSP_OFFSET 0x28
++
+ #undef  CC1_SPEC
+ #define CC1_SPEC \
+   "%{!fno-pic:%{!fno-PIC:%{!fpic:%{!fPIC:" \
+     "%{!fno-pie:%{!fno-PIE:%{!fpie:%{!fPIE:-fpie}}}}}}}} " \
+   "%{!mdirect-extern-access:%{!mno-direct-extern-access:" \
+     "-mno-direct-extern-access}} " \
+-  "%{!mstack-protector-guard=*:-mstack-protector-guard=global} " \
++  "%{!ftrampoline-impl=*:-ftrampoline-impl=heap} " \
+   "%{!fno-stack-protector:%{!fstack-protector*:-fstack-protector-strong}}"
+ 
+ /* Userland links above 4 GiB, where a GOTPCRELX relaxed to a 32-bit
+--- a/libgcc/config.host
++++ b/libgcc/config.host
+@@ -764,6 +764,8 @@
+ 	tmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic t-gthr-noweak t-eh-dw2-dip"
+ 	# 2026-11-19: libgcc_s.so.1 too, Linux's shape, for libstdc++.so.6.
+ 	tmake_file="$tmake_file t-slibgcc t-slibgcc-gld t-slibgcc-elf-ver"
++	# Heap trampolines, the compiler's default here (saunaos.h).
++	tmake_file="$tmake_file i386/t-heap-trampoline"
+ 	extra_parts="$extra_parts crtbeginS.o crtendS.o"
+ 	extra_parts="$extra_parts crtbegin.o crtend.o"
+ 	;;
+--- a/libgcc/config/i386/heap-trampoline.c
++++ b/libgcc/config/i386/heap-trampoline.c
+@@ -144,6 +144,12 @@
+ #if defined(__gnu_linux__)
+   page = mmap (0, getpagesize (), PROT_WRITE | PROT_EXEC,
+ 	       MAP_ANON | MAP_PRIVATE, 0, 0);
++#elif defined(__saunaos__)
++  /* Changed for SaunaOS, 2026-11-19: W^X refuses WRITE with EXEC, so the
++     page is executable and made writable only while a trampoline is
++     written into it (__gcc_nested_func_ptr_created).  */
++  page = mmap (0, getpagesize (), PROT_READ | PROT_EXEC,
++	       MAP_ANON | MAP_PRIVATE, -1, 0);
+ #elif __APPLE__
+ # if  __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101400
+   page = mmap (0, getpagesize (), PROT_WRITE | PROT_EXEC,
+@@ -206,6 +212,14 @@
+      https://developer.apple.com/documentation/apple-silicon/porting-just-in-time-compilers-to-apple-silicon) */
+   pthread_jit_write_protect_np (0);
+ #endif
++#if defined(__saunaos__)
++  /* The page is this thread's alone (tramp_ctrl_curr is _Thread_local),
++     so only a signal handler on this thread calling one of its
++     trampolines could meet it writable.  */
++  if (mprotect (tramp_ctrl_curr->trampolines, getpagesize (),
++		PROT_READ | PROT_WRITE) != 0)
++    abort ();
++#endif
+ 
+   memcpy (trampoline->insns, trampoline_insns,
+ 	  sizeof(trampoline_insns));
+@@ -222,6 +236,11 @@
+   /* Re-enable write protection.  */
+   pthread_jit_write_protect_np (1);
+ #endif
++#if defined(__saunaos__)
++  if (mprotect (tramp_ctrl_curr->trampolines, getpagesize (),
++		PROT_READ | PROT_EXEC) != 0)
++    abort ();
++#endif
+ 
+   tramp_ctrl_curr->free_trampolines -= 1;
+ 

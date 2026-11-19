@@ -22,8 +22,16 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   `sdl2-config`'s (`PKG_CONFIG_LIBDIR` the sysroot's), each needing its
   `/lib` library and each run on the guest under SDL's dummy driver to a
   window. It also asserts the defaults arrived: a
-  protected function reads `__stack_chk_guard` (not `%fs:40`) RIP-relative,
-  and `__saunaos__` is predefined where `__linux__` is not.
+  protected function reads `%fs:40` (not `__stack_chk_guard`), a nested
+  function's trampoline is the heap one, and `__saunaos__` is predefined
+  where `__linux__` is not. Nested functions run on the guest, matching the
+  host line for line: heap trampolines (dynamic, `-static`), stack ones in
+  a program whose `PT_GNU_STACK` asks (a second thread and 300 alive at
+  once included), and a `-z noexecstack` build of the same program must
+  FAULT at its first one, and so must the stack build once it pledges away
+  `prot_exec`; `dlopen()` refuses a stack-trampoline library unless the
+  program was linked `-z execstack`, and a program NEEDING it starts with
+  ld-toy's warning and faults in it.
   `--positive-control` links through a specs file with no startfile (the
   spec losing `crt0.o`) and must fail. A SKIP (77) without a toolchain
   (`needs: cross_gcc`); `TOOLCHAIN=`/`--toolchain` names another prefix,

@@ -142,7 +142,7 @@ int pthread_create(pthread_t *out, const pthread_attr_t *attr,
     stacksize = (stacksize + 4095) & ~(size_t)4095;
     size_t mapped = stacksize + PTHREAD_GUARD_SIZE;
     char *map = (char *)mmap(NULL, mapped, PROT_READ | PROT_WRITE,
-                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                             MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
     if (map == MAP_FAILED) { free(t); return EAGAIN; }
     if (mprotect(map, PTHREAD_GUARD_SIZE, PROT_NONE) != 0) {
         munmap(map, mapped); free(t); return EAGAIN;
