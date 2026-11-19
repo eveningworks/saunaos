@@ -1589,7 +1589,10 @@ measurement of what is single-core in the tree today.
 - [x] ~~Bring up application processors (INIT-SIPI-SIPI)~~ DONE 2026-11-19 -- stage 3, started and parked; `nosmp`, `maxcpus=`
 - [x] ~~Per-core GDT/IDT/stack~~ DONE 2026-11-19 -- `struct cpu` through GS.base, `swapgs` on every entry
 - [x] ~~A later memory-type change reaches every core, not only the BSP~~ DONE 2026-11-19 -- stage 4, replayed through the call IPI
-- [ ] Scheduler aware of multiple cores
+- [x] ~~Scheduler aware of multiple cores~~ DONE 2026-11-19 -- stage 5, behind `smp=run`; one run queue, an idle loop and tick per AP
+- [ ] Processes on every core by default -- flip `smp=run` after a KVM soak and the ASUS are clean
+- [ ] Per-core load in Task Manager and `lscpu` -- `struct cpu->busy_ns` is counted, nothing reads it
+- [ ] The kdebug stub stops every core, not only core 0 -- the roundup stage 5 deferred
 - [ ] Per-core run queues instead of one global table
 - [x] ~~Inter-processor interrupts (IPIs)~~ DONE 2026-11-19 -- stage 4, `smp_call()` on vector 0xFB
 - [x] ~~TLB shootdown on address-space changes~~ DONE 2026-11-19 -- stage 6, ahead of stage 5; vector 0xFD, a whole-space CR3 reload

@@ -100,6 +100,7 @@ ISR_NOERR i
 ; with no descriptor behind it is a #GP, and the spurious one arrives
 ; precisely when something has already gone slightly wrong.
 ISR_NOERR 251    ; SMP_CALL_VECTOR (smp.h)
+ISR_NOERR 252    ; SMP_SCHED_VECTOR (smp.h)
 ISR_NOERR 253    ; TLB_FLUSH_VECTOR (tlb.h)
 ISR_NOERR 255
 

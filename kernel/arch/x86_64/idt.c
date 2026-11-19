@@ -35,6 +35,7 @@
 #include "lockup.h" // lockup_nmi() -- the hard-lockup check's NMI
 #include "multiboot.h" // syscall_irq=off, read once at syscall_insn_init()
 #include "tlb.h"    // TLB_FLUSH_VECTOR, answered before anything shared
+#include "percpu.h" // a scheduling AP takes the ordinary path (smp=run)
 #include "oom.h"    // a #PF with no frame left goes to the OOM killer
 
 struct idt_entry {
@@ -87,6 +88,7 @@ extern void isr69(void);
 extern void isr70(void);
 extern void isr71(void);
 extern void isr251(void);   // SMP_CALL_VECTOR
+extern void isr252(void);   // SMP_SCHED_VECTOR
 extern void isr253(void);   // TLB_FLUSH_VECTOR
 extern void isr255(void);
 
@@ -234,6 +236,7 @@ void idt_init(void) {
     // one is a #GP on top of whatever already went wrong.
     idt_set_gate(LAPIC_SPURIOUS_VECTOR, isr255, 0, 0x8E);
     idt_set_gate(SMP_CALL_VECTOR, isr251, 0, 0x8E);
+    idt_set_gate(SMP_SCHED_VECTOR, isr252, 0, 0x8E);
     idt_set_gate(TLB_FLUSH_VECTOR, isr253, 0, 0x8E);
 
     // The DOUBLE FAULT gate runs on IST slot 1 (gdt.c's df_stack). It
@@ -477,6 +480,15 @@ static void isr_dispatch_body(uint64_t *regs) {
         // EOI here would clear an in-service bit belonging to whichever
         // line happened to be live, and the LAPIC's would stay set.
         lapic_dispatch_vector((uint8_t)vector, regs);
+    } else if (vector == SMP_SCHED_VECTOR) {
+        // An AP's tick or a reschedule IPI (smp.h). EOI first: the
+        // rotation may switch away and return here much later.
+        lapic_eoi();
+        if (spin_cpu_index() != 0) {
+            lapic_timer_rearm_here();   // a reschedule IPI restarts the slice timer too
+            scheduler_ap_event(regs);
+        }
+        else scheduler_trap_exit(regs);
     } else if (vector == LAPIC_SPURIOUS_VECTOR) {
         // BY ARCHITECTURE, NO EOI. The LAPIC did not set an in-service
         // bit for a spurious interrupt, so acknowledging one would
@@ -902,7 +914,18 @@ void isr_dispatch(uint64_t *regs) {
         tlb_service();
         return;
     }
-    if (spin_cpu_index() != 0) {   // an AP: nothing shared, not even g_isr_depth
+    // The call IPI reaches the BSP too once an AP may send one (smp=run);
+    // like the shootdown, its sender waits holding the kernel lock.
+    if (vector == SMP_CALL_VECTOR && spin_cpu_index() == 0) {
+        smp_ap_interrupt(vector);
+        return;
+    }
+    // An AP: a PARKED one touches nothing shared, not even g_isr_depth.
+    // One scheduling under smp=run takes the ordinary path, but for what
+    // takes no kernel lock -- the call IPI, and the paranoid vectors from
+    // ring 0 -- since g_isr_depth below is only the lock holder's to move.
+    if (spin_cpu_index() != 0 &&
+        (this_cpu()->state != CPU_RUNNING || !takes_bkl(regs))) {
         smp_ap_interrupt(vector);
         return;
     }

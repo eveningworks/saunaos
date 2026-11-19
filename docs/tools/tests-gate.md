@@ -68,6 +68,9 @@ it is saved.
   **`--kvm` boots the guest under KVM** (`vm.py --kvm`) -- the gate is
   TCG, and a race whose window depends on speed can be green there
   alone; the interrupts-in-syscalls soak ran the race tests both ways.
+  **`--cpus N` boots N vCPUs** (`vm.py --cpus`; default 1). On an image
+  built `KCMDLINE="smp=run"` the suite's programs then run on every core
+  -- one vCPU tests nothing of SMP stage 5, however the image was built.
   **`--transcript PATH` keeps every test's captured output, passed or
   not.** A `/tests` program's stdout and stderr go to the CONSOLE, which
   the harness reads over the debug console -- they are NOT on the serial

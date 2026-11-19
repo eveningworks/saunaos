@@ -35,7 +35,8 @@ KTEST("smp", "every core the firmware enabled is online") {
     for (int i = 1; i < smp_cpu_count(); i++) {
         const struct cpu *c = smp_cpu_at(i);
         KTEST_ASSERT(c && c->self == c);
-        KTEST_ASSERT_EQ(c->state, (uint32_t)CPU_PARKED);
+        // Scheduling under smp=run (smp_start_scheduling()), parked otherwise.
+        KTEST_ASSERT_EQ(c->state, (uint32_t)(smp_scheduling() ? CPU_RUNNING : CPU_PARKED));
         KTEST_ASSERT(smp_apic_online(c->apic_id));
     }
 }

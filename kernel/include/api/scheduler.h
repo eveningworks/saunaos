@@ -64,6 +64,9 @@ void scheduler_tick(uint64_t *regs);
 // and rotates if the slice is over.
 void scheduler_timer_event(uint64_t *regs, uint64_t now);
 
+// An AP's tick and reschedule IPI under smp=run: the rotation only.
+void scheduler_ap_event(uint64_t *regs);
+
 // The earliest thing the scheduler needs a timer event for -- a blocked
 // process's deadline, or the running slice's end when somebody else is
 // runnable -- as a clocksource_now_ns() value, or 0 for nothing.

@@ -93,6 +93,7 @@
 #include "sandbox.h"   // slot_free() drops the slot's reference
 #include "sched_internal.h"
 #include "bkl.h"
+#include "smp.h"      // smp=run: which core runs a slot, the reschedule IPI
 #include "lockup.h"  // lockup_idle()
 #include "vmm.h"
 #include "process.h" // process_context_is_armed() -- see kernel_slot_runnable()
@@ -296,10 +297,10 @@ void scheduler_set_init_pid(int pid) { g_init_pid = pid; }
 // When the CURRENT occupant of the CPU (a process, or the kernel
 // context when current_index is -1) started running, in clocksource
 // nanoseconds. bill_current() is the only thing that reads or moves it.
-static uint64_t g_run_start_ns = 0;
+#define g_run_start_ns (sched_here()->run_start_ns)   // per core
 
-int current_index = -1;    // -1 = kernel/shell in control, not
-                                    // a scheduler-managed process
+// current_index (sched_internal.h): the slot on THIS core, -1 for the
+// kernel context on the BSP or the idle loop on an AP.
 static int scheduler_armed = 0;
 static int kernel_saved_isr_depth = 0; // the kernel slot's isr_depth_get()
 static int kernel_preempt_depth = 0;   // and its scheduler_preempt_depth()
@@ -312,6 +313,12 @@ const struct kernel_context *scheduler_kernel_kctx(void) { return &kernel_kctx; 
 static uint64_t kernel_saved_rsp = 0; // refreshed every tick that finds
                                         // current_index == -1
 volatile int alive_count = 0;
+
+// On an AP (smp=run), "the kernel context" is that core's idle loop:
+// its own saved context and depths in struct cpu, never the BSP's
+// kernel_* above, and never a rotation participant (docs/smp-design.md,
+// stage 5 -- everything the kernel context does stays on the BSP).
+static int on_ap(void) { return spin_cpu_index() != 0; }
 
 // THE KERNEL CONTEXT AS A ROTATION PARTICIPANT
 // --------------------------------------------
@@ -342,7 +349,7 @@ volatile int alive_count = 0;
 // whenever a scheduler-managed process is NOT the thing running) --
 // syscall.c depends on that through scheduler_current_pid(), and
 // conflating the two would change every M8-M15 exit path.
-int rotation_pos = ROT_KERNEL;
+// rotation_pos is per core too (sched_internal.h).
 
 // --- thread groups ---------------------------------------------------
 //
@@ -574,7 +581,7 @@ void sched_class_reset(int slot, int parent) {
 // priority would preempt on every interrupt and give nothing back. A
 // SCHED_OTHER wake beside SCHED_OTHER is vruntime's business -- see
 // wake_slot() and wake_preempt().
-int g_need_resched;
+// g_need_resched: per core (sched_internal.h).
 
 static int is_rt(int idx) { return procs[idx].policy != SCHED_OTHER; }
 
@@ -585,8 +592,11 @@ static int running_rank(void) {
     return current_index >= 0 ? rank_of(current_index) : 0;
 }
 
+// An AP runs processes only: a kernel thread is kernel-context work,
+// which stays on the BSP (docs/smp-design.md, stage 5's picks).
 static int runnable_at(int idx) {
-    return procs[idx].state == SCHED_READY && !procs[idx].stopped;
+    return procs[idx].state == SCHED_READY && !procs[idx].stopped &&
+           !(procs[idx].kthread && on_ap());
 }
 
 // WHO RUNS NEXT WITHIN A LEVEL IS WHOEVER HAS RUN LEAST -- CFS's rule,
@@ -703,7 +713,7 @@ int find_next_runnable(int start) {
         int pos = (from + i) % npos;
         int idx = pos == MAX_PROCS ? ROT_KERNEL : pos;
         if (idx == ROT_KERNEL) {
-            if (!kernel_slot_runnable()) continue;
+            if (on_ap() || !kernel_slot_runnable()) continue;
             vr_place(ROT_KERNEL);   // idling left it behind: owed one slice, not the idle
         } else if (!runnable_at(idx) || is_rt(idx)) {
             // STOPPED IS CHECKED HERE AND NOWHERE ELSE (runnable_at()).
@@ -783,10 +793,49 @@ void scheduler_trace_dump(void) {
 // if a flood has already pushed the cause out of it.
 static int g_running_latched;
 
+// Which core runs slot `i`, or -1: RUNNING is one slot per core now.
+int sched_core_of(int i) {
+    for (int k = 0; k < smp_cpu_count(); k++) {
+        const struct cpu *c = smp_cpu_at(k);
+        if (c && c->sched_cur == i && (k == 0 || c->state == CPU_RUNNING)) return k;
+    }
+    return -1;
+}
+
+int sched_on_other_core(int i) {
+    if (procs[i].state != SCHED_RUNNING) return 0;
+    int k = sched_core_of(i);
+    return k >= 0 && k != (int)spin_cpu_index();
+}
+
+// smp=run: make core `k` reschedule now rather than at its next tick
+// (Linux's resched_curr() + its IPI). Under the kernel lock, so the
+// target is in ring 3 or idle and its fields are ours to write.
+void sched_kick_core(int k) {
+    if (k < 0 || k == (int)spin_cpu_index()) { if (k >= 0) g_need_resched = 1; return; }
+    struct cpu *c = (struct cpu *)smp_cpu_at(k);
+    if (!c || c->state != CPU_RUNNING) return;
+    c->sched_resched = 1;
+    smp_resched(k);
+}
+
+// A slot became runnable: an idle AP takes it now (smp=run only).
+static void kick_idle_core(int i) {
+    if (!smp_scheduling() || procs[i].kthread) return;
+    for (int k = 1; k < smp_cpu_count(); k++) {
+        const struct cpu *c = smp_cpu_at(k);
+        if (c && c->state == CPU_RUNNING && c->sched_cur < 0 && !c->sched_resched &&
+            k != (int)spin_cpu_index()) {
+            sched_kick_core(k);
+            return;
+        }
+    }
+}
+
 static void check_one_running(const char *where) {
     if (g_running_latched) return;
     for (int i = 0; i < MAX_PROCS; i++) {
-        if (procs[i].state != SCHED_RUNNING || i == current_index) continue;
+        if (procs[i].state != SCHED_RUNNING || sched_core_of(i) >= 0) continue;
         g_running_latched = 1;
         klog_printf("sched: INVARIANT at %s -- slot %d (pid %d, \"%s\") is RUNNING "
                     "while cur=%d (tgid=%d)\n", where, i, procs[i].pid, procs[i].name,
@@ -832,11 +881,31 @@ void proc_start_context(int slot, const uint64_t *tf) {
 // -1 is the kernel context, which is a rotation participant like any
 // other. An exiting process passes its own slot: the save is dead
 // state, but the switch still has to HAPPEN.
+static struct kernel_context *idle_kctx(void) {
+    return on_ap() ? &this_cpu()->idle_kctx : &kernel_kctx;
+}
 static struct kernel_context *kctx_of(int from) {
-    return from >= 0 ? &procs[from].kctx : &kernel_kctx;
+    return from >= 0 ? &procs[from].kctx : idle_kctx();
 }
 static int *isr_depth_of(int from) {
-    return from >= 0 ? &procs[from].isr_depth : &kernel_saved_isr_depth;
+    return from >= 0 ? &procs[from].isr_depth
+         : on_ap() ? &this_cpu()->idle_isr_depth : &kernel_saved_isr_depth;
+}
+static int *preempt_of(int from) {
+    return from >= 0 ? &procs[from].preempt_depth
+         : on_ap() ? &this_cpu()->idle_preempt_depth : &kernel_preempt_depth;
+}
+static int *bkl_of(int from) {
+    return from >= 0 ? &procs[from].bkl_depth
+         : on_ap() ? &this_cpu()->idle_bkl_depth : &kernel_bkl_depth;
+}
+static uint64_t *left_of(int from) {
+    return from >= 0 ? &procs[from].left_tsc
+         : on_ap() ? &this_cpu()->idle_left_tsc : &kernel_left_tsc;
+}
+static uint64_t *offcpu_of(int from) {
+    return from >= 0 ? &procs[from].offcpu_tsc
+         : on_ap() ? &this_cpu()->idle_offcpu_tsc : &kernel_offcpu_tsc;
 }
 
 // **THE CPU MOVES HERE, not in an epilogue.** process_context_save()
@@ -894,13 +963,11 @@ void sched_delay_woken(int slot) {
 }
 
 static void context_save_globals(int from) {
-    int *depth = isr_depth_of(from);
-    int *preempt = from >= 0 ? &procs[from].preempt_depth : &kernel_preempt_depth;
-    *depth = isr_depth_get();
-    *preempt = g_preempt_depth;
-    *(from >= 0 ? &procs[from].bkl_depth : &kernel_bkl_depth) = bkl_depth();
+    *isr_depth_of(from) = isr_depth_get();
+    *preempt_of(from) = g_preempt_depth;
+    *bkl_of(from) = bkl_depth();
     uint64_t now = arch_rdtsc();
-    *(from >= 0 ? &procs[from].left_tsc : &kernel_left_tsc) = now;
+    *left_of(from) = now;
     if (from >= 0) {
         procs[from].delay_why = delay_why_leaving(&procs[from]);
         procs[from].delay_mark = now;   // the same read: accounting costs no clock
@@ -908,11 +975,11 @@ static void context_save_globals(int from) {
 }
 
 static void context_load_globals(int to) {
-    isr_depth_set(to >= 0 ? procs[to].isr_depth : kernel_saved_isr_depth);
-    g_preempt_depth = to >= 0 ? procs[to].preempt_depth : kernel_preempt_depth;
-    bkl_load_depth(to >= 0 ? procs[to].bkl_depth : kernel_bkl_depth);
-    uint64_t *left = to >= 0 ? &procs[to].left_tsc : &kernel_left_tsc;
-    uint64_t *off  = to >= 0 ? &procs[to].offcpu_tsc : &kernel_offcpu_tsc;
+    isr_depth_set(*isr_depth_of(to));
+    g_preempt_depth = *preempt_of(to);
+    bkl_load_depth(*bkl_of(to));
+    uint64_t *left = left_of(to);
+    uint64_t *off  = offcpu_of(to);
     uint64_t now = arch_rdtsc();
     if (*left && now > *left) *off += now - *left;
     *left = 0;
@@ -920,7 +987,7 @@ static void context_load_globals(int to) {
 }
 
 uint64_t scheduler_offcpu_tsc(void) {
-    return current_index >= 0 ? procs[current_index].offcpu_tsc : kernel_offcpu_tsc;
+    return *offcpu_of(current_index);
 }
 
 // THE TIME SLICE IS A DEADLINE, NOT A TICK COUNT (kernel.timeslice_ms).
@@ -929,7 +996,8 @@ uint64_t scheduler_offcpu_tsc(void) {
 // once a tick, so a slice shorter than a tick is a tick -- which at the
 // old 100 Hz is exactly the rotate-every-tick this replaced.
 static uint32_t g_timeslice_ms = SCHED_TIMESLICE_DEFAULT_MS;
-static uint64_t g_slice_start_ns, g_slice_end_ns;
+#define g_slice_start_ns (sched_here()->slice_start_ns)   // per core
+#define g_slice_end_ns   (sched_here()->slice_end_ns)
 
 static void slice_restart(void) {
     g_slice_start_ns = clocksource_now_ns();
@@ -965,6 +1033,7 @@ static void wake_preempt(int i) {
     if (is_rt(i)) procs[i].rt_seq = ++g_rt_seq;            // the back of its queue
     else vr_place(i);
     if (current_index < 0 && clockevent_in_idle()) return; // the idle path hands over already
+    if (current_index < 0 && on_ap()) return;             // an idle AP takes it at its next event
     if (rank_of(i) > running_rank()) { g_need_resched = 1; return; }
     if (is_rt(i) || running_rank() > 0) return;            // equal RT waits; fair never beats RT
     if (!vr_behind_running(i)) return;                     // it has had its share
@@ -1075,7 +1144,9 @@ void switch_to(int from, int idx) {
     current_index = idx;
     rotation_pos = idx;
     slice_restart();
-    clockevent_reprogram();   // a new slice, and the tick back if it was stopped
+    // A new slice, and the tick back if it was stopped. An AP's tick is
+    // its own periodic LAPIC timer (smp.c), not the clockevent.
+    if (!on_ap()) clockevent_reprogram();
     process_context_restore_noirq(&procs[idx].kctx, 1);
 }
 
@@ -1095,9 +1166,9 @@ void switch_to_kernel(int from) {
     // (scheduler.h): a process run by elf_run.c has no slot to keep one
     // in, and without this the last scheduled thread's %fs would still
     // be loaded when it resumed.
-    arch_set_fs_base(kernel_fs_base);
+    arch_set_fs_base(on_ap() ? 0 : kernel_fs_base);
     slice_restart();
-    clockevent_reprogram();
+    if (!on_ap()) clockevent_reprogram();
     // ALREADY THE KERNEL -- the overwhelmingly common case, since a tick
     // with nothing spawned lands here every time. It used to nominate
     // the frame the tick had just captured, which was a no-op by a
@@ -1109,9 +1180,9 @@ void switch_to_kernel(int from) {
     // context has ever been left -- and a restore then jumps to 0.
     // Measured not to fire under the interrupt gate; kept because the
     // fallback is genuinely unguarded.
-    if (!kernel_kctx.rip) {
-        klog_printf("KERNEL SLOT HAS NO SAVED CONTEXT (armed=%d)\n",
-                    process_context_is_armed());
+    if (!idle_kctx()->rip) {
+        klog_printf("KERNEL SLOT HAS NO SAVED CONTEXT (armed=%d, core %u)\n",
+                    process_context_is_armed(), spin_cpu_index());
         vga_printf("\nKERNEL SLOT HAS NO SAVED CONTEXT (armed=%d)\n",
                    process_context_is_armed());
         __asm__ volatile ("ud2");
@@ -1119,7 +1190,7 @@ void switch_to_kernel(int from) {
     if (process_context_save(&procs[was].kctx) != 0) return; // resumed: back
     context_save_globals(was);
     context_load_globals(-1);
-    process_context_restore_noirq(&kernel_kctx, 1);
+    process_context_restore_noirq(idle_kctx(), 1);
 }
 
 int scheduler_mark_current_ready(void) {
@@ -1200,13 +1271,14 @@ void bill_current(void) {
     if (now > g_run_start_ns) {
         uint64_t slice = now - g_run_start_ns;
         if (current_index >= 0) {
+            sched_here()->busy_ns += slice;
             procs[current_index].cpu_ns += slice;
             procs[current_index].vruntime += vr_scale(current_index, slice);
             g_proc_ns += slice;
             if (is_rt(current_index)) rt_charge(current_index, slice, now);
         } else {
             g_kernel_ns += slice;
-            if (!g_kernel_halting) kernel_vruntime += slice;
+            if (!g_kernel_halting && !on_ap()) kernel_vruntime += slice;
         }
     }
     // Reset unconditionally, including when the KERNEL context was
@@ -1253,6 +1325,7 @@ static uint64_t fair_top(int except) {
 // a lone busy process got half the CPU. It still gets one idle pass per
 // process slice (input, network, the disk's write-back), as before.
 static int timer_wants_rotation(uint64_t now) {
+    if (current_index < 0 && on_ap()) return g_need_resched || scheduler_any_ready();
     if (current_index < 0 && clockevent_in_idle()) {
         if (!scheduler_any_ready()) return 0;
         uint64_t top = fair_top(-1);
@@ -1272,6 +1345,26 @@ static int timer_wants_rotation(uint64_t now) {
     return now >= g_slice_end_ns;   // SCHED_RR and SCHED_OTHER alike
 }
 
+// **THE BSP's KERNEL CONTEXT HOLDS THE KERNEL LOCK WHENEVER IT RUNS**, so
+// one that busy-waits -- a KTEST polling for a process's exit -- keeps an
+// AP's process out of the kernel for good under smp=run (on one core the
+// tick would preempt it for that process). So at a tick where it COULD
+// be preempted -- the guard down, not nested in another interrupt, no
+// legacy process in flight -- any core queued for the lock goes first.
+// That is the preemption it would have had (bkl.h's argument), so the
+// context-wide globals are put in their ring-3 state for the other core,
+// as a switch would, and back after.
+static void kernel_let_waiters_in(void) {
+    if (current_index >= 0 || on_ap() || !smp_scheduling()) return;
+    if (g_preempt_depth > 0 || isr_depth_get() != 1 || process_context_is_armed()) return;
+    if (!bkl_contended()) return;
+    int isr = isr_depth_get();
+    isr_depth_set(0);
+    int d = bkl_drop_all();
+    bkl_retake(d);   // behind every core already queued: FIFO
+    isr_depth_set(isr);
+}
+
 void scheduler_tick(uint64_t *regs) {
     // BEFORE the rotation, and outside scheduler_rotate()'s armed
     // check: a sleeper's deadline has nothing to do with whether the
@@ -1280,11 +1373,20 @@ void scheduler_tick(uint64_t *regs) {
     uint64_t now = clocksource_now_ns();
     scheduler_wake_timers(now);
     if (timer_wants_rotation(now)) scheduler_rotate(regs);
+    else kernel_let_waiters_in();
 }
 
 void scheduler_timer_event(uint64_t *regs, uint64_t now) {
     scheduler_wake_timers(now);
     if (timer_wants_rotation(now)) scheduler_rotate(regs);
+    else kernel_let_waiters_in();
+}
+
+// An AP's own tick and the reschedule IPI (smp.c): the rotation, nothing
+// else -- sleepers' deadlines, the watchdog and the idle work stay with
+// the BSP's clockevent.
+void scheduler_ap_event(uint64_t *regs) {
+    if (timer_wants_rotation(clocksource_now_ns())) scheduler_rotate(regs);
 }
 
 uint64_t scheduler_next_event_ns(void) {
@@ -1381,7 +1483,7 @@ static void scheduler_rotate(uint64_t *regs) {
     // which is about as far from the actual cause as a symptom gets.
     // The window is narrow but entirely reachable: any `run` from the
     // physical shell while a client has a window open.
-    if (process_context_is_armed()) {
+    if (process_context_is_armed() && !on_ap()) {
         if (current_index < 0) save_kernel_frame(regs);
         slice_restart();   // asked again a slice from now, not in a storm
         return;
@@ -1394,7 +1496,7 @@ static void scheduler_rotate(uint64_t *regs) {
     // in api/scheduler.h for what holds this and why. The slice is
     // already billed above, so accounting is unaffected.
     if (g_preempt_depth > 0) {
-        if (current_index < 0) save_kernel_frame(regs);
+        if (current_index < 0 && !on_ap()) save_kernel_frame(regs);
         slice_restart();
         return;
     }
@@ -1423,7 +1525,7 @@ static void scheduler_rotate(uint64_t *regs) {
         if (procs[current_index].policy == SCHED_RR && clocksource_now_ns() >= g_slice_end_ns)
             procs[current_index].rt_seq = ++g_rt_seq;
         trace_sched("rotate_out", current_index);
-    } else {
+    } else if (!on_ap()) {
         save_kernel_frame(regs);
     }
 
@@ -1438,7 +1540,9 @@ static void scheduler_rotate(uint64_t *regs) {
         // in the rotation. In the overwhelmingly common case (nothing
         // has been spawned at all) kernel_saved_rsp was just set to
         // `regs` above, so this stays the genuine no-op it always was.
-        switch_to_kernel(current_index);
+        int was = current_index;
+        switch_to_kernel(was);
+        if (was < 0) kernel_let_waiters_in();
         return;
     }
 
@@ -1772,6 +1876,7 @@ static void wake_slot(int i, int64_t value) {
     else if (procs[i].parked_in_kernel && !is_rt(i) && running_rank() == 0 &&
              vr_behind_running(i))
         g_need_resched = 1;
+    kick_idle_core(i);
 }
 
 int scheduler_wake_n(const void *chan, int64_t value, int max) {

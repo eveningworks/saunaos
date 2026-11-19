@@ -18,6 +18,7 @@
 // every other polling app at the same time, which on one CPU is
 // impossible. See scheduler_rotate().
 #include "ktest.h"
+#include "smp.h"
 #include "scheduler.h"
 #include "timer.h"
 #include "clocksource.h"
@@ -31,6 +32,11 @@
 
 KTEST("sched", "a yielding process is not billed more ticks than elapsed") {
     if (!fs_exists(CPUTIME_TEST_PATH)) KTEST_SKIP("no " CPUTIME_TEST_PATH " on this boot");
+    // Its ceiling is "a yielder gives the CPU away", which holds only
+    // with somebody to give it to: alone on an idle core (smp=run) it
+    // rightly runs nearly all of it, as sched_yield() in a loop does on
+    // Linux. The over-billing it guards against is per slice, not per core.
+    if (smp_scheduling()) KTEST_SKIP("smp=run: a lone yielder on an idle core uses all of it");
 
     uint64_t t0 = coarse_ticks();
     int pid = scheduler_spawn(CPUTIME_TEST_PATH, 0);

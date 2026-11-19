@@ -112,6 +112,11 @@ void lapic_dispatch_vector(uint8_t vector, uint64_t *regs);
 // which is what makes the second one a DELIVERY check rather than a
 // configuration one (see docs/conventions/kernel.md on MSI testing).
 uint32_t lapic_timer_rate(void);
+// THIS core's timer, every `ms` on `vector`, from the BSP's
+// calibration (an AP's own tick under smp=run). Registers only: an AP
+// calls it before it may touch anything shared. 0 with no calibration.
+int lapic_timer_start_here(uint8_t vector, uint32_t ms);
+void lapic_timer_rearm_here(void);   // one-shot: each of its events re-arms it
 uint32_t lapic_timer_ticks(void);
 
 int lapic_summary(char *buf, uint32_t cap);

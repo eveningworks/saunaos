@@ -22,6 +22,7 @@
 #define CPU_OFF_TSS_RSP0  (32 + 4)   // offsetof(struct cpu, tss) + the TSS's own 4
 
 #ifndef __ASSEMBLER__
+#include "context_switch.h"   // struct kernel_context: an AP's idle context
 
 struct tss {
     uint32_t reserved0;
@@ -42,8 +43,8 @@ enum cpu_state {
     CPU_WEDGED,       // started, then faulted or did not finish a call: no more calls
     CPU_STARTING,     // SIPI sent, the trampoline has not called in
     CPU_ALIVE,        // in C on its own stack, replaying the BSP's setup
-    CPU_PARKED,       // set up and halted -- an AP's whole life until stage 5
-    CPU_RUNNING,      // the BSP
+    CPU_PARKED,       // set up and halted -- an AP's whole life without smp=run
+    CPU_RUNNING,      // the BSP, and an AP that schedules processes (smp=run)
 };
 
 struct cpu {
@@ -67,6 +68,8 @@ struct cpu {
     void (*volatile call_fn)(void *);
     void *volatile call_arg;
     volatile uint32_t call_seq, call_done;
+    volatile uint32_t call_running;   // inside fn: a spin in it must not run it again
+    uint32_t pad3;
     // tlb.h: the address space this core last loaded -- kept while it
     // idles in the kernel (lazy TLB), so a shootdown for that space
     // still reaches it -- and its shootdown mailbox, written by the one
@@ -74,6 +77,20 @@ struct cpu {
     volatile uint64_t cr3;
     volatile uint64_t tlb_leave;   // a space being destroyed: load the kernel's if it is ours
     volatile uint32_t tlb_seq, tlb_done;
+    // The scheduler's per-core state (sched_internal.h's current_index,
+    // rotation_pos and g_need_resched are these): what runs HERE. The
+    // BSP's starts as gdt.c sets it -- -1 and ROT_KERNEL, not 0.
+    int sched_cur, sched_rot;
+    volatile int sched_resched;
+    volatile int sched_go;     // smp=run: leave the park loop and schedule
+    uint64_t run_start_ns, slice_start_ns, slice_end_ns;
+    // An AP's idle context: what a switch away from its idle loop saves,
+    // as scheduler.c's kernel_* statics are the BSP kernel context's.
+    struct kernel_context idle_kctx;
+    int idle_isr_depth, idle_preempt_depth, idle_bkl_depth;
+    uint32_t pad2;
+    uint64_t idle_left_tsc, idle_offcpu_tsc;
+    uint64_t busy_ns;          // time a process ran here: per-core load
 };
 
 static inline struct cpu *this_cpu(void) {

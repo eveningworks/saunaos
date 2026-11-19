@@ -770,6 +770,8 @@ def vm(args, *argv, check=True):
         cmd += ["--serial-log", args.serial_log]
     if args.kvm and argv and argv[0] == "start":
         cmd += ["--kvm"]   # a race's window is a function of speed: TCG hides some
+    if args.cpus and argv and argv[0] == "start":
+        cmd += ["--cpus", str(args.cpus)]   # an smp=run image schedules on the others
     cmd += list(argv)
     r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
     if check and r.returncode != 0:
@@ -941,6 +943,9 @@ def main():
     ap.add_argument("--kvm", action="store_true",
                     help="boot the guest under KVM (vm.py --kvm): the gate runs TCG, "
                          "which hides speed-dependent races")
+    ap.add_argument("--cpus", type=int, default=0, metavar="N",
+                    help="vCPUs (vm.py --cpus; default 1) -- with an image built "
+                         "KCMDLINE=smp=run, the suite's programs run on all of them")
     ap.add_argument("--serial-log", default=None, metavar="PATH",
                     help="copy the guest's serial output to PATH (vm.py's own "
                          "flag) -- the only record left when the emulator itself hangs")

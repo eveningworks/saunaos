@@ -17,6 +17,9 @@
 // interrupts being off or the preemption guard, never by which file a
 // reader lives in. A new reader outside these five uses api/scheduler.h.
 
+#include "percpu.h"   // sched_here(): the per-core current_index
+#include "gdt.h"
+#include "spinlock.h"
 #include "scheduler.h"
 #include "kstack.h"
 #include "fpu.h"
@@ -444,10 +447,23 @@ extern int g_max_procs;    // the limit, from RAM
 extern int g_slot_end;     // one past the highest slot ever used
 extern int g_slots_ready;  // slots that have a kernel stack (whole chunks)
 extern int g_init_pid;
-extern int current_index;
 extern volatile int alive_count;
-extern int rotation_pos;
-extern int g_need_resched;
+
+// **WHAT RUNS IS PER CORE** (docs/smp-design.md, stage 5): these three
+// are this core's struct cpu fields, so 140 uses read the right core's
+// without each asking. Before GS.base is set, spin_cpu_index() is 0 and
+// gdt_boot_cpu() is the BSP's. Everything else in procs[] is shared and
+// read under the kernel lock.
+static inline struct cpu *sched_here(void) {
+    return spin_cpu_index() ? this_cpu() : gdt_boot_cpu();
+}
+#define current_index  (sched_here()->sched_cur)
+#define rotation_pos   (sched_here()->sched_rot)
+#define g_need_resched (sched_here()->sched_resched)
+
+int  sched_core_of(int slot);        // the core running it, or -1
+int  sched_on_other_core(int slot);  // RUNNING, and not here: in ring 3 on another core
+void sched_kick_core(int core);      // reschedule there now (an IPI unless it is here)
 extern uint64_t kernel_vruntime;
 extern uint64_t g_min_vruntime;
 
@@ -487,6 +503,7 @@ void sched_test_drop_image(uint64_t as);
 // sched_exit.c
 void group_release_threads(int leader);
 void group_release_threads_but(int leader, int keep);
+void group_wait_off_cores(int leader, int keep);   // exec, smp=run: none left on another core
 // Delay accounting's buckets (struct sched_process.delay_tsc).
 #define SCHED_DELAY_DISK 0
 #define SCHED_DELAY_LOCK 1

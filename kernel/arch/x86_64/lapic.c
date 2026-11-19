@@ -359,6 +359,31 @@ static int lapic_ce_start(uint32_t hz) {
     return 1;
 }
 
+// The bus clock that drives every core's timer is the same one, so the
+// BSP's calibration holds here (Linux calibrates once, too).
+//
+// **ONE-SHOT, RE-ARMED BY EACH EVENT, NOT PERIODIC.** Three APs on
+// periodic timers sent QEMU's TCG main loop into a spin that starved
+// every vCPU (4 cores: hung at boot; 2 cores and KVM were fine) -- and
+// the BSP's clockevent is one-shot already. Linux's per-CPU ticks are
+// one-shot clockevents too.
+static uint32_t g_here_count;   // the same for every AP
+
+int lapic_timer_start_here(uint8_t vector, uint32_t ms) {
+    if (!g_base || !g_timer_rate || !ms) return 0;
+    uint64_t count = (uint64_t)g_timer_rate * ms / 1000;
+    if (!count || count > 0xFFFFFFFFull) return 0;
+    g_here_count = (uint32_t)count;
+    lapic_write(LAPIC_REG_TIMER_DIV, TIMER_DIV_16);
+    lapic_write(LAPIC_REG_LVT_TIMER, vector);           // one-shot
+    lapic_write(LAPIC_REG_TIMER_INIT, g_here_count);   // the arming write, last
+    return 1;
+}
+
+void lapic_timer_rearm_here(void) {
+    if (g_base && g_here_count) lapic_write(LAPIC_REG_TIMER_INIT, g_here_count);
+}
+
 // ONE-SHOT: LVT mode bits clear, and each arm is a single write of the
 // initial count -- which is also what cancels the previous one. The LVT
 // is rewritten only on the first arm, out of periodic mode.

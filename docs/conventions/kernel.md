@@ -1433,7 +1433,8 @@ per-core pointer (`kernel/include/kernel/percpu.h`, `this_cpu()`), and
   before `syscall_entry`'s `swapgs`. Giving programs a GS.base
   (`ARCH_SET_GS`, CR4.FSGSBASE) breaks that test -- it would need
   Linux's compare against this core's own value.
-- **CODE AN AP RUNS TOUCHES NO SHARED KERNEL STATE UNTIL STAGE 5** --
+- **A PARKED AP TOUCHES NO SHARED KERNEL STATE** (under `smp=run` a
+  scheduling one does, holding the kernel lock like any entry) --
   no log line, no heap, no preemption guard (`smp.c`'s `ap_entry()`,
   and every `smp_call()` function). The first version logged through
   `syscall_insn_init()`: the log interleaved, the racing preemption
@@ -1474,6 +1475,31 @@ through `switch_to()`.
   PREEMPTION GUARD**: a tick may switch it away, and the context
   switched to releases the lock on its way to ring 3. That is the lock
   working, not leaking.
+
+## WHAT RUNS IS PER CORE, AND A PROCESS MAY BE RUNNING SOMEWHERE ELSE
+
+Since SMP stage 5 (`smp=run`, off by default; `docs/smp-design.md`)
+another core may be running a process while this one is in the kernel.
+
+- **`current_index`, `rotation_pos` AND `g_need_resched` ARE THIS
+  CORE'S** (`sched_internal.h`'s macros over `struct cpu`). A new
+  per-core scheduler fact goes in `struct cpu` the same way; a new
+  per-CONTEXT one is saved and loaded by `switch_to()`, and may stay a
+  global only if it is 0 whenever the kernel lock is free.
+- **RUNNING NO LONGER MEANS "HERE"**: `sched_on_other_core()` says it is
+  in ring 3 on another core. Such a slot is NEVER freed in place -- a
+  death is deferred (it takes its SIGKILL there) and exec waits for it;
+  anything new that frees a slot or its space asks first.
+- **A KILL MAY RETURN BEFORE THE DEATH**: `scheduler_kill()` of a
+  process running on another core (or parked mid-call) is deferred, so
+  a caller -- a KTEST above all -- that needs it gone polls for it,
+  bounded, rather than asking once.
+- **STATE THE KERNEL CONTEXT TOUCHES IS NOT EXCLUSIVE ACROSS A TICK**: at
+  a tick where it could be preempted it lets a queued core in. A test
+  that needs a quiet window raises the preemption guard; a fault
+  injector is consumed on the BSP only (`fault_inject.c`).
+- **AN AP's TICK IS ONE-SHOT, RE-ARMED BY EACH EVENT** -- periodic LAPIC
+  timers on three cores hung QEMU's TCG main loop.
 
 ## A PAGE-TABLE CHANGE FLUSHES THROUGH `tlb.h`, AND EVERY CR3 LOAD IS RECORDED
 

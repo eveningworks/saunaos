@@ -8,6 +8,7 @@
 // themselves, which sit on hot paths.
 #include "fault_inject.h"
 #include "scheduler.h"
+#include "spinlock.h"   // spin_cpu_index(): consumed on the BSP only
 #include "kfmt.h"
 #include "klog.h"   // KLOG_ERR -- the level on a failure line
 
@@ -42,7 +43,7 @@ void fault_fail_next_allocs(uint32_t count) { if (count) g_armer = scheduler_cur
 void fault_cap_contiguous(uint32_t frames) { if (frames) g_armer = scheduler_current_pid(); g_contig_cap = frames; }
 
 int fault_should_fail_contiguous(uint64_t count) {
-    if (!g_contig_cap || count <= g_contig_cap) return 0;
+    if (!g_contig_cap || count <= g_contig_cap || spin_cpu_index() != 0) return 0;
     int me = scheduler_current_pid();
     if (me != g_armer && g_foreign_logged < 16) {
         g_foreign_logged++;
@@ -64,8 +65,14 @@ int fault_any_armed(void) {
         || g_allocs != 0 || g_blk_flushes != 0 || g_usb_cmds != 0 || g_contig_cap != 0;
 }
 
+// **CONSUMED ON THE BSP ONLY.** The armer is a KTEST in the kernel
+// context, and what it means to fail -- its own call, a kernel thread's
+// write -- runs there; under smp=run a process on another core would
+// otherwise take a failure meant for the test (and the test pass or
+// fail on its timing). A failure meant for a ring-3 process the test
+// spawned is a single-core test.
 static int consume(uint32_t *counter) {
-    if (*counter == 0) return 0;
+    if (*counter == 0 || spin_cpu_index() != 0) return 0;
     (*counter)--;
     int me = scheduler_current_pid();
     if (me != g_armer && g_foreign_logged < 16) {
@@ -84,7 +91,7 @@ int fault_should_fail_alloc(void)     { return consume(&g_allocs); }
 int fault_should_fail_usb_command(void) { return consume(&g_usb_cmds); }
 
 int fault_should_fail_block_flush(void) {
-    if (g_blk_flushes == 0) return 0;
+    if (g_blk_flushes == 0 || spin_cpu_index() != 0) return 0;   // the BSP only, as consume()
     if (g_blk_flush_skip) { g_blk_flush_skip--; return 0; }
     return consume(&g_blk_flushes);
 }

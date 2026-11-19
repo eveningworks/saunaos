@@ -13,6 +13,7 @@
 #include "kfmt.h"      // klog_printf, vga_printf
 #include "signal.h"     // signal_send() -- SIGCHLD to a parent, see notify_parent()
 #include "klog.h"
+#include "clocksource.h" // group_wait_off_cores()'s millisecond sleeps
 
 // A CHILD HAS GONE: wake a parent parked in waitpid, and tell it.
 //
@@ -118,7 +119,37 @@ void group_release_threads_but(int leader, int keep) {
     for (int i = 0; i < MAX_PROCS; i++) {
         if (i == leader || i == keep) continue;
         if (procs[i].state == SCHED_UNUSED) continue;
-        if (procs[i].tgid == procs[leader].pid) slot_release(i);
+        if (procs[i].tgid != procs[leader].pid) continue;
+        if (sched_on_other_core(i)) {
+            // Its kernel stack is live there. The callers wait for this
+            // first (group_parked(), group_wait_off_cores()); kept
+            // rather than freed if one did not -- a leak, not a crash.
+            klog_printf(KLOG_ERR "sched: thread %d is running on core %d -- not freed\n",
+                        procs[i].pid, sched_core_of(i));
+            continue;
+        }
+        slot_release(i);
+    }
+}
+
+// exec's half of Linux's de_thread(): every other thread of the group
+// off every other core before exec frees its slot. Each is told not to
+// run again and its core is kicked; this call sleeps a millisecond at a
+// time until none is left (smp=run only -- otherwise none ever is).
+static const char g_off_core_chan;
+void group_wait_off_cores(int leader, int keep) {
+    for (;;) {
+        int busy = 0;
+        for (int i = 0; i < MAX_PROCS; i++) {
+            if (i == keep || i == leader || procs[i].state == SCHED_UNUSED) continue;
+            if (procs[i].tgid != procs[leader].pid || !sched_on_other_core(i)) continue;
+            procs[i].stopped = 1;   // never picked again; exec frees it next
+            sched_kick_core(sched_core_of(i));
+            busy++;
+        }
+        if (!busy) return;
+        scheduler_block_kernel_until(&g_off_core_chan, SCHED_WAIT_TIMER,
+                                     clocksource_now_ns() + 1000000ull);
     }
 }
 
@@ -132,11 +163,15 @@ static int in_group(int i, int leader) {
 // still inside those frames (scheduler_kill() says why). So does a
 // thread PREEMPTED inside a call, which holds them just the same and may
 // hold a mount's lock (tests/killrace_test).
+// AND ONE RUNNING ON ANOTHER CORE (smp=run): in ring 3 there, with its
+// kernel stack live -- freed in place, it would resume on freed memory.
+// It takes the SIGKILL at its next entry, which its kick makes now.
 static int group_parked(int leader, int except) {
     int n = 0;
     for (int i = 0; i < MAX_PROCS; i++)
         if (i != except && in_group(i, leader) &&
-            (procs[i].parked_in_kernel || procs[i].preempted_in_kernel)) n++;
+            (procs[i].parked_in_kernel || procs[i].preempted_in_kernel ||
+             sched_on_other_core(i))) n++;
     return n;
 }
 
@@ -538,8 +573,9 @@ int scheduler_kill(int pid, int exit_code) {
     if (pid == g_init_pid) return 0;
     if (procs[slot].kthread) return 0;   // kthread.h: nothing ends one but its return
 
-    if (procs[slot].state != SCHED_READY && procs[slot].state != SCHED_BLOCKED)
-        return 0; // unused, already a zombie, or running (handled above)
+    if (procs[slot].state != SCHED_READY && procs[slot].state != SCHED_BLOCKED &&
+        !sched_on_other_core(slot))
+        return 0; // unused, already a zombie, or running here (handled above)
 
     // **PARKED MID-CALL, IT DIES ON THE WAY OUT, NOT HERE** -- Linux's D
     // state. Its C frames may hold the filesystem lock across a disk

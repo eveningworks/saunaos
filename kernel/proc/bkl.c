@@ -121,4 +121,10 @@ void bkl_start_tail(const uint64_t *tf) {
 }
 
 int bkl_held_here(void) { return g_ready && spin_held_here(&g_bkl); }
+
+int bkl_contended(void) {
+    uint32_t next = __atomic_load_n(&g_bkl.next, __ATOMIC_ACQUIRE);
+    uint32_t serving = __atomic_load_n(&g_bkl.serving, __ATOMIC_ACQUIRE);
+    return next - serving > 1;   // a ticket queued behind the holder's
+}
 int bkl_held(void) { return spin_held(&g_bkl); }

@@ -19,6 +19,18 @@
 #define SPIN_PATH "/tests/spin_test"
 #define TIMEOUT_TICKS 200
 
+// Every use here follows a kill. Under smp=run a victim running on
+// another core dies at its next entry there -- deferred, as one parked
+// mid-call is on any machine (scheduler_kill()) -- so the poll waits for
+// it, bounded, rather than asking once.
+static enum sched_poll_result reap(int pid, int *code) {
+    uint64_t t0 = coarse_ticks();
+    enum sched_poll_result r;
+    while ((r = scheduler_poll(pid, code)) == SCHED_POLL_RUNNING &&
+           coarse_ticks() - t0 < TIMEOUT_TICKS) { }
+    return r;
+}
+
 // The kernel context is not a scheduled process, so anything a KTEST
 // spawns has ppid 0 -- "the kernel did it". A KTEST cannot pretend to
 // be a process, so where a real parent is needed these use
@@ -41,7 +53,7 @@ KTEST("proctree", "a kernel-spawned process has no parent") {
 
     scheduler_kill(pid, 0);
     int code = 0;
-    scheduler_poll(pid, &code);
+    reap(pid, &code);
 }
 
 KTEST("proctree", "waiting for ANY child tells apart 'not yet' from 'never'") {
@@ -74,7 +86,7 @@ KTEST("proctree", "waiting for ANY child tells apart 'not yet' from 'never'") {
     KTEST_ASSERT(scheduler_poll_any(a, &child, &code) == SCHED_POLL_INVALID);
 
     scheduler_kill(a, 0);
-    scheduler_poll(a, &code);
+    reap(a, &code);
 }
 
 KTEST("proctree", "a dead parent's children are reparented, not left pointing at it") {
@@ -100,15 +112,20 @@ KTEST("proctree", "a dead parent's children are reparented, not left pointing at
     // is not, so this asks the kernel rather than hardcoding either --
     // the same test then covers a normal boot and one where /bin/init
     // is missing. What must NOT survive is the dead parent's pid.
+    // A parent running on another core (smp=run) dies at its next entry
+    // there, as one parked mid-call does here (scheduler_kill()).
+    uint64_t t0 = coarse_ticks();
+    while (coarse_ticks() - t0 < TIMEOUT_TICKS && scheduler_proc_info(find_slot(child), &info) &&
+           info.ppid == parent) { }
     int heir = scheduler_init_pid();
     KTEST_ASSERT(scheduler_proc_info(find_slot(child), &info));
     KTEST_ASSERT_EQ(info.ppid, heir);
     KTEST_ASSERT(info.ppid != parent);
 
     int code = 0;
-    scheduler_poll(parent, &code);
+    reap(parent, &code);
     scheduler_kill(child, 0);
-    scheduler_poll(child, &code);
+    reap(child, &code);
 }
 
 KTEST("proctree", "a reused slot does not inherit the last tenant's children") {
@@ -124,7 +141,7 @@ KTEST("proctree", "a reused slot does not inherit the last tenant's children") {
 
     int code = 0;
     scheduler_kill(parent, 0);
-    KTEST_ASSERT(scheduler_poll(parent, &code) == SCHED_POLL_EXITED); // slot free
+    KTEST_ASSERT(reap(parent, &code) == SCHED_POLL_EXITED); // slot free
 
     int reused = scheduler_spawn(SPIN_PATH, 0);
     KTEST_ASSERT(reused > 0);
@@ -135,9 +152,9 @@ KTEST("proctree", "a reused slot does not inherit the last tenant's children") {
     // so say so rather than passing quietly.
     if (reused != parent) {
         scheduler_kill(reused, 0);
-        scheduler_poll(reused, &code);
+        reap(reused, &code);
         scheduler_kill(child, 0);
-        scheduler_poll(child, &code);
+        reap(child, &code);
         KTEST_SKIP("spawn did not reuse the freed slot -- nothing to test");
     }
 
@@ -148,9 +165,9 @@ KTEST("proctree", "a reused slot does not inherit the last tenant's children") {
     KTEST_ASSERT(scheduler_poll_any(reused, &found, &dummy) == SCHED_POLL_INVALID);
 
     scheduler_kill(reused, 0);
-    scheduler_poll(reused, &code);
+    reap(reused, &code);
     scheduler_kill(child, 0);
-    scheduler_poll(child, &code);
+    reap(child, &code);
 }
 
 // --- stage 1: init, and what having one changes -----------------------
@@ -190,7 +207,7 @@ KTEST("proctree", "an orphan is adopted by init, and init can reap it") {
 
     int code = 0;
     scheduler_kill(parent, 0);
-    scheduler_poll(parent, &code);
+    reap(parent, &code);
 
     // Adopted, not orphaned. This is the one line of stage 1 that turns
     // a zombie from permanent into reapable.
@@ -203,6 +220,11 @@ KTEST("proctree", "an orphan is adopted by init, and init can reap it") {
     // the ring-3 tool, because "the ppid changed" is satisfied by a
     // kernel that writes the field and reaps nothing.
     scheduler_kill(child, 3);
+    // Dead before init is asked -- a zombie, or already reaped by init --
+    // without this test reaping it (reap() would take the corpse).
+    uint64_t t0 = coarse_ticks();
+    while (coarse_ticks() - t0 < TIMEOUT_TICKS && scheduler_pid_valid(child) &&
+           scheduler_proc_info(find_slot(child), &info) && info.state != PROC_STATE_ZOMBIE) { }
     int got = 0, got_code = 0;
     int found = 0;
     for (int i = 0; i < scheduler_slot_end() && !found; i++) {

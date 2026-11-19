@@ -31,6 +31,8 @@
 #include "kfmt.h"
 #include "knum.h"
 #include "string.h"
+#include "tlb.h"          // tlb_service(): smp_poll_ipis()
+#include "scheduler.h"    // scheduler_timeslice_ms(): an AP's tick
 #include <stddef.h>
 
 _Static_assert(offsetof(struct cpu, self) == CPU_OFF_SELF, "percpu.h: CPU_OFF_SELF");
@@ -126,6 +128,18 @@ static void delay_us(uint64_t us) {
 
 // ---- the AP's side ---------------------------------------------------
 
+// smp=run: this core schedules. Its own periodic LAPIC tick and the
+// reschedule IPI share SMP_SCHED_VECTOR, and isr_dispatch() now gives
+// its interrupts the ordinary path -- the kernel lock, then
+// scheduler_ap_event(). This loop is the core's idle context: a switch
+// to a process saves it (inside that interrupt), and a switch back
+// returns into it. It holds nothing while it halts.
+static void __attribute__((noreturn)) ap_schedule(struct cpu *c) {
+    lapic_timer_start_here(SMP_SCHED_VECTOR, scheduler_timeslice_ms());
+    __atomic_store_n(&c->state, CPU_RUNNING, __ATOMIC_RELEASE);
+    for (;;) __asm__ volatile ("sti; hlt; cli" ::: "memory");
+}
+
 static uint64_t read_cr0(void) { uint64_t v; __asm__ volatile ("mov %%cr0, %0" : "=r"(v)); return v; }
 static uint64_t read_cr4(void) { uint64_t v; __asm__ volatile ("mov %%cr4, %0" : "=r"(v)); return v; }
 
@@ -169,7 +183,11 @@ static void __attribute__((noreturn)) ap_entry(struct cpu *c) {
     __atomic_store_n(&c->state, CPU_PARKED, __ATOMIC_RELEASE);
     // Every local source is masked and the I/O APIC routes to the BSP,
     // so what wakes this halt is the BSP's call IPI (smp_call()).
-    for (;;) __asm__ volatile ("sti; hlt; cli" ::: "memory");
+    for (;;) {
+        __asm__ volatile ("sti; hlt; cli" ::: "memory");
+        if (__atomic_load_n(&c->sched_go, __ATOMIC_ACQUIRE)) break;
+    }
+    ap_schedule(c);
 }
 
 // ---- running a function on another core ------------------------------
@@ -190,7 +208,21 @@ static int wait_done(struct cpu *c, uint32_t seq, uint32_t ms) {
     return 1;
 }
 
-// **AN AP ANSWERS NOTHING BUT THE CALL VECTOR, AND TOUCHES NOTHING
+// The mailbox's other half: from the IPI, or from a spin with
+// interrupts off (smp_poll_ipis()). **NOT RE-ENTERED**: a call that
+// spins for a lock (stage 4's kernel-lock test does) polls from inside
+// itself, and would otherwise run itself again there.
+static void call_service(struct cpu *c) {
+    uint32_t seq = __atomic_load_n(&c->call_seq, __ATOMIC_ACQUIRE);
+    if (seq == c->call_done || c->call_running) return;
+    c->call_running = 1;
+    void (*fn)(void *) = c->call_fn;
+    if (fn) fn(c->call_arg);
+    c->call_running = 0;
+    __atomic_store_n(&c->call_done, seq, __ATOMIC_RELEASE);
+}
+
+// **A PARKED AP ANSWERS NOTHING BUT THE CALL VECTOR, AND TOUCHES NOTHING
 // SHARED ON THE WAY** -- isr_dispatch() sends it here before its first
 // global. A fault on an AP stops that core: nothing on it could report
 // one, and its caller's wait times out and says so. The kernel lock it
@@ -206,12 +238,12 @@ void smp_ap_interrupt(uint64_t vector) {
     }
     if (vector == LAPIC_SPURIOUS_VECTOR) return;   // no EOI for a spurious one
     lapic_eoi();
-    if (vector != SMP_CALL_VECTOR) return;
-    uint32_t seq = __atomic_load_n(&c->call_seq, __ATOMIC_ACQUIRE);
-    if (seq == c->call_done) return;
-    void (*fn)(void *) = c->call_fn;
-    if (fn) fn(c->call_arg);
-    __atomic_store_n(&c->call_done, seq, __ATOMIC_RELEASE);
+    if (vector == SMP_CALL_VECTOR) call_service(c);
+}
+
+void smp_poll_ipis(void) {
+    tlb_service();
+    if (g_cpus) call_service(g_cpus[spin_cpu_index()]);   // the BSP too: an AP may call it
 }
 
 // A core that did not finish a call is given no more: its next one
@@ -223,15 +255,16 @@ static void wedged(struct cpu *c, int index) {
 }
 
 int smp_call(int index, void (*fn)(void *), void *arg, int wait) {
-    if (index == 0) {   // the caller: only the BSP calls until stage 5
-        uint64_t f = irq_save();   // as fn runs on an AP
+    if (index == (int)spin_cpu_index()) {   // the caller's own core
+        uint64_t f = irq_save();   // as fn runs elsewhere
         fn(arg);
         irq_restore(f);
         return 1;
     }
     if (!g_cpus || index < 0 || index >= g_cpu_count) return 0;
     struct cpu *c = g_cpus[index];
-    if (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) != CPU_PARKED) return 0;
+    uint32_t st = __atomic_load_n(&c->state, __ATOMIC_ACQUIRE);
+    if (st != CPU_PARKED && st != CPU_RUNNING) return 0;   // a scheduling AP takes calls too
 
     uint64_t f = spin_lock_irqsave(&g_call_lock);
     // The last call to this core has to be finished before its mailbox
@@ -261,7 +294,7 @@ int smp_call(int index, void (*fn)(void *), void *arg, int wait) {
 }
 
 int smp_call_wait(int index, uint32_t ms) {
-    if (index == 0) return 1;
+    if (index == (int)spin_cpu_index()) return 1;
     if (!g_cpus || index < 0 || index >= g_cpu_count) return 0;
     struct cpu *c = g_cpus[index];
     if (wait_done(c, c->call_seq, ms)) return 1;
@@ -280,17 +313,60 @@ static void memory_types_cb(void *arg) {
 }
 
 void smp_memory_types_changed(void) {
-    int want = 0;
-    for (int i = 1; i < smp_cpu_count(); i++) want += online(smp_cpu_at(i));
+    int want = 0, me = (int)spin_cpu_index();
+    for (int i = 0; i < smp_cpu_count(); i++) want += i != me && online(smp_cpu_at(i));
     int done = smp_call_others(memory_types_cb, 0);
     if (done != want)
         klog_printf(KLOG_WARN "smp: %d of %d other core(s) took the new memory types\n",
                     done, want);
 }
 
+// ---- smp=run ---------------------------------------------------------
+
+static int g_run_wanted, g_scheduling;
+static int wait_state(struct cpu *c, uint32_t at_least, uint32_t ms);
+
+int smp_scheduling(void) { return g_scheduling; }
+
+void smp_resched(int index) {
+    if (!g_cpus || index <= 0 || index >= g_cpu_count) return;
+    (void)lapic_send_ipi((uint8_t)g_cpus[index]->apic_id, SMP_SCHED_VECTOR);
+}
+
+static void go_cb(void *arg) {
+    (void)arg;
+    __atomic_store_n(&this_cpu()->sched_go, 1, __ATOMIC_RELEASE);
+}
+
+void smp_start_scheduling(void) {
+    if (!g_run_wanted || smp_online_count() < 2) return;
+    if (!lapic_timer_rate()) {
+        klog_write(KLOG_WARN "smp: smp=run needs the LAPIC timer for each core's tick -- "
+                   "the other cores stay parked\n");
+        return;
+    }
+    int started = 0;
+    for (int i = 1; i < g_cpu_count; i++) {
+        struct cpu *c = g_cpus[i];
+        if (c->state != CPU_PARKED) continue;
+        c->run_start_ns = clocksource_now_ns();
+        if (!smp_call(i, go_cb, 0, 1) || !wait_state(c, CPU_RUNNING, CALL_MS)) {
+            klog_printf(KLOG_WARN "smp: core %d did not start scheduling\n", i);
+            continue;
+        }
+        started++;
+    }
+    g_scheduling = started > 0;
+    klog_printf("smp: smp=run -- %d other core(s) scheduling processes; "
+                "device interrupts and the kernel context stay on core 0\n", started);
+}
+
+// Every core but the caller -- which under smp=run may be an AP, the BSP
+// then being one of the others.
 int smp_call_others(void (*fn)(void *), void *arg) {
-    int done = 0;
-    for (int i = 1; i < smp_cpu_count(); i++) done += smp_call(i, fn, arg, 1);
+    int done = 0, me = (int)spin_cpu_index();
+    for (int i = 0; i < smp_cpu_count(); i++)
+        if (i != me) done += smp_call(i, fn, arg, 1);
     return done;
 }
 
@@ -368,6 +444,13 @@ void smp_init(void) {
             klog_printf("smp: maxcpus=%u -- one core\n", max);
             return;
         }
+    }
+    // `smp=run` schedules on the APs once boot is over; `smp=park`, the
+    // default, leaves them parked (docs/boot-flags.md).
+    if (multiboot_cmdline_value("smp=", word, sizeof word)) {
+        if (!k_strcmp(word, "run")) g_run_wanted = 1;
+        else if (k_strcmp(word, "park"))
+            klog_printf("smp: smp=%s is not run or park -- parked\n", word);
     }
     if (multiboot_cmdline_has("nosmp")) {
         klog_write("smp: disabled by `nosmp` -- one core\n");
@@ -468,6 +551,8 @@ void smp_init(void) {
         k_memset(c, 0, sizeof *c);
         c->self = c;
         c->index = (uint32_t)g_cpu_count;
+        c->sched_cur = -1;     // its idle loop, once it schedules
+        c->sched_rot = -2;     // ROT_KERNEL
         c->apic_id = a->apic_id;
         g_cpus[g_cpu_count++] = c;
 

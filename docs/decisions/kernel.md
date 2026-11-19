@@ -10706,3 +10706,43 @@ every ticket-lock spin calls `tlb_service()`.
 mapped global. Per-page ranges (`invlpg` on the target, Linux's
 `flush_tlb_func()` ceiling) wait for a measurement that shows the
 refill costing anything.
+
+## Processes on every core come behind `smp=run`, with what runs kept per core and the per-context globals left global
+
+*Decided 2026-11-19 (SMP stage 5); the flag, its default and the split of
+work were the maintainer's picks before building.*
+
+**What runs is three fields of `struct cpu`, reached through macros.**
+`current_index`, `rotation_pos` and `g_need_resched` had 140 uses; a
+rename to an accessor at each would have been the same change spread
+over eight files, and Linux's `current` is the same shape -- a per-CPU
+read that looks like a variable. The slice and the billing start went
+with them, and an AP's idle context lives beside them.
+
+**The per-context globals stayed global.** `g_isr_depth` and the
+preemption depth describe the context in the kernel, and only the
+kernel-lock holder is in the kernel. Each is 0 whenever the lock is free
+-- the lock is released only on the way to ring 3 or into an idle halt
+-- so the next holder finds them as an entry from ring 3 should. Making
+them per core would have meant reconciling two copies at every switch
+for no reader that could see a difference.
+
+**A thread running on another core is treated as one parked mid-call.**
+The kernel already had the shape for a thread it may not free where it
+stands -- a pending SIGKILL, the death deferred until the thread leaves
+on its own -- so group exit and kill reuse it, and exec, which has no
+deferred form, waits (Linux's `de_thread()`). The cost is that a kill
+returns before the death more often, which callers already had to
+allow for.
+
+**The BSP's kernel context lets queued cores in at a preemptible tick.**
+It holds the kernel lock whenever it runs, which on one core is fine --
+a tick preempts it -- but with the other process on another core a
+busy-waiting kernel context starved it for good. Releasing the lock
+where a preemption could have happened is the same event bkl.h's
+argument already allows, so no kernel-context code needed changing.
+
+**An AP's tick is one-shot.** Periodic was the first version and the
+simpler one; three cores' periodic LAPIC timers hung QEMU's TCG main
+loop (every vCPU starved, the guest frozen at boot), and Linux's
+per-CPU ticks are one-shot clockevents anyway.

@@ -259,12 +259,16 @@ whenever a headline here tells you something you did not already know.
   ARRIVES, AND A PCI PIN IS ROUTED BY `_PRT`**
 - **EVERY ROUTE TO RING 3 SWAPS GS, AND A PARKED CORE TOUCHES NOTHING
   SHARED** -- `cli; swapgs` before a hand-rolled `iretq`; ring 3's
-  GS.base is always 0; an AP (and an `smp_call()` function) logs nothing
-  before stage 5
+  GS.base is always 0; a parked AP (and an `smp_call()` function) logs
+  nothing
 - **THE KERNEL LOCK IS TAKEN ON EVERY ENTRY, AND A NEW ROUTE TO RING 3
   DROPS IT** -- `bkl_drop_all()` before a hand-rolled `iretq`; contexts
   start through `proc_start_context()`; no spinlock across a sleep; the
   paranoid vectors from ring 0 take no lock
+- **WHAT RUNS IS PER CORE, AND A PROCESS MAY BE RUNNING SOMEWHERE
+  ELSE** -- `current_index` is this core's; never free a slot
+  `sched_on_other_core()`; a kill may return before the death; the
+  kernel context lets queued cores in at a tick; an AP's tick is one-shot
 - **A PAGE-TABLE CHANGE FLUSHES THROUGH `tlb.h`, AND EVERY CR3 LOAD IS
   RECORDED** -- `tlb_flush_user_page()`, never a bare `invlpg`;
   `tlb_flush_kernel()` for the kernel map; `tlb_load_cr3()`; a spin with

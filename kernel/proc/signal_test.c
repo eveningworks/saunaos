@@ -711,7 +711,19 @@ KTEST("signal", "a STOPPED process stops accruing CPU time, and resumes accruing
 
     signal_send(pid, SIGSTOP);
     // Sampled AFTER the stop rather than straddling it: the tick that
-    // suspends it may still bill the slice it was in the middle of.
+    // suspends it may still bill the slice it was in the middle of --
+    // and under smp=run that tick is another core's, a moment later, so
+    // it is waited for: not RUNNING is off every core.
+    // A stopped process reads STOPPED while it still runs there, so the
+    // wait is for its CPU time to stand still across a tick.
+    t0 = coarse_ticks();
+    for (uint64_t last = ~0ull; coarse_ticks() - t0 < 50;) {
+        uint64_t s0 = coarse_ticks();
+        while (coarse_ticks() - s0 < 2) { }
+        KTEST_ASSERT(scheduler_proc_info(slot, &info));
+        if (info.cpu_ns == last) break;
+        last = info.cpu_ns;
+    }
     KTEST_ASSERT(scheduler_proc_info(slot, &info));
     uint64_t stopped_at = info.cpu_ns;
     t0 = coarse_ticks();

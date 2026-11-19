@@ -11,7 +11,8 @@
 #include "kfmt.h"
 #include "panic.h"
 #include "scheduler.h"   // the preemption guard a holder raises
-#include "tlb.h"         // tlb_service(): a spinner answers a shootdown
+#include "smp.h"         // smp_poll_ipis(): a spinner answers a shootdown or a call
+#include "bkl.h"
 
 static int g_percpu_ready;
 
@@ -60,8 +61,8 @@ static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
         unsigned n = 0;
         while (__atomic_load_n(&l->serving, __ATOMIC_ACQUIRE) != ticket) {
             // Interrupts are usually off here, and the holder may be a
-            // shootdown's sender waiting on this core (tlb.h).
-            tlb_service();
+            // shootdown's or a call's sender waiting on this core (tlb.h).
+            smp_poll_ipis();
             cpu_relax();
             if ((++n & CHECK_EVERY) == 0 && !reported && arch_rdtsc() - start > limit) {
                 reported = 1;
@@ -76,11 +77,13 @@ static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
 // **A HOLDER IS NOT PREEMPTED**, Linux's spin_lock() and its
 // preempt_disable(): preempted, it would keep the other cores spinning
 // for a whole slice, and the next context on this core to take the lock
-// would read as this core taking it twice. Raised on the BSP only until
-// stage 5 -- the guard's depth is still one global, which an AP may not
-// touch.
-static void guard_raise(void) { if (spin_cpu_index() == 0) scheduler_preempt_disable(); }
-static void guard_drop(void)  { if (spin_cpu_index() == 0) scheduler_preempt_enable(); }
+// would read as this core taking it twice. The guard's depth is one
+// global, the kernel lock holder's to move (sched_internal.h): an AP
+// raises it only while it holds that lock, which is every time it runs
+// kernel code under smp=run, and never while parked.
+static int guard_ours(void) { return spin_cpu_index() == 0 || bkl_held_here(); }
+static void guard_raise(void) { if (guard_ours()) scheduler_preempt_disable(); }
+static void guard_drop(void)  { if (guard_ours()) scheduler_preempt_enable(); }
 
 void spin_lock(struct spinlock *l) {
     guard_raise();

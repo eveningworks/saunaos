@@ -6,7 +6,8 @@ interrupt source overrides 2026-09-10); STAGE 3 IS BUILT (2026-11-19:
 the APs started and parked); STAGE 4 IS BUILT (2026-11-19: a ticket
 spinlock, the call IPI and the kernel lock); STAGE 6 IS BUILT AHEAD OF
 STAGE 5 (2026-11-19: the TLB shootdown, `kernel/arch/x86_64/tlb.c`);
-STAGES 5 AND 7 ARE DESIGNED, NOT BUILT;
+STAGE 5 IS BUILT BEHIND `smp=run`, OFF BY DEFAULT (2026-11-19: processes
+on every core); STAGE 7 IS DESIGNED, NOT BUILT;
 RE-MEASURED AND RE-SIZED 2026-11-19.** The ACPI table walk and the MADT's processor list exist
 (`kernel/acpi/`, read by `/bin/acpi` and `/bin/lscpu`), the Local APIC is
 enabled and carries MSI-X for seven drivers, the tick runs on the LAPIC
@@ -396,7 +397,50 @@ users safe, not the BKL), and every sleeping path, which must DROP the BKL acros
 retake it, as Linux 2.0's `schedule()` did. The lost-wakeup arguments in
 `scheduler_block_current()` and `sys_waitpid()` are where that bites.
 
-### Stage 5 -- the scheduler picks per core
+### Stage 5 -- the scheduler picks per core -- BUILT 2026-11-19, behind `smp=run`
+
+**What was built** (the picks below held):
+
+- **What runs is per core**: `current_index`, `rotation_pos` and
+  `g_need_resched` are this core's `struct cpu` fields behind macros
+  (`sched_internal.h`'s `sched_here()`), so their 140 uses read the
+  right core's -- Linux's `current`. So are the slice and the billing
+  start. Everything else in `procs[]` is shared under the kernel lock,
+  and the per-CONTEXT globals (`g_isr_depth`, the preemption depth) stay
+  global: they are 0 whenever the lock is free, so the holder's are the
+  only ones that exist.
+- **An AP's idle context** is its park loop's successor (`smp.c`'s
+  `ap_schedule()`): `sti; hlt` holding nothing, its own saved context
+  in `struct cpu`. Its tick and the reschedule IPI share vector 0xFC and
+  reach `scheduler_ap_event()` -- the rotation only; sleepers, the
+  watchdog and the idle work stay with the BSP's clockevent. **The tick
+  is ONE-SHOT, re-armed by each event**: periodic, three APs' timers
+  sent QEMU's TCG main loop into a spin that starved every vCPU (a
+  4-core boot hung; 2 cores and KVM did not).
+- **A wake kicks an idle AP**; a signal or a stop aimed at a thread
+  running on another core kicks that core (Linux's `kick_process()`).
+- **A thread running on another core is never freed in place**: group
+  exit and kill count it as parked mid-call, so the death is deferred
+  (the thread takes its SIGKILL there), and exec waits for it to leave
+  (`group_wait_off_cores()`, Linux's `de_thread()`). `scheduler_kill()`
+  of such a process returns before it has died -- as for one parked
+  mid-call, now just more often.
+- **The BSP's kernel context holds the kernel lock whenever it runs**, so
+  a busy-waiting one (a KTEST polling for an exit) would keep every AP
+  out for good. At a tick where it could be preempted it lets any core
+  queued for the lock through first (`kernel_let_waiters_in()`) -- the
+  preemption it would have had on one core.
+- **Proven by** `sched_smp_test.c` (busy processes accumulate time on two
+  or more APs; with the APs picking nothing it fails), the whole KTEST
+  suite under TCG `-smp 4 smp=run` (four clean runs of six; the misses
+  are in `docs/bugs.md`), and the ring-3 suite on 4 cores under TCG and
+  KVM (134/134 each).
+
+**Not yet**: the default flip (after a KVM soak and the ASUS), per-core
+load in Task Manager (`struct cpu->busy_ns` is counted), the kdebug
+roundup (a stub stop halts core 0 only), and lockup reports from an AP.
+
+**Decided 2026-11-19, before building**:
 
 **Decided 2026-11-19, before building** (the maintainer's picks, with
 stage 6's):

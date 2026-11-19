@@ -471,6 +471,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // AFTER init, which must be pid 1: a kernel thread takes a slot too.
     fs_threads_start();
     vt_start();   // Ctrl+Alt+F1..F4's switch is a kernel thread's work
+    smp_start_scheduling();   // smp=run: the other cores take processes from here
 
     // Boot is over; stop putting kernel log lines on top of whatever the
     // shell or the GUI draws. `dmesg`, the serial port and the console's

@@ -339,6 +339,12 @@ int scheduler_stop(int pid, int sig) {
     p->stopped       = 1;
     p->stop_sig      = sig;
     p->stop_reported = 0;
+    // ...except on ANOTHER CORE (smp=run), where the next tick is that
+    // core's: kicked, so it stops now as it would here.
+    {
+        int i = (int)(p - procs);
+        if (sched_on_other_core(i)) sched_kick_core(sched_core_of(i));
+    }
 
     // NOTHING IS DESCHEDULED HERE, and it does not need to be. If the
     // target is some other process, the picker already will not choose
@@ -474,6 +480,12 @@ static int raise_locked(struct sched_process *p, int sig) {
     if (group_actions(p)[sig].handler == SIG_IGN && !SIGNAL_UNIGNORABLE(sig)) return 1;
 
     p->pending |= (1u << sig);
+    // Running on another core, it acts on this at its next kernel entry:
+    // make that now (Linux's kick_process()).
+    {
+        int i = (int)(p - procs);
+        if (sched_on_other_core(i)) sched_kick_core(sched_core_of(i));
+    }
 
     // A PARKED PROCESS HAS TO BE WOKEN TO BE ACTED ON, because delivery
     // only happens on the way back to ring 3 and a blocked process is

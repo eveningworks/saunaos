@@ -865,6 +865,7 @@ int scheduler_exec(const char *path, const char *argvec, size_t argvec_len,
     if (brc < 0) return brc;   // ENOENT, ENOEXEC, ENOMEM, E2BIG -- never one for all
 
     uint64_t old = procs[me].pml4_phys;
+    group_wait_off_cores(me, me);   // smp=run: none may still run on another core
     group_release_threads(me);
     strace_rekey(old, as);
     fd_rekey(old, as);
