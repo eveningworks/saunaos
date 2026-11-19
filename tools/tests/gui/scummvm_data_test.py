@@ -6,7 +6,9 @@ in /usr/share/games, the Start menu's ScummVM shows the card the four
 freeware games download from (ui/uui_datacard.h, several at once); a
 download is checked, unpacked, registered with ScummVM by ScummVM itself
 (`--add`), and ScummVM's own launcher starts. Next time the front hands
-over at once, and the game itself runs.
+over at once, and the game itself runs. A game a second ScummVM adds
+while one is open survives the open one writing its list back (config
+patch 0002), and one lost that way before the fix is added back, once.
 
 THE DOWNLOAD NEVER LEAVES THIS MACHINE. The guest's
 /etc/scummvm-games.conf gets `mirror=` pointed at a server this tool
@@ -314,6 +316,57 @@ def run(dbg, qmp, mirror, tmp):
     n = poll(lit, 30, step=1.0)
     check("...and the game draws in it (lit pixels, not a black window)", bool(n),
           f"{n} lit of {c['w'] * c['h']}")
+    kill_all(dbg)
+
+    # --- 5. an open ScummVM keeps a game another one added ----------------------
+    # The front adds a game downloaded while ScummVM is open with a SECOND
+    # ScummVM (`--add`), and the open one used to write its own list back over
+    # it at its next flush -- its close, or any setting -- until config patch
+    # 0002 (userland/third_party/scummvm/patches/). The game section is written
+    # here as that second ScummVM would; a copy of Lure would not do, as
+    # `--add` skips a game it has listed already.
+    ini_path = "/home/.config/scummvm/scummvm.ini"
+    dbg.send("gui spawn /usr/bin/scummvm")
+    up = poll(lambda: next((w for w in dbg.windows() if w["title"].startswith("ScummVM 2")), None), 60)
+    if check("ScummVM's launcher is open", up is not None, str([w["title"] for w in dbg.windows()])):
+        before = dbg.send(f"sh cat {ini_path}") or ""
+        for line in ("[lure-added-meanwhile]", "gameid=lure", "engineid=lure",
+                     "description=Added while ScummVM was open", "path=/usr/share/games/lure"):
+            dbg.send(f"sh append {ini_path} {line}")
+        mid = dbg.send(f"sh cat {ini_path}") or ""
+        check("...a game section is written to its list meanwhile, as `--add` writes one",
+              "[lure-added-meanwhile]" in mid, mid.strip()[-200:])
+        dbg.close_window(up["title"])
+        poll(lambda: not running(dbg), 20)
+        ini = dbg.send(f"sh cat {ini_path}") or ""
+        check("a game another ScummVM wrote to the list while one was open survives the open "
+              "one's close (which writes its list)",
+              "[lure-added-meanwhile]" in ini and "[lure]" in ini,
+              f"before {before.strip()!r}\n    after {ini.strip()!r}"[:1500])
+    kill_all(dbg)
+
+    # --- 6. a game lost that way before the fix is added back, once -------------
+    # It stayed marked offered, so the front never asked again. Its first start
+    # since unmarks a game on disk that the list lacks; a person removing it
+    # after that is respected.
+    dbg.send("sh rm /etc/scummvm-games.conf")
+    dbg.send("sh write /etc/scummvm-games.conf added_lure=yes")
+    dbg.send(f"sh write {ini_path} [scummvm]")
+    dbg.logs("scummvm:", clear=True)
+    dbg.send(f"gui spawn {EXEC}")
+    check("a game marked added but missing from ScummVM's list is added again",
+          bool(wait_log(dbg, "lure was marked added but is not in ScummVM's list", 60))
+          and bool(wait_log(dbg, "added lure to ScummVM's list", 60)))
+    poll(lambda: running(dbg), 30)
+    kill_all(dbg)
+    ini = dbg.send(f"sh cat {ini_path}") or ""
+    check("...back in scummvm.ini", "path=/usr/share/games/lure" in ini, ini.strip()[-160:])
+    dbg.send(f"sh write {ini_path} [scummvm]")
+    dbg.logs("scummvm:", clear=True)
+    dbg.send(f"gui spawn {EXEC}")
+    poll(lambda: running(dbg), 30)
+    check("...and only once: removed from the list again, it stays removed",
+          not wait_log(dbg, "added lure", 8))
     kill_all(dbg)
 
 

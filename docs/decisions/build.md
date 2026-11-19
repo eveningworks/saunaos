@@ -2941,4 +2941,8 @@ takes it as a pointer rather than make libbase depend on TLS.
 
 **ScummVM registers its own games** (`scummvm --add --path=DIR`): its
 ini's format is ScummVM's, and a front that wrote it would break with
-the next version's keys.
+the next version's keys. A ScummVM already open writes its whole list
+back at its next flush, so the patch that stops that losing a game is
+in ScummVM's `flushToDisk()` (it keeps game sections another instance
+added) rather than in the front: the same race hits ScummVM's own Add
+Game in a second window, and only the writer can see it (2026-11-19).

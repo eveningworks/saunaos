@@ -377,6 +377,15 @@ options" canvas and two question rounds the same day:
   `/etc/scummvm-games.conf`), so one removed from ScummVM's list stays
   removed. Its left button opens ScummVM's launcher, whose Add Game is
   the way in for a game a person owns.
+- **A ScummVM already open keeps a game another one added**: it writes
+  its whole list back at a setting change and at its close, which used
+  to delete a game the front `--add`ed meanwhile (marked offered, so
+  never asked again). Our config patch (`patches/0002`) has
+  `flushToDisk()` take in any game section on disk that the open one
+  lacks and did not remove or rename itself; the front also leaves a
+  game unmarked when another ScummVM ran during its add, and unmarked,
+  once per machine, every game on disk that the list lacks (the
+  `relisted` key) -- a game lost before the fix comes back.
 - **The licence is a `uui_para`**: selectable, Ctrl+A / Ctrl+C, and the
   right-click Copy / Select All through `uapp_popup_menu()`.
 - **The card is shared, and DOOM moved onto it**: `base/udatafetch.h`

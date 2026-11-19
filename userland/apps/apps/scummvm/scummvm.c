@@ -14,12 +14,20 @@
 // add, which is how a game once stayed out of the list for ever. That
 // runs a ScummVM per new game, seconds each, so it happens after the
 // card's window has closed, never inside its event loop.
+//
+// A SCUMMVM ALREADY OPEN WRITES ITS OWN LIST BACK -- at a setting change
+// and at quit -- and one built before our config patch
+// (userland/third_party/scummvm/patches/0002) wrote the added game away.
+// So a game added while another ScummVM runs is not marked offered: the
+// next start finds it listed and marks it then, or finds it gone and adds
+// it again.
 #include "base/uconf.h"
 #include "base/udatafetch.h"
 #include "base/ulog.h"
 #include "ui/uapp.h"
 #include "ui/uui_datacard.h"
 #include "uhttp.h"
+#include "rt/sys.h"
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -177,6 +185,39 @@ static void make_xdg_dirs(void) {
     }
 }
 
+// Another ScummVM process (not a thread, not this one): it holds its own
+// copy of the list and writes it back.
+static int other_scummvm_running(void) {
+    struct proc_info p;
+    int me = getpid();
+    for (int i = 0; sys_proc_info(i, &p) == 0; i++)
+        if (p.pid && p.pid == p.tgid && p.pid != me && !strcmp(p.name, "scummvm")) return 1;
+    return 0;
+}
+
+// ONCE PER MACHINE: a game an open ScummVM wrote out of the list before
+// the fix stayed marked offered, so it was never added again. Each game
+// on disk, marked, and missing from the list is unmarked here -- which
+// also brings back, once, one a person had removed.
+#define HEAL_KEY "relisted"
+static void heal_lost_games(void) {
+    char v[8];
+    if (uconf_get(GAMES_CONF, HEAL_KEY, v, sizeof v) && !strcmp(v, "yes")) return;
+    for (int i = 0; i < GAME_COUNT; i++) {
+        char *dir = udata_path(GAMES_DIR, &GAMES[i]), key[48];
+        if (dir && access(dir, F_OK) == 0 && offered(&GAMES[i]) && !registered(dir)) {
+            snprintf(key, sizeof key, "added_%s", GAMES[i].id);
+            uconf_set(GAMES_CONF, key, "no");
+            snprintf(key, sizeof key, "tries_%s", GAMES[i].id);
+            uconf_set(GAMES_CONF, key, "0");
+            ulogf("scummvm: %s was marked added but is not in ScummVM's list; adding it again\n",
+                  GAMES[i].id);
+        }
+        free(dir);
+    }
+    uconf_set(GAMES_CONF, HEAL_KEY, "yes");
+}
+
 // Every game here that ScummVM's list does not name yet, added by ScummVM
 // -- once, unless the list itself is gone (a fresh /home).
 static void register_games(void) {
@@ -184,6 +225,8 @@ static void register_games(void) {
     char *ini = ini_path();
     int have_ini = ini && access(ini, F_OK) == 0;
     free(ini);
+    if (have_ini) heal_lost_games();
+    int busy = other_scummvm_running();
     for (int i = 0; i < GAME_COUNT; i++) {
         char *dir = udata_path(GAMES_DIR, &GAMES[i]), *arg = NULL;
         if (!dir || access(dir, F_OK) != 0 || (have_ini && offered(&GAMES[i]))) {
@@ -193,13 +236,14 @@ static void register_games(void) {
         // Listed already (ScummVM's own Add Game, an add whose mark was
         // lost): marked here too, or removing it later would not stick.
         if (registered(dir)) {
-            mark_offered(&GAMES[i]);
+            if (!busy) mark_offered(&GAMES[i]);
         } else if (asprintf(&arg, "--path=%s", dir) >= 0) {
             char *argv[] = { SCUMMVM, "--add", arg, NULL };
             int rc = run_wait(argv);
             if (registered(dir)) {
-                mark_offered(&GAMES[i]);
-                ulogf("scummvm: added %s to ScummVM's list (exit %d)\n", GAMES[i].id, rc);
+                if (!busy) mark_offered(&GAMES[i]);
+                ulogf("scummvm: added %s to ScummVM's list (exit %d)%s\n", GAMES[i].id, rc,
+                      busy ? "; another ScummVM is open, so it is checked again next start" : "");
             } else if (another_try(&GAMES[i])) {
                 ulogf("scummvm: ScummVM did not list %s (exit %d); asked again next start\n",
                       GAMES[i].id, rc);

@@ -1,0 +1,121 @@
+config-manager: flushToDisk() keeps a game another ScummVM added to the file
+since this one read it (SaunaOS's front runs `scummvm --add` for a game
+downloaded while ScummVM is open), instead of writing it away. A game this
+session removed or renamed stays gone.
+
+--- a/common/config-manager.h
++++ b/common/config-manager.h
+@@ -238,6 +238,10 @@
+ 	void			addDomain(const String &domainName, const Domain &domain);
+ 	void			writeDomain(WriteStream &stream, const String &name, const Domain &domain);
+ 	void			renameDomain(const String &oldName, const String &newName, DomainMap &map);
++	// Changed for SaunaOS: games another ScummVM wrote to the file, kept
++	// by flushToDisk() -- unless this session removed or renamed them.
++	void			keepGameDomainsAddedOnDisk();
++	Array<String>	_forgottenGameDomains;
+ 
+ 	Domain			_transientDomain;
+ 	DomainMap		_gameDomains;
+--- a/common/config-manager.cpp
++++ b/common/config-manager.cpp
+@@ -188,6 +188,7 @@
+ #ifdef USE_CLOUD
+ 	_cloudDomain.clear();
+ #endif
++	_forgottenGameDomains.clear();   // Changed for SaunaOS
+ 
+ 	// TODO: Detect if a domain occurs multiple times (or likewise, if
+ 	// a key occurs multiple times inside one domain).
+@@ -283,8 +284,64 @@
+ 	return true;
+ }
+ 
++// Changed for SaunaOS: another ScummVM may have added a game to the file
++// since this one read it -- SaunaOS's ScummVM front runs `scummvm --add`
++// for a game downloaded while ScummVM is open -- and writing this one's
++// list back would delete it. A game domain on disk that this list lacks,
++// and that this session did not remove or rename away, is taken in first.
++void ConfigManager::keepGameDomainsAddedOnDisk() {
++	SeekableReadStream *stream = nullptr;
++	if (_filename.empty()) {
++		if (g_system)
++			stream = g_system->createConfigReadStream();
++	} else {
++		File *f = new File();
++		if (f->open(FSNode(_filename)))
++			stream = f;
++		else
++			delete f;
++	}
++	if (!stream)
++		return;
++
++	String name;
++	Domain domain;
++	while (true) {
++		bool end = stream->eos() || stream->err();
++		String line = end ? String() : stream->readLine();
++		line.trim();
++		if (end || (!line.empty() && line[0] == '[')) {
++			if (!name.empty() && domain.contains("gameid") && !_gameDomains.contains(name) &&
++			    find(_forgottenGameDomains.begin(), _forgottenGameDomains.end(), name) == _forgottenGameDomains.end()) {
++				_gameDomains[name] = domain;
++				if (find(_domainSaveOrder.begin(), _domainSaveOrder.end(), name) == _domainSaveOrder.end())
++					_domainSaveOrder.push_back(name);
++			}
++			if (end)
++				break;
++			domain.clear();
++			const char *close = strchr(line.c_str(), ']');
++			name = close ? String(line.c_str() + 1, close) : String();
++			if (!isValidDomainName(name))
++				name.clear();
++			continue;
++		}
++		const char *eq = strchr(line.c_str(), '=');
++		if (name.empty() || line.empty() || line[0] == '#' || !eq)
++			continue;
++		String key(line.c_str(), eq);
++		String value(eq + 1);
++		key.trim();
++		value.trim();
++		domain.setVal(key, value);
++	}
++	delete stream;
++}
++
+ void ConfigManager::flushToDisk() {
+ #ifndef __DC__
++	keepGameDomainsAddedOnDisk();
++
+ 	WriteStream *stream;
+ 
+ 	if (_filename.empty()) {
+@@ -726,6 +783,10 @@
+ 	// the given name already exists?
+ 
+ 	_gameDomains[domName];
++	// Changed for SaunaOS: added again, so no longer forgotten.
++	for (uint i = 0; i < _forgottenGameDomains.size(); i++)
++		if (_forgottenGameDomains[i] == domName)
++			_forgottenGameDomains.remove_at(i--);
+ 
+ 	// Add it to the _domainSaveOrder, if it's not already in there
+ 	if (find(_domainSaveOrder.begin(), _domainSaveOrder.end(), domName) == _domainSaveOrder.end())
+@@ -747,6 +808,7 @@
+ 		_activeDomain = nullptr;
+ 	}
+ 	_gameDomains.erase(domName);
++	_forgottenGameDomains.push_back(domName);   // Changed for SaunaOS
+ }
+ 
+ void ConfigManager::removeMiscDomain(const String &domName) {
+@@ -758,6 +820,8 @@
+ 
+ void ConfigManager::renameGameDomain(const String &oldName, const String &newName) {
+ 	renameDomain(oldName, newName, _gameDomains);
++	if (oldName != newName)
++		_forgottenGameDomains.push_back(oldName);   // Changed for SaunaOS
+ 	if (_activeDomainName == oldName) {
+ 		_activeDomainName = newName;
+ 		_activeDomain = &_gameDomains[newName];
