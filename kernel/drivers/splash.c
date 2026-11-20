@@ -75,12 +75,16 @@ static void draw_logo(void) {
     g_text_w = g_detail_w = 0;
 }
 
+// **THE SCREEN IS CLAIMED BEFORE IT IS DRAWN** (g_until first, then
+// g_active): a console present while the splash draws would otherwise
+// blit the console's whole pending box over it -- a preemption into a
+// process that printed did, at power-off.
 void splash_begin(void) {
     if (!splash_allowed()) return;
-    draw_logo();
-    say("Starting SaunaOS...");
     g_until = coarse_ticks() + SPLASH_MAX_TICKS;
     g_active = 1;
+    draw_logo();
+    say("Starting SaunaOS...");
     klog_write("splash: on -- Esc shows the boot log\n");
 }
 
@@ -111,11 +115,11 @@ static void shutdown_draw_lines(void) {
 // none. 1 when the shutdown screen took it, 0 to restore the console.
 int splash_shutdown_takeover(void) {
     if (!(g_shutdown & SHUTDOWN_F_ACTIVE) || g_active || !splash_allowed()) return 0;
-    draw_logo();
-    shutdown_draw_lines();
     g_until = coarse_ticks() + SPLASH_MAX_TICKS;   // a shutdown that hangs gets its log back
     g_log_wanted = 0;
-    g_active = 1;
+    g_active = 1;   // claimed before drawn, as splash_begin()
+    draw_logo();
+    shutdown_draw_lines();
     klog_write("splash: shutdown screen on -- Esc shows the log\n");
     return 1;
 }
