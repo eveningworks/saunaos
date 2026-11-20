@@ -496,6 +496,7 @@ Full entries: [`docs/tools/checks.md`](tools/checks.md).
 - `check_initcalls.py` -- an init that is both an INITCALL and a
 - `check_key_routing.py` -- Refuse a GUI app that declares a key-taking widget and routes no keys
 - `check_layout.py` -- Verify disk.img's directory layout matches docs/filesystem-layout.md
+- `check_libc_imports.py` -- a shared library takes no NEW runtime call
 - `check_licenses.py` -- Every vendored port, shipped font, palette and notice file is named in LICENSE
 - `check_optional_components.py` -- The optional components in data/components/ are well-formed, disjoint and GPL-complete
 - `check_runners.py` -- A test no runner runs: one outside tools/tests/ and hostchecks/, or without a RUNNER header

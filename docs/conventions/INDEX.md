@@ -1300,6 +1300,9 @@ whenever a headline here tells you something you did not already know.
   one write at `SYS_WRITE_MAX` and a short write loses data SILENTLY.**
 - **AN UNRECOGNISED printf CONVERSION DESYNCHRONISES EVERY ARGUMENT
   AFTER IT, AND `kfmt_cases.h` IS THE TABLE THAT STOPS A FOURTH ONE.**
+- **A SHARED LIBRARY TAKES NO NEW `sys_*` CALL FROM THE PROGRAM -- IT
+  USES `sys_call()`** -- or every program built before it stops loading
+  (`check_libc_imports.py`)
 - **WRITE C LIBRARY NAMES, AND REACH FOR `sys_*` ONLY WHERE THERE IS NO
   EQUIVALENT**
 - **THE POSIX HALF OF `tolibc` IS HEADERS OVER SYSCALLS THAT ALREADY

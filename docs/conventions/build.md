@@ -110,6 +110,17 @@ this the obvious way), not from how much history it accumulated.
   syscall can honour them; `VMIN`/`VTIME` -- a non-canonical read is
   always VMIN=1; `select`/`poll`, locales and threads -- deliberately
   not pursued), never for lack of a caller.
+- **A SHARED LIBRARY TAKES NO NEW `sys_*` CALL FROM THE PROGRAM -- IT
+  USES `sys_call()`.** The runtime (`userland/libs/rt/`) is linked into
+  every program, and `libc.so` and the other `/lib` libraries find their
+  `sys_*` functions in the program that loaded them. A library that starts
+  calling one added since a program was built cannot load beside it:
+  `ld-toy: undefined symbol`, exit 127 before `main`. e871e149's
+  `prctl()` did that, and the optional ScummVM build stopped starting.
+  `sys_call(SYS_X, ...)` is in every runtime there has been;
+  `tools/checks/check_libc_imports.py` freezes the set a library may
+  import.
+
 - **WRITE C LIBRARY NAMES, AND REACH FOR `sys_*` ONLY WHERE THERE IS NO
   EQUIVALENT** (standing instruction, 2026-09-01). `open`/`read`/`write`/
   `close`/`lseek`/`unlink`/`rename`/`mkdir`/`chdir`/`getcwd`/`dup`/

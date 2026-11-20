@@ -249,6 +249,15 @@ naming what it found; it is in the gate the moment it is saved.
   whose reader went away printed `killed by SIG?`. Reads the header with
   `gen_signames.py`'s parser, so dash's table and this one agree on what
   counts as a signal. Run by `preflight.sh`.
+- **`check_libc_imports.py`** -- A SHARED LIBRARY IN `/lib` IMPORTS ONLY
+  THE `sys_*` CALLS EVERY PROGRAM'S RUNTIME HAS. Those functions are
+  linked into each program, and a library finds them there, so a library
+  that starts calling a newer one cannot load beside a program built
+  before it (`undefined symbol`, exit 127). e871e149's `prctl()` did it
+  and the optional ScummVM build stopped starting (2026-11-20). The set
+  is frozen in the script and may only shrink; the way round is
+  `sys_call(SYS_X, ...)`, as `libc/prctl.c` now does. Reads `build/lib`
+  with `nm -D`, so it needs the build, and passes without one.
 - **`check_syscalls.py`** -- NO TWO ROWS OF `abi/syscall_rows.h` RESOLVE TO
   THE SAME NUMBER. The table is built with designated initializers, so a
   row's index IS its syscall number -- a good property with one hole: C
