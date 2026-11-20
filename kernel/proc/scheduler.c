@@ -272,6 +272,10 @@ void slot_unclaim(int slot) {
 // find a reused slot under the pid of what was there before.
 void slot_free(int slot) {
     int pid = procs[slot].pid;
+    if (procs[slot].fd_holds)   // a frame abandoned with a hold: that description never closes
+        klog_printf(KLOG_ERR "sched: pid %d freed holding %u open-file description(s)\n",
+                    pid, (unsigned)procs[slot].fd_holds);
+    procs[slot].fd_holds = 0;
     sandbox_put(procs[slot].ext->sandbox);
     procs[slot].ext->sandbox = 0;
     k_memset(&procs[slot].ext->io, 0, sizeof procs[slot].ext->io);
@@ -1498,6 +1502,11 @@ void scheduler_trap_exit(uint64_t *regs) {
 void scheduler_preempt_disable(void) { g_preempt_depth++; }
 
 int scheduler_preempt_depth(void) { return g_preempt_depth; }
+
+void scheduler_fd_hold(int delta) {
+    int i = current_index;   // this thread's slot, whichever core it is on
+    if (i >= 0) procs[i].fd_holds = (uint8_t)(procs[i].fd_holds + delta);
+}
 
 void scheduler_preempt_enable(void) {
     if (g_preempt_depth > 0) g_preempt_depth--;

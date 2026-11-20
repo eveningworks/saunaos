@@ -166,12 +166,16 @@ static int in_group(int i, int leader) {
 // AND ONE RUNNING ON ANOTHER CORE (smp=run): in ring 3 there, with its
 // kernel stack live -- freed in place, it would resume on freed memory.
 // It takes the SIGKILL at its next entry, which its kick makes now.
+// AND ONE HOLDING AN OPEN-FILE DESCRIPTION (fd_get_held()), even parked
+// at a call's entry: its frame's fd_put() is the reference's only way
+// back, and freed in place it kept a socket open for good -- telnetd's
+// sessions never closed, its reader parked in read() at exit.
 static int group_parked(int leader, int except) {
     int n = 0;
     for (int i = 0; i < MAX_PROCS; i++)
         if (i != except && in_group(i, leader) &&
             (procs[i].parked_in_kernel || procs[i].preempted_in_kernel ||
-             sched_on_other_core(i))) n++;
+             procs[i].fd_holds || sched_on_other_core(i))) n++;
     return n;
 }
 

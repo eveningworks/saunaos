@@ -478,12 +478,16 @@ struct open_file *fd_get_held(uint64_t pml4, int fd, int *di) {
     if (!sp) return NULL;
     scheduler_preempt_disable();
     int i = slot_di(sp, fd);
-    if (i >= 0 && desc_ref(i, 1)) *di = i;
+    if (i >= 0 && desc_ref(i, 1)) { *di = i; scheduler_fd_hold(1); }
     scheduler_preempt_enable();
     return *di >= 0 ? fd_desc_at(*di) : NULL;
 }
 
-void fd_put(int di) { if (di >= 0) fd_desc_unref(di); }
+void fd_put(int di) {
+    if (di < 0) return;
+    scheduler_fd_hold(-1);
+    fd_desc_unref(di);
+}
 
 // THE PEER THIS PROCESS IS TALKING TO, or 0 if it holds no connected
 // socket at all. How the kernel knows a session arrived over the network

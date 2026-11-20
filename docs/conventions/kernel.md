@@ -3482,6 +3482,15 @@ close during the call takes effect when the call ends, as POSIX says.
 Plain `fd_get()` stays right for a call that only reads a field and
 never waits.
 
+**A THREAD HOLDING ONE IS MID-CALL TO AN EXIT OR A KILL.** The hold is
+counted on the thread (`fd_holds`), and `group_parked()` defers the
+death of a thread with one, so it unwinds through its own `fd_put()`.
+Freed where it stood -- a read parked at its entry looked safe to free --
+the reference stayed for good: telnetd's socket never sent its FIN
+(`tests/holdexit_test`, `remote_test.py`). A new kind of per-call
+reference goes the same way, or it leaks the same way; `slot_free()`
+logs a slot freed with a hold left.
+
 ## AN EXIT GIVES ITS TABLES UP BEFORE IT FREES THEM, AND SWITCHES WITH INTERRUPTS ALREADY OFF
 
 Three rules for the path that ends a process or thread

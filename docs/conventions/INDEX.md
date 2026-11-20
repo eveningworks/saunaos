@@ -217,7 +217,8 @@ whenever a headline here tells you something you did not already know.
 - **A SPAWNED CHILD IS HELD UNTIL THE SPAWN HAS FINISHED SETTING IT UP**
 - **A WAIT ARMS BEFORE IT TESTS, AND AN ARM NEVER OUTLIVES ITS CALL**
 - **A CALL THAT WAITS HOLDS ITS DESCRIPTION: `fd_get_held()`, NOT
-  `fd_get()`**
+  `fd_get()`** -- and a thread holding one is mid-call to an exit or a
+  kill, so it unwinds through its own `fd_put()`
 - **AN EXIT GIVES ITS TABLES UP BEFORE IT FREES THEM, AND SWITCHES WITH
   INTERRUPTS ALREADY OFF**
 - **A PAGE TABLE OR A FAULTED-IN PAGE IS INSTALLED ONLY WHERE NOTHING IS

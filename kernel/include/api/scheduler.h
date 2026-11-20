@@ -1504,4 +1504,9 @@ void scheduler_preempt_enable(void);
 // itself cannot see.
 int scheduler_preempt_depth(void);
 
+// The calling thread takes (+1) or gives back (-1) a hold on an
+// open-file description for a call in flight (fd_get_held()/fd_put()).
+// A thread with one is mid-call to an exit or a kill: it must unwind.
+void scheduler_fd_hold(int delta);
+
 #endif

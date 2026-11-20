@@ -135,6 +135,11 @@ struct sched_process {
     // its kernel frames are live just as a mid-call park's are. Set by
     // the rotation, cleared when it runs again.
     uint8_t preempted_in_kernel;
+    // Open-file descriptions this thread holds for a call in flight
+    // (fd_get_held()). Its own fd_put() is the only way each comes back,
+    // so a thread holding one counts as mid-call (group_parked()) and is
+    // made to unwind rather than freed where it stands.
+    uint8_t fd_holds;
     // THE GROUP IS DYING BUT A THREAD IS STILL IN THE KERNEL (leaders
     // only). Set when an exit or a kill finds a sibling parked mid-call;
     // the leader is then a ZOMBIE nobody may reap, the address space

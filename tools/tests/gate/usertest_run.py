@@ -178,6 +178,9 @@ TESTS = [
     ("killrace_test", None, None, None),
     ("parkrace_test", None, None, None),
     ("readref_test", None, None, None),
+    # A thread parked in read() when its process exits gives its file
+    # back. SPAWNED: a child and a thread.
+    ("holdexit_test", None, None, None),
     # A group exit with threads still faulting pages in on other cores:
     # evidence only at smp=run (its header). SPAWNED: children, threads.
     ("exitfault_test", None, None, None),
