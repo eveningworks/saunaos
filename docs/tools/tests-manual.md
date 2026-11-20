@@ -37,7 +37,9 @@ Run by nothing: each tool's `RUNNER` header carries a `manual` reason.
   soak. Proven to go red 2026-11-20: with the kernel lock off on the
   APs every boot wedged (3 of 3), with no user-space TLB shootdown 2 of
   3. `--round-timeout S` (600) turns a wedged guest into an ERROR
-  instead of a tool that waits for good. **Its workload CHURNS `/usr/wm/applications` on purpose**: the
+  instead of a tool that waits for good -- raised as its own
+  BaseException, since `TimeoutError` is `socket.timeout` and
+  `gui_debug`'s recv loops caught and retried it. **Its workload CHURNS `/usr/wm/applications` on purpose**: the
   desktop only re-reads when that directory changed and a cached read
   never reaches the drive, so without it the tool does almost no disk
   I/O -- verified by disarming the VFS preemption guard entirely and
