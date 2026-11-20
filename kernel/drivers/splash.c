@@ -77,7 +77,8 @@ static void draw_logo(void) {
 }
 
 // Ended WHILE it drew (Esc, the time limit): the log it handed the screen
-// to was painted over by the rest of the draw, so it goes up again. Not
+// to was painted over by the rest of the draw, so it goes up again. EVERY
+// draw that checked g_active first ends with this. Not
 // when a desktop took the screen -- that is the desktop's to paint.
 static void redraw_if_ended(void) {
     if (!g_active && g_ended_to_log) gfx_present_all();
@@ -105,8 +106,10 @@ int splash_active(void) { return g_active; }
 void splash_stage_services(void) {
     char v[16];
     if (!g_active) return;
-    if (etc_config_get(MESSAGES_FILE, MESSAGES_KEY, v, sizeof v) && !k_strcmp(v, "detailed"))
+    if (etc_config_get(MESSAGES_FILE, MESSAGES_KEY, v, sizeof v) && !k_strcmp(v, "detailed")) {
         say("Starting services...");
+        redraw_if_ended();
+    }
 }
 
 // --- the shutdown screen (SYS_SHUTDOWN_STATUS) ------------------------
@@ -139,7 +142,7 @@ void splash_shutdown_set(uint32_t flags, const char *line, const char *detail) {
     if (!(g_shutdown & SHUTDOWN_F_ACTIVE)) return;
     if (line) k_strlcpy(g_line, line, sizeof g_line);
     if (detail) k_strlcpy(g_detail, detail, sizeof g_detail);
-    if (g_active) shutdown_draw_lines();
+    if (g_active) { shutdown_draw_lines(); redraw_if_ended(); }
 }
 
 void splash_shutdown_get(struct shutdown_status *out) {

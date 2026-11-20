@@ -219,9 +219,15 @@ static int may_log(void) {
 // may be waiting on it -- a call back, or a shootdown from a core whose
 // call this is. Polled with interrupts off, so the IPI cannot run the
 // same call here at once (call_service() is not re-entered).
+// Done means REACHED OR PASSED: a later sender's call may already have
+// finished after this one (serial arithmetic, so the wrap is harmless).
+static int call_reached(const struct cpu *c, uint32_t seq) {
+    return (int32_t)(__atomic_load_n(&c->call_done, __ATOMIC_ACQUIRE) - seq) >= 0;
+}
+
 static int wait_done(struct cpu *c, uint32_t seq, uint32_t ms) {
     uint64_t end = clocksource_now_ns() + (uint64_t)ms * 1000000ull;
-    while (__atomic_load_n(&c->call_done, __ATOMIC_ACQUIRE) != seq) {
+    while (!call_reached(c, seq)) {
         uint64_t f = irq_save();
         smp_poll_ipis();
         irq_restore(f);
@@ -305,12 +311,21 @@ static void wedged(struct cpu *c, int index) {
 // in. One not started is taken back.
 static int wait_call(struct cpu *c, int index, uint32_t seq, uint32_t ms) {
     if (wait_done(c, seq, ms)) return 1;
-    if (__atomic_exchange_n(&c->call_fn, (void (*)(void *))0, __ATOMIC_ACQ_REL)) {
+    // **TAKEN BACK UNDER THE SEND LOCK, AND ONLY WHILE THE MAILBOX HOLDS
+    // THIS CALL**: a later sender may have written its own the moment this
+    // one finished, and swapping that out would report ours failed and
+    // theirs done without running it. A newer seq means ours finished.
+    uint64_t f = spin_lock_irqsave(&g_call_lock);
+    void (*taken)(void *) = 0;
+    if (c->call_seq == seq && !call_reached(c, seq))
+        taken = __atomic_exchange_n(&c->call_fn, (void (*)(void *))0, __ATOMIC_ACQ_REL);
+    spin_unlock_irqrestore(&g_call_lock, f);
+    if (taken) {
         wedged(c, index);
         return 0;
     }
     // Taken already: finished just now, or still running.
-    if (__atomic_load_n(&c->call_done, __ATOMIC_ACQUIRE) == seq) return 1;
+    if (call_reached(c, seq)) return 1;
     spin_wait_overdue((uintptr_t)&c->call_done, (uintptr_t)__builtin_return_address(0),
                       spin_cpu_index(), (uint32_t)index);
     if (may_log())

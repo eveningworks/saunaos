@@ -58,6 +58,9 @@ static void snapshot(uint64_t *proc, uint64_t *busy) {
 
 KTEST("query", "coreload: the cores' busy time sums to QUERY_CPULOAD's proc_ns") {
     if (!fs_exists(SPIN_PATH)) KTEST_SKIP("no " SPIN_PATH " on this boot");
+    // The boot core busy-waits in its kernel context below; with no other
+    // core scheduling, the spinners have nowhere to run meanwhile.
+    if (!smp_scheduling()) KTEST_SKIP("the other cores are parked (smp=park)");
     KTEST_ASSERT(query_find(QUERY_CORELOAD) != 0);
     uint64_t p0, b0, p1, b1;
     snapshot(&p0, &b0);

@@ -494,9 +494,13 @@ void crash_notice_piece(int pid, int a, int kind, unsigned flags, const char *te
 void crash_notice_init(void) {
     struct query_crash c, last;
     int have = 0;
-    for (int i = 0; sys_query_record(QUERY_CRASH, i, &c, sizeof c) > 0; i++) { last = c; have = 1; }
+    // g_seen covers every record, quiet ones too; the "desktop restarted"
+    // question is asked of the newest crash a person would have seen.
+    for (int i = 0; sys_query_record(QUERY_CRASH, i, &c, sizeof c) > 0; i++) {
+        if (c.seq > g_seen) g_seen = c.seq;
+        if (!(c.flags & QUERY_CRASH_QUIET)) { last = c; have = 1; }
+    }
     if (!have) return;
-    g_seen = last.seq;
     // WE ARE THE RESTARTED DESKTOP when the newest crash is a toywm's and
     // recent -- init brings it back within a second or two.
     uint64_t now = sys_monotonic_ns();

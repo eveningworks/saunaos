@@ -53,11 +53,15 @@ static const char *reg_names[15] = {
 static struct query_crash g_ring[CRASH_RING];
 static uint32_t g_seq;   // crashes recorded this boot; the newest's seq
 
+// **PUBLISHED LAST**: every field, the quiet flag included, is written
+// before the seq that makes a reader count the record -- one that saw it
+// half-filled raised a card for a quiet crash.
 static struct query_crash *crash_note(int pid, const char *exec, const char *what,
-                                      const uint64_t *regs, uint64_t cr2) {
-    struct query_crash *c = &g_ring[g_seq % CRASH_RING];
+                                      const uint64_t *regs, uint64_t cr2, uint32_t flags) {
+    uint32_t seq = g_seq + 1;
+    struct query_crash *c = &g_ring[(seq - 1) % CRASH_RING];
     k_memset(c, 0, sizeof *c);
-    c->seq = ++g_seq;
+    c->flags = flags;
     c->pid = pid;
     c->uptime_ns = clocksource_now_ns();
     c->rip = regs[17];
@@ -66,6 +70,8 @@ static struct query_crash *crash_note(int pid, const char *exec, const char *wha
     c->cr2 = c->vector == 14 ? cr2 : 0;
     k_strlcpy(c->program, exec, sizeof c->program);
     k_strlcpy(c->fault, what, sizeof c->fault);
+    __atomic_store_n(&c->seq, seq, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_seq, seq, __ATOMIC_RELEASE);
     return c;
 }
 
@@ -136,11 +142,11 @@ uint32_t crash_report_write(const char *what, const uint64_t *regs, uint64_t cr2
     }
     char exec[64];
     if (!scheduler_exec_path(pid, exec, sizeof exec)) k_strlcpy(exec, "?", sizeof exec);
-    struct query_crash *noted = crash_note(pid, exec, what, regs, cr2);
     // NOTED, AS EVERY CRASH IS, but flagged: the desktop's card skips a
     // quiet record, and no file is written.
-    if (!scheduler_dumpable()) {
-        noted->flags |= QUERY_CRASH_QUIET;
+    int quiet = !scheduler_dumpable();
+    struct query_crash *noted = crash_note(pid, exec, what, regs, cr2, quiet ? QUERY_CRASH_QUIET : 0);
+    if (quiet) {
         klog_printf("crash: no report -- pid %d asked for none (PR_SET_DUMPABLE 0)\n", pid);
         return 0;
     }
