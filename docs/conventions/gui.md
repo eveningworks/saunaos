@@ -6350,6 +6350,24 @@ main()'s local.
   `stride` pushes per sample, so the time axis stays uniform. Disk Mark
   is the first caller; Task Manager's monitors stay in the default mode.
 
+## `uui_chart` OVERLAID LINES: `uui_chart_set_lines()`, one ring per line
+
+- **Several live series at once, each its own line, colour and ring**
+  -- KDE System Monitor's per-core graph; Task Manager's CPU page is the
+  first caller. ALLOCATED, as many as the caller's data has (a
+  sixteen-thread machine is sixteen lines), never `UUI_CHART_SERIES`'
+  four, which is fit mode's run tags and a different thing.
+- **The time axis is FIXED**: a full ring spans the plot, so a resize
+  stretches the trace and a line with fewer samples starts further
+  right. The main series is not drawn but still filled -- the device
+  list's sparkline reads it.
+- **Colours are the theme's action palette, resolved at DRAW time**
+  (`uui_chart_line_color()`), never a hex chosen per caller; the legend
+  under the plot shows each line's name and the caller's reading, with
+  `legend_widest` reserving room so it does not reflow. Its describe op
+  reports `lines`, `legend` rects and `legend_value` for a test.
+  `tools/hostchecks/uitest/chart_lines_uitest.c` is the host test.
+
 ## A "FILE SAVED" CARD IS THE COMPOSITOR'S: `uapp_notice()` / `WIN_REQ_NOTICE`
 
 - **A client that made a file and is about to go asks for a notice**

@@ -466,9 +466,10 @@ by nine loaded TCG suites (three guests at once) that had failed 12 in
 12, and 60 runs of the `thread` KTESTs under load that had broken by run
 16-21.
 
-**Not yet**: per-core load in Task Manager (`struct cpu->busy_ns` is
-counted), the kdebug roundup (a stub stop halts core 0 only), and
-lockup reports from an AP.
+**Not yet**: the kdebug roundup (a stub stop halts core 0 only) and lockup
+reports from an AP. Per-core load is read since 2026-11-20:
+`QUERY_CORELOAD` (`kernel/proc/cpuload_query.c`) reports each online
+core's `busy_ns`, and Task Manager's CPU page and `lscpu` divide it.
 
 **Decided 2026-11-19, before building**:
 

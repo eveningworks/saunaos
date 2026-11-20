@@ -1599,7 +1599,7 @@ measurement of what is single-core in the tree today.
 - [ ] **NEXT** A kernel fault on an AP is reported like one on the boot core -- today it halts the core silently, with its process
 - [ ] **NEXT** A `cpus` debug command -- each core's state, current pid, kernel-lock depth, last tick, wedge reason
 - [ ] **NEXT** A preemption-safety check on per-core reads (Linux's CONFIG_DEBUG_PREEMPT), behind a debug build flag
-- [ ] Per-core load in Task Manager and `lscpu` -- `struct cpu->busy_ns` is counted, nothing reads it
+- [x] ~~Per-core load in Task Manager and `lscpu`~~ DONE 2026-11-20 -- QUERY_CORELOAD; a line per CPU on the CPU page
 - [ ] The kdebug stub stops every core, not only core 0 -- the roundup stage 5 deferred
 - [ ] Per-core run queues instead of one global table
 - [x] ~~Inter-processor interrupts (IPIs)~~ DONE 2026-11-19 -- stage 4, `smp_call()` on vector 0xFB

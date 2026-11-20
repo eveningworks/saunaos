@@ -818,6 +818,7 @@ whenever a headline here tells you something you did not already know.
   BOTTOM; `uui_scrollbar_flip()` or `uui_sbar`
 - **CHROME IS MEASURED IN THE INTERFACE FACE, EVEN INSIDE A DOCUMENT'S**
 - **`uui_chart` HAS A RUN MODE: `uui_chart_set_fit()`**
+- **`uui_chart` OVERLAID LINES: `uui_chart_set_lines()`, one ring per line**
 - **A "FILE SAVED" CARD IS THE COMPOSITOR'S: `uapp_notice()` /
   `WIN_REQ_NOTICE`**
 - **A CAPTURE'S HIDDEN CLIENT IS ABSENT EVERYWHERE, AND `ushot` IS ONE

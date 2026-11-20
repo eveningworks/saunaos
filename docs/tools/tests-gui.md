@@ -2205,6 +2205,13 @@ from the default (a sound card, a USB mouse, `--reboot`).
   parent, the filter, Stop/Continue checked through `ps`, Force Quit's
   arm-then-commit, the Performance device list and Ethernet's connection
   log, and stopping and starting `ntpd` checked through `service list`.
+  **The CPU page** (four vCPUs, the RUNNER's `vm`): a line and a legend
+  entry per online CPU, as many as `lscpu`'s load lines; the swatches'
+  colours read off the screen, all different; and two `spin_test`s
+  started after the page is open must take two CPUs' readings (the
+  legend's own `legend_value` lines) past 50% with the rest under it.
+  Reading every core's load as a machine share (÷4), or only the first
+  core, reddens it.
   **Two checks count LOG LINES PER CLICK** -- one SIGSTOP, one init
   request -- because a button names itself on press, motion and release
   and the first build acted on all of them (four signals, four requests,
