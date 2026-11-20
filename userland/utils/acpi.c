@@ -111,20 +111,19 @@ static int dump_table(const char *sig, long at, long want) {
     return 0;
 }
 
-// Is `word` one of the kernel command line's words (QUERY_CMDLINE)?
-static int booted_with(const char *word) {
+// Did this boot ask for smp=park? The LAST smp= on the line, as the
+// kernel reads it.
+static int booted_parked(void) {
     struct query_cmdline q;
     int parts = 0;
     QUERY_FOREACH(QUERY_CMDLINE, q, i) parts++;
     char *cl = malloc((size_t)parts * QUERY_CMDLINE_PART + 1);
     if (!cl) return 0;
-    if (ubootcfg_cmdline(cl, parts * QUERY_CMDLINE_PART + 1) < 0) { free(cl); return 0; }
-    size_t n = strlen(word);
-    int found = 0;
-    for (const char *p = cl; !found && (p = strstr(p, word)) != 0; p += n)
-        found = (p == cl || p[-1] == ' ') && (p[n] == 0 || p[n] == ' ');
+    char v[8];
+    int parked = ubootcfg_cmdline(cl, parts * QUERY_CMDLINE_PART + 1) >= 0 &&
+                 ubootcfg_value_in(cl, "smp=", v, sizeof v) && !strcmp(v, "park");
     free(cl);
-    return found;
+    return parked;
 }
 
 int main(int argc, char **argv) {
@@ -268,7 +267,7 @@ int main(int argc, char **argv) {
         if (online > 1 && scheduling < online) {
             snprintf(line, sizeof line, "  Processes run on %d of them; the others are parked %s\n",
                      scheduling ? scheduling : 1,
-                     booted_with("smp=park") ? "(smp=park)."
+                     booted_parked() ? "(smp=park)."
                                              : "-- the kernel could not start them scheduling "
                                                "(`dmesg`, its smp: lines, says why).");
             put(line);

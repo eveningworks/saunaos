@@ -21,7 +21,7 @@ WHAT IT ASSERTS, in one guest that is allowed to reboot (`vm.py --reboot`):
 the caller's core, inside
 a cross-core call (kernel/core/crashtest.c), and adds the AP's own checks:
 the report names that core, and the panic stopped every other one first.
-`--boot-word smp=park` aims it at a PARKED core, which before 2026-11-20
+`--boot-word smp=park` aims it at a PARKED core, which before b954b91c
 halted with no report; a scheduling one reported, but the others ran on.
 
 THE POSITIVE CONTROL (--positive-control) replaces the warm reset with a

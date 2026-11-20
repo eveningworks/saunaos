@@ -927,7 +927,9 @@ void isr_dispatch(uint64_t *regs) {
     uint64_t vector = regs[15];
     // ANOTHER CORE'S PANIC STOPS THIS ONE (smp_stop_others()), on any core,
     // before anything else -- the lockup NMI and the kernel lock included.
-    if (vector == 2 && smp_stop_requested()) smp_stop_here();
+    // Never the core that owns the panic: an NMI reaching it mid-report
+    // (its lockup counter's) would halt it before the record is kept.
+    if (vector == 2 && smp_stop_requested() && !panic_owned_here()) smp_stop_here();
     // A shootdown's sender waits with the kernel lock held, on any core
     // and from either ring: answered here, taking nothing (tlb.h).
     if (vector == TLB_FLUSH_VECTOR) {
@@ -951,10 +953,19 @@ void isr_dispatch(uint64_t *regs) {
     // the next line, and every branch below is right on either core (an
     // exception or an IPI arrives with them off).
     int core = (int)spin_cpu_index_raw();
+    // THE DEPTH IS RAISED AS THE ORDINARY PATH RAISES IT: a wait the
+    // report reaches (a display flush) asks isr_in_progress() whether to
+    // poll, and a tick-bounded wait never ends with interrupts off.
     if (vector < 32 && !(regs[18] & 3) && vector != 2 &&
         (core != 0 || (vector != 1 && vector != 3))) {
-        if (core != 0) this_cpu()->wedge_vec = vector + 1;
+        struct cpu *c = core != 0 ? this_cpu_raw() : 0;
+        uint64_t was = c ? c->wedge_vec : 0;
+        if (c) c->wedge_vec = vector + 1;
+        int outer_depth = g_isr_depth;
+        g_isr_depth = outer_depth + 1;
         isr_dispatch_body(regs);
+        g_isr_depth = outer_depth;
+        if (c) c->wedge_vec = was;   // returned: a kdebug trap took it, nothing wedged
         return;
     }
     if (core != 0) {

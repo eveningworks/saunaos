@@ -149,6 +149,10 @@ int ubootcfg_trial_booted(const char *cmdline);
 // not one), the value exactly on or off, and the LAST one wins, as a
 // later word on a command line does.
 int ubootcfg_onoff_in(const char *cmdline, const char *key);
+// The value of the LAST whole-word `<key><value>` in `cmdline` (`key` is
+// "smp="), copied into `out`; 0 when the key is absent or the value does
+// not fit `cap`.
+int ubootcfg_value_in(const char *cmdline, const char *key, char *out, int cap);
 
 // --- checking ------------------------------------------------------------
 enum { UBOOTCFG_BROKEN = 1,   // GRUB would not get through it: never saved

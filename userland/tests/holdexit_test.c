@@ -22,17 +22,33 @@
 #include "rt/sys.h"
 #include "base/utest.h"
 
+static volatile int g_reader_tid;
+
 static void *reader(void *arg) {
     (void)arg;
+    g_reader_tid = sys_gettid();
     char c;
     (void)read(0, &c, 1);   // parks: nothing is ever written before the exit
+    return 0;
+}
+
+// Is thread `tid` parked reading a pipe? Asked of the kernel, not assumed
+// from a sleep: before it is, an exit takes the thread from ring 3 with
+// no hold, and the test would pass with nothing tested.
+static int parked_on_pipe(int tid) {
+    struct proc_info p;
+    for (int i = 0; sys_proc_info(i, &p) == 0; i++)
+        if (p.pid == tid)
+            return p.state == PROC_STATE_BLOCKED && p.wait_reason == PROC_WAIT_PIPE;
     return 0;
 }
 
 static int child(void) {
     pthread_t t;
     if (pthread_create(&t, NULL, reader, NULL) != 0) return 2;
-    sys_sleep_ms(50);   // the reader is parked in the kernel by now
+    for (int i = 0; i < 500 && !(g_reader_tid && parked_on_pipe(g_reader_tid)); i++)
+        sys_sleep_ms(10);
+    if (!g_reader_tid || !parked_on_pipe(g_reader_tid)) _exit(3);   // the parent says so
     _exit(0);           // exit_group, with the reader still inside read()
 }
 
@@ -53,7 +69,8 @@ int main(int argc, char **argv) {
     sys_close(p[0]);   // the child's is now the only read end
     int code = -1;
     if (pid > 0) sys_waitpid(pid, &code);
-    utest_checkf(code == 0, "the child exited with its reader still parked (status %d)", code);
+    utest_checkf(code == 0, "the child exited with its reader parked in read() (status %d; "
+                 "3: it never parked)", code);
 
     errno = 0;
     long long n = sys_write(p[1], "x", 1);

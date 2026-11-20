@@ -78,14 +78,23 @@ static volatile int g_panic_core = -1;
 
 void panic_begin(void) {
     __asm__ volatile ("cli");
-    int me = (int)spin_cpu_index();
+    int me = (int)spin_cpu_index_raw();   // interrupts off: this core's
     int prev = -1;
     if (__atomic_compare_exchange_n(&g_panic_core, &prev, me, 0,
                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        // This core's cycle-counter NMI off before anything else: the
+        // report and the countdown run with interrupts off, which it would
+        // read as a hard lockup.
+        lockup_panic_stop();
         smp_stop_others();
         return;
     }
     if (prev != me) smp_stop_here();
+}
+
+int panic_owned_here(void) {
+    int owner = __atomic_load_n(&g_panic_core, __ATOMIC_ACQUIRE);
+    return owner >= 0 && owner == (int)spin_cpu_index_raw();
 }
 
 void panic_finish(void) {

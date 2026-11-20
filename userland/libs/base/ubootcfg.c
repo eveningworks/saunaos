@@ -758,6 +758,21 @@ int ubootcfg_onoff_in(const char *cmdline, const char *key) {
     return w;
 }
 
+int ubootcfg_value_in(const char *cmdline, const char *key, char *out, int cap) {
+    size_t k = strlen(key);
+    const char *last = 0;
+    size_t len = 0;
+    for (const char *p = cmdline; (p = strstr(p, key)) != 0; p++) {
+        if (p != cmdline && p[-1] != ' ') continue;
+        last = p + k;
+        len = strcspn(last, " ");
+    }
+    if (!last || cap <= 0 || len >= (size_t)cap) return 0;
+    memcpy(out, last, len);
+    out[len] = 0;
+    return 1;
+}
+
 int ubootcfg_cmdline(char *out, int cap) {
     struct query_cmdline q;
     int n = 0;

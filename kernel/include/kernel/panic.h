@@ -17,6 +17,8 @@ void panic_finish(void) __attribute__((noreturn));
 // panic. Only the first core to call it returns; another halts there.
 // panic_finish() calls it too, so a site with no report needs nothing.
 void panic_begin(void);
+// 1 on the core that owns a panic in progress (its NMIs are not a stop).
+int panic_owned_here(void);
 
 // `panic=`'s value, parsed: seconds, 0 = halt, < 0 = at once. A value
 // that is not a number is REJECTED (returns 0) and the default stands.

@@ -107,10 +107,14 @@ struct cpu {
 // ONE FIELD OF THIS CORE'S struct cpu IN ONE `%gs` INSTRUCTION, Linux's
 // this_cpu_read()/this_cpu_write(): a migration cannot split it, which a
 // load through this_cpu()'s pointer can (two steps, the core between
-// them). `mov` takes its width from the register, so a field of 1, 2, 4
-// or 8 bytes needs nothing else; `+ 0` drops a volatile qualifier. Only
-// after GS.base is set (gdt_init()); spinlock.h's g_percpu_ready says.
+// them). `mov` takes its width from the register. **A 4- OR 8-BYTE FIELD
+// ONLY, AND ENFORCED**: `+ 0` drops a volatile qualifier, and it also
+// promotes a 1- or 2-byte field to int, so its `mov` would read or write
+// the bytes beside it. Only after GS.base is set (gdt_init());
+// spinlock.h's g_percpu_ready says.
 #define this_cpu_read(f) __extension__ ({                                     \
+    _Static_assert(sizeof(((struct cpu *)0)->f) == 4 ||                       \
+                   sizeof(((struct cpu *)0)->f) == 8, "this_cpu_read: 4 or 8 bytes"); \
     __typeof__(((struct cpu *)0)->f + 0) this_cpu_v_;                         \
     __asm__ volatile ("mov %%gs:%c1, %0" : "=r"(this_cpu_v_)                  \
                       : "i"(__builtin_offsetof(struct cpu, f)) : "memory");   \
@@ -118,6 +122,8 @@ struct cpu {
 // The local's name is its own: a caller's `v_` passed as `val` would
 // otherwise initialise the new variable from itself.
 #define this_cpu_write(f, val) do {                                           \
+    _Static_assert(sizeof(((struct cpu *)0)->f) == 4 ||                       \
+                   sizeof(((struct cpu *)0)->f) == 8, "this_cpu_write: 4 or 8 bytes"); \
     __typeof__(((struct cpu *)0)->f + 0) this_cpu_w_ = (val);                 \
     __asm__ volatile ("mov %0, %%gs:%c1"                                      \
                       :: "r"(this_cpu_w_), "i"(__builtin_offsetof(struct cpu, f)) \

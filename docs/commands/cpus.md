@@ -33,7 +33,7 @@ listed, the ones that never started or failed included
       shootdowns:  117 answered
 
 It is what had to be read through QEMU's gdbstub before it existed
-(2026-11-20). A snapshot: the other cores keep running while it reads,
+(6282cb42). A snapshot: the other cores keep running while it reads,
 so a busy one's fields may be a moment apart.
 
 **When ring 3 cannot start a program at all**, the serial debug console

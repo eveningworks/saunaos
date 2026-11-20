@@ -1596,6 +1596,8 @@ measurement of what is single-core in the tree today.
 - [x] ~~A kernel fault on an AP is reported like one on the boot core~~ DONE 2026-11-20 -- a panic, the other cores stopped by NMI first
 - [x] ~~A `cpus` debug command~~ DONE 2026-11-20 -- `/bin/cpus` and the debug console's `cpus`, over QUERY_CPUSTATE
 - [x] ~~A preemption-safety check on per-core reads (CONFIG_DEBUG_PREEMPT)~~ DONE 2026-11-20 -- `make DEBUG_PREEMPT=1`
+- [ ] exec frees its other threads in place with no mid-call check -- one blocked with a held file leaks it
+- [ ] A thread with a live syscall frame is mid-call to exit and kill (an in-call depth), not per resource
 - [x] ~~Per-core load in Task Manager and `lscpu`~~ DONE 2026-11-20 -- QUERY_CORELOAD; a line per CPU on the CPU page
 - [ ] The kdebug stub stops every core, not only core 0 -- the roundup stage 5 deferred
 - [ ] Per-core run queues instead of one global table

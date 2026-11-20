@@ -1036,7 +1036,13 @@ static int same_region(const struct mmap_region *now, const struct mmap_region *
 
 // The "not served" line, shared with uheap_fault()'s own (mmap.h).
 void mm_fault_unserved(uint64_t page, const char *why) {
+    // PER PROCESS, in the shape that costs nothing: a line from a pid other
+    // than the last one's goes at once, so a program probing pointers
+    // spends only its own second -- another's crash still says why.
     static struct ratelimit rl;
+    static int rl_pid;
+    int pid = scheduler_current_pid();
+    if (pid != rl_pid) { ratelimit_reset(&rl); rl_pid = pid; }
     unsigned held = 0;
     if (!ratelimit_ok(&rl, &held)) return;
     if (held)
@@ -1093,6 +1099,8 @@ static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page,
         // ranges in before FS_OP. This refusal is what keeps that an
         // invariant rather than an accident.
         if (scheduler_preempt_depth() > 0) {
+            klog_printf(KLOG_ERR "mm: refused file-backed fault-in of %#lx inside an "
+                        "FS_OP -- see mmap_fault_in()\n", page);
             *why = "a file page cannot be read inside an FS_OP";
             return 0;
         }
