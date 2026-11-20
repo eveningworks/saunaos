@@ -170,6 +170,7 @@ struct uapp {
     // a frame and then jumps, which a screensaver shows as a black flash.
     unsigned long long hold_until_ms;
     int focused;  // keyboard focus, per WIN_EV_FOCUS
+    int suspended; // out of sight, per WIN_EV_SUSPENDED
     int running;
     int status;
     int timer_armed; // TWS accepted a WIN_REQ_TIMER, so on_tick arrives

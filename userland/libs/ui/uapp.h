@@ -415,6 +415,13 @@ struct uapp_desc {
     // The answer to a notification this program sent (ui/unotify.h):
     // `action` an action's index, WIN_NOTIFY_CLICKED or WIN_NOTIFY_CLOSED.
     void (*on_notify)(struct uapp *a, uint32_t id, int action);
+
+    // THE WINDOW WENT OUT OF SIGHT (1) or came back (0): minimized, or
+    // the desktop behind a text VT (WIN_EV_SUSPENDED, Wayland's
+    // `suspended`). For an app that ANIMATES -- stop the frames, keep
+    // collecting data -- and asks uapp_suspended() when it re-arms. Last
+    // in the struct, so a program built before it keeps its layout.
+    void (*on_suspend)(struct uapp *a, int suspended);
 };
 
 // The ordinary path: open, run until closed, clean up. Returns the
@@ -937,6 +944,8 @@ void *uapp_state(struct uapp *a);
 // is going somewhere else. Starts true: a window is frontmost the
 // moment it is created.
 int uapp_focused(const struct uapp *a);
+// Is the window out of sight (uapp_desc.on_suspend)? Starts false.
+int uapp_suspended(const struct uapp *a);
 int uapp_width(const struct uapp *a);
 int uapp_height(const struct uapp *a);
 

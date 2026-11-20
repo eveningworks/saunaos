@@ -215,6 +215,7 @@ void uapp_quit(struct uapp *a, int status) {
 
 void *uapp_state(struct uapp *a) { return a->desc->state; }
 int uapp_focused(const struct uapp *a) { return a->focused; }
+int uapp_suspended(const struct uapp *a) { return a->suspended; }
 int uapp_width(const struct uapp *a) { return a->w; }
 int uapp_height(const struct uapp *a) { return a->h; }
 
@@ -1156,6 +1157,16 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         a->focused = ev->a ? 1 : 0;
         if (d->on_focus) d->on_focus(a, a->focused);
         a->top.dirty = 1;
+        break;
+
+    case WIN_EV_SUSPENDED:
+        // Nothing to redraw: the compositor keeps the last frame. Coming
+        // back, a frame is drawn anyway, since what animates stood still.
+        if (ev->window != a->window || a->suspended == (ev->a ? 1 : 0)) break;
+        a->suspended = ev->a ? 1 : 0;
+        ulogf("uapp: pid %d suspended %d\n", (int)sys_getpid(), a->suspended);
+        if (d->on_suspend) d->on_suspend(a, a->suspended);
+        if (!a->suspended) a->top.dirty = 1;
         break;
 
     case WIN_EV_KEY:
