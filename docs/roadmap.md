@@ -25,6 +25,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
+- [ ] Fix the SMP review's five correctness findings (`docs/bugs.md`, "SMP REVIEW 2026-11-20")  *(SMP)*
 - [ ] A kernel fault on an AP is reported like one on the boot core -- today it halts the core silently, with its process  *(SMP)*
 - [ ] A `cpus` debug command -- each core's state, current pid, kernel-lock depth, last tick, wedge reason  *(SMP)*
 - [ ] A preemption-safety check on per-core reads (Linux's CONFIG_DEBUG_PREEMPT), behind a debug build flag  *(SMP)*
@@ -1594,6 +1595,8 @@ measurement of what is single-core in the tree today.
 - [x] ~~A later memory-type change reaches every core, not only the BSP~~ DONE 2026-11-19 -- stage 4, replayed through the call IPI
 - [x] ~~Scheduler aware of multiple cores~~ DONE 2026-11-19 -- stage 5, behind `smp=run`; one run queue, an idle loop and tick per AP
 - [x] ~~Processes on every core by default~~ DONE 2026-11-20 -- `smp=run` the default after a KVM and ASUS soak; `smp=park` opts out
+- [ ] **NEXT** Fix the SMP review's five correctness findings (`docs/bugs.md`, "SMP REVIEW 2026-11-20")
+- [ ] SMP review minor findings -- rate-limited "fault not served" lines, an exact fault reason, acpi's parked wording, a cheaper kernel-lock entry note, one `this_cpu_read()`
 - [ ] **NEXT** A kernel fault on an AP is reported like one on the boot core -- today it halts the core silently, with its process
 - [ ] **NEXT** A `cpus` debug command -- each core's state, current pid, kernel-lock depth, last tick, wedge reason
 - [ ] **NEXT** A preemption-safety check on per-core reads (Linux's CONFIG_DEBUG_PREEMPT), behind a debug build flag
