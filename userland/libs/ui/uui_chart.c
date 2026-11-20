@@ -6,6 +6,7 @@
 #include "base/unum.h"
 #include <stdio.h>
 #include <stddef.h>
+#include <stdlib.h>   // the overlaid lines' rings
 
 void uui_chart_init(struct uui_chart *c, const char *label) {
     c->x = c->y = c->w = c->h = 0;
@@ -24,6 +25,10 @@ void uui_chart_init(struct uui_chart *c, const char *label) {
     for (int i = 0; i < UUI_CHART_SERIES; i++) c->series_col[i] = UUI_COLOR_UNSET;
     c->axis_unit = NULL;
     c->axis_div = 1;
+    c->lines = NULL;     // a chart being initialised owns none yet
+    c->nlines = 0;
+    c->legend_widest = NULL;
+    c->legend_bg = UUI_COLOR_UNSET;
     uui_chart_clear(c);
 }
 
@@ -141,12 +146,177 @@ uint32_t uui_chart_recent(const struct uui_chart *c, int back) {
 
 int uui_chart_hover_index(const struct uui_chart *c) { return c->hover; }
 
+// --- overlaid lines ----------------------------------------------------------
+
+// Lines are drawn in place of the main series -- except in fit mode,
+// which is one trace of runs and has its own idea of the time axis.
+static int lines_on(const struct uui_chart *c) { return c->nlines > 0 && !c->fit; }
+
+int uui_chart_set_lines(struct uui_chart *c, int n) {
+    if (n < 0) n = 0;
+    if (n == c->nlines) return 1;
+    if (n < c->nlines) {
+        for (int k = n; k < c->nlines; k++) free(c->lines[k].ring);
+        c->nlines = n;
+        if (!n) { free(c->lines); c->lines = NULL; }
+        return 1;   // a shrink keeps the larger block: nothing to fail
+    }
+    struct uui_chart_line *l = realloc(c->lines, (size_t)n * sizeof *l);
+    if (!l) return 0;
+    c->lines = l;
+    for (int k = c->nlines; k < n; k++) {
+        uint32_t *ring = calloc(UUI_CHART_MAX, sizeof *ring);
+        if (!ring) {
+            for (int j = c->nlines; j < k; j++) free(l[j].ring);
+            return 0;   // nlines unchanged: the block is merely roomier
+        }
+        l[k] = (struct uui_chart_line){ .ring = ring, .color = UUI_COLOR_UNSET };
+    }
+    c->nlines = n;
+    return 1;
+}
+
+void uui_chart_push_line(struct uui_chart *c, int k, uint32_t value) {
+    if (k < 0 || k >= c->nlines) return;
+    struct uui_chart_line *l = &c->lines[k];
+    l->ring[l->head] = value;
+    l->head = (l->head + 1) % UUI_CHART_MAX;
+    if (l->count < UUI_CHART_MAX) l->count++;
+}
+
+void uui_chart_set_line_label(struct uui_chart *c, int k, const char *name, const char *value) {
+    if (k < 0 || k >= c->nlines) return;
+    c->lines[k].name = name;
+    c->lines[k].value = value;
+}
+
+void uui_chart_set_line_color(struct uui_chart *c, int k, uint32_t color) {
+    if (k >= 0 && k < c->nlines) c->lines[k].color = color;
+}
+
+uint32_t uui_chart_line_recent(const struct uui_chart *c, int k, int back) {
+    if (k < 0 || k >= c->nlines) return 0;
+    const struct uui_chart_line *l = &c->lines[k];
+    if (back < 0 || back >= l->count) return 0;
+    return l->ring[(l->head + UUI_CHART_MAX - 1 - back) % UUI_CHART_MAX];
+}
+
+int uui_chart_line_count(const struct uui_chart *c, int k) {
+    return k >= 0 && k < c->nlines ? c->lines[k].count : 0;
+}
+
+// The order the palette is taken in: the most distinct first -- blue,
+// orange, teal, purple -- so four cores never need the fifth.
+static const int LINE_ROLES[] = {
+    UTHEME_ACT_NAV, UTHEME_ACT_ARRANGE, UTHEME_ACT_VIEW, UTHEME_ACT_EDIT,
+    UTHEME_ACT_CREATE, UTHEME_ACT_DANGER, UTHEME_ACT_MEDIA,
+};
+#define LINE_ROLE_N ((int)(sizeof LINE_ROLES / sizeof LINE_ROLES[0]))
+
+uint32_t uui_chart_line_color(const struct uui_chart *c, int k) {
+    if (k >= 0 && k < c->nlines && c->lines[k].color != UUI_COLOR_UNSET)
+        return UUI_COLOR(c->lines[k].color, UTHEME_ACCENT);
+    if (k < 0) k = 0;
+    uint32_t col = utheme_action(LINE_ROLES[k % LINE_ROLE_N]);
+    // A sixteen-thread machine goes round again: the same hues, each
+    // round further toward the text colour, so no two lines are equal.
+    int round = k / LINE_ROLE_N;
+    int a = round * 90 > 200 ? 200 : round * 90;
+    return round ? ugfx_blend(col, UTHEME_TEXT, (uint8_t)a) : col;
+}
+
+// THE LEGEND: one cell per line -- a swatch, the name, the reading --
+// in uniform columns under the plot, as many to a row as the width
+// holds. Uniform so the columns line up and a reading growing a digit
+// moves nothing (legend_widest reserves its room).
+struct legend { int n, cell_w, per_row, rows, line_h, sq, gap, name_w, top, h; };
+
+static int legend_value_w(const struct uui_chart *c) {
+    const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+    int w = c->legend_widest ? ugfx_text_width(c->legend_widest) : 0;
+    for (int k = 0; !c->legend_widest && k < c->nlines; k++)
+        if (c->lines[k].value && ugfx_text_width(c->lines[k].value) > w)
+            w = ugfx_text_width(c->lines[k].value);
+    ugfx_set_font(was);
+    return w;
+}
+
+static void legend_of(const struct uui_chart *c, struct legend *L) {
+    *L = (struct legend){ 0 };
+    if (!lines_on(c) || c->compact) return;
+    int ch = ugfx_char_h();
+    L->line_h = ch + ch / 4;
+    L->sq = ch * 3 / 5;
+    L->gap = ch / 3 > 2 ? ch / 3 : 2;
+    for (int k = 0; k < c->nlines; k++)
+        if (c->lines[k].name && ugfx_text_width(c->lines[k].name) > L->name_w)
+            L->name_w = ugfx_text_width(c->lines[k].name);
+    L->cell_w = L->sq + L->gap + L->name_w + L->gap + legend_value_w(c) + ch;
+    L->per_row = c->w / L->cell_w > 0 ? c->w / L->cell_w : 1;
+    L->rows = (c->nlines + L->per_row - 1) / L->per_row;
+    L->h = L->rows * L->line_h + ch / 4;
+    // NEVER MORE THAN HALF THE BOX: a legend that ate the plot would be
+    // a list of names for a graph nobody can see.
+    if (L->h > c->h / 2) { L->h = 0; return; }
+    L->n = c->nlines;
+    L->top = c->y + c->h - L->h;
+}
+
+// The framed part: everything but the legend.
+static int body_h(const struct uui_chart *c) {
+    struct legend L;
+    legend_of(c, &L);
+    return c->h - L.h;
+}
+
+int uui_chart_legend_rect(const struct uui_chart *c, int k, int *x, int *y, int *w, int *h) {
+    struct legend L;
+    legend_of(c, &L);
+    if (k < 0 || k >= L.n) return 0;
+    *x = c->x + (k % L.per_row) * L.cell_w;
+    *y = L.top + ugfx_char_h() / 4 + (k / L.per_row) * L.line_h;
+    *w = L.cell_w - ugfx_char_h();
+    *h = L.line_h;
+    return 1;
+}
+
+static void draw_legend(struct ugfx_surface *s, const struct uui_chart *c) {
+    struct legend L;
+    legend_of(c, &L);
+    if (!L.n) return;
+    uint32_t bg = UUI_COLOR(c->legend_bg, UTHEME_PANEL_BG);
+    uint32_t ink = UUI_COLOR(c->fill, UTHEME_TEXT);
+    ugfx_fill_rect(s, c->x, L.top, c->w, L.h, bg);
+    int ch = ugfx_char_h();
+    for (int k = 0; k < L.n; k++) {
+        int x, y, w, h;
+        uui_chart_legend_rect(c, k, &x, &y, &w, &h);
+        int ty = y + (h - ch) / 2;
+        ugfx_fill_rect(s, x, y + (h - L.sq) / 2, L.sq, L.sq, uui_chart_line_color(c, k));
+        int nx = x + L.sq + L.gap;
+        if (c->lines[k].name)
+            ugfx_draw_string_clipped(s, nx, ty, L.name_w + 1, c->lines[k].name, ink, bg);
+        if (c->lines[k].value) {
+            int vx = nx + L.name_w + L.gap;
+            const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+            ugfx_draw_string_clipped(s, vx, ty, x + w - vx, c->lines[k].value, ink, bg);
+            ugfx_set_font(was);
+        }
+    }
+}
+
 // The top of the scale: the caller's, or the largest sample in view.
 // Never zero, so the division below is safe and an all-zero series
 // draws a flat baseline rather than a full block.
 static uint32_t scale_of(const struct uui_chart *c) {
     if (c->scale_max) return c->scale_max;
     uint32_t peak = 1;
+    if (lines_on(c)) {
+        for (int k = 0; k < c->nlines; k++)
+            for (int b = 0; b < c->lines[k].count; b++)
+                if (uui_chart_line_recent(c, k, b) > peak) peak = uui_chart_line_recent(c, k, b);
+        return peak;
+    }
     int n = uui_chart_drawn(c);
     for (int i = 0; i < n; i++) {
         uint32_t v = c->samples[drawn_slot(c, i)];
@@ -156,12 +326,13 @@ static uint32_t scale_of(const struct uui_chart *c) {
 }
 
 void uui_chart_natural_size(const struct uui_chart *c, int *out_w, int *out_h) {
-    (void)c;
     // FONT-DERIVED, never pixels (docs/gui-guidelines.md): wide enough
     // that the trace is a shape rather than a spike, tall enough for a
-    // caption above it and an axis below.
+    // caption above it and an axis below -- and with lines, one legend
+    // row (a narrower box wraps it into more, out of the plot's share).
+    int ch = ugfx_char_h();
     if (out_w) *out_w = ugfx_char_advance('n') * 34;
-    if (out_h) *out_h = ugfx_char_h() * 8;
+    if (out_h) *out_h = ch * 8 + (lines_on(c) && !c->compact ? ch + ch / 4 + ch / 4 : 0);
 }
 
 void uui_chart_set_geometry(struct uui_chart *c, int x, int y, int w, int h) {
@@ -169,9 +340,10 @@ void uui_chart_set_geometry(struct uui_chart *c, int x, int y, int w, int h) {
 }
 
 // "3 min", "45 s" -- the span the DRAWN samples cover, which is what the
-// width actually shows rather than what the ring could hold.
+// width actually shows rather than what the ring could hold. With lines
+// the axis is fixed: a whole ring, whatever has arrived so far.
 static void span_text(const struct uui_chart *c, char *out, int cap) {
-    long long ms = (long long)uui_chart_drawn(c) * c->sample_ms;
+    long long ms = (long long)(lines_on(c) ? UUI_CHART_MAX : uui_chart_drawn(c)) * c->sample_ms;
     long long sec = ms / 1000;
     if (sec >= 120) snprintf(out, (unsigned)cap, "%lld min", sec / 60);
     else            snprintf(out, (unsigned)cap, "%lld s", sec);
@@ -210,10 +382,11 @@ static void plot_of(const struct uui_chart *c, struct plot *p) {
     int axis = c->axis_unit && !c->compact && c->fit;
     p->x0 = c->x; p->w = c->w;
     p->top = c->y + (c->compact ? 0 : ch + 2);
-    p->bot = c->y + c->h - 1 - (!c->compact && c->sample_ms ? ch + 1 : 0);
+    int bh = body_h(c);
+    p->bot = c->y + bh - 1 - (!c->compact && c->sample_ms ? ch + 1 : 0);
     p->strip_y = -1;
     if (!c->compact && ((c->fit && c->mark_n) || axis)) { p->strip_y = p->top; p->top += ch + 2; }
-    if (p->bot - p->top < 4) { p->top = c->y; p->bot = c->y + c->h - 1; p->strip_y = -1; }
+    if (p->bot - p->top < 4) { p->top = c->y; p->bot = c->y + bh - 1; p->strip_y = -1; }
     p->top_val = scale_of(c);
     p->step = 0;
     if (!axis) return;
@@ -270,6 +443,40 @@ static void draw_fit(struct ugfx_surface *s, const struct uui_chart *c,
     }
 }
 
+// OVERLAID LINES: the x of the sample `back` pushes ago. A whole ring
+// spans the plot, newest at the right edge, whatever the width.
+static int line_x(const struct plot *p, int back) {
+    return p->x0 + p->w - 2 - (int)((int64_t)(p->w - 4) * back / (UUI_CHART_MAX - 1));
+}
+static int line_back_at(const struct plot *p, int x) {
+    int w = p->w - 4 > 1 ? p->w - 4 : 1;
+    return (int)(((int64_t)(p->x0 + p->w - 2 - x) * (UUI_CHART_MAX - 1) + w / 2) / w);
+}
+
+// Each line two pixels thick, as fit mode's; the first line drawn LAST,
+// so CPU 0 is never the one hidden where two lines meet.
+static void draw_lines(struct ugfx_surface *s, const struct uui_chart *c, const struct plot *p) {
+    int bot = p->bot, ph = bot - p->top;
+    for (int k = c->nlines - 1; k >= 0; k--) {
+        uint32_t col = uui_chart_line_color(c, k);
+        int n = c->lines[k].count, px = 0, py = 0;
+        for (int b = n - 1; b >= 0; b--) {   // oldest first, left to right
+            uint32_t v = uui_chart_line_recent(c, k, b);
+            if (v > p->top_val) v = p->top_val;
+            int x = line_x(p, b);
+            int y = bot - 1 - (int)((uint64_t)(ph - 2) * v / p->top_val);
+            if (b < n - 1) {
+                ugfx_draw_line(s, px, py, x, y, col, GEOM_AA);
+                ugfx_draw_line(s, px, py - 1, x, y - 1, col, GEOM_AA);
+            } else if (n == 1) {
+                ugfx_fill_rect(s, x - 1, y - 1, 2, 2, col);
+            }
+            px = x;
+            py = y;
+        }
+    }
+}
+
 // The tick gutter: a value at each gridline, the unit above the top one.
 static void draw_axis(struct ugfx_surface *s, const struct uui_chart *c,
                       const struct plot *p, uint32_t bg) {
@@ -310,7 +517,9 @@ void uui_chart_draw(struct ugfx_surface *s, const struct uui_chart *c) {
     plot_of(c, &p);
     int top = p.top, bot = p.bot, ph = bot - top;
 
-    ugfx_fill_rect(s, c->x, c->y, c->w, c->h, bg);
+    int bh = body_h(c);
+    ugfx_fill_rect(s, c->x, c->y, c->w, bh, bg);
+    draw_legend(s, c);
     if (p.step) {
         for (uint32_t v = p.step; v <= p.top_val && v >= p.step; v += p.step) {
             int gy = bot - 1 - (int)((uint64_t)(ph - 2) * v / p.top_val);
@@ -326,6 +535,14 @@ void uui_chart_draw(struct ugfx_surface *s, const struct uui_chart *c) {
 
     if (c->fit) {
         draw_fit(s, c, &p, bg, line);
+        goto frame;
+    }
+    if (lines_on(c)) {
+        draw_lines(s, c, &p);
+        if (c->hover >= 0 && c->hover < UUI_CHART_MAX) {
+            int hx = line_x(&p, UUI_CHART_MAX - 1 - c->hover);
+            ugfx_draw_line(s, hx, top, hx, bot, edge, GEOM_ALIASED);
+        }
         goto frame;
     }
 
@@ -362,9 +579,9 @@ void uui_chart_draw(struct ugfx_surface *s, const struct uui_chart *c) {
 frame:
     if (!c->compact) {
         ugfx_draw_line(s, c->x, c->y, c->x + c->w - 1, c->y, edge, GEOM_ALIASED);
-        ugfx_draw_line(s, c->x, c->y + c->h - 1, c->x + c->w - 1, c->y + c->h - 1, edge, GEOM_ALIASED);
-        ugfx_draw_line(s, c->x, c->y, c->x, c->y + c->h - 1, edge, GEOM_ALIASED);
-        ugfx_draw_line(s, c->x + c->w - 1, c->y, c->x + c->w - 1, c->y + c->h - 1, edge, GEOM_ALIASED);
+        ugfx_draw_line(s, c->x, c->y + bh - 1, c->x + c->w - 1, c->y + bh - 1, edge, GEOM_ALIASED);
+        ugfx_draw_line(s, c->x, c->y, c->x, c->y + bh - 1, edge, GEOM_ALIASED);
+        ugfx_draw_line(s, c->x + c->w - 1, c->y, c->x + c->w - 1, c->y + bh - 1, edge, GEOM_ALIASED);
     }
 
     // The label left and the reading right, both CLIPPED -- caller text
@@ -434,12 +651,36 @@ static int chart_motion_op(void *w, int cx, int cy, unsigned buttons) {
         int span = c->count > 1 ? c->count - 1 : 1;
         int i = p.w > 5 ? (int)((int64_t)(cx - p.x0 - 2) * span / (p.w - 5)) : -1;
         c->hover = (c->count > 0 && i >= 0 && i < c->count) ? i : -1;
+    } else if (lines_on(c)) {
+        // A position on the fixed axis, 0 the left edge: whether a line
+        // has a sample there is the line's question (uui_chart_line_recent()).
+        struct plot p;
+        plot_of(c, &p);
+        int back = line_back_at(&p, cx);
+        c->hover = cy < c->y + body_h(c) && back >= 0 && back < UUI_CHART_MAX
+                 ? UUI_CHART_MAX - 1 - back : -1;
     } else {
         int n = uui_chart_drawn(c);
         int i = cx - (c->x + c->w - n);
         c->hover = (n > 0 && i >= 0 && i < n) ? i : -1;
     }
     return c->hover != was;
+}
+
+// The legend, for a test: how many lines, each entry's box, and the
+// reading it shows -- `<name>.legend_value <k> <text>`.
+static void chart_describe_op(const void *w, const struct uui_describe *d) {
+    const struct uui_chart *c = (const struct uui_chart *)w;
+    if (!lines_on(c)) return;
+    uui_describe_int(d, "lines", c->nlines);
+    for (int k = 0; k < c->nlines; k++) {
+        int x, y, ww, hh;
+        if (!uui_chart_legend_rect(c, k, &x, &y, &ww, &hh)) break;
+        uui_describe_rect_i(d, "legend", k, x, y, ww, hh);
+        char v[48];
+        snprintf(v, sizeof v, "%d %s", k, c->lines[k].value ? c->lines[k].value : "");
+        uui_describe_str(d, "legend_value", v);
+    }
 }
 
 const struct uui_widget_ops uui_chart_ops = {
@@ -449,4 +690,5 @@ const struct uui_widget_ops uui_chart_ops = {
     .set_geometry = chart_geometry_op,
     .hit = chart_hit_op,
     .motion = chart_motion_op,
+    .describe = chart_describe_op,
 };

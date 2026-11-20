@@ -24,16 +24,40 @@ extern "C" {
 // are read: 100 for a percentage, 0 to AUTOSCALE against the largest
 // sample in view, which is what GNOME's network graph does.
 //
-// **THE RING IS INSIDE THE WIDGET.** Toykit has no allocator, and a
-// caller-supplied array is one more thing for every caller to size
-// wrongly.
+// **THE RING IS INSIDE THE WIDGET** -- a caller-supplied array is one
+// more thing for every caller to size wrongly. The main series' ring is
+// in the struct; OVERLAID LINES (below) are allocated, one ring each,
+// because how many there are is the caller's data (a core per line).
 //
 // NEWEST ON THE RIGHT, which is every system monitor's direction and
 // the one that keeps the eye where new data arrives.
+//
+// **OVERLAID LINES** (uui_chart_set_lines()): several live series drawn
+// at once over one scale, each its own line, colour and ring -- KDE
+// System Monitor's per-core graph. In this mode the main series is not
+// drawn (uui_chart_recent() still reads it: Task Manager keeps the
+// machine's total there for its sparkline), the time axis is FIXED --
+// a full ring spans the plot, so a window resize stretches the trace
+// and never changes how far back it reaches -- and a line with fewer
+// samples than another starts further right. A legend under the plot
+// names each line with its reading. Not for fit mode, whose series[]
+// is a sequence of runs in ONE trace (DiskMark's read, then write).
 
 #define UUI_CHART_MAX 180
 #define UUI_CHART_MARKS 8
 #define UUI_CHART_SERIES 4
+
+// One overlaid line. `name` and `value` are the caller's, uncopied, as
+// the chart's own label and value are.
+struct uui_chart_line {
+    uint32_t *ring;          // UUI_CHART_MAX samples, allocated
+    int count, head;
+    // UUI_COLOR_UNSET -- the default -- takes the theme's action palette
+    // by index (uui_chart_line_color()) at DRAW time.
+    uint32_t color;
+    const char *name;        // the legend's "CPU 0", or NULL
+    const char *value;       // its reading, "22%", or NULL
+};
 
 // A labelled moment on the time axis -- "SEQ read" starting here. Its
 // label sits in a strip ABOVE the plot, never under the trace.
@@ -102,6 +126,16 @@ struct uui_chart {
     // printed value -- 1000 for a milli-unit series. NULL draws none.
     const char *axis_unit;
     uint32_t axis_div;
+
+    // OVERLAID LINES: `nlines` of them, or none (NULL, 0). Owned by the
+    // chart once set -- uui_chart_set_lines(c, 0) frees them.
+    struct uui_chart_line *lines;
+    int nlines;
+    // The widest reading the legend must hold ("100%"): every entry
+    // reserves its width, so the legend does not reflow as readings
+    // change. NULL measures the readings as they are.
+    const char *legend_widest;
+    uint32_t legend_bg;      // UUI_COLOR_UNSET: the panel's
 };
 
 void uui_chart_init(struct uui_chart *c, const char *label);
@@ -151,6 +185,29 @@ int uui_chart_drawn(const struct uui_chart *c);
 // that is never laid out -- a trace drawn somewhere else, like Task
 // Manager's device list -- has drawn nothing and still has its history.
 uint32_t uui_chart_recent(const struct uui_chart *c, int back);
+
+// --- overlaid lines (see the top of this file) ---------------------------
+//
+// Have `n` lines: kept lines keep their samples, new ones start empty,
+// lines past `n` are freed; 0 frees them all and goes back to the one
+// series. Returns 0, and changes nothing, when it cannot allocate.
+int  uui_chart_set_lines(struct uui_chart *c, int n);
+void uui_chart_push_line(struct uui_chart *c, int k, uint32_t value);
+// The legend's words for line k -- both uncopied, either NULL.
+void uui_chart_set_line_label(struct uui_chart *c, int k, const char *name, const char *value);
+// A colour (or a UUI_ROLE) for line k; UUI_COLOR_UNSET for the default.
+void uui_chart_set_line_color(struct uui_chart *c, int k, uint32_t color);
+// The colour line k is drawn in NOW: its own, else the theme's action
+// palette in order -- NAV, ARRANGE, VIEW, EDIT, CREATE, DANGER, MEDIA --
+// and past the seventh the same again, each round darker.
+uint32_t uui_chart_line_color(const struct uui_chart *c, int k);
+// Line k's sample `back` pushes ago, as uui_chart_recent().
+uint32_t uui_chart_line_recent(const struct uui_chart *c, int k, int back);
+int  uui_chart_line_count(const struct uui_chart *c, int k);
+// The legend's box for entry k, content-relative, at the chart's
+// current geometry; 0 when there is none (no lines, or no room: the
+// legend never takes more than half the chart's height).
+int  uui_chart_legend_rect(const struct uui_chart *c, int k, int *x, int *y, int *w, int *h);
 
 void uui_chart_natural_size(const struct uui_chart *c, int *out_w, int *out_h);
 void uui_chart_set_geometry(struct uui_chart *c, int x, int y, int w, int h);

@@ -16,7 +16,8 @@
 
 CPU identity and features, over `SYS_CPU_INFO`: vendor, brand, family/
 model/stepping, measured or CPUID-reported speed, and which protection
-features are actually ENABLED (SSE, NX, SMEP, SMAP).
+features are actually ENABLED (SSE, NX, SMEP, SMAP). Then the cores the
+firmware lists and the load on each (`QUERY_CPUS`, `QUERY_CORELOAD`).
 
 Enabled rather than merely supported, which is the distinction worth
 having: a CPU advertising SMAP that the kernel never turned on offers
@@ -66,6 +67,26 @@ guest (`make run CPUS=4`) reads `4 (4 enabled by firmware, 4 online)`.
 Booted with `smp=park` the others are started but run nothing, and the
 line adds `scheduling on 1`. `nosmp` or `maxcpus=N` on the kernel
 command line starts fewer (`docs/smp-design.md`). `acpi` prints the per-core detail.
+
+## Load on each core
+
+After the topology, one line per online core: the share of a 100 ms
+interval a process ran there, read from `QUERY_CORELOAD` twice with
+`lscpu` asleep in between (spinning would be the load it measured):
+
+    Load over 100 ms (a process running counts as busy):
+      CPU 0     3%  (APIC id 0)
+      CPU 1   100%  (APIC id 1)
+      CPU 2     0%  (APIC id 2)
+      CPU 3     0%  (APIC id 3)
+
+A core that is online but runs no processes (`smp=park`) adds
+`, parked -- runs no processes` and reads 0%. **Busy means a process**:
+the boot core's own kernel work -- the text-mode shell, the disk's
+write-back, the network poll -- is not counted, which is the same
+caveat Task Manager's Utilization carries. Another core's slice still in
+progress is counted when it ends, so a reading over 100 ms can trail by
+up to one time slice. A kernel without `QUERY_CORELOAD` prints no block.
 
 ## See also
 

@@ -90,7 +90,7 @@ struct cpu {
     int idle_isr_depth, idle_preempt_depth, idle_bkl_depth;
     uint32_t pad2;
     uint64_t idle_left_tsc, idle_offcpu_tsc;
-    uint64_t busy_ns;          // time a process ran here: per-core load
+    uint64_t busy_ns;          // time a process ran here: QUERY_CORELOAD (cpuload_query.c)
     // How this core last took the kernel lock from an entry (bkl_enter()):
     // read by a waiter that has waited too long (spinlock.c).
     uint64_t bkl_vec, bkl_rax, bkl_rip;

@@ -15,7 +15,9 @@ WHAT IS UNDER TEST
   3. The verbs: Stop/Continue (SIGSTOP/SIGCONT, checked through `ps`, an
      independent view) and Force Quit, which ARMS on the first click and
      commits on the second.
-  4. The Performance page lists devices and shows the Ethernet card's
+  4. The Performance page lists devices -- the CPU chart with a line and a
+     legend entry per online CPU (as many as `lscpu` counts), two of them
+     rising past 50% under two spinners -- and shows the Ethernet card's
      connection log; the Services page stops and starts a service,
      checked through `service list`.
 
@@ -35,12 +37,16 @@ here derives a row offset except from the reported row height.
 
 Usage (the VM must already be up):
 
-    python3 tools/lib/vm.py start
+    python3 tools/lib/vm.py --cpus 4 start
     python3 tools/tests/gui/taskmgr_test.py
     python3 tools/lib/vm.py stop
 """
 
-RUNNER = {"covers": "the table widget, resize reflow, ending a process"}
+RUNNER = {
+    "covers": "the table widget, resize reflow, ending a process, the per-CPU chart",
+    # Four vCPUs: the CPU page needs cores for two spinners and idle ones beside.
+    "vm": ["--cpus", "4"],
+}
 
 
 import argparse
@@ -101,10 +107,15 @@ def layout(dbg):
         m = re.search(r"taskmgr: layout (\w+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
         if m:
             out[m.group(1)] = tuple(int(v) for v in m.groups()[1:])
-        m = re.search(r"taskmgr: layout (\w+)\.(row_h|header_h|item_h|count|shown) (-?\d+)", line)
+        m = re.search(r"taskmgr: layout (\w+)\.(row_h|header_h|item_h|count|shown|lines) (-?\d+)", line)
         if m:
             out[f"{m.group(1)}.{m.group(2)}"] = int(m.group(3))
-        m = re.search(r"taskmgr: layout (\w+)\.(col|slot) (\d+) (-?\d+) (-?\d+) (\d+) (\d+)", line)
+        # The CPU chart's legend: what each entry SHOWS, the reading
+        # drawn beside the swatch (uui_chart's describe op).
+        m = re.search(r"taskmgr: layout perfchart\.legend_value (\d+) (\d+)%", line)
+        if m:
+            out[f"cpuval{m.group(1)}"] = int(m.group(2))
+        m = re.search(r"taskmgr: layout (\w+)\.(col|slot|legend) (\d+) (-?\d+) (-?\d+) (\d+) (\d+)", line)
         if m:
             out[f"{m.group(1)}.{m.group(2)}{m.group(3)}"] = tuple(int(v) for v in m.groups()[3:])
         m = re.search(r"taskmgr: layout memcomp\.seg (\d+) (-?\d+) (-?\d+) (\d+) (\d+)", line)
@@ -194,6 +205,67 @@ def service_state(dbg, name):
         if f and f[0] == name:
             return f[1]
     return None
+
+
+def lscpu_cores(dbg):
+    """`lscpu`'s per-CPU load lines, {index: percent} -- an independent
+    count of the online cores, and the command's own output checked."""
+    return {int(i): int(p) for i, p in
+            re.findall(r"^\s+CPU (\d+)\s+(\d+)%", dbg.send("sh lscpu") or "", re.M)}
+
+
+def check_cpu_page(dbg, qmp, win, tmp):
+    """The CPU page: one chart, a line per online CPU, a legend entry
+    each in its own colour -- and with two spinners started AFTER the
+    page is open, two cores' readings rise past 50% while the rest stay
+    under it. The readings are what the legend DRAWS (its describe op);
+    the colours are read off the screen."""
+    cores = lscpu_cores(dbg)
+    check("lscpu prints a load line per online CPU", len(cores) >= 1, f"{cores}")
+    n = len(cores)
+    lay = wait_layout(dbg, lambda l: l.get("device", (-1,))[0] == 0
+                      and l.get("perfchart.lines") == n and f"perfchart.legend{n - 1}" in l)
+    check("the CPU page draws a line per online CPU",
+          lay.get("device") == (0, "CPU") and lay.get("perfchart.lines") == n,
+          f"device={lay.get('device')} lines={lay.get('perfchart.lines')} lscpu={n}")
+    rects = [lay.get(f"perfchart.legend{k}") for k in range(n)]
+    if not check("...with a legend entry for each", all(rects), f"{rects}"):
+        return
+    chart = lay.get("perfchart", (0, 0, 0, 0))
+    inside = all(chart[0] <= r[0] and r[0] + r[2] <= chart[0] + chart[2]
+                 and chart[1] <= r[1] and r[1] + r[3] <= chart[1] + chart[3] for r in rects)
+    apart = all(not (a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3]
+                     and b[1] < a[1] + a[3]) for i, a in enumerate(rects) for b in rects[i + 1:])
+    check("...inside the chart, none overlapping", inside and apart, f"chart={chart} rects={rects}")
+
+    if n < 3:
+        check("the guest has at least three CPUs for the two-spinner check (RUNNER vm --cpus 4)",
+              False, f"{n} online")
+        return
+    from PIL import Image
+    cx, cy = win["content"]["x"], win["content"]["y"]
+    shot = os.path.join(tmp, "taskmgr_cpu_lines.png")
+    qmp.stable_pixels(shot)
+    im = Image.open(shot).convert("RGB")
+    # The swatch is the cell's first square, centred on the row.
+    sw = [im.getpixel((cx + r[0] + 2, cy + r[1] + r[3] // 2)) for r in rects]
+    ground = im.getpixel((cx + rects[0][0], cy + rects[0][1]))   # above the centred swatch
+    check("each legend swatch has its own colour, none the ground",
+          len(set(sw)) == n and ground not in sw, f"swatches={sw} ground={ground}")
+
+    for _ in range(2):
+        dbg.send("gui spawn /tests/spin_test 600")
+
+    def busy(lay):
+        vals = sorted((lay.get(f"cpuval{k}", 0) for k in range(n)), reverse=True)
+        return vals[0] > 50 and vals[1] > 50 and all(v < 50 for v in vals[2:])
+    lay = wait_layout(dbg, busy, timeout=12.0)
+    vals = [lay.get(f"cpuval{k}") for k in range(n)]
+    check("two spinners: two CPUs read over 50%, the others under it", busy(lay), f"{vals}")
+    if busy(lay):
+        # The deliverable picture: the page with both spinners on it.
+        qmp.stable_pixels(os.path.join(tmp, "taskmgr_cpu_spinners.png"))
+        print(f"  screenshot: {os.path.join(tmp, 'taskmgr_cpu_spinners.png')}")
 
 
 def finish():
@@ -516,6 +588,7 @@ def main():
         click((rail[0] + rail[2] // 2, rail[1] + rh + rh // 2))
         lay = wait_layout(dbg, lambda l: l.get("page") == 1 and "devices" in l)
         check("the rail opens Performance", lay.get("page") == 1, f"page={lay.get('page')}")
+        check_cpu_page(dbg, qmp, win, args.tmp)
         n = lay.get("devices.count", 0)
         check("it lists CPU, Memory, Disk and at least one network card", n >= 4, f"{n} devices")
         if n >= 4:

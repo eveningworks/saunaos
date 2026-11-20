@@ -35,6 +35,7 @@
 #include "base/human.h"
 #include "base/uconf.h"
 #include "base/udevice.h"
+#include "base/ugrow.h"
 #include "keyboard.h"
 #include "query_abi.h"
 #include "apps/system/taskmgr/tm_internal.h"
@@ -158,6 +159,26 @@ static unsigned long long per_second(unsigned long long now, unsigned long long 
     return (now > was ? now - was : 0) * 1000ULL / g_interval_ms;
 }
 
+// The legend's words, one pair per core, grown with g_ncore. The chart
+// holds pointers into this array, so they are set again after any grow.
+static struct core_text { char name[16], value[8]; } *g_core_text;
+static int g_core_text_cap;
+
+static void sample_cores(struct uui_chart *c) {
+    int n = g_ncore;
+    if ((!UGROW(g_core_text, g_core_text_cap, n > 0 ? n : 1)) ||
+        (n != c->nlines && !uui_chart_set_lines(c, n))) {
+        ulogf("taskmgr: out of memory for %d CPU lines\n", n);   // keeps the lines it had
+        return;
+    }
+    for (int k = 0; k < n; k++) {
+        snprintf(g_core_text[k].name, sizeof g_core_text[k].name, "CPU %u", g_core[k].index);
+        snprintf(g_core_text[k].value, sizeof g_core_text[k].value, "%u%%", g_core[k].pm / 10);
+        uui_chart_set_line_label(c, k, g_core_text[k].name, g_core_text[k].value);
+        uui_chart_push_line(c, k, g_core[k].pm / 10);
+    }
+}
+
 void tm_perf_sample(void) {
     char a[16], b[16];
     unsigned long long t = sys_monotonic_ns();
@@ -168,7 +189,10 @@ void tm_perf_sample(void) {
     g_sample_ns = t;
 
     struct dev *cpu = &g_dev[DEV_CPU];
+    // The machine's total in the main series -- the device list's trace
+    // reads it -- and a line per core, which is what the page draws.
     uui_chart_push(&cpu->chart, g_cpu_pm / 10);
+    sample_cores(&cpu->chart);
     snprintf(cpu->reading, sizeof cpu->reading, "%u%%", g_cpu_pm / 10);
     snprintf(cpu->line1, sizeof cpu->line1, "%u%%", g_cpu_pm / 10);
     snprintf(cpu->line2, sizeof cpu->line2, "%d processes", g_nproc);
@@ -481,17 +505,18 @@ static void fill_stats(void) {
     switch (d->kind) {
     case DEV_CPU: {
         strlcpy(g_title_text, "CPU", sizeof g_title_text);
-        // Both asked ONCE: neither changes, and CPUID is a VM exit.
+        // Asked ONCE: none of it changes, and CPUID is a VM exit.
         static char brand[64];
-        static int ncpu = -1, nonline = 0;
+        static int ncpu = -1, ncores;
         if (!brand[0]) udevice_cpu_brand(brand, sizeof brand);
         if (ncpu < 0) {
             ncpu = 0;
             struct query_cpu qc;
-            QUERY_FOREACH(QUERY_CPUS, qc, i) {
+            QUERY_FOREACH(QUERY_CPUS, qc, i)
                 if (qc.flags & QUERY_CPU_ENABLED) ncpu++;
-                if (qc.flags & QUERY_CPU_ONLINE) nonline++;
-            }
+            if (!ncpu) ncpu = 1;   // no MADT: only this one was counted
+            static struct cpu_info ci;   // 300+ bytes: not a stack local
+            ncores = sys_cpu_info(&ci) == 0 ? udevice_cpu_cores(&ci, ncpu) : 0;
         }
         strlcpy(g_subtitle_text, brand, sizeof g_subtitle_text);
         unsigned long long s = sys_monotonic_ns() / 1000000000ULL;
@@ -499,8 +524,11 @@ static void fill_stats(void) {
         add_stat("Processes", "%d", g_nproc);
         add_stat("Threads", "%d", g_threads);
         add_stat("Up time", "%llu:%02llu:%02llu", s / 3600, (s / 60) % 60, s % 60);
-        add_stat("Logical CPUs", "%d", ncpu ? ncpu : 1);
-        add_stat("Online", "%d", nonline ? nonline : 1);
+        if (ncores) add_stat("Cores", "%d", ncores);
+        add_stat("Logical CPUs", "%d", ncpu);
+        // Windows' Task Manager has no such line; it exists because a
+        // core can be online and run nothing (smp=park).
+        add_stat("Running processes", "%d of %d", g_ncore_sched, ncpu);
         break;
     }
     case DEV_MEM: {
@@ -623,6 +651,9 @@ static void select_dev(int i) {
     CHART_ITEMS[0].widget = &g_dev[i].chart;
     CHART_ITEMS[1].hidden = !disk;   // Operations, beside Bytes
     SIDE_ITEMS[2].hidden = g_dev[i].kind != DEV_MEM;
+    // The CPU chart takes the height the page has: a line per core and
+    // its legend need it more than another page's single trace does.
+    SIDE_ITEMS[1].flags = UUI_FILL_W | (g_dev[i].kind == DEV_CPU ? UUI_FILL_H : 0);
     SIDE_ITEMS[4].hidden = g_dev[i].kind != DEV_NET;
     SIDE_ITEMS[5].hidden = SIDE_ITEMS[6].hidden = !disk;
     if (!SIDE_ITEMS[4].hidden) read_conns();
@@ -669,11 +700,12 @@ void tm_perf_init(struct tm_page *page) {
         memset(d, 0, sizeof *d);
         d->kind = (enum dev_kind)i;
         strlcpy(d->name, NAMES[i], sizeof d->name);
-        uui_chart_init(&d->chart, i == DEV_CPU ? "Utilization" : i == DEV_MEM ? "In use"
-                                                                          : "Read + write (darker: write)");
+        uui_chart_init(&d->chart, i == DEV_CPU ? "Utilization, each logical CPU"
+                                : i == DEV_MEM ? "In use" : "Read + write (darker: write)");
         uui_chart_set_interval(&d->chart, TM_REFRESH_MS);
     }
     uui_chart_set_scale(&g_dev[DEV_CPU].chart, 100);
+    g_dev[DEV_CPU].chart.legend_widest = "100%";
     uui_chart_set_scale(&g_dev[DEV_DISK].chart, 0);
     g_ndev = 3;
 
@@ -712,7 +744,8 @@ void tm_perf_init(struct tm_page *page) {
     uui_chart_set_scale(&g_ops_chart, 0);
     uui_chart_set_value(&g_ops_chart, g_ops_val);
     CHART_ITEMS[0] = (struct uui_item){ .ops = &uui_chart_ops, .widget = &g_dev[0].chart,
-                                         .id = ID_CHART, .name = "perfchart", .flags = UUI_FILL_W };
+                                         .id = ID_CHART, .name = "perfchart",
+                                         .flags = UUI_FILL_W | UUI_FILL_H };
     CHART_ITEMS[1] = (struct uui_item){ .ops = &uui_chart_ops, .widget = &g_ops_chart,
                                          .id = ID_OPS, .name = "perfops", .flags = UUI_FILL_W,
                                          .hidden = 1 };

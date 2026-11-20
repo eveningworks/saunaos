@@ -7,6 +7,7 @@
 #include "pci.h"
 #include "query_abi.h"
 #include "syscall_abi.h"
+#include "cpuinfo.h"   // struct cpu_info: udevice_cpu_cores()
 #include "etc_config.h"
 #include "tmppath.h"
 #include "base/uconf.h"
@@ -126,6 +127,13 @@ void udevice_cpu_brand(char *out, int cap) {
     const char *p = s;
     while (*p == ' ') p++;              // Intel pads the brand on the left
     strlcpy(out, p, (size_t)cap);
+}
+
+int udevice_cpu_cores(const struct cpu_info *ci, int logical) {
+    if (!ci || !ci->cores) return 0;
+    int per_pkg = ci->cores * (ci->threads_per_core ? ci->threads_per_core : 1);
+    int pkgs = logical / per_pkg > 0 ? logical / per_pkg : 1;
+    return pkgs * ci->cores;
 }
 
 // The list as it is built, with each bus device's hwdata lookup kept in

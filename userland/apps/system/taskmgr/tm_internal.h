@@ -59,6 +59,23 @@ extern int g_proc_cap;
 extern int g_nproc;
 extern int g_desktop_pid;          // the compositor's pid, or 0
 extern unsigned g_cpu_pm;          // the whole machine, per mille
+
+// Each online core over the last tick (QUERY_CORELOAD), the boot core
+// first. `pm` is d(busy) / d(now): the share of the interval a PROCESS
+// ran there -- on the boot core its kernel context's work is not busy,
+// as with g_cpu_pm. Grown to the cores the kernel reports.
+struct tm_core {
+    unsigned index, apic_id;
+    int scheduling;                     // it runs processes
+    unsigned long long busy_ns, now_ns; // the last sample, for the next delta
+    unsigned pm;
+};
+extern struct tm_core *g_core;
+extern int g_ncore;
+// The cores running processes, at least 1: what a process's CPU % is a
+// share of -- the whole machine, as Windows' Processes tab reads, so the
+// column sums to Utilization.
+extern int g_ncore_sched;
 extern unsigned long long g_mem_used, g_mem_total;
 extern struct umem_comp g_mem_comp;  // where g_mem_used is, in four rows
 extern int g_threads;              // every thread, the processes' included

@@ -94,6 +94,13 @@ const char *udevice_status(const struct udevice *d, char *buf, int cap);
 // The CPU's brand string from CPUID, or "Processor" on a part without the
 // brand leaves. Unprivileged, so ring 3 asks it directly (as lscpu does).
 void udevice_cpu_brand(char *out, int cap);
+// PHYSICAL cores across the machine, for `logical` processors (the
+// MADT's count, QUERY_CPUS): CPUID's topology describes ONE package
+// (sys_cpu_info()'s cores and threads_per_core -- the program asks, as
+// a library may not call it), so the packages are the logical count
+// over what one holds. 0 when the CPU reports no topology.
+struct cpu_info;
+int udevice_cpu_cores(const struct cpu_info *ci, int logical);
 
 // --- what is known about one device (udevice_info.c) -----------------------
 //

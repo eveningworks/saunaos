@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include "rt/sys.h"
 #include <string.h> // strlen, memcpy
+#include <stdlib.h> // malloc: the load sample is sized to the cores
 #include "knum.h"       // k_utoa/k_htoa -- fixed-width hex has no kfmt
                          // conversion (its printf has no `*` width)
 #include "cpuinfo.h"
@@ -177,11 +178,55 @@ static void put_frequency(void) {
     else                              put("supported, off  (IA32_PM_ENABLE)\n");
 }
 
+// Each online core's load over LOAD_MS: two QUERY_CORELOAD samples, the
+// share of the interval a process ran there (Linux's per-`cpuN` lines of
+// /proc/stat, divided). lscpu SLEEPS between them -- spinning would be
+// the load it measures. The boot core's kernel work (the text shell, the
+// idle loop's chores) is not a process, so it reads as not busy.
+#define LOAD_MS 100
+
+static void put_load(void) {
+    struct query_coreload r;
+    int n = 0;
+    while (sys_query_record(QUERY_CORELOAD, n, &r, sizeof r) >= (int)sizeof r) n++;
+    if (!n) return;   // a kernel older than QUERY_CORELOAD
+    // Sized to the cores: a 16-thread machine has 16 lines.
+    uint64_t *busy = malloc((size_t)n * 2 * sizeof *busy);
+    if (!busy) { put("lscpu: no memory for the load sample\n"); return; }
+    uint64_t *at = busy + n;
+    for (int i = 0; i < n; i++) {
+        if (sys_query_record(QUERY_CORELOAD, i, &r, sizeof r) < (int)sizeof r) { n = i; break; }
+        busy[i] = r.busy_ns;
+        at[i] = r.now_ns;
+    }
+    sys_sleep_ms(LOAD_MS);
+    put("\nLoad over "); put_udec(LOAD_MS); put(" ms (a process running counts as busy):\n");
+    for (int i = 0; i < n; i++) {
+        if (sys_query_record(QUERY_CORELOAD, i, &r, sizeof r) < (int)sizeof r) break;
+        uint64_t dt = r.now_ns > at[i] ? r.now_ns - at[i] : 0;
+        uint64_t db = r.busy_ns > busy[i] ? r.busy_ns - busy[i] : 0;
+        uint32_t pct = dt ? (uint32_t)(db * 100 / dt) : 0;
+        if (pct > 100) pct = 100;
+        char num[24];
+        put("  CPU ");
+        k_utoa((uint32_t)r.index, num, sizeof num);
+        put(num);
+        for (int p = (int)strlen(num); p < 4; p++) put(" ");
+        k_utoa(pct, num, sizeof num);
+        for (int p = (int)strlen(num); p < 3; p++) put(" ");
+        put(num);
+        put("%  (APIC id ");
+        put_udec((uint32_t)r.apic_id);
+        put((r.flags & QUERY_CPU_SCHEDULING) ? ")\n" : ", parked -- runs no processes)\n");
+    }
+    free(busy);
+}
+
 static const struct uargs_opt OPTS[] = { { 0 } };
 
 static const struct uargs_prog PROG = {
     .name = "lscpu",
-    .summary = "Show the CPU: identity, clock, caches, what this kernel enabled, flags.",
+    .summary = "Show the CPU: identity, clock, load on each core, caches, what this kernel enabled, flags.",
     .opts = OPTS,
 };
 
@@ -270,6 +315,8 @@ int main(int argc, char **argv) {
         put_udec(g_ci.cores); put(" core(s) per package, ");
         put_udec(g_ci.threads_per_core); put(" thread(s) per core  (CPUID leaf 0BH)\n");
     }
+
+    put_load();
 
     // ---- caches --------------------------------------------------------
     put("\nCaches:\n");

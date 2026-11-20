@@ -51,6 +51,10 @@ struct umem_comp g_mem_comp;
 int g_threads;
 struct uprocio g_io;
 struct uprocio_rate g_kernel_io;
+struct tm_core *g_core;
+int g_ncore;
+int g_ncore_sched = 1;
+static int g_core_cap;
 
 // Last tick's CPU totals, BY PID: rows move as processes come and go, so
 // indexing by row would charge one process's time to whichever landed
@@ -165,9 +169,38 @@ static void classify(void) {
     }
 }
 
+// Each core's load since the last read, matched by the kernel's core
+// number: the record index would move if a core in the middle went away.
+static void read_cores(void) {
+    struct query_coreload r;
+    int n = 0, sched = 0;
+    for (int i = 0; sys_query_record(QUERY_CORELOAD, i, &r, sizeof r) >= (int)sizeof r; i++) {
+        if (!UGROW(g_core, g_core_cap, n + 1)) break;   // keeps the cores it has
+        struct tm_core was = { 0 };
+        int seen = 0;
+        for (int j = n; j < g_ncore; j++)
+            if (g_core[j].index == r.index) { was = g_core[j]; seen = 1; break; }
+        struct tm_core *c = &g_core[n++];
+        c->index = (unsigned)r.index;
+        c->apic_id = (unsigned)r.apic_id;
+        c->scheduling = (r.flags & QUERY_CPU_SCHEDULING) != 0;
+        c->pm = 0;
+        if (seen && r.now_ns > was.now_ns && r.busy_ns >= was.busy_ns) {
+            unsigned long long pm = (r.busy_ns - was.busy_ns) * 1000ULL / (r.now_ns - was.now_ns);
+            c->pm = pm > 1000 ? 1000 : (unsigned)pm;
+        }
+        c->busy_ns = r.busy_ns;
+        c->now_ns = r.now_ns;
+        sched += c->scheduling;
+    }
+    g_ncore = n;
+    g_ncore_sched = sched > 0 ? sched : 1;   // a kernel without QUERY_CORELOAD: one
+}
+
 static void refresh_model(void) {
     unsigned long long now = sys_monotonic_ns();
     unsigned long long elapsed = now - g_prev_ns;
+    read_cores();
 
     int ninfo = 0;
     for (int i = 0; ninfo < g_proc_cap && sys_proc_info(i, &g_info[ninfo]) == 0; i++) {
@@ -208,7 +241,10 @@ static void refresh_model(void) {
         struct tm_proc *p = &g_proc[i];
         unsigned long long was = prev_cpu(p->pid);
         unsigned long long used = p->cpu_ns > was ? p->cpu_ns - was : 0;
-        p->cpu_pm = elapsed ? (unsigned)(used * 1000ULL / elapsed) : 0;
+        // A SHARE OF THE WHOLE MACHINE: one busy thread on four cores is
+        // 25%, as Utilization says, not 100% beside a 25% header.
+        unsigned long long span = elapsed * (unsigned long long)g_ncore_sched;
+        p->cpu_pm = span ? (unsigned)(used * 1000ULL / span) : 0;
         if (p->cpu_pm > 1000) p->cpu_pm = 1000;   // a slot reused mid-interval
     }
     g_nprev = n;

@@ -41,8 +41,9 @@
 // FIXTURE provider at runtime, so a table that is merely full at boot
 // fails three tests with "registry full" rather than anything naming
 // the cap -- which is how the 32 was found, by filling it. The 48 was
-// found the same way: QUERY_REMOTELOG made exactly 48 providers.
-#define QUERY_MAX 64
+// found the same way: QUERY_REMOTELOG made exactly 48 providers; 64 was
+// raised when QUERY_CORELOAD left one slot above the fixture.
+#define QUERY_MAX 96
 
 // The largest record any class may declare. It bounds the one stack
 // buffer that reads a record in order to pull a named field out of it,
@@ -178,7 +179,8 @@ void query_init(void);
 // because it is about the registry, not about the allocator.
 void mem_query_init(void);
 
-// The machine's CPU time split (QUERY_CPULOAD). kernel/proc/cpuload_query.c.
+// The machine's CPU time split (QUERY_CPULOAD) and each core's (QUERY_CORELOAD).
+// kernel/proc/cpuload_query.c.
 void cpuload_query_init(void);
 
 // kernel/core/'s provider for the firmware memory map. Declared here

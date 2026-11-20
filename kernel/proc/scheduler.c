@@ -1309,7 +1309,9 @@ void bill_current(void) {
     if (now > g_run_start_ns) {
         uint64_t slice = now - g_run_start_ns;
         if (current_index >= 0) {
-            sched_here()->busy_ns += slice;
+            // STORED WHOLE: QUERY_CORELOAD reads it from another core.
+            struct cpu *me = sched_here();
+            __atomic_store_n(&me->busy_ns, me->busy_ns + slice, __ATOMIC_RELAXED);
             procs[current_index].cpu_ns += slice;
             procs[current_index].vruntime += vr_scale(current_index, slice);
             g_proc_ns += slice;

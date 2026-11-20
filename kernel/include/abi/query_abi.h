@@ -702,6 +702,13 @@ struct query_firmware {
 #define QUERY_IMGCACHE 61
 #define QUERY_IMGCACHE_PATH_MAX 240
 
+// HOW EACH CORE'S TIME WAS SPENT: one record per ONLINE core, the boot
+// core first. LIST. QUERY_CPULOAD's split, per core: `busy_ns` is the
+// time a process ran there, billed in the same bill_current() call that
+// adds to QUERY_CPULOAD's proc_ns, so the cores' busy time sums to it.
+// Task Manager's CPU page and `lscpu` read it (struct query_coreload).
+#define QUERY_CORELOAD 62
+
 struct query_imgcache {
     char     path[QUERY_IMGCACHE_PATH_MAX];
     uint64_t frames;
@@ -1160,6 +1167,24 @@ struct query_cpuload {
     uint64_t kernel_ns; // the ring-0 context: the idle halt, and the text shell
     uint64_t now_ns;    // the monotonic clock both were read against
 };
+
+// QUERY_CORELOAD's record. CUMULATIVE, like QUERY_CPULOAD's: a reader
+// takes two samples and divides d(busy_ns) by d(now_ns) for that core's
+// load. NOT-BUSY IS NOT IDLE ON THE BOOT CORE: its kernel context runs
+// the text shell and the idle work (disk write-back, the network poll)
+// as well as the halt, and none of that is a process -- QUERY_CPULOAD's
+// caveat, per core. Another core's slice in progress is billed when it
+// ends (a slice at most), so a short window can trail by that much; the
+// CALLER's own core is billed up to the call.
+struct query_coreload {
+    uint64_t index;     // the kernel's number for the core: 0 is the boot core
+    uint64_t apic_id;   // as QUERY_CPUS lists it
+    uint64_t flags;     // QUERY_CPU_ONLINE; QUERY_CPU_SCHEDULING when it runs processes
+    uint64_t busy_ns;   // a process ran here, since boot
+    uint64_t now_ns;    // the monotonic clock busy_ns was read against
+};
+_Static_assert(sizeof(struct query_coreload) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
 
 // QUERY_DRIVER's record. `devices` is space-separated and may be empty,
 // which is a real answer -- "in this build, driving nothing".
