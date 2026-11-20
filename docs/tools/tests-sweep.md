@@ -1380,7 +1380,9 @@ report is ON only after `enter_gui()`").
   asserts on it, then on its run chart (samples and four phase marks),
   its history (the run is a line in `/var/lib/diskmark/history` and F9
   shows the table) and Stop (Esc kills, reaps and cleans up a second
-  run). Then the TEST SIZE without running one: Custom... opens a
+  run -- at the 1 GiB preset, sent once its spawn is logged: a 16 MiB
+  run finished before a fixed one-second wait, so Esc found nothing to
+  stop). Then the TEST SIZE without running one: Custom... opens a
   dialog bounded by the volume's room, `3`, `g`, Enter sets 3 GiB and
   `/etc/diskmark.conf` keeps it across a restart, a size over the room
   is refused, and the first preset puts it back to 16 MiB so no later

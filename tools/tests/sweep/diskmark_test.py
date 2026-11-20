@@ -59,6 +59,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui          # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
+from harness import poll  # noqa: E402
 
 DEFAULT_SOCK = ".vm.serial"
 TITLE = "Disk Mark"
@@ -284,28 +285,6 @@ def main():
     con.send("gui key 0xf79f")
     con.settle()
 
-    # STOP: a second run, stopped at once. The child is killed AND reaped,
-    # and its scratch file goes with it -- diskbench has no handler.
-    con.click(ox + rx + rw // 2, oy + ry + rh // 2)
-    time.sleep(1.0)
-    con.send("gui key 0x1b")   # Esc is Stop
-    deadline = time.time() + 30
-    stopped = False
-    while time.time() < deadline:
-        time.sleep(1)
-        if "diskmark: stopped" in this_run(con.send("sh dmesg")):
-            stopped = True
-            break
-    check("Esc stops a run", stopped)
-    ls = con.send("sh ls /var/tmp") + con.send("sh ls /tmp")
-    check("...and the stopped run left no files", "diskmark.tmp" not in ls and "diskmark.out" not in ls)
-    check("...and its child was reaped", "diskbench" not in con.send("sh ps"))
-
-    # THE TEST SIZE: the dropdown's last row, Custom..., opens a dialog
-    # bounded by the volume's room; OK sets the size, which survives a
-    # restart (/etc/diskmark.conf). Nothing here RUNS a large size -- a
-    # GiB is minutes under TCG -- so what is asserted is the choice, the
-    # bound and diskbench's own refusal.
     def last_rect(name):
         rect = None
         for line in con.send("sh dmesg").splitlines():
@@ -328,6 +307,30 @@ def main():
             con.key("0xf781", settle=False)   # Down
         con.key("0x0d")
 
+    # STOP: a second run, stopped once it has started. The child is killed
+    # AND reaped, and its scratch file goes with it -- diskbench has no
+    # handler. AT THE LARGEST PRESET, so it is still running whatever the
+    # host's speed: 16 MiB finished inside the fixed second this used to
+    # wait, so Esc found nothing to stop and the check failed every run on
+    # an idle host. Killed at once, the size costs nothing.
+    spawned = con.send("sh dmesg").count("diskmark: spawned")
+    choose_size_row(4)                                   # 1024 MiB
+    con.click(ox + rx + rw // 2, oy + ry + rh // 2)
+    started = poll(lambda: con.send("sh dmesg").count("diskmark: spawned") > spawned, 15)
+    check("the run to stop has started", bool(started))
+    con.send("gui key 0x1b")   # Esc is Stop
+    stopped = poll(lambda: "diskmark: stopped" in this_run(con.send("sh dmesg")), 30, step=1.0)
+    check("Esc stops a run", bool(stopped))
+    ls = con.send("sh ls /var/tmp") + con.send("sh ls /tmp")
+    check("...and the stopped run left no files", "diskmark.tmp" not in ls and "diskmark.out" not in ls)
+    check("...and its child was reaped", "diskbench" not in con.send("sh ps"))
+    choose_size_row(0)                                   # 16 MiB again for what follows
+
+    # THE TEST SIZE: the dropdown's last row, Custom..., opens a dialog
+    # bounded by the volume's room; OK sets the size, which survives a
+    # restart (/etc/diskmark.conf). Nothing here RUNS a large size -- a
+    # GiB is minutes under TCG -- so what is asserted is the choice, the
+    # bound and diskbench's own refusal.
     def sizes_said():
         return re.findall(r"diskmark: size (\d+) MiB", con.send("sh dmesg"))
 
