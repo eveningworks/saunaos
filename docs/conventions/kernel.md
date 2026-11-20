@@ -1478,7 +1478,7 @@ through `switch_to()`.
 
 ## WHAT RUNS IS PER CORE, AND A PROCESS MAY BE RUNNING SOMEWHERE ELSE
 
-Since SMP stage 5 (`smp=run`, off by default; `docs/smp-design.md`)
+Since SMP stage 5 (`smp=run`, the default since 2026-11-20; `docs/smp-design.md`)
 another core may be running a process while this one is in the kernel.
 
 - **`current_index`, `rotation_pos` AND `g_need_resched` ARE THIS

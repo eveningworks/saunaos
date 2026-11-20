@@ -6,8 +6,9 @@ interrupt source overrides 2026-09-10); STAGE 3 IS BUILT (2026-11-19:
 the APs started and parked); STAGE 4 IS BUILT (2026-11-19: a ticket
 spinlock, the call IPI and the kernel lock); STAGE 6 IS BUILT AHEAD OF
 STAGE 5 (2026-11-19: the TLB shootdown, `kernel/arch/x86_64/tlb.c`);
-STAGE 5 IS BUILT BEHIND `smp=run`, OFF BY DEFAULT (2026-11-19: processes
-on every core); STAGE 7 IS DESIGNED, NOT BUILT;
+STAGE 5 IS BUILT AND ON BY DEFAULT (2026-11-19 behind `smp=run`; the
+default since 2026-11-20, `smp=park` the way back); STAGE 7 IS
+DESIGNED, NOT BUILT;
 RE-MEASURED AND RE-SIZED 2026-11-19.** The ACPI table walk and the MADT's processor list exist
 (`kernel/acpi/`, read by `/bin/acpi` and `/bin/lscpu`), the Local APIC is
 enabled and carries MSI-X for seven drivers, the tick runs on the LAPIC
@@ -397,7 +398,7 @@ users safe, not the BKL), and every sleeping path, which must DROP the BKL acros
 retake it, as Linux 2.0's `schedule()` did. The lost-wakeup arguments in
 `scheduler_block_current()` and `sys_waitpid()` are where that bites.
 
-### Stage 5 -- the scheduler picks per core -- BUILT 2026-11-19, behind `smp=run`
+### Stage 5 -- the scheduler picks per core -- BUILT 2026-11-19, ON BY DEFAULT 2026-11-20
 
 **What was built** (the picks below held):
 
@@ -436,9 +437,22 @@ retake it, as Linux 2.0's `schedule()` did. The lost-wakeup arguments in
   are in `docs/bugs.md`), and the ring-3 suite on 4 cores under TCG and
   KVM (134/134 each).
 
-**Not yet**: the default flip (after a KVM soak and the ASUS), per-core
-load in Task Manager (`struct cpu->busy_ns` is counted), the kdebug
-roundup (a stub stop halts core 0 only), and lockup reports from an AP.
+**The soak, and the default flipped 2026-11-20.** Under KVM on 4 cores
+it found three bugs, each fixed with a test that went red without it: a
+per-core read split by a migration (the machine wedged on a mount lock
+its owner did not recognise -- the reads are one `%gs` instruction now),
+a dying group's thread faulting with no address space found, and a
+not-present fault answered as a protection fault after another core had
+mapped the page (`samepage_test`; telnetd on the ASUS crashed at nearly
+every session end). After them: KTEST clean under TCG and KVM bar the
+pre-existing KVM idle-deadline miss, the ring-3 suite under KVM,
+`kvm_soak.py --cpus 4` (red with the kernel lock off on the APs, and
+without user TLB shootdowns), and the ASUS on its `smp=run` entry -- 25
+rounds of the race tests under `diskbench` and 60 remote sessions.
+
+**Not yet**: per-core load in Task Manager (`struct cpu->busy_ns` is
+counted), the kdebug roundup (a stub stop halts core 0 only), and
+lockup reports from an AP.
 
 **Decided 2026-11-19, before building**:
 

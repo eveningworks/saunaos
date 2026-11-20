@@ -1590,7 +1590,7 @@ measurement of what is single-core in the tree today.
 - [x] ~~Per-core GDT/IDT/stack~~ DONE 2026-11-19 -- `struct cpu` through GS.base, `swapgs` on every entry
 - [x] ~~A later memory-type change reaches every core, not only the BSP~~ DONE 2026-11-19 -- stage 4, replayed through the call IPI
 - [x] ~~Scheduler aware of multiple cores~~ DONE 2026-11-19 -- stage 5, behind `smp=run`; one run queue, an idle loop and tick per AP
-- [ ] Processes on every core by default -- flip `smp=run` after a KVM soak and the ASUS are clean
+- [x] ~~Processes on every core by default~~ DONE 2026-11-20 -- `smp=run` the default after a KVM and ASUS soak; `smp=park` opts out
 - [ ] Per-core load in Task Manager and `lscpu` -- `struct cpu->busy_ns` is counted, nothing reads it
 - [ ] The kdebug stub stops every core, not only core 0 -- the roundup stage 5 deferred
 - [ ] Per-core run queues instead of one global table

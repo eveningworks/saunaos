@@ -348,7 +348,7 @@ def smp_scheduling(dbg, cpus):
     m = SMP_RUN_RE.search(out)
     if not m:
         return ("no 'smp: smp=run -- N other core(s)' line in dmesg: the other cores "
-                "stayed parked (build with make iso KCMDLINE=smp=run)")
+                "stayed parked (an image built with smp=park, or older than 2026-11-20)")
     if int(m.group(1)) != cpus - 1:
         return f"smp=run started {m.group(1)} other core(s), not {cpus - 1}"
     return None
@@ -364,8 +364,7 @@ def main():
     ap.add_argument("--changes", type=int, default=2,
                     help="setting changes per row (default 2)")
     ap.add_argument("--cpus", type=int, default=0, metavar="N",
-                    help="vCPUs (default 1). Above 1 the image must be built with "
-                         "KCMDLINE=smp=run, and every round must say its other cores "
+                    help="vCPUs (default 1). Above 1 every round must say its other cores "
                          "scheduled processes, or it fails: a parked guest is not an SMP soak")
     ap.add_argument("--round-timeout", type=int, default=600, metavar="S",
                     help="a round still running after S seconds is an ERROR (default 600): "

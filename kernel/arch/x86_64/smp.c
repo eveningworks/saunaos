@@ -323,7 +323,7 @@ void smp_memory_types_changed(void) {
 
 // ---- smp=run ---------------------------------------------------------
 
-static int g_run_wanted, g_scheduling;
+static int g_run_wanted = 1, g_scheduling;   // smp=run is the default (smp=park opts out)
 static int wait_state(struct cpu *c, uint32_t at_least, uint32_t ms);
 
 int smp_scheduling(void) { return g_scheduling; }
@@ -339,7 +339,11 @@ static void go_cb(void *arg) {
 }
 
 void smp_start_scheduling(void) {
-    if (!g_run_wanted || smp_online_count() < 2) return;
+    if (smp_online_count() < 2) return;
+    if (!g_run_wanted) {
+        klog_write("smp: smp=park -- the other cores stay parked\n");
+        return;
+    }
     if (!lapic_timer_rate()) {
         klog_write(KLOG_WARN "smp: smp=run needs the LAPIC timer for each core's tick -- "
                    "the other cores stay parked\n");
@@ -445,12 +449,12 @@ void smp_init(void) {
             return;
         }
     }
-    // `smp=run` schedules on the APs once boot is over; `smp=park`, the
-    // default, leaves them parked (docs/boot-flags.md).
+    // `smp=run`, the default, schedules on the APs once boot is over;
+    // `smp=park` leaves them parked (docs/boot-flags.md).
     if (multiboot_cmdline_value("smp=", word, sizeof word)) {
-        if (!k_strcmp(word, "run")) g_run_wanted = 1;
-        else if (k_strcmp(word, "park"))
-            klog_printf("smp: smp=%s is not run or park -- parked\n", word);
+        if (!k_strcmp(word, "park")) g_run_wanted = 0;
+        else if (k_strcmp(word, "run"))
+            klog_printf("smp: smp=%s is not run or park -- running\n", word);
     }
     if (multiboot_cmdline_has("nosmp")) {
         klog_write("smp: disabled by `nosmp` -- one core\n");

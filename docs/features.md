@@ -171,12 +171,15 @@ scan refuses any shape it does not recognise rather than guessing at a
 sleep type. `/bin/acpi` prints the lot, the MADT's processor list with
 which cores the kernel started.
 
-**Multi-core, started and parked.** Every core the firmware enables is
-brought up at boot (INIT-SIPI-SIPI), given its own GDT, TSS and stacks
-reached through GS.base and `swapgs`, made to match the boot core's
-control registers and memory types, and parked; `lscpu`, `acpi` and Task
-Manager count it online. The scheduler still runs on the boot core
-(`docs/smp-design.md`); `nosmp` and `maxcpus=N` start fewer.
+**Multi-core.** Every core the firmware enables is brought up at boot
+(INIT-SIPI-SIPI), given its own GDT, TSS and stacks reached through
+GS.base and `swapgs`, and made to match the boot core's control
+registers and memory types; `lscpu`, `acpi` and Task Manager count it
+online. Programs run on every core: each picks ready processes from one
+run queue with its own LAPIC tick, under one kernel lock, with TLB
+shootdowns when a mapping changes. Device interrupts and the kernel's
+own work stay on the boot core (`docs/smp-design.md`). `smp=park` keeps
+the other cores idle; `nosmp` and `maxcpus=N` start fewer.
 
 **Memory hardening.** NX and W^X from each ELF segment's real `p_flags`,
 and the kernel's own identity map is W^X too — `.text` is the only

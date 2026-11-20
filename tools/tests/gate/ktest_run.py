@@ -126,8 +126,8 @@ def run():
                     help="guest RAM in MiB (default 256). 8192 is what makes the "
                          "mm suite's above-4-GiB check run rather than skip.")
     ap.add_argument("--cpus", type=int, default=4, metavar="N",
-                    help="vCPUs (default 4): the [smp] KTESTs start and park the "
-                         "others, which one vCPU would leave untested.")
+                    help="vCPUs (default 4): the [smp] KTESTs start the others and "
+                         "the suite runs with them scheduling, which one vCPU would leave untested.")
     ap.add_argument("--kvm", action="store_true",
                     help="boot under KVM: the gate runs TCG, and an smp=run image's "
                          "races need cores at speed (docs/smp-design.md, \"Testing\")")

@@ -23,8 +23,8 @@ it is saved.
   sizes the guest (256 by default, and the `mm` and `paging` above-4-GiB
   checks SKIP below 4096 -- `highmem_test.py` is the runner that refuses
   the skip), and `--cpus N` sets the vCPUs (4 by default, so the `[smp]` KTESTs
-  start and park three cores), `--kvm` boots under KVM (an `smp=run`
-  image's races want cores at speed; the gate itself runs TCG, and a
+  start three cores, which then schedule processes), `--kvm` boots under KVM (an SMP
+  race wants cores at speed; the gate itself runs TCG, and a
   TCG `-smp 4` suite takes ~2 minutes, so give it `--timeout 400` beside
   other guests), and `-v` prints the WHOLE transcript, boot messages
   included. **It stops the desktop before the suite** -- `service stop
@@ -71,9 +71,9 @@ it is saved.
   **`--kvm` boots the guest under KVM** (`vm.py --kvm`) -- the gate is
   TCG, and a race whose window depends on speed can be green there
   alone; the interrupts-in-syscalls soak ran the race tests both ways.
-  **`--cpus N` boots N vCPUs** (`vm.py --cpus`; default 1). On an image
-  built `KCMDLINE="smp=run"` the suite's programs then run on every core
-  -- one vCPU tests nothing of SMP stage 5, however the image was built.
+  **`--cpus N` boots N vCPUs** (`vm.py --cpus`; default 1), and the
+  suite's programs then run on every core (`smp=run`, the default) --
+  one vCPU tests nothing of SMP stage 5.
   **`--transcript PATH` keeps every test's captured output, passed or
   not.** A `/tests` program's stdout and stderr go to the CONSOLE, which
   the harness reads over the debug console -- they are NOT on the serial

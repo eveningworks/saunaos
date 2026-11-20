@@ -142,9 +142,9 @@ machine's own files.
 **Known gaps:**
 
 - **No Secure Boot** — UEFI boots through an unsigned GRUB, so it must be off.
-- **One CPU** — other cores are discovered, and every one reports offline.
+- **One big kernel lock** — programs run on every core, but the kernel itself runs on one at a time.
 - **No privilege model** — no user accounts or permission checks.
-- No `mprotect`, and swap that pages nothing out yet.
+- Swap that pages nothing out yet.
 
 [docs/roadmap.md](docs/roadmap.md) tracks all of it, and
 [docs/bugs.md](docs/bugs.md) what is broken right now.

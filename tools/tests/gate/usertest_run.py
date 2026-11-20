@@ -950,8 +950,8 @@ def main():
                     help="boot the guest under KVM (vm.py --kvm): the gate runs TCG, "
                          "which hides speed-dependent races")
     ap.add_argument("--cpus", type=int, default=0, metavar="N",
-                    help="vCPUs (vm.py --cpus; default 1) -- with an image built "
-                         "KCMDLINE=smp=run, the suite's programs run on all of them")
+                    help="vCPUs (vm.py --cpus; default 1) -- the suite's programs run on "
+                         "all of them (smp=run, the default)")
     ap.add_argument("--serial-log", default=None, metavar="PATH",
                     help="copy the guest's serial output to PATH (vm.py's own "
                          "flag) -- the only record left when the emulator itself hangs")

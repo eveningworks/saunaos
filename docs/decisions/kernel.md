@@ -10710,7 +10710,9 @@ refill costing anything.
 ## Processes on every core come behind `smp=run`, with what runs kept per core and the per-context globals left global
 
 *Decided 2026-11-19 (SMP stage 5); the flag, its default and the split of
-work were the maintainer's picks before building.*
+work were the maintainer's picks before building. The default flipped to
+`smp=run` on 2026-11-20, after the soak the pick asked for (KVM, then
+the ASUS) found and fixed three bugs; `smp=park` stays as the way back.*
 
 **What runs is three fields of `struct cpu`, reached through macros.**
 `current_index`, `rotation_pos` and `g_need_resched` had 140 uses; a
