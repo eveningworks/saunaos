@@ -275,6 +275,7 @@ void slot_free(int slot) {
     sandbox_put(procs[slot].ext->sandbox);
     procs[slot].ext->sandbox = 0;
     k_memset(&procs[slot].ext->io, 0, sizeof procs[slot].ext->io);
+    procs[slot].ext->no_crash_report = 0;   // whatever reuses the slot reports
     if (pid > 0 && pid < SCHED_PID_MAX && g_pid_slot[pid] == slot + 1) g_pid_slot[pid] = 0;
     procs[slot].state = SCHED_UNUSED;
     procs[slot].pid = 0;

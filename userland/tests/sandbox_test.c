@@ -14,6 +14,7 @@
 //
 // SPAWNED by tools/tests/gate/usertest_run.py: fork and waitpid need a scheduler
 // slot, which the legacy `run` loader has not got.
+#include <sys/prctl.h>
 #include <errno.h>
 #include <stdint.h>
 #include <fcntl.h>
@@ -43,14 +44,26 @@ static int wait_code(int pid) {
 
 // Runs `fn` in a forked child and returns its exit code: 0 when every
 // check inside passed, N for the first that did not, KILLED_BY_SIGSYS
-// when the sandbox ended it.
-static int in_child(int (*fn)(void)) {
+// when the sandbox ended it. Quiet before any pledge: a planted
+// violation is no crash to report (and a pledged process cannot ask).
+static int child(int (*fn)(void), int quiet) {
     int pid = fork();
-    if (pid == 0) _exit(fn());
+    if (pid == 0) { if (quiet) utest_quiet_crash(); _exit(fn()); }
     return pid < 0 ? -2000 : wait_code(pid);
 }
+static int in_child(int (*fn)(void)) { return child(fn, 1); }
 
 // --- promises --------------------------------------------------------------
+
+// A pledged process cannot ask for its crashes to go unreported.
+static int pledged_then_quiet(void) {
+    prctl(PR_SET_DUMPABLE, 1);                   // in_child() made it quiet
+    if (pledge("stdio", NULL) != 0) return 1;
+    if (prctl(PR_SET_DUMPABLE, 0) != -1 || errno != EPERM) return 2;
+    if (prctl(PR_GET_DUMPABLE) != 1) return 3;
+    if (prctl(PR_SET_DUMPABLE, 1) != 0) return 4;   // giving up nothing is allowed
+    return 0;
+}
 
 static int stdio_then_socket(void) {
     if (pledge("stdio", NULL) != 0) return 1;
@@ -277,7 +290,8 @@ int main(int argc, char **argv) {
                 UTEST_VERDICT_FILE);
     g_parent = getpid();
 
-    int code = in_child(stdio_then_socket);
+    // LOUD, as the two below: the record each leaves is checked.
+    int code = child(stdio_then_socket, 0);
     utest_checkf(code == KILLED_BY_SIGSYS, "pledge(\"stdio\"): socket() ends it with SIGSYS (%d)", code);
     utest_check(last_crash_says("Sandbox: socket needs 'inet'"),
                 "...and the crash record names the call and the promise");
@@ -287,12 +301,14 @@ int main(int argc, char **argv) {
 
     code = in_child(clock_is_stdio);
     utest_checkf(code == 0, "stdio reads the wall clock, a query record (%d)", code);
-    code = in_child(other_query_needs_query);
+    code = child(other_query_needs_query, 0);   // loud: its record is read
     utest_checkf(code == KILLED_BY_SIGSYS, "...and any other query record needs query (%d)", code);
     utest_check(last_crash_says("Sandbox: query needs 'query'"), "...named in the crash record");
 
     code = in_child(no_widening);
     utest_checkf(code == 0, "a pledge only narrows; a word nobody knows is EINVAL (%d)", code);
+    code = in_child(pledged_then_quiet);
+    utest_checkf(code == 0, "a pledged process asking for no crash report is EPERM (%d)", code);
     code = in_child(write_needs_wpath);
     utest_checkf(code == KILLED_BY_SIGSYS, "rpath reads; open for writing needs wpath (%d)", code);
     code = in_child(inherited_by_fork);
@@ -300,7 +316,7 @@ int main(int argc, char **argv) {
     code = in_child(kill_other);
     utest_checkf(code == KILLED_BY_SIGSYS, "kill() of itself is stdio, of another is proc (%d)", code);
 
-    code = in_child(anon_exec_needs_promise);
+    code = child(anon_exec_needs_promise, 0);   // loud: its record is read
     utest_checkf(code == KILLED_BY_SIGSYS, "anonymous RW is stdio; mmap with PROT_EXEC needs prot_exec (%d)", code);
     utest_check(last_crash_says("Sandbox: mmap PROT_EXEC needs"), "...named in the crash record");
     code = in_child(mprotect_exec_needs_promise);

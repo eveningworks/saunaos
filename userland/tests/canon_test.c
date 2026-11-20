@@ -73,6 +73,7 @@ static int probe_sigreturn(void) {
 
 int main(int argc, char **argv) {
     if (argc > 2 && !strcmp(argv[1], "--probe")) {
+        utest_quiet_crash();   // the sigreturn probe dies on purpose
         if (!strcmp(argv[2], "tls")) return probe_tls();
         if (!strcmp(argv[2], "sigaction")) return probe_sigaction();
         if (!strcmp(argv[2], "thread")) return probe_thread();

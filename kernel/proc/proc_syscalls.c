@@ -179,9 +179,14 @@ int sys_set_tid_address(struct syscall_ctx *c) {
     return 0;
 }
 
+// **A SANDBOXED PROCESS CANNOT GO QUIET**: a parser pledges before its
+// first byte of hostile input, so one that asks now may be the input
+// asking, and its crashes and violations are what must be seen. Set
+// before the pledge, it holds -- a test planting a violation.
 int sys_prctl(struct syscall_ctx *c) {
     int64_t rc = -EINVAL;
     if (c->a0 == PR_GET_DUMPABLE) rc = scheduler_dumpable();
+    else if (c->a0 == PR_SET_DUMPABLE && c->a1 == 0 && sandbox_active()) rc = -EPERM;
     else if (c->a0 == PR_SET_DUMPABLE && c->a1 <= 1) { scheduler_set_dumpable((int)c->a1); rc = 0; }
     c->regs[14] = (uint64_t)rc;
     return 0;

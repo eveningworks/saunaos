@@ -21,6 +21,7 @@
 
 static volatile int g_active;
 static volatile int g_log_wanted;
+static volatile int g_ended_to_log;   // the last splash_end() put the log up
 static uint64_t g_until;
 static struct splash_layout g_l;
 static int g_text_w;   // the line on screen now, so the next one can clear it
@@ -75,6 +76,13 @@ static void draw_logo(void) {
     g_text_w = g_detail_w = 0;
 }
 
+// Ended WHILE it drew (Esc, the time limit): the log it handed the screen
+// to was painted over by the rest of the draw, so it goes up again. Not
+// when a desktop took the screen -- that is the desktop's to paint.
+static void redraw_if_ended(void) {
+    if (!g_active && g_ended_to_log) gfx_present_all();
+}
+
 // **THE SCREEN IS CLAIMED BEFORE IT IS DRAWN** (g_until first, then
 // g_active): a console present while the splash draws would otherwise
 // blit the console's whole pending box over it -- a preemption into a
@@ -85,6 +93,7 @@ void splash_begin(void) {
     g_active = 1;
     draw_logo();
     say("Starting SaunaOS...");
+    redraw_if_ended();
     klog_write("splash: on -- Esc shows the boot log\n");
 }
 
@@ -120,6 +129,7 @@ int splash_shutdown_takeover(void) {
     g_active = 1;   // claimed before drawn, as splash_begin()
     draw_logo();
     shutdown_draw_lines();
+    redraw_if_ended();
     klog_write("splash: shutdown screen on -- Esc shows the log\n");
     return 1;
 }
@@ -143,6 +153,7 @@ void splash_end(int show_log) {
     if (!g_active) return;
     g_active = 0;
     g_log_wanted = 0;
+    g_ended_to_log = show_log;
     if (show_log) gfx_present_all();
     klog_write(show_log ? "splash: off -- the boot log is on screen\n"
                         : "splash: off -- handed to the desktop\n");

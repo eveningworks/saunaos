@@ -2129,7 +2129,8 @@ struct sys_stat {
 // purpose; the kernel log still gets its line. 1 restores it. The
 // setting is the PROCESS's (its threads share it), a fork copies it
 // and an exec or spawn starts at 1, as Linux's mm flag does.
-// PR_GET_DUMPABLE answers 0 or 1. Anything else is -EINVAL.
+// PR_GET_DUMPABLE answers 0 or 1. A SANDBOXED process asking for 0 is
+// -EPERM (set before pledging, it holds). Anything else is -EINVAL.
 #define SYS_PRCTL 169
 #define PR_GET_DUMPABLE 3   // Linux's numbers
 #define PR_SET_DUMPABLE 4
