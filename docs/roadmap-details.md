@@ -9223,3 +9223,8 @@ table, marks itself done and posts the WM_USER that re-runs the page
 script -- the page turns with the menu open, as on 3.11. To measure: a program of ours on real 3.11 counting the
 asks per HC_SKIP with a menu open -- which needs "w16: the NASM samples
 start on real 3.11" first.
+
+
+- [ ] **A kernel fault on an AP is reported like one on the boot core.** `smp_ap_interrupt()` treats any exception below vector 32 as fatal for a parked core and halts it with `cli; hlt`: no report, no crash record. Under `smp=run` that silently took a running process with it, and the symptom surfaced much later as a process that never exited (2026-11-20, the second soak round). Print vector, RIP, CR2, pid and a stack scan as the boot core's panic path does, and keep the record the panic store keeps.
+- [ ] **A `cpus` debug command.** Each core's state, the slot it runs, its kernel-lock depth, its last tick and the vector that wedged it, plus the shootdown and call counters -- what had to be read through QEMU's gdbstub on 2026-11-20. A debug-console command (and reachable from tosh) so a stuck guest or a laptop can be read without GDB.
+- [ ] **A preemption-safety check on per-core reads (Linux's CONFIG_DEBUG_PREEMPT).** Behind a debug build flag, `this_cpu()` and `spin_cpu_index()` report a call site that reads per-core state while it could still be preempted and moved (interrupts on, guard down, a process running). Both of 2026-11-20's migration bugs -- the two-step `current_index` read and `shoot()`'s `me` -- are exactly this, and each took hours to find from its symptom.
