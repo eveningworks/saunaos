@@ -136,6 +136,14 @@ KTEST("sched", "a slot is reusable after the process is reaped") {
 //
 // Neither was reachable before ring-3 GUI clients could stay alive
 // across a shell command; both are now one `run` away.
+// Whether `pid` has been on a CPU yet (proc_info's cpu_ns).
+static int ran_at_all(int pid) {
+    struct proc_info pi;
+    for (int i = 0; i < scheduler_slot_end(); i++)
+        if (scheduler_proc_info(i, &pi) == 1 && pi.pid == pid) return pi.cpu_ns > 0;
+    return 0;
+}
+
 KTEST("sched", "a scheduled process survives a legacy process running alongside") {
     if (!fs_exists(SPIN_PATH)) KTEST_SKIP("no " SPIN_PATH " on this boot");
     if (!fs_exists("/tests/exit_test")) KTEST_SKIP("no /tests/exit_test on this boot");
@@ -144,9 +152,11 @@ KTEST("sched", "a scheduled process survives a legacy process running alongside"
     KTEST_ASSERT(pid != 0);
 
     // Let it get going, so it is genuinely mid-flight rather than not
-    // yet started when the legacy process runs.
+    // yet started when the legacy process runs: until it has run at
+    // all, not a fixed wait -- under KVM, or on a core of its own, 20
+    // ticks finished it outright.
     uint64_t start = coarse_ticks();
-    while (coarse_ticks() - start < 20) { }
+    while (!ran_at_all(pid) && coarse_ticks() - start < TIMEOUT_TICKS) { }
     int code = -1;
     KTEST_ASSERT(scheduler_poll(pid, &code) == SCHED_POLL_RUNNING);
 

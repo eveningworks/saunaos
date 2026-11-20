@@ -192,6 +192,9 @@ int scheduler_current_pid(void);
 // means "which program is this" -- a window's owner, a terminal's
 // owner, a child's parent, getpid.
 int scheduler_current_tgid(void);
+// A SIGKILL is pending for the running thread: whatever it faulted on,
+// it is about to die (Linux's fatal_signal_pending()).
+int scheduler_current_killed(void);
 
 // --- per-process I/O, Linux's /proc/<pid>/io --------------------------
 //

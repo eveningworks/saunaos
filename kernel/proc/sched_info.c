@@ -360,7 +360,7 @@ uint64_t scheduler_test_vruntime(int idx) {
 
 int scheduler_test_take_resched(void) {
     int r = g_need_resched;
-    g_need_resched = 0;
+    set_need_resched(0);
     return r;
 }
 

@@ -248,7 +248,7 @@ void scheduler_exit_group(int code) {
     sched_switch_begin();   // before the guard drops: scheduler_on_exit() says why
     scheduler_preempt_enable();
     bill_current();
-    current_index = -1;
+    set_current_index(-1);
     int next = find_next_runnable(rotation_pos);
     if (next == ROT_KERNEL) { switch_to_kernel(me); return; }
     switch_to(me, next);
@@ -342,7 +342,7 @@ void scheduler_on_exit(int code) {
     bill_current(); // the exiting process's last slice
     int gone = current_index;
     trace_sched("exit", current_index);
-    current_index = -1;
+    set_current_index(-1);
 
     // Continue the rotation from the slot that just exited (which is
     // still what rotation_pos holds), rather than restarting at slot 0
@@ -383,7 +383,7 @@ void scheduler_on_thread_exit(int code) {
     scheduler_preempt_enable();
 
     bill_current();
-    current_index = -1;
+    set_current_index(-1);
     int next = find_next_runnable(rotation_pos);
     if (next == ROT_KERNEL) { switch_to_kernel(me); return; }
     switch_to(me, next);
@@ -399,7 +399,7 @@ void scheduler_on_kthread_exit(void) {
     slot_release(me);
     sched_switch_begin();
     bill_current();
-    current_index = -1;
+    set_current_index(-1);
     int next = find_next_runnable(rotation_pos);
     if (next == ROT_KERNEL) switch_to_kernel(me);
     else switch_to(me, next);

@@ -451,15 +451,44 @@ extern volatile int alive_count;
 
 // **WHAT RUNS IS PER CORE** (docs/smp-design.md, stage 5): these three
 // are this core's struct cpu fields, so 140 uses read the right core's
-// without each asking. Before GS.base is set, spin_cpu_index() is 0 and
-// gdt_boot_cpu() is the BSP's. Everything else in procs[] is shared and
-// read under the kernel lock.
+// without each asking. Everything else in procs[] is shared and read
+// under the kernel lock.
+//
+// **EACH READ AND WRITE IS ONE %gs-RELATIVE INSTRUCTION**, Linux's
+// this_cpu_read(). The kernel is preemptible and the kernel lock moves
+// with a process, so "fetch this core's struct cpu, then load the field"
+// can be split by a migration: the thread resumes on another core and
+// reads the OLD core's sched_cur -- another process's pid. kmutex_lock()
+// then failed to recognise its own lock and parked on it (smp=run hung
+// in listrace_test). Before GS.base is set the BSP's is gdt_boot_cpu().
+// sched_here() is two steps: only with interrupts off.
 static inline struct cpu *sched_here(void) {
     return spin_cpu_index() ? this_cpu() : gdt_boot_cpu();
 }
-#define current_index  (sched_here()->sched_cur)
-#define rotation_pos   (sched_here()->sched_rot)
-#define g_need_resched (sched_here()->sched_resched)
+#define SCHED_HERE_GET(f) __extension__ ({                                    \
+    int v_;                                                                   \
+    if (__builtin_expect(g_percpu_ready, 1))                                  \
+        __asm__ volatile ("movl %%gs:%c1, %0"                                 \
+                          : "=r"(v_) : "i"(__builtin_offsetof(struct cpu, f)) \
+                          : "memory");                                        \
+    else                                                                      \
+        v_ = gdt_boot_cpu()->f;                                               \
+    v_; })
+#define SCHED_HERE_SET(f, val) do {                                           \
+    int v_ = (val);                                                           \
+    if (__builtin_expect(g_percpu_ready, 1))                                  \
+        __asm__ volatile ("movl %0, %%gs:%c1"                                 \
+                          :: "r"(v_), "i"(__builtin_offsetof(struct cpu, f))  \
+                          : "memory");                                        \
+    else                                                                      \
+        gdt_boot_cpu()->f = v_;                                               \
+} while (0)
+#define current_index           SCHED_HERE_GET(sched_cur)
+#define rotation_pos            SCHED_HERE_GET(sched_rot)
+#define g_need_resched          SCHED_HERE_GET(sched_resched)
+#define set_current_index(v)    SCHED_HERE_SET(sched_cur, (v))
+#define set_rotation_pos(v)     SCHED_HERE_SET(sched_rot, (v))
+#define set_need_resched(v)     SCHED_HERE_SET(sched_resched, (v))
 
 int  sched_core_of(int slot);        // the core running it, or -1
 int  sched_on_other_core(int slot);  // RUNNING, and not here: in ring 3 on another core

@@ -266,7 +266,9 @@ whenever a headline here tells you something you did not already know.
   start through `proc_start_context()`; no spinlock across a sleep; the
   paranoid vectors from ring 0 take no lock
 - **WHAT RUNS IS PER CORE, AND A PROCESS MAY BE RUNNING SOMEWHERE
-  ELSE** -- `current_index` is this core's; never free a slot
+  ELSE** -- `current_index` is this core's, read as ONE `%gs`
+  instruction (a migration splits a two-step read); a cross-core call
+  never takes the kernel lock; never free a slot
   `sched_on_other_core()`; a kill may return before the death; the
   kernel context lets queued cores in at a tick; an AP's tick is one-shot
 - **A PAGE-TABLE CHANGE FLUSHES THROUGH `tlb.h`, AND EVERY CR3 LOAD IS

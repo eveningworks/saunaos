@@ -23,7 +23,10 @@ it is saved.
   sizes the guest (256 by default, and the `mm` and `paging` above-4-GiB
   checks SKIP below 4096 -- `highmem_test.py` is the runner that refuses
   the skip), and `--cpus N` sets the vCPUs (4 by default, so the `[smp]` KTESTs
-  start and park three cores), and `-v` prints the WHOLE transcript, boot messages
+  start and park three cores), `--kvm` boots under KVM (an `smp=run`
+  image's races want cores at speed; the gate itself runs TCG, and a
+  TCG `-smp 4` suite takes ~2 minutes, so give it `--timeout 400` beside
+  other guests), and `-v` prints the WHOLE transcript, boot messages
   included. **It stops the desktop before the suite** -- `service stop
   toywm`, after waiting for init to report it ready, because the
   winshare KTESTs need the compositor role and refuse to take it from a

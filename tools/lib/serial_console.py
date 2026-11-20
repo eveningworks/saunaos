@@ -57,7 +57,8 @@ DEFAULT_PORT = 4555
 PROMPT_MARK = "dbg> "   # the debug console listening again -- see send()
 
 
-def launch_cmd(iso, disk, port, virtio_disk=None, memory=256, ahci_disk=None, cpus=1):
+def launch_cmd(iso, disk, port, virtio_disk=None, memory=256, ahci_disk=None, cpus=1,
+               kvm=False):
     """The QEMU command line, as a list. No display, no QMP, no input
     head -- this channel needs none of them, which is most of why it is
     cheap enough to be the default for anything not about pixels."""
@@ -75,6 +76,9 @@ def launch_cmd(iso, disk, port, virtio_disk=None, memory=256, ahci_disk=None, cp
         "-drive", f"file={disk},format=raw,if=ide,discard=unmap",
         "-m", str(memory),
         "-smp", str(cpus),
+        # KVM runs the cores at speed, which is what an SMP race needs
+        # (docs/smp-design.md, "Testing"); TCG stays the default.
+        *(["-enable-kvm", "-cpu", "host"] if kvm else []),
         "-display", "none",
         # `server` WITHOUT `nowait` on purpose -- see the module
         # docstring. QEMU waits for our connection before booting.
@@ -154,8 +158,9 @@ class SerialGuest:
     """
 
     def __init__(self, iso, disk, port=DEFAULT_PORT, qemu_log="serial_qemu.log",
-                 virtio_disk=None, memory=256, ahci_disk=None, cpus=1):
+                 virtio_disk=None, memory=256, ahci_disk=None, cpus=1, kvm=False):
         self.ahci_disk = ahci_disk
+        self.kvm = kvm
         self.iso = iso
         self.disk = disk
         self.port = port
@@ -179,7 +184,7 @@ class SerialGuest:
     def start(self):
         cmd = launch_cmd(self.iso, self.disk, self.port,
                          virtio_disk=self.virtio_disk, memory=self.memory, cpus=self.cpus,
-                         ahci_disk=self.ahci_disk)
+                         ahci_disk=self.ahci_disk, kvm=self.kvm)
         self.started_at = time.time()
         self._log = open(self.qemu_log, "wb")
         self.proc = subprocess.Popen(cmd, stdout=self._log, stderr=subprocess.STDOUT)

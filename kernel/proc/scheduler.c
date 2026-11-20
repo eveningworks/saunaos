@@ -471,8 +471,8 @@ void scheduler_init(void) {
     g_slot_end = 0;
     g_slots_ready = 0;
     slot_grow();   // the first chunk now, so boot keeps a guaranteed 64
-    current_index = -1;
-    rotation_pos = ROT_KERNEL;
+    set_current_index(-1);
+    set_rotation_pos(ROT_KERNEL);
     // Permanently armed from here on -- see this file's top comment on
     // why that's safe with an empty process table. Was `= 0` (disarmed,
     // only scheduler_demo_run() ever flipped it) before Milestone 1
@@ -554,7 +554,7 @@ int scheduler_set_class(int pid, int policy, int rt_prio) {
     } else if (was_rt) {
         vr_place(idx);   // rejoins the fair pack where it is now, not where it left it
     }
-    g_need_resched = 1;  // either way the best runnable may have changed
+    set_need_resched(1);  // either way the best runnable may have changed
     return 0;
 }
 
@@ -812,7 +812,7 @@ int sched_on_other_core(int i) {
 // (Linux's resched_curr() + its IPI). Under the kernel lock, so the
 // target is in ring 3 or idle and its fields are ours to write.
 void sched_kick_core(int k) {
-    if (k < 0 || k == (int)spin_cpu_index()) { if (k >= 0) g_need_resched = 1; return; }
+    if (k < 0 || k == (int)spin_cpu_index()) { if (k >= 0) set_need_resched(1); return; }
     struct cpu *c = (struct cpu *)smp_cpu_at(k);
     if (!c || c->state != CPU_RUNNING) return;
     c->sched_resched = 1;
@@ -1034,12 +1034,12 @@ static void wake_preempt(int i) {
     else vr_place(i);
     if (current_index < 0 && clockevent_in_idle()) return; // the idle path hands over already
     if (current_index < 0 && on_ap()) return;             // an idle AP takes it at its next event
-    if (rank_of(i) > running_rank()) { g_need_resched = 1; return; }
+    if (rank_of(i) > running_rank()) { set_need_resched(1); return; }
     if (is_rt(i) || running_rank() > 0) return;            // equal RT waits; fair never beats RT
     if (!vr_behind_running(i)) return;                     // it has had its share
     uint64_t gran_end = g_slice_start_ns + WAKE_GRAN_NS;
     if (clocksource_now_ns() >= gran_end) {
-        g_need_resched = 1;
+        set_need_resched(1);
     } else if (gran_end < g_slice_end_ns) {
         g_slice_end_ns = gran_end;
     }
@@ -1141,8 +1141,8 @@ void switch_to(int from, int idx) {
     context_load_globals(idx);
     procs[idx].state = SCHED_RUNNING;
     procs[idx].preempted_in_kernel = 0;
-    current_index = idx;
-    rotation_pos = idx;
+    set_current_index(idx);
+    set_rotation_pos(idx);
     slice_restart();
     // A new slice, and the tick back if it was stopped. An AP's tick is
     // its own periodic LAPIC timer (smp.c), not the clockevent.
@@ -1159,8 +1159,8 @@ void switch_to_kernel(int from) {
     check_one_running("to_kernel");
     trace_sched("to_kernel", -1);
     int was = from;
-    current_index = -1;
-    rotation_pos = ROT_KERNEL;
+    set_current_index(-1);
+    set_rotation_pos(ROT_KERNEL);
     // The LEGACY loader's thread pointer -- the same
     // two-owners-one-representation shape the heap and the cwd have
     // (scheduler.h): a process run by elf_run.c has no slot to keep one
@@ -1503,7 +1503,7 @@ static void scheduler_rotate(uint64_t *regs) {
 
     // Consumed only by a rotation that can happen: one refused above
     // leaves it for the next trap rather than losing the wake.
-    g_need_resched = 0;
+    set_need_resched(0);
 
     if (current_index >= 0) {
         // This process was the one running for the tick that just
@@ -1678,7 +1678,7 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     procs[idx].wait_reason = reason;
     procs[idx].parked_at_ns = clocksource_now_ns();
     procs[idx].hung_reported = 0;
-    current_index = -1;
+    set_current_index(-1);
 
     int next = find_next_runnable(rotation_pos);
     if (next == ROT_KERNEL) switch_to_kernel(idx);
@@ -1833,7 +1833,7 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
     procs[idx].wait_reason = reason;
     procs[idx].parked_at_ns = clocksource_now_ns();
     procs[idx].hung_reported = 0;
-    current_index = -1;
+    set_current_index(-1);
 
     int next = find_next_runnable(rotation_pos);
     if (next == ROT_KERNEL) switch_to_kernel(idx);
@@ -1869,13 +1869,13 @@ static void wake_slot(int i, int64_t value) {
     sched_delay_woken(i);
     vr_place(i);
     if (is_rt(i)) procs[i].rt_seq = ++g_rt_seq;
-    if (rank_of(i) > running_rank()) g_need_resched = 1;
+    if (rank_of(i) > running_rank()) set_need_resched(1);
     // MID-CALL, BOTH FAIR: it is usually holding the filesystem lock, so
     // it cuts in -- but only while it has run less than what it would
     // preempt. That bound is what the unconditional version lacked.
     else if (procs[i].parked_in_kernel && !is_rt(i) && running_rank() == 0 &&
              vr_behind_running(i))
-        g_need_resched = 1;
+        set_need_resched(1);
     kick_idle_core(i);
 }
 
@@ -2022,6 +2022,10 @@ int scheduler_exec_path(int pid, char *out, unsigned cap) {
     return out[0] ? 1 : 0;
 }
 
+int scheduler_current_killed(void) {
+    return current_index >= 0 && (procs[current_index].pending & (1u << SIGKILL)) != 0;
+}
+
 struct sched_mm *scheduler_current_mm(void) {
     // NULL means "the kernel context is running", which for SYS_SBRK is
     // the legacy elf_run.c process -- not "this process has no heap".
@@ -2072,7 +2076,11 @@ struct sched_cwd *scheduler_current_cwd(void) {
 struct sched_mm *scheduler_mm_for_pml4(uint64_t pml4_phys) {
     if (!pml4_phys) return 0;
     for (int i = 0; i < MAX_PROCS; i++) {
-        if (procs[i].state == SCHED_UNUSED || procs[i].state == SCHED_ZOMBIE) continue;
+        if (procs[i].state == SCHED_UNUSED) continue;
+        // A DYING GROUP's leader waits as a zombie while its space stays
+        // for the threads still leaving (sched_exit.c) -- one may be in
+        // ring 3 on another core and fault before its SIGKILL lands.
+        if (procs[i].state == SCHED_ZOMBIE && !procs[i].group_dying) continue;
         // Threads share their leader's address space, so every one of
         // them would match -- and the first match must be the one slot
         // that owns the heap, or a growth fault in a thread would move

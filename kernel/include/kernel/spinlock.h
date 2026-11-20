@@ -52,5 +52,6 @@ unsigned spin_lockups(void);
 // The current core's index (0 = the BSP), safe before GS.base is set.
 uint32_t spin_cpu_index(void);
 void spin_percpu_ready(void);   // GS.base is set on the BSP (gdt_init())
+extern int g_percpu_ready;      // ...and from then on a %gs load reads this core
 
 #endif

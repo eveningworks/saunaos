@@ -10719,6 +10719,19 @@ over eight files, and Linux's `current` is the same shape -- a per-CPU
 read that looks like a variable. The slice and the billing start went
 with them, and an AP's idle context lives beside them.
 
+**Each of the three is ONE `%gs`-relative load or store** (fixed
+2026-11-20). The first version read `sched_here()->sched_cur`: fetch
+this core's `struct cpu`, then the field. The kernel is preemptible and
+the kernel lock travels with a process, so a thread could be preempted
+between the two steps, resume on another core and read the core it
+left -- another process's pid. `kmutex_lock()` then did not recognise
+the lock it owned, parked on it, and the machine wedged behind it
+(`listrace_test` under KVM, 4 cores, within two runs). Linux reads
+`current` the same way, one instruction, for this reason. Wrapping each
+read in `irq_save()` would also be correct, and costs a flags
+round-trip at 140 sites for nothing the single load does not already
+give.
+
 **The per-context globals stayed global.** `g_isr_depth` and the
 preemption depth describe the context in the kernel, and only the
 kernel-lock holder is in the kernel. Each is 0 whenever the lock is free

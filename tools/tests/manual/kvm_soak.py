@@ -79,6 +79,7 @@ import argparse
 import os
 import tempfile
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -110,8 +111,9 @@ def run(cmd, **kw):
 class Boot:
     """One fresh VM: its own disk copy, its own slot."""
 
-    def __init__(self, slot, tmpdir):
+    def __init__(self, slot, tmpdir, cpus=0):
         self.slot = slot
+        self.cpus = cpus
         self.img = os.path.join(tmpdir, f"kvm_soak{slot}.img")
         self.sock = f".vm.{slot}.serial" if slot else ".vm.serial"
         self.qmp = 4445 + slot
@@ -123,6 +125,7 @@ class Boot:
         # the destination is a tmpfs.
         run(["cp", "--reflink=auto", "--sparse=always", "disk.img", self.img])
         r = run(["python3", "tools/lib/vm.py", "--kvm", "--instance", str(self.slot),
+                 *(["--cpus", str(self.cpus)] if self.cpus else []),
                  "--disk", self.img, "start"])
         ok = vm.started_ok(r.stdout)
         # SAY WHY. "did not come up" with nothing else is what this tool
@@ -331,6 +334,26 @@ def check(log, slow_ms, themes):
     return problems, info
 
 
+SMP_RUN_RE = re.compile(r"smp: smp=run -- (\d+) other core\(s\) scheduling processes")
+
+
+def smp_scheduling(dbg, cpus):
+    """None if a multi-vCPU round's other cores really ran processes,
+    else why not. An image built without smp=run boots fine on N cores
+    and parks N-1 of them, so its clean soak would test one core while
+    claiming several."""
+    if cpus <= 1:
+        return None
+    out = dbg.send("sh dmesg")
+    m = SMP_RUN_RE.search(out)
+    if not m:
+        return ("no 'smp: smp=run -- N other core(s)' line in dmesg: the other cores "
+                "stayed parked (build with make iso KCMDLINE=smp=run)")
+    if int(m.group(1)) != cpus - 1:
+        return f"smp=run started {m.group(1)} other core(s), not {cpus - 1}"
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("-n", "--rounds", type=int, default=3,
@@ -340,6 +363,14 @@ def main():
                     help="fail on any WM frame at least this long (default 300)")
     ap.add_argument("--changes", type=int, default=2,
                     help="setting changes per row (default 2)")
+    ap.add_argument("--cpus", type=int, default=0, metavar="N",
+                    help="vCPUs (default 1). Above 1 the image must be built with "
+                         "KCMDLINE=smp=run, and every round must say its other cores "
+                         "scheduled processes, or it fails: a parked guest is not an SMP soak")
+    ap.add_argument("--round-timeout", type=int, default=600, metavar="S",
+                    help="a round still running after S seconds is an ERROR (default 600): "
+                         "a wedged guest answers each console command with a timeout, "
+                         "and the workload would retry them for good")
     ap.add_argument("--tmp", default=tempfile.gettempdir())
     ap.add_argument("--keep", metavar="DIR", help="write each boot's log here")
     args = ap.parse_args()
@@ -354,9 +385,13 @@ def main():
         os.makedirs(args.keep, exist_ok=True)
 
     print(f"kvm_soak: {args.rounds} fresh boot(s), slot {args.slot}, "
-          f"frame bound {args.slow_ms}ms")
-    boot = Boot(args.slot, args.tmp)
+          f"frame bound {args.slow_ms}ms" + (f", {args.cpus} vCPUs" if args.cpus else ""))
+    boot = Boot(args.slot, args.tmp, args.cpus)
     bad_rounds = 0
+
+    def round_overdue(signum, frame):
+        raise TimeoutError(f"round still running after {args.round_timeout} s -- the guest wedged")
+    signal.signal(signal.SIGALRM, round_overdue)
 
     for i in range(1, args.rounds + 1):
         if not boot.start():
@@ -364,6 +399,7 @@ def main():
             bad_rounds += 1
             continue
         qmp = dbg = None
+        signal.alarm(args.round_timeout)
         try:
             qmp = QMPSession(port=boot.qmp)
             # enter_gui() opens its own console to turn the layout log
@@ -375,6 +411,7 @@ def main():
             # tool's bound is the one that decides.
             dbg.send(f"gui watchdog {max(60, args.slow_ms // 2)}")
             themes = real_themes(dbg)
+            smp_problem = smp_scheduling(dbg, args.cpus)
             # Establish a known-good theme rather than inheriting
             # whatever the last run left on the image -- the same rule
             # cursor_theme_test.py follows, and for the same reason.
@@ -398,6 +435,8 @@ def main():
                 bad_rounds += 1
                 continue
             problems, info = check(log, args.slow_ms, themes)
+            if smp_problem:
+                problems.append(smp_problem)
             if args.keep:
                 with open(os.path.join(args.keep, f"round{i}.log"), "w") as f:
                     f.write("\n".join(log))
@@ -413,6 +452,7 @@ def main():
             print(f"  round {i}: ERROR -- {type(e).__name__}: {e}")
             bad_rounds += 1
         finally:
+            signal.alarm(0)
             # CLOSE OUR ENDS BEFORE THE GUEST DIES. With the QMP client
             # still connected, QEMU closes first and its port sits in
             # TIME_WAIT, which port_guard's plain bind reads as taken --

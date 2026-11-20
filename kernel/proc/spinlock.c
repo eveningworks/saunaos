@@ -14,11 +14,19 @@
 #include "smp.h"         // smp_poll_ipis(): a spinner answers a shootdown or a call
 #include "bkl.h"
 
-static int g_percpu_ready;
+int g_percpu_ready;
 
 void spin_percpu_ready(void) { g_percpu_ready = 1; }
 
-uint32_t spin_cpu_index(void) { return g_percpu_ready ? this_cpu()->index : 0; }
+// One %gs load, so a migration cannot hand back the core it left
+// (sched_internal.h's per-core fields, the same rule).
+uint32_t spin_cpu_index(void) {
+    if (!g_percpu_ready) return 0;
+    uint32_t i;
+    __asm__ volatile ("movl %%gs:%c1, %0" : "=r"(i) : "i"(__builtin_offsetof(struct cpu, index))
+                      : "memory");
+    return i;
+}
 
 static unsigned g_lockups;
 unsigned spin_lockups(void) { return __atomic_load_n(&g_lockups, __ATOMIC_RELAXED); }

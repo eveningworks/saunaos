@@ -31,7 +31,13 @@ Run by nothing: each tool's `RUNNER` header carries a `manual` reason.
   VFS, the scheduler's preemption handling, or anything the WM reads
   from disk -- and whenever a user reports something this environment
   cannot reproduce. SKIPS loudly without KVM rather than passing
-  quietly. **Its workload CHURNS `/usr/wm/applications` on purpose**: the
+  quietly. **`--cpus N` soaks `smp=run`**: build with `make iso
+  KCMDLINE=smp=run`, and each round FAILS unless `dmesg` says N-1 other
+  cores scheduled processes, so a parked guest cannot pass as an SMP
+  soak. Proven to go red 2026-11-20: with the kernel lock off on the
+  APs every boot wedged (3 of 3), with no user-space TLB shootdown 2 of
+  3. `--round-timeout S` (600) turns a wedged guest into an ERROR
+  instead of a tool that waits for good. **Its workload CHURNS `/usr/wm/applications` on purpose**: the
   desktop only re-reads when that directory changed and a cached read
   never reaches the drive, so without it the tool does almost no disk
   I/O -- verified by disarming the VFS preemption guard entirely and

@@ -47,6 +47,13 @@ void bkl_enter(const uint64_t *regs) {
         }
         c->bkl_depth = 0;
     }
+    // DEPTH WITHOUT THE LOCK: this core is still waiting for it, and the
+    // spin answered a cross-core call (smp_poll_ipis()) that took it --
+    // which would run unlocked. A call function never takes the kernel
+    // lock, Linux's rule for an IPI handler.
+    if (c->bkl_depth != 0 && !spin_held_here(&g_bkl))
+        fault("taken inside its own wait -- a cross-core call must not take it",
+              c->bkl_depth, site);
     if (c->bkl_depth++ == 0) spin_lock_raw(&g_bkl, site);
     irq_restore(f);
 }

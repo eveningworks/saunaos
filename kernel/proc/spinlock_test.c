@@ -89,11 +89,20 @@ KTEST("smp", "every core counting under one ticket lock loses no increment") {
     KTEST_ASSERT(!spin_held(&g_count_lock));
 }
 
-// The AP's side of the kernel-lock test: take it as an entry would.
-static volatile uint32_t g_bkl_runs;
+// The AP's side of the kernel-lock test: take it as an entry would. A
+// PARKED AP answers the call holding nothing and takes it here; a
+// SCHEDULING one (smp=run) reached the call through its interrupt
+// entry, which is queued for the lock already, and answers from inside
+// that wait -- where taking it again would run unlocked (bkl.c). There
+// the entry is the taker held out, and the call only says so.
+static volatile uint32_t g_bkl_runs, g_bkl_queued;
 
 static void take_kernel_lock(void *arg) {
     (void)arg;
+    if (bkl_depth() != 0 && !bkl_held_here()) {
+        g_bkl_queued = 1;
+        return;
+    }
     bkl_enter(0);
     g_bkl_runs++;
     bkl_exit(0);
@@ -104,6 +113,7 @@ KTEST("smp", "the kernel lock keeps another core out until this one drops it") {
     KTEST_ASSERT(bkl_held_here());
     KTEST_ASSERT(bkl_depth() >= 1);
     g_bkl_runs = 0;
+    g_bkl_queued = 0;
     // Unpreemptible, or a tick hands this core to a process whose return
     // to ring 3 releases the lock -- which is the lock working (bkl.h).
     // No assertion inside: one that returns leaves the guard raised.
@@ -111,6 +121,7 @@ KTEST("smp", "the kernel lock keeps another core out until this one drops it") {
     int called = smp_call(1, take_kernel_lock, 0, 0);
     if (called) clocksource_delay_ms(50);
     uint32_t runs_held = g_bkl_runs;
+    int queued_held = g_bkl_queued && bkl_contended();   // its entry waits behind us
     scheduler_preempt_enable();
     KTEST_ASSERT(called);
     KTEST_ASSERT_EQ(runs_held, 0u);         // it was spinning behind us
@@ -118,7 +129,8 @@ KTEST("smp", "the kernel lock keeps another core out until this one drops it") {
     int ran = smp_call_wait(1, 5000);
     bkl_retake(d);
     KTEST_ASSERT(ran);
-    KTEST_ASSERT_EQ(g_bkl_runs, 1u);
+    if (g_bkl_queued) KTEST_ASSERT(queued_held);
+    else KTEST_ASSERT_EQ(g_bkl_runs, 1u);
     KTEST_ASSERT(bkl_held_here());
     KTEST_ASSERT_EQ(bkl_depth(), d);
 }

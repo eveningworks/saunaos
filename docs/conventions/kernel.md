@@ -1486,10 +1486,26 @@ another core may be running a process while this one is in the kernel.
   per-core scheduler fact goes in `struct cpu` the same way; a new
   per-CONTEXT one is saved and loaded by `switch_to()`, and may stay a
   global only if it is 0 whenever the kernel lock is free.
+- **A PER-CORE FIELD READ WITH INTERRUPTS ON IS ONE `%gs` INSTRUCTION**
+  (`SCHED_HERE_GET`/`_SET`, `spin_cpu_index()`), Linux's
+  `this_cpu_read()`. The kernel is preemptible and the kernel lock moves
+  with a process, so "take `this_cpu()`, then load the field" can be
+  split by a migration and read the core it LEFT -- another process's
+  pid. A pointer from `this_cpu()` or `sched_here()` is used with
+  interrupts off only. Writes go through the `set_*()` macros.
+- **A CROSS-CORE CALL NEVER TAKES THE KERNEL LOCK**: a core waiting for
+  it answers calls from inside that wait, so the call would run
+  unlocked; `bkl_enter()` reports it (`bkl_faults()`), Linux's rule for
+  an IPI handler.
 - **RUNNING NO LONGER MEANS "HERE"**: `sched_on_other_core()` says it is
   in ring 3 on another core. Such a slot is NEVER freed in place -- a
   death is deferred (it takes its SIGKILL there) and exec waits for it;
-  anything new that frees a slot or its space asks first.
+  anything new that frees a slot or its space asks first. **Until that
+  SIGKILL lands the thread RUNS, and may fault**: a lookup of the
+  address space accepts a dying group's ZOMBIE leader
+  (`scheduler_mm_for_pml4()`), and a fault in a thread with SIGKILL
+  pending ends in that SIGKILL, never a crash report
+  (`scheduler_current_killed()`, Linux's `fatal_signal_pending()`).
 - **A KILL MAY RETURN BEFORE THE DEATH**: `scheduler_kill()` of a
   process running on another core (or parked mid-call) is deferred, so
   a caller -- a KTEST above all -- that needs it gone polls for it,

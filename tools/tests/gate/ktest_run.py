@@ -128,6 +128,9 @@ def run():
     ap.add_argument("--cpus", type=int, default=4, metavar="N",
                     help="vCPUs (default 4): the [smp] KTESTs start and park the "
                          "others, which one vCPU would leave untested.")
+    ap.add_argument("--kvm", action="store_true",
+                    help="boot under KVM: the gate runs TCG, and an smp=run image's "
+                         "races need cores at speed (docs/smp-design.md, \"Testing\")")
     ap.add_argument("--qemu-log", default="ktest_qemu.log")
     ap.add_argument("-v", "--verbose", action="store_true", help="print the whole serial transcript")
     args = ap.parse_args()
@@ -138,7 +141,8 @@ def run():
 
     guest = SerialGuest(args.iso, args.disk, port=args.port,
                         qemu_log=args.qemu_log, virtio_disk=args.virtio_disk,
-                        memory=args.mem, ahci_disk=args.ahci_disk, cpus=args.cpus)
+                        memory=args.mem, ahci_disk=args.ahci_disk, cpus=args.cpus,
+                        kvm=args.kvm)
     verdict = None
     timeout_facts = []
     try:

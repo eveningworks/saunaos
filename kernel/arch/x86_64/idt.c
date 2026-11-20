@@ -627,6 +627,13 @@ static void isr_dispatch_body(uint64_t *regs) {
             signal_deliver_fault(scheduler_current_pid(), fault_sig, regs)) {
             return;        // resume into the handler; regs now points at it
         }
+        // ALREADY KILLED: a thread of a dying group, still in ring 3 on
+        // another core when its SIGKILL was raised, faulted before the
+        // kick landed. It dies of the SIGKILL, with no crash report.
+        if (recoverable && scheduler_current_pid() && scheduler_current_killed()) {
+            scheduler_exit_group(SIGNAL_EXIT_BASE + SIGKILL);
+            return;
+        }
 
         // This block was eleven calls to print three lines before
         // kfmt.h existed. It formats into a stack buffer, which is fine
