@@ -1092,7 +1092,7 @@ def main():
                     help="guest RAM in MiB (default 2048). Smaller makes "
                           "memory exhaustion reachable -- see tools/tests/sweep/mem_stress.py")
     ap.add_argument("--cpus", type=int, default=0, metavar="N",
-                    help="vCPUs (default 1); the kernel starts and parks the others")
+                    help="vCPUs (default 1); the kernel runs processes on all of them (smp=run, the default)")
     ap.add_argument("--timeout", type=float, default=30.0)
     ap.add_argument("--machine", default=None, metavar="TYPE",
                     help="QEMU machine type (e.g. q35). q35 implies --disk-kind ahci; "

@@ -241,7 +241,7 @@ re-fetched by a tool pinned to a commit and a hash
 | `alloc`/`free` | `kmalloc`/`kfree` (`UACPI_SIZED_FREES` off) |
 | `get_nanoseconds_since_boot`, `stall`, `sleep` | `clocksource_now_ns()`, the port-I/O delay, a timed scheduler wait |
 | semaphores (locks and events), `get_thread_id` | `kmutex`/a kernel wait queue; the current pid |
-| spinlocks, `disable`/`restore_interrupts` | `irqflags.h` -- one CPU today (`smp-design.md` stage 1) |
+| spinlocks, `disable`/`restore_interrupts` | `spinlock.h`'s ticket lock and `irqflags.h`, safe across cores (`smp-design.md` stage 4) |
 | `install_interrupt_handler` | `irq_register_handler()` + `irq_unmask()` on the SCI line |
 | `schedule_work`, `wait_for_work_completion` | a kernel thread draining a queue (`kacpid`'s job in Linux) |
 | `log` | `klog`, rate-limited -- firmware can be chatty |

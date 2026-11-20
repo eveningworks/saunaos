@@ -17,8 +17,9 @@ routes the legacy lines with the MADT's overrides applied -- so nothing
 goes through the 8259 any more. Stage 3's `kernel/arch/x86_64/smp.c`
 starts every enabled core and parks it, and GS.base is the per-CPU
 pointer on every entry; stage 4's kernel lock is taken on every entry
-and a parked core runs what `smp_call()` hands it. What remains is
-stage 5 onward -- no process runs on a second core yet.
+and a parked core runs what `smp_call()` hands it; stage 5 puts
+processes on every core (`smp=run`, the default). What remains is
+stage 7, the lock split, and the "Not yet" list under stage 5.
 The document is meant to be executed in order, each stage shippable and
 testable on its own, with the honest case against at the end.
 
@@ -112,7 +113,7 @@ futexes, swap, sandboxes and the image cache all arrived single-core.
 | TLB invalidation | user mappings: `kernel/mm/vmm.c` (4 `invlpg`s and `flush_if_live()`, which tests only THIS core's CR3). Kernel mappings, which every core shares: `kernel/arch/x86_64/paging.c`, 9 CR3-reload `flush_tlb()` sites reached at runtime by module load/unload (`paging_set_kernel_exec()`), device mapping at driver bind (ahci, nvme, hda, xhci, virtio_pci, bochs, intel_display), write-combining retypes, and kernel-stack guard pages (`kstack.c`) | two places, not one: user shootdown needs a per-address-space record of which cores have it loaded (Linux's `mm_cpumask`); kernel changes go to EVERY core |
 | FPU | eager `fxsave`/`fxrstor` per switch (`kernel/arch/x86_64/fpu.c`) | per-thread already; each AP must run the CR0/CR4 FPU setup |
 | per-core CPU setup | done once, on the BSP: EFER.NXE (`boot.asm`), IA32_PAT (`pat_install_wc_slot()`), the variable MTRRs (`mtrr_apply()`), CR4.SMEP/SMAP (`paging_enable_smep_smap()`), all in `kernel/arch/x86_64/` | each is a per-core register. An AP without NXE takes a reserved-bit fault on its first NX kernel page (W^X marks all kernel data NX); a different PAT/MTRR gives the WC framebuffer conflicting memory types (undefined per the SDM); no SMEP/SMAP silently drops the protection. Each AP replays the BSP's values |
-| kernel debugger | clears CR0.WP to plant a breakpoint (`kernel/debug/`) | must stop the other cores first (stage 5; parked cores run nothing) |
+| kernel debugger | clears CR0.WP to plant a breakpoint (`kernel/debug/`) | must stop the other cores first -- NOT DONE: a stub stop halts core 0 only ("Not yet" under stage 5) |
 | console | `vga.c`'s cursor and back buffer (under the preemption guard) | interleaved output, and a torn present |
 | ACPI | DONE -- tables and the MADT (`kernel/acpi/`) | -- |
 
@@ -630,9 +631,8 @@ is not this host's. So a missing lock CAN go red under TCG; it is still
 far slower than hardware and its timing is nothing like a real core's,
 so a race that needs a tight window is rarer there. `thread=single` is
 a useful CONTROL: a failure that disappears with it is a race.
-(`kernel/include/kernel/barrier.h` and `docs/fslock-design.md` say
-"TCG serialises" about today's ONE-vCPU guests, where it is true in
-effect.) Older QEMUs in `tools/runners/qemu_matrix.py` may differ --
+(A one-vCPU guest -- what `vm.py` and `make run` boot unless told
+otherwise -- is still serial in effect; `ktest_run.py` boots four.) Older QEMUs in `tools/runners/qemu_matrix.py` may differ --
 check a version before trusting it with `-smp`.
 
 The SMP suite is still a KVM suite FIRST, because KVM runs the cores at

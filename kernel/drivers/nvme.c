@@ -182,7 +182,8 @@ static inline void irq_restore(uint64_t f) {
 // Consumes every new completion on `q`: records its status against its
 // command id, advances the head, and tells the controller how far it got.
 // Called from BOTH the interrupt handler and a waiter, so a waiter runs it
-// with interrupts off -- one CPU, so that is all the exclusion needed.
+// with interrupts off -- and under the kernel lock, so that is all the
+// exclusion needed.
 // Returns how many it took.
 static int reap_locked(struct nvme_queue *q) {
     int n = 0;

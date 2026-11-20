@@ -238,6 +238,17 @@ the feature under test wholly broken.
 
 ## What the emulator does and does not model
 
+**MORE THAN ONE vCPU IS A MULTI-CORE MACHINE.** `make run CPUS=4` and
+`vm.py --cpus 4` give the guest four cores, and `smp=run` (the default)
+runs processes on all of them; `ktest_run.py` boots four, `vm.py`,
+`usertest_run.py` and `make run` one unless told. QEMU's TCG runs each
+vCPU on its own host thread, so a missing lock CAN go red without KVM,
+though a race with a tight window is rarer there and timing under host
+load is nothing like hardware's (a 1 s spinlock wait is tens of
+milliseconds of emulated work). `-accel tcg,thread=single` is the
+control; `tools/tests/manual/kvm_soak.py --cpus N` is the soak
+(`docs/smp-design.md`, "Testing").
+
 **FREE PAGE REPORTING IS MEASURED IN QEMU'S RSS.** `make run` and the
 KTEST machine attach `virtio-balloon-pci,free-page-reporting=on`;
 `vm.py --balloon` opts a guest in. The oracle is the host: `VmRSS` in

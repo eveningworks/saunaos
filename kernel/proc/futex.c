@@ -18,11 +18,11 @@
 // objects already used as channels -- those live in the kernel image
 // and the kernel heap, whose frames are never handed to a user mapping.
 //
-// WHY THE COMPARE-THEN-BLOCK IS SAFE HERE: a syscall handler runs with
-// interrupts off, so nothing else observes the word between the compare
-// and the park. That is a property of this kernel being single-core,
-// not of the design -- an SMP port needs a real lock around the pair,
-// and this comment is where that will be looked for.
+// WHY THE COMPARE-THEN-BLOCK IS SAFE HERE: a syscall handler holds the
+// kernel lock, so no other core observes the word between the compare
+// and the park. That is a property of the lock, not of the design --
+// splitting it (SMP stage 7) needs a real lock around the pair, and this
+// comment is where that will be looked for.
 #include "heap.h"   // kzalloc -- the wakeword table, sized at first use
 #include "syscalls.h"
 #include "syscall_abi.h"

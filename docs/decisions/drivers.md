@@ -2621,9 +2621,10 @@ mechanism, and there is nothing here to steer at**. What per-queue
 vectors buy is two queues being serviced on two cores at once; Linux has
 `pci_alloc_irq_vectors_affinity()` for exactly that, and the MSI message
 address carries the destination LAPIC id in bits 19:12 to make it
-possible. `QUERY_CPUS` reports every application processor `online: no`
-(`docs/smp-design.md` -- designed, not built), so N vectors on this
-machine are N entries in a table all delivering to the same LAPIC,
+possible. Device interrupts all go to the boot core -- the other cores run
+processes (`docs/smp-design.md`, stage 5) but take no device
+interrupt -- so N vectors on this machine are N entries in a table all
+delivering to the same LAPIC,
 running the same handler on the same core. The extra table entries would
 be real and the benefit exactly zero.
 

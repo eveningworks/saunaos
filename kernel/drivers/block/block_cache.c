@@ -15,7 +15,8 @@
 // inactive and leaves the bitmaps, inode tables and program images that
 // are read again where they are.
 //
-// THE LOCK IS irq_save(), on one core, held for one page at a time:
+// THE LOCK IS irq_save() under the kernel lock (one core in the kernel at
+// a time, smp=run included), held for one page at a time:
 // never across a device command, which can sleep.
 #include "block_cache.h"
 #include "block.h"

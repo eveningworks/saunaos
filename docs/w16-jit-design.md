@@ -204,9 +204,10 @@ the systems named, not a measurement here.
 
 ## Not this plan
 
-- **More cores.** SaunaOS starts only the boot CPU (`docs/smp-design.md`,
-  stage 1); the ASUS has four logical CPUs. Running w16's drawing and the
-  compositor on another core is a separate lever, and a bigger project.
+- **More cores.** Programs run on every core (`docs/smp-design.md`,
+  stage 5), so w16 and the compositor can already land on different
+  cores; one program's interpreter is still one thread. Splitting w16's
+  drawing off its CPU thread is a separate lever.
 - **Running Win386 code natively in a ring-3 32-bit segment** (weighed
   and declined 2026-11-15). x86-64 long mode has compatibility mode, so
   32-bit code CAN run directly -- Wine does on Linux, and

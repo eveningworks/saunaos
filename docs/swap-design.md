@@ -43,9 +43,9 @@ plan.
   (`kernel/include/kernel/paging.h`). So writing a victim's contents
   out needs no temporary mapping — the kernel already has an address
   for every frame it could evict.
-- **The machine is uniprocessor**, so there is no TLB shootdown to
-  build. `vmm_unmap_user_page()` already `invlpg`s only when the target
-  address space is the current one.
+- **Processes run on every core (`smp=run`)**, so unmapping a swapped
+  page goes through `tlb.h`'s shootdown (`docs/smp-design.md` stage 6),
+  never a bare `invlpg` on the current core.
 - **The page fault handler runs with interrupts OFF.** Vector 14 is an
   interrupt gate, not a trap gate (`kernel/arch/x86_64/idt.c`).
 - **`vmm_fault_in()` has THREE callers, not one**: the #PF handler, the

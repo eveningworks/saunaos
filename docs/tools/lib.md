@@ -56,8 +56,9 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   controller and USB HID devices, off by default because attaching a
   `usb-kbd` takes the keyboard AWAY from PS/2 — see `docs/testing.md`
   (`xhci+crowd` is eleven devices, a hub of eight keyboards among them);
-  `--cpus N` boots N vCPUs (1 by default; the kernel starts and parks
-  the others, `lscpu` counts them);
+  `--cpus N` boots N vCPUs (1 by default; the kernel starts the others
+  and, under the default `smp=run`, runs processes on them; `lscpu`
+  counts them);
   `--pci-fill N` adds N inert `pci-testdev`s behind PCI-to-PCI bridges,
   for a guest with more devices than the default machine's handful;
   `--usb-stick IMAGE[@PORT][,4k]` attaches an emulated USB stick (QEMU

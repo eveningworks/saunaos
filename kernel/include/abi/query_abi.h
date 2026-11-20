@@ -332,9 +332,9 @@ _Static_assert(sizeof(struct query_fontglyph) <= 256,
 // and rows.
 #define QUERY_ACPI_TABLE 24
 
-// One record per logical processor the MADT lists. LIST. NOTHING IS
-// RUNNING ON THEM -- this kernel is single-core, and the list is the
-// first stage of docs/smp-design.md rather than evidence of the rest.
+// One record per logical processor the MADT lists. LIST. Each says whether
+// the kernel started it (QUERY_CPU_ONLINE) and whether it runs processes
+// (QUERY_CPU_SCHEDULING).
 #define QUERY_CPUS 25
 
 // The network devices: one record per registered NIC, with its

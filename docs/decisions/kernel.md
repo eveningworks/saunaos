@@ -771,11 +771,12 @@ futex's wake takes one and the reason is this scheduler's own: releasing
 every waiter on a contended lock so that all but one parks again is the
 thundering herd the per-object channel mechanism was built to avoid.
 
-The compare-then-park is safe here only because a syscall handler runs
-with interrupts off, so nothing observes the word in between. That is a
-property of this kernel being single-core rather than of the design, and
-the comment above `sys_futex_wait()` says so -- an SMP port needs a real
-lock around the pair.
+The compare-then-park is safe here because a syscall handler holds the
+big kernel lock (`smp=run` runs processes on every core, one in the
+kernel at a time), so no other core observes the word in between. That
+is a property of the lock rather than of the design, and the comment
+above `sys_futex_wait()` says so -- splitting the lock (SMP stage 7)
+needs a real lock around the pair.
 
 **What the tests could and could not show.** The cross-process round trip
 is only testable from ring 3, and the first version of that test passed
@@ -4639,8 +4640,7 @@ fixed `procs[]` array on every wake. Per-object wakeups therefore cost
 one POINTER compare where the enum cost one INT compare -- there is
 nothing to allocate, nothing to initialise in each waitable object, and
 nothing to tear down when one is freed. Linux's and NT's designs buy
-ordering and exclusive wakeups, and neither is needed by a uniprocessor
-kernel whose waker already holds every slot in one array. Copy the
+ordering and exclusive wakeups, and neither is needed by a kernel whose waker already holds every slot in one array under one lock. Copy the
 shape, not the size.
 
 **The two rules a channel must obey**, both consequences of it being a

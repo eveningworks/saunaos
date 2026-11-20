@@ -1455,8 +1455,8 @@ through `switch_to()`.
 - **A HAND-ROLLED ROUTE TO RING 3 CALLS `bkl_drop_all()` FIRST**, as the
   two `iretq`s in `process.c` and `ring3_test.c` do, and a longjmp back
   from ring 3 restores the depth it dropped (`bkl_load_depth()`). One
-  that forgets runs ring 3 holding the lock: harmless on one core,
-  every other core stopped from stage 5. `bkl_faults()` counts it and
+  that forgets runs ring 3 holding the lock: every other core stopped
+  under `smp=run` (harmless only with `smp=park` or `nosmp`). `bkl_faults()` counts it and
   the `smp` KTESTs assert 0.
 - **A NEW WAY TO START A CONTEXT GOES THROUGH `proc_start_context()`**,
   whose `isr_start_frame` starts it at depth 1 and drops the lock for a
@@ -2864,8 +2864,9 @@ ring implements for itself (`api/heap_os.h`):
   front of it (`userland/libs/libc/malloc.c`) has a second lock of the same
   shape, always taken FIRST** -- a span comes from `kmalloc()`.
 - **Ring 0: preemption off** (`kernel/mm/heap_os.c`), not a lock: it
-  was a no-op until the syscall gate became a trap gate, and it **ends
-  at SMP** -- `docs/smp-design.md` names the kernel heap as split #1,
+  was a no-op until the syscall gate became a trap gate, and it is
+  correct under the big kernel lock; it **ends at SMP stage 7** --
+  `docs/smp-design.md` names the kernel heap as split #1,
   and these two bodies are the slot it fills.
 
 **THE RACE IS REAL BY INSPECTION AND WAS NOT REPRODUCIBLE.** The control
@@ -4069,10 +4070,10 @@ PANIC (`BOOT_SUB_ACPI`), not a NULL, because "no such table" and "the
 walk has not run" are otherwise the same answer and want opposite
 responses.
 
-**The MADT is `docs/smp-design.md`'s Stage 1 and nothing more.** The
-processor list exists, `lscpu` counts it (CPUID cannot -- it describes
-the core executing the instruction), and every entry reports
-`online: no` because this kernel schedules on one core. **Testing the
+**The MADT is `docs/smp-design.md`'s Stage 1** -- the processor list,
+which `lscpu` counts (CPUID cannot: it describes the core executing the
+instruction); whether each entry is online and scheduling comes from
+the later stages. **Testing the
 table walk needs two chipsets**: `vm.py --machine q35` is the only way
 here to reach an XSDT-capable machine with a real reset register, and
 q35 has no legacy IDE, so it implies `--disk-kind ahci`.

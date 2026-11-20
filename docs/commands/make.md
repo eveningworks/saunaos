@@ -26,9 +26,10 @@ objects and links them.
 **A recipe with shell syntax in it runs under `/bin/sh`**, which is
 dash (`docs/commands/dash.md`); a plain command (`cc -O2 -c main.c`) is
 run directly, as GNU make does everywhere. `-j` works, through GNU
-make's job server, which a sub-make (`$(MAKE) -C dir`) joins. The
-machine has one CPU for now, so `-j2` overlaps waiting -- on the disk,
-on a `sleep` -- rather than compiling twice as fast.
+make's job server, which a sub-make (`$(MAKE) -C dir`) joins. On a
+multi-core machine (`make run CPUS=4`) `-j` compiles on several cores;
+on one core it overlaps waiting -- on the disk, on a `sleep` -- rather
+than compiling twice as fast.
 
 ## What it deliberately does not do
 

@@ -2,8 +2,8 @@
 //
 // A flat list like procpath_query.c, pid in the record. Each record is
 // a walk of that process's page tables (vmm_audit_space), done under
-// the preemption guard so the owner cannot edit its tables mid-walk on
-// this uniprocessor kernel. A walk per process per read: the reason
+// the preemption guard so the owner cannot edit its tables mid-walk: under
+// the kernel lock no other core is in the kernel meanwhile. A walk per process per read: the reason
 // this is its own fact rather than a proc_info field, which signal
 // delivery and every pid lookup read.
 #include "query.h"

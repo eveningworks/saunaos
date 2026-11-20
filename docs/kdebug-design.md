@@ -93,11 +93,11 @@ at boot, polled and never interrupt-driven. From then on:
 - **A single step masks IF** so it lands on the next instruction rather
   than in the timer's ISR, and restores it after -- so stepping a
   `cli`/`sti`/`popf` gets IF wrong. KGDB has the same blind spot.
-- **Clearing CR0.WP is safe only with one CPU running.** Since SMP
-  stage 3 (`docs/smp-design.md`) the other cores are started but PARKED
-  in `cli; hlt`, running nothing, so that still holds. Stage 5, which
-  runs code on them, must stop them first -- an NMI IPI, KGDB's
-  `kgdb_roundup_cpus()` -- before a breakpoint write or any stop.
+- **Clearing CR0.WP is safe only with one CPU running.** Under `smp=run`
+  (the default, `docs/smp-design.md`) the other cores run processes, so a
+  breakpoint write or any stop must stop them first -- an NMI IPI, KGDB's
+  `kgdb_roundup_cpus()`. NOT BUILT: the stub stops core 0 only; boot
+  `smp=park` or `nosmp` to debug (roadmap, SMP).
 - **Stopping stops time for everything the kernel talks to.** A USB
   audio stream underruns, TCP peers retransmit and may give up, and
   timers fire late all at once on resume. That is the nature of a
