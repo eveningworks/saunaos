@@ -67,4 +67,11 @@ void smp_memory_types_changed(void);
 // isr_dispatch() on an AP: before anything shared.
 void smp_ap_interrupt(uint64_t vector);
 
+// A panic's first act (panic_begin()): every other online core is sent
+// an NMI and halts in CPU_STOPPED. Waits ~100 ms; how many stopped.
+// isr_dispatch() checks smp_stop_requested() first on every NMI.
+int  smp_stop_others(void);
+int  smp_stop_requested(void);
+void smp_stop_here(void) __attribute__((noreturn));
+
 #endif

@@ -81,13 +81,12 @@ void spin_wait_overdue(uintptr_t what, uintptr_t site, uint32_t me, uint32_t cor
 static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
     uint32_t me = spin_cpu_index();
     if (l->holder == me + 1) {
-        // Our own ticket would wait for our own unlock.
-        if (me == 0) {
-            klog_printf(KLOG_ERR "spinlock: core 0 took %p again at %p; it took it at %p\n",
-                        (void *)l, (void *)site, (void *)l->site);
-            panic_finish();
-        }
-        for (;;) __asm__ volatile ("cli; hlt");
+        // Our own ticket would wait for our own unlock. Any core: the
+        // panic stops the others before this logs.
+        panic_begin();
+        klog_printf(KLOG_ERR "spinlock: core %u took %p again at %p; it took it at %p\n",
+                    me, (void *)l, (void *)site, (void *)l->site);
+        panic_finish();
     }
     uint32_t ticket = __atomic_fetch_add(&l->next, 1, __ATOMIC_RELAXED);
     if (__atomic_load_n(&l->serving, __ATOMIC_ACQUIRE) != ticket) {

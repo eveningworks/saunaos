@@ -138,6 +138,7 @@ void lapic_init(void) {
 #define LAPIC_REG_ICR_HI    0x310
 #define LAPIC_REG_LVT_PERF  0x340
 #define LAPIC_REG_LVT_ERROR 0x370
+#define ICR_DM_NMI          (4u << 8)
 #define ICR_DM_INIT         (5u << 8)
 #define ICR_DM_STARTUP      (6u << 8)
 #define ICR_PENDING         (1u << 12)   // delivery status: still being sent
@@ -186,6 +187,13 @@ int lapic_send_startup(uint8_t apic_id, uint8_t page) {
 int lapic_send_ipi(uint8_t apic_id, uint8_t vector) {
     if (!g_base) return 0;
     return icr_send(apic_id, ICR_ASSERT | vector);
+}
+
+// NMI delivery: taken with interrupts off too, which is the point (a
+// panic's stop reaches a core spinning in cli). The vector is ignored.
+int lapic_send_nmi(uint8_t apic_id) {
+    if (!g_base) return 0;
+    return icr_send(apic_id, ICR_DM_NMI | ICR_ASSERT);
 }
 
 // An AP's LAPIC, parked: software-enabled so a later stage's IPIs reach

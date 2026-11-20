@@ -12,6 +12,12 @@
 // is not in the record.
 void panic_finish(void) __attribute__((noreturn));
 
+// Before the report, where one is printed: interrupts off, and every
+// other core stopped (smp_stop_others()) so nothing writes past the
+// panic. Only the first core to call it returns; another halts there.
+// panic_finish() calls it too, so a site with no report needs nothing.
+void panic_begin(void);
+
 // `panic=`'s value, parsed: seconds, 0 = halt, < 0 = at once. A value
 // that is not a number is REJECTED (returns 0) and the default stands.
 #define PANIC_DEFAULT_SECS 10

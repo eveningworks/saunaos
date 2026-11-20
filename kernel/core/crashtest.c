@@ -21,6 +21,9 @@
 #include "klog.h"
 #include "kfmt.h" // klog_printf
 #include "scheduler.h" // the lockup kinds
+#include "smp.h"       // ap-gp-fault: a call to another core
+#include "percpu.h"
+#include "spinlock.h"  // spin_cpu_index()
 
 static int g_armed = -1; // -1 = not yet decided
 
@@ -111,6 +114,29 @@ static void crash_hung_task(void) {
     while (scheduler_block_kernel(&chan, SCHED_WAIT_LOCK)) { }
 }
 
+// The #GP above, on ANOTHER core, inside a cross-core call: interrupts
+// off and no kernel lock there, while this core waits holding it -- the
+// fault an AP used to halt on silently.
+static void ap_fault_cb(void *arg) {
+    (void)arg;
+    crash_gp_fault();
+}
+
+// An AP first, the BSP only when the caller is the one AP.
+static void crash_ap_gp_fault(void) {
+    uint32_t me = spin_cpu_index();
+    for (int k = 1; k <= smp_cpu_count(); k++) {
+        int i = k % smp_cpu_count();
+        const struct cpu *c = smp_cpu_at(i);
+        if ((uint32_t)i == me || !c || (c->state != CPU_PARKED && c->state != CPU_RUNNING))
+            continue;
+        klog_printf("crash: core %u hands the fault to core %d\n", me, i);
+        smp_call(i, ap_fault_cb, 0, 1);
+        return;
+    }
+    klog_write("crash: ap-gp-fault needs a second core that is online\n");
+}
+
 static const struct crash_kind g_kinds[] = {
     { "null-write",  "Write to address 0 (page fault)",        crash_null_write },
     { "null-read",   "Read from address 0 (page fault)",       crash_null_read },
@@ -118,6 +144,7 @@ static const struct crash_kind g_kinds[] = {
     { "divide-zero", "Integer divide by zero (#DE)",           crash_divide_by_zero },
     { "bad-opcode",  "Execute ud2 (invalid opcode, #UD)",      crash_invalid_opcode },
     { "write-text",  "Write to .text -- proves W^X is on",     crash_write_text },
+    { "ap-gp-fault", "The #GP on another core, in a cross-core call", crash_ap_gp_fault },
     { "kstack-overflow", "Overrun the kernel stack -- proves its guard page",
       crash_kstack_overflow },
     { "soft-lockup", "Spin with preemption off (soft lockup)",  crash_soft_lockup },

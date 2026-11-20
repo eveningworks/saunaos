@@ -17,6 +17,13 @@ WHAT IT ASSERTS, in one guest that is allowed to reboot (`vm.py --reboot`):
     #GP report -- to the end of THAT boot's file, and clears it;
   - a further warm reboot recovers nothing: a cleared record stays cleared.
 
+`--kind ap-gp-fault --cpus 3` has the #GP raised on an AP that is not
+the caller's core, inside
+a cross-core call (kernel/core/crashtest.c), and adds the AP's own checks:
+the report names that core, and the panic stopped every other one first.
+`--boot-word smp=park` aims it at a PARKED core, which before 2026-11-20
+halted with no report; a scheduling one reported, but the others ran on.
+
 THE POSITIVE CONTROL (--positive-control) replaces the warm reset with a
 cold one -- QEMU is stopped and started again after the panic -- so the
 RAM is gone and every recovery check must go red. A run where they stay
@@ -29,11 +36,20 @@ ON DEMAND, not in the gate: two or three boots and a 10 s countdown, and a
 suite that reboots its own VMs is a suite whose failures are hard to read.
 
     python3 tools/tests/sweep/panic_store_test.py [--instance 3] [--positive-control]
+        [--kind ap-gp-fault --cpus 3]
 """
 
 # PANICS AND REBOOTS ITS GUEST, on purpose: a warm reset is the only
 # thing that carries the RAM store across, so it cannot be a KTEST.
-RUNNER = {"covers": "a kernel panic survives the warm reset, into the dead boot's log"}
+RUNNER = [
+    {"covers": "a kernel panic survives the warm reset, into the dead boot's log"},
+    {"covers": "a kernel fault on another core panics like the boot core's: reported, "
+               "the others stopped, the record kept",
+     "name": "panic_store_ap", "args": ["--kind", "ap-gp-fault", "--cpus", "3"]},
+    {"covers": "...and on a PARKED core (smp=park), which used to halt with no report",
+     "name": "panic_store_ap_parked",
+     "args": ["--kind", "ap-gp-fault", "--cpus", "3", "--boot-word", "smp=park"]},
+]
 
 
 import argparse
@@ -95,9 +111,10 @@ def wait_for_guest(g, deadline_s=180):
     return False
 
 
-def run(inst, disk, log, res, cold):
+def run(inst, disk, log, res, cold, kind="gp-fault", cpus=0):
     g = lambda *c, timeout=60: vm(inst, disk, log, "exec", *c, timeout=timeout)  # noqa: E731
-    vm(inst, disk, log, "--reboot", "start", timeout=300)
+    vm(inst, disk, log, "--reboot", *(["--cpus", str(cpus)] if cpus else []), "start",
+       timeout=300)
     if not wait_for_guest(g):
         res.check("the guest boots", False, serial(log)[-600:])
         return
@@ -110,7 +127,7 @@ def run(inst, disk, log, res, cold):
     # IN THE BACKGROUND: a panicked guest never answers, so waiting on the
     # exec would start the countdown's clock a whole timeout late.
     trigger = subprocess.Popen(
-        VM + ["--instance", str(inst), "exec", "config set kernel.crash gp-fault"],
+        VM + ["--instance", str(inst), "exec", f"config set kernel.crash {kind}"],
         cwd=REPO, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     t_panic = None
     if wait_serial(log, lambda s: PANIC_MARK in s, 30):
@@ -123,6 +140,22 @@ def run(inst, disk, log, res, cold):
               serial(log)[-600:])
     if t_panic is None:
         return
+    if kind.startswith("ap-"):
+        tail = serial(log)
+        tail = tail[tail.rfind(f'deliberately triggering "{kind}"'):]
+        hand = re.search(r"crash: core (\d+) hands the fault to core (\d+)", tail)
+        on = re.search(r"on core (\d+), ", tail)
+        res.check("the fault is reported by the AP it happened on",
+                  hand is not None and on is not None and on.group(1) == hand.group(2)
+                  and hand.group(2) != "0",
+                  tail[:900])
+        res.check("...as the boot core's is: the #GP named, with its function",
+                  "PANIC: General protection fault" in tail and "in ap_fault_cb" in tail,
+                  tail[:900])
+        stop = re.search(r"smp: core (\d+) stopped (\d+) other core\(s\) of (\d+)", tail)
+        res.check("...and every other core was stopped before the report",
+                  stop is not None and int(stop.group(2)) == cpus - 1
+                  and int(stop.group(3)) == cpus - 1, stop.group(0) if stop else tail[:900])
 
     if cold:
         # THE CONTROL: RAM does not survive this, so nothing may be recovered.
@@ -154,7 +187,7 @@ def run(inst, disk, log, res, cold):
     after = filed[marker:] if marker >= 0 else ""
     res.check("logd appends the record to the dead boot's log", marker >= 0, filed[-600:])
     res.check("...with the kernel's last lines: the crash it was asked for, and the fault",
-              'deliberately triggering "gp-fault"' in after
+              f'deliberately triggering "{kind}"' in after
               and "PANIC: General protection fault" in after,
               after[-800:])
     res.check("...and the record is cleared once filed",
@@ -180,20 +213,28 @@ def main():
     ap.add_argument("--positive-control", action="store_true",
                     help="cold-restart after the panic; the recovery checks must then fail")
     ap.add_argument("--keep", help="keep the serial log at this path")
+    ap.add_argument("--kind", default="gp-fault",
+                    help="the kernel.crash kind (ap-gp-fault: on another core)")
+    ap.add_argument("--boot-word", action="append", default=[],
+                    help="another word for the copy's GRUB line (smp=park)")
+    ap.add_argument("--cpus", type=int, default=0, help="guest cores (ap-* kinds want 3: an AP that is not the caller's)")
     args = ap.parse_args()
 
     work = tempfile.mkdtemp(prefix="panic_store_test.")
     disk = os.path.join(work, "disk.img")
     log = os.path.join(work, "serial.log")
     copy_disk(args.disk, disk)
-    ok, why = install_grub.add_boot_word(disk, "faultinject")
+    for word in ["faultinject"] + args.boot_word:
+        ok, why = install_grub.add_boot_word(disk, word)
+        if not ok:
+            break
     if not ok:
         print(f"panic_store_test: cannot arm the copy: {why}")
         return 2
 
     res = Result()
     try:
-        run(args.instance, disk, log, res, args.positive_control)
+        run(args.instance, disk, log, res, args.positive_control, args.kind, args.cpus)
     finally:
         vm(args.instance, disk, log, "stop")
         if args.keep:

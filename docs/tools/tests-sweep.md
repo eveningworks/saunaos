@@ -1994,7 +1994,11 @@ report is ON only after `enter_gui()`").
   filed again. The trigger runs in the BACKGROUND: a panicked guest never
   answers, and waiting on the exec started the countdown's clock a whole
   timeout late. `--positive-control` restarts COLD after the panic, where
-  every recovery check must go red.
+  every recovery check must go red. **`--kind ap-gp-fault --cpus 3`**
+  raises the `#GP` on an AP inside a cross-core call instead, and checks
+  the report names that core and that every other core was stopped
+  first; `--boot-word smp=park` aims it at a parked core. Both are
+  sweep entries of their own.
 - **`lockup_test.py`** -- the hang kit: the lockup detector
   (`kernel/lockup.h`) and the hardware watchdog (`kernel/watchdog.h`).
   **IT HANGS AND RESETS ITS GUEST ON PURPOSE**, three times, on a q35

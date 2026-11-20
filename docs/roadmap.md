@@ -25,7 +25,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
-- [ ] A kernel fault on an AP is reported like one on the boot core -- today it halts the core silently, with its process  *(SMP)*
 - [ ] A `cpus` debug command -- each core's state, current pid, kernel-lock depth, last tick, wedge reason  *(SMP)*
 - [ ] A preemption-safety check on per-core reads (Linux's CONFIG_DEBUG_PREEMPT), behind a debug build flag  *(SMP)*
 <!-- END next-up -->
@@ -1596,7 +1595,7 @@ measurement of what is single-core in the tree today.
 - [x] ~~Processes on every core by default~~ DONE 2026-11-20 -- `smp=run` the default after a KVM and ASUS soak; `smp=park` opts out
 - [x] ~~Fix the SMP review's five correctness findings~~ DONE 2026-11-20 -- a waiting sender answers IPIs, a late call is taken back
 - [ ] SMP review minor findings -- fault-log rate limit and exact reason, acpi's parked wording, entry cost, one `this_cpu_read()`
-- [ ] **NEXT** A kernel fault on an AP is reported like one on the boot core -- today it halts the core silently, with its process
+- [x] ~~A kernel fault on an AP is reported like one on the boot core~~ DONE 2026-11-20 -- a panic, the other cores stopped by NMI first
 - [ ] **NEXT** A `cpus` debug command -- each core's state, current pid, kernel-lock depth, last tick, wedge reason
 - [ ] **NEXT** A preemption-safety check on per-core reads (Linux's CONFIG_DEBUG_PREEMPT), behind a debug build flag
 - [x] ~~Per-core load in Task Manager and `lscpu`~~ DONE 2026-11-20 -- QUERY_CORELOAD; a line per CPU on the CPU page

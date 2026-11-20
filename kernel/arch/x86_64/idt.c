@@ -686,6 +686,7 @@ static void isr_dispatch_body(uint64_t *regs) {
         }
         int kstack_overflow = kstack_slot >= 0 || kstack_legacy;
 
+        if (!recoverable) panic_begin();   // the other cores stopped first
         vga_set_color(VGA_WHITE, VGA_RED);
         vga_printf("\n*** %s%s ***\n",
                     recoverable ? "RING-3 PROCESS CRASHED: " : "KERNEL PANIC: ",
@@ -735,8 +736,9 @@ static void isr_dispatch_body(uint64_t *regs) {
         // session on. `pid 0` means the kernel context itself -- the
         // scheduler participant the desktop runs in, not "no process".
         int pid = scheduler_current_pid();
-        if (pid) vga_printf("context: pid %d\n", pid);
-        else     vga_printf("context: kernel context (no process)\n");
+        if (pid) vga_printf("context: pid %d on core %u\n", pid, spin_cpu_index());
+        else     vga_printf("context: kernel context (no process) on core %u\n",
+                            spin_cpu_index());
 
         // Registers. A wild pointer is usually sitting in one of them,
         // and on a #GP there is no CR2 to consult.
@@ -787,6 +789,9 @@ static void isr_dispatch_body(uint64_t *regs) {
         // report can actually be pasted from, so it gets the same facts.
         klog_printf(KLOG_CRIT "  RIP=0x%lx  CS=0x%lx (ring %lu)  error_code=0x%lx\n",
                      rip, cs, cs & 3, error_code);
+        if (!recoverable)
+            klog_printf(KLOG_CRIT "  on core %u, %s %d\n", spin_cpu_index(),
+                        pid ? "pid" : "kernel context, pid", pid);
         if (vector == 14) klog_printf("  CR2=0x%lx\n", cr2);
         // Ring 0 only. A ring-3 fault's RIP is an address in some
         // userland ELF, so resolving it against the kernel image would
@@ -920,6 +925,9 @@ static int takes_bkl(const uint64_t *regs) {
 
 void isr_dispatch(uint64_t *regs) {
     uint64_t vector = regs[15];
+    // ANOTHER CORE'S PANIC STOPS THIS ONE (smp_stop_others()), on any core,
+    // before anything else -- the lockup NMI and the kernel lock included.
+    if (vector == 2 && smp_stop_requested()) smp_stop_here();
     // A shootdown's sender waits with the kernel lock held, on any core
     // and from either ring: answered here, taking nothing (tlb.h).
     if (vector == TLB_FLUSH_VECTOR) {
@@ -930,17 +938,31 @@ void isr_dispatch(uint64_t *regs) {
     // The call IPI reaches the BSP too once an AP may send one (smp=run);
     // like the shootdown, its sender waits holding the kernel lock.
     if (vector == SMP_CALL_VECTOR && spin_cpu_index() == 0) {
-        smp_ap_interrupt(vector);
+        smp_ap_interrupt(vector);   // an exception never reaches it
         return;
     }
-    // An AP: a PARKED one touches nothing shared, not even g_isr_depth.
-    // One scheduling under smp=run takes the ordinary path, but for what
-    // takes no kernel lock -- the call IPI, and the paranoid vectors from
-    // ring 0 -- since g_isr_depth below is only the lock holder's to move.
-    if (spin_cpu_index() != 0 &&
-        (this_cpu()->state != CPU_RUNNING || !takes_bkl(regs))) {
-        smp_ap_interrupt(vector);
+    // **A KERNEL FAULT IS REPORTED BY THE SAME BODY ON EVERY CORE, AND
+    // TAKES NO KERNEL LOCK**: its holder may be waiting on this core (a
+    // call or a shootdown), and a parked core holds none. The panic stops
+    // every other core before the first line, so nothing shared is written
+    // under anyone's feet. A ring-0 exception only ever panics there; a
+    // return is a kdebug trap that took it (the BSP's #DB/#BP below).
+    int core = (int)spin_cpu_index();
+    if (vector < 32 && !(regs[18] & 3) && vector != 2 &&
+        (core != 0 || (vector != 1 && vector != 3))) {
+        if (core != 0) this_cpu()->wedge_vec = vector + 1;
+        isr_dispatch_body(regs);
         return;
+    }
+    if (core != 0) {
+        // A PARKED one touches nothing shared, not even g_isr_depth. One
+        // scheduling under smp=run takes the ordinary path, but for what
+        // takes no kernel lock -- the call IPI, an NMI -- since
+        // g_isr_depth below is only the lock holder's to move.
+        if (this_cpu()->state != CPU_RUNNING || !takes_bkl(regs)) {
+            smp_ap_interrupt(vector);
+            return;
+        }
     }
     int bkl = takes_bkl(regs);
     if (bkl) bkl_enter(regs);

@@ -341,8 +341,9 @@ the `smp` suite), **with these differences and additions:**
   depth 0 made it 28.
 - **A spin past a second logs once and keeps spinning** (`spinlock:
   lockup suspected`, Linux's `CONFIG_DEBUG_SPINLOCK`), naming the
-  holder's core and call site; a recursive acquire panics. An AP only
-  counts (`spin_lockups()`) -- it may log nothing until stage 5.
+  holder's core and call site; a recursive acquire panics, on any core
+  since 2026-11-20. An AP only counts (`spin_lockups()`) -- it may log
+  nothing until stage 5.
 - **`spin_lock()` raises the preemption guard**, as Linux's implies
   `preempt_disable()`: a preempted holder would keep the other cores
   spinning for a slice, and the next context on its core to take the
@@ -465,6 +466,13 @@ preemption to the AP's idle context (`docs/decisions/kernel.md`). Proven
 by nine loaded TCG suites (three guests at once) that had failed 12 in
 12, and 60 runs of the `thread` KTESTs under load that had broken by run
 16-21.
+
+**A kernel fault on an AP panics as the boot core's does** (2026-11-20):
+the same report with `on core N`, no kernel lock taken for it, and every
+other core stopped by an NMI first (`panic_begin()`, `smp_stop_others()`;
+`docs/decisions/kernel.md`). It used to halt that core with `cli; hlt`
+and no word, a running process with it. `panic_store_test.py --kind
+ap-gp-fault`, on a scheduling and a parked core.
 
 **Not yet**: the kdebug roundup (a stub stop halts core 0 only) and lockup
 reports from an AP. Per-core load is read since 2026-11-20:

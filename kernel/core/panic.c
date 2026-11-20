@@ -14,6 +14,8 @@
 #include "lockup.h"    // lockup_panic_stop()
 #include "watchdog.h"  // fed through the countdown
 #include "string.h"
+#include "smp.h"       // smp_stop_others()
+#include "spinlock.h"  // spin_cpu_index()
 
 int panic_parse_secs(const char *value, int *out) {
     int64_t v;
@@ -68,8 +70,26 @@ static void wait_100ms(void) {
     for (int i = 0; i < 100000; i++) outb(0x80, 0);
 }
 
-void panic_finish(void) {
+// ONE CORE PANICS. The first to get here owns it and stops the rest; a
+// second core faulting at the same moment halts instead of racing it to
+// the record. The owner arriving again (a fault inside its own report)
+// passes, and panic_finish() then resets.
+static volatile int g_panic_core = -1;
+
+void panic_begin(void) {
     __asm__ volatile ("cli");
+    int me = (int)spin_cpu_index();
+    int prev = -1;
+    if (__atomic_compare_exchange_n(&g_panic_core, &prev, me, 0,
+                                    __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        smp_stop_others();
+        return;
+    }
+    if (prev != me) smp_stop_here();
+}
+
+void panic_finish(void) {
+    panic_begin();
     // A fault INSIDE the panic path lands here again; do not try to save
     // or count a second time, just get the machine back.
     static int entered;

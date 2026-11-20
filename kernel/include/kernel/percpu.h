@@ -41,6 +41,7 @@ enum cpu_state {
     CPU_ABSENT = 0,   // never started (nosmp, maxcpus=, or not enabled by firmware)
     CPU_FAILED,       // did not call in before the deadline; sent back to INIT
     CPU_WEDGED,       // started, then faulted or did not finish a call: no more calls
+    CPU_STOPPED,      // halted for good by another core's panic (smp_stop_others())
     CPU_STARTING,     // SIPI sent, the trampoline has not called in
     CPU_ALIVE,        // in C on its own stack, replaying the BSP's setup
     CPU_PARKED,       // set up and halted -- an AP's whole life without smp=run
@@ -97,6 +98,8 @@ struct cpu {
     int bkl_pid;
     uint64_t tick_tsc, tick_rip, tick_cs;   // this AP's last tick: a lockup report's "is it ticking?"
     uint64_t wedge_vec;   // the exception that wedged it, + 1 (0: none)
+    uint32_t nmi_stray;   // NMIs taken here that no stop asked for (smp_ap_interrupt())
+    uint32_t pad4;
 };
 
 static inline struct cpu *this_cpu(void) {

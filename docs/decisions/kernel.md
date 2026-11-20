@@ -10781,3 +10781,38 @@ argument already allows, so no kernel-context code needed changing.
 simpler one; three cores' periodic LAPIC timers hung QEMU's TCG main
 loop (every vCPU starved, the guest frozen at boot), and Linux's
 per-CPU ticks are one-shot clockevents anyway.
+
+## A kernel fault on any core panics the machine, and the panic stops the other cores by NMI first
+
+**Decided 2026-11-20 (the SMP debug aids, overnight, the roadmap's
+recommended shape).** An exception in ring 0 on an application processor
+is reported by the same `isr_dispatch_body()` the boot core uses -- the
+banner, registers, `on core N`, the symbol, the stack scan -- and ends in
+`panic_finish()`, so the panic store keeps it and the countdown restarts
+the machine.
+
+**Not "halt that core and carry on".** That was the stage 3 behaviour,
+and under `smp=run` it took a running process down with no word: the
+symptom surfaced much later as a process that never exited. A kernel
+fault means kernel state is already wrong, which is why the boot core's
+has always been fatal; a second core does not make the same bug safer.
+Linux reaches the same place through an oops in a context that cannot
+be killed, and `panic_on_oops` for everything else.
+
+**The report takes no kernel lock, on any core.** Its holder may be the
+very core waiting on this one -- the sender of a cross-core call or a
+shootdown, which waits holding it -- and a parked core holds none at
+all. A ring-0 exception goes straight to the body, which for ring 0 only
+reports.
+
+**`panic_begin()` stops the others before the first line**, with an NMI
+to each (Linux's `smp_send_stop()` by NMI, NT's freeze IPI): an NMI
+reaches a core spinning with interrupts off for the lock the panicking
+core holds, where a call would not. A stopped core marks itself
+`CPU_STOPPED` and halts inside the NMI handler, which never returns, so
+no further NMI arrives. Stopping first means the report is written with
+nothing else touching the log or the screen (the klog ring has no lock
+of its own), and nothing runs on past the record during the countdown --
+before this, the boot core logged a lockup after an AP's panic. The
+first core to call it owns the panic; a second faulting at the same
+moment halts rather than racing it to the store.

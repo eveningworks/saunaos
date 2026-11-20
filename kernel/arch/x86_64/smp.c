@@ -258,22 +258,62 @@ static void call_service(struct cpu *c) {
 
 // **A PARKED AP ANSWERS NOTHING BUT THE CALL VECTOR, AND TOUCHES NOTHING
 // SHARED ON THE WAY** -- isr_dispatch() sends it here before its first
-// global. A fault on an AP stops that core: nothing on it could report
-// one, and its caller's wait times out and says so. The kernel lock it
-// may hold is let go first, or the BSP's next entry waits on it forever;
-// a plain spinlock its call held stays held, which the lockup report
-// then names.
+// global. An exception never arrives: a ring-0 one on any AP is a kernel
+// fault, reported and panicked by isr_dispatch() as the BSP's is. An NMI
+// no stop asked for is counted and dropped, Linux's "unknown reason".
 void smp_ap_interrupt(uint64_t vector) {
     struct cpu *c = this_cpu();
-    if (vector < 32) {
-        c->wedge_vec = vector + 1;   // what an invariant report names
-        bkl_drop_all();
-        __atomic_store_n(&c->state, CPU_WEDGED, __ATOMIC_RELEASE);
-        for (;;) __asm__ volatile ("cli; hlt");
+    if (vector == 2) { c->nmi_stray++; return; }
+    if (vector < 32) {   // unreachable: isr_dispatch() reports these
+        c->wedge_vec = vector + 1;
+        smp_stop_here();
     }
     if (vector == LAPIC_SPURIOUS_VECTOR) return;   // no EOI for a spurious one
     lapic_eoi();
     if (vector == SMP_CALL_VECTOR) call_service(c);
+}
+
+// ---- stopping the others for a panic -----------------------------------
+//
+// Linux's smp_send_stop() by NMI, NT's KeFreezeExecution: the panicking
+// core must be the only one left running, or a process on another core
+// writes on through the countdown and the record stops being the last
+// thing that happened. **AN NMI, NOT A CALL**: the core to stop may spin
+// with interrupts off for the kernel lock the panicking core holds.
+
+static volatile int g_stopping;
+
+int smp_stop_requested(void) { return __atomic_load_n(&g_stopping, __ATOMIC_ACQUIRE); }
+
+void smp_stop_here(void) {
+    __asm__ volatile ("cli");
+    struct cpu *c = this_cpu();
+    if (c) __atomic_store_n(&c->state, CPU_STOPPED, __ATOMIC_RELEASE);
+    for (;;) __asm__ volatile ("cli; hlt");   // an NMI handler that never irets: no more NMIs
+}
+
+int smp_stop_others(void) {
+    if (!g_cpus) return 0;
+    __atomic_store_n(&g_stopping, 1, __ATOMIC_SEQ_CST);
+    uint32_t me = spin_cpu_index();
+    int sent = 0, stopped = 0;
+    for (int i = 0; i < g_cpu_count; i++) {
+        struct cpu *c = g_cpus[i];
+        if ((uint32_t)i == me || !online(c)) continue;
+        if (lapic_send_nmi((uint8_t)c->apic_id)) sent++;
+    }
+    // A bounded wait (Linux's is a second): a core that never says so is
+    // named in the report rather than waited for.
+    uint64_t end = clocksource_now_ns() + 100ull * 1000000ull;
+    for (int i = 0; i < g_cpu_count; i++) {
+        struct cpu *c = g_cpus[i];
+        if ((uint32_t)i == me || !c) continue;
+        while (online(c) && clocksource_now_ns() < end) cpu_relax();
+        if (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) == CPU_STOPPED) stopped++;
+    }
+    klog_printf(KLOG_CRIT "smp: core %u stopped %d other core(s) of %d sent an NMI\n",
+                me, stopped, sent);
+    return stopped;
 }
 
 void smp_poll_ipis(void) {
@@ -306,7 +346,7 @@ static void wedged(struct cpu *c, int index) {
 // place. **ONE THAT HAS STARTED IS WAITED FOR, HOWEVER LONG** -- its `arg`
 // is in use until it returns (Linux's csd_lock_wait()), on a parked core
 // too: the old write-off returned while fn still ran -- unless its core
-// halts in it (a fault: smp_ap_interrupt()). A wait past its second is
+// halts in it (a fault panics, and the panic stops this core too). A wait past its second is
 // counted as a spinlock lockup is, so ktest names the test it happened
 // in. One not started is taken back.
 static int wait_call(struct cpu *c, int index, uint32_t seq, uint32_t ms) {
@@ -332,7 +372,7 @@ static int wait_call(struct cpu *c, int index, uint32_t seq, uint32_t ms) {
         klog_printf(KLOG_WARN "smp: core %d is still running a call after %u ms -- "
                     "waiting for it\n", index, ms);
     while (!wait_done(c, seq, CALL_MS))
-        if (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) == CPU_WEDGED) return 0;
+        if (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) <= CPU_STOPPED) return 0;
     return 1;
 }
 
