@@ -17,10 +17,17 @@ struct uui_item;
 struct uui_focusable;
 struct uui_menubar;
 
-// How often everything is re-read, in milliseconds. Long enough that a
-// CPU percentage is measured over a real interval rather than a couple
-// of ticks, short enough to feel live.
+// How often everything is re-read, in milliseconds, at the default
+// update speed (High). Long enough that a CPU percentage is measured over
+// a real interval rather than a couple of ticks, short enough to feel live.
 #define TM_REFRESH_MS 500
+
+// VIEW > UPDATE SPEED, Windows' four: High 0.5 s, Normal 1 s, Low 4 s,
+// and Paused, which samples nothing and freezes the graphs. Saved as
+// `update_speed` in TM_CONF. tm_interval_ms() is the interval the
+// history is in -- Paused keeps the one before it.
+enum { TM_SPEED_HIGH, TM_SPEED_NORMAL, TM_SPEED_LOW, TM_SPEED_PAUSED, TM_SPEEDS };
+unsigned tm_interval_ms(void);
 
 // --- the process model (taskmgr.c) -------------------------------------
 //
@@ -119,6 +126,7 @@ struct tm_page {
 // Widget ids, one range per page, so a shared on_widget can dispatch by
 // range without a table of who owns what.
 #define TM_ID_RAIL     1
+#define TM_ID_MENU     2   // the menu bar
 #define TM_ID_PROCS    100
 #define TM_ID_PERF     200
 #define TM_ID_SVC      300
@@ -142,6 +150,19 @@ void tm_services_init(struct tm_page *p);
 // Every page's per-tick sampling, including the ones not showing --
 // history is collected whether or not anybody is looking at it.
 void tm_perf_sample(void);
+
+// THE GRAPHS GLIDE (ui/uui_chart.h's uui_chart_set_smooth()) while the
+// shell says so: desktop.animations on, not Paused. The shell calls
+// tm_perf_glide() when tm_perf_glide_next_ms() says a trace on the page
+// moves -- only while the page shows and the window can be seen. What
+// moved is asked of `a` as a PARTIAL repaint (uapp_redraw_rect()), the
+// plot and no more; 1 when anything did. `a` NULL just brings them to now.
+void tm_perf_set_smooth(int on);
+int  tm_perf_glide(struct uapp *a, unsigned long long now_ns);
+int  tm_perf_glide_next_ms(unsigned long long now_ns);   // -1: nothing moves
+// The span captions follow the update speed: every chart's interval.
+void tm_perf_set_interval(unsigned ms);
+void tm_procs_set_interval(unsigned ms);
 
 // --- services (tm_services.c) ------------------------------------------
 struct tm_service {

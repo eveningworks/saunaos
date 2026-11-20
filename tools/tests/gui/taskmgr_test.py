@@ -20,6 +20,12 @@ WHAT IS UNDER TEST
      rising past 50% under two spinners -- and shows the Ethernet card's
      connection log; the Services page stops and starts a service,
      checked through `service list`.
+  5. The CPU chart GLIDES (uui_chart_set_smooth()): whole-pixel moves
+     between samples while it can be seen -- the chart's own `glides`
+     count -- none with `desktop.animations` off, none while minimized;
+     and View > Update speed: Low gives the chart a 4 s interval, Paused
+     freezes the page (two settled frames a second apart are the same
+     frame), and the choice is saved and comes back with a reopen.
 
 THE BUG THIS FILE EXISTS FOR FIRST: the table once grew in WIDTH with its
 window and by 16 px of height against 300 (a button group measured its
@@ -61,6 +67,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui          # noqa: E402
 from qmp_test import QMPSession             # noqa: E402
 import port_guard  # noqa: E402
+import harness  # noqa: E402
 from harness import Results  # noqa: E402
 
 TASKMGR = "/bin/wm/system/taskmgr"
@@ -70,6 +77,7 @@ SERVICE = "ntpd"                  # idle unless system.ntp is on: safe to stop
 K_DOWN = "0xf781"
 K_UP = "0xf780"
 K_BACKSPACE = "0x08"
+KEY_F5 = "0xf79b"
 
 
 
@@ -107,7 +115,7 @@ def layout(dbg):
         m = re.search(r"taskmgr: layout (\w+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
         if m:
             out[m.group(1)] = tuple(int(v) for v in m.groups()[1:])
-        m = re.search(r"taskmgr: layout (\w+)\.(row_h|header_h|item_h|count|shown|lines) (-?\d+)", line)
+        m = re.search(r"taskmgr: layout (\w+)\.(row_h|header_h|item_h|count|shown|lines|glides|interval|open) (-?\d+)$", line)
         if m:
             out[f"{m.group(1)}.{m.group(2)}"] = int(m.group(3))
         # The CPU chart's legend: what each entry SHOWS, the reading
@@ -118,6 +126,13 @@ def layout(dbg):
         m = re.search(r"taskmgr: layout (\w+)\.(col|slot|legend) (\d+) (-?\d+) (-?\d+) (\d+) (\d+)", line)
         if m:
             out[f"{m.group(1)}.{m.group(2)}{m.group(3)}"] = tuple(int(v) for v in m.groups()[3:])
+        # The menu bar: its titles, and each open level's rows.
+        m = re.search(r"taskmgr: layout menu\.title (\d+) (-?\d+) (-?\d+) (\d+) (\d+)", line)
+        if m:
+            out[f"menu.title{m.group(1)}"] = tuple(int(v) for v in m.groups()[1:])
+        m = re.search(r"taskmgr: layout menu\.item (\d+) (\d+) (-?\d+) (-?\d+) (\d+) (\d+)", line)
+        if m:
+            out[f"menu.item{m.group(1)}.{m.group(2)}"] = tuple(int(v) for v in m.groups()[2:])
         m = re.search(r"taskmgr: layout memcomp\.seg (\d+) (-?\d+) (-?\d+) (\d+) (\d+)", line)
         if m:
             out[f"memcomp.seg{m.group(1)}"] = tuple(int(v) for v in m.groups()[1:])
@@ -253,9 +268,27 @@ def check_cpu_page(dbg, qmp, win, tmp):
     check("each legend swatch has its own colour, none the ground",
           len(set(sw)) == n and ground not in sw, f"swatches={sw} ground={ground}")
 
+    # KILLED BEFORE THIS RETURNS: left to run (600 rounds is minutes) they
+    # hold two vCPUs and two table rows through every section after it.
+    spinners = []
     for _ in range(2):
-        dbg.send("gui spawn /tests/spin_test 600")
+        m = re.search(r"as pid (\d+)", dbg.send("gui spawn /tests/spin_test 600") or "")
+        if m:
+            spinners.append(int(m.group(1)))
+    try:
+        check_spinners(dbg, qmp, n, tmp)
+    finally:
+        for pid in spinners:
+            dbg.send(f"sh kill {pid}")
+    def running():
+        return [p for p in spinners if proc_state(dbg, p) not in (None, "exited", "zombie")]
+    harness.poll(lambda: not running(), 5.0)
+    left = running()
+    check("...and both spinners are gone after it", len(spinners) == 2 and not left,
+          f"spawned {spinners}, still running {left}")
 
+
+def check_spinners(dbg, qmp, n, tmp):
     def busy(lay):
         vals = sorted((lay.get(f"cpuval{k}", 0) for k in range(n)), reverse=True)
         return vals[0] > 50 and vals[1] > 50 and all(v < 50 for v in vals[2:])
@@ -266,6 +299,112 @@ def check_cpu_page(dbg, qmp, win, tmp):
         # The deliverable picture: the page with both spinners on it.
         qmp.stable_pixels(os.path.join(tmp, "taskmgr_cpu_spinners.png"))
         print(f"  screenshot: {os.path.join(tmp, 'taskmgr_cpu_spinners.png')}")
+
+
+def choose_speed(dbg, cx, cy, row):
+    """View > Update speed > row (0 High, 1 Normal, 2 Low, 3 Paused), by
+    the menu bar's own reported rects: View is title 1, Update speed row
+    1 of the View menu, the speeds the rows of the level under it."""
+    lay = wait_layout(dbg, lambda l: "menu.title1" in l)
+    t = lay.get("menu.title1")
+    if not t:
+        return False
+    _layout.pop("menu.item0.1", None)
+    _layout.pop(f"menu.item1.{row}", None)
+    dbg.send("gui click %d %d" % (cx + t[0] + t[2] // 2, cy + t[1] + t[3] // 2))
+    dbg.settle()
+    lay = wait_layout(dbg, lambda l: "menu.item0.1" in l)
+    it = lay.get("menu.item0.1")
+    if not it:
+        return False
+    dbg.send("gui click %d %d" % (cx + it[0] + it[2] // 2, cy + it[1] + it[3] // 2))
+    dbg.settle()
+    lay = wait_layout(dbg, lambda l: f"menu.item1.{row}" in l)
+    sp = lay.get(f"menu.item1.{row}")
+    if not sp:
+        return False
+    dbg.send("gui click %d %d" % (cx + sp[0] + sp[2] // 2, cy + sp[1] + sp[3] // 2))
+    dbg.settle()
+    return True
+
+
+def glides_seen(dbg, seconds):
+    """Every `perfchart.glides N` the app reported over `seconds`."""
+    mark()
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        layout(dbg)
+        time.sleep(0.1)   # sleep-ok: the reports over a stretch of time ARE the measurement
+    return [int(m.group(1)) for l in _lines
+            for m in [re.search(r"taskmgr: layout perfchart\.glides (-?\d+)$", l)] if m]
+
+
+def check_glide(dbg, qmp, win, tmp):
+    """The CPU chart glides while it can be seen, and not otherwise; the
+    update speed sets its interval, and Paused freezes it."""
+    cx, cy = win["content"]["x"], win["content"]["y"]
+    seen = glides_seen(dbg, 2.0)
+    check("the CPU chart glides: whole-pixel moves between samples (its `glides`)",
+          seen and max(seen) >= 1, f"glides reported {seen}")
+    # The deliverable pair: two raw frames 100 ms apart.
+    for i in range(2):
+        qmp.screenshot(os.path.join(tmp, f"taskmgr_glide_{i}.png"), stable=False, settle=0.1)
+    print(f"  frames: {os.path.join(tmp, 'taskmgr_glide_0.png')} and _1.png, 100 ms apart")
+
+    # --- desktop.animations off: stepped, as before -------------------------
+    mark()
+    dbg.send("sh config set desktop.animations off")
+    check("desktop.animations off reaches it (WIN_EV_SETTING)", wait_log(dbg, "taskmgr: animations off", 4.0))
+    seen = glides_seen(dbg, 2.0)
+    check("...and the chart no longer glides", not any(g > 0 for g in seen), f"glides reported {seen}")
+    mark()
+    dbg.send("sh config set desktop.animations on")
+    check("back on, it glides again", wait_log(dbg, "taskmgr: glide on", 4.0))
+
+    # --- minimized: no glide; restored: again --------------------------------
+    tb = dbg.taskbar()
+    buttons = tb.get("buttons", []) if isinstance(tb, dict) else []
+    b = next((x for x in buttons if x.get("title") == "Task Manager"), None)
+    if check("Task Manager has a taskbar button", b is not None):
+        mark()
+        dbg.send(f"gui click {b['cx']} {b['cy']}")
+        dbg.settle()
+        check("minimized, the window is told (WIN_EV_SUSPENDED) and stops gliding",
+              wait_log(dbg, "suspended 1", 3.0) and wait_log(dbg, "taskmgr: glide off", 3.0))
+        mark()
+        dbg.send(f"gui click {b['cx']} {b['cy']}")
+        dbg.settle()
+        check("...restored, it glides again",
+              wait_log(dbg, "suspended 0", 3.0) and wait_log(dbg, "taskmgr: glide on", 3.0))
+
+    # --- View > Update speed -------------------------------------------------
+    mark()
+    ok = choose_speed(dbg, cx, cy, 2)
+    lay = wait_layout(dbg, lambda l: l.get("perfchart.interval") == 4000)
+    check("View > Update speed > Low: the chart's interval is 4 s",
+          ok and wait_log(dbg, "taskmgr: update speed low, interval 4000 ms", 2.0)
+          and lay.get("perfchart.interval") == 4000, f"interval={lay.get('perfchart.interval')}")
+    check("...saved in /etc/taskmgr.conf", "update_speed=low" in (dbg.send("sh cat /etc/taskmgr.conf") or ""))
+
+    mark()
+    ok = choose_speed(dbg, cx, cy, 3)
+    check("Paused is chosen", ok and wait_log(dbg, "taskmgr: update speed paused", 2.0))
+    chart = _layout.get("perfchart")
+    if chart:
+        box = (cx + chart[0], cy + chart[1], cx + chart[0] + chart[2], cy + chart[1] + chart[3])
+        time.sleep(0.6)   # sleep-ok: the frozen state is what is compared
+        a = qmp.stable_pixels(os.path.join(tmp, "taskmgr_paused_a.png"), box)
+        time.sleep(1.2)   # sleep-ok: two samples at High would land in this
+        b2 = qmp.stable_pixels(os.path.join(tmp, "taskmgr_paused_b.png"), box)
+        check("...and the chart stands still: two frames 1.2 s apart are the same", a == b2)
+    mark()
+    dbg.key(KEY_F5)
+    check("Refresh now (F5) samples once while Paused", wait_log(dbg, "taskmgr: refreshed", 2.0))
+    # Normal last: the reopen below must bring it back (a persisted view
+    # state is visited and restored -- docs/conventions/gui.md).
+    mark()
+    ok = choose_speed(dbg, cx, cy, 1)
+    check("Normal is chosen", ok and wait_log(dbg, "taskmgr: update speed normal, interval 1000 ms", 2.0))
 
 
 def finish():
@@ -438,7 +577,9 @@ def main():
     # As far as the screen allows: a window that opens wide has less room.
     scr = dbg.state()["screen"]
     grow_x = max(40, min(120, scr["w"] - (win["x"] + win["w"]) - 8))
-    grow_y = max(40, min(160, scr["h"] - (win["y"] + win["h"]) - 60))
+    # What is left above the taskbar: a window opened tall (the menu bar
+    # took a row) has little, and a drag past the work area is clamped.
+    grow_y = max(16, min(160, scr["h"] - (win["y"] + win["h"]) - 60))
     dbg.send("gui drag %d %d %d %d" % (grip[0], grip[1], grip[0] + grow_x, grip[1] + grow_y))
     dbg.settle()
     after = wait_layout(dbg, lambda l: l["table"][2] - before[2] >= grow_x * 0.6
@@ -589,6 +730,7 @@ def main():
         lay = wait_layout(dbg, lambda l: l.get("page") == 1 and "devices" in l)
         check("the rail opens Performance", lay.get("page") == 1, f"page={lay.get('page')}")
         check_cpu_page(dbg, qmp, win, args.tmp)
+        check_glide(dbg, qmp, window(dbg) or win, args.tmp)
         n = lay.get("devices.count", 0)
         check("it lists CPU, Memory, Disk and at least one network card", n >= 4, f"{n} devices")
         if n >= 4:
@@ -749,6 +891,15 @@ def main():
     check("...and Force Quit is inside the window",
           w is not None and bk[0] + bk[2] <= w["content"]["w"],
           f"Force Quit ends at {bk[0] + bk[2]} of {w and w['content']['w']}")
+    check("...and its update speed: Normal, chosen before it closed",
+          wait_log(dbg, "taskmgr: update speed normal, interval 1000 ms", 3.0))
+    # High again, as every later run expects.
+    if w:
+        mark()
+        ok = choose_speed(dbg, w["content"]["x"], w["content"]["y"], 0)
+        check("...and High again, saved",
+              ok and wait_log(dbg, "taskmgr: update speed high", 2.0)
+              and "update_speed=high" in (dbg.send("sh cat /etc/taskmgr.conf") or ""))
     # The columns chosen above came back with it: PID still hidden, CPU
     # still after Write.
     pid, cpu, wr = (narrow.get(f"table.col{i}", (0, 0, 0, 0)) for i in (1, 3, 7))

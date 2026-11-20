@@ -357,8 +357,8 @@ static void track(int pid) {
     g_tracked = pid;
     uui_chart_init(&g_pcpu, "CPU");
     uui_chart_init(&g_pmem, "Memory");
-    uui_chart_set_interval(&g_pcpu, TM_REFRESH_MS);
-    uui_chart_set_interval(&g_pmem, TM_REFRESH_MS);
+    uui_chart_set_interval(&g_pcpu, (int)tm_interval_ms());
+    uui_chart_set_interval(&g_pmem, (int)tm_interval_ms());
     // Both AUTOSCALED to the process's own peak: against a 100% scale a
     // process at 1% is a flat line on the floor.
     uui_chart_set_scale(&g_pcpu, 0);
@@ -372,6 +372,11 @@ static uint32_t peak_of(const struct uui_chart *c) {
     uint32_t m = 0;
     for (int i = 0; i < c->count; i++) if (uui_chart_recent(c, i) > m) m = uui_chart_recent(c, i);
     return m;
+}
+
+void tm_procs_set_interval(unsigned ms) {
+    uui_chart_set_interval(&g_pcpu, (int)ms);
+    uui_chart_set_interval(&g_pmem, (int)ms);
 }
 
 void tm_track_pid(int pid) {

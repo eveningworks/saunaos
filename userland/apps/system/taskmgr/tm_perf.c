@@ -58,6 +58,7 @@ struct dev {
     unsigned long long rx, tx;
     unsigned long long rx_rate, tx_rate;
     int seen;
+    int spark_shift;       // the device list's trace, gliding (tm_perf_glide())
 };
 
 static struct dev g_dev[DEV_MAX];
@@ -75,6 +76,7 @@ static unsigned long long g_disk_rc, g_disk_wc, g_disk_rns, g_disk_wns;
 static unsigned long long g_disk_rops_m, g_disk_wops_m, g_disk_rwait_us, g_disk_wwait_us;
 static struct uui_chart g_ops_chart;
 static char g_ops_val[24];
+static int g_smooth;   // tm_perf_set_smooth()'s, for a card that appears later
 
 // --- the Disk page's top users (base/uprocio.h, sampled with the model) ---
 
@@ -145,8 +147,9 @@ static struct dev *net_dev(const char *card) {
     strlcpy(d->name, "Ethernet", sizeof d->name);
     strlcpy(d->card, card, sizeof d->card);
     uui_chart_init(&d->chart, "Receive + send (darker: send)");
-    uui_chart_set_interval(&d->chart, TM_REFRESH_MS);
+    uui_chart_set_interval(&d->chart, (int)tm_interval_ms());
     uui_chart_set_scale(&d->chart, 0);
+    uui_chart_set_smooth(&d->chart, g_smooth);
     return d;
 }
 
@@ -164,11 +167,19 @@ static unsigned long long per_second(unsigned long long now, unsigned long long 
 static struct core_text { char name[16], value[8]; } *g_core_text;
 static int g_core_text_cap;
 
+// THE LINES FIRST, THEN THEIR WORDS: the chart's labels point into
+// g_core_text, so a grow that moved it followed by a failed set_lines
+// would leave them pointing at the freed block. A grow that fails moves
+// nothing, and the lines go back to what had words.
 static void sample_cores(struct uui_chart *c) {
-    int n = g_ncore;
-    if ((!UGROW(g_core_text, g_core_text_cap, n > 0 ? n : 1)) ||
-        (n != c->nlines && !uui_chart_set_lines(c, n))) {
+    int n = g_ncore, had = c->nlines;
+    if (n != c->nlines && !uui_chart_set_lines(c, n)) {
         ulogf("taskmgr: out of memory for %d CPU lines\n", n);   // keeps the lines it had
+        return;
+    }
+    if (!UGROW(g_core_text, g_core_text_cap, n > 0 ? n : 1)) {
+        uui_chart_set_lines(c, had < n ? had : n);   // a shrink: it cannot fail
+        ulogf("taskmgr: out of memory for %d CPU lines\n", n);
         return;
     }
     for (int k = 0; k < n; k++) {
@@ -289,23 +300,41 @@ static int dl_at(const struct devlist *l, int cx, int cy) {
     return i < g_ndev ? i : -1;
 }
 
-// A trace in a box: the chart's samples, newest at the right edge.
-static void spark(struct ugfx_surface *s, int x, int y, int w, int h, const struct uui_chart *c) {
+// A trace in a box: the chart's last SPARK_N samples (32 s at High),
+// newest at the right edge. GLIDING -- the chart's smooth flag, and a
+// column wide enough to glide (UUI_CHART_GLIDE_MIN_Q16) -- the sample
+// before the newest is at the edge and the trace `shift` pixels on, as
+// uui_chart draws its own lines. At the list's usual width a column is
+// about a pixel, so it steps.
+#define SPARK_N 64
+static int spark_w(void) { return ugfx_char_h() * 4; }
+static int32_t spark_col(const struct uui_chart *c, int w) {
+    int n = c->count < SPARK_N ? c->count : SPARK_N;
+    return n >= 2 && w > 3 ? (int32_t)(((int64_t)(w - 3) << 16) / (n - 1)) : 0;
+}
+static void spark(struct ugfx_surface *s, int x, int y, int w, int h, const struct uui_chart *c,
+                  int shift) {
     ugfx_fill_rect(s, x, y, w, h, UTHEME_WHITE);
     ugfx_draw_rect(s, x, y, w, h, UTHEME_OUTLINE);
-    int n = c->count < 64 ? c->count : 64;   // the last 64 samples, 32 s
+    int n = c->count < SPARK_N ? c->count : SPARK_N;
     if (n < 2) return;
+    int behind = c->smooth && spark_col(c, w) >= UUI_CHART_GLIDE_MIN_Q16;
+    int all = n + behind <= c->count ? n + behind : n;   // the newest, coming in
     uint32_t max = c->scale_max;
-    if (!max) for (int i = 0; i < n; i++) if (uui_chart_recent(c, i) > max) max = uui_chart_recent(c, i);
+    if (!max) for (int i = 0; i < all; i++) if (uui_chart_recent(c, i) > max) max = uui_chart_recent(c, i);
     if (!max) max = 1;
-    int xs[64], ys[64], m = 0;
-    for (int i = n - 1; i >= 0; i--, m++) {        // oldest first, left to right
-        xs[m] = x + 1 + (w - 3) * m / (n - 1);
+    int xs[SPARK_N + 1], ys[SPARK_N + 1], m = 0;
+    for (int i = all - 1; i >= 0; i--, m++) {      // oldest first, left to right
+        xs[m] = x + 1 + (w - 3) * (n - 1 - i + behind) / (n - 1) - (behind ? shift : 0);
         uint32_t v = uui_chart_recent(c, i);
         if (v > max) v = max;
         ys[m] = y + h - 2 - (int)((unsigned long long)(h - 3) * v / max);
     }
+    struct ugfx_clip was;
+    ugfx_clip_save(s, &was);
+    if (behind) ugfx_clip_intersect(s, x + 1, y + 1, w - 2, h - 2);
     ugfx_draw_polyline(s, xs, ys, m, 0, UTHEME_ACCENT, GEOM_AA);
+    ugfx_clip_restore(s, &was);
 }
 
 static void dl_draw(struct ugfx_surface *s, const void *w) {
@@ -319,8 +348,8 @@ static void dl_draw(struct ugfx_surface *s, const void *w) {
                     : UTHEME_PANEL_BG;
         int p = pad();
         ugfx_fill_rect(s, l->x, y, l->w, ih - p / 2, bg);
-        int sw = ch * 4, sx = l->x + p;
-        spark(s, sx, y + p, sw, ih - 2 * p, &g_dev[i].chart);
+        int sw = spark_w(), sx = l->x + p;
+        spark(s, sx, y + p, sw, ih - 2 * p, &g_dev[i].chart, g_dev[i].spark_shift);
         int tx = sx + sw + 2 * p, avail = l->x + l->w - tx - p;
         int ty = y + p;
         const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
@@ -630,6 +659,58 @@ static void fill_stats(void) {
     }
 }
 
+// --- gliding (tm_internal.h) ----------------------------------------------------
+
+void tm_perf_set_smooth(int on) {
+    g_smooth = on ? 1 : 0;
+    for (int i = 0; i < DEV_MAX; i++) uui_chart_set_smooth(&g_dev[i].chart, g_smooth);
+    uui_chart_set_smooth(&g_ops_chart, g_smooth);
+    for (int i = 0; i < DEV_MAX; i++) g_dev[i].spark_shift = 0;
+}
+
+void tm_perf_set_interval(unsigned ms) {
+    for (int i = 0; i < DEV_MAX; i++) uui_chart_set_interval(&g_dev[i].chart, (int)ms);
+    uui_chart_set_interval(&g_ops_chart, (int)ms);
+}
+
+static int ops_shown(void);
+
+// A moved chart's framed part -- its legend and readings are as they
+// were -- asked of the window as a partial repaint.
+static void chart_damage(struct uapp *a, const struct uui_chart *c) {
+    int lx, ly, lw, lh, h = c->h;
+    if (uui_chart_legend_rect(c, 0, &lx, &ly, &lw, &lh)) h = ly - c->y;
+    if (a) uapp_redraw_rect(a, c->x, c->y, c->w, h);
+}
+
+// The page's traces: the selected device's chart (and Operations beside
+// Disk's), and every device's trace in the list.
+int tm_perf_glide(struct uapp *a, unsigned long long now) {
+    int moved = 0;
+    if (uui_chart_glide(&g_dev[g_sel].chart, now)) { chart_damage(a, &g_dev[g_sel].chart); moved = 1; }
+    if (ops_shown() && uui_chart_glide(&g_ops_chart, now)) { chart_damage(a, &g_ops_chart); moved = 1; }
+    int sw = spark_w(), ih = item_h(), p = pad();
+    for (int i = 0; i < g_ndev; i++) {
+        int px = uui_chart_glide_px(&g_dev[i].chart, spark_col(&g_dev[i].chart, sw), now);
+        if (px == g_dev[i].spark_shift) continue;
+        g_dev[i].spark_shift = px;
+        moved = 1;
+        if (a) uapp_redraw_rect(a, g_list.x + p, g_list.y + i * ih + p, sw, ih - 2 * p);
+    }
+    return moved;
+}
+
+static int sooner(int a, int b) { return a < 0 ? b : b < 0 ? a : a < b ? a : b; }
+
+int tm_perf_glide_next_ms(unsigned long long now) {
+    int ms = uui_chart_glide_next_ms(&g_dev[g_sel].chart, now);
+    if (ops_shown()) ms = sooner(ms, uui_chart_glide_next_ms(&g_ops_chart, now));
+    int sw = spark_w();
+    for (int i = 0; i < g_ndev; i++)
+        ms = sooner(ms, uui_chart_glide_wait_ms(&g_dev[i].chart, spark_col(&g_dev[i].chart, sw), now));
+    return ms;
+}
+
 // --- layout and hooks ----------------------------------------------------------
 
 static struct uui_item HEAD_ITEMS[3];
@@ -643,6 +724,8 @@ static struct uui_layout SIDE;
 static struct uui_item PAGE_ITEMS[2];
 static struct uui_layout PAGE;
 static struct uui_item g_root = { .ops = &uui_layout_ops, .widget = &PAGE, .name = "perf" };
+
+static int ops_shown(void) { return !CHART_ITEMS[1].hidden; }
 
 static void select_dev(int i) {
     if (i < 0 || i >= g_ndev) return;
@@ -659,8 +742,11 @@ static void select_dev(int i) {
     if (!SIDE_ITEMS[4].hidden) read_conns();
     fill_stats();
     // A different chart and a shown/hidden log: lay out NOW, or both
-    // draw at the old (or no) geometry until the next tick.
+    // draw at the old (or no) geometry until the next tick -- and the
+    // newly shown chart brought to now, or it draws the glide it had.
     tm_relayout();
+    uui_chart_glide(&g_dev[i].chart, sys_monotonic_ns());
+    if (disk) uui_chart_glide(&g_ops_chart, sys_monotonic_ns());
     ulogf("taskmgr: device %d %s\n", i, g_dev[i].name);
 }
 
@@ -702,7 +788,7 @@ void tm_perf_init(struct tm_page *page) {
         strlcpy(d->name, NAMES[i], sizeof d->name);
         uui_chart_init(&d->chart, i == DEV_CPU ? "Utilization, each logical CPU"
                                 : i == DEV_MEM ? "In use" : "Read + write (darker: write)");
-        uui_chart_set_interval(&d->chart, TM_REFRESH_MS);
+        uui_chart_set_interval(&d->chart, (int)tm_interval_ms());
     }
     uui_chart_set_scale(&g_dev[DEV_CPU].chart, 100);
     g_dev[DEV_CPU].chart.legend_widest = "100%";
@@ -740,7 +826,7 @@ void tm_perf_init(struct tm_page *page) {
     // beside it -- operations a second, which bytes alone do not show (a
     // poller reading 4 KiB 300 times a second is 1.2 MB/s and 300 ops).
     uui_chart_init(&g_ops_chart, "Operations (darker: write)");
-    uui_chart_set_interval(&g_ops_chart, TM_REFRESH_MS);
+    uui_chart_set_interval(&g_ops_chart, (int)tm_interval_ms());
     uui_chart_set_scale(&g_ops_chart, 0);
     uui_chart_set_value(&g_ops_chart, g_ops_val);
     CHART_ITEMS[0] = (struct uui_item){ .ops = &uui_chart_ops, .widget = &g_dev[0].chart,

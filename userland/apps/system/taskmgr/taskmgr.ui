@@ -1,0 +1,19 @@
+// Task Manager's menu bar (taskmgr.c lays out the rest).
+// Read when the program starts -- edit this on the disk (/usr/share/ui/taskmgr.ui)
+// and reopen it. Which rows are ticked is the program's, asked each time a
+// menu draws; the language is docs/ui-files-design.md.
+
+menu #bar {
+    menu "File" {
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "View" {
+        item "Refresh now" command=refresh accel="F5"
+        menu "Update speed" {
+            item "High" command=speed_high
+            item "Normal" command=speed_normal
+            item "Low" command=speed_low
+            item "Paused" command=speed_paused
+        }
+    }
+}

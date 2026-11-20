@@ -98,7 +98,8 @@ void udevice_cpu_brand(char *out, int cap);
 // MADT's count, QUERY_CPUS): CPUID's topology describes ONE package
 // (sys_cpu_info()'s cores and threads_per_core -- the program asks, as
 // a library may not call it), so the packages are the logical count
-// over what one holds. 0 when the CPU reports no topology.
+// over what one holds, and never more than `logical` (a VM's CPUID can
+// describe the host's package). 0 when the CPU reports no topology.
 struct cpu_info;
 int udevice_cpu_cores(const struct cpu_info *ci, int logical);
 

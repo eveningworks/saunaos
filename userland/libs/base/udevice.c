@@ -133,7 +133,10 @@ int udevice_cpu_cores(const struct cpu_info *ci, int logical) {
     if (!ci || !ci->cores) return 0;
     int per_pkg = ci->cores * (ci->threads_per_core ? ci->threads_per_core : 1);
     int pkgs = logical / per_pkg > 0 ? logical / per_pkg : 1;
-    return pkgs * ci->cores;
+    int cores = pkgs * ci->cores;
+    // NEVER MORE CORES THAN LOGICAL CPUS: a VM passing the host's CPUID
+    // through reports the host's package (8 cores) to a 4-vCPU guest.
+    return logical > 0 && cores > logical ? logical : cores;
 }
 
 // The list as it is built, with each bus device's hwdata lookup kept in
