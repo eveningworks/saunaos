@@ -955,6 +955,14 @@ void isr_dispatch(uint64_t *regs) {
         return;
     }
     if (core != 0) {
+        // An NMI no stop asked for, from either ring: counted and dropped
+        // (smp_ap_interrupt()). The ordinary path would read it as a fault
+        // -- a crash in ring 3, a panic in ring 0 -- and an AP has no
+        // lockup counter of its own to answer it.
+        if (vector == 2) {
+            smp_ap_interrupt(vector);
+            return;
+        }
         // A PARKED one touches nothing shared, not even g_isr_depth. One
         // scheduling under smp=run takes the ordinary path, but for what
         // takes no kernel lock -- the call IPI, an NMI -- since

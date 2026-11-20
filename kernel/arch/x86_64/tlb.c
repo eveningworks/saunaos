@@ -56,6 +56,7 @@ void tlb_service(void) {
     } else {
         write_cr3(read_cr3());
     }
+    c->flushes_taken++;
     __atomic_store_n(&c->tlb_done, seq, __ATOMIC_RELEASE);
 }
 

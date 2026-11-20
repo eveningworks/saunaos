@@ -145,3 +145,8 @@ int bkl_contended(void) {
     return next - serving > 1;   // a ticket queued behind the holder's
 }
 int bkl_held(void) { return spin_held(&g_bkl); }
+
+int bkl_holder_core(void) {
+    uint32_t h = __atomic_load_n(&g_bkl.holder, __ATOMIC_RELAXED);
+    return h ? (int)h - 1 : -1;
+}

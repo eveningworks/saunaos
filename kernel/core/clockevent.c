@@ -3,6 +3,7 @@
 #include "clockevent.h"
 #include "timer.h"      // timer_tick_advance(), CONFIG_HZ, TICK_NS
 #include "scheduler.h"  // scheduler_tick(), scheduler_timer_event()
+#include "smp.h"        // smp_note_boot_tick(): `cpus`
 #include "clocksource.h"
 #include "serial.h"     // serial_tx_pending()
 #include "multiboot.h"  // nohz=off, highres=off
@@ -37,6 +38,7 @@ static uint64_t next_boundary(uint64_t now) {
 // device is simply re-armed.
 void clockevent_tick(uint64_t *regs) {
     g_events++;
+    smp_note_boot_tick(regs);
     lockup_tick(regs);
     kdebug_poll(regs);
     if (!g_oneshot) {

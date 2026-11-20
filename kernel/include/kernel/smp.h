@@ -61,6 +61,14 @@ void smp_resched(int index);       // the IPI alone; sched_kick_core() is the ca
 // interrupts off (spinlock.c): the sender may be waiting on it.
 void smp_poll_ipis(void);
 
+// The boot core's clockevent (clockevent_tick()): its "last tick" for
+// QUERY_CPUSTATE, as an AP's tick records its own.
+void smp_note_boot_tick(const uint64_t *regs);
+
+// Every core's state, a line each, through `out` (the debug console's
+// `cpus`; QUERY_CPUSTATE's record for ring 3). Reads; stops nothing.
+void smp_report(void (*out)(const char *));
+
 // Every AP takes the BSP's PAT and MTRRs again (after a WC change).
 void smp_memory_types_changed(void);
 

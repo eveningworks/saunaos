@@ -14,6 +14,7 @@
 #include "display.h"  // lsdev names the active display driver
 #include "usb.h"
 #include "aml.h"      // the ACPI namespace, for `aml`
+#include "smp.h"      // smp_report(), for `cpus`
 #include "lapic.h"       // lsdev reports the LAPIC and its MSI vectors
 #include "clockevent.h"  // ...and which device is driving the tick
 #include "idt.h"      // idt_spurious_count()
@@ -68,6 +69,7 @@ static void dbg_cmd_help(void) {
     dbg_write("  readfile P  - file P as one framed block, nothing interleaved\r\n");
     dbg_write("  lsdev       - enumerated PCI devices\r\n");
     dbg_write("  usb         - xHCI registers, rings and root ports\r\n");
+    dbg_write("  cpus        - each core: state, pid, kernel lock, last tick, calls\r\n");
     dbg_write("  aml         - the ACPI namespace (declarations, not methods)\r\n");
     dbg_write("  lsfs [path] - list a filesystem directory (default /)\r\n");
     dbg_write("  ktest [suite] - run the in-kernel test suite\r\n");
@@ -535,6 +537,7 @@ static void dbg_dispatch(char *line) {
     else if (k_strcmp(line, "readfile") == 0) dbg_cmd_readfile(arg);
     // These two print through klog in their own files; tee the log to
     // this port for the length of the dump so the reply carries it.
+    else if (k_strcmp(line, "cpus") == 0) smp_report(dbg_write);   // no process needed: a stuck guest
     else if (k_strcmp(line, "usb") == 0) { klog_tee_dbg(1); usb_dump(); klog_tee_dbg(0); }
     else if (k_strcmp(line, "aml") == 0) { klog_tee_dbg(1); aml_dump(); klog_tee_dbg(0); }
     else if (k_strcmp(line, "ktest") == 0) dbg_cmd_ktest(arg);

@@ -474,6 +474,10 @@ other core stopped by an NMI first (`panic_begin()`, `smp_stop_others()`;
 and no word, a running process with it. `panic_store_test.py --kind
 ap-gp-fault`, on a scheduling and a parked core.
 
+**`cpus` reads each core's state** (2026-11-20): `/bin/cpus` and the
+debug console's `cpus` over `QUERY_CPUSTATE` (`smp_query.c`) -- what had
+to be read through QEMU's gdbstub before (`docs/commands/cpus.md`).
+
 **Not yet**: the kdebug roundup (a stub stop halts core 0 only) and lockup
 reports from an AP. Per-core load is read since 2026-11-20:
 `QUERY_CORELOAD` (`kernel/proc/cpuload_query.c`) reports each online

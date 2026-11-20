@@ -251,7 +251,7 @@ static void call_service(struct cpu *c) {
     if (seq == c->call_done || c->call_running) return;
     c->call_running = 1;
     void (*fn)(void *) = __atomic_exchange_n(&c->call_fn, (void (*)(void *))0, __ATOMIC_ACQ_REL);
-    if (fn) fn(c->call_arg);
+    if (fn) { fn(c->call_arg); c->calls_taken++; }
     c->call_running = 0;
     __atomic_store_n(&c->call_done, seq, __ATOMIC_RELEASE);
 }

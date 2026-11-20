@@ -48,6 +48,7 @@ void bkl_start_tail(const uint64_t *tf);
 
 int bkl_held_here(void);
 int bkl_held(void);
+int bkl_holder_core(void);   // the core holding it now, or -1 (a snapshot: `cpus`)
 int bkl_contended(void);   // another core is queued for it
 
 // Broken accounting -- entering from ring 3 at a non-zero depth,

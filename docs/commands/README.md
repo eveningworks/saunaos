@@ -114,6 +114,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`acpi`](acpi.md)
 - [`ahci`](ahci.md)
 - [`ata`](ata.md)
+- [`cpus`](cpus.md)
 - [`crashlog`](crashlog.md)
 - [`devctl`](devctl.md)
 - [`display`](display.md)

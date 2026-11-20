@@ -96,9 +96,11 @@ struct cpu {
     // read by a waiter that has waited too long (spinlock.c).
     uint64_t bkl_vec, bkl_rax, bkl_rip;
     int bkl_pid;
-    uint64_t tick_tsc, tick_rip, tick_cs;   // this AP's last tick: a lockup report's "is it ticking?"
+    uint64_t tick_tsc, tick_rip, tick_cs;   // its last tick (the BSP's: any clockevent): "is it ticking?"
     uint64_t wedge_vec;   // the exception that wedged it, + 1 (0: none)
     uint32_t nmi_stray;   // NMIs taken here that no stop asked for (smp_ap_interrupt())
+    uint32_t calls_taken;     // cross-core calls run here (call_service())
+    uint32_t flushes_taken;   // shootdowns answered here (tlb_service())
     uint32_t pad4;
 };
 

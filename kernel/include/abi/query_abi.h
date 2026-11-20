@@ -709,6 +709,12 @@ struct query_firmware {
 // Task Manager's CPU page and `lscpu` read it (struct query_coreload).
 #define QUERY_CORELOAD 62
 
+// EACH CORE'S STATE, FOR A STUCK MACHINE: one record per core the kernel
+// knows, the ones that failed, wedged or were stopped included -- they
+// are the point. LIST, the boot core first (struct query_cpustate).
+// `/bin/cpus` reads it; the debug console's `cpus` prints the same.
+#define QUERY_CPUSTATE 63
+
 struct query_imgcache {
     char     path[QUERY_IMGCACHE_PATH_MAX];
     uint64_t frames;
@@ -1184,6 +1190,44 @@ struct query_coreload {
     uint64_t now_ns;    // the monotonic clock busy_ns was read against
 };
 _Static_assert(sizeof(struct query_coreload) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
+
+// QUERY_CPUSTATE's state, ABI-stable whatever the kernel's enum does.
+#define QUERY_CPUSTATE_ABSENT   0   // never started (nosmp, maxcpus=, firmware)
+#define QUERY_CPUSTATE_FAILED   1   // did not call in at bring-up
+#define QUERY_CPUSTATE_WEDGED   2   // faulted, or did not take a call: no more calls
+#define QUERY_CPUSTATE_STOPPED  3   // halted by a panic on another core
+#define QUERY_CPUSTATE_STARTING 4
+#define QUERY_CPUSTATE_ALIVE    5   // in C, replaying the boot core's setup
+#define QUERY_CPUSTATE_PARKED   6   // halted, taking calls only (smp=park)
+#define QUERY_CPUSTATE_RUNNING  7   // schedules processes
+
+// QUERY_CPUSTATE's record: a snapshot, read without stopping the core, so
+// fields of a busy one may be a moment apart. `pid` is what runs there
+// now: 0 the core's idle (or the boot core's kernel) context. The counters
+// are cumulative; a seq ahead of its done is a call or shootdown sent and
+// not yet answered -- what a core that stopped answering shows.
+struct query_cpustate {
+    uint64_t index;          // the kernel's number: 0 is the boot core
+    uint64_t apic_id;
+    uint64_t state;          // QUERY_CPUSTATE_*
+    int64_t  pid;            // running there now, 0 for none
+    uint64_t bkl_depth;      // the running context's nesting of the kernel lock
+    uint64_t bkl_holder;     // 1 when this core holds the kernel lock now
+    uint64_t tick_age_ns;    // since its last timer interrupt; ~0 for never
+    uint64_t tick_rip;       // where that interrupt landed
+    uint64_t tick_cs;        // ...and in which ring (the low two bits)
+    uint64_t wedge_vec;      // the exception that wedged it, + 1; 0 for none
+    uint64_t nmi_stray;      // NMIs no stop asked for
+    uint64_t calls_taken;    // cross-core calls run here
+    uint64_t call_pending;   // 1: a call sent and not finished
+    uint64_t flushes_taken;  // TLB shootdowns answered here
+    uint64_t flush_pending;  // 1: a shootdown sent and not answered
+    uint64_t bkl_vec;        // how it last took the lock: the vector,
+    uint64_t bkl_rip;        // ...where, and
+    int64_t  bkl_pid;        // ...for whom
+};
+_Static_assert(sizeof(struct query_cpustate) <= 256,
                "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
 
 // QUERY_DRIVER's record. `devices` is space-separated and may be empty,
