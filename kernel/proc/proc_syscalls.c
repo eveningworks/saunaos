@@ -336,7 +336,12 @@ static int uheap_fault(uint64_t pml4_phys, uint64_t vaddr) {
     // single slot is armed per pml4 anyway.
     struct sched_mm *hp = scheduler_mm_for_pml4(pml4_phys);
     if (!hp && g_heap_pml4 && pml4_phys == g_heap_pml4) hp = &g_legacy_mm;
-    if (!hp) return 0;
+    if (!hp) {
+        if (uaddr_is_mmap_range(vaddr))
+            klog_printf(KLOG_WARN "mm: pid %d's fault at %#lx not served: no address space "
+                        "for its page table\n", scheduler_current_pid(), (unsigned long)vaddr);
+        return 0;
+    }
 
     uint64_t page = vaddr & ~0xFFFULL;
 

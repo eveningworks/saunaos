@@ -1506,6 +1506,12 @@ another core may be running a process while this one is in the kernel.
   (`scheduler_mm_for_pml4()`), and a fault in a thread with SIGKILL
   pending ends in that SIGKILL, never a crash report
   (`scheduler_current_killed()`, Linux's `fatal_signal_pending()`).
+- **A NOT-PRESENT FAULT MAY FIND THE PAGE PRESENT** -- another thread
+  faulted it in on another core while this one waited for the kernel
+  lock. `vmm_fault_in()` answers it (retry) when the entry now allows
+  the access; anything that judges a fault by the page table's state
+  asks the same question, or kills a thread on a mapped page
+  (`samepage_test`).
 - **A KILL MAY RETURN BEFORE THE DEATH**: `scheduler_kill()` of a
   process running on another core (or parked mid-call) is deferred, so
   a caller -- a KTEST above all -- that needs it gone polls for it,

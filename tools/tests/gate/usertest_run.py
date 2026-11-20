@@ -181,6 +181,9 @@ TESTS = [
     # A group exit with threads still faulting pages in on other cores:
     # evidence only at smp=run (its header). SPAWNED: children, threads.
     ("exitfault_test", None, None, None),
+    # Threads faulting one page at once: evidence only at smp=run (its
+    # header). SPAWNED: a child and threads.
+    ("samepage_test", None, None, None),
     ("pagerace_test", None, None, None),
     # Audit area 6: a handler keeps the interrupted code's FPU state, and a
     # pending signal whose disposition went back to an ignoring SIG_DFL is

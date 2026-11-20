@@ -42,7 +42,9 @@ extern uint64_t p4_table[512];
 // Bit 52 because 9-11 are taken and a hidden leaf keeps BORROWED and COW.
 #define PAGE_PROTNONE (1ULL << 52)
 // #PF error-code bit 1: the access was a write.
+#define PF_PRESENT    (1ULL << 0)   // the CPU found the page present
 #define PF_WRITE      (1ULL << 1)
+#define PF_INSTR      (1ULL << 4)   // an instruction fetch
 #define PAGE_NX       (1ULL << 63) // requires EFER.NXE, set once in boot.asm
 // Selects PAT slot 4 (paging.c points it at write-combining at boot).
 // Bit 7 on a 4KiB PTE -- note that is the same bit PAGE_HUGE uses at the
@@ -1101,6 +1103,17 @@ void vmm_set_fault_handler(vmm_fault_fn fn) { g_fault_fn = fn; }
 int vmm_fault_in(uint64_t pml4_phys, uint64_t vaddr, uint64_t err) {
     uint64_t *pt = pt_for(pml4_phys, vaddr);
     if (pt && (pt[(vaddr >> 12) & 0x1FF] & PAGE_PRESENT)) {
+        // PRESENT NOW, MISSING WHEN THE CPU LOOKED: another thread faulted
+        // the same page in on another core while this one waited for the
+        // kernel lock (two threads of telnetd both in exit()'s fflush).
+        // Linux's spurious fault: retry, if the entry now allows the
+        // access. Anything it does not allow -- a write to COW or
+        // read-only, a fetch from NX -- is judged below.
+        uint64_t e = pt[(vaddr >> 12) & 0x1FF];
+        if (!(err & PF_PRESENT) && (e & PAGE_USER) &&
+            (!(err & PF_WRITE) || (e & PAGE_WRITABLE)) &&
+            (!(err & PF_INSTR) || !(e & PAGE_NX)))
+            return 1;
         // Present already: a protection fault, not a missing page. The
         // one kind this layer answers is a write to a COW page.
         if ((err & PF_WRITE) && (pt[(vaddr >> 12) & 0x1FF] & PAGE_COW))

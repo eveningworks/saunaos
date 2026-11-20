@@ -219,10 +219,14 @@ KTEST("mm", "fork shares pages copy-on-write and a write un-shares") {
     KTEST_ASSERT_EQ(vmm_user_phys(parent, va_rw), f_rw);
     vmm_audit_space(parent, &a);
     KTEST_ASSERT_EQ(a.cow, 0u);
-    // A READ fault on a present page is nobody's to answer; nor is a
-    // write to the read-only page.
-    KTEST_ASSERT(!vmm_fault_in(parent, va_rw, 0));
+    // A READ fault the CPU took on a page that is present by now is
+    // another thread's fault-in that won (smp=run): answered, so the
+    // access is retried. A write to the read-only page is not -- the
+    // entry still refuses it -- nor is a protection fault (PF_PRESENT).
+    KTEST_ASSERT(vmm_fault_in(parent, va_rw, 0));
+    KTEST_ASSERT(!vmm_fault_in(parent, va_rw, 1));
     KTEST_ASSERT(!vmm_fault_in(child, va_ro, 2));
+    KTEST_ASSERT(!vmm_fault_in(child, va_ro, 2 | 1));
     // The kernel writing into the child's still-shared read-only page
     // must refuse, and into the un-shared one must land privately.
     uint32_t v = 0x22222222u;

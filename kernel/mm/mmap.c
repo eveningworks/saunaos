@@ -1035,10 +1035,17 @@ static int same_region(const struct mmap_region *now, const struct mmap_region *
 
 // Under the address space's lock. A FILE page's read drops it (the lock
 // order, mmap.h): `r` is copied first and checked again afterwards.
+// Why the last fault_locked() on this path answered 0, for the one log
+// line a fault that becomes a crash leaves (mmap_fault_in()).
+static const char *g_fault_why;
+
 static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) {
+    g_fault_why = "no region";
     struct mmap_region *r = region_of(mm, page);
     if (!r) return 0; // a wild pointer that happens to land in the arena
+    g_fault_why = "PROT_NONE";
     if (r->prot == SYS_PROT_NONE) return 0; // a guard or a reservation: SIGSEGV
+    g_fault_why = "the map was refused";
     // A hidden leaf in an accessible region is restored, never mapped
     // over: the fresh map below would call it occupied and the access
     // would fault again forever. mmap_protect() restores every leaf it
@@ -1096,7 +1103,9 @@ static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) 
             else if (cacheable) shared = file_fill_cached(&was, off, frame);
             else if (!file_fill(was.path, off, frame)) shared = FILL_FAILED;
             mm_lock(mm);
+            g_fault_why = !ok ? "the file is gone" : "the file read failed";
             if (!ok || shared == FILL_FAILED) { pmm_free_frame(frame); return 0; }
+            g_fault_why = "the region changed during the read";
             if (shared && shared != frame) pmm_free_frame(frame);   // the cache had one
             // Unmapped or changed while the file was read: fatal, as a
             // fault in no region is. A frame the cache adopted is its own.
@@ -1133,11 +1142,22 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
     // A FAULT WITH THE GUARD RAISED CANNOT WAIT for the lock (kmutex.h): it
     // tries, and a held lock fails the access as an unmapped page would.
     if (scheduler_preempt_depth() > 0) {
-        if (!kmutex_trylock(mm_mutex(mm))) return 0;
+        if (!kmutex_trylock(mm_mutex(mm))) {
+            klog_printf(KLOG_WARN "mm: pid %d's fault at %#lx not served: its address space "
+                        "was locked and the guard is raised\n", scheduler_current_pid(),
+                        (unsigned long)page);
+            return 0;
+        }
     } else {
         mm_lock(mm);
     }
     int rc = fault_locked(mm, pml4_phys, page);
     mm_unlock(mm);
+    // ONE LINE, and only for a fault that is about to become a crash: the
+    // report says where, this says why the kernel could not serve it.
+    if (!rc)
+        klog_printf(KLOG_WARN "mm: pid %d's fault at %#lx not served: %s\n",
+                    scheduler_current_pid(), (unsigned long)page,
+                    g_fault_why ? g_fault_why : "?");
     return rc;
 }

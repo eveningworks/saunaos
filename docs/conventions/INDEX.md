@@ -269,7 +269,8 @@ whenever a headline here tells you something you did not already know.
   ELSE** -- `current_index` is this core's, read as ONE `%gs`
   instruction (a migration splits a two-step read); a cross-core call
   never takes the kernel lock; never free a slot
-  `sched_on_other_core()`; a kill may return before the death; the
+  `sched_on_other_core()`; a not-present fault may find the page
+  present (retry); a kill may return before the death; the
   kernel context lets queued cores in at a tick; an AP's tick is one-shot
 - **A PAGE-TABLE CHANGE FLUSHES THROUGH `tlb.h`, AND EVERY CR3 LOAD IS
   RECORDED** -- `tlb_flush_user_page()`, never a bare `invlpg`;
