@@ -143,6 +143,11 @@ def layout(dbg):
         if m:
             out["sort"] = (int(m.group(1)), int(m.group(2)))
             out["viewmode"] = m.group(3)
+            # THE ORDER IS THE LINE AFTER THIS ONE (tm_procs.c's
+            # report_order()), so a read that ends between them holds the
+            # new sort and the OLD order: clicking PID once read as the
+            # Name order. Forgotten here, it is only ever the sort's own.
+            out.pop("order", None)
         m = re.search(r"taskmgr: order (.*)$", line)
         if m:
             # NEGATIVE ids too: the kind rows (Kernel, Graphics, Shared
@@ -473,7 +478,7 @@ def main():
     # --- List view, and sorting ------------------------------------------
     def set_view(i, name):
         click(centre(_layout[f"view.slot{i}"]))
-        return wait_layout(dbg, lambda l: l.get("viewmode") == name)
+        return wait_layout(dbg, lambda l: l.get("viewmode") == name and "order" in l)
 
     lay = set_view(2, "List")
     check("the List view is selected", lay.get("viewmode") == "List", f"view={lay.get('viewmode')}")
@@ -485,7 +490,7 @@ def main():
 
     check("it starts sorted by Name ascending", lay.get("sort") == (0, 1), f"sort={lay.get('sort')}")
     click((pid_col[0] + pid_col[2] // 2, hdr_y))
-    lay = wait_layout(dbg, lambda l: l.get("sort") == (1, 1))
+    lay = wait_layout(dbg, lambda l: l.get("sort") == (1, 1) and "order" in l)
     asc = lay.get("order", [])
     # The kind rows (negative ids) trail in EITHER direction; the
     # processes before them are what the sort orders.
@@ -494,7 +499,7 @@ def main():
     check("clicking PID sorts by it, ascending", lay.get("sort") == (1, 1) and procs == sorted(procs)
           and asc[:len(procs)] == procs, f"sort={lay.get('sort')} order={asc}")
     click((pid_col[0] + pid_col[2] // 2, hdr_y))
-    lay = wait_layout(dbg, lambda l: l.get("sort") == (1, -1))
+    lay = wait_layout(dbg, lambda l: l.get("sort") == (1, -1) and "order" in l)
     desc = lay.get("order", [])
     check("clicking it again REVERSES it", lay.get("sort") == (1, -1)
           and desc == sorted(procs, reverse=True) + tail,
