@@ -48,6 +48,9 @@ import hostcheck  # noqa: E402
 HALF_MS, PHASES, END_MS = 500, 20, 12000
 
 STUB_SYS = "unsigned long long sys_monotonic_ns(void);\n"
+# The frame clock (ui/uui_anim.h): outside a pinned frame it IS
+# sys_monotonic_ns(), and this loop pins none.
+STUB_ANIM = "unsigned long long uui_anim_now_ns(void);\n"
 STUB_SETTING = ("#include <stddef.h>\n"
                 "int usetting_get(const char *name, char *out, size_t cap);\n")
 
@@ -62,6 +65,7 @@ DRIVER = r"""
 
 static unsigned long long g_now;
 unsigned long long sys_monotonic_ns(void) { return g_now; }
+unsigned long long uui_anim_now_ns(void) { return g_now; }
 int usetting_get(const char *name, char *out, size_t cap) {
     (void)name;
     strncpy(out, "on", cap);
@@ -116,6 +120,7 @@ int main(int argc, char **argv) {
 def build(tmp, poison=False):
     hostcheck.stage(tmp, "userland/libs/ui/uui_caret.h", dest="ui/uui_caret.h")
     hostcheck.write(tmp, "rt/sys.h", STUB_SYS)
+    hostcheck.write(tmp, "ui/uui_anim.h", STUB_ANIM)
     hostcheck.write(tmp, "base/usetting.h", STUB_SETTING)
     # The control: the logic this replaced, which counted ANY visible()
     # call in a phase as that phase's repaint.

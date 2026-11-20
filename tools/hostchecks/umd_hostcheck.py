@@ -131,9 +131,11 @@ def squeeze(s):
     renderer legitimately CHANGES the punctuation on the way through: it
     drops backticks and asterisks and transliterates an em dash to `--`.
     Comparing the raw text would report every one of those as a wrapping
-    failure, which is the opposite of what this check is for.
+    failure, which is the opposite of what this check is for. ASCII ONLY:
+    the renderer folds every other character to `?`, so `Kase` is what
+    a source line's `Käse` must match.
     """
-    return "".join(c for c in s.lower() if c.isalnum())
+    return "".join(c for c in s.lower() if c.isascii() and c.isalnum())
 
 
 def verbatim_source_lines(text):

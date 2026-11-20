@@ -64,7 +64,10 @@ HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
 BANK = os.path.join(REPO, "data/usr/share/soundfonts/toy-gm.sf2")
 SONG = os.path.join(REPO, "data/usr/share/music/first-boot.mid")
-SOURCES = ["usnd.c", "usnd_wav.c", "usnd_mp3.c", "usnd_mid.c", "usnd_sf2.c", "usnd_synth.c"]
+# Every codec usnd.c's table names, but the video one (media/uvid.h's
+# demuxers): MAIN_C stands a codec in for it that claims nothing.
+SOURCES = ["usnd.c", "usnd_wav.c", "usnd_mp3.c", "usnd_mp2.c", "usnd_mpsynth.c", "usnd_flac.c",
+           "usnd_mid.c", "usnd_sf2.c", "usnd_synth.c"]
 
 # The same shim tools/hostchecks/usnd_hostcheck.py uses: rt/sys.h's names over POSIX.
 SHIM_SYS_H = r"""
@@ -81,6 +84,14 @@ static inline int64_t sys_read(int fd, void *b, size_t n) { return read(fd, b, n
 static inline int sys_open(const char *p, int f) { (void)f; return open(p, O_RDONLY); }
 static inline int sys_close(int fd) { return close(fd); }
 static inline long long sys_lseek(int fd, long long o, int w) { return lseek(fd, o, w); }
+#include <sys/stat.h>
+struct sys_stat { uint64_t size; };
+static inline int sys_fstat(int fd, struct sys_stat *st) {
+    struct stat h;
+    if (fstat(fd, &h)) return -1;
+    st->size = (uint64_t)h.st_size;
+    return 0;
+}
 #endif
 """
 
@@ -90,6 +101,9 @@ MAIN_C = r"""
 #include <string.h>
 #include "media/usnd.h"
 #include "media/usnd_internal.h"
+
+static int no_probe(const uint8_t *d, size_t n) { (void)d; (void)n; return 0; }
+const struct usnd_codec usnd_codec_vid = { .name = "video (not built here)", .probe = no_probe };
 
 // render <song> <out.wav or -> <sf2> [max seconds]
 // Exit 0 played, 3 refused (a clean refusal is a PASS under fuzzing).

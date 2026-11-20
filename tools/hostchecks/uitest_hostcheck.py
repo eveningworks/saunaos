@@ -160,11 +160,12 @@ CONTROLS = [
      "    (void)sv; (void)cx; (void)cy; return 1;",
      ["settings_rows"]),
     # A button that commits on a release dragged OFF it -- the rule every
-    # control keeps; Calculator's own main must show the 9 it should not.
+    # control keeps; Calculator's own main must show the 9 it should not,
+    # and the C++ Counter its count of 1.
     ("userland/libs/ui/uui_button.c",
      "    int was = b->pressed;\n    b->pressed = 0;",
      "    int was = 1;\n    b->pressed = 0;",
-     ["calculator_app"]),
+     ["calculator_app", "counterxx_app"]),
     # uui_chart's legend measured on every ask again: n squared text
     # measurements a frame at sixteen lines (the code review's finding).
     ("userland/libs/ui/uui_chart.c",

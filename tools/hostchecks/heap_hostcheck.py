@@ -95,6 +95,9 @@ void *heap_os_alloc(uint64_t b) {
 // HEAP_RETURNS=1 is the kernel's side: regions go back, and munmap makes
 // one given back while still in use a crash rather than a quiet pass.
 int heap_os_returns_memory(void) { const char *e = getenv("HEAP_RETURNS"); return e && *e == '1'; }
+// Asked per region since 858fffe3: here every region is mmap'd, so all
+// of them or none, as HEAP_RETURNS says.
+int heap_os_region_returnable(const void *r) { (void)r; return heap_os_returns_memory(); }
 void heap_os_free(void *r, uint64_t b) { munmap(r, b); mapped -= b; }
 void k_memset(void *d, uint8_t c, size_t n) { memset(d, c, n); }
 void k_memcpy(void *d, const void *s, size_t n) { memcpy(d, s, n); }
@@ -278,8 +281,17 @@ def build(tmp, broken=None):
     inc = os.path.join(tmp, "inc")
     os.makedirs(os.path.join(inc, "rt"), exist_ok=True)
     shutil.copy(os.path.join(API, "heap.h"), inc)
+    # The REAL ulock.h (its futex lock is what four threads contend on),
+    # over Linux's futex for the two calls it makes.
+    shutil.copy(os.path.join(REPO, "userland", "libs", "rt", "ulock.h"), os.path.join(inc, "rt"))
     open(os.path.join(inc, "rt", "sys.h"), "w").write(
-        "#include <sched.h>\nstatic inline void sys_yield(void) { sched_yield(); }\n")
+        "#pragma once\n#include <sched.h>\n#include <stdint.h>\n#include <unistd.h>\n"
+        "#include <sys/syscall.h>\n#include <linux/futex.h>\n"
+        "static inline void sys_yield(void) { sched_yield(); }\n"
+        "static inline int sys_futex_wait(volatile uint32_t *w, uint32_t v, int ms) {\n"
+        "    (void)ms; return (int)syscall(SYS_futex, w, FUTEX_WAIT_PRIVATE, v, 0, 0, 0); }\n"
+        "static inline int sys_futex_wake(volatile uint32_t *w, int n) {\n"
+        "    return (int)syscall(SYS_futex, w, FUTEX_WAKE_PRIVATE, n, 0, 0, 0); }\n")
     gcc("-I" + inc, "-c", SLAB, "-o", obj("slab"))
     slab = os.path.join(tmp, "libslab.so")
     gcc("-shared", obj("slab"), obj("heap_core"), obj("hooks"), "-o", slab)

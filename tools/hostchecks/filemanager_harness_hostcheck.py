@@ -44,6 +44,9 @@ FRAME_TAIL = [
     "files: layout pane 1 300 40 300 340",
     "files: layout active 0",
     "files: layout view 1 1 single 0 tree 0 0",
+    # The report's last unconditional line, which complete() waits for
+    # (filemanager_test.py; fm_view.c's log_layout).
+    "files: layout dialog 0 -1",
 ]
 # The command bar with nothing selected (files.c's toolbar_items), each
 # line carrying its icon name as the app logs it; past it, unnamed rects.
@@ -170,7 +173,7 @@ reset()
 OLD = FRAME_HEAD + tbitems(14) + FRAME_TAIL          # two panes, tree off
 NEW_HEAD = ["files: layout pane 0 0 40 600 340", "files: layout dir 0 /fmtest"]
 NEW_TAIL = ["files: layout pane 1 0 0 0 0", "files: layout active 0",
-            "files: layout view 1 1 single 1 tree 0 0"]
+            "files: layout view 1 1 single 1 tree 0 0", "files: layout dialog 0 -1"]
 
 dbg = FakeDbg([OLD])
 base = fm.layout_now(dbg, WIN, tries=2)

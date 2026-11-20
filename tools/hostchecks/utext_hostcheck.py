@@ -144,6 +144,13 @@ const char *uunicode_abbrev(uint32_t cp) {
     }
 }
 int ugfx_px(int px) { return px; }
+// The decoder steps grapheme clusters (ui/ugfx_text.c), so it is the real
+// one, over the real segmenter, cluster tokens and composition (linked).
+int ugfx_font_codepage(void) { return 0; }   // the UTF-8 mode; w16's is not tested here
+int ugfx_cp_advance(uint32_t cp) { (void)cp; return 8; }   // one cell: utext's grid is the char cell
+int ugfx_kern(int prev, int c) { (void)prev; (void)c; return 0; }
+void ulogf(const char *fmt, ...) { (void)fmt; }   // ugfx_cluster.c's one-time notice
+#include "ui/ugfx_text.c"
 int ugfx_draw_string_clipped(struct ugfx_surface *s, int x, int y, int w, const char *str,
                              uint32_t f, uint32_t b)
 { (void)s; (void)x; (void)y; (void)w; (void)str; (void)f; (void)b; return 0; }
@@ -829,9 +836,16 @@ def build(tmp):
     drv = hostcheck.write(tmp, "utext_host.c", DRIVER)
     return hostcheck.compile(
         tmp, "utext_host", [drv, os.path.join(ROOT, "userland", "libs", "ui", "uui_edit.c"),
-                            os.path.join(ROOT, "userland", "libs", "ui", "uui_undo.c")],
-        includes=[os.path.join(ROOT, "userland"), os.path.join(ROOT, "userland", "libs"), os.path.join(ROOT, "kernel", "include", "api"),
-                  os.path.join(ROOT, "kernel", "include", "abi")], tool="utext_hostcheck")
+                            os.path.join(ROOT, "userland", "libs", "ui", "uui_undo.c"),
+                            os.path.join(ROOT, "kernel", "lib", "kgrapheme.c"),
+                            os.path.join(ROOT, "userland", "libs", "ui", "ugfx_cluster.c"),
+                            os.path.join(ROOT, "userland", "libs", "base", "ucompose.c")],
+        includes=[os.path.join(ROOT, "userland"), os.path.join(ROOT, "userland", "libs"),
+                  # tolibc's <string.h> ahead of the kernel's: ugfx_cluster.c wants memcmp
+                  os.path.join(ROOT, "userland", "libs", "libc", "include"),
+                  os.path.join(ROOT, "kernel", "include", "api"),
+                  os.path.join(ROOT, "kernel", "include", "abi"),
+                  os.path.join(ROOT, "build", "gen")], tool="utext_hostcheck")   # kconfig.h
 
 
 def corpus(tmp):
