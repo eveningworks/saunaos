@@ -32,6 +32,7 @@
 #include "klimit.h"       // the region ceiling, logged once when reached
 #include "imgcache.h"     // /bin, /lib and /tests pages, one frame systemwide
 #include "kmutex.h"       // the address space's lock
+#include "ratelimit.h"    // the "not served" line
 #include "shm.h"          // shm_created_bytes -- the data limit counts them
 #include "sandbox.h"      // PROMISE_PROT_EXEC, asked by argument
 #include "sandbox_abi.h"
@@ -1033,19 +1034,32 @@ static int same_region(const struct mmap_region *now, const struct mmap_region *
            now->prot == was->prot && !k_strcmp(now->path, was->path);
 }
 
+// The "not served" line, shared with uheap_fault()'s own (mmap.h).
+void mm_fault_unserved(uint64_t page, const char *why) {
+    static struct ratelimit rl;
+    unsigned held = 0;
+    if (!ratelimit_ok(&rl, &held)) return;
+    if (held)
+        klog_printf(KLOG_WARN "mm: pid %d's fault at %#lx not served: %s (%u more since the last)\n",
+                    scheduler_current_pid(), (unsigned long)page, why, held);
+    else
+        klog_printf(KLOG_WARN "mm: pid %d's fault at %#lx not served: %s\n",
+                    scheduler_current_pid(), (unsigned long)page, why);
+}
+
 // Under the address space's lock. A FILE page's read drops it (the lock
 // order, mmap.h): `r` is copied first and checked again afterwards.
-// Why the last fault_locked() on this path answered 0, for the one log
-// line a fault that becomes a crash leaves (mmap_fault_in()).
-static const char *g_fault_why;
-
-static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) {
-    g_fault_why = "no region";
+// `*why` says why a 0 answer was given, for the one log line a fault
+// that becomes a crash leaves (mmap_fault_in()) -- set on every path
+// that answers 0, so no reason is left over from an earlier one.
+static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page,
+                        const char **why) {
+    *why = "no region";
     struct mmap_region *r = region_of(mm, page);
     if (!r) return 0; // a wild pointer that happens to land in the arena
-    g_fault_why = "PROT_NONE";
+    *why = "PROT_NONE";
     if (r->prot == SYS_PROT_NONE) return 0; // a guard or a reservation: SIGSEGV
-    g_fault_why = "the map was refused";
+    *why = "the map was refused";
     // A hidden leaf in an accessible region is restored, never mapped
     // over: the fresh map below would call it occupied and the access
     // would fault again forever. mmap_protect() restores every leaf it
@@ -1061,7 +1075,7 @@ static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) 
         // space, so teardown must walk past them. Writable regardless of
         // PROT_WRITE would be wrong; the prot is honoured like any other.
         uint64_t f = shm_frame(r->shm_idx, (page - r->base) / 4096);
-        if (!f) return 0;
+        if (!f) { *why = "the shared object has no page there"; return 0; }
         return vmm_map_user_fresh(pml4_phys, page, f,
                                   (r->prot & SYS_PROT_WRITE) != 0, 0, 1) != 0;
     }
@@ -1079,8 +1093,7 @@ static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) 
         // ranges in before FS_OP. This refusal is what keeps that an
         // invariant rather than an accident.
         if (scheduler_preempt_depth() > 0) {
-            klog_printf(KLOG_ERR "mm: refused file-backed fault-in of %#lx inside an "
-                        "FS_OP -- see mmap_fault_in()\n", page);
+            *why = "a file page cannot be read inside an FS_OP";
             return 0;
         }
         uint64_t off = was.file_off + (page - was.base);
@@ -1091,6 +1104,7 @@ static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) 
             frame = pmm_alloc_user_frame();
             if (!frame) {
                 oom_note();
+                *why = "out of memory";
                 return 0;
             }
             mm_unlock(mm);
@@ -1103,9 +1117,9 @@ static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) 
             else if (cacheable) shared = file_fill_cached(&was, off, frame);
             else if (!file_fill(was.path, off, frame)) shared = FILL_FAILED;
             mm_lock(mm);
-            g_fault_why = !ok ? "the file is gone" : "the file read failed";
+            *why = !ok ? "the file is gone" : "the file read failed";
             if (!ok || shared == FILL_FAILED) { pmm_free_frame(frame); return 0; }
-            g_fault_why = "the region changed during the read";
+            *why = "the region changed during the read";
             if (shared && shared != frame) pmm_free_frame(frame);   // the cache had one
             // Unmapped or changed while the file was read: fatal, as a
             // fault in no region is. A frame the cache adopted is its own.
@@ -1116,6 +1130,7 @@ static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) 
         }
         if (shared) {
             // Shared: every process maps the SAME frame, read-only.
+            *why = "the map was refused";
             return vmm_map_user_fresh(pml4_phys, page, shared, 0,
                                       (was.prot & SYS_PROT_EXEC) != 0, 1) != 0;
         }
@@ -1123,10 +1138,12 @@ static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) 
         frame = pmm_alloc_user_frame();
         if (!frame) {
             oom_note();
+            *why = "out of memory";
             return 0;
         }
         k_memset((void *)(uintptr_t)frame, 0, 4096);
     }
+    *why = "the map was refused";
 
     // Only where still absent -- a second thread's fault-in of this page
     // may have mapped it while the file was read.
@@ -1137,27 +1154,30 @@ static int fault_locked(struct sched_mm *mm, uint64_t pml4_phys, uint64_t page) 
     return mapped != 0;
 }
 
-int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
+int mmap_fault_try(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr, const char **why_out) {
     uint64_t page = vaddr & ~0xFFFULL;
     // A FAULT WITH THE GUARD RAISED CANNOT WAIT for the lock (kmutex.h): it
     // tries, and a held lock fails the access as an unmapped page would.
-    if (scheduler_preempt_depth() > 0) {
-        if (!kmutex_trylock(mm_mutex(mm))) {
-            klog_printf(KLOG_WARN "mm: pid %d's fault at %#lx not served: its address space "
-                        "was locked and the guard is raised\n", scheduler_current_pid(),
-                        (unsigned long)page);
-            return 0;
-        }
+    const char *why = "its address space was locked and the guard is raised";
+    int rc = 0;
+    if (scheduler_preempt_depth() > 0 && !kmutex_trylock(mm_mutex(mm))) {
+        // fall through to the line below
     } else {
-        mm_lock(mm);
+        if (scheduler_preempt_depth() == 0) mm_lock(mm);
+        rc = fault_locked(mm, pml4_phys, page, &why);
+        mm_unlock(mm);
     }
-    int rc = fault_locked(mm, pml4_phys, page);
-    mm_unlock(mm);
-    // ONE LINE, and only for a fault that is about to become a crash: the
-    // report says where, this says why the kernel could not serve it.
-    if (!rc)
-        klog_printf(KLOG_WARN "mm: pid %d's fault at %#lx not served: %s\n",
-                    scheduler_current_pid(), (unsigned long)page,
-                    g_fault_why ? g_fault_why : "?");
+    *why_out = rc ? 0 : why;
+    return rc;
+}
+
+int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
+    const char *why;
+    int rc = mmap_fault_try(mm, pml4_phys, vaddr, &why);
+    // ONE LINE A SECOND AT MOST, for a fault the kernel could not serve:
+    // the report says where, this says why. Rate-limited because the copy
+    // helpers' EFAULT probes and a program's own caught SIGSEGVs land here
+    // too, and a probing program would otherwise flush the klog ring.
+    if (!rc) mm_fault_unserved(vaddr & ~0xFFFULL, why);
     return rc;
 }

@@ -6,7 +6,6 @@
 #include "irqflags.h"
 #include "klog.h"
 #include "kfmt.h"
-#include "scheduler.h"   // scheduler_current_pid(): who took it
 
 #define FRAME_CS 18   // isr.asm's frame, as sched_internal.h's TF_CS
 #define FRAME_RAX 14
@@ -63,7 +62,10 @@ void bkl_enter(const uint64_t *regs) {
         c->bkl_vec = regs ? regs[FRAME_VECTOR] : ~0ull;
         c->bkl_rax = regs ? regs[FRAME_RAX] : 0;
         c->bkl_rip = regs ? regs[FRAME_RIP] : site;
-        c->bkl_pid = scheduler_current_pid();
+        // The SLOT, a plain load from this core's struct (interrupts are
+        // off): its pid is looked up only by a lockup report or `cpus`,
+        // and this runs on every first entry to the kernel.
+        c->bkl_slot = c->sched_cur;
     }
     irq_restore(f);
 }

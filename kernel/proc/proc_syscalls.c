@@ -351,8 +351,7 @@ static int uheap_fault(uint64_t pml4_phys, uint64_t vaddr) {
     if (!hp && g_heap_pml4 && pml4_phys == g_heap_pml4) hp = &g_legacy_mm;
     if (!hp) {
         if (uaddr_is_mmap_range(vaddr))
-            klog_printf(KLOG_WARN "mm: pid %d's fault at %#lx not served: no address space "
-                        "for its page table\n", scheduler_current_pid(), (unsigned long)vaddr);
+            mm_fault_unserved(vaddr & ~0xFFFULL, "no address space for its page table");
         return 0;
     }
 

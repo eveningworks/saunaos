@@ -22,10 +22,7 @@ void spin_percpu_ready(void) { g_percpu_ready = 1; }
 // (sched_internal.h's per-core fields, the same rule).
 uint32_t spin_cpu_index_raw(void) {
     if (!g_percpu_ready) return 0;
-    uint32_t i;
-    __asm__ volatile ("movl %%gs:%c1, %0" : "=r"(i) : "i"(__builtin_offsetof(struct cpu, index))
-                      : "memory");
-    return i;
+    return this_cpu_read(index);
 }
 
 uint32_t spin_cpu_index(void) {
@@ -59,7 +56,10 @@ static void note_overdue(uintptr_t what, uintptr_t site, uintptr_t holder_site,
     const struct cpu *hc = h != 0xFFFFFFFFu ? smp_cpu_at((int)h) : 0;
     if (hc) {
         g_last.vec = hc->bkl_vec; g_last.rax = hc->bkl_rax;
-        g_last.rip = hc->bkl_rip; g_last.pid = hc->bkl_pid;
+        // Resolved now: the slot may have been reused since, which a
+        // diagnostic accepts.
+        g_last.rip = hc->bkl_rip;
+        g_last.pid = hc->bkl_slot >= 0 ? scheduler_slot_pid(hc->bkl_slot) : 0;
         g_last.now_pid = hc->sched_cur >= 0 ? scheduler_slot_pid(hc->sched_cur) : 0;
         uint64_t hz = cpu_tsc_hz() ? cpu_tsc_hz() : 3000000000ull;
         g_last.tick_age_ms = hc->tick_tsc ? (arch_rdtsc() - hc->tick_tsc) / (hz / 1000) : ~0ull;

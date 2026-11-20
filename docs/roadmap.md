@@ -1592,7 +1592,7 @@ measurement of what is single-core in the tree today.
 - [x] ~~Scheduler aware of multiple cores~~ DONE 2026-11-19 -- stage 5, behind `smp=run`; one run queue, an idle loop and tick per AP
 - [x] ~~Processes on every core by default~~ DONE 2026-11-20 -- `smp=run` the default after a KVM and ASUS soak; `smp=park` opts out
 - [x] ~~Fix the SMP review's five correctness findings~~ DONE 2026-11-20 -- a waiting sender answers IPIs, a late call is taken back
-- [ ] SMP review minor findings -- fault-log rate limit and exact reason, acpi's parked wording, entry cost, one `this_cpu_read()`
+- [x] ~~SMP review minor findings~~ DONE 2026-11-20 -- the fault line rate-limited with its own reason, acpi's wording, `this_cpu_read()`
 - [x] ~~A kernel fault on an AP is reported like one on the boot core~~ DONE 2026-11-20 -- a panic, the other cores stopped by NMI first
 - [x] ~~A `cpus` debug command~~ DONE 2026-11-20 -- `/bin/cpus` and the debug console's `cpus`, over QUERY_CPUSTATE
 - [x] ~~A preemption-safety check on per-core reads (CONFIG_DEBUG_PREEMPT)~~ DONE 2026-11-20 -- `make DEBUG_PREEMPT=1`

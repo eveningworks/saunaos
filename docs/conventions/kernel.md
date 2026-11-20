@@ -1503,8 +1503,10 @@ another core may be running a process while this one is in the kernel.
   per-CONTEXT one is saved and loaded by `switch_to()`, and may stay a
   global only if it is 0 whenever the kernel lock is free.
 - **A PER-CORE FIELD READ WITH INTERRUPTS ON IS ONE `%gs` INSTRUCTION**
-  (`SCHED_HERE_GET`/`_SET`, `spin_cpu_index()`), Linux's
-  `this_cpu_read()`. The kernel is preemptible and the kernel lock moves
+  -- `this_cpu_read(field)`/`this_cpu_write(field, v)` (`percpu.h`,
+  Linux's names), which `SCHED_HERE_GET`/`_SET` and `spin_cpu_index()`
+  are built on; a new per-core field is read through them, never through
+  a hand-written `%gs` load. The kernel is preemptible and the kernel lock moves
   with a process, so "take `this_cpu()`, then load the field" can be
   split by a migration and read the core it LEFT -- another process's
   pid. A pointer from `this_cpu()` or `sched_here()` is used with

@@ -40,7 +40,8 @@ struct gdt_ptr {
 // smp.c allocates the APs'.
 // Nothing runs on it yet: -1 and ROT_KERNEL (sched_internal.h), which
 // read as slot 0 if left zero.
-static struct cpu g_cpu_boot __attribute__((aligned(4096))) = { .sched_cur = -1, .sched_rot = -2 };
+static struct cpu g_cpu_boot __attribute__((aligned(4096))) = { .sched_cur = -1, .sched_rot = -2,
+                                                                  .bkl_slot = -1 };
 
 struct cpu *gdt_boot_cpu(void) { return &g_cpu_boot; }
 

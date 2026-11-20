@@ -59,7 +59,7 @@ static int cpustate_fill(int index, void *out) {
                        __atomic_load_n(&c->tlb_done, __ATOMIC_ACQUIRE);
     q->bkl_vec = c->bkl_vec;
     q->bkl_rip = c->bkl_rip;
-    q->bkl_pid = c->bkl_pid;
+    q->bkl_pid = c->bkl_slot >= 0 ? scheduler_slot_pid(c->bkl_slot) : 0;
     return 1;
 }
 

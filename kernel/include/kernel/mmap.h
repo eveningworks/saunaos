@@ -29,6 +29,11 @@ void mm_lock_reset(struct sched_mm *mm);
 // 0 = not this subsystem's address, or a page it could not produce --
 // both stay fatal to the toucher.
 int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr);
+// The same, logging nothing: 1 served, or 0 and *why says why not.
+int mmap_fault_try(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr, const char **why);
+// The one line a fault the kernel could not serve leaves: why, at most a
+// line a second, counting what it held back (uheap_fault() too).
+void mm_fault_unserved(uint64_t page, const char *why);
 
 // 1 if `more` bytes of heap, private writable or private anonymous
 // mapping (or shm the process creates) still fit under

@@ -62,9 +62,7 @@ void debug_preempt_check(uintptr_t site) {
     __asm__ volatile ("pushfq; popq %0" : "=r"(fl));
     if (!(fl & 0x200)) return;   // interrupts off: the common case, and cheap
     uint64_t f = irq_save();
-    int slot;
-    __asm__ volatile ("movl %%gs:%c1, %0" : "=r"(slot)
-                      : "i"(__builtin_offsetof(struct cpu, sched_cur)) : "memory");
+    int slot = this_cpu_read(sched_cur);
     if (debug_preempt_unsafe(1, scheduler_preempt_depth(), slot, smp_scheduling()))
         note(site, slot);
     irq_restore(f);

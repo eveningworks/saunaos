@@ -802,3 +802,71 @@ KTEST("mm", "the region list refuses at its ceiling, and says so once") {
     KTEST_ASSERT(logged);
     KTEST_ASSERT_EQ((int)was, MMAP_MAX_REGIONS);
 }
+
+// --- a fault the kernel does not serve (mmap_fault_in()'s one line) ---------
+
+// A one-region address space: `prot` and `kind` as the test asks.
+static struct sched_mm *one_region_mm(uint64_t base, uint32_t prot, int kind) {
+    struct sched_mm *mm = kzalloc(sizeof *mm);
+    if (!mm) return 0;
+    mm->regions = kzalloc(sizeof *mm->regions);
+    if (!mm->regions) { kfree(mm); return 0; }
+    mm->region_cap = 1;
+    mm->regions[0].base = base;
+    mm->regions[0].npages = 1;
+    mm->regions[0].prot = prot;
+    mm->regions[0].kind = (uint8_t)kind;
+    mm->regions[0].shm_idx = -1;   // no such object
+    return mm;
+}
+
+static void drop_mm(struct sched_mm *mm) {
+    mmap_regions_reset(mm);
+    kfree(mm);
+}
+
+KTEST("mm", "an unserved fault gives its own reason, never one left from an earlier fault") {
+    uint64_t as = vmm_create_address_space();
+    uint64_t base = UADDR_MMAP_BASE;
+    struct sched_mm *guard = one_region_mm(base, SYS_PROT_NONE, MMAP_KIND_ANON);
+    struct sched_mm *shm = one_region_mm(base, SYS_PROT_READ, MMAP_KIND_SHM);
+    KTEST_ASSERT(as && guard && shm);
+    const char *why = 0;
+    KTEST_ASSERT_EQ(mmap_fault_try(guard, as, base + 8, &why), 0);
+    KTEST_ASSERT(why && !k_strcmp(why, "PROT_NONE"));
+    KTEST_ASSERT_EQ(mmap_fault_try(guard, as, base + 4096 * 4, &why), 0);
+    KTEST_ASSERT(why && !k_strcmp(why, "no region"));
+    // A shared region whose object has no such page: said so, not "the
+    // map was refused", which is what the last step before it had set.
+    KTEST_ASSERT_EQ(mmap_fault_try(shm, as, base + 8, &why), 0);
+    KTEST_ASSERT(why && !k_strcmp(why, "the shared object has no page there"));
+    drop_mm(guard);
+    drop_mm(shm);
+    vmm_destroy_address_space(as);
+}
+
+static int count_in(const char *hay, uint32_t n, const char *needle) {
+    int c = 0;
+    size_t m = k_strlen(needle);
+    for (uint32_t i = 0; i + m <= n; i++)
+        if (!k_memcmp(hay + i, needle, m)) c++;
+    return c;
+}
+
+KTEST("mm", "a probing program's unserved faults log a line a second, not one each") {
+    uint64_t as = vmm_create_address_space();
+    uint64_t base = UADDR_MMAP_BASE;
+    struct sched_mm *mm = one_region_mm(base, SYS_PROT_NONE, MMAP_KIND_ANON);
+    KTEST_ASSERT(as && mm);
+    uint64_t from = klog_total_bytes();
+    for (int i = 0; i < 50; i++) KTEST_ASSERT_EQ(mmap_fault_in(mm, as, base + 8), 0);
+    uint32_t cap = 16384;
+    char *buf = kmalloc(cap);
+    KTEST_ASSERT(buf);
+    uint32_t n = klog_read(from, buf, cap, 0);
+    int lines = count_in(buf, n, "not served: PROT_NONE");
+    kfree(buf);
+    drop_mm(mm);
+    vmm_destroy_address_space(as);
+    KTEST_ASSERT(lines <= 1);
+}

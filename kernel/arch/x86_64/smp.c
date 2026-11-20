@@ -700,6 +700,7 @@ void smp_init(void) {
         c->self = c;
         c->index = (uint32_t)g_cpu_count;
         c->sched_cur = -1;     // its idle loop, once it schedules
+        c->bkl_slot = -1;
         c->sched_rot = -2;     // ROT_KERNEL
         c->apic_id = a->apic_id;
         g_cpus[g_cpu_count++] = c;

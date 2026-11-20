@@ -473,21 +473,13 @@ static inline struct cpu *sched_here(void) {
 }
 #define SCHED_HERE_GET(f) __extension__ ({                                    \
     int v_;                                                                   \
-    if (__builtin_expect(g_percpu_ready, 1))                                  \
-        __asm__ volatile ("movl %%gs:%c1, %0"                                 \
-                          : "=r"(v_) : "i"(__builtin_offsetof(struct cpu, f)) \
-                          : "memory");                                        \
-    else                                                                      \
-        v_ = gdt_boot_cpu()->f;                                               \
+    if (__builtin_expect(g_percpu_ready, 1)) v_ = this_cpu_read(f);           \
+    else v_ = gdt_boot_cpu()->f;                                              \
     v_; })
 #define SCHED_HERE_SET(f, val) do {                                           \
     int v_ = (val);                                                           \
-    if (__builtin_expect(g_percpu_ready, 1))                                  \
-        __asm__ volatile ("movl %0, %%gs:%c1"                                 \
-                          :: "r"(v_), "i"(__builtin_offsetof(struct cpu, f))  \
-                          : "memory");                                        \
-    else                                                                      \
-        gdt_boot_cpu()->f = v_;                                               \
+    if (__builtin_expect(g_percpu_ready, 1)) this_cpu_write(f, v_);           \
+    else gdt_boot_cpu()->f = v_;                                              \
 } while (0)
 #define current_index           SCHED_HERE_GET(sched_cur)
 #define rotation_pos            SCHED_HERE_GET(sched_rot)

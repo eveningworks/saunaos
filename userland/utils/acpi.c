@@ -16,6 +16,8 @@
 #include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>         // the command line, sized to its records
+#include "base/ubootcfg.h"  // ubootcfg_cmdline()
 
 // Mirrors of the kernel-side flags. They cross the boundary as a number
 // in the record rather than as a header apps could include: kernel/
@@ -107,6 +109,22 @@ static int dump_table(const char *sig, long at, long want) {
     put("\n");
     if (!shown) put("acpi: that range is past the end of the table\n");
     return 0;
+}
+
+// Is `word` one of the kernel command line's words (QUERY_CMDLINE)?
+static int booted_with(const char *word) {
+    struct query_cmdline q;
+    int parts = 0;
+    QUERY_FOREACH(QUERY_CMDLINE, q, i) parts++;
+    char *cl = malloc((size_t)parts * QUERY_CMDLINE_PART + 1);
+    if (!cl) return 0;
+    if (ubootcfg_cmdline(cl, parts * QUERY_CMDLINE_PART + 1) < 0) { free(cl); return 0; }
+    size_t n = strlen(word);
+    int found = 0;
+    for (const char *p = cl; !found && (p = strstr(p, word)) != 0; p += n)
+        found = (p == cl || p[-1] == ' ') && (p[n] == 0 || p[n] == ' ');
+    free(cl);
+    return found;
 }
 
 int main(int argc, char **argv) {
@@ -244,9 +262,15 @@ int main(int argc, char **argv) {
                  n, online, (unsigned long long)a.ioapic_count,
                  (unsigned long long)a.lapic_phys);
         put(line);
+        // smp=park is one reason, not the only one: under smp=run a core
+        // with no LAPIC timer, or one that never took the start call, stays
+        // parked too -- and the kernel log says which.
         if (online > 1 && scheduling < online) {
-            snprintf(line, sizeof line, "  Processes run on %d of them; the others are parked "
-                     "(smp=park).\n", scheduling ? scheduling : 1);
+            snprintf(line, sizeof line, "  Processes run on %d of them; the others are parked %s\n",
+                     scheduling ? scheduling : 1,
+                     booted_with("smp=park") ? "(smp=park)."
+                                             : "-- the kernel could not start them scheduling "
+                                               "(`dmesg`, its smp: lines, says why).");
             put(line);
         }
     }

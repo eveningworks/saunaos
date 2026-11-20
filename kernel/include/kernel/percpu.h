@@ -95,7 +95,7 @@ struct cpu {
     // How this core last took the kernel lock from an entry (bkl_enter()):
     // read by a waiter that has waited too long (spinlock.c).
     uint64_t bkl_vec, bkl_rax, bkl_rip;
-    int bkl_pid;
+    int bkl_slot;   // the slot it ran (-1: none), resolved to a pid only when read
     uint64_t tick_tsc, tick_rip, tick_cs;   // its last tick (the BSP's: any clockevent): "is it ticking?"
     uint64_t wedge_vec;   // the exception that wedged it, + 1 (0: none)
     uint32_t nmi_stray;   // NMIs taken here that no stop asked for (smp_ap_interrupt())
@@ -104,13 +104,29 @@ struct cpu {
     uint32_t pad4;
 };
 
+// ONE FIELD OF THIS CORE'S struct cpu IN ONE `%gs` INSTRUCTION, Linux's
+// this_cpu_read()/this_cpu_write(): a migration cannot split it, which a
+// load through this_cpu()'s pointer can (two steps, the core between
+// them). `mov` takes its width from the register, so a field of 1, 2, 4
+// or 8 bytes needs nothing else; `+ 0` drops a volatile qualifier. Only
+// after GS.base is set (gdt_init()); spinlock.h's g_percpu_ready says.
+#define this_cpu_read(f) __extension__ ({                                     \
+    __typeof__(((struct cpu *)0)->f + 0) this_cpu_v_;                         \
+    __asm__ volatile ("mov %%gs:%c1, %0" : "=r"(this_cpu_v_)                  \
+                      : "i"(__builtin_offsetof(struct cpu, f)) : "memory");   \
+    this_cpu_v_; })
+// The local's name is its own: a caller's `v_` passed as `val` would
+// otherwise initialise the new variable from itself.
+#define this_cpu_write(f, val) do {                                           \
+    __typeof__(((struct cpu *)0)->f + 0) this_cpu_w_ = (val);                 \
+    __asm__ volatile ("mov %0, %%gs:%c1"                                      \
+                      :: "r"(this_cpu_w_), "i"(__builtin_offsetof(struct cpu, f)) \
+                      : "memory");                                            \
+} while (0)
+
 // UNCHECKED: for a reader that knows a move cannot matter -- the check
 // itself, a diagnostic, a field it re-reads with interrupts off.
-static inline struct cpu *this_cpu_raw(void) {
-    struct cpu *c;
-    __asm__ volatile ("mov %%gs:0, %0" : "=r"(c));
-    return c;
-}
+static inline struct cpu *this_cpu_raw(void) { return this_cpu_read(self); }
 
 // **THE CORE CAN CHANGE THE MOMENT THIS RETURNS** if the caller may be
 // preempted: interrupts on, the guard down, a process running (Linux's
