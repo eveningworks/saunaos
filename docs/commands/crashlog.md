@@ -18,8 +18,8 @@ kernel log -- followed by the raw bytes of the process's stack.
 
 A core-dumping signal's default action writes one too (`Killed by
 SIGSEGV`). A process that set `prctl(PR_SET_DUMPABLE, 0)` -- a test
-child faulting on purpose -- gets none, only a `crash: no report` line
-in `dmesg`. On the desktop the same reports are the Crash Reports app
+child faulting on purpose -- gets none, and no "closed unexpectedly"
+card; `dmesg` says `crash: no report`. On the desktop the same reports are the Crash Reports app
 (`/bin/wm/apps/crashreports`), which a crash notice's Details opens.
 
 `crashlog <report>` prints the program's own **message** when it left

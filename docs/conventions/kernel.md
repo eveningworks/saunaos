@@ -140,22 +140,23 @@ this the obvious way), not from how much history it accumulated.
   "Core" action in `signal(7)`), and **every crash is noted in
   `QUERY_CRASH`'s ring BEFORE any refusal**, with `report` empty when
   none was written -- the desktop's crash notice reads that, not the
-  directory. The one exception is a process that set
-  `PR_SET_DUMPABLE 0` (below): neither note nor file, since the note
-  is what raises the card.
+  directory. A process that set `PR_SET_DUMPABLE 0` (below) is noted
+  too, flagged `QUERY_CRASH_QUIET`, which the card skips.
 - **A TEST CHILD THAT FAULTS ON PURPOSE CALLS `utest_quiet_crash()`
   FIRST.** Its death is otherwise a crash like any other: a
   `/var/crash` report and the desktop's "closed unexpectedly" card,
   which on a machine someone is watching reads as the test crashing.
   The call is `prctl(PR_SET_DUMPABLE, 0)` (SYS_PRCTL, Linux's shape): no
-  report, no QUERY_CRASH record, one `crash: no report` line in the
+  report file, a QUERY_CRASH record flagged `QUERY_CRASH_QUIET` (no
+  card; a test can still read it), one `crash: no report` line in the
   kernel log. The process's own, copied by a fork, reset by an exec --
   and EPERM once it is sandboxed, so a parser the input has taken over
   cannot hide its crashes or violations; set before the pledge, it holds.
-  A child whose REPORT is the thing checked stays loud: `crash_test` run
-  bare (`faulttest_run.py`), and `sandbox_test`'s three violations whose
-  records it reads; `crash_test quiet` is for a test that only wants the
-  death.
+  A child whose report FILE is the thing checked stays loud: `crash_test`
+  run bare (`faulttest_run.py`); `crash_test quiet` is for a test that
+  only wants the death. **A test run on a machine someone is watching
+  (`remote.py exec` on the ASUS) puts every loud crash's card on THAT
+  desktop.**
 - **THE KERNEL DEBUGGER'S STOPPED PATH TAKES NO LOCK, ALLOCATES NOTHING
   AND DOES NOT LOG.** `kernel/debug/` (armed by `kdebug=ttySN`,
   `docs/kdebug-design.md`) runs with interrupts off at whatever

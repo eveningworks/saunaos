@@ -45,13 +45,13 @@ static int wait_code(int pid) {
 // Runs `fn` in a forked child and returns its exit code: 0 when every
 // check inside passed, N for the first that did not, KILLED_BY_SIGSYS
 // when the sandbox ended it. Quiet before any pledge: a planted
-// violation is no crash to report (and a pledged process cannot ask).
-static int child(int (*fn)(void), int quiet) {
+// violation raises no card, and is still recorded (QUERY_CRASH_QUIET),
+// which the checks below read. A pledged process could not ask.
+static int in_child(int (*fn)(void)) {
     int pid = fork();
-    if (pid == 0) { if (quiet) utest_quiet_crash(); _exit(fn()); }
+    if (pid == 0) { utest_quiet_crash(); _exit(fn()); }
     return pid < 0 ? -2000 : wait_code(pid);
 }
-static int in_child(int (*fn)(void)) { return child(fn, 1); }
 
 // --- promises --------------------------------------------------------------
 
@@ -290,8 +290,7 @@ int main(int argc, char **argv) {
                 UTEST_VERDICT_FILE);
     g_parent = getpid();
 
-    // LOUD, as the two below: the record each leaves is checked.
-    int code = child(stdio_then_socket, 0);
+    int code = in_child(stdio_then_socket);
     utest_checkf(code == KILLED_BY_SIGSYS, "pledge(\"stdio\"): socket() ends it with SIGSYS (%d)", code);
     utest_check(last_crash_says("Sandbox: socket needs 'inet'"),
                 "...and the crash record names the call and the promise");
@@ -301,7 +300,7 @@ int main(int argc, char **argv) {
 
     code = in_child(clock_is_stdio);
     utest_checkf(code == 0, "stdio reads the wall clock, a query record (%d)", code);
-    code = child(other_query_needs_query, 0);   // loud: its record is read
+    code = in_child(other_query_needs_query);
     utest_checkf(code == KILLED_BY_SIGSYS, "...and any other query record needs query (%d)", code);
     utest_check(last_crash_says("Sandbox: query needs 'query'"), "...named in the crash record");
 
@@ -316,7 +315,7 @@ int main(int argc, char **argv) {
     code = in_child(kill_other);
     utest_checkf(code == KILLED_BY_SIGSYS, "kill() of itself is stdio, of another is proc (%d)", code);
 
-    code = child(anon_exec_needs_promise, 0);   // loud: its record is read
+    code = in_child(anon_exec_needs_promise);
     utest_checkf(code == KILLED_BY_SIGSYS, "anonymous RW is stdio; mmap with PROT_EXEC needs prot_exec (%d)", code);
     utest_check(last_crash_says("Sandbox: mmap PROT_EXEC needs"), "...named in the crash record");
     code = in_child(mprotect_exec_needs_promise);

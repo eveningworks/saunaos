@@ -1812,6 +1812,10 @@ struct query_cpu {
 #define QUERY_CRASH_PROGRAM_MAX 64
 #define QUERY_CRASH_FAULT_MAX   40
 #define QUERY_CRASH_REPORT_MAX  80
+// The process had set PR_SET_DUMPABLE 0 (SYS_PRCTL): noted, but no file
+// was written and the desktop raises no card for it -- a test child
+// faulting on purpose.
+#define QUERY_CRASH_QUIET 1u
 
 struct query_crash {
     uint32_t seq;          // 1 for this boot's first crash, then on
@@ -1821,6 +1825,7 @@ struct query_crash {
     uint64_t cr2;          // page faults; 0 otherwise
     uint32_t vector;
     uint32_t error_code;
+    uint32_t flags;        // QUERY_CRASH_QUIET
     char program[QUERY_CRASH_PROGRAM_MAX];   // its executable's path
     char fault[QUERY_CRASH_FAULT_MAX];       // "Page fault", "Stack overflow"
     char report[QUERY_CRASH_REPORT_MAX];     // /var/crash/<prog>-<pid>.crash, or ""

@@ -1,13 +1,8 @@
 // SYS_PRCTL's PR_*_DUMPABLE: a process that asks for no crash report
-// dies of its fault with no QUERY_CRASH record (what the desktop's
-// "closed unexpectedly" card reads) and no /var/crash file. Fork copies
-// the setting; exec starts again at 1.
-//
-// NO LOUD CHILD BESIDE IT, though one would show the record check can
-// see a crash: its card would come up on every run, on a machine someone
-// is watching -- what this exists to stop. faulttest_run.py proves an
-// ordinary crash IS recorded (crash_test), and this test went red with
-// crash_report.c's check removed when it was written.
+// dies of its fault with its crash NOTED, flagged QUERY_CRASH_QUIET --
+// which the desktop's "closed unexpectedly" card skips -- and no
+// /var/crash file. Finding the record is also what shows the check can
+// see one. Fork copies the setting; exec starts again at 1.
 #include <stdint.h>
 #include <stdio.h>
 #include <errno.h>
@@ -20,10 +15,9 @@
 #include "base/utest.h"
 
 // The crash record for `pid`, if the kernel noted one.
-static int crash_noted(int pid) {
-    struct query_crash c;
-    for (unsigned i = 0; sys_query_record(QUERY_CRASH, i, &c, sizeof c) > 0; i++)
-        if (c.pid == pid) return 1;
+static int crash_noted(int pid, struct query_crash *out) {
+    for (unsigned i = 0; sys_query_record(QUERY_CRASH, i, out, sizeof *out) > 0; i++)
+        if (out->pid == pid) return 1;
     return 0;
 }
 
@@ -96,7 +90,11 @@ int main(int argc, char **argv) {
     int code;
     int quiet = quiet_faulting_child(&code);
     utest_checkf(quiet > 0 && code == segv, "a quiet child still dies of SIGSEGV (exit %d)", code);
-    utest_check(!crash_noted(quiet), "...with no crash record for the desktop's card");
+    struct query_crash c;
+    int noted = crash_noted(quiet, &c);
+    utest_check(noted, "...and its crash is still recorded");
+    utest_check(noted && (c.flags & QUERY_CRASH_QUIET), "...flagged quiet, so the desktop raises no card");
+    utest_check(noted && !c.report[0], "...naming no report file");
     char path[96];
     snprintf(path, sizeof path, "/var/crash/dumpable_test-%d.crash", quiet);
     struct sys_stat st;

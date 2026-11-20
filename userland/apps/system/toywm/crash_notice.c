@@ -560,7 +560,7 @@ void crash_notice_poll(void) {
     for (int i = 0; sys_query_record(QUERY_CRASH, i, &c, sizeof c) > 0; i++) {
         if (c.seq <= g_seen) continue;
         g_seen = c.seq;
-        tell(&c);
+        if (!(c.flags & QUERY_CRASH_QUIET)) tell(&c);   // a test's planned crash
     }
 }
 

@@ -2126,8 +2126,8 @@ struct sys_stat {
 // with only the options below. PR_SET_DUMPABLE 0 asks that a fault
 // which kills this process write NO crash report (no /var/crash file,
 // no "closed unexpectedly" notice) -- for a test child that faults on
-// purpose; the kernel log still gets its line. 1 restores it. The
-// setting is the PROCESS's (its threads share it), a fork copies it
+// purpose; the crash is still recorded, flagged QUERY_CRASH_QUIET.
+// 1 restores it. The setting is the PROCESS's (its threads share it), a fork copies it
 // and an exec or spawn starts at 1, as Linux's mm flag does.
 // PR_GET_DUMPABLE answers 0 or 1. A SANDBOXED process asking for 0 is
 // -EPERM (set before pledging, it holds). Anything else is -EINVAL.

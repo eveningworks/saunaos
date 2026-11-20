@@ -509,9 +509,8 @@ TESTS = [
     # Spawned: SYS_MMAP needs a scheduler slot to own the mappings, which `run`
     # once lacked.
     ("mmap_test", None, None, None),
-    # PR_SET_DUMPABLE: a quiet child's fault leaves no crash record or file;
-    # fork copies, exec resets, a sandbox refuses. No loud child (its card
-    # would show every run): faulttest_run.py proves a crash IS recorded.
+    # PR_SET_DUMPABLE: a quiet child's crash is recorded, flagged quiet (no
+    # card) and writes no file; fork copies, exec resets, a sandbox refuses.
     ("dumpable_test", None, None, None),
     # The first DYNAMIC executable: /lib/ld-toy.so loads libhello.so,
     # applies every relocation class, and jumps to the real entry.
