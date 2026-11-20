@@ -207,9 +207,16 @@ static void __attribute__((noreturn)) ap_entry(struct cpu *c) {
 
 static struct spinlock g_call_lock;   // one sender at a time
 
+// **THE WAIT ANSWERS WHAT IS SENT TO THIS CORE MEANWHILE**: the target
+// may be waiting on it -- a call back, or a shootdown from a core whose
+// call this is. Polled with interrupts off, so the IPI cannot run the
+// same call here at once (call_service() is not re-entered).
 static int wait_done(struct cpu *c, uint32_t seq, uint32_t ms) {
     uint64_t end = clocksource_now_ns() + (uint64_t)ms * 1000000ull;
     while (__atomic_load_n(&c->call_done, __ATOMIC_ACQUIRE) != seq) {
+        uint64_t f = irq_save();
+        smp_poll_ipis();
+        irq_restore(f);
         if (clocksource_now_ns() >= end) return 0;
         cpu_relax();
     }
@@ -220,11 +227,16 @@ static int wait_done(struct cpu *c, uint32_t seq, uint32_t ms) {
 // interrupts off (smp_poll_ipis()). **NOT RE-ENTERED**: a call that
 // spins for a lock (stage 4's kernel-lock test does) polls from inside
 // itself, and would otherwise run itself again there.
+//
+// **THE CALL IS CLAIMED BY SWAPPING call_fn OUT**, and a sender that gave
+// up takes it back with the same swap (wait_call()): whichever swap gets
+// it decides whether fn runs, so a late core never runs a call whose
+// `arg` its sender's returned frame held. Taken back, it is marked done.
 static void call_service(struct cpu *c) {
     uint32_t seq = __atomic_load_n(&c->call_seq, __ATOMIC_ACQUIRE);
     if (seq == c->call_done || c->call_running) return;
     c->call_running = 1;
-    void (*fn)(void *) = c->call_fn;
+    void (*fn)(void *) = __atomic_exchange_n(&c->call_fn, (void (*)(void *))0, __ATOMIC_ACQ_REL);
     if (fn) fn(c->call_arg);
     c->call_running = 0;
     __atomic_store_n(&c->call_done, seq, __ATOMIC_RELEASE);
@@ -255,7 +267,7 @@ void smp_poll_ipis(void) {
     if (g_cpus) call_service(g_cpus[spin_cpu_index()]);   // the BSP too: an AP may call it
 }
 
-// A PARKED core that did not finish a call is given no more: its next one
+// A PARKED core that did not take a call is given no more: its next one
 // would wait again, and a caller may hold the kernel lock meanwhile.
 // **A SCHEDULING ONE IS ONLY SLOW** -- it may have interrupts off for a
 // long call, or be a starved vCPU -- and is never written off: it is
@@ -264,13 +276,30 @@ void smp_poll_ipis(void) {
 // (smp=run, TCG under load). Linux's CSD-lock timeout warns the same way.
 static void wedged(struct cpu *c, int index) {
     if (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) == CPU_RUNNING) {
-        klog_printf(KLOG_WARN "smp: core %d has not finished a call after %d ms -- "
-                    "still running, so it is not written off\n", index, CALL_MS);
+        klog_printf(KLOG_WARN "smp: core %d did not take a call within %d ms -- "
+                    "taken back; still running, so not written off\n", index, CALL_MS);
         return;
     }
     __atomic_store_n(&c->state, CPU_WEDGED, __ATOMIC_RELEASE);
-    klog_printf(KLOG_WARN "smp: core %d did not finish a call within %d ms -- "
+    klog_printf(KLOG_WARN "smp: core %d did not take a call within %d ms -- "
                 "given no more\n", index, CALL_MS);
+}
+
+// The end of a call's wait. **ONE THAT HAS STARTED IS WAITED FOR, HOWEVER
+// LONG** -- its `arg` is in use until it returns (Linux's csd_lock_wait()) --
+// unless its core halts in it (a fault: smp_ap_interrupt()). One not
+// started is taken back.
+static int wait_call(struct cpu *c, int index, uint32_t seq, uint32_t ms) {
+    if (wait_done(c, seq, ms)) return 1;
+    if (__atomic_exchange_n(&c->call_fn, (void (*)(void *))0, __ATOMIC_ACQ_REL)) {
+        wedged(c, index);
+        return 0;
+    }
+    klog_printf(KLOG_WARN "smp: core %d is still running a call after %u ms -- "
+                "waiting for it\n", index, ms);
+    while (!wait_done(c, seq, CALL_MS))
+        if (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) == CPU_WEDGED) return 0;
+    return 1;
 }
 
 int smp_call(int index, void (*fn)(void *), void *arg, int wait) {
@@ -311,20 +340,16 @@ int smp_call(int index, void (*fn)(void *), void *arg, int wait) {
         klog_printf(KLOG_WARN "smp: the call IPI to core %d was not accepted\n", index);
         return 0;
     }
-    if (wait && !wait_done(c, seq, CALL_MS)) {
-        wedged(c, index);
-        return 0;
-    }
-    return 1;
+    return wait ? wait_call(c, index, seq, CALL_MS) : 1;
 }
 
+// No "is it my own core" shortcut: read with interrupts on it could be
+// stale. A call smp_call() ran here left the mailbox as it was -- done.
 int smp_call_wait(int index, uint32_t ms) {
-    if (index == (int)spin_cpu_index()) return 1;
-    if (!g_cpus || index < 0 || index >= g_cpu_count) return 0;
+    if (!g_cpus) return index == 0;   // one core: smp_call() ran it in place
+    if (index < 0 || index >= g_cpu_count) return 0;
     struct cpu *c = g_cpus[index];
-    if (wait_done(c, c->call_seq, ms)) return 1;
-    wedged(c, index);
-    return 0;
+    return wait_call(c, index, __atomic_load_n(&c->call_seq, __ATOMIC_ACQUIRE), ms);
 }
 
 // A write-combining change after bring-up (paging_set_write_combining()):
@@ -391,11 +416,20 @@ void smp_start_scheduling(void) {
 }
 
 // Every core but the caller -- which under smp=run may be an AP, the BSP
-// then being one of the others.
+// then being one of the others. **ALL SENT BEFORE ANY WAIT, INTERRUPTS
+// OFF**: "the caller's core" is decided once, where no move can make it
+// skip the core it left (Linux's smp_call_function_many()). A move during
+// the waits is harmless, as in smp_call().
 int smp_call_others(void (*fn)(void *), void *arg) {
-    int done = 0, me = (int)spin_cpu_index();
-    for (int i = 0; i < smp_cpu_count(); i++)
-        if (i != me) done += smp_call(i, fn, arg, 1);
+    int n = smp_cpu_count();
+    if (n < 2) return 0;
+    uint8_t sent[n];
+    uint64_t f = irq_save();
+    int me = (int)spin_cpu_index();
+    for (int i = 0; i < n; i++) sent[i] = i != me && smp_call(i, fn, arg, 0);
+    irq_restore(f);
+    int done = 0;
+    for (int i = 0; i < n; i++) done += sent[i] && smp_call_wait(i, CALL_MS);
     return done;
 }
 

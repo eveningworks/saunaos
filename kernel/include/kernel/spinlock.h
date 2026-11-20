@@ -62,6 +62,11 @@ struct spin_lockup_info {
 };
 void spin_lockup_last(struct spin_lockup_info *out);
 unsigned spin_lockups(void);
+// A wait on another CORE rather than a lock (tlb.c's shootdown), past
+// SPIN_LOCKUP_MS: counted and recorded as a lockup, `what` the word
+// waited on and `core` the one expected to write it. Logs nothing --
+// the caller may be an AP inside a spin.
+void spin_wait_overdue(uintptr_t what, uintptr_t site, uint32_t me, uint32_t core);
 
 // The current core's index (0 = the BSP), safe before GS.base is set.
 uint32_t spin_cpu_index(void);

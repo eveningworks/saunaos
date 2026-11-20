@@ -625,17 +625,20 @@ static void isr_dispatch_body(uint64_t *regs) {
         // a counter: entering the handler blocks the signal, so a fault
         // INSIDE it finds the bit set, gets no handler, and falls
         // through to everything below (signal.c's signal_deliver_fault).
+        //
+        // **ALREADY KILLED COMES FIRST**: a thread of a dying group, still
+        // in ring 3 on another core when its SIGKILL was raised, faulted
+        // before the kick landed. It dies of the SIGKILL, with no crash
+        // report -- and no handler, which would run user code after the
+        // group's exit.
+        if (recoverable && scheduler_current_pid() && scheduler_current_killed()) {
+            scheduler_exit_group(SIGNAL_EXIT_BASE + SIGKILL);
+            return;
+        }
         int fault_sig = fault_signal(vector);
         if (recoverable && fault_sig && scheduler_current_pid() &&
             signal_deliver_fault(scheduler_current_pid(), fault_sig, regs)) {
             return;        // resume into the handler; regs now points at it
-        }
-        // ALREADY KILLED: a thread of a dying group, still in ring 3 on
-        // another core when its SIGKILL was raised, faulted before the
-        // kick landed. It dies of the SIGKILL, with no crash report.
-        if (recoverable && scheduler_current_pid() && scheduler_current_killed()) {
-            scheduler_exit_group(SIGNAL_EXIT_BASE + SIGKILL);
-            return;
         }
 
         // This block was eleven calls to print three lines before

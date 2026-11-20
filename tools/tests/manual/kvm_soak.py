@@ -99,6 +99,11 @@ CPANEL = "/bin/wm/system/settings"
 # bumps fs_generation(), while a ring-3 client is live and busy.
 
 
+class RoundOverdue(BaseException):
+    """The --round-timeout alarm. Not an Exception: TimeoutError IS
+    socket.timeout, which gui_debug's recv loops catch and retry."""
+
+
 def kvm_available():
     return os.access("/dev/kvm", os.R_OK | os.W_OK)
 
@@ -389,7 +394,7 @@ def main():
     bad_rounds = 0
 
     def round_overdue(signum, frame):
-        raise TimeoutError(f"round still running after {args.round_timeout} s -- the guest wedged")
+        raise RoundOverdue(f"round still running after {args.round_timeout} s -- the guest wedged")
     signal.signal(signal.SIGALRM, round_overdue)
 
     for i in range(1, args.rounds + 1):
@@ -445,7 +450,7 @@ def main():
                 print(f"      ! {pr}")
             if problems:
                 bad_rounds += 1
-        except Exception as e:                       # noqa: BLE001
+        except (Exception, RoundOverdue) as e:       # noqa: BLE001
             # An ERROR is its own outcome, never a pass: a round that
             # measured nothing must not look like a good one.
             print(f"  round {i}: ERROR -- {type(e).__name__}: {e}")

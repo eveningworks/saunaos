@@ -352,10 +352,14 @@ the `smp` suite), **with these differences and additions:**
 - **The idle halt drops the kernel lock only where another context
   could run anyway**: interrupts on, preemptible, depth 1. A caller
   halting inside a guarded section (`diag.c`'s wait) keeps it.
-- **A core that faults in a call, or does not finish one within a
-  second, is `CPU_WEDGED`** and given no more calls; a fault drops the
-  kernel lock it held first. `smp_call()` never waits with interrupts
-  off -- a mailbox still full is refused at once.
+- **A core that faults in a call, or a parked one that does not take
+  one within a second, is `CPU_WEDGED`** and given no more calls; a
+  fault drops the kernel lock it held first. A call not taken in that
+  second is TAKEN BACK (a swap of `call_fn`, which the target's claim
+  also swaps), so it never runs later with a dead `arg`; one already
+  running is waited for however long (Linux's `csd_lock_wait()`). A
+  waiting sender answers calls and shootdowns sent to its own core, and
+  a mailbox still full is refused at once.
 - **A memory-type replay runs only when a register moved**, compared in
   place by `paging_memory_types_snapshot()`, and one core at a time --
   stage 5 must make it a rendezvous.
@@ -547,8 +551,10 @@ shootdown rather than with one. What was built (`kernel/include/kernel/tlb.h`):
   any core and from either ring. The sender waits with interrupts off,
   so **a core spinning for a lock answers from the spin**
   (`spinlock.c`'s `take()` calls `tlb_service()`), Linux 2.0's
-  `smp_invalidate_needed` check in `lock_kernel()`. A target that does
-  not answer in a second is `CPU_WEDGED`, as an unfinished call is.
+  `smp_invalidate_needed` check in `lock_kernel()` -- and so does the
+  SENDER's own wait, since a target may be waiting on it. A parked
+  target that does not answer in a second is `CPU_WEDGED`; a scheduling
+  one is waited for however long, counted as a spinlock lockup is.
 - **The target reloads CR3** -- no global pages are mapped, so that is
   the whole TLB. Every `vmm.c` site that changes a live user leaf
   (unmap, release, swap-out, mprotect, hide, COW break) calls

@@ -42,10 +42,13 @@ static struct spin_lockup_info g_last;
 
 void spin_lockup_last(struct spin_lockup_info *out) { *out = g_last; }
 
-static void lockup_report(struct spinlock *l, uintptr_t site, uint32_t me) {
+// What lockup_report() and spin_wait_overdue() share: count it, and keep
+// what the boot core needs to say who the waiter was waiting on.
+static void note_overdue(uintptr_t what, uintptr_t site, uintptr_t holder_site,
+                         uint32_t me, uint32_t h) {
     __atomic_fetch_add(&g_lockups, 1, __ATOMIC_RELAXED);
-    uint32_t h = l->holder ? l->holder - 1 : 0xFFFFFFFFu;
-    g_last = (struct spin_lockup_info){ (uintptr_t)l, site, l->site, me, h, 0, 0, 0, 0 };
+    g_last = (struct spin_lockup_info){ .lock = what, .waiter_site = site,
+                                        .holder_site = holder_site, .waiter = me, .holder = h };
     const struct cpu *hc = h != 0xFFFFFFFFu ? smp_cpu_at((int)h) : 0;
     if (hc) {
         g_last.vec = hc->bkl_vec; g_last.rax = hc->bkl_rax;
@@ -56,6 +59,11 @@ static void lockup_report(struct spinlock *l, uintptr_t site, uint32_t me) {
         g_last.tick_rip = hc->tick_rip; g_last.tick_cs = hc->tick_cs;
         g_last.guard = scheduler_preempt_depth();
     }
+}
+
+static void lockup_report(struct spinlock *l, uintptr_t site, uint32_t me) {
+    uint32_t h = l->holder ? l->holder - 1 : 0xFFFFFFFFu;
+    note_overdue((uintptr_t)l, site, l->site, me, h);
     if (me != 0) return;
     static int once;
     if (once) return;
@@ -64,6 +72,10 @@ static void lockup_report(struct spinlock *l, uintptr_t site, uint32_t me) {
                 "holder core %d took it at %p, waiter at %p\n",
                 (void *)l, me, SPIN_LOCKUP_MS, h == 0xFFFFFFFFu ? -1 : (int)h,
                 (void *)l->site, (void *)site);
+}
+
+void spin_wait_overdue(uintptr_t what, uintptr_t site, uint32_t me, uint32_t core) {
+    note_overdue(what, site, 0, me, core);
 }
 
 static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {

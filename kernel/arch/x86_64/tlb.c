@@ -102,11 +102,16 @@ static void shoot(uint64_t space, uint64_t leave, uintptr_t site) {
         uint64_t hz = cpu_tsc_hz();
         uint64_t limit = (hz ? hz : 3000000000ull) / 1000 * ACK_MS;
         uint64_t start = arch_rdtsc();
+        int overdue = 0;
         for (int i = 0; i < n; i++) {
             struct cpu *c = (struct cpu *)smp_cpu_at(i);
             if (!answers(c, me)) continue;
             while (__atomic_load_n(&c->tlb_done, __ATOMIC_ACQUIRE) !=
                    __atomic_load_n(&c->tlb_seq, __ATOMIC_ACQUIRE)) {
+                // **THIS WAIT ANSWERS WHAT IS SENT TO IT**, interrupts being
+                // off: a target may itself be waiting on this core -- a
+                // call's sender (smp_call()), or a second shootdown sender.
+                smp_poll_ipis();
                 cpu_relax();
                 if (arch_rdtsc() - start > limit) {
                     // **A SCHEDULING CORE IS WAITED FOR, HOWEVER LONG.** It
@@ -115,9 +120,13 @@ static void shoot(uint64_t space, uint64_t leave, uintptr_t site) {
                     // exactly the use-after-free a shootdown exists to stop;
                     // writing it off also took it out of every later
                     // shootdown while it went on running processes. A core
-                    // that truly never answers hangs this one, which the
-                    // lockup detector reports. Linux waits the same way.
+                    // that truly never answers hangs this one, counted
+                    // below. Linux waits the same way.
                     if (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) == CPU_RUNNING) {
+                        // Counted as a spinlock lockup is, from any core:
+                        // ktest names the test, and an AP cannot log here.
+                        if (!overdue++)
+                            spin_wait_overdue((uintptr_t)&c->tlb_done, site, me, c->index);
                         static int warned;
                         if (me == 0 && !warned++)
                             klog_printf(KLOG_WARN "tlb: core %u has not answered a shootdown "

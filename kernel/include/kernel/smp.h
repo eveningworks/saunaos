@@ -35,10 +35,13 @@ uint64_t smp_trampoline_phys(void);
 
 // Run fn(arg) on core `index` (the caller's own runs it here, interrupts
 // off). A parked or scheduling core takes it; any core may call under
-// smp=run. `wait` waits up to a second for it to finish;
-// 0 for a core that is not parked, a mailbox still holding the last call
-// (a wait = 0 call is followed by smp_call_wait()), or a call that did
-// not finish -- which leaves the core CPU_WEDGED, given no more calls.
+// smp=run. `wait` waits up to a second for it to START, then for it to
+// finish however long; a call not started by then is TAKEN BACK, never
+// run later. 0 for a core that is not parked or scheduling, a mailbox
+// still holding the last call (a wait = 0 call is followed by
+// smp_call_wait()), or a call taken back -- which leaves a parked core
+// CPU_WEDGED, given no more calls. A waiting sender answers calls and
+// shootdowns sent to its own core meanwhile.
 // fn runs with interrupts off on a core that may touch nothing shared
 // but what fn's caller arranged: no log, no heap, no kernel lock.
 #define SMP_CALL_VECTOR 0xFB   // Linux's CALL_FUNCTION_VECTOR
