@@ -165,6 +165,33 @@ CONTROLS = [
      "    int was = b->pressed;\n    b->pressed = 0;",
      "    int was = 1;\n    b->pressed = 0;",
      ["calculator_app"]),
+    # uui_chart's legend measured on every ask again: n squared text
+    # measurements a frame at sixteen lines (the code review's finding).
+    ("userland/libs/ui/uui_chart.c",
+     "    if (!(k->valid && k->w == c->w",
+     "    if (1 || !(k->valid && k->w == c->w",
+     ["chart_lines"]),
+    # A glide that asks for a redraw on every call, not on a whole pixel.
+    ("userland/libs/ui/uui_chart.c",
+     "    if (px == c->shift) return 0;\n    c->shift = px;",
+     "    c->shift = px;",
+     ["chart_lines"]),
+    # Gliding to the NEWEST sample: the right edge extrapolated, not one behind.
+    ("userland/libs/ui/uui_chart.c",
+     "    p->behind = c->smooth && lines_on(c)",
+     "    p->behind = 0 && c->smooth && lines_on(c)",
+     ["chart_lines"]),
+    # Off no longer stepped: the chart glides whatever desktop.animations says.
+    ("userland/libs/ui/uui_chart.c",
+     "    return c->smooth && !c->fit && c->sample_ms > 0 && c->newest_ns;",
+     "    return !c->fit && c->sample_ms > 0 && c->newest_ns;",
+     ["chart_lines"]),
+    # Lines mode counting the undrawn main series as drawn: hover_index() +
+    # sample() then name a column the pointer is not over.
+    ("userland/libs/ui/uui_chart.c",
+     "    if (lines_on(c)) return 0;   // the main series is filled, never drawn\n",
+     "",
+     ["chart_lines"]),
     # Minesweeper records a flag and never draws it -- "it responds" is
     # not "it is drawn" (a spared-3x3 control would not do: the fixed
     # board opens nine cells either way, the ~88% the GUI tool notes).

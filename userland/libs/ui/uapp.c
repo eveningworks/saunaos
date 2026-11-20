@@ -65,7 +65,7 @@ static void present(struct uapp *a) {
 // coalescing uapp_redraw() promises: a burst of events costs one round
 // trip, not one per event.
 static void flush(struct uapp *a) {
-    if (!a->top.dirty || !a->has_top) return;
+    if ((!a->top.dirty && !a->part) || !a->has_top) return;
     if (a->hold_until_ms) {
         if (sys_monotonic_ns() / 1000000ULL < a->hold_until_ms) return;
         a->hold_until_ms = 0;
@@ -77,9 +77,26 @@ static void flush(struct uapp *a) {
         if (!sf) return;
         a->surface = *sf;
     }
+    // PARTIAL: the frame on screen, then only the rect -- unless a whole
+    // frame is owed, the display is leased, or there is no frame to copy.
+    int part = !a->top.dirty && a->part && !a->lease_on && a->shown &&
+               a->part_x1 <= a->w && a->part_y1 <= a->h &&
+               surf_seed_back(TOPLEVEL, a->part_x0, a->part_y0,
+                              a->part_x1 - a->part_x0, a->part_y1 - a->part_y0);
+    if (!part) TOPLEVEL->part_w = 0;   // a whole frame's damage is measured
     a->top.dirty = 0;
+    a->part = 0;
 
+    if (part) {
+        int x0 = a->part_x0, y0 = a->part_y0;
+        ugfx_set_clip_rect(&a->surface, x0, y0, a->part_x1 - x0, a->part_y1 - y0);
+        uui_router_paint_rect(x0, y0, a->part_x1, a->part_y1);
+    }
     top_paint(&a->top, &a->surface, a->desc->layout, a, 0);
+    if (part) {
+        uui_router_paint_rect(0, 0, 0, 0);
+        ugfx_clear_clip_rect(&a->surface);
+    }
     // The layout block this frame produced, emitted only if it differs
     // from the last -- see uapp_log_layout(). Here rather than in the
     // apps because only the toolkit knows when a frame has ended.
@@ -91,6 +108,23 @@ static void flush(struct uapp *a) {
 // --- public: state ----------------------------------------------------
 
 void uapp_redraw(struct uapp *a) { a->top.dirty = 1; }
+
+void uapp_redraw_rect(struct uapp *a, int x, int y, int w, int h) {
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (w > a->w - x) w = a->w - x;
+    if (h > a->h - y) h = a->h - y;
+    if (w <= 0 || h <= 0) return;
+    if (!a->part) {
+        a->part = 1;
+        a->part_x0 = x; a->part_y0 = y; a->part_x1 = x + w; a->part_y1 = y + h;
+        return;
+    }
+    if (x < a->part_x0) a->part_x0 = x;
+    if (y < a->part_y0) a->part_y0 = y;
+    if (x + w > a->part_x1) a->part_x1 = x + w;
+    if (y + h > a->part_y1) a->part_y1 = y + h;
+}
 
 // --- posts: the one thing a worker thread may do -----------------------
 //
@@ -1603,7 +1637,7 @@ int uapp_pump(struct uapp *a, int timeout_ms) {
         // Not before the FIRST frame: what a window does as it opens --
         // made, then sized, then fullscreen -- is handled whole, or the
         // compositor is shown an interim size.
-        if (a->shown && a->top.dirty && sys_monotonic_ns() - drain_from > 16000000ull) break;
+        if (a->shown && (a->top.dirty || a->part) && sys_monotonic_ns() - drain_from > 16000000ull) break;
     }
 
     // A widget asked for another frame from its last draw: paint every
@@ -1634,7 +1668,7 @@ int uapp_pump(struct uapp *a, int timeout_ms) {
     // free buffer, or a fullscreen's first, keeps it owed until it goes out
     // -- and once the program is IDLE (uapp_work_begin()): a worker's
     // result still to post is a frame still to come.
-    if (g_sync_owed && !a->top.dirty && idle()) {
+    if (g_sync_owed && !a->top.dirty && !a->part && idle()) {
         int clean = 1;
         for (int i = 1; i < WIN_CLIENT_MAX; i++)
             if (g_dlg[i].top.slot && g_dlg[i].top.dirty) clean = 0;

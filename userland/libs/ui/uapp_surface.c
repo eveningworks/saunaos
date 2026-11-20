@@ -167,6 +167,24 @@ struct ugfx_surface *surf_back(struct uapp_surf *s) {
     return &s->surface;
 }
 
+int surf_seed_back(struct uapp_surf *s, int x, int y, int w, int h) {
+    int f = s->front, b = s->back;
+    if (b < 0 || f == b || !s->px[f] || !s->px[b] || s->px_w[f] != s->w || s->px_h[f] != s->h)
+        return 0;
+    uint32_t *to = s->px[b];
+    const uint32_t *from = s->px[f];
+    size_t row = (size_t)s->w;
+    memcpy(to, from, (size_t)y * row * 4);                               // above
+    for (int r = y; r < y + h; r++) {                                     // beside
+        memcpy(to + r * row, from + r * row, (size_t)x * 4);
+        memcpy(to + r * row + x + w, from + r * row + x + w, (size_t)(s->w - x - w) * 4);
+    }
+    memcpy(to + (size_t)(y + h) * row, from + (size_t)(y + h) * row,      // below
+           (size_t)(s->h - y - h) * row * 4);
+    s->part_x = x; s->part_y = y; s->part_w = w; s->part_h = h;
+    return 1;
+}
+
 void bufs_release(struct uapp_surf *s) {
     for (int b = 0; b < UAPP_BUFS; b++) {
         if (!s->px[b]) continue;
@@ -194,10 +212,16 @@ static void present_damage(const struct uapp_surf *s, int shown, struct win_dama
     int f = s->front;
     if (f == shown || !s->px[f] || s->px_w[f] != s->w || s->px_h[f] != s->h ||
         s->px_w[shown] != s->w || s->px_h[shown] != s->h) return;
+    d->flags = WIN_DAMAGE_LIST;
+    if (s->part_w > 0) {   // a partial frame: its rect, as surf_seed_back() made it
+        d->n = 1;
+        d->r[0].x = (uint16_t)s->part_x; d->r[0].y = (uint16_t)s->part_y;
+        d->r[0].w = (uint16_t)s->part_w; d->r[0].h = (uint16_t)s->part_h;
+        return;
+    }
     struct uregion g;
     uregion_diff(&g, (const uint32_t *)s->px[shown], (const uint32_t *)s->px[f],
                  s->w, s->h, s->w, WIN_DAMAGE_MAX, 16);
-    d->flags = WIN_DAMAGE_LIST;
     d->n = (uint16_t)g.n;
     for (int i = 0; i < g.n; i++) {
         d->r[i].x = (uint16_t)g.r[i].x; d->r[i].y = (uint16_t)g.r[i].y;
@@ -228,6 +252,7 @@ int surf_present(struct uapp_surf *s) {
     if ((uint32_t)seq == 0) seq++;   // 0 means "no sequence" on the wire
     struct win_damage dmg;
     present_damage(s, shown, &dmg);
+    s->part_w = 0;
     if (!wmchan_send_damage(WIN_REQ_PRESENT, (uint32_t)slot_of(s),
                             WIN_PRESENT_B(shown, s->px_gen[shown]),
                             (int)WIN_PRESENT_SIZE(s->w, s->h), (int)(uint32_t)seq,

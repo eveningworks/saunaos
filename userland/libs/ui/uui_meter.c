@@ -151,7 +151,10 @@ static void draw_spark(struct ugfx_surface *s, const struct uui_meter *m) {
     if (!m->spark) return;
     int pad = utheme_pad();
     int h = SPARK_ROWS * ugfx_char_h();
-    struct uui_chart c = *m->spark;        // a COPY: placing it must not
+    // STATIC, not a local: the chart carries its rings (over 2 KiB), past
+    // a draw's frame budget -- and drawing is the main thread's alone.
+    static struct uui_chart c;
+    c = *m->spark;                         // a COPY: placing it must not
     c.label = NULL;                        // move the caller's widget, and
     c.value = NULL;                        // the tile already says both
     c.sample_ms = 0;                       // and already carries the span

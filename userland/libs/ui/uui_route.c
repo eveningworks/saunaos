@@ -545,9 +545,26 @@ int uui_router_release(struct uui_router *r, int cx, int cy, int *out_changed) {
     return id;
 }
 
+static int g_paint_x0, g_paint_y0, g_paint_x1, g_paint_y1;   // 0s: the whole frame
+
+void uui_router_paint_rect(int x0, int y0, int x1, int y1) {
+    g_paint_x0 = x0; g_paint_y0 = y0; g_paint_x1 = x1; g_paint_y1 = y1;
+}
+
+// Wholly outside the partial frame's rect -- with a few pixels' grace,
+// for a focus ring drawn round the bounds.
+static int outside_paint(const struct uui_item *it) {
+    if (g_paint_x1 <= g_paint_x0 || !it->ops || !it->ops->bounds) return 0;
+    int x = 0, y = 0, w = 0, h = 0;
+    it->ops->bounds(it->widget, &x, &y, &w, &h);
+    const int grace = 4;
+    return x - grace >= g_paint_x1 || y - grace >= g_paint_y1 ||
+           x + w + grace <= g_paint_x0 || y + h + grace <= g_paint_y0;
+}
+
 static void draw_items(struct ugfx_surface *s, struct uui_item *items, int count) {
     for (int i = 0; i < count; i++) {
-        if (items[i].hidden) continue;
+        if (items[i].hidden || outside_paint(&items[i])) continue;
         int n = 0;
         struct uui_item *sub = nested(&items[i], &n);
         if (sub) {

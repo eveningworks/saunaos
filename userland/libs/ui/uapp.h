@@ -685,6 +685,15 @@ int uapp_thread_start(struct uapp *a, pthread_t *out, void *(*fn)(void *arg), vo
 // don't forget to present".
 void uapp_redraw(struct uapp *a);
 
+// A PARTIAL REPAINT: only (x, y, w, h) of the content changed -- a chart's
+// plot that moved a pixel. The frame starts as a copy of the one on
+// screen, is clipped to the union of every rect asked for, and draws
+// only the widgets that reach into it -- GTK's buffer-age repaint. Any
+// uapp_redraw() or event that repaints wins and the frame is whole.
+// For a widget that changes ON ITS OWN, often; an input-driven change
+// keeps calling uapp_redraw().
+void uapp_redraw_rect(struct uapp *a, int x, int y, int w, int h);
+
 // A BUTTON'S DROP-DOWN MENU, Qt's QPushButton::setMenu: opens `src`'s rows
 // at (x, y) in the window whose click is being handled -- call it from that
 // click's on_action, with the button's bottom-left corner. A row runs

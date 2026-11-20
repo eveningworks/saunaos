@@ -95,6 +95,10 @@ struct uapp_surf {
     // the previous front still busy and take the third buffer.
     int busy[UAPP_BUFS];
     unsigned long long busy_seq[UAPP_BUFS];  // present order
+    // A PARTIAL FRAME'S RECT (uapp_redraw_rect()), w > 0: everything else
+    // is the front buffer copied, so it IS the damage -- declared, exact
+    // by construction, with no compare. 0: measure it (present_damage()).
+    int part_x, part_y, part_w, part_h;
     int back;
     unsigned long long stall_ms;  // when no buffer was free; 0 otherwise
     int w, h;
@@ -171,6 +175,9 @@ struct uapp {
     unsigned long long hold_until_ms;
     int focused;  // keyboard focus, per WIN_EV_FOCUS
     int suspended; // out of sight, per WIN_EV_SUSPENDED
+    // uapp_redraw_rect()'s union, [x0,x1) x [y0,y1); `part` = one is owed.
+    // `top.dirty` (a whole frame) outranks it.
+    int part, part_x0, part_y0, part_x1, part_y1;
     int running;
     int status;
     int timer_armed; // TWS accepted a WIN_REQ_TIMER, so on_tick arrives
@@ -242,6 +249,10 @@ UAPP_HIDDEN int  buf_make(struct uapp_surf *s, int buf, int w, int h);
 UAPP_HIDDEN int  bufs_create(struct uapp_surf *s, int w, int h);
 UAPP_HIDDEN void bufs_release(struct uapp_surf *s);
 UAPP_HIDDEN struct ugfx_surface *surf_back(struct uapp_surf *s);
+// The frame on screen copied into the back buffer AROUND (x, y, w, h),
+// which the partial frame (uapp_redraw_rect()) paints whole; 0 when there
+// is no frame of this size to copy.
+UAPP_HIDDEN int surf_seed_back(struct uapp_surf *s, int x, int y, int w, int h);
 UAPP_HIDDEN int  surf_present(struct uapp_surf *s);
 UAPP_HIDDEN void present_popups(uint32_t parent);
 UAPP_HIDDEN void popup_close(void *ctx, int id);

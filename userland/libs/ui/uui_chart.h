@@ -42,10 +42,25 @@ extern "C" {
 // samples than another starts further right. A legend under the plot
 // names each line with its reading. Not for fit mode, whose series[]
 // is a sequence of runs in ONE trace (DiskMark's read, then write).
+//
+// **GLIDING** (uui_chart_set_smooth()): between two samples the trace
+// moves left a WHOLE PIXEL at a time, by the share of the interval that
+// has passed, never a fraction of one on a frame timer. The right edge
+// is the time of the PREVIOUS sample, so the trace scrolls into data
+// that exists and nothing is extrapolated; the value text still shows the newest
+// reading. The chart keeps no clock and asks for no frames: its owner
+// calls uui_chart_glide() when uui_chart_glide_next_ms() says the offset
+// moves, and repaints when it did -- so a chart nobody can see costs
+// nothing. ONLY A COLUMN OF TWO PIXELS OR MORE GLIDES (overlaid lines, a
+// caller's own trace through uui_chart_glide_px()): a narrower one would
+// move its one pixel just before the sample that moves it anyway, for a
+// wake per sample and nothing seen. So the main series' one column per
+// sample, a narrow chart, and fit mode step as before.
 
 #define UUI_CHART_MAX 180
 #define UUI_CHART_MARKS 8
 #define UUI_CHART_SERIES 4
+#define UUI_CHART_GLIDE_MIN_Q16 (2 << 16)   // the narrowest column that glides, 16.16
 
 // One overlaid line. `name` and `value` are the caller's, uncopied, as
 // the chart's own label and value are.
@@ -136,6 +151,35 @@ struct uui_chart {
     // change. NULL measures the readings as they are.
     const char *legend_widest;
     uint32_t legend_bg;      // UUI_COLOR_UNSET: the panel's
+
+    // GLIDING (uui_chart_set_smooth(), above). `newest_ns` is when the
+    // newest sample was pushed (uui_anim_now_ns()); `shift` the whole
+    // pixels the trace has moved since, as uui_chart_glide() last set it.
+    // `glides` counts the moves since that push and `glides_last` those
+    // between the two before it -- what the describe op reports, so a
+    // test sees the motion without a log line per frame.
+    int smooth;
+    unsigned long long newest_ns;
+    int shift, glides, glides_last, glide_roll;
+
+    // Lines mode: the pointer's x over the plot, or -1. A position, not
+    // a sample -- under a gliding trace the sample there changes
+    // (uui_chart_hover_back()).
+    int hover_x;
+
+    // THE LEGEND, MEASURED ONCE and kept until what it was measured from
+    // changes: the size, the font, `legend_widest`, or a line's words
+    // (uui_chart_set_line_label() -- a reading changed in place without
+    // it keeps its old width). A CACHE, written through a const chart
+    // like Qt's `mutable`. `legend_measures` counts measurings, for a test.
+    struct {
+        int valid, w, h, nlines, ch, adv;
+        const void *font, *widest;
+        unsigned gen;
+        int n, cell_w, per_row, rows, line_h, sq, gap, name_w, lh;
+    } legend_memo;
+    unsigned legend_gen;
+    int legend_measures;
 };
 
 void uui_chart_init(struct uui_chart *c, const char *label);
@@ -173,13 +217,20 @@ void uui_chart_set_value(struct uui_chart *c, const char *value);
 
 uint32_t uui_chart_last(const struct uui_chart *c);
 
-// Which sample the pointer is over, as an index into the drawn series
-// (0 = oldest drawn), or -1. With uui_chart_sample() this is what lets
-// an app print the hovered reading in its own units.
+// Which sample the pointer is over, as an index into the drawn MAIN
+// series (0 = oldest drawn), or -1. With uui_chart_sample() this is what
+// lets an app print the hovered reading in its own units. -1 in lines
+// mode, which draws no main series: there uui_chart_hover_back() names
+// the sample, for uui_chart_line_recent().
 int uui_chart_hover_index(const struct uui_chart *c);
 uint32_t uui_chart_sample(const struct uui_chart *c, int i);
-// How many samples are actually DRAWN -- min(count, width).
+// How many main-series samples are actually DRAWN -- min(count, width);
+// 0 in lines mode.
 int uui_chart_drawn(const struct uui_chart *c);
+// Lines mode: how many pushes ago the sample under the pointer is (0 =
+// the newest), counting the glide, or -1 -- off the plot, or no lines.
+// Whether a given line HAS a sample that old is uui_chart_line_count()'s.
+int uui_chart_hover_back(const struct uui_chart *c);
 // The sample `back` pushes ago (0 = the newest), or 0 past the history.
 // Independent of the chart's WIDTH, unlike uui_chart_sample(): a chart
 // that is never laid out -- a trace drawn somewhere else, like Task
@@ -208,6 +259,31 @@ int  uui_chart_line_count(const struct uui_chart *c, int k);
 // current geometry; 0 when there is none (no lines, or no room: the
 // legend never takes more than half the chart's height).
 int  uui_chart_legend_rect(const struct uui_chart *c, int k, int *x, int *y, int *w, int *h);
+
+// --- gliding (see the top of this file) ----------------------------------
+//
+// On: the trace glides and runs one sample behind, where its column is
+// wide enough to glide. Off (the default) is stepped, exactly as before.
+// Ignored in fit mode.
+void uui_chart_set_smooth(struct uui_chart *c, int on);
+// The offset, in whole pixels, of a trace whose columns are `col_q16`
+// wide (16.16 fixed point) at `now_ns`: the share of the interval since
+// the newest push times a column, 0 just after a push, at most one whole
+// column -- where it waits if the next sample is late. 0 when the chart
+// does not glide (off, fit mode, no interval, nothing pushed yet, or a
+// column under UUI_CHART_GLIDE_MIN_Q16).
+int uui_chart_glide_px(const struct uui_chart *c, int32_t col_q16, unsigned long long now_ns);
+// Milliseconds from `now_ns` until that offset next changes, at least 1;
+// -1 when it will not before the next sample.
+int uui_chart_glide_wait_ms(const struct uui_chart *c, int32_t col_q16, unsigned long long now_ns);
+// The chart's own column, 16.16: a plot's width over the ring in lines
+// mode, 0 for one column per sample (the main series) and fit mode.
+int32_t uui_chart_col_q16(const struct uui_chart *c);
+// THE OWNER'S CLOCK HAND: `shift` brought to `now_ns`. 1 when it moved
+// -- repaint; 0 when the frame would be the same. Call it again after
+// uui_chart_glide_next_ms(), never on a fixed timer.
+int uui_chart_glide(struct uui_chart *c, unsigned long long now_ns);
+int uui_chart_glide_next_ms(const struct uui_chart *c, unsigned long long now_ns);
 
 void uui_chart_natural_size(const struct uui_chart *c, int *out_w, int *out_h);
 void uui_chart_set_geometry(struct uui_chart *c, int x, int y, int w, int h);

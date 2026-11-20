@@ -2,6 +2,7 @@
 #include "ui/uui_chart.h"
 #include "ui/utheme.h"
 #include "ui/uui_primitives.h"   // uui_hit -- the pointer is inside the plot
+#include "ui/uui_anim.h"   // uui_anim_now_ns(): when a sample was pushed
 #include "geom.h"   // enum geom_aa -- a line is drawn ALIASED here
 #include "base/unum.h"
 #include <stdio.h>
@@ -29,6 +30,10 @@ void uui_chart_init(struct uui_chart *c, const char *label) {
     c->nlines = 0;
     c->legend_widest = NULL;
     c->legend_bg = UUI_COLOR_UNSET;
+    c->smooth = 0;
+    c->legend_memo.valid = 0;
+    c->legend_gen = 0;
+    c->legend_measures = 0;
     uui_chart_clear(c);
 }
 
@@ -41,6 +46,16 @@ void uui_chart_clear(struct uui_chart *c) {
     c->cur_series = 0;
     c->mark_n = 0;
     c->hover = -1;
+    c->hover_x = -1;
+    c->newest_ns = 0;
+    c->shift = c->glides = c->glides_last = c->glide_roll = 0;
+}
+
+// A sample arrived: the glide starts again from it.
+static void stamp(struct uui_chart *c) {
+    c->newest_ns = uui_anim_now_ns();
+    c->shift = 0;
+    c->glide_roll = 1;   // uui_chart_glide() files the count away, once per sample
 }
 
 void uui_chart_set_fit(struct uui_chart *c, int on) {
@@ -104,6 +119,7 @@ void uui_chart_push_split(struct uui_chart *c, uint32_t total, uint32_t part) {
     }
     if (part > total) part = total;
     if (part) c->has_parts = 1;   // a component cannot exceed its whole
+    stamp(c);
     c->samples[c->head] = total;
     c->parts[c->head] = part;
     c->head = (c->head + 1) % UUI_CHART_MAX;
@@ -120,8 +136,11 @@ uint32_t uui_chart_last(const struct uui_chart *c) {
     return c->samples[(c->head + UUI_CHART_MAX - 1) % UUI_CHART_MAX];
 }
 
+static int lines_on(const struct uui_chart *c);
+
 int uui_chart_drawn(const struct uui_chart *c) {
     if (c->fit) return c->count;
+    if (lines_on(c)) return 0;   // the main series is filled, never drawn
     int n = c->count < c->w ? c->count : c->w;
     return n < 0 ? 0 : n;
 }
@@ -144,7 +163,7 @@ uint32_t uui_chart_recent(const struct uui_chart *c, int back) {
     return c->samples[(c->head + UUI_CHART_MAX - 1 - back) % UUI_CHART_MAX];
 }
 
-int uui_chart_hover_index(const struct uui_chart *c) { return c->hover; }
+int uui_chart_hover_index(const struct uui_chart *c) { return lines_on(c) ? -1 : c->hover; }
 
 // --- overlaid lines ----------------------------------------------------------
 
@@ -159,6 +178,7 @@ int uui_chart_set_lines(struct uui_chart *c, int n) {
         for (int k = n; k < c->nlines; k++) free(c->lines[k].ring);
         c->nlines = n;
         if (!n) { free(c->lines); c->lines = NULL; }
+        c->legend_gen++;
         return 1;   // a shrink keeps the larger block: nothing to fail
     }
     struct uui_chart_line *l = realloc(c->lines, (size_t)n * sizeof *l);
@@ -173,12 +193,14 @@ int uui_chart_set_lines(struct uui_chart *c, int n) {
         l[k] = (struct uui_chart_line){ .ring = ring, .color = UUI_COLOR_UNSET };
     }
     c->nlines = n;
+    c->legend_gen++;
     return 1;
 }
 
 void uui_chart_push_line(struct uui_chart *c, int k, uint32_t value) {
     if (k < 0 || k >= c->nlines) return;
     struct uui_chart_line *l = &c->lines[k];
+    stamp(c);
     l->ring[l->head] = value;
     l->head = (l->head + 1) % UUI_CHART_MAX;
     if (l->count < UUI_CHART_MAX) l->count++;
@@ -188,6 +210,7 @@ void uui_chart_set_line_label(struct uui_chart *c, int k, const char *name, cons
     if (k < 0 || k >= c->nlines) return;
     c->lines[k].name = name;
     c->lines[k].value = value;
+    c->legend_gen++;   // what the legend measured may have changed
 }
 
 void uui_chart_set_line_color(struct uui_chart *c, int k, uint32_t color) {
@@ -241,24 +264,45 @@ static int legend_value_w(const struct uui_chart *c) {
     return w;
 }
 
+// MEASURED ONCE (uui_chart.h's legend_memo): every legend rect, the
+// draw and the plot ask for it, which was a font swap and a measuring of
+// every name and reading per ask -- n squared a frame at sixteen lines.
 static void legend_of(const struct uui_chart *c, struct legend *L) {
     *L = (struct legend){ 0 };
     if (!lines_on(c) || c->compact) return;
-    int ch = ugfx_char_h();
-    L->line_h = ch + ch / 4;
-    L->sq = ch * 3 / 5;
-    L->gap = ch / 3 > 2 ? ch / 3 : 2;
-    for (int k = 0; k < c->nlines; k++)
-        if (c->lines[k].name && ugfx_text_width(c->lines[k].name) > L->name_w)
-            L->name_w = ugfx_text_width(c->lines[k].name);
-    L->cell_w = L->sq + L->gap + L->name_w + L->gap + legend_value_w(c) + ch;
-    L->per_row = c->w / L->cell_w > 0 ? c->w / L->cell_w : 1;
-    L->rows = (c->nlines + L->per_row - 1) / L->per_row;
-    L->h = L->rows * L->line_h + ch / 4;
-    // NEVER MORE THAN HALF THE BOX: a legend that ate the plot would be
-    // a list of names for a graph nobody can see.
-    if (L->h > c->h / 2) { L->h = 0; return; }
-    L->n = c->nlines;
+    struct uui_chart *m = (struct uui_chart *)c;   // the memo alone is written
+    int ch = ugfx_char_h(), adv = ugfx_char_advance('n');
+    const void *font = ugfx_font_current();
+    __typeof__(m->legend_memo) *k = &m->legend_memo;
+    if (!(k->valid && k->w == c->w && k->h == c->h && k->nlines == c->nlines && k->ch == ch &&
+          k->adv == adv && k->font == font && k->widest == (const void *)c->legend_widest &&
+          k->gen == c->legend_gen)) {
+        struct legend M = { 0 };
+        M.line_h = ch + ch / 4;
+        M.sq = ch * 3 / 5;
+        M.gap = ch / 3 > 2 ? ch / 3 : 2;
+        for (int i = 0; i < c->nlines; i++)
+            if (c->lines[i].name && ugfx_text_width(c->lines[i].name) > M.name_w)
+                M.name_w = ugfx_text_width(c->lines[i].name);
+        M.cell_w = M.sq + M.gap + M.name_w + M.gap + legend_value_w(c) + ch;
+        M.per_row = c->w / M.cell_w > 0 ? c->w / M.cell_w : 1;
+        M.rows = (c->nlines + M.per_row - 1) / M.per_row;
+        M.h = M.rows * M.line_h + ch / 4;
+        // NEVER MORE THAN HALF THE BOX: a legend that ate the plot would be
+        // a list of names for a graph nobody can see.
+        if (M.h > c->h / 2) M.h = 0;
+        else M.n = c->nlines;
+        *k = (__typeof__(*k)){ .valid = 1, .w = c->w, .h = c->h, .nlines = c->nlines, .ch = ch,
+                               .adv = adv, .font = font, .widest = c->legend_widest,
+                               .gen = c->legend_gen, .n = M.n, .cell_w = M.cell_w,
+                               .per_row = M.per_row, .rows = M.rows, .line_h = M.line_h,
+                               .sq = M.sq, .gap = M.gap, .name_w = M.name_w, .lh = M.h };
+        m->legend_measures++;
+    }
+    L->line_h = k->line_h; L->sq = k->sq; L->gap = k->gap; L->name_w = k->name_w;
+    L->cell_w = k->cell_w; L->per_row = k->per_row; L->rows = k->rows;
+    L->h = k->lh;
+    L->n = k->n;
     L->top = c->y + c->h - L->h;
 }
 
@@ -372,7 +416,7 @@ static void tick_text(const struct uui_chart *c, uint32_t v, uint32_t step, char
 // the caption row; under a strip for the mark labels and the axis unit
 // when either is shown, so no trace can cross a word; right of the tick
 // gutter when there is an axis.
-struct plot { int x0, w, top, bot, strip_y; uint32_t top_val, step; };
+struct plot { int x0, w, top, bot, strip_y; uint32_t top_val, step; int behind; };
 static uint32_t scale_of(const struct uui_chart *c);
 static void plot_of(const struct uui_chart *c, struct plot *p) {
     int ch = ugfx_char_h();
@@ -389,6 +433,9 @@ static void plot_of(const struct uui_chart *c, struct plot *p) {
     if (p->bot - p->top < 4) { p->top = c->y; p->bot = c->y + bh - 1; p->strip_y = -1; }
     p->top_val = scale_of(c);
     p->step = 0;
+    // GLIDING runs one sample behind -- only where it can glide at all.
+    p->behind = c->smooth && lines_on(c) && p->w > 4 &&
+                (((int64_t)(p->w - 4) << 16) / (UUI_CHART_MAX - 1)) >= UUI_CHART_GLIDE_MIN_Q16;
     if (!axis) return;
     p->step = nice_step(p->top_val);
     p->top_val = (p->top_val + p->step - 1) / p->step * p->step;
@@ -444,26 +491,38 @@ static void draw_fit(struct ugfx_surface *s, const struct uui_chart *c,
 }
 
 // OVERLAID LINES: the x of the sample `back` pushes ago. A whole ring
-// spans the plot, newest at the right edge, whatever the width.
-static int line_x(const struct plot *p, int back) {
-    return p->x0 + p->w - 2 - (int)((int64_t)(p->w - 4) * back / (UUI_CHART_MAX - 1));
+// spans the plot, newest at the right edge, whatever the width -- or,
+// GLIDING, the sample BEFORE the newest there, everything `shift` pixels
+// further left, and the newest coming in from past the edge.
+static int64_t floor_div(int64_t n, int64_t d) {
+    int64_t q = n / d;
+    return (n % d && (n < 0) != (d < 0)) ? q - 1 : q;
 }
-static int line_back_at(const struct plot *p, int x) {
+static int line_x(const struct uui_chart *c, const struct plot *p, int back) {
+    int64_t q = floor_div((int64_t)(p->w - 4) * (back - p->behind), UUI_CHART_MAX - 1);
+    return p->x0 + p->w - 2 - (int)q - (p->behind ? c->shift : 0);
+}
+static int line_back_at(const struct uui_chart *c, const struct plot *p, int x) {
     int w = p->w - 4 > 1 ? p->w - 4 : 1;
-    return (int)(((int64_t)(p->x0 + p->w - 2 - x) * (UUI_CHART_MAX - 1) + w / 2) / w);
+    int64_t d = (int64_t)(p->x0 + p->w - 2 - x - (p->behind ? c->shift : 0)) * (UUI_CHART_MAX - 1);
+    return (int)floor_div(d + w / 2, w) + p->behind;
 }
 
 // Each line two pixels thick, as fit mode's; the first line drawn LAST,
-// so CPU 0 is never the one hidden where two lines meet.
+// so CPU 0 is never the one hidden where two lines meet. Gliding, the
+// newest segment and the oldest run past the plot's edges: clipped.
 static void draw_lines(struct ugfx_surface *s, const struct uui_chart *c, const struct plot *p) {
     int bot = p->bot, ph = bot - p->top;
+    struct ugfx_clip was;
+    ugfx_clip_save(s, &was);
+    if (p->behind) ugfx_clip_intersect(s, p->x0 + 1, c->y + 1, p->w - 2, body_h(c) - 2);
     for (int k = c->nlines - 1; k >= 0; k--) {
         uint32_t col = uui_chart_line_color(c, k);
         int n = c->lines[k].count, px = 0, py = 0;
         for (int b = n - 1; b >= 0; b--) {   // oldest first, left to right
             uint32_t v = uui_chart_line_recent(c, k, b);
             if (v > p->top_val) v = p->top_val;
-            int x = line_x(p, b);
+            int x = line_x(c, p, b);
             int y = bot - 1 - (int)((uint64_t)(ph - 2) * v / p->top_val);
             if (b < n - 1) {
                 ugfx_draw_line(s, px, py, x, y, col, GEOM_AA);
@@ -475,6 +534,7 @@ static void draw_lines(struct ugfx_surface *s, const struct uui_chart *c, const 
             py = y;
         }
     }
+    ugfx_clip_restore(s, &was);
 }
 
 // The tick gutter: a value at each gridline, the unit above the top one.
@@ -539,8 +599,9 @@ void uui_chart_draw(struct ugfx_surface *s, const struct uui_chart *c) {
     }
     if (lines_on(c)) {
         draw_lines(s, c, &p);
-        if (c->hover >= 0 && c->hover < UUI_CHART_MAX) {
-            int hx = line_x(&p, UUI_CHART_MAX - 1 - c->hover);
+        int back = uui_chart_hover_back(c);
+        if (back >= 0) {
+            int hx = line_x(c, &p, back);
             ugfx_draw_line(s, hx, top, hx, bot, edge, GEOM_ALIASED);
         }
         goto frame;
@@ -613,6 +674,74 @@ frame:
     }
 }
 
+int uui_chart_hover_back(const struct uui_chart *c) {
+    if (!lines_on(c) || c->hover_x < 0) return -1;
+    struct plot p;
+    plot_of(c, &p);
+    if (c->hover_x < p.x0 || c->hover_x >= p.x0 + p.w) return -1;
+    int back = line_back_at(c, &p, c->hover_x);
+    return back >= 0 && back < UUI_CHART_MAX ? back : -1;
+}
+
+// --- gliding -------------------------------------------------------------
+
+static int gliding(const struct uui_chart *c) {
+    return c->smooth && !c->fit && c->sample_ms > 0 && c->newest_ns;
+}
+
+int uui_chart_glide_px(const struct uui_chart *c, int32_t col_q16, unsigned long long now_ns) {
+    if (!gliding(c) || col_q16 < UUI_CHART_GLIDE_MIN_Q16 || now_ns <= c->newest_ns) return 0;
+    unsigned long long span = (unsigned long long)c->sample_ms * 1000000ull;
+    unsigned long long el = now_ns - c->newest_ns;
+    if (el > span) el = span;   // a late sample: wait a column on, never guess past it
+    return (int)((el * (unsigned long long)col_q16 / span) >> 16);
+}
+
+int uui_chart_glide_wait_ms(const struct uui_chart *c, int32_t col_q16, unsigned long long now_ns) {
+    if (!gliding(c) || col_q16 < UUI_CHART_GLIDE_MIN_Q16) return -1;
+    int px = uui_chart_glide_px(c, col_q16, now_ns);
+    if (px >= (col_q16 >> 16)) return -1;   // a column on: the next push moves it
+    unsigned long long span = (unsigned long long)c->sample_ms * 1000000ull;
+    // The first instant the offset reaches px + 1: el * col >= (px + 1) * span.
+    unsigned long long need = ((((unsigned long long)px + 1) << 16) * span +
+                               (unsigned long long)col_q16 - 1) / (unsigned long long)col_q16;
+    unsigned long long el = now_ns > c->newest_ns ? now_ns - c->newest_ns : 0;
+    if (need <= el) return 1;
+    unsigned long long ms = (need - el + 999999ull) / 1000000ull;
+    return ms < 1 ? 1 : (int)ms;
+}
+
+int32_t uui_chart_col_q16(const struct uui_chart *c) {
+    if (!lines_on(c)) return 0;   // one column per sample has nowhere to glide
+    struct plot p;
+    plot_of(c, &p);
+    return p.w > 4 ? (int32_t)(((int64_t)(p.w - 4) << 16) / (UUI_CHART_MAX - 1)) : 0;
+}
+
+int uui_chart_glide(struct uui_chart *c, unsigned long long now_ns) {
+    if (c->glide_roll) {
+        c->glides_last = c->glides;
+        c->glides = 0;
+        c->glide_roll = 0;
+    }
+    int px = uui_chart_glide_px(c, uui_chart_col_q16(c), now_ns);
+    if (px == c->shift) return 0;
+    c->shift = px;
+    c->glides++;
+    return 1;
+}
+
+int uui_chart_glide_next_ms(const struct uui_chart *c, unsigned long long now_ns) {
+    return uui_chart_glide_wait_ms(c, uui_chart_col_q16(c), now_ns);
+}
+
+void uui_chart_set_smooth(struct uui_chart *c, int on) {
+    on = on ? 1 : 0;
+    if (c->smooth == on) return;
+    c->smooth = on;
+    c->shift = c->glides = c->glides_last = c->glide_roll = 0;
+}
+
 // --- the ops table ----------------------------------------------------
 
 static void chart_natural_op(const void *w, int *out_w, int *out_h) {
@@ -642,9 +771,10 @@ static int chart_hit_op(const void *w, int cx, int cy) {
 static int chart_motion_op(void *w, int cx, int cy, unsigned buttons) {
     (void)buttons;
     struct uui_chart *c = (struct uui_chart *)w;
-    int was = c->hover;
+    int was = c->hover, was_back = uui_chart_hover_back(c);
     if (!uui_hit(c->x, c->y, c->w, c->h, cx, cy)) {
         c->hover = -1;
+        c->hover_x = -1;
     } else if (c->fit) {
         struct plot p;
         plot_of(c, &p);
@@ -652,25 +782,27 @@ static int chart_motion_op(void *w, int cx, int cy, unsigned buttons) {
         int i = p.w > 5 ? (int)((int64_t)(cx - p.x0 - 2) * span / (p.w - 5)) : -1;
         c->hover = (c->count > 0 && i >= 0 && i < c->count) ? i : -1;
     } else if (lines_on(c)) {
-        // A position on the fixed axis, 0 the left edge: whether a line
-        // has a sample there is the line's question (uui_chart_line_recent()).
-        struct plot p;
-        plot_of(c, &p);
-        int back = line_back_at(&p, cx);
-        c->hover = cy < c->y + body_h(c) && back >= 0 && back < UUI_CHART_MAX
-                 ? UUI_CHART_MAX - 1 - back : -1;
+        // A POSITION, kept as one: under a gliding trace the sample there
+        // changes while the pointer rests (uui_chart_hover_back()).
+        c->hover_x = cy < c->y + body_h(c) ? cx : -1;
+        return uui_chart_hover_back(c) != was_back;   // the marker moved a column
     } else {
         int n = uui_chart_drawn(c);
         int i = cx - (c->x + c->w - n);
         c->hover = (n > 0 && i >= 0 && i < n) ? i : -1;
     }
-    return c->hover != was;
+    return c->hover != was || uui_chart_hover_back(c) != was_back;
 }
 
-// The legend, for a test: how many lines, each entry's box, and the
-// reading it shows -- `<name>.legend_value <k> <text>`.
+// For a test: the interval and the glide (above), and in lines mode the
+// legend -- how many lines, each entry's box, and the reading it shows,
+// `<name>.legend_value <k> <text>`.
 static void chart_describe_op(const void *w, const struct uui_describe *d) {
     const struct uui_chart *c = (const struct uui_chart *)w;
+    // The interval the span caption is in, and the moves between the
+    // last two samples -- once per sample, so the log is not a line a frame.
+    if (c->sample_ms) uui_describe_int(d, "interval", c->sample_ms);
+    if (c->smooth) uui_describe_int(d, "glides", c->glides_last);
     if (!lines_on(c)) return;
     uui_describe_int(d, "lines", c->nlines);
     for (int k = 0; k < c->nlines; k++) {

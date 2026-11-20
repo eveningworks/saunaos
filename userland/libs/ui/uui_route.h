@@ -216,6 +216,11 @@ int uui_router_wheel(struct uui_router *r, int cx, int cy, int notches,
 // Hidden items are skipped, so hiding a widget removes it from the
 // picture and from hit-testing with one flag.
 void uui_router_draw(struct uui_router *r, struct ugfx_surface *s);
+// uapp's PARTIAL frame (uapp_redraw_rect()): [x0,x1) x [y0,y1) is all that
+// is repainted, so a widget wholly outside it is not drawn at all --
+// clipping it a pixel at a time would cost what the rect saves. All 0
+// ends it. Not for an app: the clip and the copied frame are uapp's.
+void uui_router_paint_rect(int x0, int y0, int x1, int y1);
 
 // Whether drawing the router also draws `layout`: it routes an item
 // holding the layout, or every visible item the layout holds. uapp then
