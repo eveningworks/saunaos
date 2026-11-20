@@ -220,13 +220,14 @@ int main(int argc, char **argv) {
     }
 
     // The MADT's processors, if there was a MADT, and which the kernel
-    // started -- `online` means started and parked until SMP stage 5.
+    // started; `scheduling`, which run processes (all online ones unless smp=park).
     put("\nProcessors (MADT):\n");
-    int n = 0, online = 0;
+    int n = 0, online = 0, scheduling = 0;
     struct query_cpu c;
     QUERY_FOREACH(QUERY_CPUS, c, i) {
         n++;
         if (c.flags & QUERY_CPU_ONLINE) online++;
+        if (c.flags & QUERY_CPU_SCHEDULING) scheduling++;
         snprintf(line, sizeof line, "  cpu%-3u  %s id %-4llu  acpi id %-4llu  %s  online: %s\n",
                  i, (c.flags & QUERY_CPU_X2APIC) ? "x2apic" : "apic  ",
                  (unsigned long long)c.apic_id, (unsigned long long)c.acpi_id,
@@ -239,11 +240,15 @@ int main(int argc, char **argv) {
         put("  none listed -- no MADT on this machine\n");
     } else {
         snprintf(line, sizeof line,
-                 "  %d listed, %d online, %llu I/O APIC(s), local APIC at 0x%llx\n"
-                 "  The scheduler runs on one core; the others are parked.\n",
+                 "  %d listed, %d online, %llu I/O APIC(s), local APIC at 0x%llx\n",
                  n, online, (unsigned long long)a.ioapic_count,
                  (unsigned long long)a.lapic_phys);
         put(line);
+        if (online > 1 && scheduling < online) {
+            snprintf(line, sizeof line, "  Processes run on %d of them; the others are parked "
+                     "(smp=park).\n", scheduling ? scheduling : 1);
+            put(line);
+        }
     }
 
     return 0;

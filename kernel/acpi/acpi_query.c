@@ -189,7 +189,8 @@ static int cpu_fill(int index, void *out) {
     q->acpi_id = c->acpi_id;
     q->apic_id = c->apic_id;
     // The firmware's facts, then the kernel's own state: started or not.
-    q->flags   = c->flags | (smp_apic_online(c->apic_id) ? QUERY_CPU_ONLINE : 0);
+    q->flags   = c->flags | (smp_apic_online(c->apic_id) ? QUERY_CPU_ONLINE : 0) |
+                 (smp_apic_scheduling(c->apic_id) ? QUERY_CPU_SCHEDULING : 0);
     return 1;
 }
 

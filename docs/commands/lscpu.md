@@ -60,12 +60,12 @@ from the ACPI MADT, over `QUERY_CPUS`. A machine whose firmware supplied
 no MADT reports `1 (no ACPI MADT -- nothing counted the others)`, which
 is honest rather than a guess.
 
-The `online` count is the cores the kernel STARTED: since SMP stage 3
-every core the firmware enabled is brought up and parked, so a four-core
-guest (`make run CPUS=4`) reads `4 (4 enabled by firmware, 4 online,
-scheduling on 1)`. The scheduler still runs on the boot core alone
-until stage 5 of `docs/smp-design.md`; `nosmp` or `maxcpus=N` on the
-kernel command line starts fewer. `acpi` prints the per-core detail.
+The `online` count is the cores the kernel STARTED: every core the
+firmware enabled is brought up, and each runs processes, so a four-core
+guest (`make run CPUS=4`) reads `4 (4 enabled by firmware, 4 online)`.
+Booted with `smp=park` the others are started but run nothing, and the
+line adds `scheduling on 1`. `nosmp` or `maxcpus=N` on the kernel
+command line starts fewer (`docs/smp-design.md`). `acpi` prints the per-core detail.
 
 ## See also
 

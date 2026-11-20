@@ -26,6 +26,8 @@ const struct cpu *smp_cpu_at(int index);
 // APIC id is one of them -- QUERY_CPUS's QUERY_CPU_ONLINE.
 int smp_online_count(void);
 int smp_apic_online(uint32_t apic_id);
+// ...and whether it picks processes: QUERY_CPU_SCHEDULING.
+int smp_apic_scheduling(uint32_t apic_id);
 
 // Where the AP trampoline was (0 if none) -- for smp_test.c, which
 // checks the page went back to writable and NX.

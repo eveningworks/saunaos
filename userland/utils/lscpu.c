@@ -234,17 +234,19 @@ int main(int argc, char **argv) {
     // CPUID describes THE CORE THIS CODE IS RUNNING ON and cannot count
     // the others; the ACPI MADT is the only thing that can, which is
     // why this comes from a different source than everything above.
-    // `online` is what the kernel started; until SMP stage 5 the others
-    // are parked, so the scheduler still runs on one.
+    // `online` is what the kernel started; `scheduling` what runs
+    // processes -- every online core, unless smp=park parked the others.
     {
-        int cores = 0, enabled = 0, online = 0;
+        int cores = 0, enabled = 0, online = 0, scheduling = 0;
         struct query_cpu c;
         QUERY_FOREACH(QUERY_CPUS, c, i) {
             cores++;
             if (c.flags & QUERY_CPU_ENABLED) enabled++;
             if (c.flags & QUERY_CPU_ONLINE) online++;
+            if (c.flags & QUERY_CPU_SCHEDULING) scheduling++;
         }
         if (online == 0) online = 1;   // a kernel older than QUERY_CPU_ONLINE
+        if (scheduling == 0) scheduling = 1;   // ...or than QUERY_CPU_SCHEDULING
         put_label("Logical CPUs");
         if (cores == 0) {
             put("1  (no ACPI MADT -- nothing counted the others)\n");
@@ -255,7 +257,10 @@ int main(int argc, char **argv) {
             put(" enabled by firmware, ");
             put_udec((uint32_t)online);
             put(" online");
-            if (online > 1) put(", scheduling on 1");
+            if (online > 1 && scheduling < online) {
+                put(", scheduling on ");
+                put_udec((uint32_t)scheduling);
+            }
             put(")\n");
         }
     }

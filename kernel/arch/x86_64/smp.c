@@ -119,6 +119,14 @@ int smp_apic_online(uint32_t apic_id) {
     return 0;
 }
 
+int smp_apic_scheduling(uint32_t apic_id) {
+    for (int i = 0; i < smp_cpu_count(); i++) {
+        const struct cpu *c = smp_cpu_at(i);
+        if (c && c->apic_id == apic_id) return c->index == 0 || c->state == CPU_RUNNING;
+    }
+    return 0;
+}
+
 uint64_t smp_trampoline_phys(void) { return g_tramp_phys; }
 
 static void delay_us(uint64_t us) {

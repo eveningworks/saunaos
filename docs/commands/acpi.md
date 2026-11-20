@@ -31,10 +31,10 @@ port write and then halt.
 
 The other half is the processor list, which comes from the MADT rather
 than from CPUID: CPUID describes the core running the instruction and
-cannot count the others. `online: yes` marks a core the kernel started;
-until stage 5 of `docs/smp-design.md` the others are parked and the
-scheduler runs on the boot core alone. `nosmp` or `maxcpus=N` on the
-kernel command line starts fewer.
+cannot count the others. `online: yes` marks a core the kernel started,
+and every online core runs processes (`docs/smp-design.md`) -- unless
+the boot said `smp=park`, when a line says how many do. `nosmp` or
+`maxcpus=N` on the kernel command line starts fewer.
 
 ## `--dump`: the raw bytes of one table
 
@@ -106,7 +106,6 @@ controller's AML (`docs/aml-design.md`).
       cpu0    apic   id 0     acpi id 0     enabled   online: yes
       cpu1    apic   id 1     acpi id 1     enabled   online: yes
       2 listed, 2 online, 1 I/O APIC(s), local APIC at 0xfee00000
-      The scheduler runs on one core; the others are parked.
 
 A machine with no ACPI at all prints that plainly and says the poweroff
 will halt instead — a real supported state, not a failure.

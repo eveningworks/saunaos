@@ -1805,6 +1805,7 @@ struct query_cpu {
 #define QUERY_CPU_ONLINE_CAPABLE (1u << 1) // ...or could be brought up later
 #define QUERY_CPU_X2APIC         (1u << 2) // from a type-9 entry, not type 0
 #define QUERY_CPU_ONLINE         (1u << 3) // the kernel started it (the BSP always is)
+#define QUERY_CPU_SCHEDULING     (1u << 4) // it runs processes (the BSP always; an AP under smp=run)
 
 // --- QUERY_CRASH record -------------------------------------------------
 
