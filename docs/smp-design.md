@@ -478,6 +478,9 @@ ap-gp-fault`, on a scheduling and a parked core.
 debug console's `cpus` over `QUERY_CPUSTATE` (`smp_query.c`) -- what had
 to be read through QEMU's gdbstub before (`docs/commands/cpus.md`).
 
+**`make DEBUG_PREEMPT=1` checks every per-core read** (2026-11-20),
+Linux's `CONFIG_DEBUG_PREEMPT` (`docs/conventions/kernel.md`).
+
 **Not yet**: the kdebug roundup (a stub stop halts core 0 only) and lockup
 reports from an AP. Per-core load is read since 2026-11-20:
 `QUERY_CORELOAD` (`kernel/proc/cpuload_query.c`) reports each online

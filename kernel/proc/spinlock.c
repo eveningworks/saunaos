@@ -20,12 +20,19 @@ void spin_percpu_ready(void) { g_percpu_ready = 1; }
 
 // One %gs load, so a migration cannot hand back the core it left
 // (sched_internal.h's per-core fields, the same rule).
-uint32_t spin_cpu_index(void) {
+uint32_t spin_cpu_index_raw(void) {
     if (!g_percpu_ready) return 0;
     uint32_t i;
     __asm__ volatile ("movl %%gs:%c1, %0" : "=r"(i) : "i"(__builtin_offsetof(struct cpu, index))
                       : "memory");
     return i;
+}
+
+uint32_t spin_cpu_index(void) {
+#ifdef SAUNAOS_DEBUG_PREEMPT
+    debug_preempt_check((uintptr_t)__builtin_return_address(0));
+#endif
+    return spin_cpu_index_raw();
 }
 
 static unsigned g_lockups;

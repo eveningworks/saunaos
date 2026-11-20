@@ -204,7 +204,7 @@ CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-protector-gu
          -mno-red-zone -mcmodel=kernel -mno-mmx -mno-sse -mno-sse2 \
          -fno-asynchronous-unwind-tables \
          -Wall -Wextra -Wframe-larger-than=1024 -O2 -g -c $(KERNEL_INCLUDES) -Ikernel/shell -MMD -MP \
-         $(UBSAN_FOR) $(KASAN_FOR)
+         $(UBSAN_FOR) $(KASAN_FOR) $(DEBUG_PREEMPT_DEFS)
 
 # kernel/shell/ gets a looser frame budget than kernel/ on purpose. The tight
 # 1024 above bounds what runs on a PER-PROCESS kernel stack -- i.e. what
@@ -897,12 +897,21 @@ KASAN_EXCLUDE = kernel/lib/kasan.c kernel/mm/kasan_shadow.c kernel/lib/heap_core
                 kernel/mm/pmm.c kernel/arch/x86_64/reloc.c kernel/debug/%
 KASAN_FOR = $(if $(filter 1,$(KASAN)),$(KASAN_DEFS) $(if $(filter $(KASAN_EXCLUDE),$<),,$(KASAN_CFLAGS)))
 
+# --- DEBUG_PREEMPT=1: per-core reads checked for preemption, OFF by default
+# Linux's CONFIG_DEBUG_PREEMPT: this_cpu() and spin_cpu_index() log each
+# call site that reads per-core state while it could be preempted and
+# moved to another core (kernel/proc/preempt_debug.c). The kernel only;
+# ring 3 has no per-core reads.
+DEBUG_PREEMPT ?=
+DEBUG_PREEMPT_DEFS = $(if $(filter 1,$(DEBUG_PREEMPT)),-DSAUNAOS_DEBUG_PREEMPT=1)
+
 # A prerequisite of EVERY compile rule, for the reason the two stamps
 # above exist: the .d files track headers, not flags. One stamp for both
 # sanitizers.
 $(BUILD)/.sanitize-flag: FORCE
 	@mkdir -p $(dir $@)
-	@echo 'UBSAN=$(UBSAN) KASAN=$(KASAN)' | cmp -s - $@ || echo 'UBSAN=$(UBSAN) KASAN=$(KASAN)' > $@
+	@echo 'UBSAN=$(UBSAN) KASAN=$(KASAN) DEBUG_PREEMPT=$(DEBUG_PREEMPT)' | cmp -s - $@ || \
+	    echo 'UBSAN=$(UBSAN) KASAN=$(KASAN) DEBUG_PREEMPT=$(DEBUG_PREEMPT)' > $@
 
 $(BUILD)/%.o: %.c $(BUILD)/.sanitize-flag
 	@mkdir -p $(dir $@)

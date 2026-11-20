@@ -39,9 +39,14 @@ static struct cpu *here(void) {
     return spin_cpu_index() ? this_cpu() : gdt_boot_cpu();
 }
 
+// ONE CORE'S, interrupts off: moved between the write and the record,
+// a thread recorded its space on the core it had left, and a shootdown
+// for what that core really runs could then miss it.
 void tlb_load_cr3(uint64_t pml4_phys) {
+    uint64_t f = irq_save();
     write_cr3(pml4_phys);
     here()->cr3 = pml4_phys;
+    irq_restore(f);
 }
 
 void tlb_service(void) {

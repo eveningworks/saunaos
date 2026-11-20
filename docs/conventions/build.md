@@ -540,6 +540,14 @@ this the obvious way), not from how much history it accumulated.
   iso`**, which re-seeds your `disk.img`: the tool builds a copy of the
   tree in scratch and reads all three places a report can land.
 
+- **`DEBUG_PREEMPT=1` IS A KERNEL-ONLY CHECK, AND SHARES THE SANITIZERS'
+  STAMP.** It defines `SAUNAOS_DEBUG_PREEMPT` for the kernel's compile
+  rules (`DEBUG_PREEMPT_DEFS` in `CFLAGS`), and `$(BUILD)/.sanitize-flag`
+  records it beside `UBSAN` and `KASAN`, so toggling it rebuilds every
+  object. `make iso DEBUG_PREEMPT=1` re-seeds `disk.img` with a debug
+  kernel: build the ordinary one again before anything is published.
+  What it reports is `docs/conventions/kernel.md`'s per-core rule.
+
 - **`KASAN=1` IS THE KERNEL'S ADDRESS SANITIZER, AND FOUR THINGS KEEP ITS
   SHADOW TRUE.** GCC's `-fsanitize=kernel-address` checks every kernel
   load and store against a shadow byte per 8 bytes (`api/kasan.h`); the

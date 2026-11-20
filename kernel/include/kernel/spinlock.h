@@ -70,6 +70,7 @@ void spin_wait_overdue(uintptr_t what, uintptr_t site, uint32_t me, uint32_t cor
 
 // The current core's index (0 = the BSP), safe before GS.base is set.
 uint32_t spin_cpu_index(void);
+uint32_t spin_cpu_index_raw(void);   // unchecked by DEBUG_PREEMPT: see percpu.h's this_cpu_raw()
 void spin_percpu_ready(void);   // GS.base is set on the BSP (gdt_init())
 extern int g_percpu_ready;      // ...and from then on a %gs load reads this core
 

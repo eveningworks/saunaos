@@ -270,7 +270,8 @@ whenever a headline here tells you something you did not already know.
 - **WHAT RUNS IS PER CORE, AND A PROCESS MAY BE RUNNING SOMEWHERE
   ELSE** -- `current_index` is this core's, read as ONE `%gs`
   instruction (a migration splits a two-step read), and a decision on it
-  is made with interrupts off; a scheduling core is never written off; a
+  is made with interrupts off (`make DEBUG_PREEMPT=1` reports one that
+  is not); a scheduling core is never written off; a
   resumed call gets its interrupt flag back, and a long one on an AP
   yields the kernel lock by a preemption; a cross-core call never takes
   the kernel lock; never free a slot
@@ -1330,6 +1331,9 @@ whenever a headline here tells you something you did not already know.
   OF EVERY COMPILE RULE** -- code with no handler goes in
   `UBSAN_EXCLUDE`; a shift of a possibly-negative value is a multiply;
   run it through `tools/tests/sweep/sanitize_run.py`
+- **`DEBUG_PREEMPT=1` IS A KERNEL-ONLY CHECK, AND SHARES THE SANITIZERS'
+  STAMP** -- toggling it rebuilds everything; a debug `make iso` re-seeds
+  `disk.img`, so build the ordinary kernel again before publishing
 - **`KASAN=1` IS THE KERNEL'S ADDRESS SANITIZER, AND FOUR THINGS KEEP ITS
   SHADOW TRUE** -- allocators poison and unpoison; a reused or abandoned
   stack is unpoisoned; a deliberate reader is `no_sanitize_address` and

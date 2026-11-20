@@ -1513,6 +1513,15 @@ another core may be running a process while this one is in the kernel.
   not merely read in one instruction: `shoot()` read `me`, was moved,
   and sent its own new core a shootdown it waited for forever
   (`smp_call()` the same).
+- **`make DEBUG_PREEMPT=1` REPORTS EVERY ONE THAT IS NOT** -- Linux's
+  `CONFIG_DEBUG_PREEMPT`: `this_cpu()` and `spin_cpu_index()` log each
+  call site that reads with interrupts on, the guard down, a process
+  running and the APs scheduling (`kernel/proc/preempt_debug.c`, once per
+  site). Its first boot named nine; the real ones are fixed (2026-11-20).
+  A read that is right on either core takes `this_cpu_raw()` /
+  `spin_cpu_index_raw()` with the reason beside it. Run the KTESTs and
+  the ring-3 suite on a 4-core guest with it after touching per-core
+  code; a report is a candidate, not yet a bug.
 - **A SCHEDULING CORE IS NEVER WRITTEN OFF FOR A SLOW ANSWER** -- a
   shootdown waits for it however long, a call warns. Marking one
   `CPU_WEDGED` dropped it from later shootdowns while it went on running

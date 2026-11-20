@@ -104,10 +104,30 @@ struct cpu {
     uint32_t pad4;
 };
 
-static inline struct cpu *this_cpu(void) {
+// UNCHECKED: for a reader that knows a move cannot matter -- the check
+// itself, a diagnostic, a field it re-reads with interrupts off.
+static inline struct cpu *this_cpu_raw(void) {
     struct cpu *c;
     __asm__ volatile ("mov %%gs:0, %0" : "=r"(c));
     return c;
+}
+
+// **THE CORE CAN CHANGE THE MOMENT THIS RETURNS** if the caller may be
+// preempted: interrupts on, the guard down, a process running (Linux's
+// smp_processor_id() rule). `make DEBUG_PREEMPT=1` logs every call site
+// that reads it so (preempt_debug.c, Linux's CONFIG_DEBUG_PREEMPT).
+#ifdef SAUNAOS_DEBUG_PREEMPT
+void debug_preempt_check(uintptr_t site);   // the read's own address, or its caller's
+#endif
+// The rule the check applies, and how many reads broke it (0 in a
+// build without the flag).
+int debug_preempt_unsafe(int irqs_on, int guard_depth, int slot, int scheduling);
+unsigned debug_preempt_reports(void);
+static inline struct cpu *this_cpu(void) {
+#ifdef SAUNAOS_DEBUG_PREEMPT
+    debug_preempt_check(({ __label__ here; here: (uintptr_t)&&here; }));
+#endif
+    return this_cpu_raw();
 }
 
 #endif

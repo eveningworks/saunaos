@@ -805,21 +805,35 @@ int sched_core_of(int i) {
     return -1;
 }
 
+// "Here" and "where it runs" read with interrupts off: a caller moved
+// between them called a sibling on the core it had just left "not on
+// another core" -- and that sibling is then freed where it stands.
 int sched_on_other_core(int i) {
     if (procs[i].state != SCHED_RUNNING) return 0;
+    uint64_t f = irq_save();
     int k = sched_core_of(i);
-    return k >= 0 && k != (int)spin_cpu_index();
+    int other = k >= 0 && k != (int)spin_cpu_index();
+    irq_restore(f);
+    return other;
 }
 
 // smp=run: make core `k` reschedule now rather than at its next tick
 // (Linux's resched_curr() + its IPI). Under the kernel lock, so the
 // target is in ring 3 or idle and its fields are ours to write.
+// Interrupts off: "is it mine" and the flag it sets must be one core's.
 void sched_kick_core(int k) {
-    if (k < 0 || k == (int)spin_cpu_index()) { if (k >= 0) set_need_resched(1); return; }
+    uint64_t f = irq_save();
+    if (k < 0 || k == (int)spin_cpu_index()) {
+        if (k >= 0) set_need_resched(1);
+        irq_restore(f);
+        return;
+    }
     struct cpu *c = (struct cpu *)smp_cpu_at(k);
-    if (!c || c->state != CPU_RUNNING) return;
-    c->sched_resched = 1;
-    smp_resched(k);
+    if (c && c->state == CPU_RUNNING) {
+        c->sched_resched = 1;
+        smp_resched(k);
+    }
+    irq_restore(f);
 }
 
 // A slot became runnable: an idle AP takes it now (smp=run only).
@@ -1930,6 +1944,10 @@ static void wake_slot(int i, int64_t value) {
     sched_delay_woken(i);
     vr_place(i);
     if (is_rt(i)) procs[i].rt_seq = ++g_rt_seq;
+    // "Does it outrank what runs HERE", and the flag that says so, are one
+    // core's with interrupts off: a waker moved between them compared
+    // against one core and flagged another (sched_here()'s rule).
+    uint64_t f = irq_save();
     if (rank_of(i) > running_rank()) set_need_resched(1);
     // MID-CALL, BOTH FAIR: it is usually holding the filesystem lock, so
     // it cuts in -- but only while it has run less than what it would
@@ -1938,6 +1956,7 @@ static void wake_slot(int i, int64_t value) {
              vr_behind_running(i))
         set_need_resched(1);
     kick_idle_core(i);
+    irq_restore(f);
 }
 
 int scheduler_wake_n(const void *chan, int64_t value, int max) {

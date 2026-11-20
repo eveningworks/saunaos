@@ -937,7 +937,7 @@ void isr_dispatch(uint64_t *regs) {
     }
     // The call IPI reaches the BSP too once an AP may send one (smp=run);
     // like the shootdown, its sender waits holding the kernel lock.
-    if (vector == SMP_CALL_VECTOR && spin_cpu_index() == 0) {
+    if (vector == SMP_CALL_VECTOR && spin_cpu_index_raw() == 0) {   // interrupts off: an IPI
         smp_ap_interrupt(vector);   // an exception never reaches it
         return;
     }
@@ -947,7 +947,10 @@ void isr_dispatch(uint64_t *regs) {
     // every other core before the first line, so nothing shared is written
     // under anyone's feet. A ring-0 exception only ever panics there; a
     // return is a kdebug trap that took it (the BSP's #DB/#BP below).
-    int core = (int)spin_cpu_index();
+    // RAW: a syscall arrives with interrupts on and may move cores before
+    // the next line, and every branch below is right on either core (an
+    // exception or an IPI arrives with them off).
+    int core = (int)spin_cpu_index_raw();
     if (vector < 32 && !(regs[18] & 3) && vector != 2 &&
         (core != 0 || (vector != 1 && vector != 3))) {
         if (core != 0) this_cpu()->wedge_vec = vector + 1;
@@ -967,7 +970,7 @@ void isr_dispatch(uint64_t *regs) {
         // scheduling under smp=run takes the ordinary path, but for what
         // takes no kernel lock -- the call IPI, an NMI -- since
         // g_isr_depth below is only the lock holder's to move.
-        if (this_cpu()->state != CPU_RUNNING || !takes_bkl(regs)) {
+        if (this_cpu_raw()->state != CPU_RUNNING || !takes_bkl(regs)) {   // as `core`
             smp_ap_interrupt(vector);
             return;
         }
