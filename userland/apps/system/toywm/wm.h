@@ -278,6 +278,7 @@ struct window {
     // one is all the client needs. `ev_popup_done` is per popup SLOT,
     // held on the toplevel because the popup's own row is gone by then.
     uint32_t ev_pending;      // WM_PEND_* bits
+    int ev_suspended;         // WIN_EV_SUSPENDED as last told, or owed
     uint32_t ev_popup_done;   // bit per client slot
     uint32_t ev_release;      // bit per BUFFER whose release is owed
     int ev_resize_w, ev_resize_h;

@@ -576,6 +576,7 @@ void wm_window_minimize(int i) {
     wm_anim_minimize(i);
     windows[i].min_prev = windows[i].state;
     windows[i].state = WIN_MINIMIZED;
+    wm_client_update_suspended();
     WM_REDRAW();
 }
 
@@ -583,6 +584,7 @@ void wm_window_unminimize(int i) {
     if (windows[i].state != WIN_MINIMIZED) return;
     wm_anim_restore(i);
     windows[i].state = windows[i].min_prev == WIN_MAXIMIZED ? WIN_MAXIMIZED : WIN_NORMAL;
+    wm_client_update_suspended();
     WM_REDRAW();
 }
 

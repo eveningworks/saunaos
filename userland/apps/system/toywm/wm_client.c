@@ -223,6 +223,7 @@ enum {
     WM_PEND_FONT   = 1 << 3,
     WM_PEND_SCREEN = 1 << 4,
     WM_PEND_SETTING = 1 << 5,
+    WM_PEND_SUSPEND = 1 << 6,
 };
 
 static int send_state(struct window *win, const struct win_event *ev, uint32_t bit) {
@@ -278,6 +279,10 @@ void wm_client_flush_pending(void) {
         if (win->ev_pending & WM_PEND_SETTING) {
             ev.type = WIN_EV_SETTING; ev.a = 0; ev.b = 0;
             if (!send_state(win, &ev, WM_PEND_SETTING)) continue;
+        }
+        if (win->ev_pending & WM_PEND_SUSPEND) {
+            ev.type = WIN_EV_SUSPENDED; ev.a = win->ev_suspended; ev.b = 0;
+            if (!send_state(win, &ev, WM_PEND_SUSPEND)) continue;
         }
         for (uint32_t slot = 1; slot < 32 && win->ev_popup_done; slot++)
             if (win->ev_popup_done & (1u << slot)) send_popup_done(win, slot);
@@ -2344,6 +2349,23 @@ void wm_client_send_focus(struct window *win, int focused) {
     ev.window = win->client_win;
     ev.a = focused ? 1 : 0;
     send_state(win, &ev, WM_PEND_FOCUS);
+}
+
+void wm_client_update_suspended(void) {
+    for (int i = 0; i < window_count; i++) {
+        struct window *win = &windows[i];
+        if (!win->open || win->popup || !wm_client_is_client_window(win)) continue;
+        int s = wm_vt_hidden || win->state == WIN_MINIMIZED;
+        if (s == win->ev_suspended) continue;
+        win->ev_suspended = s;   // owed until sent: the flush sends the latest
+        struct win_event ev = {0};
+        ev.type = WIN_EV_SUSPENDED;
+        ev.window = win->client_win;
+        ev.a = s;
+        send_state(win, &ev, WM_PEND_SUSPEND);
+        wm_logf("wm: pid %d window %u %s\n", win->client_pid, (unsigned)win->client_win,
+                s ? "suspended" : "resumed");
+    }
 }
 
 // Wheel notches, to the focused client. Same focus rule as keys: who

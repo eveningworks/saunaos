@@ -890,6 +890,11 @@ void wm_client_send_close(struct window *win);
 
 // Tell a client its window gained (1) or lost (0) keyboard focus.
 void wm_client_send_focus(struct window *win, int focused);
+// After anything that can hide or show a window -- a minimize, a
+// restore, a VT switch: tells each client window whose WIN_EV_SUSPENDED
+// state changed (minimized, or every window while another VT has the
+// screen).
+void wm_client_update_suspended(void);
 
 // THE POPUP GRAB (abi/win_proto.h's WIN_REQ_POPUP). `owner` is the pid
 // whose popup is topmost, or 0 when none is up. `route` says where a

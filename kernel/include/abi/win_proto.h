@@ -217,6 +217,14 @@
 // were, and the next frame must be a FULL one. logind's PauseDevice and
 // ResumeDevice, which a Wayland compositor gets on a VT switch.
 #define WIN_EV_VT        49
+// `window`: one of the client's toplevels; a: 1 SUSPENDED, 0 back. THE
+// WINDOW CANNOT BE SEEN -- minimized, or the desktop is behind a text VT
+// (WIN_EV_VT) -- so drawing it is wasted: stop what only animates, keep
+// what collects data. A STATE, sent on a change, the latest one again
+// if the inbox was full. xdg_toplevel's `suspended` state (xdg-shell
+// v6). A window under other windows is NOT suspended. Every window
+// starts awake.
+#define WIN_EV_SUSPENDED 52
 #define WIN_EV_SCREEN    32 // a: width, b: height. THE SCREEN CHANGED
                            // SIZE (`config set resolution`). The
                            // compositor re-maps its framebuffer grant

@@ -1044,6 +1044,7 @@ int wm_vt_hidden;
 
 void wm_vt_shown(int on) {
     wm_vt_hidden = !on;
+    wm_client_update_suspended();
     if (!on) {
         wm_logf("wm: another virtual terminal has the screen\n");
         return;
