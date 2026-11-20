@@ -36,16 +36,33 @@ unsigned spin_lockups(void) { return __atomic_load_n(&g_lockups, __ATOMIC_RELAXE
 // take the BSP's port I/O).
 #define CHECK_EVERY 0xFFFFu
 
+// The last suspected lockup, for a reader on the boot core: an AP does
+// not log from inside a spin (the log has a lock of its own).
+static struct spin_lockup_info g_last;
+
+void spin_lockup_last(struct spin_lockup_info *out) { *out = g_last; }
+
 static void lockup_report(struct spinlock *l, uintptr_t site, uint32_t me) {
     __atomic_fetch_add(&g_lockups, 1, __ATOMIC_RELAXED);
-    if (me != 0) return;   // an AP may not log until stage 5
+    uint32_t h = l->holder ? l->holder - 1 : 0xFFFFFFFFu;
+    g_last = (struct spin_lockup_info){ (uintptr_t)l, site, l->site, me, h, 0, 0, 0, 0 };
+    const struct cpu *hc = h != 0xFFFFFFFFu ? smp_cpu_at((int)h) : 0;
+    if (hc) {
+        g_last.vec = hc->bkl_vec; g_last.rax = hc->bkl_rax;
+        g_last.rip = hc->bkl_rip; g_last.pid = hc->bkl_pid;
+        g_last.now_pid = hc->sched_cur >= 0 ? scheduler_slot_pid(hc->sched_cur) : 0;
+        uint64_t hz = cpu_tsc_hz() ? cpu_tsc_hz() : 3000000000ull;
+        g_last.tick_age_ms = hc->tick_tsc ? (arch_rdtsc() - hc->tick_tsc) / (hz / 1000) : ~0ull;
+        g_last.tick_rip = hc->tick_rip; g_last.tick_cs = hc->tick_cs;
+        g_last.guard = scheduler_preempt_depth();
+    }
+    if (me != 0) return;
     static int once;
     if (once) return;
     once = 1;
-    uint32_t h = l->holder;
     klog_printf(KLOG_ERR "spinlock: lockup suspected on %p -- core %u has waited %d ms; "
                 "holder core %d took it at %p, waiter at %p\n",
-                (void *)l, me, SPIN_LOCKUP_MS, h ? (int)h - 1 : -1,
+                (void *)l, me, SPIN_LOCKUP_MS, h == 0xFFFFFFFFu ? -1 : (int)h,
                 (void *)l->site, (void *)site);
 }
 

@@ -36,6 +36,7 @@
 #include "multiboot.h" // syscall_irq=off, read once at syscall_insn_init()
 #include "tlb.h"    // TLB_FLUSH_VECTOR, answered before anything shared
 #include "percpu.h" // a scheduling AP takes the ordinary path (smp=run)
+#include "random_hw.h"   // arch_rdtsc(): an AP's last tick, for a lockup report
 #include "oom.h"    // a #PF with no frame left goes to the OOM killer
 
 struct idt_entry {
@@ -485,6 +486,8 @@ static void isr_dispatch_body(uint64_t *regs) {
         // rotation may switch away and return here much later.
         lapic_eoi();
         if (spin_cpu_index() != 0) {
+            struct cpu *tc = this_cpu();   // its last tick, for a waiter's lockup report
+            tc->tick_tsc = arch_rdtsc(); tc->tick_rip = regs[17]; tc->tick_cs = regs[18];
             lapic_timer_rearm_here();   // a reschedule IPI restarts the slice timer too
             scheduler_ap_event(regs);
         }

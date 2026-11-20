@@ -91,6 +91,12 @@ struct cpu {
     uint32_t pad2;
     uint64_t idle_left_tsc, idle_offcpu_tsc;
     uint64_t busy_ns;          // time a process ran here: per-core load
+    // How this core last took the kernel lock from an entry (bkl_enter()):
+    // read by a waiter that has waited too long (spinlock.c).
+    uint64_t bkl_vec, bkl_rax, bkl_rip;
+    int bkl_pid;
+    uint64_t tick_tsc, tick_rip, tick_cs;   // this AP's last tick: a lockup report's "is it ticking?"
+    uint64_t wedge_vec;   // the exception that wedged it, + 1 (0: none)
 };
 
 static inline struct cpu *this_cpu(void) {

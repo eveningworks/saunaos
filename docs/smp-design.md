@@ -449,6 +449,17 @@ pre-existing KVM idle-deadline miss, the ring-3 suite under KVM,
 `kvm_soak.py --cpus 4` (red with the kernel lock off on the APs, and
 without user TLB shootdowns), and the ASUS on its `smp=run` entry -- 25
 rounds of the race tests under `diskbench` and 60 remote sessions.
+A second round the same day, from the gate going red under load after
+the flip: a call resumed after a park ran on with interrupts off, so
+fsck's walk held the kernel lock past a second; with the flag restored,
+a stale "which core am I" in `shoot()` made a migrated sender wait for
+itself, and the 1 s timeout wrote a live core off. Fixed with the flag
+restore, decisions on the core taken with interrupts off, no write-off of
+a scheduling core, and a contended lock under a call yielded by a
+preemption to the AP's idle context (`docs/decisions/kernel.md`). Proven
+by nine loaded TCG suites (three guests at once) that had failed 12 in
+12, and 60 runs of the `thread` KTESTs under load that had broken by run
+16-21.
 
 **Not yet**: per-core load in Task Manager (`struct cpu->busy_ns` is
 counted), the kdebug roundup (a stub stop halts core 0 only), and

@@ -10714,6 +10714,26 @@ work were the maintainer's picks before building. The default flipped to
 `smp=run` on 2026-11-20, after the soak the pick asked for (KVM, then
 the ASUS) found and fixed three bugs; `smp=park` stays as the way back.*
 
+**A long call yields the kernel lock by being preempted, never by
+dropping it in place** (2026-11-20, after the flip). fsck's whole-volume
+check, one call on an AP, held the lock past a second under load: a call
+that had parked once ran the rest of itself with interrupts off, so it
+never ticked. Restoring the flag on resume (Linux's `schedule()` leaves
+it as it found it) brought the ticks back, and an AP's tick that finds
+the lock contended under a call now switches to its idle context, whose
+interrupt exit releases the lock -- Linux's `cond_resched()`, which is
+`schedule()`. Releasing the lock at the tick WITHOUT a switch was tried
+and panicked (a GP fault on the boot core's kernel stack): the other core
+ran with per-context state the interrupted call still owned. Turning the
+flag back on exposed the real bug it had been hiding: `shoot()` and
+`smp_call()` read "which core am I" before turning interrupts off, so a
+call moved by a preemption targeted its own new core and waited for
+itself; the 1 s timeout then marked that core wedged, which removed it
+from later shootdowns while it ran processes and halted it at its next
+page fault. Decisions on the core's identity are made with interrupts
+off, and a scheduling core is never written off -- Linux's CSD-lock
+timeout only warns.
+
 **What runs is three fields of `struct cpu`, reached through macros.**
 `current_index`, `rotation_pos` and `g_need_resched` had 140 uses; a
 rename to an accessor at each would have been the same change spread

@@ -182,6 +182,8 @@ struct sched_process {
     // THIS SLOT'S PID, set when the slot is claimed and 0 when it is free.
     // A PID IS NOT A SLOT INDEX: every pid -> slot lookup goes through
     // pid_slot(), and every slot -> pid read is this field.
+    int on_core;          // the core this context is live on, or -1 (Linux's on_cpu): a check
+    uintptr_t on_site;    // ...and who switched it in, for its report
     int pid;
 
     // --- threads: which group this slot belongs to -------------------

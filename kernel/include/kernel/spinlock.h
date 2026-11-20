@@ -47,6 +47,20 @@ int spin_held_here(const struct spinlock *l);   // by THIS core
 // an AP may not log before stage 5, so it only counts) and keeps
 // spinning. Linux's CONFIG_DEBUG_SPINLOCK report.
 #define SPIN_LOCKUP_MS 1000
+
+// The last wait past SPIN_LOCKUP_MS: which lock, where it was waited for,
+// where its holder took it, and on which cores.
+struct spin_lockup_info {
+    uintptr_t lock, waiter_site, holder_site;
+    uint32_t waiter, holder;
+    // The holder's last kernel-lock entry (percpu.h's bkl_*), when it is the kernel lock.
+    uint64_t vec, rax, rip;
+    int pid;
+    int now_pid;   // what the holder core was running when the wait was noticed
+    uint64_t tick_age_ms, tick_rip, tick_cs;   // the holder's last tick (an AP): is it ticking?
+    int guard;     // the preemption guard's depth, which is the kernel-lock holder's
+};
+void spin_lockup_last(struct spin_lockup_info *out);
 unsigned spin_lockups(void);
 
 // The current core's index (0 = the BSP), safe before GS.base is set.

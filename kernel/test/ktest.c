@@ -13,6 +13,7 @@
 #include "block.h"
 #include "kapi.h"
 #include "fault_inject.h"
+#include "spinlock.h"   // spin_lockups(): a wait this test caused
 
 struct ktest_ctx {
     int failed;
@@ -132,7 +133,14 @@ int ktest_run_all(const char *suite_filter) {
         vga_write(" ... ");
 
         struct ktest_ctx ctx = { .failed = 0, .skipped = 0, .skip_reason = 0 };
+        unsigned lockups_before = spin_lockups();
         t->fn(&ctx);
+        // A SPINLOCK WAIT PAST SPIN_LOCKUP_MS, on any core, is named by the
+        // test it happened in: an AP's is counted but not logged, and the
+        // [smp] accounting test that sees the count runs much later.
+        if (spin_lockups() != lockups_before)
+            vga_printf("\n    (%u spinlock wait(s) past %d ms during this test)\n",
+                        spin_lockups() - lockups_before, SPIN_LOCKUP_MS);
         ran++;
 
         // A test that arms a fault injector and returns early (an

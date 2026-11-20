@@ -71,6 +71,10 @@ static int answers(const struct cpu *c, uint32_t me) {
 static void shoot(uint64_t space, uint64_t leave, uintptr_t site) {
     int n = smp_cpu_count();
     if (n < 2) return;
+    // **INTERRUPTS OFF BEFORE `me`**: read with them on, a preemption could
+    // move this call to another core, which then targeted itself and waited
+    // with interrupts off for its own answer (smp=run hung in munmap).
+    uint64_t f = irq_save();
     uint32_t me = spin_cpu_index();
     if (smp_online_count() > 1 && !bkl_held_here()) {
         // The rule, counted rather than enforced: without the kernel
@@ -82,7 +86,6 @@ static void shoot(uint64_t space, uint64_t leave, uintptr_t site) {
                         (void *)site);
         }
     }
-    uint64_t f = irq_save();
     int count = 0;
     for (int i = 0; i < n; i++) {
         struct cpu *c = (struct cpu *)smp_cpu_at(i);
@@ -106,8 +109,24 @@ static void shoot(uint64_t space, uint64_t leave, uintptr_t site) {
                    __atomic_load_n(&c->tlb_seq, __ATOMIC_ACQUIRE)) {
                 cpu_relax();
                 if (arch_rdtsc() - start > limit) {
-                    // It may still hold the stale entries, so it is given
-                    // nothing more to run -- smp_call()'s rule.
+                    // **A SCHEDULING CORE IS WAITED FOR, HOWEVER LONG.** It
+                    // is only slow (interrupts off in a long call, a starved
+                    // vCPU), and freeing the frame before it has flushed is
+                    // exactly the use-after-free a shootdown exists to stop;
+                    // writing it off also took it out of every later
+                    // shootdown while it went on running processes. A core
+                    // that truly never answers hangs this one, which the
+                    // lockup detector reports. Linux waits the same way.
+                    if (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) == CPU_RUNNING) {
+                        static int warned;
+                        if (me == 0 && !warned++)
+                            klog_printf(KLOG_WARN "tlb: core %u has not answered a shootdown "
+                                        "after %d ms -- still waiting\n", c->index, ACK_MS);
+                        start = arch_rdtsc();
+                        continue;
+                    }
+                    // A parked core may still hold the stale entries, so it
+                    // is given nothing more to run -- smp_call()'s rule.
                     __atomic_store_n(&c->state, CPU_WEDGED, __ATOMIC_RELEASE);
                     __atomic_fetch_add(&g_stats.timeouts, 1, __ATOMIC_RELAXED);
                     if (me == 0)

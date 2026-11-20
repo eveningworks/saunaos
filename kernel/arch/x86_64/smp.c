@@ -232,6 +232,7 @@ static void call_service(struct cpu *c) {
 void smp_ap_interrupt(uint64_t vector) {
     struct cpu *c = this_cpu();
     if (vector < 32) {
+        c->wedge_vec = vector + 1;   // what an invariant report names
         bkl_drop_all();
         __atomic_store_n(&c->state, CPU_WEDGED, __ATOMIC_RELEASE);
         for (;;) __asm__ volatile ("cli; hlt");
@@ -246,25 +247,39 @@ void smp_poll_ipis(void) {
     if (g_cpus) call_service(g_cpus[spin_cpu_index()]);   // the BSP too: an AP may call it
 }
 
-// A core that did not finish a call is given no more: its next one
+// A PARKED core that did not finish a call is given no more: its next one
 // would wait again, and a caller may hold the kernel lock meanwhile.
+// **A SCHEDULING ONE IS ONLY SLOW** -- it may have interrupts off for a
+// long call, or be a starved vCPU -- and is never written off: it is
+// running a process, and a core marked wedged that later took an
+// ordinary page fault was halted for good with that process on it
+// (smp=run, TCG under load). Linux's CSD-lock timeout warns the same way.
 static void wedged(struct cpu *c, int index) {
+    if (__atomic_load_n(&c->state, __ATOMIC_ACQUIRE) == CPU_RUNNING) {
+        klog_printf(KLOG_WARN "smp: core %d has not finished a call after %d ms -- "
+                    "still running, so it is not written off\n", index, CALL_MS);
+        return;
+    }
     __atomic_store_n(&c->state, CPU_WEDGED, __ATOMIC_RELEASE);
     klog_printf(KLOG_WARN "smp: core %d did not finish a call within %d ms -- "
                 "given no more\n", index, CALL_MS);
 }
 
 int smp_call(int index, void (*fn)(void *), void *arg, int wait) {
+    // **"WHICH CORE AM I" AND THE SEND ARE ONE STEP, INTERRUPTS OFF**: a
+    // preemption between them could move the caller onto `index`, which
+    // then sent itself the call. A move during the wait is harmless --
+    // the IPI waits on the core it was sent to.
+    uint64_t f0 = irq_save();
     if (index == (int)spin_cpu_index()) {   // the caller's own core
-        uint64_t f = irq_save();   // as fn runs elsewhere
-        fn(arg);
-        irq_restore(f);
+        fn(arg);   // interrupts off, as fn runs elsewhere
+        irq_restore(f0);
         return 1;
     }
-    if (!g_cpus || index < 0 || index >= g_cpu_count) return 0;
+    if (!g_cpus || index < 0 || index >= g_cpu_count) { irq_restore(f0); return 0; }
     struct cpu *c = g_cpus[index];
     uint32_t st = __atomic_load_n(&c->state, __ATOMIC_ACQUIRE);
-    if (st != CPU_PARKED && st != CPU_RUNNING) return 0;   // a scheduling AP takes calls too
+    if (st != CPU_PARKED && st != CPU_RUNNING) { irq_restore(f0); return 0; }   // a scheduling AP takes calls too
 
     uint64_t f = spin_lock_irqsave(&g_call_lock);
     // The last call to this core has to be finished before its mailbox
@@ -273,6 +288,7 @@ int smp_call(int index, void (*fn)(void *), void *arg, int wait) {
     uint32_t prev = c->call_seq;
     if (__atomic_load_n(&c->call_done, __ATOMIC_ACQUIRE) != prev) {
         spin_unlock_irqrestore(&g_call_lock, f);
+        irq_restore(f0);
         klog_printf(KLOG_WARN "smp: core %d is still running its last call\n", index);
         return 0;
     }
@@ -282,6 +298,7 @@ int smp_call(int index, void (*fn)(void *), void *arg, int wait) {
     __atomic_store_n(&c->call_seq, seq, __ATOMIC_RELEASE);
     int sent = lapic_send_ipi((uint8_t)c->apic_id, SMP_CALL_VECTOR);
     spin_unlock_irqrestore(&g_call_lock, f);
+    irq_restore(f0);
     if (!sent) {
         klog_printf(KLOG_WARN "smp: the call IPI to core %d was not accepted\n", index);
         return 0;

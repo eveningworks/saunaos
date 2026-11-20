@@ -1492,7 +1492,22 @@ another core may be running a process while this one is in the kernel.
   with a process, so "take `this_cpu()`, then load the field" can be
   split by a migration and read the core it LEFT -- another process's
   pid. A pointer from `this_cpu()` or `sched_here()` is used with
-  interrupts off only. Writes go through the `set_*()` macros.
+  interrupts off only. Writes go through the `set_*()` macros. **A
+  DECISION ON "WHICH CORE AM I" IS MADE WITH INTERRUPTS ALREADY OFF**,
+  not merely read in one instruction: `shoot()` read `me`, was moved,
+  and sent its own new core a shootdown it waited for forever
+  (`smp_call()` the same).
+- **A SCHEDULING CORE IS NEVER WRITTEN OFF FOR A SLOW ANSWER** -- a
+  shootdown waits for it however long, a call warns. Marking one
+  `CPU_WEDGED` dropped it from later shootdowns while it went on running
+  processes, and halted it at its next page fault. Only a core that is
+  not scheduling (parked, half-started) is given no more.
+- **A RESUMED CALL GETS ITS INTERRUPT FLAG BACK** (both park paths), so a
+  long call ticks; **a call that holds the kernel lock past a tick on an
+  AP, with a core queued for it, is preempted to the AP's idle context**
+  (`rotate(regs, 1)`, Linux's `cond_resched()`), never handed the lock in
+  place -- dropping it without a switch left per-context state for the
+  other core to trample.
 - **A CROSS-CORE CALL NEVER TAKES THE KERNEL LOCK**: a core waiting for
   it answers calls from inside that wait, so the call would run
   unlocked; `bkl_enter()` reports it (`bkl_faults()`), Linux's rule for

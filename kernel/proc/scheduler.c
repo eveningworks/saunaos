@@ -757,20 +757,22 @@ static void save_kernel_frame(uint64_t *regs) {
 #define SCHED_TRACE_N 24
 static struct sched_trace_ent {
     const char *what;
-    int idx, cur, repeat, state;
+    int idx, cur, repeat, state, core;
 } g_trace[SCHED_TRACE_N];
 static unsigned g_trace_n;
 
 void trace_sched(const char *what, int idx) {
     if (g_trace_n) {
         struct sched_trace_ent *last = &g_trace[(g_trace_n - 1) % SCHED_TRACE_N];
-        if (last->what == what && last->idx == idx && last->cur == current_index) {
+        if (last->what == what && last->idx == idx && last->cur == current_index &&
+            last->core == (int)spin_cpu_index()) {
             last->repeat++;
             return;
         }
     }
     struct sched_trace_ent *e = &g_trace[g_trace_n % SCHED_TRACE_N];
     e->what = what; e->idx = idx; e->cur = current_index; e->repeat = 0;
+    e->core = (int)spin_cpu_index();
     e->state = (idx >= 0 && idx < MAX_PROCS) ? (int)procs[idx].state : -1;
     g_trace_n++;
 }
@@ -779,8 +781,8 @@ void scheduler_trace_dump(void) {
     unsigned first = g_trace_n > SCHED_TRACE_N ? g_trace_n - SCHED_TRACE_N : 0;
     for (unsigned i = first; i < g_trace_n; i++) {
         struct sched_trace_ent *e = &g_trace[i % SCHED_TRACE_N];
-        klog_printf("sched: %s idx=%d cur=%d state=%d (x%d)\n", e->what, e->idx,
-                    e->cur, e->state, e->repeat + 1);
+        klog_printf("sched: core %d %s idx=%d cur=%d state=%d (x%d)\n", e->core, e->what,
+                    e->idx, e->cur, e->state, e->repeat + 1);
     }
 }
 
@@ -840,6 +842,13 @@ static void check_one_running(const char *where) {
         klog_printf("sched: INVARIANT at %s -- slot %d (pid %d, \"%s\") is RUNNING "
                     "while cur=%d (tgid=%d)\n", where, i, procs[i].pid, procs[i].name,
                     current_index, procs[i].tgid);
+        klog_printf("sched: on core %u; slot %d is live on core %d, switched in at %p\n",
+                    spin_cpu_index(), i, procs[i].on_core, (void *)procs[i].on_site);
+        for (int k = 0; k < smp_cpu_count(); k++) {
+            const struct cpu *c = smp_cpu_at(k);
+            if (c) klog_printf("sched: core %d runs slot %d, state %u, wedged by vector %ld\n", k,
+                               c->sched_cur, (unsigned)c->state, (long)c->wedge_vec - 1);
+        }
         scheduler_trace_dump();
         return;
     }
@@ -853,6 +862,7 @@ static void check_one_running(const char *where) {
 // zeroed and immediately overwritten by those pops.
 void proc_start_context(int slot, const uint64_t *tf) {
     struct kernel_context *k = &procs[slot].kctx;
+    procs[slot].on_core = -1;   // never run: live nowhere
     k_memset(k, 0, sizeof *k);
     k->rsp = (uint64_t)tf;
     k->rip = (uint64_t)&isr_start_frame;
@@ -1100,6 +1110,29 @@ int scheduler_hung_find(uint64_t before_ns, struct sched_hung *out) {
     return 0;
 }
 
+// **A CONTEXT IS LIVE ON AT MOST ONE CORE** (Linux's p->on_cpu): stamped at
+// each restore, cleared at each save, and a restore of a stamped one is
+// reported -- two cores on one kernel stack, the failure that shows only
+// later as a smashed stack.
+static int g_kctx_on_core = 0;            // the BSP's kernel context runs at boot
+static uintptr_t g_kctx_on_site;
+static unsigned g_double_resumes;
+static void ctx_off(int slot) {
+    if (slot >= 0) procs[slot].on_core = -1;
+    else if (!on_ap()) g_kctx_on_core = -1;
+}
+static void ctx_on(int slot, uintptr_t site) {
+    int *oc = slot >= 0 ? &procs[slot].on_core : (on_ap() ? 0 : &g_kctx_on_core);
+    uintptr_t *os = slot >= 0 ? &procs[slot].on_site : &g_kctx_on_site;
+    if (!oc) return;
+    if (*oc >= 0 && g_double_resumes++ < 6)
+        klog_printf(KLOG_ERR "sched: DOUBLE RESUME of slot %d (pid %d) on core %u: still live on core %d, "
+                    "switched in at %p; now from %p\n", slot, slot >= 0 ? procs[slot].pid : 0,
+                    spin_cpu_index(), *oc, (void *)*os, (void *)site);
+    *oc = (int)spin_cpu_index();
+    *os = site;
+}
+
 void switch_to(int from, int idx) {
     g_switches++;
     check_one_running("switch_to");
@@ -1128,6 +1161,7 @@ void switch_to(int from, int idx) {
     }
 
     if (process_context_save(kctx_of(from)) != 0) return;  // resumed: back
+    ctx_off(from);
 
     context_save_globals(from);
     fpu_restore(procs[idx].fpu);
@@ -1147,6 +1181,7 @@ void switch_to(int from, int idx) {
     // A new slice, and the tick back if it was stopped. An AP's tick is
     // its own periodic LAPIC timer (smp.c), not the clockevent.
     if (!on_ap()) clockevent_reprogram();
+    ctx_on(idx, (uintptr_t)__builtin_return_address(0));
     process_context_restore_noirq(&procs[idx].kctx, 1);
 }
 
@@ -1188,8 +1223,10 @@ void switch_to_kernel(int from) {
         __asm__ volatile ("ud2");
     }
     if (process_context_save(&procs[was].kctx) != 0) return; // resumed: back
+    ctx_off(was);
     context_save_globals(was);
     context_load_globals(-1);
+    ctx_on(-1, (uintptr_t)__builtin_return_address(0));
     process_context_restore_noirq(idle_kctx(), 1);
 }
 
@@ -1304,6 +1341,7 @@ void scheduler_test_rt_budget_reset(void) { g_rt_used_ns = 0; g_rt_throttled = 0
 // operation now that neither one is where billing happens -- see
 // bill_current() above.
 static void scheduler_rotate(uint64_t *regs);
+static void rotate(uint64_t *regs, int to_idle);
 
 // The most any runnable fair process has run: where scheduler_yield()
 // puts a yielder, the back of the pack.
@@ -1386,6 +1424,18 @@ void scheduler_timer_event(uint64_t *regs, uint64_t now) {
 // else -- sleepers' deadlines, the watchdog and the idle work stay with
 // the BSP's clockevent.
 void scheduler_ap_event(uint64_t *regs) {
+    // **A PROCESS IN A LONG CALL GIVES THE KERNEL LOCK UP BY BEING
+    // PREEMPTED**, Linux's cond_resched() -- which is schedule(). With
+    // nothing else ready this AP never rotates, so fsck's whole-volume
+    // walk held every other core out of the kernel for over a second.
+    // A real switch to this AP's idle context, whose interrupt exit
+    // releases the lock, and which picks the process up again at its
+    // next tick: dropping the lock in place, with no switch, left
+    // per-context state for another core to trample (a GP fault in the
+    // BSP's kernel context, 1 run in 6). AHEAD of the ordinary rotation,
+    // which may pick this process again, or another inside a call, and
+    // so release nothing. rotate() keeps its own guards.
+    if (current_index >= 0 && !(regs[TF_CS] & 3) && bkl_contended()) { rotate(regs, 1); return; }
     if (timer_wants_rotation(clocksource_now_ns())) scheduler_rotate(regs);
 }
 
@@ -1440,7 +1490,9 @@ void scheduler_preempt_enable(void) {
     // silent loss of protection somewhere else entirely.
 }
 
-static void scheduler_rotate(uint64_t *regs) {
+static void scheduler_rotate(uint64_t *regs) { rotate(regs, 0); }
+
+static void rotate(uint64_t *regs, int to_idle) {
     if (!scheduler_armed) return;
     // A syscall reaches here too (scheduler_trap_exit(), SYS_YIELD), and
     // under a trap gate it arrives with IF SET: a tick nested between
@@ -1534,7 +1586,7 @@ static void scheduler_rotate(uint64_t *regs) {
     // thing running (current_index -1, rotation_pos ROT_KERNEL), which
     // is exactly the case that has to advance past the kernel's own
     // position instead of restarting the scan at slot 0 every tick.
-    int next = find_next_runnable(rotation_pos);
+    int next = to_idle ? ROT_KERNEL : find_next_runnable(rotation_pos);
     if (next == ROT_KERNEL) {
         // Either nothing else is runnable, or the kernel's turn came up
         // in the rotation. In the overwhelmingly common case (nothing
@@ -1683,6 +1735,7 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     int next = find_next_runnable(rotation_pos);
     if (next == ROT_KERNEL) switch_to_kernel(idx);
     else switch_to(idx, next);
+    irq_restore(irq);   // resumed: the caller's flag, as the early returns give it
     return 1;
 }
 
@@ -1839,8 +1892,13 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
     if (next == ROT_KERNEL) switch_to_kernel(idx);
     else switch_to(idx, next);
 
-    // Resumed, on our own stack, with every frame below us intact.
+    // Resumed, on our own stack, with every frame below us intact -- and
+    // with the caller's interrupt flag BACK, as Linux's schedule() leaves
+    // it. Without this a call that parked once ran the rest of itself
+    // with interrupts off: never preempted, and under smp=run never
+    // ticking, so a long one held the kernel lock from every other core.
     procs[idx].parked_in_kernel = 0;
+    irq_restore(irq);
     return 1;
 }
 

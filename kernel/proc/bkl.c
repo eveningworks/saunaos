@@ -6,8 +6,12 @@
 #include "irqflags.h"
 #include "klog.h"
 #include "kfmt.h"
+#include "scheduler.h"   // scheduler_current_pid(): who took it
 
 #define FRAME_CS 18   // isr.asm's frame, as sched_internal.h's TF_CS
+#define FRAME_RAX 14
+#define FRAME_VECTOR 15
+#define FRAME_RIP 17
 
 static struct spinlock g_bkl;
 static int g_ready;
@@ -54,7 +58,13 @@ void bkl_enter(const uint64_t *regs) {
     if (c->bkl_depth != 0 && !spin_held_here(&g_bkl))
         fault("taken inside its own wait -- a cross-core call must not take it",
               c->bkl_depth, site);
-    if (c->bkl_depth++ == 0) spin_lock_raw(&g_bkl, site);
+    if (c->bkl_depth++ == 0) {
+        spin_lock_raw(&g_bkl, site);
+        c->bkl_vec = regs ? regs[FRAME_VECTOR] : ~0ull;
+        c->bkl_rax = regs ? regs[FRAME_RAX] : 0;
+        c->bkl_rip = regs ? regs[FRAME_RIP] : site;
+        c->bkl_pid = scheduler_current_pid();
+    }
     irq_restore(f);
 }
 

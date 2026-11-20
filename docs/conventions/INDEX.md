@@ -267,8 +267,11 @@ whenever a headline here tells you something you did not already know.
   paranoid vectors from ring 0 take no lock
 - **WHAT RUNS IS PER CORE, AND A PROCESS MAY BE RUNNING SOMEWHERE
   ELSE** -- `current_index` is this core's, read as ONE `%gs`
-  instruction (a migration splits a two-step read); a cross-core call
-  never takes the kernel lock; never free a slot
+  instruction (a migration splits a two-step read), and a decision on it
+  is made with interrupts off; a scheduling core is never written off; a
+  resumed call gets its interrupt flag back, and a long one on an AP
+  yields the kernel lock by a preemption; a cross-core call never takes
+  the kernel lock; never free a slot
   `sched_on_other_core()`; a not-present fault may find the page
   present (retry); a kill may return before the death; the
   kernel context lets queued cores in at a tick; an AP's tick is one-shot

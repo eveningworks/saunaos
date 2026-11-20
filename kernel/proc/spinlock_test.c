@@ -11,6 +11,7 @@
 #include "clocksource.h"
 #include "scheduler.h"
 #include "ktest.h"
+#include "kfmt.h"        // vga_printf(): the last lockup, beside the verdict
 
 KTEST("smp", "a ticket lock is free at zero, and lock, unlock and trylock move it") {
     struct spinlock l = {0};
@@ -139,6 +140,20 @@ KTEST("smp", "no kernel-lock accounting has broken since boot") {
     // Every entry, exit, switch and fresh context so far: a leak shows
     // as a count here and a `bkl:` line in the log.
     KTEST_ASSERT_EQ(bkl_faults(), 0u);
+    if (spin_lockups()) {
+        struct spin_lockup_info li;
+        spin_lockup_last(&li);
+        char now_name[32] = "?";
+        if (li.now_pid) scheduler_name_of(li.now_pid, now_name, sizeof now_name);
+        vga_printf("\n    last: lock %p waited for at %p by core %u, taken at %p by core %u"
+                   " -- its entry: vector %lu rax %lu rip %p pid %d; running pid %d (%s)\n",
+                   (void *)li.lock, (void *)li.waiter_site, li.waiter,
+                   (void *)li.holder_site, li.holder, (unsigned long)li.vec,
+                   (unsigned long)li.rax, (void *)li.rip, li.pid, li.now_pid, now_name);
+        vga_printf("    the holder's last tick %lu ms before the report, at rip %p cs %lx; guard %d\n",
+                   (unsigned long)li.tick_age_ms, (void *)li.tick_rip, (unsigned long)li.tick_cs,
+                   li.guard);
+    }
     KTEST_ASSERT_EQ(spin_lockups(), 0u);
     KTEST_ASSERT(bkl_held_here());
 }
