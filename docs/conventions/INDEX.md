@@ -819,6 +819,11 @@ whenever a headline here tells you something you did not already know.
 - **CHROME IS MEASURED IN THE INTERFACE FACE, EVEN INSIDE A DOCUMENT'S**
 - **`uui_chart` HAS A RUN MODE: `uui_chart_set_fit()`**
 - **`uui_chart` OVERLAID LINES: `uui_chart_set_lines()`, one ring per line**
+  -- the legend measured once; no main-series hover in lines mode
+- **A LIVE CHART GLIDES BY WHOLE PIXELS, ONE SAMPLE BEHIND, ON ITS OWNER'S CLOCK**
+  -- `uui_chart_set_smooth()`; a column under two pixels steps
+- **A PARTIAL REPAINT IS `uapp_redraw_rect()`: THE FRAME ON SCREEN, THEN THE RECT**
+- **A WINDOW OUT OF SIGHT IS TOLD: `WIN_EV_SUSPENDED`, AND AN APP THAT ANIMATES STOPS**
 - **A "FILE SAVED" CARD IS THE COMPOSITOR'S: `uapp_notice()` /
   `WIN_REQ_NOTICE`**
 - **A CAPTURE'S HIDDEN CLIENT IS ABSENT EVERYWHERE, AND `ushot` IS ONE

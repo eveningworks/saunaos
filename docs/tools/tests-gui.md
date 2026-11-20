@@ -2211,7 +2211,21 @@ from the default (a sound card, a USB mouse, `--reboot`).
   started after the page is open must take two CPUs' readings (the
   legend's own `legend_value` lines) past 50% with the rest under it.
   Reading every core's load as a machine share (÷4), or only the first
-  core, reddens it.
+  core, reddens it. The spinners are KILLED right after (by the pids
+  `gui spawn` printed), and their absence from `ps` is a check -- left
+  running they held two vCPUs through every later section.
+  **The glide and the update speed**: on the CPU page the chart's own
+  `glides` describe line must report whole-pixel moves between samples;
+  with `desktop.animations` off (set live, followed through
+  `on_setting`) it must report none; minimizing must log the
+  `WIN_EV_SUSPENDED` arrival and `taskmgr: glide off`, restoring `glide
+  on`. View > Update speed is driven by the menu bar's own `menu.title`
+  and `menu.item` rects: Low must give the chart a 4000 ms `interval`
+  and be saved in `/etc/taskmgr.conf`; Paused must freeze the chart (two
+  settled frames 1.2 s apart identical); F5 must sample once while
+  Paused; Normal, chosen last, must come back with the reopen near the
+  end, which then sets High again. Two raw frames 100 ms apart are saved
+  as `taskmgr_glide_0.png`/`_1.png` in `--tmp`.
   **Two checks count LOG LINES PER CLICK** -- one SIGSTOP, one init
   request -- because a button names itself on press, motion and release
   and the first build acted on all of them (four signals, four requests,

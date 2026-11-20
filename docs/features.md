@@ -176,7 +176,9 @@ which cores the kernel started.
 GS.base and `swapgs`, and made to match the boot core's control
 registers and memory types; `lscpu`, `acpi` and Task Manager count it
 online, and `lscpu` and Task Manager's CPU page (a line per CPU, KDE's
-shape) show each core's load. Programs run on every core: each picks ready processes from one
+shape) show each core's load -- its graph gliding a pixel at a time
+between samples while it can be seen (`desktop.animations`), at the
+rate View > Update speed picks (High, Normal, Low or Paused). Programs run on every core: each picks ready processes from one
 run queue with its own LAPIC tick, under one kernel lock, with TLB
 shootdowns when a mapping changes. Device interrupts and the kernel's
 own work stay on the boot core (`docs/smp-design.md`). `smp=park` keeps

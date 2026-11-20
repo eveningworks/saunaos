@@ -13677,3 +13677,45 @@ the reference render (at most 100 ms, under the frame watchdog's bound;
 `verify off` clears it). With 60 ms, a draw that reads the clock differs on
 every animated frame instead of by luck: the glide put back on the raw
 clock failed `glass_test` 3 runs in 3, and the fix passed 3 in 3.
+
+## A chart glides a whole pixel at a time on its owner's clock, and a hidden window is told
+
+Task Manager's graphs moved one jump per sample (half a second). The
+maintainer's picks (2026-11-20): every live graph glides, a whole pixel
+at a time, one sample behind, only while it can be seen, and only with
+`desktop.animations` on. `uui_chart_set_smooth()`, `uui_chart_glide()`,
+`uapp_redraw_rect()` and `WIN_EV_SUSPENDED` are the four pieces.
+
+**Why whole pixels, not frames:** a trace drawn at 60 Hz with sub-pixel
+offsets would wake the process sixty times a second to move a line by a
+fraction of a pixel it cannot draw (the lines are drawn aliased). A
+pixel step is the smallest change a person can see, so the owner wakes
+exactly when the offset changes -- about a dozen times a second for
+Task Manager's CPU chart at High, four times a sample, and never for a
+column under two pixels, which would move just before the sample that
+moves it anyway. (Windows' Task Manager moves its graphs a column per
+update, which is what Off keeps.)
+
+**Why one sample behind:** the right edge is the time of the PREVIOUS
+sample, so the trace scrolls into data that exists. The alternative --
+the newest sample at the edge and the line extended to "now" -- draws a
+value nobody measured, which a monitor must not.
+
+**Why the chart keeps no clock:** a widget that asked for its own frames
+(`uui_anim_request()`) would keep a hidden window busy; the owner knows
+whether the view is shown, the window minimized or the desktop behind a
+text VT, and stops calling. The compositor TELLS a client its window is
+out of sight -- `WIN_EV_SUSPENDED`, xdg-shell's `suspended` state --
+because nothing else could: a client sees no minimize and no VT switch.
+
+**Why a partial repaint:** measured under KVM, a glide step repainting
+the whole Task Manager window cost the app 2.8% of a CPU against 0.8%
+stepped; copying the frame on screen and repainting only the plot
+(`uapp_redraw_rect()`, GTK's buffer-age shape) brought it to 2.1%. The
+damage is DECLARED for such a frame -- the rest is a copy, so it cannot
+be wrong -- where a whole frame's is still measured.
+
+**Not chosen:** gliding the main series' one-column-per-sample charts
+(Memory, Disk, Ethernet) by widening their columns: the column per
+sample keeps a resized window's history the same shape (uui_chart.h),
+and a one-pixel column has nowhere to glide.

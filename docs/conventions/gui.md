@@ -6367,6 +6367,63 @@ main()'s local.
   `legend_widest` reserving room so it does not reflow. Its describe op
   reports `lines`, `legend` rects and `legend_value` for a test.
   `tools/hostchecks/uitest/chart_lines_uitest.c` is the host test.
+- **The legend is MEASURED ONCE** (`legend_memo`) and kept until the
+  size, the font, `legend_widest` or a line's words change -- so a
+  reading changed IN PLACE must go through `uui_chart_set_line_label()`,
+  or the legend keeps the width it had. Every legend rect, the plot and
+  the draw ask for it; measuring per ask was n squared a frame.
+- **In lines mode no main-series column is hovered**: `uui_chart_drawn()`
+  is 0 and `uui_chart_hover_index()` -1. The sample under the pointer is
+  `uui_chart_hover_back()` (pushes ago, counting the glide), read with
+  `uui_chart_line_recent()`.
+
+## A LIVE CHART GLIDES BY WHOLE PIXELS, ONE SAMPLE BEHIND, ON ITS OWNER'S CLOCK
+
+- **`uui_chart_set_smooth()`**: between samples the trace moves left a
+  WHOLE PIXEL at a time, by the share of the interval that has passed;
+  the right edge is the PREVIOUS sample's time, so the newest slides in
+  and nothing is extrapolated. The value text still shows the newest
+  reading. Off is stepped exactly as before.
+- **The chart keeps no clock and asks for no frames.** Its owner calls
+  `uui_chart_glide(c, now)` when `uui_chart_glide_next_ms()` says the
+  offset moves, and repaints when it returned 1 -- never on a frame
+  timer, never `uui_anim_request()`. A chart nobody can see costs
+  nothing because nobody calls it.
+- **Only a column of two pixels or more glides**
+  (`UUI_CHART_GLIDE_MIN_Q16`): a narrower one would move its pixel just
+  before the sample that moves it anyway. So the main series (a pixel a
+  sample), a narrow chart and fit mode step; overlaid lines glide, and a
+  caller's own trace through `uui_chart_glide_px()` /
+  `uui_chart_glide_wait_ms()` with its own column.
+- **It follows `desktop.animations`** (`uui_anim_ms()`, re-read in
+  `on_setting`), and stops while the window is SUSPENDED (below) or the
+  view is not shown. Task Manager is the first caller: one timer re-armed
+  for the next sample or glide step, whichever is sooner. The describe
+  op's `glides` is the moves between the last two samples -- once a
+  sample, so a test sees the motion without a log line a frame.
+
+## A PARTIAL REPAINT IS `uapp_redraw_rect()`: THE FRAME ON SCREEN, THEN THE RECT
+
+- **For a widget that changes on its own, often** (a gliding plot): the
+  back buffer is the front one copied AROUND the rect, the paint is
+  clipped to it, `uui_router_paint_rect()` skips every widget wholly
+  outside it (four pixels' grace for a focus ring), and the present
+  DECLARES the rect as its damage -- exact by construction, so it is not
+  measured. GTK's buffer-age repaint.
+- **A whole frame always wins**: any `uapp_redraw()`, an event that
+  repaints, a lease, a size change or no frame to copy makes it whole.
+  Input-driven changes keep calling `uapp_redraw()`.
+
+## A WINDOW OUT OF SIGHT IS TOLD: `WIN_EV_SUSPENDED`, AND AN APP THAT ANIMATES STOPS
+
+- **The compositor sends `WIN_EV_SUSPENDED` (a = 1) when a window is
+  minimized or the desktop goes behind a text VT, and a = 0 when it can
+  be seen again** -- xdg_toplevel's `suspended` state. A state, sent on a
+  change (`wm_client_update_suspended()` after every minimize, restore
+  and VT switch), the latest re-sent when the inbox was full. A window
+  under other windows is not suspended.
+- **uapp keeps it (`uapp_suspended()`) and calls `on_suspend`**; an app
+  that animates stops its frames there and keeps collecting data.
 
 ## A "FILE SAVED" CARD IS THE COMPOSITOR'S: `uapp_notice()` / `WIN_REQ_NOTICE`
 
