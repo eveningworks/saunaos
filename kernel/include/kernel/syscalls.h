@@ -495,6 +495,7 @@ int sys_thread_join(struct syscall_ctx *c);
 int sys_thread_detach(struct syscall_ctx *c);
 int sys_set_tls(struct syscall_ctx *c);
 int sys_set_tid_address(struct syscall_ctx *c);
+int sys_prctl(struct syscall_ctx *c);   // kernel/proc/proc_syscalls.c
 int sys_notify_ready(struct syscall_ctx *c);
 int sys_ticks(struct syscall_ctx *c);
 int sys_console_size(struct syscall_ctx *c);

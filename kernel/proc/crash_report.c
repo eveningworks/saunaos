@@ -134,6 +134,12 @@ uint32_t crash_report_write(const char *what, const uint64_t *regs, uint64_t cr2
         klog_printf("crash: no report -- the legacy loader's process has no pid\n");
         return 0;
     }
+    // Before the note as well as the file: the note is what raises the
+    // desktop's "closed unexpectedly" card.
+    if (!scheduler_dumpable()) {
+        klog_printf("crash: no report -- pid %d asked for none (PR_SET_DUMPABLE 0)\n", pid);
+        return 0;
+    }
     char exec[64];
     if (!scheduler_exec_path(pid, exec, sizeof exec)) k_strlcpy(exec, "?", sizeof exec);
     struct query_crash *noted = crash_note(pid, exec, what, regs, cr2);

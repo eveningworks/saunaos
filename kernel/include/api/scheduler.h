@@ -187,6 +187,11 @@ int scheduler_current_pid(void);
 //   - **A tid is a pid**, from the same pid space, so a
 //     thread costs a process slot.
 
+// SYS_PRCTL's PR_*_DUMPABLE for the calling process (its leader's
+// setting): 1 when a fatal fault writes a crash report, the default.
+int  scheduler_dumpable(void);
+void scheduler_set_dumpable(int on);
+
 // The PROCESS on the CPU, where scheduler_current_pid() is the THREAD.
 // Equal for anything that is not a thread. Use this for anything that
 // means "which program is this" -- a window's owner, a terminal's

@@ -509,6 +509,9 @@ TESTS = [
     # Spawned: SYS_MMAP needs a scheduler slot to own the mappings, which `run`
     # once lacked.
     ("mmap_test", None, None, None),
+    # PR_SET_DUMPABLE: a quiet child's fault leaves no crash record, an
+    # ordinary one's does (the positive control); fork copies, exec resets.
+    ("dumpable_test", None, None, None),
     # The first DYNAMIC executable: /lib/ld-toy.so loads libhello.so,
     # applies every relocation class, and jumps to the real entry.
     # Spawned; it was spawned twice over when dynamic (PT_INTERP) was

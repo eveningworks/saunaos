@@ -103,7 +103,7 @@ static void load_there(void) { (void)*(volatile uint8_t *)g_fault_at; }
 static void run_there(void) { call_at(g_fault_at); }
 static int child_code(void (*fn)(void)) {
     int pid = fork();
-    if (pid == 0) { fn(); _exit(0); }
+    if (pid == 0) { utest_quiet_crash(); fn(); _exit(0); }
     int code = -1;
     if (pid < 0 || sys_waitpid(pid, &code) != pid) return -1;
     return code;

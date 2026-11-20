@@ -23,6 +23,9 @@
 // there re-enters the backend's scratch state. Same rule as the mmap
 // fault-in.
 //
+// Writes nothing, and notes nothing, for a process that set
+// PR_SET_DUMPABLE 0 (SYS_PRCTL): a test child faulting on purpose.
+//
 // `regs` is isr_common's frame: regs[0..14] r15..rax, [15] vector,
 // [16] error code, [17] RIP, [18] CS, [19] RFLAGS, [20] RSP, [21] SS.
 // Returns the byte count written, or 0 with the reason logged.

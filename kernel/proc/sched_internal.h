@@ -101,6 +101,10 @@ struct sched_slot_ext {
     // I/O charged to this process (scheduler.h's struct sched_io). A
     // LEADER's only, like the sandbox: a thread charges its leader.
     struct sched_io io;
+    // SYS_PRCTL's PR_SET_DUMPABLE 0, a LEADER's only: a fault that kills
+    // the process writes no crash report. Zero (report) for every new
+    // program; a fork copies it.
+    uint8_t no_crash_report;
 };
 
 struct sched_process {

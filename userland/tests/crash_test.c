@@ -31,7 +31,11 @@ static void put(const char *s) {
     sys_write(1, s, my_strlen(s));
 }
 
-int main(void) {
+// `quiet`: no crash report (PR_SET_DUMPABLE 0), for a test that only
+// wants the death -- signal_test. Run bare, it is faulttest_run.py's
+// fixture for the report itself.
+int main(int argc, char **argv) {
+    if (argc > 1 && argv[1][0] == 'q') sys_prctl(PR_SET_DUMPABLE, 0);
     put("crash_test: about to write through a wild pointer at 0x1000\n");
     put("crash_test: (this address is kernel-only, not user-accessible --\n");
     put("crash_test: see syscall_abi.h / vmm.h for why every process's\n");

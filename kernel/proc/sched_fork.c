@@ -541,6 +541,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     // reporting bug that looks like a scheduling one.
     proc_name_from_path(procs[slot].name, sizeof procs[slot].name, path);
     k_strlcpy(procs[slot].ext->exec_path, path ? path : "", sizeof procs[slot].ext->exec_path);
+    procs[slot].ext->no_crash_report = 0;   // a new program reports its crash
     procs[slot].cpu_ns = 0;
     // Armed here, at creation, rather than by a separate "set up this
     // process's heap" call the way the legacy loader does it: an init
@@ -830,6 +831,7 @@ int scheduler_fork(const uint64_t *regs) {
     }
     k_memcpy(&procs[slot].ext->cwd, &procs[leader].ext->cwd, sizeof procs[slot].ext->cwd);
     procs[slot].ext->sandbox = sandbox_get(procs[leader].ext->sandbox);
+    procs[slot].ext->no_crash_report = procs[leader].ext->no_crash_report;
     strace_fork(procs[leader].pml4_phys, as);   // past the last failure path
     procs[slot].state = SCHED_READY;
     slot_unclaim(slot);
@@ -895,6 +897,7 @@ int scheduler_exec(const char *path, const char *argvec, size_t argvec_len,
         mmap_drop_exec_stack(&procs[me].mm, as);     // a sandbox outlives exec
     proc_name_from_path(procs[me].name, sizeof procs[me].name, path);
     k_strlcpy(procs[me].ext->exec_path, path ? path : "", sizeof procs[me].ext->exec_path);
+    procs[leader_index(me)].ext->no_crash_report = 0;   // ...and so does an exec'd one
     // REALTIME ENDS AT EXEC; nice is kept. Init grants RT to a PROGRAM
     // (a service's, or one /etc/realtime.d lists) -- kept, a listed
     // program could exec an unlisted one into RT. Linux keeps the class

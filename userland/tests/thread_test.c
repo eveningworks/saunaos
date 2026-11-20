@@ -369,6 +369,7 @@ static void guard_checks(void) {
 
     int pid = fork();
     if (pid == 0) {
+        utest_quiet_crash();
         pthread_t o;
         if (pthread_create(&o, NULL, overflower, NULL) == 0) pthread_join(o, NULL);
         _exit(0);

@@ -2122,6 +2122,18 @@ struct sys_stat {
 // 0, which is the first moment nothing runs on it. Returns the tid.
 #define SYS_SET_TID_ADDRESS 168
 
+// SYS_PRCTL -- RDI = a PR_* option, RSI its argument: Linux's prctl(2),
+// with only the options below. PR_SET_DUMPABLE 0 asks that a fault
+// which kills this process write NO crash report (no /var/crash file,
+// no "closed unexpectedly" notice) -- for a test child that faults on
+// purpose; the kernel log still gets its line. 1 restores it. The
+// setting is the PROCESS's (its threads share it), a fork copies it
+// and an exec or spawn starts at 1, as Linux's mm flag does.
+// PR_GET_DUMPABLE answers 0 or 1. Anything else is -EINVAL.
+#define SYS_PRCTL 169
+#define PR_GET_DUMPABLE 3   // Linux's numbers
+#define PR_SET_DUMPABLE 4
+
 #define SYS_SHM_OPEN 99   // RDI = pointer to a `struct shm_open_msg`.
                           // Returns a descriptor naming a SHARED
                           // MEMORY OBJECT -- a run of frames the

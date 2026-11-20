@@ -179,6 +179,14 @@ int sys_set_tid_address(struct syscall_ctx *c) {
     return 0;
 }
 
+int sys_prctl(struct syscall_ctx *c) {
+    int64_t rc = -EINVAL;
+    if (c->a0 == PR_GET_DUMPABLE) rc = scheduler_dumpable();
+    else if (c->a0 == PR_SET_DUMPABLE && c->a1 <= 1) { scheduler_set_dumpable((int)c->a1); rc = 0; }
+    c->regs[14] = (uint64_t)rc;
+    return 0;
+}
+
 int sys_set_tls(struct syscall_ctx *c) {
     c->regs[14] = (uint64_t)(int64_t)scheduler_set_tls(c->a0);
     return 0;

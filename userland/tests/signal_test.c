@@ -451,7 +451,7 @@ int main(void) {
     // 128 + SIGSEGV -- not -1, which no WIF* macro could decode, so a
     // shell or make could not tell a crash from a lost child.
     g_chld = 0;
-    int crasher = sys_spawn_group("/tests/crash_test", 0, -1, 0, PGID_NEW);
+    int crasher = sys_spawn_group("/tests/crash_test", "quiet", -1, 0, PGID_NEW);
     if (crasher > 0) {
         int cc = 0;
         sys_waitpid(crasher, &cc);

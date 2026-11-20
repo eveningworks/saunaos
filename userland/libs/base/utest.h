@@ -124,6 +124,11 @@ static inline void utest_notef(const char *fmt, ...) {
     utest_line(line);
 }
 
+// For a child about to fault ON PURPOSE: its death writes no crash
+// report and raises no "closed unexpectedly" card (PR_SET_DUMPABLE 0).
+// The kernel log still says it died.
+static inline void utest_quiet_crash(void) { (void)sys_prctl(PR_SET_DUMPABLE, 0); }
+
 static inline int utest_failed(void) { return utest_fails; }
 
 // The whole test stands down, as a KTEST does on a fixture the image

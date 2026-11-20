@@ -248,6 +248,9 @@ int     sys_set_tls(void *base);
 // The calling thread's exit zeroes *word and futex-wakes it (Linux's
 // set_tid_address). The tid, or -1.
 int     sys_set_tid_address(volatile int *word);
+// Linux's prctl() for the options SYS_PRCTL takes (PR_GET/SET_DUMPABLE):
+// the option's answer, or -1 with errno EINVAL.
+int     sys_prctl(int option, unsigned long arg);
 
 // Announce that this process has finished starting up -- see
 // SYS_NOTIFY_READY in abi/syscall_abi.h. Returns 0, or -1 for a caller

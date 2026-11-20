@@ -231,6 +231,10 @@ int sys_set_tid_address(volatile int *word) {
     return (int)err(syscall1(SYS_SET_TID_ADDRESS, (uint64_t)(uintptr_t)word));
 }
 
+int sys_prctl(int option, unsigned long arg) {
+    return (int)err(syscall2(SYS_PRCTL, (uint64_t)(int64_t)option, arg));
+}
+
 int sys_set_tls(void *base) {
     return (int)err(syscall1(SYS_SET_TLS, (uint64_t)(uintptr_t)base));
 }

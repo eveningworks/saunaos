@@ -177,6 +177,7 @@ SYSCALL_ROW(SYS_THREAD_DETACH, "thread_detach", sys_thread_detach, A_INT, A_END,
 SYSCALL_ROW(SYS_GETTID, "gettid", sys_gettid, A_END, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_SET_TLS, "set_tls", sys_set_tls, A_HEX, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_SET_TID_ADDRESS, "set_tid_address", sys_set_tid_address, A_HEX, A_END, A_END, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW(SYS_PRCTL, "prctl", sys_prctl, A_INT, A_INT, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_SENDTO, "sendto", sys_sendto, A_FD, A_HEX, A_END, R_DEC, PROMISE_INET)
 SYSCALL_ROW(SYS_RECVFROM, "recvfrom", sys_recvfrom, A_FD, A_HEX, A_END, R_DEC, PROMISE_INET)
 SYSCALL_ROW(SYS_NET_CONFIG, "net_config", sys_net_config, A_HEX, A_END, A_END, R_DEC, PROMISE_ADMIN)

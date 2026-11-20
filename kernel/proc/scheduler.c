@@ -2080,6 +2080,14 @@ int scheduler_exec_path(int pid, char *out, unsigned cap) {
     return out[0] ? 1 : 0;
 }
 
+int scheduler_dumpable(void) {
+    return current_index < 0 || !procs[leader_index(current_index)].ext->no_crash_report;
+}
+
+void scheduler_set_dumpable(int on) {
+    if (current_index >= 0) procs[leader_index(current_index)].ext->no_crash_report = !on;
+}
+
 int scheduler_current_killed(void) {
     return current_index >= 0 && (procs[current_index].pending & (1u << SIGKILL)) != 0;
 }
