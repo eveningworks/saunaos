@@ -182,7 +182,9 @@ rate View > Update speed picks (High, Normal, Low or Paused). Programs run on ev
 run queue with its own LAPIC tick, under one kernel lock, with TLB
 shootdowns when a mapping changes. Device interrupts and the kernel's
 own work stay on the boot core (`docs/smp-design.md`). `smp=park` keeps
-the other cores idle; `nosmp` and `maxcpus=N` start fewer.
+the other cores idle; `nosmp` and `maxcpus=N` start fewer. A kernel fault
+on any core is a panic with the other cores stopped first, and `cpus`
+(`/bin/cpus`, also a debug-console command) reads each core's state.
 
 **Memory hardening.** NX and W^X from each ELF segment's real `p_flags`,
 and the kernel's own identity map is W^X too — `.text` is the only

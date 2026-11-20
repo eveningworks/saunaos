@@ -33,8 +33,10 @@ The other half is the processor list, which comes from the MADT rather
 than from CPUID: CPUID describes the core running the instruction and
 cannot count the others. `online: yes` marks a core the kernel started,
 and every online core runs processes (`docs/smp-design.md`) -- unless
-the boot said `smp=park`, when a line says how many do. `nosmp` or
-`maxcpus=N` on the kernel command line starts fewer.
+the boot said `smp=park` (the LAST `smp=` on the line wins) or the
+kernel could not start a core scheduling, when a line says how many do
+and which of the two it was. `nosmp` or `maxcpus=N` on the kernel
+command line starts fewer.
 
 ## `--dump`: the raw bytes of one table
 

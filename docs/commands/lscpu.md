@@ -80,7 +80,7 @@ interval a process ran there, read from `QUERY_CORELOAD` twice with
       CPU 2     0%  (APIC id 2)
       CPU 3     0%  (APIC id 3)
 
-A core that is online but runs no processes (`smp=park`) adds
+A core that is online but runs no processes (`smp=park`, or one the kernel could not start scheduling) adds
 `, parked -- runs no processes` and reads 0%. **Busy means a process**:
 the boot core's own kernel work -- the text-mode shell, the disk's
 write-back, the network poll -- is not counted, which is the same
