@@ -75,9 +75,15 @@ KTEST("proctree", "waiting for ANY child tells apart 'not yet' from 'never'") {
     scheduler_reparent(b, a);
     KTEST_ASSERT(scheduler_poll_any(a, &child, &code) == SCHED_POLL_RUNNING);
 
-    // Now it has died, so exactly one reap succeeds and names it.
+    // Now it has died, so exactly one reap succeeds and names it. Waited
+    // for, as reap() does: under smp=run a child in a syscall on another
+    // core dies when it leaves the kernel, not at the kill.
     scheduler_kill(b, 7);
-    KTEST_ASSERT(scheduler_poll_any(a, &child, &code) == SCHED_POLL_EXITED);
+    uint64_t t0 = coarse_ticks();
+    enum sched_poll_result r;
+    while ((r = scheduler_poll_any(a, &child, &code)) == SCHED_POLL_RUNNING &&
+           coarse_ticks() - t0 < TIMEOUT_TICKS) { }
+    KTEST_ASSERT(r == SCHED_POLL_EXITED);
     KTEST_ASSERT_EQ(child, b);
     KTEST_ASSERT_EQ(code, 7);
 
