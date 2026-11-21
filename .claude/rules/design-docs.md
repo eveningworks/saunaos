@@ -37,8 +37,9 @@ programs, SaunaOS an SDL private platform; stages 0-4 BUILT 2026-11-17, stage 4 
 before `userland/third_party/sdl3/`, SDL's drivers, `uui_datacard`, or a port that
 wants SDL), `netstack-design.md` (the network stack in ring 3, PLANNED -- before
 socket or `kernel/net/` work), `trace-design.md` (`strace` decoding in
-ring 3 and a debugger's stop, stages 1-3 BUILT -- before `strace.c` or
-`ptrace` work), `input-policy-design.md` (keymaps in the compositor, the pointer
+ring 3 and a debugger's stop, stages 1-3 BUILT; the kernel EVENT ring
+(`ktrace.h`, `/bin/trace`) BUILT 2026-11-21 -- before `strace.c`,
+`ptrace`, `ktrace.c` or a new trace point), `input-policy-design.md` (keymaps in the compositor, the pointer
 kept, stages 1 and 3 BUILT -- before `keyboard_layout.c` or `WIN_EV_RAW_KEY`
 work), `w16-design.md` (16-bit Windows programs on an emulated CPU, stages 0-3
 BUILT, stage 4 -- the user's own programs -- ongoing, with the side-by-side

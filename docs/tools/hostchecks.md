@@ -1022,6 +1022,18 @@ the rest in the sweep. Each stays a standalone script with its own
   characters here, deliberately) and Indic conjunct linkers (GB9c is not
   applied); a tab stands in for a line break. `--positive-control` drops
   the indicator pairing and GB11's ZWJ join; each must go RED.
+- **`trace_view_hostcheck.py`** (gate) -- `tools/dev/trace_view.py`
+  against a synthetic kernel trace dump a host-built C driver writes with
+  the tree's own `abi/ktrace_abi.h` and `kernel/lib/ktrace_fmt.c`: two
+  cores, three threads, switches each way, a syscall that parks, an
+  interrupt, a fault, a lock wait and an event id the table does not
+  know. `--text` must print the C formatter's lines exactly (two
+  decoders held to each other through the dump's own event table); the
+  JSON must have a track per CPU and exactly the slices the switches
+  imply; `--stats` counts; another version or magic is refused.
+  `--positive-control` swaps two record fields in the header, makes a
+  slice ignore whom a switch hands the core to, and changes the C side's
+  state letter; each must go RED.
 - **`emoji_hostcheck.py`** (gate) -- colour emoji: `ttf.c`'s COLR v0
   compositing (`ttf_render_color_glyph()`, layers of outlines filled from
   CPAL) against FreeType's own COLR render of the same Twemoji glyphs,

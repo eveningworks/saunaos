@@ -5,6 +5,7 @@
 #include "kfmt.h"      // klog_printf
 #include "klog.h"
 #include "spinlock.h"
+#include "ktrace.h"    // a sleep on a held lock, and the hand to a waiter
 
 // depth/owner/handed change under the lock's own spinlock with this
 // core's interrupts off: the spinlock against another core, the irqsave
@@ -106,6 +107,7 @@ void kmutex_lock(struct kmutex *m) {
             scheduler_wait_disarm();
             continue;
         }
+        KTRACE(KTRACE_G_MUTEX, KTRACE_EV_MUTEX_SLEEP, m, m->owner, 0, 0);
         if (scheduler_block_kernel(m, SCHED_WAIT_LOCK)) { spins = 0; continue; }
         scheduler_wait_disarm();
 
@@ -142,6 +144,7 @@ void kmutex_unlock(struct kmutex *m) {
         m->owner = next;
         m->handed = 1;           // depth stays 1, owned stays 1
         spin_unlock_irqrestore(&m->wait_lock, f);
+        KTRACE(KTRACE_G_MUTEX, KTRACE_EV_MUTEX_WAKE, m, next, 0, 0);
         return;
     }
     m->depth = 0;

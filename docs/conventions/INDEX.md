@@ -387,6 +387,9 @@ whenever a headline here tells you something you did not already know.
 - **SIZE IT TO THE DATA: ALLOCATE AND GROW, DON'T INVENT A CAP** -- a
   bound is mirrored only when a protocol, ABI or the hardware sets it;
   the kernel keeps fixed tables only where it may not allocate
+- **A KERNEL TRACE POINT IS `KTRACE()`, ITS ARGUMENTS FREE WHILE
+  DISARMED, AND IT TAKES NO LOCK** -- never one in an NMI path, never a
+  log line from the writer
 
 ### GUI, Toykit and the desktop
 

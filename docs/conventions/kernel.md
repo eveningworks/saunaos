@@ -5617,3 +5617,32 @@ So such a driver calls `xhci_bulk_own_recovery()` on its endpoints after
 the device's -- itself, from a context that may issue commands (never
 the completion callback, which runs inside the event drain).
 `kernel/drivers/usb/usb_storage.c` is the one user.
+
+## A KERNEL TRACE POINT IS `KTRACE()`, ITS ARGUMENTS FREE WHILE DISARMED, AND IT TAKES NO LOCK
+
+The kernel event trace (`kernel/include/kernel/ktrace.h`,
+`docs/trace-design.md`, "The kernel event ring") is written at fixed
+points: `KTRACE(group, event, a0, a1, a2, a3)`. Disarmed, the macro is
+one load of `g_ktrace_mask` and a branch, and the four argument
+expressions are NOT EVALUATED -- so an argument may read `procs[]` or the
+clock without costing the disarmed path anything, and a point that
+computes its arguments before the macro has thrown that away.
+
+- **A new event is a row in `abi/ktrace_abi.h`'s `KTRACE_EVENTS`** --
+  name, group, and its arguments' names and kinds. The ids are ABI (a
+  dump outlives its kernel), so a row is appended, never renumbered. The
+  kernel's panic tail, `/bin/trace` and `trace_view.py` all decode from
+  that row; nothing else needs teaching.
+- **The writer takes no lock and logs nothing**: interrupts off, this
+  core's own ring, a TSC read. A point may therefore sit inside a
+  spinlock's spin, a switch or an interrupt's entry. A LOG LINE from the
+  writer would take klog's lock from all of those; what a writer has to
+  report (a full ring) is counted and said at the trace's stop.
+- **Never in an NMI path.** An NMI is not stopped by interrupts being
+  off, so one landing inside a write on the same core would tear that
+  record. The lockup NMI writes none but a contended lock's wait on its
+  way to a panic, where one torn record does not matter; keep it so.
+- **A ring is replaced only after every core has run a cross-core call
+  that moves its own pointer** (`install_everywhere()`): a call never
+  lands inside a write, so nobody is still writing the old one -- the
+  shape to keep if the rings ever grow while armed.

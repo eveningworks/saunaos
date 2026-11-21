@@ -13,6 +13,7 @@
 #include "scheduler.h"   // the preemption guard a holder raises
 #include "smp.h"         // smp_poll_ipis(): a spinner answers a shootdown or a call
 #include "lockstat.h"
+#include "ktrace.h"      // a contended wait is a trace event
 
 int g_percpu_ready;
 
@@ -143,6 +144,7 @@ static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
                 lockup_report(l, site, me);
             }
         }
+        KTRACE(KTRACE_G_SPIN, KTRACE_EV_SPIN_WAIT, l, arch_rdtsc() - start, site, 0);
     }
     l->holder = me + 1;
     l->site = site;

@@ -364,6 +364,25 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
 
   Not a terminal emulator: a full-screen program (`edit`, `less`) is not
   usable through `exec`. Use `shell` for those.
+- **`trace_view.py`** -- a kernel event trace dump (`trace dump FILE`,
+  `docs/commands/trace.md`) as Chrome Trace Event JSON, which
+  ui.perfetto.dev and `chrome://tracing` open: one track per CPU, a
+  SLICE for each stretch a thread ran there between two switches (named
+  from the dump's thread table), an INSTANT for every other record with
+  its arguments decoded; microseconds since the trace started.
+  `--text` prints the records as `/bin/trace show` does, line for line,
+  and `--stats` counts each core's events.
+
+      python3 tools/dev/trace_view.py k.ktrace -o k.json
+      python3 tools/dev/trace_view.py k.ktrace --text | less
+
+  **The dump describes itself** -- its event table carries each event's
+  name and argument kinds (`abi/ktrace_abi.h`'s `KTRACE_EVENTS`), so a
+  dump from a newer kernel decodes; a row that grew is read by its known
+  prefix, and a dump of another version or magic is REFUSED, not guessed
+  at. Getting the file out of a VM: `vm.py get /tmp/k.ktrace` (`lib.md`).
+  Its check is `hostchecks/trace_view_hostcheck.py`, against a dump the
+  tree's own C writes.
 - **`ui_push.py`** -- an edited window file (`.ui`) into a running
   `vm.py` guest, and its program restarted to read it: `tools/t ui_push
   calculator` (the tracked file beside the source) or `tools/t ui_push

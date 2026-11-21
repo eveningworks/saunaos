@@ -34,6 +34,9 @@
 #include "keyboard_tap.h" // kbdtap_enabled()/_set_enabled() -- kernel.kbdtap
 #include "syscall_stall.h" // syscall_stall_get()/_set() -- kernel.syscall_stall
 #include "lockstat.h"      // lockstat_timing_set() -- kernel.lockstat
+#include "ktrace.h"        // ktrace_start()/_stop() -- kernel.trace
+#include "ktrace_fmt.h"    // ...and its group names
+#include "knum.h"          // k_parse_u64() -- kernel.trace_size
 #include "sound.h"        // hda_diag_tone() -- kernel.hda_tone
 #include "usb.h"          // usb_diag_reset_port() -- kernel.usb.reset
 #include "intel_display.h" // intel_display_pipe_cycle()/_link_retrain() -- kernel.intel_cycle
@@ -273,6 +276,62 @@ static const struct setting lockstat_setting = {
     .choice = onoff_choice,
     .get = lockstat_get_str,
     .apply = lockstat_apply,
+};
+
+// ---- kernel.trace, kernel.trace_size ---------------------------------
+//
+// The kernel event trace (ktrace.h), OFF BY DEFAULT for kernel.lockstat's
+// reason and one more: armed, every trace point writes a record, and
+// SYS_QUERY hands the records -- kernel addresses among them -- to any
+// process, as it does every other fact. The value is the groups to
+// record ("switch,syscall", "all") or "off"; stopping KEEPS the rings, so
+// a trace is read after it ends, and the next start empties them.
+
+static void trace_get(char *out, uint32_t cap) {
+    if (!ktrace_format_groups(ktrace_mask(), out, cap)) k_strlcpy(out, "?", cap);
+}
+
+static int trace_apply(const char *value) {
+    if (k_strcmp(value, "off") == 0) { ktrace_stop(); return SETTING_SAVED; }
+    uint32_t mask;
+    if (!ktrace_parse_groups(value, &mask)) return SETTING_INVALID;
+    // Refused, logged: no TSC rate to time the records, or no memory.
+    if (!ktrace_start(mask)) return SETTING_INVALID;
+    return SETTING_SAVED;
+}
+
+static const struct setting trace_setting = {
+    .name = "trace",
+    .label = "Kernel event trace",
+    .type = SETTING_TYPE_STRING,
+    .file = CONFIG_PATH_RUNTIME,
+    .category = TUNABLE_CATEGORY,
+    .group = "Diagnostics",
+    .get = trace_get,
+    .apply = trace_apply,
+};
+
+// Records per core, for the next start from stopped: a power of two,
+// rounded up, from 64 to a 32nd of RAM across every core.
+static void trace_size_get(char *out, uint32_t cap) {
+    k_snprintf(out, cap, "%llu", (unsigned long long)ktrace_size());
+}
+
+static int trace_size_apply(const char *value) {
+    uint64_t n;
+    if (!k_parse_u64(value, &n) || !ktrace_set_size(n)) return SETTING_INVALID;
+    return SETTING_SAVED;
+}
+
+static const struct setting trace_size_setting = {
+    .name = "trace_size",
+    .label = "Kernel event trace records per core",
+    .type = SETTING_TYPE_STRING,
+    .file = CONFIG_PATH_RUNTIME,
+    .category = TUNABLE_CATEGORY,
+    .group = "Diagnostics",
+    .get = trace_size_get,
+    .apply = trace_size_apply,
 };
 
 // ---- kernel.kbdtap ---------------------------------------------------
@@ -837,5 +896,7 @@ void tunables_register(void) {
     setting_register(&kstack_track_setting);
     setting_register(&syscall_stall_setting);
     setting_register(&lockstat_setting);
+    setting_register(&trace_setting);
+    setting_register(&trace_size_setting);
     setting_register(&kbdtap_setting);
 }

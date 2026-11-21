@@ -24,6 +24,8 @@
 #ifndef __ASSEMBLER__
 #include "context_switch.h"   // struct kernel_context: an AP's idle context
 
+struct ktrace_ring;
+
 struct tss {
     uint32_t reserved0;
     uint64_t rsp0;
@@ -114,6 +116,9 @@ struct cpu {
     uint32_t bkl_key;
     uint32_t pad5;
     uint64_t bkl_takes, bkl_contended, bkl_wait_tsc, bkl_hold_tsc;
+    // This core's kernel-trace ring (ktrace.h), or NULL: only ever
+    // written by the core itself, inside a cross-core call.
+    struct ktrace_ring *ktrace;
 };
 
 // ONE FIELD OF THIS CORE'S struct cpu IN ONE `%gs` INSTRUCTION, Linux's

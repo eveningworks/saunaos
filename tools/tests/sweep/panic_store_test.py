@@ -26,6 +26,12 @@ the report names that core, and the panic stopped every other one first.
 `--boot-word smp=park` aims it at a PARKED core, which before b954b91c
 halted with no report; a scheduling one reported, but the others ran on.
 
+`--trace` arms the kernel event trace (`trace start`) before the crash,
+and checks the PANIC TAIL: the filed record ends with each core's newest
+events, decoded (kernel/include/kernel/ktrace.h) -- among them the
+`setting` syscall that asked for the crash. Without `--trace` the record
+must hold no tail at all: a trace that was not running costs it nothing.
+
 THE POSITIVE CONTROL (--positive-control) replaces the warm reset with a
 cold one -- QEMU is stopped and started again after the panic -- so the
 RAM is gone and every recovery check must go red. A run where they stay
@@ -51,6 +57,8 @@ RUNNER = [
     {"covers": "...and on a PARKED core (smp=park), which used to halt with no report",
      "name": "panic_store_ap_parked",
      "args": ["--kind", "ap-gp-fault", "--cpus", "3", "--boot-word", "smp=park"]},
+    {"covers": "...with the kernel event trace armed, the record ends with each core's newest events",
+     "name": "panic_store_trace", "args": ["--trace", "--cpus", "2"]},
 ]
 
 
@@ -113,7 +121,7 @@ def wait_for_guest(g, deadline_s=180):
     return False
 
 
-def run(inst, disk, log, res, cold, kind="gp-fault", cpus=0):
+def run(inst, disk, log, res, cold, kind="gp-fault", cpus=0, trace=False):
     g = lambda *c, timeout=60: vm(inst, disk, log, "exec", *c, timeout=timeout)  # noqa: E731
     vm(inst, disk, log, "--reboot", *(["--cpus", str(cpus)] if cpus else []), "start",
        timeout=300)
@@ -124,6 +132,10 @@ def run(inst, disk, log, res, cold, kind="gp-fault", cpus=0):
     res.check("a cold boot recovers nothing",
               "nothing recovered" in boot1 and "PREVIOUS BOOT PANICKED" not in boot1,
               "\n".join(l for l in boot1.splitlines() if "panic_store" in l)[-400:])
+
+    if trace:
+        armed = g("trace start switch,syscall,irq")
+        res.check("the kernel event trace arms", "trace: recording" in armed, armed[-300:])
 
     boots_before = serial(log).count(BOOT_MARK)
     # IN THE BACKGROUND: a panicked guest never answers, so waiting on the
@@ -192,6 +204,15 @@ def run(inst, disk, log, res, cold, kind="gp-fault", cpus=0):
               f'deliberately triggering "{kind}"' in after
               and "PANIC: General protection fault" in after,
               after[-800:])
+    tail = after[after.find("ktrace: the last"):] if "ktrace: the last" in after else ""
+    if trace:
+        res.check("...and, the trace armed, ends with each core's newest events",
+                  bool(tail) and "ktrace: core 0," in tail
+                  and (cpus < 2 or "ktrace: core 1," in tail), after[-800:])
+        res.check("...decoded: the syscall that asked for the crash, by name",
+                  "sys_enter nr=setting" in tail, tail[-600:])
+    else:
+        res.check("...and, the trace not armed, holds no trace tail", not tail, tail[:300])
     res.check("...and the record is cleared once filed",
               "panic_store: record cleared" in g("dmesg"))
     listed = g("crashlog --panics")
@@ -227,6 +248,8 @@ def main():
     ap.add_argument("--boot-word", action="append", default=[],
                     help="another word for the copy's GRUB line (smp=park)")
     ap.add_argument("--cpus", type=int, default=0, help="guest cores (ap-* kinds want 3: an AP that is not the caller's)")
+    ap.add_argument("--trace", action="store_true",
+                    help="arm the kernel event trace first, and check the record's trace tail")
     args = ap.parse_args()
 
     work = tempfile.mkdtemp(prefix="panic_store_test.")
@@ -243,7 +266,7 @@ def main():
 
     res = Result()
     try:
-        run(args.instance, disk, log, res, args.positive_control, args.kind, args.cpus)
+        run(args.instance, disk, log, res, args.positive_control, args.kind, args.cpus, args.trace)
     finally:
         vm(args.instance, disk, log, "stop")
         if args.keep:

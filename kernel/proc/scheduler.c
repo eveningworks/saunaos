@@ -116,6 +116,11 @@
 #include "string.h" // k_strlcpy -- proc_name_from_path()
 #include "pmm.h"    // the table and the stack chunks
 #include "irqflags.h" // per-process I/O counters, charged from any context
+#include "ktrace.h"   // the trace's switch and wakeup points
+
+_Static_assert(SCHED_READY == KTRACE_STATE_READY && SCHED_RUNNING == KTRACE_STATE_RUNNING &&
+               SCHED_ZOMBIE == KTRACE_STATE_ZOMBIE && SCHED_BLOCKED == KTRACE_STATE_BLOCKED,
+               "a switch record's prev_state is the scheduler's state: abi/ktrace_abi.h");
 
 // The thread pointer belonging to the KERNEL CONTEXT -- which in
 // practice means a ring-3 process the legacy elf_run.c loader is
@@ -984,8 +989,12 @@ static void delay_close(struct sched_process *p, uint64_t now) {
     p->delay_why = SCHED_DELAY_NONE;
 }
 
+// Every way a parked slot is made READY passes here, so it is also the
+// kernel trace's wakeup point.
 void sched_delay_woken(int slot) {
     struct sched_process *p = &procs[slot];
+    KTRACE(KTRACE_G_WAKEUP, KTRACE_EV_WAKEUP, p->pid, (uintptr_t)p->wait_chan,
+           p->wait_reason, p->tgid);
     uint64_t now = arch_rdtsc();
     delay_close(p, now);
     p->delay_why = SCHED_DELAY_RUNQ;
@@ -1158,6 +1167,8 @@ void switch_to(int from, int idx) {
     check_one_running("switch_to");
     trace_sched("switch_to", idx);
     kstack_verify(idx);   // before trusting anything else about this slot
+    KTRACE(KTRACE_G_SWITCH, KTRACE_EV_SWITCH, from >= 0 ? procs[from].pid : 0,
+           from >= 0 ? procs[from].state : 0, procs[idx].pid, procs[idx].tgid);
     // A slot selected before anything gave it somewhere to resume. Was
     // a zero RSP handed to isr_common; now it is a jump to address 0,
     // which is no more diagnosable, so it is still checked here.
@@ -1230,6 +1241,7 @@ void switch_to_kernel(int from) {
     // longer route; now there is nothing to switch to.
     if (was < 0) return;
     g_switches++;
+    KTRACE(KTRACE_G_SWITCH, KTRACE_EV_SWITCH, procs[was].pid, procs[was].state, 0, 0);
     // find_next_runnable()'s FALLBACK returns ROT_KERNEL without asking
     // kernel_slot_runnable(), so it can reach here before the kernel
     // context has ever been left -- and a restore then jumps to 0.

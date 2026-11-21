@@ -38,6 +38,7 @@
 #include "percpu.h" // a scheduling AP takes the ordinary path (smp=run)
 #include "random_hw.h"   // arch_rdtsc(): an AP's last tick, for a lockup report
 #include "oom.h"    // a #PF with no frame left goes to the OOM killer
+#include "ktrace.h" // interrupts and page faults are trace points
 
 struct idt_entry {
     uint16_t offset_low;
@@ -567,6 +568,7 @@ static void isr_dispatch_body(uint64_t *regs) {
         uint64_t cr2 = 0;
         if (vector == 14) { // page fault: CR2 holds the faulting address
             __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+            KTRACE(KTRACE_G_FAULT, KTRACE_EV_FAULT, cr2, error_code, rip, 0);
 
             // DEMAND PAGING, and it belongs here -- before any of the
             // reporting below -- because a heap page arriving on first
@@ -989,7 +991,12 @@ void isr_dispatch(uint64_t *regs) {
     if (bkl) bkl_enter(regs);
     int outer_depth = this_cpu_read(isr_depth);
     this_cpu_write(isr_depth, outer_depth + 1);
+    // An interrupt, not a syscall (its own events) or an exception.
+    int traced = ktrace_on(KTRACE_G_IRQ) && vector >= 32 && vector != 128;
+    if (traced) ktrace_write(KTRACE_EV_IRQ, vector, regs[17], regs[18], 0);
     isr_dispatch_body(regs);
+    // On the core it resumed on, if a tick in the body switched away.
+    if (traced) KTRACE(KTRACE_G_IRQ, KTRACE_EV_IRQ_EXIT, vector, 0, 0, 0);
     // RESTORED, not decremented: it describes THIS kernel stack, and a
     // switch part-way through the body reloaded it for another one --
     // then put this stack's back when we were resumed.

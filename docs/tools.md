@@ -347,6 +347,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `kbd_test.py` -- `kbd` reports what the keyboard actually did, on both input drivers
 - `kdebug_test.py` -- The kernel debugger: a GDB stub over COM3 or the network, end to end
 - `keyboard_paths_test.py` -- The same keys do the same thing on PS/2 and on virtio-input
+- `ktrace_test.py` -- The kernel event trace end to end: armed, a known workload, dumped, decoded
 - `latency_under_io.py` -- what heavy disk I/O, or a busy CPU, does to desktop latency
 - `libc_diff.py` -- tolibc's formatter, number parsers and maths against glibc, case by case
 - `live_boot_test.py` -- the ISO boots and is USABLE with no disk
@@ -454,6 +455,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `smb_hostcheck.py` -- Check the SMB client (/lib/libsmb.so's protocol) against a real Samba, on the HOST
 - `teapot_hostcheck.py` -- Check Shapes' teapot mesh (userland/apps/demos/gfxdemo/teapot.c) and the depth-
 - `term_scheme_hostcheck.py` -- Check the shipped Terminal colour schemes against what the loader does
+- `trace_view_hostcheck.py` -- tools/dev/trace_view.py against a synthetic kernel trace dump, on the HOST
 - `tree_lock_hostcheck.py` -- The test lock's PreToolUse hook refuses every way a source file can be
 - `ttf_hint_hostcheck.py` -- The light autohinter against FreeType's, and the cell it sizes, on the HOST
 - `uadpcm_hostcheck.py` -- Check userland/libs/media/uadpcm.c (MS and IMA ADPCM) against ffmpeg, on the HOST
@@ -567,6 +569,7 @@ Full entries: [`docs/tools/dev.md`](tools/dev.md).
 - `remote.py` -- Drive a SaunaOS machine over the network: run commands, move files
 - `samba_server.py` -- A throwaway Samba server in Docker, for testing the SMB client
 - `serial_capture.py` -- read a running VM's serial console RAW
+- `trace_view.py` -- A kernel event trace dump (`trace dump FILE`) as Chrome Trace Event JSON
 - `tree_move.py` -- Move source paths and rewrite every reference to them, from a mapping table
 - `ui_push.py` -- Send an edited window file (.ui) to a running guest and restart its program
 - `ui_snapshot.py` -- Every rect and every pixel of a window, to compare two builds of it

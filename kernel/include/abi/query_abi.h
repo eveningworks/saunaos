@@ -13,6 +13,7 @@
 #endif
 
 #include <stdint.h>
+#include "ktrace_abi.h"   // struct ktrace_rec: QUERY_KTRACE's payload
 
 // SYS_QUERY: reading FACTS -- live kernel state that is computed on
 // every read and never persisted. See docs/settings-and-queries.md's
@@ -726,6 +727,14 @@ struct query_firmware {
 // waited and held. CUMULATIVE. LIST (struct query_bklstat).
 #define QUERY_BKLSTAT 65
 
+// The kernel event trace (abi/ktrace_abi.h, `kernel.trace`): a row per
+// core that has a ring -- what it holds and how much it lost -- and the
+// records themselves, QUERY_KTRACE_PER at a time, each core's oldest
+// first and the cores in order. LISTs (struct query_ktrace_cpu,
+// struct query_ktrace). Empty until a trace was first started.
+#define QUERY_KTRACE_CPU 66
+#define QUERY_KTRACE     67
+
 struct query_imgcache {
     char     path[QUERY_IMGCACHE_PATH_MAX];
     uint64_t frames;
@@ -1280,6 +1289,38 @@ struct query_bklstat {
     uint64_t hold_ns, hold_max_ns;
 };
 _Static_assert(sizeof(struct query_bklstat) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
+
+// QUERY_KTRACE_CPU's record. `written` counts from the start of the
+// trace, so `written - capacity` records (when positive) were
+// overwritten before anyone could read them: `lost`.
+struct query_ktrace_cpu {
+    uint32_t cpu;
+    uint32_t mask;          // KTRACE_G_* armed now; 0 once stopped
+    uint64_t capacity;      // records this core's ring holds
+    uint64_t written;
+    uint64_t lost;
+    uint64_t tsc_hz;
+    uint64_t armed_tsc;     // when the trace was started
+    uint64_t stopped_tsc;   // when it was stopped; 0 while it runs
+};
+_Static_assert(sizeof(struct query_ktrace_cpu) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
+
+// QUERY_KTRACE's record: `n` records of one core, the first being that
+// core's record number `seq` (counted from the start of the trace).
+// **A RUNNING TRACE MOVES BETWEEN TWO READS**, so the index is only a
+// position at the moment of the read: a reader drops a seq it has seen
+// and counts a gap as lost -- what `/bin/trace` does. A stopped trace
+// stands still.
+#define QUERY_KTRACE_PER 5
+struct query_ktrace {
+    uint32_t cpu;
+    uint32_t n;
+    uint64_t seq;
+    struct ktrace_rec rec[QUERY_KTRACE_PER];
+};
+_Static_assert(sizeof(struct query_ktrace) <= 256,
                "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
 
 // QUERY_DRIVER's record. `devices` is space-separated and may be empty,

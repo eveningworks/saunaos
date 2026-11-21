@@ -140,6 +140,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`ps`](ps.md)
 - [`snddrv`](snddrv.md)
 - [`time`](time.md)
+- [`trace`](trace.md)
 - [`tty`](tty.md)
 - [`uptime`](uptime.md)
 

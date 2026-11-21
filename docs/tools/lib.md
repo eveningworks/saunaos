@@ -504,6 +504,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   bare-metal laptop enables it and a QEMU guest does not. Spawned rather
   than enabled: a service would persist into the next boot and change
   what every other tool is testing.
+- **`vm.py get <guest-file> [host-path]`** -- put's other half: a guest
+  file OUT to the host over the same forward and `remote.py`'s
+  `do_get()`, defaulting to its name in the current directory. For a
+  binary a test made in the guest (a `trace dump`), which the text
+  console would mangle.
   It needs networking, so `--net none` has no path for it.
 - **`vm.py spawn <path> [args]`** -- spawns a guest program and prints
   the FILE it writes its report to, waiting until that file stops

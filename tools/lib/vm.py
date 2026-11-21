@@ -1011,6 +1011,27 @@ def cmd_put(args):
     return rc
 
 
+def cmd_get(args):
+    """Copy a guest file OUT to the host -- put's other half, over the
+    same TFTP forward and remote.py's do_get(): a binary a test made in
+    the guest (a `trace dump`) cannot cross the text console intact."""
+    if not _read_pid():
+        print("vm: not running (vm.py start first)")
+        return 1
+    import remote
+
+    if not _ensure_tftpd(args.timeout):
+        print("vm: could not start tftpd in the guest -- is networking up? "
+              "(`vm.py exec netctl`)", file=sys.stderr)
+        return 1
+    dst = args.dst or os.path.basename(args.src)
+    rc = remote.do_get("127.0.0.1", args.tftp_port, args.src, dst, args.timeout)
+    if rc:
+        print(f"vm: get failed -- was this guest started by THIS vm.py? "
+              f"(the forward is on host port {args.tftp_port})", file=sys.stderr)
+    return rc
+
+
 def cmd_spawn(args):
     """`spawn` a program and read the file it writes its output to.
 
@@ -1432,6 +1453,12 @@ def main():
     p_put.add_argument("dst", nargs="?", default=None,
                         help="where it lands in the guest (default: /tmp/<name>)")
     p_put.set_defaults(func=cmd_put)
+
+    p_get = sub.add_parser("get", help="copy a guest file OUT to the host")
+    p_get.add_argument("src", help="the guest file")
+    p_get.add_argument("dst", nargs="?", default=None,
+                       help="where it lands on the host (default: its name, here)")
+    p_get.set_defaults(func=cmd_get)
 
     p_spawn = sub.add_parser("spawn",
                               help="spawn a program and print the file it writes")

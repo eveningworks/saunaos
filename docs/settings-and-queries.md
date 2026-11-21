@@ -122,6 +122,20 @@ theory** (ten software replugs at 0 ms, ten high-speed results), which
 is what a diagnostic is for; it is kept because the same question comes
 back whenever the retry timing changes.
 
+`kernel.trace` arms the kernel event trace (`kernel/include/kernel/ktrace.h`,
+[`trace`](commands/trace.md)): its value is the groups to record --
+`switch,wakeup,irq,fault,syscall,spin,mutex`, any of them comma-separated,
+or `all` -- and it reads back the groups armed, or `off`. Off by default,
+like `kernel.lockstat`, because armed every trace point writes a record;
+refused, with a log line, on a machine with no calibrated TSC rate or no
+memory for the rings. `off` KEEPS the records (`QUERY_KTRACE`) to be read
+after the stretch they cover, as ftrace's `tracing_on` does; the next start
+empties them. `kernel.trace_size` is the records per core for the next
+start from stopped, rounded up to a power of two (default 8192, at most a
+32nd of RAM across every core). The records carry kernel addresses and
+`SYS_QUERY` answers any process -- the same exposure every fact has here,
+worth knowing before leaving it armed.
+
 **A tunable can also be a CONSENT switch, and `kernel.kbdtap` is the
 first.** The others trade performance against diagnostics — turning one
 on costs cycles and tells you more. That one gates whether the kernel

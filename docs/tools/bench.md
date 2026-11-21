@@ -147,6 +147,13 @@ same size.
     python3 tools/bench/sys_bench.py --kvm --runs 3 --label before --json out.jsonl
     python3 tools/bench/sys_bench.py --kvm --sizes 49152,61440,65536   # find a step
     python3 tools/bench/sys_bench.py --host <asus-ip>
+    python3 tools/bench/sys_bench.py --kvm --cpus 1 --before 'trace start syscall'
+
+`--before CMD` runs a guest command before the program (repeatable) --
+an instrument armed, to measure what it costs -- and `--cpus N` boots
+that many cores (one keeps another core's work out of the numbers).
+`--disk` boots another build's image, which is how two builds are
+compared from one checkout.
 
 **THE `copy` COLUMN IS A REFERENCE, NOT A FLOOR**: below ~256 KiB the
 kernel's `rep movsb` path beats two ring-3 copies, so `read-copy` goes

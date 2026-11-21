@@ -187,7 +187,13 @@ on any core is a panic with the other cores stopped first, and `cpus`
 (`/bin/cpus`, also a debug-console command) reads each core's state.
 `lockstat` shows how contended the kernel lock, the heap and the frame
 allocator are -- takes, waits, and with `lockstat track on` hold times,
-by core and by syscall or interrupt.
+by core and by syscall or interrupt. `trace` records what every core did
+-- context switches, wakeups, interrupts, page faults, syscalls, lock
+waits -- into per-core rings while armed (`trace start`, or `trace run
+PROGRAM` around one program), shows them as text, and dumps them for
+`tools/dev/trace_view.py`, which opens them in Perfetto as a track per
+core; a panic with the trace armed keeps each core's last events in the
+panic record.
 
 **Memory hardening.** NX and W^X from each ELF segment's real `p_flags`,
 and the kernel's own identity map is W^X too — `.text` is the only

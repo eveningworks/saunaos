@@ -16,6 +16,7 @@
 #include "userfs.h"   // userfs_space_gone()
 #include "mmap.h" // mmap_release_regions -- the region list is allocated
 #include "syscall_stall.h"
+#include "ktrace.h"   // entry and exit are trace points
 #include "syscalls.h"
 #include "usb_claim.h"
 #include "dev_claim.h"
@@ -117,6 +118,7 @@ void syscall_dispatch(uint64_t *regs) {
         .a2 = regs[11],
         .pml4 = vmm_current_pml4(),
     };
+    KTRACE(KTRACE_G_SYSCALL, KTRACE_EV_SYS_ENTER, nr, c.a0, c.a1, c.a2);
 
     // `strace` (kernel/shell/shell_sys.c) hooks in here, and only here -- every
     // ring-3 syscall goes through this one dispatcher, so nothing
@@ -183,4 +185,5 @@ void syscall_dispatch(uint64_t *regs) {
         if (blocked) strace_end_resumed(nr, regs[14]);
         else         strace_end(nr, regs[14]);
     }
+    KTRACE(KTRACE_G_SYSCALL, KTRACE_EV_SYS_EXIT, nr, regs[14], 0, 0);
 }

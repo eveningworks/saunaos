@@ -1739,7 +1739,8 @@ split. One line per pair here; the site lists are in roadmap-details.
 - [ ] A `top`-style live view, not just point-in-time snapshots
 - [x] ~~Per-process CPU time accounting, which the scheduler doesn't track today~~ DONE 2026-09-12 -- `cpu_ns`, `ps`'s CPU column
 - [ ] Latency histograms for disk I/O, where the tail is the interesting part and an average hides it
-- [ ] Tracepoints that compile out when disabled, so they can live on hot paths
+- [x] ~~A kernel event trace of every core~~ DONE 2026-11-21 -- `trace`, `kernel.trace`, `trace_view.py`, a panic tail
+- [ ] Tracepoints that compile out when disabled -- the event trace's are a load and a branch while off (Linux: static keys)
 - [x] ~~`strace` as a `/bin` program, not a kernel builtin~~ DONE 2026-08-23 -- `SPAWN_TRACE`, and the trace reaches the tracer's terminal
 - [x] ~~`strace` extended to follow a process's children once `fork()` exists~~ DONE 2026-10-09 -- `strace -f`
 - [x] ~~`strace` decoding in ring 3, over a record stream~~ DONE 2026-10-09 -- `docs/trace-design.md` stages 1-2; `-c`, `-e`, `-o`

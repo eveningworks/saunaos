@@ -1040,6 +1040,7 @@ LIBBASE_OBJS  = $(patsubst userland/%.c,$(BUILD)/userland/%.o,$(LIBBASE_SRCS)) \
                $(BUILD)/userland/shared/etc_config_cases.o \
                $(BUILD)/userland/shared/tmppath.o \
                $(BUILD)/userland/shared/kcrc.o \
+               $(BUILD)/userland/shared/ktrace_fmt.o \
                $(BUILD)/userland/shared/pci_class.o \
                $(BUILD)/userland/shared/splash_layout.o \
                $(BUILD)/userland/shared/ubsan_cases.o

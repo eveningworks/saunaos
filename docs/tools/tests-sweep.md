@@ -2001,7 +2001,10 @@ report is ON only after `enter_gui()`").
   raises the `#GP` on an AP inside a cross-core call instead, and checks
   the report names that core and that every other core was stopped
   first; `--boot-word smp=park` aims it at a parked core. Both are
-  sweep entries of their own.
+  sweep entries of their own, and so is **`--trace --cpus 2`**: the
+  kernel event trace armed before the crash, the filed record must end
+  with each core's newest events decoded -- the `setting` syscall that
+  asked for the crash among them -- and without `--trace` hold no tail.
 - **`panic_store_survey_test.py`** -- `panic_store=survey` on a copy of
   `disk.img`: the first boot stamps ranges and keeps no store, a warm
   `reboot` reports every one it stamped as KEPT (all of them, which is
@@ -2010,6 +2013,20 @@ report is ON only after `enter_gui()`").
   "changed"), and the summary names them. `--positive-control` restarts
   COLD; red. `panic_store_test.py --boot-word panic_store=0x8000000`
   covers a real panic at a moved address.
+- **`ktrace_test.py`** -- the kernel event trace (`docs/commands/trace.md`)
+  end to end on two cores: `trace run` arms it around
+  `/tests/ktrace_load 1000` (a thousand getpids, fifty pipe round trips
+  with a forked partner, five spawns) and stops as it exits; `trace dump`
+  writes the records, `vm.py get` brings them out, `trace_view.py`
+  decodes them. Asserted: >= 1000 getpids whose exits return the
+  record's own tid, the workload switched in and out, it and its partner
+  each parking on the pipe and each woken, the five spawns, a page fault,
+  interrupts, a track per CPU and slices for the workload in the Chrome
+  JSON, and `trace show` decoding in the guest. **The workload is its
+  own small program, not `syscall_bench`**, whose read/write rows fill
+  every ring a hundred times over and push its own getpids out.
+  `--positive-control` arms only `irq,fault`, and every syscall, switch
+  and wakeup check must go red.
 - **`replay_test.py`** -- `vm.py --record` then `--replay` give a
   byte-identical kernel log, and the replay ends by itself. Records a
   boot and two debug-console commands on a copy of `disk.img`, replays

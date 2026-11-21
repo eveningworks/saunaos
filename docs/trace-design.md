@@ -7,8 +7,11 @@ decision rather than starting from nothing: `docs/decisions/shell.md`,
 "`strace` is a `/bin` program, and the trace goes to the tracer's
 terminal".
 
-**STAGES 1 AND 2 ARE BUILT (2026-10-09).** The stage markers are on
-the headings.
+**STAGES 1-3 ARE BUILT (2026-10-09)**, and beside them **the kernel
+EVENT ring (2026-11-21)** -- switches, interrupts, faults, syscalls and
+lock waits on every core, a different question from one process's
+syscalls; its own section is at the end. The stage markers are on the
+headings.
 
 ## The finding that shapes the plan
 
@@ -33,12 +36,12 @@ the decode table, and the record of a call.
 
 ## What real systems do
 
-| system | syscall tracing | debugging |
-|---|---|---|
-| **Linux** | `strace` over `ptrace` stops (decoding in ring 3); `perf trace` reads the `raw_syscalls` tracepoints from a kernel RING BUFFER instead, with no stop | `ptrace`; `gdbserver` speaks the remote protocol over it |
-| **FreeBSD** | **`ktrace(2)`**: the kernel appends binary records -- `KTR_SYSCALL`, `KTR_SYSRET`, `KTR_NAMEI` (a path, copied at the call), `KTR_GENIO` (I/O bytes) -- and **`kdump(1)` decodes them in ring 3**. `truss` is the ptrace-shaped alternative | `ptrace` |
-| **Windows** | ETW: the kernel logger writes system-call events into per-CPU buffers; decoding is the consumer's | debug objects (`NtCreateDebugObject`, `DbgUi`) -- a stop model of its own |
-| **SaunaOS today** | the kernel formats every line and writes it to the tracer's terminal | none (`docs/kdebug-design.md` keeps user-space debugging out of the kernel stub) |
+| system | syscall tracing | kernel events | debugging |
+|---|---|---|---|
+| **Linux** | `strace` over `ptrace` stops (decoding in ring 3); `perf trace` reads the `raw_syscalls` tracepoints from a kernel RING BUFFER instead, with no stop | **ftrace**: static tracepoints (`sched_switch`, `sched_wakeup`, `irq_handler_entry`, `page_fault_user`, ...) each a patched-out branch when off, writing binary events into a ring buffer PER CPU; `trace-cmd`/`perf` read the raw pages and decode in ring 3 | `ptrace`; `gdbserver` speaks the remote protocol over it |
+| **FreeBSD** | **`ktrace(2)`**: the kernel appends binary records -- `KTR_SYSCALL`, `KTR_SYSRET`, `KTR_NAMEI` (a path, copied at the call), `KTR_GENIO` (I/O bytes) -- and **`kdump(1)` decodes them in ring 3**. `truss` is the ptrace-shaped alternative | **KTR** (`ktr(4)`): one circular buffer of fixed entries -- timestamp, CPU, thread, a format string and six arguments -- compiled in by option, masked at run time; `ktrdump` formats it. DTrace beside it | `ptrace` |
+| **Windows** | ETW: the kernel logger writes system-call events into per-CPU buffers; decoding is the consumer's | **ETW's kernel logger**: context switches, DPCs and interrupts, page faults, per-CPU buffers flushed to an `.etl`; `xperf`/WPA decode it | debug objects (`NtCreateDebugObject`, `DbgUi`) -- a stop model of its own |
+| **SaunaOS** | stages 1-3: records into a ring the TRACER owns, decoded by `/bin/strace` | the kernel event ring below: per-core binary rings, armed by `kernel.trace`, read over `QUERY_KTRACE`, decoded by `/bin/trace` and `trace_view.py` | none (`docs/kdebug-design.md` keeps user-space debugging out of the kernel stub) |
 
 **FreeBSD's `ktrace`/`kdump` split is the shape for `strace`**: a record
 stream the traced process never waits for, path strings copied at the
@@ -203,3 +206,75 @@ Picked 2026-10-09: **1A, a record stream**, and **2A, a full ring
 stops the tracee** -- before its call, by re-issue (Stage 1). Choice 3 was not put to the
 maintainer and takes its recommendation, **3A, a generated table**,
 unless reopened. The debugger's stage 4 is not scheduled.
+
+## The kernel event ring -- BUILT 2026-11-21
+
+A DIFFERENT QUESTION from the stages above: not "what did this program
+ask the kernel" but "what was the machine doing" -- which thread ran on
+which core, who woke whom, what interrupted it, where it faulted, which
+lock it waited for. strace's ring belongs to one tracer and follows one
+address space; this one is the kernel's, per core, and sees everything.
+The maintainer's pick (2026-11-21): **armed rings plus a panic tail**.
+
+**As built** (`kernel/include/kernel/ktrace.h`, `kernel/proc/ktrace.c`,
+the format in `abi/ktrace_abi.h`):
+
+- **Per-core rings of 48-byte records** -- TSC, core, thread, event id,
+  four arguments -- ftrace's and ETW's shape, not KTR's one global
+  buffer: a writer touches only its own core's ring (struct cpu's
+  `ktrace`, one `%gs` load with interrupts off), so it takes no lock and
+  no atomic beyond publishing its head. A full ring overwrites its
+  oldest record (ftrace's overwrite mode); the stop logs each core that
+  lost some.
+- **Fixed trace points**: the switch (`switch_to()`, `switch_to_kernel()`:
+  both threads and the outgoing one's state), the wakeup
+  (`sched_delay_woken()`, which every way of making a parked slot READY
+  passes), an interrupt's entry and exit (`isr_dispatch()`), a page fault
+  (`isr_dispatch_body()`), a syscall's entry and exit
+  (`syscall_dispatch()`), a contended spinlock's wait (`take()`'s
+  contended path), a kmutex sleep and hand-over (`kmutex.c`).
+- **Armed, off by default** (`kernel.trace` = a list of groups, or
+  `off`): disarmed, a point is one load of `g_ktrace_mask` and a branch
+  predicted not taken, its arguments not evaluated -- ftrace's static
+  keys patch the branch out entirely, which this does not need yet.
+  Measured below.
+- **Allocated when armed**, `kernel.trace_size` records a core (8192 by
+  default; up to a 32nd of RAM), and kept after the stop so the trace is
+  read afterwards; the next start empties them, a size change replaces
+  them. A ring is freed only after every core has run a cross-core call
+  that moves its own pointer -- a call never lands inside a write, so
+  none can still be writing through the old one (RCU-sched's shape).
+- **Read over a QUERY, not an shm grant.** `QUERY_KTRACE_CPU` (a row a
+  core) and `QUERY_KTRACE` (five records a call). A trace is read AFTER
+  the interesting part, so throughput does not matter, and a query
+  needed no mapping of kernel frames into a process and inherits the
+  ABI's grow-append-only rule. Linux's `trace_pipe_raw` splices whole
+  pages instead, which is the thing to copy if a live consumer ever
+  needs it. A running ring moves between two reads, so each chunk
+  carries its first record's number and the reader drops repeats.
+- **Decoded in ring 3** (`/bin/trace`, `docs/commands/trace.md`), with
+  the line formatter in `kernel/lib/ktrace_fmt.c` compiled into both
+  rings (klineedit's rule), because the kernel decodes too -- once, at
+  a panic. `trace dump` writes a file that DESCRIBES ITSELF (event names
+  and argument kinds, syscall names, thread names, the TSC rate), the
+  role of ftrace's `events/*/format` files, and
+  `tools/dev/trace_view.py` turns it into Chrome Trace Event JSON for
+  Perfetto: a track per core, a slice per stretch a thread ran.
+- **The panic tail**: with the trace armed, `panic_store_save()` leaves
+  12 KiB of the 32 KiB record for the newest records of each core (~32
+  each on four cores), decoded after the log by the same formatter -- no
+  lock, no heap, the other cores already stopped. A trace that was not
+  running costs the record nothing.
+
+**What it does not do**: filter by process (ftrace's `set_event_pid`),
+stream while running, or trace NMIs (a point in an NMI could tear the
+record being written on that core -- one record, never a fault). The
+TSCs of two cores are assumed to agree, which QEMU's and every
+invariant-TSC machine's do.
+
+**Measured** (2026-11-21, `tools/bench/sys_bench.py --kvm --cpus 1`,
+i7-11700, cycles, medians of 3-10 runs against the build before it):
+disarmed, a `getpid` is 252 either way and a one-byte pipe write+read
+1263 before and 1362 after, inside that row's own run-to-run spread (its
+runs range 1045-3387). Armed for `syscall`, a getpid -- two records -- is
+373 (+48%) and the pipe 1486 (+18%); armed for `all`, 379 and 1433.

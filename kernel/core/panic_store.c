@@ -15,6 +15,7 @@
 #include "version.h"
 #include "random_hw.h"
 #include "knum.h"
+#include "ktrace.h"   // the panic tail
 
 extern char _kernel_end[];
 extern char __kimage_start[];
@@ -302,10 +303,14 @@ void panic_store_save(void) {
     if (!g_usable) return;
     char *text = PANIC_RECORD_TEXT((uintptr_t)g_base);
     uint32_t cap = (uint32_t)(PANIC_STORE_SIZE - PANIC_RECORD_HDR);
+    // An armed kernel trace's newest events follow the log (ktrace.h).
+    uint32_t tail = ktrace_panic_reserve();
+    uint32_t log_cap = cap - tail;
     uint32_t retained = klog_retained_bytes();
-    uint64_t from = klog_total_bytes() - (retained < cap ? retained : cap);
+    uint64_t from = klog_total_bytes() - (retained < log_cap ? retained : log_cap);
     uint64_t first;
-    uint32_t len = klog_read(from, text, cap, &first);
+    uint32_t len = klog_read(from, text, log_cap, &first);
+    if (tail) len += ktrace_panic_tail(text + len, cap - len);
     panic_record_seal((void *)(uintptr_t)g_base, (uint32_t)PANIC_STORE_SIZE,
                       len, clocksource_now_ns(), SAUNAOS_VERSION_FULL);
     g_recovered = 0; // this boot's own record is the NEXT boot's to report

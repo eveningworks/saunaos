@@ -45,6 +45,8 @@ def vm(args, *rest, timeout=180):
     cmd = [sys.executable, os.path.join(REPO, "tools/lib/vm.py"), "--instance", str(args.instance)]
     if args.kvm:
         cmd.append("--kvm")
+    if args.cpus:
+        cmd += ["--cpus", str(args.cpus)]
     cmd += list(rest)
     r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=timeout)
     return r.returncode, r.stdout + r.stderr
@@ -83,6 +85,9 @@ def run_vm(args, disk):
         sys.exit(f"sys_bench: the VM did not start:\n{out[-2000:]}")
     try:
         time.sleep(args.settle)
+        for before in args.before:
+            _, out = vm(args, "exec", before)
+            print(f"sys_bench: before: {before}: {out.strip()[-200:]}")
         # SPAWNED, so it has a scheduler slot to fork from; its output lands in dmesg.
         vm(args, "exec", f"spawn /tests/syscall_bench {args.calls} {sizes(args)}")
         deadline = time.monotonic() + args.timeout
@@ -133,6 +138,9 @@ def main():
     ap.add_argument("--timeout", type=float, default=600.0, help="seconds the program may take")
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--json", default=None, help="append the result to this JSON-lines file")
+    ap.add_argument("--cpus", type=int, default=0, help="guest cores (vm.py's default when 0)")
+    ap.add_argument("--before", action="append", default=[], metavar="CMD",
+                    help="a guest command to run first, e.g. 'trace start syscall' (repeatable)")
     args = ap.parse_args()
 
     runs = []
