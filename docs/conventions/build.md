@@ -1350,8 +1350,9 @@ test outside those folders or without a header.
 
 Every script in a folder starts by putting `tools/lib` on `sys.path` and
 importing `toolpath`, which puts every tools/ folder there too -- so
-**a basename must be unique across tools/** (`toolpath` refuses to load
-otherwise), and **another tool is reached by `toolpath.tool("vm.py")`**,
+**a basename must be unique across tools/, and never a Python
+standard-library module's name** (`toolpath` refuses to load otherwise --
+`tools/dev/bisect.py` replaced `bisect` and broke `import tempfile`), and **another tool is reached by `toolpath.tool("vm.py")`**,
 never `os.path.join(HERE, "vm.py")` or `dirname(dirname(__file__))`,
 whose depth changes with the folder. A path in a doc or a message is the
 full `tools/<folder>/<name>`; `tools/t which NAME` prints it.

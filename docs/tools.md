@@ -48,7 +48,8 @@ table.
 
 **Every script starts by finding `lib/`**, then imports `toolpath`, which
 puts every tools/ folder on `sys.path` -- so `import harness` works from
-any folder, and a basename must be unique across tools/:
+any folder, and a basename must be unique across tools/ and never a
+standard-library module's name:
 
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
     import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path

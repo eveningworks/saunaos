@@ -1056,6 +1056,14 @@ start` replays it under QEMU's stub, stopped -- so `continue` reaches the
 same failure at the same instruction every time. One CPU only, and not
 GUI tests yet; the traps are in `docs/tools/lib.md`, "`vm.py --record`".
 
+**A failed check keeps the guest's state**: a test's first failed check
+writes a failure bundle -- klog, `dmesg`, `ps`, `cpus`, `lockstat`, the
+window list, CPU registers and an unsettled screenshot -- before the guest
+goes away, to `$SAUNAOS_BUNDLE_DIR` (`gui_regress.py --logs DIR` puts it at
+`DIR/<tool>.bundle`) or the test history's `bundles/`. Read it before
+re-running (`docs/tools/lib.md`, "`failure_bundle.py`"); for "which commit
+broke it", `tools/dev/bisect_build.py`.
+
 ## Testing in QEMU headlessly, via QMP
 
 **First: is this actually a GUI change?** If not, `tools/lib/vm.py` (above)

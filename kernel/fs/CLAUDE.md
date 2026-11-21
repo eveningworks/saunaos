@@ -18,7 +18,9 @@ which keeps the rules that bite callers elsewhere.
   sleeping holder that spins forever. `kmutex_lock()` logs `taken from
   atomic context` on entry when it happens. **The lock order is PARENT
   MOUNT BEFORE CHILD** (an `fs_list()` callback on `/` may stat `/boot`,
-  never the reverse). A stretch longer than one fs call that must keep
+  never the reverse); a mount's lock is taken through `mount.c`'s
+  `lock_slot()`/`mount_trylock()`, which give lockdep its depth as the
+  subclass -- a take around them reads as a recursion on `option lockdep`. A stretch longer than one fs call that must keep
   the disk quiet uses `fs_exclusive_begin()`/`_end()` (EVERY mount's
   lock, in that order), never the preemption guard -- and anything that
   reaches the DEVICE for a mount (a flush) does so under that mount's

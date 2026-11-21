@@ -1406,6 +1406,7 @@ whenever a headline here tells you something you did not already know.
   never a literal `/tmp`: `--repeat` runs twins that share it
 - **A TEST'S FOLDER IS ITS RUNNER, AND A TOOL IS NAMED BY BASENAME**
   (`tools/tests/<runner>/` + a `RUNNER` header; `toolpath.tool("vm.py")`,
-  never a path built from a folder)
+  never a path built from a folder); a basename is unique and never a
+  standard-library module's
 - **A BOOTABLE IMAGE SEEDED FOR DEVELOPMENT OR TESTING PASSES `--fbs-done`**,
   or First-boot setup covers the desktop and every GUI check after it fails

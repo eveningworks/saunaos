@@ -132,8 +132,8 @@ void system_poweroff(void) {
 // the ASUS), which resets the memory controller; a SOFT one (RST_CPU with
 // SYS_RST clear: INIT# alone) leaves it and RAM. Linux's reboot=warm also
 // writes the BIOS warm-boot word at 0x472 -- the unmapped null page here,
-// so it is not written. (The ASUS keeps nothing either way: its boot path
-// overwrites the store, docs/roadmap-details.md.)
+// so it is not written. (The ASUS keeps panics at 32 MiB, measured
+// 2026-11-21; docs/roadmap-details.md, the panic store.)
 //
 // BUS MASTERING GOES OFF FIRST: INIT# resets the CPU and nothing else, so
 // a controller still running its DMA rings would write into RAM the

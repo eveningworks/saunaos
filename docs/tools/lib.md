@@ -24,8 +24,10 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `toolpath.REPO`, `toolpath.TOOLS`, `toolpath.tool("vm.py")` (a tool's
   absolute path by basename -- never `os.path.join(HERE, "vm.py")`, which
   breaks the moment a tool changes folder) and `toolpath.rel()`. **It
-  refuses to load when two tools share a basename**, because the
-  flat-namespace import would then pick one silently.
+  refuses to load when two tools share a basename, or one is named
+  like a standard-library module**, because the flat-namespace import
+  would then pick one silently (`bisect.py` replaced the real `bisect`
+  for every script).
 
 - **`runner_meta.py`** -- what runs each test, read from the test: a
   test's FOLDER names its runner and its `RUNNER = {...}` literal says the

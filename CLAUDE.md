@@ -495,7 +495,9 @@ header comment lists its steps.
 **The question-to-tool index is at the top of `docs/tools.md`** -- is it
 MINE (`predates.py`), when did this check last fail or pass, at which
 commit and on which host (`test_history.py`, the LOCAL record of every
-run -- ask it FIRST when a check goes red), can my test SEE the break (`mutate.py`), is it safe
+run -- ask it FIRST when a check goes red; the guest's state at a test's first failed
+check is already saved, on its `failure bundle:` line), which commit broke it
+(`bisect_build.py`), can my test SEE the break (`mutate.py`), is it safe
 to commit (`preflight.sh`, your `vm.py` guest stopped), wait safely
 (`wait_for.sh`), before any change to the repo's history
 (`backup_repo.sh`) -- with the host tools (`bear`, `ruff`, `shellcheck`,

@@ -69,7 +69,7 @@ after -- so it is a default (32 MiB: above the kernel image, below where
 GRUB's heap grows DOWN from the top of RAM) or `panic_store=<addr>`,
 parsed from the boot line by a pure function both can call. That is
 ramoops' own shape (its range is a boot parameter, `memmap=` beside it),
-for a machine whose boot path writes over 32 MiB. `panic_store=survey`
+for a machine whose boot path does write over its range. `panic_store=survey`
 is how a machine's range is found -- it stamps fourteen candidate ranges
 and the next boot says which came back intact -- because a panic per
 guess costs a deliberate crash and a restart each. Its first run, on the
@@ -10599,11 +10599,13 @@ running its DMA rings would write into RAM the firmware boots from.
 Linux's `reboot=warm` also writes the BIOS warm-boot word (0x1234 at
 0x472), which here is the unmapped null page, so it is not written. The
 hard reset follows after half a second if the machine is
-still up. On the ASUS it did NOT save the record (2026-11-15): the range
-reads the same word after every boot, so it is overwritten in the boot
-path and the store has to move there (the panic store's roadmap entry);
-the warm reset stays the default because it costs nothing where it does
-not help and is what keeps RAM where nothing overwrites it.
+still up. On the ASUS the 2026-11-15 run lost the record, but reading
+that as the boot path overwriting the range was wrong: 32 MiB survives a
+restart there, and two deliberate panics were kept on 2026-11-21
+(`docs/roadmap-details.md`, "THE ASUS KEEPS IT"); that run's leading
+suspect is the TCO watchdog's hard reset landing at the same 20 s as the
+soft lockup. The warm reset stays the default because it costs nothing
+where it does not help and is what keeps RAM where nothing overwrites it.
 
 ## The other cores start at every boot, one at a time, and park until the scheduler can use them
 
