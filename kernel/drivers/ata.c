@@ -160,7 +160,7 @@ static int spin_not_busy(void) {
 // grub-mkrescue had written a 746MB ISO to the same host disk.
 // DMA_WAIT_TICKS's own comment records widening the completion half
 // against exactly this class of stall; this half was missed then.
-static int wait_not_busy(void) {
+static int wait_not_busy_for(uint64_t budget_ticks) {
     if (isr_in_progress()) return spin_not_busy();
 
     uint64_t start = coarse_ticks();
@@ -169,13 +169,15 @@ static int wait_not_busy(void) {
     // which holds today, but a wall-clock loop that's WRONG about that
     // hangs the machine instead of failing one write. Sized well past
     // BUSY_WAIT_TICKS so it never fires first in normal operation.
-    for (uint64_t guard = 0; guard < (uint64_t)ATA_POLL_LIMIT * 200; guard++) {
+    for (uint64_t guard = 0; guard < (uint64_t)ATA_POLL_LIMIT * 2 * budget_ticks; guard++) {
         if (!(inb(REG_STATUS) & STATUS_BSY)) return 1;
-        if (coarse_ticks() - start > BUSY_WAIT_TICKS) return 0;
+        if (coarse_ticks() - start > budget_ticks) return 0;
         io_wait();
     }
     return 0;
 }
+
+static int wait_not_busy(void) { return wait_not_busy_for(BUSY_WAIT_TICKS); }
 
 // ~1s, same bound and same reasoning as BUSY_WAIT_TICKS above. Kept as
 // its own name rather than shared, because the two answer different
@@ -303,12 +305,11 @@ struct prd {
 // up copy-on-write metadata into a periodic transaction commit,
 // independent of QEMU's own disk-cache mode (tried cache=writethrough
 // first; it didn't help, since the bottleneck was never in QEMU's
-// caching layer -- see the git history). `disk.img` itself now carries
-// Btrfs's `+C` (no-COW) attribute as the real fix for that burst, but
-// widening this bound too costs nothing on the success path and adds
-// a little more headroom against whatever comparable host-side stall
-// shows up next -- a genuinely dead/hung drive still surfaces as a
-// hard failure, just up to ~2s later than before.
+// caching layer -- see the git history). `disk.img` carried Btrfs's
+// `+C` (no-COW) attribute against that burst once, but nothing in the
+// build sets it, so a re-created image does not have it: the bound is
+// what stands between a host stall and a failed transfer. A genuinely
+// dead drive still surfaces as a hard failure, just up to ~2s later.
 //
 // wait_not_busy() above is the OTHER half of this, and only got the
 // same treatment much later: widening the completion bound here while
@@ -395,18 +396,46 @@ static int dma_in_use(void);
 // with the same IRQ14 a DMA does, and the bus-master IRQ bit reports it
 // the same way, so it sleeps on the same channel. Without a bus master
 // (a PIO-only controller) there is no such bit and it polls as before.
+//
+// **A FLUSH GETS FLUSH_WAIT_TICKS, ONE DEADLINE, WHETHER IT SLEPT OR
+// POLLED.** A caller with nowhere to park (the kernel context) gets -1
+// from sleep_dma_irq() at once, and the poll after it had only the 1 s
+// pre-command bound -- which a host fdatasync on a busy btrfs outruns,
+// failing the flush, and tfs3 rightly stops `/` on a failed flush.
+// Linux's libata gives a flush 15 s for the same reason.
+#define FLUSH_WAIT_TICKS 1500
+
+static int g_flush_logged;
+
 static int flush_command(void) {
-    if (!wait_not_busy()) return 0;
+    uint64_t t0 = coarse_ticks();
+    if (!wait_not_busy()) {
+        if (g_flush_logged++ < 8)
+            klog_printf(KLOG_ERR "ata: cache flush not sent -- drive busy for %lu ticks\n",
+                        (unsigned long)(coarse_ticks() - t0));
+        return 0;
+    }
     int can_sleep = g_bm_io && dma_in_use();
     if (can_sleep) {
         g_dma_irq_fired = 0;
         outb(g_bm_io + BM_STATUS, BM_STATUS_ERROR | BM_STATUS_IRQ); // W1C stale bits
     }
+    uint64_t t1 = coarse_ticks();
     outb(REG_COMMAND, CMD_CACHE_FLUSH);
-    if (can_sleep) sleep_dma_irq(DMA_WAIT_TICKS);   // -1/0: the poll below decides
-    int ok = wait_not_busy();
+    int slept = can_sleep ? sleep_dma_irq(FLUSH_WAIT_TICKS) : -1;   // -1/0: the poll below decides
+    uint64_t spent = coarse_ticks() - t1;
+    int ok = wait_not_busy_for(spent < FLUSH_WAIT_TICKS ? FLUSH_WAIT_TICKS - spent : BUSY_WAIT_TICKS);
     if (can_sleep) outb(g_bm_io + BM_STATUS, BM_STATUS_ERROR | BM_STATUS_IRQ);
-    return ok && !(inb(REG_STATUS) & STATUS_ERR);   // the read also acks INTRQ
+    uint8_t st = inb(REG_STATUS);                    // the read also acks INTRQ
+    if ((!ok || (st & STATUS_ERR)) && g_flush_logged++ < 8)
+        klog_printf(KLOG_ERR "ata: cache flush FAILED after %lu ticks (%s, status 0x%02x, %s)\n",
+                    (unsigned long)(coarse_ticks() - t1), ok ? "drive error" : "still busy",
+                    (unsigned)st, slept >= 0 ? "slept" : "polled");
+    else if (ok && !(st & STATUS_ERR) && coarse_ticks() - t1 > BUSY_WAIT_TICKS
+             && g_flush_logged++ < 8)
+        klog_printf(KLOG_WARN "ata: cache flush took %lu ticks (%s)\n",
+                    (unsigned long)(coarse_ticks() - t1), slept >= 0 ? "slept" : "polled");
+    return ok && !(st & STATUS_ERR);
 }
 
 // A DEVICE FLUSH THAT FAILED WHERE NOBODY ASKED -- after a raw write, or
