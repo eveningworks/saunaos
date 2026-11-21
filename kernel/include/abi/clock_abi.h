@@ -12,12 +12,12 @@
 // compute the time differently.
 //
 // **A LATCH, NOT A SEQLOCK** (Linux's raw_write_seqcount_latch()): two
-// copies, and `seq`'s low bit says which one a reader uses. The writer
-// bumps `seq` (readers move to the other copy), rewrites the idle one,
-// bumps again and rewrites the first. A reader therefore never waits for
-// a writer to finish -- it only retries when `seq` moved under it -- so
-// an NMI landing inside the writer on the same core still reads a whole
-// copy instead of spinning forever on an odd count.
+// copies, and `seq`'s low bit says which one a reader uses. ONE BUMP PER
+// UPDATE: the writer fills the copy no reader is told to use, bumps `seq`
+// (readers move onto it), then makes the copy they left the same. Neither
+// parity means "busy". A reader never waits for a writer -- it only retries
+// when `seq` moved under it -- so an NMI landing inside the writer on the
+// same core still reads a whole copy instead of spinning on an odd count.
 //
 // Reading it:
 //
@@ -59,16 +59,21 @@ struct clock_page {
 
 // The time `raw` stands for under snapshot `s`.
 //
-// **A COUNTER BEHIND THE BASE READS AS THE BASE**: a delta past half the
-// mask is not a long gap but another core's TSC a hair behind the one
-// that took the snapshot, and reading it as a near-wrap would jump the
-// clock forward by the mask. The base itself only moves forward, so a
-// reader never sees time before it. Every gap a reader can legitimately
-// see is under half the mask: the kernel retakes the snapshot at least
-// that often (clocksource_max_idle_ns()).
+// **A FULL-WIDTH COUNTER BEHIND THE BASE READS AS THE BASE**: a 64-bit
+// delta with its top bit set is not a gap of centuries but another core's
+// TSC a hair behind the one that took the snapshot, and reading it as a
+// near-wrap would jump the clock forward by the mask. The base itself only
+// moves forward, so a reader never sees time before it. A NARROW counter
+// (the ACPI PM timer's 24 bits) is one global register that cannot be
+// behind, and the kernel's idle runs it past half its span, so a delta
+// there is always a delta.
+static inline int clock_delta_behind(const struct clock_snap *s, uint64_t delta) {
+    return s->mask == ~0ull && (delta >> 63) != 0;
+}
+
 static inline uint64_t clock_snap_ns(const struct clock_snap *s, uint64_t raw) {
     uint64_t delta = (raw - s->base_raw) & s->mask;
-    if (delta > (s->mask >> 1)) delta = 0;
+    if (clock_delta_behind(s, delta)) delta = 0;
     else if (delta > s->max_delta) delta = s->max_delta;
     return s->base_ns + ((delta * s->mult + s->base_frac) >> s->shift);
 }

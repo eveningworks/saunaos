@@ -53,6 +53,27 @@ KTEST("clocksource", "a counter behind the snapshot reads as its base, and is no
     KTEST_ASSERT_EQ(n.base_ns, s.base_ns);
 }
 
+KTEST("clocksource", "a narrow counter idled past half its span still moves the clock on") {
+    // The ACPI PM timer: 24 bits at 3.58 MHz, wrapping in 4.7 s. A
+    // tickless idle sleeps half of that from a moment already past the
+    // last retake, so the wake's delta is a little over half the mask --
+    // which must be time gone by, not a counter "behind" the base.
+    struct clock_snap s = {0};
+    clocksource_calc_mult_shift(&s.mult, &s.shift, 3579545ull, 600);
+    s.mask = (1ull << 24) - 1;
+    s.max_delta = (~0ull - ((1ull << s.shift) - 1)) / s.mult;
+    s.base_raw = 100;
+    s.base_ns = 1000000000ull;
+    uint64_t raw = (s.base_raw + s.mask / 2 + 50000) & s.mask;
+    uint64_t want = s.base_ns + 2300000000ull;   // ~2.36 s on
+    KTEST_ASSERT(clock_snap_ns(&s, raw) > want);
+    struct clock_snap n;
+    int clamped = 0;
+    KTEST_ASSERT(clocksource_snap_fold(&s, raw, &n, &clamped));
+    KTEST_ASSERT(n.base_ns > want);
+    KTEST_ASSERT_EQ(n.base_raw, raw);
+}
+
 KTEST("clocksource", "a delta past what the multiply converts is clamped, not wrapped") {
     struct clock_snap s = test_snap();
     s.mask = (1ull << 24) - 1;   // the PM timer's width

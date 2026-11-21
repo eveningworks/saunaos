@@ -18,8 +18,6 @@
 #include <stdint.h>
 
 #define CPU_OFF_SELF      0
-// bkl.h's BKL_SYSCALLS, asserted there: a struct cpu field's bound.
-#define CPU_LOCKLESS_SYSCALLS 192
 #define CPU_OFF_USER_RSP  8
 #define CPU_OFF_TSS_RSP0  (32 + 4)   // offsetof(struct cpu, tss) + the TSS's own 4
 
@@ -120,7 +118,9 @@ struct cpu {
     uint32_t pad5;
     uint64_t bkl_takes, bkl_contended, bkl_wait_tsc, bkl_hold_tsc;
     // Syscalls answered WITHOUT it (syscall_try_lockless()), in all and by
-    // number -- this core's own, so the count needs no atomic.
+    // number -- this core's own, so the count needs no atomic. The bound
+    // is bkl.h's BKL_SYSCALLS, which kernel/proc/bkl.c asserts it equals.
+#define CPU_LOCKLESS_SYSCALLS 192
     uint64_t bkl_lockless;
     uint64_t lockless_calls[CPU_LOCKLESS_SYSCALLS];
     // This core's kernel-trace ring (ktrace.h), or NULL: only ever

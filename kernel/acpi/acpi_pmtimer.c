@@ -8,9 +8,9 @@
 // source only advances FROM the tick.
 //
 // THE COUNTER IS 24 BITS ON MOST CHIPSETS AND WRAPS IN 4.7 SECONDS.
-// The accumulate-on-read core handles the wrap only if it is read at
-// least that often, which is what clocksource_max_idle_ns() tells a
-// tickless idle.
+// The core handles the wrap only if its snapshot is retaken within that,
+// so a tickless idle wakes at least every half of it
+// (clocksource_max_idle_ns()), and the boot core's tick retakes it.
 #include "clocksource.h"
 #include "acpi.h"
 #include "io.h"

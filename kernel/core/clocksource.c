@@ -12,8 +12,8 @@
 // its delta into one global total, which made every clock read on every
 // core a write behind the kernel lock). The snapshot is retaken by the
 // boot core's tick, so a delta can never outgrow the multiply; the cost
-// is that the snapshot must be retaken within half the source's span --
-// clocksource_max_idle_ns(), which bounds a tickless idle.
+// is that the snapshot must be retaken within the source's span -- a
+// tickless idle sleeps at most half of it (clocksource_max_idle_ns()).
 #include "clocksource.h"
 #include "timer.h"
 #include "barrier.h" // cpu_relax -- the delay below spins
@@ -90,7 +90,7 @@ int clocksource_snap_fold(const struct clock_snap *cur, uint64_t raw,
     // Behind the base: this core's counter trails the one that took it.
     // Nothing to fold in, and moving base_raw back would let the next
     // delta count the same interval twice.
-    if (delta > (cur->mask >> 1)) return 0;
+    if (clock_delta_behind(cur, delta)) return 0;
     if (delta > cur->max_delta) {
         // Nobody retook it for longer than the multiply can convert.
         // Clamping loses time; wrapping would run it BACKWARDS.
@@ -196,8 +196,8 @@ uint64_t clocksource_now_ns(void) {
         uint64_t raw = cs->read();
         uint64_t ns = clock_snap_ns(c, raw);
         uint64_t span = c->mask < c->max_delta ? c->mask : c->max_delta;
-        int stale = ((raw - c->base_raw) & c->mask) > (span >> 2) &&
-                    ((raw - c->base_raw) & c->mask) <= (c->mask >> 1);
+        uint64_t delta = (raw - c->base_raw) & c->mask;
+        int stale = delta > (span >> 2) && !clock_delta_behind(c, delta);
         compiler_barrier();
         if (pg->seq != s) continue;
         if (stale) retake_if_free();
@@ -251,8 +251,8 @@ int clocksource_register(const struct clocksource *cs) {
         g_clock.page.magic = CLOCK_PAGE_MAGIC;
         g_clock.page.version = CLOCK_PAGE_VERSION;
     }
-    // Half the span: what a tickless idle may sleep, and the most a
-    // reader's delta can be before clock_snap_ns() reads it as behind.
+    // Half the span: what a tickless idle may sleep, so the wake's retake
+    // lands with half the span to spare before the counter wraps.
     g_max_idle_ns = ((span >> 1) * cs->mult) >> cs->shift;
     snap_retake_locked(cs);
     g_cs = cs;

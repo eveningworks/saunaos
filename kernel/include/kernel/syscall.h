@@ -22,7 +22,7 @@ void syscall_dispatch(uint64_t *regs);
 // THE LOCK-FREE PATH: isr_dispatch() asks first, before taking the kernel
 // lock, for every ring-3 syscall. Runs a SYSCALL_F_MPSAFE row's handler
 // with interrupts off and returns 1, or returns 0 having touched nothing
-// -- an ordinary row, strace on, a sandbox refusal to report, a signal or
+// -- an ordinary row, strace on anywhere, a sandboxed process, a signal or
 // a reschedule due, or `kernel.lockless_syscalls` off -- and the caller
 // takes the lock and dispatches as before.
 int syscall_try_lockless(uint64_t *regs);

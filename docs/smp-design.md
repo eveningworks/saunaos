@@ -694,7 +694,7 @@ clock page.** FreeBSD's `SYF_MPSAFE` in its `sysent` was the shape:
   from `isr_dispatch()` BEFORE the lock is taken, interrupts off, for
   `getpid`, `gettid`, `ticks`, `monotonic_ns` and `clock_page`. It
   declines, touching nothing, whenever the locked path has work around
-  the call: strace, a sandbox refusal to report, a re-issue, a
+  the call: strace on anywhere, a sandboxed process, a re-issue, a
   deliverable signal or a reschedule (`scheduler_lockless_ok()`).
   Nothing can become due during the call without an interrupt: a remote
   wake or signal kicks the core, and the kick lands when SYSRET reopens
@@ -704,12 +704,13 @@ clock page.** FreeBSD's `SYF_MPSAFE` in its `sysent` was the shape:
   every read -- one global total behind the kernel lock. It is now a
   snapshot (base nanoseconds, the remainder below one, and the raw value)
   that the boot core's tick retakes, and a read adds the delta since.
+  A full-width counter (the TSC) behind the base reads as the base; a
+  narrow one (the PM timer's 24 bits) is one global register and never
+  is, since a tickless idle runs it past half its span.
   The snapshot is a LATCH (Linux's `raw_write_seqcount_latch()`, as its
   `ktime_get_mono_fast_ns()` uses): two copies and a sequence number, so a
   reader never waits for the writer, and an NMI inside the writer still
   reads a whole copy. The remainder is kept, so retaking it loses no time.
-  A counter behind the snapshot (another core's TSC a hair behind) reads
-  as its base.
 - **The latch IS the clock page** (`abi/clock_abi.h`): one frame, mapped
   read-only and NX in every process at `UADDR_CLOCK_PAGE` through a PML4
   slot every address space shares, as it shares entry 0 -- no page table

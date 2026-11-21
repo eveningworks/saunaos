@@ -122,8 +122,10 @@ void syscall_lockless_set(int on) { g_lockless_on = on ? 1 : 0; }
 // longer queues behind a read on another (docs/smp-design.md, stage 7).
 //
 // **EVERYTHING THE LOCKED PATH DOES AROUND THE HANDLER IS EITHER ABSENT
-// HERE OR A REASON TO DECLINE**: strace (declined), the sandbox gate
-// (declined on a refusal, so the locked path reports it), the signal and
+// HERE OR A REASON TO DECLINE**: strace anywhere (one word; the trace
+// table is the lock's), a sandboxed process (its `struct sandbox` is
+// swapped by a sibling's pledge and freed under the lock, so only the
+// pointer may be looked at here), the signal and
 // re-issue checks at entry and the reschedule and delivery at exit
 // (declined when due -- scheduler_lockless_ok()). Interrupts stay off
 // throughout, so nothing becomes due here that does not also send this
@@ -136,7 +138,7 @@ int syscall_try_lockless(uint64_t *regs) {
     const struct syscall_desc *d = syscall_desc_at(nr);
     if (!d || !d->fn || !(d->flags & SYSCALL_F_MPSAFE) || !g_lockless_on) return 0;
     uint64_t f = irq_save();
-    if (strace_active() || !sandbox_allows(d->promise) || !scheduler_lockless_ok()) {
+    if (strace_any() || sandbox_active() || !scheduler_lockless_ok()) {
         irq_restore(f);
         return 0;
     }

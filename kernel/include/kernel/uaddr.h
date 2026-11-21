@@ -206,8 +206,6 @@
 #define UADDR_MMAP_BASE  0x9000000000ULL
 #define UADDR_MMAP_LIMIT 0x400000000000ULL
 
-// Is this address inside the mmap arena -- mapped or not? The envelope
-// check the fault path asks before consulting the region list.
 // THE CLOCK PAGE (abi/clock_abi.h): one read-only page, the same frame in
 // every process, behind a PML4 slot every address space SHARES as it
 // shares entry 0 -- so it costs no page table per process and is never
@@ -224,6 +222,8 @@
 #define UADDR_USER_END 0x0000800000000000ULL
 static inline int uaddr_is_user(uint64_t addr) { return addr < UADDR_USER_END; }
 
+// Is this address inside the mmap arena -- mapped or not? The envelope
+// check the fault path asks before consulting the region list.
 static inline int uaddr_is_mmap_range(uint64_t addr) {
     return addr >= UADDR_MMAP_BASE && addr < UADDR_MMAP_LIMIT;
 }

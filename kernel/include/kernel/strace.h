@@ -41,6 +41,9 @@ void strace_fork(uint64_t parent_pml4, uint64_t child_pml4);
 // Is the CURRENTLY running address space being traced? One global read
 // and a compare -- what an untraced process pays per syscall.
 int strace_active(void);
+// Is ANY address space traced? One word, read without the kernel lock by
+// the syscall fast path, which declines whenever it is set.
+int strace_any(void);
 
 // The dispatcher's hooks, for a traced call only. strace_wait_for_room()
 // comes first: with no room for the call's two records it rewinds the

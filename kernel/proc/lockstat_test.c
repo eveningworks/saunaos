@@ -101,8 +101,11 @@ KTEST("smp", "a counted lock several cores want counts the waits") {
 
 KTEST("smp", "every take of the kernel lock is billed to one core and one entry") {
     // Exact, not approximate: the totals move only under the kernel lock,
-    // which this test holds.
-    KTEST_ASSERT(bkl_held_here());
+    // which this test holds -- WITH THE GUARD UP, or a tick lets the cores
+    // queued for it in (kernel_let_waiters_in()) between two of the sums.
+    // Read under it, asserted after, so a failure cannot leave it raised.
+    scheduler_preempt_disable();
+    int held = bkl_held_here();
     uint64_t by_core = 0, by_entry = 0, wait_core = 0, wait_entry = 0;
     for (int i = 0; i < smp_cpu_count(); i++) {
         const struct cpu *c = smp_cpu_at(i);
@@ -117,12 +120,15 @@ KTEST("smp", "every take of the kernel lock is billed to one core and one entry"
         wait_entry += e.wait_tsc;
         if (k == BKL_KEY_KERNEL) kernel_seen = 1;
     }
+    int lock = find_lock("kernel");
+    uint64_t acquired = lock >= 0 ? lockstat_at(lock)->acquired : 0;
+    scheduler_preempt_enable();
+    KTEST_ASSERT(held);
     KTEST_ASSERT(by_core > 0);
     KTEST_ASSERT_EQ(by_core, by_entry);
     KTEST_ASSERT_EQ(wait_core, wait_entry);
     KTEST_ASSERT(kernel_seen);   // the boot took it
-    const struct lockstat *k = lockstat_at(find_lock("kernel"));
-    KTEST_ASSERT_EQ(k->acquired, by_core);
+    KTEST_ASSERT_EQ(acquired, by_core);
 }
 
 // The guard as the other core saw it: its own, and the boot core's.

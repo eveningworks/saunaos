@@ -256,6 +256,8 @@ void strace_fork(uint64_t parent_pml4, uint64_t child_pml4) {
     if (t >= 0 && T(t) && T(t)->follow) add_space(child_pml4, t);
 }
 
+int strace_any(void) { return __atomic_load_n(&g_nspaces, __ATOMIC_RELAXED) != 0; }
+
 int strace_active(void) {
     return g_nspaces && space_of(vmm_current_pml4()) >= 0;
 }

@@ -10876,9 +10876,12 @@ Giant at the entry and let a `sysent` row marked `SYF_MPSAFE` skip it.
 Pushing down touches all of the table at once; the flag is opt-in per
 row, so each row that goes lock-free is a change on its own with its own
 proof, and the table says which rows they are. The fast path DECLINES
-whenever the locked path has work around the call (strace, a sandbox
-refusal, a signal, a re-issue, a reschedule) rather than doing that work
-lock-free, so nothing at entry or exit had to change.
+whenever the locked path has work around the call (strace on anywhere, a
+sandboxed process, a signal, a re-issue, a reschedule) rather than doing
+that work lock-free, so nothing at entry or exit had to change. A
+sandboxed process declines because its `struct sandbox` is swapped by a
+sibling's pledge and freed under the lock: only the pointer may be looked
+at without it.
 
 **A flagged handler runs with interrupts off and may not sleep.** The
 first five take nanoseconds. Interrupts on would let a tick take the

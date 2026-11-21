@@ -115,11 +115,12 @@ const struct clocksource *clocksource_current(void);
 // fall back to spinning on clocksource_now_ns() forever.
 int clocksource_deadline_capable(void);
 
-// THE LONGEST THE CLOCK MAY GO UNREAD, in nanoseconds: half of what
+// THE LONGEST A TICKLESS IDLE MAY SLEEP, in nanoseconds: half of what
 // the current source can count before it wraps or overflows the
-// conversion. Accumulate-on-read loses time past it, so a tickless idle
-// that sleeps longer than this has to wake just to read the clock. The
-// PM timer's 24-bit counter wraps in 4.7 s, which is why this exists.
+// conversion. The wake's tick retakes the snapshot (clocksource_tick()),
+// and a snapshot not retaken within the whole span loses time, so an
+// idle longer than this has to wake just to retake it. The PM timer's
+// 24-bit counter wraps in 4.7 s, which is why this exists.
 uint64_t clocksource_max_idle_ns(void);
 
 // BUSY-WAIT `ms` MILLISECONDS, USING THE BEST SOURCE AVAILABLE.

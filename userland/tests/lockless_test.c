@@ -29,18 +29,18 @@
 #define TUNABLE "kernel.lockless_syscalls"
 #define CALLS 20000
 
-// The getpid row of QUERY_BKLSTAT: kernel-lock takes and lock-free calls.
-static int getpid_row(uint64_t *takes, uint64_t *lockless) {
+// The getpid row of QUERY_BKLSTAT: kernel-lock takes and lock-free calls,
+// both 0 while there is no row (nothing has made the call either way).
+static void getpid_row(uint64_t *takes, uint64_t *lockless) {
     struct query_bklstat r;
     *takes = *lockless = 0;
     QUERY_FOREACH(QUERY_BKLSTAT, r, i) {
         if (r.kind == QUERY_BKLSTAT_SYSCALL && r.id == SYS_GETPID) {
             *takes = r.takes;
             *lockless = r.lockless;
-            return 1;
+            return;
         }
     }
-    return 1;   // no row yet: nothing has made the call either way
 }
 
 static void check_counted(void) {
@@ -63,11 +63,28 @@ static void check_counted(void) {
     getpid_row(&t0, &l0);
     for (int i = 0; i < CALLS; i++) (void)sys_getpid();
     getpid_row(&t1, &l1);
-    tunable_set(TUNABLE, was);
+    tunable_set(TUNABLE, "on");
     snprintf(d, sizeof d, "lockless +%llu, takes +%llu", (unsigned long long)(l1 - l0),
              (unsigned long long)(t1 - t0));
     utest_check_detail(t1 - t0 >= CALLS, "turned off, getpid takes the kernel lock again", d);
     utest_check_detail(l1 - l0 < CALLS / 10, "...and is no longer counted lock-free", d);
+
+    // A SANDBOXED process takes the lock: its sandbox may be swapped and
+    // freed under the lock, so the lock-free path never reads it.
+    getpid_row(&t0, &l0);
+    int pid = fork();
+    if (pid == 0) {
+        if (pledge("stdio", NULL) != 0) _exit(2);
+        for (int i = 0; i < CALLS; i++) (void)sys_getpid();
+        _exit(0);
+    }
+    int code = -1;
+    int reaped = pid > 0 && sys_waitpid(pid, &code) == pid && code == 0;
+    getpid_row(&t1, &l1);
+    snprintf(d, sizeof d, "exit %d, takes +%llu", code, (unsigned long long)(t1 - t0));
+    utest_check_detail(reaped && t1 - t0 >= CALLS,
+                       "a pledged process's getpid goes through the kernel lock", d);
+    tunable_set(TUNABLE, was);
 }
 
 // ---- ids on every core ----------------------------------------------
@@ -151,10 +168,16 @@ static void check_page_agrees(void) {
     snprintf(d, sizeof d, "%d of 100000 outside", outside);
     utest_check_detail(outside == 0, "every page read lands between two syscall reads", d);
 
-    // ticks from the page are the kernel's coarse clock: ns / 10 ms.
+    // ticks from the page are the kernel's coarse clock: ns over the
+    // page's own tick length.
+    uint32_t coarse = g_page->snap[g_page->seq & 1].coarse_ns;
+    if (!coarse) {
+        utest_notef("the page has no tick length: sys_ticks() takes the syscall");
+        return;
+    }
     unsigned long t = sys_ticks();
     unsigned long long ns = sys_monotonic_ns_syscall();
-    unsigned long want = (unsigned long)(ns / (1000000000ull / 100));
+    unsigned long want = (unsigned long)(ns / coarse);
     utest_check(t == want || t + 1 == want, "sys_ticks() from the page agrees with the clock");
 }
 
