@@ -1609,7 +1609,8 @@ measurement of what is single-core in the tree today.
 - [x] ~~Measure the kernel lock before splitting it~~ DONE 2026-11-21 -- `lockstat`; held 86% under syscall loops, 19% under `diskbench`
 - [x] ~~A per-core preemption guard, and the heap and frame allocator on their own locks~~ DONE 2026-11-21 -- stage 7's prerequisites
 - [x] ~~Lock-order checking (Linux's lockdep)~~ DONE 2026-11-21 -- `option lockdep`, `lockstat order`, docs/lockdep-design.md
-- [ ] Syscalls that need no kernel lock skip it -- a FreeBSD-style `MPSAFE` flag in `syscall_table.c`, `getpid` and the clocks first
+- [x] ~~Syscalls that need no kernel lock skip it~~ DONE 2026-11-21 -- `SYSCALL_ROW_MPSAFE`: `getpid`, `gettid`, the clocks
+- [x] ~~A clock ring 3 reads without a syscall~~ DONE 2026-11-21 -- the clock page, vDSO-shaped
 - [ ] The scheduler's tick and rotation without the kernel lock -- `core tick` and `yield` are its longest holders
 - [ ] An audit of everything currently assuming single-threaded -- stage 7, split the BKL in measured order
 

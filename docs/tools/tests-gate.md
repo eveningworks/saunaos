@@ -74,6 +74,10 @@ it is saved.
   **`--cpus N` boots N vCPUs** (`vm.py --cpus`; default 1), and the
   suite's programs then run on every core (`smp=run`, the default) --
   one vCPU tests nothing of SMP stage 5.
+  **`--cpu MODEL` is QEMU's `-cpu`** (`vm.py --cpu`): `--kvm --cpu
+  host,+invtsc` gives the guest an invariant TSC, so the TSC is its
+  clocksource and `lockless_test` reads the clock page from ring 3 --
+  QEMU withholds `invtsc` otherwise, and the page then says "syscall".
   **`--transcript PATH` keeps every test's captured output, passed or
   not.** A `/tests` program's stdout and stderr go to the CONSOLE, which
   the harness reads over the debug console -- they are NOT on the serial

@@ -1460,13 +1460,23 @@ per-core pointer (`kernel/include/kernel/percpu.h`, `this_cpu()`), and
   `isr_dispatch()` sends an AP's interrupt to `smp_ap_interrupt()`
   before its first global.
 
-## THE KERNEL LOCK IS TAKEN ON EVERY ENTRY, AND A NEW ROUTE TO RING 3 DROPS IT
+## THE KERNEL LOCK IS TAKEN ON EVERY ENTRY BUT AN MPSAFE SYSCALL'S, AND A NEW ROUTE TO RING 3 DROPS IT
 
 Since SMP stage 4 (`docs/smp-design.md`) one core at a time is in the
 kernel: `isr_dispatch()` takes the big kernel lock (`bkl.h`) on entry
 and releases it when its depth reaches 0, which is the return to ring 3.
 The core owns it and it nests; the DEPTH travels with the context
 through `switch_to()`.
+
+- **A ROW MARKED `SYSCALL_ROW_MPSAFE` NEVER TAKES IT** (since stage 7,
+  `syscall_try_lockless()`): its handler runs with interrupts off and
+  MAY NOT SLEEP, PARK, TAKE THE KERNEL LOCK OR READ ANYTHING IT GUARDS
+  -- only the calling thread's own fields, the per-core ones, and what
+  has a lock of its own or needs none (the clock, which a read never
+  writes). A row is marked only once its handler is shown to need
+  nothing else; a handler that later grows a call into locked state must
+  lose the mark in the same change. `kernel.lockless_syscalls off` is the
+  A/B, and `lockstat -e`'s `LOCKLESS` column shows which path ran.
 
 - **A HAND-ROLLED ROUTE TO RING 3 CALLS `bkl_drop_all()` FIRST**, as the
   two `iretq`s in `process.c` and `ring3_test.c` do, and a longjmp back

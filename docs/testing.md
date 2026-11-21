@@ -114,8 +114,10 @@ TCG does not implement `invtsc` at all (`-cpu max,+invtsc` prints
 `warning: TCG doesn't support requested feature` and clears the bit),
 and KVM withholds it even under `-cpu host`, because a guest that has
 seen it cannot be live-migrated. So the default test environment
-exercises only the PIT-backed clocksource, and a green suite says
-nothing about the TSC one. `notsc` on the GRUB line reaches the same
+exercises only the ACPI PM timer's clocksource (the PIT's where there
+is none), and a green suite says nothing about the TSC one -- nor about ring 3 reading the clock page,
+which needs the TSC (`usertest_run.py --kvm --cpu host,+invtsc -k
+lockless` is the run that does). `notsc` on the GRUB line reaches the same
 split from the other side. **Generalise it: before concluding a feature
 "just isn't available in QEMU", check whether it needs an explicit `+`
 flag AND which accelerator supports it** -- the two are independent, and

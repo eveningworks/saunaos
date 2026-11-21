@@ -10863,3 +10863,48 @@ branch per point, its arguments unevaluated. Linux patches the branch
 out entirely (static keys); measured, the branch alone was inside the
 run-to-run spread of a getpid and a pipe round trip, so the patching is
 left on the roadmap.
+
+## Syscalls skip the kernel lock by a flag on their row, and the clock is a latched page every process shares
+
+Picked 2026-11-21 (`docs/smp-design.md`, stage 7; `kernel/proc/syscall.c`'s
+`syscall_try_lockless()`, `abi/clock_abi.h`).
+
+**A flag on the row, not the lock pushed down into every handler.**
+Linux 2.2 to 2.6 moved `lock_kernel()` from the entry into each handler
+that still needed it, until 2.6.39 removed the last; FreeBSD 5 to 7 kept
+Giant at the entry and let a `sysent` row marked `SYF_MPSAFE` skip it.
+Pushing down touches all of the table at once; the flag is opt-in per
+row, so each row that goes lock-free is a change on its own with its own
+proof, and the table says which rows they are. The fast path DECLINES
+whenever the locked path has work around the call (strace, a sandbox
+refusal, a signal, a re-issue, a reschedule) rather than doing that work
+lock-free, so nothing at entry or exit had to change.
+
+**A flagged handler runs with interrupts off and may not sleep.** The
+first five take nanoseconds. Interrupts on would let a tick take the
+kernel lock inside a lock-free context and switch away, which the
+lock's depth rules were never written for; that is for when a longer
+call earns it.
+
+**The clock is a latch, not a seqlock and not a spinlock.** Every read
+used to fold its delta into one global total: a write per read, safe
+only under the kernel lock. A spinlock around that would have made every
+clock read on every core queue on one cache line. A seqlock lets readers
+write nothing, but a reader that interrupts the writer on its own core
+(the tick, an NMI) spins forever on an odd count. The latch keeps two
+copies (Linux's `raw_write_seqcount_latch()`), so a reader always has a
+whole one and only retries. Its remainder below a nanosecond is kept,
+since truncating each retake would lose time, and a reader just before a
+retake could see a later time than one just after it.
+
+**One frame at a fixed address, behind a PML4 slot every address space
+shares.** Linux maps its vDSO data page per process at exec and says where
+in the auxiliary vector; this kernel passes an auxv only to dynamic
+programs. Sharing a PML4 slot the way entry 0 is shared costs no page
+table per process and nothing at fork or exec. The free, fork and audit
+walks skip the slot as they skip entry 0 and KASAN's. A fixed address is
+NT's `KUSER_SHARED_DATA` shape and gives nothing away: the page holds
+only the clock. Ring 3 still ASKS where it is (`SYS_CLOCK_PAGE`) rather
+than assuming, because a rescue boot runs the previous kernel under the
+current `/bin`, and a program reading a page that kernel never mapped
+would fault, where the ask gets `-ENOSYS` and falls back to the syscall.

@@ -7,8 +7,9 @@ the APs started and parked); STAGE 4 IS BUILT (2026-11-19: a ticket
 spinlock, the call IPI and the kernel lock); STAGE 6 IS BUILT AHEAD OF
 STAGE 5 (2026-11-19: the TLB shootdown, `kernel/arch/x86_64/tlb.c`);
 STAGE 5 IS BUILT AND ON BY DEFAULT (2026-11-19 behind `smp=run`; the
-default since 2026-11-20, `smp=park` the way back); STAGE 7 IS
-DESIGNED, NOT BUILT;
+default since 2026-11-20, `smp=park` the way back); STAGE 7 IS UNDER
+WAY (2026-11-21: `lockstat`, a per-core guard and the heap and frame
+locks, then the first syscalls off the kernel lock and the clock page);
 RE-MEASURED AND RE-SIZED 2026-11-19.** The ACPI table walk and the MADT's processor list exist
 (`kernel/acpi/`, read by `/bin/acpi` and `/bin/lscpu`), the Local APIC is
 enabled and carries MSI-X for seven drivers, the tick runs on the LAPIC
@@ -626,8 +627,8 @@ driver's `paging_map_device()` at bind, a write-combining retype, and
 ### Stage 7 -- split the lock, in measured order
 
 **Built 2026-11-21: the measurement and the prerequisites.** No path
-leaves the kernel lock yet; what changed is what a path that does would
-stand on:
+left the kernel lock in this part (the next one is below); what changed
+is what a path that does would stand on:
 
 - **`lockstat`** (`kernel/proc/lockstat.c`, `docs/commands/lockstat.md`)
   -- Linux's `lock_stat` for the counted spinlocks: takes, waits, wait
@@ -684,12 +685,81 @@ numbers point at two things**: calls that need nothing the lock protects
 syscall table is the shape, a flag in `syscall_table.c`), and the
 scheduler's own tick and rotation, which is item 4 below.
 
+**Built 2026-11-21 (later): the first syscalls off the lock, and the
+clock page.** FreeBSD's `SYF_MPSAFE` in its `sysent` was the shape:
+
+- **A row says its handler needs no kernel lock** --
+  `SYSCALL_ROW_MPSAFE` in `abi/syscall_rows.h`, `SYSCALL_F_MPSAFE` in the
+  table -- and `syscall_try_lockless()` (`kernel/proc/syscall.c`) runs it
+  from `isr_dispatch()` BEFORE the lock is taken, interrupts off, for
+  `getpid`, `gettid`, `ticks`, `monotonic_ns` and `clock_page`. It
+  declines, touching nothing, whenever the locked path has work around
+  the call: strace, a sandbox refusal to report, a re-issue, a
+  deliverable signal or a reschedule (`scheduler_lockless_ok()`).
+  Nothing can become due during the call without an interrupt: a remote
+  wake or signal kicks the core, and the kick lands when SYSRET reopens
+  IF. `kernel.lockless_syscalls` turns it off for an A/B in one boot;
+  `lockstat -e` counts the calls in a `LOCKLESS` column.
+- **The clock is read without writing anything.** It accumulated on
+  every read -- one global total behind the kernel lock. It is now a
+  snapshot (base nanoseconds, the remainder below one, and the raw value)
+  that the boot core's tick retakes, and a read adds the delta since.
+  The snapshot is a LATCH (Linux's `raw_write_seqcount_latch()`, as its
+  `ktime_get_mono_fast_ns()` uses): two copies and a sequence number, so a
+  reader never waits for the writer, and an NMI inside the writer still
+  reads a whole copy. The remainder is kept, so retaking it loses no time.
+  A counter behind the snapshot (another core's TSC a hair behind) reads
+  as its base.
+- **The latch IS the clock page** (`abi/clock_abi.h`): one frame, mapped
+  read-only and NX in every process at `UADDR_CLOCK_PAGE` through a PML4
+  slot every address space shares, as it shares entry 0 -- no page table
+  per process, and the free, fork and audit walks skip it. Linux's vDSO
+  data page and NT's `KUSER_SHARED_DATA` are the shape. `rt`'s
+  `sys_monotonic_ns()` and `sys_ticks()` read it with `lfence; rdtsc`
+  when the source is the TSC, and make the syscall otherwise. A process
+  asks `SYS_CLOCK_PAGE` where it is once; a kernel without one answers
+  `-ENOSYS`, so a newer `/bin` under an older kernel (a `previous` boot)
+  keeps making the syscall.
+
+Proven by positive controls: a fold that drops the remainder turns
+`clocksource`'s retake KTEST red; a retake written over the copy readers
+use turned the cross-core reader KTEST red in 2 of 2 runs under TCG; a
+page reader 5 us ahead failed `lockless_test`'s bracket check on 99999 of
+100000 reads; `kernel.lockless_syscalls off` is the in-test control for
+the counting.
+
+**Measured on KVM, four vCPUs, the TSC the clocksource** (`syscall_bench
+calls`, ns per call; "through the lock" is `kernel.lockless_syscalls off`
+on the same boot):
+
+| | 1 copy, through the lock | 1 copy, lock-free | 4 copies, through the lock | 4 copies, lock-free |
+|---|---|---|---|---|
+| `getpid` | 137 | 55 | 539-675 | 53-73 |
+| `monotonic_ns` by syscall | 102 | 66 | 543-693 | 63-79 |
+| the clock page | -- | 15 | -- | 15-22 |
+
+**On the ASUS** (UX305FA, two cores and four threads, the TSC the
+clocksource), the same rows:
+
+| | 1 copy, through the lock | 1 copy, lock-free | 4 copies, through the lock | 4 copies, lock-free |
+|---|---|---|---|---|
+| `getpid` | 222 | 112 | 1187-1304 | 145-150 |
+| `monotonic_ns` by syscall | 228 | 121 | 1261-1378 | 171-173 |
+| the clock page | -- | 29 | -- | 37-45 |
+
+What the desktop gains is smaller than these tables: idle, the lock was
+held 0.3% of the time on the ASUS (above). The calls that matter there are
+the clock reads every frame and every timeout make, which on a TSC
+machine no longer enter the kernel at all.
+
 **A cross-core call function must not take a counted lock that its
 target might be spinning for**: `take()` answers calls while it spins
 (`smp_poll_ipis()`), so the call would queue behind its own core's
 ticket. True today because nothing takes the heap or frame lock outside
 the kernel lock, which every call's sender holds; the first path that
-does makes it a rule to enforce.
+does makes it a rule to enforce. The clock's lock is the first taken
+outside it -- by a reader on any core that finds the snapshot stale --
+and only by TRYLOCK, which never queues.
 
 The plan as written:
 

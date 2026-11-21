@@ -122,6 +122,12 @@ theory** (ten software replugs at 0 ms, ten high-speed results), which
 is what a diagnostic is for; it is kept because the same question comes
 back whenever the retry timing changes.
 
+`kernel.lockless_syscalls` (on by default) lets the syscall rows marked
+MPSAFE skip the kernel lock (`syscall_try_lockless()`,
+`docs/smp-design.md` stage 7); `off` sends them through it like any other
+call, for an A/B on one boot -- [`lockstat -e`](commands/lockstat.md)'s
+`LOCKLESS` column shows which way they went.
+
 `kernel.trace` arms the kernel event trace (`kernel/include/kernel/ktrace.h`,
 [`trace`](commands/trace.md)): its value is the groups to record --
 `switch,wakeup,irq,fault,syscall,spin,mutex`, any of them comma-separated,

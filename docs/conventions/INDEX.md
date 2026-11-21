@@ -264,10 +264,12 @@ whenever a headline here tells you something you did not already know.
   SHARED** -- `cli; swapgs` before a hand-rolled `iretq`; ring 3's
   GS.base is always 0; a parked AP (and an `smp_call()` function) logs
   nothing
-- **THE KERNEL LOCK IS TAKEN ON EVERY ENTRY, AND A NEW ROUTE TO RING 3
-  DROPS IT** -- `bkl_drop_all()` before a hand-rolled `iretq`; contexts
-  start through `proc_start_context()`; no spinlock across a sleep; the
-  paranoid vectors from ring 0 take no lock
+- **THE KERNEL LOCK IS TAKEN ON EVERY ENTRY BUT AN MPSAFE SYSCALL'S,
+  AND A NEW ROUTE TO RING 3 DROPS IT** -- an MPSAFE row's handler runs
+  with interrupts off and touches nothing the lock guards;
+  `bkl_drop_all()` before a hand-rolled `iretq`; contexts start through
+  `proc_start_context()`; no spinlock across a sleep; the paranoid
+  vectors from ring 0 take no lock
 - **A LOCK INSIDE A STRUCT IS NAMED WHERE IT IS SET UP, AND TWO OF ONE
   CLASS NEST ONLY ANNOTATED** -- `kmutex_name()`/`spin_lock_name()`
   before the first take, a static needs none; same-class nesting through
