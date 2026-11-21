@@ -143,7 +143,7 @@ void kmutex_lock_nested(struct kmutex *m, int subclass) { lock_common(m, subclas
 void kmutex_lock_nest_lock(struct kmutex *m, const struct kmutex *outer) { lock_common(m, 0, outer); }
 #endif
 
-int kmutex_trylock(struct kmutex *m) {
+static int trylock_common(struct kmutex *m, int subclass, uintptr_t site) {
     int me = scheduler_current_pid();
     LD_PREPARE(m);
     uint64_t f = spin_lock_irqsave(&m->wait_lock);
@@ -154,9 +154,20 @@ int kmutex_trylock(struct kmutex *m) {
         m->depth++; got = 1;
     }
     spin_unlock_irqrestore(&m->wait_lock, f);
-    if (got == 2) LD_TAKEN(m, 0, 0, (uintptr_t)__builtin_return_address(0), 1);
+    if (got == 2) LD_TAKEN(m, subclass, 0, site, 1);
+    (void)subclass; (void)site;
     return got != 0;
 }
+
+int kmutex_trylock(struct kmutex *m) {
+    return trylock_common(m, 0, (uintptr_t)__builtin_return_address(0));
+}
+
+#ifdef SAUNAOS_LOCKDEP
+int kmutex_trylock_nested(struct kmutex *m, int subclass) {
+    return trylock_common(m, subclass, (uintptr_t)__builtin_return_address(0));
+}
+#endif
 
 void kmutex_unlock(struct kmutex *m) {
     LD_PREPARE(m);

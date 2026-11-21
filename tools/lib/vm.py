@@ -258,6 +258,9 @@ def _rr_prepare(args):
     if bad:
         sys.exit("vm.py: record/replay cannot run with " + "; ".join(bad))
     if rec:
+        # Before anything is written, so a refusal leaves no recording behind.
+        if install_grub.boot_medium(args.disk, args.boot, uefi=args.uefi) != "disk":
+            sys.exit("vm.py: record/replay boots the disk (the ISO is a second block device)")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         from harness import copy_disk
         copy_disk(args.disk, path + ".disk.img")

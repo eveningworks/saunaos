@@ -166,6 +166,13 @@ static int arm(const char *groups) {
     if (!ktrace_parse_groups(groups, &mask))
         return uargs_error(&PROG, "%s is not a list of groups (switch,wakeup,irq,fault,syscall,spin,mutex, or all)",
                            groups);
+    char was[64] = "off";
+    tunable_get("kernel.trace", was, sizeof was);
+    if (g_size && strcmp(was, "off")) {
+        // A running trace keeps its rings: the size applies at a start from stopped.
+        fprintf(stderr, "trace: a trace is running (%s) and keeps its rings -- `trace stop` first\n", was);
+        return 1;
+    }
     if (g_size && !tunable_set("kernel.trace_size", g_size)) {
         fprintf(stderr, "trace: the kernel refused %s records per core (64 up to a 32nd of RAM)\n", g_size);
         return 1;
@@ -193,6 +200,13 @@ static int stop(void);
 // one program, so what fills the rings is the program's stretch only.
 static int run(int argc, char **argv) {
     if (argc < 3) return uargs_error(&PROG, "run takes GROUPS and a PROGRAM");
+    // The rings would hold the earlier trace too, and stop() would end it.
+    char was[64] = "off";
+    tunable_get("kernel.trace", was, sizeof was);
+    if (strcmp(was, "off")) {
+        fprintf(stderr, "trace: a trace is running (%s) -- `trace stop` first\n", was);
+        return 1;
+    }
     // uargs compacts the operands in place, so argv[argc] is not NULL.
     char **child = calloc((size_t)argc - 1, sizeof *child);
     if (!child) return 1;

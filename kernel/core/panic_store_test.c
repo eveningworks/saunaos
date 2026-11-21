@@ -87,6 +87,7 @@ KTEST("panic_store", "panic_store= takes an aligned address below 4 GiB, or surv
     KTEST_ASSERT_EQ(panic_store_parse("0x8000010", &b), PANIC_STORE_INVALID);   // not 4 KiB-aligned
     KTEST_ASSERT_EQ(panic_store_parse("0x80000", &b), PANIC_STORE_INVALID);     // below 1 MiB
     KTEST_ASSERT_EQ(panic_store_parse("0xFFFFC000", &b), PANIC_STORE_INVALID);  // runs past 4 GiB
+    KTEST_ASSERT_EQ(panic_store_parse("0xFFFFFFFFFFFF8000", &b), PANIC_STORE_INVALID);  // end wraps to 0
     KTEST_ASSERT_EQ(panic_store_parse("soon", &b), PANIC_STORE_INVALID);
     KTEST_ASSERT_EQ(panic_store_parse("", &b), PANIC_STORE_INVALID);
     KTEST_ASSERT_EQ(b, 7);   // a rejection writes nothing

@@ -73,6 +73,13 @@ void kmutex_lock_nest_lock(struct kmutex *m, const struct kmutex *outer);
 // held now. For a caller that has somewhere better to be -- an idle
 // write-back -- and never blocks, so it is safe from any context.
 int kmutex_trylock(struct kmutex *m);
+// ...as `subclass` of its class (kmutex_lock_nested()'s), for a lock taken
+// both ways: the mount locks.
+#ifdef SAUNAOS_LOCKDEP
+int kmutex_trylock_nested(struct kmutex *m, int subclass);
+#else
+#define kmutex_trylock_nested(m, subclass) ((void)(subclass), kmutex_trylock(m))
+#endif
 
 // How many kmutex_lock() calls came from a context that could neither
 // sleep nor be rotated away (kmutex.c's might_sleep()). Each distinct

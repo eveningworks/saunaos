@@ -171,7 +171,11 @@ void ktrace_stop(void) {
 }
 
 int ktrace_set_size(uint64_t records) {
-    if (records < 64) return 0;
+    // BOUNDED BEFORE ANY ARITHMETIC: a huge value wrapped the product and
+    // passed, and past 2^63 the doubling below reached 0 and never ended.
+    uint64_t per_core = pmm_total_frames() * 4096 / 32 /
+                        (sizeof(struct ktrace_rec) * (uint64_t)smp_cpu_count());
+    if (records < 64 || records > per_core) return 0;
     uint64_t cap = 64;
     while (cap < records) cap <<= 1;
     uint64_t total = cap * sizeof(struct ktrace_rec) * (uint64_t)smp_cpu_count();

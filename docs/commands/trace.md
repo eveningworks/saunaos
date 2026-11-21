@@ -18,7 +18,8 @@
 - `-s`, `--size=RECORDS` -- with `start` or `run`: how many records each
   core's ring holds (the `kernel.trace_size` tunable), rounded up to a
   power of two; 64 up to a 32nd of RAM across every core. Takes effect
-  at a start from stopped. Default 8192 (384 KiB a core).
+  at a start from stopped, so it is refused while a trace runs (`trace
+  stop` first). Default 8192 (384 KiB a core).
 - `-n`, `--lines=LINES` -- with `show`: only the newest LINES.
 - `-h`, `--help` -- print the usage and exit.
 
@@ -41,7 +42,8 @@ is the command's own; the long form works anywhere.
   [`tools/dev/trace_view.py`](../tools/dev.md) on the host.
 - `run GROUPS PROGRAM [ARGS...]` -- start, run PROGRAM until it exits,
   then stop: the trace covers that program's stretch and no more, as
-  `trace-cmd record CMD` and `perf record -- CMD` do.
+  `trace-cmd record CMD` and `perf record -- CMD` do. Refused while a
+  trace already runs, whose records and stop it would take over.
 
 With no command, `trace` says what is armed and what each core holds.
 

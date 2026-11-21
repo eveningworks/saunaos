@@ -157,6 +157,34 @@ KTEST("lockdep", "many of one class under a nest lock is no report, and releases
 #endif
 }
 
+// fs_exclusive_begin()'s shape: released by slot, not in reverse. The last
+// release must still find the shared entry, or the task keeps a stale one
+// and its next lock of the class reads as a recursion.
+KTEST("lockdep", "many under a nest lock released in the order taken leave nothing held") {
+#ifndef SAUNAOS_LOCKDEP
+    KTEST_SKIP("built without option lockdep");
+#else
+    struct kmutex outer = {0}, m[4] = {0}, later = {0};
+    kmutex_name(&outer, "ktest-nf-outer");
+    for (int i = 0; i < 4; i++) kmutex_name(&m[i], "ktest-nf-each");
+    kmutex_name(&later, "ktest-nf-each");
+    struct lockdep_stats s0, s1;
+    lockdep_get_stats(&s0);
+    kmutex_lock(&outer);
+    for (int i = 0; i < 4; i++) kmutex_lock_nest_lock(&m[i], &outer);
+    for (int i = 0; i < 4; i++) kmutex_unlock(&m[i]);
+    kmutex_unlock(&outer);
+    kmutex_lock(&later);          // one of the class, alone: no recursion
+    kmutex_unlock(&later);
+    lockdep_get_stats(&s1);
+    int n = reports_naming("ktest-nf-", 0);
+    lockdep_forget("ktest-nf-outer");
+    lockdep_forget("ktest-nf-each");
+    KTEST_ASSERT_EQ(s1.unmatched, s0.unmatched);
+    KTEST_ASSERT_EQ(n, 0);
+#endif
+}
+
 KTEST("lockdep", "a spinlock taken in an interrupt and with interrupts on is reported once") {
 #ifndef SAUNAOS_LOCKDEP
     KTEST_SKIP("built without option lockdep");

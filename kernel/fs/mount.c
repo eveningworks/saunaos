@@ -201,7 +201,9 @@ static void lock_slot(struct mount *m) {
 // hold `const struct mount *` from mount_resolve().
 void mount_lock(const struct mount *m)   { lock_slot((struct mount *)m); }
 void mount_unlock(const struct mount *m) { kmutex_unlock(&((struct mount *)m)->lock); }
-int mount_trylock(const struct mount *m) { return kmutex_trylock(slot_lock((struct mount *)m)); }
+int mount_trylock(const struct mount *m) {
+    return kmutex_trylock_nested(slot_lock((struct mount *)m), LOCKDEP_ENABLED ? depth_of(m) : 0);
+}
 
 // EVERY SLOT, used or not, so the set released is the set taken even if
 // the table changes in between -- which is what a mount under exclusion

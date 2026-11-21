@@ -73,6 +73,9 @@ static unsigned g_rep_lost, g_unmatched, g_max_spin, g_max_task;
 static uintptr_t g_unnamed[LD_UNNAMED_SITES];
 static volatile int g_pending;   // a report not yet written to the log
 static int g_full_logged;
+// The other tables that stop growing: each logs once, as the class table does.
+static int g_lost_logged, g_edges_logged, g_unnamed_logged, g_deep_logged;
+#define LD_NOTE(flag) do { if (!(flag)) { (flag) = 1; g_pending = 1; } } while (0)
 
 extern char __kimage_start[], _kernel_end[];
 
@@ -268,7 +271,7 @@ void lockdep_kmutex_prepare(struct kmutex *m) {
 // cut to LOCKDEP_PATH_MAX nodes.
 static void report_add(int kind, int a, int b, uintptr_t s0, uintptr_t s1,
                        uintptr_t s2, uintptr_t s3, const uint16_t *path, int edges) {
-    if (g_nrep >= LD_MAX_REPORTS) { g_rep_lost++; return; }
+    if (g_nrep >= LD_MAX_REPORTS) { g_rep_lost++; LD_NOTE(g_lost_logged); return; }
     struct lockdep_report *r = &g_rep[g_nrep];
     k_memset(r, 0, sizeof *r);
     r->kind = (uint16_t)kind;
@@ -304,7 +307,8 @@ static void class_report(int kind, int a, uintptr_t s0, uintptr_t s1) {
 
 static void note_unnamed(uintptr_t site) {
     uint64_t f = glock();
-    for (int i = 0; i < LD_UNNAMED_SITES; i++) {
+    int i;
+    for (i = 0; i < LD_UNNAMED_SITES; i++) {
         if (g_unnamed[i] == site) break;
         if (!g_unnamed[i]) {
             g_unnamed[i] = site;
@@ -312,6 +316,7 @@ static void note_unnamed(uintptr_t site) {
             break;
         }
     }
+    if (i == LD_UNNAMED_SITES) LD_NOTE(g_unnamed_logged);
     gunlock(f);
 }
 
@@ -396,6 +401,26 @@ static void flush(int with_stack) {
         klog_printf(KLOG_ERR "lockdep: the class table is full (%d) -- later classes are not checked\n",
                     LD_MAX - 1);
     }
+    if (g_lost_logged == 1) {
+        g_lost_logged = 2;
+        klog_printf(KLOG_ERR "lockdep: %d reports kept -- later ones are only counted (lockstat order)\n",
+                    LD_MAX_REPORTS);
+    }
+    if (g_edges_logged == 1) {
+        g_edges_logged = 2;
+        klog_printf(KLOG_WARN "lockdep: %d edges kept with their sites -- later ones are checked, "
+                    "but an inversion against one names no first site\n", LD_MAX_EDGES);
+    }
+    if (g_unnamed_logged == 1) {
+        g_unnamed_logged = 2;
+        klog_printf(KLOG_WARN "lockdep: %d unnamed-lock sites reported -- later ones are not\n",
+                    LD_UNNAMED_SITES);
+    }
+    if (g_deep_logged == 1) {
+        g_deep_logged = 2;
+        klog_printf(KLOG_ERR "lockdep: a held-lock stack is full -- that take and its release "
+                    "are not checked\n");
+    }
     int n = __atomic_load_n(&g_nrep, __ATOMIC_ACQUIRE), printed = 0;
     for (int i = 0; i < n; i++) {
         if (g_rep[i].printed) continue;
@@ -468,6 +493,8 @@ static void edge_add(int from, int to, uintptr_t held_site, uintptr_t take_site)
         g_edges_total++;
         if (g_nedges < LD_MAX_EDGES)
             g_edges[g_nedges++] = (struct ld_edge){ (uint16_t)from, (uint16_t)to, held_site, take_site };
+        else
+            LD_NOTE(g_edges_logged);
         if ((usage_of(from) & U_IRQ) && (usage_of(to) & U_ON) && !bit(g_reported, from, to)) {
             setbit(g_reported, from, to);
             report_add(LOCKDEP_IRQ_UNSAFE_ORDER, from, to, held_site, take_site, 0, 0, 0, 0);
@@ -519,7 +546,7 @@ static void mark_usage(int cls, int in_irq, int irqs_on, uintptr_t site) {
 
 static void push(struct lockdep_held *h, int *n, int cap, int node, const void *lock,
                  const void *nest, uintptr_t site, unsigned *max) {
-    if (*n >= cap) { g_unmatched++; return; }   // too deep: its release will not match either
+    if (*n >= cap) { g_unmatched++; LD_NOTE(g_deep_logged); return; }   // too deep: its release will not match either
     h[*n] = (struct lockdep_held){ .cls = (uint16_t)node, .count = 1, .lock = lock,
                                    .nest = nest, .site = site };
     (*n)++;
@@ -529,10 +556,11 @@ static void push(struct lockdep_held *h, int *n, int cap, int node, const void *
 static void pop(struct lockdep_held *h, int *n, const void *lock, int base) {
     int j = -1;
     for (int i = *n - 1; i >= 0; i--) if (h[i].lock == lock) { j = i; break; }
-    // One of several under a nest lock: they share an entry.
+    // One of several under a nest lock: they share an entry, released in
+    // any order -- the last one out finds count == 1 here.
     if (j < 0)
         for (int i = *n - 1; i >= 0; i--)
-            if (h[i].nest && h[i].cls == base && h[i].count > 1) { j = i; break; }
+            if (h[i].nest && h[i].cls == base) { j = i; break; }
     if (j < 0) { g_unmatched++; return; }
     if (--h[j].count > 0) {
         if (h[j].lock == lock) h[j].lock = (const void *)1;   // the entry now stands for the rest

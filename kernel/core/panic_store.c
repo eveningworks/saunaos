@@ -78,7 +78,7 @@ int panic_store_parse(const char *value, uint64_t *base) {
     uint64_t v;
     int ok = (value[0] == '0' && (value[1] == 'x' || value[1] == 'X'))
            ? k_parse_hex(value, &v) : k_parse_size(value, 1, &v);
-    if (!ok || (v & 0xFFF) || v < 0x100000ULL || v + PANIC_STORE_SIZE > 0x100000000ULL)
+    if (!ok || (v & 0xFFF) || v < 0x100000ULL || v > 0x100000000ULL - PANIC_STORE_SIZE)
         return PANIC_STORE_INVALID;
     *base = v;
     return PANIC_STORE_EXPLICIT;
