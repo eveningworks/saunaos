@@ -9247,3 +9247,21 @@ start on real 3.11" first.
 - [x] ~~**SMP review minor findings.**~~ DONE 2026-11-20. (1) `mmap_fault_in()`'s and `uheap_fault()`'s "not served" line is one function, `mm_fault_unserved()`, at most a line a second with a count of what it held back; (2) `mmap_fault_try()` hands back the reason for each 0 it answers (out of memory, a shared object with no such page, an FS_OP, a file gone or unread, a region changed) instead of a global read after the unlock; (3) `acpi` says `(smp=park)` only when the command line has it, and otherwise that the kernel could not start the other cores scheduling; (4) `bkl_enter()` stores the slot it ran from its own struct (`bkl_slot`), resolved to a pid only by a lockup report or `cpus`; (5) `this_cpu_read()`/`this_cpu_write()` in `percpu.h`, which `SCHED_HERE_GET/SET`, `spin_cpu_index()` and `this_cpu_raw()` use. KTESTs in `mm_test.c` for (1) and (2), each red with its fix taken out; (3) was checked by hand on a default and an `smp=park` boot -- no QEMU setup parks a core under `smp=run`, so its third case has no test.
 
 - [x] ~~**The ATA fault-injection KTESTs leak a failed write into the NEXT test.**~~ DONE 2026-11-21 -- there was no leak. `[atac]`'s injected failure recovers and passes; the later `atac: FLUSH FAILED` was a REAL cache flush that outran its bound. A flush from a caller that cannot park (the kernel context -- the failing run's was `service stop logd` from the debug console) got -1 from `sleep_dma_irq()` at once, and the poll after it had only `wait_not_busy()`'s 1 s pre-command bound, while a guest flush is a host `fdatasync` on a zstd-compressed btrfs `disk.img` (no `+C`, whatever `ata.c` claimed). tfs3 then stops `/` on the failed flush, as it should. Reproduced on the first `ktest_run.py --suite fs` run with a host `dd ... conv=fsync` loop on the same volume (`ata: cache flush FAILED after 101 ticks (still busy, status 0xc0, slept)`); with `FLUSH_WAIT_TICKS` (15 s, one deadline whether it slept or polled; libata's flush bound) 6 of 6 stressed runs passed, two of them with flushes of 104 and 116 ticks that the old bound would have failed. `ata: cache flush took N ticks` now names a slow one. The other two kernel-suite reds of those 20 preflights were not this (a spin lockup and a poll-for-exit check).
+
+## A lock-free switch into a context that holds the kernel lock
+
+An AP's lock-free scheduler event (`scheduler_ap_event_lockless()`,
+`docs/smp-design.md` stage 7) switches only into a context saved at
+kernel-lock depth 0 and declines otherwise, so with spinners shared with
+the boot core only about 38% of an AP's events stay lock-free (KVM, four
+vCPUs). Built 2026-11-21: switch in anyway, let the run-queue lock go,
+then take the kernel lock for the incoming context (`bkl_switch_in()`).
+Every AP event then went lock-free, and the KTEST suite panicked 2 runs
+in 2 on core 1 during the `kmutex` tests -- `bkl: return to ring 3 still
+holding it (depth 1)`, then RIP 0 -- and passed 2 in 2 with it taken
+out. What differs: the core waits for the kernel lock on the OUTGOING
+context's stack for as long as the holder keeps it, with the incoming
+context already RUNNING. Which reader that breaks is not established.
+To come back to with the wait widened on purpose and a KTEST that turns
+red on it, as the interrupts-in-syscalls audit proved its windows.
+

@@ -128,6 +128,12 @@ MPSAFE skip the kernel lock (`syscall_try_lockless()`,
 call, for an A/B on one boot -- [`lockstat -e`](commands/lockstat.md)'s
 `LOCKLESS` column shows which way they went.
 
+`kernel.lockless_sched` (on by default) lets an AP's timer and
+reschedule events, and a yield, run without the kernel lock when they
+need none of it (`scheduler_ap_event_lockless()`, `docs/smp-design.md`
+stage 7); `off` sends every one through it, for an A/B on one boot --
+[`cpus`](commands/cpus.md) counts each AP's events taken without it.
+
 `kernel.trace` arms the kernel event trace (`kernel/include/kernel/ktrace.h`,
 [`trace`](commands/trace.md)): its value is the groups to record --
 `switch,wakeup,irq,fault,syscall,spin,mutex`, any of them comma-separated,

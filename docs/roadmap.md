@@ -1611,7 +1611,8 @@ measurement of what is single-core in the tree today.
 - [x] ~~Lock-order checking (Linux's lockdep)~~ DONE 2026-11-21 -- `option lockdep`, `lockstat order`, docs/lockdep-design.md
 - [x] ~~Syscalls that need no kernel lock skip it~~ DONE 2026-11-21 -- `SYSCALL_ROW_MPSAFE`: `getpid`, `gettid`, the clocks
 - [x] ~~A clock ring 3 reads without a syscall~~ DONE 2026-11-21 -- the clock page, vDSO-shaped
-- [ ] The scheduler's tick and rotation without the kernel lock -- `core tick` and `yield` are its longest holders
+- [x] ~~The scheduler's tick and rotation without the kernel lock~~ DONE 2026-11-21 -- a run-queue lock; AP events lock-free
+- [ ] A lock-free switch into a context that holds the kernel lock -- built once, panicked the KTEST suite 2 runs in 2
 - [ ] An audit of everything currently assuming single-threaded -- stage 7, split the BKL in measured order
 
 ### Protecting kernel memory from device DMA

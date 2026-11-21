@@ -10911,3 +10911,54 @@ only the clock. Ring 3 still ASKS where it is (`SYS_CLOCK_PAGE`) rather
 than assuming, because a rescue boot runs the previous kernel under the
 current `/bin`, and a program reading a page that kernel never mapped
 would fault, where the ask gets `-ENOSYS` and falls back to the syscall.
+
+## The run queue has one lock beside the kernel lock, and a lock-free switch enters only a context that holds none of it
+
+Picked 2026-11-21 (`docs/smp-design.md`, stage 7;
+`kernel/proc/scheduler.c`'s `sched_lock()` and
+`scheduler_ap_event_lockless()`).
+
+**One global lock, not a run queue per core.** Linux's `rq->lock` and
+FreeBSD ULE's `tdq` are the end state, and each brings load balancing,
+migration and affinity with it -- three problems this system does not
+have while one global queue serves four cores. FreeBSD 5 to 7 split
+Giant first into one `sched_lock` beside it, and NT kept one dispatcher
+lock until Windows 7; that is the step this is. It is RECURSIVE per
+core, as FreeBSD's was, so the wakes and signals that a kill or an exit
+already makes nest instead of deadlocking, and it comes AFTER the
+kernel lock: a lock-free path that finds it needs the kernel lock
+declines rather than waiting for it holding the run queue.
+
+**Only an AP, only a context in ring 3 or the idle loop.** The boot core
+takes every device interrupt and runs the kernel context, its clock
+event wakes sleepers and feeds the watchdog, and all of that is the
+kernel lock's. An AP's event has none of it. A process inside a call
+holds the kernel lock already, and an RT one keeps its guards on the
+ordinary path. "Nothing to do" -- idle with nothing ready, or a slice
+not over -- is decided with no lock at all, as Linux's idle loop reads
+`need_resched`: a wake after the read kicks the core, under the lock.
+Most of an idle AP's events were exactly that (KVM, four vCPUs: 3655 of
+the kernel lock's 6282 takes in five idle seconds).
+
+**A lock-free switch goes only INTO a context saved by this path**
+(kernel-lock depth 0), or this core's idle loop saved by it; anything
+else declines to the ordinary path. The obvious completion -- switch in
+anyway and take the kernel lock at the end of the switch, after the run
+queue lock is let go -- was built and measured: every AP event then went
+lock-free (from about 38% with spinners and the boot core sharing them),
+and the KTEST suite panicked 2 runs in 2 (`bkl: return to ring 3 still
+holding it`, then a jump to 0 on an AP), 0 in 2 without it. That switch
+waits for the kernel lock ON THE OUTGOING CONTEXT'S STACK, milliseconds
+rather than instructions, with the incoming one already published
+RUNNING; which reader that breaks was not established. The roadmap keeps
+it as its own item, to come back to with a widened window and a test.
+
+**The shootdown is ordered against a switch by fences now, not the
+lock.** A sender used to know no core was switching while it read each
+core's recorded CR3, because both held the kernel lock. A lock-free
+switch records the new CR3 before loading it and keeps the old one in a
+second word until the load is done; the sender fences before reading
+both (Linux's `switch_mm()` against its flush). Neither half alone is
+enough: without the record first, a sender can miss a core that already
+walks the tables it changed.
+

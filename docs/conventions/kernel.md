@@ -1462,6 +1462,8 @@ per-core pointer (`kernel/include/kernel/percpu.h`, `this_cpu()`), and
 
 ## THE KERNEL LOCK IS TAKEN ON EVERY ENTRY BUT AN MPSAFE SYSCALL'S, AND A NEW ROUTE TO RING 3 DROPS IT
 
+(And an AP's scheduler event that needs none of it -- the second bullet.)
+
 Since SMP stage 4 (`docs/smp-design.md`) one core at a time is in the
 kernel: `isr_dispatch()` takes the big kernel lock (`bkl.h`) on entry
 and releases it when its depth reaches 0, which is the return to ring 3.
@@ -1477,6 +1479,14 @@ through `switch_to()`.
   nothing else; a handler that later grows a call into locked state must
   lose the mark in the same change. `kernel.lockless_syscalls off` is the
   A/B, and `lockstat -e`'s `LOCKLESS` column shows which path ran.
+
+- **AN AP'S SCHEDULER EVENT, OR A YIELD, THAT NEEDS NONE OF IT TAKES
+  NONE** (since stage 7, `scheduler_ap_event_lockless()`,
+  `scheduler_yield_lockless()`): nothing to do, or a switch between two
+  contexts that hold none of it, under the scheduler lock alone (below).
+  A context it switches out is saved at depth 0, and its frame releases
+  nothing: switching back INTO one, a core that holds the lock lets it go
+  (`bkl_load_depth(0)`). `kernel.lockless_sched off` is the A/B.
 
 - **A HAND-ROLLED ROUTE TO RING 3 CALLS `bkl_drop_all()` FIRST**, as the
   two `iretq`s in `process.c` and `ring3_test.c` do, and a longjmp back
@@ -1502,6 +1512,40 @@ through `switch_to()`.
   switched to releases the lock on its way to ring 3. That is the lock
   working, not leaking.
 
+
+## RUN STATE IS WRITTEN UNDER THE SCHEDULER LOCK, WHICH COMES AFTER THE KERNEL LOCK
+
+`sched_lock()`/`sched_unlock()` (`kernel/proc/sched_internal.h`; SMP
+stage 7, `docs/smp-design.md`): one spinlock for the run queue --
+`procs[].state`, `stopped`, what the pick reads and the globals it
+writes, and which slot each core runs -- because an AP may now switch
+contexts holding it and NOT the kernel lock.
+
+- **A CHECK-THEN-ACT ON ANOTHER THREAD'S RUN STATE HOLDS IT ACROSS BOTH
+  HALVES**: "it is READY, so free it", "it is not on another core, so
+  zombify it", "set the pending bit, then kick it if it runs elsewhere"
+  (`scheduler_kill()`, `group_release_threads_but()`,
+  `scheduler_signal_raise()`). Under the kernel lock alone, a core
+  switching it in without that lock starts it between the two.
+- **ORDER: THE KERNEL LOCK, THEN THIS ONE, NEVER THE REVERSE.** A
+  lock-free path that finds it needs the kernel lock DECLINES and goes
+  the ordinary way; it never waits for the kernel lock holding this.
+- **INTERRUPTS OFF WHILE HELD, AND RECURSIVE PER CORE** (a wake inside a
+  kill nests). It raises no preemption guard -- `spin_lock_noguard()` --
+  because a switch holds it and saves the guard with the context.
+- **A SWITCH IS ENTERED HOLDING IT ONCE AND RETURNS WITHOUT IT**:
+  `switch_to()` and `switch_to_kernel()` let it go before the restore, so
+  a caller follows one with `irq_restore()` alone. Twice, or not at all,
+  is logged (`scheduler_lock_faults()`, asserted 0 by the `smp` KTESTs).
+- **A READY CONTEXT MAY STILL BE LIVE ON A CORE**: the switch lets the
+  lock go before it leaves the outgoing stack, and the context's
+  `on_core` clears only after (`process_context_restore_release()`). The
+  pick and `slot_claim()` skip a live one; anything else that would use a
+  READY context's stack or slot asks the same (`live_elsewhere()`).
+- **A LOCK-FREE PATH THAT DECLINES HAS CHANGED NOTHING** the pick reads
+  -- `pick_next()` writes nothing, and `g_min_vruntime` moves only when a
+  switch commits. A declined pick that moved it placed every later wake
+  against a pick never made (a KTEST failed 1 run in 2).
 ## A LOCK INSIDE A STRUCT IS NAMED WHERE IT IS SET UP, AND TWO OF ONE CLASS NEST ONLY ANNOTATED
 
 Lock-order checking (`option lockdep`, `docs/lockdep-design.md`) gives

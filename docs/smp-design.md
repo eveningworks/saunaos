@@ -762,6 +762,75 @@ does makes it a rule to enforce. The clock's lock is the first taken
 outside it -- by a reader on any core that finds the snapshot stale --
 and only by TRYLOCK, which never queues.
 
+**Built 2026-11-21 (later still): the scheduler lock, and an AP's
+scheduling without the kernel lock.** FreeBSD 5's `sched_lock` beside
+Giant, and NT's dispatcher lock, are the shape
+(`docs/decisions/kernel.md`):
+
+- **One run-queue lock** (`sched_lock()`, `sched_internal.h`; `sched` in
+  `lockstat`), after the kernel lock and never before it, recursive per
+  core, interrupts off while held. Every write of `procs[].state` and
+  every check-then-act on another thread's run state holds it: the pick
+  and the switch, wakes, spawn and fork publishing READY, stop and
+  continue, a signal's pending bit and its kick, kill, group exit and
+  exec's wait. A switch is entered holding it once and lets it go before
+  the restore.
+- **An AP's event or a yield that needs no kernel lock takes none**
+  (`scheduler_ap_event_lockless()`, `scheduler_yield_lockless()`): idle
+  with nothing ready, a slice not over -- decided with no lock at all --
+  or a switch between a ring-3 process (or the idle loop) and a context
+  this path saved, under the scheduler lock alone. It declines, having
+  changed nothing, for anything else, and the ordinary path takes the
+  event. A context it saves is at kernel-lock depth 0; a core holding the
+  lock that switches into one lets it go (`bkl_load_depth(0)`).
+- **A READY context stays "live" until its core is off its stack**: the
+  mark clears after RSP moves (`process_context_restore_release()`), and
+  the pick and `slot_claim()` skip a live one.
+- **The shootdown pairs with a lock-free switch by fences**: a core
+  records the CR3 it is about to load, and keeps the old one in
+  `cr3_old` until the load is done; `shoot()` fences, then reads both.
+- **An idle AP bills its time at each event**, not as one lump when it
+  next switches: with the boot core no longer holding back every AP's
+  billing, a lump of seconds landed inside the CPU-split KTEST's window.
+- **Not built: a lock-free switch INTO a context that holds the kernel
+  lock**, taking it at the end of the switch. Built and measured: every
+  AP event lock-free, and the KTEST suite panicked 2 runs in 2; the
+  roadmap keeps it.
+
+Proven by: a KTEST of oversubscribed spinners (each runs, each dies when
+killed, APs took events lock-free, no double resume, no lock fault --
+red with the lock-free path refused), a unit KTEST that a READY context
+still live is neither picked nor its slot claimed (red without the mark),
+lockdep on a `PROFILE=debug` image under load (1.8 M takes, nothing
+found), KTEST 3 in 3 under TCG, the ring-3 suite under KVM, and
+`kvm_soak.py --cpus 4` 5 in 5.
+
+**Measured on KVM, four vCPUs, the TSC the clocksource**, each pair one
+boot with `kernel.lockless_sched` on and off:
+
+| load | kernel lock takes | takes that waited | `core tick` takes |
+|---|---|---|---|
+| idle desktop, 5 s | 2417 / 6282 | 2.2% / 26.1% | 0 / 3655 |
+| 6 spinners on 4 cores, 5 s | 12814 / 14830 | 0.7% / 8.4% | 2804 / 4623 |
+
+| `syscall_bench` yield, ns | lock-free | through the lock |
+|---|---|---|
+| 1 copy | 220 | 906 |
+| 3 copies | 650-700 | 3145-3237 |
+
+With the spinners, about 38% of an AP's events switched lock-free: the
+rest picked a context the boot core had switched out under the kernel
+lock, and declined. Their CPU shares stayed equal either way.
+
+**On the ASUS** (UX305FA, two cores and four threads, the TSC):
+
+| | lock-free | through the lock |
+|---|---|---|
+| idle desktop, 8 s: kernel lock takes / waited | 11342 / 1.0% | 17459 / 10.9% |
+| ...`core tick` takes | 0 | 6008 |
+| yield, 1 copy | 714 ns | 1861 ns |
+| yield, 3 copies | 766-1950 ns | 7698-8764 ns |
+
 The plan as written:
 
 The order comes from the table above, and each split is its own change
@@ -775,7 +844,8 @@ with its own test:
    per-call state, and a lock over the backend is the interim.
 3. **The console** -- a lock around `vga.c`'s present and cursor.
 4. **The scheduler's own table**, which is what lets a core reschedule
-   without holding the kernel lock.
+   without holding the kernel lock -- BUILT 2026-11-21 as one run-queue
+   lock and an AP's lock-free events (above).
 5. Everything else, when something measures it.
 
 **Lock-order checking comes with it** (2026-11-21, `option lockdep`,
