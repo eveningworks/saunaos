@@ -666,6 +666,17 @@ stand on:
 | 3 x `syscall_bench`, 5 s | 86% | 81% | `yield` 2.9 s, `getpid` 0.94 s over 9.8 M takes |
 | heap, frames | under 0.5% held | 0 waits in every load | -- |
 
+**On the ASUS** (UX305FA, two cores and four threads; 8-10 s each):
+
+| load | kernel lock held | takes that waited | longest holders |
+|---|---|---|---|
+| idle desktop | 0.3% | 8% | `lapic_timer_isr`, `query`; no hold over 0.15 ms |
+| `diskbench` | 1.8% | 21% | the disk interrupt (`irq_handler`) 79 ms, holds up to 1 ms |
+
+Since boot, an AP's `core tick` and a `read` each once waited 192 ms
+for the lock -- at boot, before hold times could be armed, so its holder
+is not established.
+
 So the heap and the frame allocator are not where the contention is,
 and splitting them bought correctness for later, not time now. **The
 numbers point at two things**: calls that need nothing the lock protects
