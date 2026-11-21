@@ -585,6 +585,11 @@ the rest in the sweep. Each stays a standalone script with its own
   (into a scratch `configs/`), the module check on the build's objects,
   the boot-word table and its toggles, and the picker in the pty.
   `--positive-control` makes the local save write build.conf; red.
+- **`bisect_hostcheck.py`** -- `bisect_build.py` on a toy repository: a steady
+  failure pinned on its commit past one that does not build (skipped,
+  never judged), the worktree removed and unregistered, a range where
+  nothing fails refused, and a 1-in-3 flake pinned with `--runs 3`.
+  `--positive-control` bisects the flake with one run per commit; red.
 - **`failure_bundle_hostcheck.py`** -- `failure_bundle.py` against a fake
   console and QMP: every file written and the index naming the check, a
   second failure taking nothing, a guest command that comes back cut

@@ -69,6 +69,7 @@ replace `dirname(dirname(__file__))`, whose depth is now per folder.
 | Which checks flake, and how often? | `test_history.py --flaky 7 --clean`; measure one with `gui_regress.py --repeat N -k <tool>` |
 | Does a GUI test race an app's background work? | `gui_regress.py --race-delay 300` -- a racing test fails every run |
 | Where does the GUI suite's time go? | `gui_regress.py --sleep-profile DIR`, then `sleep_profile.py DIR` |
+| WHICH COMMIT broke it? | `bisect_build.py GOOD BAD -- <test>` -- a scratch worktree, each commit built clean, both ends tested first, `--runs N` for a flake |
 | Can my test SEE the break? | `mutate.py --edit FILE OLD NEW -- <test>` -- restores and rebuilds itself |
 | Does my window look the same as before -- every rect, every pixel? | `ui_snapshot.py boot OUT` before and after, then `compare` -- takes each twice to show the noise |
 | Is it safe to commit? | `preflight.sh` (**stop your `vm.py` guest first**) |
@@ -365,6 +366,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `ntp_test.py` -- network time, end to end, against a LOCAL server
 - `nvme_test.py` -- the root filesystem on an NVMe SSD, and a 4K namespace beside it
 - `oom_test.py` -- Run a small guest out of memory: the BIGGEST process is ended, not the one that asked
+- `panic_store_survey_test.py` -- `panic_store=survey` finds the ranges a restart keeps: stamped on one
 - `panic_store_test.py` -- The panic store: a kernel panic survives the warm reset that follows it
 - `part_test.py` -- `part delete` against a table a FOREIGN tool wrote
 - `partition_test.py` -- Boot SaunaOS with its filesystem INSIDE an MBR or GPT partition
@@ -421,6 +423,7 @@ Full entries: [`docs/tools/tests-manual.md`](tools/tests-manual.md).
 Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 
 - `archive_hostcheck.py` -- Check lib/uzip and lib/utar against Python's zipfile, tarfile and gzip, on the HOST
+- `bisect_hostcheck.py` -- bisect_build.py names the first bad commit in a toy repository -- past a
 - `browser_hostcheck.py` -- Lay out the same pages with NetSurf on SaunaOS and on the host, and compare
 - `caret_hostcheck.py` -- Check userland/libs/ui/uui_caret.c -- the one blink every text caret shares --
 - `cff_hostcheck.py` -- CFF outlines and font collections in ttf.c, against FreeType and the TrueType originals, on the HOST
@@ -552,6 +555,7 @@ Full entries: [`docs/tools/dev.md`](tools/dev.md).
 - `acpi_dump.py` -- Pull an ACPI table out of a running guest, and prove it arrived intact
 - `aml_walk.py` -- Walk a DSDT dump on the host and say how its PCI interrupt routing is
 - `backup_repo.sh` -- Take a complete, restore-tested backup of the GitHub repository
+- `bisect_build.py` -- Which commit broke it? `git bisect run` in a SCRATCH WORKTREE, each
 - `code_identity.py` -- Do two builds contain the same code? The check after a source-tree move
 - `font_compare.py` -- small text from SaunaOS's rasterizer, beside a reference
 - `kdebug_bridge.py` -- Carry GDB to the kernel debugger's NETWORK transport

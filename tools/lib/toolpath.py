@@ -47,6 +47,12 @@ for _dir, _files in _walk():
         if _f in _INDEX:
             raise ImportError(f"toolpath: {_f} is in both {_INDEX[_f]} and {_dir}; "
                               "a tools/ basename must be unique")
+        # Every folder is on sys.path, so a tool named like a standard
+        # module replaces it for every script: tools/dev/bisect.py broke
+        # `import tempfile` (random imports bisect) for one commit.
+        if _f.endswith(".py") and _f[:-3] in getattr(sys, "stdlib_module_names", ()):
+            raise ImportError(f"toolpath: {_dir}/{_f} shadows the standard library's "
+                              f"`{_f[:-3]}`; rename it")
         _INDEX[_f] = os.path.join(_dir, _f)
 
 for _dir in _DIRS:

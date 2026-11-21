@@ -567,6 +567,26 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   vnc://localhost:5905`) has NO view-only option, so this writes a
   saved profile with `viewonly=1` and launches that instead, which is
   the whole reason it's a script rather than a line in this file.
+- **`bisect_build.py GOOD BAD -- TEST...`** -- WHICH COMMIT BROKE IT:
+  `git bisect run` in a scratch worktree under `~/.cache/saunaos/bisect/`
+  (its own build, `disk.img` and test lock, so the main tree is never
+  touched and a preflight can run beside it). Each step is `make clean`
+  and `make clean-disk`, then `--build` (default `make -jN iso`), because
+  `seed/sync/` keeps a file a later commit deleted and an incremental
+  bisect over a data change convicts the wrong commit;
+  `--incremental` skips that for a code-only range. BOTH ENDS ARE TESTED
+  FIRST (git takes them on trust, so an all-good range would "find" a
+  culprit; `--trust-ends` skips it). `--runs N` calls a commit good only
+  when N runs pass -- a flake that passes once at a bad commit walks
+  the bisect off the answer -- and `--rate K` prints the chance a 1-in-K
+  flake slipped through a step. A build that fails, a test script the
+  commit does not have yet, or a test exiting 77 is a SKIP; a skip next
+  to the answer lists the candidates instead of naming one. Copies
+  `build.local.conf` in (`--no-local-conf`). Measured: one SaunaOS commit
+  from clean in 81 s on the HP Z1 before its test. The test command runs
+  IN the worktree, so it is that commit's copy of the tool -- pass
+  `--instance N` for a slot nothing else uses.
+  `tools/hostchecks/bisect_hostcheck.py`.
 - **`predates.py`** -- answers "did this failure exist before my
   changes?" by measuring rather than guessing: stashes the tree,
   rebuilds at HEAD, runs the command you name, restores, and prints
