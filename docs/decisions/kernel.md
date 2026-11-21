@@ -10824,3 +10824,40 @@ of its own), and nothing runs on past the record during the countdown --
 before this, the boot core logged a lockup after an AP's panic. The
 first core to call it owns the panic; a second faulting at the same
 moment halts rather than racing it to the store.
+
+## The kernel event trace writes per-core rings with no lock, and is read over a query after the fact
+
+Picked 2026-11-21 (`docs/trace-design.md`, "The kernel event ring";
+`kernel/proc/ktrace.c`).
+
+**A ring PER CORE, not one shared buffer.** FreeBSD's KTR is one
+circular array with an atomic index, which is simple and makes every
+writer on every core fight over one cache line; Linux's ftrace ring
+buffer and Windows ETW's buffers are per CPU so that a writer touches
+only its own core's memory. The writer here runs inside a spinlock's
+spin, a context switch and an interrupt's entry, so it must take no lock
+at all: its own core's ring, found in one `%gs` load with interrupts
+off, needs none. The price is that a reader merges the cores by
+timestamp, which assumes their TSCs agree -- true under QEMU and on any
+invariant-TSC machine.
+
+**Overwrite the oldest, not stop the writer, and say how much was
+lost.** A full ring overwriting its oldest record is ftrace's overwrite
+mode; the alternative -- refuse new records once full -- keeps the start
+of a trace, which is rarely the interesting end, and the panic tail
+wants the newest above all. The loss is counted per core and logged at
+the stop, never from the writer, which may not take klog's lock.
+
+**Read over SYS_QUERY, not an shm grant.** A trace is read after the
+stretch it covers, so throughput does not matter, while an shm grant of
+the rings would need the kernel's own heap memory mapped into a
+process, and a reader racing the writers on live pages. The query costs a syscall per five records and
+inherits the grow-append-only rule every query record has. Linux's
+`trace_pipe_raw` splices whole pages instead -- the shape to copy if a
+live consumer ever needs one.
+
+**Off by default, and nearly free while off**: one load and a predicted
+branch per point, its arguments unevaluated. Linux patches the branch
+out entirely (static keys); measured, the branch alone was inside the
+run-to-run spread of a getpid and a pipe round trip, so the patching is
+left on the roadmap.
