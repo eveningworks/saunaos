@@ -660,6 +660,19 @@ def write_source(staging, store, out):
     return names
 
 
+def _local_conf_reason():
+    """Why the staged build is not build.conf's, or None. The seed step
+    writes the overrides it was configured with beside the staging."""
+    try:
+        with open(os.path.join(REPO, "build", "seed-overrides")) as fh:
+            for line in fh:
+                if line.startswith("#") and " overrides: " in line:
+                    return "it was built with " + line[1:].strip()
+    except OSError:
+        pass
+    return None
+
+
 def publish(staging, store, keep, force=False):
     why = _stale_reason(staging)
     if why:
@@ -676,6 +689,16 @@ def publish(staging, store, keep, force=False):
                  "  commit's id), then --publish.  (--force publishes anyway)")
     if why:
         print(f"update_server: publishing a build that is not a commit ({why})")
+    # A RELEASE IS BUILT AS build.conf SAYS: build.local.conf (what `make
+    # menuconfig` saves) is one checkout's experiment, and build_conf.py
+    # names its overrides in the conf.mk the build was configured from.
+    why = _local_conf_reason()
+    if why and not force:
+        sys.exit(f"update_server: REFUSING to publish: {why}\n"
+                 "  remove build.local.conf and rebuild, or make menuconfig's S to make it\n"
+                 "  the default  (--force publishes anyway)")
+    if why:
+        print(f"update_server: publishing a build with local overrides ({why})")
     # A RELEASE IS A TESTED BUILD. preflight stamps the tree it passed on.
     why = preflight_stamp.why_not()
     if why and not force:

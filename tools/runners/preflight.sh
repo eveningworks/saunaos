@@ -307,6 +307,14 @@ echo
 python3 tools/lib/preflight_stamp.py --write || true   # what update_server.py --publish checks
 echo "preflight: PASS -- build, iso, boot smoke test, ktest and the"
 echo "preflight: ring-3 /tests diagnostics all clean."
+# A build.local.conf (make menuconfig's saves) means this run tested THIS
+# checkout's configuration, not the committed one -- say which.
+local_over=$(sed -n 's/^# .* overrides: //p' build/seed-overrides 2>/dev/null)
+if [ -n "$local_over" ]; then
+  echo "preflight: NOTE -- built with build.local.conf's overrides, not build.conf alone:"
+  while IFS= read -r line; do echo "preflight:   $line"; done <<< "$local_over"
+  echo "preflight: update_server.py --publish refuses such a build."
+fi
 if [ -z "$(git config user.name 2>/dev/null)" ]; then
   echo "preflight: WARNING -- no git identity configured. This repo commits"
   echo "preflight: as SaunaOS <noreply@saunaos.local>; set it before committing"

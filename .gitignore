@@ -200,3 +200,5 @@ ci-virtio.img
 # folder, so a `git add -A` cannot take them; tools/build/todisk.py is what
 # copies it onto disk.img.
 /todisk/
+# What `make menuconfig` saves: this checkout's overrides of build.conf.
+/build.local.conf

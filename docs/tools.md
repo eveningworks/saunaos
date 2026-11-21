@@ -438,6 +438,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `indeo3_hostcheck.py` -- Check userland/libs/media/uvid_indeo3.c (Indeo Video 3) against FFmpeg, on the HOST
 - `libc_fmt_hostcheck.py` -- tolibc's printf, sscanf, strtod and strtold against glibc's, on the HOST
 - `mediaparse_hostcheck.py` -- The kernel's removable-media parsers against a hostile stick, on the host
+- `menuconfig_hostcheck.py` -- Check `make menuconfig` (tools/build/menuconfig.py) on the host
 - `midi_hostcheck.py` -- Check the MIDI codec and SoundFont synth on the HOST, against FluidSynth
 - `ora_hostcheck.py` -- Check lib/uora (OpenRaster) against Python's zipfile, ElementTree and Pillow, on the HOST
 - `otl_hostcheck.py` -- GPOS pair kerning and GSUB ligatures in ttf.c, against the font's own data, on the HOST
@@ -591,6 +592,7 @@ Full entries: [`docs/tools/build.md`](tools/build.md).
 - `gen_kconfig.sh` -- Writes the kernel's build-time timer configuration as a header:
 - `gen_version.sh` -- Regenerates kernel/include/api/version.h from VERSION (repo root, plain
 - `install_grub.py` -- put GRUB, and the kernel, ON disk.img
+- `menuconfig.py` -- `make menuconfig` -- build.conf's options and drivers in a text UI
 - `ovmf.py` -- QEMU's UEFI firmware (OVMF), found and wired up once
 - `release_assets.sh` -- The assets of a GitHub Release, made only from a build that IS the tag
 - `run_release.sh` -- Launches a downloaded SaunaOS release with the device and display

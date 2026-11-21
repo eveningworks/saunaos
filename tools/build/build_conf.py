@@ -40,6 +40,12 @@ assignment. So the file is the checkout's default and `make STRIP=0` is
 this one build, which is the precedence anyone would expect.
 
 Another file: `make iso BUILD_CONF=my.conf`.
+
+**`--local build.local.conf` IS READ ON TOP** (untracked, gitignored):
+what `make menuconfig` saves, Linux's `.config` beside a committed
+`defconfig`. A line there replaces build.conf's for this checkout only,
+so an experiment cannot be committed by accident; `--options` names the
+overrides in a comment, which keeps such a build from being published.
 """
 import os
 import sys
@@ -97,6 +103,15 @@ OPTIONS = {
     "debugcon":     ("DEBUGCON", "bool",
                      "bake the serial debug console's boot word into the media"),
 }
+
+# How `make menuconfig` (tools/build/menuconfig.py) groups them, in its
+# order. Every OPTIONS key appears once; menuconfig_hostcheck.py checks it.
+GROUPS = [
+    ("Media and boot", ["strip", "compress", "cmdline", "grub_timeout"]),
+    ("Timer", ["hz", "tick", "highres"]),
+    ("Debugging", ["ubsan", "kasan", "debug_preempt", "debugcon"]),
+    ("Network", ["extras"]),
+]
 
 BOOL_TRUE = ("yes", "on", "true", "1")
 BOOL_FALSE = ("no", "off", "false", "0")
@@ -163,22 +178,11 @@ def option_value(path, n, opt, value):
     return var, value
 
 
-def main():
-    args = [a for a in sys.argv[1:]]
-    want_options = "--options" in args
-    if want_options:
-        args.remove("--options")
-    if len(args) != 1:
-        sys.exit("usage: build_conf.py <build.conf> [--options]")
-    path = args[0]
-    if not os.path.exists(path):
-        sys.exit(f"build_conf: {path}: no such file")
-
-    seen_driver = {}
-    seen_option = {}
-    sources = []
-    assignments = []
-
+def _read_one(path, options, drivers, source):
+    """Fold one file's lines into `options`/`drivers` (name -> (value,
+    source)), checking it alone: a name set twice IN ONE FILE is an
+    error, while the local file setting what build.conf set is the point."""
+    seen_driver, seen_option = {}, {}
     for kind, name, value, n in parse(path):
         if kind == "option":
             if name not in OPTIONS:
@@ -189,10 +193,9 @@ def main():
                 sys.exit(f"{path}:{n}: option {name} is set twice "
                          f"(first at line {seen_option[name]})")
             seen_option[name] = n
-            var, val = option_value(path, n, name, value)
-            assignments.append(f"{var} ?= {val}")
+            option_value(path, n, name, value)   # refuses a bad value
+            options[name] = (value, source)
             continue
-
         if name in seen_driver:
             sys.exit(f"{path}:{n}: {name} is listed twice "
                      f"(first at line {seen_driver[name]})")
@@ -202,16 +205,83 @@ def main():
             sys.exit(f"{path}:{n}: no kernel/drivers/**/{name}.c")
         if len(hits) > 1:
             sys.exit(f"{path}:{n}: {name} is ambiguous: {', '.join(hits)}")
-        if value == "module":
-            sources.append(hits[0])
+        drivers[name] = (value, source)
 
-    if want_options:
+
+def load(path, local=None):
+    """build.conf, then the untracked local file on top of it (when it
+    exists): ({option: (value, source)}, {driver: (value, source)}),
+    `source` being the file that set it. Exits on anything wrong, naming
+    the file and line."""
+    if not os.path.exists(path):
+        sys.exit(f"build_conf: {path}: no such file")
+    options, drivers = {}, {}
+    _read_one(path, options, drivers, path)
+    if local and os.path.exists(local):
+        _read_one(local, options, drivers, local)
+    return options, drivers
+
+
+def overrides(path, options, drivers, local):
+    """`name = value` for each line the local file set to something
+    build.conf does not already say -- `kasan = off` against build.conf's
+    `no` is the same build. A driver build.conf does not list is builtin."""
+    base_o, base_d = load(path)
+    out = []
+    for k, (v, src) in options.items():
+        if src != local:
+            continue
+        if k in base_o and option_value(path, 0, k, base_o[k][0]) == option_value(path, 0, k, v):
+            continue
+        out.append(f"{k} = {v}")
+    for k, (v, src) in drivers.items():
+        if src == local and v != base_d.get(k, ("builtin", None))[0]:
+            out.append(f"{k} = {v}")
+    return out
+
+
+def main():
+    args = list(sys.argv[1:])
+    mode = None
+    for flag in ("--options", "--overrides"):
+        if flag in args:
+            args.remove(flag)
+            mode = flag
+    local = None
+    if "--local" in args:
+        i = args.index("--local")
+        if i + 1 >= len(args):
+            sys.exit("build_conf: --local needs a file")
+        local = args[i + 1]
+        del args[i:i + 2]
+    if len(args) != 1:
+        sys.exit("usage: build_conf.py <build.conf> [--local FILE] [--options | --overrides]")
+    path = args[0]
+    options, drivers = load(path, local)
+
+    if mode == "--overrides":
+        print("\n".join(overrides(path, options, drivers, local)))
+        return 0
+    if mode == "--options":
         # ONE PER LINE, into a file the Makefile includes -- not a
         # $(shell) whose newlines collapse to spaces, which would split
         # `KCMDLINE ?= video=1920x1080 nokaslr` into two assignments.
-        print("\n".join(assignments))
-    else:
-        print(" ".join(sources))
+        lines = []
+        for name, (value, _src) in options.items():
+            var, val = option_value(path, 0, name, value)
+            lines.append(f"{var} ?= {val}")
+        over = overrides(path, options, drivers, local)
+        if over:
+            # Read by update_server.py, which will not publish such a
+            # build, and by preflight.sh, which names it.
+            lines.append(f"# {os.path.basename(local)} overrides: " + ", ".join(over))
+        print("\n".join(lines))
+        return 0
+    sources = []
+    for name, (value, _src) in sorted(drivers.items()):
+        if value == "module":
+            sources.append(find_source(name)[0])
+    print(" ".join(sources))
     return 0
 
 

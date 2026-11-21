@@ -501,6 +501,17 @@ this the obvious way), not from how much history it accumulated.
   itself is `tools/build/build_conf.py`'s `OPTIONS` table; name no
   options here.
 
+  **`build.local.conf` IS READ ON TOP, AND IS UNTRACKED**: what `make
+  menuconfig` saves, Linux's `.config` beside a committed `defconfig`,
+  so an experiment cannot be committed by accident. `preflight.sh` names
+  its overrides and `update_server.py --publish` refuses a build made
+  with one. Its include is `conf.mk`, regenerated on EVERY make and
+  moved only when it changed: the local file can be DELETED, and a
+  vanished prerequisite never remakes anything. **So conf.mk says only
+  what the LAST make read**: the publish refusal and preflight read
+  `build/seed-overrides`, which the seed step writes with the tree it
+  stages.
+
   **It is a generated file, not a `$(shell)`**: `$(shell)` collapses
   newlines to spaces, which would split `KCMDLINE ?= video=1920x1080
   nokaslr` into two assignments. Unlike the `.d` files it has a real

@@ -40,12 +40,18 @@ BUILD = build
 # The assignments are `?=`, so a command-line variable still wins: the
 # file is this checkout's default and `make STRIP=0` is one build.
 BUILD_CONF ?= build.conf
+# What `make menuconfig` saves: untracked, read on top of BUILD_CONF.
+BUILD_LOCAL_CONF ?= build.local.conf
 
-$(BUILD)/conf.mk: $(BUILD_CONF) tools/build/build_conf.py
+# FORCE, compared before it is moved: the local file can be DELETED, and
+# a vanished prerequisite never remakes anything -- its overrides would
+# outlive it. Rewritten only when the answer changed, so make re-execs
+# only then.
+$(BUILD)/conf.mk: FORCE
 	@mkdir -p $(dir $@)
-	@python3 tools/build/build_conf.py $(BUILD_CONF) --options > $@.tmp \
-	    && mv $@.tmp $@ || { rm -f $@.tmp; \
-	        echo "make: $(BUILD_CONF): see the message above" >&2; exit 1; }
+	@python3 tools/build/build_conf.py $(BUILD_CONF) --local $(BUILD_LOCAL_CONF) --options > $@.tmp \
+	    || { rm -f $@.tmp; echo "make: $(BUILD_CONF) or $(BUILD_LOCAL_CONF): see the message above" >&2; exit 1; }
+	@cmp -s $@.tmp $@ && rm -f $@.tmp || mv $@.tmp $@
 
 -include $(BUILD)/conf.mk
 
@@ -588,9 +594,19 @@ USB_IDS = data/usb.ids
 # .c under kernel/ is in the image. Evaluated once (:=): a python call
 # per reference would be paid dozens of times.
 # BUILD_CONF is set at the top of this file, with the conf.mk include
-MODULE_DRIVER_SOURCES := $(shell python3 tools/build/build_conf.py $(BUILD_CONF) || echo BUILD_CONF_ERROR)
+MODULE_DRIVER_SOURCES := $(shell python3 tools/build/build_conf.py $(BUILD_CONF) --local $(BUILD_LOCAL_CONF) || echo BUILD_CONF_ERROR)
+# Not for the goals that repair or ignore it: menuconfig offers to set a
+# broken local file aside, and clean/help build nothing from it.
+CONF_EXEMPT_GOALS = menuconfig clean help
 ifneq ($(filter BUILD_CONF_ERROR,$(MODULE_DRIVER_SOURCES)),)
-$(error $(BUILD_CONF): see the message above)
+ifneq ($(MAKECMDGOALS),)
+ifeq ($(filter-out $(CONF_EXEMPT_GOALS),$(MAKECMDGOALS)),)
+CONF_BROKEN_OK = 1
+endif
+endif
+ifndef CONF_BROKEN_OK
+$(error $(BUILD_CONF) or $(BUILD_LOCAL_CONF): see the message above)
+endif
 endif
 MODULE_SOURCES := $(MODULE_DRIVER_SOURCES) $(sort $(wildcard kernel/samples/modules/*.c))
 MODULE_KOS     := $(foreach s,$(MODULE_SOURCES),$(BUILD)/modules/$(basename $(notdir $(s))).ko)
@@ -608,7 +624,14 @@ ASM_SOURCES = $(shell find kernel -name '*.asm' | sort)
 C_OBJECTS   = $(patsubst %.c,   $(BUILD)/%.o, $(C_SOURCES))
 ASM_OBJECTS = $(patsubst %.asm, $(BUILD)/%.o, $(ASM_SOURCES))
 
-.PHONY: all clean clean-disk iso run debug help version seed test verify
+.PHONY: all clean clean-disk iso run debug help version seed test verify menuconfig
+
+# The build's options and drivers in a text UI (tools/build/menuconfig.py):
+# it SAVES TO $(BUILD_LOCAL_CONF), untracked, and writes $(BUILD_CONF)
+# itself only on its S key -- so an experiment cannot be committed by
+# accident.
+menuconfig:
+	@python3 tools/build/menuconfig.py $(BUILD_CONF) --local $(BUILD_LOCAL_CONF)
 
 # Regenerates kernel/include/api/version.h from VERSION (see
 # tools/build/gen_version.sh) -- listed first so it always runs before
@@ -780,6 +803,8 @@ help:
 	@echo "  clean-disk     Wipe disk.img -- the filesystem AND the bootloader on it;"
 	@echo "                 the next make iso rebuilds both. Use with care"
 	@echo "  version        Regenerate kernel/include/api/version.h (runs automatically as part of all/iso)"
+	@echo "  menuconfig     Browse and change build.conf's options and drivers in a text UI; saves"
+	@echo "                 to the untracked build.local.conf (S makes a change build.conf's own)"
 	@echo "  help           Show this message"
 
 # Two generic rules, mirroring the source tree into build/. The mkdir
@@ -1765,7 +1790,7 @@ all: $(SDK_STAMP)
 TOOLCHAIN ?= toolchain/local
 .PHONY: toolchain
 toolchain: $(SDK_STAMP)
-	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only toolchain,@true)
+	$(if $(filter 1,$(EXTRAS)),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only toolchain,@true)
 	tools/build/build_toolchain.sh --prefix $(TOOLCHAIN) --sysroot $(SYSROOT)
 
 # THE COMPILER THAT RUNS ON SaunaOS (docs/cc-design.md, stage 3): the same
@@ -1782,8 +1807,8 @@ toolchain: $(SDK_STAMP)
 NATIVE_TC ?= toolchain/native
 .PHONY: native-toolchain
 native-toolchain: toolchain
-	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only native-toolchain,@true)
-	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only native-make,@true)
+	$(if $(filter 1,$(EXTRAS)),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only native-toolchain,@true)
+	$(if $(filter 1,$(EXTRAS)),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only native-make,@true)
 	tools/build/build_native_toolchain.sh --cross $(TOOLCHAIN) --sysroot $(SYSROOT)
 	tools/build/build_native_make.sh --cross $(TOOLCHAIN) --sysroot $(SYSROOT)
 
@@ -1795,7 +1820,7 @@ native-toolchain: toolchain
 SCUMMVM_STAGE ?= toolchain/scummvm
 .PHONY: scummvm
 scummvm: toolchain
-	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only scummvm,@true)
+	$(if $(filter 1,$(EXTRAS)),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only scummvm,@true)
 	tools/build/build_scummvm.sh --cross $(TOOLCHAIN) --sysroot $(SYSROOT)
 
 # The codec parser comes off the -fpic shared path, so the graph walk
@@ -2350,11 +2375,15 @@ $(DISK_IMG):
 EXTRAS ?=
 LICENSE ?=
 seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) $(LIBC_SO) $(TOOLKIT_SO) $(MODULE_KOS) $(MODULE_ALIAS) $(BUILD)/conf.mk $(KERNEL_MEDIA) $(SDK_STAMP)
-	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py,@true)
+	$(if $(filter 1,$(EXTRAS)),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py,@true)
 	# WHILE THIS EXISTS seed/sync IS HALF WRITTEN, and update_server.py's
 	# /dev channel refuses rather than serve it. A failed seed leaves it
 	# behind on purpose: that tree is half written too.
 	@mkdir -p $(BUILD) && touch $(BUILD)/.seeding
+	# The local overrides THIS staging was built with, for the publish
+	# refusal and preflight's note -- conf.mk itself is rewritten by any
+	# later make, so it says nothing about the tree staged here.
+	@grep -h '^# .* overrides: ' $(BUILD)/conf.mk > $(BUILD)/seed-overrides 2>/dev/null || true
 	mkdir -p $(SEED_DIR)/sync/bin $(SEED_DIR)/sync/tests
 	# The dynamic loader and the shared libraries -- /lib is theirs
 	# (docs/filesystem-layout.md).
@@ -2594,13 +2623,13 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# else's material with no flag on the command line, and `make clean`
 	# cannot undo it -- it wipes staging, and the next build copies from
 	# data/ again.
-	$(if $(EXTRAS),@if ls data/doom/*.wad >/dev/null 2>&1; then 	    mkdir -p $(SEED_DIR)/sync/usr/share/doom; 	    cp data/doom/*.wad $(SEED_DIR)/sync/usr/share/doom/; 	fi,@true)
+	$(if $(filter 1,$(EXTRAS)),@if ls data/doom/*.wad >/dev/null 2>&1; then 	    mkdir -p $(SEED_DIR)/sync/usr/share/doom; 	    cp data/doom/*.wad $(SEED_DIR)/sync/usr/share/doom/; 	fi,@true)
 	# What this image carries that is NOT ours, written by
 	# tools/fetch/fetch_extras.py. It rides INSIDE the image because that is
 	# the only note still attached to it when somebody decides whether to
 	# publish it -- so it is gated on the same flag as the material it
 	# describes, or an ordinary image claims to carry what it does not.
-	$(if $(EXTRAS),@if [ -f data/usr/share/licenses/extras.txt ]; then 	    mkdir -p $(SEED_DIR)/sync/usr/share/licenses; 	    cp data/usr/share/licenses/extras.txt $(SEED_DIR)/sync/usr/share/licenses/; 	fi,@true)
+	$(if $(filter 1,$(EXTRAS)),@if [ -f data/usr/share/licenses/extras.txt ]; then 	    mkdir -p $(SEED_DIR)/sync/usr/share/licenses; 	    cp data/usr/share/licenses/extras.txt $(SEED_DIR)/sync/usr/share/licenses/; 	fi,@true)
 	# Wallpapers -- one JPEG per background, named by filename without
 	# the extension exactly as a font face is (see
 	# docs/filesystem-layout.md). Generated by tools/gen/gen_imgdata.py into
@@ -2689,7 +2718,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# A FILM, and only under EXTRAS=1: tools/fetch/fetch_video.py's Big Buck
 	# Bunny is the Blender Foundation's (CC BY), transcoded on this
 	# machine into data/videos-extra/ (gitignored), its credit beside it.
-	$(if $(EXTRAS),@if ls data/videos-extra/*.mpg >/dev/null 2>&1; then cp data/videos-extra/* $(SEED_DIR)/sync/usr/share/videos/; fi,@true)
+	$(if $(filter 1,$(EXTRAS)),@if ls data/videos-extra/*.mpg >/dev/null 2>&1; then cp data/videos-extra/* $(SEED_DIR)/sync/usr/share/videos/; fi,@true)
 	# SoundFonts for the MIDI codec (userland/libs/media/usnd_mid.c). The built-in
 	# bank is generated by tools/gen/gen_sf2.py and tracked, so a clean image
 	# plays MIDI. A fetched bank (tools/fetch/fetch_soundfont.py, into
@@ -2698,7 +2727,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# ordinary build must not carry it because a file happens to exist.
 	mkdir -p $(SEED_DIR)/sync/usr/share/soundfonts
 	cp data/usr/share/soundfonts/toy-gm.sf2 $(SEED_DIR)/sync/usr/share/soundfonts/
-	$(if $(EXTRAS),@if ls data/soundfonts/*.sf2 >/dev/null 2>&1; then cp data/soundfonts/* $(SEED_DIR)/sync/usr/share/soundfonts/; fi,@true)
+	$(if $(filter 1,$(EXTRAS)),@if ls data/soundfonts/*.sf2 >/dev/null 2>&1; then cp data/soundfonts/* $(SEED_DIR)/sync/usr/share/soundfonts/; fi,@true)
 	# Application icons -- one QOI per icon NAME, which is what a
 	# .desktop entry's Icon= key names (freedesktop's rule, and the same
 	# filename-is-the-name rule fonts and cursor themes follow here).

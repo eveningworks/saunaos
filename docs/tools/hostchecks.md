@@ -574,6 +574,13 @@ the rest in the sweep. Each stays a standalone script with its own
   a rounding overshoot (100 -> 0 visited -1 for a frame) before any
   guest had drawn with it. `--positive-control` compiles a LINEAR curve
   and must fail on the ease-out check. Needs only gcc.
+- **`menuconfig_hostcheck.py`** -- `make menuconfig` on a COPY of
+  build.conf: the model (groups and help cover every option, a local
+  save writes only build.local.conf, `S` changes exactly the changed
+  lines and keeps every comment) and the real curses UI in a
+  pseudo-terminal, driven by terminfo's own key sequences -- `ESC [ B`
+  is not xterm's Down with the keypad on, and reads as Esc, which quits.
+  `--positive-control` makes the local save write build.conf; red.
 - **`tree_lock_hostcheck.py`** -- the test lock's PreToolUse hook refuses
   every way a source file changes while a test reads the tree, and
   nothing else. Holds the lock, feeds `tree_lock.py hook` 19 tool calls

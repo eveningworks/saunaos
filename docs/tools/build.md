@@ -24,7 +24,19 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   A name is a file's basename under `kernel/drivers/`, found by walking
   that tree so there is no name-to-path table; an unknown, ambiguous or
   misspelt name is an ERROR rather than a driver silently becoming
-  builtin.
+  builtin. `--local build.local.conf` reads the untracked overrides on
+  top (what `make menuconfig` saves); `--options` then names them in a
+  comment, which `update_server.py --publish` refuses and `preflight.sh`
+  reports, and `--overrides` lists them.
+- **`menuconfig.py`** -- `make menuconfig`: build.conf's options and
+  drivers in a curses text UI, two panes (groups; options and values)
+  over a help pane with the make variable and the rebuild cost. Help is
+  build.conf's own comment block, groups `build_conf.py`'s `GROUPS`,
+  drivers their `DRIVER_DECLARE`. **`s` saves to the untracked
+  `build.local.conf`, never build.conf**; `S` writes the changes into
+  build.conf value by value, every comment kept, after a confirmation,
+  and removes the local file. Every save is parsed by `build_conf.py`
+  before it lands. Checked by `tools/hostchecks/menuconfig_hostcheck.py`.
 - **`build_native_toolchain.sh`** -- builds GCC and binutils that RUN
   ON SaunaOS (`make native-toolchain`; `docs/cc-design.md`, stage 3): a
   Canadian cross, build = this host, host = target = `x86_64-saunaos`,
