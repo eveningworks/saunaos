@@ -80,6 +80,11 @@ def run(dbg, qmp, res, positive_control):
         return
     lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home" and l.treebox and l.treerow) \
         or fm.layout_now(dbg, win)
+    # Neither answered: no layout line at all. A check, not an AttributeError
+    # three frames later (2026-11-21, once in a full run).
+    res.check("the File Manager reports its layout", lay is not None, "no layout line")
+    if lay is None:
+        return
 
     def row_of(l, path):
         rows = [r for r, p in sorted(l.treerow.items()) if p == path]
