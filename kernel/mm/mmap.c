@@ -41,7 +41,12 @@ _Static_assert(sizeof(((struct sched_mm *)0)->lock_word) >= sizeof(struct kmutex
                "sched_mm.lock_word holds a struct kmutex");
 static struct kmutex *mm_mutex(struct sched_mm *mm) { return (struct kmutex *)(void *)mm->lock_word; }
 
-void mm_lock(struct sched_mm *mm) { kmutex_lock(mm_mutex(mm)); }
+// One lockdep class for every address space's lock, named at its first
+// take: a slot's mm is zeroed in more than one place.
+void mm_lock(struct sched_mm *mm) {
+    kmutex_name(mm_mutex(mm), "mm");
+    kmutex_lock(mm_mutex(mm));
+}
 void mm_unlock(struct sched_mm *mm) { kmutex_unlock(mm_mutex(mm)); }
 void mm_lock_reset(struct sched_mm *mm) { k_memset(mm->lock_word, 0, sizeof mm->lock_word); }
 

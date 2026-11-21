@@ -166,6 +166,9 @@ struct sched_process {
                           // isr_depth_get(); travels with kernel_rsp
     int bkl_depth;        // this context's kernel-lock depth (bkl.h),
                           // saved and loaded at every switch
+#ifdef SAUNAOS_LOCKDEP
+    struct lockdep_task ld; // its held kmutexes and interrupt depth (lockdep.h)
+#endif
     struct kernel_context kctx; // WHERE THIS PROCESS IS PARKED. The one
                           // suspend shape: preempted in ring 3 or
                           // blocked mid-syscall, a context is saved and

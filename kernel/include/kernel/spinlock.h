@@ -15,6 +15,7 @@
 //
 // All-zero is unlocked, so a static or a `= {0}` struct needs no init.
 #include <stdint.h>
+#include "lockdep.h"
 
 struct lockstat;
 
@@ -22,7 +23,7 @@ struct spinlock {
     volatile uint32_t next;      // the next ticket handed out
     volatile uint32_t serving;   // the ticket that holds it
     volatile uint32_t holder;    // holding core's index + 1; 0 = free
-    uint32_t pad;
+    uint32_t ld_class;           // lockdep.h's class; 0 = not yet resolved (and always, without it)
     uintptr_t site;              // the holder's call site, for the lockup report
     struct lockstat *stat;       // its counters (lockstat.h), or 0 for none
 };
@@ -42,6 +43,11 @@ int  spin_trylock(struct spinlock *l);
 // spin_unlock_irqrestore().
 uint64_t spin_lock_irqsave(struct spinlock *l);
 void spin_unlock_irqrestore(struct spinlock *l, uint64_t flags);
+
+// A lock inside a struct gets its lockdep class from a name, given where
+// it is set up (lockdep.h); a file-scope static needs none. Nothing
+// without `option lockdep`.
+#define spin_lock_name(l, name) lockdep_name_spin((l), (name))
 
 int spin_held(const struct spinlock *l);
 int spin_held_here(const struct spinlock *l);   // by THIS core

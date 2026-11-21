@@ -462,6 +462,15 @@ static void isr_dispatch_body(uint64_t *regs) {
     // has no pid to signal.
     int sig_pid = (regs[18] /* cs */ & 3) ? scheduler_current_pid() : 0;
 
+#ifdef SAUNAOS_LOCKDEP
+    // A HARDWARE INTERRUPT'S HANDLER, for lockdep's irq-safety check: not
+    // an exception, not a syscall (vector 128), and only up to trap_exit
+    // -- the way back to ring 3 below it (a signal, an exit) is not
+    // interrupt context, Linux's irq_exit() before exit_to_user_mode().
+    // The depth is the context's; isr_dispatch() restores it on any path.
+    int ld_was = vector >= 32 && vector != 128 ? lockdep_hardirq_enter() : -1;
+#endif
+
     if (vector >= 32 && vector < 48) {
         // Every hardware IRQ (timer, keyboard, mouse, and -- once a
         // driver registers one -- anything else, a NIC chief among
@@ -865,6 +874,9 @@ static void isr_dispatch_body(uint64_t *regs) {
     }
 
 trap_exit:
+#ifdef SAUNAOS_LOCKDEP
+    if (ld_was >= 0) lockdep_hardirq_exit(ld_was);
+#endif
     // A WOKEN PROCESS THAT OUTRANKS THIS ONE RUNS NOW, before the
     // signal check -- which still runs for this process when it resumes.
     scheduler_trap_exit(regs);
@@ -994,7 +1006,15 @@ void isr_dispatch(uint64_t *regs) {
     // An interrupt, not a syscall (its own events) or an exception.
     int traced = ktrace_on(KTRACE_G_IRQ) && vector >= 32 && vector != 128;
     if (traced) ktrace_write(KTRACE_EV_IRQ, vector, regs[17], regs[18], 0);
+#ifdef SAUNAOS_LOCKDEP
+    // The body lowers it at trap_exit; a return before that does not.
+    int ld_outer = vector >= 32 && vector != 128 ? lockdep_hardirq_depth() : -1;
+#endif
     isr_dispatch_body(regs);
+#ifdef SAUNAOS_LOCKDEP
+    if (ld_outer >= 0) lockdep_hardirq_exit(ld_outer);
+    if (regs[18] & 3) lockdep_user_return();
+#endif
     // On the core it resumed on, if a tick in the body switched away.
     if (traced) KTRACE(KTRACE_G_IRQ, KTRACE_EV_IRQ_EXIT, vector, 0, 0, 0);
     // RESTORED, not decremented: it describes THIS kernel stack, and a

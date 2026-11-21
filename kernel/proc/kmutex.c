@@ -71,10 +71,30 @@ static void note_atomic_take(const struct kmutex *m, uintptr_t site) {
 
 unsigned kmutex_atomic_takes(void) { return g_atomic_takes; }
 
-void kmutex_lock(struct kmutex *m) {
-    if (!(m->owned && m->owner == scheduler_current_pid() && m->depth > 0) &&
-        atomic_context())
-        note_atomic_take(m, (uintptr_t)__builtin_return_address(0));
+// Lockdep (lockdep.h) sees a FIRST take and the LAST release; a
+// recursive one is the same hold, as it is to the lock. The take is
+// checked BEFORE the wait, Linux's lock_acquire(): an inversion that
+// deadlocks is reported rather than hung on.
+#ifdef SAUNAOS_LOCKDEP
+#define LD_PREPARE(m) lockdep_kmutex_prepare(m)
+#define LD_TAKEN(m, sub, nest, site, try) lockdep_kmutex_acquired((m), (sub), (nest), (site), (try))
+#define LD_RELEASE(m) lockdep_kmutex_release(m)
+#else
+#define LD_PREPARE(m) ((void)0)
+#define LD_TAKEN(m, sub, nest, site, try) ((void)(sub), (void)(nest))
+#define LD_RELEASE(m) ((void)0)
+#endif
+
+// INLINED INTO EACH ENTRY, so without lockdep kmutex_lock() is the code
+// it was -- and __builtin_return_address(0) here is the entry's caller.
+// Ours already is stable to read: only this context moves it to or from itself.
+static inline __attribute__((always_inline))
+void lock_common(struct kmutex *m, int sub, const struct kmutex *nest) {
+    if (!(m->owned && m->owner == scheduler_current_pid() && m->depth > 0)) {
+        if (atomic_context()) note_atomic_take(m, (uintptr_t)__builtin_return_address(0));
+        LD_PREPARE(m);
+        LD_TAKEN(m, sub, nest, (uintptr_t)__builtin_return_address(0), 0);
+    }
     unsigned spins = 0;
     for (;;) {
         int me = scheduler_current_pid();
@@ -116,22 +136,33 @@ void kmutex_lock(struct kmutex *m) {
     }
 }
 
+void kmutex_lock(struct kmutex *m) { lock_common(m, 0, 0); }
+
+#ifdef SAUNAOS_LOCKDEP
+void kmutex_lock_nested(struct kmutex *m, int subclass) { lock_common(m, subclass, 0); }
+void kmutex_lock_nest_lock(struct kmutex *m, const struct kmutex *outer) { lock_common(m, 0, outer); }
+#endif
+
 int kmutex_trylock(struct kmutex *m) {
     int me = scheduler_current_pid();
+    LD_PREPARE(m);
     uint64_t f = spin_lock_irqsave(&m->wait_lock);
     int got = 0;
     if (m->depth == 0) {
-        m->depth = 1; m->owner = me; m->owned = 1; got = 1;
+        m->depth = 1; m->owner = me; m->owned = 1; got = 2;
     } else if (m->owned && m->owner == me && !m->handed) {
         m->depth++; got = 1;
     }
     spin_unlock_irqrestore(&m->wait_lock, f);
-    return got;
+    if (got == 2) LD_TAKEN(m, 0, 0, (uintptr_t)__builtin_return_address(0), 1);
+    return got != 0;
 }
 
 void kmutex_unlock(struct kmutex *m) {
+    LD_PREPARE(m);
     uint64_t f = spin_lock_irqsave(&m->wait_lock);
     if (m->depth > 1) { m->depth--; spin_unlock_irqrestore(&m->wait_lock, f); return; }  // still ours
+    LD_RELEASE(m);   // the last release, handed on or dropped: ours no longer
 
     // **HANDED STRAIGHT TO A SLEEPING WAITER, NOT DROPPED.** Dropped,
     // the releaser -- still running, and usually about to make its next

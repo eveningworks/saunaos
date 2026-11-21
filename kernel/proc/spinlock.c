@@ -151,6 +151,20 @@ static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
     if (l->stat) stat_taken(l->stat, start);
 }
 
+// Lockdep's hooks (lockdep.h): a take is checked BEFORE it spins, so an
+// inversion that deadlocks is reported rather than hung on (Linux's
+// lock_acquire()); a trylock only once it has the lock, since it cannot
+// wait. A release is forgotten before the unlock.
+#ifdef SAUNAOS_LOCKDEP
+#define LD_TAKEN(l, site, try) lockdep_spin_acquired((l), (site), (try))
+#define LD_RELEASE(l) lockdep_spin_release(l)
+#define LD_BKL(site) lockdep_bkl_acquire(site)
+#else
+#define LD_TAKEN(l, site, try) ((void)0)
+#define LD_RELEASE(l) ((void)0)
+#define LD_BKL(site) ((void)0)
+#endif
+
 // **A HOLDER IS NOT PREEMPTED**, Linux's spin_lock() and its
 // preempt_disable(): preempted, it would keep the other cores spinning
 // for a whole slice, and the next context on this core to take the lock
@@ -162,10 +176,18 @@ static void guard_drop(void)  { scheduler_preempt_enable(); }
 
 void spin_lock(struct spinlock *l) {
     guard_raise();
-    take(l, (uintptr_t)__builtin_return_address(0));
+    uintptr_t site = (uintptr_t)__builtin_return_address(0);
+    LD_TAKEN(l, site, 0);
+    take(l, site);
 }
 
-void spin_lock_raw(struct spinlock *l, uintptr_t site) { take(l, site); }
+// The kernel lock is not a lockdep class (docs/lockdep-design.md): it is
+// held whenever the kernel runs, so it precedes everything. What is
+// checked is that a fresh take never happens holding a spinlock.
+void spin_lock_raw(struct spinlock *l, uintptr_t site) {
+    LD_BKL(site);
+    take(l, site);
+}
 
 int spin_trylock(struct spinlock *l) {
     guard_raise();
@@ -180,6 +202,7 @@ int spin_trylock(struct spinlock *l) {
     l->holder = spin_cpu_index() + 1;
     l->site = (uintptr_t)__builtin_return_address(0);
     if (l->stat) stat_taken(l->stat, 0);
+    LD_TAKEN(l, l->site, 1);
     return 1;
 }
 
@@ -192,6 +215,7 @@ void spin_unlock_raw(struct spinlock *l) {
 }
 
 void spin_unlock(struct spinlock *l) {
+    LD_RELEASE(l);
     spin_unlock_raw(l);
     guard_drop();
 }
@@ -199,7 +223,9 @@ void spin_unlock(struct spinlock *l) {
 uint64_t spin_lock_irqsave(struct spinlock *l) {
     uint64_t f = irq_save();
     guard_raise();
-    take(l, (uintptr_t)__builtin_return_address(0));
+    uintptr_t site = (uintptr_t)__builtin_return_address(0);
+    LD_TAKEN(l, site, 0);
+    take(l, site);
     return f;
 }
 

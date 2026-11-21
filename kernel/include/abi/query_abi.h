@@ -735,6 +735,13 @@ struct query_firmware {
 #define QUERY_KTRACE_CPU 66
 #define QUERY_KTRACE     67
 
+// WHAT LOCK-ORDER CHECKING FOUND (docs/lockdep-design.md), on a kernel
+// built with `option lockdep`: record 0 is the summary (kind
+// QUERY_LOCKDEP_STATS, Linux's /proc/lockdep_stats), then one per
+// report, oldest first. A kernel without lockdep registers no provider,
+// so the query fails. LIST (struct query_lockdep); `lockstat order`.
+#define QUERY_LOCKDEP 68
+
 struct query_imgcache {
     char     path[QUERY_IMGCACHE_PATH_MAX];
     uint64_t frames;
@@ -1321,6 +1328,41 @@ struct query_ktrace {
     struct ktrace_rec rec[QUERY_KTRACE_PER];
 };
 _Static_assert(sizeof(struct query_ktrace) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
+
+// QUERY_LOCKDEP's kinds, ABI-stable (kernel/include/kernel/lockdep.h's).
+#define QUERY_LOCKDEP_STATS            0   // the summary: the counts below
+#define QUERY_LOCKDEP_INVERSION        1   // a holding b, took... a cycle: see the record
+#define QUERY_LOCKDEP_RECURSION        2   // two locks of class a held, no annotation
+#define QUERY_LOCKDEP_IRQ_INCONSISTENT 3   // a taken in an interrupt and with interrupts on
+#define QUERY_LOCKDEP_IRQ_UNSAFE_ORDER 4   // irq-safe a held while taking irq-unsafe b
+#define QUERY_LOCKDEP_SLEEP_IN_SPIN    5   // kmutex b taken holding spinlock a
+#define QUERY_LOCKDEP_KMUTEX_IN_IRQ    6   // kmutex a taken in a hardware interrupt
+#define QUERY_LOCKDEP_BKL_IN_SPIN      7   // the kernel lock taken holding spinlock a
+#define QUERY_LOCKDEP_HELD_TO_USER     8   // back to ring 3 holding kmutex a
+#define QUERY_LOCKDEP_UNNAMED          9   // an embedded lock with no class, first taken at site[1]
+
+#define QUERY_LOCKDEP_NAME_MAX 24
+#define QUERY_LOCKDEP_SITE_MAX 36
+
+// QUERY_LOCKDEP's record. A REPORT names its classes in a and b and its
+// sites as "function+0xoff" (the kernel resolves them): site[0] where
+// the held lock was taken and site[1] where the new one was, now; for an
+// inversion site[2] and site[3] are the same for the edge first seen the
+// other way, and path_len how many edges the cycle has. The STATS
+// record fills the counts instead.
+struct query_lockdep {
+    uint32_t kind;          // QUERY_LOCKDEP_*
+    uint32_t path_len;
+    char     a[QUERY_LOCKDEP_NAME_MAX], b[QUERY_LOCKDEP_NAME_MAX];
+    char     site[4][QUERY_LOCKDEP_SITE_MAX];
+    // QUERY_LOCKDEP_STATS only:
+    uint32_t classes, classes_max, edges, edges_max;
+    uint32_t reports, reports_lost, max_spin_held, max_task_held, unmatched;
+    uint32_t pad;
+    uint64_t checked;       // acquisitions checked since boot
+};
+_Static_assert(sizeof(struct query_lockdep) <= 256,
                "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
 
 // QUERY_DRIVER's record. `devices` is space-separated and may be empty,

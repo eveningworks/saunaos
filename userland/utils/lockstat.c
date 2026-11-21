@@ -12,6 +12,10 @@
 // HOLD TIMES ARE ARMED (`lockstat track on`, the kernel.lockstat
 // tunable): they cost two clock reads per take, so the kernel counts them
 // only while asked. Takes and waits are always counted.
+//
+// `lockstat order` is the other half of Linux's family (/proc/lockdep_stats
+// and lockdep's reports): what lock-order checking found, on a kernel
+// built with `option lockdep` (QUERY_LOCKDEP, docs/lockdep-design.md).
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,12 +39,13 @@ static const struct uargs_opt OPTS[] = {
 
 static const struct uargs_cmd CMDS[] = {
     { "track", "on|off", "start or stop timing holds (starting zeroes them)" },
+    { "order", 0, "what lock-order checking found (a kernel built with option lockdep)" },
     { 0 },
 };
 
 static const struct uargs_prog PROG = {
     .name = "lockstat",
-    .usage = "[-i SECONDS] [-e [-a]]\ntrack on|off",
+    .usage = "[-i SECONDS] [-e [-a]]\ntrack on|off\norder",
     .summary = "Show how contended the kernel's spinlocks are: takes, waits and hold times.",
     .opts = OPTS,
     .cmds = CMDS,
@@ -213,10 +218,86 @@ static void print_bkl(struct bkls b, uint64_t span_ns) {
     }
 }
 
+static const char *kind_name(uint32_t k) {
+    switch (k) {
+    case QUERY_LOCKDEP_INVERSION: return "lock order inversion";
+    case QUERY_LOCKDEP_RECURSION: return "two of one class held";
+    case QUERY_LOCKDEP_IRQ_INCONSISTENT: return "taken in an interrupt and with interrupts on";
+    case QUERY_LOCKDEP_IRQ_UNSAFE_ORDER: return "irq-safe lock held taking an irq-unsafe one";
+    case QUERY_LOCKDEP_SLEEP_IN_SPIN: return "kmutex taken holding a spinlock";
+    case QUERY_LOCKDEP_KMUTEX_IN_IRQ: return "kmutex taken in an interrupt";
+    case QUERY_LOCKDEP_BKL_IN_SPIN: return "kernel lock taken holding a spinlock";
+    case QUERY_LOCKDEP_HELD_TO_USER: return "back to ring 3 holding a kmutex";
+    case QUERY_LOCKDEP_UNNAMED: return "an unnamed lock, not checked";
+    default: return "?";
+    }
+}
+
+static void print_finding(int n, const struct query_lockdep *q) {
+    printf("%d. %s\n", n, kind_name(q->kind));
+    switch (q->kind) {
+    case QUERY_LOCKDEP_INVERSION:
+        printf("   now:    holding \"%s\" (taken at %s), took \"%s\" at %s\n", q->a, q->site[0], q->b, q->site[1]);
+        printf("   before: holding \"%s\" (taken at %s), took the next at %s", q->b, q->site[2], q->site[3]);
+        if (q->path_len > 1) printf(" -- a cycle of %u; dmesg has every edge", q->path_len + 1);
+        printf("\n");
+        break;
+    case QUERY_LOCKDEP_RECURSION:
+        printf("   \"%s\" taken at %s while one was held from %s\n", q->a, q->site[1], q->site[0]);
+        break;
+    case QUERY_LOCKDEP_IRQ_INCONSISTENT:
+        printf("   \"%s\" in an interrupt at %s, with interrupts on at %s\n", q->a, q->site[0], q->site[1]);
+        break;
+    case QUERY_LOCKDEP_UNNAMED:
+        printf("   first taken at %s\n", q->site[1]);
+        break;
+    case QUERY_LOCKDEP_KMUTEX_IN_IRQ:
+    case QUERY_LOCKDEP_HELD_TO_USER:
+        printf("   \"%s\" taken at %s\n", q->a, q->site[1]);
+        break;
+    default:   // a pair: a held from site[0], b (or the kernel lock) taken at site[1]
+        printf("   holding \"%s\" (taken at %s), took %s%s%s at %s\n", q->a, q->site[0],
+               q->b[0] ? "\"" : "", q->b[0] ? q->b : "it", q->b[0] ? "\"" : "", q->site[1]);
+        break;
+    }
+}
+
+static int order(void) {
+    struct query_lockdep q;
+    int n = 0;
+    QUERY_FOREACH(QUERY_LOCKDEP, q, i) {
+        if (q.kind == QUERY_LOCKDEP_STATS) {
+            printf("Lock-order checking: %u classes [max %u], %u dependencies [max %u], "
+                   "%llu takes checked\n", q.classes, q.classes_max, q.edges, q.edges_max,
+                   (unsigned long long)q.checked);
+            printf("Most held at once: %u spinlocks on a core, %u kmutexes in a context",
+                   q.max_spin_held, q.max_task_held);
+            if (q.unmatched) printf("; %u releases matched no take", q.unmatched);
+            printf("\n");
+            if (!q.reports) printf("Nothing found.\n");
+            else printf("\n%u finding%s%s:\n", q.reports, q.reports == 1 ? "" : "s",
+                        q.reports_lost ? " (and more the table had no room for)" : "");
+            n++;
+            continue;
+        }
+        print_finding(n++, &q);
+    }
+    if (!n) {
+        printf("lockstat: this kernel was built without lock-order checking "
+               "(option lockdep = yes in build.conf, or make iso PROFILE=debug)\n");
+        return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
-    if (a.argc) {   // `track`, the one command
+    if (a.argc && strcmp(a.argv[0], "order") == 0) {
+        if (a.argc != 1) return uargs_error(&PROG, "order takes no arguments");
+        return order();
+    }
+    if (a.argc) {   // `track`
         if (a.argc != 2 || (strcmp(a.argv[1], "on") && strcmp(a.argv[1], "off")))
             return uargs_error(&PROG, "track takes on or off");
         // `on` writes off first: a setting written the value it holds

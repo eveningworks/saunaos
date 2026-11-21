@@ -23,6 +23,7 @@
 
 #ifndef __ASSEMBLER__
 #include "context_switch.h"   // struct kernel_context: an AP's idle context
+#include "lockdep.h"          // struct lockdep_cpu, with `option lockdep`
 
 struct ktrace_ring;
 
@@ -119,6 +120,9 @@ struct cpu {
     // This core's kernel-trace ring (ktrace.h), or NULL: only ever
     // written by the core itself, inside a cross-core call.
     struct ktrace_ring *ktrace;
+#ifdef SAUNAOS_LOCKDEP
+    struct lockdep_cpu ld;   // the spinlocks held here, and slot -1's kmutexes (lockdep.h)
+#endif
 };
 
 // ONE FIELD OF THIS CORE'S struct cpu IN ONE `%gs` INSTRUCTION, Linux's

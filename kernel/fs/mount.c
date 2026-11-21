@@ -174,12 +174,6 @@ const struct mount *mount_resolve(const char *path, const char **out_sub) {
 
 // ---- the locks -------------------------------------------------------
 
-// The lock is mutable state in an otherwise read-mostly table; callers
-// hold `const struct mount *` from mount_resolve().
-void mount_lock(const struct mount *m)   { kmutex_lock(&((struct mount *)m)->lock); }
-void mount_unlock(const struct mount *m) { kmutex_unlock(&((struct mount *)m)->lock); }
-int mount_trylock(const struct mount *m) { return kmutex_trylock(&((struct mount *)m)->lock); }
-
 static int depth_of(const struct mount *m) {
     if (!m->used) return FS_PATH_MAX;           // empty slots last
     if (m->point_len == 1) return 0;            // the root
@@ -187,6 +181,27 @@ static int depth_of(const struct mount *m) {
     for (int i = 0; i < m->point_len; i++) if (m->point[i] == '/') d++;
     return d;
 }
+
+// EVERY MOUNT'S LOCK IS ONE LOCKDEP CLASS, "mount", TAKEN AS ITS DEPTH'S
+// SUBCLASS: the order is parent before child, so `/` then `/boot` is an
+// edge mount/0 -> mount/1 and the reverse an inversion (lockdep.h). A
+// re-take after a dropped stretch (mount_wait(), mount_io_end()) is the
+// same subclass. Named here rather than when a slot is made: the first
+// sixteen are static, the rest come from mt_grow().
+static struct kmutex *slot_lock(struct mount *m) {
+    kmutex_name(&m->lock, "mount");
+    return &m->lock;
+}
+
+static void lock_slot(struct mount *m) {
+    kmutex_lock_nested(slot_lock(m), LOCKDEP_ENABLED ? depth_of(m) : 0);
+}
+
+// The lock is mutable state in an otherwise read-mostly table; callers
+// hold `const struct mount *` from mount_resolve().
+void mount_lock(const struct mount *m)   { lock_slot((struct mount *)m); }
+void mount_unlock(const struct mount *m) { kmutex_unlock(&((struct mount *)m)->lock); }
+int mount_trylock(const struct mount *m) { return kmutex_trylock(slot_lock((struct mount *)m)); }
 
 // EVERY SLOT, used or not, so the set released is the set taken even if
 // the table changes in between -- which is what a mount under exclusion
@@ -261,7 +276,8 @@ static void exclusive_take(void) {
         }
         order[j] = v;
     }
-    for (int i = 0; i < cap; i++) kmutex_lock(&mt(order[i])->lock);
+    // Many of one class at once, serialised by g_excl (lockdep.h).
+    for (int i = 0; i < cap; i++) kmutex_lock_nest_lock(slot_lock(mt(order[i])), &g_excl);
     // AND NOTHING AT THE DISK: a call that dropped its lock for device
     // I/O is still in the driver (mount_io_begin()).
     for (int i = 0; i < mt_cap(); i++) if (mt(i)->used) drain(mt(i));
@@ -344,7 +360,7 @@ int mount_wait(void *st, const void *chan) {
         scheduler_wait_disarm();
         cpu_relax();          // no slot to park in: retry, preemptibly
     }
-    kmutex_lock(&m->lock);
+    lock_slot(m);
     return (m->used && m->gen == gen) ? 1 : -1;
 }
 
@@ -360,7 +376,7 @@ int mount_wait_until(void *st, const void *chan, uint64_t wake_at_ns) {
         scheduler_wait_disarm();
         cpu_relax();
     }
-    kmutex_lock(&m->lock);
+    lock_slot(m);
     return (m->used && m->gen == gen) ? 1 : -1;
 }
 
@@ -392,7 +408,7 @@ int mount_drop_begin(void *st, struct mount_drop *g) {
 
 int mount_drop_end(struct mount_drop *g) {
     struct mount *m = g->m;
-    kmutex_lock(&m->lock);
+    lock_slot(m);
     return m->used && m->gen == g->gen;
 }
 
@@ -400,7 +416,7 @@ int mount_io_end(struct mount_io *g) {
     struct mount *m = g->m;
     if (__atomic_sub_fetch(&m->io_gaps, 1, __ATOMIC_ACQ_REL) == 0)
         scheduler_wake(&m->io_gaps, 0);
-    kmutex_lock(&m->lock);
+    lock_slot(m);
     return m->used && m->gen == g->gen;
 }
 

@@ -8,6 +8,7 @@
 
     lockstat [-i SECONDS] [-e [-a]]
     lockstat track on|off
+    lockstat order
 
 ## Options
 
@@ -23,6 +24,8 @@
 - `track on|off` -- start or stop timing HOLDS (the `kernel.lockstat`
   tunable, off at boot). Starting zeroes the hold totals, so they cover
   one tracked stretch.
+- `order` -- what lock-order checking found: a kernel built with
+  `option lockdep` (`make iso PROFILE=debug` has it). See below.
 
 ## Description
 
@@ -61,6 +64,41 @@ the boot's.
 It is how SMP stage 7 picks what to take out of the kernel lock next
 (`docs/smp-design.md`): a syscall that waits often and holds briefly is
 one that needs none of what the lock protects.
+
+## Lock order: `lockstat order`
+
+On a kernel built with `option lockdep`, every spinlock and kmutex take
+is checked against the order lock CLASSES have been taken in so far
+(`docs/lockdep-design.md`, Linux's lockdep). `order` prints the summary,
+the shape of Linux's `/proc/lockdep_stats`, then each finding, oldest
+first (`QUERY_LOCKDEP`):
+
+    # ktest blk-gone
+    ...
+    # lockstat order
+    Lock-order checking: 15 classes [max 255], 18 dependencies [max 2048], 147112 takes checked
+    Most held at once: 2 spinlocks on a core, 4 kmutexes in a context
+
+    1 finding:
+    1. lock order inversion
+       now:    holding "@blk_register_over" (taken at gone_as+0x7e), took "@blk_part_create" at blk_part_release+0x22
+       before: holding "@blk_part_create" (taken at blk_part_create+0x22), took the next at blk_track+0x29
+
+That finding is real (`docs/bugs.md`). A class is a lock's NAME (`mount`, `heap`, `file position`), a subclass
+after a slash (`mount/1`: a mount one level down), or `@function` for a
+static lock, after the function that first took it. A finding is
+reported once, in the kernel log as well (`dmesg`, with every edge of a
+longer cycle and a stack scan of the take), and checking carries on. The
+kinds: a lock order inversion (two orders, or a cycle through more
+classes), two locks of one class held together, a spinlock taken in an
+interrupt and with interrupts on, an irq-safe lock held while taking an
+irq-unsafe one, a kmutex taken holding a spinlock, a kmutex taken in an
+interrupt, the kernel lock taken holding a spinlock, a kmutex held on
+the way back to ring 3, and an unnamed lock -- one inside a struct that
+nobody named, which is therefore not checked.
+
+A kernel without the option has no `QUERY_LOCKDEP`, and `order` says so
+and exits 1.
 
 ## See also
 

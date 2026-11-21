@@ -91,7 +91,7 @@ OPTIONS = {
     "extras":       ("EXTRAS", "bool",
                      "fetch optional differently-licensed material (NETWORK)"),
     # The debug builds, Linux's CONFIG_UBSAN / CONFIG_KASAN /
-    # CONFIG_DEBUG_PREEMPT. Each changes every object, and the Makefile's
+    # CONFIG_DEBUG_PREEMPT / CONFIG_PROVE_LOCKING. Each changes every object, and the Makefile's
     # .sanitize-flag stamp rebuilds the tree when one moves.
     "ubsan":        ("UBSAN", "bool",
                      "undefined-behaviour sanitizer, kernel and ring 3"),
@@ -99,6 +99,9 @@ OPTIONS = {
                      "kernel address sanitizer (doubles kernel stacks)"),
     "debug_preempt": ("DEBUG_PREEMPT", "bool",
                      "log per-core reads made while preemptible"),
+    # CONFIG_PROVE_LOCKING: lock classes, a learned order, irq-safety.
+    "lockdep":      ("LOCKDEP", "bool",
+                     "check every lock take against a learned lock order"),
     # On in every checkout because every test tool drives the guest
     # through it; configs/release.conf turns it off for release media.
     "debugcon":     ("DEBUGCON", "bool",
@@ -118,7 +121,7 @@ OPTIONS = {
 GROUPS = [
     ("Media and boot", ["strip", "compress", "cmdline", "grub_timeout"]),
     ("Timer", ["hz", "tick", "highres"]),
-    ("Debugging", ["ubsan", "kasan", "debug_preempt", "debugcon", "kdebug"]),
+    ("Debugging", ["ubsan", "kasan", "debug_preempt", "lockdep", "debugcon", "kdebug"]),
     ("Contents", ["nogpl"]),
     ("Network", ["extras"]),
 ]

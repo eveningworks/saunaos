@@ -24,7 +24,7 @@ BUILD = build
 #
 # Every setting it carries is a `?=` default further down this file
 # (KCMDLINE, GRUB_TIMEOUT, STRIP, COMPRESS, HZ, UBSAN, KASAN,
-# DEBUG_PREEMPT, DEBUGCON...), and `?=` takes the FIRST
+# DEBUG_PREEMPT, LOCKDEP, DEBUGCON...), and `?=` takes the FIRST
 # value it sees -- so an include placed after them silently does
 # nothing. That is exactly what happened the first time, and the symptom
 # was a `grub_timeout = 5` in the file producing `set timeout=0` in the
@@ -216,7 +216,7 @@ CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-protector-gu
          -mno-red-zone -mcmodel=kernel -mno-mmx -mno-sse -mno-sse2 \
          -fno-asynchronous-unwind-tables \
          -Wall -Wextra -Wframe-larger-than=1024 -O2 -g -c $(KERNEL_INCLUDES) -Ikernel/shell -MMD -MP \
-         $(UBSAN_FOR) $(KASAN_FOR) $(DEBUG_PREEMPT_DEFS)
+         $(UBSAN_FOR) $(KASAN_FOR) $(DEBUG_PREEMPT_DEFS) $(LOCKDEP_DEFS)
 
 # kernel/shell/ gets a looser frame budget than kernel/ on purpose. The tight
 # 1024 above bounds what runs on a PER-PROCESS kernel stack -- i.e. what
@@ -937,13 +937,21 @@ KASAN_FOR = $(if $(filter 1,$(KASAN)),$(KASAN_DEFS) $(if $(filter $(KASAN_EXCLUD
 DEBUG_PREEMPT ?=
 DEBUG_PREEMPT_DEFS = $(if $(filter 1,$(DEBUG_PREEMPT)),-DSAUNAOS_DEBUG_PREEMPT=1)
 
+# --- LOCKDEP=1: lock-order checking, OFF by default --------------------
+# Linux's CONFIG_PROVE_LOCKING: every spinlock and kmutex take checked
+# against a learned order between lock classes, inversions and irq-safety
+# mixes reported once each (kernel/proc/lockdep.c, docs/lockdep-design.md).
+# The kernel only; without it the hooks compile to nothing.
+LOCKDEP ?=
+LOCKDEP_DEFS = $(if $(filter 1,$(LOCKDEP)),-DSAUNAOS_LOCKDEP=1)
+
 # A prerequisite of EVERY compile rule, for the reason the two stamps
 # above exist: the .d files track headers, not flags. One stamp for both
 # sanitizers.
 $(BUILD)/.sanitize-flag: FORCE
 	@mkdir -p $(dir $@)
-	@echo 'UBSAN=$(UBSAN) KASAN=$(KASAN) DEBUG_PREEMPT=$(DEBUG_PREEMPT)' | cmp -s - $@ || \
-	    echo 'UBSAN=$(UBSAN) KASAN=$(KASAN) DEBUG_PREEMPT=$(DEBUG_PREEMPT)' > $@
+	@echo 'UBSAN=$(UBSAN) KASAN=$(KASAN) DEBUG_PREEMPT=$(DEBUG_PREEMPT) LOCKDEP=$(LOCKDEP)' | cmp -s - $@ || \
+	    echo 'UBSAN=$(UBSAN) KASAN=$(KASAN) DEBUG_PREEMPT=$(DEBUG_PREEMPT) LOCKDEP=$(LOCKDEP)' > $@
 
 $(BUILD)/%.o: %.c $(BUILD)/.sanitize-flag
 	@mkdir -p $(dir $@)

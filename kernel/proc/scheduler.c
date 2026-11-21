@@ -895,6 +895,9 @@ void proc_start_context(int slot, const uint64_t *tf) {
     procs[slot].isr_depth = 0;
     procs[slot].preempt_depth = 0;
     procs[slot].bkl_depth = 1;   // isr_start_frame drops it for a ring-3 frame
+#ifdef SAUNAOS_LOCKDEP
+    lockdep_task_reset(&procs[slot].ld);
+#endif
     procs[slot].parked_in_kernel = 0;
     procs[slot].preempted_in_kernel = 0;
     procs[slot].delay_tsc[0] = procs[slot].delay_tsc[1] = procs[slot].delay_tsc[2] = 0;

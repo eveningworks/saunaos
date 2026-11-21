@@ -50,6 +50,25 @@ struct kmutex {
 void kmutex_lock(struct kmutex *m);
 void kmutex_unlock(struct kmutex *m);
 
+// THE SAME LOCK, ANNOTATED FOR LOCKDEP (lockdep.h) -- both are
+// kmutex_lock() without `option lockdep`. _nested() takes it as
+// `subclass` of its class, for two of one class held in a fixed order
+// (a parent mount's, then a child's: Linux's mutex_lock_nested()).
+// _nest_lock() takes one of many of its class under `outer`, which
+// serialises every such holder (Linux's mutex_lock_nest_lock()).
+#ifdef SAUNAOS_LOCKDEP
+void kmutex_lock_nested(struct kmutex *m, int subclass);
+void kmutex_lock_nest_lock(struct kmutex *m, const struct kmutex *outer);
+#else
+#define kmutex_lock_nested(m, subclass) ((void)(subclass), kmutex_lock(m))
+#define kmutex_lock_nest_lock(m, outer) ((void)(outer), kmutex_lock(m))
+#endif
+
+// Its lockdep class, for a kmutex inside a struct: every lock given one
+// name is one class. Where it is set up (a zeroed struct is unlocked);
+// a file-scope static needs none.
+#define kmutex_name(m, name) lockdep_name_kmutex((m), (name))
+
 // Takes it only if that needs no wait (free, or already ours). 1 if
 // held now. For a caller that has somewhere better to be -- an idle
 // write-back -- and never blocks, so it is safe from any context.

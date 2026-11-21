@@ -891,6 +891,7 @@ static void claim_drives(struct hba *h) {
         // or a port multiplier, none of which this driver speaks.
         if (h->ports[i].det != 3 || h->ports[i].signature != SIG_SATA) continue;
         struct drive *d = &g_drives[g_drive_count];
+        kmutex_name(&d->lock, "ahci drive");   // one lockdep class for every drive's
         // A slot whose port failed keeps its DMA memory for the next.
         if (!d->clist && !alloc_dma(d)) {
             klog_write(KLOG_ERR "ahci: out of contiguous memory for another drive\n");

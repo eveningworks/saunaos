@@ -613,6 +613,7 @@ static int usb_probe(const struct pci_device *d) {
     // so a decline before that point can simply free it.
     struct xhci_hc *hc = kzalloc(sizeof *hc);
     if (!hc) return pci_probe_decline(d, "no memory for the controller's state");
+    kmutex_name(&hc->cmd_lock, "xhci command");
     hc->index = g_nxhci;
     hc->pci = d;
     hc->cap = (volatile uint8_t *)win;

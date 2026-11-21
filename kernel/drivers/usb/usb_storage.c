@@ -456,6 +456,7 @@ static int find_endpoints(struct ums *u, const uint8_t *cfg, uint32_t total) {
 static int ums_bind(struct usb_device_info *d, int iface, const uint8_t *cfg, uint32_t total) {
     struct ums *u = kzalloc(sizeof *u);
     if (!u) return 0;
+    kmutex_name(&u->lock, "usb-storage");
     u->slot = d->slot;
     u->ifnum = d->ifs[iface].ifnum;
     if (!find_endpoints(u, cfg, total)) {

@@ -331,6 +331,7 @@ int sys_open(struct syscall_ctx *c) {
                 k_strlcpy(fd_desc_at(di)->file.name, name, sizeof fd_desc_at(di)->file.name);
                 fd_desc_at(di)->file.mode = mode;
                 fd_desc_at(di)->file.pos = 0;
+                kmutex_name(&fd_desc_at(di)->file.pos_lock, "file position");
                 // Read-only fds ignore it, so it is not worth refusing
                 // the combination -- but it is worth not SETTING it,
                 // since SYS_FSTAT reports nothing about it and a stray

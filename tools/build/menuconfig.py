@@ -653,7 +653,7 @@ class UI:
             val = self.m.value(item.key)
             made = bc.option_value("x", 0, name, val)[1] if val is not None and not self.m.check(item.key, val) else "its Makefile default"
             tail = f"make: {var} ?= {made}   build.conf: {base or 'not set'}"
-            if name in ("ubsan", "kasan", "debug_preempt"):
+            if name in ("ubsan", "kasan", "debug_preempt", "lockdep"):
                 tail += "   changing it rebuilds the tree"
         else:
             tail = f"build.conf: {base}"
