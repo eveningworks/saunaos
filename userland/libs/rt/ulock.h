@@ -9,9 +9,11 @@
 // take is one compare-and-swap and its drop one exchange; only a drop
 // that finds 2 makes a syscall.
 //
-// NO SPIN BEFORE PARKING: ring 3 runs on one core, so the holder cannot
-// run while a waiter spins. A yield loop instead kept every waiter
-// READY and charged it CPU for as long as the holder slept.
+// NO SPIN BEFORE PARKING, though a program's threads run on several
+// cores since smp=run became the default: glibc's default mutex does not
+// spin either (that is the opt-in PTHREAD_MUTEX_ADAPTIVE_NP), and nothing
+// here has measured a spin winning. A yield loop, the shape before this,
+// kept every waiter READY and charged it CPU while the holder slept.
 //
 // THE TRAP: a taker that saw 2 stores 2, never 1 -- it cannot know it
 // was the last waiter, and a 1 would let the next drop skip its wake

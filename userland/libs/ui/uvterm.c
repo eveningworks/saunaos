@@ -406,6 +406,26 @@ void uvterm_write(struct uvterm *t, const char *buf, int len) {
 
 // --- the program ---------------------------------------------------------------
 
+// PARKED, NOT SPINNING, while the ring is full: under SMP a yield loop
+// kept a whole core busy until the main thread caught up. A full ring
+// means at least 7.5 KiB was published and posted since the last drain
+// read `head`, so a drain is already due to wake us.
+//
+// THE TRAP: `reader_parked` is stored, and `tail` re-read, with full
+// ordering on both sides (uvterm_drain() fences between its `tail` store
+// and its `reader_parked` load) -- weaker, and the drain can miss the
+// flag while the park misses the new tail, and the reader sleeps for good.
+static void wait_for_room(struct uvterm *t, unsigned next) {
+    for (;;) {
+        unsigned tail = __atomic_load_n(&t->tail, __ATOMIC_ACQUIRE);
+        if (next != tail) return;
+        __atomic_store_n(&t->reader_parked, 1, __ATOMIC_SEQ_CST);
+        // -EAGAIN when the drain moved `tail` first: go round and look.
+        sys_futex_wait((volatile uint32_t *)&t->tail, tail, 0);
+        __atomic_store_n(&t->reader_parked, 0, __ATOMIC_RELAXED);
+    }
+}
+
 static void *reader_main(void *arg) {
     struct uvterm *t = arg;
     char buf[512];
@@ -418,7 +438,7 @@ static void *reader_main(void *arg) {
             unsigned next = (head + 1) % UVTERM_RING_BYTES;
             // BACK-PRESSURE RATHER THAN DROPPING: a dropped byte corrupts
             // the screen in a way nobody could diagnose from the result.
-            while (next == __atomic_load_n(&t->tail, __ATOMIC_ACQUIRE)) sys_yield();
+            wait_for_room(t, next);
             t->ring[head] = buf[i];
             __atomic_store_n(&t->head, next, __ATOMIC_RELEASE);
         }
@@ -507,6 +527,11 @@ int uvterm_drain(struct uvterm *t) {
         __atomic_store_n(&t->tail, (tail + 1) % UVTERM_RING_BYTES, __ATOMIC_RELEASE);
         uvterm_write(t, &c, 1);
         got = 1;
+    }
+    if (got) {
+        __atomic_thread_fence(__ATOMIC_SEQ_CST);   // see wait_for_room()
+        if (__atomic_load_n(&t->reader_parked, __ATOMIC_RELAXED))
+            sys_futex_wake((volatile uint32_t *)&t->tail, 1);
     }
     if (got && !t->spoke) uvterm_release_held(t);
     return got;

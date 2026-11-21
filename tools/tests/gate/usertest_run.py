@@ -296,6 +296,9 @@ TESTS = [
     # because both halves block: the child parks in the futex and the
     # parent in waitpid.
     ("futex_test", None, None, None),
+    # ui/uvterm.h's reader thread parks on a futex while its ring is full
+    # and every byte still arrives. SPAWNED: a thread, and a child on a pty.
+    ("uvterm_park_test", None, None, None),
     # SYS_SLEEP returns, is never short, and -- in one-shot mode -- ends
     # on its deadline rather than on the next tick. SPAWNED: a sleep
     # parks (from when `run` had no slot to park in).

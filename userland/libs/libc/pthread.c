@@ -255,14 +255,8 @@ int pthread_attr_getdetachstate(const pthread_attr_t *a, int *out) {
 
 // --- mutexes ---------------------------------------------------------
 //
-// A TEST-AND-SET THAT YIELDS, not a futex: `SYS_FUTEX_WAIT` exists
-// (kernel/proc/futex.c) and this has not been moved onto it yet
-// (docs/roadmap.md). Correct under a preemptive
-// round-robin scheduler -- the holder is always eventually run, so a
-// waiter always eventually gets in -- and the cost is that a waiter
-// spends its slice asking. The acquire/release ordering is real work
-// even so: x86-64 is TSO, but the COMPILER reorders freely, and the
-// builtins are what stop it hoisting the critical section out.
+// `locked` IS A ulock (rt/ulock.h): a waiter parks on a futex. The
+// owner, type and count around it are this file's.
 
 int pthread_mutexattr_init(pthread_mutexattr_t *a) {
     if (!a) return EINVAL;

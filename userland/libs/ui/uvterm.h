@@ -116,8 +116,10 @@ struct uvterm {
 
     // The reader's ring: SINGLE PRODUCER (the reader, at `head`), SINGLE
     // CONSUMER (the main thread, at `tail`), acquire/release on the
-    // indices, no lock.
+    // indices, no lock. A reader that finds it full parks on a futex on
+    // `tail` with `reader_parked` set, and uvterm_drain() wakes it.
     volatile unsigned head, tail;
+    volatile uint32_t reader_parked;
     char ring[UVTERM_RING_BYTES];
     pthread_t reader;
     int reader_started;

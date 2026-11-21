@@ -2886,7 +2886,7 @@ hand two callers the same block. `kmalloc()`, `krealloc()`, `kfree()`,
 `heap_check()` and `heap_validate()` take `heap_os_lock()`, which each
 ring implements for itself (`api/heap_os.h`):
 
-- **Ring 3: a real lock**, a test-and-set that yields. A process has
+- **Ring 3: a real lock**, a `ulock` that parks on a futex (`rt/ulock.h`). A process has
   threads now and they are preempted at any instruction. **The slab in
   front of it (`userland/libs/libc/malloc.c`) has a second lock of the same
   shape, always taken FIRST** -- a span comes from `kmalloc()`.
