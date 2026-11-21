@@ -194,6 +194,8 @@ class RemoteConsole(DebugConsole):
         self.log_lines = []
         self._klog_last = None
         self._sess = _session(self.host, port, timeout)
+        import failure_bundle
+        failure_bundle.register_console(self)
         if not quiet and not RemoteConsole._announced:
             RemoteConsole._announced = True
             _banner("console", self.host)
@@ -217,8 +219,8 @@ class RemoteConsole(DebugConsole):
             return command[3:]
         return command
 
-    def send(self, command):
-        lines = self._sess.run(self._translate(command), self.timeout)
+    def send(self, command, timeout=None):
+        lines = self._sess.run(self._translate(command), timeout or self.timeout)
         out = "\n".join(lines).strip("\n")
         self.log_lines.extend(ln for ln in out.splitlines() if ln.strip())
         return out
@@ -348,6 +350,8 @@ class RemoteScreen(QMPSession):
                                                  port=telnet_port, quiet=True)
         self.pos = [0, 0]
         self._tb_h = None
+        import failure_bundle
+        failure_bundle.register_qmp(self)
         if not quiet and not RemoteScreen._announced:
             RemoteScreen._announced = True
             _banner("screen", self.host)

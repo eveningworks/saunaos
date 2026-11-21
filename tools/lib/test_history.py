@@ -31,6 +31,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -137,6 +138,16 @@ def _prune(logs, max_bytes):
         total -= sizes[n]
 
 
+BUNDLES_KEEP = 200     # failure_bundle.py's directories: a screenshot each, so by count
+
+
+def _prune_bundles(bundles):
+    if not os.path.isdir(bundles):
+        return
+    for n in sorted(os.listdir(bundles))[:-BUNDLES_KEEP]:     # names sort by time
+        shutil.rmtree(os.path.join(bundles, n), ignore_errors=True)
+
+
 def _hints(rows, row, out):
     """One line per failed check (at most three): how often it failed in
     this tool's recent runs, and the tool's last pass."""
@@ -183,6 +194,10 @@ def record(tool, verdict, *, rc=None, duration=None, failures=(), summary="",
         if log_path and os.path.exists(log_path):
             with open(log_path, "rb") as f:
                 log_text = f.read().decode("utf-8", errors="replace")
+        # The failure bundle's directory, from the line failure_bundle.py prints.
+        m = re.search(r"^failure bundle: (/\S+) \(", log_text or "", re.M)
+        if m:
+            row["bundle"] = m.group(1)
         if log_text:
             name = f"{run_id}.log.gz"
             with gzip.open(os.path.join(d, "logs", name), "wt") as f:
@@ -194,6 +209,7 @@ def record(tool, verdict, *, rc=None, duration=None, failures=(), summary="",
             f.write(json.dumps(row) + "\n")
         max_mb = int(os.environ.get("SAUNAOS_TEST_HISTORY_MAX_MB", "1024"))
         _prune(os.path.join(d, "logs"), max_mb * 1024 * 1024)
+        _prune_bundles(os.path.join(d, "bundles"))
         if hints and row["failures"]:
             _hints(load(d), row, sys.stderr)
         return run_id
@@ -278,6 +294,8 @@ def show_matches(rows, pattern):
     print()
     for r in hit[-20:]:
         print(_line(r) + f"   [{r['id']}]")
+        if r.get("bundle"):
+            print(f"      bundle: {r['bundle']}" + ("" if os.path.isdir(r["bundle"]) else " (gone)"))
     return 0
 
 

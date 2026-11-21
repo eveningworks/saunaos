@@ -55,6 +55,11 @@ class Results:
         (self.passes if ok else self.fails).append(name)
         print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   {detail}" if detail else ""),
               flush=True)
+        if not ok:
+            # The guest's state while it still exists, at the FIRST failure
+            # only (failure_bundle.py); never changes the verdict.
+            import failure_bundle
+            failure_bundle.collect(name, detail)
         return ok
 
     ok = check

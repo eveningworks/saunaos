@@ -298,6 +298,8 @@ class QMPSession:
         self._recv_json()  # greeting
         self._cmd({"execute": "qmp_capabilities"})
         self.pos = list(cursor_start)  # tracked client-side -- see module docstring
+        import failure_bundle
+        failure_bundle.register_qmp(self)
 
     # -- low-level ------------------------------------------------------
 

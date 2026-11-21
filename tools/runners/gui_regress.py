@@ -250,7 +250,13 @@ def run_one(name, script, disk_src, timeout, keep_logs, slot, kvm=False):
         # output at all" for a tool that had printed thirty checks.
         # A PRIVATE TMPDIR, removed after: tools leave disk copies and
         # screenshots under tempfile, and /tmp is a tmpfs (private_tmp.py).
-        with private_tmp(name, _child_env()) as env:
+        child = _child_env()
+        if keep_logs:
+            # The guest's state at the tool's first failed check, beside
+            # its log (tools/lib/failure_bundle.py); else in the history.
+            child["SAUNAOS_BUNDLE_DIR"] = os.path.abspath(
+                os.path.join(keep_logs, f"{name}.bundle"))
+        with private_tmp(name, child) as env:
             r = subprocess.run([sys.executable, "-u", tool,
                                 "--instance", str(slot)],
                                cwd=REPO, capture_output=True, text=True,

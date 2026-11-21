@@ -190,6 +190,8 @@ class DebugConsole:
                 target=_read_log, args=(weakref.ref(self), lp, first), daemon=True)
             self._log_thread.start()
         self._sync()
+        import failure_bundle
+        failure_bundle.register_console(self)
 
     def _read_to_prompt(self, timeout=None):
         buf = ""
@@ -269,8 +271,10 @@ class DebugConsole:
         none of them. A non-zero exit ends the reply with `[exit N]`."""
         return self.send(f"tsh {line}")
 
-    def send(self, command):
+    def send(self, command, timeout=None):
         """Run one debug-console command, return its output as text.
+        `timeout` overrides the deadline (failure_bundle.py bounds its
+        commands so a wedged guest cannot hold a failing test).
 
         A COMMAND THAT TIMES OUT LEAVES ITS OUTPUT AND PROMPT IN FLIGHT,
         and reading to "the next prompt" then handed them to the NEXT
@@ -290,7 +294,7 @@ class DebugConsole:
         # 600` under the parallel suite ran past the console's 6 s, and the
         # check then parsed an EMPTY reply (docs/gui-test-sync-design.md,
         # stage 3's diagnosis).
-        wait_s = SH_TIMEOUT_S if command.startswith("sh ") else self.timeout
+        wait_s = timeout or (SH_TIMEOUT_S if command.startswith("sh ") else self.timeout)
         t0 = time.time()
         buf = self._read_to_prompt(wait_s).replace("\r", "")
         if not command.startswith("readfile"):

@@ -65,6 +65,7 @@ replace `dirname(dirname(__file__))`, whose depth is now per folder.
 | Where is a tool? | `tools/t which NAME`, `tools/t list [PATTERN]` -- the folder index below |
 | Is it MINE, or already broken? | `predates.py "<command>"` -- "it predates me" is a MEASUREMENT |
 | When did this check last fail, or pass -- at which commit, on which host? | `test_history.py "<check>"` -- every local run recorded, logs kept |
+| What was the guest doing when a check failed? | the failure bundle a failed check takes by itself (`failure_bundle.py`): klog, dmesg, `ps`, `cpus`, `lockstat`, windows, CPU registers, screen -- path on the `failure bundle:` line and in `test_history.py <check>` |
 | Which checks flake, and how often? | `test_history.py --flaky 7 --clean`; measure one with `gui_regress.py --repeat N -k <tool>` |
 | Does a GUI test race an app's background work? | `gui_regress.py --race-delay 300` -- a racing test fails every run |
 | Where does the GUI suite's time go? | `gui_regress.py --sleep-profile DIR`, then `sleep_profile.py DIR` |
@@ -430,6 +431,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `divti3_hostcheck.py` -- Check tolibc's 128-bit division helpers against Python bignums, on the HOST
 - `emoji_hostcheck.py` -- Colour emoji (COLR v0 over CPAL) against FreeType's, and the emoji table, on the HOST
 - `exfat_hostcheck.py` -- SaunaOS's exFAT, judged by the host: fsck.exfat and an independent reader
+- `failure_bundle_hostcheck.py` -- A failed check takes the guest's state once, bounded, and never waits
 - `filemanager_harness_hostcheck.py` -- filemanager_test.py's own harness, checked on the host with no guest
 - `grapheme_hostcheck.py` -- Grapheme cluster boundaries (kernel/lib/kgrapheme.c) against Perl's `\X`, on the HOST
 - `hash_hostcheck.py` -- Check /lib/libhash.so's algorithms against hashlib and zlib, on the HOST
@@ -515,6 +517,7 @@ Full entries: [`docs/tools/lib.md`](tools/lib.md).
 
 - `cffgen.py` -- write CFF-outline OpenType fonts (and a collection of
 - `components.py` -- The optional components (docs/software-design.md), read and checked on the host
+- `failure_bundle.py` -- the guest's state at a test's FIRST
 - `fresh_disk.py` -- A pristine disk image, and whether an existing one has drifted
 - `gcc_testsuite.py` -- GCC's own run tests as a corpus: gcc.c-torture/execute and libstdc++'s `dg-do run` tests
 - `gui_debug.py` -- talk to SaunaOS's serial debug console, and to

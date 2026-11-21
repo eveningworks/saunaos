@@ -585,6 +585,12 @@ the rest in the sweep. Each stays a standalone script with its own
   (into a scratch `configs/`), the module check on the build's objects,
   the boot-word table and its toggles, and the picker in the pty.
   `--positive-control` makes the local save write build.conf; red.
+- **`failure_bundle_hostcheck.py`** -- `failure_bundle.py` against a fake
+  console and QMP: every file written and the index naming the check, a
+  second failure taking nothing, a guest command that comes back cut
+  short ending the ring-3 part while QMP still runs, `off` being off.
+  `--positive-control` sends the commands with no deadline, which the
+  fake guest refuses; red.
 - **`tree_lock_hostcheck.py`** -- the test lock's PreToolUse hook refuses
   every way a source file changes while a test reads the tree, and
   nothing else. Holds the lock, feeds `tree_lock.py hook` 19 tool calls

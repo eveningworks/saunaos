@@ -112,6 +112,24 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   differ** (`dup_scan.py`'s rule): a table with `report()`,
   `clipboard_test.py`'s `check(ok, what)` order, and `damage_hunt.py`'s
   copy with a plain-copy fallback keep their own. A new tool uses this.
+- **`failure_bundle.py`** -- THE GUEST'S STATE AT A TEST'S FIRST FAILED
+  CHECK, taken while the guest still exists. `Results.check()` calls it;
+  `DebugConsole` and `QMPSession` (and the remote pair) register
+  themselves when they connect, so no tool needs an edit. The bundle:
+  `index.txt` (the check, its detail, what was taken), `klog.txt` (what
+  the console saw), `dmesg.txt` (the guest's own ring), `ps`, `cpus`,
+  `lockstat`, `meminfo`, `windows.json`, QEMU's `info registers -a`
+  (`cpu-regs.txt` -- the one oracle a wedged guest cannot fake) and an
+  UNSETTLED `screen.png`. Every guest command has an 8 s deadline, and
+  the first that comes back cut short ends the ring-3 part; it never
+  raises and never changes a verdict. One per process: the first
+  failure is the evidence. It goes to `$SAUNAOS_BUNDLE_DIR`
+  (`gui_regress.py --logs DIR` sets `DIR/<tool>.bundle`), else the test
+  history's `bundles/` (the newest 200 kept), and `test_history.py
+  <check>` prints each run's `bundle:` line. `SAUNAOS_FAILURE_BUNDLE=off`
+  turns it off. Exists because `docs/bugs.md` filled with failures seen
+  once whose guest was gone before anyone looked.
+  `tools/hostchecks/failure_bundle_hostcheck.py`.
 - **`components.py`** -- the optional components on the host
   (`docs/software-design.md`): `load()` the `data/components/` files,
   `check()` them (and a staging tree), `owner_map()` -- the LONGEST
