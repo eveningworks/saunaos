@@ -78,6 +78,7 @@ replace `dirname(dirname(__file__))`, whose depth is now per folder.
 | Let a machine PULL a build | `update_server.py` (a user service: `/dev` live, `/stable` = `--publish`ed) |
 | Run the GUI TOOLS on it | `gui_regress.py --host <ip>`, over `remote_gui.py` |
 | Drive a VM | `vm.py` (text in, text out), `qmp_test.py`, `gui_debug.py`, `gui_flow.py`, `shell_flow.py`, `serial_console.py`, `serial_capture.py`, `watch_vm.sh`, `run_release.sh` |
+| Watch a run AGAIN, instruction for instruction | `vm.py --record FILE start`, then `vm.py --replay FILE [--replay-gdb PORT] start` -- one CPU, the IDE disk; text sessions only for now |
 | Is it INTERMITTENT, and at what rate? | `boot_rate.py` (bare metal), `flake_hunt.py` (VM) |
 | Test runners | `tools/t gate\|gui\|sweep\|host\|static`, `tools/t test PATTERN`; `boot_smoke_test.py`, `ktest_run.py`, `usertest_run.py`, `faulttest_run.py`, `gui_regress.py`, `hostchecks.py`, `checks.py`, `damage_sweep.py`, `damage_hunt.py`, `sanitize_run.py` (UBSAN both rings + KASAN, in a scratch copy) |
 | Diagnose | `panic_resolve.py` (**never hand-roll `nm`**), `acpi_dump.py`, `aml_walk.py`, `QMPSession.hmp()` (**the one oracle the guest cannot fake**), `pixel_probe.py`, `iso_guard.py` |
@@ -374,6 +375,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `poweroff_test.py` -- Prove the machine stops through ITS OWN ACPI tables, not a hardcoded port
 - `remote_test.py` -- telnetd, tftpd and tools/dev/remote.py, end to end against a QEMU guest
 - `rename_migrate_test.py` -- A machine installed as toy-os keeps its settings and log when it boots
+- `replay_test.py` -- A recorded session replays instruction for instruction: `vm.py --record`
 - `rootdisk_test.py` -- every SATA drive, and which disk is the root
 - `sanitize_run.py` -- Build SaunaOS with UBSAN=1 and/or KASAN=1 and list every site that fires
 - `screentrial_test.py` -- A screen size tried at a restart: GRUB sets it once, screentrial asks,

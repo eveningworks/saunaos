@@ -181,20 +181,90 @@ def started_ok(output):
 STARTUP_DONE = ("init: startup finished", "could not spawn /bin/init")
 
 
-def _wait_startup(timeout):
-    """'' once init says startup finished, else a note for the ready line."""
+def _wait_startup(timeout, log_file=None):
+    """'' once init says startup finished, else a note for the ready line.
+    `log_file`: read the kernel log there instead -- under --record the UART
+    runs at its baud rate, and `dmesg -n 1000` outlasts the 5 s reply."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        try:
-            out = _exec_one("sh dmesg -n 1000", timeout=5.0) or ""
-        except OSError:
-            out = ""
+        if log_file:
+            try:
+                with open(log_file, errors="replace") as f:
+                    out = f.read()
+            except OSError:
+                out = ""
+        else:
+            try:
+                out = _exec_one("sh dmesg -n 1000", timeout=5.0) or ""
+            except OSError:
+                out = ""
         if any(m in out for m in STARTUP_DONE):
             return ""
         time.sleep(0.5)
     print(f"vm: WARNING -- init did not say `startup finished` within {timeout:g}s; "
           "services may still be starting (an image older than that line?)", file=sys.stderr)
     return " -- init still starting"
+
+
+# RECORD AND REPLAY (QEMU's icount record/replay, docs/replay.txt): a run
+# recorded with `--record FILE` replays instruction for instruction with
+# `--replay FILE` -- the same interrupts at the same instructions, the same
+# disk reads, the same input -- so an intermittent failure caught once can
+# be watched again, under the GDB stub, as often as needed.
+#
+# QEMU REFUSES MORE THAN ONE CPU, and every block device must go through a
+# blkreplay filter, which is why the refusals below are checked before the
+# command is built. The recording keeps its own reflinked copy of the disk
+# (FILE.disk.img) and the flags it ran with (FILE.json): a replay against
+# an image that changed since -- a rebuild -- diverges at the first read.
+RR_KEYS = ("iso", "boot", "mem", "machine", "net", "vga", "balloon", "virtio_input",
+           "hostfwd", "cpu", "pci_fill", "usb", "reboot", "kdebug", "kdebug_net")
+
+
+def _rr_prepare(args):
+    """None, or (mode, rrfile) with args adjusted; exits on a refusal."""
+    import json
+    rec, rep = getattr(args, "record", None), getattr(args, "replay", None)
+    if not rec and not rep:
+        return None
+    if rec and rep:
+        sys.exit("vm.py: --record OR --replay, not both")
+    path = os.path.abspath(rec or rep)
+    if rep:
+        try:
+            with open(path + ".json") as f:
+                saved = json.load(f)
+        except OSError:
+            sys.exit(f"vm.py: {path}.json not found -- replay needs the recording's flags")
+        for k in RR_KEYS:
+            if k in saved:
+                setattr(args, k, saved[k])
+        args.disk = path + ".disk.img"
+        if not os.path.exists(args.disk):
+            sys.exit(f"vm.py: {args.disk} not found -- the recording's disk")
+    refuse = [
+        ((getattr(args, "cpus", 0) or 1) > 1, "--cpus above 1 (QEMU replays one CPU only)"),
+        (args.kvm, "--kvm (record/replay is TCG with -icount)"),
+        (getattr(args, "disk_kind", "ide") != "ide", "--disk-kind other than ide"),
+        (getattr(args, "virtio_disk", None) or getattr(args, "extra_disk", None)
+         or getattr(args, "usb_stick", None), "a second disk"),
+        (getattr(args, "usb_host", None), "--usb-host"),
+        ((getattr(args, "audio", None) or "none") != "none" or getattr(args, "audio_wav", None),
+         "sound (QEMU does not replay audio)"),
+        (args.uefi, "--uefi (its flash is a block device without blkreplay)"),
+        (getattr(args, "loadvm", None), "--loadvm"),
+    ]
+    bad = [why for cond, why in refuse if cond]
+    if bad:
+        sys.exit("vm.py: record/replay cannot run with " + "; ".join(bad))
+    if rec:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        from harness import copy_disk
+        copy_disk(args.disk, path + ".disk.img")
+        args.disk = path + ".disk.img"
+        with open(path + ".json", "w") as f:
+            json.dump({k: getattr(args, k, None) for k in RR_KEYS}, f, indent=1)
+    return ("record" if rec else "replay", path)
 
 
 def cmd_start(args):
@@ -204,6 +274,7 @@ def cmd_start(args):
     for stale in (SERIAL_SOCK, LOG_SOCK, PIDFILE):
         if os.path.exists(stale):
             os.unlink(stale)
+    rr = _rr_prepare(args)
 
     # WHICH MEDIUM. The kernel is on disk.img now (tools/build/install_grub.py),
     # so the disk boots itself and the ISO is for the images that have no
@@ -211,6 +282,8 @@ def cmd_start(args):
     # because an image built before the boot partition existed has no
     # GRUB on it and must keep working; `--boot` overrides.
     medium = install_grub.boot_medium(args.disk, args.boot, uefi=args.uefi)
+    if rr and medium != "disk":
+        sys.exit("vm.py: record/replay boots the disk (the ISO is a second block device)")
 
     # A stale image boots and PASSES, silently testing the previous
     # build -- see tools/lib/iso_guard.py. Checked here because vm.py and
@@ -282,6 +355,13 @@ def cmd_start(args):
     elif getattr(args, "disk_kind", "ide") == "nvme":
         cmd += ["-drive", f"file={args.disk},format={_disk_format(args.disk)},if=none,id=nvm0,discard=unmap,werror=report,rerror=report",
                 "-device", "nvme,serial=saunaos-nvme0,drive=nvm0"]
+    elif rr:
+        # snapshot=on: the recording's image is never written, so every
+        # replay starts from the bytes the recording did. bus/unit named:
+        # placed by QEMU alone, the drive is not where the ATA probe looks.
+        cmd += ["-drive", f"file={args.disk},format={_disk_format(args.disk)},if=none,id=hd0,snapshot=on",
+                "-drive", "driver=blkreplay,if=none,image=hd0,id=hd0rr",
+                "-device", "ide-hd,drive=hd0rr,bus=ide.0,unit=0"]
     else:
         cmd += ["-drive", f"file={args.disk},format={_disk_format(args.disk)},if=ide,discard=unmap,werror=report,rerror=report"]
     if args.kvm:
@@ -583,15 +663,40 @@ def cmd_start(args):
     # connects. Nothing reading LOG_SOCK costs nothing: QEMU drops a
     # socket chardev's output while no client is attached.
     log = getattr(args, "serial_log", None)
-    cmd += ["-chardev", f"socket,id=ser0,path={LOG_SOCK},server=on,wait=off"
-                        + (f",logfile={os.path.abspath(log)}" if log else ""),
-            "-serial", "chardev:ser0",
-            "-chardev", f"socket,id=ser1,path={SERIAL_SOCK},server=on,wait=off",
-            "-serial", "chardev:ser1"]
+    if rr and rr[0] == "replay":
+        # A REPLAYED WRITE EMITS WHAT THE RECORDED ONE DELIVERED, so the
+        # backends may differ (QEMU's replay docs) and files are what a
+        # comparison wants: FILE.replay.com1.log against FILE.com1.log.
+        cmd += ["-chardev", f"file,id=ser0,path={rr[1]}.replay.com1.log", "-serial", "chardev:ser0",
+                "-chardev", f"file,id=ser1,path={rr[1]}.replay.com2.log", "-serial", "chardev:ser1"]
+        if getattr(args, "kdebug", False):
+            cmd += ["-serial", "null"]
+    elif rr and not os.environ.get("SAUNAOS_RR_NO_RELAY"):     # replay_test's positive control
+        # ...and a socket nobody reads delivers NOTHING, so a recording of an
+        # unread log replays as an empty one. The relay reads COM1 from the
+        # first byte (wait=on holds the boot until it connects), keeps it in
+        # FILE.com1.log and serves LOG_SOCK to tools as QEMU would.
+        rr_src = LOG_SOCK + ".rr"
+        if os.path.exists(rr_src):
+            os.unlink(rr_src)
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "_rr-relay", rr_src, LOG_SOCK,
+                          rr[1] + ".com1.log"] + ([os.path.abspath(log)] if log else []),
+                         start_new_session=True, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cmd += ["-chardev", f"socket,id=ser0,path={rr_src},server=on,wait=on",
+                "-serial", "chardev:ser0",
+                "-chardev", f"socket,id=ser1,path={SERIAL_SOCK},server=on,wait=off",
+                "-serial", "chardev:ser1"]
+    else:
+        cmd += ["-chardev", f"socket,id=ser0,path={LOG_SOCK},server=on,wait=off"
+                            + (f",logfile={os.path.abspath(log)}" if log else ""),
+                "-serial", "chardev:ser0",
+                "-chardev", f"socket,id=ser1,path={SERIAL_SOCK},server=on,wait=off",
+                "-serial", "chardev:ser1"]
     # A THIRD PORT for the kernel debugger, which must be the third
     # -serial to be COM3. It does nothing unless the image's GRUB line
     # carries `kdebug=ttyS2` (tools/tests/sweep/kdebug_test.py adds it to a copy).
-    if getattr(args, "kdebug", False):
+    if getattr(args, "kdebug", False) and not (rr and rr[0] == "replay"):
         cmd += ["-chardev", f"socket,id=ser2,path={KDB_SOCK},server=on,wait=off",
                 "-serial", "chardev:ser2"]
     # `-no-reboot` BY DEFAULT, so a guest that triple-faults stops
@@ -609,17 +714,39 @@ def cmd_start(args):
     # snapshot is inside.
     if getattr(args, "loadvm", None):
         cmd += ["-loadvm", args.loadvm]
+    if rr:
+        mode, path = rr
+        cmd += ["-icount", f"shift=auto,rr={mode},rrfile={path}"]
+        for nd in ("n0", "n1", "kdbn"):
+            if f"id={nd}" in " ".join(cmd):
+                cmd += ["-object", f"filter-replay,id=rr{nd},netdev={nd}"]
+        if mode == "replay" and getattr(args, "replay_gdb", None):
+            cmd += ["-gdb", f"tcp:127.0.0.1:{args.replay_gdb}", "-S"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         print("vm: QEMU failed to start:\n" + (r.stderr or r.stdout).strip())
         return 1
+    if rr:
+        with open(PIDFILE + ".rr", "w") as f:      # cmd_stop: end it without a power-down
+            f.write(rr[0])
+    elif os.path.exists(PIDFILE + ".rr"):
+        os.unlink(PIDFILE + ".rr")
+    if rr and rr[0] == "replay":
+        # Live input is ignored: the console answers only what the recording
+        # typed, so there is no readiness to wait for. QEMU exits at its end.
+        gdb = (f"; the GDB stub waits on localhost:{args.replay_gdb}"
+               if getattr(args, "replay_gdb", None) else "")
+        print(f"vm: replaying {rr[1]} (pid {_read_pid()}){gdb}; the logs come out of "
+              f"{LOG_SOCK} and {SERIAL_SOCK} as they did")
+        return 0
 
     deadline = time.time() + args.timeout
     while time.time() < deadline:
         try:
             out = _exec_one("", timeout=2.0)  # bare newline -> prompt
             if out is not None:
-                note = _wait_startup(args.timeout)
+                note = _wait_startup(args.timeout, rr[1] + ".com1.log"
+                                     if rr and os.path.exists(rr[1] + ".com1.log") else None)
                 print(f"vm: ready (pid {_read_pid()}){note}")
                 return 0
         except OSError:
@@ -635,6 +762,61 @@ def cmd_start(args):
     print(f"vm: started but never reached the debug console within {args.timeout}s")
     return 1
 
+
+
+def cmd_rr_relay(args):
+    """`vm.py --record`'s COM1 reader: QEMU's socket -> a file (and
+    --serial-log's), and a server at the tools' usual LOG_SOCK path that
+    hands every client what arrives. Exits when QEMU closes the socket."""
+    import select
+    deadline = time.time() + 60
+    src = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    while True:
+        try:
+            src.connect(args.src)
+            break
+        except OSError:
+            if time.time() > deadline:
+                return 1
+            time.sleep(0.02)
+    if os.path.exists(args.serve):
+        os.unlink(args.serve)
+    lst = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    lst.bind(args.serve)
+    lst.listen(4)
+    outs = [open(p, "ab") for p in [args.log] + args.extra]
+    clients = []
+    try:
+        while True:
+            r, _, _ = select.select([src, lst] + clients, [], [])
+            if lst in r:
+                clients.append(lst.accept()[0])
+            for c in [c for c in r if c in clients]:
+                try:
+                    if not c.recv(4096):
+                        raise OSError
+                except OSError:
+                    clients.remove(c)
+                    c.close()
+            if src in r:
+                data = src.recv(65536)
+                if not data:
+                    return 0
+                for f in outs:
+                    f.write(data)
+                    f.flush()
+                for c in list(clients):
+                    try:
+                        c.sendall(data)
+                    except OSError:
+                        clients.remove(c)
+    finally:
+        for f in outs:
+            f.close()
+        try:
+            os.unlink(args.serve)
+        except OSError:
+            pass
 
 FRAME_HEAD_RE = __import__("re").compile(r"<<<FILE (-?\d+)\n")
 
@@ -973,14 +1155,19 @@ def cmd_stop(args):
     # Clean first, kill second. A guest that ignores ACPI, or one wedged
     # badly enough not to act on it, still gets SIGTERM -- stopping the
     # VM must never itself be able to hang.
-    graceful = _acpi_powerdown(args.qmp_port, pid) if not getattr(args, "hard", False) else 0
+    # A RECORDING ENDS WITH A SIGNAL, never a power-down: QMP's
+    # system_powerdown is not a recorded event, so its replay would wait
+    # at the press for ever.
+    recorded = os.path.exists(PIDFILE + ".rr")
+    graceful = (_acpi_powerdown(args.qmp_port, pid)
+                if not getattr(args, "hard", False) and not recorded else 0)
     if not graceful:
         os.kill(pid, 15)
     for _ in range(50):
         if not _running(pid):
             break
         time.sleep(0.1)
-    for f in (PIDFILE, SERIAL_SOCK, LOG_SOCK):
+    for f in (PIDFILE, SERIAL_SOCK, LOG_SOCK, PIDFILE + ".rr"):
         if os.path.exists(f):
             os.unlink(f)
     print("vm: stopped" + ("" if graceful else " (SIGTERM)"))
@@ -1198,6 +1385,13 @@ def main():
                      help="QEMU -cpu model (e.g. max, Skylake-Client). The default "
                           "qemu64 reports as AMD and has no CPUID leaf 4, so this is "
                           "how you exercise CPU-model-dependent paths. Ignored with --kvm.")
+    ap.add_argument("--record", metavar="FILE", default=None,
+                    help="record the run for an exact replay (QEMU icount record/replay): one CPU, "
+                         "an IDE disk, no sound; keeps FILE, FILE.json and FILE.disk.img")
+    ap.add_argument("--replay", metavar="FILE", default=None,
+                    help="replay a --record run instruction for instruction, with its flags and disk")
+    ap.add_argument("--replay-gdb", metavar="PORT", type=int, default=None,
+                    help="with --replay: start stopped, QEMU's GDB stub on localhost:PORT")
     ap.add_argument("--kvm", action="store_true",
                     help="use KVM acceleration (like `make run KVM=1`) instead of TCG "
                          "emulation; needs /dev/kvm. Timing numbers from the two modes "
@@ -1210,6 +1404,12 @@ def main():
                         help="SIGTERM straight away, no ACPI shutdown -- for a wedged guest")
     p_stop.set_defaults(func=cmd_stop)
     sub.add_parser("status").set_defaults(func=cmd_status)
+    p_relay = sub.add_parser("_rr-relay")          # --record's COM1 reader; not for hand use
+    p_relay.add_argument("src")
+    p_relay.add_argument("serve")
+    p_relay.add_argument("log")
+    p_relay.add_argument("extra", nargs="*")
+    p_relay.set_defaults(func=cmd_rr_relay)
     p_save = sub.add_parser("savevm", help="save the running machine inside its .qcow2 disk "
                                            "(start --loadvm NAME brings it back)")
     p_save.add_argument("name")

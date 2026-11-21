@@ -2001,6 +2001,13 @@ report is ON only after `enter_gui()`").
   the report names that core and that every other core was stopped
   first; `--boot-word smp=park` aims it at a parked core. Both are
   sweep entries of their own.
+- **`replay_test.py`** -- `vm.py --record` then `--replay` give a
+  byte-identical kernel log, and the replay ends by itself. Records a
+  boot and two debug-console commands on a copy of `disk.img`, replays
+  it, and compares `FILE.com1.log` with `FILE.replay.com1.log`.
+  `--positive-control` records with the COM1 relay off
+  (`SAUNAOS_RR_NO_RELAY`), the shape that failed first -- an unread log
+  replays as an empty one; red. About 45 s.
 - **`lockup_test.py`** -- the hang kit: the lockup detector
   (`kernel/lockup.h`) and the hardware watchdog (`kernel/watchdog.h`).
   **IT HANGS AND RESETS ITS GUEST ON PURPOSE**, three times, on a q35

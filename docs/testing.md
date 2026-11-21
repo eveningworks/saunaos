@@ -1050,6 +1050,12 @@ mean the machine is WAITING, not busy. (One such stall was `config`
 doing 2,968 syscalls just under the debug console's timeout --
 `session-diagnosis.md` in the feature-workflow skill has the story.)
 
+**Record and replay**: `vm.py --record FILE start` records a slot under
+QEMU's icount record/replay, and `vm.py --replay FILE --replay-gdb 1236
+start` replays it under QEMU's stub, stopped -- so `continue` reaches the
+same failure at the same instruction every time. One CPU only, and not
+GUI tests yet; the traps are in `docs/tools/lib.md`, "`vm.py --record`".
+
 ## Testing in QEMU headlessly, via QMP
 
 **First: is this actually a GUI change?** If not, `tools/lib/vm.py` (above)

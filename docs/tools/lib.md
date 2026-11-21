@@ -428,6 +428,29 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   every tool already connects to. `--instance N` derives both. A tool
   that builds its own one-port QEMU line still works: the kernel keeps
   both on COM1 when it finds no second UART.
+- **`vm.py --record FILE` / `--replay FILE`** -- QEMU's icount RECORD AND
+  REPLAY: a recorded slot replays instruction for instruction -- the same
+  interrupts at the same instructions, the same disk reads and input --
+  so a failure caught once can be watched again, under QEMU's GDB stub
+  with `--replay-gdb PORT` (starts stopped). The recording keeps
+  `FILE` (the event log), `FILE.json` (its flags, reused by the replay),
+  `FILE.disk.img` (a reflinked copy, so a rebuild cannot change what
+  the replay reads; the disk runs `snapshot=on` behind a `blkreplay`
+  filter) and `FILE.com1.log`; the replay writes `FILE.replay.com1.log`
+  and `.com2.log`, so `cmp` proves it. THREE TRAPS, each measured: QEMU
+  REFUSES MORE THAN ONE CPU (`--cpus` above 1 is refused, so SMP races
+  are out of reach); A REPLAYED SERIAL WRITE EMITS ONLY WHAT THE RECORDED
+  ONE DELIVERED, so a log nobody read replays as an empty one -- a relay
+  (`vm.py _rr-relay`) reads COM1 from the first byte and serves
+  `.vm.N.log` to tools as QEMU would; and QMP's `system_powerdown` is
+  not a recorded event, so a recorded slot's `stop` is a signal (a
+  power-down left the replay waiting at the press for ever). Refused too:
+  `--kvm`, AHCI/NVMe, a second disk, sound, `--uefi`, a CD boot. Under
+  record the UART runs at its baud rate, so `vm.py` waits for `startup
+  finished` in the relay's file. GUI tests do not run under record yet:
+  a `gui ... --json` reply stops after 16 bytes (`docs/bugs.md`). A boot
+  plus two commands: 18 s recorded, 26 s replayed.
+  `tools/tests/sweep/replay_test.py`.
 - **`vm.py --kdebug`** -- a THIRD port, COM3, as the unix socket
   `.vm[.N].kdb`, for the kernel's GDB stub. Inert unless the image's GRUB
   line carries `kdebug=ttyS2` (add it to a COPY with

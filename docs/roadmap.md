@@ -1637,6 +1637,7 @@ hand as a throwaway probe during a real hunt (see roadmap-details).
 - [x] ~~`tty` -- the console's owner, its foreground group, and whether a compositor holds the keyboard~~ DONE 2026-08-22
 - [x] ~~`ps` says what a blocked process WAITS ON (`block(key)`, `block(pipe)`)~~ DONE 2026-08-22
 - [x] ~~`font glyph <char>` -- a glyph's coverage map, its line box, and whether it has ink inside~~ DONE 2026-08-24
+- [ ] Reverse debugging under `vm.py --replay`: `rrsnapshot=` and a qcow2 overlay for `reverse-continue`
 - [ ] `lsfd` -- a process's open descriptors and what each one names
 - [ ] `gui tray --json` reports each tray item's TEXT, not just its rect -- a clock test reads the time instead of comparing pixels
 
@@ -1840,6 +1841,7 @@ Things this OS does not do yet, or does in a way worth improving --
 `docs/bugs.md`; the test is "is something broken?", not "would I like
 this to be better?".
 
+- [ ] The legacy ATA driver probes the PRIMARY channel only -- a disk QEMU places on `ide.1` (an `ide-hd` with no `bus=`) is not found
 - [ ] The kernel console's squeezed baked cell clips a capital's accent -- A-acute and A-diaeresis look alike there
 - [ ] The image cache keeps an exited program's text until reboot -- reclaiming it wants a per-frame map count
 - [ ] The image cache misses a write through a hard link made from outside `/bin`, `/lib`, `/tests` -- a key by inode fixes it
