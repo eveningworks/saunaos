@@ -51,6 +51,25 @@ int bkl_held(void);
 int bkl_holder_core(void);   // the core holding it now, or -1 (a snapshot: `cpus`)
 int bkl_contended(void);   // another core is queued for it
 
+// WHAT TOOK IT, for QUERY_BKLSTAT (lockstat.c): an interrupt or exception
+// vector, a syscall by number, or the kernel itself -- a retake after the
+// idle halt, the boot. A hold is billed to the entry that took the lock,
+// though a switch on its core may hand the release to another context.
+#define BKL_SYSCALLS      192   // syscall_stall.h's SYSCALL_STALL_MAX, asserted in bkl.c
+#define BKL_KEY_VECTOR(v)  ((uint32_t)(v) & 0xFF)
+#define BKL_KEY_SYSCALL(n) (256u + (uint32_t)(n))
+#define BKL_KEY_KERNEL     (256u + BKL_SYSCALLS)
+#define BKL_KEYS           (BKL_KEY_KERNEL + 1)
+
+struct bkl_entry_stat {
+    uint64_t takes, contended, wait_tsc, wait_max_tsc, hold_tsc, hold_max_tsc;
+};
+// A snapshot of key `key`'s counters; 0 when nothing has taken it so.
+int bkl_entry_stat(uint32_t key, struct bkl_entry_stat *out);
+// Arming hold times (lockstat.h) starts the hold totals again. The
+// caller holds this lock; one that does not is counted in bkl_faults().
+void bkl_stat_zero_holds(void);
+
 // Broken accounting -- entering from ring 3 at a non-zero depth,
 // returning to ring 3 still holding it, an exit at depth 0, a switch
 // that does not hold it. Each is counted and logged (the first few) and

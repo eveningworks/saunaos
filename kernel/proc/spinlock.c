@@ -12,7 +12,7 @@
 #include "panic.h"
 #include "scheduler.h"   // the preemption guard a holder raises
 #include "smp.h"         // smp_poll_ipis(): a spinner answers a shootdown or a call
-#include "bkl.h"
+#include "lockstat.h"
 
 int g_percpu_ready;
 
@@ -64,7 +64,7 @@ static void note_overdue(uintptr_t what, uintptr_t site, uintptr_t holder_site,
         uint64_t hz = cpu_tsc_hz() ? cpu_tsc_hz() : 3000000000ull;
         g_last.tick_age_ms = hc->tick_tsc ? (arch_rdtsc() - hc->tick_tsc) / (hz / 1000) : ~0ull;
         g_last.tick_rip = hc->tick_rip; g_last.tick_cs = hc->tick_cs;
-        g_last.guard = scheduler_preempt_depth();
+        g_last.guard = hc->preempt_depth;   // the holder's guard, not ours
     }
 }
 
@@ -85,6 +85,36 @@ void spin_wait_overdue(uintptr_t what, uintptr_t site, uint32_t me, uint32_t cor
     note_overdue(what, site, 0, me, core);
 }
 
+// Under the lock: lockstat.h's rule. `start` is when the wait began, 0
+// for a take that did not wait -- which reads no clock unless hold times
+// are armed.
+static void stat_taken(struct lockstat *s, uint64_t start) {
+    int timed = lockstat_timing();
+    uint64_t now = start || timed ? arch_rdtsc() : 0;
+    s->acquired++;
+    uint64_t w = 0;
+    if (start) {
+        w = now > start ? now - start : 1;
+        s->contended++;
+        s->wait_tsc += w;
+        if (w > s->wait_max_tsc) s->wait_max_tsc = w;
+    }
+    s->held_since = timed ? now : 0;   // 0: this hold is not timed
+    s->last_wait_tsc = w;
+}
+
+uint64_t lockstat_hold_end(struct lockstat *s) {
+    uint64_t since = s->held_since;
+    s->held_since = 0;   // billed once: the unlock after this adds nothing
+    if (!since || !lockstat_timing() || since < g_lockstat_armed_tsc) return 0;
+    uint64_t now = arch_rdtsc();
+    // A core's own TSC on both ends: a holder releases where it took it.
+    uint64_t h = now > since ? now - since : 0;
+    s->hold_tsc += h;
+    if (h > s->hold_max_tsc) s->hold_max_tsc = h;
+    return h;
+}
+
 static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
     uint32_t me = spin_cpu_index();
     if (l->holder == me + 1) {
@@ -96,10 +126,11 @@ static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
         panic_finish();
     }
     uint32_t ticket = __atomic_fetch_add(&l->next, 1, __ATOMIC_RELAXED);
+    uint64_t start = 0;
     if (__atomic_load_n(&l->serving, __ATOMIC_ACQUIRE) != ticket) {
         uint64_t hz = cpu_tsc_hz();
         uint64_t limit = (hz ? hz : 3000000000ull) / 1000 * SPIN_LOCKUP_MS;
-        uint64_t start = arch_rdtsc();
+        start = arch_rdtsc();
         int reported = 0;
         unsigned n = 0;
         while (__atomic_load_n(&l->serving, __ATOMIC_ACQUIRE) != ticket) {
@@ -115,18 +146,17 @@ static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
     }
     l->holder = me + 1;
     l->site = site;
+    if (l->stat) stat_taken(l->stat, start);
 }
 
 // **A HOLDER IS NOT PREEMPTED**, Linux's spin_lock() and its
 // preempt_disable(): preempted, it would keep the other cores spinning
 // for a whole slice, and the next context on this core to take the lock
-// would read as this core taking it twice. The guard's depth is one
-// global, the kernel lock holder's to move (sched_internal.h): an AP
-// raises it only while it holds that lock, which is every time it runs
-// kernel code under smp=run, and never while parked.
-static int guard_ours(void) { return spin_cpu_index() == 0 || bkl_held_here(); }
-static void guard_raise(void) { if (guard_ours()) scheduler_preempt_disable(); }
-static void guard_drop(void)  { if (guard_ours()) scheduler_preempt_enable(); }
+// would read as this core taking it twice. The guard is each core's own
+// (percpu.h's preempt_depth), so any core raises it, kernel lock or not
+// -- a parked core's call function included.
+static void guard_raise(void) { scheduler_preempt_disable(); }
+static void guard_drop(void)  { scheduler_preempt_enable(); }
 
 void spin_lock(struct spinlock *l) {
     guard_raise();
@@ -147,10 +177,12 @@ int spin_trylock(struct spinlock *l) {
     }
     l->holder = spin_cpu_index() + 1;
     l->site = (uintptr_t)__builtin_return_address(0);
+    if (l->stat) stat_taken(l->stat, 0);
     return 1;
 }
 
 void spin_unlock_raw(struct spinlock *l) {
+    if (l->stat) lockstat_hold_end(l->stat);
     l->holder = 0;
     // Only the holder writes `serving`, so a plain increment published
     // with release ordering is the whole unlock.

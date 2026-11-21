@@ -957,8 +957,9 @@ static uint64_t *offcpu_of(int from) {
 // taking 24s instead of 0.3s. docs/blocking-design.md names this as
 // the fourth instance of "a global describing a per-context property",
 // beside g_next_kernel_rsp, g_isr_depth and the old resume slot; this
-// is it being cured the same way they were.
-static int g_preempt_depth;
+// is it being cured the same way they were. And PER CORE since SMP
+// stage 7 (struct cpu's preempt_depth), so a core holding a spinlock
+// outside the kernel lock raises its own guard and nobody else's.
 
 // The globals that describe the CURRENT context rather than the
 // machine. Saved into the outgoing slot and reloaded from the incoming
@@ -993,7 +994,7 @@ void sched_delay_woken(int slot) {
 
 static void context_save_globals(int from) {
     *isr_depth_of(from) = isr_depth_get();
-    *preempt_of(from) = g_preempt_depth;
+    *preempt_of(from) = this_cpu_read(preempt_depth);
     *bkl_of(from) = bkl_depth();
     uint64_t now = arch_rdtsc();
     *left_of(from) = now;
@@ -1005,7 +1006,7 @@ static void context_save_globals(int from) {
 
 static void context_load_globals(int to) {
     isr_depth_set(*isr_depth_of(to));
-    g_preempt_depth = *preempt_of(to);
+    this_cpu_write(preempt_depth, *preempt_of(to));
     bkl_load_depth(*bkl_of(to));
     uint64_t *left = left_of(to);
     uint64_t *off  = offcpu_of(to);
@@ -1415,7 +1416,7 @@ static int timer_wants_rotation(uint64_t now) {
 // as a switch would, and back after.
 static void kernel_let_waiters_in(void) {
     if (current_index >= 0 || on_ap() || !smp_scheduling()) return;
-    if (g_preempt_depth > 0 || isr_depth_get() != 1 || process_context_is_armed()) return;
+    if (this_cpu_read(preempt_depth) > 0 || isr_depth_get() != 1 || process_context_is_armed()) return;
     if (!bkl_contended()) return;
     int isr = isr_depth_get();
     isr_depth_set(0);
@@ -1499,9 +1500,9 @@ void scheduler_trap_exit(uint64_t *regs) {
     if (g_need_resched) scheduler_rotate(regs);
 }
 
-void scheduler_preempt_disable(void) { g_preempt_depth++; }
+void scheduler_preempt_disable(void) { this_cpu_add(preempt_depth, 1); }
 
-int scheduler_preempt_depth(void) { return g_preempt_depth; }
+int scheduler_preempt_depth(void) { return this_cpu_read(preempt_depth); }
 
 void scheduler_fd_hold(int delta) {
     int i = current_index;   // this thread's slot, whichever core it is on
@@ -1509,7 +1510,8 @@ void scheduler_fd_hold(int delta) {
 }
 
 void scheduler_preempt_enable(void) {
-    if (g_preempt_depth > 0) g_preempt_depth--;
+    // Read then add: at a depth above 0 nothing can move this context.
+    if (this_cpu_read(preempt_depth) > 0) this_cpu_add(preempt_depth, -1);
     // Clamped at 0 rather than allowed to go negative: an extra enable()
     // is a bug, but letting the count drift below zero would make the
     // NEXT legitimate disable() a no-op, turning a local mistake into a
@@ -1573,7 +1575,7 @@ static void rotate(uint64_t *regs, int to_idle) {
     // code that is holding shared state. See scheduler_preempt_disable()
     // in api/scheduler.h for what holds this and why. The slice is
     // already billed above, so accounting is unaffected.
-    if (g_preempt_depth > 0) {
+    if (this_cpu_read(preempt_depth) > 0) {
         if (current_index < 0 && !on_ap()) save_kernel_frame(regs);
         slice_restart();
         return;
@@ -1886,7 +1888,7 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
     // guard exists to prevent, reintroduced by the thing meant to
     // replace it. The caller falls back to polling, as it does for a
     // context with no slot at all.
-    if (g_preempt_depth > 0) return 0;
+    if (this_cpu_read(preempt_depth) > 0) return 0;
     int idx = current_index;
 
     // A wake that arrived while we were checking, tested with

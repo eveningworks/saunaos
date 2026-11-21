@@ -14,7 +14,7 @@
 #include "pmm.h"
 #include "klog.h"
 #include "fault_inject.h"
-#include "scheduler.h" // preempt_disable/_enable -- see heap_os_lock() below
+#include "lockstat.h"   // heap_os_lock()
 
 #define HEAP_PAGE_SIZE 4096
 
@@ -36,25 +36,31 @@ void heap_os_report(const char *msg) { klog_write(msg); }
 
 int heap_os_should_fail_alloc(void) { return fault_should_fail_alloc(); }
 
-// PREEMPTION OFF, NOT A LOCK -- and the day these stopped being no-ops
-// came before SMP, which is what the old comment here predicted.
-// Making the syscall gate a TRAP gate is what falsifies "nothing
-// preempts kernel code mid-kmalloc": a timer tick lands inside a
-// syscall, switches to a process that also allocates, and two walkers
-// share one free list. fd_bounce_alloc() is on every read and write, so
-// this is the hot path rather than a corner.
+// ITS OWN SPINLOCK, TAKEN WITH INTERRUPTS OFF (SMP stage 7). Every
+// caller holds the kernel lock today, so this excludes nothing the
+// kernel lock does not -- it is what lets a path that runs without it
+// allocate. Linux's slab and zone locks are irqsave for the reason this
+// is: an interrupt handler that allocates must not land on its own
+// core's holder, and the old guard ("no IRQ handler allocates",
+// measured once) could not see one that started to.
 //
-// scheduler_preempt_disable() is enough BECAUSE NO INTERRUPT HANDLER
-// ALLOCATES -- measured across all eleven registered IRQ handlers, not
-// assumed. That is the invariant to keep: an IRQ handler that starts
-// calling kmalloc() re-enters the list the guard is protecting, and
-// the guard cannot see it. Such a handler would need the allocator to
-// mask interrupts instead (Linux's spin_lock_irqsave), which costs
-// every allocation in the kernel to serve one caller.
+// Lock order: heap, then the frame allocator (heap_os_alloc() grows the
+// heap under it). **NOT RE-ENTRANT, where the guard it replaced nested**:
+// nothing the heap calls under it may allocate -- the frame allocator,
+// klog, a KASAN report and fault injection's log line do not -- and a
+// second take panics as one (spinlock.c's take()). So may no cross-core
+// call function: one answered from inside this lock's wait (smp_poll_ipis())
+// would queue behind its own core's ticket.
 //
 // Balanced by construction: heap_core.c's kmalloc/kfree are thin
 // wrappers around unlocked inner functions precisely so no early
-// return can skip the unlock -- an unbalanced disable() hangs the
-// machine (api/scheduler.h).
-void heap_os_lock(void) { scheduler_preempt_disable(); }
-void heap_os_unlock(void) { scheduler_preempt_enable(); }
+// return can skip the unlock. The flags live beside the lock, written
+// and read only by its holder.
+SPINLOCK_COUNTED(g_heap_lock, "heap");
+static uint64_t g_heap_flags;
+
+void heap_os_lock(void) {
+    uint64_t f = spin_lock_irqsave(&g_heap_lock);
+    g_heap_flags = f;
+}
+void heap_os_unlock(void) { spin_unlock_irqrestore(&g_heap_lock, g_heap_flags); }

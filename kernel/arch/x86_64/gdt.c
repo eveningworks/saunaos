@@ -136,6 +136,17 @@ void gdt_load_cpu(struct cpu *c, uint64_t rsp0, uint64_t df_top, uint64_t nmi_to
     wrmsr(MSR_KERNEL_GS_BASE, 0);
 }
 
+// GS.base at the boot core's struct cpu from kernel_main()'s first line,
+// long before gdt_init(): the preemption guard and the interrupt depth
+// live there (percpu.h), and the frame allocator and the heap take
+// spinlocks, which raise the guard, before the GDT is built. `mov gs`
+// in gdt_load_cpu() zeroes it again for a few instructions, all with
+// interrupts off.
+void gdt_percpu_early(void) {
+    g_cpu_boot.self = &g_cpu_boot;
+    wrmsr(MSR_GS_BASE, (uint64_t)(uintptr_t)&g_cpu_boot);
+}
+
 void gdt_init(void) {
     gdt_load_cpu(&g_cpu_boot,
                  (uint64_t)(kernel_stack0 + sizeof(kernel_stack0)),

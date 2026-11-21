@@ -108,8 +108,8 @@ futexes, swap, sandboxes and the image cache all arrived single-core.
 | interrupts off | `irq_save()`: **93 sites in 25 files**, not counted in 2026-08 | the same hole: `cli` excludes this core's IRQs only. These are the `spin_lock_irqsave` candidates |
 | sleeping locks | DONE (stage 4) -- `kmutex`'s owner/depth/handoff state is under its own `wait_lock` spinlock, taken irqsave; futexes are still `irq_save()` | -- |
 | filesystem | one sleeping lock per MOUNT (`docs/fslock-design.md`), a `kmutex`, so two volumes are independent; inside one volume tfs3 is serialised by that lock | the right SHAPE already, but only as safe as `kmutex` (the row above): it is fixed when `kmutex` gains its inner spinlock, with the 13 other non-test files that use one (block, ata, ahci, nvme, usb_storage, userfs, mmap, query...) |
-| kernel heap | one free list + bins (`kernel/lib/heap_core.c`), guarded through ONE hook pair, `heap_os_lock()`/`heap_os_unlock()` in `kernel/mm/heap_os.c` | the hook is the whole split: stage 7's first item is a spinlock in those two lines |
-| physical frames | `kernel/mm/pmm.c`'s bitmap, zone counters and frame refcounts, guarded by `irq_save()` (8 sites, inside the 93 above) | the hottest allocator once several cores fault pages in and break COW at once: a double-handed frame puts one process's page in another's space. Its own spinlock, early in stage 7 -- or in stage 5 if the soak shows it first |
+| kernel heap | DONE (stage 7) -- one free list + bins (`kernel/lib/heap_core.c`) behind its own irqsave spinlock in `heap_os_lock()`/`heap_os_unlock()` (`kernel/mm/heap_os.c`) | -- |
+| physical frames | DONE (stage 7) -- `kernel/mm/pmm.c`'s bitmap, zone counters and frame refcounts behind its own irqsave spinlock, taken after the heap's | -- |
 | TLB invalidation | user mappings: `kernel/mm/vmm.c` (4 `invlpg`s and `flush_if_live()`, which tests only THIS core's CR3). Kernel mappings, which every core shares: `kernel/arch/x86_64/paging.c`, 9 CR3-reload `flush_tlb()` sites reached at runtime by module load/unload (`paging_set_kernel_exec()`), device mapping at driver bind (ahci, nvme, hda, xhci, virtio_pci, bochs, intel_display), write-combining retypes, and kernel-stack guard pages (`kstack.c`) | two places, not one: user shootdown needs a per-address-space record of which cores have it loaded (Linux's `mm_cpumask`); kernel changes go to EVERY core |
 | FPU | eager `fxsave`/`fxrstor` per switch (`kernel/arch/x86_64/fpu.c`) | per-thread already; each AP must run the CR0/CR4 FPU setup |
 | per-core CPU setup | done once, on the BSP: EFER.NXE (`boot.asm`), IA32_PAT (`pat_install_wc_slot()`), the variable MTRRs (`mtrr_apply()`), CR4.SMEP/SMAP (`paging_enable_smep_smap()`), all in `kernel/arch/x86_64/` | each is a per-core register. An AP without NXE takes a reserved-bit fault on its first NX kernel page (W^X marks all kernel data NX); a different PAT/MTRR gives the WC framebuffer conflicting memory types (undefined per the SDM); no SMEP/SMAP silently drops the protection. Each AP replays the BSP's values |
@@ -348,7 +348,8 @@ the `smp` suite), **with these differences and additions:**
   `preempt_disable()`: a preempted holder would keep the other cores
   spinning for a slice, and the next context on its core to take the
   lock would read as a recursive acquire. On the BSP only until stage 5
-  (the guard's depth is one global an AP may not touch). The kernel lock
+  (the guard's depth was one global an AP may not touch; each core's own
+  since stage 7). The kernel lock
   takes its spinlock RAW -- it is held whenever the kernel runs.
 - **The idle halt drops the kernel lock only where another context
   could run anyway**: interrupts on, preemptible, depth 1. A caller
@@ -415,7 +416,8 @@ retake it, as Linux 2.0's `schedule()` did. The lost-wakeup arguments in
   start. Everything else in `procs[]` is shared under the kernel lock,
   and the per-CONTEXT globals (`g_isr_depth`, the preemption depth) stay
   global: they are 0 whenever the lock is free, so the holder's are the
-  only ones that exist.
+  only ones that exist. (Per core since stage 7, which needs a guard
+  outside the kernel lock.)
 - **An AP's idle context** is its park loop's successor (`smp.c`'s
   `ap_schedule()`): `sti; hlt` holding nothing, its own saved context
   in `struct cpu`. Its tick and the reschedule IPI share vector 0xFC and
@@ -622,6 +624,63 @@ driver's `paging_map_device()` at bind, a write-combining retype, and
 `paging.c`, not of `vmm.c`'s callers.
 
 ### Stage 7 -- split the lock, in measured order
+
+**Built 2026-11-21: the measurement and the prerequisites.** No path
+leaves the kernel lock yet; what changed is what a path that does would
+stand on:
+
+- **`lockstat`** (`kernel/proc/lockstat.c`, `docs/commands/lockstat.md`)
+  -- Linux's `lock_stat` for the counted spinlocks: takes, waits, wait
+  and hold totals and maxima, per lock (`QUERY_LOCKSTAT`), and for the
+  kernel lock per core and per ENTRY, a syscall or a vector
+  (`QUERY_BKLSTAT`). `SPINLOCK_COUNTED()` registers a lock by declaring
+  it. Every field is written by the holder under the lock, so it needs
+  no atomics. **Hold times are armed** (`lockstat track on`, the
+  `kernel.lockstat` tunable): timed always, they measured +25% on a
+  `getpid` and +44% on a 1-byte pipe round trip on one KVM core. Off,
+  takes and waits are still counted and an uncontended take reads no
+  clock: `getpid` +2%, the pipe +14% -- the heap's lock itself, an
+  uncontended atomic and an irqsave twice per call (the bounce buffer's
+  kmalloc/kfree). Per-core allocation caches (Linux's per-CPU slabs and
+  pagesets) are what would win that back.
+- **The preemption guard and the interrupt depth are per core** (`struct
+  cpu`'s `preempt_depth`/`isr_depth`, moved by one `%gs` instruction).
+  As one global each they were the kernel lock holder's alone, so a
+  spinlock taken outside the kernel lock could not raise the guard.
+  GS.base now points at the boot core's `struct cpu` from
+  `kernel_main()`'s first line, since the heap and the frame allocator
+  take spinlocks before `gdt_init()`.
+- **The heap and the frame allocator each have an irqsave spinlock**,
+  heap before frames. Proven by KTESTs (`kernel/proc/lockstat_test.c`)
+  that have every core allocate at once through `smp_call()`, outside
+  the kernel lock: red with either lock removed (a frame handed to two
+  cores; a corrupt heap header and a panic), red with the guard sent to
+  the boot core's field.
+
+**Measured on KVM, four vCPUs** (`lockstat -i N -e`, holds timed):
+
+| load | kernel lock held | takes that waited | longest holders |
+|---|---|---|---|
+| idle desktop, 3 s | 4% | 23% | -- |
+| `diskbench`, 8 s | 19% | 49% | `core tick` (an AP's tick and reschedule) 0.83 s, `kernel` 0.23 s, `read`/`write` 0.14 s each; the boot core's own timer waited 0.49 s to get in |
+| 3 x `syscall_bench`, 5 s | 86% | 81% | `yield` 2.9 s, `getpid` 0.94 s over 9.8 M takes |
+| heap, frames | under 0.5% held | 0 waits in every load | -- |
+
+So the heap and the frame allocator are not where the contention is,
+and splitting them bought correctness for later, not time now. **The
+numbers point at two things**: calls that need nothing the lock protects
+(`getpid`, `monotonic_ns`, `ticks` -- FreeBSD's `MPSAFE` flag in its
+syscall table is the shape, a flag in `syscall_table.c`), and the
+scheduler's own tick and rotation, which is item 4 below.
+
+**A cross-core call function must not take a counted lock that its
+target might be spinning for**: `take()` answers calls while it spins
+(`smp_poll_ipis()`), so the call would queue behind its own core's
+ticket. True today because nothing takes the heap or frame lock outside
+the kernel lock, which every call's sender holds; the first path that
+does makes it a rule to enforce.
+
+The plan as written:
 
 The order comes from the table above, and each split is its own change
 with its own test:

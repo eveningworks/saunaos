@@ -40,8 +40,8 @@
 //
 // kmalloc()/kfree()/heap_check() take heap_os_lock(), which is a real
 // lock in ring 3 (two threads of one process are preempted at any
-// instruction and share one free list) and preemption-off in the
-// kernel. The kernel's half USED to be a no-op, on the argument that
+// instruction and share one free list) and an irqsave spinlock in the
+// kernel (SMP stage 7; it was preemption-off before). The kernel's half USED to be a no-op, on the argument that
 // nothing preempts kernel code mid-kmalloc; making the syscall gate a
 // trap gate is what ended that. See api/heap_os.h and
 // kernel/mm/heap_os.c.

@@ -148,7 +148,7 @@ struct sched_process {
     uint8_t group_dying;
     int group_exit_code;
     int preempt_depth;    // this context's scheduler_preempt_disable()
-                          // nesting -- see g_preempt_depth
+                          // nesting -- see struct cpu's preempt_depth
     uint64_t offcpu_tsc;  // TSC ticks spent switched away, summed --
                           // what a syscall timing subtracts, see
                           // scheduler_offcpu_tsc()

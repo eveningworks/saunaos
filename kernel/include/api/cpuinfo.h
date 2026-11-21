@@ -188,6 +188,9 @@ void cpu_info_get(struct cpu_info *out);
 // The TSC's rate in Hz, unrounded -- what a clock is built from; 0 if
 // cpu_info_init() found none. struct cpu_info's `mhz` is this, rounded.
 uint64_t cpu_tsc_hz(void);
+// `ticks` of it in nanoseconds, without overflowing at days of ticks;
+// 0 when there is no rate.
+uint64_t cpu_tsc_ns(uint64_t ticks);
 
 // The two accessors below are `static inline` HERE rather than
 // implemented in cpuid.c, and that's deliberate: /bin/lscpu and the

@@ -21,6 +21,8 @@
 // while running in ring 3 (even just the timer tick) has nowhere valid to
 // switch to and the CPU triple-faults.
 void gdt_init(void);
+// The boot core's GS.base, before anything else in kernel_main() (gdt.c).
+void gdt_percpu_early(void);
 
 struct cpu;
 // Builds `c`'s GDT and TSS (RSP0 and the #DF/NMI IST stacks given),

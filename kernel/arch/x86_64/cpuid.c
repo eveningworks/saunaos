@@ -149,6 +149,12 @@ void cpu_info_init(void) {
 
 uint64_t cpu_tsc_hz(void) { return g_cached_hz; }
 
+uint64_t cpu_tsc_ns(uint64_t ticks) {
+    uint64_t hz = g_cached_hz;
+    if (!hz) return 0;
+    return ticks / hz * 1000000000ull + ticks % hz * 1000000000ull / hz;
+}
+
 static void fill_mhz(struct cpu_info *out) {
     // Whatever cpu_info_init() worked out, or UNKNOWN if it never ran.
     // Never calibrates here -- see cpu_info_init()'s comment.

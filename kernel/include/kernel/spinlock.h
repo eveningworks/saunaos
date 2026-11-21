@@ -16,16 +16,19 @@
 // All-zero is unlocked, so a static or a `= {0}` struct needs no init.
 #include <stdint.h>
 
+struct lockstat;
+
 struct spinlock {
     volatile uint32_t next;      // the next ticket handed out
     volatile uint32_t serving;   // the ticket that holds it
     volatile uint32_t holder;    // holding core's index + 1; 0 = free
     uint32_t pad;
     uintptr_t site;              // the holder's call site, for the lockup report
+    struct lockstat *stat;       // its counters (lockstat.h), or 0 for none
 };
 
-// A holder is not preempted: these raise the preemption guard (on the
-// BSP until stage 5), as Linux's spin_lock() does.
+// A holder is not preempted: these raise this core's preemption guard,
+// as Linux's spin_lock() does.
 void spin_lock(struct spinlock *l);
 void spin_unlock(struct spinlock *l);
 

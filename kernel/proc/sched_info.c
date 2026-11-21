@@ -3,7 +3,7 @@
 // reach the table through. Split out of scheduler.c; sched_internal.h
 // has the map.
 
-#include "cpuinfo.h"   // cpu_tsc_hz() -- delay totals in nanoseconds
+#include "cpuinfo.h"   // cpu_tsc_ns() -- delay totals in nanoseconds
 #include "sandbox.h"
 #include "sandbox_abi.h"
 #include "sched_internal.h"
@@ -199,12 +199,6 @@ int scheduler_proc_info_pid(int pid, struct proc_info *out) {
 
 // A delay total in nanoseconds. Split so a long total cannot overflow the
 // multiply; 0 where the TSC's rate is unknown.
-static uint64_t delay_ns(uint64_t tsc) {
-    uint64_t hz = cpu_tsc_hz();
-    if (!hz) return 0;
-    return tsc / hz * 1000000000ull + tsc % hz * 1000000000ull / hz;
-}
-
 int scheduler_proc_info(int index, struct proc_info *out) {
     if (index == PROC_INFO_SELF) index = current_index;
     if (!out || index < 0 || index >= MAX_PROCS) return 0;
@@ -239,9 +233,9 @@ int scheduler_proc_info(int index, struct proc_info *out) {
     out->tgid = p->tgid;
     out->ready = p->ready ? 1u : 0u;
     out->cpu_ns = p->cpu_ns;
-    out->delay_disk_ns = delay_ns(p->delay_tsc[SCHED_DELAY_DISK]);
-    out->delay_lock_ns = delay_ns(p->delay_tsc[SCHED_DELAY_LOCK]);
-    out->delay_runq_ns = delay_ns(p->delay_tsc[SCHED_DELAY_RUNQ]);
+    out->delay_disk_ns = cpu_tsc_ns(p->delay_tsc[SCHED_DELAY_DISK]);
+    out->delay_lock_ns = cpu_tsc_ns(p->delay_tsc[SCHED_DELAY_LOCK]);
+    out->delay_runq_ns = cpu_tsc_ns(p->delay_tsc[SCHED_DELAY_RUNQ]);
     out->exit_code = p->exit_code;
     out->nice = p->nice;
     out->policy = p->policy;

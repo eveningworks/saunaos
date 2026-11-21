@@ -49,7 +49,7 @@ void idt_set_ring3_fault_hook(ring3_fault_hook_fn hook);
 // What is still unsafe is everything that assumed a syscall runs to
 // completion -- but the list is shorter than it was, and the examples
 // this comment used to give are DONE. `heap_os_lock()` is real in ring
-// 0 now (preemption-off, kernel/mm/heap_os.c), so a tick landing
+// 0 now (a spinlock, kernel/mm/heap_os.c), so a tick landing
 // mid-kmalloc no longer hands the free list to a second walker, and
 // query.c guards its providers at the one place every caller passes
 // through. What actually holds the trap gate today is measured and

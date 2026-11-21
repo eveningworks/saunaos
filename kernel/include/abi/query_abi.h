@@ -715,6 +715,17 @@ struct query_firmware {
 // `/bin/cpus` reads it; the debug console's `cpus` prints the same.
 #define QUERY_CPUSTATE 63
 
+// HOW CONTENDED EACH NAMED SPINLOCK IS, Linux's /proc/lock_stat: one
+// record per counted lock (the kernel lock, the heap, the frame
+// allocator), CUMULATIVE since boot -- a reader takes two samples for an
+// interval, as `lockstat -i` does. LIST (struct query_lockstat).
+#define QUERY_LOCKSTAT 64
+
+// WHO USES THE KERNEL LOCK: a record per core, then one per entry that
+// has taken it -- a vector, a syscall, the kernel itself -- with what it
+// waited and held. CUMULATIVE. LIST (struct query_bklstat).
+#define QUERY_BKLSTAT 65
+
 struct query_imgcache {
     char     path[QUERY_IMGCACHE_PATH_MAX];
     uint64_t frames;
@@ -1228,6 +1239,47 @@ struct query_cpustate {
     int64_t  bkl_pid;        // ...for whom
 };
 _Static_assert(sizeof(struct query_cpustate) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
+
+#define QUERY_LOCKSTAT_NAME_MAX 24
+
+// QUERY_LOCKSTAT's record. Every time is nanoseconds. A wait is the spin
+// before the lock was had, a hold the time from then to its release; a
+// counted lock is taken by kernel code only, so these are kernel time.
+// HOLDS ARE COUNTED ONLY WHILE `kernel.lockstat` IS ON, from
+// `timed_since_ns` (0: off, and the hold fields mean nothing); takes and
+// waits are always counted, from boot.
+struct query_lockstat {
+    char     name[QUERY_LOCKSTAT_NAME_MAX];   // "kernel", "heap", "frames"
+    uint64_t acquired;      // takes, waited for or not
+    uint64_t contended;     // ...of which waited
+    uint64_t wait_ns, wait_max_ns;
+    uint64_t hold_ns, hold_max_ns;
+    uint64_t now_ns;        // the monotonic clock, for a reader's interval
+    uint64_t timed_since_ns; // when hold timing was armed; 0 while it is off
+};
+_Static_assert(sizeof(struct query_lockstat) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
+
+// QUERY_BKLSTAT's kinds, ABI-stable.
+#define QUERY_BKLSTAT_CORE    0   // id: the core's index
+#define QUERY_BKLSTAT_VECTOR  1   // id: an interrupt or exception vector, `name` what it is
+#define QUERY_BKLSTAT_SYSCALL 2   // id: the syscall number, `name` its name
+#define QUERY_BKLSTAT_KERNEL  3   // the kernel itself: a retake after the idle halt, the boot
+
+// QUERY_BKLSTAT's record. A hold is billed to the entry that TOOK the
+// lock; a switch on that core may hand its release to another context.
+// A core's row has no maxima (0). Holds only while `kernel.lockstat` is
+// on, as QUERY_LOCKSTAT's.
+struct query_bklstat {
+    uint64_t kind;          // QUERY_BKLSTAT_*
+    uint64_t id;
+    char     name[QUERY_LOCKSTAT_NAME_MAX];
+    uint64_t takes, contended;
+    uint64_t wait_ns, wait_max_ns;
+    uint64_t hold_ns, hold_max_ns;
+};
+_Static_assert(sizeof(struct query_bklstat) <= 256,
                "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
 
 // QUERY_DRIVER's record. `devices` is space-separated and may be empty,

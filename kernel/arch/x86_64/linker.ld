@@ -115,6 +115,18 @@ SECTIONS
         __initcalls_end = .;
     } :rodata
 
+    /* Counted spinlocks. SPINLOCK_COUNTED() (kernel/include/kernel/
+       lockstat.h) drops one pointer to its counters per lock, and
+       QUERY_LOCKSTAT walks them. Same placement reasoning as .drivers;
+       the counters themselves are ordinary .data. */
+    . = ALIGN(8);
+    .lockstats :
+    {
+        __lockstats_start = .;
+        KEEP(*(.lockstats))
+        __lockstats_end = .;
+    } :rodata
+
     /* PCI drivers. PCI_DRIVER() (kernel/include/kernel/pci_driver.h)
        drops one struct pci_driver -- a match table and a probe -- per
        driver, and pci_bind() walks devices against them. Same mechanism

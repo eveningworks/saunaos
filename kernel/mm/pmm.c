@@ -27,9 +27,11 @@
 #include "string.h"
 #include "kasan.h"
 #include "page_report.h"
-#include "irqflags.h"
+#include "lockstat.h"     // g_pmm_lock
 #include "fault_inject.h" // a run longer than a test allows fails, as on a fragmented machine
 #include <stddef.h>
+
+SPINLOCK_COUNTED(g_pmm_lock, "frames");   // alloc_frame_locked() says what it covers
 
 // Linker symbols from kernel/arch/x86_64/linker.ld: the running image's extent. With
 // kernel ASLR, `_kernel_end - kernel_reloc_delta()` is the abandoned
@@ -387,11 +389,13 @@ static uint64_t alloc_one_in(int z, uint64_t floor) {
     return 0;
 }
 
-// **EVERY CHANGE TO THE BITMAP, THE COUNTS AND `refs` RUNS WITH
-// INTERRUPTS OFF** -- each is a read-modify-write, and a syscall that
-// faults a page in can be preempted inside one when interrupts are on in
-// a call: two allocations then took the same frame (tests/pagerace_test).
-// Linux takes its zone lock with interrupts off for the same section.
+// **EVERY CHANGE TO THE BITMAP, THE COUNTS AND `refs` RUNS UNDER
+// g_pmm_lock WITH INTERRUPTS OFF** -- each is a read-modify-write, and a
+// syscall that faults a page in can be preempted inside one when
+// interrupts are on in a call: two allocations then took the same frame
+// (tests/pagerace_test). The lock (SMP stage 7) is what excludes another
+// core once a path runs without the kernel lock; Linux's zone lock is
+// the same irqsave section. Taken after the heap's, never before.
 static uint64_t alloc_frame_locked(enum pmm_zone zone) {
     // ANY tries the high zone first so DMA32 is kept for the callers
     // that have no choice; a machine with nothing up there falls
@@ -406,9 +410,9 @@ static uint64_t alloc_frame_locked(enum pmm_zone zone) {
 
 uint64_t pmm_alloc_frame(enum pmm_zone zone) {
     BOOT_REQUIRE(BOOT_SUB_PMM);
-    uint64_t flags = irq_save();
+    uint64_t flags = spin_lock_irqsave(&g_pmm_lock);
     uint64_t p = alloc_frame_locked(zone);
-    irq_restore(flags);
+    spin_unlock_irqrestore(&g_pmm_lock, flags);
     return p;
 }
 
@@ -465,26 +469,26 @@ void pmm_kasan_poison_free(void) {
 
 void pmm_free_frame(uint64_t phys_addr) {
     BOOT_REQUIRE(BOOT_SUB_PMM);
-    uint64_t flags = irq_save();   // pmm_alloc_frame() says why
+    uint64_t flags = spin_lock_irqsave(&g_pmm_lock);   // pmm_alloc_frame() says why
     free_one(phys_addr / FRAME_SIZE);
-    irq_restore(flags);
+    spin_unlock_irqrestore(&g_pmm_lock, flags);
 }
 
 void pmm_frame_ref(uint64_t phys_addr) {
     uint64_t f = phys_addr / FRAME_SIZE;
-    uint64_t flags = irq_save();
+    uint64_t flags = spin_lock_irqsave(&g_pmm_lock);
     if (f < max_frames && bit_is_used(f) && refs[f] != 0 &&
         refs[f] != 0xFFFF)   // saturated: the frame is simply never freed
         refs[f]++;
-    irq_restore(flags);
+    spin_unlock_irqrestore(&g_pmm_lock, flags);
 }
 
 int pmm_frame_pin(uint64_t phys_addr) {
     uint64_t f = phys_addr / FRAME_SIZE;
-    uint64_t flags = irq_save();
+    uint64_t flags = spin_lock_irqsave(&g_pmm_lock);
     int took = f < max_frames && bit_is_used(f) && refs[f] != 0 && refs[f] != 0xFFFF;
     if (took) refs[f]++;
-    irq_restore(flags);
+    spin_unlock_irqrestore(&g_pmm_lock, flags);
     return took;
 }
 
@@ -527,23 +531,23 @@ uint64_t pmm_alloc_contiguous(uint64_t count, enum pmm_zone zone) {
     if (count == 0) return 0;
     if (count == 1) return pmm_alloc_frame(zone);
     if (fault_should_fail_contiguous(count)) return 0;
-    uint64_t flags = irq_save();
+    uint64_t flags = spin_lock_irqsave(&g_pmm_lock);
     uint64_t p = 0;
     if (zone == PMM_ZONE_ANY) p = alloc_run_in(1, count, 0);
     if (!p) p = alloc_run_in(0, count, zone == PMM_ZONE_ANY ? dma32_reserve : 0);
-    irq_restore(flags);
+    spin_unlock_irqrestore(&g_pmm_lock, flags);
     return p;
 }
 
 void pmm_free_contiguous(uint64_t phys_addr, uint64_t count) {
     BOOT_REQUIRE(BOOT_SUB_PMM);
     uint64_t f = phys_addr / FRAME_SIZE;
-    uint64_t flags = irq_save();
+    uint64_t flags = spin_lock_irqsave(&g_pmm_lock);
     for (uint64_t i = 0; i < count; i++) {
         if (f + i >= max_frames) break;
         free_one(f + i);
     }
-    irq_restore(flags);
+    spin_unlock_irqrestore(&g_pmm_lock, flags);
 }
 
 // Is this physical address one pmm accounts for at all? False for MMIO
@@ -604,26 +608,26 @@ int pmm_report_isolate(uint64_t *cursor, struct page_report_run *runs, int max_r
         uint64_t f0 = b * PAGE_REPORT_BLOCK_FRAMES;
         int z = zone_of(f0);
         uint64_t floor = keep_free + (z == 0 ? dma32_reserve : 0);
-        uint64_t flags = irq_save();
+        uint64_t flags = spin_lock_irqsave(&g_pmm_lock);
         if (zone_free[z] < floor + PAGE_REPORT_BLOCK_FRAMES) {
-            irq_restore(flags);
+            spin_unlock_irqrestore(&g_pmm_lock, flags);
             if (z == 1) { b = report_blocks; break; }   // nothing more to take up here
             b = dma32_end - 1;                           // skip to the high zone
             continue;
         }
         if (block_is_reported(b) || !block_wholly_free(b)) {
-            irq_restore(flags);
+            spin_unlock_irqrestore(&g_pmm_lock, flags);
             continue;
         }
         int extend = n && runs[n - 1].phys + runs[n - 1].len == f0 * FRAME_SIZE &&
                      zone_of(runs[n - 1].phys / FRAME_SIZE) == z;
         if (!extend && n == max_runs) {
-            irq_restore(flags);
+            spin_unlock_irqrestore(&g_pmm_lock, flags);
             break;
         }
         for (uint64_t i = 0; i < PAGE_REPORT_BLOCK_FRAMES; i++) mark_used_bit(f0 + i);
         zone_free[z] -= PAGE_REPORT_BLOCK_FRAMES;
-        irq_restore(flags);
+        spin_unlock_irqrestore(&g_pmm_lock, flags);
         if (extend) {
             runs[n - 1].len += bytes;
         } else {
@@ -638,7 +642,7 @@ int pmm_report_isolate(uint64_t *cursor, struct page_report_run *runs, int max_r
 }
 
 void pmm_report_release(const struct page_report_run *runs, int n, int was_reported) {
-    uint64_t flags = irq_save();
+    uint64_t flags = spin_lock_irqsave(&g_pmm_lock);
     for (int r = 0; r < n; r++) {
         uint64_t f0 = runs[r].phys / FRAME_SIZE, count = runs[r].len / FRAME_SIZE;
         for (uint64_t i = 0; i < count; i++) mark_free_bit(f0 + i);
@@ -648,7 +652,7 @@ void pmm_report_release(const struct page_report_run *runs, int n, int was_repor
             if (was_reported && b < report_blocks) reported[b / 8] |= (uint8_t)(1u << (b % 8));
         }
     }
-    irq_restore(flags);
+    spin_unlock_irqrestore(&g_pmm_lock, flags);
 }
 
 uint64_t pmm_report_blocks(void) { return report_blocks; }

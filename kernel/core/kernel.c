@@ -91,6 +91,7 @@ static void klog_write_dec2(uint8_t n) {
 }
 
 void kernel_main(uint64_t multiboot_info_addr) {
+    gdt_percpu_early();   // the preemption guard lives behind GS.base
     serial_init();
     // THE BANNER FIRST, so a captured log identifies its build before
     // anything else can go wrong -- which is the whole reason Linux

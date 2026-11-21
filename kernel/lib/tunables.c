@@ -33,6 +33,7 @@
 #include "block.h"        // blk_root_name() -- what IS carrying the transfers
 #include "keyboard_tap.h" // kbdtap_enabled()/_set_enabled() -- kernel.kbdtap
 #include "syscall_stall.h" // syscall_stall_get()/_set() -- kernel.syscall_stall
+#include "lockstat.h"      // lockstat_timing_set() -- kernel.lockstat
 #include "sound.h"        // hda_diag_tone() -- kernel.hda_tone
 #include "usb.h"          // usb_diag_reset_port() -- kernel.usb.reset
 #include "intel_display.h" // intel_display_pipe_cycle()/_link_retrain() -- kernel.intel_cycle
@@ -243,6 +244,35 @@ static const struct setting syscall_stall_setting = {
     .choice = onoff_choice,
     .get = syscall_stall_get_str,
     .apply = syscall_stall_apply,
+};
+
+// ---- kernel.lockstat -------------------------------------------------
+//
+// OFF BY DEFAULT for kernel.syscall_stall's reason: armed, every take of a
+// counted spinlock reads the TSC twice (lockstat.h). Arming from off
+// zeroes the hold totals.
+
+static void lockstat_get_str(char *out, uint32_t cap) {
+    k_strlcpy(out, lockstat_timing() ? "on" : "off", cap);
+}
+
+static int lockstat_apply(const char *value) {
+    int on;
+    if (!parse_onoff(value, &on)) return SETTING_INVALID;
+    if (!lockstat_timing_set(on)) return SETTING_INVALID;   // no TSC rate
+    return SETTING_SAVED;
+}
+
+static const struct setting lockstat_setting = {
+    .name = "lockstat",
+    .label = "Spinlock hold timing",
+    .type = SETTING_TYPE_ENUM,
+    .file = CONFIG_PATH_RUNTIME,
+    .category = TUNABLE_CATEGORY,
+    .group = "Diagnostics",
+    .choice = onoff_choice,
+    .get = lockstat_get_str,
+    .apply = lockstat_apply,
 };
 
 // ---- kernel.kbdtap ---------------------------------------------------
@@ -806,5 +836,6 @@ void tunables_register(void) {
     setting_register(&ata_nodma_setting);
     setting_register(&kstack_track_setting);
     setting_register(&syscall_stall_setting);
+    setting_register(&lockstat_setting);
     setting_register(&kbdtap_setting);
 }

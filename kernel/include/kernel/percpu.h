@@ -102,6 +102,18 @@ struct cpu {
     uint32_t calls_taken;     // cross-core calls run here (call_service())
     uint32_t flushes_taken;   // shootdowns answered here (tlb_service())
     uint32_t pad4;
+    // The RUNNING CONTEXT's preemption-guard and interrupt nesting
+    // (scheduler.c, idt.c): saved into the outgoing context and loaded
+    // from the incoming one at every switch, so each is per context and
+    // a core only ever moves its own. Moved only by this_cpu_add() and
+    // friends -- one %gs instruction, which a migration cannot split.
+    int preempt_depth;
+    int isr_depth;
+    // How this core uses the kernel lock (bkl.c, QUERY_BKLSTAT): the
+    // entry that took it now (bkl.h's BKL_KEY_*), and its totals.
+    uint32_t bkl_key;
+    uint32_t pad5;
+    uint64_t bkl_takes, bkl_contended, bkl_wait_tsc, bkl_hold_tsc;
 };
 
 // ONE FIELD OF THIS CORE'S struct cpu IN ONE `%gs` INSTRUCTION, Linux's
@@ -128,6 +140,18 @@ struct cpu {
     __asm__ volatile ("mov %0, %%gs:%c1"                                      \
                       :: "r"(this_cpu_w_), "i"(__builtin_offsetof(struct cpu, f)) \
                       : "memory");                                            \
+} while (0)
+
+// `f += n` in one instruction (Linux's this_cpu_add()), for a field
+// that travels with the running context: a move between a read and a
+// write would be harmless too, but one `add` needs no argument.
+#define this_cpu_add(f, n) do {                                               \
+    _Static_assert(sizeof(((struct cpu *)0)->f) == 4 ||                       \
+                   sizeof(((struct cpu *)0)->f) == 8, "this_cpu_add: 4 or 8 bytes"); \
+    __typeof__(((struct cpu *)0)->f + 0) this_cpu_a_ = (n);                   \
+    __asm__ volatile ("add %0, %%gs:%c1"                                      \
+                      :: "r"(this_cpu_a_), "i"(__builtin_offsetof(struct cpu, f)) \
+                      : "memory", "cc");                                      \
 } while (0)
 
 // UNCHECKED: for a reader that knows a move cannot matter -- the check

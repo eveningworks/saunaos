@@ -285,8 +285,8 @@ void idt_init(void) {
 // kind of fact. A plain global counter leaked to 348 the moment
 // syscalls became preemptible: the increment ran on one context and the
 // decrement on another. isr_reset_depth() still covers the longjmp
-// teardown, which restores nothing.
-static volatile int g_isr_depth = 0;
+// teardown, which restores nothing. It is struct cpu's isr_depth
+// (percpu.h), each core's own.
 
 // Spurious LAPIC interrupts. A handful over a boot is normal (a masked
 // line racing an in-flight delivery); a rising count is a real symptom,
@@ -319,17 +319,17 @@ static int fault_signal(uint64_t vector) {
 }
 
 int isr_in_progress(void) {
-    return g_isr_depth > 0;
+    return this_cpu_read(isr_depth) > 0;
 }
 
 void isr_reset_depth(void) {
-    g_isr_depth = 0;
+    this_cpu_write(isr_depth, 0);
 }
 
 // The scheduler's half: a context switch changes whose kernel stack
 // these describe, so both travel with kernel_rsp.
-int isr_depth_get(void) { return g_isr_depth; }
-void isr_depth_set(int d) { g_isr_depth = d; }
+int isr_depth_get(void) { return this_cpu_read(isr_depth); }
+void isr_depth_set(int d) { this_cpu_write(isr_depth, d); }
 
 
 
@@ -961,10 +961,10 @@ void isr_dispatch(uint64_t *regs) {
         struct cpu *c = core != 0 ? this_cpu_raw() : 0;
         uint64_t was = c ? c->wedge_vec : 0;
         if (c) c->wedge_vec = vector + 1;
-        int outer_depth = g_isr_depth;
-        g_isr_depth = outer_depth + 1;
+        int outer_depth = this_cpu_read(isr_depth);
+        this_cpu_write(isr_depth, outer_depth + 1);
         isr_dispatch_body(regs);
-        g_isr_depth = outer_depth;
+        this_cpu_write(isr_depth, outer_depth);
         if (c) c->wedge_vec = was;   // returned: a kdebug trap took it, nothing wedged
         return;
     }
@@ -977,10 +977,9 @@ void isr_dispatch(uint64_t *regs) {
             smp_ap_interrupt(vector);
             return;
         }
-        // A PARKED one touches nothing shared, not even g_isr_depth. One
-        // scheduling under smp=run takes the ordinary path, but for what
-        // takes no kernel lock -- the call IPI, an NMI -- since
-        // g_isr_depth below is only the lock holder's to move.
+        // A PARKED one touches nothing shared. One scheduling under
+        // smp=run takes the ordinary path, but for what takes no kernel
+        // lock -- the call IPI, an NMI -- which needs none of it.
         if (this_cpu_raw()->state != CPU_RUNNING || !takes_bkl(regs)) {   // as `core`
             smp_ap_interrupt(vector);
             return;
@@ -988,12 +987,12 @@ void isr_dispatch(uint64_t *regs) {
     }
     int bkl = takes_bkl(regs);
     if (bkl) bkl_enter(regs);
-    int outer_depth = g_isr_depth;
-    g_isr_depth = outer_depth + 1;
+    int outer_depth = this_cpu_read(isr_depth);
+    this_cpu_write(isr_depth, outer_depth + 1);
     isr_dispatch_body(regs);
     // RESTORED, not decremented: it describes THIS kernel stack, and a
     // switch part-way through the body reloaded it for another one --
     // then put this stack's back when we were resumed.
-    g_isr_depth = outer_depth;
+    this_cpu_write(isr_depth, outer_depth);
     if (bkl) bkl_exit(regs);
 }
