@@ -129,6 +129,16 @@ comments in the file list every option. Some also have a **boot flag**
 that overrides them for one boot without rebuilding, such as `nohz=off`
 and `highres=off` — see [boot-flags.md](boot-flags.md).
 
+**`make menuconfig`** shows all of it in a text UI: the groups on the
+left, each option or driver with its value on the right, and the help
+for the selected one below. Space changes a value, Enter edits a number
+or text, `/` searches. **`s` saves to `build.local.conf`**, which git
+ignores and the build reads on top of `build.conf` -- a change for this
+checkout alone, that cannot be committed by accident. **`S`** writes the
+changes into `build.conf` itself, after asking, for a change everyone
+should build with. Delete `build.local.conf` to build as `build.conf`
+says; a build made with it is not published by `update_server.py`.
+
 ### A build with no GPL code
 
 `NOGPL=1` leaves out every program built from a port whose licence is
