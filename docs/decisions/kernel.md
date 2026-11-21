@@ -8994,7 +8994,7 @@ unauthenticated root shell on a serial port. Linux listens on a serial
 line only when configured to (`kgdboc=`, a getty) and Windows' Special
 Administration Console only after `bcdedit /ems on`. `make iso` bakes
 the word in, because every test needs it; release media are built with
-`DEBUGCON=0`.
+`PROFILE=release`, whose `configs/release.conf` sets `debugcon = no`.
 
 **The console's port is a real TERMINAL** (`kernel/tty/serial_tty.c`,
 a `tty_driver` on the debug port). A second port alone left `sh cat`

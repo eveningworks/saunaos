@@ -178,9 +178,10 @@ before you start delivering -- don't reconstruct it from memory.
   tested changes. Tags and `gh release` publishing still get
   confirmed first.
 - **Release assets, if cutting one:** `make clean-disk && make live-iso
-  usb-image DEBUGCON=0` (no session-local test data, no serial debug
+  usb-image PROFILE=release` (`configs/release.conf`: no serial debug
   console -- an unauthenticated root shell -- and so no `/tests` in the
-  live image, `LIVE_TESTS` following it), push the tag, then
+  live image, `LIVE_TESTS` following it; no build.local.conf; no
+  session-local test data), push the tag, then
   `sh tools/build/release_assets.sh <version>`. It REFUSES unless the tree is
   clean (untracked files included), `v<version>` is HEAD and on origin at
   the same commit, and both images were built from that commit; then it

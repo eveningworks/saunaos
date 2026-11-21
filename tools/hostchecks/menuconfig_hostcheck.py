@@ -46,6 +46,8 @@ REPO = toolpath.REPO
 sys.path.insert(0, os.path.join(REPO, "tools", "build"))
 import build_conf as bc  # noqa: E402
 import menuconfig as mc  # noqa: E402
+sys.path.insert(0, os.path.join(REPO, "tools", "dev"))
+import update_server as us  # noqa: E402
 
 FAILS = []
 
@@ -140,6 +142,78 @@ def model_body(d, base, local):
           "an empty answer leaves an unset option unset")
 
 
+def round2_checks():
+    """Profiles, the map kind, the module check and the boot-word picker's
+    logic -- profiles written into a scratch configs/, never the tree's."""
+    d, base, local = scratch()
+    saved_profiles = bc.PROFILES
+    try:
+        bc.PROFILES = os.path.join(d, "configs")
+        os.makedirs(bc.PROFILES)
+        for name in ("release", "debug"):
+            shutil.copy(os.path.join(REPO, "configs", name + ".conf"), bc.PROFILES)
+        check(bc.option_value("x", 0, "kdebug", "serial") == ("KDEBUG", "1") and
+              bc.option_value("x", 0, "kdebug", "off") == ("KDEBUG", ""), "kdebug maps its words")
+        with open(local, "w") as fh:
+            fh.write("option kasan = yes\n")
+        o, _d = bc.load(base, local, bc.profile_path("release"))
+        check(o["debugcon"][0] == "no" and o["kasan"][0] == "no",
+              "a profile is read on top of build.conf, and build.local.conf is not")
+        os.remove(local)
+        stamp = os.path.join(d, "seed-overrides")
+        cases = [("# profile: release\n", False), ("# profile: debug\n", True),
+                 ("# kdebug: 1\n", True),
+                 ("# build.local.conf overrides: kasan = yes\n", True), ("", False)]
+        for text, refused in cases:
+            with open(stamp, "w") as fh:
+                fh.write(text)
+            got = us._local_conf_reason(stamp) is not None
+            check(got == refused, f"publish {'refuses' if refused else 'takes'} {text.strip() or 'build.conf alone'}")
+        m = mc.Model(base, local)
+        check(m.load_profile("debug") is None and m.value(("option", "kasan")) == "yes"
+              and ("option", "kasan") in m.pending, "loading a profile makes its lines unsaved changes")
+        with open(os.path.join(bc.PROFILES, "bad.conf"), "w") as fh:
+            fh.write("option ubsan = yes\noption hz = abc\n")
+        with open(os.path.join(bc.PROFILES, "broke.conf"), "w") as fh:
+            fh.write("this line has no equals sign\n")
+        with open(os.path.join(bc.PROFILES, "Stray.conf"), "w") as fh:
+            fh.write("option ubsan = yes\n")
+        check("Stray" not in bc.profiles(), "a file no profile may be named is not offered")
+        groups = dict(mc.build_groups(m))
+        check(any(i.key == ("broken", "broke") for i in groups["Profiles"]),
+              "a broken profile shows as broken rather than stopping the UI")
+        m.pending.clear()
+        check(m.load_profile("bad") is not None and not m.pending, "a broken profile loads nothing")
+        m.load_profile("debug")
+        check(m.write_profile("mine", "A test profile.") is None, "w writes the changes as a profile")
+        o, _d = bc.load(base, profile=bc.profile_path("mine"))
+        check(o["ubsan"][0] == "yes" and o["debug_preempt"][0] == "yes", "...which build_conf.py reads back")
+        # The module check, on the build's own objects when there are any.
+        need, obj = m.module_check("block_ram")
+        if need is None:
+            print(f"  skip  module check: {os.path.relpath(obj, REPO)} not built")
+        else:
+            check("blk_register" in need, "block_ram needs blk_register exported to be a module")
+            check(m.module_check("e1000")[0] in ([], None), "e1000, a module today, imports only exports")
+        rows = mc.boot_words()
+        check(len(rows) >= 50, f"the picker reads docs/boot-flags.md's table ({len(rows)} rows)")
+        smp = next(r for r in rows if r.key == "smp")
+        plain = next(r for r in rows if r.forms == ["nokaslr"])
+        words = ["video=1920x1080"]
+        words = mc.toggle_word(None, plain, words)
+        check(words == ["video=1920x1080", "nokaslr"], "a plain word toggles on")
+        words = mc.toggle_word(None, plain, words)
+        check(words == ["video=1920x1080"], "...and off, the rest kept")
+        seq = []
+        for _ in range(3):
+            words = mc.toggle_word(None, smp, words)
+            seq.append([w for w in words if w.startswith("smp")])
+        check(seq == [["smp=run"], ["smp=park"], []], "a choice steps run, park, then off")
+    finally:
+        bc.PROFILES = saved_profiles
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def drive(base, local, keys, cols=110, rows=32, timeout=15):
     """Run the UI in a pty, send `keys` (a list of byte strings) one at a
     time once it has drawn, and wait for it to exit."""
@@ -210,6 +284,14 @@ def screen_body(d, base, local):
     text = open(local).read() if os.path.exists(local) else ""
     check("option kasan = yes" in text, "Space then s on kasan saved it to build.local.conf")
     check(open(base).read() == original, "...and left build.conf untouched")
+    # The picker: cmdline is the third row of the first group.
+    # Filtered on the exact word, so a new row mentioning SMP cannot move it.
+    status, _out = drive(base, local, [tab, down, down, b"\n", b"/", *[bytes([c]) for c in b"smp=run"],
+                                       b"\n", b" ", b"\x1b", b"s", b"q"])
+    text = open(local).read() if os.path.exists(local) else ""
+    check("option cmdline = smp=run" in text, "the picker's smp=run saved as cmdline")
+    os.remove(local)
+    status, _out = drive(base, local, [down, down, tab, down, b" ", b"s", b"q"])
     # S from there: the local yes goes into build.conf and the file goes.
     status, out = drive(base, local, [b"S", b"y", b"q"])
     check(status is not None and os.WIFEXITED(status), "the UI exits after S")
@@ -228,6 +310,8 @@ def main():
         mc.Model.save_local = lambda self: (self.promote(), None)[1]
     print("menuconfig_hostcheck: the model")
     model_checks()
+    print("menuconfig_hostcheck: profiles, modules, boot words")
+    round2_checks()
     if not args.positive_control:
         print("menuconfig_hostcheck: the screen, in a pseudo-terminal")
         screen_checks()

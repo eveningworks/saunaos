@@ -1,7 +1,7 @@
 #!/bin/sh
 # The assets of a GitHub Release, made only from a build that IS the tag.
 #
-#   make clean-disk && make live-iso usb-image DEBUGCON=0
+#   make clean-disk && make live-iso usb-image PROFILE=release
 #   sh tools/build/release_assets.sh 0.5.0            # -> build/release/0.5.0/
 #   gh release create v0.5.0 build/release/0.5.0/* --title ... --notes ...
 #
@@ -52,7 +52,7 @@ BUILT=$(sed -n 's/^#define SAUNAOS_BUILD_ID "\(.*\)"$/\1/p' kernel/include/api/v
 [ "$BUILT" = "$(git rev-parse --short HEAD)" ] ||
     die "the build is of $BUILT, not of HEAD ($(git rev-parse --short HEAD)) -- rebuild"
 for f in "$LIVE" "$USB"; do
-    [ -f "$f" ] || die "$f is missing (make live-iso usb-image DEBUGCON=0)"
+    [ -f "$f" ] || die "$f is missing (make live-iso usb-image PROFILE=release)"
     [ "$f" -nt kernel/include/api/version.h ] ||
         die "$f is older than this commit's build -- rebuild it"
 done

@@ -42,6 +42,11 @@ BUILD = build
 BUILD_CONF ?= build.conf
 # What `make menuconfig` saves: untracked, read on top of BUILD_CONF.
 BUILD_LOCAL_CONF ?= build.local.conf
+# PROFILE=release: configs/release.conf on top of BUILD_CONF INSTEAD of
+# the local file (FreeBSD's KERNCONF shape) -- a profile build is
+# committed files alone, which is what lets one be published.
+PROFILE ?=
+BUILD_CONF_ARGS = $(BUILD_CONF) $(if $(PROFILE),--profile $(PROFILE),--local $(BUILD_LOCAL_CONF))
 
 # FORCE, compared before it is moved: the local file can be DELETED, and
 # a vanished prerequisite never remakes anything -- its overrides would
@@ -49,8 +54,8 @@ BUILD_LOCAL_CONF ?= build.local.conf
 # only then.
 $(BUILD)/conf.mk: FORCE
 	@mkdir -p $(dir $@)
-	@python3 tools/build/build_conf.py $(BUILD_CONF) --local $(BUILD_LOCAL_CONF) --options > $@.tmp \
-	    || { rm -f $@.tmp; echo "make: $(BUILD_CONF) or $(BUILD_LOCAL_CONF): see the message above" >&2; exit 1; }
+	@python3 tools/build/build_conf.py $(BUILD_CONF_ARGS) --options > $@.tmp \
+	    || { rm -f $@.tmp; echo "make: $(BUILD_CONF) or $(if $(PROFILE),configs/$(PROFILE).conf,$(BUILD_LOCAL_CONF)): see the message above" >&2; exit 1; }
 	@cmp -s $@.tmp $@ && rm -f $@.tmp || mv $@.tmp $@
 
 -include $(BUILD)/conf.mk
@@ -95,7 +100,7 @@ TODISK_DIR = $(if $(filter 1,$(TODISK)),todisk,$(TODISK))
 # command line -- it is an unauthenticated root shell on a serial port
 # (kernel/core/debug_console.c). ON by default here, because every test
 # tool drives the guest through it; RELEASE media are built with
-# DEBUGCON=0 (the delivery checklist says so). KCMDLINE is still yours:
+# PROFILE=release (configs/release.conf: debugcon = no). KCMDLINE is still yours:
 # this only appends the word.
 DEBUGCON ?= 1
 
@@ -456,7 +461,7 @@ COMPONENT_PROGRAMS = $(foreach f,$(COMPONENT_MKS),$(dir $(f))$(call component_na
 # LEVEL deep: the .c files of utils/<name>/ are that program's parts.
 USERLAND_PROGRAMS_ALL = $(sort $(wildcard userland/utils/*.c)) \
                         $(shell find userland/tests -name '*.c' 2>/dev/null | sort) $(COMPONENT_PROGRAMS)
-USERLAND_PROGRAMS = $(filter-out $(if $(NOGPL),$(NOGPL_DROPS)),$(USERLAND_PROGRAMS_ALL))
+USERLAND_PROGRAMS = $(filter-out $(if $(filter 1,$(NOGPL)),$(NOGPL_DROPS)),$(USERLAND_PROGRAMS_ALL))
 USERLAND_ELVES    = $(patsubst userland/%.c,$(BUILD)/userland/%.elf,$(USERLAND_PROGRAMS))
 
 # --- NOGPL=1: a build with no GPL code in it ---------------------------
@@ -594,7 +599,7 @@ USB_IDS = data/usb.ids
 # .c under kernel/ is in the image. Evaluated once (:=): a python call
 # per reference would be paid dozens of times.
 # BUILD_CONF is set at the top of this file, with the conf.mk include
-MODULE_DRIVER_SOURCES := $(shell python3 tools/build/build_conf.py $(BUILD_CONF) --local $(BUILD_LOCAL_CONF) || echo BUILD_CONF_ERROR)
+MODULE_DRIVER_SOURCES := $(shell python3 tools/build/build_conf.py $(BUILD_CONF_ARGS) || echo BUILD_CONF_ERROR)
 # Not for the goals that repair or ignore it: menuconfig offers to set a
 # broken local file aside, and clean/help build nothing from it.
 CONF_EXEMPT_GOALS = menuconfig clean help
@@ -605,7 +610,7 @@ CONF_BROKEN_OK = 1
 endif
 endif
 ifndef CONF_BROKEN_OK
-$(error $(BUILD_CONF) or $(BUILD_LOCAL_CONF): see the message above)
+$(error $(BUILD_CONF) or $(if $(PROFILE),configs/$(PROFILE).conf,$(BUILD_LOCAL_CONF)): see the message above)
 endif
 endif
 MODULE_SOURCES := $(MODULE_DRIVER_SOURCES) $(sort $(wildcard kernel/samples/modules/*.c))
@@ -631,7 +636,7 @@ ASM_OBJECTS = $(patsubst %.asm, $(BUILD)/%.o, $(ASM_SOURCES))
 # itself only on its S key -- so an experiment cannot be committed by
 # accident.
 menuconfig:
-	@python3 tools/build/menuconfig.py $(BUILD_CONF) --local $(BUILD_LOCAL_CONF)
+	@python3 tools/build/menuconfig.py $(BUILD_CONF) --local $(BUILD_LOCAL_CONF) --build $(BUILD)
 
 # Regenerates kernel/include/api/version.h from VERSION (see
 # tools/build/gen_version.sh) -- listed first so it always runs before
@@ -803,6 +808,7 @@ help:
 	@echo "  clean-disk     Wipe disk.img -- the filesystem AND the bootloader on it;"
 	@echo "                 the next make iso rebuilds both. Use with care"
 	@echo "  version        Regenerate kernel/include/api/version.h (runs automatically as part of all/iso)"
+	@echo "  PROFILE=name   On any of them: build.conf plus configs/<name>.conf (release, debug), no build.local.conf"
 	@echo "  menuconfig     Browse and change build.conf's options and drivers in a text UI; saves"
 	@echo "                 to the untracked build.local.conf (S makes a change build.conf's own)"
 	@echo "  help           Show this message"
@@ -2380,10 +2386,12 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# /dev channel refuses rather than serve it. A failed seed leaves it
 	# behind on purpose: that tree is half written too.
 	@mkdir -p $(BUILD) && touch $(BUILD)/.seeding
-	# The local overrides THIS staging was built with, for the publish
-	# refusal and preflight's note -- conf.mk itself is rewritten by any
-	# later make, so it says nothing about the tree staged here.
-	@grep -h '^# .* overrides: ' $(BUILD)/conf.mk > $(BUILD)/seed-overrides 2>/dev/null || true
+	# The profile and local overrides THIS staging was built with, for
+	# the publish refusal and preflight's note -- conf.mk itself is
+	# rewritten by any later make, so it says nothing about the tree
+	# staged here.
+	@grep -hE '^# (profile: |.* overrides: )' $(BUILD)/conf.mk > $(BUILD)/seed-overrides 2>/dev/null || true
+	$(if $(KDEBUG),@echo '# kdebug: $(KDEBUG)' >> $(BUILD)/seed-overrides,@true)
 	mkdir -p $(SEED_DIR)/sync/bin $(SEED_DIR)/sync/tests
 	# The dynamic loader and the shared libraries -- /lib is theirs
 	# (docs/filesystem-layout.md).
@@ -2411,7 +2419,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# carrying the compiler when the checkout stops having one -- rather
 	# than keeping a gcc whose libgcc the /usr/lib mirror just removed.
 	rm -rf $(SEED_DIR)/sync/usr/bin $(SEED_DIR)/sync/usr/libexec
-	$(if $(NOGPL),@true,@if [ -x $(NATIVE_TC)/usr/bin/gcc ]; then \
+	$(if $(filter 1,$(NOGPL)),@true,@if [ -x $(NATIVE_TC)/usr/bin/gcc ]; then \
 	    echo "seed: the native toolchain ($(NATIVE_TC)) goes in /usr"; \
 	    cp -r --preserve=links $(NATIVE_TC)/usr/. $(SEED_DIR)/sync/usr/; \
 	    cp $(SYSROOT)/usr/bin/sdl2-config $(SEED_DIR)/sync/usr/bin/; fi)
@@ -2422,7 +2430,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# REMOVED FIRST, and named in seed/exact below: a NOGPL image, or one
 	# after the toolchain is gone, must not keep the last build's copies.
 	rm -f $(SEED_DIR)/sync/lib/libstdc++.so.6 $(SEED_DIR)/sync/lib/libgcc_s.so.1
-	$(if $(NOGPL),@true,@if [ -f $(TOOLCHAIN)/x86_64-saunaos/lib/libstdc++.so.6 ]; then \
+	$(if $(filter 1,$(NOGPL)),@true,@if [ -f $(TOOLCHAIN)/x86_64-saunaos/lib/libstdc++.so.6 ]; then \
 	    echo "seed: the shared C++ runtime ($(TOOLCHAIN)) goes in /lib"; \
 	    cp -L $(TOOLCHAIN)/x86_64-saunaos/lib/libstdc++.so.6 $(TOOLCHAIN)/x86_64-saunaos/lib/libgcc_s.so.1 \
 	       $(SEED_DIR)/sync/lib/; fi)
@@ -2430,7 +2438,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# off: /usr/bin/scummvm, /usr/share/scummvm, its licences. Its data
 	# directory is mirrored exactly, as /usr/bin is.
 	rm -rf $(SEED_DIR)/sync/usr/share/scummvm
-	$(if $(NOGPL),@true,@if [ -x $(SCUMMVM_STAGE)/usr/bin/scummvm ]; then \
+	$(if $(filter 1,$(NOGPL)),@true,@if [ -x $(SCUMMVM_STAGE)/usr/bin/scummvm ]; then \
 	    echo "seed: ScummVM ($(SCUMMVM_STAGE)) goes in /usr"; \
 	    cp -r $(SCUMMVM_STAGE)/usr/. $(SEED_DIR)/sync/usr/; fi)
 	printf '# image directories (and files) tfs3_writer.py sync mirrors exactly (Makefile, seed)\n/usr/include\n/usr/lib\n/usr/bin\n/usr/libexec\n/usr/share/scummvm\n/lib/libstdc++.so.6\n/lib/libgcc_s.so.1\n' > $(SEED_DIR)/exact
@@ -2534,7 +2542,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# NOGPL=1: no entry for a program that was not built, and none of the
 	# program itself left in staging by an earlier full build (sync/ only
 	# adds, so a disk image needs `make clean-disk` too -- docs/building.md).
-	$(if $(NOGPL),@for d in $(NOGPL_DROPS); do \
+	$(if $(filter 1,$(NOGPL)),@for d in $(NOGPL_DROPS); do \
 	    n=$$(basename $$d .c); \
 	    for f in $(SEED_DIR)/sync/usr/wm/applications/*.desktop; do \
 	        if grep -qE "^Exec=/bin/(.*/)?$$n( |$$)" "$$f"; then rm -f "$$f"; echo "seed: NOGPL leaves out $$(basename $$f)"; fi; \
@@ -2713,8 +2721,8 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# NetSurf's run-time resources -- the user-agent stylesheets and its
 	# Messages -- straight from the vendored port (docs/browser-design.md),
 	# and left out with the port under NOGPL=1.
-	$(if $(NOGPL),@true,mkdir -p $(SEED_DIR)/sync/usr/share/netsurf)
-	$(if $(NOGPL),@true,cp userland/third_party/netsurf/upstream/resources/*.css userland/third_party/netsurf/upstream/generated/res/Messages data/usr/share/netsurf/* $(SEED_DIR)/sync/usr/share/netsurf/)
+	$(if $(filter 1,$(NOGPL)),@true,mkdir -p $(SEED_DIR)/sync/usr/share/netsurf)
+	$(if $(filter 1,$(NOGPL)),@true,cp userland/third_party/netsurf/upstream/resources/*.css userland/third_party/netsurf/upstream/generated/res/Messages data/usr/share/netsurf/* $(SEED_DIR)/sync/usr/share/netsurf/)
 	# A FILM, and only under EXTRAS=1: tools/fetch/fetch_video.py's Big Buck
 	# Bunny is the Blender Foundation's (CC BY), transcoded on this
 	# machine into data/videos-extra/ (gitignored), its credit beside it.
@@ -2841,14 +2849,14 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# tools/checks/check_licenses.py requires one of, so a new port needs no
 	# line here. NOGPL=1 leaves out a GPL-only port's, as it does the port.
 	cp LICENSE $(SEED_DIR)/sync/usr/share/licenses/saunaos.txt
-	$(foreach p,$(filter-out $(if $(NOGPL),$(GPL_ONLY_PORTS)),$(PORTS)),\
+	$(foreach p,$(filter-out $(if $(filter 1,$(NOGPL)),$(GPL_ONLY_PORTS)),$(PORTS)),\
 	    cp $(firstword $(wildcard $(addprefix userland/third_party/$(p)/upstream/,LICENSE LICENSE.txt LICENSE.md COPYING COPYING.txt))) \
 	       $(SEED_DIR)/sync/usr/share/licenses/$(p).txt;)
-	$(if $(NOGPL),rm -f $(foreach p,$(GPL_ONLY_PORTS),$(SEED_DIR)/sync/usr/share/licenses/$(p).txt))
+	$(if $(filter 1,$(NOGPL)),rm -f $(foreach p,$(GPL_ONLY_PORTS),$(SEED_DIR)/sync/usr/share/licenses/$(p).txt))
 	# Duktape (MIT) sits INSIDE NetSurf's tree and NetSurf's COPYING does not
 	# carry it; its licence is the comment that opens duktape.h, cut out
 	# here so it cannot drift from the code it covers. Goes with NetSurf.
-	$(if $(NOGPL),rm -f $(SEED_DIR)/sync/usr/share/licenses/duktape.txt,\
+	$(if $(filter 1,$(NOGPL)),rm -f $(SEED_DIR)/sync/usr/share/licenses/duktape.txt,\
 	    awk '/^\/\* AUTHORS.rst \*\//{p=0} /^\/\* LICENSE.txt \*\//{p=1} p' \
 	        userland/third_party/netsurf/upstream/content/handlers/javascript/duktape/duktape.h \
 	        > $(SEED_DIR)/sync/usr/share/licenses/duktape.txt)
@@ -2870,7 +2878,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# The optional components (docs/software-design.md), LAST so each
 	# definition carries the size of what is staged; checked, and a
 	# problem fails the build (data/components/README.md).
-	python3 tools/build/stage_components.py $(SEED_DIR)/sync $(if $(NOGPL),--nogpl)
+	python3 tools/build/stage_components.py $(SEED_DIR)/sync $(if $(filter 1,$(NOGPL)),--nogpl)
 	python3 tools/build/seed_disk.py $(DISK_IMG) $(SEED_DIR) --fbs-done
 	$(if $(TODISK),python3 tools/build/todisk.py --disk $(DISK_IMG) --dir $(TODISK_DIR),@:)
 	# THE KERNEL GOES ON THE DISK TOO. GRUB cannot read TFS3, so

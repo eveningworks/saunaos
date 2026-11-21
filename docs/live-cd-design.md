@@ -367,7 +367,7 @@ gunzips the whole image before the kernel runs, so its size IS the boot
 time on a slow host -- in a browser-hosted VM about 105 of 137 s to the
 desktop. Two cuts: every staged program loses its DWARF
 (`tools/build/strip_staged.py`, unless `STRIP=0`), which was 131 of 186 MiB,
-and a release image (`DEBUGCON=0`, or `LIVE_TESTS=0` named) leaves out
+and a release image (`PROFILE=release`, which sets `debugcon = no`, or `LIVE_TESTS=0` named) leaves out
 `/tests` except `/tests/web`, the Web Browser start page's demos. The
 image went from 240 to 61 MiB and the ISO from 119 to 61 MB; GRUB's
 phase under TCG on the development host from ~27 s to ~12.5 s.

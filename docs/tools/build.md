@@ -27,7 +27,10 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   builtin. `--local build.local.conf` reads the untracked overrides on
   top (what `make menuconfig` saves); `--options` then names them in a
   comment, which `update_server.py --publish` refuses and `preflight.sh`
-  reports, and `--overrides` lists them.
+  reports, and `--overrides` lists them. `--profile NAME` reads
+  `configs/NAME.conf` instead of the local file (`make PROFILE=NAME`);
+  publish's profile check passes only `release` (the preflight stamp still
+  wants `--force` for one: preflight tests the debug-console build).
 - **`menuconfig.py`** -- `make menuconfig`: build.conf's options and
   drivers in a curses text UI, two panes (groups; options and values)
   over a help pane with the make variable and the rebuild cost. Help is
@@ -36,7 +39,12 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `build.local.conf`, never build.conf**; `S` writes the changes into
   build.conf value by value, every comment kept, after a confirmation,
   and removes the local file. Every save is parsed by `build_conf.py`
-  before it lands. Checked by `tools/hostchecks/menuconfig_hostcheck.py`.
+  before it lands. Enter on `cmdline` opens a checklist of
+  `docs/boot-flags.md`'s words; the Drivers group runs `gen_modalias.py`'s
+  export check on each built object, so it says which can be a module and
+  refuses one that cannot; the Profiles group loads `configs/<name>.conf`
+  into the session, and `w` writes the changes as a new one. Checked by
+  `tools/hostchecks/menuconfig_hostcheck.py`.
 - **`build_native_toolchain.sh`** -- builds GCC and binutils that RUN
   ON SaunaOS (`make native-toolchain`; `docs/cc-design.md`, stage 3): a
   Canadian cross, build = this host, host = target = `x86_64-saunaos`,

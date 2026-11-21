@@ -580,6 +580,10 @@ the rest in the sweep. Each stays a standalone script with its own
   lines and keeps every comment) and the real curses UI in a
   pseudo-terminal, driven by terminfo's own key sequences -- `ESC [ B`
   is not xterm's Down with the keypad on, and reads as Esc, which quits.
+  Also: a profile read on top with the local file ignored, the publish
+  rule (build.conf alone or `release`), loading and writing a profile
+  (into a scratch `configs/`), the module check on the build's objects,
+  the boot-word table and its toggles, and the picker in the pty.
   `--positive-control` makes the local save write build.conf; red.
 - **`tree_lock_hostcheck.py`** -- the test lock's PreToolUse hook refuses
   every way a source file changes while a test reads the tree, and

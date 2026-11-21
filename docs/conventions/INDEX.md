@@ -1329,7 +1329,8 @@ whenever a headline here tells you something you did not already know.
   table, the debug builds among them. **A bool arrives as `0`, never
   empty**: test it with `$(filter 1,...)`.
   **`build.local.conf` (`make menuconfig`'s saves) is read on top and
-  untracked**; publish refuses a build made with it.
+  untracked**; publish refuses a build made with it. **`PROFILE=name`
+  reads `configs/name.conf` instead of it**; publish's profile check passes only `release`.
   An unknown option FAILS THE BUILD by name. **Its include is at the TOP
   of the Makefile and that is load-bearing**
 - **`STRIP=0` KEEPS THE KERNEL'S DEBUG INFO IN `kernel.bin` AND

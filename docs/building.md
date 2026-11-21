@@ -139,6 +139,24 @@ changes into `build.conf` itself, after asking, for a change everyone
 should build with. Delete `build.local.conf` to build as `build.conf`
 says; a build made with it is not published by `update_server.py`.
 
+In the menu, Enter on `cmdline` opens a checklist of every boot word in
+[boot-flags.md](boot-flags.md), with what each does; the Drivers group
+shows whether each driver CAN be a module (a driver that calls a kernel
+function not exported to modules cannot), and refuses to make one that
+cannot.
+
+**Profiles** are named sets of options in `configs/`: `release` (no
+serial debug console -- what release media are built with) and `debug`
+(every sanitizer and check on). `make iso PROFILE=debug` builds
+`build.conf` plus `configs/debug.conf` and does NOT read
+`build.local.conf`, so a profile build is committed files alone. In the
+menu, the Profiles group loads one into the session, and `w` writes the
+session's changes as a new profile. `update_server.py --publish` refuses
+any other profile, `build.local.conf` and a baked-in GDB stub; it takes
+`release`, but since preflight tests the build WITH the debug console, a
+release-profile build is one preflight never ran, and publishing it also
+needs `--force`.
+
 ### A build with no GPL code
 
 `NOGPL=1` leaves out every program built from a port whose licence is

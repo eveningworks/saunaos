@@ -307,13 +307,13 @@ echo
 python3 tools/lib/preflight_stamp.py --write || true   # what update_server.py --publish checks
 echo "preflight: PASS -- build, iso, boot smoke test, ktest and the"
 echo "preflight: ring-3 /tests diagnostics all clean."
-# A build.local.conf (make menuconfig's saves) means this run tested THIS
-# checkout's configuration, not the committed one -- say which.
-local_over=$(sed -n 's/^# .* overrides: //p' build/seed-overrides 2>/dev/null)
+# A profile or build.local.conf (make menuconfig's saves) means this run
+# tested that configuration, not build.conf alone -- say which.
+local_over=$(sed -n 's/^# //p' build/seed-overrides 2>/dev/null)
 if [ -n "$local_over" ]; then
-  echo "preflight: NOTE -- built with build.local.conf's overrides, not build.conf alone:"
+  echo "preflight: NOTE -- built from build.conf plus:"
   while IFS= read -r line; do echo "preflight:   $line"; done <<< "$local_over"
-  echo "preflight: update_server.py --publish refuses such a build."
+  echo "preflight: update_server.py --publish refuses this build (a release profile needs --force)."
 fi
 if [ -z "$(git config user.name 2>/dev/null)" ]; then
   echo "preflight: WARNING -- no git identity configured. This repo commits"

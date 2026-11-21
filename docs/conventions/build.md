@@ -512,6 +512,16 @@ this the obvious way), not from how much history it accumulated.
   `build/seed-overrides`, which the seed step writes with the tree it
   stages.
 
+  **A PROFILE (`PROFILE=release`, `configs/<name>.conf`) is read INSTEAD
+  of the local file**, FreeBSD's KERNCONF shape: a profile build is
+  committed files alone, and publish's profile check passes build.conf
+  alone or `release` -- a debug profile's KASAN kernel never becomes
+  main. A release-profile staging is still not the one preflight tested
+  (preflight needs the debug console), so the preflight stamp refuses it
+  without `--force`; that is the stamp working, not a bug.
+  `NOGPL` is a bool option too, so it is tested `$(filter 1,...)` like
+  `EXTRAS`.
+
   **It is a generated file, not a `$(shell)`**: `$(shell)` collapses
   newlines to spaces, which would split `KCMDLINE ?= video=1920x1080
   nokaslr` into two assignments. Unlike the `.d` files it has a real

@@ -48,6 +48,7 @@ so an experiment cannot be committed by accident; `--options` names the
 overrides in a comment, which keeps such a build from being published.
 """
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
@@ -99,9 +100,17 @@ OPTIONS = {
     "debug_preempt": ("DEBUG_PREEMPT", "bool",
                      "log per-core reads made while preemptible"),
     # On in every checkout because every test tool drives the guest
-    # through it; release media pass DEBUGCON=0 on the command line.
+    # through it; configs/release.conf turns it off for release media.
     "debugcon":     ("DEBUGCON", "bool",
                      "bake the serial debug console's boot word into the media"),
+    # The kernel's GDB stub's boot word, baked in (kdebug-design.md). A
+    # MAP: the file's word on the left, the make value on the right.
+    # serial TAKES COM2 FROM THE DEBUG CONSOLE, so the automated tests
+    # stop answering; a build with it is never published.
+    "kdebug":       ("KDEBUG", {"off": "", "serial": "1", "net": "net"},
+                     "bake the GDB stub's boot word into the media"),
+    "nogpl":        ("NOGPL", "bool",
+                     "leave out every program built from GPL-only code"),
 }
 
 # How `make menuconfig` (tools/build/menuconfig.py) groups them, in its
@@ -109,7 +118,8 @@ OPTIONS = {
 GROUPS = [
     ("Media and boot", ["strip", "compress", "cmdline", "grub_timeout"]),
     ("Timer", ["hz", "tick", "highres"]),
-    ("Debugging", ["ubsan", "kasan", "debug_preempt", "debugcon"]),
+    ("Debugging", ["ubsan", "kasan", "debug_preempt", "debugcon", "kdebug"]),
+    ("Contents", ["nogpl"]),
     ("Network", ["extras"]),
 ]
 
@@ -161,6 +171,11 @@ def option_value(path, n, opt, value):
         if low in BOOL_FALSE:
             return var, "0"
         sys.exit(f"{path}:{n}: option {opt}: want yes or no, not {value!r}")
+    if isinstance(kind, dict):
+        if value not in kind:
+            sys.exit(f"{path}:{n}: option {opt}: want one of "
+                     f"{', '.join(kind)}, not {value!r}")
+        return var, kind[value]
     if isinstance(kind, tuple):
         if value not in kind:
             sys.exit(f"{path}:{n}: option {opt}: want one of "
@@ -208,18 +223,42 @@ def _read_one(path, options, drivers, source):
         drivers[name] = (value, source)
 
 
-def load(path, local=None):
-    """build.conf, then the untracked local file on top of it (when it
-    exists): ({option: (value, source)}, {driver: (value, source)}),
-    `source` being the file that set it. Exits on anything wrong, naming
-    the file and line."""
+def load(path, local=None, profile=None):
+    """build.conf, then a profile (configs/<name>.conf) or the untracked
+    local file on top of it: ({option: (value, source)}, {driver: (value,
+    source)}), `source` being the file that set it. A profile and the
+    local file never stack -- a profile build is committed files alone.
+    Exits on anything wrong, naming the file and line."""
     if not os.path.exists(path):
         sys.exit(f"build_conf: {path}: no such file")
     options, drivers = {}, {}
     _read_one(path, options, drivers, path)
-    if local and os.path.exists(local):
+    if profile:
+        if not os.path.exists(profile):
+            sys.exit(f"build_conf: no profile {profile} (the profiles: {', '.join(profiles()) or 'none'})")
+        _read_one(profile, options, drivers, profile)
+    elif local and os.path.exists(local):
         _read_one(local, options, drivers, local)
     return options, drivers
+
+
+PROFILES = os.path.join(REPO, "configs")
+
+
+def profiles():
+    """The profile names under configs/, sorted -- only the ones a name
+    may be (profile_path()'s rule), so a stray file is not offered."""
+    try:
+        return sorted(f[:-5] for f in os.listdir(PROFILES)
+                      if f.endswith(".conf") and re.fullmatch(r"[a-z0-9][a-z0-9_-]*", f[:-5]))
+    except OSError:
+        return []
+
+
+def profile_path(name):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name or ""):
+        sys.exit(f"build_conf: {name!r} is not a profile name (lower case, digits, - and _)")
+    return os.path.join(PROFILES, name + ".conf")
 
 
 def overrides(path, options, drivers, local):
@@ -247,17 +286,24 @@ def main():
         if flag in args:
             args.remove(flag)
             mode = flag
-    local = None
-    if "--local" in args:
-        i = args.index("--local")
-        if i + 1 >= len(args):
-            sys.exit("build_conf: --local needs a file")
-        local = args[i + 1]
-        del args[i:i + 2]
+    local = profile = None
+    for flag in ("--local", "--profile"):
+        if flag in args:
+            i = args.index(flag)
+            if i + 1 >= len(args):
+                sys.exit(f"build_conf: {flag} needs a value")
+            if flag == "--local":
+                local = args[i + 1]
+            elif args[i + 1]:
+                profile = profile_path(args[i + 1])
+            del args[i:i + 2]
     if len(args) != 1:
-        sys.exit("usage: build_conf.py <build.conf> [--local FILE] [--options | --overrides]")
+        sys.exit("usage: build_conf.py <build.conf> [--local FILE | --profile NAME] "
+                 "[--options | --overrides]")
     path = args[0]
-    options, drivers = load(path, local)
+    if profile:
+        local = None   # a profile build is committed files alone
+    options, drivers = load(path, local, profile)
 
     if mode == "--overrides":
         print("\n".join(overrides(path, options, drivers, local)))
@@ -270,7 +316,10 @@ def main():
         for name, (value, _src) in options.items():
             var, val = option_value(path, 0, name, value)
             lines.append(f"{var} ?= {val}")
-        over = overrides(path, options, drivers, local)
+        if profile:
+            # Read with the overrides line below (seed-overrides).
+            lines.append(f"# profile: {os.path.basename(profile)[:-5]}")
+        over = overrides(path, options, drivers, local) if local else []
         if over:
             # Read by update_server.py, which will not publish such a
             # build, and by preflight.sh, which names it.

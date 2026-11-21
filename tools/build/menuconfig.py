@@ -20,19 +20,26 @@ build_conf.py would refuse: each save is parsed by it before it lands.
     make menuconfig
 
 Keys: arrows move, Tab or Left/Right changes pane, Space toggles or cycles
-a value, Enter edits a number or text, / searches, d lists the changes,
-s saves to build.local.conf, S writes build.conf, q quits.
+a value, Enter edits a number or text (on `cmdline`, a checklist of
+docs/boot-flags.md's words), / searches, d lists the changes, s saves to
+build.local.conf, S writes build.conf, w writes the changes as a profile
+(configs/<name>.conf), q quits. A driver shows whether it CAN be a module
+(gen_modalias.py's export check on its built object); the Profiles group
+loads one into the session.
 """
 import argparse
 import curses
 import os
 import re
+from struct import error as struct_error
 import sys
 import tempfile
 import textwrap
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_conf as bc  # noqa: E402
+sys.path.insert(0, os.path.join(bc.REPO, "tools", "gen"))
+import gen_modalias as gm  # noqa: E402
 
 REPO = bc.REPO
 LOCAL_HEADER = (
@@ -83,6 +90,94 @@ def find_drivers():
     return sorted(found, key=lambda d: (d[1], d[0]))
 
 
+_EXPORTS = None
+_IMPORTS = {}   # object path -> (mtime, imports)
+BUILD_DIR = os.path.join(REPO, "build")
+
+
+def module_imports(name, path, value):
+    """(missing, object): the functions the driver's built object calls
+    that kernel/core/kexports.c does not export -- [] means it can be a
+    module -- or None when it is not built. gen_modalias.py's own check,
+    run early: a module compiles with the builtin's flags but the code
+    model, so the builtin object's imports are the module's."""
+    global _EXPORTS
+    obj = (os.path.join(BUILD_DIR, "modules", name + ".o") if value == "module"
+           else os.path.join(BUILD_DIR, path[:-2] + ".o"))
+    try:
+        mtime = os.stat(obj).st_mtime_ns
+    except OSError:
+        return None, obj
+    if _EXPORTS is None:
+        _EXPORTS = gm.exports_in(os.path.join(REPO, "kernel", "core", "kexports.c"))
+    hit = _IMPORTS.get(obj)
+    if not hit or hit[0] != mtime:   # parsed once per build of it, not per redraw
+        try:
+            hit = (mtime, set(gm.undefined_symbols(gm.Elf(obj))))
+        except (SystemExit, ValueError, IndexError, struct_error):
+            return None, obj
+        _IMPORTS[obj] = hit
+    return sorted(hit[1] - _EXPORTS), obj
+
+
+def profile_info(name):
+    """(first comment line, [(kind, name, value)]) of configs/<name>.conf."""
+    path = bc.profile_path(name)
+    desc = ""
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("#") and line[1:].strip():
+                desc = line[1:].strip()
+                break
+    return desc, [(k, n, v) for k, n, v, _ln in bc.parse(path)]
+
+
+BOOT_FLAGS = os.path.join(REPO, "docs", "boot-flags.md")
+# update_server.py's PUBLISHABLE_PROFILES: `w` never writes one, so the
+# profile a release is built from changes only by a reviewed commit.
+PUBLISHED_PROFILES = {"release"}
+
+
+class BootWord:
+    """One row of docs/boot-flags.md's table: its forms (`smp=run`,
+    `smp=park`; `nokaslr`; `loglevel=<0-7>`) and what it does."""
+    def __init__(self, forms, desc):
+        self.forms, self.desc = forms, desc
+        first = forms[0]
+        self.key = first.split("=", 1)[0] if "=" in first else None
+        # A later form may be a bare value of the first's key: `boot` in
+        # `acpimode=legacy` / `boot` / `poweroff`.
+        self.choices = [f if ("=" in f or not self.key) else f"{self.key}={f}" for f in forms]
+        self.typed = any("<" in f or "[" in f or "..." in f for f in forms)
+
+    def matches(self, word):
+        if self.key:
+            return word.split("=", 1)[0] == self.key
+        return word in self.forms
+
+
+def boot_words(path=BOOT_FLAGS):
+    rows = []
+    try:
+        fh = open(path)
+    except OSError:
+        return rows
+    with fh:
+        for line in fh:
+            if not line.startswith("| `"):
+                continue
+            cells = [c.replace("\\|", "|").strip() for c in re.split(r"(?<!\\)\|", line)]
+            if len(cells) < 3:
+                continue
+            forms = re.findall(r"`([^`]+)`", cells[1])
+            if not forms:
+                continue
+            desc = re.sub(r"[`*]", "", cells[2])
+            desc = re.split(r"(?<=[.;:])\s", desc, maxsplit=1)[0].rstrip(".;:")
+            rows.append(BootWord(forms, desc))
+    return rows
+
+
 def norm(name, value):
     """A bool's value as yes/no, whatever spelling the file used."""
     if value is None or bc.OPTIONS[name][1] != "bool":
@@ -97,7 +192,55 @@ class Model:
         self.base, self.local = base, local
         self.help = option_help(base)
         self.drivers = find_drivers()
+        self.paths = {d[0]: d[3] for d in self.drivers}
+        self.loaded_profile = None
         self.reload()
+
+    def module_check(self, name):
+        return module_imports(name, self.paths[name], self.value(("driver", name)))
+
+    def load_profile(self, name):
+        """Its lines into this session as unsaved changes. Returns why
+        not, or None."""
+        try:
+            _desc, sets = profile_info(name)
+        except (SystemExit, OSError) as e:
+            return str(e)
+        todo = []
+        for kind, n, v in sets:
+            key = ("option", n) if kind == "option" else ("driver", n)
+            v = norm(n, v) if kind == "option" else v
+            why = self.check(key, v)
+            if why:
+                return f"{n}: {why} -- nothing loaded"   # all or none
+            todo.append((key, v))
+        for key, v in todo:
+            self.set(key, v)
+        self.loaded_profile = name
+        return None
+
+    def write_profile(self, name, desc):
+        """Every change from build.conf (local and unsaved) as
+        configs/<name>.conf. Returns why not, or None."""
+        path = bc.profile_path(name)
+        ch = self.changes()
+        if not ch:
+            return "no change from build.conf to write"
+        text = (f"# {desc}\n#\n# A PROFILE, written by `make menuconfig`: `make iso PROFILE={name}`\n"
+                "# reads it on top of build.conf, and not build.local.conf.\n\n")
+        text += "".join(f"option {k[1]} = {now}\n" if k[0] == "option" else f"{k[1]} = {now}\n"
+                        for k, _was, now, _w in ch)
+        with tempfile.TemporaryDirectory() as d:
+            tmp = os.path.join(d, name + ".conf")
+            with open(tmp, "w") as fh:
+                fh.write(text)
+            try:
+                bc.load(self.base, profile=tmp)
+            except SystemExit as e:
+                return str(e)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        write_atomic(path, text)
+        return None
 
     def reload(self):
         base_o, base_d = bc.load(self.base)
@@ -304,6 +447,24 @@ def build_groups(model):
                  "self-contained driver can be a module -- the build names a missing export."])
            for name, cls, desc, path in model.drivers]
     groups.insert(3, ("Drivers", drv))
+    profs = []
+    for name in bc.profiles():
+        try:
+            desc, sets = profile_info(name)
+        except (SystemExit, OSError) as e:
+            profs.append(Item(("broken", name), f"BROKEN: {e}",
+                              [f"configs/{name}.conf cannot be read: {e}",
+                               "Fix the file by hand; menuconfig cannot load it."]))
+            continue
+        what = ", ".join(f"{n} = {v}" for _k, n, v in sets)
+        publish = ("update_server.py --publish accepts a build made with it."
+                   if name == "release" else "A build made with it is never published.")
+        profs.append(Item(("profile", name), what or "(sets nothing)",
+                          [desc, f"Sets: {what or 'nothing'}.",
+                           f"Enter loads it into this session; s or S then saves it as usual. "
+                           f"From the command line: make iso PROFILE={name} (build.conf, then "
+                           f"configs/{name}.conf; build.local.conf is not read).", publish]))
+    groups.append(("Profiles", profs))
     return groups
 
 
@@ -315,10 +476,32 @@ def cycle(model, item):
     k = bc.OPTIONS[name][1]
     if k == "bool":
         return "no" if cur == "yes" else "yes"
+    if isinstance(k, dict):
+        k = tuple(k)
     if isinstance(k, tuple):
         i = k.index(cur) if cur in k else -1
         return k[(i + 1) % len(k)]
     return None   # a number or text: Enter edits it
+
+
+def toggle_word(ui, row, words, typed=False):
+    """`words` with `row`'s word switched: a plain word on or off, a
+    choice stepped to the next value (then off), a typed one asked for --
+    Enter asks for a choice's value too."""
+    on = [wd for wd in words if row.matches(wd)]
+    rest = [wd for wd in words if not row.matches(wd)]
+    if row.typed or (typed and row.key):
+        hint = row.forms[0] if row.typed else " / ".join(row.choices)
+        cur = on[0] if on else (row.key + "=" if row.key else row.forms[0])
+        new = ui.prompt(f"{hint}: ", cur)
+        if new is None:
+            return words
+        new = new.strip()
+        return rest + ([new] if new and new != (row.key or "") + "=" else [])
+    if len(row.choices) > 1:
+        i = row.choices.index(on[0]) if on and on[0] in row.choices else -1
+        return rest + ([row.choices[i + 1]] if i + 1 < len(row.choices) else [])
+    return rest if on else words + [row.forms[0]]
 
 
 class UI:
@@ -371,6 +554,8 @@ class UI:
         local = len([c for c in self.m.changes() if c[3] == "local"])
         self.put(0, 1, f"SaunaOS build configuration -- {os.path.basename(self.m.base)}", curses.A_BOLD)
         state = []
+        if self.m.loaded_profile and unsaved:
+            state.append(f"profile {self.m.loaded_profile} loaded")
         if unsaved:
             state.append(f"{unsaved} change{'s' * (unsaved != 1)} not saved")
         if local:
@@ -378,7 +563,7 @@ class UI:
         right = " * ".join(state) or "as build.conf says"
         self.put(0, w - len(right) - 2, right, self.attr(2, curses.A_BOLD) if state else 0)
 
-        help_h = 7
+        help_h = 8
         pane_h = h - help_h - 3
         lw = 24
         self.box(1, 0, pane_h, lw, not self.right)
@@ -400,21 +585,30 @@ class UI:
         for row, item in enumerate(items[self.top:self.top + rows]):
             idx = self.top + row
             key = item.key
-            val = self.m.value(key)
-            where = self.m.where(key)
-            mark = {"unsaved": "*", "local": "L"}.get(where, " ")
-            shown = "not set" if val is None else val
             inner = w - lw - 4
-            room = inner - vw - 3
-            line = f" {key[1]:<{nw}} " + fit(item.label, room - nw - 2)
-            text = line.ljust(room) + f"{shown:>{vw}} {mark}"
+            if key[0] in ("profile", "broken"):
+                where = "profile"
+                text = f" {key[1]:<{nw}} " + fit(item.label, inner - nw - 3)
+            else:
+                val = self.m.value(key)
+                where = self.m.where(key)
+                mark = {"unsaved": "*", "local": "L"}.get(where, " ")
+                shown = fit("not set" if val is None else val, 28)
+                extra = ""
+                if key[0] == "driver":
+                    need, _obj = self.m.module_check(key[1])
+                    extra = "  " + ("?" if need is None else "yes" if not need else f"needs {len(need)}").ljust(9)
+                width = max(vw, len(shown))
+                room = inner - width - 3 - len(extra)
+                line = f" {key[1]:<{nw}} " + fit(item.label, room - nw - 2)
+                text = line.ljust(room) + f"{shown:>{width}}{extra} {mark}"
             a = self.attr(1) if idx == self.i and self.right else 0
             if where in ("unsaved", "local") and not (idx == self.i and self.right):
                 a = self.attr(2, curses.A_BOLD)
             self.put(2 + row, lw + 2, text, a, inner)
 
         self.draw_help(1 + pane_h, w, help_h)
-        keys = "Tab pane  Space toggle  Enter edit  / search  d changes  s save local  S build.conf  q quit"
+        keys = "Tab pane  Space toggle  Enter edit  / search  d changes  s save local  S build.conf  w profile  q quit"
         self.put(h - 1, 1, self.msg or keys, self.attr(2, curses.A_BOLD) if self.msg else self.attr(3, 0))
         s.refresh()
 
@@ -436,9 +630,24 @@ class UI:
         self.box(y, 0, hh, w, False)
         self.put(y + 1, 2, f"{name} -- {item.label}", curses.A_BOLD, w - 4)
         lines = textwrap.wrap(" ".join(item.help), max(20, w - 4))
-        for k, ln in enumerate(lines[:hh - 4]):
+        room = hh - 4 - (2 if kind == "driver" else 0)   # a driver's module verdict below
+        for k, ln in enumerate(lines[:room]):
             self.put(y + 2 + k, 2, ln, 0, w - 4)
+        if kind in ("profile", "broken"):
+            return
         base = self.m.base_vals.get(item.key, "builtin" if kind == "driver" else None)
+        if kind == "driver":
+            need, obj = self.m.module_check(name)
+            rel = os.path.relpath(obj, REPO)
+            if need is None:
+                why = f"Not built yet ({rel}): run make, and this says whether it can be a module."
+            elif not need:
+                why = f"Can be a module: every function it calls is exported (checked against {rel})."
+            else:
+                why = (f"Cannot be a module yet: it calls {len(need)} function(s) kernel/core/kexports.c "
+                       f"does not export: {', '.join(need[:6])}{' ...' if len(need) > 6 else ''}.")
+            for k, ln in enumerate(textwrap.wrap(why, max(20, w - 4))[:2]):
+                self.put(y + hh - 4 + k, 2, ln, self.attr(2, curses.A_BOLD) if need else 0, w - 4)
         if kind == "option":
             var = bc.OPTIONS[name][0]
             val = self.m.value(item.key)
@@ -483,6 +692,70 @@ class UI:
         self.msg = ""
         c = self.scr.get_wch()
         return c in ("y", "Y")
+
+    def pick_boot_words(self, current):
+        """The cmdline as a checklist of docs/boot-flags.md's words. Returns
+        the new line, or None for no change. A word the table does not
+        know is kept as it is."""
+        rows = boot_words()
+        words = current.split()
+        sel, top, filt = 0, 0, ""
+        while True:
+            shown = [r for r in rows if not filt or filt in " ".join(r.forms).lower()
+                     or filt in r.desc.lower()]
+            sel = min(sel, max(0, len(shown) - 1))
+            h, w = self.scr.getmaxyx()
+            self.scr.erase()
+            self.put(0, 1, f"cmdline -- boot words (docs/boot-flags.md, {len(rows)})", curses.A_BOLD)
+            if filt:
+                self.put(0, w - len(filt) - 12, f"/ filter: {filt}", self.attr(3, 0))
+            body = h - 6
+            if sel < top:
+                top = sel
+            if sel >= top + body:
+                top = sel - body + 1
+            for k, r in enumerate(shown[top:top + body]):
+                on = [wd for wd in words if r.matches(wd)]
+                if len(r.choices) > 1 and not r.typed:
+                    box = f"({' / '.join(c.split('=', 1)[1] for c in r.choices)}) "
+                    state = on[0] if on else ""
+                    form = f"{state or r.key + '=...'}"
+                    tick = "(o)" if on else "( )"
+                else:
+                    box = ""
+                    form = on[0] if on else r.forms[0]
+                    tick = "[x]" if on else "[ ]"
+                text = f" {tick} {fit(form, 30):<30} {fit(box + r.desc, w - 40)}"
+                a = self.attr(1) if top + k == sel else 0
+                self.put(2 + k, 1, text, a, w - 2)
+            self.put(h - 4, 1, "cmdline would be:", self.attr(3, 0))
+            self.put(h - 3, 1, " ".join(words) or "(empty)", self.attr(2, curses.A_BOLD))
+            self.put(h - 1, 1, "Space toggles or picks  Enter types a value  / filter  e edit the line  "
+                     "Esc done  q cancel", self.attr(3, 0))
+            self.scr.refresh()
+            c = self.scr.get_wch()
+            if c == curses.KEY_RESIZE:
+                continue
+            if c in (curses.KEY_UP, "k"):
+                sel = max(0, sel - 1)
+            elif c in (curses.KEY_DOWN, "j"):
+                sel = min(len(shown) - 1, sel + 1)
+            elif c in (curses.KEY_NPAGE, curses.KEY_PPAGE):
+                sel = max(0, min(len(shown) - 1, sel + (body if c == curses.KEY_NPAGE else -body)))
+            elif c == "/":
+                filt = (self.prompt("/") or "").lower()
+                sel = top = 0
+            elif c == "e":
+                new = self.prompt("cmdline = ", " ".join(words))
+                if new is not None:
+                    words = new.split()
+            elif c == "\x1b":
+                line = " ".join(words)
+                return line if line != current.strip() else None
+            elif c == "q":
+                return None
+            elif c in (" ", "\n", "\r", curses.KEY_ENTER) and shown:
+                words = toggle_word(self, shown[sel], words, typed=c != " ")
 
     def search(self):
         q = self.prompt("/")
@@ -544,7 +817,25 @@ class UI:
             if not items:
                 return True
             item = items[self.i]
-            new = cycle(self.m, item)   # None: a number or text, typed in
+            if item.key[0] == "broken":
+                self.msg = f"configs/{item.key[1]}.conf is broken -- fix it by hand"
+                return True
+            if item.key[0] == "profile":
+                why = self.m.load_profile(item.key[1])
+                self.msg = why or (f"profile {item.key[1]} loaded -- s saves it to "
+                                   f"{os.path.basename(self.m.local)}, S into build.conf")
+                return True
+            if item.key == ("option", "cmdline"):
+                new = self.pick_boot_words(self.m.value(item.key) or "")
+                if new is None:
+                    return True
+            else:
+                new = cycle(self.m, item)   # None: a number or text, typed in
+            if item.key[0] == "driver" and new == "module":
+                need, _obj = self.m.module_check(item.key[1])
+                if need:
+                    self.msg = f"{item.key[1]} needs {len(need)} export(s) to be a module -- see below"
+                    return True
             if new is None:
                 new = self.prompt(f"{item.key[1]} = ", self.m.value(item.key) or "")
                 if new is None:
@@ -552,6 +843,26 @@ class UI:
             why = self.m.set(item.key, new)
             if why:
                 self.msg = f"{item.key[1]}: {why}"
+        elif c == "w":
+            if not self.m.changes():
+                self.msg = "no change from build.conf to write as a profile"
+                return True
+            name = self.prompt("new profile name (configs/NAME.conf): ")
+            if not name:
+                return True
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
+                self.msg = "a profile name is lower case letters, digits, - and _"
+                return True
+            if name in PUBLISHED_PROFILES:
+                self.msg = f"{name} is the published profile: edit configs/{name}.conf by hand and commit it"
+                return True
+            path = bc.profile_path(name)
+            if os.path.exists(path) and not self.ask(f"configs/{name}.conf exists -- replace it?"):
+                return True
+            desc = self.prompt("one line saying what it is for: ") or f"The {name} profile."
+            why = self.m.write_profile(name, desc)
+            self.groups = build_groups(self.m)
+            self.msg = why or f"wrote configs/{name}.conf -- make iso PROFILE={name}; it is tracked once added"
         elif c == "/":
             self.search()
         elif c == "d":
@@ -595,7 +906,11 @@ def main():
     ap = argparse.ArgumentParser(description="build.conf's options and drivers in a text UI")
     ap.add_argument("conf", nargs="?", default=os.path.join(REPO, "build.conf"))
     ap.add_argument("--local", default=None, help="the untracked overrides file (default: build.local.conf beside conf)")
+    ap.add_argument("--build", default=None, help="the build directory the module check reads (default: build)")
     args = ap.parse_args()
+    global BUILD_DIR
+    if args.build:
+        BUILD_DIR = os.path.abspath(args.build)
     local = args.local or os.path.join(os.path.dirname(os.path.abspath(args.conf)), "build.local.conf")
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         sys.exit("menuconfig: needs a terminal")

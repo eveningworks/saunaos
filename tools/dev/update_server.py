@@ -660,14 +660,27 @@ def write_source(staging, store, out):
     return names
 
 
-def _local_conf_reason():
-    """Why the staged build is not build.conf's, or None. The seed step
-    writes the overrides it was configured with beside the staging."""
+# The one profile a published build may carry (configs/release.conf);
+# build.conf alone is the other. A debug profile's KASAN kernel, or a
+# checkout's build.local.conf, must never become what machines update to.
+PUBLISHABLE_PROFILES = {"release"}
+
+
+def _local_conf_reason(stamp=None):
+    """Why the staged build is not one to publish, or None. The seed step
+    writes the profile and overrides it was configured with beside the
+    staging (build/seed-overrides)."""
     try:
-        with open(os.path.join(REPO, "build", "seed-overrides")) as fh:
+        with open(stamp or os.path.join(REPO, "build", "seed-overrides")) as fh:
             for line in fh:
                 if line.startswith("#") and " overrides: " in line:
                     return "it was built with " + line[1:].strip()
+                if line.startswith("# kdebug: "):
+                    return "its media bake in the kernel GDB stub (KDEBUG / option kdebug)"
+                if line.startswith("# profile: "):
+                    name = line.split(": ", 1)[1].strip()
+                    if name not in PUBLISHABLE_PROFILES:
+                        return f"it was built with PROFILE={name}, which is not published"
     except OSError:
         pass
     return None
@@ -695,8 +708,8 @@ def publish(staging, store, keep, force=False):
     why = _local_conf_reason()
     if why and not force:
         sys.exit(f"update_server: REFUSING to publish: {why}\n"
-                 "  remove build.local.conf and rebuild, or make menuconfig's S to make it\n"
-                 "  the default  (--force publishes anyway)")
+                 "  rebuild from build.conf (no build.local.conf) or PROFILE=release, or use\n"
+                 "  make menuconfig's S to make a change the default  (--force publishes anyway)")
     if why:
         print(f"update_server: publishing a build with local overrides ({why})")
     # A RELEASE IS A TESTED BUILD. preflight stamps the tree it passed on.
