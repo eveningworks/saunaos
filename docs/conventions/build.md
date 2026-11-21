@@ -493,6 +493,14 @@ this the obvious way), not from how much history it accumulated.
   the first TARGET in a makefile is what a bare `make` builds and that
   block carries one.
 
+  **THE DEBUG BUILDS ARE OPTIONS TOO** (`ubsan`, `kasan`,
+  `debug_preempt`, `debugcon`), written out at their defaults, so the
+  file says how this checkout builds. **A BOOL OPTION ARRIVES AS `0`,
+  NOT EMPTY**, so a variable it can set is tested with `$(filter
+  1,$(X))`, never `$(if $(X),...)`, which reads `0` as on. The list
+  itself is `tools/build/build_conf.py`'s `OPTIONS` table; name no
+  options here.
+
   **It is a generated file, not a `$(shell)`**: `$(shell)` collapses
   newlines to spaces, which would split `KCMDLINE ?= video=1920x1080
   nokaslr` into two assignments. Unlike the `.d` files it has a real

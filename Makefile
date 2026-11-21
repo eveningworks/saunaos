@@ -23,7 +23,8 @@ BUILD = build
 # --- build.conf's OPTIONS half, and it must be read FIRST -----------
 #
 # Every setting it carries is a `?=` default further down this file
-# (KCMDLINE, GRUB_TIMEOUT, STRIP, COMPRESS), and `?=` takes the FIRST
+# (KCMDLINE, GRUB_TIMEOUT, STRIP, COMPRESS, HZ, UBSAN, KASAN,
+# DEBUG_PREEMPT, DEBUGCON...), and `?=` takes the FIRST
 # value it sees -- so an include placed after them silently does
 # nothing. That is exactly what happened the first time, and the symptom
 # was a `grub_timeout = 5` in the file producing `set timeout=0` in the

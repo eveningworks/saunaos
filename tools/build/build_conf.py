@@ -83,6 +83,19 @@ OPTIONS = {
                      "one-shot timer deadlines instead of tick-granular ones"),
     "extras":       ("EXTRAS", "bool",
                      "fetch optional differently-licensed material (NETWORK)"),
+    # The debug builds, Linux's CONFIG_UBSAN / CONFIG_KASAN /
+    # CONFIG_DEBUG_PREEMPT. Each changes every object, and the Makefile's
+    # .sanitize-flag stamp rebuilds the tree when one moves.
+    "ubsan":        ("UBSAN", "bool",
+                     "undefined-behaviour sanitizer, kernel and ring 3"),
+    "kasan":        ("KASAN", "bool",
+                     "kernel address sanitizer (doubles kernel stacks)"),
+    "debug_preempt": ("DEBUG_PREEMPT", "bool",
+                     "log per-core reads made while preemptible"),
+    # On in every checkout because every test tool drives the guest
+    # through it; release media pass DEBUGCON=0 on the command line.
+    "debugcon":     ("DEBUGCON", "bool",
+                     "bake the serial debug console's boot word into the media"),
 }
 
 BOOL_TRUE = ("yes", "on", "true", "1")
