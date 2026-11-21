@@ -707,6 +707,11 @@ with its own test:
    without holding the kernel lock.
 5. Everything else, when something measures it.
 
+**Lock-order checking comes with it** (2026-11-21, `option lockdep`,
+`docs/lockdep-design.md`): every path that leaves the kernel lock starts
+relying on the order its own locks are taken in, and lockdep finds an
+inversion from one run that takes them both ways, at TCG speed.
+
 **Do not skip the measurement.** The BKL is not a bug to be ashamed of;
 splitting a lock nothing contends for adds a race surface and buys
 nothing.

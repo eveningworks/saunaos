@@ -494,7 +494,7 @@ this the obvious way), not from how much history it accumulated.
   block carries one.
 
   **THE DEBUG BUILDS ARE OPTIONS TOO** (`ubsan`, `kasan`,
-  `debug_preempt`, `debugcon`), written out at their defaults, so the
+  `debug_preempt`, `lockdep`, `debugcon`), written out at their defaults, so the
   file says how this checkout builds. **A BOOL OPTION ARRIVES AS `0`,
   NOT EMPTY**, so a variable it can set is tested with `$(filter
   1,$(X))`, never `$(if $(X),...)`, which reads `0` as on. The list
@@ -587,6 +587,9 @@ this the obvious way), not from how much history it accumulated.
   object. `make iso DEBUG_PREEMPT=1` re-seeds `disk.img` with a debug
   kernel: build the ordinary one again before anything is published.
   What it reports is `docs/conventions/kernel.md`'s per-core rule.
+  **`LOCKDEP=1` (`option lockdep`) is the same shape** --
+  `SAUNAOS_LOCKDEP` through `LOCKDEP_DEFS`, the same stamp, the kernel
+  only -- and what it reports is read with `lockstat order`.
 
 - **`KASAN=1` IS THE KERNEL'S ADDRESS SANITIZER, AND FOUR THINGS KEEP ITS
   SHADOW TRUE.** GCC's `-fsanitize=kernel-address` checks every kernel

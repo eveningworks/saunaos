@@ -147,7 +147,8 @@ cannot.
 
 **Profiles** are named sets of options in `configs/`: `release` (no
 serial debug console -- what release media are built with) and `debug`
-(every sanitizer and check on). `make iso PROFILE=debug` builds
+(every sanitizer and check on, lock-order checking included).
+`make iso PROFILE=debug` builds
 `build.conf` plus `configs/debug.conf` and does NOT read
 `build.local.conf`, so a profile build is committed files alone. In the
 menu, the Profiles group loads one into the session, and `w` writes the

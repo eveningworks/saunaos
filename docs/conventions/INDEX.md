@@ -268,6 +268,10 @@ whenever a headline here tells you something you did not already know.
   DROPS IT** -- `bkl_drop_all()` before a hand-rolled `iretq`; contexts
   start through `proc_start_context()`; no spinlock across a sleep; the
   paranoid vectors from ring 0 take no lock
+- **A LOCK INSIDE A STRUCT IS NAMED WHERE IT IS SET UP, AND TWO OF ONE
+  CLASS NEST ONLY ANNOTATED** -- `kmutex_name()`/`spin_lock_name()`
+  before the first take, a static needs none; same-class nesting through
+  `kmutex_lock_nested()` or `kmutex_lock_nest_lock()`; `option lockdep`
 - **WHAT RUNS IS PER CORE, AND A PROCESS MAY BE RUNNING SOMEWHERE
   ELSE** -- `current_index` is this core's, read as ONE `%gs`
   instruction (a migration splits a two-step read), and a decision on it

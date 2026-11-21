@@ -24,6 +24,9 @@ before `switch_to()`, `block_common()` or `FS_OP()`),
 `fslock-design.md` (stages 0-4a, 5a, 5b, 5c BUILT, 5d's evidence taken bar the Lenovo -- before tfs3's journal, its scratch state or a
 caller sleeping under the fs lock), `smp-design.md` (stages 1-6 BUILT -- the APs started, the ticket lock, call IPI and kernel lock, the TLB shootdown, processes on every core BY DEFAULT 2026-11-20; stage 7, splitting the lock: `lockstat`, a per-core guard and heap/frame spinlocks BUILT 2026-11-21, no path off the lock yet --
 before a module-level buffer anything a syscall reaches uses),
+`lockdep-design.md` (lock-order checking, `option lockdep`: classes, a
+learned order graph, irq-safety, BUILT 2026-11-21 -- before a new lock,
+a lock inside a struct, or nesting two of one kind),
 `modules-design.md`, `aml-design.md` (the ACPI namespace walk, stages
 0-2 BUILT; stage 4 -- method execution by a vendored uACPI -- SCHEDULED
 2026-11-10, before any AML, embedded-controller or `kernel/third_party/`

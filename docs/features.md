@@ -193,7 +193,10 @@ waits -- into per-core rings while armed (`trace start`, or `trace run
 PROGRAM` around one program), shows them as text, and dumps them for
 `tools/dev/trace_view.py`, which opens them in Perfetto as a track per
 core; a panic with the trace armed keeps each core's last events in the
-panic record.
+panic record. A debug build (`option lockdep`,
+on in `PROFILE=debug`) checks every spinlock and kmutex take against the
+order lock classes have been taken in, Linux's lockdep, and reports an
+inversion or an interrupt-safety mix once; `lockstat order` lists them.
 
 **Memory hardening.** NX and W^X from each ELF segment's real `p_flags`,
 and the kernel's own identity map is W^X too — `.text` is the only

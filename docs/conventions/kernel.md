@@ -1492,6 +1492,31 @@ through `switch_to()`.
   switched to releases the lock on its way to ring 3. That is the lock
   working, not leaking.
 
+## A LOCK INSIDE A STRUCT IS NAMED WHERE IT IS SET UP, AND TWO OF ONE CLASS NEST ONLY ANNOTATED
+
+Lock-order checking (`option lockdep`, `docs/lockdep-design.md`) gives
+every spinlock and kmutex a CLASS and learns the order classes are taken
+in. A file-scope static is its own class and needs nothing.
+
+- **A LOCK EMBEDDED IN A STRUCT -- heap-allocated or in a static array --
+  IS NAMED BEFORE ITS FIRST TAKE**: `kmutex_name(&d->lock, "ahci drive")`,
+  `spin_lock_name()`, with a string literal. Every lock given one name is
+  one class. An unnamed one outside the image is not checked and its
+  first take is reported (`lockstat order`: "an unnamed lock"); an
+  unnamed array element would silently be a class per element. Both are
+  empty inlines without the option, so name freely.
+- **TWO LOCKS OF ONE CLASS HELD TOGETHER ARE A REPORT** unless the order
+  between them is stated: `kmutex_lock_nested(m, subclass)` for a fixed
+  order (the mount locks take their depth: parent before child), or
+  `kmutex_lock_nest_lock(m, &outer)` when one outer lock serialises
+  everyone taking many of them (`fs_exclusive_begin()` under `g_excl`).
+  Every take of such a lock uses the same annotation, a re-take after a
+  dropped stretch included (`mount.c`'s `lock_slot()`).
+- **A REPORT IS A FINDING, NOT A FALSE ALARM TO SILENCE**: an inversion
+  names both classes and where each order was first seen. Fix the order,
+  or, if two classes really are one lock's halves, say so with a
+  subclass -- never by taking the lock unnamed.
+
 ## WHAT RUNS IS PER CORE, AND A PROCESS MAY BE RUNNING SOMEWHERE ELSE
 
 Since SMP stage 5 (`smp=run`, the default since 2026-11-20; `docs/smp-design.md`)
