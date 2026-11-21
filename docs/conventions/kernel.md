@@ -5322,7 +5322,8 @@ registry), or hold the filesystem lock itself with
 `fs_exclusive_begin()`/`_end()` where the guard was standing in for it
 (the partition syscalls, a tfs3 KTEST, the legacy loader's whole run).
 `kmutex_trylock()` is for a caller with somewhere better to be (the idle
-write-back) and never blocks.
+write-back) and never blocks; a lock taken both ways with a lockdep
+subclass (a mount's) uses `kmutex_trylock_nested()` on the try path too.
 
 ## A DRIVER WHOSE WAIT SLEEPS SERIALISES ITS OWN HARDWARE WITH ITS OWN LOCK
 

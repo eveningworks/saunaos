@@ -132,7 +132,9 @@ memory for the rings. `off` KEEPS the records (`QUERY_KTRACE`) to be read
 after the stretch they cover, as ftrace's `tracing_on` does; the next start
 empties them. `kernel.trace_size` is the records per core for the next
 start from stopped, rounded up to a power of two (default 8192, at most a
-32nd of RAM across every core). The records carry kernel addresses and
+32nd of RAM across every core; a larger value is refused before any
+rounding, so no size can wrap the arithmetic). `trace -s` refuses while a
+trace runs, since a running trace keeps its rings. The records carry kernel addresses and
 `SYS_QUERY` answers any process -- the same exposure every fact has here,
 worth knowing before leaving it armed.
 

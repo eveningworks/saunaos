@@ -74,7 +74,11 @@ which as one class would read as recursion. Depth is a conservative
 stand-in for parenthood (two sibling mounts of one depth held together
 would report) and clamps at 7. **`fs_exclusive_begin()` takes every
 mount at once under `g_excl`** with `kmutex_lock_nest_lock()`: one held
-entry with a count, no edges between them.
+entry with a count, no edges between them, released in ANY order --
+`exclusive_release()` goes by slot, and an entry that only matched in
+reverse left a stale hold behind (the review fix, 6efac476).
+`mount_trylock()` (the idle write-back) takes its depth's subclass too,
+through `kmutex_trylock_nested()`.
 
 ## Held locks, and where they live
 
@@ -94,12 +98,14 @@ entry with a count, no edges between them.
   trylock is recorded only once it has the lock and adds no edges, since
   it cannot wait.
 - Twelve kmutexes per context, eight spinlocks per core; deeper takes
-  are not tracked and count in `unmatched`.
+  are not tracked, count in `unmatched` and log once.
 
 **The graph is fixed-size on purpose** -- 255 classes, 2048 sited edges,
 64 reports: it is written from inside `spin_lock()`, under the heap's own
 lock and in interrupts, where nothing may allocate (Linux's
-`MAX_LOCKDEP_KEYS`, for the same reason). A full table logs once. The
+`MAX_LOCKDEP_KEYS`, for the same reason). EVERY full table logs once --
+classes, reports, sited edges, unnamed-lock sites -- and is otherwise
+only a count in `lockstat order`. The
 fast path -- every edge from the held locks already known -- is one bit
 test per held lock in an unlocked bitmap; the graph lock (a bare
 test-and-set with interrupts off, never a checked lock) is taken only for
