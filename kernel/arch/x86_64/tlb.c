@@ -42,10 +42,19 @@ static struct cpu *here(void) {
 // ONE CORE'S, interrupts off: moved between the write and the record,
 // a thread recorded its space on the core it had left, and a shootdown
 // for what that core really runs could then miss it.
+// **RECORDED BEFORE IT IS LOADED, AND THE OLD ONE KEPT UNTIL IT IS NOT**:
+// a switch with no kernel lock (scheduler_ap_event_lockless()) is not
+// ordered against a sender by that lock any more. Linux's switch_mm()
+// shape: the record, then the serializing CR3 write, so a sender that
+// finds neither word naming its space (shoot(), after a full fence) knows
+// this core's next walk reads the tables it has already changed.
 void tlb_load_cr3(uint64_t pml4_phys) {
     uint64_t f = irq_save();
+    struct cpu *c = here();
+    c->cr3_old = c->cr3;
+    __atomic_store_n(&c->cr3, pml4_phys, __ATOMIC_RELEASE);
     write_cr3(pml4_phys);
-    here()->cr3 = pml4_phys;
+    __atomic_store_n(&c->cr3_old, 0, __ATOMIC_RELEASE);
     irq_restore(f);
 }
 
@@ -93,9 +102,14 @@ static void shoot(uint64_t space, uint64_t leave, uintptr_t site) {
         }
     }
     int count = 0;
+    // The caller's page-table writes before any core's record is read:
+    // tlb_load_cr3()'s other half. cr3 then cr3_old, in that order.
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
     for (int i = 0; i < n; i++) {
         struct cpu *c = (struct cpu *)smp_cpu_at(i);
-        if (!answers(c, me) || (space && c->cr3 != space)) continue;
+        if (!answers(c, me)) continue;
+        if (space && __atomic_load_n(&c->cr3, __ATOMIC_ACQUIRE) != space &&
+            __atomic_load_n(&c->cr3_old, __ATOMIC_ACQUIRE) != space) continue;
         c->tlb_leave = leave;
         __atomic_store_n(&c->tlb_seq, c->tlb_done + 1, __ATOMIC_RELEASE);
         // Not accepted is caught by the wait: it times out.

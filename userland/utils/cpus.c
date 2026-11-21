@@ -69,6 +69,11 @@ int main(int argc, char **argv) {
                q.call_pending ? ", one sent and not finished" : "");
         printf("  shootdowns:  %llu answered%s\n", (unsigned long long)q.flushes_taken,
                q.flush_pending ? ", one sent and not answered" : "");
+        // The boot core's clock events are not counted: its line is switches only.
+        if (q.index) printf("  scheduler:   %llu events, %llu switches; %llu without the kernel lock\n",
+                            (unsigned long long)q.sched_events, (unsigned long long)q.sched_switches,
+                            (unsigned long long)q.sched_lockless);
+        else printf("  scheduler:   %llu switches\n", (unsigned long long)q.sched_switches);
         if (q.wedge_vec)
             printf("  wedged by:   vector %llu\n", (unsigned long long)(q.wedge_vec - 1));
         if (q.nmi_stray)

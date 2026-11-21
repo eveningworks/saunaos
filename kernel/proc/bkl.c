@@ -180,18 +180,26 @@ void bkl_exit(const uint64_t *regs) {
 int bkl_depth(void) { return g_ready ? this_cpu()->bkl_depth : 0; }
 
 // Interrupts are off: switch_to() runs under the interrupt gate.
+// **DEPTH 0 IS A CONTEXT SWITCHED OUT WITHOUT THE LOCK** -- by a
+// scheduler event that took none (scheduler_ap_event_lockless()) -- so
+// the frame it resumes into releases nothing: this core lets the lock go
+// here instead, or holds none already.
 void bkl_load_depth(int depth) {
     if (!g_ready) return;
     uintptr_t site = (uintptr_t)__builtin_return_address(0);
+    if (depth == 0) {
+        struct cpu *c = this_cpu();
+        if (spin_held_here(&g_bkl)) release(c);
+        c->bkl_depth = 0;
+        return;
+    }
     if (!spin_held_here(&g_bkl)) {
         fault("switch without holding it", depth, site);
         spin_lock_raw(&g_bkl, site);
         account_take(this_cpu(), BKL_KEY_KERNEL);
     }
-    if (depth < 1) {
-        // Every context resumes inside the kernel: in switch_to()'s
-        // caller, or in isr_start_frame, which starts at 1.
-        fault("switch into a context at depth < 1", depth, site);
+    if (depth < 0) {
+        fault("switch into a context at a negative depth", depth, site);
         depth = 1;
     }
     this_cpu()->bkl_depth = depth;

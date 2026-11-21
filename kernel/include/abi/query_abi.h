@@ -1253,6 +1253,9 @@ struct query_cpustate {
     uint64_t bkl_vec;        // how it last took the lock: the vector,
     uint64_t bkl_rip;        // ...where, and
     int64_t  bkl_pid;        // ...for whom
+    uint64_t sched_events;   // an AP's timer and reschedule events; 0 on the boot core
+    uint64_t sched_switches; // context switches made here
+    uint64_t sched_lockless; // events and yields handled here without the kernel lock
 };
 _Static_assert(sizeof(struct query_cpustate) <= 256,
                "a query record must fit QUERY_RECORD_MAX -- see api/query.h");

@@ -194,7 +194,7 @@ struct sched_process {
     // THIS SLOT'S PID, set when the slot is claimed and 0 when it is free.
     // A PID IS NOT A SLOT INDEX: every pid -> slot lookup goes through
     // pid_slot(), and every slot -> pid read is this field.
-    int on_core;          // the core this context is live on, or -1 (Linux's on_cpu): a check
+    int on_core;          // the core this context is live on, or -1 (Linux's on_cpu): the pick skips a live one
     uintptr_t on_site;    // ...and who switched it in, for its report
     int pid;
 
@@ -495,6 +495,21 @@ static inline struct cpu *sched_here(void) {
 #define set_current_index(v)    SCHED_HERE_SET(sched_cur, (v))
 #define set_rotation_pos(v)     SCHED_HERE_SET(sched_rot, (v))
 #define set_need_resched(v)     SCHED_HERE_SET(sched_resched, (v))
+
+// **THE SCHEDULER LOCK** (docs/smp-design.md, stage 7): procs[]'s run
+// state -- `state`, `stopped`, what the pick reads and the globals it
+// writes -- and which slot each core runs. FreeBSD 5's sched_lock beside
+// Giant: one lock for the run queue, AFTER the kernel lock and never
+// before it, so a path holding it that finds it needs the kernel lock
+// declines rather than waits (scheduler_ap_event_lockless()). Interrupts
+// off while held, which is also its guard; RECURSIVE per core, as
+// FreeBSD's was, so a wake inside a kill nests. **A SWITCH IS ENTERED
+// HOLDING IT ONCE AND RETURNS WITHOUT IT** -- switch_to() and
+// switch_to_kernel() let it go before the incoming context runs, so the
+// caller's own unlock after one is irq_restore() alone.
+uint64_t sched_lock(void);
+void sched_unlock(uint64_t flags);
+int  sched_locked_here(void);
 
 int  sched_core_of(int slot);        // the core running it, or -1
 int  sched_on_other_core(int slot);  // RUNNING, and not here: in ring 3 on another core

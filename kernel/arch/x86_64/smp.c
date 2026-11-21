@@ -467,6 +467,11 @@ void smp_resched(int index) {
     (void)lapic_send_ipi((uint8_t)g_cpus[index]->apic_id, SMP_SCHED_VECTOR);
 }
 
+// To this core, whichever it is: taken the moment interrupts reopen.
+void smp_resched_self(void) {
+    if (g_cpus) (void)lapic_send_ipi((uint8_t)this_cpu()->apic_id, SMP_SCHED_VECTOR);
+}
+
 static void go_cb(void *arg) {
     (void)arg;
     __atomic_store_n(&this_cpu()->sched_go, 1, __ATOMIC_RELEASE);

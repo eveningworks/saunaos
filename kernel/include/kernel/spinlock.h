@@ -39,6 +39,11 @@ void spin_lock_raw(struct spinlock *l, uintptr_t site);
 void spin_unlock_raw(struct spinlock *l);
 int  spin_trylock(struct spinlock *l);
 
+// With interrupts ALREADY OFF and no guard, but checked by lockdep: the
+// scheduler's lock (sched_internal.h's sched_lock()), held into a switch.
+void spin_lock_noguard(struct spinlock *l);
+void spin_unlock_noguard(struct spinlock *l);
+
 // Interrupts off on this core, then the lock; the flags go back to
 // spin_unlock_irqrestore().
 uint64_t spin_lock_irqsave(struct spinlock *l);

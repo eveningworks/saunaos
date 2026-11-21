@@ -66,11 +66,11 @@ int kthread_start(const char *name, void (*fn)(void *), void *arg) {
     // EVERYTHING BEFORE READY: the caller is preemptible, and a short fn
     // can run to its end and free the slot before the next line here.
     int pid = procs[slot].pid;
-    uint64_t f = irq_save();
+    uint64_t f = sched_lock();
     alive_count++;
     procs[slot].state = SCHED_READY;
     slot_unclaim(slot);
-    irq_restore(f);
+    sched_unlock(f);
     return pid;
 }
 

@@ -433,6 +433,8 @@ void idt_report_frame(const uint64_t *regs) {
     panic_report_context(regs[17], regs, 0);
 }
 
+static void ap_sched_ack(uint64_t *regs);   // below: an AP's scheduler event taken
+
 static void isr_dispatch_body(uint64_t *regs) {
     uint64_t vector = regs[15];
 
@@ -494,14 +496,13 @@ static void isr_dispatch_body(uint64_t *regs) {
     } else if (vector == SMP_SCHED_VECTOR) {
         // An AP's tick or a reschedule IPI (smp.h). EOI first: the
         // rotation may switch away and return here much later.
-        lapic_eoi();
         if (spin_cpu_index() != 0) {
-            struct cpu *tc = this_cpu();   // its last tick, for a waiter's lockup report
-            tc->tick_tsc = arch_rdtsc(); tc->tick_rip = regs[17]; tc->tick_cs = regs[18];
-            lapic_timer_rearm_here();   // a reschedule IPI restarts the slice timer too
+            ap_sched_ack(regs);
             scheduler_ap_event(regs);
+        } else {
+            lapic_eoi();
+            scheduler_trap_exit(regs);
         }
-        else scheduler_trap_exit(regs);
     } else if (vector == LAPIC_SPURIOUS_VECTOR) {
         // BY ARCHITECTURE, NO EOI. The LAPIC did not set an in-service
         // bit for a spurious interrupt, so acknowledging one would
@@ -937,6 +938,40 @@ static int takes_bkl(const uint64_t *regs) {
            vector != SMP_CALL_VECTOR;
 }
 
+// An AP's scheduler event taken: the EOI, its last tick (for a waiter's
+// lockup report) and the slice timer re-armed -- a reschedule IPI restarts
+// it too. Once per event, whichever path takes it.
+static void ap_sched_ack(uint64_t *regs) {
+    lapic_eoi();
+    struct cpu *tc = this_cpu();
+    tc->tick_tsc = arch_rdtsc(); tc->tick_rip = regs[17]; tc->tick_cs = regs[18];
+    lapic_timer_rearm_here();
+}
+
+// **AN AP'S EVENT THAT NEEDS NO KERNEL LOCK TAKES NONE**
+// (scheduler_ap_event_lockless()): the depth raised and restored as the
+// ordinary path does, since a switch saves it with the context. Returns 0
+// having taken nothing. A context resumed here may have had work posted
+// for the ordinary way back to ring 3 while it waited -- a signal, sent
+// when it was not running, so nothing kicked it -- and a reschedule to
+// this core, taken as soon as the return reopens interrupts, declines
+// and gets it there.
+static int ap_sched_lockless(uint64_t *regs) {
+    int outer = this_cpu_read(isr_depth);
+    this_cpu_write(isr_depth, outer + 1);
+#ifdef SAUNAOS_LOCKDEP
+    int ld = lockdep_hardirq_enter();
+#endif
+    int done = scheduler_ap_event_lockless(regs, ap_sched_ack);
+#ifdef SAUNAOS_LOCKDEP
+    lockdep_hardirq_exit(ld);
+    if (done && (regs[18] & 3)) lockdep_user_return();
+#endif
+    this_cpu_write(isr_depth, outer);
+    if (done && (regs[18] & 3) && !scheduler_lockless_ok()) smp_resched_self();
+    return done;
+}
+
 void isr_dispatch(uint64_t *regs) {
     uint64_t vector = regs[15];
     // ANOTHER CORE'S PANIC STOPS THIS ONE (smp_stop_others()), on any core,
@@ -1002,6 +1037,7 @@ void isr_dispatch(uint64_t *regs) {
             smp_ap_interrupt(vector);
             return;
         }
+        if (vector == SMP_SCHED_VECTOR && ap_sched_lockless(regs)) return;
     }
     int bkl = takes_bkl(regs);
     if (bkl) bkl_enter(regs);

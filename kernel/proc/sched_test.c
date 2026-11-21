@@ -808,3 +808,40 @@ KTEST("sched", "a slot being built is never handed out twice") {
     KTEST_ASSERT_EQ(state_a, PROC_STATE_UNUSED);   // not a process to anyone else
 }
 
+
+// **A CONTEXT IS NOT PICKED, NOR ITS SLOT REUSED, WHILE A CORE IS STILL
+// ON ITS STACK** (scheduler.c's live_of()): a switch lets the scheduler
+// lock go before it leaves the outgoing stack, so READY alone does not
+// mean nothing runs there. The control is the same slot unmarked.
+KTEST("sched", "a READY context still live on another core is not picked, nor its slot claimed") {
+    static uint64_t tf[SCHED_TF_SLOTS];
+    static const char chan;
+    int unmarked = -2, marked = -2, claimed = -2, w;
+
+    scheduler_preempt_disable();
+    w = scheduler_test_park(tf, &chan, SCHED_WAIT_EVENT);
+    if (w >= 0) {
+        scheduler_wake(&chan, 0);
+        scheduler_test_set_vruntime(w, 0);             // the least-run: picked if it may be
+        unmarked = scheduler_test_pick(-1);
+        scheduler_test_set_live(w, 63);                // a core still on its stack
+        scheduler_test_set_vruntime(w, 0);
+        marked = scheduler_test_pick(-1);
+        scheduler_test_release(w);                     // UNUSED, and still live
+        claimed = scheduler_test_slot_claim();
+        scheduler_test_slot_unclaim(claimed);
+        scheduler_test_set_live(w, -1);
+        // The control for the claim: the same table, the mark gone.
+        int again = scheduler_test_slot_claim();
+        scheduler_test_slot_unclaim(again);
+        if (again != w) claimed = -3;   // w was not the claim's first choice: proves nothing
+        (void)scheduler_test_take_resched();
+    }
+    scheduler_preempt_enable();
+
+    if (w < 0) KTEST_SKIP("no free process slots to fabricate");
+    KTEST_ASSERT_EQ(unmarked, w);
+    KTEST_ASSERT(marked != w);
+    KTEST_ASSERT(claimed != -3);
+    KTEST_ASSERT(claimed != w);
+}

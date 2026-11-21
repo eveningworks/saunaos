@@ -60,6 +60,9 @@ static int cpustate_fill(int index, void *out) {
     q->bkl_vec = c->bkl_vec;
     q->bkl_rip = c->bkl_rip;
     q->bkl_pid = c->bkl_slot >= 0 ? scheduler_slot_pid(c->bkl_slot) : 0;
+    q->sched_events = __atomic_load_n(&c->sched_events, __ATOMIC_RELAXED);
+    q->sched_switches = __atomic_load_n(&c->sched_switches, __ATOMIC_RELAXED);
+    q->sched_lockless = __atomic_load_n(&c->sched_lockless, __ATOMIC_RELAXED);
     return 1;
 }
 

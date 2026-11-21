@@ -24,8 +24,9 @@
 // Taken by isr_dispatch() for every vector but the paranoid ones (NMI,
 // #DF, #MC, #DB, #BP -- an NMI landing inside take() on its own core
 // would queue behind its own ticket) and the call-function IPI (its
-// sender waits for it while holding this). Released when the depth
-// reaches 0, which is exactly on the way back to ring 3.
+// sender waits for it while holding this), nor by an MPSAFE syscall or an
+// AP's scheduler event that needs none (scheduler.h). Released when the
+// depth reaches 0, which is exactly on the way back to ring 3.
 #include <stdint.h>
 
 void bkl_boot(void);   // after gdt_init(): the BSP holds it, depth 1
@@ -33,7 +34,8 @@ void bkl_boot(void);   // after gdt_init(): the BSP holds it, depth 1
 void bkl_enter(const uint64_t *regs);
 void bkl_exit(const uint64_t *regs);
 
-// For switch_to(): this core's depth, and the incoming context's.
+// For switch_to(): this core's depth, and the incoming context's -- 0
+// for one switched out without the lock, which releases it here.
 int  bkl_depth(void);
 void bkl_load_depth(int depth);
 

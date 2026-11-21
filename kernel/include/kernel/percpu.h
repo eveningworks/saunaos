@@ -79,6 +79,7 @@ struct cpu {
     // still reaches it -- and its shootdown mailbox, written by the one
     // sender the kernel lock allows.
     volatile uint64_t cr3;
+    volatile uint64_t cr3_old;     // the space being switched away from, until CR3 is written (tlb_load_cr3())
     volatile uint64_t tlb_leave;   // a space being destroyed: load the kernel's if it is ours
     volatile uint32_t tlb_seq, tlb_done;
     // The scheduler's per-core state (sched_internal.h's current_index,
@@ -105,6 +106,13 @@ struct cpu {
     uint32_t calls_taken;     // cross-core calls run here (call_service())
     uint32_t flushes_taken;   // shootdowns answered here (tlb_service())
     uint32_t pad4;
+    // The scheduler here, written by this core with interrupts off: its
+    // timer and reschedule events (an AP's; the BSP's clockevent is not
+    // counted), and the switches it made -- QUERY_CPUSTATE.
+    uint64_t sched_events, sched_switches;
+    uint64_t sched_lockless;   // ...of those events, the ones handled without the kernel lock
+    int sched_lock_depth;      // this core's nesting of the scheduler lock (sched_internal.h)
+    int idle_live;             // the "live" word for this core's idle context (scheduler.c's live_of())
     // The RUNNING CONTEXT's preemption-guard and interrupt nesting
     // (scheduler.c, idt.c): saved into the outgoing context and loaded
     // from the incoming one at every switch, so each is per context and

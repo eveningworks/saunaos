@@ -116,6 +116,7 @@ void group_release_threads(int leader) { group_release_threads_but(leader, -1); 
 
 // ...all but `keep` as well, the thread that is running this.
 void group_release_threads_but(int leader, int keep) {
+    uint64_t sf = sched_lock();   // "not on another core" and the free are one step
     for (int i = 0; i < MAX_PROCS; i++) {
         if (i == leader || i == keep) continue;
         if (procs[i].state == SCHED_UNUSED) continue;
@@ -130,6 +131,7 @@ void group_release_threads_but(int leader, int keep) {
         }
         slot_release(i);
     }
+    sched_unlock(sf);
 }
 
 // exec's half of Linux's de_thread(): every other thread of the group
@@ -140,6 +142,7 @@ static const char g_off_core_chan;
 void group_wait_off_cores(int leader, int keep) {
     for (;;) {
         int busy = 0;
+        uint64_t sf = sched_lock();
         for (int i = 0; i < MAX_PROCS; i++) {
             if (i == keep || i == leader || procs[i].state == SCHED_UNUSED) continue;
             if (procs[i].tgid != procs[leader].pid || !sched_on_other_core(i)) continue;
@@ -147,6 +150,7 @@ void group_wait_off_cores(int leader, int keep) {
             sched_kick_core(sched_core_of(i));
             busy++;
         }
+        sched_unlock(sf);
         if (!busy) return;
         scheduler_block_kernel_until(&g_off_core_chan, SCHED_WAIT_TIMER,
                                      clocksource_now_ns() + 1000000ull);
@@ -187,7 +191,15 @@ static int group_parked(int leader, int except) {
 // does it: every other thread gets a pending SIGKILL and leaves the
 // kernel on its own, the address space stays until the last one has,
 // and the leader waits as an unreapable zombie. Returns 1 when deferred.
+static int group_defer_death_locked(int leader, int except, int code);
 static int group_defer_death(int leader, int except, int code) {
+    uint64_t sf = sched_lock();   // the count and the SIGKILLs against one view of the cores
+    int rc = group_defer_death_locked(leader, except, code);
+    sched_unlock(sf);
+    return rc;
+}
+
+static int group_defer_death_locked(int leader, int except, int code) {
     if (!group_parked(leader, except)) return 0;
     if (!procs[leader].group_dying) {
         procs[leader].group_dying = 1;
@@ -219,8 +231,11 @@ void scheduler_exit_group(int code) {
     int me = current_index;
     int leader = leader_index(me);
     // Under the guard from the count to the release, or a sibling run in
-    // between could enter the kernel after group_defer_death() counted it.
+    // between could enter the kernel after group_defer_death() counted it
+    // -- and under the scheduler lock, or a core switching one in without
+    // the kernel lock could start it between the two.
     scheduler_preempt_disable();
+    uint64_t sf = sched_lock();
     if (!group_defer_death(leader, me, code)) {
         // The last thread out of a deferred death reports the first one's
         // reason, and the whole teardown happens here.
@@ -234,6 +249,7 @@ void scheduler_exit_group(int code) {
         // others gone before exit_mm() for the same reason.
         group_release_threads_but(leader, me);
         if (me != leader) leader_dying(leader, code);
+        sched_unlock(sf);
         scheduler_preempt_enable();
         syscall_process_exit_cleanup(vmm_current_pml4());
         scheduler_on_exit(code);
@@ -249,9 +265,11 @@ void scheduler_exit_group(int code) {
     } else {
         slot_release(me);
     }
+    sched_unlock(sf);
     sched_switch_begin();   // before the guard drops: scheduler_on_exit() says why
     scheduler_preempt_enable();
     bill_current();
+    (void)sched_lock();   // let go by the switch below
     set_current_index(-1);
     int next = find_next_runnable(rotation_pos);
     if (next == ROT_KERNEL) { switch_to_kernel(me); return; }
@@ -346,6 +364,7 @@ void scheduler_on_exit(int code) {
     bill_current(); // the exiting process's last slice
     int gone = current_index;
     trace_sched("exit", current_index);
+    (void)sched_lock();   // let go by the switch below
     set_current_index(-1);
 
     // Continue the rotation from the slot that just exited (which is
@@ -387,6 +406,7 @@ void scheduler_on_thread_exit(int code) {
     scheduler_preempt_enable();
 
     bill_current();
+    (void)sched_lock();   // let go by the switch below
     set_current_index(-1);
     int next = find_next_runnable(rotation_pos);
     if (next == ROT_KERNEL) { switch_to_kernel(me); return; }
@@ -403,6 +423,7 @@ void scheduler_on_kthread_exit(void) {
     slot_release(me);
     sched_switch_begin();
     bill_current();
+    (void)sched_lock();   // let go by the switch below
     set_current_index(-1);
     int next = find_next_runnable(rotation_pos);
     if (next == ROT_KERNEL) switch_to_kernel(me);
@@ -577,9 +598,15 @@ int scheduler_kill(int pid, int exit_code) {
     if (pid == g_init_pid) return 0;
     if (procs[slot].kthread) return 0;   // kthread.h: nothing ends one but its return
 
+    // From this test to the ZOMBIE below under the scheduler lock: a READY
+    // victim switched in by a core that takes no kernel lock to do it
+    // (scheduler_ap_event_lockless()) would run on what is freed here.
+    uint64_t sf = sched_lock();
     if (procs[slot].state != SCHED_READY && procs[slot].state != SCHED_BLOCKED &&
-        !sched_on_other_core(slot))
+        !sched_on_other_core(slot)) {
+        sched_unlock(sf);
         return 0; // unused, already a zombie, or running here (handled above)
+    }
 
     // **PARKED MID-CALL, IT DIES ON THE WAY OUT, NOT HERE** -- Linux's D
     // state. Its C frames may hold the filesystem lock across a disk
@@ -596,7 +623,11 @@ int scheduler_kill(int pid, int exit_code) {
     // Under the guard from this test to the ZOMBIE below: the victim run
     // in between could enter a call after it was counted out of one.
     scheduler_preempt_disable();
-    if (group_defer_death(slot, -1, exit_code)) { scheduler_preempt_enable(); return 1; }
+    if (group_defer_death(slot, -1, exit_code)) {
+        sched_unlock(sf);
+        scheduler_preempt_enable();
+        return 1;
+    }
 
     // A STOPPED PROCESS IS STILL KILLABLE, which is the reason SIGKILL
     // is exempt from suspension everywhere: a job suspended by Ctrl-Z
@@ -611,6 +642,7 @@ int scheduler_kill(int pid, int exit_code) {
     procs[slot].state = SCHED_ZOMBIE;
     procs[slot].exit_code = exit_code;
     alive_count--;
+    sched_unlock(sf);
     scheduler_preempt_enable();   // the teardown below may sleep
 
     remote_log_session_closed(pid);   // killed counts as ended

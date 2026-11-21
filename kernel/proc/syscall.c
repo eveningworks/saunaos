@@ -25,6 +25,7 @@
 #include "vmm.h"
 #include "win_surface.h" // win_surface_space_gone()
 #include "scheduler.h"
+#include "smp.h"            // smp_resched_self(): a yield resumed with a signal waiting
 #include "strace.h"
 #include "sound.h"
 #include "shm.h"
@@ -136,11 +137,31 @@ int syscall_try_lockless(uint64_t *regs) {
     if (!(regs[18] & 3)) return 0;
     uint64_t nr = regs[14];
     const struct syscall_desc *d = syscall_desc_at(nr);
-    if (!d || !d->fn || !(d->flags & SYSCALL_F_MPSAFE) || !g_lockless_on) return 0;
+    // SYS_YIELD IS NOT A ROW'S FLAG: it may switch, and may decline after
+    // looking, which an MPSAFE handler may do neither of
+    // (scheduler_yield_lockless()).
+    int yield = nr == SYS_YIELD && scheduler_lockless_sched_enabled();
+    if (!d || !d->fn || (!yield && !(d->flags & SYSCALL_F_MPSAFE)) || !g_lockless_on) return 0;
     uint64_t f = irq_save();
     if (strace_any() || sandbox_active() || !scheduler_lockless_ok()) {
         irq_restore(f);
         return 0;
+    }
+    if (yield) {
+        // Traced before the switch it may make; a decline then traces the
+        // entry twice, the ordinary path's being the second.
+        KTRACE(KTRACE_G_SYSCALL, KTRACE_EV_SYS_ENTER, nr, regs[9], regs[10], regs[11]);
+        if (!scheduler_yield_lockless(regs)) { irq_restore(f); return 0; }
+        // Resumed, perhaps on another core: what follows is that core's.
+        KTRACE(KTRACE_G_SYSCALL, KTRACE_EV_SYS_EXIT, nr, regs[14], 0, 0);
+        bkl_note_lockless(nr);
+#ifdef SAUNAOS_LOCKDEP
+        lockdep_user_return();
+#endif
+        // Posted while it waited, a signal goes the ordinary way back
+        // (idt.c's ap_sched_lockless() says why).
+        if (!scheduler_lockless_ok()) smp_resched_self();
+        return 1;
     }
     struct syscall_ctx c = {
         .regs = regs,

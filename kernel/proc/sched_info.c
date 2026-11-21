@@ -341,6 +341,10 @@ void scheduler_test_park_deadline(int idx, uint64_t wake_at_ns, int in_kernel) {
 
 int scheduler_test_pick(int start) { return find_next_runnable(start); }
 
+void scheduler_test_set_live(int idx, int core) {
+    if (idx >= 0 && idx < MAX_PROCS) __atomic_store_n(&procs[idx].on_core, core, __ATOMIC_RELEASE);
+}
+
 void scheduler_test_set_vruntime(int idx, uint64_t v) {
     if (idx == -1) kernel_vruntime = v;
     else if (idx >= 0 && idx < MAX_PROCS) procs[idx].vruntime = v;

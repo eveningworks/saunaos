@@ -336,6 +336,9 @@ int scheduler_stop(int pid, int sig) {
     // reasoning as the pending mask being a set rather than a queue.
     if (p->stopped) return 1;
 
+    // The flag and "is it running elsewhere" under the scheduler lock, so
+    // a core picking it between the two cannot miss both.
+    uint64_t sf = sched_lock();
     p->stopped       = 1;
     p->stop_sig      = sig;
     p->stop_reported = 0;
@@ -345,6 +348,7 @@ int scheduler_stop(int pid, int sig) {
         int i = (int)(p - procs);
         if (sched_on_other_core(i)) sched_kick_core(sched_core_of(i));
     }
+    sched_unlock(sf);
 
     // NOTHING IS DESCHEDULED HERE, and it does not need to be. If the
     // target is some other process, the picker already will not choose
@@ -373,8 +377,10 @@ int scheduler_continue(int pid) {
     struct sched_process *p = live_slot(pid);
     if (!p || !p->stopped) return 0;
 
+    uint64_t sf = sched_lock();
     p->stopped  = 0;
     p->stop_sig = 0;
+    sched_unlock(sf);
     // The report is dropped along with the stop it described: a
     // suspension nobody heard about before it ended is not something a
     // shell should be told about afterwards, because by then it is
@@ -464,11 +470,14 @@ static int raise_locked(struct sched_process *p, int sig);
 // on now, and an IRQ waking the target in between left this rewinding a
 // frame whose RAX already held the wake's value -- re-issued, it was some
 // other syscall.
+// Under the scheduler lock: the pending bit and "is it running on another
+// core" are one decision against a core switching it in without the
+// kernel lock (scheduler_ap_event_lockless()), which reads the bit after.
 int scheduler_signal_raise(int pid, int sig) {
-    uint64_t f = irq_save();
+    uint64_t f = sched_lock();
     struct sched_process *p = live_slot(pid);
     int rc = (p && SIGNAL_VALID(sig)) ? raise_locked(p, sig) : 0;
-    irq_restore(f);
+    sched_unlock(f);
     return rc;
 }
 

@@ -117,6 +117,7 @@
 #include "pmm.h"    // the table and the stack chunks
 #include "irqflags.h" // per-process I/O counters, charged from any context
 #include "ktrace.h"   // the trace's switch and wakeup points
+#include "lockstat.h" // SPINLOCK_COUNTED: the scheduler lock
 
 _Static_assert(SCHED_READY == KTRACE_STATE_READY && SCHED_RUNNING == KTRACE_STATE_RUNNING &&
                SCHED_ZOMBIE == KTRACE_STATE_ZOMBIE && SCHED_BLOCKED == KTRACE_STATE_BLOCKED,
@@ -231,6 +232,7 @@ static int slot_grow(void) {
     for (int i = 0; i < n; i++) {
         procs[base + i].kstack = &ks[i];
         procs[base + i].ext = &ex[i];
+        procs[base + i].on_core = -1;   // slot_claim() waits for a live one
         if (g_guards_on) kstack_guard_arm(&ks[i]);
     }
     g_slots_ready = base + n;
@@ -243,7 +245,10 @@ int slot_claim(void) {
         __asm__ volatile ("pushfq; popq %0; cli" : "=r"(f) :: "memory");
         int slot = -1;
         for (int i = 0; i < g_slots_ready; i++) {
-            if (procs[i].state == SCHED_UNUSED && !procs[i].claimed) {
+            // NOT WHILE ITS LAST CONTEXT IS STILL LIVE: a core that just
+            // switched away from it (an exit) may still be on its stack.
+            if (procs[i].state == SCHED_UNUSED && !procs[i].claimed &&
+                __atomic_load_n(&procs[i].on_core, __ATOMIC_ACQUIRE) < 0) {
                 int pid = pid_alloc();   // the one place a pid is chosen
                 if (!pid) break;
                 procs[i].claimed = 1;
@@ -604,9 +609,15 @@ static int running_rank(void) {
 
 // An AP runs processes only: a kernel thread is kernel-context work,
 // which stays on the BSP (docs/smp-design.md, stage 5's picks).
+// READY and still live on a core is a context switched out a moment ago
+// whose core is still on its stack (ctx_on()'s comment): not yet.
+static int live_elsewhere(int slot) {
+    return __atomic_load_n(&procs[slot].on_core, __ATOMIC_ACQUIRE) >= 0 && slot != current_index;
+}
+
 static int runnable_at(int idx) {
     return procs[idx].state == SCHED_READY && !procs[idx].stopped &&
-           !(procs[idx].kthread && on_ap());
+           !(procs[idx].kthread && on_ap()) && !live_elsewhere(idx);
 }
 
 // WHO RUNS NEXT WITHIN A LEVEL IS WHOEVER HAS RUN LEAST -- CFS's rule,
@@ -706,8 +717,12 @@ void vr_place(int rot) {
 //
 // `start` may be -1 (nothing was running); the +MAX_PROCS+1 term keeps
 // the modulo positive for it.
-int find_next_runnable(int start) {
-    rt_period_roll(clocksource_now_ns());
+// The pick itself, writing nothing the pick reads: `*pv` is the chosen
+// one's vruntime when it is a fair pick, else untouched. A lock-free
+// event that then declines must have changed nothing
+// (scheduler_ap_event_lockless()): g_min_vruntime moved by a pick that
+// was never made placed every later wake against it.
+static int pick_next(int start, uint64_t *pv_out) {
     int rt = rt_pick();
     if (rt >= 0) return rt;
 
@@ -736,6 +751,14 @@ int find_next_runnable(int start) {
         if (!found || v < pv) { pick = idx; pv = v; found = 1; }
     }
     if (!found) return ROT_KERNEL;
+    *pv_out = pv;
+    return pick;
+}
+
+int find_next_runnable(int start) {
+    rt_period_roll(clocksource_now_ns());
+    uint64_t pv = 0;
+    int pick = pick_next(start, &pv);
     if (pv > g_min_vruntime) g_min_vruntime = pv;
     return pick;
 }
@@ -1016,10 +1039,12 @@ static void context_save_globals(int from) {
     }
 }
 
+// THE KERNEL LOCK'S DEPTH IS NOT LOADED HERE but last, by
+// switch_finish(): loading a 0 releases the lock, and the switch is not
+// done with what it protects until then.
 static void context_load_globals(int to) {
     isr_depth_set(*isr_depth_of(to));
     this_cpu_write(preempt_depth, *preempt_of(to));
-    bkl_load_depth(*bkl_of(to));
     uint64_t *left = left_of(to);
     uint64_t *off  = offcpu_of(to);
     uint64_t now = arch_rdtsc();
@@ -1142,22 +1167,80 @@ int scheduler_hung_find(uint64_t before_ns, struct sched_hung *out) {
     return 0;
 }
 
+// **THE SCHEDULER LOCK** (sched_internal.h): taken here, recursive per
+// core, and let go by the switch it leads into.
+SPINLOCK_COUNTED(g_sched_lock, "sched");
+static unsigned g_sched_lock_faults;
+
+static void sched_lock_fault(const char *what, int depth, void *site) {
+    if (g_sched_lock_faults++ < 6)
+        klog_printf(KLOG_ERR "sched: %s (lock depth %d on core %u, from %p)\n", what, depth,
+                    spin_cpu_index(), site);
+}
+
+uint64_t sched_lock(void) {
+    uint64_t f = irq_save();
+    struct cpu *c = sched_here();
+    if (c->sched_lock_depth++ == 0) spin_lock_noguard(&g_sched_lock);
+    return f;
+}
+
+void sched_unlock(uint64_t flags) {
+    struct cpu *c = sched_here();
+    if (c->sched_lock_depth <= 0) sched_lock_fault("unlock without the lock", c->sched_lock_depth,
+                                              __builtin_return_address(0));
+    else if (--c->sched_lock_depth == 0) spin_unlock_noguard(&g_sched_lock);
+    irq_restore(flags);
+}
+
+int sched_locked_here(void) { return sched_here()->sched_lock_depth > 0; }
+unsigned scheduler_lock_faults(void) { return g_sched_lock_faults; }
+
+// A switch is entered holding the lock ONCE and leaves without it: the
+// incoming context resumes holding nothing of it, and a depth above one
+// is a caller that would lose its own hold.
+static void sched_switch_release(void) {
+    struct cpu *c = sched_here();
+    if (c->sched_lock_depth != 1) {
+        sched_lock_fault(c->sched_lock_depth <= 0 ? "switch without the lock"
+                                                  : "switch holding the lock twice",
+                         c->sched_lock_depth, __builtin_return_address(0));
+        if (c->sched_lock_depth <= 0) return;
+    }
+    c->sched_lock_depth = 0;
+    spin_unlock_noguard(&g_sched_lock);
+}
+
+// The last of a switch before the restore: the incoming context's depth
+// in the kernel lock (0 releases it, bkl_load_depth()), then this lock.
+static void switch_finish(int bkl_to) {
+    bkl_load_depth(bkl_to);
+    sched_switch_release();
+}
+
 // **A CONTEXT IS LIVE ON AT MOST ONE CORE** (Linux's p->on_cpu): stamped at
 // each restore, cleared at each save, and a restore of a stamped one is
 // reported -- two cores on one kernel stack, the failure that shows only
 // later as a smashed stack.
+// **AND IT STOPS BEING LIVE ONLY ONCE NOTHING RUNS ON ITS STACK**: the
+// mark goes in process_context_restore_release(), after RSP has moved,
+// so the scheduler lock can be let go before the restore. A READY
+// context still marked live is not picked (find_next_runnable()), and
+// its slot is not reused (slot_claim()).
 static int g_kctx_on_core = 0;            // the BSP's kernel context runs at boot
 static uintptr_t g_kctx_on_site;
 static unsigned g_double_resumes;
-static void ctx_off(int slot) {
-    if (slot >= 0) procs[slot].on_core = -1;
-    else if (!on_ap()) g_kctx_on_core = -1;
+static int g_live_sink;                   // a self-switch's: the context stays live
+unsigned scheduler_double_resumes(void) { return g_double_resumes; }
+static volatile int *live_of(int slot) {
+    if (slot >= 0) return &procs[slot].on_core;
+    return on_ap() ? &this_cpu()->idle_live : &g_kctx_on_core;
 }
 static void ctx_on(int slot, uintptr_t site) {
     int *oc = slot >= 0 ? &procs[slot].on_core : (on_ap() ? 0 : &g_kctx_on_core);
     uintptr_t *os = slot >= 0 ? &procs[slot].on_site : &g_kctx_on_site;
     if (!oc) return;
-    if (*oc >= 0 && g_double_resumes++ < 6)
+    if (*oc >= 0 && *oc != (int)spin_cpu_index() && g_double_resumes++ < 6)
         klog_printf(KLOG_ERR "sched: DOUBLE RESUME of slot %d (pid %d) on core %u: still live on core %d, "
                     "switched in at %p; now from %p\n", slot, slot >= 0 ? procs[slot].pid : 0,
                     spin_cpu_index(), *oc, (void *)*os, (void *)site);
@@ -1166,7 +1249,8 @@ static void ctx_on(int slot, uintptr_t site) {
 }
 
 void switch_to(int from, int idx) {
-    g_switches++;
+    __atomic_fetch_add(&g_switches, 1, __ATOMIC_RELAXED);
+    this_cpu_add(sched_switches, 1);
     check_one_running("switch_to");
     trace_sched("switch_to", idx);
     kstack_verify(idx);   // before trusting anything else about this slot
@@ -1195,7 +1279,7 @@ void switch_to(int from, int idx) {
     }
 
     if (process_context_save(kctx_of(from)) != 0) return;  // resumed: back
-    ctx_off(from);
+    volatile int *live = from == idx ? &g_live_sink : live_of(from);
 
     context_save_globals(from);
     fpu_restore(procs[idx].fpu);
@@ -1216,7 +1300,8 @@ void switch_to(int from, int idx) {
     // its own periodic LAPIC timer (smp.c), not the clockevent.
     if (!on_ap()) clockevent_reprogram();
     ctx_on(idx, (uintptr_t)__builtin_return_address(0));
-    process_context_restore_noirq(&procs[idx].kctx, 1);
+    switch_finish(*bkl_of(idx));
+    process_context_restore_release(&procs[idx].kctx, 1, live);
 }
 
 // The ROT_KERNEL counterpart to switch_to(): hand the CPU back to the
@@ -1242,8 +1327,9 @@ void switch_to_kernel(int from) {
     // with nothing spawned lands here every time. It used to nominate
     // the frame the tick had just captured, which was a no-op by a
     // longer route; now there is nothing to switch to.
-    if (was < 0) return;
-    g_switches++;
+    if (was < 0) { sched_switch_release(); return; }
+    __atomic_fetch_add(&g_switches, 1, __ATOMIC_RELAXED);
+    this_cpu_add(sched_switches, 1);
     KTRACE(KTRACE_G_SWITCH, KTRACE_EV_SWITCH, procs[was].pid, procs[was].state, 0, 0);
     // find_next_runnable()'s FALLBACK returns ROT_KERNEL without asking
     // kernel_slot_runnable(), so it can reach here before the kernel
@@ -1258,11 +1344,11 @@ void switch_to_kernel(int from) {
         __asm__ volatile ("ud2");
     }
     if (process_context_save(&procs[was].kctx) != 0) return; // resumed: back
-    ctx_off(was);
     context_save_globals(was);
     context_load_globals(-1);
     ctx_on(-1, (uintptr_t)__builtin_return_address(0));
-    process_context_restore_noirq(idle_kctx(), 1);
+    switch_finish(*bkl_of(-1));
+    process_context_restore_release(idle_kctx(), 1, live_of(was));
 }
 
 int scheduler_mark_current_ready(void) {
@@ -1348,10 +1434,10 @@ void bill_current(void) {
             __atomic_store_n(&me->busy_ns, me->busy_ns + slice, __ATOMIC_RELAXED);
             procs[current_index].cpu_ns += slice;
             procs[current_index].vruntime += vr_scale(current_index, slice);
-            g_proc_ns += slice;
+            __atomic_fetch_add(&g_proc_ns, slice, __ATOMIC_RELAXED);   // every core's, some without the kernel lock
             if (is_rt(current_index)) rt_charge(current_index, slice, now);
         } else {
-            g_kernel_ns += slice;
+            __atomic_fetch_add(&g_kernel_ns, slice, __ATOMIC_RELAXED);
             if (!g_kernel_halting && !on_ap()) kernel_vruntime += slice;
         }
     }
@@ -1461,6 +1547,7 @@ void scheduler_timer_event(uint64_t *regs, uint64_t now) {
 // else -- sleepers' deadlines, the watchdog and the idle work stay with
 // the BSP's clockevent.
 void scheduler_ap_event(uint64_t *regs) {
+    this_cpu_add(sched_events, 1);
     // **A PROCESS IN A LONG CALL GIVES THE KERNEL LOCK UP BY BEING
     // PREEMPTED**, Linux's cond_resched() -- which is schedule(). With
     // nothing else ready this AP never rotates, so fsck's whole-volume
@@ -1474,6 +1561,149 @@ void scheduler_ap_event(uint64_t *regs) {
     // so release nothing. rotate() keeps its own guards.
     if (current_index >= 0 && !(regs[TF_CS] & 3) && bkl_contended()) { rotate(regs, 1); return; }
     if (timer_wants_rotation(clocksource_now_ns())) scheduler_rotate(regs);
+}
+
+// ---- an AP's scheduling WITHOUT THE KERNEL LOCK (smp-design.md, stage 7)
+//
+// An AP's tick or reschedule, or a yield, that finds nothing to do, or
+// that switches between two contexts holding none of the kernel lock --
+// a process in ring 3, this core's idle loop -- needs the scheduler lock
+// alone. Everything else DECLINES, having changed nothing, and goes the
+// ordinary way. A context switched out here is saved at kernel-lock depth
+// 0 and resumes into a frame that releases nothing (bkl_load_depth()).
+static volatile int g_lockless_sched = 1;   // kernel.lockless_sched
+int  scheduler_lockless_sched_enabled(void) { return g_lockless_sched; }
+void scheduler_lockless_sched_set(int on) { g_lockless_sched = on ? 1 : 0; }
+
+// MAY THE RUNNING CONTEXT BE LEFT RUNNING, OR SWITCHED OUT, WITHOUT THE
+// KERNEL LOCK? A fair process with nothing the ordinary way back to ring
+// 3 does pending: a signal, a re-issue. An RT one goes the ordinary way
+// for its guards. What may be switched IN is lockless_rotate()'s to say.
+static int lockless_ctx_ok(int i) {
+    const struct sched_process *p = &procs[i];
+    return p->policy == SCHED_OTHER && !p->kthread && !p->syscall_reissue &&
+           !(p->pending & ~p->blocked);
+}
+
+// Whether this core is somewhere the kernel lock is not held: depth 0,
+// no guard, not inside another interrupt -- ring 3 or the idle loop.
+static int lockless_here(uint64_t *regs) {
+    if (!g_lockless_sched || !on_ap() || !smp_scheduling()) return 0;
+    if (this_cpu_read(bkl_depth) || this_cpu_read(preempt_depth) || isr_depth_get() > 1) return 0;
+    int cur = current_index;
+    return cur < 0 || (regs[TF_CS] & 3);
+}
+
+// The rotation, under the scheduler lock (held, once) with interrupts
+// off. `yielding`: SYS_YIELD's move to the back of the pack first.
+// Returns 0, the lock RELEASED and nothing changed, when the running
+// context must go the ordinary way; otherwise 1 once it has switched (or
+// found nothing better), the lock let go by the switch.
+static int lockless_rotate(uint64_t *regs, int yielding, void (*ack)(uint64_t *)) {
+    int cur = current_index;
+    if (cur >= 0 && !lockless_ctx_ok(cur)) { sched_switch_release(); return 0; }
+    // **BILLED BEFORE THE PICK**, as rotate() does: unbilled, the slice
+    // that just ended leaves the running process looking least-run, and it
+    // is picked again every time.
+    bill_current();
+    rt_period_roll(clocksource_now_ns());   // the RT budget's clock, as find_next_runnable() rolls it
+    uint64_t vr_billed = cur >= 0 ? procs[cur].vruntime : 0;
+    if (cur >= 0) {
+        if (yielding) {
+            uint64_t top = fair_top(cur);
+            if (procs[cur].vruntime > top) top = procs[cur].vruntime;
+            procs[cur].vruntime = top;
+        }
+        procs[cur].state = SCHED_READY;   // as rotate() does, so the pick may choose it again
+    }
+    uint64_t pv = 0;
+    int next = pick_next(rotation_pos, &pv);
+    if (next == cur || (next == ROT_KERNEL && cur < 0)) {
+        // Nothing better: carry on, a new slice. No switch, no lock.
+        if (cur >= 0) procs[cur].state = SCHED_RUNNING;
+        if (pv > g_min_vruntime) g_min_vruntime = pv;
+        if (ack) { ack(regs); this_cpu_add(sched_events, 1); }
+        set_need_resched(0);
+        slice_restart();
+        this_cpu_add(sched_lockless, 1);
+        sched_switch_release();
+        return 1;
+    }
+    // **ONLY INTO A CONTEXT THAT HOLDS NONE OF THE KERNEL LOCK** -- one
+    // this path switched out, or the idle loop saved by it. Taking the
+    // lock at the end of the switch for one that does was tried and
+    // panicked the KTEST suite 2 runs in 2 (docs/decisions/kernel.md): the core then
+    // waits for the lock on the outgoing context's stack, with the
+    // incoming one already RUNNING. So it declines, and the ordinary
+    // path takes the event.
+    if (next == ROT_KERNEL ? this_cpu()->idle_bkl_depth != 0
+                           : procs[next].bkl_depth != 0 || procs[next].preempted_in_kernel) {
+        if (cur >= 0) {
+            procs[cur].state = SCHED_RUNNING;
+            procs[cur].vruntime = vr_billed;   // a yield's move is the ordinary path's to make
+        }
+        sched_switch_release();
+        return 0;
+    }
+    if (pv > g_min_vruntime) g_min_vruntime = pv;
+    if (ack) { ack(regs); this_cpu_add(sched_events, 1); }
+    set_need_resched(0);
+    if (cur >= 0) {
+        procs[cur].kernel_rsp = (uint64_t)regs;
+        kstack_verify(cur);
+        fpu_save(procs[cur].fpu);
+        procs[cur].preempted_in_kernel = 0;
+        trace_sched("rotate_out", cur);
+    }
+    this_cpu_add(sched_lockless, 1);
+    if (next == ROT_KERNEL) switch_to_kernel(cur);
+    else switch_to(cur, next);
+    return 1;
+}
+
+int scheduler_ap_event_lockless(uint64_t *regs, void (*ack)(uint64_t *regs)) {
+    if (!lockless_here(regs)) return 0;
+    // NOT the contended case scheduler_ap_event() opens with: that is a
+    // process inside a call, which lockless_here() has already refused.
+    int cur = current_index;
+    uint64_t now = clocksource_now_ns();   // before the lock: a PM-timer read is an exit
+    // **NOTHING TO DO IS DECIDED WITH NO LOCK AT ALL** -- Linux's idle loop
+    // reading need_resched. A process made READY after this read is woken
+    // with a kick (kick_idle_core(), under the lock), whose IPI is this
+    // core's next event; a signal posted to the running one kicks it too.
+    if (cur >= 0 ? !g_need_resched && now < g_slice_end_ns && lockless_ctx_ok(cur)
+                 : !g_need_resched && !scheduler_any_ready()) {
+        ack(regs);
+        // BILLED HERE TOO, so an idle core's time reaches the totals a
+        // slice at a time rather than as one lump of seconds when it next
+        // switches (scheduler_cpu_time() bills only the caller's core).
+        bill_current();
+        this_cpu_add(sched_events, 1);
+        this_cpu_add(sched_lockless, 1);
+        return 1;
+    }
+    uint64_t f = sched_lock();
+    if (cur >= 0 && !lockless_ctx_ok(cur)) { sched_unlock(f); return 0; }
+    if (!timer_wants_rotation(now)) {
+        ack(regs);
+        bill_current();
+        this_cpu_add(sched_events, 1);
+        this_cpu_add(sched_lockless, 1);
+        sched_unlock(f);
+        return 1;
+    }
+    int done = lockless_rotate(regs, 0, ack);
+    irq_restore(f);
+    return done;
+}
+
+int scheduler_yield_lockless(uint64_t *regs) {
+    if (!lockless_here(regs) || current_index < 0) return 0;
+    uint64_t f = sched_lock();
+    regs[TF_RAX] = 0;   // sys_yield()'s answer, written before a switch can resume elsewhere
+    int done = lockless_rotate(regs, 1, 0);
+    irq_restore(f);
+    return done;
 }
 
 uint64_t scheduler_next_event_ns(void) {
@@ -1595,6 +1825,10 @@ static void rotate(uint64_t *regs, int to_idle) {
         slice_restart();
         return;
     }
+
+    // Let go by the switch at the end, whichever: the caller has
+    // interrupts off, so there is no flag to restore after.
+    (void)sched_lock();
 
     // Consumed only by a rotation that can happen: one refused above
     // leaves it for the next trap rather than losing the wake.
@@ -1755,6 +1989,7 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
 
     bill_current(); // this slice ends here -- see bill_current()
     int idx = current_index;
+    (void)sched_lock();   // let go by the switch below; `irq` is the flag to restore
     procs[idx].rt_run_ns = 0;   // it blocked: the RT watchdog starts again
     procs[idx].kernel_rsp = (uint64_t)regs;
     kstack_verify(idx);
@@ -1816,6 +2051,7 @@ int scheduler_block_current_until(uint64_t *regs, const void *chan, int reason,
 // path its resolution is one tick.
 int scheduler_wake_timers(uint64_t now_ns) {
     int woken = 0;
+    uint64_t sf = sched_lock();
     for (int i = 0; i < MAX_PROCS; i++) {
         if (procs[i].state != SCHED_BLOCKED) continue;
         // A DEADLINE, NOT A CHANNEL, is what this loop acts on. It used
@@ -1849,6 +2085,7 @@ int scheduler_wake_timers(uint64_t now_ns) {
         wake_preempt(i);   // places it, too
         woken++;
     }
+    sched_unlock(sf);
     return woken;
 }
 
@@ -1918,6 +2155,7 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
     procs[idx].arm_chan = 0;
 
     bill_current();
+    (void)sched_lock();   // let go by the switch below; `irq` is the flag to restore
     procs[idx].rt_run_ns = 0;
     kstack_verify(idx);
     fpu_save(procs[idx].fpu);
@@ -1948,6 +2186,9 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
 // One BLOCKED slot, made READY and answered -- the half of a wake that
 // acts on a parked process, shared by every way of choosing one.
 static void wake_slot(int i, int64_t value) {
+    // The whole wake under the scheduler lock: READY, its place and its
+    // kick are one step to a core picking without the kernel lock.
+    uint64_t f = sched_lock();
     // The saved trapframe's RAX slot IS the syscall's return value:
     // isr_common's epilogue pops it straight into the register the
     // ring-3 caller reads. Writing it here is what makes waking a
@@ -1971,9 +2212,8 @@ static void wake_slot(int i, int64_t value) {
     vr_place(i);
     if (is_rt(i)) procs[i].rt_seq = ++g_rt_seq;
     // "Does it outrank what runs HERE", and the flag that says so, are one
-    // core's with interrupts off: a waker moved between them compared
-    // against one core and flagged another (sched_here()'s rule).
-    uint64_t f = irq_save();
+    // core's with interrupts off (the lock's): a waker moved between them
+    // compared against one core and flagged another (sched_here()'s rule).
     if (rank_of(i) > running_rank()) set_need_resched(1);
     // MID-CALL, BOTH FAIR: it is usually holding the filesystem lock, so
     // it cuts in -- but only while it has run less than what it would
@@ -1982,7 +2222,7 @@ static void wake_slot(int i, int64_t value) {
              vr_behind_running(i))
         set_need_resched(1);
     kick_idle_core(i);
-    irq_restore(f);
+    sched_unlock(f);
 }
 
 int scheduler_wake_n(const void *chan, int64_t value, int max) {

@@ -37,6 +37,29 @@ process_context_restore_noirq:
     xor r8d, r8d
     jmp ctx_restore
 
+; void process_context_restore_release(struct kernel_context *ctx, int value,
+;                                      volatile int *live)
+;
+; The scheduler's switch: as the _noirq entry, and once RSP is the
+; incoming context's, -1 into *live -- the outgoing context's "live on a
+; core" mark (scheduler.c's on_core). Not a moment before: until RSP
+; moves, this core still runs on the outgoing context's kernel stack, and
+; another core that resumed it then (it is READY, and the scheduler lock
+; is already released) would run on the same stack. Linux clears
+; p->on_cpu in finish_task_switch() for the same reason.
+global process_context_restore_release
+process_context_restore_release:
+    mov rbx, [rdi+8]
+    mov rbp, [rdi+16]
+    mov r12, [rdi+24]
+    mov r13, [rdi+32]
+    mov r14, [rdi+40]
+    mov r15, [rdi+48]
+    mov rsp, [rdi+0]
+    mov dword [rdx], -1    ; a plain store is a release on x86
+    mov eax, esi
+    jmp qword [rdi+56]
+
 ; void process_context_restore(struct kernel_context *ctx, int value)
 global process_context_restore
 process_context_restore:

@@ -30,7 +30,8 @@
 ## Description
 
 How contended the kernel's counted spinlocks are, the shape of Linux's
-`/proc/lock_stat`: for the kernel lock, the heap and the frame allocator,
+`/proc/lock_stat`: for the kernel lock, the run queue (`sched`), the
+clock, the heap and the frame allocator,
 how often each was taken, how many of those takes had to wait, the total
 and longest wait and hold, and the share of the time it was held
 (`QUERY_LOCKSTAT`, `kernel/proc/lockstat.c`).
@@ -44,7 +45,8 @@ and longest wait and hold, and the share of the time it was held
 
 `-e` adds the kernel lock by core, then by ENTRY -- a syscall by name, a
 page fault, an interrupt (`irq 14`, a handler such as `lapic_timer_isr`,
-`core tick` for another core's tick and reschedule), or `kernel` for the
+`core tick` for another core's tick and reschedule -- only those that
+needed the lock: one that did not is counted by [`cpus`](cpus.md)), or `kernel` for the
 kernel itself taking it back after the idle halt -- longest held first
 (`QUERY_BKLSTAT`). A hold is billed to the entry that took the lock; a
 switch on that core may hand its release to another context.

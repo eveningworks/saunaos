@@ -21,7 +21,11 @@ runs there, its depth in the kernel lock and whether it holds it (a
 depth without the lock is a core queued for it), how
 long since its last timer interrupt and in which ring it landed, and its
 cross-core calls and TLB shootdowns -- with one sent and not answered
-said outright. A core that faulted says the vector; one stopped by
+said outright -- and how often the scheduler ran there: an AP's timer
+and reschedule events, the context switches each core made (an event
+that switches nothing found nothing better to run), and how many of an
+AP's events and yields needed no kernel lock (`kernel.lockless_sched`,
+`docs/smp-design.md`). A core that faulted says the vector; one stopped by
 another core's panic says `stopped`. Every core the kernel knows is
 listed, the ones that never started or failed included
 (`QUERY_CPUSTATE`, `kernel/arch/x86_64/smp_query.c`).
@@ -31,6 +35,7 @@ listed, the ones that never started or failed included
       last tick:   3 ms ago in ring 3
       calls:       2 run
       shootdowns:  117 answered
+      scheduler:   5120 events, 4381 switches; 4950 without the kernel lock
 
 It is what had to be read through QEMU's gdbstub before it existed
 (6282cb42). A snapshot: the other cores keep running while it reads,

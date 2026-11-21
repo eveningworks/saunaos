@@ -189,6 +189,21 @@ void spin_lock_raw(struct spinlock *l, uintptr_t site) {
     take(l, site);
 }
 
+// Interrupts already off, and no guard: the scheduler's own lock, taken
+// around a switch -- a guard raised there is the outgoing context's,
+// saved with it (context_save_globals()). A core with IF clear cannot be
+// preempted, which is all the guard would add.
+void spin_lock_noguard(struct spinlock *l) {
+    uintptr_t site = (uintptr_t)__builtin_return_address(0);
+    LD_TAKEN(l, site, 0);
+    take(l, site);
+}
+
+void spin_unlock_noguard(struct spinlock *l) {
+    LD_RELEASE(l);
+    spin_unlock_raw(l);
+}
+
 int spin_trylock(struct spinlock *l) {
     guard_raise();
     uint32_t serving = __atomic_load_n(&l->serving, __ATOMIC_ACQUIRE);

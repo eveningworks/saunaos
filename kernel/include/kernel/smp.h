@@ -57,6 +57,7 @@ int smp_call_others(void (*fn)(void *), void *arg);   // every other core, waiti
 void smp_start_scheduling(void);   // end of boot, after init and the kernel threads
 int  smp_scheduling(void);         // any AP is scheduling
 void smp_resched(int index);       // the IPI alone; sched_kick_core() is the caller
+void smp_resched_self(void);       // the same to this core: taken as interrupts reopen
 // A pending call or shootdown, answered by a core spinning with
 // interrupts off (spinlock.c): the sender may be waiting on it.
 void smp_poll_ipis(void);

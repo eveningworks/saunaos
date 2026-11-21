@@ -279,6 +279,35 @@ static const struct setting lockstat_setting = {
     .apply = lockstat_apply,
 };
 
+// ---- kernel.lockless_sched --------------------------------------------
+//
+// ON BY DEFAULT: an AP's scheduler event or a yield that needs no kernel
+// lock takes none (scheduler_ap_event_lockless()). Off sends them all
+// through it, for an A/B measurement and a test's positive control.
+
+static void lockless_sched_get_str(char *out, uint32_t cap) {
+    k_strlcpy(out, scheduler_lockless_sched_enabled() ? "on" : "off", cap);
+}
+
+static int lockless_sched_apply(const char *value) {
+    int on;
+    if (!parse_onoff(value, &on)) return SETTING_INVALID;
+    scheduler_lockless_sched_set(on);
+    return SETTING_SAVED;
+}
+
+static const struct setting lockless_sched_setting = {
+    .name = "lockless_sched",
+    .label = "Scheduling without the kernel lock",
+    .type = SETTING_TYPE_ENUM,
+    .file = CONFIG_PATH_RUNTIME,
+    .category = TUNABLE_CATEGORY,
+    .group = "Diagnostics",
+    .choice = onoff_choice,
+    .get = lockless_sched_get_str,
+    .apply = lockless_sched_apply,
+};
+
 // ---- kernel.lockless_syscalls ----------------------------------------
 //
 // ON BY DEFAULT: the rows abi/syscall_rows.h marks MPSAFE skip the kernel
@@ -927,6 +956,7 @@ void tunables_register(void) {
     setting_register(&syscall_stall_setting);
     setting_register(&lockstat_setting);
     setting_register(&lockless_setting);
+    setting_register(&lockless_sched_setting);
     setting_register(&trace_setting);
     setting_register(&trace_size_setting);
     setting_register(&kbdtap_setting);

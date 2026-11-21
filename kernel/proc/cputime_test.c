@@ -103,9 +103,13 @@ KTEST("sched", "the machine-wide CPU split advances and lands in the right bucke
     KTEST_ASSERT(dk > 40ull * 1000 * 1000);
     KTEST_ASSERT(dk > dp);
 
-    // And the two together cannot exceed the wall clock: a slice
-    // charged to both buckets, or charged twice, shows up here.
-    KTEST_ASSERT(dk + dp <= wall + 10ull * 1000 * 1000);
+    // And the two together cannot exceed the wall clock on every core
+    // that bills: a slice charged to both buckets, or charged twice,
+    // shows up here. EVERY core: the totals are the machine's, and an AP
+    // bills its own slices without the kernel lock this spin holds
+    // (scheduler_ap_event_lockless()).
+    uint64_t cores = smp_scheduling() ? (uint64_t)smp_cpu_count() : 1;
+    KTEST_ASSERT(dk + dp <= wall * cores + 10ull * 1000 * 1000);
 }
 
 // The reading is FRESH: scheduler_cpu_time() bills the slice in

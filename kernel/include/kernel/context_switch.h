@@ -62,6 +62,13 @@ void process_context_restore(struct kernel_context *ctx, int value)
 void process_context_restore_noirq(struct kernel_context *ctx, int value)
     __attribute__((noreturn));
 
+// The same, and -1 stored to *live once RSP is the incoming context's:
+// the outgoing context stops being "live on this core" only when nothing
+// runs on its stack any more (context_switch.asm).
+void process_context_restore_release(struct kernel_context *ctx, int value,
+                                     volatile int *live)
+    __attribute__((noreturn));
+
 // isr.asm's interrupt epilogue, reachable by name: point RSP at a
 // trapframe and return through it. The address of `isr_resume_frame`
 // (the same tail, minus the RSP load) is what a hand-built context's

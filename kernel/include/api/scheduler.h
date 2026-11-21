@@ -67,6 +67,21 @@ void scheduler_timer_event(uint64_t *regs, uint64_t now);
 // An AP's tick and reschedule IPI under smp=run: the rotation only.
 void scheduler_ap_event(uint64_t *regs);
 
+// **THE SAME WITHOUT THE KERNEL LOCK** (docs/smp-design.md, stage 7), for
+// an AP in ring 3 or in its idle loop: nothing to do, or a switch between
+// two contexts that hold none of it, under the scheduler lock alone.
+// Calls `ack` (the EOI and the timer's re-arm) once it has taken the
+// event, which may be before a switch resumes this context much later;
+// returns 0 having changed nothing, and the caller then takes the
+// ordinary path. Interrupts off. `kernel.lockless_sched` turns it off.
+int  scheduler_ap_event_lockless(uint64_t *regs, void (*ack)(uint64_t *regs));
+// SYS_YIELD's, from syscall_try_lockless(): 0 declines, untouched.
+int  scheduler_yield_lockless(uint64_t *regs);
+int  scheduler_lockless_sched_enabled(void);
+void scheduler_lockless_sched_set(int on);
+unsigned scheduler_lock_faults(void);   // switches and unlocks the scheduler lock refused (sched_internal.h)
+unsigned scheduler_double_resumes(void);   // a context resumed while live on another core: 0, or a bug
+
 // The earliest thing the scheduler needs a timer event for -- a blocked
 // process's deadline, or the running slice's end when somebody else is
 // runnable -- as a clocksource_now_ns() value, or 0 for nothing.
@@ -1420,6 +1435,9 @@ int  scheduler_test_take_resched(void);
 // The picker's answer from rotation position `start`, switching to
 // nothing.
 int  scheduler_test_pick(int start);
+// Marks slot `idx` live on `core` (-1: nowhere), as a core still on its
+// stack after switching away from it leaves it (scheduler.c's live_of()).
+void scheduler_test_set_live(int idx, int core);
 // What `ns` of running adds to slot `idx`'s vruntime at its nice.
 uint64_t scheduler_test_vr_scale(int idx, uint64_t ns);
 // Bill `ns` of realtime to slot `idx`, as if it had just run that long,
