@@ -8,7 +8,7 @@
 #include "cpuinfo.h"   // cpu_tsc_hz() -- the boot calibration
 
 // Converts as clocksource_now_ns() does, so a test can check the pair
-// without reaching into the accumulator.
+// without reaching into the snapshot.
 static uint64_t convert(uint64_t delta, uint32_t mult, uint32_t shift) {
     return (delta * mult) >> shift;
 }
@@ -80,7 +80,7 @@ KTEST("clocksource", "a self-contradictory source is refused") {
 
 KTEST("clocksource", "time moves forward and never backward") {
     // Monotonicity, read repeatedly. This is the property the whole
-    // accumulate-a-delta design exists to provide, and the one a
+    // snapshot-and-delta design exists to provide, and the one a
     // wraparound bug breaks.
     uint64_t prev = clocksource_now_ns();
     for (int i = 0; i < 200; i++) {

@@ -63,8 +63,10 @@ int bkl_contended(void);   // another core is queued for it
 
 struct bkl_entry_stat {
     uint64_t takes, contended, wait_tsc, wait_max_tsc, hold_tsc, hold_max_tsc;
+    uint64_t lockless;   // a syscall's calls answered without it, every core's
 };
-// A snapshot of key `key`'s counters; 0 when nothing has taken it so.
+// A snapshot of key `key`'s counters; 0 when nothing has taken it so,
+// nor been answered without it.
 int bkl_entry_stat(uint32_t key, struct bkl_entry_stat *out);
 // Arming hold times (lockstat.h) starts the hold totals again. The
 // caller holds this lock; one that does not is counted in bkl_faults().
@@ -75,5 +77,9 @@ void bkl_stat_zero_holds(void);
 // that does not hold it. Each is counted and logged (the first few) and
 // repaired; harmless on one core, a deadlock from stage 5.
 unsigned bkl_faults(void);
+
+// A syscall answered without the lock (syscall_try_lockless()), counted on
+// this core with interrupts off.
+void bkl_note_lockless(uint64_t nr);
 
 #endif

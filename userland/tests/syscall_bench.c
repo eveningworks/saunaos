@@ -3,7 +3,12 @@
 // number varies with the host. tools/bench/sys_bench.py boots a build, runs
 // this and collects the rows.
 //
-//   getpid       SYSCALL in, SYSRET out, a call that does nothing
+//   getpid       SYSCALL in, SYSRET out, a call that does nothing (and
+//                takes no kernel lock: an MPSAFE row)
+//   monotonic    SYS_MONOTONIC_NS, the clock by syscall
+//   clock page   sys_monotonic_ns(), the clock read from the clock page
+//                (abi/clock_abi.h) with no syscall -- the syscall again
+//                where the TSC is not the clocksource
 //   yield        a trip through the scheduler with nobody else to run
 //   pipe 1 B     a write then a read of one byte, one process
 //   switch       two processes passing a byte back and forth over two
@@ -28,6 +33,7 @@
 //
 //     spawn /tests/syscall_bench [CALLS [SIZE...]]   (default 1000000;
 //                                     SIZE in bytes, up to 1 MiB)
+//     spawn /tests/syscall_bench calls [CALLS]    the first three rows only
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -87,6 +93,8 @@ static void do_getpid(long n) {
         __asm__ volatile ("syscall" : "+a"(r) :: "rcx", "r11", "memory");
     }
 }
+static void do_monotonic(long n) { for (long i = 0; i < n; i++) (void)sys_monotonic_ns_syscall(); }
+static void do_clock_page(long n) { for (long i = 0; i < n; i++) (void)sys_monotonic_ns(); }
 static void do_yield(long n) { for (long i = 0; i < n; i++) sys_yield(); }
 static void do_pipe1(long n) {
     for (long i = 0; i < n; i++) {
@@ -211,6 +219,10 @@ static void size_rows(const size_t *sizes, unsigned count) {
 }
 
 int main(int argc, char **argv) {
+    // `calls [N]`: the three call rows alone, for several copies at once --
+    // what a lock-free getpid buys shows only when the cores contend.
+    int calls_only = argc > 1 && strcmp(argv[1], "calls") == 0;
+    if (calls_only) { argc--; argv++; }
     long n = argc > 1 ? atol(argv[1]) : 1000000;
     if (n < 1000) n = 1000;
     print_machine();
@@ -222,6 +234,10 @@ int main(int argc, char **argv) {
     say("syscall_bench: %ld calls a row\n", n);
 
     row("getpid", measure(do_getpid, n));
+    row("monotonic", measure(do_monotonic, n));
+    // sys_monotonic_ns(): from the clock page when the TSC is the source.
+    row("clock page", measure(do_clock_page, n));
+    if (calls_only) return 0;
     row("yield", measure(do_yield, n / 10));
     if (sys_pipe(g_pa) < 0) { say("syscall_bench: pipe failed\n"); return 1; }
     struct cost pipe1 = measure(do_pipe1, n / 10);

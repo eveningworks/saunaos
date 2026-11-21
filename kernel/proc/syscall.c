@@ -29,6 +29,9 @@
 #include "sound.h"
 #include "shm.h"
 #include "klog.h"
+#include "bkl.h"       // bkl_note_lockless()
+#include "irqflags.h"
+#include "lockdep.h"
 #include <stddef.h>
 
 // Called from a process's last moments -- a normal SYS_EXIT, or a
@@ -107,6 +110,53 @@ void syscall_process_kill_cleanup(uint64_t pml4_phys) {
     }
     release_process_state(pml4_phys);
     vmm_destroy_address_space(pml4_phys);
+}
+
+static volatile int g_lockless_on = 1;
+
+int  syscall_lockless_enabled(void) { return g_lockless_on; }
+void syscall_lockless_set(int on) { g_lockless_on = on ? 1 : 0; }
+
+// FreeBSD's SYF_MPSAFE: a row that says its handler needs no kernel lock
+// is run here, BEFORE isr_dispatch() takes it, so a getpid on one core no
+// longer queues behind a read on another (docs/smp-design.md, stage 7).
+//
+// **EVERYTHING THE LOCKED PATH DOES AROUND THE HANDLER IS EITHER ABSENT
+// HERE OR A REASON TO DECLINE**: strace (declined), the sandbox gate
+// (declined on a refusal, so the locked path reports it), the signal and
+// re-issue checks at entry and the reschedule and delivery at exit
+// (declined when due -- scheduler_lockless_ok()). Interrupts stay off
+// throughout, so nothing becomes due here that does not also send this
+// core an interrupt: a remote wake or signal kicks it, and the kick lands
+// the moment SYSRET reopens IF. `stalls` and `kstack` do not see these
+// calls -- their tables are written under the lock.
+int syscall_try_lockless(uint64_t *regs) {
+    if (!(regs[18] & 3)) return 0;
+    uint64_t nr = regs[14];
+    const struct syscall_desc *d = syscall_desc_at(nr);
+    if (!d || !d->fn || !(d->flags & SYSCALL_F_MPSAFE) || !g_lockless_on) return 0;
+    uint64_t f = irq_save();
+    if (strace_active() || !sandbox_allows(d->promise) || !scheduler_lockless_ok()) {
+        irq_restore(f);
+        return 0;
+    }
+    struct syscall_ctx c = {
+        .regs = regs,
+        .a0 = regs[9],
+        .a1 = regs[10],
+        .a2 = regs[11],
+        .pml4 = vmm_current_pml4(),
+    };
+    KTRACE(KTRACE_G_SYSCALL, KTRACE_EV_SYS_ENTER, nr, c.a0, c.a1, c.a2);
+    (void)d->fn(&c);   // an MPSAFE handler never parks
+    KTRACE(KTRACE_G_SYSCALL, KTRACE_EV_SYS_EXIT, nr, regs[14], 0, 0);
+    bkl_note_lockless(nr);
+#ifdef SAUNAOS_LOCKDEP
+    lockdep_user_return();   // and holds nothing on the way out
+#endif
+    // Left off: the way out clears IF anyway, and SYSRET restores the
+    // caller's.
+    return 1;
 }
 
 void syscall_dispatch(uint64_t *regs) {

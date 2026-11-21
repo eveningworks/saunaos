@@ -25,6 +25,13 @@
 // functions here), or 0 on allocation failure.
 uint64_t vmm_create_address_space(void);
 
+// Builds the shared PML4 slot that maps the clock page (`page_phys`,
+// clocksource_page_phys()) read-only at UADDR_CLOCK_PAGE in every address
+// space created after it. Once, at boot, before the first process.
+int vmm_clock_slot_init(uint64_t page_phys);
+// Where it is in every address space, or 0 when there is none.
+uint64_t vmm_clock_page_addr(void);
+
 // Maps one 4KiB page at `vaddr` to physical frame `paddr`, present +
 // user, allocating any intermediate page-table levels needed along the
 // way. Private to whichever address space `pml4_phys` identifies.

@@ -208,6 +208,15 @@
 
 // Is this address inside the mmap arena -- mapped or not? The envelope
 // check the fault path asks before consulting the region list.
+// THE CLOCK PAGE (abi/clock_abi.h): one read-only page, the same frame in
+// every process, behind a PML4 slot every address space SHARES as it
+// shares entry 0 -- so it costs no page table per process and is never
+// forked, freed or audited with the rest (vmm.c). NT's KUSER_SHARED_DATA
+// is a fixed address too. The first page of PML4[255], above the mmap
+// arena and clear of the lower half's last page, which a SYSRET may not
+// return into. SYS_CLOCK_PAGE hands it to ring 3; nothing hard-codes it.
+#define UADDR_CLOCK_PAGE 0x00007F8000000000ULL
+
 // An address ring 3 may run at, or point FS or a stack at: the canonical
 // LOWER half. The kernel loads such values into RIP, RSP and FS_BASE, and
 // a non-canonical one faults IN RING 0 -- on the iretq, or the wrmsr --

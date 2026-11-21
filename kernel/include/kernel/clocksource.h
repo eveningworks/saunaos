@@ -60,12 +60,17 @@ struct clocksource {
     // from a source that stops never expires, which is why the xHCI
     // driver bounds its waits by a poll count wherever this is 0.
     uint8_t irq_independent;
+
+    // Can RING 3 read the counter itself? CLOCK_MODE_TSC for the TSC,
+    // 0 (CLOCK_MODE_SYSCALL) for a port or a tick count -- what the clock
+    // page tells a process (abi/clock_abi.h), Linux's vdso_clock_mode.
+    uint8_t user_mode;
 };
 
 // Registers a source. The highest-rated one becomes current; a lower
 // or equal rating is kept in the list's spirit but does not take over,
 // so registration ORDER never decides the outcome. Switching preserves
-// monotonicity: the accumulated nanosecond count carries across, so
+// monotonicity: the snapshot's nanosecond total carries across, so
 // clocksource_now_ns() never goes backwards when a better source
 // arrives partway through boot.
 //
@@ -76,16 +81,27 @@ struct clocksource {
 int clocksource_register(const struct clocksource *cs);
 
 // Nanoseconds since the first source was registered. Monotonic, never
-// decreasing, and safe to call with interrupts off.
-//
-// NOT free of a caveat: it accumulates on each call, so the raw counter
-// must not advance by more than `max_delta` (computed at registration
-// from mult, so the multiply cannot overflow 64 bits) between two
-// calls. At a 3GHz TSC that is over an hour, and the scheduler reads it
-// on every context switch, so nothing here comes close -- but a source
-// added later with a much larger mult shrinks that window, which is why
-// the clamp logs rather than wrapping quietly.
+// decreasing on one core, safe with interrupts off, from an NMI, and on
+// any core without the kernel lock: it reads the latched snapshot and
+// writes nothing (clocksource.c). Across cores it is as monotonic as the
+// counter is synchronised -- a TSC a hair behind reads as the snapshot's
+// base, never before it.
 uint64_t clocksource_now_ns(void);
+
+// RETAKES THE SNAPSHOT, so a delta never outgrows the multiply: the boot
+// core's tick (clockevent_tick()). Logs a clamp a retake found.
+void clocksource_tick(void);
+
+// A retake's arithmetic, apart for its KTESTs: `n` is `cur` advanced to
+// `raw`. 0 when `raw` is behind cur's base (nothing folded, `n` == `cur`);
+// `*clamped` set when the delta was past what the multiply converts.
+struct clock_snap;
+int clocksource_snap_fold(const struct clock_snap *cur, uint64_t raw,
+                          struct clock_snap *n, int *clamped);
+
+// The clock page's frame (abi/clock_abi.h), for vmm.c's clock slot. The
+// kernel is identity-mapped, so its address is its physical one.
+uint64_t clocksource_page_phys(void);
 
 // The current source, or NULL before any is registered. For `lscpu`-
 // style reporting and for the KTESTs, which need to know which one they

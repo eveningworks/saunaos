@@ -56,7 +56,11 @@ struct syscall_desc {
     enum sc_arg args[3];
     enum sc_ret ret;
     uint32_t promise;    // the PROMISE_* group a sandbox must hold (abi/sandbox_abi.h)
+    uint32_t flags;      // SYSCALL_F_*
 };
+
+// The handler needs no kernel lock (abi/syscall_rows.h's SYSCALL_ROW_MPSAFE).
+#define SYSCALL_F_MPSAFE 1u
 
 // The row for `nr`, or NULL if the number is out of range. A row that
 // exists but whose `fn` is NULL is a number with no handler; dispatch

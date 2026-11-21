@@ -3,6 +3,7 @@
 // The syscall ABI, written down exactly once. Everything below is a
 // thin typed shell around one of these three.
 #include "rt/sys.h"
+#include "clock_abi.h"   // the clock page sys_monotonic_ns() reads
 
 // SYSCALL with the SysV-ish register convention the kernel's
 // dispatcher uses: number in RAX, arguments in RDI/RSI/RDX, result in
@@ -1045,12 +1046,75 @@ int sys_sysinfo(struct sys_info *out) {
     return (int)err(syscall1(SYS_SYSINFO, (uint64_t)(uintptr_t)out));
 }
 
+// THE CLOCK PAGE (abi/clock_abi.h): the kernel's clock conversion, read
+// here with no syscall when the counter is the TSC. Asked for once per
+// process; a kernel without one (an older one, booted as `previous`
+// under a newer /bin) answers -ENOSYS and every read stays a syscall.
+// Racing threads ask twice and store the same answer.
+static const struct clock_page *g_clock_page;
+static int g_clock_asked;
+
+static const struct clock_page *clock_page(void) {
+    if (!__atomic_load_n(&g_clock_asked, __ATOMIC_ACQUIRE)) {
+        int64_t va = syscall0(SYS_CLOCK_PAGE);
+        const struct clock_page *pg = 0;
+        if (va > 0) {
+            pg = (const struct clock_page *)(uintptr_t)va;
+            if (pg->magic != CLOCK_PAGE_MAGIC || pg->version != CLOCK_PAGE_VERSION) pg = 0;
+        }
+        g_clock_page = pg;
+        __atomic_store_n(&g_clock_asked, 1, __ATOMIC_RELEASE);
+    }
+    return g_clock_page;
+}
+
+// LFENCE first, so the counter is read after the loads before it, as
+// Linux's vDSO does (rdtsc_ordered()).
+static inline uint64_t rdtsc_ordered(void) {
+    uint32_t lo, hi;
+    __asm__ volatile ("lfence; rdtsc" : "=a"(lo), "=d"(hi) :: "memory");
+    return ((uint64_t)hi << 32) | lo;
+}
+
+// The page's time and its ns per tick, or 0 when it cannot answer.
+static int page_now(uint64_t *ns, uint32_t *coarse_ns) {
+    const struct clock_page *pg = clock_page();
+    if (!pg) return 0;
+    for (;;) {
+        uint32_t s = pg->seq;
+        __asm__ volatile ("" ::: "memory");
+        const struct clock_snap *c = &pg->snap[s & 1];
+        if (c->mode != CLOCK_MODE_TSC) return 0;
+        uint64_t t = clock_snap_ns(c, rdtsc_ordered());
+        uint32_t coarse = c->coarse_ns;
+        __asm__ volatile ("" ::: "memory");
+        if (pg->seq == s) {
+            *ns = t;
+            if (coarse_ns) *coarse_ns = coarse;
+            return 1;
+        }
+    }
+}
+
 unsigned long sys_ticks(void) {
+    uint64_t ns;
+    uint32_t coarse;
+    if (page_now(&ns, &coarse) && coarse) return (unsigned long)(ns / coarse);
     return (unsigned long)syscall0(SYS_TICKS);
 }
 
 unsigned long long sys_monotonic_ns(void) {
+    uint64_t ns;
+    if (page_now(&ns, 0)) return ns;
     return (unsigned long long)syscall0(SYS_MONOTONIC_NS);
+}
+
+unsigned long long sys_monotonic_ns_syscall(void) {
+    return (unsigned long long)syscall0(SYS_MONOTONIC_NS);
+}
+
+long sys_clock_page(void) {
+    return (long)syscall0(SYS_CLOCK_PAGE);
 }
 
 int sys_crashtest(struct crash_msg *msg) {

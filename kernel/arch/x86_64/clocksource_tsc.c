@@ -9,6 +9,7 @@
 // one frame.
 #include "clocksource.h"
 #include "cpuinfo.h"
+#include "clock_abi.h"   // CLOCK_MODE_TSC
 #include "random_hw.h" // arch_rdtsc()
 #include "klog.h"
 #include "kfmt.h"
@@ -48,6 +49,7 @@ static struct clocksource g_tsc_cs = {
     .read   = tsc_cs_read,
     .mask   = CLOCKSOURCE_MASK(64),
     .irq_independent = 1,   // a free-running CPU counter; see clocksource.h
+    .user_mode = CLOCK_MODE_TSC,   // RDTSC from ring 3: CR4.TSD is clear
     .rating = CLOCKSOURCE_RATING_TSC,
 };
 
@@ -86,9 +88,10 @@ void clocksource_init_tsc(void) {
     }
 
     // A one-hour worst case for the mult/shift bound. Nothing waits
-    // anywhere near that between reads (the scheduler reads on every
-    // context switch), but the bound is what keeps the multiply inside
-    // 64 bits, and picking it generously costs only a little precision.
+    // anywhere near that between retakes (the boot core's tick retakes
+    // the snapshot every tick), but the bound is what keeps the multiply
+    // inside 64 bits, and picking it generously costs only a little
+    // precision.
     uint64_t hz = cpu_tsc_hz();
     clocksource_calc_mult_shift(&g_tsc_cs.mult, &g_tsc_cs.shift, hz, 3600);
     clocksource_register(&g_tsc_cs);

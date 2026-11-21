@@ -500,6 +500,7 @@ int sys_notify_ready(struct syscall_ctx *c);
 int sys_ticks(struct syscall_ctx *c);
 int sys_console_size(struct syscall_ctx *c);
 int sys_monotonic_ns(struct syscall_ctx *c);
+int sys_clock_page(struct syscall_ctx *c);
 int sys_sleep(struct syscall_ctx *c);
 
 // Registers the heap's demand-paging handler with vmm. Called once from

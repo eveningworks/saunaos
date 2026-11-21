@@ -2383,6 +2383,13 @@ int scheduler_syscall_reissue_pending(int pid) {
     return s < 0 ? 0 : procs[s].syscall_reissue;
 }
 
+int scheduler_lockless_ok(void) {
+    int cur = current_index;
+    if (cur < 0 || g_need_resched) return 0;
+    const struct sched_process *p = &procs[cur];
+    return !p->syscall_reissue && !(p->pending & ~p->blocked);
+}
+
 void scheduler_syscall_entered(int pid) {
     int s = pid_slot(pid);
     if (s >= 0) procs[s].syscall_reissue = 0;

@@ -20,6 +20,16 @@
 #ifndef SYSCALL_ROW
 #error "define SYSCALL_ROW(nr, name, fn, a0, a1, a2, ret, promise) before including syscall_rows.h"
 #endif
+// **SYSCALL_ROW_MPSAFE IS A ROW WHOSE HANDLER NEEDS NO KERNEL LOCK**
+// (FreeBSD's SYF_MPSAFE): dispatched by syscall_try_lockless() with
+// interrupts off, it may not sleep, take the kernel lock or touch
+// anything that lock protects -- only the calling thread's own fields and
+// what has its own lock or none. An expander that does not care is given
+// the plain row.
+#ifndef SYSCALL_ROW_MPSAFE
+#define SYSCALL_ROW_MPSAFE(nr, name, fn, a0, a1, a2, r, pr) SYSCALL_ROW(nr, name, fn, a0, a1, a2, r, pr)
+#define SYSCALL_ROW_MPSAFE_DEFAULTED
+#endif
 
 SYSCALL_ROW(SYS_EXIT, "exit", sys_exit, A_INT, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_WRITE, "write", sys_write, A_FD, A_BUF, A_INT, R_DEC, PROMISE_STDIO)
@@ -90,8 +100,8 @@ SYSCALL_ROW(SYS_SPAWN, "spawn", sys_spawn, A_HEX, A_END, A_END, R_DEC, PROMISE_P
 SYSCALL_ROW(SYS_WAITPID, "waitpid", sys_waitpid, A_INT, A_HEX, A_INT, R_DEC, PROMISE_PROC)
 SYSCALL_ROW(SYS_PROC_INFO, "proc_info", sys_proc_info, A_INT, A_HEX, A_END, R_DEC, PROMISE_PROC)
 SYSCALL_ROW(SYS_KILL, "kill", sys_kill, A_INT, A_INT, A_END, R_DEC, PROMISE_STDIO)
-SYSCALL_ROW(SYS_TICKS, "ticks", sys_ticks, A_END, A_END, A_END, R_DEC, PROMISE_STDIO)
-SYSCALL_ROW(SYS_MONOTONIC_NS, "monotonic_ns", sys_monotonic_ns, A_END, A_END, A_END, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW_MPSAFE(SYS_TICKS, "ticks", sys_ticks, A_END, A_END, A_END, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW_MPSAFE(SYS_MONOTONIC_NS, "monotonic_ns", sys_monotonic_ns, A_END, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_SLEEP, "sleep", sys_sleep, A_INT, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_SETTING, "setting", sys_setting, A_HEX, A_END, A_END, R_DEC, PROMISE_SETTINGS)
 SYSCALL_ROW(SYS_SYSINFO, "sysinfo", sys_sysinfo, A_HEX, A_END, A_END, R_DEC, PROMISE_QUERY)
@@ -125,7 +135,7 @@ SYSCALL_ROW(SYS_QUERY, "query", sys_query, A_HEX, A_END, A_END, R_DEC, PROMISE_S
 // three values, and `lseek(3, -16, 2)` is already readable.
 SYSCALL_ROW(SYS_LSEEK, "lseek", sys_lseek, A_FD, A_INT, A_INT, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_FSTAT, "fstat", sys_fstat, A_FD, A_HEX, A_END, R_DEC, PROMISE_STDIO)
-SYSCALL_ROW(SYS_GETPID, "getpid", sys_getpid, A_END, A_END, A_END, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW_MPSAFE(SYS_GETPID, "getpid", sys_getpid, A_END, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_FORK, "fork", sys_fork, A_END, A_END, A_END, R_DEC, PROMISE_PROC)
 SYSCALL_ROW(SYS_EXEC, "exec", sys_exec, A_HEX, A_END, A_END, R_DEC, PROMISE_PROC)
 SYSCALL_ROW(SYS_NOTIFY_READY, "notify_ready", sys_notify_ready, A_END, A_END, A_END, R_DEC, PROMISE_STDIO)
@@ -174,7 +184,7 @@ SYSCALL_ROW(SYS_THREAD_CREATE, "thread_create", sys_thread_create, A_HEX, A_END,
 SYSCALL_ROW(SYS_THREAD_EXIT, "thread_exit", sys_thread_exit, A_INT, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_THREAD_JOIN, "thread_join", sys_thread_join, A_INT, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_THREAD_DETACH, "thread_detach", sys_thread_detach, A_INT, A_END, A_END, R_DEC, PROMISE_STDIO)
-SYSCALL_ROW(SYS_GETTID, "gettid", sys_gettid, A_END, A_END, A_END, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW_MPSAFE(SYS_GETTID, "gettid", sys_gettid, A_END, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_SET_TLS, "set_tls", sys_set_tls, A_HEX, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_SET_TID_ADDRESS, "set_tid_address", sys_set_tid_address, A_HEX, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_PRCTL, "prctl", sys_prctl, A_INT, A_INT, A_END, R_DEC, PROMISE_STDIO)
@@ -214,3 +224,10 @@ SYSCALL_ROW(SYS_USERFS, "userfs", sys_userfs, A_INT, A_HEX, A_HEX, R_DEC, PROMIS
 // Always allowed: giving something up needs no promise.
 SYSCALL_ROW(SYS_PLEDGE, "pledge", sys_pledge, A_HEX, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_UNVEIL, "unveil", sys_unveil, A_PATH, A_HEX, A_END, R_DEC, PROMISE_STDIO)
+// Where the clock page is mapped (abi/clock_abi.h).
+SYSCALL_ROW_MPSAFE(SYS_CLOCK_PAGE, "clock_page", sys_clock_page, A_END, A_END, A_END, R_HEX, PROMISE_STDIO)
+
+#ifdef SYSCALL_ROW_MPSAFE_DEFAULTED
+#undef SYSCALL_ROW_MPSAFE
+#undef SYSCALL_ROW_MPSAFE_DEFAULTED
+#endif

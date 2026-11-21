@@ -971,6 +971,13 @@ int scheduler_signal_deliverable(int pid);
 int  scheduler_syscall_reissue_pending(int pid);
 void scheduler_syscall_entered(int pid);
 
+// MAY THIS CORE'S THREAD TAKE A SYSCALL WITHOUT THE KERNEL LOCK? Not
+// while anything the locked path does at entry or on the way back is due:
+// a re-issue, a deliverable signal, a reschedule. Read with interrupts
+// off and no lock -- a signal posted from another core after it kicks
+// this one, so the way back to ring 3 takes it through the locked path.
+int  scheduler_lockless_ok(void);
+
 // Takes the lowest deliverable signal and clears JUST THAT BIT,
 // returning its number (0 when there is nothing to take).
 //

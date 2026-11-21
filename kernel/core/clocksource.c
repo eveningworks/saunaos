@@ -1,17 +1,19 @@
 // The monotonic-time registry. See kernel/clocksource.h for what a
 // clocksource IS and why wall-clock time is deliberately not one.
 //
-// The accumulate-on-read design, and why it is not just "return
-// read() * mult >> shift": a raw counter can WRAP (the mask), and a
-// better source can arrive partway through boot. Both are handled by
-// keeping a running nanosecond total plus the last raw value seen, so
-// the only thing ever converted is a DELTA -- which makes wraparound a
-// subtraction that works by construction, and makes switching sources
-// a matter of resetting the last-raw without touching the total.
+// A SNAPSHOT AND A DELTA, and why it is not just "return read() *
+// mult >> shift": a raw counter can WRAP (the mask), and a better source
+// can arrive partway through boot. So the time is a snapshot -- a base
+// nanosecond total and the raw value it was taken at -- plus the delta
+// since, converted on each read: wraparound is a masked subtraction, and
+// switching sources is a retake that keeps the total.
 //
-// The cost is that it must be READ often enough that a delta cannot
-// overflow the multiply. That is what max_delta is, and the scheduler
-// reading it on every context switch is what guarantees it in practice.
+// **A READ WRITES NOTHING** (it did until SMP stage 7: each read folded
+// its delta into one global total, which made every clock read on every
+// core a write behind the kernel lock). The snapshot is retaken by the
+// boot core's tick, so a delta can never outgrow the multiply; the cost
+// is that the snapshot must be retaken within half the source's span --
+// clocksource_max_idle_ns(), which bounds a tickless idle.
 #include "clocksource.h"
 #include "timer.h"
 #include "barrier.h" // cpu_relax -- the delay below spins
@@ -20,12 +22,31 @@
 #include "driver.h" // DRIVER_DECLARE, driver_bound -- `lsdrv`
 #include "multiboot.h" // clocksource=
 #include "string.h"
+#include "spinlock.h"
+#include "lockstat.h"   // SPINLOCK_COUNTED
+#include "clock_abi.h"
 
-static const struct clocksource *g_cs;
-static uint64_t g_last_raw;   // last raw value read from g_cs
-static uint64_t g_acc_ns;     // nanoseconds accumulated before that point
-static uint64_t g_max_delta;  // largest delta g_cs->mult can convert safely
+static const struct clocksource *g_cs;   // the current source
 static uint64_t g_max_idle_ns;
+
+// THE CLOCK IS THE CLOCK PAGE (abi/clock_abi.h), a latch every process
+// also has mapped read-only (vmm.c's clock slot): the kernel and ring 3
+// read one structure, and no reader writes anything, so the clock costs
+// no shared cache line and no lock on any core. `g_snap_cs` is latched
+// beside the page's two copies -- the source each was taken against,
+// which ring 3 never needs to know.
+static union {
+    struct clock_page page;
+    uint8_t bytes[4096];
+} g_clock __attribute__((aligned(4096)));
+static const struct clocksource *g_snap_cs[2];
+
+// The writer's: a retake of the snapshot (the boot core's tick, a source
+// switch, a reader that found it stale). Readers never take it.
+SPINLOCK_COUNTED(g_clock_lock, "clock");
+static uint64_t g_clamps, g_clamp_reported, g_clamp_delta;
+
+#define compiler_barrier() __asm__ volatile ("" ::: "memory")
 
 int clocksource_deadline_capable(void) {
     const struct clocksource *cs = clocksource_current();
@@ -61,26 +82,130 @@ void clocksource_calc_mult_shift(uint32_t *mult, uint32_t *shift,
     *shift = 0;
 }
 
-// READ, CONVERT AND ACCUMULATE ARE ONE CRITICAL SECTION, and interrupts
-// are what this is protecting against rather than preemption: the timer
-// ISR reads this clock too (CPU accounting), so a caller that has read
-// `raw` and not yet stored it can be overtaken by an ISR that stores a
-// LATER one. The caller then resumes and computes raw - g_last_raw with
-// g_last_raw one tick AHEAD -- a delta of (uint64_t)-1, which the clamp
-// below turns into a ~7 second jump forward in accumulated time.
-// scheduler_preempt_disable() cannot help here; the racing party is an
-// interrupt handler, not another process.
-static inline uint64_t irq_save(void) {
-    uint64_t f;
-    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(f) :: "memory");
-    return f;
+int clocksource_snap_fold(const struct clock_snap *cur, uint64_t raw,
+                          struct clock_snap *n, int *clamped) {
+    *n = *cur;
+    raw &= cur->mask;
+    uint64_t delta = (raw - cur->base_raw) & cur->mask;
+    // Behind the base: this core's counter trails the one that took it.
+    // Nothing to fold in, and moving base_raw back would let the next
+    // delta count the same interval twice.
+    if (delta > (cur->mask >> 1)) return 0;
+    if (delta > cur->max_delta) {
+        // Nobody retook it for longer than the multiply can convert.
+        // Clamping loses time; wrapping would run it BACKWARDS.
+        *clamped = 1;
+        delta = cur->max_delta;
+    }
+    // THE REMAINDER IS KEPT: truncating each fold to whole nanoseconds
+    // lost up to one per retake, and a reader just before a retake could
+    // then see a later time than one just after it.
+    uint64_t total = delta * cur->mult + cur->base_frac;
+    n->base_ns = cur->base_ns + (total >> cur->shift);
+    n->base_frac = total & ((1ull << cur->shift) - 1);
+    n->base_raw = raw;
+    return 1;
 }
 
-static inline void irq_restore(uint64_t f) {
+// RETAKES THE SNAPSHOT, against `next` (a switch) or the source it was
+// taken with. g_clock_lock held, interrupts off.
+//
+// The latch write: the idle copy is rewritten, then `seq` moves readers
+// onto it, then the copy they left is made the same -- a reader still on
+// it sees `seq` change and retries. One increment per retake.
+static void snap_retake_locked(const struct clocksource *next) {
+    struct clock_page *pg = &g_clock.page;
+    uint32_t s = pg->seq;
+    const struct clock_snap *cur = &pg->snap[s & 1];
+    const struct clocksource *cs = g_snap_cs[s & 1];
+    struct clock_snap n = *cur;
+
+    if (cs) {
+        int clamped = 0;
+        uint64_t raw = cs->read();
+        if (!clocksource_snap_fold(cur, raw, &n, &clamped) && next == cs) return;
+        if (clamped) { g_clamps++; g_clamp_delta = (raw - cur->base_raw) & cur->mask; }
+    }
+    if (next != cs) {
+        // A NEW SOURCE CONTINUES THE TOTAL, so the clock never steps back
+        // at the switch; the part of a nanosecond below it is dropped.
+        // THE FIRST STARTS AT ITS OWN ORIGIN, not at zero: the PIT's tick
+        // count began before this ran, and coarse_ticks() -- counted
+        // until now, derived from this clock later -- must not step back.
+        uint64_t raw = next->read() & next->mask;
+        n.mask = next->mask;
+        n.mult = next->mult;
+        n.shift = next->shift;
+        // Room for base_frac on top of the largest product.
+        n.max_delta = (~0ull - ((1ull << next->shift) - 1)) / next->mult;
+        if (!cs) n.base_ns = raw <= n.max_delta ? (raw * next->mult) >> next->shift : 0;
+        n.base_frac = 0;
+        n.base_raw = raw;
+        n.mode = next->user_mode;
+        n.coarse_ns = next->irq_independent ? 1000000000u / COARSE_HZ : 0;
+    }
+
+    int idle = (int)((s + 1) & 1);
+    pg->snap[idle] = n;
+    g_snap_cs[idle] = next;
+    compiler_barrier();
+    pg->seq = s + 1;
+    compiler_barrier();
+    pg->snap[s & 1] = n;
+    g_snap_cs[s & 1] = next;
+}
+
+static void clamp_report(void) {
+    if (g_clamps == g_clamp_reported) return;
+    g_clamp_reported = g_clamps;
+    klog_printf("clocksource: %s delta %lu exceeds max %lu -- time clamped\n",
+                g_cs ? g_cs->name : "?", (unsigned long)g_clamp_delta,
+                (unsigned long)g_clock.page.snap[g_clock.page.seq & 1].max_delta);
+}
+
+void clocksource_tick(void) {
+    if (!g_cs) return;
+    uint64_t f = spin_lock_irqsave(&g_clock_lock);
+    snap_retake_locked(g_cs);
+    spin_unlock_irqrestore(&g_clock_lock, f);
+    clamp_report();
+}
+
+// A reader that found the snapshot a quarter of the way to what it can
+// convert (a long spin with the boot core's tick held off) retakes it,
+// if nobody else is: a trylock, so an NMI or a reader on the writer's own
+// core never waits.
+static void retake_if_free(void) {
+    uint64_t f;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(f) :: "memory");
+    if (spin_trylock(&g_clock_lock)) {
+        snap_retake_locked(g_cs);
+        spin_unlock(&g_clock_lock);
+    }
     if (f & (1ull << 9)) __asm__ volatile ("sti" ::: "memory");
 }
 
-static uint64_t clocksource_now_ns_locked(void);
+uint64_t clocksource_now_ns(void) {
+    const struct clock_page *pg = &g_clock.page;
+    for (;;) {
+        uint32_t s = pg->seq;
+        compiler_barrier();
+        const struct clocksource *cs = g_snap_cs[s & 1];
+        if (!cs) return 0;
+        const struct clock_snap *c = &pg->snap[s & 1];
+        uint64_t raw = cs->read();
+        uint64_t ns = clock_snap_ns(c, raw);
+        uint64_t span = c->mask < c->max_delta ? c->mask : c->max_delta;
+        int stale = ((raw - c->base_raw) & c->mask) > (span >> 2) &&
+                    ((raw - c->base_raw) & c->mask) <= (c->mask >> 1);
+        compiler_barrier();
+        if (pg->seq != s) continue;
+        if (stale) retake_if_free();
+        return ns;
+    }
+}
+
+uint64_t clocksource_page_phys(void) { return (uint64_t)(uintptr_t)&g_clock; }
 
 int clocksource_register(const struct clocksource *cs) {
     // The honesty check. A source that cannot be read, cannot wrap, or
@@ -116,27 +241,22 @@ int clocksource_register(const struct clocksource *cs) {
     // limits found a max_delta of 0: every read clamped, and at 1000 Hz
     // the ISR's warning outlasted the tick, so registration never
     // resumed -- a boot that spun printing "exceeds max 0" forever.
-    uint64_t max_delta = 0xFFFFFFFFFFFFFFFFULL / cs->mult;
+    uint64_t max_delta = (~0ull - ((1ull << cs->shift) - 1)) / cs->mult;
     uint64_t span = cs->mask < max_delta ? cs->mask : max_delta;
-    uint64_t flags = irq_save();
-
-    // Fold everything the outgoing source measured into the total
-    // BEFORE switching, or the interval between its last read and now
-    // is simply lost -- and with it, monotonicity across the switch.
-    int had_source = g_cs != 0;
-    if (had_source) (void)clocksource_now_ns_locked();
-
-    g_last_raw = cs->read() & cs->mask;
-    g_max_delta = max_delta;
-    // THE FIRST SOURCE STARTS THE CLOCK AT ITS OWN ORIGIN, not at zero:
-    // the PIT's tick count began before this ran, and coarse_ticks() --
-    // counted until now, derived from this clock later -- must not step
-    // backwards at the switch.
-    if (!had_source && g_last_raw <= g_max_delta)
-        g_acc_ns = (g_last_raw * cs->mult) >> cs->shift;
+    // THE SWITCH IS ONE RETAKE: everything the outgoing source measured
+    // is folded into the total in the same latch write that starts the
+    // new one, so no interval is lost and no reader sees a half-switch.
+    uint64_t flags = spin_lock_irqsave(&g_clock_lock);
+    if (!g_clock.page.magic) {
+        g_clock.page.magic = CLOCK_PAGE_MAGIC;
+        g_clock.page.version = CLOCK_PAGE_VERSION;
+    }
+    // Half the span: what a tickless idle may sleep, and the most a
+    // reader's delta can be before clock_snap_ns() reads it as behind.
     g_max_idle_ns = ((span >> 1) * cs->mult) >> cs->shift;
+    snap_retake_locked(cs);
     g_cs = cs;
-    irq_restore(flags);
+    spin_unlock_irqrestore(&g_clock_lock, flags);
 
     // Here, not at registration: a source that was refused or out-rated
     // drives nothing, and said so on the way past.
@@ -157,54 +277,6 @@ const char *clocksource_forced(void) {
         if (!multiboot_cmdline_value("clocksource=", name, sizeof name)) name[0] = 0;
     }
     return name[0] ? name : 0;
-}
-
-// The body, for a caller that already holds interrupts off. Reports a
-// clamp through `*clamped`/`*reported` rather than logging it here: a
-// print is far longer than the arithmetic, and inside the critical
-// section it is inside the timer ISR's way too.
-static uint64_t now_locked(int *clamped, uint64_t *reported) {
-    uint64_t raw = g_cs->read() & g_cs->mask;
-    // Masked subtraction, so a counter that wrapped since the last read
-    // still yields the right delta -- this is the whole reason the
-    // conversion is done on deltas rather than on the absolute value.
-    uint64_t delta = (raw - g_last_raw) & g_cs->mask;
-
-    *clamped = delta > g_max_delta;
-    *reported = delta;   // before the clamp -- the offending value
-    if (*clamped) {
-        // Nothing read the clock for long enough that converting the
-        // delta would overflow. Clamping loses time, which is bad --
-        // but wrapping makes it go BACKWARDS, which breaks every
-        // caller's arithmetic silently, so say so and lose it.
-        delta = g_max_delta;
-    }
-
-    g_acc_ns += (delta * g_cs->mult) >> g_cs->shift;
-    g_last_raw = raw;
-    return g_acc_ns;
-}
-
-static uint64_t clocksource_now_ns_locked(void) {
-    int clamped; uint64_t reported;
-    return now_locked(&clamped, &reported);
-}
-
-uint64_t clocksource_now_ns(void) {
-    if (!g_cs) return 0;
-
-    uint64_t flags = irq_save();
-    int clamped;
-    uint64_t reported;
-    uint64_t now = now_locked(&clamped, &reported);
-    irq_restore(flags);
-
-    if (clamped)
-        klog_printf("clocksource: %s delta %lu exceeds max %lu -- time clamped\n",
-                     g_cs->name, (unsigned long)reported,
-                     (unsigned long)g_max_delta);
-
-    return now;
 }
 
 // --- the PIT source ---------------------------------------------------

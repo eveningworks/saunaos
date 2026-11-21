@@ -313,6 +313,12 @@ TESTS = [
     # base/uclock.h: the clock's granularity is a real number, never 0.
     # Discriminates only on a `clocksource=pit` boot (the file says why).
     ("uclock_test", 0, None, None),
+    # The syscalls that skip the kernel lock and the clock page: getpid
+    # counted LOCKLESS (and, with kernel.lockless_syscalls off, as TAKES),
+    # four threads told their own ids, page reads between syscall reads
+    # and never behind another thread's, the page read-only. SPAWNED: it
+    # forks a child to write the page.
+    ("lockless_test", None, None, None),
     # base/ufileundo.h on real files under /home: each kind undone and
     # redone, a new record dropping the redo, a refused step failing
     # alone. SPAWNED: the copy and move engine is ufileop's.
@@ -787,6 +793,8 @@ def vm(args, *argv, check=True):
         cmd += ["--kvm"]   # a race's window is a function of speed: TCG hides some
     if args.cpus and argv and argv[0] == "start":
         cmd += ["--cpus", str(args.cpus)]   # an smp=run image schedules on the others
+    if getattr(args, "cpu", None) and argv and argv[0] == "start":
+        cmd += ["--cpu", args.cpu]   # `--kvm --cpu host,+invtsc`: the TSC clocksource
     cmd += list(argv)
     r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
     if check and r.returncode != 0:
@@ -958,6 +966,10 @@ def main():
     ap.add_argument("--kvm", action="store_true",
                     help="boot the guest under KVM (vm.py --kvm): the gate runs TCG, "
                          "which hides speed-dependent races")
+    ap.add_argument("--cpu", default=None, metavar="MODEL",
+                    help="QEMU -cpu model (vm.py --cpu). With --kvm, `host,+invtsc` gives "
+                         "the guest an invariant TSC, so the TSC is its clocksource and "
+                         "ring 3 reads the clock page -- QEMU withholds invtsc otherwise")
     ap.add_argument("--cpus", type=int, default=0, metavar="N",
                     help="vCPUs (vm.py --cpus; default 1) -- the suite's programs run on "
                          "all of them (smp=run, the default)")

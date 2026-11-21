@@ -2135,6 +2135,14 @@ struct sys_stat {
 #define PR_GET_DUMPABLE 3   // Linux's numbers
 #define PR_SET_DUMPABLE 4
 
+#define SYS_CLOCK_PAGE 170 // No arguments. The address of this process's
+                           // read-only clock page (abi/clock_abi.h), from
+                           // which ring 3 reads SYS_MONOTONIC_NS's clock
+                           // without a syscall. -ENOSYS where there is
+                           // none -- a kernel from before it, or a boot
+                           // that could not build it -- and the caller
+                           // keeps making the syscall.
+
 #define SYS_SHM_OPEN 99   // RDI = pointer to a `struct shm_open_msg`.
                           // Returns a descriptor naming a SHARED
                           // MEMORY OBJECT -- a run of frames the

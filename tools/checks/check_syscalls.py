@@ -44,7 +44,7 @@ def main():
     values = {m.group(1): int(m.group(2)) for m in
               re.finditer(r"^#define\s+(SYS_[A-Z0-9_]+)\s+(-?\d+)", abi, re.M)}
 
-    rows = re.findall(r"^SYSCALL_ROW\(\s*(SYS_[A-Z0-9_]+|\d+)\s*,", open(TABLE).read(), re.M)
+    rows = re.findall(r"^SYSCALL_ROW(?:_MPSAFE)?\(\s*(SYS_[A-Z0-9_]+|\d+)\s*,", open(TABLE).read(), re.M)
     if not rows:
         print("check_syscalls: no rows found in syscall_rows.h -- has it moved?")
         return 1

@@ -72,9 +72,32 @@ void bkl_stat_zero_holds(void) {
     }
 }
 
+_Static_assert(CPU_LOCKLESS_SYSCALLS == BKL_SYSCALLS,
+               "struct cpu's lockless_calls[] must cover every BKL syscall key");
+
+void bkl_note_lockless(uint64_t nr) {
+    struct cpu *c = this_cpu_raw();   // interrupts are off: this core's
+    c->bkl_lockless++;
+    if (nr < BKL_SYSCALLS) c->lockless_calls[nr]++;
+}
+
+// A snapshot: each core's count may move under the sum.
+static uint64_t lockless_of(uint32_t key) {
+    if (key < BKL_KEY_SYSCALL(0) || key >= BKL_KEY_KERNEL) return 0;
+    uint64_t n = 0;
+    for (int i = 0; i < smp_cpu_count(); i++) {
+        const struct cpu *c = smp_cpu_at(i);
+        if (c) n += c->lockless_calls[key - BKL_KEY_SYSCALL(0)];
+    }
+    return n;
+}
+
 int bkl_entry_stat(uint32_t key, struct bkl_entry_stat *out) {
-    if (key >= BKL_KEYS || !g_entries[key].takes) return 0;
+    if (key >= BKL_KEYS) return 0;
+    uint64_t lockless = lockless_of(key);
+    if (!g_entries[key].takes && !lockless) return 0;
     *out = g_entries[key];
+    out->lockless = lockless;
     return 1;
 }
 static int g_ready;

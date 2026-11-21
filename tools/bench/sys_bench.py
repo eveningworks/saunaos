@@ -6,7 +6,8 @@
     python3 tools/bench/sys_bench.py --host <asus-ip>          # real hardware, over remote.py
 
 Boots the build on a COPY of its disk (or uses a running machine with
---host), runs /tests/syscall_bench and prints its rows: getpid, yield, a
+--host), runs /tests/syscall_bench and prints its rows: getpid, the
+clock by syscall and from the clock page, yield, a
 one-byte pipe write+read, a two-process round trip and the switch derived
 from it, the median start of /bin/hello (C library only) and /bin/ls (the
 toolkit libraries too) -- spawn to waitpid, which is what a program's
@@ -36,7 +37,7 @@ from harness import copy_disk  # noqa: E402
 
 REPO = toolpath.REPO
 ELF = os.path.join(REPO, "build/userland/tests/syscall_bench.elf")
-ROW = re.compile(r"syscall_bench: (getpid|yield|pipe 1 B|round trip|switch|spawn hello|spawn ls)\s+(-?[\d.]+) ns\s+(-?[\d.]+) cycles")
+ROW = re.compile(r"syscall_bench: (getpid|monotonic|clock page|yield|pipe 1 B|round trip|switch|spawn hello|spawn ls)\s+(-?[\d.]+) ns\s+(-?[\d.]+) cycles")
 SIZE = re.compile(r"syscall_bench: (\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)$")
 MACHINE = re.compile(r"syscall_bench: machine: (.*)")
 

@@ -129,6 +129,7 @@ static void fill_entry(struct query_bklstat *q, uint32_t key, const struct bkl_e
     q->wait_max_ns = cpu_tsc_ns(e->wait_max_tsc);
     q->hold_ns = cpu_tsc_ns(e->hold_tsc);
     q->hold_max_ns = cpu_tsc_ns(e->hold_max_tsc);
+    q->lockless = e->lockless;
 }
 
 static int bkl_fill(int index, void *out) {
@@ -144,6 +145,7 @@ static int bkl_fill(int index, void *out) {
         q->contended = c->bkl_contended;
         q->wait_ns = cpu_tsc_ns(c->bkl_wait_tsc);
         q->hold_ns = cpu_tsc_ns(c->bkl_hold_tsc);
+        q->lockless = c->bkl_lockless;
         return 1;
     }
     int want = index - cores;

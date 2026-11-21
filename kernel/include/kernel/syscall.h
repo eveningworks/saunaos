@@ -19,6 +19,18 @@
 // process_run_ring3() (see process.h), via process_context_restore().
 void syscall_dispatch(uint64_t *regs);
 
+// THE LOCK-FREE PATH: isr_dispatch() asks first, before taking the kernel
+// lock, for every ring-3 syscall. Runs a SYSCALL_F_MPSAFE row's handler
+// with interrupts off and returns 1, or returns 0 having touched nothing
+// -- an ordinary row, strace on, a sandbox refusal to report, a signal or
+// a reschedule due, or `kernel.lockless_syscalls` off -- and the caller
+// takes the lock and dispatches as before.
+int syscall_try_lockless(uint64_t *regs);
+
+// `kernel.lockless_syscalls` (tunables.c): on by default.
+int  syscall_lockless_enabled(void);
+void syscall_lockless_set(int on);
+
 // Arms SYS_SBRK for one process: `pml4_phys` is whichever address space
 // SYS_SBRK should trust (checked against vmm_current_pml4() on every
 // call, so one process's heap calls can't accidentally walk onto

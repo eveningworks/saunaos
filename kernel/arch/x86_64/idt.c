@@ -957,6 +957,10 @@ void isr_dispatch(uint64_t *regs) {
         smp_ap_interrupt(vector);   // an exception never reaches it
         return;
     }
+    // A syscall whose row needs no kernel lock never takes it (syscall.h).
+    // Only from ring 3 -- the only way vector 128 arrives -- so on any
+    // core, scheduling or not.
+    if (vector == 128 && syscall_try_lockless(regs)) return;
     // **A KERNEL FAULT IS REPORTED BY THE SAME BODY ON EVERY CORE, AND
     // TAKES NO KERNEL LOCK**: its holder may be waiting on this core (a
     // call or a shootdown), and a parked core holds none. The panic stops

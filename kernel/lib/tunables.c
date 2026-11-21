@@ -34,6 +34,7 @@
 #include "keyboard_tap.h" // kbdtap_enabled()/_set_enabled() -- kernel.kbdtap
 #include "syscall_stall.h" // syscall_stall_get()/_set() -- kernel.syscall_stall
 #include "lockstat.h"      // lockstat_timing_set() -- kernel.lockstat
+#include "syscall.h"       // syscall_lockless_set() -- kernel.lockless_syscalls
 #include "ktrace.h"        // ktrace_start()/_stop() -- kernel.trace
 #include "ktrace_fmt.h"    // ...and its group names
 #include "knum.h"          // k_parse_u64() -- kernel.trace_size
@@ -276,6 +277,35 @@ static const struct setting lockstat_setting = {
     .choice = onoff_choice,
     .get = lockstat_get_str,
     .apply = lockstat_apply,
+};
+
+// ---- kernel.lockless_syscalls ----------------------------------------
+//
+// ON BY DEFAULT: the rows abi/syscall_rows.h marks MPSAFE skip the kernel
+// lock (syscall_try_lockless()). Off sends them through it like any
+// other, for an A/B measurement and as a test's positive control.
+
+static void lockless_get_str(char *out, uint32_t cap) {
+    k_strlcpy(out, syscall_lockless_enabled() ? "on" : "off", cap);
+}
+
+static int lockless_apply(const char *value) {
+    int on;
+    if (!parse_onoff(value, &on)) return SETTING_INVALID;
+    syscall_lockless_set(on);
+    return SETTING_SAVED;
+}
+
+static const struct setting lockless_setting = {
+    .name = "lockless_syscalls",
+    .label = "Syscalls without the kernel lock",
+    .type = SETTING_TYPE_ENUM,
+    .file = CONFIG_PATH_RUNTIME,
+    .category = TUNABLE_CATEGORY,
+    .group = "Diagnostics",
+    .choice = onoff_choice,
+    .get = lockless_get_str,
+    .apply = lockless_apply,
 };
 
 // ---- kernel.trace, kernel.trace_size ---------------------------------
@@ -896,6 +926,7 @@ void tunables_register(void) {
     setting_register(&kstack_track_setting);
     setting_register(&syscall_stall_setting);
     setting_register(&lockstat_setting);
+    setting_register(&lockless_setting);
     setting_register(&trace_setting);
     setting_register(&trace_size_setting);
     setting_register(&kbdtap_setting);

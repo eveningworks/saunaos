@@ -40,9 +40,12 @@ static int sys_removed(struct syscall_ctx *c) {
 }
 
 static const struct syscall_desc SYSCALL_TABLE[] = {
-#define SYSCALL_ROW(nr, name, fn, a0, a1, a2, r, pr) [nr] = { name, fn, { a0, a1, a2 }, r, pr },
+#define SYSCALL_ROW(nr, name, fn, a0, a1, a2, r, pr) [nr] = { name, fn, { a0, a1, a2 }, r, pr, 0 },
+#define SYSCALL_ROW_MPSAFE(nr, name, fn, a0, a1, a2, r, pr) \
+    [nr] = { name, fn, { a0, a1, a2 }, r, pr, SYSCALL_F_MPSAFE },
 #include "syscall_rows.h"
 #undef SYSCALL_ROW
+#undef SYSCALL_ROW_MPSAFE
 };
 
 #define SYSCALL_TABLE_COUNT (sizeof SYSCALL_TABLE / sizeof SYSCALL_TABLE[0])

@@ -1294,6 +1294,7 @@ struct query_bklstat {
     uint64_t takes, contended;
     uint64_t wait_ns, wait_max_ns;
     uint64_t hold_ns, hold_max_ns;
+    uint64_t lockless;      // calls answered WITHOUT it (a CORE's, or a SYSCALL's)
 };
 _Static_assert(sizeof(struct query_bklstat) <= 256,
                "a query record must fit QUERY_RECORD_MAX -- see api/query.h");

@@ -1,5 +1,6 @@
 #include "irqflags.h" // a table or a fault-in page is installed only where still absent
 #include "vmm.h"
+#include "uaddr.h"   // UADDR_CLOCK_PAGE
 #include "kasan.h"
 #include "pmm.h"
 #include "oom.h"   // oom_note()
@@ -76,6 +77,40 @@ uint64_t vmm_kernel_pml4_phys(void) {
     return (uint64_t)(uintptr_t)p4_table;
 }
 
+// THE CLOCK SLOT: UADDR_CLOCK_PAGE's PML4 entry, built once and shared by
+// every address space like entry 0 and KASAN's, so the walks below that
+// free, fork and audit a space skip it. Read-only at every level, NX.
+#define CLOCK_PML4_INDEX ((int)((UADDR_CLOCK_PAGE >> 39) & 511))
+_Static_assert(UADDR_CLOCK_PAGE >= UADDR_MMAP_LIMIT && UADDR_CLOCK_PAGE < UADDR_USER_END,
+               "the clock page must sit outside the mmap arena, in the lower half");
+static uint64_t g_clock_pml4e;
+
+static int shared_slot(int i) {
+    return i == 0 || i == KASAN_PML4_INDEX || (g_clock_pml4e && i == CLOCK_PML4_INDEX);
+}
+
+int vmm_clock_slot_init(uint64_t page_phys) {
+    if (g_clock_pml4e) return 1;
+    uint64_t t[3];   // PDPT, PD, PT
+    for (int i = 0; i < 3; i++) {
+        t[i] = pmm_alloc_frame(PMM_ZONE_ANY);
+        if (!t[i]) {
+            while (i-- > 0) pmm_free_frame(t[i]);
+            return 0;
+        }
+        zero_table(t[i]);
+    }
+    uint64_t va = UADDR_CLOCK_PAGE;
+    table_at(t[0])[(va >> 30) & 511] = t[1] | PAGE_PRESENT | PAGE_USER;
+    table_at(t[1])[(va >> 21) & 511] = t[2] | PAGE_PRESENT | PAGE_USER;
+    table_at(t[2])[(va >> 12) & 511] = (page_phys & ADDR_MASK) | PAGE_PRESENT | PAGE_USER |
+                                       PAGE_BORROWED | PAGE_NX;
+    g_clock_pml4e = t[0] | PAGE_PRESENT | PAGE_USER;
+    return 1;
+}
+
+uint64_t vmm_clock_page_addr(void) { return g_clock_pml4e ? UADDR_CLOCK_PAGE : 0; }
+
 uint64_t vmm_create_address_space(void) {
     uint64_t pml4_phys = pmm_alloc_frame(PMM_ZONE_ANY);
     if (!pml4_phys) return 0;
@@ -86,6 +121,7 @@ uint64_t vmm_create_address_space(void) {
     // and KASAN's shadow, which instrumented code reads and writes in
     // every address space (0 in a build without KASAN).
     pml4[KASAN_PML4_INDEX] = p4_table[KASAN_PML4_INDEX];
+    if (g_clock_pml4e) pml4[CLOCK_PML4_INDEX] = g_clock_pml4e;
 
     return pml4_phys;
 }
@@ -509,7 +545,7 @@ void vmm_destroy_address_space(uint64_t pml4_phys) {
     // vmm_create_address_space()); walking into it here would free
     // memory every other process (and the kernel itself) still needs.
     for (int i = 1; i < 512; i++) {
-        if (i == KASAN_PML4_INDEX) continue;   // shared, like entry 0
+        if (shared_slot(i)) continue;   // KASAN's and the clock's, like entry 0
         if (pml4[i] & PAGE_PRESENT) destroy_pdpt(pml4[i] & ADDR_MASK);
     }
     pmm_free_frame(pml4_phys);
@@ -599,7 +635,7 @@ uint64_t vmm_fork_address_space(uint64_t parent, const struct vmm_fork_opts *o) 
 
     uint64_t *pml4 = table_at(parent);
     for (int i = 1; i < 512 && !why; i++) {
-        if (i == KASAN_PML4_INDEX) continue;   // shared, and the child already has it
+        if (shared_slot(i)) continue;   // shared, and the child already has it
         if (!(pml4[i] & PAGE_PRESENT)) continue;
         uint64_t *pdpt = table_at(pml4[i] & ADDR_MASK);
         for (int j = 0; j < 512 && !why; j++) {
@@ -860,7 +896,7 @@ uint64_t vmm_audit_space_cb(uint64_t pml4_phys, struct vmm_audit *out,
     // the page tables -- none of which this audit's invariant covers.
     // Same reason vmm_destroy_address_space() starts there.
     for (int i = 1; i < 512; i++) {
-        if (i == KASAN_PML4_INDEX) continue;   // the kernel's, like entry 0
+        if (shared_slot(i)) continue;   // the kernel's, like entry 0
         if (!(pml4[i] & PAGE_PRESENT)) continue;
         uint64_t *pdpt = table_at(pml4[i] & ADDR_MASK);
         for (int j = 0; j < 512; j++) {

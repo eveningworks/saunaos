@@ -448,10 +448,15 @@ int sys_ticks(struct syscall_ctx *c) {
 }
 
 int sys_monotonic_ns(struct syscall_ctx *c) {
-    // The clocksource, not the tick counter -- see syscall_abi.h.
-    // Safe with interrupts off, which is the state every syscall
-    // handler runs in (the syscall entry clears IF).
+    // The clocksource, not the tick counter -- see syscall_abi.h. MPSAFE:
+    // the read writes nothing (clocksource.h).
     c->regs[14] = clocksource_now_ns();
+    return 0;
+}
+
+int sys_clock_page(struct syscall_ctx *c) {
+    uint64_t va = vmm_clock_page_addr();
+    c->regs[14] = va ? va : (uint64_t)(int64_t)-ENOSYS;
     return 0;
 }
 

@@ -14,6 +14,7 @@
 #include "fpu.h"
 #include "cpuinfo.h"
 #include "clocksource.h"
+#include "vmm.h"   // vmm_clock_slot_init()
 #include "ktime.h"
 #include "multiboot.h"
 #include "pmm.h"
@@ -252,6 +253,9 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // tick -- which is what a tickless idle needs on a machine with no
     // invariant TSC. The TSC below still outranks it.
     clocksource_init_acpi_pm();
+    // The clock page every process maps (abi/clock_abi.h), before the first.
+    if (!vmm_clock_slot_init(clocksource_page_phys()))
+        klog_printf(KLOG_ERR "vmm: no clock page -- ring 3 reads the time by syscall\n");
 
     // Before anything can reach ring 3. The kernel itself never uses FP
     // (see fpu.h on why it's ring-3-only), so nothing above this line

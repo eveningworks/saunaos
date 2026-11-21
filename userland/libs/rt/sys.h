@@ -922,7 +922,14 @@ unsigned long sys_ticks(void);
 // advances in 10ms steps and two reads inside one tick return the same
 // value, so measure across a long enough interval rather than assuming
 // nanosecond precision is really there.
+//
+// READ FROM THE CLOCK PAGE where the kernel has one and the counter is the
+// TSC (abi/clock_abi.h, vDSO-shaped): no syscall, and sys_ticks() too.
 unsigned long long sys_monotonic_ns(void);
+// The same clock, always by syscall -- for a test comparing the two paths.
+unsigned long long sys_monotonic_ns_syscall(void);
+// Where the clock page is mapped, or -ENOSYS (SYS_CLOCK_PAGE).
+long sys_clock_page(void);
 
 // The filesystem's GENERATION counter -- bumped on every mutation, by
 // anyone. Compare it against the last value you saw to answer "has

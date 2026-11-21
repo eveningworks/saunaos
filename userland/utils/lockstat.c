@@ -1,7 +1,8 @@
 // `lockstat` -- how contended the kernel's counted spinlocks are, Linux's
 // /proc/lock_stat: takes, how many waited, the wait and hold times
 // (QUERY_LOCKSTAT). `-e` adds who uses the kernel lock -- each core, and
-// the syscalls and vectors that held it longest (QUERY_BKLSTAT). What
+// the syscalls and vectors that held it longest, and the calls answered
+// without it, LOCKLESS (QUERY_BKLSTAT). What
 // SMP stage 7 splits next is read off these (docs/smp-design.md).
 //
 // The counters are cumulative since boot; `-i N` samples twice, N
@@ -110,6 +111,7 @@ static void diff_bkl(struct bkls now, struct bkls then) {
             now.v[i].contended = minus(now.v[i].contended, then.v[j].contended);
             now.v[i].wait_ns = minus(now.v[i].wait_ns, then.v[j].wait_ns);
             now.v[i].hold_ns = minus(now.v[i].hold_ns, then.v[j].hold_ns);
+            now.v[i].lockless = minus(now.v[i].lockless, then.v[j].lockless);
             break;
         }
 }
@@ -181,39 +183,42 @@ static int by_wait(const void *a, const void *b) {
 
 static void print_bkl(struct bkls b, uint64_t span_ns) {
     printf("\nKernel lock by core:\n");
-    printf("%-8s %10s %9s %6s %10s %10s %6s\n", "CPU", "TAKES", "WAITED", "", "WAIT", "HOLD", "HELD");
+    printf("%-8s %10s %9s %6s %10s %10s %6s %10s\n", "CPU", "TAKES", "WAITED", "", "WAIT", "HOLD", "HELD",
+           "LOCKLESS");
     int first = b.n;
     for (int i = 0; i < b.n; i++) {
         const struct query_bklstat *q = &b.v[i];
         if (q->kind != QUERY_BKLSTAT_CORE) { first = i; break; }
         char x[16], y[16], z[16], w[16];
-        printf("%-8llu %10llu %9llu %6s %10s %10s %6s\n", (unsigned long long)q->id,
+        printf("%-8llu %10llu %9llu %6s %10s %10s %6s %10llu\n", (unsigned long long)q->id,
                (unsigned long long)q->takes, (unsigned long long)q->contended,
                pct(q->contended, q->takes, x, sizeof x), dur(q->wait_ns, y, sizeof y),
                hold(q->hold_ns, z, sizeof z),
-               g_timed ? pct(q->hold_ns, span_ns, w, sizeof w) : hold(0, w, sizeof w));
+               g_timed ? pct(q->hold_ns, span_ns, w, sizeof w) : hold(0, w, sizeof w),
+               (unsigned long long)q->lockless);
     }
     int n = b.n - first, active = 0;
-    for (int i = first; i < b.n; i++) active += b.v[i].takes || b.v[i].hold_ns;
+    for (int i = first; i < b.n; i++) active += b.v[i].takes || b.v[i].hold_ns || b.v[i].lockless;
     if (g_timed) qsort(b.v + first, (size_t)n, sizeof *b.v, by_hold);
     else qsort(b.v + first, (size_t)n, sizeof *b.v, by_wait);
     int shown = 0;
     printf(g_timed ? "\nKernel lock by entry, longest held first:\n"
                    : "\nKernel lock by entry, longest waited for first:\n");
-    printf("%-22s %10s %9s %10s %10s %10s %10s\n", "ENTRY", "TAKES", "WAITED", "WAIT", "WAIT MAX", "HOLD",
-           "HOLD MAX");
+    printf("%-22s %10s %9s %10s %10s %10s %10s %10s\n", "ENTRY", "TAKES", "WAITED", "WAIT", "WAIT MAX", "HOLD",
+           "HOLD MAX", "LOCKLESS");
     for (int i = first; i < b.n; i++) {
         const struct query_bklstat *q = &b.v[i];
-        if (!q->takes && !q->hold_ns) continue;   // nothing in this interval
+        if (!q->takes && !q->hold_ns && !q->lockless) continue;   // nothing in this interval
         if (!g_all && shown == 15) {
             printf("(%d more; -a lists every one)\n", active - shown);
             break;
         }
         char nm[40], c[16], d[16], e[16], f[16];
-        printf("%-22s %10llu %9llu %10s %10s %10s %10s\n", entry_name(q, nm, sizeof nm),
+        printf("%-22s %10llu %9llu %10s %10s %10s %10s %10llu\n", entry_name(q, nm, sizeof nm),
                (unsigned long long)q->takes, (unsigned long long)q->contended,
                dur(q->wait_ns, c, sizeof c), dur(q->wait_max_ns, d, sizeof d),
-               hold(q->hold_ns, e, sizeof e), hold(q->hold_max_ns, f, sizeof f));
+               hold(q->hold_ns, e, sizeof e), hold(q->hold_max_ns, f, sizeof f),
+               (unsigned long long)q->lockless);
         shown++;
     }
 }

@@ -48,6 +48,11 @@ page fault, an interrupt (`irq 14`, a handler such as `lapic_timer_isr`,
 kernel itself taking it back after the idle halt -- longest held first
 (`QUERY_BKLSTAT`). A hold is billed to the entry that took the lock; a
 switch on that core may hand its release to another context.
+`LOCKLESS` counts the syscalls answered WITHOUT taking it -- the rows
+`abi/syscall_rows.h` marks MPSAFE (`getpid`, `gettid`, `ticks`,
+`monotonic_ns`, `clock_page`), by core and by entry. The tunable
+`kernel.lockless_syscalls` (on by default) sends them through the lock
+again, for comparing the two.
 
 **Hold times are off until `lockstat track on`**, the shape of
 [`stalls`](stalls.md)' `track`: timing a hold reads the clock twice on
