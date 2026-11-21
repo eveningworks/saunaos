@@ -231,7 +231,9 @@ static int slot_usable(uint64_t k, uint64_t img_start, uint64_t img_size,
     if (hits_a_module(start, end)) return 0;
     // The panic store is read back on the NEXT boot, so a copy of the
     // kernel over it would destroy the record this boot came up to report.
-    if (overlaps(start, end, PANIC_STORE_BASE, PANIC_STORE_BASE + PANIC_STORE_SIZE)) return 0;
+    uint64_t ps;
+    for (int i = 0; panic_store_range(i, &ps); i++)
+        if (overlaps(start, end, ps, ps + PANIC_STORE_SIZE)) return 0;
     if (kernel_reloc_check((int64_t)delta) != 0) return 0; // would break a 32-bit reference
     return 1;
 }

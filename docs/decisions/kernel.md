@@ -62,12 +62,20 @@ only survives a WARM reset, which is why a panic now restarts the machine
 instead of halting -- a halted machine gets power-cycled and the record
 goes with it.
 
-**Why a constant address.** ramoops takes its range from a boot
-parameter or the firmware's device tree; the range has to be known
-before anything could look it up here, because KASLR copies the kernel
+**Why the address comes from the boot line.** The range has to be known
+before anything could look it up, because KASLR copies the kernel
 somewhere random before `kernel_main()` and pmm hands out frames right
-after. 32 MiB is above the kernel image (about 10 MiB) and below where
-GRUB's heap grows DOWN from the top of RAM. `panic_store_probe()`
+after -- so it is a default (32 MiB: above the kernel image, below where
+GRUB's heap grows DOWN from the top of RAM) or `panic_store=<addr>`,
+parsed from the boot line by a pure function both can call. That is
+ramoops' own shape (its range is a boot parameter, `memmap=` beside it),
+for a machine whose boot path writes over 32 MiB. `panic_store=survey`
+is how a machine's range is found -- it stamps fourteen candidate ranges
+and the next boot says which came back intact -- because a panic per
+guess costs a deliberate crash and a restart each. Its first run, on the
+ASUS (2026-11-21), kept 13 of 14 ranges, 32 MiB among them (256 MiB held
+a PE image's `MZ` after the restart); two deliberate panics there were
+both kept at the default. `panic_store_probe()`
 refuses the range with a reason in the log -- not RAM, the image grew
 into it, GRUB put something there -- rather than trusting it, and a
 record that did not survive fails its CRC, so the failure is "no

@@ -15,6 +15,8 @@ WHAT IT ASSERTS, in one guest that is allowed to reboot (`vm.py --reboot`):
   - the next boot says the previous one panicked, logd appends the
     kernel's last lines -- the deliberate-crash announcement and the
     #GP report -- to the end of THAT boot's file, and clears it;
+  - `crashlog --panics` lists that boot and `crashlog --panics BOOT`
+    prints its recovered lines;
   - a further warm reboot recovers nothing: a cleared record stays cleared.
 
 `--kind ap-gp-fault --cpus 3` has the #GP raised on an AP that is not
@@ -192,6 +194,13 @@ def run(inst, disk, log, res, cold, kind="gp-fault", cpus=0):
               after[-800:])
     res.check("...and the record is cleared once filed",
               "panic_store: record cleared" in g("dmesg"))
+    listed = g("crashlog --panics")
+    m = re.search(r"boot (\d+)\s+PANIC: General protection fault", listed)
+    res.check("`crashlog --panics` lists the boot with its PANIC line", m is not None, listed[-400:])
+    shown = g(f"crashlog --panics {m.group(1)}") if m else ""
+    res.check("...and `crashlog --panics BOOT` prints its recovered lines",
+              "THIS BOOT PANICKED" in shown and "PANIC: General protection fault" in shown,
+              shown[-400:])
 
     boots_before = serial(log).count(BOOT_MARK)
     g("reboot", timeout=10)

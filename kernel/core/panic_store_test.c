@@ -73,3 +73,21 @@ KTEST("panic_store", "panic= parses seconds, and rejects what is not a number") 
     KTEST_ASSERT(!panic_parse_secs("", &s));
     KTEST_ASSERT(!panic_parse_secs(0, &s));
 }
+
+KTEST("panic_store", "panic_store= takes an aligned address below 4 GiB, or survey, and nothing else") {
+    uint64_t b = 1;
+    KTEST_ASSERT_EQ(panic_store_parse(0, &b), PANIC_STORE_DEFAULT);
+    KTEST_ASSERT_EQ(b, PANIC_STORE_BASE);
+    KTEST_ASSERT_EQ(panic_store_parse("0x8000000", &b), PANIC_STORE_EXPLICIT);
+    KTEST_ASSERT_EQ(b, 0x8000000ULL);
+    KTEST_ASSERT_EQ(panic_store_parse("96M", &b), PANIC_STORE_EXPLICIT);
+    KTEST_ASSERT_EQ(b, 96ULL << 20);
+    KTEST_ASSERT_EQ(panic_store_parse("survey", &b), PANIC_STORE_SURVEY);
+    b = 7;
+    KTEST_ASSERT_EQ(panic_store_parse("0x8000010", &b), PANIC_STORE_INVALID);   // not 4 KiB-aligned
+    KTEST_ASSERT_EQ(panic_store_parse("0x80000", &b), PANIC_STORE_INVALID);     // below 1 MiB
+    KTEST_ASSERT_EQ(panic_store_parse("0xFFFFC000", &b), PANIC_STORE_INVALID);  // runs past 4 GiB
+    KTEST_ASSERT_EQ(panic_store_parse("soon", &b), PANIC_STORE_INVALID);
+    KTEST_ASSERT_EQ(panic_store_parse("", &b), PANIC_STORE_INVALID);
+    KTEST_ASSERT_EQ(b, 7);   // a rejection writes nothing
+}

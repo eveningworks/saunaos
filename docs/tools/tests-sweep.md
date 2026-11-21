@@ -1992,7 +1992,8 @@ report is ON only after `enter_gui()`").
   so it needs `vm.py --reboot` and lives in the sweep. It checks that a
   cold boot recovers nothing, that the countdown restarts after ~10 s
   rather than at once, that the dead boot's log ends with the crash
-  announcement and the `#GP` report, and that a cleared record is not
+  announcement and the `#GP` report, that `crashlog --panics` lists the
+  boot and prints it, and that a cleared record is not
   filed again. The trigger runs in the BACKGROUND: a panicked guest never
   answers, and waiting on the exec started the countdown's clock a whole
   timeout late. `--positive-control` restarts COLD after the panic, where
@@ -2001,6 +2002,14 @@ report is ON only after `enter_gui()`").
   the report names that core and that every other core was stopped
   first; `--boot-word smp=park` aims it at a parked core. Both are
   sweep entries of their own.
+- **`panic_store_survey_test.py`** -- `panic_store=survey` on a copy of
+  `disk.img`: the first boot stamps ranges and keeps no store, a warm
+  `reboot` reports every one it stamped as KEPT (all of them, which is
+  also the proof they were reserved: a desktop boot allocates the low
+  ranges, and `mutate.py` dropping pmm's reservation turned 32 MiB
+  "changed"), and the summary names them. `--positive-control` restarts
+  COLD; red. `panic_store_test.py --boot-word panic_store=0x8000000`
+  covers a real panic at a moved address.
 - **`replay_test.py`** -- `vm.py --record` then `--replay` give a
   byte-identical kernel log, and the replay ends by itself. Records a
   boot and two debug-console commands on a copy of `disk.img`, replays

@@ -163,10 +163,12 @@ static int hits_handover(uint64_t start, uint64_t end, uint64_t *bump) {
             return 1;
         }
     }
-    if (panic_store_usable() &&
-        overlaps(start, end, PANIC_STORE_BASE, PANIC_STORE_BASE + PANIC_STORE_SIZE)) {
-        *bump = align_up(PANIC_STORE_BASE + PANIC_STORE_SIZE);
-        return 1;
+    uint64_t ps;
+    for (int i = 0; i < PANIC_STORE_CANDIDATES; i++) {
+        if (panic_store_kept(i, &ps) && overlaps(start, end, ps, ps + PANIC_STORE_SIZE)) {
+            *bump = align_up(ps + PANIC_STORE_SIZE);
+            return 1;
+        }
     }
     return 0;
 }
@@ -331,8 +333,9 @@ void pmm_init(void) {
     if (multiboot_get_info_range(&info_start, &info_end)) reserve_range(info_start, info_end);
     // And the books themselves.
     reserve_range(bitmap_home, bitmap_home + bitmap_need);
-    if (panic_store_usable())
-        reserve_range(PANIC_STORE_BASE, PANIC_STORE_BASE + PANIC_STORE_SIZE);
+    uint64_t ps;
+    for (int i = 0; i < PANIC_STORE_CANDIDATES; i++)
+        if (panic_store_kept(i, &ps)) reserve_range(ps, ps + PANIC_STORE_SIZE);
 
     for (uint64_t f = 0; f < max_frames; f++) {
         if (!bit_is_used(f)) zone_free[zone_of(f)]++;

@@ -985,6 +985,18 @@ restart may have been the watchdog's hard one rather than the panic's
 warm one; the constant word says the record would not have survived
 either.
 
+**2026-11-21: THE ASUS KEEPS IT, AND THE "OVERWRITTEN AT BOOT" READING
+WAS WRONG.** `panic_store=survey` (built that day) stamped fourteen ranges
+and, after an ordinary `reboot`, found thirteen intact -- 32 MiB among
+them; only 256 MiB had changed, to a PE image's `MZ`. Then two
+deliberate `#GP` panics at the default 32 MiB were both recovered and
+filed (`crashlog --panics` listed them). The constant `0x9022a9b8` was
+what an unwritten range holds: the store's range is reserved, and before
+a panic nothing ever writes it, so every boot read the same cold-boot
+pattern. What changed since the 2026-11-15 failure was not established;
+that run's own caveat (the TCO's hard reset at the same 20 s as the soft
+lockup) is the leading candidate.
+
 **The panic store, planned 2026-09-02.** pstore's ramoops shape: a few
 frames at a fixed physical address, left out of the allocator, holding
 a signature, a checksum, the panic text and the tail of the kernel

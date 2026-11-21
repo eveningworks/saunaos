@@ -13,6 +13,8 @@
 #include "initcall.h"
 #include "clocksource.h"
 #include "version.h"
+#include "random_hw.h"
+#include "knum.h"
 
 extern char _kernel_end[];
 extern char __kimage_start[];
@@ -67,33 +69,79 @@ int panic_record_check(const void *buf, uint32_t cap) {
     return (int)r->len;
 }
 
+// ---- where ----------------------------------------------------------
+
+int panic_store_parse(const char *value, uint64_t *base) {
+    if (!value) { *base = PANIC_STORE_BASE; return PANIC_STORE_DEFAULT; }
+    if (!k_strcmp(value, "survey")) return PANIC_STORE_SURVEY;
+    uint64_t v;
+    int ok = (value[0] == '0' && (value[1] == 'x' || value[1] == 'X'))
+           ? k_parse_hex(value, &v) : k_parse_size(value, 1, &v);
+    if (!ok || (v & 0xFFF) || v < 0x100000ULL || v + PANIC_STORE_SIZE > 0x100000000ULL)
+        return PANIC_STORE_INVALID;
+    *base = v;
+    return PANIC_STORE_EXPLICIT;
+}
+
+// Spread over the low 4 GiB, densest where a 4 GiB laptop's RAM is.
+static const uint64_t g_candidates[PANIC_STORE_CANDIDATES] = {
+    0x2000000ULL,  0x4000000ULL,  0x6000000ULL,  0x8000000ULL,  0xC000000ULL,
+    0x10000000ULL, 0x18000000ULL, 0x20000000ULL, 0x30000000ULL, 0x40000000ULL,
+    0x60000000ULL, 0x80000000ULL, 0xA0000000ULL, 0xC0000000ULL,
+};
+
+static int mode(uint64_t *base) {
+    char v[24];
+    return panic_store_parse(multiboot_cmdline_value("panic_store=", v, sizeof v) ? v : 0, base);
+}
+
+int panic_store_range(int i, uint64_t *base) {
+    uint64_t b;
+    switch (mode(&b)) {
+    case PANIC_STORE_SURVEY:
+        if (i < 0 || i >= PANIC_STORE_CANDIDATES) return 0;
+        *base = g_candidates[i];
+        return 1;
+    case PANIC_STORE_INVALID:
+        return 0;
+    default:
+        if (i) return 0;
+        *base = b;
+        return 1;
+    }
+}
+
 // ---- the store ------------------------------------------------------
 
 static int g_usable;
 static int g_recovered;
 static int g_ram_ok;
+static uint64_t g_base = PANIC_STORE_BASE;   // the store's, once probed
+static uint32_t g_kept_mask;                 // panic_store_range(i) found usable
 
 static int overlaps(uint64_t a0, uint64_t a1, uint64_t b0, uint64_t b1) {
     return a0 < b1 && b0 < a1;
 }
 
+static uint64_t g_probe_base;
 static void ram_cb(const struct multiboot_mmap_region *region) {
     if (region->type != 1) return;
-    if (region->base <= PANIC_STORE_BASE &&
-        region->base + region->length >= PANIC_STORE_BASE + PANIC_STORE_SIZE)
+    if (region->base <= g_probe_base &&
+        region->base + region->length >= g_probe_base + PANIC_STORE_SIZE)
         g_ram_ok = 1;
 }
 
-// Why the range cannot be used on this boot, or NULL.
-static const char *refusal(void) {
-    const uint64_t s = PANIC_STORE_BASE, e = PANIC_STORE_BASE + PANIC_STORE_SIZE;
+// Why the range at `base` cannot be used on this boot, or NULL.
+static const char *refusal(uint64_t base) {
+    const uint64_t s = base, e = base + PANIC_STORE_SIZE;
     g_ram_ok = 0;
+    g_probe_base = base;
     multiboot_mmap_foreach(ram_cb);
     if (!g_ram_ok) return "not RAM in this machine's memory map";
     uint64_t delta = kernel_reloc_delta();
     uint64_t kend = (uint64_t)(uintptr_t)_kernel_end;
     if (overlaps(s, e, 0x100000, delta ? kend - delta : kend))
-        return "the kernel image has grown into it -- move PANIC_STORE_BASE";
+        return "the kernel image has grown into it -- give panic_store= another address";
     if (delta && overlaps(s, e, (uint64_t)(uintptr_t)__kimage_start, kend))
         return "KASLR placed the kernel on it";
     uint64_t is, ie;
@@ -107,28 +155,131 @@ static const char *refusal(void) {
     return 0;
 }
 
+// WHAT IS THERE INSTEAD tells a firmware that clears RAM (zeroes) from a
+// memory scrambler re-keyed by the reset (noise) from a bootloader that
+// wrote over part of it (the magic survives).
+static const char *what_is_there(const uint32_t *w, uint32_t magic) {
+    if (w[0] == magic) return "magic intact, the rest changed";
+    if (!w[0] && !w[1] && !w[2] && !w[3]) return "zeroes";
+    if (w[0] == 0xFFFFFFFFu && w[1] == 0xFFFFFFFFu) return "all ones";
+    return "other bytes -- overwritten, or scrambled by the reset";
+}
+
+// ---- the survey -----------------------------------------------------
+
+#define SURVEY_MAGIC 0x31565350u   // "PSV1"
+
+struct survey_stamp {
+    uint32_t magic;
+    uint32_t pad;
+    uint64_t nonce;     // this boot's; the pattern is derived from it and the address
+    uint64_t base;
+};
+
+static uint64_t pattern_word(uint64_t nonce, uint64_t base, uint64_t i) {
+    uint64_t x = nonce ^ (base * 0x9E3779B97F4A7C15ULL) ^ (i + 1) * 0xBF58476D1CE4E5B9ULL;
+    x ^= x >> 31; x *= 0x94D049BB133111EBULL; x ^= x >> 29;
+    return x;
+}
+
+#define SURVEY_WORDS ((PANIC_STORE_SIZE - sizeof(struct survey_stamp)) / 8)
+
+// Changed words of the previous boot's stamp at `base`; -1 if there is none.
+static int64_t survey_check(uint64_t base) {
+    const struct survey_stamp *st = (const void *)(uintptr_t)base;
+    if (st->magic != SURVEY_MAGIC || st->base != base) return -1;
+    const uint64_t *w = (const uint64_t *)(st + 1);
+    int64_t changed = 0;
+    for (uint64_t i = 0; i < SURVEY_WORDS; i++)
+        if (w[i] != pattern_word(st->nonce, base, i)) changed++;
+    return changed;
+}
+
+static void survey_stamp(uint64_t base, uint64_t nonce) {
+    struct survey_stamp *st = (void *)(uintptr_t)base;
+    uint64_t *w = (uint64_t *)(st + 1);
+    for (uint64_t i = 0; i < SURVEY_WORDS; i++) w[i] = pattern_word(nonce, base, i);
+    st->nonce = nonce;
+    st->base = base;
+    st->pad = 0;
+    st->magic = SURVEY_MAGIC;
+}
+
+static void survey(void) {
+    uint64_t nonce = arch_rdtsc() | 1;   // differs per boot; only the next boot needs it
+    char kept[PANIC_STORE_CANDIDATES * 12 + 1];
+    size_t kn = 0;
+    int stamped = 0, seen = 0;
+    kept[0] = 0;
+    klog_write("panic_store: SURVEY -- no store this boot; each range below was stamped "
+               "by the last survey boot, and is stamped again now\n");
+    for (int i = 0; i < PANIC_STORE_CANDIDATES; i++) {
+        uint64_t b = g_candidates[i];
+        const char *why = refusal(b);
+        if (why) {
+            klog_printf("panic_store: survey 0x%lx: not tried -- %s\n", (unsigned long)b, why);
+            continue;
+        }
+        int64_t changed = survey_check(b);
+        if (changed == 0) {
+            klog_printf("panic_store: survey 0x%lx: KEPT\n", (unsigned long)b);
+            if (kn < sizeof kept)
+                kn += k_snprintf(kept + kn, sizeof kept - kn, " 0x%lx", (unsigned long)b);
+            seen++;
+        } else if (changed > 0) {
+            klog_printf("panic_store: survey 0x%lx: changed -- %ld of %lu words differ\n",
+                        (unsigned long)b, (long)changed, (unsigned long)SURVEY_WORDS);
+            seen++;
+        } else {
+            klog_printf("panic_store: survey 0x%lx: no stamp (%s; first word 0x%x)\n",
+                        (unsigned long)b, what_is_there((const void *)(uintptr_t)b, SURVEY_MAGIC),
+                        *(const uint32_t *)(uintptr_t)b);
+        }
+        survey_stamp(b, nonce);
+        g_kept_mask |= 1u << i;
+        stamped++;
+    }
+    if (!seen)
+        klog_printf("panic_store: survey -- %d range(s) stamped; nothing from an earlier "
+                    "survey boot -- restart (with panic_store=survey still set) to read them\n", stamped);
+    else if (kn)
+        klog_printf(KLOG_WARN "panic_store: survey -- kept across the restart:%s; boot with "
+                    "panic_store=<one of them>\n", kept);
+    else
+        klog_printf(KLOG_WARN "panic_store: survey -- NO range came back intact; this "
+                    "machine's restart does not keep RAM\n");
+}
+
 void panic_store_probe(void) {
-    const char *why = refusal();
-    if (why) {
-        klog_printf("panic_store: NOT in use -- %s; a panic will not be kept\n", why);
+    uint64_t b;
+    int m = mode(&b);
+    if (m == PANIC_STORE_SURVEY) {
+        survey();
         return;
     }
+    if (m == PANIC_STORE_INVALID) {
+        klog_printf("panic_store: NOT in use -- panic_store= is not \"survey\" or an address "
+                    "(hex or a size, 4 KiB-aligned, 1 MiB..4 GiB); a panic will not be kept\n");
+        return;
+    }
+    const char *why = refusal(b);
+    if (why) {
+        klog_printf("panic_store: NOT in use -- 0x%lx: %s; a panic will not be kept\n",
+                    (unsigned long)b, why);
+        return;
+    }
+    g_base = b;
     g_usable = 1;
-    void *base = (void *)(uintptr_t)PANIC_STORE_BASE;
+    g_kept_mask = 1;
+    void *base = (void *)(uintptr_t)g_base;
     int len = panic_record_check(base, PANIC_STORE_SIZE);
     if (len < 0) {
-        // WHAT IS THERE INSTEAD tells a firmware that clears RAM (zeroes)
-        // from a memory scrambler re-keyed by the reset (noise) from a
-        // bootloader that wrote over part of it (the magic survives).
         const uint32_t *w = base;
-        const char *what = "no record";
-        if (w[0] == PANIC_RECORD_MAGIC) what = "a DAMAGED record: magic intact, length or CRC wrong";
-        else if (!w[0] && !w[1] && !w[2] && !w[3]) what = "zeroes";
-        else if (w[0] == 0xFFFFFFFFu && w[1] == 0xFFFFFFFFu) what = "all ones";
-        else what = "other bytes -- overwritten, or scrambled by the reset";
         klog_printf("panic_store: %lu KiB at 0x%lx, nothing recovered (%s; first word 0x%x)\n",
-                    (unsigned long)(PANIC_STORE_SIZE / 1024),
-                    (unsigned long)PANIC_STORE_BASE, what, w[0]);
+                    (unsigned long)(PANIC_STORE_SIZE / 1024), (unsigned long)g_base,
+                    w[0] == PANIC_RECORD_MAGIC ? "a DAMAGED record: magic intact, length or CRC wrong"
+                    : (!w[0] && !w[1] && !w[2] && !w[3]) ? "no record (zeroes)"
+                    : what_is_there(w, PANIC_RECORD_MAGIC), w[0]);
         return;
     }
     g_recovered = 1;
@@ -140,33 +291,38 @@ void panic_store_probe(void) {
 
 int panic_store_usable(void) { return g_usable; }
 
+int panic_store_kept(int i, uint64_t *base) {
+    if (i < 0 || i >= PANIC_STORE_CANDIDATES || !(g_kept_mask & (1u << i))) return 0;
+    return panic_store_range(i, base);
+}
+
 // The newest bytes of the ring, straight into the store: no staging
 // buffer, since a panic may be an out-of-memory one.
 void panic_store_save(void) {
     if (!g_usable) return;
-    char *text = PANIC_RECORD_TEXT((uintptr_t)PANIC_STORE_BASE);
+    char *text = PANIC_RECORD_TEXT((uintptr_t)g_base);
     uint32_t cap = (uint32_t)(PANIC_STORE_SIZE - PANIC_RECORD_HDR);
     uint32_t retained = klog_retained_bytes();
     uint64_t from = klog_total_bytes() - (retained < cap ? retained : cap);
     uint64_t first;
     uint32_t len = klog_read(from, text, cap, &first);
-    panic_record_seal((void *)(uintptr_t)PANIC_STORE_BASE, (uint32_t)PANIC_STORE_SIZE,
+    panic_record_seal((void *)(uintptr_t)g_base, (uint32_t)PANIC_STORE_SIZE,
                       len, clocksource_now_ns(), SAUNAOS_VERSION_FULL);
     g_recovered = 0; // this boot's own record is the NEXT boot's to report
 }
 
 const char *panic_store_text(uint32_t *len, uint64_t *uptime_ns, const char **build) {
     if (!g_recovered) return 0;
-    const struct panic_record *r = (const void *)(uintptr_t)PANIC_STORE_BASE;
+    const struct panic_record *r = (const void *)(uintptr_t)g_base;
     if (len) *len = r->len;
     if (uptime_ns) *uptime_ns = r->uptime_ns;
     if (build) *build = r->build;
-    return PANIC_RECORD_TEXT((uintptr_t)PANIC_STORE_BASE);
+    return PANIC_RECORD_TEXT((uintptr_t)g_base);
 }
 
 void panic_store_clear(void) {
     if (!g_recovered) return;
-    ((struct panic_record *)(uintptr_t)PANIC_STORE_BASE)->magic = 0;
+    ((struct panic_record *)(uintptr_t)g_base)->magic = 0;
     g_recovered = 0;
     klog_write("panic_store: record cleared\n");
 }

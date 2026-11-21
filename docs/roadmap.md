@@ -1750,8 +1750,8 @@ split. One line per pair here; the site lists are in roadmap-details.
 - [x] ~~Resolve those addresses to function names: the build already emits DWARF (`-g`)~~ DONE 2026-09-12 -- `tools/lib/panic_resolve.py`
 - [x] ~~A panic screen worth reading: registers, backtrace, the faulting address, what the kernel was doing~~ DONE 2026-09-12
 - [x] ~~A panic RAM store, and a warm reset after a countdown~~ DONE 2026-09-25 -- logd files it in the dead boot's log
-- [ ] The panic store on real hardware: the ASUS keeps nothing even after a WARM reset -- its range is overwritten at boot, so move it
-- [ ] `crashlog --panics` -- a panic is in the dead boot's log (`log -p N`); crashlog lists ring-3 reports only
+- [x] ~~The panic store on real hardware: the ASUS keeps nothing even after a WARM reset~~ it does, 2 panics in 2 at 32 MiB (2026-11-21)
+- [x] ~~`crashlog --panics` -- a panic is in the dead boot's log (`log -p N`); crashlog lists ring-3 reports only~~ DONE 2026-11-21
 - [x] ~~Core dumps for a faulting ring-3 process~~ DONE 2026-09-02 -- a text report plus the raw stack in `/var/crash`
 - [x] ~~Say a crash on the desktop: a notice, a dialog, a Crash Reports list~~ DONE 2026-10-02 -- `QUERY_CRASH`
 - [x] ~~Read a report on the machine: a viewer, and a backtrace named from the binaries' symbols~~ DONE 2026-10-02 -- `base/ucrash.h`

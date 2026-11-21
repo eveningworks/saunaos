@@ -6,7 +6,8 @@
 
 ## Synopsis
 
-    crashlog [<report>]
+    crashlog [REPORT]
+    crashlog --panics [BOOT]
 
 ## Description
 
@@ -45,11 +46,26 @@ RIP and the stack against the build's DWARF. Get the file off the
 machine with `tools/dev/remote.py get`, or out of a QEMU disk image with
 `tools/build/tfs3_writer.py read`.
 
-What is deliberately NOT here: a kernel panic. `/var/crash` holds
-processes that faulted while the kernel carried on, which is the system
-working; a panic's record is a separate mechanism, not built yet, and
-the two are kept apart so that a list of crashes never trains anyone to
-ignore it.
+## Options
+
+- `--panics` -- KERNEL PANICS instead: the boots whose log in
+  `/var/log/boot/` ends with a panic, one line each with its `PANIC:`
+  line, newest first; `crashlog --panics BOOT` prints that boot's
+  recovered lines (logd's `THIS BOOT PANICKED` marker to the end). BOOT
+  is the number `log --list` shows.
+
+      $ crashlog --panics
+      boot 825   PANIC: General protection fault
+      $ crashlog --panics 825
+      [logd  ] logd: THIS BOOT PANICKED -- the rest was recovered from ...
+
+A panic is a list of its own, never mixed into the reports:
+`/var/crash` holds processes that faulted while the kernel carried on,
+which is the system working, and a list that mixed the two would train
+anyone to ignore it. A panic reaches a boot's log through the panic
+store (`kernel/panic_store.h`) only when a warm restart kept RAM -- on a
+machine where it does not, `panic_store=survey` finds a range that
+survives (`docs/boot-flags.md`).
 
 ## Traps
 
