@@ -17,6 +17,8 @@
 
 SPINLOCK_COUNTED(g_bkl, "kernel");
 static void fault(const char *what, int depth, uintptr_t site);
+static int g_ready;
+static unsigned g_faults;
 
 _Static_assert(BKL_SYSCALLS == SYSCALL_STALL_MAX,
                "bkl.h's BKL_SYSCALLS is the per-syscall table bound");
@@ -49,7 +51,15 @@ static void account_take(struct cpu *c, uint32_t key) {
 
 // The unlock, its hold (when hold times are armed) billed first to the
 // entry that took it and to this core -- under the lock, like the rest.
+// **NEVER BY A CORE THAT DOES NOT HOLD IT**: the unlock is `serving++`,
+// so one extra moves `serving` past `next`, every later ticket then waits
+// for a wrap, and the lock reads as held with no holder.
 static void release(struct cpu *c) {
+    if (!spin_held_here(&g_bkl)) {
+        fault("released by a core that does not hold it", c->bkl_depth,
+              (uintptr_t)__builtin_return_address(0));
+        return;
+    }
     uint64_t h = lockstat_hold_end(&g_bkl_stat);
     if (h) {
         struct bkl_entry_stat *e = &g_entries[c->bkl_key < BKL_KEYS ? c->bkl_key : BKL_KEY_KERNEL];
@@ -100,14 +110,30 @@ int bkl_entry_stat(uint32_t key, struct bkl_entry_stat *out) {
     out->lockless = lockless;
     return 1;
 }
-static int g_ready;
-static unsigned g_faults;
 
 unsigned bkl_faults(void) { return __atomic_load_n(&g_faults, __ATOMIC_RELAXED); }
+
+// The first one on any core, kept for a lockup report: once the lock is
+// lost, the boot core's report is the last line anything prints.
+static const char *volatile g_first_what;
+static uintptr_t g_first_site;
+static int g_first_core, g_first_depth;
+
+const char *bkl_first_fault(uintptr_t *site, int *core, int *depth) {
+    const char *w = g_first_what;
+    if (w) { *site = g_first_site; *core = g_first_core; *depth = g_first_depth; }
+    return w;
+}
 
 // The first few, on the BSP only: an AP may not log before stage 5.
 static void fault(const char *what, int depth, uintptr_t site) {
     unsigned n = __atomic_fetch_add(&g_faults, 1, __ATOMIC_RELAXED);
+    if (n == 0) {
+        g_first_site = site;
+        g_first_core = (int)spin_cpu_index_raw();
+        g_first_depth = depth;
+        __atomic_store_n(&g_first_what, what, __ATOMIC_RELEASE);
+    }
     if (n >= 8 || this_cpu()->index != 0) return;
     klog_printf(KLOG_ERR "bkl: %s (depth %d) at %p\n", what, depth, (void *)site);
 }

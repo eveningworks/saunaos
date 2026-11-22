@@ -85,6 +85,9 @@ void bkl_stat_zero_holds(void);
 // that does not hold it. Each is counted and logged (the first few) and
 // repaired; harmless on one core, a deadlock from stage 5.
 unsigned bkl_faults(void);
+// The first fault's words, site, core and depth, or NULL: a lockup
+// report's (spinlock.c), since the boot core stuck in take() logs nothing else.
+const char *bkl_first_fault(uintptr_t *site, int *core, int *depth);
 
 // A syscall answered without the lock (syscall_try_lockless()), counted on
 // this core with interrupts off.

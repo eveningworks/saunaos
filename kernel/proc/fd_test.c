@@ -15,7 +15,7 @@
 
 #define FD_TEST_PATH "/tests/fd_test"
 #define PIPEFULL_PATH "/tests/pipefull_test"
-#define TIMEOUT_TICKS 600 // 6s at the PIT's 100Hz
+#define TIMEOUT_TICKS 6000 // a hang guard: 60 s, for PROFILE=debug on a loaded TCG host
 
 KTEST("fd", "dup, dup2 and inheritance, in a real process") {
     if (!fs_exists(FD_TEST_PATH)) KTEST_SKIP("no " FD_TEST_PATH " on this boot");

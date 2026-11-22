@@ -19,9 +19,9 @@
 #define THREAD_TEST_PATH "/tests/thread_test"
 #define HEAPRACE_PATH    "/tests/heaprace_test"
 
-// It creates and joins a dozen threads and does no I/O beyond one small
-// file; generous enough that a busy desktop cannot time it out.
-#define TIMEOUT_TICKS 1500
+// A HANG GUARD, NOT A DEADLINE: under PROFILE=debug (KASAN and UBSAN in
+// ring 3) on a loaded TCG host one run takes over 16 s.
+#define TIMEOUT_TICKS 6000
 
 KTEST("thread", "a ring-3 program can create, join and share with threads") {
     if (!fs_exists(THREAD_TEST_PATH)) KTEST_SKIP("no " THREAD_TEST_PATH " on this boot");

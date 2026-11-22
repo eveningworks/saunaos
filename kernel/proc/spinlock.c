@@ -11,6 +11,7 @@
 #include "kfmt.h"
 #include "panic.h"
 #include "scheduler.h"   // the preemption guard a holder raises
+#include "bkl.h"         // bkl_first_fault(): a lockup report
 #include "smp.h"         // smp_poll_ipis(): a spinner answers a shootdown or a call
 #include "lockstat.h"
 #include "ktrace.h"      // a contended wait is a trace event
@@ -69,17 +70,24 @@ static void note_overdue(uintptr_t what, uintptr_t site, uintptr_t holder_site,
     }
 }
 
-static void lockup_report(struct spinlock *l, uintptr_t site, uint32_t me) {
+static void lockup_report(struct spinlock *l, uintptr_t site, uint32_t me, uint32_t ticket) {
     uint32_t h = l->holder ? l->holder - 1 : 0xFFFFFFFFu;
     note_overdue((uintptr_t)l, site, l->site, me, h);
     if (me != 0) return;
     static int once;
     if (once) return;
     once = 1;
+    // The tickets say which way it broke: `serving` past `next` is an
+    // unlock by a core that never held it.
     klog_printf(KLOG_ERR "spinlock: lockup suspected on %p -- core %u has waited %d ms; "
-                "holder core %d took it at %p, waiter at %p\n",
+                "holder core %d took it at %p, waiter at %p; tickets next %u serving %u ours %u\n",
                 (void *)l, me, SPIN_LOCKUP_MS, h == 0xFFFFFFFFu ? -1 : (int)h,
-                (void *)l->site, (void *)site);
+                (void *)l->site, (void *)site, l->next, l->serving, ticket);
+    uintptr_t fs;
+    int fc, fd;
+    const char *fw = bkl_first_fault(&fs, &fc, &fd);
+    if (fw) klog_printf(KLOG_ERR "spinlock: the kernel lock's first fault: %s (depth %d) on core %d at %p\n",
+                        fw, fd, fc, (void *)fs);
 }
 
 void spin_wait_overdue(uintptr_t what, uintptr_t site, uint32_t me, uint32_t core) {
@@ -146,7 +154,7 @@ static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
                 if (smp_hold_epoch() != epoch) epoch = smp_hold_epoch(), since = arch_rdtsc();
                 if (arch_rdtsc() - since > limit) {
                     reported = 1;
-                    lockup_report(l, site, me);
+                    lockup_report(l, site, me, ticket);
                 }
             }
         }

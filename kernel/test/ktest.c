@@ -14,6 +14,7 @@
 #include "kapi.h"
 #include "fault_inject.h"
 #include "spinlock.h"   // spin_lockups(): a wait this test caused
+#include "bkl.h"        // bkl_faults(): a kernel-lock fault this test caused
 
 struct ktest_ctx {
     int failed;
@@ -134,7 +135,19 @@ int ktest_run_all(const char *suite_filter) {
 
         struct ktest_ctx ctx = { .failed = 0, .skipped = 0, .skip_reason = 0 };
         unsigned lockups_before = spin_lockups();
+        unsigned bkl_before = bkl_faults();
         t->fn(&ctx);
+        // SO IS A KERNEL-LOCK FAULT, AND IT FAILS THE TEST: an AP's is
+        // counted but never logged, and one refused release would otherwise
+        // surface only as a lockup in some later test.
+        if (bkl_faults() != bkl_before) {
+            uintptr_t site = 0;
+            int core = -1, depth = 0;
+            const char *what = bkl_first_fault(&site, &core, &depth);
+            vga_printf("\n    (%u kernel-lock fault(s) during this test; the boot's first: %s, depth %d, core %d, at %p)\n",
+                       bkl_faults() - bkl_before, what ? what : "?", depth, core, (void *)site);
+            ctx.failed = 1;
+        }
         // A SPINLOCK WAIT PAST SPIN_LOCKUP_MS, on any core, is named by the
         // test it happened in: an AP's is counted but not logged, and the
         // [smp] accounting test that sees the count runs much later.
