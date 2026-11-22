@@ -34,6 +34,7 @@ struct uchan_server {
     // with a queue nobody drains.
     struct uchan_ring *ring[64];
     int                pid[64];
+    uint32_t           serial[64];   // the ring OBJECT's (QUERY_SHM); 0 unknown
     int                count;
     char               name[UCHAN_NAME_MAX];
     unsigned           next;   // round-robin, so one busy client cannot

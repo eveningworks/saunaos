@@ -863,7 +863,11 @@ struct query_shm {
     uint32_t refs;
     int32_t  creator_pid;
     uint32_t flags;       // QUERY_SHM_*
-    uint32_t reserved;
+    // WHICH object, as an inode number says which file: one name can
+    // belong to two objects in turn (a process that execs and opens its
+    // channel again), and a reader holding the first tells them apart by
+    // this. Never 0 from a kernel that sets it; 0 from one that does not.
+    uint32_t serial;
 };
 
 // WHO THIS MACHINE HAS TALKED TO: one record per connection, newest

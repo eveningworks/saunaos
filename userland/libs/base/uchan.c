@@ -83,6 +83,12 @@ static int ring_index(struct uchan_server *s, int pid) {
 int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
     int ngone = 0;
     if (!s->beacon) return 0;
+    // Rings whose NAME now belongs to another object: the client execed
+    // (the kernel let its old ring's name go) and opened its channel
+    // again before this scan ran, so the name never stopped resolving.
+    // Its old ring is a dead client's, dropped below as one; the new one
+    // is adopted next scan. Pid alone could not tell them apart.
+    int replaced[64] = {0};
     char prefix[UCHAN_NAME_MAX + 2];
     snprintf(prefix, sizeof prefix, "%s.", s->name);
     size_t plen = strlen(prefix);
@@ -94,7 +100,10 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
         int pid = 0;
         for (const char *p = rec.name + plen; *p >= '0' && *p <= '9'; p++)
             pid = pid * 10 + (*p - '0');
-        if (pid <= 0 || ring_index(s, pid) >= 0) continue;
+        int held = pid > 0 ? ring_index(s, pid) : -1;
+        if (held >= 0 && rec.serial && s->serial[held] && rec.serial != s->serial[held])
+            replaced[held] = 1;
+        if (pid <= 0 || held >= 0) continue;
         if ((int)(sizeof s->ring / sizeof s->ring[0]) <= s->count) continue;
         // **A RING SPEAKS FOR THE PID IN ITS NAME ONLY IF THAT PID MADE
         // IT.** Otherwise one client could post as another -- a page's
@@ -114,6 +123,7 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
         }
         s->ring[s->count] = r;
         s->pid[s->count] = pid;
+        s->serial[s->count] = rec.serial;
         s->count++;
     }
 
@@ -124,7 +134,7 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
     for (int k = 0; k < s->count; ) {
         char nm[32];
         snprintf(nm, sizeof nm, "%s.%d", s->name, s->pid[k]);
-        int fd = sys_shm_open(nm, 0, 0);
+        int fd = replaced[k] ? -1 : sys_shm_open(nm, 0, 0);
         if (fd >= 0) { sys_close(fd); k++; continue; }
         // **WHICH CLIENT WENT IS REPORTED, NOT JUST RECLAIMED.** A
         // server usually holds state per client -- the compositor holds
@@ -139,6 +149,8 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
         unmap(s->ring[k], RING_BYTES);
         s->ring[k] = s->ring[s->count - 1];
         s->pid[k] = s->pid[s->count - 1];
+        s->serial[k] = s->serial[s->count - 1];
+        replaced[k] = replaced[s->count - 1];
         s->count--;
     }
     return ngone;

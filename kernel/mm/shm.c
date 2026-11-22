@@ -47,6 +47,8 @@
 #define SHM_GRANTS_MAX 4  // a private object is a channel between two
                            // processes; four is slack, not a design
 
+static uint32_t g_serial;   // the last object's QUERY_SHM serial, under tlock()
+
 struct shm_object {
     char     name[SHM_NAME_MAX];
     uint32_t npages;
@@ -85,6 +87,7 @@ struct shm_object {
                          // permissions, and a name would be a way to map
                          // somebody else's window.
     int      creator;   // pid, for QUERY_SHM
+    uint32_t serial;    // QUERY_SHM's object identity: never reused, never 0
     uint64_t creator_mm; // its address space, so death can be noticed
     uint64_t *frames;   // npages entries, kmalloc'd by obj_create()
 };
@@ -399,6 +402,7 @@ static int obj_create(const char *name, uint64_t npages, int pid, uint64_t pml4,
         k_strlcpy(o->name, name, sizeof o->name);
         o->npages = (uint32_t)npages;
         o->creator = pid;
+        o->serial = ++g_serial ? g_serial : ++g_serial;   // under tlock(); 0 means "unknown"
         o->creator_mm = pml4;
         o->anon = anon;
         o->pub = pub;
@@ -570,6 +574,7 @@ static int shm_q_fill(int index, void *out) {
         r->refs = (uint32_t)o->refs;
         r->creator_pid = (int32_t)o->creator;
         r->flags = o->unlinked ? QUERY_SHM_UNLINKED : 0;
+        r->serial = o->serial;
         tunlock();
         return 1;
     }
