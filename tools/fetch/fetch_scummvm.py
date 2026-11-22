@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""tools/fetch/fetch_scummvm.py -- the ScummVM, zlib, libogg and libvorbis source tarballs.
+"""tools/fetch/fetch_scummvm.py -- the ScummVM, zlib, libogg, libvorbis, libpng and FreeType source tarballs.
 
 ScummVM (docs/sdl-design.md, stage 4) is FETCHED, NOT VENDORED, as GNU
 make is: its source is 212 MiB compressed, and what this repository
 holds is our part -- `userland/third_party/scummvm/patches/` and
-tools/build/build_scummvm.sh. zlib, libogg and libvorbis are built
-beside it and linked into it statically (its zip themes, compressed
-saves, and Drascula's Ogg music); they reach the SDK only when a second
-port needs them.
+tools/build/build_scummvm.sh. zlib, libogg, libvorbis, libpng and
+FreeType are built beside it and linked into it statically (its zip
+themes, compressed saves, Drascula's Ogg music, and the Remastered
+theme's PNG images and TrueType fonts); they reach the SDK only when a
+second port needs them.
 
 This is the `scummvm` row in tools/fetch/fetch_extras.py's registry, so
 it runs only under `EXTRAS=1` (or `--only scummvm`), after the licence
@@ -16,7 +17,11 @@ has been shown and accepted.
 PINNED BY SHA-256 (2026-11-17), each against its publisher's own
 checksum: ScummVM's `.sha256` beside the tarball on downloads.scummvm.org,
 Xiph's SHA256SUMS for libogg and libvorbis, and zlib 1.3.1's widely
-published hash (zlib.net lists only its newest release). A tarball
+published hash (zlib.net lists only its newest release). libpng 1.6.59
+and FreeType 2.15.0 (2026-11-22) publish no SHA-256: each pin is the hash
+two independent sources agreed on -- FreeType's tarball byte for byte from
+download.savannah.gnu.org and SourceForge, libpng's from SourceForge with
+the same files as the upstream repository's v1.6.59 tag. A tarball
 that does not hash to its pin is deleted and refused, whichever mirror
 served it.
 
@@ -56,6 +61,12 @@ TARBALLS = [
     ("libvorbis-1.3.7.tar.xz",
      "b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b",
      "https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz"),
+    ("libpng-1.6.59.tar.xz",
+     "d80dd2a38a37f803cb9b6ac7b14bd6e74ddc3b654780a8380bdf93523fdb4389",
+     "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.59/libpng-1.6.59.tar.xz"),
+    ("freetype-2.15.0.tar.xz",
+     "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5",
+     "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz"),
 ]
 
 GAMES_DIR = os.path.join(REPO, "data", "scummvm")

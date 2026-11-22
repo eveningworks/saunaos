@@ -201,6 +201,14 @@ def run(dbg, qmp, mirror, tmp):
         return
     clean(dbg)
     dbg.write_lines("/etc/scummvm-games.conf", [f"mirror=http://10.0.2.2:{mirror.port}"])
+    # A MACHINE UPDATED FROM BEFORE THE XDG FOLDERS SHIPPED has none, and
+    # the front makes them -- a loop that started one character late made
+    # them at /ome instead (17.11-22.11.2026), so ScummVM could write no
+    # list and every game stayed out of it. The front also takes /ome back.
+    for d in ("/home/.config", "/home/.local", "/home/.cache"):
+        dbg.send(f"sh rm -r {d}")
+    for d in ("/ome", "/ome/.config", "/ome/.local", "/ome/.local/share", "/ome/.cache"):
+        dbg.send(f"sh mkdir {d}")
 
     # --- 1. no game: the card ------------------------------------------
     dbg.logs("scummvm:", clear=True)
@@ -256,6 +264,15 @@ def run(dbg, qmp, mirror, tmp):
           bool(wait_log(dbg, "downloaded lure, checksum matches", 120)))
     check("...ScummVM adds it to its own list", bool(wait_log(dbg, "added lure to ScummVM's list", 60)))
     check("...and ScummVM starts", bool(wait_log(dbg, "starting ScummVM", 30)))
+    # ITS WINDOW, not the log line: ScummVM in the card's process, after
+    # the card's window, once never opened one (exec_window_test).
+    launcher = poll(lambda: next((w for w in dbg.windows() if w["title"].startswith("ScummVM 2")), None), 60)
+    check("...and its launcher's window opens after the card's", launcher is not None,
+          str([w["title"] for w in dbg.windows()]))
+    root = (dbg.send("sh ls -a /") or "").split()
+    check("the front made the XDG folders in /home, and took back the stray /ome",
+          "ome/" not in root and "ome" not in root and
+          "no such" not in (dbg.send("sh ls -a /home/.local/share") or "").lower(), str(root))
     ini = dbg.send("sh cat /home/.config/scummvm/scummvm.ini") or ""
     check("scummvm.ini, under XDG_CONFIG_HOME, names the game's folder",
           "path=/usr/share/games/lure" in ini, ini.strip()[-120:])

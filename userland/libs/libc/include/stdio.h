@@ -85,6 +85,11 @@ extern FILE *const stderr;
 // kernel's descriptor limit first.
 #define FOPEN_MAX 8
 
+// The longest path a char array must hold for fopen() -- ISO C's, and
+// PATH_MAX's value here (limits.h), as glibc's is: a path past it is
+// refused by the kernel before any array this sizes could overflow.
+#define FILENAME_MAX 4096
+
 #define _IOFBF 0 // fully buffered
 #define _IOLBF 1 // line buffered
 #define _IONBF 2 // unbuffered

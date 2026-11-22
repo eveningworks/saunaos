@@ -175,7 +175,10 @@ static void make_xdg_dirs(void) {
         if (!now || *now != '/') setenv(VARS[i], DEFAULTS[i], 1);
         const char *v = getenv(VARS[i]);
         char *p = v && *v == '/' ? strdup(v) : NULL;
-        for (char *s = p ? p + 1 : NULL; s; s = strchr(s + 1, '/')) {
+        // Each '/' after the first ends a parent to make. Starting at
+        // p + 1 itself turned "/home/.config" into "//ome/.config"
+        // (17.11-22.11.2026): heal_stray_dirs() takes back what it made.
+        for (char *s = p ? strchr(p + 1, '/') : NULL; s; s = strchr(s + 1, '/')) {
             *s = 0;
             mkdir(p, 0755);
             *s = '/';
@@ -183,6 +186,16 @@ static void make_xdg_dirs(void) {
         if (p) mkdir(p, 0755);
         free(p);
     }
+}
+
+// The folders the bug above made at the root instead: /ome/.config,
+// /ome/.local/share and /ome/.cache, and /ome itself. rmdir() takes only
+// an EMPTY folder, so one anything else has written into stays.
+static void heal_stray_dirs(void) {
+    static const char *const STRAY[] = {
+        "/ome/.config", "/ome/.local/share", "/ome/.local", "/ome/.cache", "/ome",
+    };
+    for (size_t i = 0; i < sizeof STRAY / sizeof STRAY[0]; i++) rmdir(STRAY[i]);
 }
 
 // Another ScummVM process (not a thread, not this one): it holds its own
@@ -222,6 +235,7 @@ static void heal_lost_games(void) {
 // -- once, unless the list itself is gone (a fresh /home).
 static void register_games(void) {
     make_xdg_dirs();
+    heal_stray_dirs();
     char *ini = ini_path();
     int have_ini = ini && access(ini, F_OK) == 0;
     free(ini);

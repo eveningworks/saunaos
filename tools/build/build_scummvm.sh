@@ -4,8 +4,10 @@
 # docs/sdl-design.md, stage 4: ScummVM 2026.4.0 on its stock SDL2
 # backend (sdl2-compat over SDL3, SaunaOS's platform layer), built by
 # the x86_64-saunaos cross toolchain (`make toolchain`) against the SDK,
-# with zlib, libogg and libvorbis built first and linked in STATICALLY
-# (they reach the SDK when a second port needs them). Staged as the
+# with zlib, libogg, libvorbis, libpng and FreeType built first and linked
+# in STATICALLY (they reach the SDK when a second port needs them). libpng
+# and FreeType are the Remastered theme's: without them ScummVM cannot
+# load its images or fonts and draws its plain built-in theme. Staged as the
 # image's /usr in toolchain/scummvm/usr, which the seed step copies onto
 # the image while it exists (not under NOGPL=1); `make scummvm` runs it.
 #
@@ -39,6 +41,8 @@ SCUMMVM=scummvm-2026.4.0
 ZLIB=zlib-1.3.1
 OGG=libogg-1.3.6
 VORBIS=libvorbis-1.3.7
+PNG=libpng-1.6.59
+FT=freetype-2.15.0
 ENGINES=sky,queen,lure,drascula
 
 while [ $# -gt 0 ]; do
@@ -68,7 +72,7 @@ FPM="-ffile-prefix-map=$WORK/src=/usr/src"
 
 # Everything ScummVM can find but this build leaves out, said once so
 # a host library never sneaks in (configure probes by compiling). MP3,
-# FLAC, PNG, JPEG, FreeType and the rest are no game's need here; the
+# FLAC, JPEG and the rest are no game's need here; the
 # network ones need sockets ScummVM's SDL backend would reach through
 # SDL_net or curl, which the SDK has neither of.
 SCUMMVM_CONF=(--host="$TARGET" --prefix=/usr --backend=sdl
@@ -76,11 +80,12 @@ SCUMMVM_CONF=(--host="$TARGET" --prefix=/usr --backend=sdl
     --disable-all-engines --enable-engine="$ENGINES"
     --with-sdl-prefix="$SYSROOT/usr"
     --with-zlib-prefix="$DEPS" --with-ogg-prefix="$DEPS" --with-vorbis-prefix="$DEPS"
-    --disable-tremor --disable-mad --disable-flac --disable-png --disable-jpeg
+    --enable-png --with-png-prefix="$DEPS" --enable-freetype2 --with-freetype2-prefix="$DEPS"
+    --disable-tremor --disable-mad --disable-flac --disable-jpeg
     --disable-gif --disable-theoradec --disable-vpx --disable-faad --disable-mpeg2
     --disable-a52 --disable-mikmod --disable-openmpt --disable-mpcdec
     --disable-fluidsynth --disable-fluidlite --disable-sonivox --disable-opl2lpt
-    --disable-retrowave --disable-nfm --disable-freetype2 --disable-fribidi
+    --disable-retrowave --disable-nfm --disable-fribidi
     --disable-readline --disable-libunity --disable-gtk --disable-sndio
     --disable-sdlnet --disable-libcurl --disable-enet --disable-discord
     --disable-cloud --disable-tts --disable-alsa --disable-seq-midi
@@ -116,7 +121,7 @@ log=$WORK/build.log
 : > "$log"
 run() { "$@" >> "$log" 2>&1 || die "failed: $* -- see ${log#"$REPO"/}"; }
 
-for p in $ZLIB $OGG $VORBIS $SCUMMVM; do
+for p in $ZLIB $OGG $VORBIS $PNG $FT $SCUMMVM; do
     say "unpacking $p"
     tar -C "$WORK/src" -xf "$TC"/tarballs/$p.tar.*
 done
@@ -128,6 +133,8 @@ sub=$WORK/src/$OGG/config.sub
 sed -i 's/| serenity\* \\$/| serenity* | saunaos* \\/' "$sub"
 grep -q 'saunaos\*' "$sub" || die "$OGG's config.sub has no OS list to add saunaos* to"
 cp "$sub" "$WORK/src/$VORBIS/config.sub"
+cp "$sub" "$WORK/src/$PNG/config.sub"
+cp "$sub" "$WORK/src/$FT/builds/unix/config.sub"
 # ScummVM ships its own, as new; without the name its configure reads the
 # host OS as empty and treats SaunaOS as a non-POSIX unknown.
 sub=$WORK/src/$SCUMMVM/config.sub
@@ -137,7 +144,7 @@ grep -q 'saunaos\*' "$sub" || die "$SCUMMVM's config.sub has no OS list to add s
 CC="$TARGET-gcc"
 DEP_CFLAGS="-O2 -fPIC $FPM"
 
-say "zlib, libogg, libvorbis (static; log: ${log#"$REPO"/})"
+say "zlib, libogg, libvorbis, libpng, FreeType (static; log: ${log#"$REPO"/})"
 # zlib's configure is its own, not autoconf: CHOST names the cross tools.
 (cd "$WORK/src/$ZLIB" && CHOST=$TARGET CFLAGS="$DEP_CFLAGS" run ./configure --static --prefix="$DEPS" &&
     run make -j"$JOBS" libz.a && run make install)
@@ -147,6 +154,35 @@ for p in $OGG $VORBIS; do
         --with-ogg="$DEPS" CFLAGS="$DEP_CFLAGS" PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig" &&
         run make -j"$JOBS" && run make install)
 done
+(cd "$WORK/src/$PNG" && run ./configure --build="$BUILD_TRIPLE" --host="$TARGET" \
+    --prefix="$DEPS" --disable-shared --enable-static --disable-tools \
+    CFLAGS="$DEP_CFLAGS" CPPFLAGS="-I$DEPS/include" LDFLAGS="-L$DEPS/lib" &&
+    run make -j"$JOBS" && run make install)
+# freetype-config is asked for: ScummVM finds FreeType through it here.
+(cd "$WORK/src/$FT" && run ./configure --build="$BUILD_TRIPLE" --host="$TARGET" \
+    --prefix="$DEPS" --disable-shared --enable-static --enable-freetype-config \
+    --with-zlib=yes --without-bzip2 --without-png --without-harfbuzz --without-brotli \
+    CFLAGS="$DEP_CFLAGS" ZLIB_CFLAGS="-I$DEPS/include" ZLIB_LIBS="-L$DEPS/lib -lz" \
+    PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig" &&
+    run make -j"$JOBS" && run make install)
+# THEIR .pc FILES GO: ScummVM's configure prefers pkg-config, which runs
+# under the SDK's PKG_CONFIG_SYSROOT_DIR and would prefix these paths with
+# it. Without them it takes --with-png-prefix and freetype-config instead.
+rm -f "$DEPS"/lib/pkgconfig/libpng*.pc "$DEPS"/lib/pkgconfig/freetype2.pc
+# ...and FreeType's own freetype-config asks /usr/bin/pkg-config, the
+# HOST's, baked in at its configure: it answered with the dev host's
+# FreeType. This one knows only the deps (ScummVM passes --prefix,
+# --static and --cflags/--libs; it reads stdout alone).
+cat > "$DEPS/bin/freetype-config" <<EOS
+#!/bin/sh
+for a; do
+    case \$a in
+        --cflags) echo "-I$DEPS/include/freetype2" ;;
+        --libs)   echo "-L$DEPS/lib -lfreetype -L$DEPS/lib -lz" ;;
+    esac
+done
+EOS
+chmod +x "$DEPS/bin/freetype-config"
 
 src=$WORK/src/$SCUMMVM
 for p in "$PATCHES"/*.patch; do
@@ -171,12 +207,17 @@ say "configure + build ScummVM ($ENGINES; -j$JOBS)"
 rm -rf "$OUT/usr/share/man" "$OUT/usr/share/applications" "$OUT/usr/share/icons" \
        "$OUT/usr/share/pixmaps" "$OUT/usr/share/metainfo" "$OUT/usr/share/doc"
 # ...nor what only a left-out part reads: the OpenGL shaders (no OpenGL
-# here), the 3D engines' theme, and the Mac GUI's fonts and widgets.
-rm -f "$OUT"/usr/share/scummvm/{shaders.dat,residualvm.zip,classicmacfonts.dat,macgui.dat}
+# here), the 3D engines' theme, and the Mac GUI's fonts and widgets --
+# nor fonts-cjk.dat (37 MB), which only the launcher's Chinese, Japanese
+# and Korean translations read; fonts.dat (6 MB) is the theme's own.
+rm -f "$OUT"/usr/share/scummvm/{shaders.dat,residualvm.zip,classicmacfonts.dat,macgui.dat,fonts-cjk.dat}
 mkdir -p "$OUT/usr/share/licenses"
 cp "$src/COPYING" "$OUT/usr/share/licenses/scummvm.txt"
 cp "$WORK/src/$OGG/COPYING" "$OUT/usr/share/licenses/libogg.txt"
 cp "$WORK/src/$VORBIS/COPYING" "$OUT/usr/share/licenses/libvorbis.txt"
+cp "$WORK/src/$PNG/LICENSE" "$OUT/usr/share/licenses/libpng.txt"
+cp "$WORK/src/$FT/docs/FTL.TXT" "$OUT/usr/share/licenses/freetype.txt"
+cp "$src/LICENSES/COPYING.OFL" "$OUT/usr/share/licenses/liberation-fonts.txt"
 sed -n '/^ Copyright/,/^ *Mark Adler/p' "$WORK/src/$ZLIB/README" > "$OUT/usr/share/licenses/zlib.txt"
 {
     echo "/usr/bin/scummvm is ScummVM ${SCUMMVM#scummvm-}, built for SaunaOS with the engines"
