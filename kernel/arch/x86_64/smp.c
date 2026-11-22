@@ -390,6 +390,15 @@ void smp_release_others(uint64_t after_ms) {
     }
     __atomic_fetch_add(&g_hold_epoch, 1, __ATOMIC_RELEASE);
     __atomic_store_n(&g_hold_by, -1, __ATOMIC_SEQ_CST);
+    // **GONE BEFORE THIS RETURNS**: a stop right after would otherwise
+    // skip NMI-ing a core still on its way out and count it held.
+    uint64_t end = clocksource_now_ns() + 1000ull * 1000000ull;
+    for (int i = 0; g_cpus && i < g_cpu_count; i++) {
+        struct cpu *c = g_cpus[i];
+        while (c && __atomic_load_n(&c->dbg_held, __ATOMIC_ACQUIRE) &&
+               clocksource_now_ns() < end)
+            cpu_relax();
+    }
 }
 
 uint64_t *smp_held_frame(int index) {
