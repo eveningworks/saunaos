@@ -848,7 +848,7 @@ static int run(struct run *r, unsigned flags) {
     // or flush is only reported by sync() (the unmount below logs and goes
     // ahead, as Linux's does), and a boot sector over a kernel that never
     // reached the disk is a target that looks installed and is not.
-    if (ok && sys_sync() != 0) {
+    if (ok && sys_sync() < 0) {   // >= 0 is success: the sectors it wrote back
         line(r, "could not write everything to the disk -- it is not installed");
         ok = 0;
     }
