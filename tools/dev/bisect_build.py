@@ -81,7 +81,9 @@ def _missing_script(test, cwd):
     """The test's own script, when the command names one in the tree that
     this commit does not have yet."""
     for word in shlex.split(test):
-        if word.endswith((".py", ".sh")) and not os.path.isabs(word) and "/" in word:
+        # A word with a space is a quoted command (`bash -c '! x.py'`), not a path.
+        if (word.endswith((".py", ".sh")) and not os.path.isabs(word) and "/" in word
+                and not any(ch.isspace() for ch in word)):
             if not os.path.exists(os.path.join(cwd, word)):
                 return word
     return None
