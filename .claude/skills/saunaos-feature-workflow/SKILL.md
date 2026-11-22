@@ -32,7 +32,7 @@ reader pays for them):
 |---|---|
 | `references/testing-quickref.md` | step 4 in full: test order, QMP helpers, harness traps |
 | `references/session-testing.md` | before writing a test, or believing one |
-| `references/session-diagnosis.md` | something is broken and you cannot see why |
+| `references/session-diagnosis.md` | something is broken and you cannot see why -- start at "The loop, in order" |
 | `references/session-gui.md` | Toykit, widgets, the compositor |
 | `references/session-design.md` | why something landed the way it did |
 | `references/session-history.md` | the dated per-session notes (where the project stood after each big day) |

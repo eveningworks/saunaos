@@ -14,6 +14,35 @@ past sessions kept, dated where they were written.
   report. `make run KVM=1` was the whole answer to a three-cause freeze,
   and it was mentioned in passing three exchanges in.
 
+**The loop, in order** -- for any failure; a crash has its own version
+below ("Debugging a crash, end to end"):
+
+1. **Read all of it** -- the panic, the `failure bundle:` line, `dmesg`,
+   any `sandbox: pid N refused` line. A pasted panic goes through
+   `tools/lib/panic_resolve.py`, which checks the build id first.
+2. **Is it yours, and what changed?** `tools/lib/test_history.py
+   "<check>"`, `docs/bugs.md`, `tools/dev/predates.py`; one build of
+   `HEAD` settles it. Then `git log` and `tools/dev/bisect_build.py`.
+3. **Reproduce it, as a RATE if it is intermittent** (`--runs N`,
+   `gui_regress.py --race-delay 300`). It will not reproduce: arm a
+   capture and gather data, do not guess.
+4. **Find the layer before the line.** Log what enters and leaves each
+   boundary once -- ring 3, syscall, fs, block device; client,
+   compositor, scanout -- with `strace` or a rate-limited probe, to see
+   WHERE it breaks.
+5. **Compare with a working sibling** -- another driver, app or path
+   doing the same job -- and list every difference, however small.
+6. **One hypothesis, written down, and the cheapest experiment that
+   would DISPROVE it.** One variable at a time.
+7. **A test that is red before the fix** (a positive control or
+   `tools/dev/mutate.py` proves it can see the bug), then ONE fix, at
+   the source rather than where it surfaced.
+8. **Revert a fix that did not work before trying the next; never stack
+   them. After two or three, STOP**: the model of the bug is wrong, so
+   bring it back to the user with what was ruled out.
+9. **A cause never established is said plainly** (`docs/bugs.md`), and
+   what was ruled out is saved as a learning.
+
 `docs/roadmap.md` holds the live known issues; this file holds the
 method.
 

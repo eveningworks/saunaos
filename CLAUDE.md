@@ -441,6 +441,10 @@ mode, and alone blurs the font), `LIVE=1`, `UEFI=1` (OVMF on q35), `BOOT=cd|disk
 - **A MECHANISM THAT EXPLAINS THE SYMPTOMS IS NOT THE MECHANISM THAT
   CAUSED THEM** -- do the cheap disproving check, and prefer a
   discriminating experiment over a plausible story.
+- **TWO OR THREE FAILED FIXES MEAN THE MODEL OF THE BUG IS WRONG** --
+  revert each failed attempt before the next (never stack them), and
+  after the third STOP and bring it to the user with what was ruled
+  out. The ordered loop: `session-diagnosis.md`, "The loop, in order".
 
 ## Debugging with GDB
 
