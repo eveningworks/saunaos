@@ -97,9 +97,15 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
     QUERY_FOREACH(QUERY_SHM, rec, qi) {
         if (rec.flags & QUERY_SHM_UNLINKED) continue;
         if (strncmp(rec.name, prefix, plen) != 0) continue;
+        // A RING IS "<server>.<pid>" EXACTLY: a client's other objects may
+        // share the prefix (a webview's "wv63.65b" buffer beside its
+        // "wv63.65" ring), and one taken for the ring read as a replaced
+        // ring and dropped the live one every scan.
         int pid = 0;
-        for (const char *p = rec.name + plen; *p >= '0' && *p <= '9'; p++)
+        const char *p = rec.name + plen;
+        for (; *p >= '0' && *p <= '9'; p++)
             pid = pid * 10 + (*p - '0');
+        if (*p) continue;
         int held = pid > 0 ? ring_index(s, pid) : -1;
         if (held >= 0 && rec.serial && s->serial[held] && rec.serial != s->serial[held])
             replaced[held] = 1;
