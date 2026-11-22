@@ -290,6 +290,21 @@ def phase1(dbg, qmp, res, target, tmp):
         dbg.click(*lay.centre(key))
         dbg.settle()
 
+    def reveal(row):
+        """The checklist scrolls once it holds more than fit: wheel it until
+        row `row` lies wholly inside the list, then read the layout again.
+        The wheel goes where the REAL pointer is, so it is parked first."""
+        nonlocal lay
+        for _ in range(16):
+            lay = wait(dbg, c, lambda lay: "software" in lay.r)
+            it, box = lay.r.get(f"software.item {row}"), lay.r["software"]
+            if it and it[1] >= box[1] and it[1] + it[3] <= box[1] + box[3]:
+                return True
+            above = it is not None and it[1] < box[1]
+            dbg.warp_cursor(qmp, *lay.centre("software"))
+            dbg.wheel(1 if above else -1)
+        return False
+
     press("next")
     lay = wait(dbg, c, lambda lay: lay.state["step"] == 1 and "disks" in lay.r)
     res.check("Next goes to Disk, with the disk list and the plan",
@@ -308,44 +323,55 @@ def phase1(dbg, qmp, res, target, tmp):
     if not res.check("...listing the engine, the Browser, Demos and DOOM",
                      all(k in rows for k in ("webengine", "browser", "demos", "doom")), str(order)):
         return False
-    # The pixels say the same: DOOM's box empty, the Browser's filled.
+    # The pixels say the same: DOOM's box empty, the Browser's filled --
+    # each read with its row scrolled into view (the list overflows).
+    reveal(rows["doom"])
     img = shot(qmp, tmp)
     doom_box = lay.r.get(f"software.box {rows['doom']}")
+    dw = box_white(img, lay.cx, lay.cy, doom_box) if doom_box else None
+    reveal(rows["browser"])
+    img = shot(qmp, tmp)
     browser_box = lay.r.get(f"software.box {rows['browser']}")
     if res.check("...and each row reports its checkbox", doom_box and browser_box):
-        dw, bw = box_white(img, lay.cx, lay.cy, doom_box), box_white(img, lay.cx, lay.cy, browser_box)
+        bw = box_white(img, lay.cx, lay.cy, browser_box)
         res.check("...DOOM's box is drawn empty, the Browser's ticked (read from pixels)",
                   dw > 0.6 and bw < 0.3, f"white share doom {dw:.2f} browser {bw:.2f}")
 
+    reveal(rows["webengine"])
     press(f"software.item {rows['webengine']}")
     st = software(dbg, lambda st: "webengine" in st.get("out", []))
     res.check("unticking the Web page engine unticks the Web Browser that needs it",
               st and "webengine" in st.get("out", []) and "browser" in st.get("out", []), str(st))
-    if browser_box:
+    if browser_box and reveal(rows["browser"]):
         img = shot(qmp, tmp)
         res.check("...and the Browser's box is drawn empty now",
-                  box_white(img, lay.cx, lay.cy, browser_box) > 0.6)
+                  box_white(img, lay.cx, lay.cy, lay.r[f"software.box {rows['browser']}"]) > 0.6)
+    reveal(rows["browser"])
     press(f"software.item {rows['browser']}")
     st = software(dbg, lambda st: "browser" in st.get("in", []))
     res.check("ticking the Browser ticks the engine again",
               st and "browser" in st.get("in", []) and "webengine" in st.get("in", []), str(st))
+    reveal(rows["doom"])
     press(f"software.item {rows['doom']}")
     st = software(dbg)
     res.check("DOOM, not on this system, cannot be ticked", st and "doom" in st.get("out", []), str(st))
+    reveal(rows["demos"])
     press(f"software.item {rows['demos']}")
     st = software(dbg, lambda st: "demos" in st.get("out", []))
     res.check("Demos and tests is left out", st and sorted(st.get("out", [])) == ["demos", "doom"], str(st))
     # The keyboard: the click focused the list on Demos' row; an arrow
-    # moves to the next row, Space flips it, and flips it back.
-    if rows["browser"] == rows["demos"] + 1:
+    # moves to the NEXT row, whichever component that is, Space flips it,
+    # and flips it back.
+    nxt = order[rows["demos"] + 1] if rows["demos"] + 1 < len(order) else None
+    if res.check("a row follows Demos, for the keyboard checks", nxt is not None, str(order)):
         dbg.key("0xf781")                      # KEY_ARROW_DOWN
         dbg.key("0x20")
-        st = software(dbg, lambda st: "browser" in st.get("out", []))
-        res.check("Down then Space unticks the next row (the Browser)",
-                  st and "browser" in st.get("out", []) and "webengine" in st.get("in", []), str(st))
+        st = software(dbg, lambda st: nxt in st.get("out", []))
+        res.check(f"Down then Space unticks the next row ({nxt})",
+                  st and nxt in st.get("out", []), str(st))
         dbg.key("0x20")
-        st = software(dbg, lambda st: "browser" in st.get("in", []))
-        res.check("...and Space ticks it again", st and "browser" in st.get("in", []), str(st))
+        st = software(dbg, lambda st: nxt in st.get("in", []))
+        res.check("...and Space ticks it again", st and nxt in st.get("in", []), str(st))
 
     press("next")
     lay = wait(dbg, c, lambda lay: lay.state["step"] == 3 and "summary" in lay.r)
