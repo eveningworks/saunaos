@@ -9248,22 +9248,31 @@ start on real 3.11" first.
 
 - [x] ~~**The ATA fault-injection KTESTs leak a failed write into the NEXT test.**~~ DONE 2026-11-21 -- there was no leak. `[atac]`'s injected failure recovers and passes; the later `atac: FLUSH FAILED` was a REAL cache flush that outran its bound. A flush from a caller that cannot park (the kernel context -- the failing run's was `service stop logd` from the debug console) got -1 from `sleep_dma_irq()` at once, and the poll after it had only `wait_not_busy()`'s 1 s pre-command bound, while a guest flush is a host `fdatasync` on a zstd-compressed btrfs `disk.img` (no `+C`, whatever `ata.c` claimed). tfs3 then stops `/` on the failed flush, as it should. Reproduced on the first `ktest_run.py --suite fs` run with a host `dd ... conv=fsync` loop on the same volume (`ata: cache flush FAILED after 101 ticks (still busy, status 0xc0, slept)`); with `FLUSH_WAIT_TICKS` (15 s, one deadline whether it slept or polled; libata's flush bound) 6 of 6 stressed runs passed, two of them with flushes of 104 and 116 ticks that the old bound would have failed. `ata: cache flush took N ticks` now names a slow one. The other two kernel-suite reds of those 20 preflights were not this (a spin lockup and a poll-for-exit check).
 
-## `read`/`write` of ramfs without the kernel lock: a lock-free handler that sleeps mid-call
+## Per-core allocation caches, so a lock-free call's bounce buffer does not queue on the heap lock
 
-Pipes went lock-free 2026-11-22 (`docs/smp-design.md`, stage 7): they
-park at the syscall's ENTRY and ring 3 asks again, so the lock-free park
-(`scheduler_block_current_lockless()`) was all they needed. A file's
-read and write sleep MID-call instead -- on the description's position
-lock and the mount's lock, both kmutexes -- and `fs_read_range()` looks
-the path up and walks the mount table on every call. What it needs: a
-kmutex sleep from a lock-free handler (taking the kernel lock for the
-sleep, as the park takes it for a switch, is the obvious first shape),
-the path walk and mount table safe without the kernel lock, and an
-audit of every preemption-guard section the ramfs path reaches -- the
-guard excludes only its own core now. Still open from the first list:
-strace and a sandboxed process make every lock-free call decline, and
-the stall and kstack tables are written under the kernel lock. The disk
-filesystems come after ramfs; they already lock per mount.
+Once a ramfs file's read and write left the kernel lock (2026-11-22,
+`docs/smp-design.md` stage 7), the heap's lock became what waits: under
+three copies of `syscall_bench` on KVM's four vCPUs, 41% of its 7.1 M
+takes in 6 s waited, against the kernel lock's 8.9% held. Every
+lock-free read and write kmallocs its bounce buffer and frees it again
+(`fd_bounce_alloc()`'s one kept buffer per size class is shared by
+every core, so four cores mostly miss it). Linux's per-CPU slab caches
+and page lists are the shape; a kept buffer per core per class is the
+smallest version, and the measurement says which is enough. The
+scheduler lock (30% of 7.3 M takes waited) is the one after.
+
+## A disk filesystem's `read`/`write` without the kernel lock: a lock-free handler that sleeps mid-call
+
+ramfs went lock-free 2026-11-22 by TRYLOCKING its position and mount
+locks and declining on a busy one (`docs/decisions/kernel.md`), which
+works because a ramfs op never waits. A disk filesystem's op sleeps in a
+disk wait holding its mount's lock, so its caller needs a real mid-call
+park without the kernel lock -- at depth 0, with the lock-free park's
+take-first hand-over the first shape to try -- and tfs3's per-inode
+locks, journal commits and `mount_io_begin()` gaps audited for anything
+the kernel lock still covers. Still declining for every file, too:
+strace and a sandboxed process, and the stall and kstack tables are
+written under the kernel lock.
 
 ## A lock-free scheduler event switching into a context that holds the kernel lock
 

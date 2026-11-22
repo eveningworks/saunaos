@@ -25,7 +25,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
-- [ ] `read`/`write` of ramfs without the kernel lock: a lock-free handler that sleeps mid-call  *(SMP)*
+- [ ] Per-core allocation caches, so a lock-free call's bounce buffer does not queue on the heap lock  *(SMP)*
 <!-- END next-up -->
 
 
@@ -1615,7 +1615,9 @@ measurement of what is single-core in the tree today.
 - [x] ~~The scheduler's tick and rotation without the kernel lock~~ DONE 2026-11-21 -- a run-queue lock; AP events lock-free
 - [x] ~~Descriptor tables on their own locks; `lseek` without the kernel lock~~ DONE 2026-11-22 -- an MPSAFE row may decline
 - [x] ~~A lock-free park, and a pipe's `read`/`write` without the kernel lock~~ DONE 2026-11-22 -- the park takes it first when needed
-- [ ] **NEXT** `read`/`write` of ramfs without the kernel lock: a lock-free handler that sleeps mid-call
+- [x] ~~`read`/`write` of ramfs without the kernel lock~~ DONE 2026-11-22 -- every sleeping lock trylocked, a busy one declines
+- [ ] **NEXT** Per-core allocation caches, so a lock-free call's bounce buffer does not queue on the heap lock
+- [ ] A disk filesystem's `read`/`write` without the kernel lock: a lock-free handler that sleeps mid-call
 - [ ] A lock-free scheduler event switching into a context that holds the kernel lock -- the park's take-first shape is the candidate
 - [ ] An audit of everything currently assuming single-threaded -- stage 7, split the BKL in measured order
 

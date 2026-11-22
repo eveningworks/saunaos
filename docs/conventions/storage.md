@@ -2271,3 +2271,22 @@ entry claims, or to name each block once:
 crafted image per rule, and a USB device's replies have
 `usbdesc_hostcheck.py`; a new walk over disk data gets a case there.
 
+## AN `fs_ops.mpsafe` BACKEND'S READ, WRITE AND SIZE NEVER WAIT, AND A LOCK-FREE CALL NEVER DECLINES ONCE THE BACKEND HAS WRITTEN
+
+A backend that sets `fs_ops.mpsafe` (ramfs) has its `read_range`,
+`write_range` and `size` called from a lock-free `SYS_READ`/`SYS_WRITE`:
+no kernel lock, interrupts off, the mount's lock TRYLOCKED
+(`fs_read_range_lockless()`, `fs_write_range_lockless()`). So those ops
+may take spinlocks (the heap's, the frame allocator's) but never sleep,
+never wait for anything, never ask `FS_OP()` to re-run them
+(`mount_wait()`), and touch nothing outside their mount's state. A
+backend whose op can wait for a disk does not set it.
+
+**Every decline comes BEFORE the backend writes**: a failed write may be
+partial, and the locked path running it again would append it twice --
+so it is answered `-EIO` instead. A new reason for a lock-free write to
+fall back to the locked path (a hook that needs the kernel lock) is
+tested before the op, or, like the fswatch note, sent afterwards under
+the kernel lock (`fs_note_watchers()`). `docs/decisions/kernel.md` has
+why the locks are trylocked rather than slept on.
+

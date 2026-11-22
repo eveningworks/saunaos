@@ -11046,3 +11046,50 @@ during the call leaves this one holding the description's last
 reference, and its `release()` (a pipe end's wake, a file's settle) is
 written for the kernel lock; the lock-free path takes it for that put
 alone, as Linux defers a final `fput()` out of atomic context.
+
+## A ramfs file's read and write trylock every sleeping lock and decline when one is busy, and the mount table is read inside a sequence count
+
+Picked 2026-11-22 (`docs/smp-design.md`, stage 7; `kernel/fs/fs_syscalls.c`'s
+`file_fd_read_lockless()`/`file_fd_write_lockless()`, `kernel/fs/vfs.c`'s
+`fs_read_range_lockless()`/`fs_write_range_lockless()`,
+`mount_resolve_lockless()`).
+
+**A busy kmutex is TRYLOCKED, and the call declines to the locked path**
+-- Linux's RCU path walk handing over to ref-walk (`-ECHILD`) -- rather
+than sleeping for it. A file's read and write wait mid-call on two
+kmutexes, the description's position lock and the mount's, and the
+obvious first shape was to take the kernel lock for that sleep, as the
+lock-free park takes it for a switch. Both locks are taken before
+anything changes, so a decline costs only the attempt, and it needs no
+mid-call park at depth 0 -- a third kind of saved context the scheduler
+would have to learn, and the shape a disk filesystem (tfs3 sleeps in its
+disk waits) will need when its turn comes. Measured: 4999 of
+`lockless_rw_test`'s 5000 `/tmp` reads on KVM's four vCPUs went lock-free,
+and under three copies of `syscall_bench` 2.05 M reads did while 15 k,
+of every kind of descriptor, took the kernel lock.
+
+**Nothing declines once the backend has written.** A failed ramfs write
+may be partial (out of budget mid-way), and the locked path running it
+again would append it twice; such a write is answered `-EIO`, as the
+locked path answers it. So an `fs_ops.mpsafe` backend promises never to
+ask `FS_OP()` to re-run an op, and the write's every decline -- a
+read-only mount, a mount with a device to settle, a path the image cache
+may hold, the cache simulator on -- comes before it.
+
+**The mount table is walked inside a sequence count** (Linux's
+`mount_lock` seqlock): a slot's writer, who holds the kernel lock, bumps
+it around `record()`, `slot_clear()` and a gone disk's flags, and a
+lock-free resolve declines on an odd or moved count. The table was
+already built for locked readers with no lock (published `used` last,
+replaced never reallocated), but `slot_clear()`'s memset gives no order a
+reader could rely on, and what the kernel lock had been doing was keep
+that memset and a walk apart. A spinlock over the table was the other
+choice; it puts every core's file call on one lock, which is what the
+first lock-free `lseek` measured wrong.
+
+**An fswatch note is owed, and sent under the kernel lock.** A write a
+watch covers must reach the compositor, through the window server's
+broadcast, which is the kernel lock's; the lock-free write checks for a
+watch without writing anything (`fswatch_watching()`) and takes the lock
+for the note alone (`fs_note_watchers()`), as a last put takes it for a
+release.

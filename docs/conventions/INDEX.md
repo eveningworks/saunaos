@@ -1179,6 +1179,8 @@ whenever a headline here tells you something you did not already know.
 - **A VOLUME ON A STICK IS HOSTILE INPUT: every walk is bounded by the
   format's own limit, and a damaged tree stops its walk** (only a freed
   block is discarded; a disk name is one path component)
+- **AN `fs_ops.mpsafe` BACKEND'S READ, WRITE AND SIZE NEVER WAIT, AND A
+  LOCK-FREE CALL NEVER DECLINES ONCE THE BACKEND HAS WRITTEN**
 - **`/boot` IS READABLE FROM INSIDE SaunaOS NOW, AND IT IS THE ESP**
 - **SAUNAOS BOOTS FROM ITS OWN DISK, AND `/boot` IS FAT32 BECAUSE GRUB
   CANNOT READ TFS3**

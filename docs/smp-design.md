@@ -973,16 +973,64 @@ rows and runs:
 | `pipe 1 B` | 1089-1100 | 1425-1437 | 1110-4630 | 2720-10100 |
 | two processes, a pipe round trip | 7090-7100 | 10220-10260 | 7200-17400 | 26500-45600 |
 
-**Next: ramfs `read`/`write`.** A file's read and write sleep MID-call
--- on the position lock and the mount's lock, both kmutexes -- and
-`fs_read_range()` looks the path up and walks the mount table on every
-call. So the lock-free handler needs a kmutex sleep (taking the kernel
-lock for the sleep, as the park takes it for a switch, is the first
-shape to try), the path walk and mount table safe without the kernel
-lock, and an audit of every preemption-guard section the ramfs path
-reaches. Still declining for now: strace, a sandboxed process, and the
-stall and kstack tables, written under the lock. The disk filesystems
-after ramfs.
+**Built 2026-11-22 (later still): a ramfs file's `read` and `write`
+without the kernel lock.** Linux's RCU path walk, which hands over to
+ref-walk on any trouble, is the shape (`docs/decisions/kernel.md`):
+
+- **Every sleeping lock is TRYLOCKED, and a busy one declines** --
+  the description's position lock and the mount's
+  (`fs_read_range_lockless()`, `fs_write_range_lockless()`). Both are
+  taken before anything changes, so the locked path simply runs the call
+  again; nothing sleeps without the kernel lock. A read or write over
+  64 KiB takes the locked path: interrupts are off throughout.
+- **A backend says its ops may run so** (`fs_ops.mpsafe`; ramfs, whose
+  read, write and size are memory and the allocators' own locks). A disk
+  file's call declines, as does a read-only mount, a mount with a device
+  to settle, a path the image cache may hold, and any call while the
+  cache simulator is on. **Nothing declines once the backend has
+  written** -- a failed write may be partial -- so an mpsafe backend
+  never asks `FS_OP()` to re-run it.
+- **The mount table is read inside a sequence count**
+  (`mount_resolve_lockless()`; Linux's `mount_lock` seqlock): `record()`,
+  `slot_clear()` and a gone disk's flags bump it, under the kernel lock,
+  and a resolve declines on an odd or moved count.
+- **A write a watch covers owes its note**, sent under the kernel lock
+  (`fs_note_watchers()`): the window server's broadcast is the lock's.
+- **`open` writes a description's name and mode before `fd_install()`**
+  publishes it, and the I/O charge and the generation counters add
+  atomically: two cores may now be in them at once.
+
+Proven by `lockless_rw_test`'s new phases, each red on its own control
+under KVM's four vCPUs: readers sharing one description each get the
+next word (the position lock taken out: 5 words wrong), writers sharing
+one each take the next position (6096 of 16000 words), appenders with a
+description each land at the end (the end read outside the mount lock:
+11566 of 16000), reads beside 200+ mount and unmount cycles, and the
+read and write rows' counts -- lock-free for `/tmp`, through the lock
+for `/var/tmp`, past the bound and with the tunable off. Two mount
+KTESTs: a lock-free resolve declines mid-write (red without the
+odd-count test), and a lock-free write's answers, an owed note among
+them (red with the note never owed). KTEST 1341/0 under TCG.
+
+**Measured on KVM, four vCPUs, the TSC** (`syscall_bench 200000 64`, a
+64 B `/tmp` call, ns; "through the lock" is `kernel.lockless_syscalls
+off` on the same boot, two runs each):
+
+| | 1 copy, lock-free | 1 copy, through the lock | 4 copies, lock-free | 4 copies, through the lock |
+|---|---|---|---|---|
+| `read` | 546-558 | 754-766 | 2282-3118 | 5727-13426 |
+| `write` | 703 | 846-850 | 1134-3105 | 7430-8769 |
+
+Under 3 x `syscall_bench` for 6 s (holds timed) the kernel lock was
+held 8.9% of the time, against 61% before the descriptor split; `read`
+took it 15 k times and ran lock-free 2.05 M times, `write` 14 k and
+1.4 M. **What waits now is the heap lock** (41% of 7.1 M takes waited --
+every lock-free call kmallocs its bounce buffer) and the scheduler lock
+(30% of 7.3 M); the kernel lock's holders are `spawn`, `open` and page
+faults. Per-core allocation caches are what the heap needs (stage 7's
+first numbers said so). Still declining: strace, a sandboxed process, the
+disk filesystems -- whose ops sleep in a disk wait, so they need a real
+mid-call park -- and the stall and kstack tables, written under the lock.
 
 The plan as written:
 
