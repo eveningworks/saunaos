@@ -266,7 +266,9 @@ whenever a headline here tells you something you did not already know.
   nothing
 - **THE KERNEL LOCK IS TAKEN ON EVERY ENTRY BUT AN MPSAFE SYSCALL'S,
   AND A NEW ROUTE TO RING 3 DROPS IT** -- an MPSAFE row's handler runs
-  with interrupts off and touches nothing the lock guards; an AP's
+  with interrupts off and touches nothing the lock guards, parks only
+  through `scheduler_block_current_lockless()`; it copies user memory
+  only `_nofault`, with no lock between a check and its copy; an AP's
   scheduler event or a yield that needs none takes none;
   `bkl_drop_all()` before a hand-rolled `iretq`; contexts start through
   `proc_start_context()`; no spinlock across a sleep; the paranoid
@@ -274,6 +276,7 @@ whenever a headline here tells you something you did not already know.
 - **RUN STATE IS WRITTEN UNDER THE SCHEDULER LOCK, WHICH COMES AFTER
   THE KERNEL LOCK** -- a check-then-act on another thread's state holds
   it across both halves; never wait for the kernel lock holding it; a
+  wake's scans, an arm and a park's last test are under it; a
   switch is entered holding it once and returns without it; a READY
   context may still be live on a core; a declined lock-free path changed
   nothing

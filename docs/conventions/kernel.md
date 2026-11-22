@@ -1472,13 +1472,26 @@ through `switch_to()`.
 
 - **A ROW MARKED `SYSCALL_ROW_MPSAFE` NEVER TAKES IT** (since stage 7,
   `syscall_try_lockless()`): its handler runs with interrupts off and
-  MAY NOT SLEEP, PARK, TAKE THE KERNEL LOCK OR READ ANYTHING IT GUARDS
-  -- only the calling thread's own fields, the per-core ones, and what
-  has a lock of its own or needs none (the clock, which a read never
-  writes). A row is marked only once its handler is shown to need
-  nothing else; a handler that later grows a call into locked state must
-  lose the mark in the same change. `kernel.lockless_syscalls off` is the
-  A/B, and `lockstat -e`'s `LOCKLESS` column shows which path ran.
+  READS NOTHING IT GUARDS -- only the calling thread's own fields, the
+  per-core ones, and what has a lock of its own or needs none (the clock,
+  which a read never writes). It may decline (`SYSCALL_DECLINE`) having
+  changed nothing; it PARKS only through
+  `scheduler_block_current_lockless()`, at the syscall's entry, never
+  mid-call; and it takes the kernel lock only where the code says so (a
+  description's last put, `put_lockless()`). A row is marked only once
+  its handler is shown to need nothing else; a handler that later grows a
+  call into locked state must lose the mark in the same change.
+  `kernel.lockless_syscalls off` is the A/B, and `lockstat -e`'s
+  `LOCKLESS` column shows which path ran.
+- **A LOCK-FREE HANDLER COPIES USER MEMORY ONLY WITH THE `_nofault`
+  COPIES, AND TAKES NO LOCK BETWEEN A CHECK AND ITS COPY**
+  (`vmm_copy_to_user_nofault()`): they refuse rather than fault a page in
+  or un-share one, and they are safe only because a frame is freed after
+  a shootdown this core cannot answer with interrupts off. Every
+  spinlock's wait answers IPIs (`smp_poll_ipis()`), so a lock taken in
+  between lets the frame go. A check that passed is then a copy that
+  cannot fail -- which is what lets a pipe read check the destination
+  before a byte leaves the pipe.
 
 - **AN AP'S SCHEDULER EVENT, OR A YIELD, THAT NEEDS NONE OF IT TAKES
   NONE** (since stage 7, `scheduler_ap_event_lockless()`,
@@ -1529,7 +1542,15 @@ contexts holding it and NOT the kernel lock.
   switching it in without that lock starts it between the two.
 - **ORDER: THE KERNEL LOCK, THEN THIS ONE, NEVER THE REVERSE.** A
   lock-free path that finds it needs the kernel lock DECLINES and goes
-  the ordinary way; it never waits for the kernel lock holding this.
+  the ordinary way, or lets this one go and takes the kernel lock first
+  (a lock-free park switching into a context that holds it,
+  `bkl_take_for_switch()`); it never waits for the kernel lock holding
+  this.
+- **A WAKE'S SCANS, AN ARM, AND A PARK'S LAST "WAS I WOKEN?" ARE ALL
+  UNDER IT** (`scheduler_wake_n()`, `scheduler_wait_arm()`,
+  `block_common()`): a waker or a parker may hold no kernel lock (a
+  lock-free pipe call), and a wake that tests "armed?" and "BLOCKED?"
+  while the parker moves between them finds neither.
 - **INTERRUPTS OFF WHILE HELD, AND RECURSIVE PER CORE** (a wake inside a
   kill nests). It raises no preemption guard -- `spin_lock_noguard()` --
   because a switch holds it and saves the guard with the context.

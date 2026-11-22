@@ -9248,23 +9248,24 @@ start on real 3.11" first.
 
 - [x] ~~**The ATA fault-injection KTESTs leak a failed write into the NEXT test.**~~ DONE 2026-11-21 -- there was no leak. `[atac]`'s injected failure recovers and passes; the later `atac: FLUSH FAILED` was a REAL cache flush that outran its bound. A flush from a caller that cannot park (the kernel context -- the failing run's was `service stop logd` from the debug console) got -1 from `sleep_dma_irq()` at once, and the poll after it had only `wait_not_busy()`'s 1 s pre-command bound, while a guest flush is a host `fdatasync` on a zstd-compressed btrfs `disk.img` (no `+C`, whatever `ata.c` claimed). tfs3 then stops `/` on the failed flush, as it should. Reproduced on the first `ktest_run.py --suite fs` run with a host `dd ... conv=fsync` loop on the same volume (`ata: cache flush FAILED after 101 ticks (still busy, status 0xc0, slept)`); with `FLUSH_WAIT_TICKS` (15 s, one deadline whether it slept or polled; libata's flush bound) 6 of 6 stressed runs passed, two of them with flushes of 104 and 116 ticks that the old bound would have failed. `ata: cache flush took N ticks` now names a slow one. The other two kernel-suite reds of those 20 preflights were not this (a spin lockup and a poll-for-exit check).
 
-## MPSAFE handlers that may sleep, then `read`/`write` of pipes and ramfs without the kernel lock
+## `read`/`write` of ramfs without the kernel lock: a lock-free handler that sleeps mid-call
 
-Under three `syscall_bench` copies on KVM (four vCPUs) `read` and `write`
-are what is left of the kernel lock once `lseek` went lock-free
-(2026-11-22): 1.35 s of 1.4 s held in 15 s. They cannot go the way
-`lseek` did -- a file's read and write park on the position lock and the
-mount's lock -- so the lock-free path needs a second kind of row whose
-handler may park: interrupts on, at kernel-lock depth 0. To settle first,
-each with a test that goes red: a wake from `kmutex_unlock()` without the
-kernel lock (`scheduler_wake_one()` scans `procs[]` unlocked); a signal
-posted while it sleeps; strace and a sandboxed process, which today make
-the lock-free path decline; the stall and kstack tables, written under
-the kernel lock. Then pipes (a lock per pipe), ramfs, and the disk
-filesystems last -- they already lock per mount. `docs/smp-design.md`,
-stage 7, "Next".
+Pipes went lock-free 2026-11-22 (`docs/smp-design.md`, stage 7): they
+park at the syscall's ENTRY and ring 3 asks again, so the lock-free park
+(`scheduler_block_current_lockless()`) was all they needed. A file's
+read and write sleep MID-call instead -- on the description's position
+lock and the mount's lock, both kmutexes -- and `fs_read_range()` looks
+the path up and walks the mount table on every call. What it needs: a
+kmutex sleep from a lock-free handler (taking the kernel lock for the
+sleep, as the park takes it for a switch, is the obvious first shape),
+the path walk and mount table safe without the kernel lock, and an
+audit of every preemption-guard section the ramfs path reaches -- the
+guard excludes only its own core now. Still open from the first list:
+strace and a sandboxed process make every lock-free call decline, and
+the stall and kstack tables are written under the kernel lock. The disk
+filesystems come after ramfs; they already lock per mount.
 
-## A lock-free switch into a context that holds the kernel lock
+## A lock-free scheduler event switching into a context that holds the kernel lock
 
 An AP's lock-free scheduler event (`scheduler_ap_event_lockless()`,
 `docs/smp-design.md` stage 7) switches only into a context saved at
@@ -9280,4 +9281,14 @@ context's stack for as long as the holder keeps it, with the incoming
 context already RUNNING. Which reader that breaks is not established.
 To come back to with the wait widened on purpose and a KTEST that turns
 red on it, as the interrupts-in-syscalls audit proved its windows.
+
+**The candidate shape, 2026-11-22**: the lock-free pipe park met the same
+wall (it never parked once while it declined, every next context being
+at depth 1) and takes the kernel lock FIRST, on its own stack, before
+anything is picked or marked, then picks again; the parker is saved at
+depth 0 and `bkl_load_depth()` hands the lock on (`bkl_take_for_switch()`).
+29760 of 32768 parks then went lock-free, KTEST and the ring-3 suite
+clean. An event could do the same; what it must settle first is the
+tick's acknowledgement (`ack`), which the event path sends before a
+switch that may now wait for the lock.
 

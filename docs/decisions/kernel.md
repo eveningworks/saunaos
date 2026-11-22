@@ -10998,3 +10998,51 @@ filesystem's, behind a sleeping lock.
 (`SYSCALL_DECLINE`), rather than the table carrying a second, try-first
 handler: the decision needs what the handler has just looked up, and one
 function keeps the two paths' answers from drifting.
+
+
+## A pipe is read and written without the kernel lock, and a lock-free park takes that lock first when the context it switches into holds it
+
+Picked 2026-11-22 (`docs/smp-design.md`, stage 7; `kernel/proc/pipe.c`,
+`kernel/proc/syscall_fd.c`'s `rw_lockless()`,
+`scheduler_block_current_lockless()`).
+
+**A spinlock per pipe, not a sleeping mutex.** Linux's `pipe->mutex`
+sleeps; FreeBSD's pipe mutex spins. A pipe's buffer is 4 KiB and the
+work under its lock is a copy of at most that, and a sleeping lock would
+need a lock-free handler that can sleep MID-call -- the harder half of
+this stage, which ramfs needs anyway and pipes do not: a pipe parks at
+its syscall's ENTRY and ring 3 asks again on `SYS_RETRY`. The waiter
+ARMS on the pipe's channel under the pipe's lock and the waker wakes
+after letting it go; both scans of a wake, and a park's last test, are
+under the scheduler lock, so a wake with no kernel lock on either side
+finds the arm or the BLOCKED process.
+
+**A lock-free park takes the kernel lock FIRST when the context it would
+switch into holds it**, on its own stack, before anything is picked or
+marked, then picks again and switches; the parker is saved at depth 0
+and `bkl_load_depth()` hands the lock to the incoming context. The first
+build declined instead -- the rule a lock-free scheduler event keeps --
+and never parked once in 32768 tries on KVM's four vCPUs: every context a
+locked park saves, and every AP's idle loop, is at depth 1, so declining
+kept it that way. Taking it first, 29760 of 32768 parks went lock-free
+and 56 needed the lock. This is NOT the shape that panicked the KTEST
+suite (the entry above): that one took the lock at the switch's END,
+waiting on the outgoing stack with the incoming context already
+RUNNING. Here the wait comes before any of it, kernel lock before
+scheduler lock, the order every other path keeps.
+
+**The user copy never faults, and its safety is the interrupts-off
+window, not a lock** (x86 Linux's `get_user_pages_fast()`): a frame of a
+running address space is freed only after a TLB shootdown that every
+core with that space loaded has answered, and this core answers nothing
+with interrupts off. A spinlock's wait answers IPIs, so no lock may be
+taken between the range check and the copy -- a read checks the
+destination and copies out under the pipe's lock, before a byte would
+otherwise be lost to a decline. The address space's mutex could not do
+the job: window surfaces, sound and shm unmap pages without it.
+
+**A last reference is put under the kernel lock.** A sibling's `close`
+during the call leaves this one holding the description's last
+reference, and its `release()` (a pipe end's wake, a file's settle) is
+written for the kernel lock; the lock-free path takes it for that put
+alone, as Linux defers a final `fput()` out of atomic context.

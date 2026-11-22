@@ -137,7 +137,7 @@ Boots one build on a copy of its disk (or uses a running machine with
 `--host`, over `remote.py`) and runs `/tests/syscall_bench`: a `getpid`,
 the clock by syscall (`monotonic`) and from the clock page (`clock page`,
 `abi/clock_abi.h` -- the syscall again where the TSC is not the
-clocksource), an `lseek` of a file (an MPSAFE row), a `yield`, a one-byte pipe write+read, a two-process round trip over two
+clocksource), an `lseek` of a file (an MPSAFE row), a `yield`, a one-byte pipe write+read (MPSAFE rows for a pipe), a two-process round trip over two
 pipes and the switch derived from it (lmbench's `lat_ctx` subtraction),
 the median spawn-to-waitpid of `/bin/hello` (needs only the C library)
 and of `/bin/ls /` (the toolkit libraries too) -- the cost of a program's

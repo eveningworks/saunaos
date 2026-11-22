@@ -52,8 +52,10 @@ kernel itself taking it back after the idle halt -- longest held first
 switch on that core may hand its release to another context.
 `LOCKLESS` counts the syscalls answered WITHOUT taking it -- the rows
 `abi/syscall_rows.h` marks MPSAFE (`getpid`, `gettid`, `ticks`,
-`monotonic_ns`, `clock_page`, and `lseek` of a file's position -- a
-`SEEK_END`, or a position another call holds, is counted under TAKES),
+`monotonic_ns`, `clock_page`, `lseek` of a file's position -- a
+`SEEK_END`, or a position another call holds, is counted under TAKES --
+and `read`/`write` of a pipe; a woken pipe call asks again, so it counts
+twice),
 by core and by entry. The tunable
 `kernel.lockless_syscalls` (on by default) sends them through the lock
 again, for comparing the two.

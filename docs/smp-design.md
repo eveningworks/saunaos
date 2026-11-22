@@ -907,17 +907,82 @@ counts: lock-free for `SEEK_SET`, through the lock for `SEEK_END`.
 Under 3 x `syscall_bench` on KVM, `lseek` left the kernel lock's holders;
 `read` and `write` remain, 0.78 s and 0.57 s of 1.4 s held in 15 s.
 
-**Next: MPSAFE handlers that may sleep, then `read`/`write`.** A file's
-read and write park on the position lock and the mount's lock, so they
-need a lock-free path that can park: interrupts on, at kernel-lock depth
-0, from a context the scheduler can switch away from and back to without
-the lock (an AP's lock-free switch already saves such contexts). What it
-must settle before a row uses it: a wake from a kmutex unlock without the
-kernel lock (`scheduler_wake_one()` scans `procs[]` unlocked); a signal
-posted while it sleeps; strace and the sandbox, which today make the
-lock-free path decline; and the stall and kstack tables, written under
-the lock. Then pipes (their own lock per pipe), ramfs, and the disk
-filesystems last -- they already have a lock per mount.
+**Built 2026-11-22 (later): a lock-free park, and a pipe's `read` and
+`write` without the kernel lock.** FreeBSD's pipe mutex and its MPSAFE
+`msleep()` are the shape (`docs/decisions/kernel.md`):
+
+- **`read` and `write` are MPSAFE rows**, and a kind of description
+  whose ops may run without the lock says so (`FD_OPS_MPSAFE`; a pipe's
+  two ends). `rw_lockless()` holds the description, as the locked path
+  does, and declines for every other kind. **A last reference is put
+  under the kernel lock** (`put_lockless()`): a sibling's close during the
+  call leaves this one the `release()`.
+- **A spinlock per pipe**, every field under it. A waiter ARMS on the
+  pipe's channel before letting the lock go and a waker wakes after, so
+  both paths share one protocol; the preemption guard that was there
+  excluded only its own core.
+- **A wake's two scans, an arm, and a park's last test are under the
+  scheduler lock** (`scheduler_wake_n()`, `scheduler_wait_arm()`,
+  `block_common()`): with no kernel lock on either side, a wake testing
+  "armed?" and "BLOCKED?" while the parker moved between them found
+  neither.
+- **The lock-free park** (`scheduler_block_current_lockless()`) parks at
+  the syscall's entry, as a pipe's locked park does, and declines having
+  written nothing for a signal or re-issue due or an RT process. **When
+  the context it would switch into holds the kernel lock, it takes that
+  lock first**, on its own stack before anything is picked or marked,
+  picks again, and saves the parker at depth 0 (`bkl_take_for_switch()`);
+  the switch hands the lock on. Declining instead never parked once: every
+  locked park and every AP's idle loop saves depth 1, so nothing ever
+  reached depth 0.
+- **User memory is copied without faulting** (`vmm_copy_to_user_nofault()`),
+  refusing instead, and that is safe because of the interrupts-off window
+  -- a frame is freed only after a shootdown this core cannot answer --
+  so no lock is taken between a range check and its copy. A read checks
+  the destination before a byte leaves the pipe.
+
+Proven by `lockless_rw_test` (ring 3): a two-thread ping-pong that parks
+both ends every round, three writers' 64-byte records through one pipe,
+a parked reader told of EOF and a parked writer of EPIPE, and the rows'
+counts. Each red on its own control, KVM four vCPUs: the pipe lock
+dropped from the lock-free write (the records phase stalls), the
+lock-free park's "woken while arming" test skipped with its window
+widened (ping-pong stalls; green with the window and the test), the wake
+scan without the scheduler lock with the park's window widened (ping-pong
+stalls; green locked), and every lock-free park declined (39281 reads take
+the kernel lock against 3910). KTEST 1339/0 under TCG, the ring-3 suite
+141/141 under KVM four vCPUs.
+
+**Measured on KVM, four vCPUs, the TSC the clocksource** (`syscall_bench
+200000 64`, ns; "through the lock" is `kernel.lockless_syscalls off` on
+the same boot, two runs each):
+
+| | 1 copy, lock-free | 1 copy, through the lock | 4 copies, lock-free | 4 copies, through the lock |
+|---|---|---|---|---|
+| `pipe 1 B` | 457-493 | 535-555 | 440-1640 | 4060-24700 |
+| two processes, a pipe round trip | 9140-9330 | 18600-19300 | 4590-10500 | 41000-50200 |
+| a /tmp read of 64 B (still locked) | -- | -- | 5350-7840 | 8380-11200 |
+
+The ramfs read gains only because the pipes left the lock.
+
+**On the ASUS** (UX305FA, two cores and four threads, the TSC), the same
+rows and runs:
+
+| | 1 copy, lock-free | 1 copy, through the lock | 4 copies, lock-free | 4 copies, through the lock |
+|---|---|---|---|---|
+| `pipe 1 B` | 1089-1100 | 1425-1437 | 1110-4630 | 2720-10100 |
+| two processes, a pipe round trip | 7090-7100 | 10220-10260 | 7200-17400 | 26500-45600 |
+
+**Next: ramfs `read`/`write`.** A file's read and write sleep MID-call
+-- on the position lock and the mount's lock, both kmutexes -- and
+`fs_read_range()` looks the path up and walks the mount table on every
+call. So the lock-free handler needs a kmutex sleep (taking the kernel
+lock for the sleep, as the park takes it for a switch, is the first
+shape to try), the path walk and mount table safe without the kernel
+lock, and an audit of every preemption-guard section the ramfs path
+reaches. Still declining for now: strace, a sandboxed process, and the
+stall and kstack tables, written under the lock. The disk filesystems
+after ramfs.
 
 The plan as written:
 

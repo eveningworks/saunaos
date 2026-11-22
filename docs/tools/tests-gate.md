@@ -73,7 +73,8 @@ it is saved.
   alone; the interrupts-in-syscalls soak ran the race tests both ways.
   **`--cpus N` boots N vCPUs** (`vm.py --cpus`; default 1), and the
   suite's programs then run on every core (`smp=run`, the default) --
-  one vCPU tests nothing of SMP stage 5.
+  one vCPU tests nothing of SMP stage 5 (`lockless_rw_test` then skips
+  its lock-free-park count: only an AP parks without the kernel lock).
   **`--cpu MODEL` is QEMU's `-cpu`** (`vm.py --cpu`): `--kvm --cpu
   host,+invtsc` gives the guest an invariant TSC, so the TSC is its
   clocksource and `lockless_test` reads the clock page from ring 3 --

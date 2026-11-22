@@ -25,7 +25,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
-- [ ] MPSAFE handlers that may sleep, then `read`/`write` of pipes and ramfs without the kernel lock  *(SMP)*
+- [ ] `read`/`write` of ramfs without the kernel lock: a lock-free handler that sleeps mid-call  *(SMP)*
 <!-- END next-up -->
 
 
@@ -1614,8 +1614,9 @@ measurement of what is single-core in the tree today.
 - [x] ~~A clock ring 3 reads without a syscall~~ DONE 2026-11-21 -- the clock page, vDSO-shaped
 - [x] ~~The scheduler's tick and rotation without the kernel lock~~ DONE 2026-11-21 -- a run-queue lock; AP events lock-free
 - [x] ~~Descriptor tables on their own locks; `lseek` without the kernel lock~~ DONE 2026-11-22 -- an MPSAFE row may decline
-- [ ] **NEXT** MPSAFE handlers that may sleep, then `read`/`write` of pipes and ramfs without the kernel lock
-- [ ] A lock-free switch into a context that holds the kernel lock -- built once, panicked the KTEST suite 2 runs in 2
+- [x] ~~A lock-free park, and a pipe's `read`/`write` without the kernel lock~~ DONE 2026-11-22 -- the park takes it first when needed
+- [ ] **NEXT** `read`/`write` of ramfs without the kernel lock: a lock-free handler that sleeps mid-call
+- [ ] A lock-free scheduler event switching into a context that holds the kernel lock -- the park's take-first shape is the candidate
 - [ ] An audit of everything currently assuming single-threaded -- stage 7, split the BKL in measured order
 
 ### Protecting kernel memory from device DMA
