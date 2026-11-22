@@ -992,6 +992,12 @@ void xhci_deferred_work_hc(struct xhci_hc *hc) {
     wedged_heartbeat(hc);
     if (!hc->present || !hc->running) return;
 
+    // A probe after boot left its first scan here (xhci.c).
+    if (hc->scan_pending) {
+        xhci_first_scans();
+        return;
+    }
+
     // FIRST, and it takes every device with it -- so nothing below
     // should run against the state it is about to replace.
     if (hc->hcreset_pending) {

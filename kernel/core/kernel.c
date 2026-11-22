@@ -350,6 +350,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // level definitions and beside the calls that own them.
     initcalls_run(INIT_CORE);   // the class cores that own a table (net)
     initcalls_run(INIT_BUS);    // pci_bind() probes every PCI driver -- after heap_init(): a virtqueue is contiguous frames
+    initcalls_run(INIT_SETTLE); // what the probes left for after them: USB's port scans
 
     klog_write("SaunaOS: kernel heap initialized\n");
 

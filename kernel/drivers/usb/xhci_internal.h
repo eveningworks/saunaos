@@ -322,6 +322,13 @@ struct xhci_hc {
     // stops dead on the first port that HAS a device -- measured, and
     // it looked exactly like the controller failing to come back.
     volatile uint32_t hcreset_pending;
+    // THE FIRST PORT SCAN, left by probe for the deferred work: probe
+    // runs with the preemption guard raised (pci_bind.c's driver
+    // context), and enumeration takes kmutexes and waits on commands --
+    // Linux's PCI probe likewise leaves its ports to the hub thread. At
+    // boot INIT_SETTLE performs it before the root mounts; a probe after
+    // boot (a module load's rebind) has it done from the idle path.
+    volatile uint32_t scan_pending;
     // kernel.usb.replug, same deferral and for the same reason.
     // Separate from the reset: they are different levers and the point
     // of having both is to tell which one a device needs.
@@ -453,6 +460,7 @@ void *xhci_alloc_frame(uint64_t *out_phys);
 void xhci_log_socket_map(struct xhci_hc *hc);
 void xhci_power_ports(struct xhci_hc *hc);
 void xhci_scan_ports(struct xhci_hc *hc);
+void xhci_first_scans(void);   // the scans probe left (xhci.c)
 int xhci_recover_halted(struct xhci_hc *hc, uint8_t slot, uint32_t dci, struct xhci_ring *ring);
 void xhci_ep_post(struct xhci_hc *hc, struct xhci_ep *e, uint8_t slice);
 void xhci_service_hc(struct xhci_hc *hc);

@@ -3185,9 +3185,11 @@ GDT/IDT, LAPIC, clocks, the heap, the console) and then calls
 
 - **THE LEVELS ARE THE ORDER; WITHIN A LEVEL IT IS LINK ORDER, WHICH
   NOTHING MAY DEPEND ON.** `INIT_CORE` (a class core owning a table --
-  `net_init`), `INIT_BUS` (AHCI, xHCI, the virtio devices), `INIT_DEVICE`
-  (NICs, sound cards), `INIT_FS`, `INIT_CONFIG` (readers of `/etc`),
-  `INIT_QUERY` (providers, before `settings_init()`). Link order is
+  `net_init`), `INIT_BUS` (`pci_bind()`: every PCI driver's probe --
+  AHCI, xHCI, the virtio devices, NICs, sound cards), `INIT_SETTLE` (what
+  a probe left for after it: USB's first port scans, before the root
+  mounts), `INIT_FS`, `INIT_CONFIG` (readers of `/etc`), `INIT_QUERY`
+  (providers, before `settings_init()`). Link order is
   `find | sort` -- deterministic, and a rename reorders it -- so a real
   dependency gets a level, never a filename.
 - **DO NOT ALSO CALL IT.** `tools/checks/check_initcalls.py` fails the build on

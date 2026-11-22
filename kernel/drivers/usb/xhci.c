@@ -16,6 +16,7 @@
 // alignment becomes something a human has to maintain, and a ring
 // straddling 64 KiB becomes possible again. Both failures are silent.
 #include "xhci_internal.h"
+#include "initcall.h"     // INIT_SETTLE: the first port scans, after probe
 #include "heap.h"
 #include "irqflags.h"   // irq_save() -- the controller list grows under live interrupts
 
@@ -813,10 +814,33 @@ static int usb_probe(const struct pci_device *d) {
     xhci_log_socket_map(hc);
     if (hc->index == 0) usb_query_init();
     xhci_power_ports(hc);
-    xhci_scan_ports(hc);
-    log_usb3_ports(hc);
+    hc->scan_pending = 1;   // enumerated by the deferred work, outside probe
     return 0;
 }
+
+// The first scan of every controller probe left one for, outside any probe:
+// INIT_SETTLE at boot, before the root mounts (a root on a USB stick has to
+// be there by then), and the idle path's deferred work for a later probe.
+void xhci_first_scans(void) {
+    for (unsigned i = 0; i < g_nxhci; i++) {
+        struct xhci_hc *hc = g_xhcis[i];
+        if (!hc->scan_pending || !hc->present || !hc->running) continue;
+        hc->scan_pending = 0;
+        xhci_scan_ports(hc);
+        log_usb3_ports(hc);
+    }
+}
+
+// INTERRUPTS ON, PREEMPTION NOT GUARDED: enumeration waits on command
+// completions an interrupt delivers, and takes kmutexes a guard forbids.
+static void xhci_settle(void) {
+    uint64_t f;
+    __asm__ volatile ("pushfq; popq %0" : "=r"(f) :: "memory");
+    __asm__ volatile ("sti" ::: "memory");
+    xhci_first_scans();
+    if (!(f & 0x200)) __asm__ volatile ("cli" ::: "memory");
+}
+INITCALL(xhci_settle, INIT_SETTLE);
 
 // --- introspection ----------------------------------------------------
 

@@ -65,6 +65,14 @@ see it.
 `INIT_BUS`. **A second controller is a second `probe()` call**, not a
 silent skip — say so if you only drive one.
 
+**`probe()` runs with the preemption guard raised** (`pci_bind.c`'s
+`driver_ctx_enter()`), and may be reached from a module load as well as
+the boot. So it takes no kmutex and does not enumerate what hangs off
+the device: bring the controller up and leave the rest to an
+`INIT_SETTLE` initcall and the driver's idle work, as xHCI leaves its
+port scan (`scan_pending`, `xhci_first_scans()`) -- Linux's PCI probe
+leaves its ports to the hub thread likewise.
+
 **`probe()` returns 0 when it drives the device, and DECLINES with
 `return pci_probe_decline(dev, "why");`** -- not its model, no medium, a
 resource it could not get, a second controller it does not drive.

@@ -137,6 +137,18 @@ def main():
         if not res.check("the guest boots with two sticks attached", g.ok, g.why):
             return res.finish(TOOL)
 
+        # ENUMERATED OUTSIDE THE PCI PROBE (xhci.c's INIT_SETTLE): inside it
+        # the preemption guard was up, and every take of the command mutex
+        # and the block table's lock was logged as one that could hang.
+        boot = g.run("dmesg")
+        atomic = [ln for ln in boot.splitlines() if "taken from atomic context" in ln]
+        res.check("sticks present at boot enumerate with no kmutex taken from atomic context",
+                  not atomic, " | ".join(atomic[:3]))
+        res.check("...and are disks before the root mounts",
+                  boot.find("block: usb0 added") != -1 and
+                  boot.find("block: usb0 added") < boot.find("fs: mounting"),
+                  "usb0 at %d, root mount at %d" % (boot.find("block: usb0 added"), boot.find("fs: mounting")))
+
         blk = g.run("lsblk")
         res.check("both sticks are named, with their block sizes",
                   "usb0" in blk and "usb1" in blk and "4096" in blk and "usb0p1" in blk, blk[-500:])

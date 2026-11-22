@@ -18,6 +18,9 @@
 enum init_level {
     INIT_CORE = 0, // a class core that owns a table others register into (net)
     INIT_BUS,      // the PCI bind (kernel/drivers/pci/pci_bind.c), platform devices
+    INIT_SETTLE,   // what a probe left for after it: USB's first port scans --
+                   // outside the bind's driver context, before the root mounts
+                   // (Linux's wait_for_device_probe() ahead of prepare_namespace())
     INIT_FS,       // the filesystem
     INIT_CONFIG,   // readers of /etc -- needs INIT_FS
     INIT_QUERY,    // SYS_QUERY providers -- before settings_init()
