@@ -8770,19 +8770,6 @@ device if no traffic returns (`devctl`) -- and keep a replug ready.
 
 - [x] ~~File Manager virtual folders (Trash, Recent, search, ZIP, folder sizes) still hold 256 entries each (`PANE_FILES`).~~ DONE 2026-11-04 (675c4d3f): the bin, an archive's folder and folder sizes grow to fit, search already did, and Recent lists its store's own bound (`URECENT_MAX`). The entry as written: A real folder lists whole since `uui_fileview` pages `SYS_LISTDIR_AT` into its own array (the File Manager once said "256 items (more)" for a copied Windows folder of 570 files). The virtual folders keep static arrays sized `PANE_FILES` in `fm_trash.c`, `fm_recent.c`, `fm_search.c`, `fm_archive.c` and `fm_sizes.c`; their `list` callbacks are now handed a growing buffer but stop at their own bound. Uncapping each means a growing array in its source (`docs/conventions/kernel.md`, allocate and grow).
 
-### `w16_gui_test.py`'s `a popup the size of the reported screen covers SaunaOS's whole screen` FAILS
-
-Repro: a fresh `disk.img` copy, `vm.py --instance 4 --kvm start`, then
-`w16_gui_test.py --instance 4 --only popup_window`: `1 passed, 1 failed`,
-the window list holding only `Popup test` 200 x 100. `w16 --trace` of
-`/usr/share/w16/popup.exe` shows `CreateWindow PopupFull style 90000000 at
-0,0 size 640,480 parent 2001` and then only `GetMessage`; `dmesg` has the
-main window's `opened window 0` and no `opened dialog`. So the popup's
-`W16_POST_DLG_OPEN` (user16.c's `popup_show()`) either never reaches
-`w16_dlgwin_open()` or that returns before `uapp_window_open()` -- not
-yet looked at. It passed 4 of 5 runs on 2026-10-27 at 547825cb, before
-the rename (35bf4171).
-
 ### Retro Launcher: a CD-ROM drive's walk off the window's thread -- a whole disc's tree, and a quadratic dedup
 
 Found by the code review of 2026-11-01: `find_programs()` walks every
