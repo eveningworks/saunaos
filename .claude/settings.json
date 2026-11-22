@@ -11,16 +11,22 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.trail/hook.cjs\" session-start || exit 0",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "permissions": {
     "allow": [
       "Bash(ping *)",
-      "Bash(graft ask *)",
-      "Bash(graft grep *)",
-      "Bash(graft skeleton *)",
-      "Bash(graft callers *)",
-      "Bash(graft map)",
       "Bash(ruff check *)",
       "Bash(nm *)",
       "Bash(lsusb *)",
@@ -36,7 +42,6 @@
       "Bash(xxd *)",
       "Bash(ffprobe *)",
       "Bash(shellcheck *)",
-      "Bash(graft *)",
       "Bash(trail *)"
     ]
   }
