@@ -22,12 +22,13 @@
 #endif
 // **SYSCALL_ROW_MPSAFE IS A ROW WHOSE HANDLER NEEDS NO KERNEL LOCK**
 // (FreeBSD's SYF_MPSAFE): dispatched by syscall_try_lockless() with
-// interrupts off, it may not sleep, take the kernel lock or touch
-// anything that lock protects -- only the calling thread's own fields and
-// what has its own lock or none. Seeing `lockless`, it may return
-// SYSCALL_DECLINE having changed nothing, and the locked path runs it
-// again (lseek answers a file's SET/CUR with its position free and
-// ESPIPE for a stream with no position, and declines the rest).
+// interrupts off, it touches nothing that lock protects -- only the
+// calling thread's own fields and what has its own lock or none -- and
+// parks only through scheduler_block_current_lockless(). Seeing
+// `lockless`, it may return SYSCALL_DECLINE having changed nothing, and
+// the locked path runs it again (lseek answers a file's SET/CUR with its
+// position free and declines the rest; read and write answer a pipe and
+// decline every other kind, docs/smp-design.md).
 // An expander that does not care is given the plain row.
 #ifndef SYSCALL_ROW_MPSAFE
 #define SYSCALL_ROW_MPSAFE(nr, name, fn, a0, a1, a2, r, pr) SYSCALL_ROW(nr, name, fn, a0, a1, a2, r, pr)
@@ -35,7 +36,7 @@
 #endif
 
 SYSCALL_ROW(SYS_EXIT, "exit", sys_exit, A_INT, A_END, A_END, R_DEC, PROMISE_STDIO)
-SYSCALL_ROW(SYS_WRITE, "write", sys_write, A_FD, A_BUF, A_INT, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW_MPSAFE(SYS_WRITE, "write", sys_write, A_FD, A_BUF, A_INT, R_DEC, PROMISE_STDIO)
 // The one syscall returning a pointer rather than a count/status --
 // and the reason a handler reports "I parked" separately from its
 // return value, since no 64-bit value is free to mean anything else.
@@ -76,7 +77,7 @@ SYSCALL_ROW(SYS_SND_CTL, "snd_ctl", sys_snd_ctl, A_END, A_END, A_END, R_DEC, PRO
 // trace line is formatted before that (see strace.c's top comment),
 // so it prints as a pointer rather than as a string -- same for
 // recv().
-SYSCALL_ROW(SYS_READ, "read", sys_read, A_FD, A_HEX, A_INT, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW_MPSAFE(SYS_READ, "read", sys_read, A_FD, A_HEX, A_INT, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_OPEN, "open", sys_open, A_PATH, A_OFLAGS, A_END, R_DEC, PROMISE_RPATH)
 SYSCALL_ROW(SYS_CLOSE, "close", sys_close, A_FD, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_UNLINK, "unlink", sys_unlink, A_PATH, A_END, A_END, R_DEC, PROMISE_CPATH)

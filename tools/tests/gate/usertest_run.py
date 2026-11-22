@@ -319,6 +319,12 @@ TESTS = [
     # and never behind another thread's, the page read-only. SPAWNED: it
     # forks a child to write the page.
     ("lockless_test", None, None, None),
+    # read() and write() of a pipe without the kernel lock: counted
+    # LOCKLESS (TAKES with kernel.lockless_syscalls off), a two-thread
+    # ping-pong that parks both ends every round, several writers' records
+    # whole and in order, a parked end told of EOF and EPIPE. SPAWNED:
+    # its threads.
+    ("lockless_rw_test", None, None, None),
     # base/ufileundo.h on real files under /home: each kind undone and
     # redone, a new record dropping the redo, a refused step failing
     # alone. SPAWNED: the copy and move engine is ufileop's.

@@ -24,6 +24,7 @@
 #include "string.h"
 #include "klimit.h"
 #include "lockstat.h"   // SPINLOCK_COUNTED: the fd lock, `fd` in `lockstat`
+#include "bkl.h"        // a lock-free call's last put takes it (put_lockless())
 
 // A BOUNCE BUFFER FOR ONE TRANSFER, sized to what this call actually
 // needs rather than to the maximum.
@@ -535,6 +536,59 @@ void fd_put(int di) {
     fd_desc_unref(di);
 }
 
+// fd_get_held() for a lock-free SYS_READ/SYS_WRITE: only a description
+// whose kind is FD_OPS_MPSAFE is held; anything else, or a bad fd, is NULL
+// and the call declines to the locked path (which logs the bad fd).
+static struct open_file *get_held_mpsafe(uint64_t pml4, int fd, int *di) {
+    *di = -1;
+    struct fd_space *sp = space_find(pml4);
+    if (!sp) return NULL;
+    fd_lock();
+    space_lock(sp);
+    int i = sp->pml4 == pml4 ? slot_di(sp, fd) : -1;
+    struct open_file *f = i >= 0 && desc_live(i) ? fd_desc_at(i) : NULL;
+    if (f && (f->ops->flags & FD_OPS_MPSAFE) && desc_ref_locked(i, 1)) {
+        *di = i;
+        scheduler_fd_hold(1);
+    }
+    space_unlock(sp);
+    fd_unlock();
+    return *di >= 0 ? f : NULL;
+}
+
+// **THE LAST REFERENCE IS PUT UNDER THE KERNEL LOCK**: its release() closes
+// a pipe end or settles a file, and neither is written to run without it
+// -- so a sibling's close during the call hands this one the teardown,
+// and it takes the lock for that alone (Linux defers such an fput, its
+// delayed_fput()). Any other put is a decrement.
+static void put_lockless(int di, const uint64_t *regs) {
+    struct open_file *f = fd_desc_at(di);
+    fd_lock();
+    int more = f->refs > 1;
+    if (more) f->refs--;
+    fd_unlock();
+    if (more) { scheduler_fd_hold(-1); return; }
+    bkl_enter(regs);
+    fd_put(di);
+    bkl_exit(regs);
+}
+
+// SYS_READ or SYS_WRITE with no kernel lock: an MPSAFE kind's op, or a
+// decline. `len` is clamped and nonzero, as the locked path's.
+static int rw_lockless(struct syscall_ctx *c, int write) {
+    uint64_t len = c->a2;
+    if (len == 0) return SYSCALL_DECLINE;
+    if (len > SYS_WRITE_MAX) len = SYS_WRITE_MAX;
+    int di;
+    struct open_file *f = get_held_mpsafe(c->pml4, (int)c->a0, &di);
+    if (!f) return SYSCALL_DECLINE;
+    int (*op)(struct syscall_ctx *, struct open_file *, uint64_t, uint64_t) =
+        write ? f->ops->write : f->ops->read;
+    int r = op ? op(c, f, c->a1, len) : SYSCALL_DECLINE;
+    put_lockless(di, c->regs);
+    return r;
+}
+
 // THE PEER THIS PROCESS IS TALKING TO, or 0 if it holds no connected
 // socket at all. How the kernel knows a session arrived over the network
 // without being told: telnetd is handed its connection by inetd and then
@@ -769,7 +823,9 @@ struct tty *fd_tty(uint64_t pml4, int fd) {
     return f->ops->tty(f);
 }
 
+// An MPSAFE row: a pipe is written without the kernel lock (rw_lockless()).
 int sys_write(struct syscall_ctx *c) {
+    if (c->lockless) return rw_lockless(c, 1);
     // ABI: RDI = fd (was the buffer pointer before SYS_OPEN/SYS_READ
     // existed -- see the "ABI NOTE" on SYS_WRITE in syscall_abi.h),
     // RSI = buffer pointer, RDX = length.
@@ -819,6 +875,7 @@ int sys_write(struct syscall_ctx *c) {
 }
 
 int sys_read(struct syscall_ctx *c) {
+    if (c->lockless) return rw_lockless(c, 0);
     int fd = (int)c->a0;
     uint64_t buf_ptr = c->a1;
     uint64_t len = c->a2;

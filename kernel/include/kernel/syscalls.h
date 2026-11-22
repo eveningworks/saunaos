@@ -155,6 +155,11 @@ struct fd_ops {
 // A WRITE TO IT IS INPUT, not output -- a pty master's is typed at the
 // terminal. What stops a child's stderr being pointed at one.
 #define FD_OPS_WRITE_IS_INPUT 0x1
+// ITS read/write MAY RUN WITHOUT THE KERNEL LOCK (an MPSAFE SYS_READ or
+// SYS_WRITE): with `c->lockless` set, interrupts off and a hold on the
+// description, the op answers, parks with scheduler_block_current_lockless(),
+// or returns SYSCALL_DECLINE having consumed nothing.
+#define FD_OPS_MPSAFE 0x2
 
 // Every kind there is, each defined by its owner.
 extern const struct fd_ops file_fd_ops;        // kernel/fs/fs_syscalls.c

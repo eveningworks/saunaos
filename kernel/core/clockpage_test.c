@@ -114,16 +114,16 @@ KTEST("clocksource", "the clock page is one read-only frame in every address spa
     vmm_destroy_address_space(c);
 }
 
-KTEST("syscall", "the clock, id and lseek calls are the rows that skip the kernel lock") {
+KTEST("syscall", "the clock, id, lseek, read and write calls are the rows that skip the kernel lock") {
     static const uint64_t mpsafe[] = { SYS_GETPID, SYS_GETTID, SYS_TICKS, SYS_MONOTONIC_NS,
-                                       SYS_CLOCK_PAGE, SYS_LSEEK };
+                                       SYS_CLOCK_PAGE, SYS_LSEEK, SYS_READ, SYS_WRITE };
     for (unsigned i = 0; i < sizeof mpsafe / sizeof mpsafe[0]; i++) {
         const struct syscall_desc *d = syscall_desc_at(mpsafe[i]);
         KTEST_ASSERT(d && d->fn);
         KTEST_ASSERT(d->flags & SYSCALL_F_MPSAFE);
     }
     // And an ordinary one does not.
-    const struct syscall_desc *w = syscall_desc_at(SYS_WRITE);
+    const struct syscall_desc *w = syscall_desc_at(SYS_OPEN);
     KTEST_ASSERT(w && !(w->flags & SYSCALL_F_MPSAFE));
 }
 
