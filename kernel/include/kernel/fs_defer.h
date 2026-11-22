@@ -28,6 +28,9 @@ int fs_read_range_lockless(const char *path, uint64_t offset, void *buf, uint32_
 // file's size after the write, read under the same mount lock.
 int fs_write_range_lockless(const char *path, uint64_t offset, const void *buf, uint32_t len,
                             uint64_t *size_out);
+// Whether `path` is on an fs_ops.mpsafe mount with no device, for open()'s
+// hint (open_file.file.lockless). Under the kernel lock.
+int fs_mpsafe_at(const char *path);
 // The fswatch note a lock-free write owed, under the kernel lock.
 void fs_note_watchers(const char *path);
 

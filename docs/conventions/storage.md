@@ -2280,7 +2280,11 @@ no kernel lock, interrupts off, the mount's lock TRYLOCKED
 may take spinlocks (the heap's, the frame allocator's) but never sleep,
 never wait for anything, never ask `FS_OP()` to re-run them
 (`mount_wait()`), and touch nothing outside their mount's state. A
-backend whose op can wait for a disk does not set it.
+backend whose op can wait for a disk does not set it. **Its
+`lockless_write_ok` vetoes, under the mount's lock, any write whose cost
+with interrupts off is not bounded by its length** -- ramfs a missing
+file (a create) and a chunk table grown past 128 KiB; NULL vetoes every
+lock-free write.
 
 **Every decline comes BEFORE the backend writes**: a failed write may be
 partial, and the locked path running it again would append it twice --

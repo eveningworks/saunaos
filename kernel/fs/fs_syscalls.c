@@ -258,20 +258,8 @@ int sys_open(struct syscall_ctx *c) {
             // What a lock-free lseek touches is set BEFORE the install
             // publishes it to the process's other threads: the position is
             // the claim's zero, and the lock is named here, not after.
-            // So is what a lock-free read uses -- the name and the mode --
-            // or a sibling thread's read could find a half-copied name.
             int di = fd_desc_alloc(&file_fd_ops, -1);
-            if (di >= 0) {
-                struct open_file *nf = fd_desc_at(di);
-                kmutex_name(&nf->file.pos_lock, "file position");
-                k_strlcpy(nf->file.name, name, sizeof nf->file.name);
-                nf->file.mode = mode;
-                // Read-only fds ignore it, so it is not worth refusing
-                // the combination -- but it is worth not SETTING it,
-                // since SYS_FSTAT reports nothing about it and a stray
-                // flag on a reader would be state nobody could see.
-                nf->file.append = (uint8_t)(want_write && want_append);
-            }
+            if (di >= 0) kmutex_name(&fd_desc_at(di)->file.pos_lock, "file position");
             int fd = di >= 0 ? fd_install(pml4, di) : -1;
             if (fd < 0) {
                 if (di >= 0) fd_desc_unref(di);
@@ -345,6 +333,16 @@ int sys_open(struct syscall_ctx *c) {
                     kpath_put(name);
                     return 0;
                 }
+                struct open_file *nf = fd_desc_at(di);
+                k_strlcpy(nf->file.name, name, sizeof nf->file.name);
+                nf->file.mode = mode;
+                // Read-only fds ignore it, so it is not worth refusing
+                // the combination -- but it is worth not SETTING it,
+                // since SYS_FSTAT reports nothing about it and a stray
+                // flag on a reader would be state nobody could see.
+                nf->file.append = (uint8_t)(want_write && want_append);
+                // LAST, and RELEASE: what a lock-free call reads first.
+                __atomic_store_n(&nf->file.lockless, (uint8_t)fs_mpsafe_at(name), __ATOMIC_RELEASE);
                 c->regs[14] = (uint64_t)fd;
             }
         }
@@ -1077,7 +1075,8 @@ int sys_sync(struct syscall_ctx *c) {
 // the call is answered, never declined (fs_write_range_lockless()).
 static int file_fd_write_lockless(struct syscall_ctx *c, struct open_file *f,
                                   uint64_t buf_ptr, uint64_t len) {
-    if (!fd_mode_writes(f->file.mode) || len > LOCKLESS_RW_MAX) return SYSCALL_DECLINE;
+    if (!__atomic_load_n(&f->file.lockless, __ATOMIC_ACQUIRE) ||
+        !fd_mode_writes(f->file.mode) || len > LOCKLESS_RW_MAX) return SYSCALL_DECLINE;
     char *tmp = fd_bounce_alloc(&len);
     if (!tmp) return SYSCALL_DECLINE;
     int r = SYSCALL_DECLINE;
@@ -1172,7 +1171,8 @@ static int file_fd_write(struct syscall_ctx *c, struct open_file *f,
 // begin again from scratch. Every lock is trylocked (fs_read_range_lockless()).
 static int file_fd_read_lockless(struct syscall_ctx *c, struct open_file *f,
                                  uint64_t buf_ptr, uint64_t len) {
-    if (!fd_mode_reads(f->file.mode) || len > LOCKLESS_RW_MAX) return SYSCALL_DECLINE;
+    if (!__atomic_load_n(&f->file.lockless, __ATOMIC_ACQUIRE) ||
+        !fd_mode_reads(f->file.mode) || len > LOCKLESS_RW_MAX) return SYSCALL_DECLINE;
     char *kbuf = fd_bounce_alloc(&len);
     if (!kbuf) return SYSCALL_DECLINE;
     int r = SYSCALL_DECLINE;

@@ -58,10 +58,13 @@ which keeps the rules that bite callers elsewhere.
 - **A BACKEND WITH `fs_ops.mpsafe` (ramfs) HAS ITS `read_range`,
   `write_range` AND `size` CALLED WITH NO KERNEL LOCK** and interrupts
   off, its mount's lock trylocked: they never sleep, never wait, never
-  ask `FS_OP()` to re-run them, and a lock-free write declines only
-  BEFORE the backend writes (`docs/conventions/storage.md`). A mount
-  slot's fields change inside `mt_write_begin()`/`_end()`, or a
-  lock-free resolve walks a half-written slot.
+  ask `FS_OP()` to re-run them, `lockless_write_ok` vetoes a write
+  whose cost is not bounded by its length, and a lock-free write
+  declines only BEFORE the backend writes (`docs/conventions/storage.md`). **What a
+  lock-free resolve walks -- a slot's `used`, `point`, `point_len` and
+  `gen` -- changes inside `mt_write_begin()`/`_end()`**, or it walks a
+  half-written slot; it reads nothing else of a slot (`fs`, `flags`,
+  `dev`) until it holds the slot's lock with the generation unchanged.
 - **THERE IS NO `fs_read()`. A whole-file read goes into memory the
   caller owns: `fs_read_into(path, buf, cap)`**, which REFUSES an
   oversized file rather than truncating; a file that may be large is

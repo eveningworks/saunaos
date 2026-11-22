@@ -169,6 +169,11 @@ struct fs_ops {
     // (never asking FS_OP to re-run them), nor touch state outside their
     // mount's. ramfs: memory, and kmalloc and frames under their own locks.
     int mpsafe;
+    // An mpsafe backend's veto of one lock-free write, under the mount's
+    // lock before it: 0 when it would cost more than its `len` with
+    // interrupts off (a big table grown, a file created), so the locked
+    // path does it. NULL: every lock-free write declines.
+    int (*lockless_write_ok)(void *st, const char *path, uint64_t offset, uint32_t len);
 
     // ---- per-mount state ---------------------------------------
     //

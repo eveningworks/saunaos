@@ -327,7 +327,9 @@ static int make_file(const char *path) {
 // CALLS 64-byte reads at numbered offsets, each checked: the count is
 // only worth anything if the bytes are right too. A few may decline --
 // another process holding /tmp's lock for a moment -- so the lock-free
-// count allows a tenth to take the locked path.
+// count allows a tenth to take the locked path. **The takes are NOT
+// bounded**: the row counts every process's calls, and under the TCG gate
+// other processes' writes added 1395 takes in one 5000-write window.
 static int read_rounds(int fd, uint32_t len) {
     static char buf[BIG_READ];
     int bad = 0;
@@ -354,9 +356,26 @@ static void count_reads(const char *what, const char *path, uint32_t len, int wa
     snprintf(d, sizeof d, "read lockless +%llu takes +%llu, %d wrong",
              (unsigned long long)(l1 - l0), (unsigned long long)(t1 - t0), bad);
     if (want_lockless)
-        utest_check_detail(!bad && l1 - l0 >= CALLS - CALLS / 10 && t1 - t0 < CALLS / 10, what, d);
+        utest_check_detail(!bad && l1 - l0 >= CALLS - CALLS / 10, what, d);
     else
         utest_check_detail(!bad && t1 - t0 >= CALLS, what, d);
+}
+
+// Whether `path` is on a ramfs: the longest mount point it is under. A
+// machine with no disk has /var/tmp in RAM, and its "disk file" checks
+// would then be testing nothing they name.
+static int on_ramfs(const char *path) {
+    struct query_fsinfo q;
+    size_t best = 0;
+    int ram = 0;
+    QUERY_FOREACH(QUERY_FSINFO, q, i) {
+        size_t n = strlen(q.point);
+        int under = n == 1 || (strncmp(path, q.point, n) == 0 && (path[n] == '/' || !path[n]));
+        if (!(q.flags & QUERY_FS_MOUNTED) || !under || n < best) continue;
+        best = n;
+        ram = strcmp(q.name, "ramfs") == 0;
+    }
+    return ram;
 }
 
 static void check_file_counted(void) {
@@ -365,7 +384,8 @@ static void check_file_counted(void) {
         return;
     }
     count_reads("a /tmp file is read without the kernel lock", RAM_FILE, 64, 1);
-    count_reads("a /var/tmp (disk) file's read takes the kernel lock", DISK_FILE, 64, 0);
+    int disk = !on_ramfs(DISK_FILE);
+    if (disk) count_reads("a /var/tmp (disk) file's read takes the kernel lock", DISK_FILE, 64, 0);
     count_reads("a read past the lock-free bound takes the kernel lock", RAM_FILE, BIG_READ, 0);
     tunable_set(TUNABLE, "off");
     count_reads("turned off, a /tmp read takes the kernel lock again", RAM_FILE, 64, 0);
@@ -435,15 +455,39 @@ static void count_writes(const char *what, const char *path, int want_lockless) 
     snprintf(d, sizeof d, "write lockless +%llu takes +%llu, %d wrong",
              (unsigned long long)(l1 - l0), (unsigned long long)(t1 - t0), bad);
     if (want_lockless)
-        utest_check_detail(!bad && l1 - l0 >= CALLS - CALLS / 10 && t1 - t0 < CALLS / 10, what, d);
+        utest_check_detail(!bad && l1 - l0 >= CALLS - CALLS / 10, what, d);
     else
         utest_check_detail(!bad && t1 - t0 >= CALLS, what, d);
     unlink(path);
 }
 
+// A word written 128 MiB in: its chunk table would grow past what a
+// lock-free write may grow with interrupts off, so ramfs vetoes it and the
+// locked path writes it (ramfs_lockless_write_ok()).
+static void check_far_write(void) {
+    int fd = open(W_FILE, O_RDWR | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) { utest_check(0, "the far write's file opens"); return; }
+    uint64_t t0, l0, t1, l1;
+    uint32_t w = 0x5aa5f00d, back = 0;
+    lseek(fd, 128ll << 20, SEEK_SET);
+    syscall_row(SYS_WRITE, &t0, &l0);
+    ssize_t n = write(fd, &w, 4);
+    syscall_row(SYS_WRITE, &t1, &l1);
+    lseek(fd, 128ll << 20, SEEK_SET);
+    ssize_t r = read(fd, &back, 4);
+    close(fd);
+    unlink(W_FILE);
+    utest_checkf(n == 4 && r == 4 && back == w && t1 - t0 >= 1 && l1 == l0,
+                 "a write 128 MiB in takes the kernel lock, and lands: wrote %d, read %d, "
+                 "lockless +%llu takes +%llu", (int)n, (int)r,
+                 (unsigned long long)(l1 - l0), (unsigned long long)(t1 - t0));
+}
+
 static void check_write_counted(void) {
     count_writes("a /tmp file is written without the kernel lock", W_FILE, 1);
-    count_writes("a /var/tmp (disk) file's write takes the kernel lock", DISK_FILE, 0);
+    check_far_write();
+    if (!on_ramfs(DISK_FILE))
+        count_writes("a /var/tmp (disk) file's write takes the kernel lock", DISK_FILE, 0);
     tunable_set(TUNABLE, "off");
     count_writes("turned off, a /tmp write takes the kernel lock again", W_FILE, 0);
     tunable_set(TUNABLE, "on");

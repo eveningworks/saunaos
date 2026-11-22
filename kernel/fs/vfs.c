@@ -908,18 +908,33 @@ uint32_t fs_read_range(const char *path, uint64_t offset, void *buf, uint32_t le
 // Linux's RCU path walk handing over to ref-walk -- since sleeping for the
 // lock needs the kernel lock. A backend asking to be re-run declines too:
 // a read changes nothing, so the locked path may simply read again.
+// **NOTHING OF THE SLOT BUT ITS LOCK IS READ BEFORE THE LOCK IS HELD**:
+// past the sequence window the slot may be cleared (a root reprobe empties
+// every slot, open files or not), and `fs` is zeroed with it. Once held
+// with the generation unchanged, the slot cannot change: every clear is
+// under exclusion, which holds every mount's lock.
+static const struct mount *lock_lockless(const char *path, const char **sub) {
+    uint32_t gen;
+    const struct mount *m = mount_resolve_lockless(path, sub, &gen);
+    if (!m || !mount_trylock(m)) return 0;
+    if (m->used && m->gen == gen && m->fs->mpsafe && !m->dev) return m;
+    mount_unlock(m);
+    return 0;
+}
+
+int fs_mpsafe_at(const char *path) {
+    const struct mount *m = mount_resolve(path, 0);
+    return m && m->fs->mpsafe && !m->dev;
+}
+
 int fs_read_range_lockless(const char *path, uint64_t offset, void *buf, uint32_t len) {
     if (cachesim_on()) return -1;
     const char *sub;
-    uint32_t gen;
-    const struct mount *m = mount_resolve_lockless(path, &sub, &gen);
-    if (!m || !m->fs->mpsafe || !mount_trylock(m)) return -1;
-    int n = -1;
-    if (m->used && m->gen == gen) {
-        n = (int)m->fs->read_range(m->state, sub, offset, buf, len);
-        if (m->fs->op_end) m->fs->op_end(m->state);
-        if (m->restart) { ((struct mount *)m)->restart = 0; n = -1; }
-    }
+    const struct mount *m = lock_lockless(path, &sub);
+    if (!m) return -1;
+    int n = (int)m->fs->read_range(m->state, sub, offset, buf, len);
+    if (m->fs->op_end) m->fs->op_end(m->state);
+    if (m->restart) { ((struct mount *)m)->restart = 0; n = -1; }
     mount_unlock(m);
     return n;
 }
@@ -950,12 +965,13 @@ int fs_write_range_lockless(const char *path, uint64_t offset, const void *buf, 
                             uint64_t *size_out) {
     if (cachesim_on() || imgcache_may_hold(path)) return -1;
     const char *sub;
-    uint32_t gen;
-    const struct mount *m = mount_resolve_lockless(path, &sub, &gen);
-    if (!m || !m->fs->mpsafe || (m->flags & MNT_RDONLY) || m->dev || !mount_trylock(m))
-        return -1;
+    const struct mount *m = lock_lockless(path, &sub);
+    if (!m) return -1;
     int ok = -1;
-    if (m->used && m->gen == gen) {
+    // The backend vets it first: a write whose cost is not bounded by `len`
+    // (ramfs growing a big chunk table) declines, as a read-only mount does.
+    if (!(m->flags & MNT_RDONLY) && m->fs->lockless_write_ok &&
+        m->fs->lockless_write_ok(m->state, sub, offset, len)) {
         ok = m->fs->write_range(m->state, sub, offset, buf, len) ? 1 : 0;
         if (ok) *size_out = m->fs->size(m->state, sub);
         if (m->fs->op_end) m->fs->op_end(m->state);

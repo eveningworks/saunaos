@@ -212,6 +212,12 @@ struct open_file {
             // position -- Linux's f_pos_lock. Zeroed is unlocked.
             struct kmutex pos_lock;
             uint8_t append; // SYS_O_APPEND: every write goes to the end
+            // 1 once open() has FINISHED, on an fs_ops.mpsafe mount: a
+            // lock-free read or write declines until then -- before any
+            // copy -- so a sibling never uses a half-opened file and a disk
+            // file's call costs no bounce buffer. Stored RELEASE after
+            // the name and mode. A hint: the mount is checked again.
+            uint8_t lockless;
         } file;
         struct {
             int idx; // index into kernel/net/socket.c's table

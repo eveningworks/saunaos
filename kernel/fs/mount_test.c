@@ -93,7 +93,6 @@ KTEST("mount", "a mount claims its subtree, and the backend sees a root-relative
     KTEST_ASSERT(mount_remove("/mnt", &why));
 }
 
-// RULE 1, and the reason `under()` is not a k_strncmp.
 // A lock-free resolve declines while a slot is being written, rather than
 // walk a half-copied point (or a half-cleared one, which reads as nothing
 // mounted). Red with the count's test taken out of mount_resolve_lockless().
@@ -119,10 +118,15 @@ KTEST("mount", "a lock-free resolve declines while the table is being written") 
 // fs_write_range_lockless()'s answers, called directly: a lock-free
 // SYS_WRITE is the only caller, and a KTEST cannot make one. A watched
 // path is OWED its note (2) and nothing fires until the owed note is sent;
-// a disk file and a read-only mount decline, having written nothing.
-KTEST("mount", "a lock-free write owes a watcher its note, and declines a disk file") {
+// a missing file, a write far past the end (a big chunk table grown with
+// interrupts off), a disk file and a read-only mount decline, having
+// written nothing.
+KTEST("mount", "a lock-free write owes a watcher its note, and declines what it cannot do cheaply") {
     KTEST_ASSERT(mnt_ramfs("/mnt"));
     uint64_t size = 0;
+    int missing = fs_write_range_lockless("/mnt/a", 0, "abcd", 4, &size);
+    int created = fs_exists("/mnt/a");
+    KTEST_ASSERT(fs_touch("/mnt/a"));
     int plain = fs_write_range_lockless("/mnt/a", 0, "abcd", 4, &size);
     uint64_t size_plain = size;
     int app = fs_write_range_lockless("/mnt/a", FS_OFFSET_END, "ef", 2, &size);
@@ -135,13 +139,23 @@ KTEST("mount", "a lock-free write owes a watcher its note, and declines a disk f
     fs_note_watchers("/mnt/a");
     uint32_t fires_sent = w > 0 ? fswatch_fires(w) : 0;
     fswatch_owner_gone(0x7ff1);
-    int disk = fs_write_range_lockless("/.ktest_lockless_w", 0, "x", 1, &size);
-    int disk_exists = fs_exists("/.ktest_lockless_w");
+    int far = fs_write_range_lockless("/mnt/a", 64ull << 30, "x", 1, &size);
+    uint64_t size_far = fs_size("/mnt/a");
+    // A disk root only: on a ramfs root (no disk) the same write is cheap.
+    int disk_root = !fs_mpsafe_at("/");
+    int disk = -1, disk_exists = 0;
+    if (disk_root && fs_touch("/.ktest_lockless_w")) {
+        disk = fs_write_range_lockless("/.ktest_lockless_w", 0, "x", 1, &size);
+        disk_exists = (int)fs_size("/.ktest_lockless_w");
+        fs_delete("/.ktest_lockless_w");
+    }
     KTEST_ASSERT(mount_remove("/mnt", 0));
     KTEST_ASSERT(mount_add(0, "ramfs", "/mnt", MNT_RDONLY, 0, 0));
     int ro = fs_write_range_lockless("/mnt/b", 0, "x", 1, &size);
     KTEST_ASSERT(mount_remove("/mnt", 0));
 
+    KTEST_ASSERT_EQ(missing, -1);
+    KTEST_ASSERT(!created);   // the decline created nothing
     KTEST_ASSERT_EQ(plain, 1);
     KTEST_ASSERT_EQ(size_plain, 4);
     KTEST_ASSERT_EQ(app, 1);
@@ -152,11 +166,14 @@ KTEST("mount", "a lock-free write owes a watcher its note, and declines a disk f
     KTEST_ASSERT_EQ(watched, 2);
     KTEST_ASSERT_EQ(fires_owed, 0);   // owed, not sent
     KTEST_ASSERT_EQ(fires_sent, 1);
+    KTEST_ASSERT_EQ(far, -1);
+    KTEST_ASSERT_EQ(size_far, 6);
     KTEST_ASSERT_EQ(disk, -1);
-    KTEST_ASSERT(!disk_exists);
+    KTEST_ASSERT(!disk_exists);   // nothing written to it
     KTEST_ASSERT_EQ(ro, -1);
 }
 
+// RULE 1, and the reason `under()` is not a k_strncmp.
 KTEST("mount", "a mount point does not claim a sibling that shares its prefix") {
     fs_mkdir(SIBLING);
     if (!fs_is_dir(SIBLING)) { KTEST_SKIP("could not create " SIBLING); }

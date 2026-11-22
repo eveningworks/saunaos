@@ -609,6 +609,26 @@ static int ramfs_write_range(void *st, const char *path, uint64_t offset, const 
     return write_at(sbi, sbi->nodes[idx], offset, buf, len);
 }
 
+// A chunk table a lock-free write may grow to, in entries: 128 KiB, a
+// 64 MiB file. Its doubling copies and zeroes the whole table with
+// interrupts off; past this the locked path grows it.
+#define RAMFS_LOCKLESS_TABLE 16384u
+
+// fs_ops.lockless_write_ok: an existing file, and a table that needs no
+// growth past RAMFS_LOCKLESS_TABLE -- so a byte written at 64 GiB, or
+// appended to a file that big, costs what its length does.
+static int ramfs_lockless_write_ok(void *st, const char *path, uint64_t offset, uint32_t len) {
+    struct ramfs_state *sbi = st;
+    if (!sbi->mounted || len == 0) return 0;
+    int idx = find(sbi, path);
+    if (idx < 0 || sbi->nodes[idx]->is_dir) return 0;
+    struct rnode *n = sbi->nodes[idx];
+    if (offset == FS_OFFSET_END) offset = n->size;
+    if (offset > RAMFS_MAX_BYTES || len > RAMFS_MAX_BYTES - offset) return 0;
+    uint64_t last = (offset + len - 1) / RAMFS_CHUNK;
+    return last < n->chunk_cap || last < RAMFS_LOCKLESS_TABLE / 2;
+}
+
 // The steppable pairs. They exist so a caller can avoid BLOCKING on
 // slow I/O (fs.h's async-I/O item); a memcpy has nothing to yield
 // between, so each begins by doing the whole thing and the first step
@@ -855,6 +875,7 @@ const struct fs_ops ramfs_ops = {
     // stops that, not the budget.
     .max_mounts = FS_MOUNTS_ANY,
     .mpsafe = 1,   // read_range, write_range and size: memory and the allocators' own locks
+    .lockless_write_ok = ramfs_lockless_write_ok,
     .state_alloc = ramfs_state_alloc,
     .state_free = ramfs_state_free,
     .probe = ramfs_probe,

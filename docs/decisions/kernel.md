@@ -11074,7 +11074,10 @@ again would append it twice; such a write is answered `-EIO`, as the
 locked path answers it. So an `fs_ops.mpsafe` backend promises never to
 ask `FS_OP()` to re-run an op, and the write's every decline -- a
 read-only mount, a mount with a device to settle, a path the image cache
-may hold, the cache simulator on -- comes before it.
+may hold, the cache simulator on, the backend's own veto of a write whose
+cost is not bounded by its length (`fs_ops.lockless_write_ok`: ramfs's
+chunk table growing past 128 KiB, a doubling that copies and zeroes all
+of it with interrupts off) -- comes before it.
 
 **The mount table is walked inside a sequence count** (Linux's
 `mount_lock` seqlock): a slot's writer, who holds the kernel lock, bumps

@@ -989,28 +989,39 @@ ref-walk on any trouble, is the shape (`docs/decisions/kernel.md`):
   to settle, a path the image cache may hold, and any call while the
   cache simulator is on. **Nothing declines once the backend has
   written** -- a failed write may be partial -- so an mpsafe backend
-  never asks `FS_OP()` to re-run it.
+  never asks `FS_OP()` to re-run it. **And it vets each lock-free write
+  first** (`fs_ops.lockless_write_ok`): ramfs declines a missing file and
+  one whose chunk table would grow past 128 KiB (a 64 MiB file), whose
+  doubling copies and zeroes the whole table with interrupts off -- a byte
+  written at 64 GiB would otherwise grow a 128 MiB table there.
+- **A description says it may go lock-free once `open` has finished**
+  (`open_file.file.lockless`, stored last with release, on an mpsafe
+  mount only), so a sibling never uses a half-opened file and a disk
+  file's call declines before any copy.
+- **Nothing of a slot but its lock is read before the lock is held**: a
+  root reprobe clears every slot, open files or not, and `fs` with it.
 - **The mount table is read inside a sequence count**
   (`mount_resolve_lockless()`; Linux's `mount_lock` seqlock): `record()`,
   `slot_clear()` and a gone disk's flags bump it, under the kernel lock,
   and a resolve declines on an odd or moved count.
 - **A write a watch covers owes its note**, sent under the kernel lock
   (`fs_note_watchers()`): the window server's broadcast is the lock's.
-- **`open` writes a description's name and mode before `fd_install()`**
-  publishes it, and the I/O charge and the generation counters add
-  atomically: two cores may now be in them at once.
+- **The I/O charge and the generation counters add atomically**: two
+  cores may now be in them at once.
 
 Proven by `lockless_rw_test`'s new phases, each red on its own control
 under KVM's four vCPUs: readers sharing one description each get the
 next word (the position lock taken out: 5 words wrong), writers sharing
 one each take the next position (6096 of 16000 words), appenders with a
 description each land at the end (the end read outside the mount lock:
-11566 of 16000), reads beside 200+ mount and unmount cycles, and the
+11566 of 16000), a word written 128 MiB in takes the kernel lock (the
+veto allowing it: lock-free +1), reads beside 200+ mount and unmount
+cycles, and the
 read and write rows' counts -- lock-free for `/tmp`, through the lock
 for `/var/tmp`, past the bound and with the tunable off. Two mount
 KTESTs: a lock-free resolve declines mid-write (red without the
-odd-count test), and a lock-free write's answers, an owed note among
-them (red with the note never owed). KTEST 1341/0 under TCG.
+odd-count test), and a lock-free write's answers, an owed note and the
+far write's veto among them (red with either taken out).
 
 **Measured on KVM, four vCPUs, the TSC** (`syscall_bench 200000 64`, a
 64 B `/tmp` call, ns; "through the lock" is `kernel.lockless_syscalls
