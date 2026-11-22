@@ -1115,7 +1115,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Stage 3: preferences folder, clipboard, open URL, message boxes, relative mouse~~ DONE 2026-11-17 -- `sdl_stage3_test.py`
 - [x] ~~SDL in the SDK: SDL3's and SDL2's headers, `.pc` files and `sdl2-config`~~ DONE 2026-11-17 -- over dynamic linking by default
 - [x] ~~Stage 4: ScummVM on its SDL backend, a GPL component, with the freeware games' downloader~~ DONE 2026-11-17 -- `make scummvm`
-- [ ] zlib, libogg and libvorbis in the SDK, for the second port that needs them -- ScummVM links its own copies statically
+- [ ] zlib, libogg and libvorbis in the SDK, for the second port that needs them -- ScummVM links its own copies (and libpng, FreeType)
 - [ ] `uzip` reads a member's compressed bytes as it inflates them, rather than holding them all in memory
 - [x] ~~Window titles past 32 bytes are cut with no ellipsis~~ DONE 2026-11-18 -- in pieces up to 1 KiB, ended in `..`
 - [ ] A pointer lock with an absolute device (a tablet): relative motion from the change in position

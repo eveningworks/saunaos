@@ -176,13 +176,14 @@ no hook on any lock path at all.
 four vCPUs under TCG, 2026-11-21: the whole KTEST suite, the boot smoke
 test and the ring-3 suite (`usertest_run.py`).
 
-- **A REAL INVERSION, NOT FIXED HERE: `block.c`'s `g_wlock` and
-  `block_part.c`'s `g_plock`.** `blk_part_create()` holds `g_plock` and
-  takes `g_wlock` through `blk_track()`; `gone_as()` -- a disk removed or
-  ejected -- holds `g_wlock` and takes `g_plock` through `reap()` ->
-  `blk_part_release()`. A disk going away while a partition is being
-  created (a USB stick pulled during another disk's rescan or a `part`
-  write) deadlocks both. Found by the `blk-gone` KTESTs; `docs/bugs.md`.
+- **A REAL INVERSION, THEN FIXED: `block.c`'s `g_wlock` and the
+  partition slots' own lock.** `blk_part_create()` held the slots' lock
+  and took `g_wlock` through `blk_track()`; `gone_as()` -- a disk removed
+  or ejected -- held `g_wlock` and took the slots' lock through `reap()`
+  -> `blk_part_release()`, so a stick pulled during a partition create
+  deadlocked both. Found by the `blk-gone` KTESTs. The slots are now
+  written under the block table's own lock (`blk_table_lock()`, ddc7c890):
+  one lock, no order to get wrong.
 - **Two false positives, fixed in the checker**: a process killed on its
   way back to ring 3 after a tick took `userfs_space_gone()`'s kmutex in
   what was counted as the tick's interrupt -- the interrupt depth now

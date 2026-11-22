@@ -172,10 +172,12 @@ Each stage is gated, committed and usable on its own.
    "<name> can be pulled out" after an Eject from anywhere, and "<name>
    was pulled out" -- held until read -- when a stick with a mounted
    volume went without one. `tools/tests/sweep/usb_desktop_test.py`.
-6. **The root on a stick.** `rootwait` (Linux's word): the boot waits,
-   bounded, for the named root device, since USB enumeration finishes
-   after the disks a PCI probe finds; `install` and `make usb-image`
-   produce a stick that runs from itself, persistently.
+6. **The root on a stick.** A stick present at boot is a disk before the
+   root mounts (xHCI's first port scan runs at `INIT_SETTLE`, 2026-11-22),
+   so `root=` can name it; `rootwait` (Linux's word) -- the boot waiting,
+   bounded, for a root that answers later -- is still unbuilt. `install`
+   and `make usb-image` produce a stick that runs from itself,
+   persistently.
 
 ## Testing
 

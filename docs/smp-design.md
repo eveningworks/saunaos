@@ -645,8 +645,9 @@ is what a path that does would stand on:
   takes and waits are still counted and an uncontended take reads no
   clock: `getpid` +2%, the pipe +14% -- the heap's lock itself, an
   uncontended atomic and an irqsave twice per call (the bounce buffer's
-  kmalloc/kfree). Per-core allocation caches (Linux's per-CPU slabs and
-  pagesets) are what would win that back.
+  kmalloc/kfree, before the per-core bounce buffer below took it off the
+  heap). Per-core allocation caches (Linux's per-CPU slabs and pagesets)
+  are what would win back the rest.
 - **The preemption guard and the interrupt depth are per core** (`struct
   cpu`'s `preempt_depth`/`isr_depth`, moved by one `%gs` instruction).
   As one global each they were the kernel lock holder's alone, so a
