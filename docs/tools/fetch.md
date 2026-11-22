@@ -43,12 +43,14 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   (FluidR3_GM, say). Checks RIFF/sfbk and a preset chunk before writing
   anything, since an error page is still a 200.
 - **`fetch_scummvm.py`** -- the ScummVM 2026.4.0, zlib 1.3.1, libogg
-  1.3.6 and libvorbis 1.3.7 source tarballs (~216 MiB) into
+  1.3.6, libvorbis 1.3.7, libpng 1.6.59 and FreeType 2.15.0 source
+  tarballs (~219 MiB) into
   `toolchain/tarballs/` for `make scummvm` (`docs/sdl-design.md`, stage
   4), as the `scummvm` row in `fetch_extras.py`'s registry -- HOST-ONLY,
   like the toolchain's. Pinned by SHA-256 against each publisher's own
   checksum (ScummVM's `.sha256`, Xiph's `SHA256SUMS`, zlib 1.3.1's
-  published hash); `--verify` is what `build_scummvm.sh` asks, `--pins`
+  published hash), or -- libpng and FreeType publish none -- the hash
+  two independent sources agreed on; `--verify` is what `build_scummvm.sh` asks, `--pins`
   feeds its stamp. `--games` fetches Lure of the Temptress's zip (5.4 MiB)
   into `data/scummvm/` (gitignored) for `scummvm_data_test.py` to serve
   -- the machine's own card fetches the games.

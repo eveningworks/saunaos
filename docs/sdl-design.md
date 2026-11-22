@@ -355,10 +355,15 @@ options" canvas and two question rounds the same day:
   `toolchain/scummvm/usr`. `make scummvm` runs it (about a minute on
   the dev host); the seed step carries that tree to the image while it
   exists, never under `NOGPL=1`. 20 MB stripped, 10 MB of data beside it.
-- **zlib, libogg and libvorbis are linked in statically** (its zip
-  themes, compressed saves, Drascula's Ogg music); they reach the SDK
-  when a second port needs them (the roadmap). No MP3, FLAC, PNG,
-  FreeType, network or OpenGL: nothing these four games need.
+- **zlib, libogg, libvorbis, libpng and FreeType are linked in
+  statically** (its zip themes, compressed saves, Drascula's Ogg music,
+  and -- since 2026-11-22 -- the Remastered theme's PNG images and the
+  TrueType fonts in `fonts.dat`, which ScummVM installs only with
+  FreeType); they reach the SDK when a second port needs them (the
+  roadmap). Without the last two ScummVM failed to load its theme
+  ("Couldn't load font ... LiberationSans-Bold.ttf") and drew its plain
+  built-in one, green on black. No MP3, FLAC, network or OpenGL: nothing
+  these four games need.
 - **The game data lives in `/usr/share/games/<id>/`** (Debian's
   shape, as DOOM's `/usr/share/doom`); ScummVM's settings and saves go
   where its POSIX backend puts them, `$XDG_CONFIG_HOME/scummvm` and

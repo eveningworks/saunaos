@@ -167,6 +167,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `emoji_picker_test.py` -- The emoji picker (Super+period) types an emoji into the focused window, and Character Map lists them in colour
 - `emoji_test.py` -- Emoji draw in COLOUR from the fallback list's emoji face, and U+FE0F decides
 - `engineless_test.py` -- Help and System Update with no Web page engine: their pages drawn as Markdown, not a dead web view
+- `exec_window_test.py` -- A program that execs another from a process that already had a window:
 - `fbs_test.py` -- First-boot setup: shown when it should be, saves what is chosen, ends
 - `filedialog_test.py` -- the shared file chooser, as a window
 - `fm_back_test.py` -- Back straight after a double click: the File Manager's history records
@@ -662,7 +663,7 @@ Full entries: [`docs/tools/fetch.md`](tools/fetch.md).
 
 - `fetch_ca_bundle.py` -- Fetch Mozilla's CA root bundle into data/etc/ssl/certs/
 - `fetch_extras.py` -- the optional, differently-licensed material
-- `fetch_scummvm.py` -- the ScummVM, zlib, libogg and libvorbis source tarballs
+- `fetch_scummvm.py` -- the ScummVM, zlib, libogg, libvorbis, libpng and FreeType source tarballs
 - `fetch_soundfont.py` -- put a full General MIDI SoundFont where the
 - `fetch_toolchain.py` -- the GCC, binutils, GMP, MPFR, MPC and GNU make source tarballs
 - `fetch_video.py` -- a real film for the Video Player: Big Buck Bunny

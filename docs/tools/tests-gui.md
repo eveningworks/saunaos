@@ -802,6 +802,14 @@ from the default (a sound card, a USB mouse, `--reboot`).
   `WIN_TEXT_MAX`. Pixels: the long title's text reaches the caption
   buttons and the short one's does not. Its positive control makes the
   compositor ignore pieces: the four long-text checks redden.
+- **`exec_window_test.py`** -- a process that had a window execs another
+  program, whose window must open: `/tests/execclient` opens one, quits,
+  and execs itself into a second, five rounds. The exec lets the old
+  program's channel ring go and the new one opens a ring of the same name
+  (`toywm.<pid>`) at once; a compositor keying its clients by pid alone
+  kept reading the dead ring -- ScummVM's free-games card handing over to
+  ScummVM, on real hardware. Red with `uchan_server_scan()`'s serial check
+  taken out: 0 of 5 opened.
 - **`launch_test.py`** -- running programs and scripts (`base/ulaunch.h`,
   `ui/uui_runask.h`, `/bin/wm/system/runask`, Terminal's `-e`) from the
   File Manager and through `/bin/open`: the "Run hello.sh?" card and

@@ -13719,3 +13719,50 @@ be wrong -- where a whole frame's is still measured.
 (Memory, Disk, Ethernet) by widening their columns: the column per
 sample keeps a resized window's history the same shape (uui_chart.h),
 and a one-pixel column has nowhere to glide.
+
+## A channel's client is its ring OBJECT, not its pid, so a program a windowed process execs gets its own windows
+
+Decided 2026-11-22 (`userland/libs/base/uchan.c`'s `uchan_server_scan()`,
+`kernel/mm/shm.c`'s object serial in `struct query_shm`).
+
+ScummVM's free-games card closes its window and execs ScummVM in the same
+process. The exec lets the card's channel ring (`toywm.<pid>`) go, and
+ScummVM's SDL layer opens one of the same name a moment later. The
+server knew its clients by PID and noticed a departure only when the
+ring's NAME stopped resolving -- so when the new ring arrived before the
+compositor's next scan, the name never stopped resolving, the compositor
+kept reading the card's dead ring, and ScummVM's window request went
+unread. On the ASUS that was every time; under QEMU the libraries' load
+gave the scan its chance and it passed.
+
+**The ring is identified as an object**, as Linux tells a replaced file
+by its inode and a Wayland compositor a new client by its new socket:
+the kernel numbers every shared-memory object (`query_shm.serial`, in what
+was the record's reserved word, never reused, never 0), the server
+records it at adoption, and a ring whose name now belongs to another
+object is dropped as a departed client -- its windows retired, its pid
+reported gone -- and the new one adopted at the next scan. Nothing is
+done to the live process: "gone" retires only what the compositor held
+for that ring. A kernel that predates the serial reports 0 and the
+check stands aside.
+
+Rejected: a `closed` word the client sets in its old ring before letting
+it go -- an exec drops the old program's mappings with no chance to
+write it; and the ring name carrying a per-open token -- every server
+would need its client table keyed by name, and windows keyed by pid
+would still meet two live rings of one pid.
+
+## ScummVM links FreeType and libpng for its own theme, though the system font engine has neither
+
+Decided 2026-11-22 (`tools/build/build_scummvm.sh`, `docs/sdl-design.md`
+stage 4). ScummVM's Remastered theme is PNG images and the TrueType
+fonts in `fonts.dat`, which ScummVM installs only when built with
+FreeType; built without both it could not load the theme and drew its
+plain built-in one, which is not what ScummVM looks like anywhere else.
+Both are fetched (SHA-256 pinned) and linked in statically, as zlib,
+libogg and libvorbis are.
+
+This does not reopen the 2026-11-19 refusal to vendor FreeType for the
+system's fonts (the CFF entry): fontd parses fonts from anywhere and
+stays one parser of our own. ScummVM's FreeType reads only ScummVM's
+own `fonts.dat`, inside an optional GPL port.

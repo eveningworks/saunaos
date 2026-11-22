@@ -1032,6 +1032,14 @@ off` on the same boot, two runs each):
 | `read` | 546-558 | 754-766 | 2282-3118 | 5727-13426 |
 | `write` | 703 | 846-850 | 1134-3105 | 7430-8769 |
 
+**On the ASUS** (UX305FA, two cores and four threads, the TSC), the
+same rows and runs:
+
+| | 1 copy, lock-free | 1 copy, through the lock | 4 copies, lock-free | 4 copies, through the lock |
+|---|---|---|---|---|
+| `read` | 1572-1588 | 2092-2093 | 2947-3543 | 6284-11467 |
+| `write` | 2020-2185 | 2368-2369 | 4292-9463 | 7029-10042 |
+
 Under 3 x `syscall_bench` for 6 s (holds timed) the kernel lock was
 held 8.9% of the time, against 61% before the descriptor split; `read`
 took it 15 k times and ran lock-free 2.05 M times, `write` 14 k and
