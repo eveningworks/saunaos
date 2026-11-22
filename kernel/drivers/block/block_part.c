@@ -64,7 +64,8 @@ struct part_slot {
 // is republished when it grows and the old one kept -- block.c's rule.
 static struct part_slot **g_slots;
 static int g_nslots, g_slot_cap;   // g_nslots published after its slot
-static struct kmutex g_plock;      // writers: create and release (recursive)
+// Writers -- create and release -- hold the block table's lock
+// (blk_table_lock()), which a slot's table entry changes under as well.
 
 static inline int nslots(void) { return __atomic_load_n(&g_nslots, __ATOMIC_ACQUIRE); }
 static inline struct part_slot *slot_at(int i) {
@@ -181,9 +182,9 @@ static int part_trim_ranges(const struct block_device *self, const struct blk_ra
 static int release_locked(const struct block_device *dev);
 
 int blk_part_release(const struct block_device *dev) {
-    kmutex_lock(&g_plock);
+    blk_table_lock();
     int r = release_locked(dev);
-    kmutex_unlock(&g_plock);
+    blk_table_unlock();
     return r;
 }
 
@@ -206,9 +207,9 @@ static const struct block_device *create_locked(const struct block_device *paren
 const struct block_device *blk_part_create(const struct block_device *parent,
                                            uint64_t base_lba, uint64_t sectors,
                                            int index) {
-    kmutex_lock(&g_plock);
+    blk_table_lock();
     const struct block_device *d = create_locked(parent, base_lba, sectors, index);
-    kmutex_unlock(&g_plock);
+    blk_table_unlock();
     return d;
 }
 

@@ -47,8 +47,12 @@ static int g_count;            // published AFTER the slot it newly counts
 static struct blk_ent *g_free_ents;
 // WRITERS take this (recursive: a reap releases windows through untrack);
 // readers never do. A hotplug, a boot driver and a mkpart rescan may add
-// or drop entries at the same time.
+// or drop entries at the same time. block_part.c's slots are written
+// under it too (blk_table_lock()): one lock, so no order to get wrong.
 static struct kmutex g_wlock;
+
+void blk_table_lock(void)   { kmutex_lock(&g_wlock); }
+void blk_table_unlock(void) { kmutex_unlock(&g_wlock); }
 
 static inline int count(void) { return __atomic_load_n(&g_count, __ATOMIC_ACQUIRE); }
 static inline struct blk_entry *at(int i) {

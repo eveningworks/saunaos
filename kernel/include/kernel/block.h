@@ -395,6 +395,15 @@ const struct block_device *blk_part_create(const struct block_device *parent,
 // refused. Same caller obligation as blk_untrack().
 int blk_part_release(const struct block_device *dev);
 
+// THE BLOCK TABLE'S WRITER LOCK, for block_part.c: a partition's slot
+// changes under the same lock as its table entry. Two locks were taken
+// in both orders -- a create held the slots' and tracked (the table's),
+// a gone disk's reap held the table's and released (the slots') -- so a
+// stick pulled during a partition create deadlocked both (lockdep).
+// Recursive, as the table's has always been.
+void blk_table_lock(void);
+void blk_table_unlock(void);
+
 // If `dev` is a partition window, the device it sits on and where it
 // starts there; NULL if it is not one. Lets a caller holding any
 // device answer "which disk is this really on" without the active
