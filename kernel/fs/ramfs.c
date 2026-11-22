@@ -854,6 +854,7 @@ const struct fs_ops ramfs_ops = {
     // promise more than the machine has; the allocator refusing is what
     // stops that, not the budget.
     .max_mounts = FS_MOUNTS_ANY,
+    .mpsafe = 1,   // read_range: find() and read_at(), no allocation, no wait
     .state_alloc = ramfs_state_alloc,
     .state_free = ramfs_state_free,
     .probe = ramfs_probe,

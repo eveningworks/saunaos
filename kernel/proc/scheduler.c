@@ -2419,8 +2419,10 @@ void scheduler_io_charge(enum sched_io_kind kind, uint64_t bytes) {
         int lead = pid_slot(procs[current_index].tgid);
         io = &procs[lead >= 0 ? lead : current_index].ext->io;
     }
-    io->bytes[kind] += bytes;
-    io->ops[kind]++;
+    // ATOMIC: a lock-free read charges with no kernel lock, so two threads
+    // of one process may charge their leader at once from two cores.
+    __atomic_fetch_add(&io->bytes[kind], bytes, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&io->ops[kind], 1, __ATOMIC_RELAXED);
     irq_restore(f);
 }
 

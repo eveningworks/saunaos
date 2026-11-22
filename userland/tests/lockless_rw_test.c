@@ -1,5 +1,6 @@
 // read() and write() without the kernel lock (docs/smp-design.md, stage 7):
-// a pipe answered, parked and woken by MPSAFE handlers on any core.
+// a pipe answered, parked and woken by MPSAFE handlers on any core, and a
+// ramfs file read.
 //
 // What a broken version would still pass, and the check that catches it:
 //   - the rows flagged but the fast path never taken: QUERY_BKLSTAT's
@@ -16,6 +17,18 @@
 //   - a lock-free park left parked after its other end went away: a
 //     reader parked on an empty pipe must see EOF when the last writer
 //     closes, and a writer parked on a full one EPIPE when the reader does.
+//
+// And a ramfs file (/tmp) read the same way, trylocking the position and
+// mount locks (fs_read_range_lockless()):
+//   - the read row counts a /tmp file's reads as LOCKLESS, and a disk
+//     file's (/var/tmp) and a read past the interrupts-off bound as TAKES;
+//   - two readers sharing one description each move the position under
+//     its lock: threads read one numbered word at a time from ONE fd, and
+//     every word must arrive exactly once, whole (no position lock: a word
+//     read twice, or torn);
+//   - a mount and unmount beside the file while threads read it: every
+//     read answers its whole word (the walk inside the mount table's
+//     sequence count; a torn walk answers 0, which reads as EOF).
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +37,8 @@
 #include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "syscall_abi.h"
@@ -286,8 +301,164 @@ static void check_close_wakes(void) {
     close(g_full[1]);
 }
 
+// --- a ramfs file -----------------------------------------------------------
+
+#define RAM_FILE "/tmp/lockless_rw.dat"
+#define DISK_FILE "/var/tmp/lockless_rw.dat"
+#define CHURN_POINT "/tmp/lockless_rw.mnt"
+#define WORDS 16384u          // 64 KiB of numbered words: word i holds i
+#define BIG_READ (128u * 1024u)   // past the lock-free bound (fs_syscalls.c)
+#define READERS 4
+
+static int make_file(const char *path) {
+    static uint32_t w[WORDS];
+    for (uint32_t i = 0; i < WORDS; i++) w[i] = i;
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return 0;
+    ssize_t n = write(fd, w, sizeof w);
+    close(fd);
+    return n == (ssize_t)sizeof w;
+}
+
+// CALLS 64-byte reads at numbered offsets, each checked: the count is
+// only worth anything if the bytes are right too.
+static int read_rounds(int fd, uint32_t len) {
+    static char buf[BIG_READ];
+    int bad = 0;
+    for (int i = 0; i < CALLS; i++) {
+        uint32_t word = (uint32_t)(i * 16) % WORDS;
+        lseek(fd, (off_t)word * 4, SEEK_SET);
+        ssize_t n = read(fd, buf, len);
+        uint32_t got;
+        memcpy(&got, buf, 4);
+        if (n <= 0 || got != word) bad++;
+    }
+    return bad;
+}
+
+static void count_reads(const char *what, const char *path, uint32_t len, int want_lockless) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) { utest_checkf(0, "%s opens", path); return; }
+    uint64_t t0, l0, t1, l1;
+    char d[128];
+    syscall_row(SYS_READ, &t0, &l0);
+    int bad = read_rounds(fd, len);
+    syscall_row(SYS_READ, &t1, &l1);
+    close(fd);
+    snprintf(d, sizeof d, "read lockless +%llu takes +%llu, %d wrong",
+             (unsigned long long)(l1 - l0), (unsigned long long)(t1 - t0), bad);
+    if (want_lockless)
+        utest_check_detail(!bad && l1 - l0 >= CALLS && t1 - t0 < CALLS / 10, what, d);
+    else
+        utest_check_detail(!bad && t1 - t0 >= CALLS, what, d);
+}
+
+static void check_file_counted(void) {
+    if (!make_file(RAM_FILE) || !make_file(DISK_FILE)) {
+        utest_check(0, "the test files are written");
+        return;
+    }
+    count_reads("a /tmp file is read without the kernel lock", RAM_FILE, 64, 1);
+    count_reads("a /var/tmp (disk) file's read takes the kernel lock", DISK_FILE, 64, 0);
+    count_reads("a read past the lock-free bound takes the kernel lock", RAM_FILE, BIG_READ, 0);
+    tunable_set(TUNABLE, "off");
+    count_reads("turned off, a /tmp read takes the kernel lock again", RAM_FILE, 64, 0);
+    tunable_set(TUNABLE, "on");
+    unlink(DISK_FILE);
+}
+
+// One description, READERS threads: each read takes the next word.
+static int g_shared_fd;
+static unsigned char g_seen[WORDS];
+static volatile unsigned g_torn;
+
+static void *shared_reader(void *arg) {
+    (void)arg;
+    uint32_t w;
+    for (;;) {
+        ssize_t n = read(g_shared_fd, &w, 4);
+        if (n != 4) return 0;
+        if (w >= WORDS) { __atomic_fetch_add(&g_torn, 1, __ATOMIC_RELAXED); continue; }
+        __atomic_fetch_add(&g_seen[w], 1, __ATOMIC_RELAXED);
+        g_progress++;
+    }
+}
+
+static void check_shared_position(void) {
+    g_phase = "readers sharing one description";
+    unsigned twice = 0, missed = 0;
+    for (int round = 0; round < 4; round++) {
+        memset(g_seen, 0, sizeof g_seen);
+        g_shared_fd = open(RAM_FILE, O_RDONLY);
+        if (g_shared_fd < 0) { utest_check(0, "the shared file opens"); return; }
+        pthread_t t[READERS];
+        for (int i = 0; i < READERS; i++) pthread_create(&t[i], 0, shared_reader, 0);
+        for (int i = 0; i < READERS; i++) pthread_join(t[i], 0);
+        close(g_shared_fd);
+        for (uint32_t i = 0; i < WORDS; i++) {
+            if (g_seen[i] > 1) twice++;
+            if (g_seen[i] == 0) missed++;
+        }
+    }
+    utest_checkf(!twice && !missed && !g_torn,
+                 "readers sharing one description each get the next word: "
+                 "%u read twice, %u missed, %u torn", twice, missed, g_torn);
+}
+
+// Mounts and unmounts a ramfs beside RAM_FILE until told to stop.
+static volatile int g_churn_stop;
+static volatile unsigned g_churns, g_churn_fail;
+
+static void *churner(void *arg) {
+    (void)arg;
+    struct mount_request req;
+    memset(&req, 0, sizeof req);
+    // An empty source: ramfs has no volume (mount's `none`).
+    strcpy(req.fstype, "ramfs");
+    strcpy(req.point, CHURN_POINT);
+    while (!g_churn_stop) {
+        if (sys_mount(&req) < 0 || sys_umount(CHURN_POINT) < 0) g_churn_fail++;
+        g_churns++;
+    }
+    return 0;
+}
+
+static volatile unsigned g_churn_bad;
+
+static void *churn_reader(void *arg) {
+    unsigned seed = (unsigned)(uintptr_t)arg * 2654435761u;
+    int fd = open(RAM_FILE, O_RDONLY);
+    if (fd < 0) { g_churn_bad++; return 0; }
+    while (!g_churn_stop) {
+        seed = seed * 1103515245u + 12345u;
+        uint32_t word = (seed >> 8) % WORDS, w = ~0u;
+        lseek(fd, (off_t)word * 4, SEEK_SET);
+        if (read(fd, &w, 4) != 4 || w != word) g_churn_bad++;
+        g_progress++;
+    }
+    close(fd);
+    return 0;
+}
+
+static void check_mount_churn(void) {
+    g_phase = "reads beside a mount and unmount";
+    mkdir(CHURN_POINT, 0755);
+    pthread_t c, r[READERS - 1];
+    for (int i = 0; i < READERS - 1; i++) pthread_create(&r[i], 0, churn_reader, (void *)(uintptr_t)(i + 1));
+    pthread_create(&c, 0, churner, 0);
+    unsigned long long until = now_ms() + 3000;
+    while (now_ms() < until && g_churns < 200) sys_sleep_ms(50);
+    g_churn_stop = 1;
+    pthread_join(c, 0);
+    for (int i = 0; i < READERS - 1; i++) pthread_join(r[i], 0);
+    rmdir(CHURN_POINT);
+    utest_checkf(g_churns > 10 && !g_churn_fail, "a ramfs mounts and unmounts beside the file: %u times, %u failed",
+                 g_churns, g_churn_fail);
+    utest_checkf(!g_churn_bad, "...and every read beside it answers its whole word: %u wrong", g_churn_bad);
+}
+
 int main(void) {
-    utest_begin("lockless_rw_test", "kernel/proc/pipe.c and syscall_fd.c's lock-free read/write",
+    utest_begin("lockless_rw_test", "the lock-free read/write: pipe.c, syscall_fd.c, a ramfs file",
                 UTEST_VERDICT_FILE);
     char was[16] = "on";
     tunable_get(TUNABLE, was, sizeof was);
@@ -298,6 +469,10 @@ int main(void) {
     check_pingpong();
     check_many_writers();
     check_close_wakes();
+    check_file_counted();
+    check_shared_position();
+    check_mount_churn();
+    unlink(RAM_FILE);
     g_all_done = 1;
     pthread_join(dog, 0);
     tunable_set(TUNABLE, was);

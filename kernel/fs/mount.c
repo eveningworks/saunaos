@@ -141,8 +141,8 @@ static int under(const char *point, int plen, const char *path) {
     return next == '\0' || next == '/';
 }
 
-const struct mount *mount_resolve(const char *path, const char **out_sub) {
-    if (!path) path = "/";
+// The longest mount point `path` is under, or NULL.
+static const struct mount *resolve_walk(const char *path) {
     const struct mount *best = NULL;
     for (int i = 0; i < mt_cap(); i++) {
         const struct mount *m = mt(i);
@@ -152,22 +152,60 @@ const struct mount *mount_resolve(const char *path, const char **out_sub) {
         // /boot -- nesting works without being a special case.
         if (!best || m->point_len > best->point_len) best = m;
     }
-    if (!best) return NULL;
-
-    if (out_sub) {
-        // RULE 2: the backend is handed a root-relative path and never
-        // learns where it is mounted.
-        //
-        // **THE RESULT POINTS INTO `path`** -- stripping a mount point
-        // leaves a SUFFIX, so there is nothing to copy and no buffer to
-        // size. It used to copy into the caller's array, which put an
-        // FS_PATH_MAX local in every fs_*() in vfs.c; at 4096 that was
-        // a quarter of a kernel stack per call. The borrow is only
-        // valid while `path` is.
-        const char *rest = (best->point_len == 1) ? path : path + best->point_len;
-        *out_sub = (rest[0] == '\0') ? "/" : rest; // "" means the mount point itself
-    }
     return best;
+}
+
+// RULE 2: the backend is handed a root-relative path and never learns
+// where it is mounted.
+//
+// **THE RESULT POINTS INTO `path`** -- stripping a mount point leaves a
+// SUFFIX, so there is nothing to copy and no buffer to size. It used to
+// copy into the caller's array, which put an FS_PATH_MAX local in every
+// fs_*() in vfs.c; at 4096 that was a quarter of a kernel stack per
+// call. The borrow is only valid while `path` is.
+static const char *sub_of(const struct mount *m, const char *path) {
+    const char *rest = (m->point_len == 1) ? path : path + m->point_len;
+    return (rest[0] == '\0') ? "/" : rest; // "" means the mount point itself
+}
+
+const struct mount *mount_resolve(const char *path, const char **out_sub) {
+    if (!path) path = "/";
+    const struct mount *best = resolve_walk(path);
+    if (best && out_sub) *out_sub = sub_of(best, path);
+    return best;
+}
+
+// **A SLOT'S WRITER HOLDS THE KERNEL LOCK** -- a syscall, or the kernel
+// context -- so two writers never meet. A reader holding no kernel lock -- which is
+// what otherwise keeps a writer out mid-walk -- sees an odd count, or a
+// count that moved, and declines; record() still publishes `used` last
+// for the locked readers, which walk with no lock at all.
+static uint32_t g_mt_seq;
+
+static void mt_write_begin(void) {
+    __atomic_store_n(&g_mt_seq, g_mt_seq + 1, __ATOMIC_RELAXED);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);   // the odd count before any slot store
+}
+
+static void mt_write_end(void) {
+    __atomic_store_n(&g_mt_seq, g_mt_seq + 1, __ATOMIC_RELEASE);
+}
+
+void mount_table_write_begin(void) { mt_write_begin(); }
+void mount_table_write_end(void)   { mt_write_end(); }
+
+const struct mount *mount_resolve_lockless(const char *path, const char **out_sub,
+                                           uint32_t *gen) {
+    if (!path) return NULL;
+    uint32_t s = __atomic_load_n(&g_mt_seq, __ATOMIC_ACQUIRE);
+    if (s & 1) return NULL;
+    const struct mount *m = resolve_walk(path);
+    uint32_t g = m ? __atomic_load_n(&m->gen, __ATOMIC_RELAXED) : 0;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);   // every read above before the re-read
+    if (!m || __atomic_load_n(&g_mt_seq, __ATOMIC_RELAXED) != s) return NULL;
+    *gen = g;
+    if (out_sub) *out_sub = sub_of(m, path);
+    return m;
 }
 
 // ---- mounting ------------------------------------------------------
@@ -439,9 +477,11 @@ static void slot_clear(struct mount *m) {
     if (m->used) g_epoch++;
     struct kmutex lock = m->lock;
     uint32_t gen = m->gen + 1;
+    mt_write_begin();
     k_memset(m, 0, sizeof *m);
     m->lock = lock;
     m->gen = gen;
+    mt_write_end();
 }
 
 int fs_lock_held_at(const char *path) {
@@ -557,6 +597,7 @@ static int caps_are_honest(const struct fs_ops *fs) {
 static void record(struct mount *slot, const struct fs_ops *fs,
                    const struct block_device *dev, const char *point,
                    unsigned flags, int r) {
+    mt_write_begin();
     k_strlcpy(slot->point, point, sizeof slot->point);
     slot->point_len = (int)k_strlen(slot->point);
     slot->fs = fs;
@@ -570,6 +611,7 @@ static void record(struct mount *slot, const struct fs_ops *fs,
     // persistent whatever the device says.
     slot->persistent = (r == 1) && dev && dev->persistent;
     __atomic_store_n(&slot->used, 1, __ATOMIC_RELEASE);
+    mt_write_end();
     g_epoch++;
     klog_printf("fs: %s mounted at %s on %s%s%s\n", fs->name, slot->point,
                 dev ? dev->name : "(no device)",
@@ -881,7 +923,9 @@ static void device_gone(const struct block_device *dev) {
     for (int i = 0; i < mt_cap(); i++) {
         struct mount *m = mt(i);
         if (!m->used || m->dev != dev) continue;
+        mt_write_begin();
         m->flags |= MNT_RDONLY | MNT_GONE;
+        mt_write_end();
         g_epoch++;
         klog_printf(KLOG_WARN "mount: the disk under %s was removed -- read-only until unmounted\n",
                     m->point);

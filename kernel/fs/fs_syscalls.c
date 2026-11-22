@@ -257,8 +257,20 @@ int sys_open(struct syscall_ctx *c) {
             // What a lock-free lseek touches is set BEFORE the install
             // publishes it to the process's other threads: the position is
             // the claim's zero, and the lock is named here, not after.
+            // So is what a lock-free read uses -- the name and the mode --
+            // or a sibling thread's read could find a half-copied name.
             int di = fd_desc_alloc(&file_fd_ops, -1);
-            if (di >= 0) kmutex_name(&fd_desc_at(di)->file.pos_lock, "file position");
+            if (di >= 0) {
+                struct open_file *nf = fd_desc_at(di);
+                kmutex_name(&nf->file.pos_lock, "file position");
+                k_strlcpy(nf->file.name, name, sizeof nf->file.name);
+                nf->file.mode = mode;
+                // Read-only fds ignore it, so it is not worth refusing
+                // the combination -- but it is worth not SETTING it,
+                // since SYS_FSTAT reports nothing about it and a stray
+                // flag on a reader would be state nobody could see.
+                nf->file.append = (uint8_t)(want_write && want_append);
+            }
             int fd = di >= 0 ? fd_install(pml4, di) : -1;
             if (fd < 0) {
                 if (di >= 0) fd_desc_unref(di);
@@ -332,13 +344,6 @@ int sys_open(struct syscall_ctx *c) {
                     kpath_put(name);
                     return 0;
                 }
-                k_strlcpy(fd_desc_at(di)->file.name, name, sizeof fd_desc_at(di)->file.name);
-                fd_desc_at(di)->file.mode = mode;
-                // Read-only fds ignore it, so it is not worth refusing
-                // the combination -- but it is worth not SETTING it,
-                // since SYS_FSTAT reports nothing about it and a stray
-                // flag on a reader would be state nobody could see.
-                fd_desc_at(di)->file.append = (uint8_t)(want_write && want_append);
                 c->regs[14] = (uint64_t)fd;
             }
         }
@@ -1063,6 +1068,7 @@ int sys_sync(struct syscall_ctx *c) {
 
 static int file_fd_write(struct syscall_ctx *c, struct open_file *f,
                          uint64_t buf_ptr, uint64_t len) {
+    if (c->lockless) return SYSCALL_DECLINE;
     uint64_t *regs = c->regs;
     uint64_t pml4 = c->pml4;
     if (!fd_mode_writes(f->file.mode)) {
@@ -1119,8 +1125,38 @@ static int file_fd_write(struct syscall_ctx *c, struct open_file *f,
     return 0;
 }
 
+// A lock-free read runs with INTERRUPTS OFF throughout, so a bigger one
+// takes the locked path, where they are on -- a latency bound, not a size
+// limit: either path reads all of it.
+#define LOCKLESS_READ_MAX (64u * 1024u)
+
+// file_fd_read() with no kernel lock: from an fs_ops.mpsafe backend, or a
+// decline. NOTHING CHANGES BEFORE THE LAST DECLINE: the position moves
+// only once the bytes are in the caller's buffer, so the locked path may
+// begin again from scratch. Every lock is trylocked (fs_read_range_lockless()).
+static int file_fd_read_lockless(struct syscall_ctx *c, struct open_file *f,
+                                 uint64_t buf_ptr, uint64_t len) {
+    if (!fd_mode_reads(f->file.mode) || len > LOCKLESS_READ_MAX) return SYSCALL_DECLINE;
+    char *kbuf = fd_bounce_alloc(&len);
+    if (!kbuf) return SYSCALL_DECLINE;
+    int r = SYSCALL_DECLINE;
+    if (kmutex_trylock(&f->file.pos_lock)) {
+        int n = fs_read_range_lockless(f->file.name, f->file.pos, kbuf, (uint32_t)len);
+        if (n >= 0 && vmm_copy_to_user_nofault(c->pml4, buf_ptr, kbuf, (uint64_t)n)) {
+            f->file.pos += (uint64_t)n;
+            c->regs[14] = (uint64_t)n;
+            r = 0;
+        }
+        kmutex_unlock(&f->file.pos_lock);
+    }
+    fd_bounce_free(kbuf);
+    if (r == 0) scheduler_io_charge(SCHED_IO_FILE_READ, c->regs[14]);
+    return r;
+}
+
 static int file_fd_read(struct syscall_ctx *c, struct open_file *f,
                         uint64_t buf_ptr, uint64_t len) {
+    if (c->lockless) return file_fd_read_lockless(c, f, buf_ptr, len);
     uint64_t *regs = c->regs;
     uint64_t pml4 = c->pml4;
     if (!fd_mode_reads(f->file.mode)) {
@@ -1223,6 +1259,9 @@ static void file_fd_release(struct open_file *f) {
 
 const struct fd_ops file_fd_ops = {
     .name = "file",
+    // Its read runs lock-free on an fs_ops.mpsafe mount and declines on
+    // any other; its write always declines, for now.
+    .flags = FD_OPS_MPSAFE,
     .read = file_fd_read, .write = file_fd_write,
     .seek = file_fd_seek, .stat = file_fd_stat,
     .release = file_fd_release,

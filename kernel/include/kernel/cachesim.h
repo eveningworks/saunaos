@@ -50,6 +50,9 @@ int cachesim_lru_touch(struct cachesim_lru *c, uint64_t key, uint32_t gen, int c
 // A block's are keyed by device and 512-byte LBA, as block.h counts.
 // Every VFS call that names a path, for QUERY_CACHESIM_PATH's lookups.
 void cachesim_lookup(const char *path);
+// Whether the hooks do anything this boot. Their tables are guarded by
+// irq_save() alone, so a caller with no kernel lock declines while on.
+int cachesim_on(void);
 void cachesim_file_read(const char *path, uint64_t offset, uint32_t len);
 void cachesim_file_changed(uint64_t path_hash);
 void cachesim_block_io(const void *dev, uint64_t lba, uint32_t count, int write);

@@ -182,6 +182,8 @@ static struct top_path *path_slot(int pid, uint64_t path_hash, const char *path)
 
 // ---- the hooks --------------------------------------------------------------
 
+int cachesim_on(void) { return g_on; }
+
 void cachesim_lookup(const char *path) {
     if (!g_on || !path) return;
     uint64_t h;

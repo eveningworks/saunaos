@@ -903,6 +903,26 @@ uint32_t fs_read_range(const char *path, uint64_t offset, void *buf, uint32_t le
     return n;
 }
 
+// FS_OP() for a caller with no kernel lock: TRYLOCKED, else a decline --
+// Linux's RCU path walk handing over to ref-walk -- since sleeping for the
+// lock needs the kernel lock. A backend asking to be re-run declines too:
+// a read changes nothing, so the locked path may simply read again.
+int fs_read_range_lockless(const char *path, uint64_t offset, void *buf, uint32_t len) {
+    if (cachesim_on()) return -1;
+    const char *sub;
+    uint32_t gen;
+    const struct mount *m = mount_resolve_lockless(path, &sub, &gen);
+    if (!m || !m->fs->mpsafe || !mount_trylock(m)) return -1;
+    int n = -1;
+    if (m->used && m->gen == gen) {
+        n = (int)m->fs->read_range(m->state, sub, offset, buf, len);
+        if (m->fs->op_end) m->fs->op_end(m->state);
+        if (m->restart) { ((struct mount *)m)->restart = 0; n = -1; }
+    }
+    mount_unlock(m);
+    return n;
+}
+
 static int write_range_with(const char *path, uint64_t offset, const void *buf, uint32_t len,
                             settle_fn fin) {
     struct resolved r;

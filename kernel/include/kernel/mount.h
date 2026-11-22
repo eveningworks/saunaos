@@ -234,13 +234,22 @@ void mount_scratch_end(struct fs_scratch *sc);
 int fs_volume_busy(const struct block_device *dev);
 
 // Which mount answers for `path`, and what the backend should be
-// handed. `out_sub` must be at least FS_PATH_MAX bytes; it receives the
-// root-relative path (rule 2). Returns NULL only when nothing at all is
-// mounted, which is a machine with no filesystem.
-// `*out_sub` is handed back as a pointer INTO `path` (or the literal
-// "/" for the mount point itself), so it needs no buffer and is valid
-// only as long as `path` is.
+// handed: `*out_sub` gets the root-relative path (rule 2), a pointer
+// INTO `path` (or the literal "/" for the mount point itself), so it
+// needs no buffer and is valid only as long as `path` is. Returns NULL
+// only when nothing at all is mounted, which is a machine with no
+// filesystem.
 const struct mount *mount_resolve(const char *path, const char **out_sub);
+// mount_resolve() for a caller holding NO kernel lock, which is what
+// keeps a mount or unmount out of the table mid-walk: the walk sits
+// inside the table's sequence count (Linux's mount_lock seqlock), and a
+// change during it answers NULL -- decline, never "nothing mounted".
+// `*gen` is the mount's generation, read inside the same window.
+const struct mount *mount_resolve_lockless(const char *path, const char **out_sub,
+                                           uint32_t *gen);
+// For a KTEST: hold the table's count odd, as a writer of a slot does.
+void mount_table_write_begin(void);
+void mount_table_write_end(void);
 
 // The root mount, or NULL. What fs_backend_name()/fs_is_persistent()
 // answer for, since every caller that predates mounts means the root.

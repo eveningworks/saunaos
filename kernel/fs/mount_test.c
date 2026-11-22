@@ -92,6 +92,28 @@ KTEST("mount", "a mount claims its subtree, and the backend sees a root-relative
 }
 
 // RULE 1, and the reason `under()` is not a k_strncmp.
+// A lock-free resolve declines while a slot is being written, rather than
+// walk a half-copied point (or a half-cleared one, which reads as nothing
+// mounted). Red with the count's test taken out of mount_resolve_lockless().
+KTEST("mount", "a lock-free resolve declines while the table is being written") {
+    KTEST_ASSERT(mnt_ramfs("/mnt"));
+    const char *sub = 0;
+    uint32_t gen = 0;
+    const struct mount *m = mount_resolve_lockless("/mnt/x", &sub, &gen);
+    const struct mount *locked = mount_resolve("/mnt/x", 0);
+    int found = m && m == locked && gen == m->gen && k_strcmp(sub, "/x") == 0;
+    mount_table_write_begin();
+    const struct mount *mid = mount_resolve_lockless("/mnt/x", &sub, &gen);
+    const struct mount *mid_locked = mount_resolve("/mnt/x", 0);
+    mount_table_write_end();
+    const struct mount *after = mount_resolve_lockless("/mnt/x", &sub, &gen);
+    KTEST_ASSERT(mount_remove("/mnt", 0));
+    KTEST_ASSERT(found);
+    KTEST_ASSERT(mid == 0);
+    KTEST_ASSERT(mid_locked == locked);   // a locked reader is not the count's
+    KTEST_ASSERT(after == locked);
+}
+
 KTEST("mount", "a mount point does not claim a sibling that shares its prefix") {
     fs_mkdir(SIBLING);
     if (!fs_is_dir(SIBLING)) { KTEST_SKIP("could not create " SIBLING); }

@@ -162,6 +162,12 @@ struct fs_ops {
     int max_mounts;
 #define FS_MOUNTS_ANY 0x7fffffff   // as many as the mount table holds
 
+    // **1: read_range may run with NO KERNEL LOCK** -- a lock-free
+    // SYS_READ (fs_read_range_lockless()), under this mount's lock alone
+    // with interrupts off, so it must neither sleep nor wait for anything,
+    // nor touch state outside its mount's. ramfs: memory only.
+    int mpsafe;
+
     // ---- per-mount state ---------------------------------------
     //
     // A backend's volume state is one heap struct per mount, and EVERY

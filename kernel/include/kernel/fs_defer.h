@@ -13,6 +13,12 @@ int fs_create_excl_deferred(const char *path);
 int fs_write_deferred(const char *path, const char *data, int append);
 int fs_write_range_deferred(const char *path, uint64_t offset, const void *buf, uint32_t len);
 
+// fs_read_range() from a lock-free SYS_READ (no kernel lock, interrupts
+// off): the bytes read, or -1 to DECLINE having changed nothing -- a
+// backend that is not fs_ops.mpsafe, a mount table mid-change, a busy
+// mount lock, or the cache simulator on. Never sleeps.
+int fs_read_range_lockless(const char *path, uint64_t offset, void *buf, uint32_t len);
+
 // The close: settle the volume holding `path` if a deferred call there
 // left anything owed. A no-op on a fixed disk, or when nothing is owed.
 void fs_settle_path(const char *path);
