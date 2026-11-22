@@ -2059,7 +2059,12 @@ report is ON only after `enter_gui()`").
   ON it; a step moves one instruction and executes the real one, not the
   int3; a write watchpoint on `clockevent.c`'s `g_ticks` fires and names
   its address; an NMI from the monitor and a `^C` each break in; detach
-  resumes the stopped command. Then, if `gdb` is on PATH, a real GDB
+  resumes the stopped command. **On 4 cores by default** (`--cpus N`;
+  1 skips these): each core's kernel context is a thread, one thread runs
+  on every core and none says `not stopped`, and `g` on one running on
+  ANOTHER core is that core's whole held frame. Expected ELF bytes come
+  from `seed/sync/` (the stripped copies the image holds), never
+  `build/`'s. Then, if `gdb` is on PATH, a real GDB
   must disassemble a function BY NAME, which needs qOffsets and memory
   reads together. **Pick a target symbol that is unique and not
   inlined**: `dbg_cmd_meminfo` is static and called once, so `-O2`
