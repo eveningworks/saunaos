@@ -110,7 +110,9 @@ def run_suite(tag, suite, virtio, timeout, run=1):
         subprocess.run(["docker", "kill", name], capture_output=True)
         return None, f"HUNG after {timeout:.0f}s (container killed)"
     out = r.stdout + r.stderr
-    with open(f"{work}/out-{tag.split(':')[-1]}-{run}.log", "w") as f:
+    # Named by SUITE too: a usertest run after a ktest run overwrote the
+    # very log that said which KTEST failed.
+    with open(f"{work}/out-{suite}-{tag.split(':')[-1]}-{run}.log", "w") as f:
         f.write(out)   # which tests failed, after the fact
     verdict = next((l for l in out.splitlines() if l.startswith(prefix)
                     and any(v in l for v in verdicts)), "")
