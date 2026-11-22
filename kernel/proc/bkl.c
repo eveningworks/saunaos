@@ -205,6 +205,30 @@ void bkl_load_depth(int depth) {
     this_cpu()->bkl_depth = depth;
 }
 
+// **TAKEN FOR A SWITCH INTO A CONTEXT THAT HOLDS IT, BEFORE ANYTHING IS
+// COMMITTED**: a lock-free park waits for the lock here, on its own stack,
+// with nothing picked or marked -- the shape that panicked took it at the
+// switch's end, the incoming context already RUNNING (docs/decisions). The
+// depth stays 0, so the parker is saved without it, and the switch's
+// bkl_load_depth() hands the lock to the incoming context. Interrupts off.
+void bkl_take_for_switch(const uint64_t *regs) {
+    if (!g_ready) return;
+    struct cpu *c = this_cpu();
+    if (c->bkl_depth != 0 || spin_held_here(&g_bkl)) {
+        fault("taken for a switch while held", c->bkl_depth, (uintptr_t)__builtin_return_address(0));
+        return;
+    }
+    spin_lock_raw(&g_bkl, (uintptr_t)__builtin_return_address(0));
+    account_take(c, key_of(regs));
+}
+
+// ...and let go unused, when the park was answered or declined instead.
+void bkl_drop_for_switch(void) {
+    if (!g_ready) return;
+    struct cpu *c = this_cpu();
+    if (c->bkl_depth == 0 && spin_held_here(&g_bkl)) release(c);
+}
+
 int bkl_drop_all(void) {
     if (!g_ready) return 0;
     uint64_t f = irq_save();

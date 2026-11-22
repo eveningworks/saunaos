@@ -77,6 +77,10 @@ void scheduler_ap_event(uint64_t *regs);
 int  scheduler_ap_event_lockless(uint64_t *regs, void (*ack)(uint64_t *regs));
 // SYS_YIELD's, from syscall_try_lockless(): 0 declines, untouched.
 int  scheduler_yield_lockless(uint64_t *regs);
+// scheduler_block_current() for an MPSAFE handler: 1 parked (or woken
+// while arming) with the answer in regs, 0 declined with nothing changed.
+// Interrupts off; the caller armed `chan` before testing its condition.
+int  scheduler_block_current_lockless(uint64_t *regs, const void *chan, int reason);
 int  scheduler_lockless_sched_enabled(void);
 void scheduler_lockless_sched_set(int on);
 unsigned scheduler_lock_faults(void);   // switches and unlocks the scheduler lock refused (sched_internal.h)

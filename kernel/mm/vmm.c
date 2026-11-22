@@ -1083,6 +1083,57 @@ int vmm_copy_to_user(uint64_t pml4_phys, uint64_t uaddr, const void *src, uint64
     return copy_user(pml4_phys, uaddr, (void *)(uintptr_t)src, len, COPY_TO_USER);
 }
 
+// **THE NO-FAULT COPIES, for a lock-free syscall** (Linux's
+// copy_to_user_nofault()): a walk that never faults a page in or un-shares
+// one -- either takes locks a caller with interrupts off may not -- and
+// refuses instead, so the caller declines to the locked path.
+// **SAFE ONLY WITH INTERRUPTS OFF ON THE CORE RUNNING `pml4`, AND NO LOCK
+// TAKEN BETWEEN A CHECK AND ITS COPY**: a frame is freed only after a
+// shootdown every core with the space loaded has answered, and this core
+// answers nothing until then -- x86 Linux's get_user_pages_fast() rests on
+// the same fact. A spinlock's wait answers IPIs (smp_poll_ipis()), so a
+// lock taken between them ends the window.
+static int range_nofault(uint64_t pml4_phys, uint64_t uaddr, uint64_t len, int write) {
+    if (len == 0) return 1;
+    if (uaddr + len < uaddr) return 0;
+    for (uint64_t page = uaddr & ~0xFFFULL; page < uaddr + len; page += 4096) {
+        uint64_t e = user_leaf_of_walk(pml4_phys, page);
+        if (!e || (write && !(e & PAGE_WRITABLE))) return 0;
+    }
+    return 1;
+}
+
+int vmm_user_range_nofault(uint64_t pml4_phys, uint64_t uaddr, uint64_t len, int write) {
+    return range_nofault(pml4_phys, uaddr, len, write);
+}
+
+static int copy_nofault(uint64_t pml4_phys, uint64_t uaddr, void *kbuf, uint64_t len,
+                        enum copy_dir dir) {
+    if (!range_nofault(pml4_phys, uaddr, len, dir == COPY_TO_USER)) return 0;
+    uint8_t *k = (uint8_t *)kbuf;
+    while (len) {
+        uint64_t phys = user_phys_of_walk(pml4_phys, uaddr);
+        if (!phys) return 0;   // unreachable while the window holds
+        uint64_t in_page = 4096 - (uaddr & 0xFFF);
+        uint64_t n = len < in_page ? len : in_page;
+        uint8_t *u = (uint8_t *)(uintptr_t)phys;
+        if (dir == COPY_FROM_USER) k_memcpy(k, u, (size_t)n);
+        else                        k_memcpy(u, k, (size_t)n);
+        uaddr += n;
+        k += n;
+        len -= n;
+    }
+    return 1;
+}
+
+int vmm_copy_from_user_nofault(uint64_t pml4_phys, void *dst, uint64_t uaddr, uint64_t len) {
+    return copy_nofault(pml4_phys, uaddr, dst, len, COPY_FROM_USER);
+}
+
+int vmm_copy_to_user_nofault(uint64_t pml4_phys, uint64_t uaddr, const void *src, uint64_t len) {
+    return copy_nofault(pml4_phys, uaddr, (void *)(uintptr_t)src, len, COPY_TO_USER);
+}
+
 int vmm_copy_string_from_user(uint64_t pml4_phys, char *dst, uint64_t uaddr, uint64_t max) {
     if (max == 0) return 0;
 

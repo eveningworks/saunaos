@@ -44,6 +44,12 @@ void bkl_load_depth(int depth);
 int  bkl_drop_all(void);
 void bkl_retake(int depth);
 
+// A lock-free park switching into a context that holds the lock: taken
+// first, on the parker's stack, at depth 0 -- the switch hands it on
+// (scheduler_block_current_lockless()); dropped if the park does not switch.
+void bkl_take_for_switch(const uint64_t *regs);
+void bkl_drop_for_switch(void);
+
 // A fresh context's first resume (isr_start_frame): it starts at depth
 // 1, and a ring-3 frame releases it before the iretq.
 void bkl_start_tail(const uint64_t *tf);

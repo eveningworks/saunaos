@@ -402,6 +402,12 @@ int vmm_user_page_prot(uint64_t pml4_phys, uint64_t vaddr);
 // nothing trustworthy rather than salvaging a prefix.
 int vmm_copy_from_user(uint64_t pml4_phys, void *dst, uint64_t uaddr, uint64_t len);
 int vmm_copy_to_user(uint64_t pml4_phys, uint64_t uaddr, const void *src, uint64_t len);
+// For a lock-free syscall: never fault in or un-share, 0 instead (nothing
+// copied). Interrupts off on the core running `pml4_phys`, and no lock
+// taken between a range check and its copy (vmm.c says why).
+int vmm_user_range_nofault(uint64_t pml4_phys, uint64_t uaddr, uint64_t len, int write);
+int vmm_copy_from_user_nofault(uint64_t pml4_phys, void *dst, uint64_t uaddr, uint64_t len);
+int vmm_copy_to_user_nofault(uint64_t pml4_phys, uint64_t uaddr, const void *src, uint64_t len);
 
 // A NUL-terminated string, copied byte at a time (the length isn't known
 // until the terminator is found) and always NUL-terminated in `dst`,

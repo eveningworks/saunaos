@@ -128,7 +128,8 @@ void syscall_lockless_set(int on) { g_lockless_on = on ? 1 : 0; }
 // swapped by a sibling's pledge and freed under the lock, so only the
 // pointer may be looked at here), the signal and
 // re-issue checks at entry and the reschedule and delivery at exit
-// (declined when due -- scheduler_lockless_ok()). Interrupts stay off
+// (declined when due -- scheduler_lockless_ok()). A handler parks only
+// through scheduler_block_current_lockless(). Interrupts stay off
 // throughout, so nothing becomes due here that does not also send this
 // core an interrupt: a remote wake or signal kicks it, and the kick lands
 // the moment SYSRET reopens IF. `stalls` and `kstack` do not see these
@@ -172,14 +173,18 @@ int syscall_try_lockless(uint64_t *regs) {
         .lockless = 1,
     };
     KTRACE(KTRACE_G_SYSCALL, KTRACE_EV_SYS_ENTER, nr, c.a0, c.a1, c.a2);
-    // An MPSAFE handler never parks; it may decline, and the locked path
-    // then traces the entry a second time, as a declined yield does.
-    if (d->fn(&c) == SYSCALL_DECLINE) { irq_restore(f); return 0; }
+    // It may decline, and the locked path then traces the entry a second
+    // time, as a declined yield does; it may park (a pipe), and resume on
+    // another core.
+    int r = d->fn(&c);
+    if (r == SYSCALL_DECLINE) { irq_restore(f); return 0; }
     KTRACE(KTRACE_G_SYSCALL, KTRACE_EV_SYS_EXIT, nr, regs[14], 0, 0);
     bkl_note_lockless(nr);
 #ifdef SAUNAOS_LOCKDEP
     lockdep_user_return();   // and holds nothing on the way out
 #endif
+    // Posted while it was parked, a signal goes the ordinary way back.
+    if (r && !scheduler_lockless_ok()) smp_resched_self();
     // Left off: the way out clears IF anyway, and SYSRET restores the
     // caller's.
     return 1;

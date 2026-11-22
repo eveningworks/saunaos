@@ -1706,6 +1706,72 @@ int scheduler_yield_lockless(uint64_t *regs) {
     return done;
 }
 
+// block_common() for an MPSAFE handler: park at the syscall's entry with
+// no kernel lock, answered by the wake's value as a locked park is.
+// **IT DECLINES, HAVING WRITTEN NOTHING, WHERE IT CANNOT SWITCH LOCK-FREE**
+// -- a signal or re-issue due, an RT process, or a next context that holds
+// the kernel lock (lockless_rotate()'s rule) -- so the caller's handler
+// declines too and the locked path parks it. The caller armed `chan`
+// before testing its condition; a decline leaves the arm for that path.
+int scheduler_block_current_lockless(uint64_t *regs, const void *chan, int reason) {
+    if (!lockless_here(regs) || current_index < 0) return 0;
+    int cur = current_index;
+    struct sched_process *p = &procs[cur];
+    int taken = 0;   // the kernel lock, for the context switched into
+    uint64_t f;
+    int next;
+    uint64_t pv;
+    for (;;) {
+        f = sched_lock();
+        if (p->armed_woken && p->arm_chan == chan) {
+            p->armed_woken = 0;
+            p->arm_chan = 0;
+            regs[TF_RAX] = (uint64_t)p->arm_value;
+            sched_unlock(f);
+            if (taken) bkl_drop_for_switch();
+            return 1;
+        }
+        if (!lockless_ctx_ok(cur)) {
+            sched_unlock(f);
+            if (taken) bkl_drop_for_switch();
+            return 0;
+        }
+        pv = 0;
+        next = pick_next(rotation_pos, &pv);   // cur is RUNNING, so never itself
+        int needs = next == ROT_KERNEL ? this_cpu()->idle_bkl_depth != 0
+                                       : procs[next].bkl_depth != 0 || procs[next].preempted_in_kernel;
+        if (!needs || taken) break;
+        // **THE KERNEL LOCK FIRST, THEN THE PICK AGAIN**: kernel lock
+        // before scheduler lock, and nothing picked or marked while it is
+        // waited for (bkl_take_for_switch()).
+        sched_unlock(f);
+        bkl_take_for_switch(regs);
+        taken = 1;
+    }
+    rt_period_roll(clocksource_now_ns());
+    if (pv > g_min_vruntime) g_min_vruntime = pv;
+    bill_current();
+    p->arm_chan = 0;
+    p->rt_run_ns = 0;
+    p->kernel_rsp = (uint64_t)regs;
+    kstack_verify(cur);
+    fpu_save(p->fpu);
+    p->preempted_in_kernel = 0;
+    p->state = SCHED_BLOCKED;
+    trace_sched("block_lockless", cur);
+    p->wait_chan = chan;
+    p->wake_at_ns = 0;
+    p->wait_reason = reason;
+    p->parked_at_ns = clocksource_now_ns();
+    p->hung_reported = 0;
+    set_current_index(-1);
+    this_cpu_add(sched_lockless, 1);
+    if (next == ROT_KERNEL) switch_to_kernel(cur);
+    else switch_to(cur, next);
+    irq_restore(f);   // resumed, perhaps on another core
+    return 1;
+}
+
 uint64_t scheduler_next_event_ns(void) {
     uint64_t next = 0;
     for (int i = 0; i < MAX_PROCS; i++) {
@@ -1963,12 +2029,15 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     // mark too late, so it is dropped -- waitpid() parked for good
     // beside a zombie. Linux sets the task state before the last test
     // of the condition for the same reason.
-    uint64_t irq = irq_save();   // sched_switch_begin(), with a way back
+    // **AND UNDER THE SCHEDULER LOCK**, which every wake's scan holds: a
+    // waker on another core with no kernel lock (a lock-free pipe call)
+    // otherwise lands between this test and BLOCKED, seeing neither.
+    uint64_t irq = sched_lock();   // let go by the switch below, or by an early return
     if (procs[current_index].armed_woken && procs[current_index].arm_chan == chan) {
         procs[current_index].armed_woken = 0;
         procs[current_index].arm_chan = 0;
         regs[TF_RAX] = (uint64_t)procs[current_index].arm_value;
-        irq_restore(irq);
+        sched_unlock(irq);
         return 1;
     }
     procs[current_index].arm_chan = 0;
@@ -1983,13 +2052,12 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     struct sched_process *self = &procs[current_index];
     if (self->pending & ~self->blocked) {
         sched_signal_answer_park(self, regs, reason);
-        irq_restore(irq);
+        sched_unlock(irq);
         return 1;
     }
 
     bill_current(); // this slice ends here -- see bill_current()
     int idx = current_index;
-    (void)sched_lock();   // let go by the switch below; `irq` is the flag to restore
     procs[idx].rt_run_ns = 0;   // it blocked: the RT watchdog starts again
     procs[idx].kernel_rsp = (uint64_t)regs;
     kstack_verify(idx);
@@ -2145,17 +2213,16 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
 
     // A wake that arrived while we were checking, tested with
     // interrupts already off -- see block_common() for both halves.
-    uint64_t irq = irq_save();
+    uint64_t irq = sched_lock();   // the test and BLOCKED are one step, as block_common()'s
     if (procs[idx].armed_woken && procs[idx].arm_chan == chan) {
         procs[idx].armed_woken = 0;
         procs[idx].arm_chan = 0;
-        irq_restore(irq);
+        sched_unlock(irq);
         return 1;
     }
     procs[idx].arm_chan = 0;
 
     bill_current();
-    (void)sched_lock();   // let go by the switch below; `irq` is the flag to restore
     procs[idx].rt_run_ns = 0;
     kstack_verify(idx);
     fpu_save(procs[idx].fpu);
@@ -2237,6 +2304,10 @@ int scheduler_wake_n(const void *chan, int64_t value, int max) {
     // usertest run, each reporting 1-2 processes "woken" that nobody
     // had asked about.
     if (!chan) return 0;
+    // **BOTH SCANS UNDER THE SCHEDULER LOCK**: a waker or a parker may hold
+    // no kernel lock (a lock-free pipe call), so "armed, not parked" and
+    // "BLOCKED" must not change between this scan's test and its write.
+    uint64_t sf = sched_lock();
     // **FIRST, ANYONE WHO HAS ARMED BUT NOT YET PARKED.** Such a process
     // is RUNNING, so the blocked scan below cannot see it and its wake
     // would be dropped -- the lost wakeup that made a preemptible
@@ -2266,19 +2337,25 @@ int scheduler_wake_n(const void *chan, int64_t value, int max) {
         wake_slot(i, value);
         woken++;
     }
+    sched_unlock(sf);
     return woken;
 }
 
 int scheduler_wake_one(const void *chan) {
     if (!chan) return 0;
     int pick = -1;
+    uint64_t sf = sched_lock();   // the pick and its wake are one step (scheduler_wake_n())
     for (int i = 0; i < MAX_PROCS; i++) {
         if (procs[i].state != SCHED_BLOCKED || procs[i].wait_chan != chan) continue;
         if (pick < 0 || rank_of(i) > rank_of(pick)) pick = i;
     }
-    if (pick < 0) return 0;
-    wake_slot(pick, 0);
-    return procs[pick].pid;
+    int pid = 0;
+    if (pick >= 0) {
+        wake_slot(pick, 0);
+        pid = procs[pick].pid;
+    }
+    sched_unlock(sf);
+    return pid;
 }
 
 // The thread pointer this thread's %fs resolves against. Ring 3 owns
@@ -2498,20 +2575,31 @@ int scheduler_pid_valid(int pid) {
 // See the fields' comment. Announces that the caller is ABOUT to wait on
 // `chan`, so a wake arriving before it parks is not lost. Every blocking
 // syscall calls this BEFORE it tests its condition.
+// Under the scheduler lock, as a wake's scan is: a waker on another core
+// stamping the OLD channel's wake between these writes would leave the new
+// arm "woken" with that wake's value.
 void scheduler_wait_arm(const void *chan) {
-    if (current_index < 0) return;
-    procs[current_index].arm_chan   = chan;
-    procs[current_index].armed_woken = 0;
-    procs[current_index].arm_value  = 0;
+    uint64_t f = sched_lock();
+    int cur = current_index;
+    if (cur >= 0) {
+        procs[cur].arm_chan   = chan;
+        procs[cur].armed_woken = 0;
+        procs[cur].arm_value  = 0;
+    }
+    sched_unlock(f);
 }
 
 // Withdraws the announcement -- for a caller that decided not to wait
 // after all, so a later unrelated wake does not make its NEXT park a
 // no-op.
 void scheduler_wait_disarm(void) {
-    if (current_index < 0) return;
-    procs[current_index].arm_chan = 0;
-    procs[current_index].armed_woken = 0;
+    uint64_t f = sched_lock();
+    int cur = current_index;
+    if (cur >= 0) {
+        procs[cur].arm_chan = 0;
+        procs[cur].armed_woken = 0;
+    }
+    sched_unlock(f);
 }
 
 void scheduler_demo_run(void) {
