@@ -39,6 +39,9 @@ struct syscall_ctx {
     uint64_t *regs; // the caller's trapframe; regs[14] is its return value
     uint64_t a0, a1, a2; // RDI, RSI, RDX -- the three argument registers
     uint64_t pml4;  // the CALLER's address space, for the vmm.h copy helpers
+    // Run by syscall_try_lockless(): no kernel lock, interrupts off. Only
+    // an MPSAFE row's handler sees 1, and it may answer SYSCALL_DECLINE.
+    int lockless;
 };
 
 // A handler writes its own return value into `c->regs[14]` and returns
@@ -49,6 +52,11 @@ struct syscall_ctx {
 // "I blocked, do not write a return value" sentinel. See
 // docs/decisions.md.
 typedef int (*syscall_fn)(struct syscall_ctx *c);
+
+// An MPSAFE handler's third answer, on the lock-free path alone: "I need
+// the kernel lock after all", having written and changed nothing. The
+// locked path then runs the same handler with `lockless` 0.
+#define SYSCALL_DECLINE 2
 
 struct syscall_desc {
     const char *name;    // as `strace` and `kstack syscalls` print it

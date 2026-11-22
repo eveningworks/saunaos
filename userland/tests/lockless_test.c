@@ -12,13 +12,19 @@
 //     land between two syscall reads, and never before a time another
 //     thread already published;
 //   - a page a process can write: a store to it must kill a forked child
-//     with SIGSEGV, and a read() aimed at it must fail with EFAULT.
+//     with SIGSEGV, and a read() aimed at it must fail with EFAULT;
+//   - an lseek counted lock-free that is not, or a SEEK_END that is: the
+//     LSEEK row's LOCKLESS and TAKES each move for the one they should;
+//   - a lock-free lseek moving a description closed under it: threads
+//     seek one descriptor while the main thread closes it and reopens
+//     another file, whose first byte must be the one at 0.
 #include <stdint.h>
 #include <stdio.h>
 #include <errno.h>
 #include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "clock_abi.h"
@@ -29,19 +35,20 @@
 #define TUNABLE "kernel.lockless_syscalls"
 #define CALLS 20000
 
-// The getpid row of QUERY_BKLSTAT: kernel-lock takes and lock-free calls,
-// both 0 while there is no row (nothing has made the call either way).
-static void getpid_row(uint64_t *takes, uint64_t *lockless) {
+// A syscall's row of QUERY_BKLSTAT: kernel-lock takes and lock-free
+// calls, both 0 while there is no row (nothing has made the call either way).
+static void syscall_row(uint64_t nr, uint64_t *takes, uint64_t *lockless) {
     struct query_bklstat r;
     *takes = *lockless = 0;
     QUERY_FOREACH(QUERY_BKLSTAT, r, i) {
-        if (r.kind == QUERY_BKLSTAT_SYSCALL && r.id == SYS_GETPID) {
+        if (r.kind == QUERY_BKLSTAT_SYSCALL && r.id == nr) {
             *takes = r.takes;
             *lockless = r.lockless;
             return;
         }
     }
 }
+static void getpid_row(uint64_t *takes, uint64_t *lockless) { syscall_row(SYS_GETPID, takes, lockless); }
 
 static void check_counted(void) {
     char was[16] = "on";
@@ -262,6 +269,118 @@ static void check_signal(void) {
     utest_check(g_sig_seen, "a signal is delivered to a process making only lock-free calls");
 }
 
+#define SEEK_FILE "/tmp/lockless_seek.dat"
+#define SEEK_FILE2 "/tmp/lockless_seek2.dat"
+#define SEEK_SIZE 4096
+#define SEEK_CALLS 5000
+#define SEEK_TAG 3000            // where the hammers put the shared descriptor
+#define SEEK_ROUNDS 2000
+#define SEEKERS 3
+
+static uint8_t byte_at(int i) { return (uint8_t)(i % 251); }
+
+static uint8_t g_seek_buf[SEEK_SIZE];
+
+static int make_seek_file(const char *path) {
+    uint8_t *buf = g_seek_buf;
+    for (int i = 0; i < SEEK_SIZE; i++) buf[i] = byte_at(i);
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC);
+    int ok = fd >= 0 && write(fd, buf, SEEK_SIZE) == SEEK_SIZE;
+    if (fd >= 0) close(fd);
+    return ok;
+}
+
+static void check_lseek_counted(void) {
+    int fd = open(SEEK_FILE, O_RDONLY);
+    if (fd < 0) { utest_check(0, "opened the seek file"); return; }
+    uint64_t t0, l0, t1, l1;
+    syscall_row(SYS_LSEEK, &t0, &l0);
+    long long bad = 0;
+    for (int i = 0; i < SEEK_CALLS; i++)
+        if (sys_lseek(fd, i, SYS_SEEK_SET) != i) bad++;
+    syscall_row(SYS_LSEEK, &t1, &l1);
+    char d[96];
+    snprintf(d, sizeof d, "lockless +%llu, takes +%llu", (unsigned long long)(l1 - l0),
+             (unsigned long long)(t1 - t0));
+    utest_check_detail(l1 - l0 >= SEEK_CALLS, "a file's SEEK_SET is answered without the kernel lock", d);
+    utest_check_detail(t1 - t0 < SEEK_CALLS / 10, "...and does not take it", d);
+    utest_checkf(bad == 0, "every SEEK_SET returns the position asked for: %lld wrong", bad);
+
+    sys_lseek(fd, 100, SYS_SEEK_SET);
+    utest_check(sys_lseek(fd, 5, SYS_SEEK_CUR) == 105, "SEEK_CUR moves from the position");
+    uint8_t b = 0;
+    utest_check(read(fd, &b, 1) == 1 && b == byte_at(105), "a read lands where the seek left it");
+    utest_check(sys_lseek(fd, -1000, SYS_SEEK_CUR) == -1 && errno == EINVAL, "a seek before byte 0 is EINVAL");
+    utest_check(sys_lseek(fd, 0, SYS_SEEK_CUR) == 106, "...and moves nothing");
+
+    // SEEK_END reads the size under a sleeping lock: it declines to the locked path.
+    syscall_row(SYS_LSEEK, &t0, &l0);
+    long long end = 0;
+    for (int i = 0; i < SEEK_CALLS; i++) end = sys_lseek(fd, -1, SYS_SEEK_END);
+    syscall_row(SYS_LSEEK, &t1, &l1);
+    snprintf(d, sizeof d, "lockless +%llu, takes +%llu", (unsigned long long)(l1 - l0),
+             (unsigned long long)(t1 - t0));
+    utest_check_detail(t1 - t0 >= SEEK_CALLS && l1 - l0 < SEEK_CALLS / 10,
+                       "SEEK_END takes the kernel lock", d);
+    utest_check(end == SEEK_SIZE - 1, "...and answers from the file's size");
+    close(fd);
+
+    int p[2];
+    if (pipe(p) == 0) {
+        utest_check(sys_lseek(p[0], 0, SYS_SEEK_SET) == -1 && errno == ESPIPE, "a pipe has no position: ESPIPE");
+        close(p[0]);
+        close(p[1]);
+    }
+    utest_check(sys_lseek(9999, 0, SYS_SEEK_SET) == -1 && errno == EBADF, "a descriptor not open is EBADF");
+}
+
+static volatile int g_seek_fd = -1, g_seek_stop;
+static volatile unsigned g_seek_hits;
+
+static void *seeker(void *arg) {
+    (void)arg;
+    while (!g_seek_stop) {
+        int fd = g_seek_fd;
+        if (fd >= 0 && sys_lseek(fd, SEEK_TAG, SYS_SEEK_SET) == SEEK_TAG)
+            __atomic_fetch_add(&g_seek_hits, 1, __ATOMIC_RELAXED);
+    }
+    return 0;
+}
+
+static void check_lseek_close_race(void) {
+    int fd = open(SEEK_FILE, O_RDONLY), p[2];
+    if (fd < 0 || pipe(p) != 0) { utest_check(0, "opened the seek file and a pipe"); return; }
+    g_seek_fd = fd;
+    pthread_t th[SEEKERS];
+    int made = 0;
+    for (int i = 0; i < SEEKERS; i++) made += pthread_create(&th[i], 0, seeker, 0) == 0;
+    unsigned moved = 0, rounds = 0;
+    for (int r = 0; r < SEEK_ROUNDS; r++) {
+        // A pipe end dup2'd over it closes its file -- the descriptor is
+        // never unopened, so no seek is refused -- and another file
+        // opened next reuses that description.
+        if (dup2(p[0], fd) != fd) break;
+        int g = open(SEEK_FILE2, O_RDONLY);
+        if (g < 0) break;
+        uint8_t b = 0xFF;
+        if (read(g, &b, 1) != 1 || b != byte_at(0)) moved++;
+        close(g);
+        // And the file back at the same number, the same way.
+        int h = open(SEEK_FILE, O_RDONLY);
+        if (h < 0 || dup2(h, fd) != fd) break;
+        close(h);
+        rounds++;
+    }
+    g_seek_stop = 1;
+    for (int i = 0; i < made; i++) pthread_join(th[i], 0);
+    if (fd >= 0) close(fd);
+    close(p[0]);
+    close(p[1]);
+    utest_checkf(made == SEEKERS && rounds == SEEK_ROUNDS && g_seek_hits > 0,
+                 "%d seekers ran %u seeks over %u close-and-reopen rounds", made, g_seek_hits, rounds);
+    utest_checkf(moved == 0, "a file opened beside a closed descriptor starts at 0: %u moved", moved);
+}
+
 int main(void) {
     utest_begin("lockless_test", "kernel/proc/syscall.c's lock-free path, abi/clock_abi.h", UTEST_VERDICT_FILE);
     check_counted();
@@ -271,5 +390,14 @@ int main(void) {
     check_page_across_threads();
     check_page_read_only();
     check_signal();
+    utest_check(make_seek_file(SEEK_FILE) && make_seek_file(SEEK_FILE2), "wrote the seek files");
+    char was[16] = "on";
+    tunable_get(TUNABLE, was, sizeof was);
+    tunable_set(TUNABLE, "on");   // what they measure; check_counted() restored the boot's
+    check_lseek_counted();
+    check_lseek_close_race();
+    tunable_set(TUNABLE, was);
+    unlink(SEEK_FILE);
+    unlink(SEEK_FILE2);
     return utest_end();
 }

@@ -81,6 +81,16 @@ int kmutex_trylock_nested(struct kmutex *m, int subclass);
 #define kmutex_trylock_nested(m, subclass) ((void)(subclass), kmutex_trylock(m))
 #endif
 
+// HOLDS `m`'s OWN SPINLOCK WHILE `m` IS FREE: 1 with the flags for
+// kmutex_unheld_end(), or 0 (somebody holds it) having taken nothing.
+// While held, no thread can take `m`, and this caller has not taken it
+// either -- so it may change what `m` guards for a few instructions that
+// cannot sleep, with no unlock and so no waiter to wake. For a path with
+// no kernel lock and interrupts off (SYS_LSEEK's, fd_seek_lockless()),
+// where kmutex_unlock()'s wake is not yet safe.
+int  kmutex_unheld_begin(struct kmutex *m, uint64_t *flags);
+void kmutex_unheld_end(struct kmutex *m, uint64_t flags);
+
 // How many kmutex_lock() calls came from a context that could neither
 // sleep nor be rotated away (kmutex.c's might_sleep()). Each distinct
 // call site is also logged once. For a test; the log is the diagnostic.

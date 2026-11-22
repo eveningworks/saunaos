@@ -169,6 +169,17 @@ int kmutex_trylock_nested(struct kmutex *m, int subclass) {
 }
 #endif
 
+int kmutex_unheld_begin(struct kmutex *m, uint64_t *flags) {
+    uint64_t f = spin_lock_irqsave(&m->wait_lock);
+    if (m->depth == 0) { *flags = f; return 1; }
+    spin_unlock_irqrestore(&m->wait_lock, f);
+    return 0;
+}
+
+void kmutex_unheld_end(struct kmutex *m, uint64_t flags) {
+    spin_unlock_irqrestore(&m->wait_lock, flags);
+}
+
 void kmutex_unlock(struct kmutex *m) {
     LD_PREPARE(m);
     uint64_t f = spin_lock_irqsave(&m->wait_lock);

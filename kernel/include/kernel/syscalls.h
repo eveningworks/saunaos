@@ -158,6 +158,8 @@ struct fd_ops {
 
 // Every kind there is, each defined by its owner.
 extern const struct fd_ops file_fd_ops;        // kernel/fs/fs_syscalls.c
+// file_fd_ops' seek for a caller that may not sleep (fd_seek_lockless()).
+int file_seek_nosleep(struct open_file *f, int64_t off, uint64_t whence, int64_t *out);
 extern const struct fd_ops pipe_read_fd_ops;   // kernel/proc/pipe.c
 extern const struct fd_ops pipe_write_fd_ops;  // kernel/proc/pipe.c
 extern const struct fd_ops shm_fd_ops;         // kernel/mm/shm.c
@@ -285,6 +287,11 @@ struct open_file *fd_get(uint64_t pml4, int fd);
 // failure, and fd_put(-1) does nothing.
 struct open_file *fd_get_held(uint64_t pml4, int fd, int *di);
 void fd_put(int di);
+// SYS_LSEEK with no kernel lock and interrupts off: 1 with the new
+// position (or a negative errno) in *out, or 0 having changed nothing, for
+// the locked path to answer -- a bad fd, SEEK_END, a busy position, or a
+// kind whose seek may sleep.
+int fd_seek_lockless(uint64_t pml4, int fd, int64_t off, uint64_t whence, int64_t *out);
 uint32_t fd_peer_ip(uint64_t pml4);
 
 // kernel/lib/remote_log.c

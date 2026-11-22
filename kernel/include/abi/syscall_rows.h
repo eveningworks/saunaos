@@ -24,8 +24,11 @@
 // (FreeBSD's SYF_MPSAFE): dispatched by syscall_try_lockless() with
 // interrupts off, it may not sleep, take the kernel lock or touch
 // anything that lock protects -- only the calling thread's own fields and
-// what has its own lock or none. An expander that does not care is given
-// the plain row.
+// what has its own lock or none. Seeing `lockless`, it may return
+// SYSCALL_DECLINE having changed nothing, and the locked path runs it
+// again (lseek answers a file's SET/CUR with its position free and
+// ESPIPE for a stream with no position, and declines the rest).
+// An expander that does not care is given the plain row.
 #ifndef SYSCALL_ROW_MPSAFE
 #define SYSCALL_ROW_MPSAFE(nr, name, fn, a0, a1, a2, r, pr) SYSCALL_ROW(nr, name, fn, a0, a1, a2, r, pr)
 #define SYSCALL_ROW_MPSAFE_DEFAULTED
@@ -133,7 +136,7 @@ SYSCALL_ROW(SYS_QUERY, "query", sys_query, A_HEX, A_END, A_END, R_DEC, PROMISE_S
 // The offset traces as a signed decimal and the whence as a plain
 // one: SEEK_SET/CUR/END would want a third argument formatter for
 // three values, and `lseek(3, -16, 2)` is already readable.
-SYSCALL_ROW(SYS_LSEEK, "lseek", sys_lseek, A_FD, A_INT, A_INT, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW_MPSAFE(SYS_LSEEK, "lseek", sys_lseek, A_FD, A_INT, A_INT, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_FSTAT, "fstat", sys_fstat, A_FD, A_HEX, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW_MPSAFE(SYS_GETPID, "getpid", sys_getpid, A_END, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_FORK, "fork", sys_fork, A_END, A_END, A_END, R_DEC, PROMISE_PROC)

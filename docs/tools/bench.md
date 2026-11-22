@@ -137,15 +137,15 @@ Boots one build on a copy of its disk (or uses a running machine with
 `--host`, over `remote.py`) and runs `/tests/syscall_bench`: a `getpid`,
 the clock by syscall (`monotonic`) and from the clock page (`clock page`,
 `abi/clock_abi.h` -- the syscall again where the TSC is not the
-clocksource), a `yield`, a one-byte pipe write+read, a two-process round trip over two
+clocksource), an `lseek` of a file (an MPSAFE row), a `yield`, a one-byte pipe write+read, a two-process round trip over two
 pipes and the switch derived from it (lmbench's `lat_ctx` subtraction),
 the median spawn-to-waitpid of `/bin/hello` (needs only the C library)
 and of `/bin/ls /` (the toolkit libraries too) -- the cost of a program's
 `DT_NEEDED` list, its output drained through a pipe -- and read/write of
 64 B .. 1 MiB against a `/tmp` file beside two ring-3 `memcpy`s of the
-same size. `/tests/syscall_bench calls [N]` runs the first three rows
-alone, for several copies at once: what a lock-free `getpid` buys only
-shows when the cores contend (`docs/smp-design.md`, stage 7).
+same size. `/tests/syscall_bench calls [N]` runs the first four rows
+alone -- `getpid`, the clock both ways, and `lseek` -- for several copies
+at once: what a lock-free call buys only shows when the cores contend (`docs/smp-design.md`, stage 7).
 
     python3 tools/bench/sys_bench.py --kvm
     python3 tools/bench/sys_bench.py --kvm --runs 3 --label before --json out.jsonl

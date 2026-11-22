@@ -9,6 +9,8 @@
 //   clock page   sys_monotonic_ns(), the clock read from the clock page
 //                (abi/clock_abi.h) with no syscall -- the syscall again
 //                where the TSC is not the clocksource
+//   lseek        SYS_LSEEK of a file to a set position (an MPSAFE row:
+//                no kernel lock unless the position lock is held)
 //   yield        a trip through the scheduler with nobody else to run
 //   pipe 1 B     a write then a read of one byte, one process
 //   switch       two processes passing a byte back and forth over two
@@ -33,7 +35,7 @@
 //
 //     spawn /tests/syscall_bench [CALLS [SIZE...]]   (default 1000000;
 //                                     SIZE in bytes, up to 1 MiB)
-//     spawn /tests/syscall_bench calls [CALLS]    the first three rows only
+//     spawn /tests/syscall_bench calls [CALLS]    the first four rows only
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -43,7 +45,8 @@
 
 #define say(...) fprintf(stderr, __VA_ARGS__)
 
-#define SCRATCH "/tmp/syscall_bench.dat"
+// Per process, so several copies at once do not truncate each other's.
+static char g_scratch[48];
 #define SIZE_MAX_BYTES (1024 * 1024)
 
 static inline uint64_t tsc(void) {
@@ -84,7 +87,7 @@ static void print_machine(void) {
 }
 
 static uint8_t *g_buf, *g_copy;
-static int g_rfd, g_wfd, g_pa[2], g_pb[2];
+static int g_rfd, g_wfd, g_sfd, g_pa[2], g_pb[2];
 static size_t g_size;
 
 static void do_getpid(long n) {
@@ -95,6 +98,9 @@ static void do_getpid(long n) {
 }
 static void do_monotonic(long n) { for (long i = 0; i < n; i++) (void)sys_monotonic_ns_syscall(); }
 static void do_clock_page(long n) { for (long i = 0; i < n; i++) (void)sys_monotonic_ns(); }
+static void do_lseek(long n) {
+    for (long i = 0; i < n; i++) sys_lseek(g_sfd, (long long)(i & 4095), SYS_SEEK_SET);
+}
 static void do_yield(long n) { for (long i = 0; i < n; i++) sys_yield(); }
 static void do_pipe1(long n) {
     for (long i = 0; i < n; i++) {
@@ -219,7 +225,7 @@ static void size_rows(const size_t *sizes, unsigned count) {
 }
 
 int main(int argc, char **argv) {
-    // `calls [N]`: the three call rows alone, for several copies at once --
+    // `calls [N]`: the four call rows alone, for several copies at once --
     // what a lock-free getpid buys shows only when the cores contend.
     int calls_only = argc > 1 && strcmp(argv[1], "calls") == 0;
     if (calls_only) { argc--; argv++; }
@@ -237,7 +243,17 @@ int main(int argc, char **argv) {
     row("monotonic", measure(do_monotonic, n));
     // sys_monotonic_ns(): from the clock page when the TSC is the source.
     row("clock page", measure(do_clock_page, n));
-    if (calls_only) return 0;
+    snprintf(g_scratch, sizeof g_scratch, "/tmp/syscall_bench.%d.dat", (int)sys_getpid());
+    // Skipped, not fatal, where /tmp cannot be written: the rows above
+    // are what a contention run of `calls` is for.
+    g_sfd = sys_open(g_scratch, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
+    if (g_sfd >= 0) {
+        row("lseek", measure(do_lseek, n));
+        sys_close(g_sfd);
+    } else {
+        say("syscall_bench: lseek skipped -- cannot create %s\n", g_scratch);
+    }
+    if (calls_only) { sys_unlink(g_scratch); return 0; }
     row("yield", measure(do_yield, n / 10));
     if (sys_pipe(g_pa) < 0) { say("syscall_bench: pipe failed\n"); return 1; }
     struct cost pipe1 = measure(do_pipe1, n / 10);
@@ -247,12 +263,12 @@ int main(int argc, char **argv) {
     rc |= spawn_row("spawn hello", "/bin/hello", NULL, spawns);
     rc |= spawn_row("spawn ls", "/bin/ls", "/", spawns);
 
-    g_wfd = sys_open(SCRATCH, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
-    if (g_wfd < 0) { say("syscall_bench: cannot create " SCRATCH "\n"); return 1; }
+    g_wfd = sys_open(g_scratch, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
+    if (g_wfd < 0) { say("syscall_bench: cannot create %s\n", g_scratch); return 1; }
     g_size = SIZE_MAX_BYTES;
     sys_write(g_wfd, g_buf, g_size);
-    g_rfd = sys_open(SCRATCH, 0);
-    if (g_rfd < 0) { say("syscall_bench: cannot open " SCRATCH "\n"); return 1; }
+    g_rfd = sys_open(g_scratch, 0);
+    if (g_rfd < 0) { say("syscall_bench: cannot open %s\n", g_scratch); return 1; }
     static const size_t SIZES[] = { 64, 4096, 65536, 262144, SIZE_MAX_BYTES };
     size_t picked[16];
     unsigned count = 0;
@@ -264,7 +280,7 @@ int main(int argc, char **argv) {
     else size_rows(SIZES, sizeof SIZES / sizeof SIZES[0]);
     sys_close(g_rfd);
     sys_close(g_wfd);
-    sys_unlink(SCRATCH);
+    sys_unlink(g_scratch);
     say("syscall_bench: done\n");
     return rc;
 }

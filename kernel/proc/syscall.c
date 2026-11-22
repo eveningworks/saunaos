@@ -169,9 +169,12 @@ int syscall_try_lockless(uint64_t *regs) {
         .a1 = regs[10],
         .a2 = regs[11],
         .pml4 = vmm_current_pml4(),
+        .lockless = 1,
     };
     KTRACE(KTRACE_G_SYSCALL, KTRACE_EV_SYS_ENTER, nr, c.a0, c.a1, c.a2);
-    (void)d->fn(&c);   // an MPSAFE handler never parks
+    // An MPSAFE handler never parks; it may decline, and the locked path
+    // then traces the entry a second time, as a declined yield does.
+    if (d->fn(&c) == SYSCALL_DECLINE) { irq_restore(f); return 0; }
     KTRACE(KTRACE_G_SYSCALL, KTRACE_EV_SYS_EXIT, nr, regs[14], 0, 0);
     bkl_note_lockless(nr);
 #ifdef SAUNAOS_LOCKDEP

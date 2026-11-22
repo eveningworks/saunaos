@@ -23,6 +23,7 @@
 #include "net.h"     // net_sock_peer() -- fd_peer_ip()
 #include "string.h"
 #include "klimit.h"
+#include "lockstat.h"   // SPINLOCK_COUNTED: the fd lock, `fd` in `lockstat`
 
 // A BOUNCE BUFFER FOR ONE TRANSFER, sized to what this call actually
 // needs rather than to the maximum.
@@ -105,6 +106,22 @@ void fd_bounce_free(void *p) {
 // (kernel/fs/fs_syscalls.c) and SYS_SPAWN (proc_syscalls.c) index it
 // too; the storage is here, with the code that owns it.
 
+// **TWO LOCKS, TAKEN IN THIS ORDER.** The FD LOCK (`fd` in `lockstat`)
+// covers the description pool -- a claim, every `refs`/`ops` change -- and
+// `g_spaces`' slots. Each descriptor table's own `lock` covers that table:
+// its arrays, `next_fd` and `pml4` (Linux's files_struct file_lock, per
+// process as there). Both were the preemption guard, which since stage 7
+// excludes only this core: the kernel lock did the rest, and SYS_LSEEK's
+// lock-free path (fd_seek_lockless()) runs without that -- taking only its
+// table's lock, since one global lock serialised every core's seeks.
+// Readers that hold the kernel lock still read without either: nothing
+// they read is freed under them. A holder may allocate (the heap's lock
+// nests inside) but never sleeps, so a description's release() and
+// flock_close() run after the unlock.
+SPINLOCK_COUNTED(g_fd_lock, "fd");
+static void fd_lock(void)   { spin_lock(&g_fd_lock); }
+static void fd_unlock(void) { spin_unlock(&g_fd_lock); }
+
 // DESCRIPTIONS ARE ALLOCATED ONE AT A TIME, and this is a table of
 // pointers to them -- so a description never moves and a caller may
 // hold `struct open_file *` across an unrelated allocation. The table
@@ -173,12 +190,22 @@ struct fd_space {
     // next file given that number inherits a stranger's mark.
     uint8_t *cloexec;
     struct fd_retired *retired;
+    // Every write of the fields above, after the fd lock when both are
+    // held. **A DESCRIPTOR HOLDS A REFERENCE THAT ONLY A WRITE UNDER THIS
+    // LOCK DROPS** (the unref follows the unlock), so its holder may use
+    // the description a slot names without a reference of its own.
+    struct spinlock lock;
 };
+static void space_lock(struct fd_space *sp)   { spin_lock(&sp->lock); }
+static void space_unlock(struct fd_space *sp) { spin_unlock(&sp->lock); }
 // Grown by doubling, as g_desc is, up to the process limit plus the
-// kernel's own few: one table per live address space.
+// kernel's own few: one table per live address space. A `struct fd_space`
+// is never freed either: a released one is reused (`pml4` 0).
 static struct fd_space **g_spaces;
 static int g_spaces_cap;
 
+// Under the fd lock. THE OLD ARRAY IS NEVER FREED, as g_desc's is not: a
+// kernel-lock reader walking space_find() without the fd lock may hold it.
 static int spaces_grow(void) {
     int ceiling = scheduler_max_procs() + 4;
     int cap = g_spaces_cap ? g_spaces_cap * 2 : 32;
@@ -186,19 +213,16 @@ static int spaces_grow(void) {
     if (cap <= g_spaces_cap) return 0;
     struct fd_space **n = kzalloc((uint32_t)cap * sizeof *n);
     if (!n) return 0;
-    if (g_spaces) {
-        k_memcpy(n, g_spaces, (uint32_t)g_spaces_cap * sizeof *n);
-        kfree(g_spaces);
-    }
-    g_spaces = n;
-    g_spaces_cap = cap;
+    if (g_spaces) k_memcpy(n, g_spaces, (uint32_t)g_spaces_cap * sizeof *n);
+    __atomic_store_n(&g_spaces, n, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_spaces_cap, cap, __ATOMIC_RELEASE);
     return 1;
 }
 
 // Makes room for descriptor `fd` in `sp`: 1, or 0 at the ceiling (logged
-// once) or out of memory. EVERY WRITER OF A TABLE HOLDS THE PREEMPTION
-// GUARD, so two threads of one process cannot both grow it or both take
-// one free number (kmalloc is allowed under it -- it is the heap's lock).
+// once) or out of memory. EVERY WRITER OF A TABLE HOLDS ITS LOCK, so two
+// threads of one process cannot both grow it or both take one free number
+// (kmalloc is allowed under it -- the heap's lock nests inside).
 static int space_reserve(struct fd_space *sp, int fd) {
     if (fd < sp->cap) return 1;
     int ceiling = fd_proc_ceiling();
@@ -246,7 +270,7 @@ static void slot_clear(struct fd_space *sp, int fd) {
 }
 
 // The lowest free descriptor at or above `min`, with room reserved for
-// it; -1 at the ceiling or out of memory. Preemption guard held.
+// it; -1 at the ceiling or out of memory. The table's lock held.
 static int lowest_free(struct fd_space *sp, int min) {
     int fd = min > sp->next_fd ? min : sp->next_fd;
     while (fd < sp->cap && sp->d[fd] >= 0) fd++;
@@ -279,16 +303,21 @@ static int desc_live(int di) {
     return f && f->refs > 0;
 }
 
-// A reference for one more descriptor on a live description.
-static int desc_ref(int di, int n) {
-    scheduler_preempt_disable();
+// A reference for one more descriptor on a live description. Fd lock held.
+static int desc_ref_locked(int di, int n) {
     int ok = desc_live(di);
     if (ok) fd_desc_at(di)->refs += n;
-    scheduler_preempt_enable();
     return ok;
 }
 
-// Under the preemption guard: fd_desc_alloc() below says why.
+static int desc_ref(int di, int n) {
+    fd_lock();
+    int ok = desc_ref_locked(di, n);
+    fd_unlock();
+    return ok;
+}
+
+// Under the fd lock: fd_desc_alloc() below says why.
 static int desc_claim(const struct fd_ops *ops) {
     // From the hint, then once more from 0 before growing: the hint is
     // only a hint, and growing past a free slot would reach the ceiling
@@ -329,11 +358,11 @@ static int desc_claim(const struct fd_ops *ops) {
 // preempted inside a syscall (unless syscall_irq=off), and a second open landing
 // between the refs test and the store took the same slot: two
 // descriptors on one description, each open's path and mode overwriting
-// the other's (tests/fdrace_test). The guard nests with the heap's.
+// the other's (tests/fdrace_test). The heap's lock nests inside the fd lock.
 int fd_desc_alloc(const struct fd_ops *ops, int aux_idx) {
-    scheduler_preempt_disable();
+    fd_lock();
     int i = desc_claim(ops);
-    scheduler_preempt_enable();
+    fd_unlock();
     if (i >= 0 && ops->open) ops->open(g_desc[i], aux_idx);
     return i;
 }
@@ -350,30 +379,33 @@ int fd_desc_alloc(const struct fd_ops *ops, int aux_idx) {
 void fd_desc_unref(int di) {
     struct open_file *f = fd_desc_at(di);
     if (!f) return;
-    scheduler_preempt_disable();
+    fd_lock();
     int last = f->refs > 0 && --f->refs == 0;   // else somebody still names it
     if (last) f->refs = FD_DESC_CLOSING;
-    scheduler_preempt_enable();
+    fd_unlock();
     if (!last) return;
 
     // The kind's own teardown: a pipe end closed, a socket's port given
     // back, a pty end's far side told. Each owner's comment says why.
     if (f->ops->release) f->ops->release(f);
 
-    scheduler_preempt_disable();
+    fd_lock();
     f->ops = NULL;
     f->refs = 0;
     if (di < g_desc_hint) g_desc_hint = di;
-    scheduler_preempt_enable();
+    fd_unlock();
 }
 
 static struct tty *g_kernel_tty;
 void fd_set_kernel_tty(struct tty *t) { g_kernel_tty = t; }
 struct tty *fd_kernel_tty(void) { return g_kernel_tty; }
 
+// Capacity first, then the array: spaces_grow() publishes them the other way.
 static struct fd_space *space_find(uint64_t pml4) {
-    for (int i = 0; i < g_spaces_cap; i++)
-        if (g_spaces[i] && g_spaces[i]->pml4 == pml4) return g_spaces[i];
+    int cap = __atomic_load_n(&g_spaces_cap, __ATOMIC_ACQUIRE);
+    struct fd_space **sp = __atomic_load_n(&g_spaces, __ATOMIC_ACQUIRE);
+    for (int i = 0; i < cap; i++)
+        if (sp[i] && sp[i]->pml4 == pml4) return sp[i];
     return NULL;
 }
 
@@ -381,9 +413,29 @@ int fd_space_open(uint64_t pml4) {
     if (!pml4) return -1;
     if (space_find(pml4)) return 0; // idempotent
 
+    // The three a process starts with: ALL THREE ON THE CONSOLE, one
+    // description named three times -- what login(1) hands a shell on a
+    // tty. A table built here belongs to a program the kernel started
+    // in the foreground (the shell's `run`), so its errors belong on the
+    // terminal it was run from. A DETACHED start is given the kernel log
+    // as stderr by its spawner instead (scheduler_spawn_env()), and that
+    // is where a service's stderr comes from: init's (docs/decisions.md,
+    // "stderr is the terminal's, and the kernel log only without one").
+    // Made first: fd_desc_alloc() takes the fd lock itself.
+    int con = g_kernel_tty ? fd_desc_alloc(&tty_fd_ops, tty_index(g_kernel_tty))
+                           : fd_desc_alloc(&console_fd_ops, -1);
+    if (con < 0) return -1;
+
     // Allocated on demand: only a live address space pays for its
     // table, and the slot array is bounded by the process table rather
     // than by a number somebody picked.
+    const char *why = NULL;
+    fd_lock();
+    if (space_find(pml4)) {   // another thread of it, since the test above
+        fd_unlock();
+        fd_desc_unref(con);
+        return 0;
+    }
     struct fd_space *sp = NULL;
     int slot = -1;
     for (int i = 0; i < g_spaces_cap; i++) {
@@ -396,43 +448,35 @@ int fd_space_open(uint64_t pml4) {
     }
     if (!sp) {
         if (slot < 0) {
-            klog_write("fd: no free descriptor table -- too many address spaces\n");
-            return -1;
+            why = "fd: no free descriptor table -- too many address spaces\n";
+        } else if (!(sp = kzalloc(sizeof *sp))) {
+            why = "fd: out of memory for a descriptor table\n";
+        } else {
+            spin_lock_name(&sp->lock, "fd table");
+            __atomic_store_n(&g_spaces[slot], sp, __ATOMIC_RELEASE);
         }
-        sp = kzalloc(sizeof *sp);
-        if (!sp) {
-            klog_write("fd: out of memory for a descriptor table\n");
-            return -1;
-        }
-        g_spaces[slot] = sp;
     }
-
-    // A reused table's arrays went with its dead process (fd_release_all()).
-    if (!space_reserve(sp, FD_STDERR)) {
-        klog_write("fd: out of memory for a descriptor table\n");
+    if (!why) {
+        space_lock(sp);
+        // A reused table's arrays went with its dead process (fd_release_all()).
+        if (!space_reserve(sp, FD_STDERR)) {
+            why = "fd: out of memory for a descriptor table\n";
+        } else {
+            desc_ref_locked(con, 2); // one reference per descriptor
+            slot_set(sp, FD_STDIN, con);
+            slot_set(sp, FD_STDOUT, con);
+            slot_set(sp, FD_STDERR, con);
+            sp->next_fd = FD_STDERR + 1;
+            __atomic_store_n(&sp->pml4, pml4, __ATOMIC_RELEASE);   // found from here on
+        }
+        space_unlock(sp);
+    }
+    fd_unlock();
+    if (why) {
+        fd_desc_unref(con);
+        klog_write(why);
         return -1;
     }
-    sp->pml4 = pml4;
-
-    // The three a process starts with: ALL THREE ON THE CONSOLE, one
-    // description named three times -- what login(1) hands a shell on a
-    // tty. A table built here belongs to a program the kernel started
-    // in the foreground (the shell's `run`), so its errors belong on the
-    // terminal it was run from. A DETACHED start is given the kernel log
-    // as stderr by its spawner instead (scheduler_spawn_env()), and that
-    // is where a service's stderr comes from: init's (docs/decisions.md,
-    // "stderr is the terminal's, and the kernel log only without one").
-    int con = g_kernel_tty ? fd_desc_alloc(&tty_fd_ops, tty_index(g_kernel_tty))
-                           : fd_desc_alloc(&console_fd_ops, -1);
-    if (con < 0) {
-        sp->pml4 = 0;
-        return -1;
-    }
-    desc_ref(con, 2); // one reference per descriptor
-    slot_set(sp, FD_STDIN, con);
-    slot_set(sp, FD_STDOUT, con);
-    slot_set(sp, FD_STDERR, con);
-    sp->next_fd = FD_STDERR + 1;
     return 0;
 }
 
@@ -450,10 +494,10 @@ static struct fd_space *space_get(uint64_t pml4) {
 int fd_install(uint64_t pml4, int di) {
     struct fd_space *sp = space_get(pml4);
     if (!sp || di < 0) return -1;
-    scheduler_preempt_disable();
+    space_lock(sp);
     int fd = lowest_free(sp, 0);
     if (fd >= 0) slot_set(sp, fd, di);
-    scheduler_preempt_enable();
+    space_unlock(sp);
     return fd;
 }
 
@@ -470,16 +514,18 @@ struct open_file *fd_get(uint64_t pml4, int fd) {
     return fd_desc_at(di);
 }
 
-// The lookup and the reference are one step, under the guard: a close
+// The lookup and the reference are one step, under both locks: a close
 // between them would free the description we are about to hold.
 struct open_file *fd_get_held(uint64_t pml4, int fd, int *di) {
     *di = -1;
     struct fd_space *sp = space_get(pml4);
     if (!sp) return NULL;
-    scheduler_preempt_disable();
+    fd_lock();
+    space_lock(sp);
     int i = slot_di(sp, fd);
-    if (i >= 0 && desc_ref(i, 1)) { *di = i; scheduler_fd_hold(1); }
-    scheduler_preempt_enable();
+    if (i >= 0 && desc_ref_locked(i, 1)) { *di = i; scheduler_fd_hold(1); }
+    space_unlock(sp);
+    fd_unlock();
     return *di >= 0 ? fd_desc_at(*di) : NULL;
 }
 
@@ -517,15 +563,15 @@ uint32_t fd_peer_ip(uint64_t pml4) {
 int fd_close(uint64_t pml4, int fd) {
     struct fd_space *sp = space_get(pml4);
     if (!sp) return -1;
-    scheduler_preempt_disable();
+    space_lock(sp);
     int di = slot_di(sp, fd);
     if (di >= 0) slot_clear(sp, fd);
-    scheduler_preempt_enable();
+    space_unlock(sp);
     if (di < 0) return -1;
     // POSIX: closing ANY descriptor on a file drops the process's locks
     // on it (flock.h) -- before the unref, while the description is live.
     flock_close(pml4, fd_desc_at(di));
-    fd_desc_unref(di);   // outside the guard: a release may sleep
+    fd_desc_unref(di);   // outside the lock: a release may sleep
     return 0;
 }
 
@@ -546,29 +592,45 @@ int fd_dup_from(uint64_t pml4, int oldfd, int min) {
     // A floor past the ceiling is a bad argument, not a table that
     // filled: refused without the ceiling's log line.
     if (min >= fd_proc_ceiling()) return -EMFILE;
-    scheduler_preempt_disable();
+    fd_lock();
+    space_lock(sp);
+    // Still the description `oldfd` names: one closed since the lookup
+    // may already be another file's, claimed again with refs above 0.
+    if (slot_di(sp, oldfd) != di) {
+        space_unlock(sp);
+        fd_unlock();
+        return -EBADF;
+    }
     int fd = lowest_free(sp, min);
     if (fd >= 0) {
-        fd_desc_at(di)->refs++;
+        desc_ref_locked(di, 1);
         slot_set(sp, fd, di);
     }
-    scheduler_preempt_enable();
+    space_unlock(sp);
+    fd_unlock();
     return fd >= 0 ? fd : -EMFILE;
 }
 
 // Points descriptor `fd` at `di`, taking a reference; whatever it named
-// before is unref'd (outside the guard -- a release may sleep). -1 when
+// before is unref'd (outside the lock -- a release may sleep). -1 when
 // `fd` is past this process's ceiling (a bad number, not logged: POSIX's
-// EBADF for dup2) or the table cannot grow.
-static int put_at(struct fd_space *sp, int fd, int di) {
+// EBADF for dup2), the table cannot grow, or `from` (when not -1) no
+// longer names `di` -- closed since the caller looked, perhaps reused.
+static int put_at(struct fd_space *sp, int fd, int di, int from) {
     if (fd < 0 || fd >= fd_proc_ceiling()) return -1;
-    scheduler_preempt_disable();
-    if (!space_reserve(sp, fd)) { scheduler_preempt_enable(); return -1; }
-    int was = sp->d[fd];
-    if (was == di) { scheduler_preempt_enable(); return fd; }   // do not unref it
-    fd_desc_at(di)->refs++;
-    slot_set(sp, fd, di);   // POSIX: the copy survives an exec
-    scheduler_preempt_enable();
+    fd_lock();
+    space_lock(sp);
+    int was = -1, ok = (from < 0 || slot_di(sp, from) == di) && space_reserve(sp, fd);
+    if (ok) was = sp->d[fd];
+    if (ok && was != di) {
+        ok = desc_ref_locked(di, 1);   // 0: closed since the lookup
+        if (ok) slot_set(sp, fd, di);   // POSIX: the copy survives an exec
+    } else {
+        was = -1;   // the same description already: nothing to unref
+    }
+    space_unlock(sp);
+    fd_unlock();
+    if (!ok) return -1;
     if (was >= 0) {   // dup2 over an open descriptor closes it, locks and all
         flock_close(sp->pml4, fd_desc_at(was));
         fd_desc_unref(was);
@@ -584,14 +646,14 @@ int fd_dup2(uint64_t pml4, int oldfd, int newfd) {
     // POSIX: dup2(fd, fd) is a no-op and specifically does NOT close.
     // Getting that wrong destroys the stream it was asked to preserve.
     if (oldfd == newfd) return newfd;
-    return put_at(sp, newfd, di);
+    return put_at(sp, newfd, di, oldfd);
 }
 
 int fd_set_desc(uint64_t pml4, int fd, int di) {
     struct fd_space *sp = space_get(pml4);
     if (!sp) return -1;
     if (!desc_live(di)) return -1;
-    return put_at(sp, fd, di);
+    return put_at(sp, fd, di, -1);
 }
 
 void fd_inherit(uint64_t child, uint64_t parent) {
@@ -622,7 +684,8 @@ void fd_inherit(uint64_t child, uint64_t parent) {
     // streams a child is *meant* to be given, and everything else is
     // the parent's private business.
     // The child's table is FD_TABLE_FIRST from fd_space_open(), and
-    // nothing else runs in it yet.
+    // nothing else runs in it yet -- so its slots are written without the
+    // fd lock: only its own threads ever look them up.
     for (int i = 0; i <= FD_STDERR; i++) {
         if (cs->d[i] >= 0) { fd_desc_unref(cs->d[i]); slot_clear(cs, i); }
         int di = slot_di(ps, i);
@@ -640,7 +703,10 @@ void fd_clone(uint64_t child, uint64_t parent) {
     for (int i = 0; i < cs->cap; i++)
         if (cs->d[i] >= 0) { fd_desc_unref(cs->d[i]); slot_clear(cs, i); }
     // The parent's whole table, at its size: the child is not running
-    // yet, and the parent is the caller, so neither table moves under us.
+    // yet, and the parent is the caller, so neither table moves under us
+    // (and the child's is written without the fd lock, as fd_inherit's).
+    // **A SIBLING THREAD OF THE PARENT CAN still close or dup** meanwhile,
+    // as it could under the kernel lock with interrupts on in syscalls.
     if (!space_reserve(cs, ps->cap - 1)) return;
     for (int i = 0; i < ps->cap; i++) {
         int di = ps->d[i];
@@ -656,9 +722,14 @@ void fd_clone(uint64_t child, uint64_t parent) {
 // call, or -EBADF.
 int fd_cloexec(uint64_t pml4, int fd, int op) {
     struct fd_space *sp = space_find(pml4);
-    if (!sp || slot_di(sp, fd) < 0) return -EBADF;
-    int was = sp->cloexec[fd] ? 1 : 0;
-    if (op == 0 || op == 1) sp->cloexec[fd] = (uint8_t)op;
+    if (!sp) return -EBADF;
+    space_lock(sp);   // a grow copies the marks: a write beside it would be lost
+    int was = -EBADF;
+    if (slot_di(sp, fd) >= 0) {
+        was = sp->cloexec[fd] ? 1 : 0;
+        if (op == 0 || op == 1) sp->cloexec[fd] = (uint8_t)op;
+    }
+    space_unlock(sp);
     return was;
 }
 
@@ -679,7 +750,9 @@ void fd_rekey(uint64_t old_pml4, uint64_t new_pml4) {
     // The console claim follows the process, not the tables.
     tty_fd_rekey(old_pml4, new_pml4);
     flock_rekey(old_pml4, new_pml4);   // POSIX: an exec keeps the locks
-    sp->pml4 = new_pml4;
+    space_lock(sp);
+    __atomic_store_n(&sp->pml4, new_pml4, __ATOMIC_RELEASE);
+    space_unlock(sp);
     // **THIS IS WHERE close-on-exec BITES**, and it is the only place an
     // exec carries descriptors into the new image -- so a flag honoured
     // anywhere else would be honoured at the wrong time. After the
@@ -793,8 +866,41 @@ int sys_read(struct syscall_ctx *c) {
 // DESCRIPTION, not about a path -- the same reason SYS_READ and
 // SYS_WRITE are in this file.
 
+// THE TABLE'S LOCK ALONE is held from the lookup to the move: the
+// descriptor's own reference keeps the description while it is held
+// (struct fd_space), so no close, dup2 or reuse lands between them --
+// and no seek waits on another process's. The table is found without a
+// lock (none is ever freed) and its owner checked again under it.
+int fd_seek_lockless(uint64_t pml4, int fd, int64_t off, uint64_t whence, int64_t *out) {
+    struct fd_space *sp = space_find(pml4);
+    if (!sp) return 0;
+    int done = 0;
+    space_lock(sp);
+    int di = sp->pml4 == pml4 ? slot_di(sp, fd) : -1;
+    struct open_file *f = di >= 0 && desc_live(di) ? fd_desc_at(di) : NULL;
+    if (f && !f->ops->seek) {
+        *out = -ESPIPE;
+        done = 1;
+    } else if (f && f->ops == &file_fd_ops) {
+        done = file_seek_nosleep(f, off, whence, out);
+    }
+    space_unlock(sp);
+    return done;
+}
+
+// An MPSAFE row: the lock-free path answers what fd_seek_lockless() can.
 int sys_lseek(struct syscall_ctx *c) {
-    struct open_file *f = fd_get(c->pml4, (int)c->a0);
+    if (c->lockless) {
+        int64_t r;
+        if (!fd_seek_lockless(c->pml4, (int)c->a0, (int64_t)c->a1, c->a2, &r))
+            return SYSCALL_DECLINE;
+        c->regs[14] = (uint64_t)r;
+        return 0;
+    }
+    // Held: a seek may sleep on the position lock or the filesystem, and a
+    // close from another thread must not free the description under it.
+    int di;
+    struct open_file *f = fd_get_held(c->pml4, (int)c->a0, &di);
     if (!f) {
         klog_write(KLOG_ERR "syscall: lseek() rejected -- bad fd\n");
         c->regs[14] = (uint64_t)(int64_t)-EBADF;
@@ -805,11 +911,13 @@ int sys_lseek(struct syscall_ctx *c) {
     // a pipe, a socket and a terminal alike, and a libc's fseek() turns
     // exactly this code into the errno a program expects.
     if (!f->ops->seek) {
+        fd_put(di);
         c->regs[14] = (uint64_t)(int64_t)-ESPIPE;
         return 0;
     }
     // The new position, or a negative errno -- file_fd_seek() says which.
     c->regs[14] = (uint64_t)f->ops->seek(f, (int64_t)c->a1, c->a2);
+    fd_put(di);
     return 0;
 }
 
@@ -914,16 +1022,28 @@ void fd_release_all(uint64_t pml4_phys) {
     // forever on a dead writer. Sharing the unref path is also what
     // makes an INHERITED fd safe -- the parent's copy survives its
     // child dying.
+    //
+    // UNPUBLISHED FIRST, under the table's lock, so nothing finds the
+    // table while its arrays go; the unrefs come after, outside it -- a
+    // release may sleep.
     struct fd_space *sp = space_find(pml4_phys);
-    if (sp) {
-        for (int i = 0; i < sp->cap; i++) {
-            if (sp->d[i] < 0) continue;
-            fd_desc_unref(sp->d[i]);
-            sp->d[i] = -1;
-        }
-        sp->pml4 = 0; // the struct is reusable now; its arrays are not kept
-        space_drop_arrays(sp);
-    }
+    if (!sp) return;
+    struct fd_space gone = { 0 };   // its arrays, now this function's alone
+    space_lock(sp);
+    gone.d = sp->d;
+    gone.cloexec = sp->cloexec;
+    gone.retired = sp->retired;
+    gone.cap = sp->cap;
+    sp->d = NULL;
+    sp->cloexec = NULL;
+    sp->retired = NULL;
+    sp->cap = 0;
+    sp->next_fd = 0;
+    __atomic_store_n(&sp->pml4, 0, __ATOMIC_RELEASE);   // reusable from here
+    space_unlock(sp);
+    for (int i = 0; i < gone.cap; i++)
+        if (gone.d[i] >= 0) fd_desc_unref(gone.d[i]);
+    space_drop_arrays(&gone);
 }
 
 

@@ -254,7 +254,11 @@ int sys_open(struct syscall_ctx *c) {
             // A DESCRIPTION plus a descriptor naming it. Two steps
             // rather than one because dup2 can later point a second
             // descriptor at this same open file.
+            // What a lock-free lseek touches is set BEFORE the install
+            // publishes it to the process's other threads: the position is
+            // the claim's zero, and the lock is named here, not after.
             int di = fd_desc_alloc(&file_fd_ops, -1);
+            if (di >= 0) kmutex_name(&fd_desc_at(di)->file.pos_lock, "file position");
             int fd = di >= 0 ? fd_install(pml4, di) : -1;
             if (fd < 0) {
                 if (di >= 0) fd_desc_unref(di);
@@ -330,8 +334,6 @@ int sys_open(struct syscall_ctx *c) {
                 }
                 k_strlcpy(fd_desc_at(di)->file.name, name, sizeof fd_desc_at(di)->file.name);
                 fd_desc_at(di)->file.mode = mode;
-                fd_desc_at(di)->file.pos = 0;
-                kmutex_name(&fd_desc_at(di)->file.pos_lock, "file position");
                 // Read-only fds ignore it, so it is not worth refusing
                 // the combination -- but it is worth not SETTING it,
                 // since SYS_FSTAT reports nothing about it and a stray
@@ -1181,6 +1183,18 @@ static int64_t seek_locked(struct open_file *f, int64_t off, uint64_t whence) {
     }
     f->file.pos = (uint64_t)want;
     return want;
+}
+
+// 1 with the answer, or 0 to decline: SEEK_END, whose size is the
+// filesystem's to give under a sleeping lock, or a position lock held --
+// its holder may be mid-read at the old position.
+int file_seek_nosleep(struct open_file *f, int64_t off, uint64_t whence, int64_t *out) {
+    if (whence == SYS_SEEK_END) return 0;
+    uint64_t fl;
+    if (!kmutex_unheld_begin(&f->file.pos_lock, &fl)) return 0;
+    *out = seek_locked(f, off, whence);
+    kmutex_unheld_end(&f->file.pos_lock, fl);
+    return 1;
 }
 
 static int64_t file_fd_seek(struct open_file *f, int64_t off, uint64_t whence) {
