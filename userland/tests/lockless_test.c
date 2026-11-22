@@ -370,6 +370,10 @@ static void check_lseek_close_race(void) {
         if (h < 0 || dup2(h, fd) != fd) break;
         close(h);
         rounds++;
+        // ONE CORE GIVES THE SEEKERS A TURN: lock-free, a round is quick
+        // enough to finish all of them inside one slice, and the seekers
+        // then never ran ("0 seeks", 1 preflight in about 10 on one vCPU).
+        sys_yield();
     }
     g_seek_stop = 1;
     for (int i = 0; i < made; i++) pthread_join(th[i], 0);
