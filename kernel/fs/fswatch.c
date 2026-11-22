@@ -75,6 +75,16 @@ void fswatch_note(uint64_t self, uint64_t parent) {
     }
 }
 
+int fswatch_watching(uint64_t self, uint64_t parent) {
+    for (int i = 0; i < kslots_cap(&g_w); i++) {
+        struct watch *w = kslots_at(&g_w, i);
+        if (!w || !__atomic_load_n(&w->pid, __ATOMIC_ACQUIRE)) continue;
+        uint64_t h = __atomic_load_n(&w->hash, __ATOMIC_RELAXED);
+        if (h == self || h == parent) return 1;
+    }
+    return 0;
+}
+
 void fswatch_owner_gone(int pid) {
     for (int i = 0; i < kslots_cap(&g_w); i++) {
         struct watch *w = kslots_at(&g_w, i);

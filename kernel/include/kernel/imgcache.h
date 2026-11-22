@@ -61,6 +61,10 @@ void imgcache_fallback(const char *path, uint64_t key, const char *why);
 // mounted over): the next mapping reads the file again. Called by every
 // vfs path that changes what a name holds (kernel/fs/vfs.c, mount.c).
 void imgcache_forget(const char *path);
+// Whether `path` is one the cache may hold (under /bin, /lib, /tests): a
+// write there must forget it, under the preemption guard, so a caller
+// with no kernel lock declines instead.
+int imgcache_may_hold(const char *path);
 
 struct imgcache_stats {
     uint64_t frames;     // frames held for files still hooked

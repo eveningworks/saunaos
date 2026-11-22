@@ -28,7 +28,11 @@
 //     read twice, or torn);
 //   - a mount and unmount beside the file while threads read it: every
 //     read answers its whole word (the walk inside the mount table's
-//     sequence count; a torn walk answers 0, which reads as EOF).
+//     sequence count; a torn walk answers 0, which reads as EOF);
+//   - and written: counted the same way, read back word for word;
+//     writers sharing one description each take the next position, and
+//     appenders with a description each land at the end -- every word
+//     once, each writer's in its order (no position lock: words lost).
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -321,7 +325,9 @@ static int make_file(const char *path) {
 }
 
 // CALLS 64-byte reads at numbered offsets, each checked: the count is
-// only worth anything if the bytes are right too.
+// only worth anything if the bytes are right too. A few may decline --
+// another process holding /tmp's lock for a moment -- so the lock-free
+// count allows a tenth to take the locked path.
 static int read_rounds(int fd, uint32_t len) {
     static char buf[BIG_READ];
     int bad = 0;
@@ -348,7 +354,7 @@ static void count_reads(const char *what, const char *path, uint32_t len, int wa
     snprintf(d, sizeof d, "read lockless +%llu takes +%llu, %d wrong",
              (unsigned long long)(l1 - l0), (unsigned long long)(t1 - t0), bad);
     if (want_lockless)
-        utest_check_detail(!bad && l1 - l0 >= CALLS && t1 - t0 < CALLS / 10, what, d);
+        utest_check_detail(!bad && l1 - l0 >= CALLS - CALLS / 10 && t1 - t0 < CALLS / 10, what, d);
     else
         utest_check_detail(!bad && t1 - t0 >= CALLS, what, d);
 }
@@ -403,6 +409,93 @@ static void check_shared_position(void) {
     utest_checkf(!twice && !missed && !g_torn,
                  "readers sharing one description each get the next word: "
                  "%u read twice, %u missed, %u torn", twice, missed, g_torn);
+}
+
+// --- writes ------------------------------------------------------------------
+
+#define W_FILE "/tmp/lockless_rw.w"
+#define W_EACH 4000u   // words per writer
+
+static void count_writes(const char *what, const char *path, int want_lockless) {
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) { utest_checkf(0, "%s opens for writing", path); return; }
+    uint64_t t0, l0, t1, l1;
+    char d[128];
+    int bad = 0;
+    syscall_row(SYS_WRITE, &t0, &l0);
+    for (uint32_t i = 0; i < CALLS; i++)
+        if (write(fd, &i, 4) != 4) bad++;
+    syscall_row(SYS_WRITE, &t1, &l1);
+    close(fd);
+    // Read back through the other path: every word where it was written.
+    fd = open(path, O_RDONLY);
+    for (uint32_t i = 0, w; fd >= 0 && i < CALLS; i++)
+        if (read(fd, &w, 4) != 4 || w != i) bad++;
+    if (fd >= 0) close(fd);
+    snprintf(d, sizeof d, "write lockless +%llu takes +%llu, %d wrong",
+             (unsigned long long)(l1 - l0), (unsigned long long)(t1 - t0), bad);
+    if (want_lockless)
+        utest_check_detail(!bad && l1 - l0 >= CALLS - CALLS / 10 && t1 - t0 < CALLS / 10, what, d);
+    else
+        utest_check_detail(!bad && t1 - t0 >= CALLS, what, d);
+    unlink(path);
+}
+
+static void check_write_counted(void) {
+    count_writes("a /tmp file is written without the kernel lock", W_FILE, 1);
+    count_writes("a /var/tmp (disk) file's write takes the kernel lock", DISK_FILE, 0);
+    tunable_set(TUNABLE, "off");
+    count_writes("turned off, a /tmp write takes the kernel lock again", W_FILE, 0);
+    tunable_set(TUNABLE, "on");
+}
+
+// READERS writers, each word (writer << 24 | n). Shared: one description,
+// so each write takes the next position. Appending: a description each,
+// O_APPEND, so each write lands at the end under the mount's lock.
+static int g_w_fd;
+static int g_w_append;
+
+static void *word_writer(void *arg) {
+    uint32_t me = (uint32_t)(uintptr_t)arg;
+    int fd = g_w_append ? open(W_FILE, O_WRONLY | O_APPEND) : g_w_fd;
+    if (fd < 0) return 0;
+    for (uint32_t n = 0; n < W_EACH; n++) {
+        uint32_t w = me << 24 | n;
+        if (write(fd, &w, 4) != 4) break;
+        g_progress++;
+    }
+    if (g_w_append) close(fd);
+    return 0;
+}
+
+static void check_writers(int append) {
+    g_phase = append ? "appenders, a description each" : "writers sharing one description";
+    g_w_append = append;
+    g_w_fd = open(W_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (g_w_fd < 0) { utest_check(0, "the writers' file opens"); return; }
+    pthread_t t[READERS];
+    for (int i = 0; i < READERS; i++) pthread_create(&t[i], 0, word_writer, (void *)(uintptr_t)(i + 1));
+    for (int i = 0; i < READERS; i++) pthread_join(t[i], 0);
+    close(g_w_fd);
+
+    static uint32_t next[READERS + 1];
+    memset(next, 0, sizeof next);
+    unsigned words = 0, wrong = 0, order = 0;
+    int fd = open(W_FILE, O_RDONLY);
+    uint32_t w;
+    while (fd >= 0 && read(fd, &w, 4) == 4) {
+        words++;
+        uint32_t who = w >> 24, n = w & 0xffffff;
+        if (who < 1 || who > READERS || n >= W_EACH) { wrong++; continue; }
+        if (n != next[who]) order++;
+        next[who] = n + 1;
+    }
+    if (fd >= 0) close(fd);
+    unlink(W_FILE);
+    utest_checkf(words == READERS * W_EACH && !wrong && !order,
+                 "%s: every word once, each writer's in order: %u of %u words, %u wrong, %u out of order",
+                 append ? "appenders with a description each" : "writers sharing one description",
+                 words, READERS * W_EACH, wrong, order);
 }
 
 // Mounts and unmounts a ramfs beside RAM_FILE until told to stop.
@@ -472,6 +565,9 @@ int main(void) {
     check_file_counted();
     check_shared_position();
     check_mount_churn();
+    check_write_counted();
+    check_writers(0);
+    check_writers(1);
     unlink(RAM_FILE);
     g_all_done = 1;
     pthread_join(dog, 0);

@@ -19,6 +19,18 @@ int fs_write_range_deferred(const char *path, uint64_t offset, const void *buf, 
 // mount lock, or the cache simulator on. Never sleeps.
 int fs_read_range_lockless(const char *path, uint64_t offset, void *buf, uint32_t len);
 
+// fs_write_range_deferred() from a lock-free SYS_WRITE: -1 to DECLINE
+// having changed nothing (the read's reasons, a read-only mount, a path
+// the image cache may hold), 0 when the backend refused or ran out (a
+// write may be partial, so never declined after), 1 written, 2 written
+// and a watcher is OWED its note -- the caller takes the kernel lock for
+// fs_note_watchers(). `offset` may be FS_OFFSET_END; `*size_out` is the
+// file's size after the write, read under the same mount lock.
+int fs_write_range_lockless(const char *path, uint64_t offset, const void *buf, uint32_t len,
+                            uint64_t *size_out);
+// The fswatch note a lock-free write owed, under the kernel lock.
+void fs_note_watchers(const char *path);
+
 // The close: settle the volume holding `path` if a deferred call there
 // left anything owed. A no-op on a fixed disk, or when nothing is owed.
 void fs_settle_path(const char *path);

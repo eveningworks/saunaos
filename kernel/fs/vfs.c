@@ -521,9 +521,10 @@ uint64_t fs_generation(void) { return g_generation; }
 #define DIRGEN_BUCKETS 256
 static uint64_t g_dirgen[DIRGEN_BUCKETS];
 
+// ATOMIC, as g_generation's bump: a lock-free write notes with no kernel lock.
 static void dirgen_note(uint64_t self, uint64_t parent) {
-    g_dirgen[self % DIRGEN_BUCKETS]++;
-    g_dirgen[parent % DIRGEN_BUCKETS]++;
+    __atomic_fetch_add(&g_dirgen[self % DIRGEN_BUCKETS], 1, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&g_dirgen[parent % DIRGEN_BUCKETS], 1, __ATOMIC_RELAXED);
 }
 
 uint64_t fs_generation_of(const char *path) {
@@ -759,7 +760,7 @@ void fs_settle_path(const char *path) {
 // wrapper stays a one-liner and no call site can bump without also
 // returning what the backend said.
 static inline int bumped(int ok) {
-    if (ok) g_generation++;
+    if (ok) __atomic_fetch_add(&g_generation, 1, __ATOMIC_RELAXED);
     return ok;
 }
 
@@ -923,6 +924,46 @@ int fs_read_range_lockless(const char *path, uint64_t offset, void *buf, uint32_
     return n;
 }
 
+// changed() for a lock-free write, but for the note: the window server's
+// broadcast is the kernel lock's, so a watched path is OWED it (2). No
+// image cache forget -- the caller declined a path it may hold -- and no
+// cache simulator, which declined it too.
+static int changed_lockless(const char *path) {
+    uint64_t self, parent;
+    fswatch_hash(path, &self, &parent);
+    bumped(1);
+    dirgen_note(self, parent);
+    return fswatch_watching(self, parent) ? 2 : 1;
+}
+
+void fs_note_watchers(const char *path) {
+    uint64_t self, parent;
+    fswatch_hash(path, &self, &parent);
+    fswatch_note(self, parent);
+}
+
+// **NOTHING IS DECLINED ONCE THE BACKEND HAS WRITTEN**: a failed write may
+// be partial, and the locked path running it again would append twice.
+// An mpsafe backend never asks to be re-run (fs_ops.h), so `restart` is
+// not consulted after a write.
+int fs_write_range_lockless(const char *path, uint64_t offset, const void *buf, uint32_t len,
+                            uint64_t *size_out) {
+    if (cachesim_on() || imgcache_may_hold(path)) return -1;
+    const char *sub;
+    uint32_t gen;
+    const struct mount *m = mount_resolve_lockless(path, &sub, &gen);
+    if (!m || !m->fs->mpsafe || (m->flags & MNT_RDONLY) || m->dev || !mount_trylock(m))
+        return -1;
+    int ok = -1;
+    if (m->used && m->gen == gen) {
+        ok = m->fs->write_range(m->state, sub, offset, buf, len) ? 1 : 0;
+        if (ok) *size_out = m->fs->size(m->state, sub);
+        if (m->fs->op_end) m->fs->op_end(m->state);
+    }
+    mount_unlock(m);
+    return ok == 1 ? changed_lockless(path) : ok;
+}
+
 static int write_range_with(const char *path, uint64_t offset, const void *buf, uint32_t len,
                             settle_fn fin) {
     struct resolved r;
@@ -1047,7 +1088,7 @@ enum fs_step_result fs_write_range_step(void *handle) {
     // a file in the editor would not be seen by anything watching.
     if (r == FS_STEP_DONE) {
         settle(&at, 1);
-        g_generation++; fswatch_note(self, parent); dirgen_note(self, parent);
+        bumped(1); fswatch_note(self, parent); dirgen_note(self, parent);
         cachesim_file_changed(self);
     }
     return r;

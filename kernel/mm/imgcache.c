@@ -290,6 +290,8 @@ static int may_hold(const char *path) {
     return 0;
 }
 
+int imgcache_may_hold(const char *path) { return path && may_hold(path); }
+
 // A REWRITTEN FILE IS NO LONGER IMMUTABLE, and the development loop
 // rewrites them: `remote.py put` lands a rebuilt .so on a running
 // machine, and without this the next spawn ran the OLD code with the new

@@ -55,6 +55,13 @@ which keeps the rules that bite callers elsewhere.
   waits holding it (`commit_wait()`). It does NOT make an
   `fs_list()` callback safe to call `fs_*` on the same mount (that is
   recursion). Finer locking inside a volume: `docs/fslock-design.md`.
+- **A BACKEND WITH `fs_ops.mpsafe` (ramfs) HAS ITS `read_range`,
+  `write_range` AND `size` CALLED WITH NO KERNEL LOCK** and interrupts
+  off, its mount's lock trylocked: they never sleep, never wait, never
+  ask `FS_OP()` to re-run them, and a lock-free write declines only
+  BEFORE the backend writes (`docs/conventions/storage.md`). A mount
+  slot's fields change inside `mt_write_begin()`/`_end()`, or a
+  lock-free resolve walks a half-written slot.
 - **THERE IS NO `fs_read()`. A whole-file read goes into memory the
   caller owns: `fs_read_into(path, buf, cap)`**, which REFUSES an
   oversized file rather than truncating; a file that may be large is

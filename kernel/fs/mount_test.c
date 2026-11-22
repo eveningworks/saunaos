@@ -19,6 +19,8 @@
 #include "string.h"
 #include "tmppath.h"
 #include "kfmt.h"
+#include "fs_defer.h"   // the lock-free read and write
+#include "fswatch.h"
 
 // A mount point NEXT TO /mnt whose name starts with the same letters.
 // This is rule 1's whole point: a prefix match that does not stop at a
@@ -112,6 +114,47 @@ KTEST("mount", "a lock-free resolve declines while the table is being written") 
     KTEST_ASSERT(mid == 0);
     KTEST_ASSERT(mid_locked == locked);   // a locked reader is not the count's
     KTEST_ASSERT(after == locked);
+}
+
+// fs_write_range_lockless()'s answers, called directly: a lock-free
+// SYS_WRITE is the only caller, and a KTEST cannot make one. A watched
+// path is OWED its note (2) and nothing fires until the owed note is sent;
+// a disk file and a read-only mount decline, having written nothing.
+KTEST("mount", "a lock-free write owes a watcher its note, and declines a disk file") {
+    KTEST_ASSERT(mnt_ramfs("/mnt"));
+    uint64_t size = 0;
+    int plain = fs_write_range_lockless("/mnt/a", 0, "abcd", 4, &size);
+    uint64_t size_plain = size;
+    int app = fs_write_range_lockless("/mnt/a", FS_OFFSET_END, "ef", 2, &size);
+    uint64_t size_app = size;
+    char back[8] = {0};
+    uint32_t got = fs_read_range("/mnt/a", 0, back, sizeof back);
+    int w = fswatch_add(0x7ff1, "/mnt");
+    int watched = w > 0 ? fs_write_range_lockless("/mnt/a", 0, "A", 1, &size) : -9;
+    uint32_t fires_owed = w > 0 ? fswatch_fires(w) : 0;
+    fs_note_watchers("/mnt/a");
+    uint32_t fires_sent = w > 0 ? fswatch_fires(w) : 0;
+    fswatch_owner_gone(0x7ff1);
+    int disk = fs_write_range_lockless("/.ktest_lockless_w", 0, "x", 1, &size);
+    int disk_exists = fs_exists("/.ktest_lockless_w");
+    KTEST_ASSERT(mount_remove("/mnt", 0));
+    KTEST_ASSERT(mount_add(0, "ramfs", "/mnt", MNT_RDONLY, 0, 0));
+    int ro = fs_write_range_lockless("/mnt/b", 0, "x", 1, &size);
+    KTEST_ASSERT(mount_remove("/mnt", 0));
+
+    KTEST_ASSERT_EQ(plain, 1);
+    KTEST_ASSERT_EQ(size_plain, 4);
+    KTEST_ASSERT_EQ(app, 1);
+    KTEST_ASSERT_EQ(size_app, 6);
+    KTEST_ASSERT_EQ(got, 6);
+    KTEST_ASSERT(k_memcmp(back, "abcdef", 6) == 0);
+    if (w <= 0) KTEST_SKIP("watch table full");
+    KTEST_ASSERT_EQ(watched, 2);
+    KTEST_ASSERT_EQ(fires_owed, 0);   // owed, not sent
+    KTEST_ASSERT_EQ(fires_sent, 1);
+    KTEST_ASSERT_EQ(disk, -1);
+    KTEST_ASSERT(!disk_exists);
+    KTEST_ASSERT_EQ(ro, -1);
 }
 
 KTEST("mount", "a mount point does not claim a sibling that shares its prefix") {

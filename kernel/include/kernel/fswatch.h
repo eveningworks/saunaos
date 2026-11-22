@@ -38,6 +38,9 @@ int fswatch_add(int pid, const char *path);
 // Something at `self` changed; its parent is `parent`. Fires each watch
 // on either. vfs.c calls this on every successful mutation.
 void fswatch_note(uint64_t self, uint64_t parent);
+// Whether fswatch_note() would fire for these hashes, writing nothing: a
+// caller with no kernel lock takes it for the note only when one is owed.
+int fswatch_watching(uint64_t self, uint64_t parent);
 
 // Drops every watch `pid` holds.
 void fswatch_owner_gone(int pid);

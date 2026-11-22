@@ -162,10 +162,12 @@ struct fs_ops {
     int max_mounts;
 #define FS_MOUNTS_ANY 0x7fffffff   // as many as the mount table holds
 
-    // **1: read_range may run with NO KERNEL LOCK** -- a lock-free
-    // SYS_READ (fs_read_range_lockless()), under this mount's lock alone
-    // with interrupts off, so it must neither sleep nor wait for anything,
-    // nor touch state outside its mount's. ramfs: memory only.
+    // **1: read_range, write_range and size may run with NO KERNEL LOCK**
+    // -- a lock-free SYS_READ or SYS_WRITE (fs_read_range_lockless(),
+    // fs_write_range_lockless()), under this mount's lock alone with
+    // interrupts off, so they must neither sleep nor wait for anything
+    // (never asking FS_OP to re-run them), nor touch state outside their
+    // mount's. ramfs: memory, and kmalloc and frames under their own locks.
     int mpsafe;
 
     // ---- per-mount state ---------------------------------------

@@ -29,6 +29,7 @@
 #include "devnodes.h"    // /dev/null and friends, found by name
 #include "vt.h"          // /dev/tty1../dev/tty4
 #include "watchdog.h"    // /dev/watchdog's one-opener claim
+#include "bkl.h"         // a lock-free write's fswatch note takes it
 #include <stddef.h>
 
 // SYS_LISTDIR's per-call state, handed to fs_list() as its context and
@@ -1066,9 +1067,49 @@ int sys_sync(struct syscall_ctx *c) {
 
 // --- an open file as a descriptor ------------------------------------
 
+// A lock-free read or write runs with INTERRUPTS OFF throughout, so a
+// bigger one takes the locked path, where they are on -- a latency bound,
+// not a size limit: either path moves all of it.
+#define LOCKLESS_RW_MAX (64u * 1024u)
+
+// file_fd_write() with no kernel lock, on the read's terms
+// (file_fd_read_lockless()) until the backend has written: from then on
+// the call is answered, never declined (fs_write_range_lockless()).
+static int file_fd_write_lockless(struct syscall_ctx *c, struct open_file *f,
+                                  uint64_t buf_ptr, uint64_t len) {
+    if (!fd_mode_writes(f->file.mode) || len > LOCKLESS_RW_MAX) return SYSCALL_DECLINE;
+    char *tmp = fd_bounce_alloc(&len);
+    if (!tmp) return SYSCALL_DECLINE;
+    int r = SYSCALL_DECLINE;
+    if (vmm_copy_from_user_nofault(c->pml4, tmp, buf_ptr, len) &&
+        kmutex_trylock(&f->file.pos_lock)) {
+        uint64_t size = 0;
+        int w = fs_write_range_lockless(f->file.name, f->file.append ? FS_OFFSET_END : f->file.pos,
+                                        tmp, (uint32_t)len, &size);
+        if (w > 0) f->file.pos = f->file.append ? size : f->file.pos + len;
+        kmutex_unlock(&f->file.pos_lock);
+        if (w >= 0) {
+            // A refusal on a writable mpsafe mount is the backend out of
+            // memory or budget -- the locked path's -EIO, never -EROFS.
+            c->regs[14] = w > 0 ? len : (uint64_t)(int64_t)-EIO;
+            r = 0;
+        }
+        if (w > 0) scheduler_io_charge(SCHED_IO_FILE_WRITE, len);
+        // THE NOTE UNDER THE KERNEL LOCK (fs_note_watchers()), as a last
+        // put takes it for a release (syscall_fd.c's put_lockless()).
+        if (w == 2) {
+            bkl_enter(c->regs);
+            fs_note_watchers(f->file.name);
+            bkl_exit(c->regs);
+        }
+    }
+    fd_bounce_free(tmp);
+    return r;
+}
+
 static int file_fd_write(struct syscall_ctx *c, struct open_file *f,
                          uint64_t buf_ptr, uint64_t len) {
-    if (c->lockless) return SYSCALL_DECLINE;
+    if (c->lockless) return file_fd_write_lockless(c, f, buf_ptr, len);
     uint64_t *regs = c->regs;
     uint64_t pml4 = c->pml4;
     if (!fd_mode_writes(f->file.mode)) {
@@ -1125,18 +1166,13 @@ static int file_fd_write(struct syscall_ctx *c, struct open_file *f,
     return 0;
 }
 
-// A lock-free read runs with INTERRUPTS OFF throughout, so a bigger one
-// takes the locked path, where they are on -- a latency bound, not a size
-// limit: either path reads all of it.
-#define LOCKLESS_READ_MAX (64u * 1024u)
-
 // file_fd_read() with no kernel lock: from an fs_ops.mpsafe backend, or a
 // decline. NOTHING CHANGES BEFORE THE LAST DECLINE: the position moves
 // only once the bytes are in the caller's buffer, so the locked path may
 // begin again from scratch. Every lock is trylocked (fs_read_range_lockless()).
 static int file_fd_read_lockless(struct syscall_ctx *c, struct open_file *f,
                                  uint64_t buf_ptr, uint64_t len) {
-    if (!fd_mode_reads(f->file.mode) || len > LOCKLESS_READ_MAX) return SYSCALL_DECLINE;
+    if (!fd_mode_reads(f->file.mode) || len > LOCKLESS_RW_MAX) return SYSCALL_DECLINE;
     char *kbuf = fd_bounce_alloc(&len);
     if (!kbuf) return SYSCALL_DECLINE;
     int r = SYSCALL_DECLINE;
@@ -1259,8 +1295,8 @@ static void file_fd_release(struct open_file *f) {
 
 const struct fd_ops file_fd_ops = {
     .name = "file",
-    // Its read runs lock-free on an fs_ops.mpsafe mount and declines on
-    // any other; its write always declines, for now.
+    // Its read and write run lock-free on an fs_ops.mpsafe mount and
+    // decline on any other.
     .flags = FD_OPS_MPSAFE,
     .read = file_fd_read, .write = file_fd_write,
     .seek = file_fd_seek, .stat = file_fd_stat,

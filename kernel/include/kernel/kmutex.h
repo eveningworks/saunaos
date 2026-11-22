@@ -85,9 +85,11 @@ int kmutex_trylock_nested(struct kmutex *m, int subclass);
 // kmutex_unheld_end(), or 0 (somebody holds it) having taken nothing.
 // While held, no thread can take `m`, and this caller has not taken it
 // either -- so it may change what `m` guards for a few instructions that
-// cannot sleep, with no unlock and so no waiter to wake. For a path with
-// no kernel lock and interrupts off (SYS_LSEEK's, fd_seek_lockless()),
-// where kmutex_unlock()'s wake is not yet safe.
+// cannot sleep, with no unlock and so no waiter to wake: cheaper than a
+// trylock and its unlock for SYS_LSEEK's lock-free path (fd_seek_lockless()).
+// A lock-free path may also trylock and unlock -- the unlock's wake is
+// under the scheduler lock -- but never kmutex_lock(): its sleep needs
+// the kernel lock.
 int  kmutex_unheld_begin(struct kmutex *m, uint64_t *flags);
 void kmutex_unheld_end(struct kmutex *m, uint64_t flags);
 
