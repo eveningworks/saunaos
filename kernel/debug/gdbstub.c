@@ -12,6 +12,8 @@
 #include "reloc.h"     // kernel_reloc_delta() -- qOffsets
 #include "barrier.h"   // cpu_relax()
 #include "sched_debug.h"  // processes as threads
+#include "smp.h"          // smp_held_frame(): a thread running on a held core
+#include "kfmt.h"
 #include "errno.h"        // the staging calls' -errno, mapped to GDB's numbers
 
 // PacketSize=1000 (hex) in qSupported: GDB sends nothing longer, and
@@ -142,11 +144,12 @@ static int parse_range(const char **p, uint64_t *addr, uint64_t *len) {
 
 // --- threads: every process, and the kernel context ----------------------
 
+// The thread on the core that stopped: what `g` reads with none selected.
 static int current_tid(void) {
     struct sched_debug_thread t;
     for (int n = 0; sched_debug_thread(n, &t); n++)
-        if (t.running) return t.tid;
-    return SCHED_DEBUG_KERNEL_TID;
+        if (t.running && t.core == kdb.core) return t.tid;
+    return SCHED_DEBUG_KERNEL_TID + kdb.core;
 }
 
 static void stop_reply(void) {
@@ -162,19 +165,28 @@ static void stop_reply(void) {
     }
 }
 
-// A thread that is not the stopped one is read from where it is parked;
-// what was never saved goes out as "xx", GDB's "unavailable".
+// The selected thread's full frame: the stopped one's, or that of a
+// thread running on another core the roundup holds. NULL for one parked
+// (its kctx is all there is) or on a core that did not stop.
+static uint64_t *sel_frame(struct sched_debug_thread *t, int *found) {
+    *found = 1;
+    if (!kdb.sel_tid || kdb.sel_tid == current_tid()) return kdb.regs;
+    if (!sched_debug_find(kdb.sel_tid, t)) { *found = 0; return 0; }
+    return t->core >= 0 ? smp_held_frame(t->core) : 0;
+}
+
+// A thread that is not running is read from where it is parked; what was
+// never saved -- or a core that never stopped -- goes out as "xx", GDB's
+// "unavailable".
 static void read_regs(void) {
-    struct sched_debug_thread t;
-    const struct kernel_context *k = 0;
-    if (kdb.sel_tid && kdb.sel_tid != current_tid()) {
-        if (!sched_debug_find(kdb.sel_tid, &t)) { out_str("E01"); return; }
-        k = t.kctx;
-    }
-    int other = kdb.sel_tid && kdb.sel_tid != current_tid();
+    struct sched_debug_thread t = {0};
+    int found;
+    uint64_t *f = sel_frame(&t, &found);
+    if (!found) { out_str("E01"); return; }
+    const struct kernel_context *k = f || t.running ? 0 : t.kctx;
     for (int n = 0; n < KDB_NREGS; n++) {
         int have = 1;
-        uint64_t v = !other ? kdb_arch_reg_get(kdb.regs, n)
+        uint64_t v = f ? kdb_arch_reg_get(f, n)
                    : k ? kdb_arch_ctx_reg(k, n, &have) : (have = 0, 0);
         for (int i = 0; i < kdb_arch_reg_size(n); i++) {
             if (have) out_byte((uint8_t)(v >> (i * 8)));
@@ -184,7 +196,10 @@ static void read_regs(void) {
 }
 
 static void write_regs(const char *p) {
-    if (kdb.sel_tid && kdb.sel_tid != current_tid()) {
+    struct sched_debug_thread t;
+    int found;
+    uint64_t *f = sel_frame(&t, &found);
+    if (!f) {
         out_str("E01");   // a parked thread's registers are the scheduler's
         return;
     }
@@ -196,7 +211,7 @@ static void write_regs(const char *p) {
             if (lo < 0) { out_str("OK"); return; }   // a short G sets what it carries
             v |= (uint64_t)((hi << 4) | lo) << (i * 8);
         }
-        kdb_arch_reg_set(kdb.regs, n, v);
+        kdb_arch_reg_set(f, n, v);
     }
     out_str("OK");
 }
@@ -277,10 +292,15 @@ static void thread_query(const char *q) {
         const char *p = q + 16;
         uint64_t tid;
         if (!parse_num(&p, &tid) || !sched_debug_find((int)tid, &t)) { out_str("E01"); return; }
-        // Hex-encoded text: "toywm, blocked".
-        for (const char *s = t.name; *s; s++) out_byte((uint8_t)*s);
-        out_byte(','); out_byte(' ');
-        for (const char *s = state_name(&t); *s; s++) out_byte((uint8_t)*s);
+        // Hex-encoded text: "toywm, blocked", "tosh, running on core 2"
+        // -- and "not stopped" for a core the roundup never held.
+        char buf[64];
+        if (t.core >= 0)
+            k_snprintf(buf, sizeof buf, "%s, running on core %d%s", t.name, t.core,
+                       t.core == kdb.core || smp_held_frame(t.core) ? "" : ", not stopped");
+        else
+            k_snprintf(buf, sizeof buf, "%s, %s", t.name, state_name(&t));
+        for (const char *s = buf; *s; s++) out_byte((uint8_t)*s);
     }
 }
 

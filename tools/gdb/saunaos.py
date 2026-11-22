@@ -32,7 +32,7 @@ import gdb.unwinder
 
 TOOLS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = os.path.dirname(TOOLS)
-sys.path.insert(0, TOOLS)
+sys.path.insert(0, os.path.join(TOOLS, "lib"))
 import panic_resolve  # noqa: E402  -- elf_for_program(), the repo's one name->ELF map
 
 # Memory now depends on the SELECTED thread (the stub reads through its
@@ -72,6 +72,22 @@ class Dmesg(gdb.Command):
             print(line)
 
 
+def running_slots():
+    """{core: the process slot it runs, or -1 for its kernel context} for
+    every online core -- the scheduler's current_index is per core
+    (struct cpu's sched_cur), so there is no one global to read."""
+    boot = gdb.parse_and_eval("'gdt.c'::g_cpu_boot")
+    out = {0: int(boot["sched_cur"])}
+    cpus = gdb.parse_and_eval("'smp.c'::g_cpus")
+    if int(cpus) == 0:
+        return out
+    for i in range(1, int(gdb.parse_and_eval("'smp.c'::g_cpu_count"))):
+        c = cpus[i].dereference()
+        if int(c["state"]) >= int(gdb.parse_and_eval("CPU_PARKED")):
+            out[i] = int(c["sched_cur"])
+    return out
+
+
 class Ps(gdb.Command):
     """toy-ps: the stopped kernel's process table."""
 
@@ -80,18 +96,20 @@ class Ps(gdb.Command):
 
     def invoke(self, arg, from_tty):
         procs = gdb.parse_and_eval("procs")
-        cur = int(gdb.parse_and_eval("current_index"))
+        on = running_slots()
         n = int(gdb.parse_and_eval("g_slot_end"))   # procs is a pointer now
         print(f"{'PID':>5} {'PPID':>5}  {'STATE':<8} NAME")
-        if cur < 0:
-            print(f"{'-':>5} {'-':>5}  {'running':<8} (the kernel context)")
+        for core, cur in sorted(on.items(), key=lambda kv: kv[1]):
+            if cur < 0:
+                print(f"{'-':>5} {'-':>5}  {'running':<8} (core {core}'s kernel context)")
+        where = {cur: core for core, cur in on.items() if cur >= 0}
         for i in range(n):
             p = procs[i]
             st = int(p["state"])
             if st == 0:
                 continue
             name = p["name"].string(errors="replace")
-            state = "running" if i == cur else STATES.get(st, str(st))
+            state = f"run@{where[i]}" if i in where else STATES.get(st, str(st))
             if int(p["stopped"]):
                 state += ",T"
             # The slot's own pid field: a pid is not a slot index.
@@ -158,13 +176,14 @@ class Symbols(gdb.Command):
             gdb.execute("set confirm on")
 
     def load_modules(self):
-        mods = gdb.parse_and_eval("g_mods")
-        used = gdb.parse_and_eval("g_mod_used")
-        for k in range(int(mods.type.range()[1]) + 1):
-            if not int(used[k]):
+        mods = gdb.parse_and_eval("'module.c'::g_mods")   # a struct kslots
+        kmod = gdb.lookup_type("struct kmodule").pointer()
+        for k in range(int(mods["cap"])):
+            if not int(mods["live"][k]):
                 continue
-            name = mods[k]["name"].string()
-            base = int(mods[k]["base"])
+            m = mods["obj"][k].cast(kmod).dereference()
+            name = m["name"].string()
+            base = int(m["base"])
             obj = os.path.join(REPO, "build", "modules", name + ".o")
             if (obj, base) in self.modules:
                 continue

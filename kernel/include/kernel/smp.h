@@ -83,4 +83,25 @@ int  smp_stop_others(void);
 int  smp_stop_requested(void);
 void smp_stop_here(void) __attribute__((noreturn));
 
+// The kernel debugger's roundup (kernel/debug/kdebug.c), KGDB's
+// kgdb_roundup_cpus(): hold_others() NMIs every other online core into
+// smp_hold_here(), which keeps the interrupted frame and spins until
+// release_others(0); each then runs `on_resume` (the debug registers)
+// before returning. Waits up to a second; how many are held. A held core
+// is NMI'd again by nobody: a second hold_others() skips it.
+// release_others(ms) with ms > 0 keeps them held for a single step, but
+// lets them go by themselves after `ms` in case the step never traps.
+// The epoch moves at every release: a wait that spans one was stopped.
+int  smp_hold_others(void (*on_resume)(void));
+void smp_release_others(uint64_t after_ms);
+int  smp_hold_requested(void);   // isr_dispatch(): an NMI here means hold
+void smp_hold_here(uint64_t *regs);
+uint32_t smp_hold_epoch(void);
+// Core `index`'s interrupted frame while held, else NULL -- writable,
+// since the core resumes from it.
+uint64_t *smp_held_frame(int index);
+// A core waiting in its own trap for another's stop: the frame a hold
+// keeps for it (NULL to forget it), rather than the NMI's inside the wait.
+void smp_hold_note_frame(uint64_t *regs);
+
 #endif

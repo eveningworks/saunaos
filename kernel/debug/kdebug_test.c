@@ -8,6 +8,9 @@
 #include "kdebug_internal.h"
 #include "kfmt.h"
 #include "string.h"
+#include "smp.h"      // the roundup KTESTs
+#include "percpu.h"
+#include "sched_debug.h"
 
 KTEST("kdebug", "packet checksum and hex digits") {
     KTEST_ASSERT_EQ(kdb_checksum("OK", 2), 0x9a);
@@ -127,10 +130,162 @@ KTEST("kdebug", "a software breakpoint stops, reports the PC and resumes") {
     KTEST_ASSERT(k_strncmp(g + 1 + 256, rip, 16) == 0);
     KTEST_ASSERT_EQ(*(volatile uint8_t *)(uintptr_t)at, before);   // lifted for good
 
-    // Threads: the kernel context first (SCHED_PID_MAX = 0x8000), and pid 1 by name
-    // -- "init, " hex-encoded is 696e69742c20.
-    KTEST_ASSERT(k_strstr(g_log, "$m8000,1") != 0);
+    // Threads: each core's kernel context first (SCHED_PID_MAX = 0x8000
+    // + the core), and pid 1 by name -- "init, " hex-encoded is 696e69742c20.
+    KTEST_ASSERT(k_strstr(g_log, "$m8000,") != 0);
+    KTEST_ASSERT(k_strstr(g_log, ",1,") != 0 || k_strstr(g_log, ",1#") != 0);
     KTEST_ASSERT(k_strstr(g_log, "$696e69742c20") != 0);
+}
+
+// --- the roundup: every other core held while one is stopped ------------
+
+// What the stub saw at each stop, taken at its first read of the script:
+// which core stopped, and how many of the others were held with a frame.
+#define PROBE_STOPS 4
+static int g_probe_core[PROBE_STOPS], g_probe_held[PROBE_STOPS], g_probe_n;
+static uint32_t g_probe_epoch[PROBE_STOPS];   // smp_hold_epoch(): moves at every release
+static uint32_t g_probe_last;
+
+static int online_others(int me) {
+    int n = 0;
+    for (int i = 0; i < smp_cpu_count(); i++) {
+        const struct cpu *c = smp_cpu_at(i);
+        if (i != me && c && (c->state == CPU_PARKED || c->state == CPU_RUNNING)) n++;
+    }
+    return n;
+}
+
+// The script for stop N, written when it happens: what runs on the
+// other core is known only then.
+static void (*g_on_stop)(int n);
+
+static int probe_getc(void) {
+    if (kdb.active && kdb.stops != g_probe_last && g_probe_n < PROBE_STOPS) {
+        g_probe_last = kdb.stops;
+        int held = 0;
+        for (int i = 0; i < smp_cpu_count(); i++)
+            if (i != kdb.core && smp_held_frame(i)) held++;
+        g_probe_core[g_probe_n] = kdb.core;
+        g_probe_held[g_probe_n] = held;
+        g_probe_epoch[g_probe_n] = smp_hold_epoch();
+        if (g_on_stop) g_on_stop(g_probe_n);
+        g_probe_n++;
+    }
+    return script_getc();
+}
+
+// "Hg<tid>" for the thread running on core `c` -- whichever it is.
+static void select_on_core(int c) {
+    struct sched_debug_thread t;
+    int tid = SCHED_DEBUG_KERNEL_TID + c;
+    for (int n = 0; sched_debug_thread(n, &t); n++)
+        if (t.running && t.core == c) tid = t.tid;
+    char hg[24];
+    k_snprintf(hg, sizeof hg, "Hg%x", tid);
+    script_add(hg, 1);
+}
+
+static const struct kdb_transport probe_io = { .getc = probe_getc, .putc = script_putc };
+
+static void probe_begin(void (*on_stop)(int)) {
+    g_on_stop = on_stop;
+    g_script[0] = 0;
+    g_spos = g_lpos = g_probe_n = 0;
+    g_log[0] = 0;
+    g_probe_last = kdb.stops;
+    kdb.io = &probe_io;
+    kdb.armed = 1;
+}
+
+static void probe_end(void) {
+    kdb.armed = 0;
+    kdb.connected = 0;
+    kdb.io = 0;
+    kdb_bp_clear_all();
+    g_on_stop = 0;
+}
+
+// The `g` reply after the Nth "$" from `from`: its first 8 bytes (rax)
+// are hex digits, not "xx", when the registers were really read.
+static int regs_read(const char *from) {
+    const char *g = from ? k_strstr(from, "$") : 0;
+    return g && kdb_hexval(g[1]) >= 0 && kdb_hexval(g[16]) >= 0;
+}
+
+// Stop 1: read what runs on core 1 (held, so its frame is live), step.
+// Stop 2 (the step): go.
+static void step_script(int n) {
+    if (n == 0) {
+        select_on_core(1);
+        script_add("g", 1);
+        script_add("Hg0", 1);
+        script_add("s", 0);
+    } else {
+        k_strlcpy(g_script + k_strlen(g_script), "+", sizeof g_script - k_strlen(g_script));
+        script_add("c", 0);
+    }
+}
+
+KTEST("smp", "a kdebug stop holds every other core, through a step, and shows each core's frame") {
+    if (kdb.armed) KTEST_SKIP("the stub is armed for a real debugger on this boot");
+    int others = online_others(0);
+    if (!others) KTEST_SKIP("one core");
+
+    probe_begin(step_script);
+    uint32_t stops = kdb.stops;
+    kdb.pending_sig = KDB_SIGTRAP;
+    kdb_arch_breakpoint();
+    probe_end();
+
+    KTEST_ASSERT_EQ((int)(kdb.stops - stops), 2);
+    KTEST_ASSERT_EQ(g_probe_n, 2);
+    KTEST_ASSERT_EQ(g_probe_core[0], 0);
+    KTEST_ASSERT_EQ(g_probe_held[0], others);
+    KTEST_ASSERT_EQ(g_probe_held[1], others);
+    // ...and never let go in between: held again would look the same.
+    KTEST_ASSERT_EQ(g_probe_epoch[1], g_probe_epoch[0]);
+    // core 1 runs again: it takes a call.
+    for (int i = 1; i < smp_cpu_count(); i++) KTEST_ASSERT(smp_held_frame(i) == 0);
+    KTEST_ASSERT(kdb_owner_core() < 0);
+    // `g` on core 1's thread after the Hg's OK: its held frame, all there.
+    const char *hg = k_strstr(g_log, "$OK");
+    KTEST_ASSERT(regs_read(hg ? hg + 1 : 0));
+}
+
+static void trap_on_this_core(void *unused) {
+    (void)unused;
+    kdb.pending_sig = KDB_SIGTRAP;
+    kdb_arch_breakpoint();
+}
+
+// `g` on what runs on the boot core reads the frame the roundup's NMI
+// interrupted.
+static void boot_core_script(int n) {
+    (void)n;
+    select_on_core(0);
+    script_add("g", 1);
+    script_add("c", 0);
+}
+
+KTEST("smp", "a kdebug trap on another core stops there and holds the boot core") {
+    if (kdb.armed) KTEST_SKIP("the stub is armed for a real debugger on this boot");
+    const struct cpu *c1 = smp_cpu_at(1);
+    if (!c1 || (c1->state != CPU_PARKED && c1->state != CPU_RUNNING))
+        KTEST_SKIP("core 1 takes no calls");
+
+    probe_begin(boot_core_script);
+    uint32_t stops = kdb.stops;
+    int ran = smp_call(1, trap_on_this_core, 0, 1);
+    probe_end();
+
+    KTEST_ASSERT(ran);
+    KTEST_ASSERT_EQ((int)(kdb.stops - stops), 1);
+    KTEST_ASSERT_EQ(g_probe_n, 1);
+    KTEST_ASSERT_EQ(g_probe_core[0], 1);
+    KTEST_ASSERT_EQ(g_probe_held[0], online_others(1));
+    const char *hg = k_strstr(g_log, "$OK");
+    KTEST_ASSERT(regs_read(hg ? hg + 1 : 0));
+    KTEST_ASSERT(smp_held_frame(0) == 0);
 }
 
 // --- the network transport's pieces --------------------------------------

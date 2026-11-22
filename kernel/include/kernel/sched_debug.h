@@ -3,8 +3,9 @@
 
 // The scheduler, as the kernel DEBUGGER sees it: read with the machine
 // stopped, so no lock is taken and nothing is changed. kernel/debug/
-// shows each process as a GDB thread (thread id = pid) and the kernel
-// context as one more, SCHED_DEBUG_KERNEL_TID.
+// shows each process as a GDB thread (thread id = pid) and each core's
+// kernel context as one more, SCHED_DEBUG_KERNEL_TID + the core's index
+// (the boot core's kernel context, an AP's idle loop).
 
 #include <stdint.h>
 #include "context_switch.h"
@@ -12,10 +13,12 @@
 #include "scheduler.h"   // SCHED_PID_MAX -- the kernel thread's tid
 
 #define SCHED_DEBUG_KERNEL_TID SCHED_PID_MAX   // no pid can be it, and not 0 (GDB's "any")
+#define SCHED_DEBUG_IS_KERNEL(tid) ((tid) >= SCHED_DEBUG_KERNEL_TID)
 
 struct sched_debug_thread {
     int tid;
-    int running;                         // this one was on the CPU when it stopped
+    int running;                         // on a core when the machine stopped
+    int core;                            // ...which one, or -1
     int state;                           // enum sched_state, or -1 for the kernel context
     int stopped;                         // job-control stopped
     char name[PROC_NAME_MAX];
@@ -24,8 +27,9 @@ struct sched_debug_thread {
     uint64_t pml4;                       // its address space's page-table root
 };
 
-// The Nth live thread (N from 0), or 0 past the end. Zombies are skipped:
-// their saved context describes nothing that will run again.
+// The Nth live thread (N from 0), or 0 past the end: each online core's
+// kernel context first, then the processes. Zombies are skipped: their
+// saved context describes nothing that will run again.
 int sched_debug_thread(int n, struct sched_debug_thread *out);
 // The same, by thread id.
 int sched_debug_find(int tid, struct sched_debug_thread *out);

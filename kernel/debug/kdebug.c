@@ -14,6 +14,10 @@
 #include "klog.h"
 #include "kfmt.h"
 #include "string.h"
+#include "smp.h"        // smp_hold_others(): the other cores wait while stopped
+#include "spinlock.h"   // spin_cpu_index_raw()
+#include "barrier.h"    // cpu_relax()
+#include "clocksource.h"
 
 struct kdb_state kdb = { .pushback = -1 };
 
@@ -65,6 +69,11 @@ void kdebug_init(void) {
 }
 
 // --- breakpoints -------------------------------------------------------
+
+// The debug registers are per core: each one loads the debugger's slots
+// as it is released, and from a call when a module drops some.
+static void hw_reload(void) { kdb_arch_hw_install(kdb.hw); }
+static void hw_reload_call(void *unused) { (void)unused; hw_reload(); }
 
 static struct kdb_swbp *swbp_find(uint64_t addr) {
     for (int i = 0; i < KDB_SWBP_MAX; i++)
@@ -149,7 +158,10 @@ void kdebug_forget_range(uint64_t start, uint64_t end) {
         struct kdb_hw *h = &kdb.hw[i];
         if (h->used && h->addr < end && h->addr + h->len > start) h->used = 0, hw = 1, n++;
     }
-    if (hw && kdb.armed) kdb_arch_hw_install(kdb.hw);
+    if (hw && kdb.armed) {
+        kdb_arch_hw_install(kdb.hw);
+        smp_call_others(hw_reload_call, 0);   // each core has its own debug registers
+    }
     if (n) klog_printf("kdebug: dropped %d breakpoint(s) in memory being freed\n", n);
 }
 
@@ -159,14 +171,45 @@ void kdb_bp_clear_all(void) {
 }
 
 // --- stop and resume ---------------------------------------------------
+//
+// ONE CORE IS IN THE DEBUGGER AT A TIME, the OWNER, and every other one
+// is held in its NMI handler while it is (smp_hold_others(), KGDB's
+// roundup) -- so a patched int3 or a cleared CR0.WP is never seen by a
+// running core. The owner keeps the others held through a single step.
+
+static volatile int g_owner = -1;
+
+static int here(void) { return (int)spin_cpu_index_raw(); }
+
+static int claim(void) {
+    int me = here(), none = -1;
+    if (__atomic_load_n(&g_owner, __ATOMIC_ACQUIRE) == me) return 1;   // a step's trap
+    return __atomic_compare_exchange_n(&g_owner, &none, me, 0, __ATOMIC_ACQ_REL,
+                                       __ATOMIC_ACQUIRE);
+}
+
+// A STEP THAT NEVER TRAPS BACK (it ran into code that cleared TF) gives
+// up its hold once the held cores have let themselves go, or every NMI
+// would read as a hold and every trap on another core would wait for it.
+int kdb_owner_core(void) {
+    int o = __atomic_load_n(&g_owner, __ATOMIC_ACQUIRE);
+    if (o >= 0 && !kdb.active && kdb.stepping && clocksource_now_ns() > kdb.step_until &&
+        __atomic_compare_exchange_n(&g_owner, &o, -1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        smp_release_others(0);
+        return -1;
+    }
+    return o;
+}
 
 static void stop(uint64_t *regs, int sig) {
     kdb.active = 1;
     kdb.regs = regs;
     kdb.sig = sig;
+    kdb.core = here();
     kdb.stops++;
     watchdog_debugger_hold(1);   // stopped time is not a hang
     kdb_arch_hw_disable();
+    kdb.held = smp_hold_others(hw_reload);   // before any text is patched
     swbp_lift_all();
 
     enum kdb_resume how;
@@ -192,20 +235,57 @@ static void stop(uint64_t *regs, int sig) {
     // interrupts-off code, and a wake would re-enter it half-way. The
     // tick cannot interrupt that code, so the wake goes there.
     kdb.kick = 1;
+    if (kdb.stepping) {
+        kdb.step_until = clocksource_now_ns() + KDB_STEP_HOLD_MS * 1000000ull;
+        smp_release_others(KDB_STEP_HOLD_MS);   // still held, and still ours
+        return;
+    }
+    __atomic_store_n(&g_owner, -1, __ATOMIC_RELEASE);
+    smp_release_others(0);
+}
+
+// ANOTHER CORE OWNS A STOP: wait for it -- its roundup holds this core
+// here, keeping this trap's frame -- then say whether this trap still
+// needs one. A breakpoint removed meanwhile has its byte back, so the PC
+// backs up over it and the real instruction runs; a stop request (NMI)
+// was the other core's to answer.
+static int wait_owner(uint64_t *regs, enum kdb_trap t, int slot) {
+    smp_hold_note_frame(regs);
+    while (kdb_owner_core() >= 0) {
+        if (smp_hold_requested()) smp_hold_here(regs);
+        else cpu_relax();
+    }
+    smp_hold_note_frame(0);
+    if (t == KDB_TRAP_NMI) return 0;
+    if (t == KDB_TRAP_HW) return kdb.hw[slot].used;
+    if (t == KDB_TRAP_BREAK) {
+        uint64_t at = kdb_arch_pc(regs) - 1;
+        uint8_t op = 0;
+        if (!swbp_find(at) && kdb_arch_mem_read(at, &op, 1) == 1 && op != KDB_BREAK_INSN) {
+            kdb_arch_set_pc(regs, at);
+            return 0;
+        }
+    }
+    return 1;
 }
 
 int kdebug_trap(uint64_t vector, uint64_t *regs) {
     if (!kdb.armed) return 0;
-    int slot = 0;
-    enum kdb_trap t = kdb_arch_classify(vector, kdb.stepping, &slot);
+    int slot = 0, me = here();
+    int stepping = kdb.stepping && kdb.core == me;
+    enum kdb_trap t = kdb_arch_classify(vector, stepping, &slot);
     if (t == KDB_TRAP_NONE) return 0;
     // NOTHING NESTS. Breakpoints are lifted and DR7 is clear while
     // stopped, so a trap here is a real fault in the debugger: let it
     // panic. A second NMI is simply swallowed.
-    if (kdb.active) return t == KDB_TRAP_NMI;
+    if (kdb.active && kdb.core == me) return t == KDB_TRAP_NMI;
+
+    while (!claim()) {
+        if (!wait_owner(regs, t, slot)) return 1;
+    }
 
     // Whatever stopped it, an outstanding step is over.
-    if (kdb.stepping) {
+    if (stepping) {
         kdb_arch_step_done(regs);
         kdb.stepping = 0;
     }
@@ -242,7 +322,7 @@ static int fault_sig(uint64_t vector) {
 }
 
 void kdebug_fatal(uint64_t vector, uint64_t *regs) {
-    if (!kdb.armed || kdb.active || kdb.fatal_seen) return;
+    if (!kdb.armed || kdb.active || kdb.fatal_seen || !claim()) return;
     kdb.fatal_seen = 1;
     klog_write(KLOG_CRIT "kdebug: stopped at the fault -- the panic continues when the debugger does\n");
     serial_flush();
@@ -261,7 +341,7 @@ void kdebug_panic(void) {
 // A ^C, or the first `$` of a debugger attaching to a running kernel:
 // either stops it here. The `$` is kept so the session reads its packet.
 void kdebug_poll(uint64_t *regs) {
-    if (!kdb.armed || kdb.active) return;
+    if (!kdb.armed || kdb.active || kdb_owner_core() >= 0) return;
     if (kdb.kick) {   // a `remote put` finished while stopped
         kdb.kick = 0;
         kdb_stage_kick();
@@ -269,5 +349,6 @@ void kdebug_poll(uint64_t *regs) {
     int c = kdb.io->getc();
     if (c != 0x03 && c != '$') return;
     if (c == '$') kdb.pushback = '$';
+    if (!claim()) return;   // a trap on another core got there first: it reads the byte
     stop(regs, KDB_SIGINT);
 }

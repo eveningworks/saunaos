@@ -41,12 +41,15 @@ struct kdb_state {
     int armed;                  // `kdebug=` claimed a port at boot
     int active;                 // stopped, talking to the debugger
     int connected;              // a debugger has spoken since the last detach
-    int stepping;               // a single step is outstanding
+    int stepping;               // a single step is outstanding, on `core`
+    uint64_t step_until;        // ns: when the others stop waiting for it
     int fatal_seen;             // already stopped for this panic
     int pending_sig;            // what a compiled-in int3 reports, or 0
     int pushback;               // a byte read ahead by the poll, or -1
     const struct kdb_transport *io;
     uint64_t *regs;             // the stopped frame
+    int core;                   // the core it stopped on (the owner's)
+    int held;                   // how many other cores the roundup holds
     int sig;                    // why it stopped
     int sel_tid;                // the thread `g` reads (Hg); 0 = the one that stopped
     char watch_kind;            // 'w'/'a' when a watchpoint fired, else 0
@@ -57,6 +60,12 @@ struct kdb_state {
     struct kdb_hw hw[KDB_HW_SLOTS];
 };
 extern struct kdb_state kdb;
+
+// The core in the debugger -- stopped, or single-stepping with the
+// others still held -- or -1.
+int kdb_owner_core(void);
+// How long the others stay held for a step that does not trap back.
+#define KDB_STEP_HOLD_MS 1000
 
 // kdebug.c. insert: 1 done, 0 refused, -1 a type this CPU cannot do.
 int  kdb_bp_insert(int type, uint64_t addr, int len);

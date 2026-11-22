@@ -316,6 +316,90 @@ int smp_stop_others(void) {
     return stopped;
 }
 
+// ---- holding the others for the kernel debugger ------------------------
+//
+// KGDB's kgdb_roundup_cpus(): the stopped core patches kernel text with
+// CR0.WP clear and reads memory nothing may change under it, so every
+// other core waits in its NMI handler until released. **AN NMI, FOR THE
+// PANIC'S REASON**, and unlike a panic the held core returns: its frame
+// is kept for the debugger to show (smp_held_frame()).
+
+static volatile int g_hold_by = -1;        // the holding core, or -1
+static volatile uint64_t g_hold_until;     // ns; 0 = until released
+static void (*volatile g_hold_resume)(void);
+static volatile uint32_t g_hold_epoch;
+
+int smp_hold_requested(void) {
+    int by = __atomic_load_n(&g_hold_by, __ATOMIC_ACQUIRE);
+    return by >= 0 && (uint32_t)by != spin_cpu_index_raw();
+}
+
+uint32_t smp_hold_epoch(void) { return __atomic_load_n(&g_hold_epoch, __ATOMIC_ACQUIRE); }
+
+void smp_hold_here(uint64_t *regs) {
+    struct cpu *c = this_cpu_raw();
+    if (!c->dbg_frame) c->dbg_frame = regs;   // a core waiting in its own trap set its trap's
+    __atomic_store_n(&c->dbg_held, 1, __ATOMIC_RELEASE);
+    while (__atomic_load_n(&g_hold_by, __ATOMIC_ACQUIRE) >= 0) {
+        uint64_t until = __atomic_load_n(&g_hold_until, __ATOMIC_ACQUIRE);
+        if (until && clocksource_now_ns() > until) break;   // a step that never came back
+        cpu_relax();
+    }
+    void (*fn)(void) = g_hold_resume;
+    if (fn) fn();
+    // Kernel text may have changed under this core: a serialising
+    // instruction before running it (the SDM's cross-modifying code rule).
+    uint32_t a = 0, b, cc = 0, d;
+    __asm__ volatile ("cpuid" : "+a"(a), "=b"(b), "+c"(cc), "=d"(d) :: "memory");
+    c->dbg_frame = 0;
+    __atomic_store_n(&c->dbg_held, 0, __ATOMIC_RELEASE);
+}
+
+int smp_hold_others(void (*on_resume)(void)) {
+    if (!g_cpus || g_cpu_count < 2) return 0;
+    uint32_t me = spin_cpu_index_raw();
+    g_hold_resume = on_resume;
+    __atomic_store_n(&g_hold_until, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_hold_by, (int)me, __ATOMIC_SEQ_CST);
+    for (int i = 0; i < g_cpu_count; i++) {
+        struct cpu *c = g_cpus[i];
+        if ((uint32_t)i == me || !online(c) || __atomic_load_n(&c->dbg_held, __ATOMIC_ACQUIRE))
+            continue;
+        lapic_send_nmi((uint8_t)c->apic_id);
+    }
+    // Bounded, as the panic's is: a core that never says so is shown to
+    // the debugger as not stopped rather than waited on for ever.
+    uint64_t end = clocksource_now_ns() + 1000ull * 1000000ull;
+    int held = 0;
+    for (int i = 0; i < g_cpu_count; i++) {
+        struct cpu *c = g_cpus[i];
+        if ((uint32_t)i == me || !online(c)) continue;
+        while (!__atomic_load_n(&c->dbg_held, __ATOMIC_ACQUIRE) && online(c) &&
+               clocksource_now_ns() < end)
+            cpu_relax();
+        held += __atomic_load_n(&c->dbg_held, __ATOMIC_ACQUIRE) != 0;
+    }
+    return held;
+}
+
+void smp_release_others(uint64_t after_ms) {
+    if (after_ms) {   // a step: held still, but not for ever
+        __atomic_store_n(&g_hold_until, clocksource_now_ns() + after_ms * 1000000ull,
+                         __ATOMIC_RELEASE);
+        return;
+    }
+    __atomic_fetch_add(&g_hold_epoch, 1, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_hold_by, -1, __ATOMIC_SEQ_CST);
+}
+
+uint64_t *smp_held_frame(int index) {
+    const struct cpu *c = smp_cpu_at(index);
+    if (!c || !__atomic_load_n(&c->dbg_held, __ATOMIC_ACQUIRE)) return 0;
+    return c->dbg_frame;
+}
+
+void smp_hold_note_frame(uint64_t *regs) { this_cpu_raw()->dbg_frame = regs; }
+
 void smp_poll_ipis(void) {
     tlb_service();
     if (g_cpus) call_service(g_cpus[spin_cpu_index()]);   // the BSP too: an AP may call it

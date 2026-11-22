@@ -132,6 +132,8 @@ static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
         uint64_t hz = cpu_tsc_hz();
         uint64_t limit = (hz ? hz : 3000000000ull) / 1000 * SPIN_LOCKUP_MS;
         start = arch_rdtsc();
+        uint64_t since = start;
+        uint32_t epoch = smp_hold_epoch();
         int reported = 0;
         unsigned n = 0;
         while (__atomic_load_n(&l->serving, __ATOMIC_ACQUIRE) != ticket) {
@@ -139,9 +141,13 @@ static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
             // shootdown's or a call's sender waiting on this core (tlb.h).
             smp_poll_ipis();
             cpu_relax();
-            if ((++n & CHECK_EVERY) == 0 && !reported && arch_rdtsc() - start > limit) {
-                reported = 1;
-                lockup_report(l, site, me);
+            if ((++n & CHECK_EVERY) == 0 && !reported) {
+                // A debugger stop held every core: its time is no lockup.
+                if (smp_hold_epoch() != epoch) epoch = smp_hold_epoch(), since = arch_rdtsc();
+                if (arch_rdtsc() - since > limit) {
+                    reported = 1;
+                    lockup_report(l, site, me);
+                }
             }
         }
         KTRACE(KTRACE_G_SPIN, KTRACE_EV_SPIN_WAIT, l, arch_rdtsc() - start, site, 0);

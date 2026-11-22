@@ -979,6 +979,11 @@ void isr_dispatch(uint64_t *regs) {
     // Never the core that owns the panic: an NMI reaching it mid-report
     // (its lockup counter's) would halt it before the record is kept.
     if (vector == 2 && smp_stop_requested() && !panic_owned_here()) smp_stop_here();
+    // So does another core's debugger stop, until it lets go (smp.h).
+    if (vector == 2 && smp_hold_requested()) {
+        smp_hold_here(regs);
+        return;
+    }
     // A shootdown's sender waits with the kernel lock held, on any core
     // and from either ring: answered here, taking nothing (tlb.h).
     if (vector == TLB_FLUSH_VECTOR) {

@@ -159,9 +159,8 @@ uint64_t kdb_arch_mem_write(uint64_t va, const void *src, uint64_t len) {
         uint64_t n = end - at;
         if (n > len - done) n = len - done;
         // Read-only kernel text, W^X's doing: WP off for this one copy.
-        // Safe on one CPU with interrupts off; under smp=run the others
-        // must be stopped first, which the stub does NOT do yet (boot
-        // smp=park to debug; docs/kdebug-design.md).
+        // Safe only with interrupts off and every other core held
+        // (kdebug.c's stop(), smp_hold_others()).
         uint64_t cr0 = 0;
         if (ro) { cr0 = read_cr0(); write_cr0(cr0 & ~CR0_WP); }
         mem_access(at, (uint8_t *)src + done, n, 1, user);

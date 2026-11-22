@@ -93,11 +93,8 @@ at boot, polled and never interrupt-driven. From then on:
 - **A single step masks IF** so it lands on the next instruction rather
   than in the timer's ISR, and restores it after -- so stepping a
   `cli`/`sti`/`popf` gets IF wrong. KGDB has the same blind spot.
-- **Clearing CR0.WP is safe only with one CPU running.** Under `smp=run`
-  (the default, `docs/smp-design.md`) the other cores run processes, so a
-  breakpoint write or any stop must stop them first -- an NMI IPI, KGDB's
-  `kgdb_roundup_cpus()`. NOT BUILT: the stub stops core 0 only; boot
-  `smp=park` or `nosmp` to debug (roadmap, SMP).
+- **Clearing CR0.WP is safe only with one CPU running**, so a stop holds
+  every other core first (built 2026-11-22; "Every core stops", below).
 - **Stopping stops time for everything the kernel talks to.** A USB
   audio stream underruns, TCP peers retransmit and may give up, and
   timers fire late all at once on resume. That is the nature of a
@@ -285,13 +282,44 @@ packet. Leaving it on the card lets the NIC's own ring hold it.
 - **`monitor` commands** (`qRcmd` -- KDB's shape): replaced by host-side
   gdb helpers, below, which make a stopped kernel run no code at all.
 
+## Every core stops -- BUILT 2026-11-22
+
+KGDB's `kgdb_roundup_cpus()`, by NMI as a panic's `smp_stop_others()`
+is. **One core is in the debugger at a time, the OWNER** (a
+compare-and-swap in `kernel/debug/kdebug.c`); before it lifts a
+breakpoint it NMIs every other online core into `smp_hold_here()`
+(`smp.c`), which keeps the interrupted frame and spins until released,
+then reloads the debug registers -- they are per core -- and runs
+`cpuid`, the SDM's serialising step after cross-modified code.
+
+- **A trap on another core while one owns a stop WAITS, then looks
+  again**: the roundup holds it with its own trap frame; released, a
+  breakpoint removed meanwhile has its byte back, so its PC backs up and
+  the real instruction runs (KGDB does the same), and a stop request
+  (an NMI, QEMU's monitor sends one to every core) was the owner's.
+- **The others stay held through a single step** (GDB's
+  scheduler-locking shape), so a step's view of memory is the one GDB
+  just read. A step that never traps back lets them go by themselves
+  after a second (`KDB_STEP_HOLD_MS`) and gives up the ownership.
+  `next` over a call is a breakpoint and a continue, which releases them.
+- **The hold waits a second for each core**, as the panic's 100 ms does;
+  one that never checked in shows in `qThreadExtraInfo` as
+  `not stopped`, rather than the stop waiting for ever.
+- **A spinlock waiter does not count the stop as a lockup**: the hold's
+  epoch moves at every release, and `take()` restarts its clock.
+
 ## Threads and the gdb helpers -- BUILT
 
-**Every process is a GDB thread** (thread id = pid) and the kernel
-context is one more, id 1000 -- KGDB presents tasks the same way. The
+**Every process is a GDB thread** (thread id = pid) and **each online
+core's kernel context is one more, `0x8000` (`SCHED_PID_MAX`) + the
+core's index** -- the boot core's, and each AP's idle loop. KGDB presents
+tasks the same way; QEMU's gdbstub shows each vCPU as a thread. The
 stub answers `qfThreadInfo`, `qC`, `Hg`, `T` and `qThreadExtraInfo`
 (`init, blocked`), and a stop reply names its thread (`T05thread:a;`).
-A thread that is not the one that stopped is read from where it is
+A thread RUNNING on another core is read from the frame its core was
+held at (`smp_held_frame()`) -- every register, and writable, since the
+core resumes from it (`qThreadExtraInfo` says `tosh, running on core
+2`). Any other thread is read from where it is
 PARKED (`struct kernel_context`: rsp, rip and the callee-saved
 registers); everything else was never saved, and goes out as GDB's
 "unavailable" rather than as a guess. Parked threads are read-only (`G`
@@ -315,7 +343,7 @@ has no CFI).
 
 **`toy-symbols`** is Linux's `lx-symbols`: symbols for what `kernel.bin`
 does not hold, read out of the stopped machine. A loaded MODULE is
-`g_mods[]`'s base plus a per-section layout the host RECOMPUTES from
+`g_mods`' base (a `struct kslots`) plus a per-section layout the host RECOMPUTES from
 `build/modules/<name>.o` -- the kernel keeps only the base, and
 `module.c`'s `layout()` is two passes in section-index order (text,
 then the rest of SHF_ALLOC after the page-rounded text), which the

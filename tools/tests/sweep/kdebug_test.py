@@ -16,6 +16,10 @@ here, so every assertion is about one packet and needs no GDB installed:
   - a single step moves the PC one instruction on;
   - a hardware WRITE watchpoint on the tick counter fires, and says so
     (`T05thread:<tid>;watch:<addr>;`);
+  - on several cores (`--cpus`, 4 by default), every other core is HELD
+    while stopped: each core's kernel context is a thread (0x8000 + the
+    core), one thread runs on every core and none says `not stopped`,
+    and `g` on one running on ANOTHER core is that core's whole frame;
   - every process is a thread: `qfThreadInfo` lists the kernel context
     (0x8000, SCHED_PID_MAX) and pid 1, `qThreadExtraInfo` names it `init`, and `g` on a
     PARKED thread marks the registers nobody saved as unavailable, and
@@ -57,7 +61,8 @@ ON DEMAND (ondemand_sweep.py): it boots its own VM.
 # port: the stub is off on every other guest, deliberately.
 RUNNER = [
     {
-        "covers": "the kernel GDB stub: breakpoints, watchpoints, break-in, KASLR",
+        "covers": "the kernel GDB stub: breakpoints, watchpoints, break-in, KASLR; "
+                  "every other core held while stopped (4 cores)",
     },
     {
         "name": "kdebug_net",
@@ -194,9 +199,13 @@ def is_stop(reply, sig):
 
 def elf_head(program, vaddr=0x8000000000, n=64):
     """n bytes a program's host ELF puts at `vaddr`, as `m` returns them --
-    read from the PT_LOAD that covers it."""
+    read from the PT_LOAD that covers it. The STAGED copy, which is what
+    the image holds: build/'s still has its symbols, so its header's
+    e_shoff is not the guest's."""
     import panic_resolve
-    elf = panic_resolve.elf_for_program(program)
+    elf = os.path.join(REPO, "seed", "sync", program.lstrip("/"))
+    if not os.path.isfile(elf):
+        elf = panic_resolve.elf_for_program(program)
     with open(elf, "rb") as f:
         data = f.read()
     phoff, = struct.unpack_from("<Q", data, 0x20)
@@ -217,11 +226,13 @@ def rip_of(g_reply):
 # --- the run -----------------------------------------------------------------
 
 NET = None   # the key, when --net
+CPUS = 4     # --cpus: smp=run is the default, so the stub is tested on several cores
 
 
 def vm(inst, disk, log, *args, timeout=240):
     port = ["--kdebug-net"] if NET else ["--kdebug"]
-    cmd = VM + ["--instance", str(inst), "--disk", disk, "--serial-log", log] + port + list(args)
+    cores = ["--cpus", str(CPUS)] if args and args[0] == "start" else []
+    cmd = VM + ["--instance", str(inst), "--disk", disk, "--serial-log", log] + port + cores + list(args)
     try:
         r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -324,6 +335,27 @@ def run(inst, disk, log, res):
         res.check(NO_DEBUGGER_KDFILED, not kd, ps[-400:])
 
 
+def smp_checks(rsp, res, tids, extras):
+    """The roundup: every core is a kernel thread, every other core is held,
+    and a thread running on another core reads that core's frame."""
+    kernel = [f"{0x8000 + c:x}" for c in range(CPUS)]
+    res.check(f"qfThreadInfo lists a kernel context per core ({CPUS})",
+              tids[:CPUS] == kernel, ",".join(tids))
+    running = {t: x for t, x in extras.items() if ", running on core " in x}
+    cores = {x.split(", running on core ")[1].split(",")[0] for x in running.values()}
+    res.check("one thread is running on every core, and none of them says `not stopped`",
+              len(cores) == CPUS and not any("not stopped" in x for x in running.values()),
+              "; ".join(running.values()))
+    current = rsp.cmd("qC")[2:]
+    elsewhere = next((t for t in running if t != current), None)
+    ok = rsp.cmd(f"Hg{elsewhere}") if elsewhere else "(none)"
+    regs = rsp.cmd("g")
+    rsp.cmd("Hg0")
+    res.check("`g` on a thread running on ANOTHER core is that core's whole frame",
+              ok == "OK" and len(regs) == 328 and "x" not in regs[:272],
+              f"{elsewhere} {extras.get(elsewhere)}: {regs[:80]}")
+
+
 def steps(inst, disk, log, res, rsp):
     try:
         sup = rsp.cmd("qSupported:swbreak+;hwbreak+", timeout=15)
@@ -340,10 +372,17 @@ def steps(inst, disk, log, res, rsp):
     extra = rsp.cmd("qThreadExtraInfo,1")
     name = bytes.fromhex(extra).decode(errors="replace") if re.fullmatch(r"[0-9a-f]+", extra) else extra
     res.check("qThreadExtraInfo names pid 1 `init`", name.startswith("init, "), name)
-    # A thread that is NOT the one that stopped -- attach can land while
-    # any process runs, init included.
+    tids = threads[1:].split(",")
+    extras = {}
+    for t in tids:
+        x = rsp.cmd(f"qThreadExtraInfo,{t}")
+        extras[t] = bytes.fromhex(x).decode(errors="replace") if re.fullmatch(r"[0-9a-f]+", x) else x
+    if CPUS > 1:
+        smp_checks(rsp, res, tids, extras)
+    # A PARKED thread -- attach can land while any process runs, init
+    # included, and a thread running on another core has a whole frame.
     current = rsp.cmd("qC")[2:]
-    other = next((t for t in threads[1:].split(",") if t != current), "1")
+    other = next((t for t in tids if t != current and "running" not in extras[t]), "1")
     ok = rsp.cmd(f"Hg{other}")
     parked = rsp.cmd("g")
     rsp.cmd("Hg1")
@@ -590,7 +629,8 @@ def real_gdb_run(target, res):
          "-ex", "toy-ps",
          "-ex", "toy-dmesg 3",
          "-ex", "info threads",
-         "-ex", "thread 2",
+         "-ex", "python t=[x for x in gdb.selected_inferior().threads() "
+                "if x.ptid[1] == 1 or x.ptid[2] == 1]; t and t[0].switch()",
          "-ex", "bt",
          "-ex", "detach"],
         cwd=REPO, capture_output=True, text=True, timeout=120)
@@ -612,13 +652,14 @@ def real_gdb_run(target, res):
               out[:600])
     res.check("info threads shows the processes by name",
               "Thread 32768 (kernel" in out and "(init, " in out, out[:900])
-    # thread 2 is the first process: parked in a syscall, so its stack
-    # runs down through isr_common into ring 3 -- and stops there.
+    # init (pid 1): parked in a syscall, so its stack runs down through
+    # the entry's trap frame (syscall_entry, or isr_common for an int)
+    # into ring 3 -- and stops there.
     res.check("the unwinder claims a trap frame only once it is whole, not mid-push",
               "@@claims [0, 0, 1, 1]" in out,
               next((l for l in out.splitlines() if "@@claims" in l or "Error" in l), out[-300:]))
     res.check("a parked thread's bt goes PAST isr_common and stops at the user frame",
-              "isr_common" in out and "syscall_dispatch" in out and
+              ("isr_common" in out or "syscall_entry" in out) and "syscall_dispatch" in out and
               "Backtrace stopped: frame did not save the PC" in out, out[-900:])
 
     # toy-symbols: a module, then a dynamic program and its libraries.
@@ -641,11 +682,12 @@ def real_gdb_run(target, res):
               mod is not None and dis is not None and int(dis.group(1), 16) >= int(mod.group(1), 16),
               sym[-700:])
     res.check("...and a dynamic program with its /lib libraries: tosh's bt reaches its main",
-              tosh is not None and "/lib/libc.so at" in sym and "isr_common" in sym and
+              tosh is not None and "/lib/libc.so at" in sym and ("isr_common" in sym or "syscall_entry" in sym) and
               re.search(r" main \(.*tosh\.c:\d+", sym) is not None, sym[-900:])
 
 
 def main():
+    global CPUS, NET
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--instance", type=int, default=6)
     ap.add_argument("--disk", default=os.path.join(REPO, "disk.img"),
@@ -655,7 +697,10 @@ def main():
     ap.add_argument("--positive-control", action="store_true",
                     help="boot WITHOUT kdebug=; the attach must then fail")
     ap.add_argument("--keep", help="keep the serial log at this path")
+    ap.add_argument("--cpus", type=int, default=CPUS,
+                    help=f"guest cores (default {CPUS}); above 1 adds the roundup's checks")
     args = ap.parse_args()
+    CPUS = args.cpus
 
     for name in (BP_FUNC, WATCH_VAR):
         if symbol(name) is None:
@@ -666,7 +711,6 @@ def main():
     disk = os.path.join(work, "disk.img")
     log = os.path.join(work, "serial.log")
     copy_disk(args.disk, disk)
-    global NET
     word = "kdebug=ttyS2"
     if args.net:
         NET = os.urandom(32)

@@ -142,6 +142,10 @@ struct cpu {
     // user on this core fall back to the heap rather than share it.
     void *bounce;
     int bounce_busy;
+    // Held by the kernel debugger (smp_hold_others()): the frame it was
+    // interrupted at, while dbg_held says so.
+    volatile uint32_t dbg_held;
+    uint64_t *volatile dbg_frame;
 #ifdef SAUNAOS_LOCKDEP
     struct lockdep_cpu ld;   // the spinlocks held here, and slot -1's kmutexes (lockdep.h)
 #endif
