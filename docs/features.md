@@ -185,13 +185,13 @@ own work stay on the boot core (`docs/smp-design.md`). `smp=park` keeps
 the other cores idle; `nosmp` and `maxcpus=N` start fewer. A kernel fault
 on any core is a panic with the other cores stopped first, and `cpus`
 (`/bin/cpus`, also a debug-console command) reads each core's state.
-The calls that need nothing it protects -- `getpid`, `gettid` and the
-clocks -- skip that lock, so cores making them no longer queue behind one
-another, and a program reads the time from a read-only clock page every
+The calls that need nothing it protects -- `getpid`, `gettid`, the
+clocks, and `lseek` within a file -- skip that lock, so cores making them
+no longer queue behind one another, and a program reads the time from a read-only clock page every
 process shares, with no syscall at all where the TSC is the clock (Linux's
 vDSO shape).
-`lockstat` shows how contended the kernel lock, the heap and the frame
-allocator are -- takes, waits, and with `lockstat track on` hold times,
+`lockstat` shows how contended the kernel lock, the heap, the frame
+allocator and the descriptor pool are -- takes, waits, and with `lockstat track on` hold times,
 by core and by syscall or interrupt, and the calls answered without the
 lock. `trace` records what every core did
 -- context switches, wakeups, interrupts, page faults, syscalls, lock

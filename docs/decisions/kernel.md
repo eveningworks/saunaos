@@ -10962,3 +10962,39 @@ both (Linux's `switch_mm()` against its flush). Neither half alone is
 enough: without the record first, a sender can miss a core that already
 walks the tables it changed.
 
+
+## The descriptor tables each have a lock beside one pool lock, and a lock-free `lseek` moves the position without taking its mutex
+
+Picked 2026-11-22 (`docs/smp-design.md`, stage 7;
+`kernel/proc/syscall_fd.c`, `fd_seek_lockless()`).
+
+**A lock per descriptor table, not one for all of them.** Linux's
+`file_lock` lives in each process's `files_struct`; one global lock was
+built first here, as the smaller change, and measured wrong: four
+processes seeking at once on KVM's four vCPUs waited on 99.9% of its
+takes, 780-805 ns a seek against 87 for one process alone. With the
+table's own lock it is 118-134 ns. The description POOL keeps a global
+lock -- a description can be named from several processes' tables, and
+a claim scans the whole pool -- taken before a table's when both are
+needed. Anything that does not claim or count references never touches
+it.
+
+**The lock-free path holds no reference.** It holds its table's lock
+from the lookup to the move instead: a descriptor's reference is dropped
+only after a write under that lock, so a held table lock pins what a slot
+names. A reference would cost two more pool-lock takes a call, and its
+last drop could have to run a `release()` that sleeps.
+
+**The position moves under the mutex's own spinlock, while the mutex is
+free** (`kmutex_unheld_begin()`), not by taking the mutex. A take would
+mean an unlock, and an unlock with a waiter wakes it through
+`scheduler_wake_one()`, which still scans the process table under the
+kernel lock. While the spinlock is held nobody can take the mutex, so a
+reader or writer mid-call (which holds it) makes the seek decline to the
+locked path instead -- as `SEEK_END` does, since a file's size is the
+filesystem's, behind a sleeping lock.
+
+**A row's handler says when it needs the lock after all**
+(`SYSCALL_DECLINE`), rather than the table carrying a second, try-first
+handler: the decision needs what the handler has just looked up, and one
+function keeps the two paths' answers from drifting.

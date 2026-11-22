@@ -31,7 +31,7 @@
 
 How contended the kernel's counted spinlocks are, the shape of Linux's
 `/proc/lock_stat`: for the kernel lock, the run queue (`sched`), the
-clock, the heap and the frame allocator,
+clock, the heap, the frame allocator and the descriptor pool (`fd`),
 how often each was taken, how many of those takes had to wait, the total
 and longest wait and hold, and the share of the time it was held
 (`QUERY_LOCKSTAT`, `kernel/proc/lockstat.c`).
@@ -52,7 +52,9 @@ kernel itself taking it back after the idle halt -- longest held first
 switch on that core may hand its release to another context.
 `LOCKLESS` counts the syscalls answered WITHOUT taking it -- the rows
 `abi/syscall_rows.h` marks MPSAFE (`getpid`, `gettid`, `ticks`,
-`monotonic_ns`, `clock_page`), by core and by entry. The tunable
+`monotonic_ns`, `clock_page`, and `lseek` of a file's position -- a
+`SEEK_END`, or a position another call holds, is counted under TAKES),
+by core and by entry. The tunable
 `kernel.lockless_syscalls` (on by default) sends them through the lock
 again, for comparing the two.
 

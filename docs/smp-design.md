@@ -9,7 +9,9 @@ STAGE 5 (2026-11-19: the TLB shootdown, `kernel/arch/x86_64/tlb.c`);
 STAGE 5 IS BUILT AND ON BY DEFAULT (2026-11-19 behind `smp=run`; the
 default since 2026-11-20, `smp=park` the way back); STAGE 7 IS UNDER
 WAY (2026-11-21: `lockstat`, a per-core guard and the heap and frame
-locks, then the first syscalls off the kernel lock and the clock page);
+locks, then the first syscalls off the kernel lock and the clock page,
+then the run-queue lock; 2026-11-22: the descriptor tables' locks and a
+lock-free `lseek`);
 RE-MEASURED AND RE-SIZED 2026-11-19.** The ACPI table walk and the MADT's processor list exist
 (`kernel/acpi/`, read by `/bin/acpi` and `/bin/lscpu`), the Local APIC is
 enabled and carries MSI-X for seven drivers, the tick runs on the LAPIC
@@ -111,6 +113,7 @@ futexes, swap, sandboxes and the image cache all arrived single-core.
 | filesystem | one sleeping lock per MOUNT (`docs/fslock-design.md`), a `kmutex`, so two volumes are independent; inside one volume tfs3 is serialised by that lock | the right SHAPE already, but only as safe as `kmutex` (the row above): it is fixed when `kmutex` gains its inner spinlock, with the 13 other non-test files that use one (block, ata, ahci, nvme, usb_storage, userfs, mmap, query...) |
 | kernel heap | DONE (stage 7) -- one free list + bins (`kernel/lib/heap_core.c`) behind its own irqsave spinlock in `heap_os_lock()`/`heap_os_unlock()` (`kernel/mm/heap_os.c`) | -- |
 | physical frames | DONE (stage 7) -- `kernel/mm/pmm.c`'s bitmap, zone counters and frame refcounts behind its own irqsave spinlock, taken after the heap's | -- |
+| descriptor tables | DONE (stage 7) -- `kernel/proc/syscall_fd.c`: the fd lock over the description pool, then each table's own spinlock (Linux's `file_lock`) | -- |
 | TLB invalidation | user mappings: `kernel/mm/vmm.c` (4 `invlpg`s and `flush_if_live()`, which tests only THIS core's CR3). Kernel mappings, which every core shares: `kernel/arch/x86_64/paging.c`, 9 CR3-reload `flush_tlb()` sites reached at runtime by module load/unload (`paging_set_kernel_exec()`), device mapping at driver bind (ahci, nvme, hda, xhci, virtio_pci, bochs, intel_display), write-combining retypes, and kernel-stack guard pages (`kstack.c`) | two places, not one: user shootdown needs a per-address-space record of which cores have it loaded (Linux's `mm_cpumask`); kernel changes go to EVERY core |
 | FPU | eager `fxsave`/`fxrstor` per switch (`kernel/arch/x86_64/fpu.c`) | per-thread already; each AP must run the CR0/CR4 FPU setup |
 | per-core CPU setup | done once, on the BSP: EFER.NXE (`boot.asm`), IA32_PAT (`pat_install_wc_slot()`), the variable MTRRs (`mtrr_apply()`), CR4.SMEP/SMAP (`paging_enable_smep_smap()`), all in `kernel/arch/x86_64/` | each is a per-core register. An AP without NXE takes a reserved-bit fault on its first NX kernel page (W^X marks all kernel data NX); a different PAT/MTRR gives the WC framebuffer conflicting memory types (undefined per the SDM); no SMEP/SMAP silently drops the protection. Each AP replays the BSP's values |
@@ -830,6 +833,91 @@ lock, and declined. Their CPU shares stayed equal either way.
 | ...`core tick` takes | 0 | 6008 |
 | yield, 1 copy | 714 ns | 1861 ns |
 | yield, 3 copies | 766-1950 ns | 7698-8764 ns |
+
+**Re-measured 2026-11-22, after the scheduler lock** (`lockstat -i N -e`,
+holds timed; KVM four vCPUs, and the ASUS):
+
+| load | kernel lock held | takes that waited | longest holders |
+|---|---|---|---|
+| KVM, idle desktop, 5 s | 0.9% | 4.7% | `lapic_timer_isr` 18 ms, `kernel` 10 ms |
+| KVM, `diskbench`, 8 s | 6.0% | 83% | `read` 180 ms, `kernel` 108 ms, `core tick` 103 ms |
+| KVM, 3 x `syscall_bench`, 6 s | 61% | 82% | `read` 2.0 s, `write` 1.2 s, `lseek` 0.17 s: 93% of every hold |
+| ASUS, idle desktop, 8 s | 1.1% | 0.2% | `lapic_timer_isr` 42 ms, `query` 32 ms |
+| ASUS, `diskbench` 2 GiB, 10 s | 16.7% | 0.7% | the disk interrupt (`irq_handler`) 1.3 s, `write` 131 ms |
+
+So under load the file calls are the lock, and the next split is the
+descriptor path, in FreeBSD 5's order and Linux 2.6's: the descriptor
+tables, then `lseek`, then `read`/`write`. On the ASUS the disk interrupt
+holds most but the lock rarely waits; it matters once several cores make
+file calls at once. Also seen: one AP's `core tick` waited 277 ms for the
+lock since boot on the ASUS, holder not established.
+
+**Built 2026-11-22: the descriptor tables on their own locks, and
+`lseek` without the kernel lock.** Linux's `files_struct` `file_lock` is
+the shape:
+
+- **Two locks, in this order** (`kernel/proc/syscall_fd.c`). The FD LOCK
+  (`fd` in `lockstat`) covers the description pool -- a claim, every
+  `refs`/`ops` change -- and `g_spaces`' slots; each descriptor table's
+  own spinlock covers that table (its arrays, `next_fd`, `pml4`). Both
+  were the preemption guard, which since the per-core guard excludes only
+  its own core: the kernel lock had been doing the rest. A table and
+  `g_spaces` are retired, never freed, so a reader holding the kernel lock
+  still reads without either lock.
+- **A descriptor's reference keeps its description while the table's
+  lock is held**: only a write under that lock drops it, and the unref
+  follows the unlock. So a holder of the table's lock may use the
+  description a slot names with no reference of its own -- and no
+  `release()` to run, which might sleep.
+- **An MPSAFE handler may decline** (`SYSCALL_DECLINE`, the handler told
+  by `syscall_ctx.lockless`): having changed nothing, the locked path runs
+  it again. `lseek` is the first: under its table's lock alone it answers
+  a file's `SEEK_SET`/`SEEK_CUR`, and `ESPIPE` for a stream with no
+  position, and declines a bad fd, `SEEK_END` (the size is the
+  filesystem's, behind a sleeping lock) and a position lock somebody
+  holds.
+- **The position moves without taking its kmutex.**
+  `kmutex_unheld_begin()` holds the mutex's own spinlock while the mutex
+  is free: no thread can take it meanwhile, and nothing is taken, so no
+  unlock wakes anyone -- `kmutex_unlock()`'s wake scans the process table
+  under the kernel lock still.
+- **One global lock was built first and measured wrong**: four copies
+  seeking at once waited on 99.9% of its takes (5.3 s of waiting in 2 s),
+  780-805 ns a seek. The table's own lock took that to 118-134 ns.
+
+Proven by: KTESTs (`kernel/proc/fd_lock_test.c`) where every core claims
+descriptions at once outside the kernel lock -- the preemption guard in
+place of the lock panicked in `fd_desc_unref()`, two cores on one
+description -- and other cores seek a descriptor while this one closes it
+and reuses its description elsewhere: red (`moved`) with the table's lock
+dropped from the lock-free path and its window widened, green with the
+same window and the lock. The ring-3 version in `lockless_test` (threads
+seeking while the main thread `dup2`s over the descriptor and opens
+another file) is red on the same control, and checks the `lseek` row's
+counts: lock-free for `SEEK_SET`, through the lock for `SEEK_END`.
+
+**Measured** (`syscall_bench calls`, the `lseek` row, ns per call;
+"through the lock" is `kernel.lockless_syscalls off` on the same boot):
+
+| | 1 copy, lock-free | 1 copy, through the lock | 4 copies, lock-free | 4 copies, through the lock |
+|---|---|---|---|---|
+| KVM, four vCPUs, the TSC | 87 | 198 | 118-134 | 1185-1386 |
+| ASUS | 208 | 545 | 210-310 | 1830-2420 |
+
+Under 3 x `syscall_bench` on KVM, `lseek` left the kernel lock's holders;
+`read` and `write` remain, 0.78 s and 0.57 s of 1.4 s held in 15 s.
+
+**Next: MPSAFE handlers that may sleep, then `read`/`write`.** A file's
+read and write park on the position lock and the mount's lock, so they
+need a lock-free path that can park: interrupts on, at kernel-lock depth
+0, from a context the scheduler can switch away from and back to without
+the lock (an AP's lock-free switch already saves such contexts). What it
+must settle before a row uses it: a wake from a kmutex unlock without the
+kernel lock (`scheduler_wake_one()` scans `procs[]` unlocked); a signal
+posted while it sleeps; strace and the sandbox, which today make the
+lock-free path decline; and the stall and kstack tables, written under
+the lock. Then pipes (their own lock per pipe), ramfs, and the disk
+filesystems last -- they already have a lock per mount.
 
 The plan as written:
 

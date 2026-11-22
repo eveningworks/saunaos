@@ -9248,6 +9248,22 @@ start on real 3.11" first.
 
 - [x] ~~**The ATA fault-injection KTESTs leak a failed write into the NEXT test.**~~ DONE 2026-11-21 -- there was no leak. `[atac]`'s injected failure recovers and passes; the later `atac: FLUSH FAILED` was a REAL cache flush that outran its bound. A flush from a caller that cannot park (the kernel context -- the failing run's was `service stop logd` from the debug console) got -1 from `sleep_dma_irq()` at once, and the poll after it had only `wait_not_busy()`'s 1 s pre-command bound, while a guest flush is a host `fdatasync` on a zstd-compressed btrfs `disk.img` (no `+C`, whatever `ata.c` claimed). tfs3 then stops `/` on the failed flush, as it should. Reproduced on the first `ktest_run.py --suite fs` run with a host `dd ... conv=fsync` loop on the same volume (`ata: cache flush FAILED after 101 ticks (still busy, status 0xc0, slept)`); with `FLUSH_WAIT_TICKS` (15 s, one deadline whether it slept or polled; libata's flush bound) 6 of 6 stressed runs passed, two of them with flushes of 104 and 116 ticks that the old bound would have failed. `ata: cache flush took N ticks` now names a slow one. The other two kernel-suite reds of those 20 preflights were not this (a spin lockup and a poll-for-exit check).
 
+## MPSAFE handlers that may sleep, then `read`/`write` of pipes and ramfs without the kernel lock
+
+Under three `syscall_bench` copies on KVM (four vCPUs) `read` and `write`
+are what is left of the kernel lock once `lseek` went lock-free
+(2026-11-22): 1.35 s of 1.4 s held in 15 s. They cannot go the way
+`lseek` did -- a file's read and write park on the position lock and the
+mount's lock -- so the lock-free path needs a second kind of row whose
+handler may park: interrupts on, at kernel-lock depth 0. To settle first,
+each with a test that goes red: a wake from `kmutex_unlock()` without the
+kernel lock (`scheduler_wake_one()` scans `procs[]` unlocked); a signal
+posted while it sleeps; strace and a sandboxed process, which today make
+the lock-free path decline; the stall and kstack tables, written under
+the kernel lock. Then pipes (a lock per pipe), ramfs, and the disk
+filesystems last -- they already lock per mount. `docs/smp-design.md`,
+stage 7, "Next".
+
 ## A lock-free switch into a context that holds the kernel lock
 
 An AP's lock-free scheduler event (`scheduler_ap_event_lockless()`,
