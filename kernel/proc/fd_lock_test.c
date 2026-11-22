@@ -75,6 +75,7 @@ KTEST("smp", "every core claiming descriptions at once hands none to two") {
 static int open_file_at(uint64_t space, int *di) {
     *di = fd_desc_alloc(&file_fd_ops, -1);
     if (*di < 0) return -1;
+    kmutex_name(&fd_desc_at(*di)->file.pos_lock, "file position");   // as sys_open names it
     int fd = fd_install(space, *di);
     if (fd < 0) fd_desc_unref(*di);
     return fd;
