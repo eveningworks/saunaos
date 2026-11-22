@@ -211,7 +211,8 @@ pid_t vfork(void);
 #define _SC_PAGE_SIZE    _SC_PAGESIZE
 #define _SC_OPEN_MAX     3
 #define _SC_ARG_MAX      4
-#define _SC_NPROCESSORS_ONLN 5
+#define _SC_NPROCESSORS_ONLN 5   // cores that run processes now
+#define _SC_NPROCESSORS_CONF 6   // cores the machine has, started or not
 
 // **_SC_CLK_TCK IS 1000000 HERE, NOT glibc's 100**, so that times()'s
 // unit and clock()'s CLOCKS_PER_SEC are the same number and the one

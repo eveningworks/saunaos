@@ -14,6 +14,8 @@
 //
 // Prints one line per check and exits with the number of failures.
 #include <arpa/inet.h>
+#include "query_abi.h"   // QUERY_CPUSTATE, sysconf's oracle
+#include "rt/sys.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -69,7 +71,26 @@ static int v6_round_trip(const char *text, const char *canonical, const char *he
 static int only_b(const struct dirent *e) { return e->d_name[0] == 'b'; }
 
 int main(void) {
-    utest_begin("libc6_test", "iconv, inet_pton, realpath, scandir, clocks, strtof", UTEST_VERDICT_FILE);
+    utest_begin("libc6_test", "iconv, inet_pton, realpath, scandir, clocks, strtof, sysconf", UTEST_VERDICT_FILE);
+
+    // --- sysconf's cores ----------------------------------------------
+    // Counted here from the kernel's records, independently: it answered
+    // 1 on every machine while processes ran on every core.
+    {
+        struct query_cpustate q;
+        long running = 0, present = 0;
+        for (unsigned i = 0; sys_query_record(QUERY_CPUSTATE, i, &q, sizeof q) >= (int)sizeof q; i++) {
+            running += q.state == QUERY_CPUSTATE_RUNNING;
+            present += q.state != QUERY_CPUSTATE_ABSENT;
+        }
+        if (running < 1) running = 1;
+        if (present < 1) present = 1;
+        long onln = sysconf(_SC_NPROCESSORS_ONLN), conf = sysconf(_SC_NPROCESSORS_CONF);
+        utest_checkf(onln == running, "sysconf(_SC_NPROCESSORS_ONLN) is the cores running processes: %ld, %ld running",
+                     onln, running);
+        utest_checkf(conf == present && conf >= onln,
+                     "sysconf(_SC_NPROCESSORS_CONF) is every core present: %ld, %ld present", conf, present);
+    }
 
     // --- iconv --------------------------------------------------------
     const char *eacute_euro = "\xc3\xa9\xe2\x82\xac";       // "é€" in UTF-8

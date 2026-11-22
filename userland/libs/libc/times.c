@@ -4,10 +4,24 @@
 #include "syscall_abi.h"   // SPAWN_ARGS_MAX
 #include <time.h>
 #include "rt/sys.h"  // sys_monotonic_ns -- there is no clock_gettime here
+#include "query_abi.h"   // QUERY_CPUSTATE: the cores, for _SC_NPROCESSORS_*
 #include <errno.h>
 #include <limits.h>  // PATH_MAX, NAME_MAX
 #include <paths.h>
 #include <string.h>
+
+// Cores counted from the kernel's per-core records (QUERY_CPUSTATE):
+// online are the ones that schedule processes, as Linux's
+// /sys/devices/system/cpu/online; configured is every core the firmware
+// listed. Never 0 -- the core asking runs -- and 1 from a kernel that has
+// no such query, which is the truth on one that ran one core.
+static long count_cores(int online) {
+    struct query_cpustate q;
+    long n = 0;
+    for (unsigned i = 0; sys_query_record(QUERY_CPUSTATE, i, &q, sizeof q) >= (int)sizeof q; i++)
+        n += online ? q.state == QUERY_CPUSTATE_RUNNING : q.state != QUERY_CPUSTATE_ABSENT;
+    return n > 0 ? n : 1;
+}
 
 long sysconf(int name) {
     switch (name) {
@@ -15,7 +29,8 @@ long sysconf(int name) {
     // says why.
     case _SC_CLK_TCK:  return 1000000L;
     case _SC_PAGESIZE: return 4096L;
-    case _SC_NPROCESSORS_ONLN: return 1L;   // no SMP yet (docs/smp-design.md)
+    case _SC_NPROCESSORS_ONLN: return count_cores(1);
+    case _SC_NPROCESSORS_CONF: return count_cores(0);
     // The ABI's own ceiling for an exec's arguments and environment
     // together, as POSIX counts it.
     case _SC_ARG_MAX:  return (long)SPAWN_ARGS_MAX;
