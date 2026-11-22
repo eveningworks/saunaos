@@ -187,6 +187,12 @@ extern const struct fd_ops watchdog_fd_ops;    // kernel/core/watchdog.c
 // fd_bounce_free(), never kfree(): a large one is kept for the next call.
 void *fd_bounce_alloc(uint64_t *len);
 void fd_bounce_free(void *p);
+// The same for a syscall: a LOCK-FREE one is served this core's own
+// buffer, no lock taken (struct cpu's `bounce`), and must hand it back
+// before anything that could park or switch -- which every lock-free
+// read and write does already. `*len` may be clamped, as by the above.
+void *fd_bounce_get(const struct syscall_ctx *c, uint64_t *len);
+void fd_bounce_put(const struct syscall_ctx *c, void *p);
 
 struct open_file {
     int refs; // 0 = free, below 0 = being torn down. dup() makes it 2; the last unref tears down.

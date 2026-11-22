@@ -1077,7 +1077,7 @@ static int file_fd_write_lockless(struct syscall_ctx *c, struct open_file *f,
                                   uint64_t buf_ptr, uint64_t len) {
     if (!__atomic_load_n(&f->file.lockless, __ATOMIC_ACQUIRE) ||
         !fd_mode_writes(f->file.mode) || len > LOCKLESS_RW_MAX) return SYSCALL_DECLINE;
-    char *tmp = fd_bounce_alloc(&len);
+    char *tmp = fd_bounce_get(c, &len);
     if (!tmp) return SYSCALL_DECLINE;
     int r = SYSCALL_DECLINE;
     if (vmm_copy_from_user_nofault(c->pml4, tmp, buf_ptr, len) &&
@@ -1095,14 +1095,18 @@ static int file_fd_write_lockless(struct syscall_ctx *c, struct open_file *f,
         }
         if (w > 0) scheduler_io_charge(SCHED_IO_FILE_WRITE, len);
         // THE NOTE UNDER THE KERNEL LOCK (fs_note_watchers()), as a last
-        // put takes it for a release (syscall_fd.c's put_lockless()).
+        // put takes it for a release (syscall_fd.c's put_lockless()) --
+        // and the core's buffer back first: the wait for the lock is not
+        // a lock-free call's no-sleep window any more.
         if (w == 2) {
+            fd_bounce_put(c, tmp);
+            tmp = NULL;
             bkl_enter(c->regs);
             fs_note_watchers(f->file.name);
             bkl_exit(c->regs);
         }
     }
-    fd_bounce_free(tmp);
+    if (tmp) fd_bounce_put(c, tmp);
     return r;
 }
 
@@ -1173,7 +1177,7 @@ static int file_fd_read_lockless(struct syscall_ctx *c, struct open_file *f,
                                  uint64_t buf_ptr, uint64_t len) {
     if (!__atomic_load_n(&f->file.lockless, __ATOMIC_ACQUIRE) ||
         !fd_mode_reads(f->file.mode) || len > LOCKLESS_RW_MAX) return SYSCALL_DECLINE;
-    char *kbuf = fd_bounce_alloc(&len);
+    char *kbuf = fd_bounce_get(c, &len);
     if (!kbuf) return SYSCALL_DECLINE;
     int r = SYSCALL_DECLINE;
     if (kmutex_trylock(&f->file.pos_lock)) {
@@ -1185,7 +1189,7 @@ static int file_fd_read_lockless(struct syscall_ctx *c, struct open_file *f,
         }
         kmutex_unlock(&f->file.pos_lock);
     }
-    fd_bounce_free(kbuf);
+    fd_bounce_put(c, kbuf);
     if (r == 0) scheduler_io_charge(SCHED_IO_FILE_READ, c->regs[14]);
     return r;
 }

@@ -134,6 +134,14 @@ struct cpu {
     // This core's kernel-trace ring (ktrace.h), or NULL: only ever
     // written by the core itself, inside a cross-core call.
     struct ktrace_ring *ktrace;
+    // THIS CORE'S BOUNCE BUFFER for a lock-free read or write
+    // (syscall_fd.c's fd_bounce_get()): such a call runs with interrupts
+    // off, never sleeps and frees it before any park, so one buffer per
+    // core serves every one of them with no lock -- the heap's was taken
+    // twice a call. Allocated at first use; `bounce_busy` makes a second
+    // user on this core fall back to the heap rather than share it.
+    void *bounce;
+    int bounce_busy;
 #ifdef SAUNAOS_LOCKDEP
     struct lockdep_cpu ld;   // the spinlocks held here, and slot -1's kmutexes (lockdep.h)
 #endif

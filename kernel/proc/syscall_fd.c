@@ -24,7 +24,8 @@
 #include "string.h"
 #include "klimit.h"
 #include "lockstat.h"   // SPINLOCK_COUNTED: the fd lock, `fd` in `lockstat`
-#include "bkl.h"        // a lock-free call's last put takes it (put_lockless())
+#include "bkl.h"
+#include "percpu.h"      // this_cpu(): the core's own bounce buffer        // a lock-free call's last put takes it (put_lockless())
 
 // A BOUNCE BUFFER FOR ONE TRANSFER, sized to what this call actually
 // needs rather than to the maximum.
@@ -89,6 +90,40 @@ void *fd_bounce_alloc(uint64_t *len) {
         if (want <= 1024) return NULL;
         want /= 2;
     }
+}
+
+// ONE PER CORE, LOCK-FREE CALLS ONLY: LOCKLESS_BOUNCE bytes, every
+// lock-free call's largest (a file's 64 KiB bound; a pipe moves at most
+// its 4 KiB buffer). A request is clamped to it, which a lock-free call
+// may be: a pipe read returns what the pipe holds, and a file read over
+// the bound declined before asking.
+#define LOCKLESS_BOUNCE (64u * 1024u)
+
+void *fd_bounce_get(const struct syscall_ctx *c, uint64_t *len) {
+#ifndef SAUNAOS_KASAN
+    if (c->lockless) {
+        struct cpu *me = this_cpu();
+        if (!me->bounce_busy) {
+            if (!me->bounce) me->bounce = kmalloc(LOCKLESS_BOUNCE);
+            if (me->bounce) {
+                me->bounce_busy = 1;
+                if (*len > LOCKLESS_BOUNCE) *len = LOCKLESS_BOUNCE;
+                return me->bounce;
+            }
+        }
+    }
+#endif
+    return fd_bounce_alloc(len);
+}
+
+void fd_bounce_put(const struct syscall_ctx *c, void *p) {
+#ifndef SAUNAOS_KASAN
+    if (c->lockless && p && p == this_cpu()->bounce) {
+        this_cpu()->bounce_busy = 0;
+        return;
+    }
+#endif
+    fd_bounce_free(p);
 }
 
 void fd_bounce_free(void *p) {

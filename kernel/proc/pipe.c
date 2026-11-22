@@ -225,7 +225,7 @@ static int pipe_fd_read(struct syscall_ctx *c, struct open_file *f,
     // Filled from the pipe, then handed out: it cannot write the user
     // pointer itself once SMAP is on (vmm.h). Heap rather than stack: see
     // fd_fd_bounce_alloc(). Before the lock -- the heap's is a spinlock.
-    char *kbuf = fd_bounce_alloc(&len);
+    char *kbuf = fd_bounce_get(c, &len);
     if (!kbuf) {
         if (c->lockless) return SYSCALL_DECLINE;
         regs[14] = (uint64_t)(int64_t)-ENOMEM;
@@ -239,7 +239,7 @@ static int pipe_fd_read(struct syscall_ctx *c, struct open_file *f,
     // (vmm_copy_to_user_nofault()'s window).
     if (c->lockless && !vmm_user_range_nofault(pml4, buf_ptr, avail, 1)) {
         spin_unlock(&p->lock);
-        fd_bounce_free(kbuf);
+        fd_bounce_put(c, kbuf);
         return SYSCALL_DECLINE;
     }
     int64_t n = read_locked(p, kbuf, (uint32_t)len);
@@ -250,7 +250,7 @@ static int pipe_fd_read(struct syscall_ctx *c, struct open_file *f,
     // both ends share this pipe's channel, and every waiter re-tests.
     if (n > 0) scheduler_wake(p, SYS_RETRY);
     if (n > 0 && !c->lockless) copied = vmm_copy_to_user(pml4, buf_ptr, kbuf, (uint64_t)n);
-    fd_bounce_free(kbuf);
+    fd_bounce_put(c, kbuf);
 
     if (!copied) {
         klog_write(KLOG_ERR "syscall: read() rejected -- invalid buffer pointer\n");
@@ -292,7 +292,7 @@ static int pipe_fd_write(struct syscall_ctx *c, struct open_file *f,
     // caller nothing: libsys's sys_write() loops on a short count.
     if (len > PIPE_BUF_SIZE) len = PIPE_BUF_SIZE;
 
-    char *kbuf = fd_bounce_alloc(&len);
+    char *kbuf = fd_bounce_get(c, &len);
     if (!kbuf) {
         if (c->lockless) return SYSCALL_DECLINE;
         regs[14] = (uint64_t)(int64_t)-ENOMEM;
@@ -301,7 +301,7 @@ static int pipe_fd_write(struct syscall_ctx *c, struct open_file *f,
     int ok = c->lockless ? vmm_copy_from_user_nofault(pml4, kbuf, buf_ptr, len)
                          : vmm_copy_from_user(pml4, kbuf, buf_ptr, len);
     if (!ok) {
-        fd_bounce_free(kbuf);
+        fd_bounce_put(c, kbuf);
         if (c->lockless) return SYSCALL_DECLINE;
         klog_write(KLOG_ERR "syscall: write() rejected -- invalid buffer pointer\n");
         regs[14] = (uint64_t)(int64_t)-EFAULT;
@@ -312,13 +312,13 @@ static int pipe_fd_write(struct syscall_ctx *c, struct open_file *f,
     // No reader: SIGPIPE, which is the locked path's to send.
     if (c->lockless && p->readers <= 0) {
         spin_unlock(&p->lock);
-        fd_bounce_free(kbuf);
+        fd_bounce_put(c, kbuf);
         return SYSCALL_DECLINE;
     }
     int64_t n = write_locked(p, kbuf, (uint32_t)len);
     if (n < 0 && arm) scheduler_wait_arm(p);
     spin_unlock(&p->lock);
-    fd_bounce_free(kbuf);
+    fd_bounce_put(c, kbuf);
     if (n > 0) scheduler_wake(p, SYS_RETRY);
 
     // **A DEAD PIPE IS A FAILURE, NOT A SHORT WRITE**, and reporting it as
