@@ -9250,16 +9250,13 @@ start on real 3.11" first.
 
 ## Per-core allocation caches, so a lock-free call's bounce buffer does not queue on the heap lock
 
-Once a ramfs file's read and write left the kernel lock (2026-11-22,
-`docs/smp-design.md` stage 7), the heap's lock became what waits: under
-three copies of `syscall_bench` on KVM's four vCPUs, 41% of its 7.1 M
-takes in 6 s waited, against the kernel lock's 8.9% held. Every
-lock-free read and write kmallocs its bounce buffer and frees it again
-(`fd_bounce_alloc()`'s one kept buffer per size class is shared by
-every core, so four cores mostly miss it). Linux's per-CPU slab caches
-and page lists are the shape; a kept buffer per core per class is the
-smallest version, and the measurement says which is enough. The
-scheduler lock (30% of 7.3 M takes waited) is the one after.
+DONE 2026-11-22 as the narrow version: a bounce buffer per core, for the
+lock-free calls only (`docs/smp-design.md`, stage 7). Under 3 x
+`syscall_bench` the heap lock went from 41% of 7.1 M takes waiting to
+none of 196 k. Per-core caches inside `kmalloc` itself (Solaris's
+magazines, Linux's per-CPU slab freelists) were offered and not taken:
+nothing measured waits on the heap now. The scheduler lock (42% of takes
+waited) and the descriptor pool's lock (32%) are what does.
 
 ## A disk filesystem's `read`/`write` without the kernel lock: a lock-free handler that sleeps mid-call
 

@@ -1051,6 +1051,26 @@ first numbers said so). Still declining: strace, a sandboxed process, the
 disk filesystems -- whose ops sleep in a disk wait, so they need a real
 mid-call park -- and the stall and kstack tables, written under the lock.
 
+**Built 2026-11-22 (last): a per-core bounce buffer for the lock-free
+calls.** Every lock-free pipe and file call allocated its bounce buffer
+and freed it again, taking the heap's lock twice -- 41% of 7.1 M takes
+waited under 3 x `syscall_bench`. Each core now keeps one 64 KiB buffer
+(`struct cpu`'s `bounce`, `fd_bounce_get()`/`fd_bounce_put()`), which a
+lock-free call may use with no lock: it runs with interrupts off on one
+core, never sleeps, and hands the buffer back before anything that could
+park or switch (the lock-free write's owed fswatch note returns it before
+waiting for the kernel lock). Linux's per-CPU slab freelists are the
+general shape; this is the one allocation the measurement named. Proven
+by `lockless_rw_test` with one buffer shared by every core: four checks
+red (torn records, wrong words, writes out of order).
+
+Measured the same way (KVM, four vCPUs, 3 x `syscall_bench`, 6 s, holds
+timed): the heap lock 196 k takes, **none waited** (was 41% of 7.1 M);
+what waits now is the scheduler lock (42% of 7.3 M) and the descriptor
+pool's (32% of 7.1 M) -- per-core run queues and a per-table pool are
+the next splits. One copy: a 1-byte pipe round 319 ns (410 before), a
+64 B `/tmp` read 513 ns (546), write 677 ns (703).
+
 The plan as written:
 
 The order comes from the table above, and each split is its own change

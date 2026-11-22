@@ -25,7 +25,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
-- [ ] Per-core allocation caches, so a lock-free call's bounce buffer does not queue on the heap lock  *(SMP)*
+- [ ] Per-core run queues instead of one global table -- the scheduler lock is what waits now (42% of takes)  *(SMP)*
 <!-- END next-up -->
 
 
@@ -1602,7 +1602,7 @@ measurement of what is single-core in the tree today.
 - [ ] A thread with a live syscall frame is mid-call to exit and kill (an in-call depth), not per resource
 - [x] ~~Per-core load in Task Manager and `lscpu`~~ DONE 2026-11-20 -- QUERY_CORELOAD; a line per CPU on the CPU page
 - [ ] The kdebug stub stops every core, not only core 0 -- the roundup stage 5 deferred
-- [ ] Per-core run queues instead of one global table
+- [ ] **NEXT** Per-core run queues instead of one global table -- the scheduler lock is what waits now (42% of takes)
 - [x] ~~Inter-processor interrupts (IPIs)~~ DONE 2026-11-19 -- stage 4, `smp_call()` on vector 0xFB
 - [x] ~~TLB shootdown on address-space changes~~ DONE 2026-11-19 -- stage 6, ahead of stage 5; vector 0xFD, a whole-space CR3 reload
 - [x] ~~A real spinlock primitive~~ DONE 2026-11-19 -- stage 4, a ticket lock with a lockup report
@@ -1616,7 +1616,7 @@ measurement of what is single-core in the tree today.
 - [x] ~~Descriptor tables on their own locks; `lseek` without the kernel lock~~ DONE 2026-11-22 -- an MPSAFE row may decline
 - [x] ~~A lock-free park, and a pipe's `read`/`write` without the kernel lock~~ DONE 2026-11-22 -- the park takes it first when needed
 - [x] ~~`read`/`write` of ramfs without the kernel lock~~ DONE 2026-11-22 -- every sleeping lock trylocked, a busy one declines
-- [ ] **NEXT** Per-core allocation caches, so a lock-free call's bounce buffer does not queue on the heap lock
+- [x] ~~Per-core allocation caches, so a lock-free call's bounce buffer does not queue on the heap lock~~ DONE 2026-11-22 -- one per core
 - [ ] A disk filesystem's `read`/`write` without the kernel lock: a lock-free handler that sleeps mid-call
 - [ ] A lock-free scheduler event switching into a context that holds the kernel lock -- the park's take-first shape is the candidate
 - [ ] An audit of everything currently assuming single-threaded -- stage 7, split the BKL in measured order
