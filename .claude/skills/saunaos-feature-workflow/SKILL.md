@@ -126,6 +126,8 @@ reader pays for them):
 - **Briefs do not say "read the skill" or "read session-testing.md"** --
   give CLAUDE.md plus the one reference section that matters.
 - **Code reviews only when the user asks.** Never review a fix-up commit.
+  **A finding is a claim, not an instruction**: check it against the
+  code before applying it, and say plainly when one is wrong.
 - **Two strikes:** if a fix round introduces a new regression, stop
   patching -- write the design down in a few lines and ask (or decide
   once, overnight) before another round. **Check a premise in the code

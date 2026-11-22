@@ -111,6 +111,11 @@ edited, in your final response to the user. `git status --short` in
 the sandbox clone is the fastest way to get the exact list right
 before you start delivering -- don't reconstruct it from memory.
 
+**A pass quoted in the hand-over comes from a run AFTER the last
+edit.** `iso_guard.py` catches a stale ISO, but nothing catches a
+one-line fix made after the gate went green: re-run what it touches,
+or say which result predates it.
+
 ## 3. Commit, tag and publish
 
 - **Commit:** the files are already on the real checkout --
