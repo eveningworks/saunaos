@@ -183,8 +183,9 @@ int syscall_try_lockless(uint64_t *regs) {
 #ifdef SAUNAOS_LOCKDEP
     lockdep_user_return();   // and holds nothing on the way out
 #endif
-    // Posted while it was parked, a signal goes the ordinary way back.
-    if (r && !scheduler_lockless_ok()) smp_resched_self();
+    // A signal posted while it was parked, or a process its wake outranks
+    // here (wake_slot() set need_resched), goes the ordinary way back.
+    if (!scheduler_lockless_ok()) smp_resched_self();
     // Left off: the way out clears IF anyway, and SYSRET restores the
     // caller's.
     return 1;

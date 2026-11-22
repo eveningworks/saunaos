@@ -69,7 +69,7 @@ void pipe_add_writer(int idx) {
 // Drops one end; 1 when that end's count reached 0 (a wake is owed), and
 // `*orphaned` when neither end is left -- decided under the lock, so of
 // two last closes on two cores exactly one frees the slot. A close runs
-// under the kernel lock (fd_put_lockless() takes it for a last put), as
+// under the kernel lock (syscall_fd.c's put_lockless() takes it for a last put), as
 // kslots' alloc and free need.
 static int drop_end(struct pipe *p, int reader, int *orphaned) {
     spin_lock(&p->lock);
@@ -277,7 +277,14 @@ static int pipe_fd_write(struct syscall_ctx *c, struct open_file *f,
     uint64_t *regs = c->regs;
     uint64_t pml4 = c->pml4;
     struct pipe *p = at(f->pipe.idx);
-    if (!p) { regs[14] = 0; return 0; }
+    if (!p) {
+        // No pipe behind the end is no reader: EPIPE, never a 0 that
+        // libsys's sys_write() would loop on (below).
+        if (c->lockless) return SYSCALL_DECLINE;
+        signal_send(scheduler_current_pid(), SIGPIPE);
+        regs[14] = (uint64_t)(int64_t)-EPIPE;
+        return 0;
+    }
     // CLAMPED TO THE PIPE BUFFER, and load-bearing: pipe_write() is
     // ALL-OR-NOTHING (api/pipe.h), which is only safe while one write can
     // always eventually fit -- a request bigger than the pipe would park

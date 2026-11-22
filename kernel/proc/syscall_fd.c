@@ -543,6 +543,15 @@ static struct open_file *get_held_mpsafe(uint64_t pml4, int fd, int *di) {
     *di = -1;
     struct fd_space *sp = space_find(pml4);
     if (!sp) return NULL;
+    // THE KIND FIRST, UNDER THE TABLE'S LOCK ALONE: a console or file call
+    // declines without the pool lock every core shares (and its locked
+    // path takes it again). The fd lock comes before the table's, so the
+    // kind is checked again under both.
+    space_lock(sp);
+    int p = sp->pml4 == pml4 ? slot_di(sp, fd) : -1;
+    int mp = p >= 0 && desc_live(p) && (fd_desc_at(p)->ops->flags & FD_OPS_MPSAFE);
+    space_unlock(sp);
+    if (!mp) return NULL;
     fd_lock();
     space_lock(sp);
     int i = sp->pml4 == pml4 ? slot_di(sp, fd) : -1;
