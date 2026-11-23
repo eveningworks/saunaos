@@ -19,6 +19,9 @@ static const struct clockevent *g_ce;
 static uint32_t g_hz;
 
 static int g_oneshot;            // armed per deadline, not ticking
+// Where the one-shot is armed for, 0 while it is being re-armed:
+// clockevent_armed_ns()'s, for a deadline set on another core.
+static volatile uint64_t g_armed_ns;
 static int g_nohz;               // the idle helper may stop the tick
 static volatile int g_idle;      // kernel context is inside the idle helper
 static int g_stopped;            // the tick is out of the deadline minimum
@@ -74,6 +77,11 @@ static void tick_restart(uint64_t now) {
 
 void clockevent_reprogram(void) {
     if (!g_oneshot) return;
+    // 0 BEFORE the deadlines are read, the armed value after: a core that
+    // set a deadline, fenced, then read this sees 0 or a value that
+    // includes it (clockevent_armed_ns()).
+    __atomic_store_n(&g_armed_ns, 0, __ATOMIC_SEQ_CST);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
     uint64_t now = clocksource_now_ns();
 
     // Stopped only while the kernel context idles with nothing to run.
@@ -94,6 +102,12 @@ void clockevent_reprogram(void) {
     if (g_stopped && g_idle_wake_ns && g_idle_wake_ns < next) next = g_idle_wake_ns;
 
     g_ce->set_oneshot(next > now ? next - now : 0);
+    __atomic_store_n(&g_armed_ns, next > now ? next : now, __ATOMIC_SEQ_CST);
+}
+
+uint64_t clockevent_armed_ns(void) {
+    if (!g_oneshot) return 1;   // periodic: it ticks, and every tick fires sleepers
+    return __atomic_load_n(&g_armed_ns, __ATOMIC_SEQ_CST);
 }
 
 void clockevent_idle_wake_by(uint64_t deadline_ns) {

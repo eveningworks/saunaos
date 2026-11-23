@@ -84,6 +84,11 @@ void clockevent_select_mode(void);
 // the tick handler. No-op in periodic mode. IF must be clear.
 void clockevent_reprogram(void);
 
+// When the boot core's one-shot fires next, or 0 while it is being
+// re-armed. A deadline set on another core that is earlier than this
+// must kick the boot core (scheduler.c's deadline_reaches_bsp()).
+uint64_t clockevent_armed_ns(void);
+
 // The kernel context's idle wait: `sti; hlt`, with the tick stopped for
 // the duration when nothing is runnable. Call it where a wait loop would
 // `hlt`, AFTER scheduler_idle() -- whose pollers ask for their next wake

@@ -1262,7 +1262,15 @@ KTEST's hammer call arrived, ran it nested there holding its ticket,
 and the hammer looped until core 0, queued behind that ticket, said
 stop. The hammer is a bounded burst now (`docs/conventions/kernel.md`,
 "An `smp_call()` function never waits on another core"): 8 in 8 green,
-and red on `moved` with the lseek's table lock dropped before its seek.
+and red on `moved` with the lseek's table lock dropped before its seek. And
+`sleep_test` failed every run (a 1 ms sleep 19-41 ms late, main on time):
+only the boot core's one-shot fires sleepers, and idling tickless it had
+armed for the deadlines it saw -- with every process on an AP, every
+sleep was set where it could not see it. A park on an AP with an earlier
+deadline kicks the boot core now (`deadline_reaches_bsp()`,
+`clockevent_armed_ns()`): 6 in 6 on time. Linux arms the sleeper's own
+core's hrtimer; per-core timers for sleepers are the shape if a kick per
+sleep ever measures.
 
 The plan as written:
 

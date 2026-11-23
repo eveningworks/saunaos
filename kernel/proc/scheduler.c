@@ -2273,6 +2273,19 @@ _Static_assert(TRAPFRAME_WORDS == SIGFRAME_TF_SLOTS,
 _Static_assert(TF_RAX == SCHED_TF_RAX,
                "scheduler.h's public RAX slot index must match the real trapframe layout");
 
+// **A DEADLINE SET ON AN AP MUST REACH THE BOOT CORE'S TIMER**, the only
+// one that fires sleepers (scheduler_wake_timers()). Idling tickless, it
+// armed for the deadlines it saw, so an earlier one set here is told with
+// a kick, and its wake re-arms (clockevent_idle_halt()). The fence pairs
+// with clockevent_reprogram()'s. Linux arms the sleeper's own core's
+// hrtimer instead; an AP's tick here fires no sleepers.
+static void deadline_reaches_bsp(uint64_t at) {
+    if (!at || !on_ap()) return;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    uint64_t armed = clockevent_armed_ns();
+    if (!armed || armed > at) smp_resched(0);
+}
+
 static int block_common(uint64_t *regs, const void *chan, int reason,
                         uint64_t wake_at_ns) {
     if (current_index < 0) return 0;
@@ -2352,6 +2365,7 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     procs[idx].hung_reported = 0;
     sq_unlock(chan, q);   // BLOCKED and on the chain: a waker now waits for our switch
     pi_unlock(idx);
+    deadline_reaches_bsp(wake_at_ns);
     set_current_index(-1);
 
     int next = find_next_runnable(rotation_pos);
@@ -2518,6 +2532,7 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
     procs[idx].hung_reported = 0;
     sq_unlock(chan, q);
     pi_unlock(idx);
+    deadline_reaches_bsp(wake_at_ns);
     set_current_index(-1);
 
     int next = find_next_runnable(rotation_pos);
