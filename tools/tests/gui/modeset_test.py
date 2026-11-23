@@ -255,6 +255,10 @@ def offscreen_icons(dbg, orig):
     if not check(f"the desktop shows {name}", name in icons, str(list(icons))[:120]):
         return
     home = icons[name]
+    # THE FILE PUT BACK AFTER, not just the icon: a drag saves a cell, and a
+    # Notepad that had none would leave pinned for every later tool.
+    reply = (dbg.send("sh cp /etc/desktop.conf /tmp/modeset_desktop.conf") or "").lower()
+    had_conf = "no such" not in reply and "exit 1" not in reply
     far_x = orig[0] - home["w"] // 2 - 4          # the last column at the boot mode
     dbg.drag(home["x"] + home["w"] // 2, home["y"] + home["h"] // 3,
              far_x, home["y"] + home["h"] // 3, steps=16)
@@ -270,17 +274,22 @@ def offscreen_icons(dbg, orig):
         if not check(f"the desktop is at {SMALL[0]}x{SMALL[1]}", screen(dbg) == SMALL,
                      str(screen(dbg))):
             return
+        def fits(i):
+            return bool(i) and i["x"] >= 0 and i["x"] + i["w"] <= SMALL[0] \
+                and i["y"] + i["h"] <= SMALL[1]
+        # The desktop re-reads its cells on its next frame after the change.
+        poll(lambda: fits(desktop_icons(dbg).get(name)), 5)
         now = desktop_icons(dbg)
         got = now.get(name) or {}
-        check("the icon is pulled onto the smaller screen",
-              got and got["x"] >= 0 and got["x"] + got["w"] <= SMALL[0]
-              and got["y"] + got["h"] <= SMALL[1], str(got))
+        check("the icon is pulled onto the smaller screen", fits(got), str(got))
         cells = [(i["x"], i["y"]) for i in now.values()]
         check("...into a cell no other icon has", len(cells) == len(set(cells)), str(cells))
         check("...and its saved cell is kept", conf_line(dbg, key) == saved,
               f"{conf_line(dbg, key)} vs {saved}")
         set_res(dbg, *orig)
-        back = desktop_icons(dbg).get(name) or {}
+        back = poll(lambda: (lambda i: i if i and (i["x"], i["y"]) == (far.get("x"), far.get("y"))
+                             else None)(desktop_icons(dbg).get(name)), 5) \
+            or desktop_icons(dbg).get(name) or {}
         check("back at the boot mode it is where it was dragged",
               (back.get("x"), back.get("y")) == (far.get("x"), far.get("y")),
               f"{back} vs {far}")
@@ -292,6 +301,8 @@ def offscreen_icons(dbg, orig):
             dbg.drag(cur["x"] + cur["w"] // 2, cur["y"] + cur["h"] // 3,
                      home["x"] + home["w"] // 2, home["y"] + home["h"] // 3, steps=16)
             poll(lambda: (desktop_icons(dbg).get(name) or {}).get("x") == home["x"], 5)
+        dbg.send("sh cp /tmp/modeset_desktop.conf /etc/desktop.conf" if had_conf
+                 else "sh rm /etc/desktop.conf")
 
 
 def report():

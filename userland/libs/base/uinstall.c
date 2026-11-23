@@ -634,6 +634,10 @@ static int copy_boot(struct run *r) {
         line(r, "%s", FILES[i][0]);
         if (ufileop_copy(FILES[i][0], FILES[i][1], &g_op, &pol) != UFILEOP_OK) return 0;
     }
+    // BOTH LOADERS ON A NEW DISK, unlike a refresh: there is no boot path
+    // to preserve, and the disk may be for another machine
+    // (docs/decisions/build.md, "A boot-loader refresh never changes HOW
+    // a machine boots").
     const char *why = 0;
     int efi = uinstall_write_efi(UINSTALL_TARGET_BOOT, &why);
     if (efi < 0) { line(r, "%s", why); return 0; }

@@ -519,14 +519,39 @@ static void scanouts_load(const struct scanout_set *o) {
     wr(DSPSURF(g_pipe), g_fb_ggtt);
 }
 
+// A freed scanout's GGTT entries are CLEARED, not left mapping frames
+// the allocator hands to somebody else: a stray DSPSURF write to that
+// offset then scans nothing rather than another owner's memory.
+static void ggtt_clear(uint32_t ggtt_off, uint32_t pages) {
+    uint32_t idx = ggtt_off >> 12;
+    for (uint32_t i = 0; i < pages && idx + i < g_gtt_entries; i++) g_gtt[idx + i] = 0;
+}
+
 // Scanouts 1..SCANOUTS-1 of a set, back to the allocator; 0 too when it
 // is RAM (a grown set's), never the firmware's.
 static void scanouts_free(const struct scanout_set *o, int with_first) {
     for (int b = with_first ? 0 : 1; b < SCANOUTS; b++) {
         uint64_t bytes = (uint64_t)o->s[b].pitch * o->cap_h;
+        uint32_t pages = (uint32_t)((bytes + 4095) / 4096);
+        ggtt_clear(o->ggtt[b], pages);
         paging_clear_write_combining(o->s[b].addr, bytes);
-        pmm_free_contiguous(o->s[b].addr, (bytes + 4095) / 4096);
+        pmm_free_contiguous(o->s[b].addr, pages);
     }
+    ggtt_invalidate();
+}
+
+// UNTIL THE PLANE SCANS `ggtt_off`, the buffer it scanned before may still
+// be read: DSPSURF latches at a vblank, and a pipe cycle is not a promise
+// that one has passed. Bounded at ~100 ms (six frames at 60 Hz); a plane
+// that never reports it gets one more frame's grace.
+static void wait_surface_live(uint32_t ggtt_off) {
+    for (int i = 0; i < 100; i++) {
+        if ((rd(DSPSURFLIVE(g_pipe)) & ~0xFFFu) == ggtt_off) return;
+        intel_udelay(1000);
+    }
+    klog_printf(KLOG_ERR "intel-display: the plane never reported %#x live -- waiting a frame\n",
+                ggtt_off);
+    intel_udelay(20000);
 }
 
 static int grow_scanouts(void) {
@@ -544,9 +569,11 @@ static int grow_scanouts(void) {
             klog_printf(KLOG_ERR "intel-display: no room for a %ux%u scanout -- staying at %ux%u\n",
                         g_native_w, g_native_h, g_cap_w, g_cap_h);
             for (int i = 0; i < b; i++) {
+                ggtt_clear(ggtt[i], pages);
                 paging_clear_write_combining(phys[i], bytes);
                 pmm_free_contiguous(phys[i], pages);
             }
+            ggtt_invalidate();
             return 0;
         }
         k_memset((void *)(uintptr_t)phys[b], 0, (unsigned)bytes);
@@ -574,18 +601,19 @@ static int grow_scanouts(void) {
     return 1;
 }
 
-// After the mode: kept, the old RAM scanouts go (the fit's pipe cycle
-// means nothing scans them); refused, the old set is put back and the
-// grown one goes once a vblank has latched the old surface again.
+// After the mode: kept, the old RAM scanouts go once the plane scans the
+// new first one; refused, the old set is put back and the grown one goes
+// once the plane scans the old surface again.
 static void grow_end(int kept) {
     if (kept) {
+        wait_surface_live(g_fb_ggtt);
         scanouts_free(&g_before, 0);
         return;
     }
     struct scanout_set grown;
     scanouts_save(&grown);
     scanouts_load(&g_before);
-    intel_udelay(50000);
+    wait_surface_live(g_fb_ggtt);
     scanouts_free(&grown, 1);
     klog_printf("intel-display: back on the %ux%u scanouts\n", g_cap_w, g_cap_h);
 }

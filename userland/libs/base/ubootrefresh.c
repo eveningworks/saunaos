@@ -230,6 +230,7 @@ int ubootrefresh_run(const struct ubootrefresh_plan *p,
     // (an MBR's 0xEF counts), and the record describes the core now in
     // the sectors.
     if (p->has_efi) sayf(say, ctx, "writing the UEFI loader");
+    why = 0;
     int efi = p->has_efi ? -1 : 2, rec = -1;
     if (uboot_writable(dev, sizeof dev) == 0) {
         if (p->has_efi) efi = uinstall_write_efi("/boot", &why);
@@ -238,11 +239,14 @@ int ubootrefresh_run(const struct ubootrefresh_plan *p,
     } else {
         why = "cannot remount /boot read-write";
     }
-    if (efi == 2 && p->efi_kept_off)
+    // `why` first: a failed remount wrote neither the loader nor the
+    // record, and must not read as a loader deliberately kept off.
+    if (why)
+        sayf(say, ctx, "%s -- %s", why, p->has_efi ? "this disk still boots BIOS/CSM, not UEFI."
+                                                   : "the record was not written.");
+    else if (efi == 2 && p->efi_kept_off)
         sayf(say, ctx, "no UEFI loader added -- this disk boots BIOS/CSM and keeps doing so.");
-    else if (efi < 0)
-        sayf(say, ctx, "%s -- this disk still boots BIOS/CSM, not UEFI.", why);
-    else if (efi > 0)
+    else if (efi == 1)
         sayf(say, ctx, "no " UINSTALL_PAYLOAD "/bootx64.efi (built without GRUB's "
              "EFI target) -- this disk boots BIOS/CSM only.");
     if (rec < 0)

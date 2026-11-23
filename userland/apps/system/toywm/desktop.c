@@ -1907,6 +1907,7 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
                 if (wc < 0) wc = 0;
                 if (wc >= g.cols) wc = g.cols - 1;
                 if (wr < 0) wr = 0;
+                if (wr >= rows_that_fit()) wr = rows_that_fit() - 1;   // never saved below the taskbar
                 int fc, fr;
                 nearest_free_cell(&g, wc, wr, i, &fc, &fr);
                 icon_col[i] = fc;
@@ -1927,7 +1928,11 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
     icon_drag_update(&drag, &g, mx, my, &col, &row);
     nearest_free_cell(&g, col, row, drag.index, &col, &row);
     damage_icon_row(&g, drag_py); // wherever it was last dragged to...
-    if (col != icon_col[drag.index] || row != icon_row[drag.index]) {
+    // A pulled-in icon DRAGGED back onto the cell it is shown in was put
+    // there on purpose: saved, so a bigger screen keeps it (a click is not
+    // a drag and saves nothing).
+    if (col != icon_col[drag.index] || row != icon_row[drag.index] ||
+        (drag_moved && home_col[drag.index] >= 0)) {
         icon_col[drag.index] = col;
         icon_row[drag.index] = row;
         save_position(drag.index);
