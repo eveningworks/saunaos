@@ -288,9 +288,15 @@ int scheduler_test_park(uint64_t *tf, const void *chan, int reason) {
     if (!tf) return -1;
     int i = slot_claim();
     if (i >= 0) {
-        sched_set_state(i, SCHED_BLOCKED);
-        slot_unclaim(i);   // published: its state is no longer UNUSED
+        // On `chan`'s chain as a real park is, or no wake finds it.
+        uint64_t sf = sched_lock();
+        uint64_t q = sq_lock(chan);
         procs[i].wait_chan = chan;
+        sq_link(i, chan);
+        sched_set_state(i, SCHED_BLOCKED);
+        sq_unlock(chan, q);
+        sched_unlock(sf);
+        slot_unclaim(i);   // published: its state is no longer UNUSED
         procs[i].wait_reason = reason;
         procs[i].kernel_rsp = (uint64_t)tf;
         proc_start_context(i, tf);

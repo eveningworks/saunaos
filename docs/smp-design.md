@@ -1074,6 +1074,40 @@ pool's (32% of 7.1 M) -- per-core run queues and a per-table pool are
 the next splits. One copy: a 1-byte pipe round 319 ns (410 before), a
 64 B `/tmp` read 513 ns (546), write 677 ns (703).
 
+**Built 2026-11-23: a ready list, then the wait channels on locks of
+their own** -- the first two steps toward per-core run queues (picked
+staged: the ready set as a structure, then its split per core with wake
+placement, idle stealing and a periodic balancer; RT one global list).
+
+*The ready list* (`sched_set_state()`, the one writer of a slot's run
+state) replaced every whole-table walk the pick made. It changed
+nothing measurable: 39-44% of ~7.3 M takes waited before, 47-49%
+after, ~110 ns a hold either way. A pick's scan of a few dozen slots was
+never the cost; how often the lock is taken was. **Measure holds with
+`--cpu host,+invtsc`**: without it the guest's clock is acpi_pm, every
+clock read is a VM exit, and holds read ~5 us a take.
+
+Counted by caller over 4.2 M takes: `scheduler_wake_n` 54%,
+`scheduler_wait_arm` 18%, the lock-free park 16%, the lock-free yield
+8%, `scheduler_wake_one` 4%. Wakes and arms touch the run queue only
+when somebody is actually parked, so *the wait channels went onto
+chains* (`sched_sleepq.c`, FreeBSD's sleepqueue chains; Linux's
+wait-queue lock is the same split): 64 chains hashed by channel, a
+spinlock each. A slot is on its channel's chain from an arm or a park
+until a disarm, a wake or leaving BLOCKED. An arm is the chain lock
+alone; a wake stamps arms under the chain lock alone and takes the
+scheduler lock only to make a parked slot READY. **Order: the scheduler
+lock, then one chain lock, never two** -- a wake that finds a sleeper
+lets its chain go, takes the scheduler lock and walks again. A park
+holds its chain from "was I woken?" until BLOCKED, then lets it go
+before the switch: a waker that sees BLOCKED waits on the scheduler
+lock the parker still holds.
+
+Measured the same way: scheduler-lock takes 7.35 M -> 1.7-2.0 M, time
+waited on it ~0.9 s -> 0.44-0.57 s in 6 s; the per-call rows (`yield`,
+a 1-byte pipe, a round trip) inside run-to-run noise -- what is left is
+real parks and wakes, which per-core queues split.
+
 The plan as written:
 
 The order comes from the table above, and each split is its own change

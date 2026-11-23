@@ -9245,6 +9245,26 @@ magazines, Linux's per-CPU slab freelists) were offered and not taken:
 nothing measured waits on the heap now. The scheduler lock (42% of takes
 waited) and the descriptor pool's lock (32%) are what does.
 
+## Per-core run queues instead of one global table
+
+Picked 2026-11-23, staged. The ready list (one list, one lock) and the
+wait channels on hashed chain locks are BUILT (`docs/smp-design.md`,
+stage 7): the scan was never the cost, and wakes and arms were 76% of
+the scheduler lock's takes. What is left takes it for a real park or
+wake, so the remaining step is the split itself, Linux's `rq` / ULE's
+`tdq` shape at toy size:
+
+- a ready list, lock and `min_vruntime` per core; a slot's vruntime
+  renormalised against the new core's floor when it moves
+- a woken slot goes to the core it last ran on, or an idle one
+- an idle core steals from the busiest queue, and a periodic balancer
+  moves work from the longest queue to the shortest
+- RT stays one global list on its own lock, its throttle global;
+  kthreads and the kernel context stay on the boot core's queue
+- every remaining `sched_lock()` site (exit, fork, stop, signals,
+  `set_class`) needs the lock of the queue its slot is on -- Linux's
+  `task_rq_lock()` with `p->pi_lock` taken first is the shape to copy
+
 ## A disk filesystem's `read`/`write` without the kernel lock: a lock-free handler that sleeps mid-call
 
 ramfs went lock-free 2026-11-22 by TRYLOCKING its position and mount

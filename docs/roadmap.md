@@ -25,7 +25,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
-- [ ] Per-core run queues instead of one global table -- the scheduler lock is what waits now (42% of takes)  *(SMP)*
+- [ ] Per-core run queues instead of one global table -- what still takes the scheduler lock is real parks and wakes  *(SMP)*
 <!-- END next-up -->
 
 
@@ -1602,7 +1602,9 @@ measurement of what is single-core in the tree today.
 - [ ] A thread with a live syscall frame is mid-call to exit and kill (an in-call depth), not per resource
 - [x] ~~Per-core load in Task Manager and `lscpu`~~ DONE 2026-11-20 -- QUERY_CORELOAD; a line per CPU on the CPU page
 - [x] ~~The kdebug stub stops every core, not only core 0~~ DONE 2026-11-22 -- an NMI roundup; GDB reads each core's frame
-- [ ] **NEXT** Per-core run queues instead of one global table -- the scheduler lock is what waits now (42% of takes)
+- [x] ~~A ready list instead of a whole-table scan per pick~~ DONE 2026-11-23 -- measured no change; the scan was never the cost
+- [x] ~~Wait channels on locks of their own~~ DONE 2026-11-23 -- hashed chains; scheduler-lock takes 7.35 M -> ~1.8 M
+- [ ] **NEXT** Per-core run queues instead of one global table -- what still takes the scheduler lock is real parks and wakes
 - [x] ~~Inter-processor interrupts (IPIs)~~ DONE 2026-11-19 -- stage 4, `smp_call()` on vector 0xFB
 - [x] ~~TLB shootdown on address-space changes~~ DONE 2026-11-19 -- stage 6, ahead of stage 5; vector 0xFD, a whole-space CR3 reload
 - [x] ~~A real spinlock primitive~~ DONE 2026-11-19 -- stage 4, a ticket lock with a lockup report

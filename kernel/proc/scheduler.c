@@ -483,6 +483,7 @@ void scheduler_init(void) {
     }
     procs = (struct sched_process *)(uintptr_t)phys;
     if (procs) k_memset(procs, 0, pages * 4096);
+    sleepq_init();
     g_slot_end = 0;
     g_slots_ready = 0;
     slot_grow();   // the first chunk now, so boot keeps a guaranteed 64
@@ -630,6 +631,13 @@ static void rq_remove(int s) {
 void sched_set_state(int slot, enum sched_state s) {
     uint64_t f = sched_lock();
     struct sched_process *p = &procs[slot];
+    // Off its wait channel's chain when the wait is over, or the slot is
+    // gone -- not when a RUNNING slot that has armed is preempted (READY).
+    // A waker unlinks before it wakes, so its chain lock is never wanted
+    // twice here.
+    if (p->sq_on && ((p->state == SCHED_BLOCKED && s != SCHED_BLOCKED) ||
+                     s == SCHED_UNUSED || s == SCHED_ZOMBIE))
+        sq_unlink_any(slot);
     if (s == SCHED_READY) { if (!p->rq_on) rq_insert(slot); }
     else if (p->rq_on) rq_remove(slot);
     if (p->state == SCHED_RUNNING) g_nr_running--;
@@ -1789,17 +1797,17 @@ int scheduler_block_current_lockless(uint64_t *regs, const void *chan, int reaso
     // read before the lock (a PM-timer read is an exit).
     uint64_t now = clocksource_now_ns();
     bill_current();
+    uint64_t q;
     for (;;) {
         f = sched_lock();
-        if (p->armed_woken && p->arm_chan == chan) {
-            p->armed_woken = 0;
-            p->arm_chan = 0;
+        if (sq_park_begin(cur, chan, &q)) {
             regs[TF_RAX] = (uint64_t)p->arm_value;
             sched_unlock(f);
             if (taken) bkl_drop_for_switch();
             return 1;
         }
         if (!lockless_ctx_ok(cur)) {
+            sq_park_abandon(chan, q);   // a decline writes nothing: the arm stays
             sched_unlock(f);
             if (taken) bkl_drop_for_switch();
             return 0;
@@ -1813,12 +1821,13 @@ int scheduler_block_current_lockless(uint64_t *regs, const void *chan, int reaso
         // **THE KERNEL LOCK FIRST, THEN THE PICK AGAIN**: kernel lock
         // before scheduler lock, and nothing picked or marked while it is
         // waited for (bkl_take_for_switch()).
+        sq_park_abandon(chan, q);
         sched_unlock(f);
         bkl_take_for_switch(regs);
         taken = 1;
     }
     if (pv > g_min_vruntime) g_min_vruntime = pv;
-    p->arm_chan = 0;
+    sq_park_commit(cur, chan);
     p->rt_run_ns = 0;
     p->kernel_rsp = (uint64_t)regs;
     kstack_verify(cur);
@@ -1831,6 +1840,7 @@ int scheduler_block_current_lockless(uint64_t *regs, const void *chan, int reaso
     p->wait_reason = reason;
     p->parked_at_ns = now;
     p->hung_reported = 0;
+    sq_unlock(chan, q);
     set_current_index(-1);
     this_cpu_add(sched_lockless, 1);
     if (next == ROT_KERNEL) switch_to_kernel(cur);
@@ -2104,15 +2114,15 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     uint64_t irq = irq_save();
     bill_current(); // this slice ends here, or goes on -- see bill_current()
     uint64_t lk = sched_lock();   // let go by the switch below, or by an early return
-    if (procs[current_index].armed_woken && procs[current_index].arm_chan == chan) {
-        procs[current_index].armed_woken = 0;
-        procs[current_index].arm_chan = 0;
+    // ...AND UNDER `chan`'s CHAIN LOCK until BLOCKED, which a wake's walk
+    // holds (sq_park_begin()).
+    uint64_t q;
+    if (sq_park_begin(current_index, chan, &q)) {
         regs[TF_RAX] = (uint64_t)procs[current_index].arm_value;
         sched_unlock(lk);
         irq_restore(irq);
         return 1;
     }
-    procs[current_index].arm_chan = 0;
 
     // **A SIGNAL THAT ARRIVED WHILE WE WERE CHECKING**, answered as
     // scheduler_signal_raise() answers a parked process. It wakes only
@@ -2124,6 +2134,7 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     struct sched_process *self = &procs[current_index];
     if (self->pending & ~self->blocked) {
         sched_signal_answer_park(self, regs, reason);
+        sq_park_cancel(current_index, chan, q);
         sched_unlock(lk);
         irq_restore(irq);
         return 1;
@@ -2134,6 +2145,7 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     procs[idx].kernel_rsp = (uint64_t)regs;
     kstack_verify(idx);
     fpu_save(procs[idx].fpu);
+    sq_park_commit(idx, chan);
     sched_set_state(idx, SCHED_BLOCKED);
     trace_sched("block", idx);
     procs[idx].wait_chan = chan;
@@ -2148,6 +2160,7 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     procs[idx].wait_reason = reason;
     procs[idx].parked_at_ns = clocksource_now_ns();
     procs[idx].hung_reported = 0;
+    sq_unlock(chan, q);   // BLOCKED and on the chain: a waker now waits for our switch
     set_current_index(-1);
 
     int next = find_next_runnable(rotation_pos);
@@ -2288,17 +2301,16 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
     uint64_t irq = irq_save();
     bill_current();   // before the lock, as block_common()'s
     uint64_t lk = sched_lock();   // the test and BLOCKED are one step, as block_common()'s
-    if (procs[idx].armed_woken && procs[idx].arm_chan == chan) {
-        procs[idx].armed_woken = 0;
-        procs[idx].arm_chan = 0;
+    uint64_t q;
+    if (sq_park_begin(idx, chan, &q)) {
         sched_unlock(lk);
         irq_restore(irq);
         return 1;
     }
-    procs[idx].arm_chan = 0;
     procs[idx].rt_run_ns = 0;
     kstack_verify(idx);
     fpu_save(procs[idx].fpu);
+    sq_park_commit(idx, chan);
     sched_set_state(idx, SCHED_BLOCKED);
     procs[idx].parked_in_kernel = 1;
     trace_sched("block_kernel", idx);
@@ -2307,6 +2319,7 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
     procs[idx].wait_reason = reason;
     procs[idx].parked_at_ns = clocksource_now_ns();
     procs[idx].hung_reported = 0;
+    sq_unlock(chan, q);
     set_current_index(-1);
 
     int next = find_next_runnable(rotation_pos);
@@ -2365,68 +2378,86 @@ static void wake_slot(int i, int64_t value) {
     sched_unlock(f);
 }
 
+// Arms on `chan` not yet stamped, stamped -- up to `left` (0: all).
+// Under the chain lock: an armed slot is RUNNING, so only its chain
+// orders it against the park that consumes the stamp.
+static int stamp_arms(const void *chan, int64_t value, int left) {
+    int n = 0;
+    SQ_FOR_EACH(i, nx, chan) {
+        if (left && n >= left) break;
+        if (procs[i].sq_chan != chan || procs[i].arm_chan != chan || procs[i].armed_woken) continue;
+        procs[i].armed_woken = 1;
+        procs[i].arm_value   = value;
+        n++;
+    }
+    return n;
+}
+
+static int parked_on(int i, const void *chan) {
+    return procs[i].sq_chan == chan && procs[i].state == SCHED_BLOCKED && procs[i].wait_chan == chan;
+}
+
+static int any_parked_on(const void *chan) {
+    SQ_FOR_EACH(i, nx, chan)
+        if (parked_on(i, chan)) return 1;
+    return 0;
+}
+
 int scheduler_wake_n(const void *chan, int64_t value, int max) {
-    int woken = 0;
     // **A NULL CHANNEL WAKES NOBODY.** scheduler_wait_chan_pid() answers
     // NULL for a pid outside the table, and 0 is one -- it is what
     // notify_parent() is handed for a process whose parent is "the
     // kernel", which is every program the debug console starts. Without
-    // this the arm loop below then matches every process whose
-    // arm_chan is 0, i.e. everything not currently armed, and stamps
-    // armed_woken on all of them. Measured: 77 such calls in one
-    // usertest run, each reporting 1-2 processes "woken" that nobody
-    // had asked about.
+    // this every unarmed process would match an arm_chan of 0.
     if (!chan) return 0;
-    // **BOTH SCANS UNDER THE SCHEDULER LOCK**: a waker or a parker may hold
-    // no kernel lock (a lock-free pipe call), so "armed, not parked" and
-    // "BLOCKED" must not change between this scan's test and its write.
+    // **FIRST, ANYONE WHO HAS ARMED BUT NOT YET PARKED** -- RUNNING, so a
+    // wake of the parked alone would drop it (the lost wakeup that made a
+    // preemptible syscall unsafe); block_common() then declines to park.
+    // Counted as woken, so a `max` of 1 is honoured. Under the chain lock
+    // ALONE: a wake that finds nobody parked -- most of them -- never
+    // takes the scheduler lock.
+    uint64_t q = sq_lock(chan);
+    int woken = stamp_arms(chan, value, max);
+    int more = (!max || woken < max) && any_parked_on(chan);
+    sq_unlock(chan, q);
+    if (!more) return woken;
+    // Somebody to make READY: the scheduler lock, then the chain again
+    // (sched_internal.h's order), and the walk again from the start.
     uint64_t sf = sched_lock();
-    // **FIRST, ANYONE WHO HAS ARMED BUT NOT YET PARKED.** Such a process
-    // is RUNNING, so the blocked scan below cannot see it and its wake
-    // would be dropped -- the lost wakeup that made a preemptible
-    // syscall unsafe. Recording it here lets block_common() decline to
-    // park. It counts as woken, so a `max` of 1 is still honoured.
-    for (int i = 0; i < MAX_PROCS && (!max || woken < max); i++) {
-        if (procs[i].state == SCHED_UNUSED || procs[i].state == SCHED_ZOMBIE) continue;
-        if (procs[i].arm_chan != chan || procs[i].armed_woken) continue;
-        procs[i].armed_woken = 1;
-        procs[i].arm_value   = value;
-        woken++;
-    }
-    for (int i = 0; i < MAX_PROCS; i++) {
+    q = sq_lock(chan);
+    woken += stamp_arms(chan, value, max ? max - woken : 0);
+    SQ_FOR_EACH(i, nx, chan) {
         if (max && woken >= max) break;
-        if (procs[i].state != SCHED_BLOCKED) continue;
-        if (procs[i].wait_chan != chan) continue;
-
-        // The saved trapframe's RAX slot IS the syscall's return value:
-        // isr_common's epilogue pops it straight into the register the
-        // ring-3 caller reads. Writing it here is what makes waking a
-        // process and answering its syscall the same act.
-        // ...but only for a process parked at a syscall ENTRY. One
-        // parked mid-call resumes its own C frames and computes its
-        // own answer, and its trapframe belongs to a call that has not
-        // finished -- writing a return value into it would be
-        // answering a question nobody asked.
+        if (!parked_on(i, chan)) continue;
+        sq_unlink(i);   // before wake_slot(): its READY must not want this lock
         wake_slot(i, value);
         woken++;
     }
+    sq_unlock(chan, q);
     sched_unlock(sf);
     return woken;
 }
 
 int scheduler_wake_one(const void *chan) {
     if (!chan) return 0;
+    uint64_t q = sq_lock(chan);
+    int any = any_parked_on(chan);
+    sq_unlock(chan, q);
+    if (!any) return 0;
     int pick = -1;
     uint64_t sf = sched_lock();   // the pick and its wake are one step (scheduler_wake_n())
-    for (int i = 0; i < MAX_PROCS; i++) {
-        if (procs[i].state != SCHED_BLOCKED || procs[i].wait_chan != chan) continue;
+    q = sq_lock(chan);
+    SQ_FOR_EACH(i, nx, chan) {
+        if (!parked_on(i, chan)) continue;
         if (pick < 0 || rank_of(i) > rank_of(pick)) pick = i;
     }
     int pid = 0;
     if (pick >= 0) {
+        sq_unlink(pick);
         wake_slot(pick, 0);
         pid = procs[pick].pid;
     }
+    sq_unlock(chan, q);
     sched_unlock(sf);
     return pid;
 }
@@ -2650,35 +2681,43 @@ int scheduler_pid_valid(int pid) {
 // See the fields' comment. Announces that the caller is ABOUT to wait on
 // `chan`, so a wake arriving before it parks is not lost. Every blocking
 // syscall calls this BEFORE it tests its condition.
-// Under the scheduler lock, as a wake's scan is: a waker on another core
-// stamping the OLD channel's wake between these writes would leave the new
-// arm "woken" with that wake's value.
+// UNDER ITS CHANNEL'S CHAIN LOCK, as a wake's walk is: a waker stamping
+// the OLD channel's wake between these writes would leave the new arm
+// "woken" with that wake's value. Interrupts off first, so the slot read
+// is this core's. An arm on another channel is over: off that chain
+// first, never two chain locks at once.
 void scheduler_wait_arm(const void *chan) {
-    uint64_t f = sched_lock();
+    uint64_t f = irq_save();
     int cur = current_index;
     if (cur >= 0) {
-        procs[cur].arm_chan   = chan;
-        procs[cur].armed_woken = 0;
-        procs[cur].arm_value  = 0;
+        struct sched_process *p = &procs[cur];
+        if (p->sq_on && p->sq_chan != chan) sq_unlink_any(cur);
+        uint64_t q = sq_lock(chan);
+        if (!p->sq_on) sq_link(cur, chan);
+        p->arm_chan   = chan;
+        p->armed_woken = 0;
+        p->arm_value  = 0;
+        sq_unlock(chan, q);
     }
-    sched_unlock(f);
+    irq_restore(f);
 }
 
 // Withdraws the announcement -- for a caller that decided not to wait
 // after all, so a later unrelated wake does not make its NEXT park a
 // no-op.
 void scheduler_wait_disarm(void) {
-    // Every syscall's exit: nothing armed is nothing to take the lock for,
+    // Every syscall's exit: nothing armed is nothing to take a lock for,
     // and no waker writes a slot whose arm is 0 (a NULL channel wakes nobody).
     int me = current_index;
     if (me < 0 || (!procs[me].arm_chan && !procs[me].armed_woken)) return;
-    uint64_t f = sched_lock();
+    uint64_t f = irq_save();
     int cur = current_index;
     if (cur >= 0) {
+        if (procs[cur].sq_on) sq_unlink_any(cur);   // clears the arm under the chain's lock
         procs[cur].arm_chan = 0;
         procs[cur].armed_woken = 0;
     }
-    sched_unlock(f);
+    irq_restore(f);
 }
 
 void scheduler_demo_run(void) {

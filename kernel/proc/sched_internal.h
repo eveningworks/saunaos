@@ -200,6 +200,13 @@ struct sched_process {
     // scheduler lock. Slot indices, -1 at the ends.
     int rq_next, rq_prev;
     uint8_t rq_on;
+    // THE SLEEP QUEUE (sched_sleepq.c): on `sq_chan`'s chain from an arm
+    // or a park until a disarm, a wake or leaving BLOCKED. The links, and
+    // arm_chan/armed_woken/arm_value below, are written under that
+    // chain's lock.
+    uint8_t sq_on;
+    int sq_next, sq_prev;
+    const void *sq_chan;
     uintptr_t on_site;    // ...and who switched it in, for its report
     int pid;
 
@@ -520,6 +527,24 @@ int  sched_locked_here(void);
 // caller may use it.
 void sched_set_state(int slot, enum sched_state s);
 int  sched_ready_count(void);        // slots on the ready list (a hint without the lock)
+
+// sched_sleepq.c -- the wait channels, hashed onto chains, a lock each
+// (FreeBSD's sleepqueue chains). **ORDER: THE SCHEDULER LOCK, THEN ONE
+// CHAIN LOCK, NEVER TWO** -- and nothing under a chain lock takes either.
+// Several channels share a chain, so a walk checks `sq_chan`.
+void     sleepq_init(void);
+uint64_t sq_lock(const void *chan);            // interrupts off, then the chain's lock
+void     sq_unlock(const void *chan, uint64_t flags);
+int      sq_first(const void *chan);           // the chain's first slot, or -1
+void     sq_link(int slot, const void *chan);  // chan's chain lock held; slot not linked
+void     sq_unlink(int slot);                  // its chain's lock held
+void     sq_unlink_any(int slot);              // takes its chain's lock; clears its arm
+int  sq_park_begin(int slot, const void *chan, uint64_t *q);   // 1 = woken already
+void sq_park_commit(int slot, const void *chan);
+void sq_park_cancel(int slot, const void *chan, uint64_t q);
+void sq_park_abandon(const void *chan, uint64_t q);
+#define SQ_FOR_EACH(i, nx, chan) \
+    for (int i = sq_first(chan), nx; i >= 0 && ((nx = procs[i].sq_next), 1); i = nx)
 
 int  sched_core_of(int slot);        // the core running it, or -1
 int  sched_on_other_core(int slot);  // RUNNING, and not here: in ring 3 on another core
