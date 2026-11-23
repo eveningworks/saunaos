@@ -45,7 +45,7 @@ KTEST("smp", "smp=run: busy processes run on the other cores, not only this one"
 
 // docs/smp-design.md, stage 7: more spinners than cores, so every AP's
 // slice ends in a switch between two ring-3 contexts -- the case
-// scheduler_ap_event_lockless() takes with the scheduler lock alone.
+// scheduler_ap_event_lockless() takes with this core's queue lock alone.
 // Each must still run, die when killed, and never be resumed on two
 // cores at once (the live mark held until the stack switch). The
 // positive control is kernel.lockless_sched off: no lock-free events.
@@ -178,6 +178,11 @@ KTEST("smp", "a call reaches a core running a process in ring 3, which keeps tic
     if (!fs_exists(SPIN_PATH)) KTEST_SKIP("no " SPIN_PATH " on this boot");
     const struct cpu *c = smp_cpu_at(1);
     if (!c || c->state != CPU_RUNNING) KTEST_SKIP("core 1 is not scheduling");
+    // Kept on core 1: with something else running there, an idle core
+    // steals a READY spinner, or the balancer moves it, and it never runs on 1.
+    int steal = scheduler_steal_enabled(), balance = scheduler_balance_enabled();
+    scheduler_steal_set(0);
+    scheduler_balance_set(0);
     scheduler_test_force_core(1);
     int pid = scheduler_spawn(SPIN_PATH, "600");
     scheduler_test_force_core(-1);
@@ -199,6 +204,8 @@ KTEST("smp", "a call reaches a core running a process in ring 3, which keeps tic
     scheduler_kill(pid, 0);
     t0 = coarse_ticks();
     while (scheduler_poll(pid, &code) == SCHED_POLL_RUNNING && coarse_ticks() - t0 < 300) { }
+    scheduler_steal_set(steal);
+    scheduler_balance_set(balance);
     KTEST_ASSERT(on1);
     KTEST_ASSERT_EQ(calls, 20);
     KTEST_ASSERT(ev1 > ev0);   // its tick still comes

@@ -605,6 +605,7 @@ int  sched_running_core(int slot);  // the same question, under its locks, chang
 void sched_unfreeze_slot(int slot);
 void sched_rq_check(const char *where, int incoming);   // the debug build's invariants
 void sched_kick_wake(int slot, int core);   // a READY slot moved onto `core`: wake it if idle
+void sched_kick_idle_ap(int busy);         // an idle AP but `busy` and this core: kicked to steal
 extern int g_sched_force_core;      // a KTEST's: every placement here (-1: none)
 
 // sched_sleepq.c -- the wait channels, hashed onto chains, a lock each

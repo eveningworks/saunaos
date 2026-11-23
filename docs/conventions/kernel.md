@@ -1459,6 +1459,14 @@ per-core pointer (`kernel/include/kernel/percpu.h`, `this_cpu()`), and
   the caller of `smp_call()` arranged; the BSP reports what it did.
   `isr_dispatch()` sends an AP's interrupt to `smp_ap_interrupt()`
   before its first global.
+- **AN `smp_call()` FUNCTION NEVER WAITS ON ANOTHER CORE** -- not for a
+  flag, not for a stop. A spinner answers calls (`smp_poll_ipis()` in
+  `take()`), so the function may run nested inside that core's own wait
+  for the kernel lock, holding its ticket; one that waits for the caller
+  deadlocks the moment the caller queues for that lock behind it.
+  Bound it in time and have the caller re-issue it
+  (`fd_lock_test.c`'s `seek_hammer()`). Linux's rule for an
+  `smp_call_function()` callback is the same.
 
 ## THE KERNEL LOCK IS TAKEN ON EVERY ENTRY BUT AN MPSAFE SYSCALL'S, AND A NEW ROUTE TO RING 3 DROPS IT
 

@@ -279,9 +279,8 @@ static int core_load(int k);
 // **A PROCESS GOES ON AN AP, NEVER ON CORE 0'S QUEUE** while any AP
 // schedules: core 0 takes the device interrupts and runs the kernel
 // context, which holds the kernel lock whenever it runs -- every return
-// to it from a process there retakes that lock. Placed there whenever it
-// idled, the benches' pipe pairs made core 0 switch 137k times in 6 s
-// (6k at 2a) and the kernel lock's waits went from 0.2-0.3 s to 1-2.4 s.
+// to it from a process there retakes that lock, so work placed there
+// multiplies the kernel lock's waits (docs/smp-design.md, 2b).
 // A hint of core 0 (a spawn from the kernel context, a slot that last ran
 // there) takes the least-loaded AP.
 static int least_loaded_ap(void) {
@@ -324,6 +323,17 @@ void sched_kick_wake(int s, int k) {
     if (k < 0 || k == (int)spin_cpu_index()) return;
     const struct cpu *c = cpu_of(k);
     if (c && __atomic_load_n(&c->sched_cur, __ATOMIC_ACQUIRE) < 0) sched_kick_core(k);
+}
+
+// One idle AP other than `busy` and this core, kicked so that it steals.
+void sched_kick_idle_ap(int busy) {
+    if (!g_sched_steal || g_nrq < 2) return;
+    int me = (int)spin_cpu_index();
+    for (int k = 1; k < g_nrq; k++) {
+        if (k == busy || k == me || !sched_core_idle(k)) continue;
+        sched_kick_core(k);
+        return;
+    }
 }
 
 // ---- moving a slot: the idle steal and the balancer --------------------

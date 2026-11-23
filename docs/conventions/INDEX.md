@@ -264,6 +264,9 @@ whenever a headline here tells you something you did not already know.
   SHARED** -- `cli; swapgs` before a hand-rolled `iretq`; ring 3's
   GS.base is always 0; a parked AP (and an `smp_call()` function) logs
   nothing
+- **AN `smp_call()` FUNCTION NEVER WAITS ON ANOTHER CORE** -- it may run
+  nested in that core's kernel-lock wait, holding its ticket; bound it
+  and re-issue it
 - **THE KERNEL LOCK IS TAKEN ON EVERY ENTRY BUT AN MPSAFE SYSCALL'S,
   AND A NEW ROUTE TO RING 3 DROPS IT** -- an MPSAFE row's handler runs
   with interrupts off and touches nothing the lock guards, parks only

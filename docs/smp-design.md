@@ -1255,7 +1255,14 @@ a rotation's READY-then-RUNNING gap and freed a thread still running,
 which then kept the disk lock frozen (the hang the suite showed 2 runs in
 3); and the call IPI on an AP in ring 3 never had its EOI -- in main's
 code too, reached once 2b put ring-3 work on core 1 during the `smp`
-KTESTs (`idt.c`). Not yet run on the X99 or the ASUS.
+KTESTs (`idt.c`). Found after, under KVM: the `smp` suite deadlocked 15
+runs in 16 (main: 0 in 6) -- with every process on an AP, an AP was
+often in its interrupt path's wait for the kernel lock when the lseek
+KTEST's hammer call arrived, ran it nested there holding its ticket,
+and the hammer looped until core 0, queued behind that ticket, said
+stop. The hammer is a bounded burst now (`docs/conventions/kernel.md`,
+"An `smp_call()` function never waits on another core"): 8 in 8 green,
+and red on `moved` with the lseek's table lock dropped before its seek.
 
 The plan as written:
 

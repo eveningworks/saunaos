@@ -10,6 +10,7 @@
 #include "syscall_abi.h"
 #include "lockstat.h"
 #include "smp.h"
+#include "clocksource.h" // a hammer burst's bound
 #include "barrier.h"
 #include "kmutex.h"
 #include "ktest.h"
@@ -117,13 +118,21 @@ KTEST("smp", "a lock-free lseek answers SET, CUR and no-position, and declines t
 #define SEEK_FD_ROUNDS 2000
 #define SEEK_TAG 0x7777
 #define SETTLE_PAUSES 4000
-static volatile int g_seek_fd = -1, g_seek_stop;
+#define BURST_NS 2000000ull   // well under the 1 s a lockup is reported at
+static volatile int g_seek_fd = -1, g_burst_stop;
 static volatile uint32_t g_seeks;
 
+// **A BURST, NEVER A LOOP UNTIL THIS CORE SAYS STOP**: a spinner answers
+// calls (smp_poll_ipis()), so a hammer can run nested inside an AP's own
+// wait for the kernel lock, holding its ticket -- and one that waited for
+// the closer deadlocked the moment the closer queued for that lock behind
+// it. Bounded in time, it delays the ticket by one burst at most (Linux's
+// rule for an smp_call_function() callback: it never waits on a CPU).
 static void seek_hammer(void *arg) {
     if (!arg) return;   // the boot core is the closer
     int64_t r;
-    while (!__atomic_load_n(&g_seek_stop, __ATOMIC_ACQUIRE)) {
+    uint64_t end = clocksource_now_ns() + BURST_NS;
+    while (!__atomic_load_n(&g_burst_stop, __ATOMIC_ACQUIRE) && clocksource_now_ns() < end) {
         int fd = __atomic_load_n(&g_seek_fd, __ATOMIC_ACQUIRE);
         if (fd >= 0 && fd_seek_lockless(SPACE, fd, SEEK_TAG, SYS_SEEK_SET, &r) && r == SEEK_TAG)
             __atomic_fetch_add(&g_seeks, 1, __ATOMIC_RELAXED);
@@ -138,13 +147,12 @@ KTEST("smp", "a lock-free lseek never moves a description closed under it") {
     int di, fd = open_file_at(SPACE, &di);
     KTEST_ASSERT(fd >= 0);
     g_seek_fd = fd;
-    g_seek_stop = 0;
     g_seeks = 0;
-    int cores = 1;
-    for (int i = 1; i < smp_cpu_count(); i++)
-        cores += smp_call(i, seek_hammer, (void *)(uintptr_t)i, 0);
-    unsigned moved = 0, rounds = 0;
+    unsigned moved = 0, rounds = 0, bursts = 0;
     for (int r = 0; r < SEEK_FD_ROUNDS; r++) {
+        g_burst_stop = 0;
+        for (int i = 1; i < smp_cpu_count(); i++)
+            bursts += smp_call(i, seek_hammer, (void *)(uintptr_t)i, 0);
         // Close it, and put a stream with no position at its number at once.
         fd_close(SPACE, fd);
         if (fd_dup2(SPACE, 0, fd) != fd) break;
@@ -155,15 +163,17 @@ KTEST("smp", "a lock-free lseek never moves a description closed under it") {
         if (fd_desc_at(di2)->file.pos != 0) moved++;
         fd_close(SPACE, fd2);
         fd_close(SPACE, fd);
+        __atomic_store_n(&g_burst_stop, 1, __ATOMIC_RELEASE);
+        for (int i = 1; i < smp_cpu_count(); i++) smp_call_wait(i, 60000);
         if ((fd = open_file_at(SPACE, &di)) < 0) break;
         __atomic_store_n(&g_seek_fd, fd, __ATOMIC_RELEASE);
         rounds++;
     }
-    __atomic_store_n(&g_seek_stop, 1, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_burst_stop, 1, __ATOMIC_RELEASE);
     for (int i = 1; i < smp_cpu_count(); i++) smp_call_wait(i, 60000);
     g_seek_fd = -1;
     fd_release_all(SPACE);
-    KTEST_ASSERT(cores > 1);
+    KTEST_ASSERT(bursts > 0);
     KTEST_ASSERT_EQ(rounds, (unsigned)SEEK_FD_ROUNDS);
     KTEST_ASSERT(g_seeks > 0);   // the hammers reached the seek
     KTEST_ASSERT_EQ(moved, 0u);

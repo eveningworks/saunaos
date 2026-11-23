@@ -111,7 +111,7 @@ struct cpu {
     // counted), and the switches it made -- QUERY_CPUSTATE.
     uint64_t sched_events, sched_switches;
     uint64_t sched_lockless;   // ...of those events, the ones handled without the kernel lock
-    int sched_lock_depth;      // this core's nesting of the scheduler lock (sched_internal.h)
+    int sched_lock_depth;      // 1 while this core holds its own queue's lock across a switch (sched_rq.c)
     int idle_live;             // the "live" word for this core's idle context (scheduler.c's live_of())
     // The RUNNING CONTEXT's preemption-guard and interrupt nesting
     // (scheduler.c, idt.c): saved into the outgoing context and loaded

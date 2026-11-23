@@ -17,6 +17,7 @@
 #include "scheduler.h"
 #include "heap.h"
 #include "pmm.h"
+#include "clocksource.h"
 #include "ktest.h"
 #include "string.h"
 
@@ -30,10 +31,13 @@ KTEST("smp", "the kernel lock, the heap and the frame allocator are counted lock
     KTEST_ASSERT(find_lock("kernel") >= 0);
     KTEST_ASSERT(find_lock("heap") >= 0);
     KTEST_ASSERT(find_lock("frames") >= 0);
-    // Every one of them has been taken by now.
+    // These three have been taken by now. Not every row: an AP's queue
+    // is never taken under smp=park, nor `rt` with no realtime process.
+    KTEST_ASSERT(lockstat_at(find_lock("kernel"))->acquired > 0);
+    KTEST_ASSERT(lockstat_at(find_lock("heap"))->acquired > 0);
+    KTEST_ASSERT(lockstat_at(find_lock("frames"))->acquired > 0);
     for (int i = 0; i < lockstat_count(); i++) {
         const struct lockstat *s = lockstat_at(i);
-        KTEST_ASSERT(s->acquired > 0);
         KTEST_ASSERT(s->contended <= s->acquired);
     }
 }
@@ -132,20 +136,29 @@ KTEST("smp", "every take of the kernel lock is billed to one core and one entry"
 }
 
 // The guard as the other core saw it: its own, and the boot core's.
-static volatile int g_ap_own, g_ap_saw_bsp;
+static volatile int g_ap_own, g_ap_saw_bsp, g_bsp_depth;
 
+// **SAMPLED UNTIL IT READS THE BOOT CORE'S OWN, FOR A BOUNDED WHILE**: the
+// sender still holds the call's send lock, whose guard is real, when a
+// core spinning for a lock answers the call at once. One global guard
+// reads one more than that however long it is watched.
 static void raise_guard_there(void *arg) {
     (void)arg;
     int before = scheduler_preempt_depth();
     scheduler_preempt_disable();
     g_ap_own = scheduler_preempt_depth() - before;
-    g_ap_saw_bsp = smp_cpu_at(0)->preempt_depth;
+    uint64_t end = clocksource_now_ns() + 50000000ull;
+    int v;
+    do v = smp_cpu_at(0)->preempt_depth;
+    while (v != g_bsp_depth && clocksource_now_ns() < end);
+    g_ap_saw_bsp = v;
     scheduler_preempt_enable();
 }
 
 KTEST("smp", "the preemption guard is each core's own") {
     if (smp_cpu_count() < 2) KTEST_SKIP("one core");
     int mine = scheduler_preempt_depth();
+    g_bsp_depth = mine;
     g_ap_own = -1;
     g_ap_saw_bsp = -1;
     KTEST_ASSERT(smp_call(1, raise_guard_there, 0, 1));

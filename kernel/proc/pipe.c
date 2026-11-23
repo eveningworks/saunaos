@@ -17,7 +17,7 @@
 // lock (FreeBSD's pipe mutex). A waiter ARMS on the pipe's channel before
 // it lets the lock go, and a waker wakes after it lets it go: a wake then
 // either finds the arm or the BLOCKED process (scheduler_wake_n()).
-// Nothing is taken under it but the scheduler lock (the arm).
+// Nothing is taken under it but a wait-channel chain (the arm).
 struct pipe {
     char buf[PIPE_BUF_SIZE];
     int head;    // next byte to read

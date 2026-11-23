@@ -117,7 +117,6 @@
 #include "pmm.h"    // the table and the stack chunks
 #include "irqflags.h" // per-process I/O counters, charged from any context
 #include "ktrace.h"   // the trace's switch and wakeup points
-#include "lockstat.h" // SPINLOCK_COUNTED: the scheduler lock
 
 _Static_assert(SCHED_READY == KTRACE_STATE_READY && SCHED_RUNNING == KTRACE_STATE_RUNNING &&
                SCHED_ZOMBIE == KTRACE_STATE_ZOMBIE && SCHED_BLOCKED == KTRACE_STATE_BLOCKED,
@@ -979,6 +978,18 @@ static void check_one_running(const char *where) {
     if (g_running_latched) return;
     int cur = current_index;
     int running = cur >= 0 && procs[cur].state == SCHED_RUNNING;
+    // Two cores naming one slot: each core's own count still agrees, so
+    // only a look at the others finds it -- two cores on one kernel stack.
+    for (int k = 0; cur >= 0 && k < smp_cpu_count(); k++) {
+        const struct cpu *c = smp_cpu_at(k);
+        if (k == (int)spin_cpu_index() || !c || (k != 0 && c->state != CPU_RUNNING)) continue;
+        if (__atomic_load_n(&c->sched_cur, __ATOMIC_ACQUIRE) != cur) continue;
+        g_running_latched = 1;
+        klog_printf("sched: INVARIANT at %s -- slot %d (pid %d) is current on core %u AND core %d\n",
+                    where, cur, procs[cur].pid, spin_cpu_index(), k);
+        scheduler_trace_dump();
+        return;
+    }
     if (rq_of((int)spin_cpu_index())->nr_running == running &&
         (!running || procs[cur].rq_cpu == (int)spin_cpu_index())) return;
     for (int i = 0; i < MAX_PROCS; i++) {
@@ -1283,6 +1294,7 @@ static void wake_locked(int i, int kind) {
     int q, k;
     if (is_rt(i)) { q = RQ_RT; k = rt_target(i); }
     else { q = k = sched_place(i, p->rq_cpu); }
+    int to_live = q >= 0 && q == __atomic_load_n(&p->on_core, __ATOMIC_ACQUIRE);
     rq_lock(q);
     if (q >= 0) sched_vr_migrate(i, p->rq_cpu, q);
     sched_make_ready(i, q);   // off its chain (held), onto q
@@ -1291,6 +1303,10 @@ static void wake_locked(int i, int kind) {
     else p->rt_seq = rt_seq_next();   // the back of its priority
     rq_unlock(q);
     wake_kick(i, k, kind);
+    // BACK ON A CORE STILL SWITCHING AWAY FROM IT, which may now run
+    // something else for a whole slice: an idle AP is told too, and steals
+    // it once the switch is done (sched_steal() skips a live slot).
+    if (to_live && !sched_core_idle(k)) sched_kick_idle_ap(k);
 }
 
 void sched_wake_signalled(int slot) { wake_locked(slot, WAKE_SIGNAL); }
@@ -1415,7 +1431,7 @@ static void switch_finish(int bkl_to) {
 // later as a smashed stack.
 // **AND IT STOPS BEING LIVE ONLY ONCE NOTHING RUNS ON ITS STACK**: the
 // mark goes in process_context_restore_release(), after RSP has moved,
-// so the scheduler lock can be let go before the restore. A READY
+// so this core's queue lock can be let go before the restore. A READY
 // context still marked live is not picked (find_next_runnable()), and
 // its slot is not reused (slot_claim()).
 static int g_kctx_on_core = 0;            // the BSP's kernel context runs at boot
@@ -1781,8 +1797,8 @@ void scheduler_ap_event(uint64_t *regs) {
 //
 // An AP's tick or reschedule, or a yield, that finds nothing to do, or
 // that switches between two contexts holding none of the kernel lock --
-// a process in ring 3, this core's idle loop -- needs the scheduler lock
-// alone. Everything else DECLINES, having changed nothing, and goes the
+// a process in ring 3, this core's idle loop -- needs this core's queue
+// lock alone. Everything else DECLINES, having changed nothing, and goes the
 // ordinary way. A context switched out here is saved at kernel-lock depth
 // 0 and resumes into a frame that releases nothing (bkl_load_depth()).
 static volatile int g_lockless_sched = 1;   // kernel.lockless_sched
@@ -2279,7 +2295,7 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     // waker on another core with no kernel lock (a lock-free pipe call)
     // otherwise lands between this test and BLOCKED, seeing neither.
     // Billed first, interrupts off: its clock read may be a PM-timer exit,
-    // not to be spent holding the scheduler lock.
+    // not to be spent holding a queue lock.
     uint64_t irq = irq_save();
     bill_current(); // this slice ends here, or goes on -- see bill_current()
     uint64_t parked_now = clocksource_now_ns();   // not under the chain lock: wakers spin on it
