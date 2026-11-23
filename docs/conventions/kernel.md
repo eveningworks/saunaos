@@ -1546,11 +1546,20 @@ contexts holding it and NOT the kernel lock.
   (a lock-free park switching into a context that holds it,
   `bkl_take_for_switch()`); it never waits for the kernel lock holding
   this.
-- **A WAKE'S SCANS, AN ARM, AND A PARK'S LAST "WAS I WOKEN?" ARE ALL
-  UNDER IT** (`scheduler_wake_n()`, `scheduler_wait_arm()`,
-  `block_common()`): a waker or a parker may hold no kernel lock (a
-  lock-free pipe call), and a wake that tests "armed?" and "BLOCKED?"
-  while the parker moves between them finds neither.
+- **A WAKE, AN ARM AND A PARK'S LAST "WAS I WOKEN?" MEET ON THE
+  CHANNEL'S CHAIN LOCK** (`kernel/proc/sched_sleepq.c`, FreeBSD's
+  sleepqueue chains): an arm, and a wake that finds nobody parked, take
+  it ALONE; a park holds it from "was I woken?" until BLOCKED; a wake
+  that makes a slot READY takes this lock first, then the chain's.
+  **Order: this lock, then ONE chain lock, never two chains, and nothing
+  taken under a chain lock** -- a wake that finds a sleeper lets its
+  chain go and starts again under both. A waker or a parker may hold no
+  kernel lock (a lock-free pipe call), and a wake that tests "armed?"
+  and "BLOCKED?" while the parker moves between them finds neither.
+- **THE CHAINS ARE EMPTY FROM THE FIRST INSTRUCTION**, not from an init
+  call: kmutexes are unlocked, and so woken, before `scheduler_init()`
+  (USB's port scans), and a zeroed head names a slot of a table that
+  does not exist yet.
 - **INTERRUPTS OFF WHILE HELD, AND RECURSIVE PER CORE** (a wake inside a
   kill nests). It raises no preemption guard -- `spin_lock_noguard()` --
   because a switch holds it and saves the guard with the context.

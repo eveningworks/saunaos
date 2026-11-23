@@ -191,10 +191,14 @@ struct sched_process {
     // process's children skips threads -- see `tgid` below.
     int ppid;
 
+    int on_core;          // the core this context is live on, or -1 (Linux's on_cpu): the pick skips a live one
+    uintptr_t on_site;    // ...and who switched it in, for its report
+
     // THIS SLOT'S PID, set when the slot is claimed and 0 when it is free.
     // A PID IS NOT A SLOT INDEX: every pid -> slot lookup goes through
     // pid_slot(), and every slot -> pid read is this field.
-    int on_core;          // the core this context is live on, or -1 (Linux's on_cpu): the pick skips a live one
+    int pid;
+
     // THE READY LIST (scheduler.c, "The run queue"): linked EXACTLY while
     // `state` is SCHED_READY, and only by sched_set_state(), under the
     // scheduler lock. Slot indices, -1 at the ends.
@@ -207,8 +211,6 @@ struct sched_process {
     uint8_t sq_on;
     int sq_next, sq_prev;
     const void *sq_chan;
-    uintptr_t on_site;    // ...and who switched it in, for its report
-    int pid;
 
     // --- threads: which group this slot belongs to -------------------
     //
@@ -369,7 +371,8 @@ struct sched_process {
     // Linux's answer is prepare_to_wait(): announce the wait BEFORE
     // testing the condition, so a wake in the window has something to
     // land on. Here that announcement is per PROCESS rather than a
-    // wait-queue entry, which needs no allocation and no channel table.
+    // wait-queue entry, which needs no allocation: the slot itself is
+    // linked on its channel's chain (sched_sleepq.c).
     const void *arm_chan;   // the channel this process is about to wait on
     int64_t     arm_value;  // what a wake in the window carried
     int         armed_woken;// a wake arrived before the park -- do not park

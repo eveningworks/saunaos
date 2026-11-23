@@ -276,7 +276,8 @@ whenever a headline here tells you something you did not already know.
 - **RUN STATE IS WRITTEN UNDER THE SCHEDULER LOCK, WHICH COMES AFTER
   THE KERNEL LOCK** -- a check-then-act on another thread's state holds
   it across both halves; never wait for the kernel lock holding it; a
-  wake's scans, an arm and a park's last test are under it; a
+  wake, an arm and a park's last test meet on the channel's CHAIN lock,
+  taken after it, one at a time, and empty before the scheduler starts; a
   switch is entered holding it once and returns without it; a READY
   context may still be live on a core; a declined lock-free path changed
   nothing

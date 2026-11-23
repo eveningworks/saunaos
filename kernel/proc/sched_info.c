@@ -288,7 +288,13 @@ int scheduler_test_park(uint64_t *tf, const void *chan, int reason) {
     if (!tf) return -1;
     int i = slot_claim();
     if (i >= 0) {
-        // On `chan`'s chain as a real park is, or no wake finds it.
+        // Everything a wake reads -- the trapframe, the context, the
+        // reason -- BEFORE the slot is on `chan`'s chain, where a wake on
+        // another core can find it the moment the lock is let go.
+        procs[i].wait_reason = reason;
+        procs[i].kernel_rsp = (uint64_t)tf;
+        procs[i].parked_in_kernel = 0;
+        proc_start_context(i, tf);
         uint64_t sf = sched_lock();
         uint64_t q = sq_lock(chan);
         procs[i].wait_chan = chan;
@@ -297,9 +303,6 @@ int scheduler_test_park(uint64_t *tf, const void *chan, int reason) {
         sq_unlock(chan, q);
         sched_unlock(sf);
         slot_unclaim(i);   // published: its state is no longer UNUSED
-        procs[i].wait_reason = reason;
-        procs[i].kernel_rsp = (uint64_t)tf;
-        proc_start_context(i, tf);
         // A FABRICATED SLOT MUST LOOK LIKE A FRESH PROCESS, which is
         // exactly what spawn_from_fs() gives a real one. Slots are
         // reused, so without this a test that set a disposition leaves
