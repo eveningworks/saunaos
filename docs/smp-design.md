@@ -1108,6 +1108,86 @@ waited on it ~0.9 s -> 0.44-0.57 s in 6 s; the per-call rows (`yield`,
 a 1-byte pipe, a round trip) inside run-to-run noise -- what is left is
 real parks and wakes, which per-core queues split.
 
+**Designed 2026-11-23, before building: per-core run queues (2b)**, in
+Linux's shape, picked over a brlock (cold paths taking every queue's
+lock) and over measuring a real load first. Linux: a lock per task
+(`p->pi_lock`) and one per runqueue, `task_rq_lock()` taking both and
+re-checking `task_cpu(p)`, `double_rq_lock()` in a fixed order for a
+steal. FreeBSD ULE: a `tdq` lock per core, `thread_lock()` following
+the thread's queue. Copied at toy size:
+
+- *Per core* (`struct rq`, one per `struct cpu`): a lock, the fair
+  ready list, its count, `min_vruntime`, `nr_running`. *Global*: the RT
+  ready list, `rt_seq` and the throttle, under `rt_lock`. kthreads and
+  the kernel context (`ROT_KERNEL`) live on the BSP's queue only;
+  `kernel_vruntime` is placed against the BSP's floor.
+- *Per slot*: `pi_lock`, and `rq_cpu` -- the queue a READY slot is on,
+  the core a RUNNING one is on, the last core of a BLOCKED one (the
+  wake's hint).
+- **THE LOCK ORDER**: kernel lock -> one wait-channel chain -> slot
+  `pi_lock`s (several only within one thread group, by slot index) ->
+  `rq` locks (two only for a move, by core index) -> `rt_lock`. The
+  chain comes FIRST, the inverse of 2a's order, so a wake keeps its
+  chain while it wakes and the drop-and-walk-again goes.
+- **WHO MAY WRITE WHAT**: READY <-> RUNNING on this core, its own queue
+  lock alone (the pick, `switch_to()`, a rotation's put-back -- Linux's
+  `on_rq` changes under the rq lock only). Into or out of BLOCKED,
+  ZOMBIE or UNUSED, and any `rq_cpu` change of a READY or RUNNING slot,
+  `pi_lock` + its queue's lock (`task_rq_lock()`: take `pi_lock`, read
+  `rq_cpu`, lock that queue, re-check, retry). The `rq_cpu` of a slot on
+  no list and not running is `pi_lock`'s alone. **Leaving BLOCKED, or
+  dying while on a chain, holds that chain first** --
+  `slot_lock_chained()`: read `sq_chan`, lock it, `pi_lock`, re-check.
+  `stopped`, the class, `nice` and a `pending` that a lock-free switch-in
+  reads are written under `task_rq_lock()`, which the pick's reader
+  holds half of.
+- *A park*: chain -> own `pi_lock` -> own queue; "was I woken?", the
+  signal check and BLOCKED under all three; chain and `pi_lock` go, the
+  queue lock is kept for the pick and released by the switch.
+- *A wake* (`wake_slot()`, holding the chain): `pi_lock`, BLOCKED
+  re-checked, a target chosen -- `rq_cpu` if that core is idle, else an
+  idle core, else `rq_cpu`; core 0 for a kthread -- `vruntime` moved by
+  the two floors' difference, enqueued under the target's lock, the
+  preemption test against the TARGET's running context (its rank,
+  vruntime, slice: per core, not this core's), and a kick when the
+  target is remote. **A slot still live on its old core**
+  (`on_core >= 0`, mid-switch-out) **goes back to that core**, which
+  finds it after its switch -- never on a core that would skip it and
+  halt.
+- *Idle steal*: an AP whose queue has nothing runnable takes one READY
+  slot (not a kthread, not live, not stopped) from the longest queue,
+  both locks in core order, its own re-checked after. *The periodic
+  balancer*: from the BSP's tick, every few slices, the longest and
+  shortest queues read lock-free; when they differ by two or more, one
+  slot moves, the one that ran longest ago, and an idle destination is
+  kicked (Linux's `load_balance()`, one level, no domains).
+- **A THREAD GROUP IS FROZEN BEFORE IT IS COUNTED** (exit, exec, kill
+  of a group): each sibling under `task_rq_lock()` gets `stopped` --
+  which no pick passes -- and its SIGKILL, and only then are those
+  running on another core or parked mid-call counted.
+  `group_wait_off_cores()` already does the freeze; what the global
+  lock gave as "one view of every core" is that no frozen sibling can
+  start running.
+- Every other cold site touches one slot and takes `task_rq_lock()`
+  (stop, continue, a signal raise -- chained when it wakes --, set_class,
+  set_priority, a kthread's start, a fabricated KTEST slot);
+  `scheduler_wake_timers()` scans unlocked and locks each candidate
+  chained. Readers that report (`ps`, the hung check, next event) stay
+  lock-free hints. `check_one_running()` checks this core's own
+  RUNNING slot against its `rq_cpu`.
+- **Off switches for the positive controls**: tunables for the steal
+  and the balancer, as `kernel.lockless_sched` is one for the lock-free
+  events.
+- **Proven by**: a debug-build invariant check at every switch (a slot
+  on at most one list, the list it is on is its `rq_cpu`'s, the counts
+  agree); `sched_smp_test` with the steal and the balancer off going
+  red on a placement that piles work on one core; the race tests
+  (exit/group/kill/park), `kvm_soak.py --cpus 4`, the ring-3 suite on 4
+  cores, the KTEST suite under TCG `-smp 4` several runs, on the X99 and
+  the ASUS. Measured as 2a was (`--cpu host,+invtsc`, 3 x
+  `syscall_bench`, `lockstat -i 6`) against 2a's 1.7-2.0 M takes and
+  0.44-0.57 s waited.
+
 The plan as written:
 
 The order comes from the table above, and each split is its own change
