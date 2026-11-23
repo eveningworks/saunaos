@@ -533,7 +533,10 @@ int  sched_ready_count(void);        // slots on the ready list (a hint without 
 
 // sched_sleepq.c -- the wait channels, hashed onto chains, a lock each
 // (FreeBSD's sleepqueue chains). **ORDER: THE SCHEDULER LOCK, THEN ONE
-// CHAIN LOCK, NEVER TWO** -- and nothing under a chain lock takes either.
+// CHAIN LOCK, NEVER TWO.** Under a chain lock the scheduler lock may only
+// be RE-ENTERED (already held, as wake_slot() does), never first taken,
+// and nothing there may unlink another slot (sched_set_state() leaving
+// BLOCKED takes its chain's lock: a waker unlinks first).
 // Several channels share a chain, so a walk checks `sq_chan`.
 void     sleepq_init(void);
 uint64_t sq_lock(const void *chan);            // interrupts off, then the chain's lock

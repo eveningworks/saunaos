@@ -16,6 +16,10 @@
 # $(shell ...) calls too -- see the label's comment below.
 if [ "$1" != "-c" ] || [ $# -ne 2 ]; then exec /bin/sh "$@"; fi
 cmd=$2
+# A parse-time $(shell ...) that runs a generator on EVERY make opts out
+# with this prefix: make gives a recipe and a $(shell) one environment,
+# so nothing else tells them apart.
+case $cmd in "QUIET_LABEL=no "*) exec /bin/sh -c "$cmd" ;; esac
 
 # The first thing that builds, from the line's words: a compiler with -c
 # (CC) or without (LINK), the linker, the assembler, the archiver,
@@ -33,7 +37,7 @@ for w in $cmd; do
         ld|*-ld|ld.*) [ -z "$tag" ] && tag=LD ;;
         nasm) [ -z "$tag" ] && tag=AS ;;
         ar|*-ar) [ -z "$tag" ] && tag=AR && out= ;;
-        *grub-mkrescue) [ -z "$tag" ] && tag=ISO ;;
+        *grub-mkrescue|*grub2-mkrescue) [ -z "$tag" ] && tag=ISO ;;
         tools/gen/*.py) [ -z "$tag" ] && tag=GEN && out=${w#tools/gen/} ;;
     esac
     # AR names its archive first, with no -o: the word after `rcs`.

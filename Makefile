@@ -704,7 +704,7 @@ $(if $(findstring FAILED,$(KCONFIG_GEN)),$(error $(KCONFIG_GEN)))
 # build/gen/bootwords.h -- parsed out of docs/boot-flags.md's table, the
 # only list of them there is. Parse time for the reason kconfig.h is;
 # rewritten only when the table changed.
-BOOTWORDS_GEN := $(shell python3 tools/gen/gen_bootwords.py --out $(BUILD)/gen/bootwords.h 2>&1 || echo FAILED)
+BOOTWORDS_GEN := $(shell QUIET_LABEL=no python3 tools/gen/gen_bootwords.py --out $(BUILD)/gen/bootwords.h 2>&1 || echo FAILED)
 $(if $(findstring FAILED,$(BOOTWORDS_GEN)),$(error $(BOOTWORDS_GEN)))
 
 # The target stays for `make version` by hand. NOTHING DEPENDS ON IT any

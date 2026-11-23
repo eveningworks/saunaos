@@ -942,14 +942,19 @@ static void check_one_running(const char *where) {
     if (g_running_latched) return;
     // COUNTED FIRST, the table scanned only on a mismatch: every RUNNING
     // slot on a core means as many RUNNING slots as cores running one.
-    int on = 0;
+    // Two cores naming one slot would hide an orphan in the count, so
+    // that forces the scan too.
+    int on = 0, dup = 0;
     for (int k = 0; k < smp_cpu_count(); k++) {
         const struct cpu *c = smp_cpu_at(k);
-        if (c && c->sched_cur >= 0 && (k == 0 || c->state == CPU_RUNNING) &&
-            procs[c->sched_cur].state == SCHED_RUNNING)
-            on++;
+        if (!c || c->sched_cur < 0 || (k != 0 && c->state != CPU_RUNNING)) continue;
+        if (procs[c->sched_cur].state == SCHED_RUNNING) on++;
+        for (int j = 0; j < k; j++) {
+            const struct cpu *o = smp_cpu_at(j);
+            if (o && o->sched_cur == c->sched_cur && (j == 0 || o->state == CPU_RUNNING)) dup = 1;
+        }
     }
-    if (on == g_nr_running) return;
+    if (on == g_nr_running && !dup) return;
     for (int i = 0; i < MAX_PROCS; i++) {
         if (procs[i].state != SCHED_RUNNING || sched_core_of(i) >= 0) continue;
         g_running_latched = 1;
@@ -2394,6 +2399,9 @@ static int stamp_arms(const void *chan, int64_t value, int left) {
     int n = 0;
     SQ_FOR_EACH(i, nx, chan) {
         if (left && n >= left) break;
+        // A slot zombified while it armed (the arm takes no scheduler
+        // lock) can sit on the chain until it is freed: never a wake.
+        if (procs[i].state == SCHED_UNUSED || procs[i].state == SCHED_ZOMBIE) continue;
         if (procs[i].sq_chan != chan || procs[i].arm_chan != chan || procs[i].armed_woken) continue;
         procs[i].armed_woken = 1;
         procs[i].arm_value   = value;

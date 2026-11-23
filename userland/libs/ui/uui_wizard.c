@@ -144,15 +144,21 @@ static const struct uui_widget_ops RAIL_OPS = {
 // that scrolls itself), at any depth of plain layouts. Such a page fills
 // the view; in the scroll view it would be laid out at its full height
 // and its list would never scroll.
-static int page_fills(const struct uui_item *it) {
-    if (it->ops != &uui_layout_ops) return 0;
-    const struct uui_layout *l = it->widget;
+// FILL_H counts only down a COLUMN, its stacking axis -- in a row it is
+// "as tall as the row". A page that is one widget, not a layout, is
+// given the whole view, as it always was.
+static int layout_fills(const struct uui_layout *l) {
     for (int i = 0; i < l->count; i++) {
         const struct uui_item *c = &l->items[i];
         if (c->hidden) continue;
-        if ((c->flags & UUI_FILL_H) || page_fills(c)) return 1;
+        if (l->dir == UUI_COLUMN && (c->flags & UUI_FILL_H)) return 1;
+        if (c->ops == &uui_layout_ops && layout_fills(c->widget)) return 1;
     }
     return 0;
+}
+
+static int page_fills(const struct uui_item *it) {
+    return it->ops != &uui_layout_ops || layout_fills(it->widget);
 }
 
 // Asked on every layout: an app may change a page's flags between runs
@@ -296,6 +302,9 @@ void uui_wizard_init(struct uui_wizard *w, const struct uui_wizard_desc *d) {
     w->pages = (struct uui_layout){ .dir = UUI_COLUMN, .items = w->page_items,
                                     .count = w->d.count };
     uui_scrollview_init(&w->scroll, &w->pages);
+    // Asks for the page's full height (capped at it), so a wizard sized
+    // from its natural size opens as tall as before, not ten rows.
+    uui_scrollview_set_preferred_rows(&w->scroll, 10000);
     w->body_items[3] = (struct uui_item){ .ops = &uui_scrollview_ops, .widget = &w->scroll,
                                           .flags = UUI_FILL_W | UUI_FILL_H, .name = "page" };
     w->body = (struct uui_layout){ .dir = UUI_COLUMN, .items = w->body_items, .count = 4,

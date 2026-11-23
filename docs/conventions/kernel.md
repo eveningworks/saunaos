@@ -1551,9 +1551,10 @@ contexts holding it and NOT the kernel lock.
   sleepqueue chains): an arm, and a wake that finds nobody parked, take
   it ALONE; a park holds it from "was I woken?" until BLOCKED; a wake
   that makes a slot READY takes this lock first, then the chain's.
-  **Order: this lock, then ONE chain lock, never two chains, and nothing
-  taken under a chain lock** -- a wake that finds a sleeper lets its
-  chain go and starts again under both. A waker or a parker may hold no
+  **Order: this lock, then ONE chain lock, never two chains; under a
+  chain lock this one is only re-entered, never first taken** -- a wake
+  that finds a sleeper lets its chain go and starts again under both,
+  and unlinks the slot before making it READY. A waker or a parker may hold no
   kernel lock (a lock-free pipe call), and a wake that tests "armed?"
   and "BLOCKED?" while the parker moves between them finds neither.
 - **THE CHAINS ARE EMPTY FROM THE FIRST INSTRUCTION**, not from an init
