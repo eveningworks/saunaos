@@ -4810,16 +4810,13 @@ on, platform glue in `userland/third_party/<port>/glue/`, a `LICENSE` entry for
 `check_licenses.py`. What is missing is underneath it.
 
 **The process model.** ash's evaluator forks for subshells, `(...)`,
-`$(...)`, pipelines and `&`, and SaunaOS has no `fork()` and no `exec()`
-of any kind -- `SYS_SPAWN` is `posix_spawn`-shaped on purpose
-(`docs/init-design.md`, `userland/libs/libc/README.md`). Two no-fork
-platforms already run ash, and that is the precedent to follow rather
-than building `fork()` for one program: BusyBox's own NOMMU build
-(uClinux) re-executes the shell binary with its state serialised
-instead of forking, and busybox-w32 does the same over `CreateProcess`.
-Either way the shell needs to start a second copy of itself and hand it
-state, which is an `exec` that replaces the image or a spawn-self with
-a blob -- and `tosh` documents the same collision at its `&` handling.
+`$(...)`, pipelines and `&`. **Written 2026-09-10, when SaunaOS had no
+`fork()` and no `exec()`; both landed the next day** (`SYS_FORK` and
+`SYS_EXEC` beside `SYS_SPAWN`, copy-on-write in vmm, 06881192), so this
+half is no longer the blocker it reads as -- the no-fork route below
+(BusyBox's NOMMU build re-executing itself with its state serialised,
+busybox-w32 over `CreateProcess`) is the alternative, not the
+requirement.
 
 **The C library.** ash's `INTOFF`/`INTON` critical sections are built on
 `sigprocmask`/`sigsuspend`, which `signal.h` refuses on purpose (there

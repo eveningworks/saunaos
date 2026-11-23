@@ -1,0 +1,131 @@
+# Users and privilege: who a process is, and what that lets it do
+
+**Status: DESIGN, stage A next (2026-11-23).** Nothing here is built. The
+maintainer picked the shape on 2026-11-23: four stages, stage A first, a
+ROOT BROKER for elevation (no setuid bits), ONE user account before
+several. Roadmap: "Multi-user & file permissions".
+
+## The finding that shapes the plan
+
+Everything runs as uid 0 today, and nothing says so: `getuid()` and
+friends are stubs answering 0 (`userland/libs/libc/unistd.c`), `<pwd.h>`
+knows one entry, and no process carries an identity. But most of the
+pieces a privilege model needs are already here, and that decides the
+order:
+
+- **Mode bits exist.** TFS3 stores `mode` at inode byte 92 and `chmod`
+  works; bytes 100..127 are checksummed and always written as zero, so a
+  32-bit uid and gid fit with no format revision (`mode`'s own trick,
+  `kernel/fs/tfs3_internal.h`).
+- **A "needs root" set exists.** The sandbox's `PROMISE_ADMIN` group is
+  the 23 syscalls a normal user must not reach: mount and umount, mkfs,
+  the partition and boot-sector writes, setting the clock, power-off,
+  loading modules, the network's configuration. Gating a group is one
+  check in the syscall layer, which already gates by promise.
+- **The comments are waiting.** `abi/mount_abi.h` and
+  `abi/partition_abi.h` say where the uid check goes "when uids arrive".
+- **What is MISSING is the identity and the split of shared state.**
+  Settings live system-wide in `/etc` (`docs/settings-and-queries.md`),
+  and `/home` is "the one user's home" (`docs/filesystem-layout.md`).
+  A second person needs both split -- the largest piece of work here,
+  and the reason several people come LAST.
+
+## What real systems do
+
+- **Linux.** A process carries real/effective/saved uid and gid and a
+  supplementary group list (`struct cred`, shared by a thread group,
+  replaced whole rather than edited). Files carry owner, group and mode;
+  `inode_permission()` in the VFS checks once for every filesystem, and
+  FAT/exFAT get an owner from `uid=,gid=,umask=` mount options. Root is
+  split into capabilities(7). Elevation is setuid `sudo`/`su`, or
+  `pkexec`, where polkit -- a root daemon -- decides by group membership
+  and a password prompt from the session's agent. A desktop session is
+  started by a display manager (GDM, SDDM, greetd) through PAM, and
+  logind tracks it.
+- **Windows NT.** A process has an access token (user SID, group SIDs,
+  privileges); objects carry ACLs. Under UAC an administrator logs on
+  with a FILTERED token, and a consent prompt (consent.exe, on a secure
+  desktop) starts one elevated process with the full one. Services run
+  as SYSTEM or a service account.
+- **macOS.** Unix uids underneath; admin users approve through
+  `authorizationhost` (an Authorization Services right), the polkit
+  shape.
+
+**SaunaOS follows the Unix identity** (uid/gid in the process, root =
+0) because ported programs expect it -- dash, SDL, ScummVM and GCC call
+`getuid`, `stat` and `getpwuid` -- **and the polkit/UAC elevation**,
+not setuid. A setuid binary is a privileged program parsing an
+unprivileged caller's argv, environment and fds; most local root
+exploits on Linux have been one. A broker keeps the privileged code in
+one long-running root service that takes a narrow request.
+
+## The stages
+
+### A. Identity (nothing enforced)
+
+- `struct cred { uid, euid, gid, egid, groups[] }` on the thread-group
+  LEADER, as the sandbox is ("the leader's is the group's"); inherited
+  through spawn, fork and exec.
+- `SYS_GETCRED` answers it whole (one record, `getresuid`'s shape);
+  libc's `getuid`/`geteuid`/`getgid`/`getegid`/`getgroups` read it.
+- `SPAWN_CREDS`, a spawn flag with `uid`/`gid` fields appended to the
+  spawn message (gated like `SPAWN_SANDBOX`): the ONE way to start a
+  process as someone else, honoured only from euid 0 -- systemd's
+  `User=`. This is the only check stage A enforces, since otherwise the
+  identity means nothing.
+- `/etc/passwd` and `/etc/group`, shipped (`root:0`, `user:1000`, group
+  `wheel`), read by `<pwd.h>`/`<grp.h>` -- the real files, so ported
+  code that parses them works.
+- `services.d` gains `User=`; toywm and the console shell run as
+  `user`, every other service stays root.
+- `id`, `whoami`; a USER column in `ps` (and Task Manager, after a
+  mockup).
+
+What could break: a program that checks `geteuid() == 0` and behaves
+differently (dash's prompt, a port's "do not run as root"). Measured
+before it ships, by running the GUI suite with the desktop as `user`.
+
+### B. Privilege and the broker
+
+- `PROMISE_ADMIN` syscalls require euid 0 (`-EPERM`), checked in the
+  syscall layer beside the promise check.
+- **`privd`**, a root service on a uchan: a request names an ACTION from
+  a fixed table (format a volume, write the boot loader, install an
+  update, set the clock, mount), never a command line. A caller in
+  `wheel` is asked for consent; anyone else for root's password. The
+  prompt is drawn by the compositor, not the requesting app, so an app
+  cannot fake the dialog (UAC's secure desktop, in the compositor's own
+  layer).
+- Disks, the installer, System Update, Date & Time and `mount` call it;
+  a CLI `sudo`-shaped front end for the shell.
+- telnetd and tftpd then need a login: they hand the network a machine
+  with the run of itself today (`docs/decisions/shell.md`).
+
+### C. Files
+
+- TFS3 inode: uid at byte 100, gid at 104; zero reads as root, so a disk
+  from before stays root's and boots.
+- One check in `vfs.c` (owner, group, other; root passes), as Linux's
+  `inode_permission()`; ramfs keeps uid/gid in memory; FAT32/exFAT/ISO
+  get an owner from the mount (Linux's `uid=`), SMB the share's.
+- `chown`, `umask`, `stat`'s `st_uid`/`st_gid` for real.
+
+### D. Several people
+
+- Passwords hashed with a slow KDF (yescrypt or Argon2id, as current
+  distributions use), in `/etc/shadow`; the salt from a CSPRNG --
+  `krandom.h` is not one, so this needs a real `getrandom` first.
+- A login screen drawn by the compositor (mockup first), auto-login
+  kept as an option; lock on resume.
+- `/home/<name>`, and the settings split: what is the person's
+  (wallpaper, theme, pins, recent files) moves to their home, the
+  machine's stays in `/etc`, by a `Scope=` in each setting's schema --
+  dconf's user database against `/etc/dconf`, or HKCU against HKLM.
+- Switching users.
+
+## Not decided yet
+
+- Supplementary groups: a fixed small array (NGROUPS_MAX is an ABI bound
+  this project would set) or allocated -- decide in stage A.
+- Whether settings writes need `privd` in stage B or wait for the split
+  in D.

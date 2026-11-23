@@ -24,6 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
+- [ ] Stage A of `docs/users-design.md`: a process's uid/gid, /etc/passwd, `SPAWN_CREDS`, the desktop as `user` -- nothing enforced  *(Multi-user & file permissions)*
 - [ ] A screen-size trial tells "GRUB set no mode at all" from "this size was refused"  *(virtio, and a real GPU driver)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
@@ -242,6 +243,7 @@ only expensive part of it.
 
 ### Multi-user & file permissions
 
+- [ ] **NEXT** Stage A of `docs/users-design.md`: a process's uid/gid, /etc/passwd, `SPAWN_CREDS`, the desktop as `user` -- nothing enforced
 - [ ] A minimal user/group model
 - [ ] Per-file owner + permission bits -- TFS3's inode already reserves the room for them
 - [ ] Permission checks in `fs_ops` calls
@@ -1275,6 +1277,7 @@ run on, not by order.
 - [ ] The screen off when the lid closes -- the lid is an ACPI device (PNP0C0D), so it waits for the AML interpreter
 - [ ] The calendar, context menu and confirm dialog should declare their own damage, as the Start menu already does
 - [ ] Intel modesetting: external outputs on DDI B-D, a second EDID and hotplug -- waits for a laptop with a usable port
+- [ ] Intel gen9: the panel's size past a smaller firmware buffer -- gen8 grows its scanouts; gen9 needs PLANE_STRIDE/PLANE_SIZE
 - [x] ~~Intel gen9 on the Kaby Lake desktop over HDMI: readout, adopt, GMBUS EDID, scaler modes, HDMI modeset~~ DONE 2026-10-04
 - [x] ~~Compose at most one frame per refresh~~ DONE 2026-10-28 -- the first change after quiet at once; a fast drag 216 -> 74 frames/s
 - [x] ~~Pace composing to the vblank~~ DONE 2026-10-31 -- ASUS drag: every refresh shown (116 -> 120 of 120), p99 lag 32 -> 19 ms
