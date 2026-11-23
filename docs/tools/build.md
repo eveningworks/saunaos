@@ -331,9 +331,18 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   says so. **`--check-efi`** and **`has_efi_loader(disk)`** ask whether
   the loader is there.
 
+  **The core's record is written beside it**, `grub/core.modules`:
+  **`core_record()`** -- the `CORE_MODULES` list, then `grub-version=`
+  from `grub-mkimage --version` without its epoch. Rewritten with the core
+  on every run, so a host-built disk's record is the staged one byte for
+  byte and System Update offers nothing on it (`base/ubootrefresh.h`). A
+  test that patches `CORE_MODULES` gets its list recorded, since it is
+  read at call time.
+
   **`--stage-payload <dir>`** writes the files `/bin/install` needs
-  -- `kernel.bin`, `grub.cfg`, `boot.img`, `core.img`, and
-  `bootx64.efi` when the host has GRUB's EFI target -- into a directory
+  -- `kernel.bin`, `grub.cfg`, `boot.img`, `core.img`, `core-msdos.img`,
+  `core.prefix`, `core.modules` (the record above) and `bootx64.efi` when
+  the host has GRUB's EFI target -- into a directory
   instead of onto a disk. The build points it at `seed/sync/install`, so
   every SaunaOS filesystem carries `/install` and can install itself. The
   `core.img` it makes has `(hd0,gpt2)/grub` baked in, which is what

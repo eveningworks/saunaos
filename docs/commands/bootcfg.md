@@ -137,7 +137,9 @@ at the firmware's own size, whatever `toy_mode` says -- makes every size
 look refused (the X99, 2026-11-23: its GOP offers 2560x1440, yet a trial
 came up at 1024x768). What the firmware really offers is `videoinfo` at
 the GRUB prompt (press `c` at the menu). If the size is listed there,
-`install --bootloader confirm` writes the current boot loader, emptying
+`install --bootloader confirm` writes the current boot loader (System
+Update offers the same as "Update boot loader..." when its record differs
+from the staged one), emptying
 `/etc/display.conf` forgets the refusal, and the trial is run again. The first use adds the
 stanza an older `grub.cfg` lacks -- the `toy_mode` lines after the
 one-shot one and a `gfxpayload` line after each `multiboot2` -- with the
