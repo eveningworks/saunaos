@@ -140,6 +140,38 @@ static const struct uui_widget_ops RAIL_OPS = {
 
 // --- showing a step -----------------------------------------------------
 
+// Whether a page has a child that stretches to absorb the room (a list
+// that scrolls itself), at any depth of plain layouts. Such a page fills
+// the view; in the scroll view it would be laid out at its full height
+// and its list would never scroll.
+static int page_fills(const struct uui_item *it) {
+    if (it->ops != &uui_layout_ops) return 0;
+    const struct uui_layout *l = it->widget;
+    for (int i = 0; i < l->count; i++) {
+        const struct uui_item *c = &l->items[i];
+        if (c->hidden) continue;
+        if ((c->flags & UUI_FILL_H) || page_fills(c)) return 1;
+    }
+    return 0;
+}
+
+// Asked on every layout: an app may change a page's flags between runs
+// (the installer pins its checklist to its rows once they fit).
+static void choose_holder(struct uui_wizard *w) {
+    int fill = w->step >= 0 && w->step < w->d.count && page_fills(&w->page_items[w->step]);
+    if (fill == w->page_fills) return;
+    w->page_fills = fill;
+    struct uui_item *it = &w->body_items[3];
+    if (fill) {
+        it->ops = &uui_layout_ops;
+        it->widget = &w->pages;
+    } else {
+        it->ops = &uui_scrollview_ops;
+        it->widget = &w->scroll;
+        uui_scrollview_content_changed(&w->scroll);   // the column was placed outside it
+    }
+}
+
 static void show(struct uui_wizard *w, int step) {
     w->step = step;
     if (step > w->reached) w->reached = step;
@@ -147,7 +179,11 @@ static void show(struct uui_wizard *w, int step) {
     w->title_l.text = w->d.steps[step].title;
     w->note_l.text = w->d.steps[step].note;
     w->body_items[2].hidden = !w->note_l.text || !w->note_l.text[0];
-    for (int i = 0; i < w->d.count; i++) w->body_items[3 + i].hidden = i != step;
+    for (int i = 0; i < w->d.count; i++) w->page_items[i].hidden = i != step;
+    // A new page starts at its top, and is measured again.
+    uui_scrollview_content_changed(&w->scroll);
+    uui_scrollview_set_offset(&w->scroll, 0);
+    choose_holder(w);
     w->back.disabled = step == 0 || w->hold_back;
     w->next.disabled = w->hold_next;
     w->skip.disabled = w->hold_skip;
@@ -250,12 +286,20 @@ void uui_wizard_init(struct uui_wizard *w, const struct uui_wizard_desc *d) {
     w->body_items[2] = (struct uui_item){ .ops = &uui_label_ops, .widget = &w->note_l,
                                           .flags = UUI_FILL_W, .name = "note" };
     for (int i = 0; i < w->d.count; i++) {
-        w->body_items[3 + i] = w->d.steps[i].page;
-        w->body_items[3 + i].flags = UUI_FILL_W | UUI_FILL_H;
+        w->page_items[i] = w->d.steps[i].page;
+        w->page_items[i].flags = UUI_FILL_W | UUI_FILL_H;
     }
-    w->body = (struct uui_layout){ .dir = UUI_COLUMN, .items = w->body_items,
-                                   .count = 3 + w->d.count, .margin = page_pad(),
-                                   .gap = ugfx_char_h() / 2 };
+    // THE PAGE SCROLLS, THE STEP HEADER DOES NOT (userland/CLAUDE.md: a
+    // page that can overflow goes in a scroll view, the chrome outside).
+    // No margin of its own: the body's is the page's (a nested layout
+    // names none).
+    w->pages = (struct uui_layout){ .dir = UUI_COLUMN, .items = w->page_items,
+                                    .count = w->d.count };
+    uui_scrollview_init(&w->scroll, &w->pages);
+    w->body_items[3] = (struct uui_item){ .ops = &uui_scrollview_ops, .widget = &w->scroll,
+                                          .flags = UUI_FILL_W | UUI_FILL_H, .name = "page" };
+    w->body = (struct uui_layout){ .dir = UUI_COLUMN, .items = w->body_items, .count = 4,
+                                   .margin = page_pad(), .gap = ugfx_char_h() / 2 };
 
     w->bar_items[0] = (struct uui_item){ .ops = &uui_label_ops, .widget = &w->spacer,
                                          .flags = UUI_FILL_W };
@@ -289,7 +333,7 @@ void uui_wizard_init(struct uui_wizard *w, const struct uui_wizard_desc *d) {
 struct uui_item *uui_wizard_item(struct uui_wizard *w) { return &w->self_item; }
 
 struct uui_item *uui_wizard_page(struct uui_wizard *w, int step) {
-    return step >= 0 && step < w->d.count ? &w->body_items[3 + step] : 0;
+    return step >= 0 && step < w->d.count ? &w->page_items[step] : 0;
 }
 
 // EVERY FONT-DERIVED SIZE IS SET HERE, at layout time, not in init: an app
@@ -316,6 +360,7 @@ static void wz_geometry(void *p, int x, int y, int width, int height) {
     struct uui_wizard *w = p;
     w->x = x; w->y = y; w->w = width; w->h = height;
     metrics(w);
+    choose_holder(w);
     w->root.nested = 1;
     uui_layout_run(&w->root, x, y, width, height);
 }

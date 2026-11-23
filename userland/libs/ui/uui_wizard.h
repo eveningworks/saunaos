@@ -21,6 +21,7 @@
 #include "ui/uui_layout.h"
 #include "ui/uui_label.h"
 #include "ui/uui_button.h"
+#include "ui/uui_scrollview.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -71,9 +72,18 @@ struct uui_wizard {
     struct uui_label count_l, title_l, note_l, spacer;
     char count_text[24];
     struct uui_button back, next, skip;
-    struct uui_item left_items[2], body_items[3 + UUI_WIZARD_STEPS_MAX], bar_items[3],
-                    main_items[2], root_items[2], inner, self_item;
-    struct uui_layout left, body, bar, main, root;
+    // The step pages scroll, under a step header that does not: a page
+    // taller than the window is reached, not cut off under Back/Next. A
+    // page with a stretching child (a list that scrolls itself) is laid
+    // out to FILL the view instead -- GTK's rule for a scrollable inside a
+    // scrolled window. body_items[3] holds the page column either way --
+    // through the scroll view or directly, never both: a widget reached
+    // twice is a duplicate id, and uapp refuses to start.
+    struct uui_item left_items[2], body_items[4], page_items[UUI_WIZARD_STEPS_MAX],
+                    bar_items[3], main_items[2], root_items[2], inner, self_item;
+    struct uui_layout left, body, pages, bar, main, root;
+    int page_fills;   // body_items[3] is the column itself, not the scroll view
+    struct uui_scrollview scroll;
 };
 
 void uui_wizard_init(struct uui_wizard *w, const struct uui_wizard_desc *d);

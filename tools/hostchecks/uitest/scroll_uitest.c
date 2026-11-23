@@ -25,6 +25,8 @@
 #include "ui/uui_hexview.h"
 #include "ui/uui_loglist.h"
 #include "ui/uui_table.h"
+#include "ui/uui_label.h"
+#include "ui/uui_wizard.h"
 
 #define W 460
 #define H 320
@@ -309,6 +311,41 @@ int main(void) {
     int ix, iy, iw, ih;
     uui_appcards_item_rect(&cards, 0, &ix, &iy, &iw, &ih);
     check_view(&win, &(struct view){ "Software list", "cards", 1, 0, 0, 0, iy - 10, 40, iy - 10 + 4 });
+    uitest_window_free(&win);
+
+    // --- the setup wizard's page (ui/uui_wizard): taller than the window ----------
+    // The page scrolls under a step header that does not (First-boot
+    // setup's Appearance page ran under Back/Next at 1024x768).
+    #define WZ_LINES 40
+    static struct uui_label wz_lines[WZ_LINES];
+    static char wz_text[WZ_LINES][32];
+    static struct uui_item wz_items[WZ_LINES];
+    for (int i = 0; i < WZ_LINES; i++) {
+        snprintf(wz_text[i], sizeof wz_text[i], "Line %d of the page", i);
+        uui_label_init(&wz_lines[i], wz_text[i]);
+        wz_items[i] = (struct uui_item){ .ops = &uui_label_ops, .widget = &wz_lines[i], .flags = UUI_FILL_W };
+    }
+    static struct uui_layout wz_page;
+    wz_page = (struct uui_layout){ .dir = UUI_COLUMN, .items = wz_items, .count = WZ_LINES };
+    static struct uui_wizard_step wz_steps[1];
+    wz_steps[0] = (struct uui_wizard_step){ "Appearance", "Each of these is in System Settings as well.",
+                                            { .ops = &uui_layout_ops, .widget = &wz_page }, 0 };
+    static struct uui_wizard wz;
+    uui_wizard_init(&wz, &(struct uui_wizard_desc){ .heading = "Set up", .steps = wz_steps, .count = 1 });
+    // A window of a wizard's own size: in the shared 460x320 one its rail
+    // and header leave the page too short to draw a thumb in.
+    struct uui_item *wit = uui_wizard_item(&wz);
+    wit->ops->set_geometry(wit->widget, 0, 0, 800, 480);
+    uitest_window(&win, wit, 1, NULL, 800, 480);
+    ff.widget = wit->widget;
+    ff.ops = wit->ops;
+    uui_focus_init(&focus, &ff, 1);
+    uitest_set_focus(&win, &focus);
+    int px, py, pw, ph;
+    // check_view() skips a view it cannot find: a wizard with no
+    // scrolling page would otherwise pass with nothing checked.
+    utest_check(uitest_rect(&win, "page", &px, &py, &pw, &ph), "Setup wizard: its page is a scroll view");
+    check_view(&win, &(struct view){ "Setup wizard page", "page", 0, 0, 0, 0, 0, 20, 20 });
     uitest_window_free(&win);
 
     return uitest_end();
