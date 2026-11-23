@@ -3595,8 +3595,12 @@ real scanout hardware does. Do not write a pixel assertion for one.
   boot), vmsvga and virtio-gpu set modes as they always could -- and the
   Intel driver lists the panel's native mode and every ladder entry
   smaller than it, shown through the panel fitter with the native timing
-  kept (the buffer never moves: a smaller mode is the same stride
-  scanned w x h).
+  kept (a smaller mode is the same stride scanned w x h). **Native is
+  the PANEL's, read off the transcoder, not GRUB's buffer** -- a UEFI GOP
+  lights 1920x1080 timing for an 800x600 buffer on the ASUS -- so on gen8
+  a mode larger than the buffers replaces all three scanouts with RAM
+  ones at the panel's size (i915's shape: GRUB's buffer is a boot
+  console, not a ceiling), and puts the old ones back if the mode fails.
   **The setting is an ENUM whose choices are the driver's mode list**
   (`display_ladder_mode()` filtered by what the adapter accepts), so
   nothing offers a mode the adapter will refuse; an unlisted one is

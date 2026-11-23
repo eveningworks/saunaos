@@ -52,7 +52,12 @@ static uint64_t g_stolen_base, g_stolen_size;
 static int g_pipe = -1;            // the pipe scanning GRUB's framebuffer
 static uint32_t g_fb_ggtt;         // its DSPSURF
 static struct display_surface g_surface;
-static uint32_t g_native_w, g_native_h;   // what the firmware lit: the panel's size
+// THE PANEL'S size: the transcoder's active area. NOT the firmware's
+// buffer, which may be smaller and scaled up by the fitter (a UEFI GOP
+// on the ASUS lights 1920x1080 timing for an 800x600 buffer).
+static uint32_t g_native_w, g_native_h;
+static uint32_t g_fw_w, g_fw_h;           // the firmware's buffer, the size at the claim
+static uint32_t g_cap_w, g_cap_h;         // what the scanouts hold; a larger mode grows them
 static int g_active;
 static uint64_t g_fb_pte_flags;    // low 12 bits of the firmware's framebuffer PTE, reused as-is
 
@@ -87,6 +92,7 @@ static int g_scanouts = 1;
 // g_scanouts, which stays 1 when the SECOND extra fails after the first
 // succeeded and its frames are kept unused.
 static uint64_t g_scanout_ram_pages;
+static uint32_t g_ggtt_next;   // the first GGTT index past the scanouts, for grown ones
 
 static inline uint32_t rd(uint32_t off) { return *(volatile uint32_t *)(g_mmio + off); }
 static struct display_driver intel_driver;
@@ -357,6 +363,7 @@ static void setup_scanouts(void) {
                     b, g_scanout_ggtt[b], (unsigned long long)phys, pages, paging_wc_name(wc));
         idx += pages;
     }
+    g_ggtt_next = idx;
     g_scanouts = SCANOUTS;
     intel_driver.caps |= DISPLAY_CAP_FLIP;
 }
@@ -468,6 +475,121 @@ static int intel_backlight_set(int percent) {
     return backlight_duty() == duty;
 }
 
+// The panel's own size from the transcoder, when it is LARGER than the
+// firmware's buffer: what Linux's i915 goes to whatever the firmware
+// left. Only where the plane's stride is one register (`grows`) and the
+// three scanouts exist, since a larger mode means replacing all three.
+static void panel_behind_fitter(void) {
+    if (!g_ops->grows || g_scanouts != SCANOUTS) return;
+    uint32_t base = intel_display_trans_base(g_pipe);
+    uint32_t w = (rd(base + TRANS_O_HTOTAL) & 0x1FFF) + 1;
+    uint32_t h = (rd(base + TRANS_O_VTOTAL) & 0x1FFF) + 1;
+    if (w < g_fw_w || h < g_fw_h || (w == g_fw_w && h == g_fw_h) || w > 8192 || h > 8192) return;
+    g_native_w = w;
+    g_native_h = h;
+    klog_printf("intel-display: panel %ux%u behind the firmware's %ux%u -- a larger mode "
+                "replaces the scanouts\n", w, h, g_fw_w, g_fw_h);
+}
+
+// THREE NEW SCANOUTS AT THE PANEL'S SIZE, in RAM behind fresh GGTT
+// entries, and the plane moved onto the first. All or nothing, and
+// UNDONE if the mode then fails (grow_end): the display layer keeps the
+// old surface on a refused mode, so the old buffers must still be ours
+// and on screen. The old RAM ones are freed only once the pipe has
+// cycled, since until then the plane may be scanning one; the firmware's
+// buffer is stolen memory and is never freed.
+struct scanout_set {
+    struct display_surface s[SCANOUTS], surface;
+    uint32_t ggtt[SCANOUTS], fb_ggtt, cap_w, cap_h, next;
+    uint64_t ram_pages;
+};
+static struct scanout_set g_before;
+
+static void scanouts_save(struct scanout_set *o) {
+    for (int b = 0; b < SCANOUTS; b++) { o->s[b] = g_scanout[b]; o->ggtt[b] = g_scanout_ggtt[b]; }
+    o->surface = g_surface; o->fb_ggtt = g_fb_ggtt;
+    o->cap_w = g_cap_w; o->cap_h = g_cap_h; o->next = g_ggtt_next; o->ram_pages = g_scanout_ram_pages;
+}
+
+static void scanouts_load(const struct scanout_set *o) {
+    for (int b = 0; b < SCANOUTS; b++) { g_scanout[b] = o->s[b]; g_scanout_ggtt[b] = o->ggtt[b]; }
+    g_surface = o->surface; g_fb_ggtt = o->fb_ggtt;
+    g_cap_w = o->cap_w; g_cap_h = o->cap_h; g_ggtt_next = o->next; g_scanout_ram_pages = o->ram_pages;
+    wr(DSPSTRIDE(g_pipe), g_surface.pitch);   // DSPSURF latches the stride with it at the vblank
+    wr(DSPSURF(g_pipe), g_fb_ggtt);
+}
+
+// Scanouts 1..SCANOUTS-1 of a set, back to the allocator; 0 too when it
+// is RAM (a grown set's), never the firmware's.
+static void scanouts_free(const struct scanout_set *o, int with_first) {
+    for (int b = with_first ? 0 : 1; b < SCANOUTS; b++) {
+        uint64_t bytes = (uint64_t)o->s[b].pitch * o->cap_h;
+        paging_clear_write_combining(o->s[b].addr, bytes);
+        pmm_free_contiguous(o->s[b].addr, (bytes + 4095) / 4096);
+    }
+}
+
+static int grow_scanouts(void) {
+    uint32_t pitch = (g_native_w * 4 + 63) & ~63u;
+    uint64_t bytes = (uint64_t)pitch * g_native_h;
+    uint32_t pages = (uint32_t)((bytes + 4095) / 4096);
+    uint32_t align = g_ops->scanout_align_pages ? g_ops->scanout_align_pages : 1;
+    uint64_t phys[SCANOUTS] = { 0 };
+    uint32_t ggtt[SCANOUTS];
+    uint32_t idx = g_ggtt_next;
+    for (int b = 0; b < SCANOUTS; b++) {
+        idx = (idx + align - 1) / align * align;
+        if (idx + pages <= g_gtt_entries) phys[b] = pmm_alloc_contiguous(pages, PMM_ZONE_DMA32);
+        if (!phys[b]) {
+            klog_printf(KLOG_ERR "intel-display: no room for a %ux%u scanout -- staying at %ux%u\n",
+                        g_native_w, g_native_h, g_cap_w, g_cap_h);
+            for (int i = 0; i < b; i++) {
+                paging_clear_write_combining(phys[i], bytes);
+                pmm_free_contiguous(phys[i], pages);
+            }
+            return 0;
+        }
+        k_memset((void *)(uintptr_t)phys[b], 0, (unsigned)bytes);
+        for (uint32_t i = 0; i < pages; i++)
+            g_gtt[idx + i] = (phys[b] + (uint64_t)i * 4096) | g_fb_pte_flags;
+        paging_set_write_combining(phys[b], bytes);
+        ggtt[b] = idx << 12;
+        idx += pages;
+    }
+    ggtt_invalidate();
+    scanouts_save(&g_before);
+    struct scanout_set grown;
+    for (int b = 0; b < SCANOUTS; b++) {
+        grown.s[b] = (struct display_surface){ phys[b], pitch, g_native_w, g_native_h, 32 };
+        grown.ggtt[b] = ggtt[b];
+    }
+    grown.surface = grown.s[0];
+    grown.fb_ggtt = ggtt[0];
+    grown.cap_w = g_native_w; grown.cap_h = g_native_h;
+    grown.next = idx;
+    grown.ram_pages = (uint64_t)pages * SCANOUTS;
+    scanouts_load(&grown);
+    klog_printf("intel-display: scanouts grown to %ux%u (pitch %u, %u pages each)\n",
+                g_native_w, g_native_h, pitch, pages);
+    return 1;
+}
+
+// After the mode: kept, the old RAM scanouts go (the fit's pipe cycle
+// means nothing scans them); refused, the old set is put back and the
+// grown one goes once a vblank has latched the old surface again.
+static void grow_end(int kept) {
+    if (kept) {
+        scanouts_free(&g_before, 0);
+        return;
+    }
+    struct scanout_set grown;
+    scanouts_save(&grown);
+    scanouts_load(&g_before);
+    intel_udelay(50000);
+    scanouts_free(&grown, 1);
+    klog_printf("intel-display: back on the %ux%u scanouts\n", g_cap_w, g_cap_h);
+}
+
 static int intel_probe(void) {
     g_active = 0;
     g_dev = find_gpu();
@@ -546,8 +668,9 @@ static int intel_probe(void) {
     setup_power_well();
     setup_cursor();
     setup_scanouts();
-    g_native_w = g_surface.width;
-    g_native_h = g_surface.height;
+    g_native_w = g_cap_w = g_fw_w = g_surface.width;
+    g_native_h = g_cap_h = g_fw_h = g_surface.height;
+    panel_behind_fitter();
     if (g_ops->claimed) g_ops->claimed();
     // MODESET and SCALING where the generation can: the native mode is
     // what the firmware lit, the smaller ones are scaled, and the buffer
@@ -594,6 +717,10 @@ static void build_modes(void) {
     if (g_nmodes) return;
     const struct display_edid *e = display_edid();
     g_modes[g_nmodes++] = (struct mode_entry){ g_native_w, g_native_h, 0, { 0 } };
+    // The size the firmware lit stays listed when the panel is larger:
+    // it is the mode on screen until something picks another.
+    if (g_fw_w != g_native_w || g_fw_h != g_native_h)
+        g_modes[g_nmodes++] = (struct mode_entry){ g_fw_w, g_fw_h, 0, { 0 } };
     if (g_ops->set_timing && g_ops->timing_ok && e && e->timing_count &&
         e->timing[0].hactive == g_native_w && e->timing[0].vactive == g_native_h) {
         g_modes[0].real = 1;
@@ -619,6 +746,8 @@ static void build_modes(void) {
             k_memcpy(&g_modes[j], &g_modes[j - 1], sizeof t);
             k_memcpy(&g_modes[j - 1], &t, sizeof t);
         }
+    for (int i = 0; i < g_nmodes; i++)
+        if (g_modes[i].w == g_surface.width && g_modes[i].h == g_surface.height) g_cur = i;
     klog_printf("intel-display: %d modes, native %ux%u%s\n", g_nmodes, g_native_w, g_native_h,
                 g_modes[0].real ? ", real modes from the EDID" : "");
 }
@@ -679,10 +808,23 @@ static int fit_current(uint32_t w, uint32_t h) {
     return 1;
 }
 
+static int apply_mode_sized(int i, const struct mode_entry *e);
+
 // A real mode re-lights the pipe at its timing; a scaled one (and the
 // native one) runs on the native timing, so a real mode is left first.
 static int apply_mode(int i) {
     const struct mode_entry *e = &g_modes[i];
+    int grew = 0;
+    if (e->w > g_cap_w || e->h > g_cap_h) {
+        if (!grow_scanouts()) return 0;
+        grew = 1;
+    }
+    int ok = apply_mode_sized(i, e);
+    if (grew) grow_end(ok);
+    return ok;
+}
+
+static int apply_mode_sized(int i, const struct mode_entry *e) {
     if (e->real && i != 0) {
         if (!g_ops->set_timing(&e->t)) return 0;
         g_on_native = 0;
@@ -843,6 +985,7 @@ const struct intel_gen_ops intel_gen8_ops = {
     .readout_log = log_readout,
     .plane_matches = gen8_plane_matches,
     .scanout_align_pages = 1,   // gen8's layout, packed after the cursor
+    .grows = 1,                 // DSPSTRIDE is the plane's whole stride
     .claimed = gen8_claimed,
     .read_edid = gen8_read_edid,
     .caps = DISPLAY_CAP_MODESET | DISPLAY_CAP_SCALING,

@@ -4650,7 +4650,11 @@ things to know.
   EDID entry below). `DISPLAY_CAP_MODESET` lists the native mode and the
   ladder below it, the smaller ones through the panel fitter under a
   pipe cycle (`docs/conventions/gui.md`'s scaling entry has the setting
-  and the fitter's arming order).
+  and the fitter's arming order). **The native mode is the TRANSCODER's
+  active size, not the inherited buffer's**: a GOP that scans an 800x600
+  buffer through the fitter onto 1920x1080 timing (the ASUS under UEFI)
+  still lists 1920x1080, and picking it replaces the scanouts with larger
+  RAM ones (gen8, `grows`); the probe itself only reads.
 - **ONE `struct intel_gen_ops` PER GENERATION, CHOSEN BY DEVICE ID;
   NO `if (gen == ...)` IN THE DRIVER.** Gen8 (`BDW_IDS`) is the eDP
   panel's: AUX EDID, the panel fitter, the backlight. Gen9 (`KBL_IDS`,

@@ -121,6 +121,11 @@ struct intel_gen_ops {
     int  (*plane_matches)(uint32_t cntr, uint32_t stride, uint32_t pitch);
     int  (*cursor_prepare)(int pipe);         // NULL: the common setup is enough
     uint32_t scanout_align_pages;             // a scanout's GGTT alignment
+    // Scanouts can be replaced by LARGER ones (DSPSTRIDE + DSPSURF), so a
+    // panel the firmware lit behind a smaller buffer reaches its own size.
+    // 0 keeps the firmware's size as the largest (gen9: PLANE_STRIDE and
+    // PLANE_SIZE, not yet).
+    int grows;
     void (*claimed)(void);                    // after the common setup; NULL for none
     int  (*read_edid)(int pipe, uint8_t *out, int cap);
     uint32_t caps;                            // DISPLAY_CAP_MODESET/SCALING it supports
