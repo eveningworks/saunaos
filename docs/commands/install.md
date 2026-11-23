@@ -7,7 +7,7 @@
 ## Synopsis
 
     install [--disk NAME] [--esp MIB] [--mbr] [--ask-all] [--without ID,...] [--only-system] [confirm]
-    install --bootloader [confirm]
+    install --bootloader [--uefi] [confirm]
     install --migrate [confirm]
 
 ## Options
@@ -36,6 +36,9 @@
   "Refreshing the bootloader" below. `--disk` and `--mbr` are refused
   with it, because the target is this machine's disk and the layout is
   read from that disk.
+- `--uefi` -- with `--bootloader`: ADD the UEFI loader to a disk that boots
+  BIOS/CSM. Without it a refresh only replaces a UEFI loader the disk already
+  has (or one this boot came through); see "Adding a UEFI boot" below.
 - `--migrate` -- `--bootloader`, but only on a machine whose boot volume
   still has the old `/boot/boot` layout; anywhere else it says so and
   exits 0. See "Moving `/boot/boot` up to `/boot`" below. It takes no
@@ -204,10 +207,18 @@ installed without.
       UEFI loader    /boot/EFI/BOOT/BOOTX64.EFI, from /install/bootx64.efi
       grub.cfg       bootpart= added to 2 entries (a .bak is kept)
 
-**A UEFI boot is the newest such capability.** The refresh writes GRUB's EFI
-build to `/boot/EFI/BOOT/BOOTX64.EFI`, the firmware's removable-media path, so
-no boot entry has to be registered: switch the firmware to UEFI (CSM off,
-Secure Boot off) and pick the disk. It works on an MBR install as well as a
+**Adding a UEFI boot is opt-in: `install --bootloader --uefi confirm`.** A
+plain refresh -- and System Update's "Update boot loader..." -- replaces the
+UEFI loader only on a disk that already has one or a machine that booted
+through UEFI, and otherwise says `no UEFI loader added -- this disk boots
+BIOS/CSM and keeps doing so`. **A refresh never changes HOW a machine boots**:
+firmware with CSM on may still PREFER the removable-media loader once it
+exists, and a GOP can lack the panel's size -- the ASUS's offers 800x600 where
+its VESA BIOS gives 1920x1080, so a refresh that added the loader moved it to
+UEFI at 800x600 (2026-11-23). With `--uefi`, GRUB's EFI build goes to
+`/boot/EFI/BOOT/BOOTX64.EFI`, the firmware's removable-media path, so no boot
+entry has to be registered: switch the firmware to UEFI (CSM off, Secure Boot
+off) and pick the disk. It works on an MBR install as well as a
 GPT one -- the image's prefix names no partition, and GRUB fills in the one it
 was loaded from. The BIOS loader stays, so the same disk still boots with CSM
 on. What UEFI buys: GRUB sets the framebuffer through the card's GOP rather

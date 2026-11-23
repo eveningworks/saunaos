@@ -9,8 +9,9 @@ of disk.img, under OVMF with QXL (no driver: vesafb on GOP's framebuffer):
 
   1. with the loader deleted, UEFI cannot boot the disk -- the control
      that the rest is about the loader and not the ISO or luck;
-  2. `install --bootloader confirm` from a BIOS boot puts it back, the
-     in-place upgrade an installed machine takes;
+  2. `install --bootloader confirm` from a BIOS boot does NOT put it back
+     (a routine refresh never changes how a machine boots), and
+     `install --bootloader --uefi confirm` does -- the opt-in upgrade;
   3. UEFI then boots the disk alone to the desktop at GRUB's 1280x720,
      with USB devices on the bus (enumerated before the scheduler exists);
   4. 2560x1440, refused on the BIOS boot (as the X99's VESA BIOS did), is
@@ -24,7 +25,7 @@ Needs OVMF on the host (tools/build/ovmf.py); without it the run is a SKIP.
 """
 
 # The disk under OVMF off its own BOOTX64.EFI: deleted (no boot), put
-# back by `install --bootloader`, then a GOP size past the VESA list.
+# back by `install --bootloader --uefi` (a plain one adds none), then a GOP size past the VESA list.
 # Its own guests on a COPY of disk.img; SKIPS (77) without OVMF.
 RUNNER = {"covers": "UEFI off the disk's loader, a GOP size past VESA's"}
 
@@ -118,8 +119,16 @@ def main():
         out = vm(inst, "exec", "bootcfg resolution", timeout=30)
         r.check("a BIOS-refused 2560x1440 is marked refused there", "2560x1440(refused)" in out,
                 out[-300:])
+        # A ROUTINE REFRESH NEVER ADDS IT (System Update's button runs the
+        # same): firmware that prefers the loader would boot UEFI from then
+        # on, and the ASUS's GOP has no 1920x1080 (2026-11-23).
         out = vm(inst, "exec", "install --bootloader confirm", "ls /boot/EFI/BOOT", timeout=120)
-        r.check("install --bootloader writes the UEFI loader",
+        r.check("a plain refresh from a BIOS boot adds NO UEFI loader",
+                "no UEFI loader added" in out and "BOOTX64.EFI" not in out
+                and "FAILED" not in out, out[-600:])
+        out = vm(inst, "exec", "install --bootloader --uefi confirm", "ls /boot/EFI/BOOT",
+                 timeout=120)
+        r.check("install --bootloader --uefi writes the UEFI loader",
                 "BOOTX64.EFI" in out and "FAILED" not in out, out[-600:])
         vm(inst, "exec", "sync")
 

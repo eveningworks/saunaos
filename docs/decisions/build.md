@@ -2995,3 +2995,34 @@ back at its next flush, so the patch that stops that losing a game is
 in ScummVM's `flushToDisk()` (it keeps game sections another instance
 added) rather than in the front: the same race hits ScummVM's own Add
 Game in a second window, and only the writer can see it (2026-11-19).
+
+## A boot-loader refresh never changes HOW a machine boots; adding UEFI is `--uefi`
+
+`install --bootloader` (and System Update's "Update boot loader...", which
+runs the same `base/ubootrefresh`) rewrites GRUB in place. It used to write
+GRUB's EFI build to `/boot/EFI/BOOT/BOOTX64.EFI` on every run -- deliberately,
+so the X99 could move from its VESA BIOS (1920x1200 at most) to its GOP
+(2560x1440) without a reinstall.
+
+**On 2026-11-23 that moved the ASUS to UEFI without anyone asking.** Its
+firmware has CSM on and still PREFERS the removable-media loader once one
+exists, and its GOP offers 800x600 where its VESA BIOS gives the panel's
+1920x1080 -- measured with a one-shot boot that asked GOP for 1920x1080 by
+name. The machine came back at 800x600 with GRUB's EFI console drawn over the
+last frame, from a button whose promise was a newer GRUB, not a different
+firmware path.
+
+So a refresh REPLACES the boot paths a disk already has: the UEFI loader is
+written when `/boot/EFI/BOOT/BOOTX64.EFI` exists or this boot came through
+UEFI (`QUERY_FIRMWARE`), and otherwise the refresh says `no UEFI loader added`.
+Adding one to a BIOS disk is the explicit `install --bootloader --uefi
+confirm`, which is what the X99's move would be today; System Update never
+offers it. `grub-install` behaves the same way on Linux: it installs for the
+platform it is run on (`--target` defaults to the running firmware), and
+adding the other is a separate, named run.
+
+The full installer still writes both loaders onto a NEW disk: there is no
+existing boot path to preserve, and a machine whose GOP is small is covered
+by the Intel driver taking the panel's own size (`docs/conventions/kernel.md`,
+the Intel display entry) -- on any other GPU, `bootcfg resolution` and
+`videoinfo` are the remedy.

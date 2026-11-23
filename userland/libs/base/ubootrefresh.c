@@ -119,10 +119,22 @@ static const char *plan_disk(struct ubootrefresh_plan *p) {
     p->legacy = ubootlayout_legacy();
     p->core = p->mbr ? UINSTALL_PAYLOAD "/core-msdos.img" : UINSTALL_PAYLOAD "/core.img";
     struct sys_stat st;
-    p->has_efi = sys_stat(UINSTALL_PAYLOAD "/bootx64.efi", &st) == 0 && !st.is_dir;
+    int staged = sys_stat(UINSTALL_PAYLOAD "/bootx64.efi", &st) == 0 && !st.is_dir;
+    int on_disk = sys_stat("/boot/EFI/BOOT/BOOTX64.EFI", &st) == 0 && !st.is_dir;
+    struct query_firmware fw;
+    int uefi = sys_query_record(QUERY_FIRMWARE, 0, &fw, sizeof fw) == (int)sizeof fw && fw.uefi;
+    p->has_efi = staged && (on_disk || uefi);
+    p->efi_kept_off = staged && !p->has_efi;
     struct ubootcfg *cfg = malloc(sizeof *cfg);
     p->cfg_missing = cfg && ubootcfg_load(cfg, UBOOTMENU_CFG) == 0 ? ubootcfg_bootpart_missing(cfg) : -1;
     free(cfg);
+    return 0;
+}
+
+int ubootrefresh_add_efi(struct ubootrefresh_plan *p) {
+    if (!p->has_efi && !p->efi_kept_off) return -1;
+    p->has_efi = 1;
+    p->efi_kept_off = 0;
     return 0;
 }
 
@@ -217,16 +229,18 @@ int ubootrefresh_run(const struct ubootrefresh_plan *p,
     // to boot UEFI reads the loader from the ESP whatever the table is
     // (an MBR's 0xEF counts), and the record describes the core now in
     // the sectors.
-    sayf(say, ctx, "writing the UEFI loader");
-    int efi = -1, rec = -1;
+    if (p->has_efi) sayf(say, ctx, "writing the UEFI loader");
+    int efi = p->has_efi ? -1 : 2, rec = -1;
     if (uboot_writable(dev, sizeof dev) == 0) {
-        efi = uinstall_write_efi("/boot", &why);
+        if (p->has_efi) efi = uinstall_write_efi("/boot", &why);
         rec = uinstall_write_record("/boot");
         uboot_restore(dev);
     } else {
         why = "cannot remount /boot read-write";
     }
-    if (efi < 0)
+    if (efi == 2 && p->efi_kept_off)
+        sayf(say, ctx, "no UEFI loader added -- this disk boots BIOS/CSM and keeps doing so.");
+    else if (efi < 0)
         sayf(say, ctx, "%s -- this disk still boots BIOS/CSM, not UEFI.", why);
     else if (efi > 0)
         sayf(say, ctx, "no " UINSTALL_PAYLOAD "/bootx64.efi (built without GRUB's "

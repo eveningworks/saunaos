@@ -111,8 +111,10 @@ then sets the mode through the card's GOP driver rather than its VESA BIOS,
 and GOP offers what the monitor's EDID lists -- 2560x1440 where an RTX's
 VESA list stops at 1920x1200. Nothing else changes: the same `toy_mode`,
 the same trial, the same refusal memory. An installed disk boots UEFI once
-it carries `EFI/BOOT/BOOTX64.EFI` (`install --bootloader confirm` writes
-it); then set the firmware to UEFI with CSM and Secure Boot off.
+it carries `EFI/BOOT/BOOTX64.EFI` (`install --bootloader --uefi confirm`
+adds it to a BIOS disk; a plain refresh does not); then set the firmware to
+UEFI with CSM and Secure Boot off. **Check `videoinfo` first**: a GOP can
+offer LESS than the VESA BIOS -- the ASUS's stops at 800x600.
 
 The size lives in GRUB's environment block (`base/ubootmode.h`):
 `toy_mode` for every boot, `toy_mode_try` for the next one only -- emptied

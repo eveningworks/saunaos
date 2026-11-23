@@ -410,6 +410,8 @@ static void open_boot_dialog(struct uapp *a) {
     snprintf(g_boot_line[n++], sizeof g_boot_line[0], "Core image: %s", p->core);
     if (p->has_efi)
         snprintf(g_boot_line[n++], sizeof g_boot_line[0], "UEFI loader: /boot/EFI/BOOT/BOOTX64.EFI");
+    else if (p->efi_kept_off)
+        snprintf(g_boot_line[n++], sizeof g_boot_line[0], "UEFI loader: none added, this disk boots BIOS/CSM");
     if (p->cfg_missing > 0)
         snprintf(g_boot_line[n++], sizeof g_boot_line[0], "grub.cfg: bootpart= added to %d entr%s",
                  p->cfg_missing, p->cfg_missing == 1 ? "y" : "ies");

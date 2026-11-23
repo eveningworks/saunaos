@@ -49,7 +49,13 @@ struct ubootrefresh_plan {
     int mbr;            // the table: 1 MBR, 0 GPT
     int legacy;         // /boot/boot is still there and is moved up first
     int cfg_missing;    // grub.cfg entries that gain bootpart=; -1 unreadable
-    int has_efi;        // the payload carries a UEFI loader
+    // A UEFI loader is written: the payload carries one AND this disk
+    // already has /boot/EFI/BOOT/BOOTX64.EFI or this boot came through
+    // UEFI. NEVER ADDED to a disk that boots BIOS: firmware that prefers
+    // the removable-media loader then boots UEFI from the next restart,
+    // and a GOP may lack the panel's size (the ASUS's has 800x600).
+    int has_efi;
+    int efi_kept_off;   // the payload has one, but this BIOS disk does not get it
     const char *core;   // the staged core image it writes
 };
 
@@ -58,6 +64,11 @@ struct ubootrefresh_plan {
 // with no partition table, a build that staged no install payload, a
 // payload replaced only at the next restart.
 const char *ubootrefresh_plan(struct ubootrefresh_plan *p);
+
+// Opt in to the UEFI loader on a disk that boots BIOS/CSM (`install
+// --bootloader --uefi`): what moved the X99 to GOP's larger sizes. Never
+// from System Update's button. 0, or -1 when no loader was staged.
+int ubootrefresh_add_efi(struct ubootrefresh_plan *p);
 
 // Rewrite it: the move up from /boot/boot when `legacy`, the boot sector
 // and core image (read back before the boot sector is written), the UEFI
