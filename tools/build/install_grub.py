@@ -127,7 +127,12 @@ CORE_MODULES = ("biosdisk", "part_gpt", "part_msdos", "fat", "normal",
                 # entry (grub.cfg, userland/libs/base/ubootmenu.h). In the CORE
                 # because an installed machine has no module directory
                 # to load it from.
-                "loadenv")
+                "loadenv",
+                # VIDEOINFO -- the modes the firmware (VBE or GOP) offers,
+                # typed at the `grub>` prompt: the only list of them there
+                # is when SaunaOS cannot set a mode itself and a size
+                # comes up refused (base/ubootmode.h).
+                "videoinfo")
 
 # The EFI image's: the firmware reads the disk for it, so no biosdisk.
 EFI_CORE_MODULES = tuple(m for m in CORE_MODULES if m != "biosdisk")
