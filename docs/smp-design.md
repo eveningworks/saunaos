@@ -1272,6 +1272,17 @@ deadline kicks the boot core now (`deadline_reaches_bsp()`,
 core's hrtimer; per-core timers for sleepers are the shape if a kick per
 sleep ever measures.
 
+On hardware (2026-11-23, 3 x `syscall_bench`, `lockstat -i 6`, the
+benches alone): the X99 (12 threads) waited 833 ms on the scheduler lock
+at 97f76a90 and ~38 ms on all twelve queues together, `yield` 1.7 ->
+0.31 us, the kernel lock unchanged (155 -> 179 ms); the ASUS (4 threads)
+0.51-0.58 s -> 18-25 ms on the queues, the kernel lock 0.28-0.37 ->
+0.20-0.23 s, `yield` 2.7 -> 0.42 us, a 1-byte pipe 1.8-2.0 -> 1.3 us.
+Five rounds of the race tests, `sleep_test` and `samepage_test` under
+`diskbench` clean on both. **Measure with nothing else running**: one
+ASUS reading taken while a soak's `diskbench` was still writing showed
+the kernel lock held 48% of the time, and looked like a regression.
+
 The plan as written:
 
 The order comes from the table above, and each split is its own change
