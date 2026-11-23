@@ -16,7 +16,7 @@ so this boots a guest, reboots it twice, and asks what came up:
   4. a plain `reboot` -> the default again, graphical.
 
 And the two refusals: an entry that does not exist, and a machine whose
-recorded core image has no loadenv (/etc/grub-core.modules).
+recorded core image has no loadenv (/boot/grub/core.modules).
 
 Runs against a COPY of disk.img.
 
@@ -124,12 +124,16 @@ def main():
         # Copied in from the host: the debug console's shell has no
         # redirection, and an `echo >` that silently wrote nothing let
         # the next line REBOOT the guest in an earlier draft.
-        stamp = os.path.join(tmp, "grub-core.modules")
+        # The record lives beside the core on /boot, mounted read-only:
+        # umount and mount again around the write (`mount`'s rule).
+        stamp = os.path.join(tmp, "core.modules")
         with open(stamp, "w") as f:
             f.write("biosdisk part_gpt fat normal multiboot2\n")
-        vm(inst, "put", stamp, "/tmp/grub-core.modules")
-        vm(inst, "exec", "cp /tmp/grub-core.modules /etc/grub-core.modules")
-        planted = vm(inst, "exec", "cat /etc/grub-core.modules")
+        vm(inst, "put", stamp, "/tmp/core.modules")
+        vm(inst, "exec", "cp /boot/grub/core.modules /tmp/core.modules.keep",
+           "umount /boot", f"mount {dev} /boot", "cp /tmp/core.modules /boot/grub/core.modules",
+           "umount /boot", f"mount -r {dev} /boot")
+        planted = vm(inst, "exec", "cat /boot/grub/core.modules")
         if "multiboot2" not in planted:
             r.check("the no-loadenv stamp was planted", False, planted.strip()[-200:])
             return 1
@@ -138,7 +142,8 @@ def main():
                 "loadenv" in nol and "cannot choose" in nol, nol.strip()[-200:])
         if "next boot" in nol:
             return 1      # it rebooted: nothing after this would measure anything
-        vm(inst, "exec", "rm /etc/grub-core.modules")
+        vm(inst, "exec", "umount /boot", f"mount {dev} /boot",
+           "cp /tmp/core.modules.keep /boot/grub/core.modules", "umount /boot", f"mount -r {dev} /boot")
 
         try:
             vm(inst, "exec", f'reboot --entry "{TEST_TITLE}"', timeout=30)

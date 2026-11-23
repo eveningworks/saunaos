@@ -1865,8 +1865,9 @@ nothing can open and is lzma-compressed besides, so its module set
 cannot be recovered by looking at the disk either. The stamp is
 therefore written at the only moment anything knows: `install
 --bootloader` records the module list it just wrote into
-`/etc/grub-core.modules`, and `flash` reads that back before it dares
-send a gzipped kernel. No stamp means the ELF, which every GRUB reads.
+`/etc/grub-core.modules` (beside the core since 2026-11-23, the entry
+below), and `flash` reads that back before it dares send a gzipped
+kernel. No stamp means the ELF, which every GRUB reads.
 
 **`install --bootloader` is `grub-install`**, and it exists because the
 full installer cannot help: it ERASES its target and refuses the disk
@@ -1898,6 +1899,54 @@ and that is the image `--bootloader` writes.
 The sequence is worth remembering as a shape: measure, find the layer
 below already does it, delete the thing you built. Twice, on the same
 question, a week's worth of planned work each time.
+
+---
+
+## The boot loader's record lives beside the core, and System Update offers a refresh, never writes one
+
+An update replaced every file and the kernel and never GRUB's core
+image, so a machine kept the boot loader of the medium it was installed
+from: the X99 (2026-11-23) one that set no GOP mode, every machine one
+without `videoinfo`. Nothing said so; `install --bootloader confirm` by
+hand was the only cure, and nobody knew when to run it.
+
+**Offered, never silent.** Real systems split here. Debian's `grub-pc`
+re-runs `grub-install` on every GRUB package upgrade, to the devices it
+remembers; systemd-boot updates its EFI file at boot when the installed
+one is older; Windows servicing rewrites `bootmgr` unasked. fwupd and
+GNOME Software list firmware as an update of its own that a person
+chooses. SaunaOS takes fwupd's shape because the core image is the one
+write that decides whether the machine boots at all, and a refresh that
+failed mid-update would be found at the next power-on, by someone not
+looking at the update. So `update` ends with a line, System Update shows
+an info bar with "Update boot loader...", and the button asks first with
+what is written (`install --bootloader`'s dry run). The write itself is
+`base/ubootrefresh.h`, moved out of `/bin/install` so both run one path.
+
+**Any difference counts, GRUB's version included** (the maintainer's
+pick over "only a module it lacks"): the staged record carries
+`grub-version=` from `grub-mkimage --version`, so a GRUB upgrade on the
+build host is offered too, not only a module added to `CORE_MODULES`.
+The price is an offer after a build host's GRUB package moves; the
+alternative would hide a GRUB bug fix that kept the module list.
+
+**No record is an offer**, worded "may be out of date": every machine
+without one was installed before records existed or by the installer
+before it wrote one, so its GRUB is older or unknown.
+
+**The record moved from `/etc/grub-core.modules` to
+`/boot/grub/core.modules`**, beside the core it describes, because only
+there can every writer of a core keep it truthful. `install_grub.py`
+builds an image on the host and cannot reach into its TFS3 root;
+putting the record in `seed/sync` would have had System Update hand
+every machine a record for a GRUB it does not have (`/etc` syncs
+`new-only`, so an unedited one would be replaced); `seed/once` goes
+stale the moment the host's GRUB rewrites an image's core. The boot
+volume is written by whatever writes GRUB -- `install_grub.py`, the
+installer's boot stage, a refresh -- and by nothing an update does
+(`/boot/grub` is not a synced tree), which is grub-install's own shape
+for `/boot/grub/i386-pc`. Readers fall back to the `/etc` file on a
+machine refreshed before the move, and the next refresh deletes it.
 
 ---
 
@@ -2051,8 +2100,8 @@ it back, as `remote.py flash` does -- the ESP's mount policy (`mount.c`)
 is not loosened for this.
 
 **A machine that could not honour the choice is REFUSED, by name.** A
-`grub.cfg` without the stanza, or `/etc/grub-core.modules` recording a
-core without `loadenv`, would write `next_entry` and boot the default --
+`grub.cfg` without the stanza, or the core's record
+(`/boot/grub/core.modules`) naming a core without `loadenv`, would write `next_entry` and boot the default --
 a silent no-op. `reboot --entry` says which, and the Leave page offers
 no "Restart into". The laptops needed `install --bootloader
 confirm` and the stanza added to their hand-kept `grub.cfg` (done

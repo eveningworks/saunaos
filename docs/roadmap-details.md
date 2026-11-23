@@ -9279,6 +9279,14 @@ updater (and the System Update app) offers the refresh as a step of its
 own, Windows' "a firmware update is available" -- never silently, since
 it is the one write that decides whether the machine boots.
 
+DONE 2026-11-23: the record moved beside the core
+(`/boot/grub/core.modules`, its modules plus `grub-version=`), written by
+whatever writes GRUB; any difference from the staged record, or none at
+all, gives System Update an info bar with "Update boot loader..." (asked
+first, with what is written) and `update` a closing line.
+`base/ubootrefresh.h` is the write, shared with `install --bootloader`;
+`docs/decisions/build.md` has why.
+
 ## A disk filesystem's `read`/`write` without the kernel lock: a lock-free handler that sleeps mid-call
 
 ramfs went lock-free 2026-11-22 by TRYLOCKING its position and mount

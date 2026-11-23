@@ -215,6 +215,12 @@ const char *uinstall_write_bootloader(const char *disk, int mbr, int in_use);
 // *why on a failure.
 int uinstall_write_efi(const char *boot, const char **why);
 
+// The payload's record of what its core image carries (core.modules) to
+// `boot`/grub/core.modules, beside the core it describes
+// (base/ubootrefresh.h). `boot` must be writable. 0, or -1 when the
+// payload has none or the write failed.
+int uinstall_write_record(const char *boot);
+
 #ifdef __cplusplus
 }
 #endif

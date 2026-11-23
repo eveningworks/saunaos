@@ -1,5 +1,6 @@
 // See ubootmenu.h.
 #include "base/ubootmenu.h"
+#include "base/ubootrefresh.h"
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -143,14 +144,14 @@ int ubootmenu_read(struct ubootmenu *m, const char *cfg) {
     // be the one that clears it.
     m->oneshot = strstr(buf, "next_entry") != 0;
     if (!m->oneshot) m->why_not = "grub.cfg has no one-shot stanza (see the repo's grub.cfg)";
-    // No stamp is not a no: a disk set up from the host has none, and
-    // its core image comes from the same CORE_MODULES list.
-    static char stamp[512];
-    if (m->oneshot && read_file(UBOOTMENU_CORE_STAMP, stamp, sizeof stamp) >= 0 &&
-        !strstr(stamp, "loadenv")) {
+    // No record is not a no: a disk set up before records existed has
+    // none, and its core image came from the same CORE_MODULES list.
+    char *rec = m->oneshot ? ubootrefresh_record() : 0;
+    if (rec && !ubootrefresh_has(rec, "loadenv")) {
         m->oneshot = 0;
         m->why_not = "this machine's GRUB has no loadenv -- run `install --bootloader confirm`";
     }
+    free(rec);
 
     int d = ubootmenu_find(m, defspec);
     m->def = d >= 0 ? d : 0;

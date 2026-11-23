@@ -29,8 +29,8 @@
 #include "base/uargs.h"
 #include "base/human.h"
 #include "base/ufile.h"
-#include "base/ubootcfg.h" // --bootloader also brings grub.cfg up to bootpart=
 #include "base/ubootlayout.h"
+#include "base/ubootrefresh.h"
 #include "base/udiskscan.h"
 #include "base/ugrow.h"
 #include "base/uduration.h"
@@ -67,199 +67,57 @@ static const struct uargs_prog PROG = {
     .notes = "The installer window (Install SaunaOS, on a live session's desktop) runs the same steps.",
 };
 
-#define STAMP_PATH "/etc/grub-core.modules"
-
-static void step(const char *what) { printf("install: %s\n", what); }
 static void refuse(const char *why) { printf("install: %s\n", why); }
 
-// THE BOOTLOADER, REWRITTEN IN PLACE -- `grub-install` on a machine
-// that is already installed, plus the bootpart= lines grub.cfg needs
-// from it. No table is written, no partition is formatted and no other
-// file is touched: the 185 KiB core image goes into the embed area it
-// already occupies and the boot sector is re-patched to point at it.
-//
-// IT EXISTS BECAUSE AN INSTALLED MACHINE COULD NOT OTHERWISE GAIN A
-// BOOTLOADER IT DOES NOT ALREADY HAVE. A laptop installed before
-// `gzio` joined CORE_MODULES read a gzipped kernel as raw bytes -- `no
-// multiboot header found`, and the default menu entry was dead until
-// the rescue entry was picked by hand. The full installer cannot help:
-// it ERASES the disk and refuses the one the machine runs from.
-//
-// THE RUNNING DISK IS THE ONLY TARGET, and that is what makes the table
-// format knowable: QUERY_PARTTABLE answers for this machine's disk, and
-// the prefix baked into each staged core image (`(hd0,gpt2)` against
-// `(hd0,msdos1)`) has to match it or GRUB comes up at a rescue prompt
-// having found no config. Another disk is the full installer's job.
-// grub.cfg's half of a refresh: every SaunaOS entry gains the bootpart=
-// lines the payload's grub.cfg has, so the kernel roots on the disk GRUB
-// booted from (docs/boot-flags.md). EDITED, never replaced -- the file
-// is the machine's own, bootcfg and the Boot Manager write it, and
-// grubby's rule is that a tool adds what it owns and leaves the rest.
-// After the core image, because only a core with `probe` can answer it;
-// either half without the other still boots. Returns entries changed,
-// or -1.
-static struct ubootcfg g_cfg, g_cfg_before;
+static void say(void *ctx, const char *line) { (void)ctx; printf("install: %s\n", line); }
 
-static int refresh_grub_cfg(int confirmed) {
-    if (ubootcfg_load(&g_cfg, UBOOTMENU_CFG) < 0) {
-        printf("install: could not read %s -- left as it is.\n", UBOOTMENU_CFG);
-        return -1;
-    }
-    int n = ubootcfg_bootpart_missing(&g_cfg);
-    if (!confirmed || !n) return n;
-    g_cfg_before = g_cfg;
-    if (ubootcfg_add_bootpart(&g_cfg) < 0) {
-        printf("install: grub.cfg not changed: %s\n", g_cfg.why);
-        return -1;
-    }
-    static struct ubootcfg_problem probs[8];
-    int np = ubootcfg_check(&g_cfg, &g_cfg_before, UBOOTCFG_CHECK_FILES, probs, 8);
-    if (ubootcfg_has(probs, np, UBOOTCFG_BROKEN)) {
-        printf("install: grub.cfg not changed -- the edit would not parse: %s\n", probs[0].msg);
-        return -1;
-    }
-    const char *why = 0;
-    if (ubootcfg_save(&g_cfg, UBOOTMENU_CFG, &why) < 0) {
-        printf("install: grub.cfg not changed: %s\n", why ? why : "the save failed");
-        return -1;
-    }
-    return n;
-}
-
+// THE BOOTLOADER, REWRITTEN IN PLACE -- `grub-install` on a machine that
+// is already installed (base/ubootrefresh.h, which System Update runs
+// too). It exists because an installed machine could not otherwise gain a
+// boot loader it does not already have: the full installer ERASES its
+// target and refuses the disk the machine runs from.
 static int refresh_bootloader(int confirmed) {
-    char disk[16] = "";
-    if (!uinstall_root_disk(disk, sizeof disk)) {
-        refuse("this machine has no disk-backed root -- there is no "
-               "bootloader here to rewrite.");
-        return 1;
-    }
+    struct ubootrefresh_plan p;
+    const char *no = ubootrefresh_plan(&p);
+    if (no) { printf("install: %s.\n", no); return 1; }
+    if (confirmed) return ubootrefresh_run(&p, say, 0) == 0 ? 0 : 1;
 
-    struct query_parttable t;
-    if (sys_query_record(QUERY_PARTTABLE, 0, &t, sizeof t) < (int)sizeof t ||
-        t.kind == QUERY_PART_NONE) {
-        refuse("this disk has no partition table -- refusing to guess "
-               "where the core image goes.");
-        return 1;
-    }
-    int mbr = (t.kind == QUERY_PART_MBR);
-
-    const char *missing_payload = uinstall_payload_problem(mbr);
-    if (missing_payload) { printf("install: %s.\n", missing_payload); return 1; }
-    int legacy = ubootlayout_legacy();
-
-    if (!confirmed) {
-        int missing = legacy ? -2 : refresh_grub_cfg(0);
-        printf("install: this rewrites %s's bootloader in place (%s layout):\n",
-               disk, mbr ? "MBR" : "GPT");
-        if (legacy)
-            printf("  /boot/boot     copied up to /boot first, removed once the new GRUB "
-                   "is in place\n");
-        printf("  boot sector    LBA 0, keeping this disk's partition table\n");
-        printf("  core image     %s\n",
-               mbr ? UINSTALL_PAYLOAD "/core-msdos.img" : UINSTALL_PAYLOAD "/core.img");
-        printf("  UEFI loader    /boot/EFI/BOOT/BOOTX64.EFI, from "
-               UINSTALL_PAYLOAD "/bootx64.efi\n");
-        if (missing > 0)
-            printf("  grub.cfg       bootpart= added to %d entr%s (a .bak is kept)\n",
-                   missing, missing == 1 ? "y" : "ies");
-        else if (missing == 0)
-            printf("  grub.cfg       already passes bootpart= -- unchanged\n");
-        printf("install: partitions, filesystems and other files are untouched. "
-               "The core image is\n");
-        printf("install: read back before the boot sector is written, so a "
-               "bad write leaves the\n");
-        printf("install: bootloader you have now. Re-run with `confirm` if "
-               "that is what you want.\n");
-        return 1;
-    }
-
-    // THE MOVE UP FROM /boot/boot, around the write: the copy is made
-    // while the old core still boots the old tree, and the old tree goes
-    // only once a core reading /boot/grub is in place (base/ubootlayout.h).
-    char dev[64] = "";
-    const char *why = 0;
-    if (legacy) {
-        step("copying /boot/boot up to /boot");
-        if (uboot_writable(dev, sizeof dev) < 0) {
-            refuse("cannot remount /boot read-write -- nothing was changed.");
-            return 1;
-        }
-        int ok = ubootlayout_copy_up(&why) == 0;
-        if (!ok) ubootlayout_drop_flat();
-        uboot_restore(dev);     // read-only again, which flushes the copy
-        if (!ok) {
-            printf("install: %s -- nothing was changed.\n", why);
-            return 1;
-        }
-    }
-
-    step("writing the bootloader");
-    const char *failed = uinstall_write_bootloader(disk, mbr, 1);
-    if (failed) {
-        printf("install: %s\n", failed);
-        if (legacy && uboot_writable(dev, sizeof dev) == 0) {
-            ubootlayout_drop_flat();
-            uboot_restore(dev);
-        }
-        printf("install: FAILED -- %s still has the bootloader it had.\n", disk);
-        return 1;
-    }
-    // THE UEFI LOADER, after the BIOS one: a machine set to boot UEFI
-    // reads it from the ESP whatever the table is (an MBR's 0xEF counts).
-    step("writing the UEFI loader");
-    int efi = -1;
-    if (uboot_writable(dev, sizeof dev) == 0) {
-        efi = uinstall_write_efi("/boot", &why);
-        uboot_restore(dev);
+    printf("install: this rewrites %s's bootloader in place (%s layout):\n",
+           p.disk, p.mbr ? "MBR" : "GPT");
+    if (p.legacy)
+        printf("  /boot/boot     copied up to /boot first, removed once the new GRUB "
+               "is in place\n");
+    printf("  boot sector    LBA 0, keeping this disk's partition table\n");
+    printf("  core image     %s\n", p.core);
+    printf("  UEFI loader    /boot/EFI/BOOT/BOOTX64.EFI, from "
+           UINSTALL_PAYLOAD "/bootx64.efi\n");
+    if (p.legacy) {
+        // grub.cfg is read once it has moved up
+    } else if (p.cfg_missing > 0) {
+        printf("  grub.cfg       bootpart= added to %d entr%s (a .bak is kept)\n",
+               p.cfg_missing, p.cfg_missing == 1 ? "y" : "ies");
+    } else if (p.cfg_missing == 0) {
+        printf("  grub.cfg       already passes bootpart= -- unchanged\n");
     } else {
-        why = "cannot remount /boot read-write";
+        printf("  grub.cfg       cannot be read -- left as it is\n");
     }
-    if (efi < 0)
-        printf("install: %s -- this disk still boots BIOS/CSM, not UEFI.\n", why);
-    else if (efi > 0)
-        printf("install: no " UINSTALL_PAYLOAD "/bootx64.efi (built without GRUB's "
-               "EFI target) -- this disk boots BIOS/CSM only.\n");
-    why = 0;
-    if (legacy) {
-        step("removing /boot/boot");
-        int ok = uboot_writable(dev, sizeof dev) == 0 && ubootlayout_drop_legacy(&why) == 0;
-        uboot_restore(dev);
-        if (!ok)
-            printf("install: %s -- the machine boots from /boot already; run "
-                   "`install --migrate confirm` again to tidy it.\n",
-                   why ? why : "cannot remount /boot read-write");
-    }
-
-    // WHAT WENT IN, WRITTEN DOWN. The core image lives in raw sectors
-    // nothing can open and is lzma-compressed besides, so its module set
-    // cannot be recovered by looking at the disk. This stamp is the only
-    // record, and `remote.py flash` reads it before sending a kernel
-    // whose unpacking GRUB has to do.
-    uint8_t *mods = 0;
-    size_t mod_size = 0;
-    if (ufile_slurp(UINSTALL_PAYLOAD "/core.modules", 0, &mods, &mod_size) == UFILE_OK) {
-        int fd = open(STAMP_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (fd >= 0) {
-            write(fd, mods, mod_size);
-            close(fd);
-        } else {
-            printf("install: could not write %s -- the bootloader is in "
-                   "place, but nothing records what it can do.\n", STAMP_PATH);
-        }
-        free(mods);
-    }
-
-    step("adding bootpart= to grub.cfg");
-    int added = refresh_grub_cfg(1);
-    if (added > 0)
-        printf("install: %d grub.cfg entr%s now pass%s bootpart= (the old file is %s.bak)\n",
-               added, added == 1 ? "y" : "ies", added == 1 ? "es" : "", UBOOTMENU_CFG);
-    else if (added == 0)
-        printf("install: grub.cfg already passes bootpart=\n");
-
-    printf("install: done. %s boots the newly written GRUB from now on%s.\n", disk,
-           added < 0 ? "; grub.cfg is as it was" : "");
-    return 0;
+    struct ubootrefresh_offer o;
+    ubootrefresh_offer(&o);
+    if (o.kind == UBOOTREFRESH_UNKNOWN)
+        printf("  record         none on this disk -- what its GRUB carries is not known\n");
+    else if (o.kind == UBOOTREFRESH_NEWER && o.adds && o.adds[0])
+        printf("  adds           %s\n", o.adds);
+    else if (o.kind == UBOOTREFRESH_SAME)
+        printf("  record         this disk already has the staged GRUB%s%s\n",
+               o.version ? " " : "", o.version ? o.version : "");
+    ubootrefresh_offer_free(&o);
+    printf("install: partitions, filesystems and other files are untouched. "
+           "The core image is\n");
+    printf("install: read back before the boot sector is written, so a "
+           "bad write leaves the\n");
+    printf("install: bootloader you have now. Re-run with `confirm` if "
+           "that is what you want.\n");
+    return 1;
 }
 
 // --- choosing a disk -------------------------------------------------------

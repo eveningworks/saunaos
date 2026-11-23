@@ -122,6 +122,13 @@ static int ops_release(void *w, int cx, int cy) {
     return 1;
 }
 
+// Where each action is, for a test to click (ui/uui_describe.h).
+static void ops_describe(const void *w, const struct uui_describe *d) {
+    const struct uui_infobar *b = w;
+    if (has_action(b)) uui_describe_rect(d, "action", b->action.x, b->action.y, b->action.w, b->action.h);
+    if (has_second(b)) uui_describe_rect(d, "second", b->second.x, b->second.y, b->second.w, b->second.h);
+}
+
 const struct uui_widget_ops uui_infobar_ops = {
     .natural_size = ops_natural_size,
     .set_geometry = ops_set_geometry,
@@ -130,4 +137,5 @@ const struct uui_widget_ops uui_infobar_ops = {
     .hit          = ops_hit,
     .press        = ops_press,
     .release      = ops_release,
+    .describe     = ops_describe,
 };

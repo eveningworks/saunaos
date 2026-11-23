@@ -1154,19 +1154,26 @@ def _core_modules(sess, timeout):
     """What the machine's INSTALLED bootloader can do, as a set of GRUB
     module names -- empty when nothing says.
 
-    /etc/grub-core.modules is written by `install --bootloader`, and it
-    is the only readable record: core.img sits in raw sectors nothing can
-    open and is lzma-compressed besides. An older machine has no stamp,
-    which reads as "cannot be shown to have gzio" -- the safe direction,
-    since the consequence of being wrong is a dead default menu entry.
+    The record beside the core (/boot/grub/core.modules, base/ubootrefresh.h;
+    /etc/grub-core.modules on a machine refreshed before it moved) is the
+    only readable account: core.img sits in raw sectors nothing can open
+    and is lzma-compressed besides. A machine with neither reads as
+    "cannot be shown to have gzio" -- the safe direction, since the
+    consequence of being wrong is a dead default menu entry.
     """
-    mods = set()
-    for ln in sess.run("cat /etc/grub-core.modules", timeout):
-        t = ln.strip()
-        if not t or ":" in t:      # an error line names the path
-            continue
-        mods.update(t.split())
-    return mods
+    # The FIRST record that exists, in ubootrefresh_record()'s order: a
+    # stale /etc stamp must not lend a module the core on /boot lacks.
+    for path in ("/boot/grub/core.modules", "/boot/boot/grub/core.modules",
+                 "/etc/grub-core.modules"):
+        mods = set()
+        for ln in sess.run(f"cat {path}", timeout):
+            t = ln.strip()
+            if not t or ":" in t or t.startswith("grub-version="):   # an error line names the path
+                continue
+            mods.update(t.split())
+        if mods:
+            return mods
+    return set()
 
 
 def _sha256(sess, remote, timeout):
@@ -1436,7 +1443,7 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
         if blob[:2] == b"\x1f\x8b" and not gzio:
             print(f"remote: {local} is gzipped, and this machine's "
                   "bootloader does not\nremote: record `gzio` "
-                  "(/etc/grub-core.modules). GRUB would read it as raw "
+                  "(/boot/grub/core.modules). GRUB would read it as raw "
                   "bytes:\nremote:   no multiboot header found\n"
                   "remote: Run `install --bootloader confirm` on the "
                   "machine first, or send build/kernel.bin.",
@@ -1681,7 +1688,7 @@ def main():
     f = sub.add_parser("flash", help="replace the kernel on the machine's "
                                      "own boot partition")
     # OMITTED, THE MACHINE DECIDES: build/kernel.media where its own
-    # /etc/grub-core.modules records `gzio`, and build/kernel.bin where
+    # /boot/grub/core.modules records `gzio`, and build/kernel.bin where
     # it does not. A flash must not depend on a capability the INSTALLED
     # bootloader may not have -- it replaces the kernel alone, never the
     # bootloader, and the laptop's GRUB predated that module and read the

@@ -1021,10 +1021,10 @@ default menu entry dead until the rescue entry was picked by hand.
 So **`flash` sends `build/kernel.bin` unless the machine can be SHOWN to
 unpack a compressed one**, which is the rule a Linux kernel package
 follows (and why Linux ships a self-decompressing bzImage rather than
-asking the bootloader). The proof is a stamp the machine writes about
-itself: `install --bootloader confirm` records the module list it wrote
-into `/etc/grub-core.modules`, and `flash` reads it back. No stamp means
-the ELF. A gzipped image named explicitly is REFUSED where the stamp
+asking the bootloader). The proof is a record kept beside the core:
+whatever writes GRUB writes `/boot/grub/core.modules` (its modules and
+GRUB's version; `base/ubootrefresh.h`), and `flash` reads it back. No
+record means the ELF. A gzipped image named explicitly is REFUSED where the stamp
 does not back it -- the failure is not a failed flash but a machine
 whose default entry is dead.
 
@@ -1035,7 +1035,10 @@ only target**, because each staged core image has its prefix baked in
 answer for this machine's disk; and **the core image is read back before
 the boot sector is written**, so a bad write leaves the bootloader that
 is already there. `/install` is in `flash`'s synced trees for this
-reason: a machine cannot hand on a bootloader newer than its own.
+reason: a machine cannot hand on a bootloader newer than its own. An
+update brings the newer one to `/install` and stops there: `update` and
+System Update OFFER the refresh when the staged record differs from the
+disk's, and never write it unasked (`docs/decisions/build.md`).
 
 ## `gfxpayload` IS SET AFTER THE `multiboot2` LINE, OR IT IS IGNORED
 

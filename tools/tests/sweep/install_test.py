@@ -547,8 +547,9 @@ def run_bootloader(args, c):
         klog = guest("exec", "dmesg")     # its own port, as above
         add("the kernel logged the write", "install_boot:" in klog and
             "boot sector written" in klog)
-        add("records what it installed in /etc/grub-core.modules",
-            "gzio" in guest("exec", "cat /etc/grub-core.modules"))
+        rec = guest("exec", "cat /boot/grub/core.modules")
+        add("records what it installed in /boot/grub/core.modules",
+            "gzio" in rec and "grub-version=" in rec, rec[-200:])
     finally:
         guest("stop")
 

@@ -639,6 +639,10 @@ static int copy_boot(struct run *r) {
     if (efi < 0) { line(r, "%s", why); return 0; }
     line(r, efi ? "no UEFI loader in " UINSTALL_PAYLOAD " -- this disk boots BIOS/CSM only"
                 : UINSTALL_PAYLOAD "/bootx64.efi -> EFI/BOOT/BOOTX64.EFI");
+    // What the core this run writes carries (base/ubootrefresh.h), so the
+    // new machine's System Update can tell when a newer one is staged.
+    if (uinstall_write_record(UINSTALL_TARGET_BOOT) < 0)
+        line(r, "no record of the boot loader written -- System Update will call it out of date");
     give_menu(r);
     return 1;
 }
@@ -671,6 +675,21 @@ int uinstall_write_efi(const char *boot, const char **why) {
     free(img);
     if (done != size) { *why = "could not write EFI/BOOT/BOOTX64.EFI"; return -1; }
     return 0;
+}
+
+int uinstall_write_record(const char *boot) {
+    uint8_t *rec = 0;
+    size_t size = 0;
+    if (ufile_slurp(UINSTALL_PAYLOAD "/core.modules", 0, &rec, &size) != UFILE_OK) return -1;
+    char path[96];
+    snprintf(path, sizeof path, "%s/grub", boot);
+    if (mkdir(path, 0755) < 0 && sys_errno() != EEXIST) { free(rec); return -1; }
+    snprintf(path, sizeof path, "%s/grub/core.modules", boot);
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    long n = fd >= 0 ? write(fd, rec, size) : -1;
+    if (fd >= 0) close(fd);
+    free(rec);
+    return n == (long)size ? 0 : -1;
 }
 
 // A whole file into a fresh buffer; the caller frees it. boot.img is 512

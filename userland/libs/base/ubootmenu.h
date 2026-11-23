@@ -41,8 +41,6 @@ struct ubootmenu {
     const char *why_not;
 };
 
-#define UBOOTMENU_CORE_STAMP "/etc/grub-core.modules"   // `install` writes it
-
 // Read the menu from `cfg` (NULL: UBOOTMENU_CFG) and any pending choice
 // from the environment block beside it. Only TOP-LEVEL menuentries count,
 // in order -- what GRUB numbers from 0. Returns the count, or -1 when the

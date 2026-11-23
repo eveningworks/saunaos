@@ -26,6 +26,7 @@
 | `ubootlayout.h` | Where GRUB's files are on the boot volume, and the one-time move from the layout before this one. |
 | `ubootmenu.h` | GRUB's menu, read from its grub.cfg, and the ONE-SHOT choice of which entry the next boot takes -- `grub-reboot`'s mechanism, for `reboot --entry` and the Leave page's "Restart into". |
 | `ubootmode.h` | The screen size GRUB sets at boot, for a display SaunaOS cannot set itself -- a VESA framebuffer on a card with no driver here (an RTX on a BIOS boot). |
+| `ubootrefresh.h` | THE BOOT LOADER, REWRITTEN IN PLACE -- `grub-install` on a machine that is already installed -- and whether it is worth doing: what `install --bootloader` runs and what System Update offers. |
 | `ubootwords.h` | The kernel's boot words, as a table: GENERATED from docs/boot-flags.md (tools/gen/gen_bootwords.py), which is the only list of them -- the kernel matches its command line by substring and keeps no... |
 | `ubulk.h` | ubulk -- records of any size, up to UBULK_REC_MAX, between two ring-3 processes: a uchan channel for the doorbells, the discovery and the death of a client, and beside each client's uchan ring ONE... |
 | `ubytes.h` | Little-endian fields out of a byte buffer, and a read at an offset that does not come back short -- what every parser of an on-disk format here starts by writing (zip, WAD, RIFF/WAV, SoundFont). |

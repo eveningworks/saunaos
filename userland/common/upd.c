@@ -19,6 +19,7 @@
 #include "base/ubootlayout.h"
 #include "base/ucomponent.h"
 #include "base/ubootcfg.h"
+#include "base/ubootrefresh.h"
 #include "base/human.h"
 #include "version.h"     // SAUNAOS_BUILD_ID, generated -- tools/build/gen_version.sh
 
@@ -30,7 +31,6 @@ static char g_boot_path[3][40];
 #define KERNEL_PATH  boot_path(0, "kernel.bin")
 #define KERNEL_OLD   boot_path(1, "kernel.old")
 #define GRUB_CFG     boot_path(2, "grub/grub.cfg")
-#define GRUB_MODULES "/etc/grub-core.modules"
 #define DEFAULT_SERVER "http://10.0.2.2:8080"
 
 static int g_log_fd = -1;
@@ -128,17 +128,6 @@ static int mkdir_parents(const char *path) {
     return 0;
 }
 
-static int file_contains(const char *path, const char *needle) {
-    static char buf[4096];
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) return 0;
-    long n = read(fd, buf, sizeof buf - 1);
-    close(fd);
-    if (n <= 0) return 0;
-    buf[n] = '\0';
-    return strstr(buf, needle) != 0;
-}
-
 static void staged_name(const struct upd_file *f, char *out, size_t cap) {
     if (f->flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ)) snprintf(out, cap, "%s", UPD_KERNEL_STAGED);
     else snprintf(out, cap, "%s%s", f->path, UPDATE_STAGED_SUFFIX);
@@ -169,11 +158,14 @@ static int boot_mount(int writable) {
     }
 }
 
-// Which kernel image this machine's GRUB can load. `install
-// --bootloader` records the core image's modules; no record means the
-// ELF, which every GRUB reads (remote.py flash makes the same call).
+// Which kernel image this machine's GRUB can load, from the record of
+// what its core carries (base/ubootrefresh.h); no record means the ELF,
+// which every GRUB reads (remote.py flash makes the same call).
 static unsigned kernel_variant(void) {
-    return file_contains(GRUB_MODULES, "gzio") ? UPD_F_KERNEL_GZ : UPD_F_KERNEL;
+    char *rec = ubootrefresh_record();
+    unsigned v = ubootrefresh_has(rec, "gzio") ? UPD_F_KERNEL_GZ : UPD_F_KERNEL;
+    free(rec);
+    return v;
 }
 
 // ---- the manifest ---------------------------------------------------------

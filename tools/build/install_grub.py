@@ -412,6 +412,25 @@ def grub_version(mkimage):
     return _run([mkimage, "--version"]).strip()
 
 
+def core_record(mkimage, modules=None):
+    """WHAT A CORE IMAGE CARRIES, as the record the machine keeps beside it.
+
+    Line one is the module list, line two `grub-version=<GRUB's own
+    version>` without the packager's epoch ("2:2.16-1.1" -> "2.16-1.1").
+    core.img lives in raw sectors nothing can open, and is lzma-compressed
+    besides, so this is the only readable account of what the boot loader
+    on a disk can do: System Update offers a refresh when the staged
+    record (/install/core.modules) differs from the disk's
+    (/boot/grub/core.modules), and `remote.py flash` and the updater send a
+    gzipped kernel only where it names `gzio`. `modules` defaults to
+    CORE_MODULES, read at call time so a test's patched list is recorded.
+    """
+    ver = grub_version(mkimage).split()[-1]
+    ver = ver.split(":", 1)[-1]
+    mods = CORE_MODULES if modules is None else modules
+    return " ".join(mods) + "\n" + f"grub-version={ver}\n"
+
+
 def _mdir_names(disk, esp, path):
     """Names in a directory of the volume, or [] when it is not there."""
     mdir = _tool("mdir")
@@ -520,15 +539,11 @@ def stage_payload(outdir, kernel, grub_cfg, verbose=True):
               "UEFI loader, so what it installs boots on BIOS/CSM only")
     shutil.copyfile(kernel, os.path.join(outdir, "kernel.bin"))
     shutil.copyfile(grub_cfg, os.path.join(outdir, "grub.cfg"))
-    # WHAT THIS CORE IMAGE CAN DO, as a line of module names. `install
-    # --bootloader` copies it to /etc/grub-core.modules on the machine it
-    # writes, which is the only readable record of what the bootloader in
-    # the embed area is -- core.img lives in raw sectors nothing can open,
-    # and it is lzma-compressed, so its module set cannot be recovered by
-    # looking. `remote.py flash` reads that stamp before it dares send a
-    # gzipped kernel, which GRUB unpacks only with `gzio` present.
+    # WHAT THIS CORE IMAGE CAN DO (core_record()). Whatever writes this
+    # core onto a disk copies the record to that disk's
+    # /boot/grub/core.modules beside it.
     with open(os.path.join(outdir, "core.modules"), "w") as f:
-        f.write(" ".join(CORE_MODULES) + "\n")
+        f.write(core_record(mkimage))
     # WHERE THESE CORE IMAGES LOOK FOR grub.cfg. `install --bootloader`
     # refuses to move a machine's /boot/boot up to /boot unless this says
     # the staged images read the flat layout -- writing a core whose
@@ -657,6 +672,12 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
     # SYS_INSTALL_BOOT applies them.
     mcopy_into(disk, esp, [os.path.join(mods, "boot.img"), core_path],
                f"{top}/grub/i386-pc/")
+    # ...and what that core carries, beside it (core_record()). Rewritten
+    # with the core on every run, so it cannot drift from the sectors.
+    record_path = os.path.join(os.path.dirname(os.path.abspath(kernel)), "core.modules")
+    with open(record_path, "w") as f:
+        f.write(core_record(mkimage))
+    mcopy_into(disk, esp, [record_path], f"{top}/grub/core.modules")
 
     # ---- 4. the UEFI loader, as a file in the ESP -------------------
     #

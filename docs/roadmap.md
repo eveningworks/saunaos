@@ -24,7 +24,6 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] System Update offers the boot-loader refresh when the installed one is older than the staged one -- by hand today  *(Storage hardening)*
 - [ ] A screen-size trial tells "GRUB set no mode at all" from "this size was refused"  *(virtio, and a real GPU driver)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
@@ -491,7 +490,7 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~A blank disk on a higher-precedence controller takes the root~~ DONE 2026-10-07 -- `bootpart=`, else the first bootable disk
 - [x] ~~Host-seeded images share PARTUUIDs~~ DONE 2026-10-07 -- random GUIDs per image; `regenerate_guids()` for a copy
 - [x] ~~An installed machine cannot gain `bootpart=`~~ DONE 2026-10-07 -- `install --bootloader confirm` adds it
-- [ ] **NEXT** System Update offers the boot-loader refresh when the installed one is older than the staged one -- by hand today
+- [x] ~~System Update offers the boot-loader refresh~~ DONE 2026-11-23 -- an info bar, `base/ubootrefresh.h`
 - [x] ~~A TFS3 test reaching double- and triple-indirect addressing~~ done -- sparse writes make it a KTEST
 - [x] ~~`root=` names the device to mount as the root~~ DONE 2026-08-27 -- every driver enumerates into a device table (`lsblk`)
 - [x] ~~A `ramfs` backend -- a real in-memory filesystem, the root wherever there is no usable drive~~ done

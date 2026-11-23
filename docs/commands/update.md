@@ -174,7 +174,23 @@ or a timeout that is not a plain number, or has no entry booting
 MENU=1` gives it one. `install` gives every target a 3-second one; a
 machine installed before it did needs `bootcfg timeout 3` once. The
 gzipped kernel is sent instead of the ELF when this machine's GRUB
-records `gzio` (`/etc/grub-core.modules`).
+records `gzio` (`/boot/grub/core.modules`, `docs/commands/install.md`).
+
+**A newer boot loader is said, never written.** An update replaces files
+and the kernel, never GRUB's core image -- the one write that decides
+whether the machine boots. When the staged boot loader differs from this
+disk's, the run ends with
+
+    update: a newer boot loader is staged (adds videoinfo, GRUB 2.12-1 -> 2.16-1.1) -- `install --bootloader confirm` writes it
+
+"different" in place of "newer" when the staged GRUB is older or drops a
+module (a channel gone back), and on a disk with no record of its GRUB at
+all, `update: this disk's boot loader may be out of date (nothing records
+what it carries) ...`. When the update waits for a restart, the payload
+in `/install` waits with it, so the line says the boot loader "comes with
+this update" and is written "after the restart" -- `install
+--bootloader` refuses until then rather than write the old core. The
+System Update window offers the same as a bar with its own button.
 
 **Room is checked before anything is fetched**: each volume needs the
 new files' whole size free beside the old ones (`/boot` the new

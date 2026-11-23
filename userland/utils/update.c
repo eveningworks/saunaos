@@ -15,6 +15,7 @@
 #include "base/umd.h"
 #include "base/upager.h"
 #include "common/upd.h"
+#include "base/ubootrefresh.h"
 
 #define USAGE "update [--check] [-v] [--go-back] [--from <url>] | --server [<url>] | --channel [<name>] | --channels | --log"
 
@@ -24,6 +25,25 @@ struct cli {
     int verbose;
     long last_ms;     // when it was last redrawn: a few times a second is plenty
 };
+
+// A NEWER BOOT LOADER, said and never written: an update replaces files,
+// and GRUB's core is the one write that decides whether the machine boots
+// (base/ubootrefresh.h). System Update offers the same as a button.
+static void boot_loader_note(void) {
+    struct ubootrefresh_offer o;
+    ubootrefresh_offer(&o);
+    char what[200];
+    ubootrefresh_offer_detail(&o, what, sizeof what);
+    if (o.kind == UBOOTREFRESH_NEWER || o.kind == UBOOTREFRESH_DIFFERENT)
+        printf("update: a %s boot loader %s%s%s%s -- %s`install --bootloader confirm` writes it\n",
+               o.kind == UBOOTREFRESH_NEWER ? "newer" : "different",
+               o.pending ? "comes with this update" : "is staged",
+               what[0] ? " (" : "", what, what[0] ? ")" : "", o.pending ? "after the restart, " : "");
+    else if (o.kind == UBOOTREFRESH_UNKNOWN)
+        printf("update: this disk's boot loader may be out of date (nothing records what it "
+               "carries) -- `install --bootloader confirm` writes the current one\n");
+    ubootrefresh_offer_free(&o);
+}
 
 static long now_ms(void) { return (long)(sys_monotonic_ns() / 1000000ULL); }
 
@@ -208,6 +228,7 @@ int main(int argc, char **argv) {
         printf("update: nothing can be installed: %s (docs/commands/update.md)\n", p.blocked_why);
     if (!p.changed && !p.removals) {
         printf("update: up to date\n");
+        boot_loader_note();
         upd_plan_free(&p);
         return 0;
     }
@@ -230,6 +251,7 @@ int main(int argc, char **argv) {
     clear_live(&c);
     if (p.at_boot || p.kernel_installed)
         printf("update: restart to finish (`reboot`)\n");
+    if (rc == 0) boot_loader_note();
     upd_plan_free(&p);
     return rc == 0 ? 0 : 1;
 }

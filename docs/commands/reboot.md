@@ -80,7 +80,7 @@ Restart; `tools/dev/remote.py reboot --entry` does it from the dev host.
 
 It refuses, rather than reboot into the default while claiming
 otherwise, when this machine's GRUB could not honour the choice: a
-`grub.cfg` without the stanza, or a core image `/etc/grub-core.modules`
+`grub.cfg` without the stanza, or a core image `/boot/grub/core.modules`
 records without `loadenv`. `install --bootloader confirm` fixes the
 second; the first needs the stanza from the repo's `grub.cfg`.
 

@@ -174,7 +174,7 @@ imported from `remote.py`'s `USERLAND_TREES` so push and pull agree),
 setup's marker, so an UPDATED machine counts as set up and never shows the
 new-machine wizard), and `kernel` / `kernel-gz` with a `src=` -- the kernel is listed as the
 ELF and the gzipped image, and the client picks by what its own GRUB
-records (`/etc/grub-core.modules`), as `remote.py flash` does. The
+records (`/boot/grub/core.modules`), as `remote.py flash` does. The
 server GENERATES it from `seed/sync` per request and answers 503 while
 the staging tree is older than the build.
 
@@ -282,3 +282,14 @@ snapshots make `--promote` the rollback.
 holds it (`component=<id>`), a machine's removed ones are left out of
 every check and never stale, and `<channel>/builds/<commit>/` serves one
 kept build so `component add` fetches at the machine's own build.
+
+**The boot loader is offered, never installed** (2026-11-23,
+`base/ubootrefresh.h`). An update carries the staged GRUB in `/install`
+like any file, but writing it to the disk's sectors is the one write that
+decides whether the machine boots, so it is a step of its own: a record
+beside the core (`/boot/grub/core.modules`, its modules and GRUB's version)
+is compared with the staged one, and any difference -- or no record --
+gives `update` a closing line and System Update a bar with "Update boot
+loader...", which asks with what it writes. fwupd's shape (firmware as a
+separate update you choose), not Debian's `grub-install` on every GRUB
+upgrade. `docs/decisions/build.md` has why the record moved off `/etc`.

@@ -253,11 +253,26 @@ bootloader it already has. The boot sector — the one write that decides what
 runs — is last, and the disk's own partition table bytes at 0x1b8 are preserved
 through it.
 
-It records what it installed in **`/etc/grub-core.modules`**, one line of GRUB
-module names. That stamp is the only readable record of what the installed
-bootloader can do: `core.img` lives in raw sectors nothing can open and is
-lzma-compressed besides. `tools/dev/remote.py flash` reads it to decide whether this
-machine can be sent a compressed kernel.
+It records what it installed in **`/boot/grub/core.modules`**, beside the core:
+a line of GRUB module names, then `grub-version=` and GRUB's version. That
+record is the only readable account of what the installed bootloader can do:
+`core.img` lives in raw sectors nothing can open and is lzma-compressed
+besides. Whatever writes GRUB writes the record too -- this refresh, the full
+installer onto its target, and `install_grub.py` onto an image built on the
+host -- and an update never writes `/boot/grub`, so it cannot drift from the
+sectors. `tools/dev/remote.py flash` and `update` read it to decide whether this
+machine can be sent a compressed kernel; a machine refreshed before the record
+moved has it at `/etc/grub-core.modules`, which is read when the new one is
+missing and deleted by the next refresh.
+
+**When to run it is said for you.** The staged record,
+`/install/core.modules`, arrives with every update; when it differs from this
+disk's -- a module added, or a different GRUB -- or this disk has none,
+`update` ends with a line naming this command, the System Update window shows
+an "Update boot loader..." bar that runs the same steps after asking, and the
+dry run above adds a line saying what is new:
+
+      adds           videoinfo
 
 ## Moving `/boot/boot` up to `/boot`
 

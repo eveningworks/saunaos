@@ -2190,6 +2190,17 @@ from the default (a sound card, a USB mouse, `--reboot`).
   same box with no dialog, since the layout log repeats nothing
   unchanged), and a recent row plus Use saves and checks. Puts the guest
   back on main after. In `gui_regress.py`.
+- **`sysupdate_bootloader_test.py`** -- System Update's boot-loader
+  offer (`base/ubootrefresh.h`): a fresh image's record is the staged one
+  (by `sum`), so the bar is hidden; an OLDER record planted on `/boot`
+  makes the window log "newer" and DRAW the bar (accent pixels in its
+  reported rect); its button, found by `uui_infobar`'s describe op, opens
+  the confirm dialog; Update boot loader writes it -- the app says
+  "written", the kernel logs `boot sector written`, and the record now
+  matches the staged one by `sum`; a second window offers nothing. Needs
+  no server (a closed port fails the check at once).
+  `--positive-control` plants nothing and must go red. In
+  `gui_regress.py`.
 - **`sysupdate_test.py`** -- the System Update window
   (`userland/apps/system/sysupdate/sysupdate.c`) against `update_server.py`'s handler
   in-process on an ephemeral port, THROTTLED so an install has a middle:

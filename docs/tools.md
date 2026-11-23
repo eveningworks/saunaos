@@ -259,6 +259,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `start_settings_test.py` -- the Start menu's settings (Desktop > Start)
 - `switcher_test.py` -- Alt+Tab (userland/apps/system/toywm/wm_switcher.h): the
 - `sync_test.py` -- `gui sync` and settle(): after a click and settle(), the frame the click caused is ALREADY on the screen
+- `sysupdate_bootloader_test.py` -- System Update offers a newer boot loader, asks, and writes it
 - `sysupdate_channels_test.py` -- System Update's channels: one server address, the server's own list
 - `sysupdate_test.py` -- System Update: it finds what changed, shows the install, and installs it
 - `tabs_gui_test.py` -- Tabs in the File Manager's title bar: drawn by the compositor

@@ -20,6 +20,12 @@
 // its channel list WITHOUT changing a setting -- Ubuntu's "Select Best
 // Server" shape -- so a typo is found before Use.
 //
+// A NEWER BOOT LOADER is an info bar under the server row, with its own
+// Update boot loader... (the B1 mockup, 2026-11-23): an update never
+// rewrites GRUB's core, and doing so silently would make the one write
+// that decides whether the machine boots a side effect
+// (base/ubootrefresh.h). It asks first, saying what is written.
+//
 // THREADS: a check or an install runs on a worker, which owns the plan
 // while it runs and talks to this thread ONLY through uapp_post() and
 // the log queue below. Everything drawn is touched here.
@@ -42,21 +48,23 @@
 #include "ui/uui_tabs.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_choicelist.h"
+#include "ui/uui_infobar.h"
+#include "base/ubootrefresh.h"
 #include "base/ulog.h"
 #include "base/ugrow.h"
 #include "ui/utheme.h"
 #include "common/upd.h"
 
 enum { EV_LOG = 1, EV_PROGRESS, EV_DONE, EV_WEB };
-enum { JOB_NONE, JOB_CHECK, JOB_APPLY, JOB_TEST };
+enum { JOB_NONE, JOB_CHECK, JOB_APPLY, JOB_TEST, JOB_BOOT };
 
 enum {
     ID_CHANGE = 1, ID_SERVER_EDIT, ID_TEST, ID_SERVERS,
     ID_TABLE, ID_LOGVIEW, ID_TABS, ID_NOTES, ID_CHECK, ID_MAIN, ID_CHANNEL, ID_DIALOG,
-    ID_CHOICES,
+    ID_CHOICES, ID_BOOTBAR,
 };
 // What the two dialogs answer.
-enum { DLG_CANCEL = 1, DLG_USE, DLG_WAIT, DLG_BACK };
+enum { DLG_CANCEL = 1, DLG_USE, DLG_WAIT, DLG_BACK, DLG_BOOT };
 enum { PAGE_NOTES, PAGE_FILES, PAGE_LOG, PAGE_COUNT };
 
 // What the window is showing, which decides the heading and the buttons.
@@ -100,6 +108,12 @@ static enum view g_view = V_CHECKING;
 static char g_title_text[64], g_detail_text[200], g_amount_text[64], g_rate_text[64];
 static struct uui_label g_title, g_detail, g_server_key, g_server_val, g_amount, g_rate, g_spacer;
 static struct uui_label g_chan_key, g_chan_val;
+// The boot loader's bar: what is offered, and what the last write did.
+static struct uui_infobar g_boot_bar;
+static char g_boot_text[200];
+static struct ubootrefresh_plan g_boot_plan;   // the worker reads it during JOB_BOOT
+static int g_boot_rc;                          // JOB_BOOT's answer
+static int g_boot_done;                        // 1 written, -1 failed or refused, 0 neither yet
 static char g_chan_text[40];
 static struct uui_button g_change, g_check, g_main, g_chan_btn;
 static char g_main_label[48];
@@ -232,6 +246,8 @@ static struct uui_item g_items[] = {
     { .ops = &uui_label_ops,    .widget = &g_title, .name = "title" },
     { .ops = &uui_label_ops,    .widget = &g_detail, .name = "detail", .flags = UUI_FILL_W },
     { .ops = &uui_layout_ops,   .widget = &g_server_row, .flags = UUI_FILL_W },
+    { .ops = &uui_infobar_ops,  .widget = &g_boot_bar, .id = ID_BOOTBAR, .name = "bootbar",
+      .flags = UUI_FILL_W, .hidden = 1 },
     { .ops = &uui_progress_ops, .widget = &g_bar, .name = "bar", .flags = UUI_FILL_W },
     { .ops = &uui_layout_ops,   .widget = &g_amount_row, .flags = UUI_FILL_W },
     { .ops = &uui_layout_ops,   .widget = &g_page, .flags = UUI_FILL_W | UUI_FILL_H },
@@ -287,6 +303,9 @@ static void *worker(void *arg) {
         g_test_err[0] = 0;
         g_test_rc = upd_channels_fetch(g_test_url, &g_test_chs, g_test_err, sizeof g_test_err);
         g_test_ns = sys_monotonic_ns() - t0;
+    } else if (job == JOB_BOOT) {
+        w_log(0, "Updating the boot loader");
+        g_boot_rc = ubootrefresh_run(&g_boot_plan, w_log, 0);
     } else if (job == JOB_CHECK) {
         upd_plan_free(&g_plan);
         char err[200] = "";
@@ -313,7 +332,7 @@ static void start_job(struct uapp *a, int job) {
     if (g_job != JOB_NONE) return;
     g_job = job;
     g_cancel = 0;
-    g_view = job == JOB_CHECK ? V_CHECKING : V_INSTALLING;
+    if (job != JOB_BOOT) g_view = job == JOB_CHECK ? V_CHECKING : V_INSTALLING;
     if (job == JOB_APPLY) g_apply_start_ns = sys_monotonic_ns();
     if (job == JOB_CHECK) {
         g_row_count = 0;
@@ -322,8 +341,102 @@ static void start_job(struct uapp *a, int job) {
     if (uapp_thread_start(a, NULL, worker, (void *)(long)job) != 0) {
         worker((void *)(long)job);   // no thread: the window freezes for it, but it still works
     }
-    ulogf("sysupdate: %s started\n", job == JOB_CHECK ? "check" : "install");
+    ulogf("sysupdate: %s started\n", job == JOB_CHECK ? "check" : job == JOB_BOOT ? "boot loader" : "install");
     refresh(a);
+}
+
+// ---- the boot loader ----------------------------------------------------------
+
+// The bar from the records (base/ubootrefresh.h), after anything that may
+// have changed them. A write's result stays up until the window closes.
+static void boot_offer(void) {
+    if (g_boot_done == 1) return;
+    struct ubootrefresh_offer o;
+    ubootrefresh_offer(&o);
+    char what[sizeof g_boot_text - 64];
+    ubootrefresh_offer_detail(&o, what, sizeof what);
+    // A failure stays up, saying so, whatever the records say now.
+    int shown = g_boot_done < 0 || o.kind != UBOOTREFRESH_SAME;
+    for (unsigned i = 0; i < sizeof g_items / sizeof g_items[0]; i++)
+        if (g_items[i].widget == &g_boot_bar) g_items[i].hidden = !shown;
+    g_boot_bar.error = g_boot_done < 0;
+    // Pending: the update waiting for the restart brings it, and nothing
+    // can be written before then -- said, with no button.
+    g_boot_bar.action.label = o.pending && g_boot_done >= 0 ? 0 : "Update boot loader...";
+    const char *kind = o.kind == UBOOTREFRESH_NEWER ? "newer" : "different";
+    if (g_boot_done < 0) {
+        // g_boot_text already says why (job_done(), open_boot_dialog())
+    } else if (o.kind == UBOOTREFRESH_UNKNOWN) {
+        snprintf(g_boot_text, sizeof g_boot_text,
+                 "This disk's boot loader may be out of date: nothing records what it carries");
+    } else if (o.pending) {
+        snprintf(g_boot_text, sizeof g_boot_text, "A %s boot loader comes with this update%s%s%s: "
+                 "restart, then update it here", kind, what[0] ? " (" : "", what, what[0] ? ")" : "");
+    } else if (o.kind != UBOOTREFRESH_SAME) {
+        snprintf(g_boot_text, sizeof g_boot_text, "A %s boot loader is available%s%s",
+                 o.kind == UBOOTREFRESH_NEWER ? "newer" : "different", what[0] ? ": " : "", what);
+    }
+    ulogf("sysupdate: boot loader offer %s%s '%s' (%s -> %s)\n",
+          o.kind == UBOOTREFRESH_NEWER ? "newer" : o.kind == UBOOTREFRESH_DIFFERENT ? "different"
+          : o.kind == UBOOTREFRESH_UNKNOWN ? "unknown" : "same", o.pending ? " pending" : "",
+          what, o.installed ? o.installed : "-", o.version ? o.version : "-");
+    ubootrefresh_offer_free(&o);
+}
+
+static void open_dialog(struct uapp *a, const char *title, int rows,
+                        const struct uui_dialog_button *b, int n, int dflt);
+
+// What a refresh writes, asked once: `install --bootloader`'s dry run.
+static char g_boot_line[UUI_DIALOG_ROWS][200];
+static const char *g_boot_rows[UUI_DIALOG_ROWS];
+
+static void open_boot_dialog(struct uapp *a) {
+    if (g_job != JOB_NONE) return;
+    const char *no = ubootrefresh_plan(&g_boot_plan);
+    if (no) {
+        ulogf("sysupdate: boot loader refused: %s\n", no);
+        g_boot_done = -1;
+        snprintf(g_boot_text, sizeof g_boot_text, "The boot loader cannot be updated: %s", no);
+        boot_offer();
+        refresh(a);
+        return;
+    }
+    const struct ubootrefresh_plan *p = &g_boot_plan;
+    int n = 0;
+    snprintf(g_boot_line[n++], sizeof g_boot_line[0], "%sGRUB is rewritten in place (%s layout):",
+             p->legacy ? "/boot/boot moves up to /boot, then " : "", p->mbr ? "MBR" : "GPT");
+    snprintf(g_boot_line[n++], sizeof g_boot_line[0],
+             "Boot sector: LBA 0, keeping this disk's partition table");
+    snprintf(g_boot_line[n++], sizeof g_boot_line[0], "Core image: %s", p->core);
+    if (p->has_efi)
+        snprintf(g_boot_line[n++], sizeof g_boot_line[0], "UEFI loader: /boot/EFI/BOOT/BOOTX64.EFI");
+    if (p->cfg_missing > 0)
+        snprintf(g_boot_line[n++], sizeof g_boot_line[0], "grub.cfg: bootpart= added to %d entr%s",
+                 p->cfg_missing, p->cfg_missing == 1 ? "y" : "ies");
+    else if (p->cfg_missing < 0)
+        snprintf(g_boot_line[n++], sizeof g_boot_line[0], "grub.cfg: cannot be read, left as it is");
+    struct ubootrefresh_offer o;
+    ubootrefresh_offer(&o);
+    char what[sizeof g_boot_line[0] - 16];
+    ubootrefresh_offer_detail(&o, what, sizeof what);
+    if (what[0]) snprintf(g_boot_line[n++], sizeof g_boot_line[0], "This one %s", what);
+    else if (o.kind == UBOOTREFRESH_UNKNOWN)
+        snprintf(g_boot_line[n++], sizeof g_boot_line[0], "Nothing records what this disk's GRUB carries");
+    ubootrefresh_offer_free(&o);
+    for (int i = 0; i < n; i++) g_boot_rows[i] = g_boot_line[i];
+    static const struct uui_dialog_button b[] = {
+        { "Cancel", DLG_CANCEL, 0 }, { "Update boot loader", DLG_BOOT, UUI_DLG_PRIMARY },
+    };
+    static char title[64];
+    snprintf(title, sizeof title, "Update the boot loader on %s?", p->disk);
+    uui_dialog_set_bounds(&g_dlg, 0, 0, uapp_width(a), uapp_height(a));
+    uui_dialog_open(&g_dlg, title, g_boot_rows, n, b, 2, 1, DLG_CANCEL);
+    uui_dialog_set_note(&g_dlg, "Partitions and files are untouched. The core image is read back "
+                        "before the boot sector is written, so a failed write leaves the boot "
+                        "loader this disk has now.");
+    g_log_dialog = 1;
+    ulogf("sysupdate: boot loader dialog, %d rows\n", n);
+    uapp_redraw(a);
 }
 
 // ---- presenting --------------------------------------------------------------
@@ -575,6 +688,7 @@ static void refresh(struct uapp *a) {
     set_button(&g_check, "Check again", !busy);
     set_button(&g_change, "Change server...", !busy);
     set_button(&g_chan_btn, "Change channel...", !busy && g_chs.count > 0);
+    if (g_boot_bar.action.label) set_button(&g_boot_bar.action, "Update boot loader...", !busy);
     switch (g_view) {
     case V_CHECKING: case V_INSTALLING: set_button(&g_main, "Cancel", 1); break;
     case V_AVAILABLE:
@@ -592,6 +706,8 @@ static void refresh(struct uapp *a) {
     case V_RESTART:                     set_button(&g_main, "Restart now", 1); break;
     default:                            set_button(&g_main, "Install", 0); break;
     }
+    // Nothing else may run while GRUB is written -- least of all a restart.
+    if (g_job == JOB_BOOT) g_main.disabled = 1;
     uui_table_set_rows(&g_table, g_row_count);
     if (g_row_count) snprintf(g_files_label, sizeof g_files_label, "Files (%d)", g_row_count);
     else snprintf(g_files_label, sizeof g_files_label, "Files");
@@ -616,6 +732,23 @@ static void job_done(struct uapp *a, int job) {
     g_job = JOB_NONE;
     if (job == JOB_TEST) {
         test_done(a);
+        return;
+    }
+    if (job == JOB_BOOT) {
+        g_boot_done = g_boot_rc == 0 ? 1 : -1;
+        if (g_boot_done > 0) {
+            snprintf(g_boot_text, sizeof g_boot_text,
+                     "Boot loader updated: %s starts the new GRUB from the next restart",
+                     g_boot_plan.disk);
+            g_boot_bar.action.label = 0;
+            g_boot_bar.error = 0;
+        } else {
+            snprintf(g_boot_text, sizeof g_boot_text,
+                     "The boot loader was not updated, and this disk still starts the one it had (see Log)");
+            boot_offer();
+        }
+        ulogf("sysupdate: boot loader %s\n", g_boot_done > 0 ? "written" : "NOT written");
+        refresh(a);
         return;
     }
     if (job == JOB_CHECK) {
@@ -647,6 +780,7 @@ static void job_done(struct uapp *a, int job) {
           g_plan.changed, g_plan.removals, g_plan.at_boot, g_job_rc == 0 ? "ok" : "failed");
     ulogf("sysupdate: notes %d hood %d quiet %d since %d\n", g_plan.notes_count,
           g_plan.notes_hood, g_plan.notes_quiet, g_plan.notes_since);
+    boot_offer();
     refresh(a);
     uapp_log_layout(a, "sysupdate");   // the tab slots, for a test to click (ui/uui_describe.h)
 }
@@ -922,6 +1056,8 @@ static void dialog_answer(struct uapp *a, int code) {
     if (chooser) {
         int r = g_choices.selected;
         if (code == DLG_USE && r >= 0 && r < g_choices.count) channel_chosen(a, g_choice_row[r].ch);
+    } else if (code == DLG_BOOT) {
+        start_job(a, JOB_BOOT);
     } else if (g_back_to >= 0 && (code == DLG_WAIT || code == DLG_BACK)) {
         check_channel(a, g_back_to, code == DLG_BACK);
         g_back_to = -1;
@@ -941,6 +1077,11 @@ static void on_widget(struct uapp *a, int id, int reason) {
     if (id == ID_DIALOG) {
         int code = uui_dialog_take_code(&g_dlg);
         if (code > 0) dialog_answer(a, code);
+        uapp_redraw(a);
+        return;
+    }
+    if (id == ID_BOOTBAR) {
+        if (reason == UUI_REASON_RELEASE && uui_infobar_take(&g_boot_bar) == 1) open_boot_dialog(a);
         uapp_redraw(a);
         return;
     }
@@ -970,6 +1111,7 @@ static void on_action(struct uapp *a, int code) {
     case ID_TEST:        start_test(a); break;
     case ID_CHECK:       start_job(a, JOB_CHECK); break;
     case ID_MAIN:
+        if (g_job == JOB_BOOT) break;   // greyed; a click already queued lands here
         if (g_view == V_CHECKING || g_view == V_INSTALLING) g_cancel = 1;
         else if (g_view == V_AVAILABLE) start_job(a, JOB_APPLY);
         else if (g_view == V_WAITING) { g_go_back = 1; start_job(a, JOB_APPLY); }
@@ -1039,6 +1181,7 @@ static void on_open(struct uapp *a) {
     g_app = a;
     g_tabs.ctx = a;
     if (g_web_on && uui_webview_setup(a, EV_WEB) != 0) ulogf("sysupdate: no page channel\n");
+    boot_offer();   // from the records alone: no server needed
     start_job(a, JOB_CHECK);
 }
 
@@ -1058,6 +1201,7 @@ int main(void) {
     g_chan_btn.outlined = 1;
     uui_dialog_init(&g_dlg);
     g_chs.chosen = g_chs.dflt = -1;
+    uui_infobar_init(&g_boot_bar, "tb-info", g_boot_text, "Update boot loader...");
     uui_label_init(&g_amount, g_amount_text);
     uui_label_init(&g_rate, g_rate_text);
     uui_label_init(&g_spacer, "");
