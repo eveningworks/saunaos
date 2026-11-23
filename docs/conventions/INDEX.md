@@ -273,14 +273,16 @@ whenever a headline here tells you something you did not already know.
   `bkl_drop_all()` before a hand-rolled `iretq`; contexts start through
   `proc_start_context()`; no spinlock across a sleep; the paranoid
   vectors from ring 0 take no lock
-- **RUN STATE IS WRITTEN UNDER THE SCHEDULER LOCK, WHICH COMES AFTER
-  THE KERNEL LOCK** -- a check-then-act on another thread's state holds
-  it across both halves; never wait for the kernel lock holding it; a
-  wake, an arm and a park's last test meet on the channel's CHAIN lock,
-  taken after it, one at a time, and empty before the scheduler starts; a
-  switch is entered holding it once and returns without it; a READY
-  context may still be live on a core; a declined lock-free path changed
-  nothing
+- **RUN STATE IS WRITTEN UNDER A CORE'S QUEUE LOCK AND THE SLOT'S OWN,
+  AFTER THE KERNEL LOCK** -- kernel lock, chain, pi_lock, queue(s),
+  rt_lock; who may write what is `sched_rq.c`'s; a thread group is FROZEN
+  before it is counted, and "is it running" is read under its locks;
+  never wait for the kernel lock holding one; a wake holds its chain while
+  it wakes, and goes back to a core still on the slot's stack; a switch is
+  entered holding this core's queue lock and returns without it; an RT
+  pick holds rt_lock until claimed; a READY context may still be live on a
+  core; a declined lock-free path changed nothing but a steal; a KTEST
+  slot is core 0's, and no process is; the debug build checks every switch
 - **A LOCK INSIDE A STRUCT IS NAMED WHERE IT IS SET UP, AND TWO OF ONE
   CLASS NEST ONLY ANNOTATED** -- `kmutex_name()`/`spin_lock_name()`
   before the first take, a static needs none; same-class nesting through

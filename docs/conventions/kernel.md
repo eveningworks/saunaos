@@ -1526,57 +1526,84 @@ through `switch_to()`.
   working, not leaking.
 
 
-## RUN STATE IS WRITTEN UNDER THE SCHEDULER LOCK, WHICH COMES AFTER THE KERNEL LOCK
+## RUN STATE IS WRITTEN UNDER A CORE'S QUEUE LOCK AND THE SLOT'S OWN, AFTER THE KERNEL LOCK
 
-`sched_lock()`/`sched_unlock()` (`kernel/proc/sched_internal.h`; SMP
-stage 7, `docs/smp-design.md`): one spinlock for the run queue --
-`procs[].state`, `stopped`, what the pick reads and the globals it
-writes, and which slot each core runs -- because an AP may now switch
-contexts holding it and NOT the kernel lock.
+There is no global scheduler lock (since stage 7's 2b, `docs/smp-design.md`):
+each core has a run queue (`struct sched_rq`, `kernel/proc/sched_rq.c`) with
+a lock, the realtime class one global list under `rt_lock`, and each slot a
+`pi_lock` -- Linux's rq lock, `p->pi_lock` and `task_rq_lock()`.
 
-- **A CHECK-THEN-ACT ON ANOTHER THREAD'S RUN STATE HOLDS IT ACROSS BOTH
-  HALVES**: "it is READY, so free it", "it is not on another core, so
-  zombify it", "set the pending bit, then kick it if it runs elsewhere"
-  (`scheduler_kill()`, `group_release_threads_but()`,
-  `scheduler_signal_raise()`). Under the kernel lock alone, a core
-  switching it in without that lock starts it between the two.
-- **ORDER: THE KERNEL LOCK, THEN THIS ONE, NEVER THE REVERSE.** A
-  lock-free path that finds it needs the kernel lock DECLINES and goes
-  the ordinary way, or lets this one go and takes the kernel lock first
-  (a lock-free park switching into a context that holds it,
-  `bkl_take_for_switch()`); it never waits for the kernel lock holding
-  this.
-- **A WAKE, AN ARM AND A PARK'S LAST "WAS I WOKEN?" MEET ON THE
-  CHANNEL'S CHAIN LOCK** (`kernel/proc/sched_sleepq.c`, FreeBSD's
-  sleepqueue chains): an arm, and a wake that finds nobody parked, take
-  it ALONE; a park holds it from "was I woken?" until BLOCKED; a wake
-  that makes a slot READY takes this lock first, then the chain's.
-  **Order: this lock, then ONE chain lock, never two chains; under a
-  chain lock this one is only re-entered, never first taken** -- a wake
-  that finds a sleeper lets its chain go and starts again under both,
-  and unlinks the slot before making it READY. A waker or a parker may hold no
-  kernel lock (a lock-free pipe call), and a wake that tests "armed?"
-  and "BLOCKED?" while the parker moves between them finds neither.
+- **THE ORDER: kernel lock -> one wait-channel chain -> one slot's
+  `pi_lock` -> queue locks (two only for a move: the lower core first, or
+  the other one TRYLOCKED) -> `rt_lock`.** All with interrupts off, none
+  raising the preemption guard (`spin_lock_noguard()`). A second queue is
+  `rq_lock2()`, lockdep subclass 1.
+- **WHO MAY WRITE WHAT** is `sched_rq.c`'s top comment: READY <-> RUNNING
+  on a core under that core's queue alone; a READY slot onto another queue
+  under BOTH queues; into or out of BLOCKED, ZOMBIE or UNUSED under the
+  slot's `pi_lock` and its queue, AND ITS CHAIN FIRST when it leaves
+  BLOCKED or dies on one (`slot_lock_chained()`); `stopped`, the class,
+  `nice` and `pending` under `pi_lock` + its queue (`rq_lock_slot()`,
+  which re-checks `rq_cpu` and follows a move). The cold paths call
+  `sched_set_state()`, which takes all three itself.
+- **A CHECK-THEN-ACT ON A THREAD GROUP FREEZES IT FIRST**: each member gets
+  `stopped`, which no pick passes, under its own locks
+  (`sched_freeze_slot()`), and only then is "running elsewhere, parked
+  mid-call" counted -- `group_defer_death()`, `group_release_threads_but()`,
+  `group_wait_off_cores()`. Nothing holds one lock across the group.
+  **"IS IT RUNNING" IS ASKED UNDER THE SLOT'S LOCKS** (`sched_running_core()`),
+  never as a hint: a rotation puts the running slot back READY under its
+  queue lock and, declining, makes it RUNNING again, and a lock-free
+  count that saw the gap freed a thread still running (the full KTEST
+  suite hung 2 runs in 3). One that IS still running is let go again,
+  never left frozen: frozen, it switched out mid-call holding the disk's
+  lock and nothing ran it again.
+- **A LOCK-FREE PATH THAT NEEDS THE KERNEL LOCK DECLINES**, or lets every
+  scheduler lock go and takes the kernel lock first
+  (`bkl_take_for_switch()`); it never waits for the kernel lock holding one.
+- **A WAKE HOLDS ITS CHAIN WHILE IT WAKES** (`kernel/proc/sched_sleepq.c`,
+  FreeBSD's sleepqueue chains): an arm takes the chain alone; a park holds
+  it from "was I woken?" until BLOCKED, then its `pi_lock` and its queue; a
+  wake stamps arms and wakes the parked under it, each sleeper's `pi_lock`
+  then its target queue. BLOCKED is entered and left only with the chain
+  held, so under it "parked on this channel" is the truth.
+- **A WAKE GOES BACK TO A CORE STILL ON THE SLOT'S STACK** (`on_core >= 0`):
+  that core finds it after its switch. Placed anywhere else the pick skips
+  a live slot, and that core halts beside it.
 - **THE CHAINS ARE EMPTY FROM THE FIRST INSTRUCTION**, not from an init
   call: kmutexes are unlocked, and so woken, before `scheduler_init()`
   (USB's port scans), and a zeroed head names a slot of a table that
   does not exist yet.
-- **INTERRUPTS OFF WHILE HELD, AND RECURSIVE PER CORE** (a wake inside a
-  kill nests). It raises no preemption guard -- `spin_lock_noguard()` --
-  because a switch holds it and saves the guard with the context.
-- **A SWITCH IS ENTERED HOLDING IT ONCE AND RETURNS WITHOUT IT**:
-  `switch_to()` and `switch_to_kernel()` let it go before the restore, so
-  a caller follows one with `irq_restore()` alone. Twice, or not at all,
+- **A SWITCH IS ENTERED HOLDING THIS CORE'S QUEUE LOCK AND RETURNS WITHOUT
+  IT**: `switch_to()` and `switch_to_kernel()` let it go before the restore,
+  so a caller follows one with `irq_restore()` alone. A switch without it
   is logged (`scheduler_lock_faults()`, asserted 0 by the `smp` KTESTs).
+- **AN RT PICK RETURNS WITH `rt_lock` HELD** until it is claimed
+  (`pick_claim()`) or dropped (`pick_drop()`): the RT list is every core's,
+  and another could take the slot between the pick and the switch.
 - **A READY CONTEXT MAY STILL BE LIVE ON A CORE**: the switch lets the
   lock go before it leaves the outgoing stack, and the context's
   `on_core` clears only after (`process_context_restore_release()`). The
-  pick and `slot_claim()` skip a live one; anything else that would use a
-  READY context's stack or slot asks the same (`live_elsewhere()`).
+  pick, a steal and `slot_claim()` skip a live one; anything else that
+  would use a READY context's stack or slot asks the same (`live_elsewhere()`).
 - **A LOCK-FREE PATH THAT DECLINES HAS CHANGED NOTHING** the pick reads
-  -- `pick_next()` writes nothing, and `g_min_vruntime` moves only when a
-  switch commits. A declined pick that moved it placed every later wake
-  against a pick never made (a KTEST failed 1 run in 2).
+  -- `pick_next()` writes nothing, and a queue's `min_vruntime` moves only
+  when a switch commits. A declined pick that moved it placed every later
+  wake against a pick never made (a KTEST failed 1 run in 2). An idle
+  pick's STEAL is the exception, and harmless: the slot stays on this
+  core's queue for the ordinary path.
+- **A FABRICATED KTEST SLOT IS PINNED TO CORE 0** (`pin_bsp`, as a kthread
+  is): its frame is a test's local array, and only core 0's pick is the one
+  the test asks about.
+- **NO PROCESS IS PLACED ON CORE 0 WHILE AN AP SCHEDULES** (`sched_place()`,
+  the steal and the balancer): core 0's kernel context holds the kernel
+  lock whenever it runs, so every return to it from a process there
+  retakes the lock -- placed there whenever it idled, the lock's waits
+  went up 4-8x under `syscall_bench`. kthreads, KTEST slots and a slot
+  still on core 0's stack are the exceptions.
+- **The debug build checks every switch** (`option lockdep` or
+  `debug_preempt`, `sched_rq_check()`): this core's list names it, no slot
+  is on it unlisted, and the counts agree.
 ## A LOCK INSIDE A STRUCT IS NAMED WHERE IT IS SET UP, AND TWO OF ONE CLASS NEST ONLY ANNOTATED
 
 Lock-order checking (`option lockdep`, `docs/lockdep-design.md`) gives

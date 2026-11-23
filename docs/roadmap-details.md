@@ -9279,25 +9279,26 @@ updater (and the System Update app) offers the refresh as a step of its
 own, Windows' "a firmware update is available" -- never silently, since
 it is the one write that decides whether the machine boots.
 
-## Per-core run queues instead of one global table
+## `ktest smp` repeated at a desktop's debug console hung 2 runs in about 15 on per-core run queues, in "a lock-free lseek never moves a description closed under it"
 
-Picked 2026-11-23, staged. The ready list (one list, one lock) and the
-wait channels on hashed chain locks are BUILT (`docs/smp-design.md`,
-stage 7): the scan was never the cost, and wakes and arms were 76% of
-the scheduler lock's takes. What is left takes it for a real park or
-wake, so the remaining step is the split itself, Linux's `rq` / ULE's
-`tdq` shape at toy size:
-
-- a ready list, lock and `min_vruntime` per core; a slot's vruntime
-  renormalised against the new core's floor when it moves
-- a woken slot goes to the core it last ran on, or an idle one
-- an idle core steals from the busiest queue, and a periodic balancer
-  moves work from the longest queue to the shortest
-- RT stays one global list on its own lock, its throttle global;
-  kthreads and the kernel context stay on the boot core's queue
-- every remaining `sched_lock()` site (exit, fork, stop, signals,
-  `set_class`) needs the lock of the queue its slot is on -- Linux's
-  `task_rq_lock()` with `p->pi_lock` taken first is the shape to copy
+Repro: a graphical boot (`vm.py --instance N --cpus 4 start`), then
+`ktest smp` over the debug console a dozen times, `kernel.sched.steal`
+and `kernel.sched.balance` toggled between some of them. Twice the run
+never finished. GDB on the hung guest: core 0 in `take()` on the kernel
+lock from `bkl_retake()` in `kernel_let_waiters_in()` (its tick letting a
+waiting core in); one AP inside `seek_hammer()`, reached through
+`smp_poll_ipis()` -- that is, the call landed while the AP spun for a
+lock, and runs until core 0 sets `g_seek_stop`, which core 0 cannot do
+while it waits behind that AP's ticket; another AP spinning on the fd
+space lock. A 2 s bound in `seek_hammer()` turned the hang into a counted
+spinlock lockup (`spin_lockups()` red for every later run) and was taken
+back out. `the preemption guard is each core's own` (`lockstat_test.c`)
+failed 2 of 5 of those runs as well, AP and core 0 disagreeing on core
+0's guard. At 97f76a90 the same loop passed 7 of 7. The gate
+(`ktest_run.py`, toywm and logd stopped) passed 13 of 13 on the branch.
+What raised the rate is not established; a long-running call function
+inside a lock wait is the shape to remove (Linux runs IPI functions to
+completion, never a test's spin loop).
 
 ## A disk filesystem's `read`/`write` without the kernel lock: a lock-free handler that sleeps mid-call
 

@@ -64,7 +64,15 @@ checking carries on.
   anyway.
 - The named ones today: `mount` (`mount.c`, every take through
   `lock_slot()`), `mm` (`mmap.c`), `file position` (`fs_syscalls.c`),
-  `ahci drive`, `usb-storage`, `xhci command`.
+  `ahci drive`, `usb-storage`, `xhci command`; the scheduler's `sleepq`
+  (the wait-channel chains), `pi` (a slot's lock) and `rq` (a core's run
+  queue), with `rt` a static of its own (`kernel/proc/sched_rq.c`).
+- **Two run queues are one class taken as two subclasses**: a move holds
+  the lower core's as rq/0 and the other's as rq/1 (`rq_lock2()`, through
+  `spin_lock_noguard_nested()`, Linux's `double_rq_lock()`), or trylocks
+  the other when it is the lower one. The order the scheduler keeps --
+  `sleepq` -> `pi` -> `rq` -> `rq/1` -> `rt` -- is what the graph learns;
+  one `pi` and one `sleepq` at a time, so neither needs a subclass.
 
 **Subclasses** are separate graph nodes ("mount/1"), so a fixed order
 between two locks of one class is an edge, and the reverse an inversion.

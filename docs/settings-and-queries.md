@@ -134,6 +134,13 @@ need none of it (`scheduler_ap_event_lockless()`, `docs/smp-design.md`
 stage 7); `off` sends every one through it, for an A/B on one boot --
 [`cpus`](commands/cpus.md) counts each AP's events taken without it.
 
+`kernel.sched.steal` and `kernel.sched.balance` (both on by default): an
+idle core takes a slot waiting on another core's run queue, and core 0's
+tick moves one from the longest queue to the shortest every few slices
+(`kernel/proc/sched_rq.c`, `docs/smp-design.md` stage 7). `off` leaves a
+slot on the queue it was placed on -- an A/B on one boot, and the positive
+control of the `smp` KTEST that piles work on one core.
+
 `kernel.trace` arms the kernel event trace (`kernel/include/kernel/ktrace.h`,
 [`trace`](commands/trace.md)): its value is the groups to record --
 `switch,wakeup,irq,fault,syscall,spin,mutex`, any of them comma-separated,
