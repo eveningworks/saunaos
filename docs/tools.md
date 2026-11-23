@@ -608,6 +608,7 @@ Full entries: [`docs/tools/build.md`](tools/build.md).
 - `install_grub.py` -- put GRUB, and the kernel, ON disk.img
 - `menuconfig.py` -- `make menuconfig` -- build.conf's options and drivers in a text UI
 - `ovmf.py` -- QEMU's UEFI firmware (OVMF), found and wired up once
+- `quiet_sh.sh` -- quiet_sh.sh -- make's SHELL for a quiet build (the default; `make V=1`
 - `release_assets.sh` -- The assets of a GitHub Release, made only from a build that IS the tag
 - `run_release.sh` -- Launches a downloaded SaunaOS release with the device and display
 - `seed_disk.py` -- format-aware seeding front-end

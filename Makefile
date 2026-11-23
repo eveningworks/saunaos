@@ -6,6 +6,20 @@
 # this line, `make` would build the config fragment and stop.
 .DEFAULT_GOAL := all
 
+# --- QUIET OUTPUT (tools/build/quiet_sh.sh) ---------------------------------
+#
+# A build prints one short line per step -- Linux kbuild's `  CC  x.o` --
+# with every warning and error in full; `make V=1` (or VERBOSE=1) echoes
+# every command as it runs, as the build always did. The wrapper is make's
+# SHELL, so it sees each recipe line, and .SILENT stops make's own echo.
+# Decided here at parse time from the command line, which is why it is an
+# `ifneq` and not a deferred `$(if)`.
+V ?= $(if $(filter 1,$(VERBOSE)),1,0)
+ifneq ($(V),1)
+.SILENT:
+SHELL := $(CURDIR)/tools/build/quiet_sh.sh
+endif
+
 # --- THE TEST LOCK (tools/lib/tree_lock.py) -------------------------------
 #
 # A test that boots this build reads the tree for minutes, and a rebuild
@@ -739,6 +753,8 @@ help:
 	@echo "                 it carries GRUB; BOOT=cd for the ISO -- implies iso)"
 	@echo "  usb-image      Build saunaos-usb.img -- compact, self-booting, for dd to a USB stick"
 	@echo "  live-iso       Build saunaos-live.iso -- carries a filesystem image, boots with NO disk"
+	@echo "  V=1            On any of them: print every command as it runs (VERBOSE=1 too);"
+	@echo "                 by default each step is one short line, warnings and errors in full"
 	@echo "  NOGPL=1        On any of them: leave out every program built from GPL-only code"
 	@echo "                 (today DOOM) -- docs/building.md, \"A build with no GPL code\""
 	@echo ""

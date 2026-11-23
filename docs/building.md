@@ -74,6 +74,11 @@ make test       # boot headless, run the in-kernel test suite
 make verify     # full gate: clean build + iso + boot test + test suite
 ```
 
+A build prints one short line per step (`  CC      build/kernel/proc/x.o`,
+`LD`, `GEN`, `ISO`), with every warning and error in full. **`make V=1`**
+(or `VERBOSE=1`) prints every command as it runs, flags and all -- what to
+read when a flag or a path is in question (`tools/build/quiet_sh.sh`).
+
 ## Every way to boot it
 
 There is **one run target**; everything else is a variable on it, so any

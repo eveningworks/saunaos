@@ -13,6 +13,20 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
 - **`gen_version.sh`**/`set_version.sh` -- versioning — see CLAUDE.md's
   `version.h`/`VERSION` bullets
 
+- **`quiet_sh.sh`** -- make's `SHELL` for the default quiet build:
+  Linux kbuild's short lines (`  CC      build/kernel/proc/x.o`, `LD`,
+  `AS`, `AR`, `LINK`, `GEN`, `ISO`), one per command that builds
+  something and nothing for the rest, with `.SILENT:` stopping make's
+  own echo. Every command still runs as written through `/bin/sh`, its
+  output and exit status untouched -- warnings and errors print as
+  before; only `grub-mkrescue`'s chatter is held back and shown if it
+  fails. Labels go to STDERR and need a real output file: make runs its
+  `$(shell ...)` calls through the wrapper too, and their stdout is a
+  variable's value. `make V=1` (or `VERBOSE=1`) bypasses it and echoes
+  every command, which is what to grep a build log for flags; `make -n`
+  still prints every command. A label comes from the line's WORDS, so a
+  new tool in a recipe prints nothing until a `case` here names it.
+
 - **`ovmf.py`** -- finds QEMU's UEFI firmware (the CODE image and the
   variable-store template; Arch, Debian/Ubuntu and Fedora paths) and
   prints the two `-drive if=pflash` arguments with `--qemu-args VARS`,
