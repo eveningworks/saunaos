@@ -25,6 +25,11 @@ WHAT IT ASSERTS, AND THE ORACLE
    setting reads back through the hardware (`config get`).
 4. A MODE THE DRIVER DOES NOT LIST IS REFUSED, and the screen is
    untouched by the refusal.
+5. AN ICON SAVED OFF A SMALLER SCREEN IS PULLED IN, NOT MOVED: one
+   dragged to the far-right column is on screen at SMALL (the old
+   desktop drew it past the edge -- the ASUS at 800x600, 2026-11-23),
+   its line in /etc/desktop.conf is unchanged, and back at the boot mode
+   it is where it was dragged. The drag is undone at the end.
 
 The setting is restored at the end, and its /etc value with it: a
 stored resolution is applied at the next boot, so a tool that left one
@@ -51,7 +56,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui          # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
-from harness import Results  # noqa: E402
+from harness import Results, poll  # noqa: E402
 
 DEFAULT_SOCK = ".vm.serial"
 TARGET = (1600, 900)
@@ -108,6 +113,7 @@ def main():
     target = TARGET if orig != TARGET else (1280, 720)
     try:
         run(dbg, qmp, shot, orig, target)
+        offscreen_icons(dbg, orig)
     finally:
         # RESTORED WHATEVER HAPPENED: the value persists to /etc and is
         # applied at the next boot, so a tool that died mid-way would
@@ -228,6 +234,64 @@ def run(dbg, qmp, shot, orig, TARGET):
     dev2 = shot_size(qmp, shot("mode_back.png"))
     check("the boot mode is restored at the device", dev2 == orig, f"device {dev2}")
     check("...and in the desktop", screen(dbg) == orig, str(screen(dbg)))
+
+
+SMALL = (800, 600)
+
+
+def desktop_icons(dbg):
+    return {i["name"]: i for i in dbg.json("gui icons --json")["icons"]}
+
+
+def conf_line(dbg, key):
+    conf = dbg.send("sh cat /etc/desktop.conf") or ""
+    return next((ln.strip() for ln in conf.splitlines() if ln.strip().startswith(key + "=")), None)
+
+
+def offscreen_icons(dbg, orig):
+    # --- 5. an icon past a smaller screen's edge ---------------------------
+    name, key = "Notepad", "file:notepad.desktop"
+    icons = desktop_icons(dbg)
+    if not check(f"the desktop shows {name}", name in icons, str(list(icons))[:120]):
+        return
+    home = icons[name]
+    far_x = orig[0] - home["w"] // 2 - 4          # the last column at the boot mode
+    dbg.drag(home["x"] + home["w"] // 2, home["y"] + home["h"] // 3,
+             far_x, home["y"] + home["h"] // 3, steps=16)
+    far = poll(lambda: (lambda i: i if i and i["x"] + i["w"] > SMALL[0] else None)(
+        desktop_icons(dbg).get(name)), 5) or {}
+    saved = conf_line(dbg, key)
+    try:
+        if not check("dragged to the far-right column, past the small mode's width",
+                     far.get("x", 0) + far.get("w", 0) > SMALL[0] and saved,
+                     f"{far} conf {saved}"):
+            return
+        set_res(dbg, *SMALL)
+        if not check(f"the desktop is at {SMALL[0]}x{SMALL[1]}", screen(dbg) == SMALL,
+                     str(screen(dbg))):
+            return
+        now = desktop_icons(dbg)
+        got = now.get(name) or {}
+        check("the icon is pulled onto the smaller screen",
+              got and got["x"] >= 0 and got["x"] + got["w"] <= SMALL[0]
+              and got["y"] + got["h"] <= SMALL[1], str(got))
+        cells = [(i["x"], i["y"]) for i in now.values()]
+        check("...into a cell no other icon has", len(cells) == len(set(cells)), str(cells))
+        check("...and its saved cell is kept", conf_line(dbg, key) == saved,
+              f"{conf_line(dbg, key)} vs {saved}")
+        set_res(dbg, *orig)
+        back = desktop_icons(dbg).get(name) or {}
+        check("back at the boot mode it is where it was dragged",
+              (back.get("x"), back.get("y")) == (far.get("x"), far.get("y")),
+              f"{back} vs {far}")
+    finally:
+        if screen(dbg) != orig:
+            set_res(dbg, *orig)
+        cur = desktop_icons(dbg).get(name)
+        if cur:
+            dbg.drag(cur["x"] + cur["w"] // 2, cur["y"] + cur["h"] // 3,
+                     home["x"] + home["w"] // 2, home["y"] + home["h"] // 3, steps=16)
+            poll(lambda: (desktop_icons(dbg).get(name) or {}).get("x") == home["x"], 5)
 
 
 def report():

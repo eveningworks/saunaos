@@ -131,6 +131,11 @@ static uint64_t g_opened_tick;
 // defaulted) on first use by desktop_load_positions().
 static int *icon_col;
 static int *icon_row;
+// THE SAVED CELL OF AN ICON SHOWN ELSEWHERE (reflow_overflow), -1 for
+// one shown where it was saved. Counted as TAKEN, or a new icon placed
+// meanwhile takes and saves it, and the next reload stacks the two.
+static int *home_col;
+static int *home_row;
 static int positions_loaded = 0;
 
 // The active icon drag, if any -- armed by desktop_handle_click() on
@@ -212,13 +217,16 @@ static int items_reserve(int n) {
     ITEMS_GROW(g_launch);
     ITEMS_GROW(icon_col);
     ITEMS_GROW(icon_row);
+    ITEMS_GROW(home_col);
+    ITEMS_GROW(home_row);
     ITEMS_GROW(drag_start_col);
     ITEMS_GROW(drag_start_row);
     ITEMS_GROW(g_thumb);
     ITEMS_GROW(g_peek);
     ITEMS_GROW(g_thumb_asked);
     ITEMS_GROW(g_thumb_changed);
-    for (int i = g_item_cap; i < cap; i++) icon_col[i] = icon_row[i] = -1;
+    for (int i = g_item_cap; i < cap; i++)
+        icon_col[i] = icon_row[i] = home_col[i] = home_row[i] = -1;
     g_item_cap = cap;
     return 1;
 }
@@ -471,6 +479,7 @@ static int desktop_files_reload(void) {
 }
 
 static void save_position(int i) {
+    home_col[i] = home_row[i] = -1;   // shown where it is saved from now on
     if (g_auto_arrange) return;   // nothing stays where it was put
     char value[16], keybuf[80];
     format_pos(value, icon_col[i], icon_row[i]);
@@ -540,6 +549,7 @@ static void desktop_load_positions(void) {
     // OFF-GRID, so pass 2 can tell "not placed yet" from "placed at 0,0".
     for (int i = 0; i < n; i++) {
         icon_col[i] = icon_row[i] = -1; // off-grid: never drawn, never hit-tested
+        home_col[i] = home_row[i] = -1;
         if (!item_visible(i)) continue;
 
         char value[16], keybuf[80];
@@ -581,6 +591,7 @@ static void desktop_load_positions(void) {
         }
     }
     free(order);
+    reflow_overflow();   // a saved cell this screen does not have, shown inside it
 }
 
 // --- the wallpaper ----------------------------------------------------
@@ -880,7 +891,7 @@ static void icon_size_reload(void) {
     g_icon_px = k_strcmp(word, "small") == 0 ? 32 :
                 k_strcmp(word, "large") == 0 ? 64 : 48;
     thumbs_reset();   // made at the old size
-    reflow_overflow();
+    positions_loaded = 0;   // the saved cells again, pulled in for THIS size (reflow_overflow)
     WM_REDRAW();
     wm_damage_rect(0, 0, screen_w, screen_h);
 }
@@ -1664,6 +1675,7 @@ static int cell_taken(int col, int row, int exclude) {
     for (int i = 0; i < item_count(); i++) {
         if (i == exclude) continue;
         if (icon_col[i] == col && icon_row[i] == row) return 1;
+        if (home_col[i] == col && home_row[i] == row) return 1;
     }
     return 0;
 }
@@ -1695,24 +1707,29 @@ static void nearest_free_cell(const struct icon_grid *g, int col, int row,
     *out_col = col; *out_row = row; // unreachable in practice -- see comment above
 }
 
-// AFTER A SIZE CHANGE, the cells that no longer fit above the taskbar
-// move to the nearest free cell that does; everything that still fits
-// stays put. Taller rows at a bigger size are what pushed a full
-// column's tail off the screen (found on the laptop, medium -> large
-// with a full column). A moved icon's position is SAVED, so the layout
-// is the same after a reboot as it looked when it settled.
+// A CELL OFF THE SCREEN -- past the last column or below the last row
+// above the taskbar, after a smaller resolution or bigger icons -- is
+// SHOWN in the nearest free cell that fits, and NOT SAVED: the saved
+// cell is the icon's home, and a later bigger screen puts it back there
+// (KDE Plasma keeps positions per screen size; Windows moves them for
+// good). Only a drag or a sort writes a position. The pull-in is worked
+// out again from the saved cells at every reload, so the same size
+// always shows the same layout.
 static void reflow_overflow(void) {
     if (!positions_loaded) return;   // the default layout already fits
     struct icon_grid g = current_grid();
     int limit = rows_that_fit();
     for (int i = 0; i < item_count(); i++) {
-        if (!item_visible(i) || icon_row[i] < limit) continue;
+        if (!item_visible(i) || icon_col[i] < 0) continue;
+        if (icon_col[i] < g.cols && icon_row[i] < limit) continue;
         int col = icon_col[i] >= g.cols ? g.cols - 1 : icon_col[i];
+        int row = icon_row[i] >= limit ? limit - 1 : icon_row[i];
         int fc, fr;
-        nearest_free_cell(&g, col, limit - 1, i, &fc, &fr);
+        nearest_free_cell(&g, col, row, i, &fc, &fr);
+        home_col[i] = icon_col[i];
+        home_row[i] = icon_row[i];
         icon_col[i] = fc;
         icon_row[i] = fr;
-        save_position(i);
     }
 }
 

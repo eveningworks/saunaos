@@ -78,7 +78,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui        # noqa: E402
 from qmp_test import QMPSession                      # noqa: E402
 import port_guard  # noqa: E402
-from harness import Results  # noqa: E402
+from harness import Results, poll  # noqa: E402
 
 BG_ROWS = ["Open", "-", "New", "Paste", "Undo", "-", "Refresh", "Sort by",
            "Icon size", "Auto arrange icons", "Show desktop icons", "-", "System Settings"]
@@ -300,6 +300,10 @@ def check_rename(dbg, res):
     res.check("Enter renames the folder on disk", "Done" in listing and "Rename me" not in listing,
               f"ls={listing.strip()[:120]}")
     dbg.send("sh rm -r /home/Desktop/Done")
+    # GONE BEFORE ANY CELL IS READ: an icon with no saved cell is placed in
+    # sort order, folders first, so Terminal moves when Done goes -- a rect
+    # read before the desktop noticed is a click on its neighbour.
+    poll(lambda: icon(dbg, "Done") is None, 5)
     # A launcher: its caption is Name=, and the file keeps its name.
     ic = icon(dbg, "Terminal")
     if ic:
@@ -314,6 +318,7 @@ def check_rename(dbg, res):
                   "Name=Shell" in text and "Exec=" in text and icon(dbg, "Shell") is not None,
                   f"file={text.strip()[:120]}")
         dbg.send("sh rm /home/Desktop/terminal.desktop")   # a fresh disk restores it
+        poll(lambda: icon(dbg, "Shell") is None, 5)          # and the cells after it move up
     else:
         res.check("rename: the Terminal launcher is on the desktop", False,
                   "a fresh disk seeds it; a rerun on the same guest has renamed it")
