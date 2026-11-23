@@ -216,8 +216,12 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   does NOT boot it (the control); a BIOS boot's `install --bootloader
   confirm` puts it back; UEFI then reaches the desktop at 1280x720; and
   `bootcfg resolution 2560x1440` makes the next boot 2560x1440, a size
-  QXL's VESA BIOS does not offer. SKIPS (77) without OVMF. On demand,
-  about four minutes.
+  QXL's VESA BIOS does not offer. Every UEFI boot has USB devices on the
+  bus (`--usb xhci+crowd`): their port scans run before the scheduler
+  exists, which once hung a real UEFI machine at boot and no SeaBIOS
+  guest showed. The screen is read from `lsdisplay`, since a USB boot
+  pushes the early `display:` line out of the log ring. SKIPS (77)
+  without OVMF. On demand, about four minutes.
 - **`smb_test.py`** -- network shares in a GUEST: `/bin/smb`, `mount -t
   smb` and `smb login`, a saved share across a cold boot, a killed
   worker replaced, an unreachable server failing fast, and a forgotten

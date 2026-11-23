@@ -130,7 +130,15 @@ A size the firmware does not offer comes up at GRUB's own size instead;
 (`firmware_refused=`, or `firmware_refused_uefi=` on a UEFI boot -- the two
 firmwares offer different lists, so each keeps its own), and restarts on the
 kept size when there is one.
-Settings marks it "(not offered)" from then on. The first use adds the
+Settings marks it "(not offered)" from then on.
+
+**A refusal can be wrong.** A boot loader that sets NO mode -- every boot
+at the firmware's own size, whatever `toy_mode` says -- makes every size
+look refused (the X99, 2026-11-23: its GOP offers 2560x1440, yet a trial
+came up at 1024x768). What the firmware really offers is `videoinfo` at
+the GRUB prompt (press `c` at the menu). If the size is listed there,
+`install --bootloader confirm` writes the current boot loader, emptying
+`/etc/display.conf` forgets the refusal, and the trial is run again. The first use adds the
 stanza an older `grub.cfg` lacks -- the `toy_mode` lines after the
 one-shot one and a `gfxpayload` line after each `multiboot2` -- with the
 old file kept as `grub.cfg.bak`.
