@@ -9245,6 +9245,40 @@ magazines, Linux's per-CPU slab freelists) were offered and not taken:
 nothing measured waits on the heap now. The scheduler lock (42% of takes
 waited) and the descriptor pool's lock (32%) are what does.
 
+## A screen-size trial tells "GRUB set no mode at all" from "this size was refused"
+
+Found 2026-11-23 on the X99 (UEFI, an RTX 2070 on vesafb). Its GOP
+offers 2560x1440 -- `videoinfo` lists it as mode 0, with the monitor's
+EDID preferring it -- yet a `bootcfg resolution 2560x1440` trial came up
+at 1024x768, and `screentrial` wrote `firmware_refused_uefi=2560x1440`
+and greyed the size. Every boot of that disk came up at 1024x768, the
+mode the firmware hands over, even GRUB's own default request
+(`1280x720x32,1280x720,auto`, which the GOP also offers): its boot
+loader set no mode at all. After `install --bootloader confirm` the
+same disk boots at 1280x720 by default, and the 2560x1440 trial is kept.
+Why the earlier loader set nothing is not established (its module stamp
+was overwritten by the refresh before it was read).
+
+The shape: a trial that comes up at neither the size tried NOR GRUB's
+fallback (1280x720) -- the firmware's own boot mode -- is "this boot
+loader cannot set screen sizes", not a refusal: nothing is greyed, and
+the dialog points at the boot-loader refresh (System Update's offer, the
+item below, or `install --bootloader confirm`). A stale refusal is
+cleared by emptying `/etc/display.conf`.
+
+## System Update offers the boot-loader refresh when the installed one is older than the staged one
+
+An update replaces the kernel and every file, but never the boot sector,
+GRUB's core image or `/boot/EFI/BOOT/BOOTX64.EFI`: those change only by
+`install --bootloader confirm`, by hand. So a machine keeps the boot
+loader of the medium it was installed from -- on the X99 (2026-11-23)
+one that set no GOP mode, and on any machine one without `videoinfo`.
+`/etc/grub-core.modules` records what the installed core carries and
+`/install/core.modules` what the staged one does: when they differ, the
+updater (and the System Update app) offers the refresh as a step of its
+own, Windows' "a firmware update is available" -- never silently, since
+it is the one write that decides whether the machine boots.
+
 ## Per-core run queues instead of one global table
 
 Picked 2026-11-23, staged. The ready list (one list, one lock) and the

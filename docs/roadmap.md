@@ -24,6 +24,8 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
+- [ ] System Update offers the boot-loader refresh when the installed one is older than the staged one -- by hand today  *(Storage hardening)*
+- [ ] A screen-size trial tells "GRUB set no mode at all" from "this size was refused"  *(virtio, and a real GPU driver)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 - [ ] Per-core run queues instead of one global table -- what still takes the scheduler lock is real parks and wakes  *(SMP)*
 <!-- END next-up -->
@@ -490,6 +492,7 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~A blank disk on a higher-precedence controller takes the root~~ DONE 2026-10-07 -- `bootpart=`, else the first bootable disk
 - [x] ~~Host-seeded images share PARTUUIDs~~ DONE 2026-10-07 -- random GUIDs per image; `regenerate_guids()` for a copy
 - [x] ~~An installed machine cannot gain `bootpart=`~~ DONE 2026-10-07 -- `install --bootloader confirm` adds it
+- [ ] **NEXT** System Update offers the boot-loader refresh when the installed one is older than the staged one -- by hand today
 - [x] ~~A TFS3 test reaching double- and triple-indirect addressing~~ done -- sparse writes make it a KTEST
 - [x] ~~`root=` names the device to mount as the root~~ DONE 2026-08-27 -- every driver enumerates into a device table (`lsblk`)
 - [x] ~~A `ramfs` backend -- a real in-memory filesystem, the root wherever there is no usable drive~~ done
@@ -1288,6 +1291,7 @@ run on, not by order.
 - [x] ~~A screen size for GRUB's VESA framebuffer, chosen in Settings and tried once~~ DONE 2026-10-27 -- `bootcfg resolution`
 - [ ] A size list the firmware really offers, not the common sizes learned by refusal -- needs VBE `4F01` per mode, a real-mode call
 - [ ] Per-row greying in `uui_dropdown`, so a refused size is disabled rather than labelled "(not offered)"
+- [ ] **NEXT** A screen-size trial tells "GRUB set no mode at all" from "this size was refused"
 - [x] ~~Initcall levels: drivers declare a boot slot instead of being called by name from `kernel_main()`~~ DONE 2026-09-12
 - [x] ~~Loadable drivers: `modload`, one PCI driver, `/etc/modules` -- `docs/modules-design.md`~~ DONE 2026-09-10
 - [x] ~~`virtio-net`: a NIC on the same transport~~ DONE 2026-09-12 -- `virtio_net.c` plus the `net_device` adapter
