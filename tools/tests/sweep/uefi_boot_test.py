@@ -11,7 +11,8 @@ of disk.img, under OVMF with QXL (no driver: vesafb on GOP's framebuffer):
      that the rest is about the loader and not the ISO or luck;
   2. `install --bootloader confirm` from a BIOS boot puts it back, the
      in-place upgrade an installed machine takes;
-  3. UEFI then boots the disk alone to the desktop at GRUB's 1280x720;
+  3. UEFI then boots the disk alone to the desktop at GRUB's 1280x720,
+     with USB devices on the bus (enumerated before the scheduler exists);
   4. 2560x1440, refused on the BIOS boot (as the X99's VESA BIOS did), is
      still offered under UEFI -- each firmware keeps its own refusals --
      and `bootcfg resolution 2560x1440` makes the next UEFI boot that size,
@@ -63,15 +64,22 @@ def boot(inst, disk, uefi, timeout=120):
     vm(inst, "stop")
     args = ["--disk", disk, "--boot", "disk", "--vga", "qxl", "--timeout", str(timeout)]
     if uefi:
-        args.append("--uefi")
+        # USB devices on the bus: their port scans run before the
+        # scheduler exists, which a UEFI machine's zeroed low memory
+        # once turned into a hard lockup (the wait-channel chains,
+        # kernel/proc/sched_sleepq.c). SeaBIOS's guests did not show it.
+        args += ["--uefi", "--usb", "xhci+crowd"]
     return "ready" in vm(inst, *args, "start", timeout=timeout + 60)
 
 
 def screen(inst):
     """The size the display layer took, and whether the desktop started."""
-    out = vm(inst, "exec", "dmesg -n 4000", timeout=30)
-    m = re.search(r'display: using "(\w+)" -- (\d+x\d+)', out)
-    return (m.group(1), m.group(2)) if m else (None, None), "wm: entering GUI mode" in out
+    # From `lsdisplay`, a live query, not the boot log: a boot with USB
+    # devices pushes its early lines out of the ring before this reads it.
+    out = vm(inst, "exec", "lsdisplay", "dmesg -n 4000", timeout=30)
+    d = re.search(r'Driver:\s+(\w+)', out)
+    m = re.search(r'Mode:\s+(\d+x\d+)', out)
+    return (d.group(1), m.group(1)) if d and m else (None, None), "wm: entering GUI mode" in out
 
 
 def main():

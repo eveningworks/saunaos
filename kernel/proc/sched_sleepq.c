@@ -18,7 +18,14 @@ struct sq_chain {
     struct spinlock lock;
     int head, tail;   // slots, -1 for none
 };
-static struct sq_chain g_chains[SQ_CHAINS];
+// **EMPTY FROM THE FIRST INSTRUCTION, NOT FROM sleepq_init()**: USB's
+// port scans unlock a contended kmutex before scheduler_init() runs, and
+// a zeroed head names "slot 0" of a table that does not exist yet -- a
+// walk round zeroed memory forever, interrupts off (a hard lockup at
+// boot on a machine with a USB device plugged in).
+static struct sq_chain g_chains[SQ_CHAINS] = {
+    [0 ... SQ_CHAINS - 1] = { .head = -1, .tail = -1 },
+};
 
 static struct sq_chain *chain_of(const void *chan) {
     uint64_t a = (uint64_t)(uintptr_t)chan;
@@ -26,11 +33,9 @@ static struct sq_chain *chain_of(const void *chan) {
 }
 _Static_assert(SQ_CHAINS == 1 << 6, "chain_of() shifts for 64 chains");
 
+// Names the locks for lockdep, nothing else: see g_chains.
 void sleepq_init(void) {
-    for (int i = 0; i < SQ_CHAINS; i++) {
-        g_chains[i].head = g_chains[i].tail = -1;
-        spin_lock_name(&g_chains[i].lock, "sleepq");
-    }
+    for (int i = 0; i < SQ_CHAINS; i++) spin_lock_name(&g_chains[i].lock, "sleepq");
 }
 
 uint64_t sq_lock(const void *chan) {
