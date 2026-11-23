@@ -104,7 +104,7 @@ app; one shaped around an app's data stays in that app (CLAUDE.md).
 | `uui_menubar`, `uui_statusbar` | Menus with submenus; status panes |
 | `uui_layout`, `uui_scrollview` | Arrangement; a viewport onto more than fits |
 | `uui_setting_row` | One setting as a card: name and description left, its control right (or under) |
-| `uui_wizard` | A whole window of STEPS: a rail of them on the left (a reached step can be clicked back to, never one ahead), the page under "STEP n OF N" and a display-size heading, Back / Next along a bar at the bottom, an optional Skip under the rail; Next asks the app's `can_leave()` -- First-boot setup |
+| `uui_wizard` | A whole window of STEPS: a rail of them on the left (a reached step can be clicked back to, never one ahead), the page under "STEP n OF N" and a display-size heading -- the page SCROLLS under that header when taller than the window, unless it has a list that stretches and scrolls itself --, Back / Next along a bar at the bottom, an optional Skip under the rail; Next asks the app's `can_leave()` -- First-boot setup |
 | `uui_tiles` (not a widget) | A gallery card's PICTURE for a cursor set or a wallpaper, decoded once per card -- System Settings' and First-boot setup's |
 | `uui_canvas` | Drawing, clipped, when no widget fits |
 | `uglyph` (not a widget) | ANY character of a font FILE, in a face and size you choose, from its own cache -- the Character Map's grid and previews. Ordinary text needs no widget: `ugfx` draws a character the atlas lacks (an arrow, Greek, box drawing) from its glyph cache |
