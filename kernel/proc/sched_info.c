@@ -288,7 +288,7 @@ int scheduler_test_park(uint64_t *tf, const void *chan, int reason) {
     if (!tf) return -1;
     int i = slot_claim();
     if (i >= 0) {
-        procs[i].state = SCHED_BLOCKED;
+        sched_set_state(i, SCHED_BLOCKED);
         slot_unclaim(i);   // published: its state is no longer UNUSED
         procs[i].wait_chan = chan;
         procs[i].wait_reason = reason;

@@ -604,7 +604,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     }
 
     uint64_t sf = sched_lock();   // published under the run queue's lock
-    procs[slot].state      = SCHED_READY;
+    sched_set_state(slot, SCHED_READY);
     slot_unclaim(slot);
     alive_count++;
     sched_unlock(sf);
@@ -714,7 +714,7 @@ int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
     procs[slot].ext->cwd.path[0] = '\0';
     procs[slot].ext->sandbox = 0;   // the leader's is the group's
     uint64_t sf = sched_lock();   // published under the run queue's lock
-    procs[slot].state = SCHED_READY;
+    sched_set_state(slot, SCHED_READY);
     slot_unclaim(slot);
     alive_count++;
     sched_unlock(sf);
@@ -838,7 +838,7 @@ int scheduler_fork(const uint64_t *regs) {
     procs[slot].ext->no_crash_report = procs[leader].ext->no_crash_report;
     strace_fork(procs[leader].pml4_phys, as);   // past the last failure path
     uint64_t sf = sched_lock();   // published under the run queue's lock
-    procs[slot].state = SCHED_READY;
+    sched_set_state(slot, SCHED_READY);
     slot_unclaim(slot);
     alive_count++;
     sched_unlock(sf);

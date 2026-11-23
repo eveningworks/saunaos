@@ -548,7 +548,7 @@ static int raise_locked(struct sched_process *p, int sig) {
 
     if (p->state == SCHED_BLOCKED) {
         sched_signal_answer_park(p, (uint64_t *)(uintptr_t)p->kernel_rsp, p->wait_reason);
-        p->state = SCHED_READY;
+        sched_set_state((int)(p - procs), SCHED_READY);
         sched_delay_woken((int)(p - procs));
         vr_place((int)(p - procs));
         p->wait_chan = 0;

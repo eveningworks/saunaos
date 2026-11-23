@@ -291,7 +291,7 @@ void slot_free(int slot) {
     k_memset(&procs[slot].ext->io, 0, sizeof procs[slot].ext->io);
     procs[slot].ext->no_crash_report = 0;   // whatever reuses the slot reports
     if (pid > 0 && pid < SCHED_PID_MAX && g_pid_slot[pid] == slot + 1) g_pid_slot[pid] = 0;
-    procs[slot].state = SCHED_UNUSED;
+    sched_set_state(slot, SCHED_UNUSED);
     procs[slot].pid = 0;
     procs[slot].kthread = 0;
 }
@@ -598,6 +598,57 @@ void sched_class_reset(int slot, int parent) {
 // wake_slot() and wake_preempt().
 // g_need_resched: per core (sched_internal.h).
 
+// THE RUN QUEUE: every SCHED_READY slot on one list, so a pick walks
+// what can run instead of the whole table -- which held the scheduler
+// lock ~5 us a take under 3 x syscall_bench. Order means nothing: the
+// pick ranks by vruntime and by rotation distance (pick_next()).
+// `g_nr_running` lets check_one_running() count instead of scan.
+static int g_rq_head = -1, g_rq_tail = -1;
+static int g_rq_count, g_nr_running;
+
+static void rq_insert(int s) {
+    struct sched_process *p = &procs[s];
+    __atomic_store_n(&p->rq_next, -1, __ATOMIC_RELEASE);
+    p->rq_prev = g_rq_tail;
+    if (g_rq_tail >= 0) __atomic_store_n(&procs[g_rq_tail].rq_next, s, __ATOMIC_RELEASE);
+    else __atomic_store_n(&g_rq_head, s, __ATOMIC_RELEASE);
+    g_rq_tail = s;
+    p->rq_on = 1;
+    __atomic_store_n(&g_rq_count, g_rq_count + 1, __ATOMIC_RELEASE);
+}
+
+static void rq_remove(int s) {
+    struct sched_process *p = &procs[s];
+    if (p->rq_prev >= 0) __atomic_store_n(&procs[p->rq_prev].rq_next, p->rq_next, __ATOMIC_RELEASE);
+    else __atomic_store_n(&g_rq_head, p->rq_next, __ATOMIC_RELEASE);
+    if (p->rq_next >= 0) procs[p->rq_next].rq_prev = p->rq_prev;
+    else g_rq_tail = p->rq_prev;
+    p->rq_on = 0;
+    __atomic_store_n(&g_rq_count, g_rq_count - 1, __ATOMIC_RELEASE);
+}
+
+void sched_set_state(int slot, enum sched_state s) {
+    uint64_t f = sched_lock();
+    struct sched_process *p = &procs[slot];
+    if (s == SCHED_READY) { if (!p->rq_on) rq_insert(slot); }
+    else if (p->rq_on) rq_remove(slot);
+    if (p->state == SCHED_RUNNING) g_nr_running--;
+    if (s == SCHED_RUNNING) g_nr_running++;
+    p->state = s;
+    sched_unlock(f);
+}
+
+int sched_ready_count(void) { return __atomic_load_n(&g_rq_count, __ATOMIC_ACQUIRE); }
+
+// Walks the ready list. Under the lock that is the whole story; WITHOUT
+// it (scheduler_any_ready(), a hint) each link is read once and checked,
+// and the walk is bounded, since a slot taken off and put back behind
+// the reader can lead it round again.
+#define RQ_FOR_EACH(i, n)                                              \
+    for (int i = __atomic_load_n(&g_rq_head, __ATOMIC_ACQUIRE), n = 0;          \
+         i >= 0 && i < MAX_PROCS && n <= MAX_PROCS;                             \
+         i = __atomic_load_n(&procs[i].rq_next, __ATOMIC_ACQUIRE), n++)
+
 static int is_rt(int idx) { return procs[idx].policy != SCHED_OTHER; }
 
 // What a wake has to beat: an RT process's priority (1..99), or 0 for
@@ -679,7 +730,7 @@ static void rt_period_roll(uint64_t now) {
 }
 
 static int fair_process_runnable(void) {
-    for (int i = 0; i < MAX_PROCS; i++)
+    RQ_FOR_EACH(i, n)
         if (runnable_at(i) && !is_rt(i)) return 1;
     return 0;
 }
@@ -690,7 +741,7 @@ static int rt_allowed(void) { return !g_rt_throttled || !fair_process_runnable()
 // -- or -1 for none, or none allowed to run.
 static int rt_pick(void) {
     int pick = -1;
-    for (int i = 0; i < MAX_PROCS; i++) {
+    RQ_FOR_EACH(i, n) {
         if (!runnable_at(i) || !is_rt(i)) continue;
         if (pick < 0 || procs[i].rt_prio > procs[pick].rt_prio ||
             (procs[i].rt_prio == procs[pick].rt_prio && procs[i].rt_seq < procs[pick].rt_seq))
@@ -714,9 +765,6 @@ void vr_place(int rot) {
 // the SCHED_OTHER process -- or the kernel context, which is one -- that
 // has run least by weighted vruntime. Falls back to ROT_KERNEL when
 // nothing else is runnable: a tick that finds nothing resumes the kernel.
-//
-// `start` may be -1 (nothing was running); the +MAX_PROCS+1 term keeps
-// the modulo positive for it.
 // The pick itself, writing nothing the pick reads: `*pv` is the chosen
 // one's vruntime when it is a fair pick, else untouched. A lock-free
 // event that then declines must have changed nothing
@@ -726,29 +774,30 @@ static int pick_next(int start, uint64_t *pv_out) {
     int rt = rt_pick();
     if (rt >= 0) return rt;
 
-    // Scanned in rotation order from `start`, so among equals the next
-    // one along wins, which is the old round-robin.
-    int pick = ROT_KERNEL, found = 0;
+    // Among equals the next one along from `start` wins, which is the old
+    // round-robin: `d` is that distance, 1 .. npos, over positions 0 ..
+    // MAX_PROCS-1 (slots) and MAX_PROCS (the kernel's). `start` may be
+    // ROT_KERNEL, -1, or past an end that has since moved.
+    int pick = ROT_KERNEL, found = 0, pd = 0;
     uint64_t pv = 0;
-    // Positions 0 .. MAX_PROCS-1 are slots and MAX_PROCS is the kernel's;
-    // `start` may be ROT_KERNEL, -1, or past an end that has since moved.
     int npos = MAX_PROCS + 1;
     int from = (start < 0 || start >= MAX_PROCS) ? MAX_PROCS : start;
-    for (int i = 1; i <= npos; i++) {
-        int pos = (from + i) % npos;
-        int idx = pos == MAX_PROCS ? ROT_KERNEL : pos;
-        if (idx == ROT_KERNEL) {
-            if (on_ap() || !kernel_slot_runnable()) continue;
-            vr_place(ROT_KERNEL);   // idling left it behind: owed one slice, not the idle
-        } else if (!runnable_at(idx) || is_rt(idx)) {
-            // STOPPED IS CHECKED HERE AND NOWHERE ELSE (runnable_at()).
-            // One picker means one place suspension has to be honoured.
-            continue;
-        }
-        uint64_t v = *vr_of(idx);
-        // `found`, not `pick < 0`: ROT_KERNEL is negative, so choosing the
-        // kernel must not read as having chosen nothing.
-        if (!found || v < pv) { pick = idx; pv = v; found = 1; }
+    if (!on_ap() && kernel_slot_runnable()) {
+        vr_place(ROT_KERNEL);   // idling left it behind: owed one slice, not the idle
+        pick = ROT_KERNEL;
+        pv = kernel_vruntime;
+        pd = (MAX_PROCS - from + npos) % npos;
+        if (pd == 0) pd = npos;
+        found = 1;   // `found`, not `pick < 0`: ROT_KERNEL is negative
+    }
+    RQ_FOR_EACH(idx, n) {
+        // STOPPED IS CHECKED HERE AND NOWHERE ELSE (runnable_at()).
+        // One picker means one place suspension has to be honoured.
+        if (!runnable_at(idx) || is_rt(idx)) continue;
+        uint64_t v = procs[idx].vruntime;
+        int d = (idx - from + npos) % npos;
+        if (d == 0) d = npos;
+        if (!found || v < pv || (v == pv && d < pd)) { pick = idx; pv = v; pd = d; found = 1; }
     }
     if (!found) return ROT_KERNEL;
     *pv_out = pv;
@@ -883,6 +932,16 @@ static void kick_idle_core(int i) {
 
 static void check_one_running(const char *where) {
     if (g_running_latched) return;
+    // COUNTED FIRST, the table scanned only on a mismatch: every RUNNING
+    // slot on a core means as many RUNNING slots as cores running one.
+    int on = 0;
+    for (int k = 0; k < smp_cpu_count(); k++) {
+        const struct cpu *c = smp_cpu_at(k);
+        if (c && c->sched_cur >= 0 && (k == 0 || c->state == CPU_RUNNING) &&
+            procs[c->sched_cur].state == SCHED_RUNNING)
+            on++;
+    }
+    if (on == g_nr_running) return;
     for (int i = 0; i < MAX_PROCS; i++) {
         if (procs[i].state != SCHED_RUNNING || sched_core_of(i) >= 0) continue;
         g_running_latched = 1;
@@ -1135,9 +1194,13 @@ int scheduler_set_rt_watchdog_ms(uint32_t ms) {
     return 1;
 }
 
+// Lock-free callers too (the idle event, clockevent), so a HINT: the
+// walk is bounded and the empty case reads one word.
 int scheduler_any_ready(void) {
-    for (int i = 0; i < MAX_PROCS; i++)
-        if (i != current_index && runnable_at(i)) return 1;
+    if (!sched_ready_count()) return 0;
+    int cur = current_index;
+    RQ_FOR_EACH(i, n)
+        if (i != cur && runnable_at(i)) return 1;
     return 0;
 }
 
@@ -1195,6 +1258,7 @@ void sched_unlock(uint64_t flags) {
 
 int sched_locked_here(void) { return sched_here()->sched_lock_depth > 0; }
 unsigned scheduler_lock_faults(void) { return g_sched_lock_faults; }
+
 
 // A switch is entered holding the lock ONCE and leaves without it: the
 // incoming context resumes holding nothing of it, and a depth above one
@@ -1291,7 +1355,7 @@ void switch_to(int from, int idx) {
                                                   : vmm_kernel_pml4_phys());
     gdt_set_kernel_stack(kernel_stack_top(idx));
     context_load_globals(idx);
-    procs[idx].state = SCHED_RUNNING;
+    sched_set_state(idx, SCHED_RUNNING);
     procs[idx].preempted_in_kernel = 0;
     set_current_index(idx);
     set_rotation_pos(idx);
@@ -1470,7 +1534,7 @@ static void rotate(uint64_t *regs, int to_idle);
 // puts a yielder, the back of the pack.
 static uint64_t fair_top(int except) {
     uint64_t top = 0;
-    for (int i = 0; i < MAX_PROCS; i++)
+    RQ_FOR_EACH(i, n)
         if (i != except && runnable_at(i) && !is_rt(i) && procs[i].vruntime > top)
             top = procs[i].vruntime;
     return top;
@@ -1614,13 +1678,13 @@ static int lockless_rotate(uint64_t *regs, int yielding, void (*ack)(uint64_t *)
             if (procs[cur].vruntime > top) top = procs[cur].vruntime;
             procs[cur].vruntime = top;
         }
-        procs[cur].state = SCHED_READY;   // as rotate() does, so the pick may choose it again
+        sched_set_state(cur, SCHED_READY);   // as rotate() does, so the pick may choose it again
     }
     uint64_t pv = 0;
     int next = pick_next(rotation_pos, &pv);
     if (next == cur || (next == ROT_KERNEL && cur < 0)) {
         // Nothing better: carry on, a new slice. No switch, no lock.
-        if (cur >= 0) procs[cur].state = SCHED_RUNNING;
+        if (cur >= 0) sched_set_state(cur, SCHED_RUNNING);
         if (pv > g_min_vruntime) g_min_vruntime = pv;
         if (ack) { ack(regs); this_cpu_add(sched_events, 1); }
         set_need_resched(0);
@@ -1639,7 +1703,7 @@ static int lockless_rotate(uint64_t *regs, int yielding, void (*ack)(uint64_t *)
     if (next == ROT_KERNEL ? this_cpu()->idle_bkl_depth != 0
                            : procs[next].bkl_depth != 0 || procs[next].preempted_in_kernel) {
         if (cur >= 0) {
-            procs[cur].state = SCHED_RUNNING;
+            sched_set_state(cur, SCHED_RUNNING);
             procs[cur].vruntime = vr_billed;   // a yield's move is the ordinary path's to make
         }
         sched_switch_release();
@@ -1760,7 +1824,7 @@ int scheduler_block_current_lockless(uint64_t *regs, const void *chan, int reaso
     kstack_verify(cur);
     fpu_save(p->fpu);
     p->preempted_in_kernel = 0;
-    p->state = SCHED_BLOCKED;
+    sched_set_state((int)(p - procs), SCHED_BLOCKED);
     trace_sched("block_lockless", cur);
     p->wait_chan = chan;
     p->wake_at_ns = 0;
@@ -1916,7 +1980,7 @@ static void rotate(uint64_t *regs, int to_idle) {
         // and exactly the question that turned out to be dangerous to
         // answer (see fpu.h).
         fpu_save(procs[current_index].fpu);
-        procs[current_index].state = SCHED_READY;
+        sched_set_state(current_index, SCHED_READY);
         procs[current_index].preempted_in_kernel = !(regs[SCHED_TF_CS] & 3);
         // SCHED_RR's one difference from FIFO: a spent slice goes to the
         // back of its priority. A preemption leaves it at the head.
@@ -2070,7 +2134,7 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     procs[idx].kernel_rsp = (uint64_t)regs;
     kstack_verify(idx);
     fpu_save(procs[idx].fpu);
-    procs[idx].state = SCHED_BLOCKED;
+    sched_set_state(idx, SCHED_BLOCKED);
     trace_sched("block", idx);
     procs[idx].wait_chan = chan;
     // SET UNCONDITIONALLY, and 0 for an unbounded wait. It has to be
@@ -2156,7 +2220,7 @@ int scheduler_wake_timers(uint64_t now_ns) {
                          ? 0 : (uint64_t)(int64_t)SYS_RETRY;
         }
         procs[i].wake_at_ns = 0;
-        procs[i].state = SCHED_READY;
+        sched_set_state(i, SCHED_READY);
         sched_delay_woken(i);
         wake_preempt(i);   // places it, too
         woken++;
@@ -2235,7 +2299,7 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
     procs[idx].rt_run_ns = 0;
     kstack_verify(idx);
     fpu_save(procs[idx].fpu);
-    procs[idx].state = SCHED_BLOCKED;
+    sched_set_state(idx, SCHED_BLOCKED);
     procs[idx].parked_in_kernel = 1;
     trace_sched("block_kernel", idx);
     procs[idx].wait_chan = chan;
@@ -2283,7 +2347,7 @@ static void wake_slot(int i, int64_t value) {
     // already running -- overwriting the RAX of whatever syscall it
     // had reached by then.
     procs[i].wake_at_ns = 0;
-    procs[i].state = SCHED_READY;
+    sched_set_state(i, SCHED_READY);
     sched_delay_woken(i);
     vr_place(i);
     if (is_rt(i)) procs[i].rt_seq = ++g_rt_seq;

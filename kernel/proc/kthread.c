@@ -68,7 +68,7 @@ int kthread_start(const char *name, void (*fn)(void *), void *arg) {
     int pid = procs[slot].pid;
     uint64_t f = sched_lock();
     alive_count++;
-    procs[slot].state = SCHED_READY;
+    sched_set_state(slot, SCHED_READY);
     slot_unclaim(slot);
     sched_unlock(f);
     return pid;

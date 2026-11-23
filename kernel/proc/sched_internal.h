@@ -195,6 +195,11 @@ struct sched_process {
     // A PID IS NOT A SLOT INDEX: every pid -> slot lookup goes through
     // pid_slot(), and every slot -> pid read is this field.
     int on_core;          // the core this context is live on, or -1 (Linux's on_cpu): the pick skips a live one
+    // THE READY LIST (scheduler.c, "The run queue"): linked EXACTLY while
+    // `state` is SCHED_READY, and only by sched_set_state(), under the
+    // scheduler lock. Slot indices, -1 at the ends.
+    int rq_next, rq_prev;
+    uint8_t rq_on;
     uintptr_t on_site;    // ...and who switched it in, for its report
     int pid;
 
@@ -510,6 +515,11 @@ static inline struct cpu *sched_here(void) {
 uint64_t sched_lock(void);
 void sched_unlock(uint64_t flags);
 int  sched_locked_here(void);
+// **THE ONE WRITER OF A SLOT'S `state`**: keeps the ready list and the
+// counts in step with it. Takes the scheduler lock (recursive), so any
+// caller may use it.
+void sched_set_state(int slot, enum sched_state s);
+int  sched_ready_count(void);        // slots on the ready list (a hint without the lock)
 
 int  sched_core_of(int slot);        // the core running it, or -1
 int  sched_on_other_core(int slot);  // RUNNING, and not here: in ring 3 on another core

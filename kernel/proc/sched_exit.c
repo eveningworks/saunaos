@@ -223,7 +223,7 @@ static void leader_dying(int leader, int code) {
         procs[leader].group_exit_code = code;
     }
     if (procs[leader].state != SCHED_ZOMBIE) alive_count--;
-    procs[leader].state = SCHED_ZOMBIE;
+    sched_set_state(leader, SCHED_ZOMBIE);
 }
 
 void scheduler_exit_group(int code) {
@@ -261,7 +261,7 @@ void scheduler_exit_group(int code) {
     // unreapable zombie that holds the pid for the parent.
     if (me == leader) {
         if (procs[me].state != SCHED_ZOMBIE) alive_count--;
-        procs[me].state = SCHED_ZOMBIE;
+        sched_set_state(me, SCHED_ZOMBIE);
     } else {
         slot_release(me);
     }
@@ -312,7 +312,7 @@ void scheduler_on_exit(int code) {
     // enum value. The slot (and its exit_code) stays held until whoever
     // spawned it calls scheduler_poll().
     if (procs[leader].state != SCHED_ZOMBIE) alive_count--;
-    procs[leader].state = SCHED_ZOMBIE;
+    sched_set_state(leader, SCHED_ZOMBIE);
     procs[leader].exit_code = code;
     procs[leader].group_dying = 0;   // reapable from here
 
@@ -396,7 +396,7 @@ void scheduler_on_thread_exit(int code) {
     if (procs[me].detached) {
         slot_release(me);      // nobody is coming to reap it
     } else {
-        procs[me].state = SCHED_ZOMBIE;
+        sched_set_state(me, SCHED_ZOMBIE);
         alive_count--;
     }
     // Whoever is joining. Harmless when nobody is: a wake with no
@@ -639,7 +639,7 @@ int scheduler_kill(int pid, int exit_code) {
     // Its threads go with it, for scheduler_on_exit()'s reason.
     group_release_threads(slot);
 
-    procs[slot].state = SCHED_ZOMBIE;
+    sched_set_state(slot, SCHED_ZOMBIE);
     procs[slot].exit_code = exit_code;
     alive_count--;
     sched_unlock(sf);
