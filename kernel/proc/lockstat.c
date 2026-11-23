@@ -36,8 +36,9 @@ int lockstat_timing_set(int on) {
     // stretch's, which nobody reads again. Then zero, then the flag.
     g_lockstat_armed_tsc = arch_rdtsc();
     for (int i = 0; i < lockstat_count(); i++) {
-        __lockstats_start[i]->hold_tsc = 0;
-        __lockstats_start[i]->hold_max_tsc = 0;
+        struct lockstat *s = (struct lockstat *)lockstat_at(i);
+        s->hold_tsc = 0;
+        s->hold_max_tsc = 0;
     }
     bkl_stat_zero_holds();
     g_timing_since_ns = clocksource_now_ns();
@@ -47,10 +48,14 @@ int lockstat_timing_set(int on) {
 
 uint64_t lockstat_timing_since_ns(void) { return g_lockstat_timing ? g_timing_since_ns : 0; }
 
-int lockstat_count(void) { return (int)(__lockstats_end - __lockstats_start); }
+// The declared rows, then the run queues' (one per core, sched_rq.c).
+static int declared(void) { return (int)(__lockstats_end - __lockstats_start); }
+
+int lockstat_count(void) { return declared() + lockstat_extra_count(); }
 
 const struct lockstat *lockstat_at(int i) {
-    return i >= 0 && i < lockstat_count() ? __lockstats_start[i] : 0;
+    if (i >= 0 && i < declared()) return __lockstats_start[i];
+    return lockstat_extra_at(i - declared());
 }
 
 static int lock_fill(int index, void *out) {

@@ -8,6 +8,8 @@
 // signal.c:
 //
 //   scheduler.c   the table, picking, switching, blocking and waking
+//   sched_rq.c    the run queues: their locks, placement, steal, balance
+//   sched_sleepq.c the wait channels' chains
 //   sched_fork.c  making a process: spawn, fork, threads, exec, `#!`
 //   sched_exit.c  ending one: exit, kill, reaping, reparenting
 //   sched_job.c   signal state, process groups, sessions, stop/continue
@@ -20,6 +22,7 @@
 #include "percpu.h"   // sched_here(): the per-core current_index
 #include "gdt.h"
 #include "spinlock.h"
+#include "lockstat.h"   // struct sched_rq's row
 #include "scheduler.h"
 #include "kstack.h"
 #include "fpu.h"
@@ -199,11 +202,22 @@ struct sched_process {
     // pid_slot(), and every slot -> pid read is this field.
     int pid;
 
-    // THE READY LIST (scheduler.c, "The run queue"): linked EXACTLY while
-    // `state` is SCHED_READY, and only by sched_set_state(), under the
-    // scheduler lock. Slot indices, -1 at the ends.
+    // THE RUN QUEUES (sched_rq.c): a READY slot is on ONE list -- its
+    // `rq_cpu`'s fair list, or the global RT list when `rq_cpu` is RQ_RT --
+    // and a RUNNING one is on none, its core in `rq_cpu`; a BLOCKED or dead
+    // one keeps its last core there, the wake's hint. Slot indices, -1 at
+    // the ends. Who may write what is sched_rq.c's top comment.
     int rq_next, rq_prev;
     uint8_t rq_on;
+    // Only core 0 runs it: a fabricated KTEST slot, whose "frame" is a
+    // test's local array (scheduler_test_park()). kthreads are core 0's by
+    // being kthreads.
+    uint8_t pin_bsp;
+    int rq_cpu;
+    // THIS SLOT'S LOCK (Linux's p->pi_lock): its way into and out of
+    // BLOCKED, its death, and an `rq_cpu` while it is on no list. After
+    // the wait-channel chain, before any run-queue lock.
+    struct spinlock pi_lock;
     // THE SLEEP QUEUE (sched_sleepq.c): on `sq_chan`'s chain from an arm
     // or a park until a disarm, a wake or leaving BLOCKED. The links, and
     // arm_chan/armed_woken/arm_value below, are written under that
@@ -444,7 +458,7 @@ struct sched_process {
     // the kernel has no business choosing.
     uint64_t cpu_ns;   // measured, not counted -- see bill_current()
     // CPU consumed, for PICKING -- see find_next_runnable(). cpu_ns is the
-    // report; this one is moved forward on a wake (vr_place()) so a long
+    // report; this one is moved forward on a wake (vr_place_on()) so a long
     // sleeper cannot come back owed a monopoly.
     uint64_t vruntime;
 
@@ -511,36 +525,98 @@ static inline struct cpu *sched_here(void) {
 #define set_rotation_pos(v)     SCHED_HERE_SET(sched_rot, (v))
 #define set_need_resched(v)     SCHED_HERE_SET(sched_resched, (v))
 
-// **THE SCHEDULER LOCK** (docs/smp-design.md, stage 7): procs[]'s run
-// state -- `state`, `stopped`, what the pick reads and the globals it
-// writes -- and which slot each core runs. FreeBSD 5's sched_lock beside
-// Giant: one lock for the run queue, AFTER the kernel lock and never
-// before it, so a path holding it that finds it needs the kernel lock
-// declines rather than waits (scheduler_ap_event_lockless()). Interrupts
-// off while held, which is also its guard; RECURSIVE per core, as
-// FreeBSD's was, so a wake inside a kill nests. **A SWITCH IS ENTERED
-// HOLDING IT ONCE AND RETURNS WITHOUT IT** -- switch_to() and
-// switch_to_kernel() let it go before the incoming context runs, so the
-// caller's own unlock after one is irq_restore() alone.
-uint64_t sched_lock(void);
-void sched_unlock(uint64_t flags);
-int  sched_locked_here(void);
-// **THE ONE WRITER OF A SLOT'S `state`**: keeps the ready list and the
-// counts in step with it. Takes the scheduler lock (recursive), so any
-// caller may use it.
+// ---- the run queues (sched_rq.c; docs/smp-design.md, stage 7, 2b) -----
+//
+// **ONE QUEUE PER CORE, Linux's struct rq**: a lock, the fair READY list,
+// its count, the floor its wakes are placed against. Realtime slots are on
+// ONE global list under `rt_lock` (RQ_RT), so the best RT process on the
+// machine is what some core runs. kthreads, KTEST slots and the kernel
+// context are core 0's alone.
+//
+// **THE LOCK ORDER**: kernel lock -> one wait-channel chain -> one slot's
+// pi_lock -> run-queue locks (two only for a move, the lower core first or
+// the other one TRYLOCKED) -> rt_lock. Every one with interrupts off.
+// **A SWITCH IS ENTERED HOLDING THIS CORE'S QUEUE LOCK AND RETURNS WITHOUT
+// IT** -- switch_to() and switch_to_kernel() let it go before the incoming
+// context runs (`sched_lock_depth` in struct cpu says it is held).
+#define RQ_RT (-3)   // the queue a READY realtime slot is on
+
+struct rq_list { int head, tail, count; };
+struct sched_rq {
+    struct spinlock lock;
+    struct rq_list fair;
+    int nr_running;      // RUNNING slots on this core: 0 or 1
+    int nr_movable;      // of `fair`, those a steal or the balancer may move
+    uint64_t min_vruntime;   // this queue's floor; never goes back
+    uint64_t steals, pulls;  // slots this core stole, and the balancer moved here
+    struct lockstat stat;    // `lockstat`'s "rq<N>" row
+    char name[8];
+};
+extern struct sched_rq *g_rqs;
+extern int g_nrq;
+extern struct rq_list g_rt_list;
+void sched_rq_init(void);
+struct sched_rq *rq_of(int core);
+struct rq_list *rq_list_of(int q);   // a core's fair list, or RQ_RT's
+
+// Locks, interrupts ALREADY OFF. rq_lock() takes a core's queue or RQ_RT.
+void rq_lock(int q);
+void rq_unlock(int q);
+void rq_lock2(int core);          // a second core's queue, holding one: subclass 1
+int  rq_trylock2(int core);
+void rq_lock_here(void);          // this core's, for a pick and the switch after it
+void rq_unlock_here(void);        // ...when no switch follows
+void pi_lock(int slot);
+void pi_unlock(int slot);
+int  rq_lock_slot(int slot);      // pi_lock held: the slot's queue, locked and re-checked
+// Its wait-channel chain if it is on one, then its pi_lock, re-checked:
+// what leaving BLOCKED or dying needs. Returns the chain held, or NULL.
+const void *slot_lock_chained(int slot);
+void slot_unlock_chained(int slot, const void *chan);
+
+// The list operations, under that list's lock.
+void rq_enqueue(int slot, int q);   // onto q's list; `rq_cpu` = q
+void rq_dequeue(int slot);          // off the list `rq_cpu` names
+void slot_set_stopped(int slot, int on);   // pi_lock + its queue: keeps nr_movable
+
+// THE WRITERS OF A SLOT'S `state`, keeping the lists and counts in step:
+//   sched_state_locked()  BLOCKED/ZOMBIE/UNUSED/RUNNING, with the locks the
+//                         move needs held (RUNNING: this core's queue);
+//   sched_make_ready()    READY onto q, its lock held (and the chain, from
+//                         BLOCKED);
+//   sched_set_state()     the cold paths' ZOMBIE/UNUSED/BLOCKED: takes the
+//                         slot's chain, pi_lock and queue itself.
+void sched_state_locked(int slot, enum sched_state s);
+void sched_make_ready(int slot, int q);
 void sched_set_state(int slot, enum sched_state s);
-int  sched_ready_count(void);        // slots on the ready list (a hint without the lock)
+void sched_publish(int slot);       // a claimed, built slot becomes READY (and counted)
+
+// Where a waking or new fair slot goes: its live core, else `hint` if idle,
+// else an idle core, else `hint`; core 0 for a kthread or a pinned slot.
+int  sched_place(int slot, int hint);
+int  sched_core_usable(int core);
+int  sched_core_idle(int core);
+void sched_vr_migrate(int slot, int from, int to);   // the floors' difference
+int  sched_steal(int me);           // this core's queue held: one slot moved here, or -1
+int  sched_steal_hint(int me);      // another queue has a slot to move (no lock)
+void sched_balance_tick(uint64_t now);   // the BSP's tick
+int  sched_freeze_slot(int slot);   // `stopped` under its locks; the core it RUNS on, or -1
+int  sched_running_core(int slot);  // the same question, under its locks, changing nothing
+void sched_unfreeze_slot(int slot);
+void sched_rq_check(const char *where, int incoming);   // the debug build's invariants
+void sched_kick_wake(int slot, int core);   // a READY slot moved onto `core`: wake it if idle
+extern int g_sched_force_core;      // a KTEST's: every placement here (-1: none)
 
 // sched_sleepq.c -- the wait channels, hashed onto chains, a lock each
-// (FreeBSD's sleepqueue chains). **ORDER: THE SCHEDULER LOCK, THEN ONE
-// CHAIN LOCK, NEVER TWO.** Under a chain lock the scheduler lock may only
-// be RE-ENTERED (already held, as wake_slot() does), never first taken,
-// and nothing there may unlink another slot (sched_set_state() leaving
-// BLOCKED takes its chain's lock: a waker unlinks first).
+// (FreeBSD's sleepqueue chains). **A CHAIN COMES BEFORE ANY SLOT'S OR
+// QUEUE'S LOCK, AND NEVER TWO**, so a wake walks its chain and wakes
+// while it holds it.
 // Several channels share a chain, so a walk checks `sq_chan`.
 void     sleepq_init(void);
 uint64_t sq_lock(const void *chan);            // interrupts off, then the chain's lock
 void     sq_unlock(const void *chan, uint64_t flags);
+void     sq_lock_raw(const void *chan);        // interrupts already off
+void     sq_unlock_raw(const void *chan);
 int      sq_first(const void *chan);           // the chain's first slot, or -1
 void     sq_link(int slot, const void *chan);  // chan's chain lock held; slot not linked
 void     sq_unlink(int slot);                  // its chain's lock held
@@ -556,7 +632,6 @@ int  sched_core_of(int slot);        // the core running it, or -1
 int  sched_on_other_core(int slot);  // RUNNING, and not here: in ring 3 on another core
 void sched_kick_core(int core);      // reschedule there now (an IPI unless it is here)
 extern uint64_t kernel_vruntime;
-extern uint64_t g_min_vruntime;
 
 void proc_name_from_path(char *dst, int cap, const char *path);
 int slot_claim(void);
@@ -570,12 +645,13 @@ int pid_slot(int pid);
 uint64_t kernel_stack_top(int idx);
 uint64_t kernel_stack_base(int idx);
 void kstack_arm_slot(int idx);
-void vr_place(int rot);
+void vr_place_on(int rot, int core);   // no further back than a slice behind core's floor
 // A new slot's class: `nice` from `parent` (a slot, or -1 for the
 // kernel context), SCHED_OTHER regardless -- see `policy` above.
 void sched_class_reset(int slot, int parent);
 void sched_spawn_stop_if_armed(int slot);   // sched_job.c, SPAWN_STOPPED
-int find_next_runnable(int start);
+int find_next_runnable(int start);         // this core's queue held: picked and claimed
+int scheduler_test_pick_locked(int start); // ...picked only
 void trace_sched(const char *what, int idx);
 void proc_start_context(int slot, const uint64_t *tf);
 void switch_to(int from, int idx);
@@ -603,6 +679,11 @@ void group_wait_off_cores(int leader, int keep);   // exec, smp=run: none left o
 // A BLOCKED slot became READY: closes its disk or lock interval and opens
 // the runqueue one. Every wake site calls it.
 void sched_delay_woken(int slot);
+
+// A BLOCKED slot woken for a signal: its chain (if any) and pi_lock held,
+// no queue lock (scheduler.c's wake_locked()).
+void sched_wake_signalled(int slot);
+#define SIGNAL_NO_QUEUE (-100)   // raise_locked()'s "the queue is let go"
 
 // sched_job.c: a syscall-entry wait ended for a signal (rewound, or -EINTR).
 void sched_signal_answer_park(struct sched_process *p, uint64_t *tf, int reason);

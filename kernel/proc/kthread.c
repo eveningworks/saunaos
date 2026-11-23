@@ -50,7 +50,7 @@ int kthread_start(const char *name, void (*fn)(void *), void *arg) {
     procs[slot].kthread  = 1;
     procs[slot].ustack_lo = procs[slot].ustack_hi = 0;
     sched_class_reset(slot, -1);
-    procs[slot].vruntime = g_min_vruntime;
+    procs[slot].vruntime = 0;   // sched_publish() places it on core 0's floor
     signal_state_reset(slot);
     procs[slot].blocked = 0;
     procs[slot].ready   = 0;
@@ -66,11 +66,7 @@ int kthread_start(const char *name, void (*fn)(void *), void *arg) {
     // EVERYTHING BEFORE READY: the caller is preemptible, and a short fn
     // can run to its end and free the slot before the next line here.
     int pid = procs[slot].pid;
-    uint64_t f = sched_lock();
-    alive_count++;
-    sched_set_state(slot, SCHED_READY);
-    slot_unclaim(slot);
-    sched_unlock(f);
+    sched_publish(slot);   // core 0's queue: a kthread is kernel-context work
     return pid;
 }
 

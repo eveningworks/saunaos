@@ -40,9 +40,13 @@ void spin_unlock_raw(struct spinlock *l);
 int  spin_trylock(struct spinlock *l);
 
 // With interrupts ALREADY OFF and no guard, but checked by lockdep: the
-// scheduler's lock (sched_internal.h's sched_lock()), held into a switch.
+// scheduler's run-queue locks (sched_internal.h), one held into a switch.
 void spin_lock_noguard(struct spinlock *l);
 void spin_unlock_noguard(struct spinlock *l);
+// The same for a second lock of one class held with the first, as lockdep
+// subclass `sub` (two run queues for a move); the trylock never waits.
+void spin_lock_noguard_nested(struct spinlock *l, int sub);
+int  spin_trylock_noguard_nested(struct spinlock *l, int sub);
 
 // Interrupts off on this core, then the lock; the flags go back to
 // spin_unlock_irqrestore().

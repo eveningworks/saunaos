@@ -2,9 +2,10 @@
 // sleepqueue chains (sched_internal.h). A slot is on its channel's chain
 // from an arm (scheduler_wait_arm()) or a park until it is disarmed,
 // woken or leaves BLOCKED, so a wake walks the few slots that asked for
-// that channel, and one that finds nobody parked never takes the
-// scheduler lock: under 3 x syscall_bench, wakes and arms were three
-// quarters of that lock's takes.
+// that channel, and one that finds nobody parked takes no other lock.
+// **THE CHAIN COMES FIRST** in the scheduler's order (sched_internal.h):
+// a wake holds it while it takes each sleeper's pi_lock and queue, and a
+// park holds it from "was I woken?" until BLOCKED.
 //
 // The chain count is a hash width, not a capacity -- any number of slots
 // waits on one chain.
@@ -48,6 +49,9 @@ void sq_unlock(const void *chan, uint64_t f) {
     spin_unlock_noguard(&chain_of(chan)->lock);
     irq_restore(f);
 }
+
+void sq_lock_raw(const void *chan) { spin_lock_noguard(&chain_of(chan)->lock); }
+void sq_unlock_raw(const void *chan) { spin_unlock_noguard(&chain_of(chan)->lock); }
 
 int sq_first(const void *chan) { return chain_of(chan)->head; }
 
@@ -94,8 +98,8 @@ void sq_unlink_any(int s) {
     }
 }
 
-// A park's first half, under the scheduler lock: an arm on another
-// channel is over, then `chan`'s chain lock. 1 = a wake already reached
+// A park's first half, holding nothing yet: an arm on another channel is
+// over, then `chan`'s chain lock -- before the parker's pi_lock and queue. 1 = a wake already reached
 // the arm -- consumed, nothing parked, the lock let go; 0 = park, with
 // the chain lock HELD (*q) until BLOCKED, so "was I woken?" and "I am
 // asleep" are one step to every waker.

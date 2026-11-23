@@ -7,6 +7,7 @@
 #include "sandbox.h"
 #include "sandbox_abi.h"
 #include "sched_internal.h"
+#include "irqflags.h"
 #include "vmm.h"
 #include "process.h" // process_context_is_armed() -- see kernel_slot_runnable()
 #include "string.h" // k_strlcpy -- proc_name_from_path()
@@ -295,13 +296,19 @@ int scheduler_test_park(uint64_t *tf, const void *chan, int reason) {
         procs[i].kernel_rsp = (uint64_t)tf;
         procs[i].parked_in_kernel = 0;
         proc_start_context(i, tf);
-        uint64_t sf = sched_lock();
-        uint64_t q = sq_lock(chan);
+        // ONLY CORE 0 MAY RUN IT -- its "frame" is a local of this test --
+        // and only core 0's pick sees it, which is the pick these tests ask.
+        procs[i].pin_bsp = 1;
+        uint64_t q = sq_lock(chan);   // a park's order: chain, pi_lock, queue
+        pi_lock(i);
+        procs[i].rq_cpu = 0;
+        rq_lock(0);
         procs[i].wait_chan = chan;
         sq_link(i, chan);
-        sched_set_state(i, SCHED_BLOCKED);
+        sched_state_locked(i, SCHED_BLOCKED);
+        rq_unlock(0);
+        pi_unlock(i);
         sq_unlock(chan, q);
-        sched_unlock(sf);
         slot_unclaim(i);   // published: its state is no longer UNUSED
         // A FABRICATED SLOT MUST LOOK LIKE A FRESH PROCESS, which is
         // exactly what spawn_from_fs() gives a real one. Slots are
@@ -322,7 +329,7 @@ int scheduler_test_park(uint64_t *tf, const void *chan, int reason) {
         procs[i].pml4_phys = 0;
         procs[i].ppid = 0;
         sched_class_reset(i, -1);
-        procs[i].vruntime = g_min_vruntime;
+        procs[i].vruntime = rq_of(0)->min_vruntime;
         procs[i].parked_in_kernel = 0;   // a mid-call park is asked for, never inherited
         procs[i].preempted_in_kernel = 0;
         return i;
@@ -348,7 +355,23 @@ void scheduler_test_park_deadline(int idx, uint64_t wake_at_ns, int in_kernel) {
     procs[idx].parked_in_kernel = in_kernel ? 1 : 0;
 }
 
-int scheduler_test_pick(int start) { return find_next_runnable(start); }
+// Picked, the floor raised as a real pick raises it, and claimed by
+// nobody: the slot stays where it is.
+int scheduler_test_pick(int start) {
+    uint64_t f = irq_save();
+    rq_lock_here();
+    int pick = scheduler_test_pick_locked(start);
+    rq_unlock_here();
+    irq_restore(f);
+    return pick;
+}
+
+void scheduler_test_force_core(int core) { g_sched_force_core = core; }
+
+int scheduler_test_slot_core(int pid) {
+    int s = pid_slot(pid);
+    return s < 0 || procs[s].state == SCHED_UNUSED ? -1 : __atomic_load_n(&procs[s].rq_cpu, __ATOMIC_ACQUIRE);
+}
 
 void scheduler_test_set_live(int idx, int core) {
     if (idx >= 0 && idx < MAX_PROCS) __atomic_store_n(&procs[idx].on_core, core, __ATOMIC_RELEASE);
@@ -361,7 +384,7 @@ void scheduler_test_set_vruntime(int idx, uint64_t v) {
 
 uint64_t scheduler_test_vruntime(int idx) {
     if (idx == -1) return kernel_vruntime;
-    if (idx == -2) return g_min_vruntime;
+    if (idx == -2) return rq_of(0)->min_vruntime;
     return (idx >= 0 && idx < MAX_PROCS) ? procs[idx].vruntime : 0;
 }
 

@@ -130,7 +130,10 @@ int main(int argc, char **argv) {
     utest_check(leader > 0, "the leader starts on a pty of its own");
     utest_check_detail(await(master, acc, sizeof acc, &len, "sid-ok"),
                        "tcgetsid() on its terminal is its own session", acc);
-    utest_check_detail(strstr(acc, "via-ctty") != NULL,
+    // AWAITED, not looked for: the leader writes it just after "sid-ok",
+    // and on another core this reader can see the first line before the
+    // second is written.
+    utest_check_detail(await(master, acc, sizeof acc, &len, "via-ctty"),
                        "open(\"/dev/tty\") reaches the same terminal", acc);
     int status = 0;
     if (leader > 0) sys_waitpid(leader, &status);

@@ -556,8 +556,10 @@ static int wait_state(struct cpu *c, uint32_t at_least, uint32_t ms);
 int smp_scheduling(void) { return g_scheduling; }
 
 void smp_resched(int index) {
-    if (!g_cpus || index <= 0 || index >= g_cpu_count) return;
-    (void)lapic_send_ipi((uint8_t)g_cpus[index]->apic_id, SMP_SCHED_VECTOR);
+    // Core 0 too: a wake on another core may place work on its queue
+    // (scheduler.c's sched_kick_core()); its handler is isr_dispatch()'s.
+    if (!g_cpus || index < 0 || index >= g_cpu_count) return;
+    (void)lapic_send_ipi((uint8_t)smp_cpu_at(index)->apic_id, SMP_SCHED_VECTOR);
 }
 
 // To this core, whichever it is: taken the moment interrupts reopen.

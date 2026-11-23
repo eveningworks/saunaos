@@ -993,7 +993,11 @@ void isr_dispatch(uint64_t *regs) {
     }
     // The call IPI reaches the BSP too once an AP may send one (smp=run);
     // like the shootdown, its sender waits holding the kernel lock.
-    if (vector == SMP_CALL_VECTOR && spin_cpu_index_raw() == 0) {   // interrupts off: an IPI
+    // **FROM EITHER RING, ON EVERY CORE**: one that landed on an AP in
+    // ring 3 went the kernel-lock way into the body, which has no case for
+    // it -- no EOI, so the vector stayed in service and held off that
+    // core's own tick and every later IPI for good.
+    if (vector == SMP_CALL_VECTOR) {   // interrupts off: an IPI
         smp_ap_interrupt(vector);   // an exception never reaches it
         return;
     }

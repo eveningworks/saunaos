@@ -8,7 +8,7 @@
 //
 //   self    the call answers for this thread
 //   disk    writes and an fsync park on the disk, and disk_ns grows
-//   runq    yielding to a spinning thread is READY time, and runq_ns grows
+//   runq    spinning threads, two a core, spend READY time, and runq_ns grows
 //   alone   spinning with nothing else to run is not: under a quarter of
 //           the wall time waits for the CPU (the idle kernel once took
 //           half, handing the CPU back to itself)
@@ -47,7 +47,13 @@ static struct proc_info self(void) {
 static unsigned long long ms(uint64_t ns) { return (unsigned long long)(ns / 1000000ull); }
 
 static volatile int g_spin_stop;
-static void *spin(void *arg) { (void)arg; while (!g_spin_stop) {} return 0; }
+// Spins until told, then leaves the READY time it gathered meanwhile in *arg.
+static void *spin(void *arg) {
+    uint64_t r0 = self().delay_runq_ns;
+    while (!g_spin_stop) {}
+    *(uint64_t *)arg = self().delay_runq_ns - r0;
+    return 0;
+}
 
 // The child: holds a write lock on LOCKFILE for HOLD_MS, then exits.
 static int lock_holder(void) {
@@ -80,17 +86,28 @@ int main(int argc, char **argv) {
     utest_checkf(b.delay_disk_ns > a.delay_disk_ns, "disk: the writes parked on the disk "
                  "(+%llu ms)", ms(b.delay_disk_ns - a.delay_disk_ns));
 
-    // runq: give the CPU to a spinner and wait for it to come back.
-    pthread_t t;
-    int spinning = pthread_create(&t, NULL, spin, NULL) == 0;
-    struct proc_info c0 = self();
-    for (int i = 0; spinning && i < 20; i++) sys_yield();
-    struct proc_info c1 = self();
+    // runq: more spinners than cores, TWO A CORE, for HOLD_MS -- every
+    // core has one waiting, so the threads' own READY time grows. Asked of
+    // the spinners, not of a thread yielding to one: with a run queue per
+    // core a yielder can be the only thing on its core's queue, and then
+    // its yield waits for nothing (a delay of 0 on four cores).
+    long nspin = 2 * sysconf(_SC_NPROCESSORS_ONLN);
+    if (nspin < 2) nspin = 2;
+    pthread_t t[nspin];
+    uint64_t spun_waits[nspin];
+    long started = 0;
+    while (started < nspin && pthread_create(&t[started], NULL, spin, &spun_waits[started]) == 0)
+        started++;
+    sys_sleep_ms(HOLD_MS);
     g_spin_stop = 1;
-    if (spinning) pthread_join(t, NULL);
-    utest_checkf(spinning && c1.delay_runq_ns > c0.delay_runq_ns,
-                 "runq: yielding to a spinning thread is time waiting for the CPU (+%llu ms)",
-                 ms(c1.delay_runq_ns - c0.delay_runq_ns));
+    uint64_t runq_sum = 0;
+    for (long k = 0; k < started; k++) {
+        pthread_join(t[k], NULL);
+        runq_sum += spun_waits[k];
+    }
+    utest_checkf(started == nspin && runq_sum > 0,
+                 "runq: %ld spinners on %ld cores waited for the CPU (+%llu ms)",
+                 started, nspin / 2, ms(runq_sum));
 
     // alone: half a second of spinning, this thread the only one busy.
     struct proc_info s0 = self();

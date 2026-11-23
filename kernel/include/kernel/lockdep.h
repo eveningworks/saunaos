@@ -87,6 +87,7 @@ struct lockdep_cpu {
 
 // spinlock.c's hooks. `site` is the caller's call site.
 void lockdep_spin_acquired(struct spinlock *l, uintptr_t site, int trylock);
+void lockdep_spin_acquired_nested(struct spinlock *l, uintptr_t site, int trylock, int sub);
 void lockdep_spin_release(struct spinlock *l);
 void lockdep_bkl_acquire(uintptr_t site);   // a FRESH take of the kernel lock
 // kmutex.c's. prepare() marks the wait_lock before it is first taken.

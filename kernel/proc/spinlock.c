@@ -171,10 +171,12 @@ static void __attribute__((noinline)) take(struct spinlock *l, uintptr_t site) {
 // wait. A release is forgotten before the unlock.
 #ifdef SAUNAOS_LOCKDEP
 #define LD_TAKEN(l, site, try) lockdep_spin_acquired((l), (site), (try))
+#define LD_TAKEN_SUB(l, site, try, sub) lockdep_spin_acquired_nested((l), (site), (try), (sub))
 #define LD_RELEASE(l) lockdep_spin_release(l)
 #define LD_BKL(site) lockdep_bkl_acquire(site)
 #else
 #define LD_TAKEN(l, site, try) ((void)0)
+#define LD_TAKEN_SUB(l, site, try, sub) ((void)(sub))
 #define LD_RELEASE(l) ((void)0)
 #define LD_BKL(site) ((void)0)
 #endif
@@ -211,6 +213,28 @@ void spin_lock_noguard(struct spinlock *l) {
     uintptr_t site = (uintptr_t)__builtin_return_address(0);
     LD_TAKEN(l, site, 0);
     take(l, site);
+}
+
+// A SECOND LOCK OF ONE CLASS, held with the first: its own lockdep node
+// (Linux's spin_lock_nested(), SINGLE_DEPTH_NESTING) -- two run queues
+// for a move.
+void spin_lock_noguard_nested(struct spinlock *l, int sub) {
+    uintptr_t site = (uintptr_t)__builtin_return_address(0);
+    LD_TAKEN_SUB(l, site, 0, sub);
+    take(l, site);
+}
+
+int spin_trylock_noguard_nested(struct spinlock *l, int sub) {
+    uint32_t serving = __atomic_load_n(&l->serving, __ATOMIC_ACQUIRE);
+    uint32_t expect = serving;
+    if (!__atomic_compare_exchange_n(&l->next, &expect, serving + 1, 0,
+                                     __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+        return 0;
+    l->holder = spin_cpu_index() + 1;
+    l->site = (uintptr_t)__builtin_return_address(0);
+    if (l->stat) stat_taken(l->stat, 0);
+    LD_TAKEN_SUB(l, l->site, 1, sub);
+    return 1;
 }
 
 void spin_unlock_noguard(struct spinlock *l) {

@@ -61,5 +61,9 @@ uint64_t lockstat_hold_end(struct lockstat *s);
 
 int lockstat_count(void);
 const struct lockstat *lockstat_at(int i);
+// Rows not declared with SPINLOCK_COUNTED: a lock per core, sized at boot
+// -- the run queues' (kernel/proc/sched_rq.c).
+int lockstat_extra_count(void);
+struct lockstat *lockstat_extra_at(int i);
 
 #endif

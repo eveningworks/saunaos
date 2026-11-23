@@ -502,7 +502,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     // SET, NOT LEFT: a reused slot otherwise hands the next tenant its
     // last one's class. Nice inherited, as posix_spawn does; RT never.
     sched_class_reset(slot, current_index);
-    procs[slot].vruntime = g_min_vruntime;   // a newcomer joins the pack, not ahead of it
+    procs[slot].vruntime = 0;   // sched_publish() joins it to its queue's pack
     // NOTHING IS PENDING AND NOTHING IS IGNORED for a fresh process --
     // reset rather than inherited, and both matter. A slot is reused, so
     // a leftover pending bit would kill the NEXT tenant on its first
@@ -603,11 +603,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
                           procs[slot].name, line);
     }
 
-    uint64_t sf = sched_lock();   // published under the run queue's lock
-    sched_set_state(slot, SCHED_READY);
-    slot_unclaim(slot);
-    alive_count++;
-    sched_unlock(sf);
+    sched_publish(slot);   // placed, READY, unclaimed and counted, under its queue's lock
     return slot;
 }
 
@@ -693,7 +689,7 @@ int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
     procs[slot].ppid     = procs[leader].pid;
     procs[slot].pgid     = procs[leader].pgid;
     sched_class_reset(slot, caller);
-    procs[slot].vruntime = g_min_vruntime;
+    procs[slot].vruntime = 0;   // sched_publish()'s
     signal_state_reset(slot);
     // DISPOSITIONS ARE THE GROUP'S, read through the leader (sched_job.c's
     // group_actions()), so nothing is copied. `pending` is not inherited
@@ -713,11 +709,7 @@ int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
     k_memset(&procs[slot].mm, 0, sizeof procs[slot].mm);
     procs[slot].ext->cwd.path[0] = '\0';
     procs[slot].ext->sandbox = 0;   // the leader's is the group's
-    uint64_t sf = sched_lock();   // published under the run queue's lock
-    sched_set_state(slot, SCHED_READY);
-    slot_unclaim(slot);
-    alive_count++;
-    sched_unlock(sf);
+    sched_publish(slot);   // placed, READY, unclaimed and counted, under its queue's lock
     return procs[slot].pid;
 }
 
@@ -800,7 +792,7 @@ int scheduler_fork(const uint64_t *regs) {
     fd_clone(as, procs[leader].pml4_phys);
     procs[slot].ppid = procs[leader].pid;
     sched_class_reset(slot, caller);
-    procs[slot].vruntime = g_min_vruntime;
+    procs[slot].vruntime = 0;   // sched_publish()'s
     signal_state_reset(slot);
     for (int i = 0; i <= SIGNAL_MAX; i++)
         procs[slot].actions[i] = procs[leader].actions[i];   // the group's
@@ -837,11 +829,7 @@ int scheduler_fork(const uint64_t *regs) {
     procs[slot].ext->sandbox = sandbox_get(procs[leader].ext->sandbox);
     procs[slot].ext->no_crash_report = procs[leader].ext->no_crash_report;
     strace_fork(procs[leader].pml4_phys, as);   // past the last failure path
-    uint64_t sf = sched_lock();   // published under the run queue's lock
-    sched_set_state(slot, SCHED_READY);
-    slot_unclaim(slot);
-    alive_count++;
-    sched_unlock(sf);
+    sched_publish(slot);   // placed, READY, unclaimed and counted, under its queue's lock
     return procs[slot].pid;
 }
 

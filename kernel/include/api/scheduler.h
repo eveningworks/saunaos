@@ -69,7 +69,7 @@ void scheduler_ap_event(uint64_t *regs);
 
 // **THE SAME WITHOUT THE KERNEL LOCK** (docs/smp-design.md, stage 7), for
 // an AP in ring 3 or in its idle loop: nothing to do, or a switch between
-// two contexts that hold none of it, under the scheduler lock alone.
+// two contexts that hold none of it, under this core's queue lock alone.
 // Calls `ack` (the EOI and the timer's re-arm) once it has taken the
 // event, which may be before a switch resumes this context much later;
 // returns 0 having changed nothing, and the caller then takes the
@@ -83,7 +83,23 @@ int  scheduler_yield_lockless(uint64_t *regs);
 int  scheduler_block_current_lockless(uint64_t *regs, const void *chan, int reason);
 int  scheduler_lockless_sched_enabled(void);
 void scheduler_lockless_sched_set(int on);
-unsigned scheduler_lock_faults(void);   // switches and unlocks the scheduler lock refused (sched_internal.h)
+unsigned scheduler_lock_faults(void);   // switches made without their queue lock (sched_internal.h)
+// PER-CORE RUN QUEUES (docs/smp-design.md, stage 7): an idle core steals a
+// slot waiting on another queue, and core 0's tick moves one from the
+// longest queue to the shortest. `kernel.sched.steal` and
+// `kernel.sched.balance` turn each off, for an A/B and a test's positive
+// control. The counts are slots moved, since boot.
+int  scheduler_steal_enabled(void);
+void scheduler_steal_set(int on);
+int  scheduler_balance_enabled(void);
+void scheduler_balance_set(int on);
+uint64_t scheduler_rq_steals(void);
+uint64_t scheduler_rq_pulls(void);
+int  scheduler_rq_queued(int core);   // READY slots on core's fair queue (a hint)
+// The debug build's run-queue invariant checks at every switch (sched_rq.c):
+// how many ran, and whether one failed (it logs the first). 0 and 0 otherwise.
+unsigned scheduler_rq_checks(void);
+unsigned scheduler_rq_check_failures(void);
 unsigned scheduler_double_resumes(void);   // a context resumed while live on another core: 0, or a bug
 
 // The earliest thing the scheduler needs a timer event for -- a blocked
@@ -91,8 +107,11 @@ unsigned scheduler_double_resumes(void);   // a context resumed while live on an
 // runnable -- as a clocksource_now_ns() value, or 0 for nothing.
 uint64_t scheduler_next_event_ns(void);
 
-// Is a process other than the running one ready to run?
+// Is a process other than the running one ready to run on THIS core --
+// its own queue, or realtime?
 int scheduler_any_ready(void);
+// Is a slot waiting on ANOTHER core's queue that an idle one could take?
+int scheduler_steal_wanted(void);
 
 // Is the kernel context the one on the CPU?
 int scheduler_kernel_running(void);
@@ -1436,9 +1455,15 @@ void scheduler_test_slot_unclaim(int slot);
 // clears it -- so a test's fabricated wake does not leave a spurious
 // rotation behind for the next trap.
 int  scheduler_test_take_resched(void);
-// The picker's answer from rotation position `start`, switching to
-// nothing.
+// The picker's answer from rotation position `start` on this core's
+// queue, switching to nothing.
 int  scheduler_test_pick(int start);
+// Every placement on `core` while it is >= 0 -- how a KTEST piles work on
+// one queue; -1 puts placement back.
+void scheduler_test_force_core(int core);
+// The queue `pid` is on, or the core it runs on or last ran on (RQ_RT,
+// -3, for a READY realtime one); -1 for no such process.
+int  scheduler_test_slot_core(int pid);
 // Marks slot `idx` live on `core` (-1: nowhere), as a core still on its
 // stack after switching away from it leaves it (scheduler.c's live_of()).
 void scheduler_test_set_live(int idx, int core);
@@ -1449,7 +1474,7 @@ uint64_t scheduler_test_vr_scale(int idx, uint64_t ns);
 void scheduler_test_rt_charge(int idx, uint64_t ns);
 void scheduler_test_rt_budget_reset(void);
 // A slot's vruntime -- how much it counts as having run -- set and read.
-// -1 is the kernel context; -2 (read only) the pack's floor.
+// -1 is the kernel context; -2 (read only) core 0's floor.
 void     scheduler_test_set_vruntime(int idx, uint64_t v);
 uint64_t scheduler_test_vruntime(int idx);
 

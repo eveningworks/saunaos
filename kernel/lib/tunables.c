@@ -308,6 +308,60 @@ static const struct setting lockless_sched_setting = {
     .apply = lockless_sched_apply,
 };
 
+// ---- kernel.sched.steal / kernel.sched.balance -------------------------
+//
+// ON BY DEFAULT: an idle core takes a slot waiting on another core's run
+// queue, and core 0's tick moves one from the longest queue to the
+// shortest (sched_rq.c). Off leaves a slot on the queue it was placed on,
+// for an A/B and as the positive control of the smp KTEST that piles work
+// on one core.
+
+static void steal_get_str(char *out, uint32_t cap) {
+    k_strlcpy(out, scheduler_steal_enabled() ? "on" : "off", cap);
+}
+
+static int steal_apply(const char *value) {
+    int on;
+    if (!parse_onoff(value, &on)) return SETTING_INVALID;
+    scheduler_steal_set(on);
+    return SETTING_SAVED;
+}
+
+static const struct setting steal_setting = {
+    .name = "sched.steal",
+    .label = "Idle cores take waiting work",
+    .type = SETTING_TYPE_ENUM,
+    .file = CONFIG_PATH_RUNTIME,
+    .category = TUNABLE_CATEGORY,
+    .group = "Diagnostics",
+    .choice = onoff_choice,
+    .get = steal_get_str,
+    .apply = steal_apply,
+};
+
+static void balance_get_str(char *out, uint32_t cap) {
+    k_strlcpy(out, scheduler_balance_enabled() ? "on" : "off", cap);
+}
+
+static int balance_apply(const char *value) {
+    int on;
+    if (!parse_onoff(value, &on)) return SETTING_INVALID;
+    scheduler_balance_set(on);
+    return SETTING_SAVED;
+}
+
+static const struct setting balance_setting = {
+    .name = "sched.balance",
+    .label = "Balance work across cores",
+    .type = SETTING_TYPE_ENUM,
+    .file = CONFIG_PATH_RUNTIME,
+    .category = TUNABLE_CATEGORY,
+    .group = "Diagnostics",
+    .choice = onoff_choice,
+    .get = balance_get_str,
+    .apply = balance_apply,
+};
+
 // ---- kernel.lockless_syscalls ----------------------------------------
 //
 // ON BY DEFAULT: the rows abi/syscall_rows.h marks MPSAFE skip the kernel
@@ -957,6 +1011,8 @@ void tunables_register(void) {
     setting_register(&lockstat_setting);
     setting_register(&lockless_setting);
     setting_register(&lockless_sched_setting);
+    setting_register(&steal_setting);
+    setting_register(&balance_setting);
     setting_register(&trace_setting);
     setting_register(&trace_size_setting);
     setting_register(&kbdtap_setting);

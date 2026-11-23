@@ -573,11 +573,17 @@ static void pop(struct lockdep_held *h, int *n, const void *lock, int base) {
 // ---- the hooks --------------------------------------------------------
 
 void lockdep_spin_acquired(struct spinlock *l, uintptr_t site, int trylock) {
+    lockdep_spin_acquired_nested(l, site, trylock, 0);
+}
+
+// A subclass is its own node, as a kmutex's is (lockdep_kmutex_acquired()).
+void lockdep_spin_acquired_nested(struct spinlock *l, uintptr_t site, int trylock, int sub) {
     uint64_t f = ld_save();
     struct cpu *c = here();
     if (c->ld.busy) { ld_restore(f); return; }
     c->ld.busy = 1;
     int cls = spin_class(l, site);
+    if (cls && sub) cls = node_of(cls, sub);
     if (cls) {
         c->ld.checked++;
         mark_usage(cls, cur_task()->hardirq > 0, (f >> 9) & 1, site);
