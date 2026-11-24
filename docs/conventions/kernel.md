@@ -2504,7 +2504,8 @@ Three things follow that are easy to trip over:
 `init` reads `/etc/environment` at boot (`NAME=value`, the shared /etc
 parser; `PATH=/bin:/usr/bin` and `HOME=/` as shipped, and the fallback
 when the file is missing), and being pid 1 is what makes that the whole
-system's environment.
+system's environment -- bar a `User=` service's `HOME`, `USER`, `LOGNAME`
+and `SHELL`, which come from its `/etc/passwd` line.
 
 ## A SPAWN NAMES THE CHILD'S fd 0 AND fd 1, AND A SOCKET IS ACCEPTED ON BOTH
 

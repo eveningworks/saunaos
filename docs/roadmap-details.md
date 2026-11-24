@@ -1300,14 +1300,17 @@ injects deliberate, precisely-known corruption for `fsck`. A
 
 ### Multi-user & file permissions
 
-New milestone, lightly scoped. SaunaOS is single-user with no concept of
-"who owns this file" today -- `struct file` (`tfs.c`) has no owner/mode
-fields at all. Wants TFS3: an inode layer's inode layer first (see above). A
-first rough breakdown:
+**`docs/users-design.md` is the plan now** (four stages, picked
+2026-11-23), and stage A -- identity, nothing enforced -- is BUILT
+(2026-11-24): a process carries a uid, gids and groups (`SYS_GETCRED`),
+`/etc/passwd` and `/etc/group` ship root and `user`, init's `User=` runs
+the desktop and the shells as `user`, and `id`, `whoami`, `ps --user`
+and Task Manager show it. No file has an owner yet. The rough breakdown
+below predates the design and is kept for its notes:
 
-- A minimal user/group model -- a small, probably `/etc`-config-backed
-  (see `etc_config.h`'s existing pattern) table of users, not a full
-  `/etc/passwd`-equivalent to start.
+- A minimal user/group model -- DONE as stage A: the real `/etc/passwd`
+  and `/etc/group`, read by `<pwd.h>`/`<grp.h>`, because ported programs
+  parse them.
 - Per-file owner + permission bits -- on TFS3 the inode already
   RESERVES the room (bytes 92-95, earmarked uid u16 + mode u16 at
   TFS3: an inode layer), so filling it is not even a format bump; TFS2 would

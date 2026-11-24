@@ -400,6 +400,13 @@ still open after a few seconds (Notepad asking whether to save) is
 listed, with Cancel back to it or "Shut down anyway". Nothing acts on a
 timer.
 
+**Every process says who it is.** The desktop, its apps and the shells
+run as `user` (uid 1000, in `wheel`), the services as `root` -- Unix's
+uids, read by `getuid()`, `id` and `whoami`, named in `/etc/passwd` and
+`/etc/group`, shown by `ps --user` and by Task Manager (a User column
+and View > Show: all, my or system processes). Nothing is refused on
+the strength of it yet; `docs/users-design.md` has the stages after.
+
 **Four virtual terminals, Ctrl+Alt+F1..F4**: the desktop on F1 and a
 text console with a shell of its own on each of F2-F4, started the first
 time it is shown and restarted on a cleared screen after `exit`. The

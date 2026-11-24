@@ -1018,11 +1018,12 @@ RUNS programs, reads the user database for `~`, and decides everything
 from file times. What it found, each with a check in
 `/tests/posixhdr_test` (the last block) unless named:
 
-- **`<pwd.h>`** -- `getpwnam()`, `getpwuid()` and their `_r` forms over a
-  database of ONE entry: root, uid 0, home `/`, shell tosh. Any other
-  name or uid finds nothing, errno untouched -- POSIX's "no such entry";
-  a database answering every name would expand `~bob` to a home nobody
-  has. **`getlogin()`** is NULL with ENXIO: there is no login to name.
+- **`<pwd.h>`** -- `getpwnam()`, `getpwuid()` and their `_r` forms, over
+  the real `/etc/passwd` since users stage A (2026-11-24, with `<grp.h>`
+  and `getgrouplist()` over `/etc/group`, `docs/users-design.md`). A name
+  or uid not in it finds nothing, errno untouched -- POSIX's "no such
+  entry"; a database answering every name would expand `~bob` to a home
+  nobody has. **`getlogin()`** is NULL with ENXIO: there is no login to name.
 - **`confstr(_CS_PATH)`**, which make (and execvp(), when PATH is unset)
   searches; it is `<paths.h>`'s `_PATH_DEFPATH`, `/bin:/usr/bin`, the PATH
   init sets -- and execvp()'s and posix_spawnp()'s own fallback, which

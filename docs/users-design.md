@@ -1,9 +1,9 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: DESIGN, stage A next (2026-11-23).** Nothing here is built. The
-maintainer picked the shape on 2026-11-23: four stages, stage A first, a
-ROOT BROKER for elevation (no setuid bits), ONE user account before
-several. Roadmap: "Multi-user & file permissions".
+**Status: stage A BUILT (2026-11-24); stage B next.** The maintainer
+picked the shape on 2026-11-23: four stages, stage A first, a ROOT
+BROKER for elevation (no setuid bits), ONE user account before several.
+Roadmap: "Multi-user & file permissions".
 
 ## The finding that shapes the plan
 
@@ -85,6 +85,26 @@ What could break: a program that checks `geteuid() == 0` and behaves
 differently (dash's prompt, a port's "do not run as root"). Measured
 before it ships, by running the GUI suite with the desktop as `user`.
 
+**As built (2026-11-24).** The cred is `kernel/proc/cred.c`: refcounted,
+NEVER CHANGED once made (Linux's rule -- a new identity is a new cred),
+NULL meaning root, on the leader beside the sandbox; the group list is
+ALLOCATED to fit, with `CRED_GROUPS_MAX` (65536, Linux's NGROUPS_MAX)
+only the bound on SPAWN_CREDS' copy (`abi/cred_abi.h`). `SPAWN_CREDS`
+from anyone but euid 0 is `-EPERM`, never `-EINVAL`, which libsys reads
+as an old kernel. `proc_info` grew `uid`/`euid`/`gid`/`egid`. libc reads
+`/etc/passwd` and `/etc/group` on every call (glibc's files backend);
+when the file cannot be opened -- a sandbox that did not unveil it --
+root alone is still found. Both files ship as SYNCED data, like
+`/etc/timezones`, while nothing on the machine adds an account; stage D
+makes them the machine's. `User=` starts nothing for an unknown account
+(systemd's rule) and sets `HOME`, `USER`, `LOGNAME` and `SHELL` from the
+passwd line, so the desktop's `HOME` is `/home` while services keep `/`.
+Task Manager's User column is HIDDEN by default -- shown, it opened the
+window past a 1280-wide screen (1196 px before it) -- with View > Show
+(All / My / System processes, KDE System Monitor's filter; "system" is
+uid < 1000, login.defs' UID_MIN) and the user in the details subtitle.
+`/tests/cred_test` and `taskmgr_test` cover it.
+
 ### B. Privilege and the broker
 
 - `PROMISE_ADMIN` syscalls require euid 0 (`-EPERM`), checked in the
@@ -100,6 +120,9 @@ before it ships, by running the GUI suite with the desktop as `user`.
   a CLI `sudo`-shaped front end for the shell.
 - telnetd and tftpd then need a login: they hand the network a machine
   with the run of itself today (`docs/decisions/shell.md`).
+- The calls whose ABI comments say "there is no user model" to justify
+  being unprivileged -- `SYS_KILL`, `SETTING_OP_RELOAD`, `SYS_SHM_OPEN`
+  -- are re-argued here: there is one now, only unenforced.
 
 ### C. Files
 
@@ -125,7 +148,5 @@ before it ships, by running the GUI suite with the desktop as `user`.
 
 ## Not decided yet
 
-- Supplementary groups: a fixed small array (NGROUPS_MAX is an ABI bound
-  this project would set) or allocated -- decide in stage A.
 - Whether settings writes need `privd` in stage B or wait for the split
   in D.
