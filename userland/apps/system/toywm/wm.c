@@ -1204,7 +1204,8 @@ static int g_cursor_owed;          // a software cursor move held back
 #define VB_MARGIN_NS 2000000ull
 #define VB_LAG_RING 1024
 
-static int g_vb_known = -1;        // -1 until the first read; a display that cannot say never will
+static int g_vb_known = -1;        // -1 until the first read; 0 while the display cannot say
+static uint64_t g_vb_retry_ns;     // when to ask a display that could not say again
 static struct query_vblank g_vb;   // the last reading
 #define VB_COST_RING 16
 static uint64_t g_render_ns;       // what a frame costs: the most of the last VB_COST_RING
@@ -1216,11 +1217,15 @@ static unsigned g_vb_shown, g_vb_dropped;
 static uint32_t g_vb_lag[VB_LAG_RING];   // owed -> shown, us
 static unsigned g_vb_lag_n, g_vb_lag_pos;
 
+// ASKED AGAIN ONCE A SECOND after a "cannot say": a screen that is off
+// cannot say either, and a desktop that first asked then would otherwise
+// never pace on the vblank once the screen came back.
 static int vb_read(void) {
-    if (!g_vb_known) return 0;
+    if (!g_vb_known && sys_monotonic_ns() < g_vb_retry_ns) return 0;
     int ok = sys_query_record(QUERY_VBLANK, 0, &g_vb, sizeof g_vb) >= (int)sizeof g_vb &&
              g_vb.known && g_vb.period_ns;
-    if (g_vb_known < 0) g_vb_known = ok;
+    g_vb_known = ok;
+    if (!ok) g_vb_retry_ns = sys_monotonic_ns() + 1000000000ull;
     return ok;
 }
 
@@ -1241,6 +1246,11 @@ static uint64_t frame_interval_ns(void) {
 // How long until a frame may be composed: 0 when one may go now.
 static uint64_t frame_wait_ns(uint64_t now) {
     if (!g_pacing) return 0;
+    // A FRAME OWED FOR THREE REFRESHES GOES NOW: pacing chooses when in a
+    // refresh, never whether (KWin's fallback timer). A correct vblank
+    // wait is under two; a beam the display misreported once held a
+    // restarted desktop's first frame for minutes.
+    if (g_owed_ns && now - g_owed_ns >= 3 * frame_interval_ns()) return 0;
     if (g_pacing == WM_PACING_VBLANK && vb_read() &&
         g_render_ns + VB_MARGIN_NS < g_vb.period_ns) {
         uint64_t P = g_vb.period_ns, V = g_vb.last_ns + P;
@@ -1264,19 +1274,22 @@ static void vb_frame_shown(uint64_t began_ns, uint64_t flipped_ns) {
     g_render_ns = 0;
     for (unsigned i = 0; i < VB_COST_RING; i++)
         if (g_cost[i] > g_render_ns) g_render_ns = g_cost[i];
+    // THE OWED FRAME IS PAID WHETHER OR NOT THE BEAM IS KNOWN: left set,
+    // frame_wait_ns()'s escape would let every later frame go unpaced.
+    uint64_t owed = g_owed_ns;
+    g_owed_ns = 0;
     if (!vb_read()) return;
     uint64_t P = g_vb.period_ns;
     uint64_t V = g_vb.last_ns > flipped_ns ? g_vb.last_ns : g_vb.last_ns + P;
     if (g_shown_ns && V < g_shown_ns + P / 2) g_vb_dropped++;
     g_vb_shown++;
-    if (g_owed_ns && V > g_owed_ns) {
-        uint64_t us = (V - g_owed_ns) / 1000;
+    if (owed && V > owed) {
+        uint64_t us = (V - owed) / 1000;
         g_vb_lag[g_vb_lag_pos] = us > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)us;
         g_vb_lag_pos = (g_vb_lag_pos + 1) % VB_LAG_RING;
         if (g_vb_lag_n < VB_LAG_RING) g_vb_lag_n++;
     }
     g_shown_ns = V;
-    g_owed_ns = 0;
 }
 
 void wm_vblank_stats(struct wm_vblank_stats *out) {

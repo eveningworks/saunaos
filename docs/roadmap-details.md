@@ -7317,8 +7317,10 @@ Building it needs the kernel to say where the beam is -- the pipe's scanline reg
 
 **BUILT 2026-10-31.** The display driver's optional `vblank` op (Intel:
 `intel_vblank()`, from `PIPEDSL` and the transcoder's timing registers,
-the period calibrated against successive vblanks -- the ASUS's panel
-runs 60.02 Hz against its EDID's 60.00) is the `QUERY_VBLANK` fact
+the period from the pixel clock, nothing while the transcoder is off --
+a calibration against successive vblanks, built first, locked onto
+18-20 ms on the ASUS's 16.67 ms panel and held a restarted desktop's
+first frame for minutes; removed 2026-11-24) is the `QUERY_VBLANK` fact
 (`config get vblank`); toywm starts each frame at the next vblank less
 the most a frame cost in the last 16 and 2 ms (`wm.c`). `gui compositor`
 reports frames shown, frames replaced before a vblank showed them, and

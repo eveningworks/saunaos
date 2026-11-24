@@ -893,7 +893,11 @@ static int intel_set_scaling(int mode) {
 
 // The beam, from PIPEDSL and the transcoder's own timing registers;
 // the refresh from the pixel clock of the timing on it (the EDID's
-// native, or a real mode's), then calibrated against the vblanks. THE TRAP: on DDI parts DSL can read 0 for
+// native, or a real mode's) -- i915's drm_calc_vbltimestamp_from_scanoutpos()
+// shape, NOT calibrated against the vblanks (docs/decisions/drivers.md).
+// NOTHING WHILE THE SCREEN IS OFF: the scanline stands still, which reads
+// as a vblank starting at every call, so a frame paced on it is never due.
+// THE TRAP: on DDI parts DSL can read 0 for
 // a moment just before the vblank, so a 0 is re-read for up to ~100 us
 // (i915's __intel_get_crtc_scanline does the same).
 static int intel_vblank(struct display_vblank *out) {
@@ -905,6 +909,10 @@ static int intel_vblank(struct display_vblank *out) {
     if (!t || !t->pixel_khz) return 0;
 
     uint32_t base = intel_display_trans_base(g_pipe);
+    // The display layer's word, not TRANSCONF: turning the screen off
+    // clears the eDP transcoder's DDI enable, after which the register
+    // trans_conf() picks is pipe A's, not the one that stopped.
+    if (!display_power_get() || !(rd(intel_display_trans_conf(g_pipe)) & PIPECONF_STATE)) return 0;
     uint32_t htotal = (rd(base + TRANS_O_HTOTAL) >> 16) + 1;
     uint32_t vtotal = (rd(base + TRANS_O_VTOTAL) >> 16) + 1;
     uint32_t vbs = (rd(base + TRANS_O_VBLANK) & 0x1FFF) + 1;
@@ -917,23 +925,8 @@ static int intel_vblank(struct display_vblank *out) {
         uint32_t d = rd(PIPEDSL(g_pipe)) & 0x1FFF;
         if (d != 0) { dsl = d; now = clocksource_now_ns(); }
     }
-    // The pixel clock is the EDID's, and the panel's own runs a little
-    // off it (the ASUS: 60.02 Hz against 60.00) -- so the period is
-    // refined from how far apart the vblanks really are.
-    static uint64_t ref_ns, cal_period;
-    static uint32_t ref_vtotal, ref_htotal;
-    if (vtotal != ref_vtotal || htotal != ref_htotal || !cal_period) {
-        ref_vtotal = vtotal; ref_htotal = htotal;
-        cal_period = period; ref_ns = 0;
-    }
-    uint64_t last = intel_display_vblank_ns(dsl, vtotal, vbs, cal_period, now);
-    if (!ref_ns || last < ref_ns) {
-        ref_ns = last;
-    } else {
-        uint64_t n = (last - ref_ns + cal_period / 2) / cal_period;
-        if (n >= 60) cal_period = (last - ref_ns) / n;
-    }
-    out->period_ns = cal_period;
+    uint64_t last = intel_display_vblank_ns(dsl, vtotal, vbs, period, now);
+    out->period_ns = period;
     out->last_ns = last;
     out->scanline = (dsl + 1) % vtotal;
     out->vtotal = vtotal;

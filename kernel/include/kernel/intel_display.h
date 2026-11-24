@@ -52,6 +52,8 @@ uint64_t intel_display_vblank_ns(uint32_t dsl, uint32_t vtotal, uint32_t vblank_
 // The timing registers' base for the transcoder feeding `pipe`: the
 // EDP one when it is enabled and fed from that pipe, else the pipe's.
 uint32_t intel_display_trans_base(int pipe);
+// The register whose bit 30 says that transcoder is running.
+uint32_t intel_display_trans_conf(int pipe);
 // A measured pixel clock against the EDID's: within 1%, either side.
 int      intel_display_clock_agrees(uint32_t hw_khz, uint32_t edid_khz);
 // Gen9: an HDMI-mode DPLL's CFGCR1/CFGCR2 to the pixel clock in kHz, 0

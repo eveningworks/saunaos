@@ -3731,3 +3731,33 @@ modeset composes them with its timing writes between, the screen-off
 call without. Measured on the ASUS: down in 60 ms, back in about 0.25 s.
 A driver with no sequence falls back to the backlight; hardware with
 neither refuses, and the desktop stops asking until the setting moves.
+
+## The vblank time comes from the scanline and the pixel clock, uncalibrated, and is unknown while the screen is off
+
+**Changed 2026-11-24.** `intel_vblank()` gives the compositor the time
+of the last vblank: the scanline (`PIPEDSL`) says how far into the
+refresh the beam is, and the period turns that into time. The period
+was first CALIBRATED against successive readings, to follow a panel
+running slightly off its EDID clock. The fit rounded each span to a
+whole number of its own current estimate, so a wrong estimate confirmed
+itself: on the ASUS, after hours of uptime and screen-off cycles, it
+held 18-20 ms on a 16.67 ms panel. The predicted vblank then moved by
+milliseconds between readings, toywm kept waking just outside the
+window it composes in, and a desktop restarted from a shell drew no
+first frame until something else woke it.
+
+**The period is the pixel clock's now** -- what i915 does
+(`drm_calc_vbltimestamp_from_scanoutpos()` uses the mode's clock and the
+scanout position, nothing fitted). The scanline is re-read at every
+call, so the period only scales one refresh's lines into time, and the
+panel's real drift (60.02 against 60.00 Hz) is far inside the pacing
+margin. **While the screen is off the answer is "not known"**, as DRM
+refuses a vblank timestamp for a CRTC that is off: a stopped scanline
+reads as a vblank beginning at every call. It is the display layer's
+off state, not the transcoder register, because turning the eDP panel
+off clears the DDI enable that `intel_display_trans_conf()` keys on.
+
+toywm also no longer trusts pacing to deliver at all: a frame owed for
+three refreshes goes regardless (KWin's fallback timer), and a display
+that could not say is asked again once a second rather than written off
+for the life of the process.

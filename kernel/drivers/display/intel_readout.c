@@ -140,6 +140,11 @@ uint32_t intel_display_trans_base(int pipe) {
     return on_edp ? TRANS_EDP_BASE : TRANS_A_BASE + (uint32_t)pipe * 0x1000;
 }
 
+// The transcoder's configuration register: bit 30 says it is running.
+uint32_t intel_display_trans_conf(int pipe) {
+    return intel_display_trans_base(pipe) == TRANS_EDP_BASE ? TRANSCONF_EDP : PIPECONF(pipe);
+}
+
 void intel_readout_log(const struct display_edid *edid) {
     int pipe = intel_display_pipe();
     if (pipe < 0) return;

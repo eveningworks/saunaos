@@ -11,7 +11,7 @@
 
 #define DESKTOP_CONF "/etc/desktop.conf"
 
-static uint64_t g_last_input;      // ticks
+static uint64_t g_last_input;      // ticks; 0 until the first poll, which starts the clock
 static int g_saver_pid;
 // Adopted rather than started here: somebody else's child, which
 // waitpid() answers with an error rather than "still running".
@@ -134,6 +134,12 @@ static int screen_off_now(void) {
 }
 
 void wm_idle_poll(int active) {
+    // IDLE SINCE THIS DESKTOP STARTED, not since boot: one started from a
+    // shell late in the uptime turned the screen off at its first poll.
+    // Its first input still counts as after a long quiet, so a screen
+    // turned off from a shell before it started is woken (screen_wake()).
+    int first = !g_last_input;
+    if (first) g_last_input = sys_ticks();
     uint32_t gen = wm_setting_generation();
     if (gen != g_seen_generation) {
         g_seen_generation = gen;
@@ -158,7 +164,7 @@ void wm_idle_poll(int active) {
     }
 
     if (active) {
-        uint64_t quiet = sys_ticks() - g_last_input;
+        uint64_t quiet = first ? UINT64_MAX / 2 : sys_ticks() - g_last_input;
         g_last_input = sys_ticks();
         stop_saver();
         screen_wake(quiet);
@@ -212,6 +218,7 @@ int wm_idle_force_screen_off(void) {
 int wm_idle_saver_pid(void) { return g_saver_pid; }
 
 uint32_t wm_idle_seconds(void) {
+    if (!g_last_input) return 0;   // not polled yet: this desktop just started
     uint64_t quiet = sys_ticks() - g_last_input;
     return (uint32_t)(quiet / TICKS_PER_SEC);
 }
