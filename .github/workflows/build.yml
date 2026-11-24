@@ -49,7 +49,7 @@ jobs:
     # is worse than a red X: a pending run looks like a test still
     # thinking rather than infrastructure that has died. A full run is
     # 1-7 minutes, so 20 is generous.
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -153,8 +153,11 @@ jobs:
       # image and the guest boots while those pages are still being
       # written back, which is the documented cause of this job's
       # recurring `dma write failed (drive stayed busy)`.
+      # 420 s, not ktest_run's 120: the suite takes ~110 s on a fast host
+      # under TCG, and a shared runner is slower -- the ubuntu-26.04 one
+      # was 953 tests in at 120 s and still going.
       - name: Kernel test suite (ktest)
-        run: python3 tools/tests/gate/ktest_run.py -v
+        run: python3 tools/tests/gate/ktest_run.py -v --timeout 420
 
       # ...and again with the filesystem on VIRTIO-BLK.
       #
@@ -177,7 +180,7 @@ jobs:
       - name: Kernel test suite (ktest, filesystem on virtio-blk)
         run: |
           cp --reflink=auto --sparse=always disk.img ci-virtio.img
-          python3 tools/tests/gate/ktest_run.py -v --virtio-disk ci-virtio.img
+          python3 tools/tests/gate/ktest_run.py -v --timeout 420 --virtio-disk ci-virtio.img
 
       # And on SATA: an AHCI-only defect had no coverage at all. The copy
       # shares disk.img's PARTUUIDs, so AHCI's precedence makes it the
@@ -185,7 +188,7 @@ jobs:
       - name: Kernel test suite (ktest, filesystem on AHCI)
         run: |
           cp --reflink=auto --sparse=always disk.img ci-ahci.img
-          python3 tools/tests/gate/ktest_run.py -v --ahci-disk ci-ahci.img
+          python3 tools/tests/gate/ktest_run.py -v --timeout 420 --ahci-disk ci-ahci.img
 
       # The same question one privilege ring out. ktest runs INSIDE the
       # kernel, so it cannot tell whether a /tests binary still links,
