@@ -336,9 +336,9 @@ this the obvious way), not from how much history it accumulated.
   finishing inside a tick read 0%. **The invariant: every path that
   stops running the current process bills BEFORE changing
   `current_index`** -- missing the kernel-context case charged one
-  process 9.51 seconds across a 300ms window. **`SYS_KILL` is
-  unprivileged on purpose** -- there is no user model to gate it on.
-  See `docs/decisions.md`.
+  process 9.51 seconds across a 300ms window. **`SYS_KILL` follows
+  Linux's owner rule since stage B** (`kernel/privilege.h`). See
+  `docs/decisions.md`.
 - **`meminfo audit` COMPARES PAGE TABLES AGAINST THE ALLOCATOR.**
   The invariant: every frame a live mapping points at must be one pmm
   considers HANDED OUT. A mapping of a free frame is memory the

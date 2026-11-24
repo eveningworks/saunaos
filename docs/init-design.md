@@ -99,8 +99,9 @@ Toykit: spawn, wait-any, and eventually a way to be told what to start.
 
 ### R5. pid 1 must be unkillable
 
-`SYS_KILL` is unprivileged on purpose (there is no user model to gate
-it on). Killing init would leave every orphan unreapable and nothing
+`SYS_KILL` was unprivileged when this was written; since stage B of
+`docs/users-design.md` only root may signal init, and root still must
+not end it. Killing init would leave every orphan unreapable and nothing
 supervising anything, so `scheduler_kill()` must refuse pid 1 --
 Linux's rule, for the same reason.
 

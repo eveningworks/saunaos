@@ -70,9 +70,10 @@ park a pointer at all.
 
 **It can act, not only report.** `guictl click 300 200` and `guictl open
 Calculator` do what they say. That is deliberate and consistent with
-`kill` and `poweroff` being unprivileged here: there is no user model to
-gate on, and anything that can spawn a process can already end the
-session.
+the person at the machine holding the seat (`docs/users-design.md`,
+stage B): power off is theirs, and a signal reaches their own processes.
+`gui prompt` and `gui kill`'s reach into an elevated process are refused
+to a caller that is not root.
 
 ## What it is not
 

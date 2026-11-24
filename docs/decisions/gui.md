@@ -754,6 +754,13 @@ two unrelated clocks that happens to look like a percentage.
 
 ## SYS_KILL is unprivileged, and killing the WM is the point
 
+**Superseded in part 2026-11-24** by stage B of `docs/users-design.md`:
+the user model this entry waited for exists, and `SYS_KILL` now follows
+Linux's rule (root, or the target's real uid is the caller's). The WM's
+own kill is unchanged -- it runs as `user` and so do the clients it
+force-quits; an elevated (root) window is ended through privd. What
+follows is the reasoning as it stood.
+
 Any process may kill any other, including the window manager once it is
 a ring-3 process. There is no permission check, and that is a decision
 rather than an omission.
