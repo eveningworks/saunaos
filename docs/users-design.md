@@ -74,8 +74,10 @@ one long-running root service that takes a narrow request.
   `User=`. This is the only check stage A enforces, since otherwise the
   identity means nothing.
 - `/etc/passwd` and `/etc/group`, shipped (`root:0`, `user:1000`, group
-  `wheel`), read by `<pwd.h>`/`<grp.h>` -- the real files, so ported
-  code that parses them works.
+  `wheel`), read by `<pwd.h>`/`<grp.h>`. Ported code reaches them
+  through those calls (dash and sdl2-compat do; no vendored port opens
+  the files itself), so the FILES are this system's choice of store --
+  see "Why plain files, not a user database" below.
 - `services.d` gains `User=`; toywm and the console shell run as
   `user`, every other service stays root.
 - `id`, `whoami`; a USER column in `ps` (and Task Manager, after a
@@ -145,6 +147,32 @@ uid < 1000, login.defs' UID_MIN) and the user in the details subtitle.
   machine's stays in `/etc`, by a `Scope=` in each setting's schema --
   dconf's user database against `/etc/dconf`, or HKCU against HKLM.
 - Switching users.
+- First, DECIDE the richer account record ("Why plain files, not a user
+  database"): what the login screen and the settings split need beyond
+  a passwd line, and whether it is a userdb-shaped record or a field or
+  two beside `/etc/passwd`.
+
+## Why plain files, not a user database
+
+Considered 2026-11-24, after stage A shipped, and dropped by the
+maintainer. POSIX specifies only `<pwd.h>` and `<grp.h>`; where records
+live is the system's choice. glibc's NSS puts `/etc/passwd` behind
+pluggable backends; systemd's userdb adds JSON user records
+(`/etc/userdb/<name>.user`, a root-only `<name>.user-privileged`,
+`<user>:<group>.membership` files) that `nss-systemd` serves -- but they
+do not override `/etc/passwd`, which every distribution still boots
+from; FreeBSD compiles `master.passwd` into `pwd.db`; macOS keeps Open
+Directory and Windows the SAM. The JSON records would have cost a JSON
+parser in libc run on every lookup, one account spread over several
+files with no atomic rename over them, a generated `/etc/passwd` that
+goes stale or silently ignores a hand edit, and on TFS3 -- no symlinks,
+so no `<uid>.user` -- a uid lookup that parses every record; what they
+buy (a real name, icon, language, a per-user secrets file) has no
+reader before stage D. So the store stays `/etc/passwd` and
+`/etc/group`, with `/etc/shadow` for stage D's hashes as Linux and the
+BSDs keep them. Whether an account also gets a RICHER record -- a real
+name, icon and language for the login screen, a pointer to its settings
+-- is decided at the start of stage D, when those have a reader.
 
 ## Not decided yet
 
