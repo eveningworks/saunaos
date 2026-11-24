@@ -2673,6 +2673,11 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# the directory rather than holding a list.
 	mkdir -p $(SEED_DIR)/sync/usr/share/wallpapers
 	cp data/wallpapers/*.jpg $(SEED_DIR)/sync/usr/share/wallpapers/
+	# A picture's sizes, <name>/<W>x<H>.jpg beside its <name>.jpg --
+	# what base/uwallpaper.h picks from for the screen.
+	for d in data/wallpapers/*/; do n=$$(basename $$d); [ $$n = animated ] && continue; \
+	    mkdir -p $(SEED_DIR)/sync/usr/share/wallpapers/$$n; \
+	    cp $$d*.jpg $(SEED_DIR)/sync/usr/share/wallpapers/$$n/; done
 	# Animated pictures are LIVE wallpapers, listed beside the effects
 	# (userland/libs/ui/ulivewall.h), so they have a directory of their own.
 	mkdir -p $(SEED_DIR)/sync/usr/share/wallpapers/animated

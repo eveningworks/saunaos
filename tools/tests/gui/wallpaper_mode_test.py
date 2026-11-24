@@ -2,15 +2,20 @@
 """`desktop.wallpaper.mode`: does fit differ from fill, and is the
 picture decoded only when it actually changes?
 
-WHY THIS TOOL SETS A RESOLUTION
--------------------------------
-It has to, or it measures nothing. Both stock wallpapers are exactly
-1280x720 and so is the default mode, and at a matching aspect ratio
+WHY THIS TOOL SETS A RESOLUTION, AND USES A PICTURE OF ITS OWN
+--------------------------------------------------------------
+It has to, or it measures nothing. At a matching aspect ratio
 UIMG_FIT_CONTAIN and UIMG_FIT_COVER produce the SAME pixels -- so every
-existing check of `wallpaper_mode` passes whether the setting works or
-not. This runs at 1024x768 (4:3 against the picture's 16:9), where
-`fit` letterboxes and `fill` crops, and check 1 asserts the premise
-rather than assuming it.
+check of `wallpaper_mode` would pass whether the setting works or not.
+This runs at 1024x768, and the stock pictures come in a 4:3 size too
+(base/uwallpaper.h picks it), so fit and fill compare on `wpm_single`,
+a copy of aurora's one 16:9 file with no sizes folder: there `fit`
+letterboxes and `fill` crops. Check 1 asserts the premise; the 4:3
+aurora asserts the other side -- picked, and nothing left to letterbox.
+
+THE SIZE IS PICKED AGAIN AT A NEW RESOLUTION, and only a different
+file decodes: aurora at 1024x768 must log its 1024x768.jpg, and the
+single-file picture must decode nothing at 800x600.
 
 WHAT IS UNDER TEST
 ------------------
@@ -58,7 +63,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui          # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
-from harness import Results  # noqa: E402
+from harness import Results, poll  # noqa: E402
 
 # 4:3 against the wallpapers' 16:9, and in display.c's mode list.
 TARGET = (1024, 768)
@@ -105,10 +110,26 @@ def set_res(dbg, w, h):
 def decoded(dbg):
     """Did the WM decode a wallpaper since the last logs() call?
 
-    desktop.c logs `desktop: wallpaper <name> WxH mode <m> in N ticks`
-    only after uimg_load() returns, so the line's presence IS the decode.
+    desktop.c logs `desktop: wallpaper <name> WxH (<path>) mode <m> in N
+    ticks` only after uimg_load() returns, so the line's presence IS the
+    decode.
     """
     return [l.strip() for l in dbg.logs() if "desktop: wallpaper" in l and " in " in l]
+
+
+def wait_decoded(dbg, what, timeout=10):
+    """Every decode logged until one names `what`, or `timeout` passes."""
+    seen = []
+
+    def step():
+        seen.extend(decoded(dbg))
+        return any(what in l for l in seen)
+    poll(step, timeout)
+    return seen
+
+
+SINGLE = "wpm_single"
+SINGLE_PATH = f"/usr/share/wallpapers/{SINGLE}.jpg"
 
 
 def wallpaper_box(w, h):
@@ -148,15 +169,33 @@ def run(dbg, qmp, shot):
           same_fill == same_fit, f"{w}x{h}")
     set_setting(dbg, "desktop.wallpaper.mode", "fill")
 
-    # --- the real measurement, at an aspect the picture does not match -
+    # --- a new resolution picks the picture's size for it -------------
+    dbg.logs()
     set_res(dbg, *TARGET)
     now = screen_size(dbg)
     if not check(f"the screen is {TARGET[0]}x{TARGET[1]}", now == TARGET, f"{now}"):
         return
     w, h = now
     wbox, tbox = wallpaper_box(w, h), taskbar_box(w, h)
+    want = f"/usr/share/wallpapers/aurora/{w}x{h}.jpg"
+    got = wait_decoded(dbg, want)
+    check(f"at {w}x{h} aurora decodes its {w}x{h} size", any(want in l for l in got),
+          "; ".join(got)[:110] or "no decode logged")
+    four3_fill = qmp.stable_pixels(shot("wpm_4x3_fill.png"), box=wbox)
+    set_setting(dbg, "desktop.wallpaper.mode", "fit")
+    four3_fit = qmp.stable_pixels(shot("wpm_4x3_fit.png"), box=wbox)
+    check("...drawn for the screen's shape, so fit has nothing to letterbox",
+          four3_fit == four3_fill)
 
+    # --- the real measurement, on a picture with no size for 4:3 -------
     set_setting(dbg, "desktop.wallpaper.mode", "fill")
+    dbg.send(f"sh cp /usr/share/wallpapers/aurora.jpg {SINGLE_PATH}")
+    dbg.logs()
+    set_setting(dbg, "desktop.wallpaper", SINGLE)
+    got = wait_decoded(dbg, SINGLE_PATH)
+    if not check("a picture with no sizes folder decodes its one file",
+                 any(SINGLE_PATH in l for l in got), "; ".join(got)[:110] or "no decode logged"):
+        return
     fill = qmp.stable_pixels(shot("wpm_fill.png"), box=wbox)
     fill_tb = qmp.stable_pixels(shot("wpm_fill_tb.png"), box=tbox)
 
@@ -178,6 +217,16 @@ def run(dbg, qmp, shot):
     set_setting(dbg, "desktop.wallpaper.mode", "fill")
     back = qmp.stable_pixels(shot("wpm_back.png"), box=wbox)
     check("fit -> fill restores the original pixels exactly", back == fill)
+
+    # --- a new resolution, one file: nothing to decode -----------------
+    # Paired with the aurora check above, which must see a decode from
+    # the same kind of change.
+    dbg.logs()
+    set_res(dbg, 800, 600)
+    redec = wait_decoded(dbg, SINGLE, timeout=3)
+    check("a picture with one file is not decoded again at a new resolution",
+          screen_size(dbg) == (800, 600) and not redec,
+          f"{screen_size(dbg)}; " + "; ".join(redec)[:100])
 
     # --- 6. a NAME change DOES decode ---------------------------------
     # Without this, check 4 passes for a broken log line or an absent
@@ -220,6 +269,7 @@ def main():
         # the resolution changes the screen every later tool sees.
         if orig_name:
             set_setting(dbg, "desktop.wallpaper", orig_name)
+        dbg.send(f"sh rm {SINGLE_PATH}")
         if orig_mode:
             set_setting(dbg, "desktop.wallpaper.mode", orig_mode)
         if screen_size(dbg) != orig_res:

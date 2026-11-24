@@ -37,6 +37,7 @@
 #include "base/ufiletype.h"
 #include "base/utrash.h"       // the bin's limits, kept by `trash expire`
 #include "base/uworker.h"      // the wallpaper's decode, off the frame
+#include "base/uwallpaper.h"   // which of a picture's sizes fits the screen
 #include "base/ucomponent.h"   // the GPL switch: a launcher it hides
 #include "base/uappentry.h"    // a launcher's program, for it
 #include "kpath.h"
@@ -624,10 +625,16 @@ static uint32_t g_background_gen;   // desktop_background_gen()
 static int g_plain_only;
 static uint32_t g_plain_rgb = 0x183c5a;   // `desktop.background_colour`
 // The decode in flight, and the stem last installed (or found missing).
+// <dir>/<stem>/<W>x<H>.<ext>: the stem is a setting's value at most.
+#define WALL_PATH_MAX (sizeof WALLPAPER_DIR + 2 * SETTING_ABI_VALUE_MAX + 16)
+
 struct wall_job {
     struct uworker_job job;   // first: the worker hands this pointer back
     char name[SETTING_ABI_VALUE_MAX];
-    char path[80];
+    int screen_w, screen_h;   // the screen the size is picked for
+    char shown[WALL_PATH_MAX];// the file on screen now: picked again, not decoded again
+    char path[WALL_PATH_MAX];
+    int same;                 // the pick is `shown`: nothing to decode
     struct uimg img;
     int rc;
     const char *err;
@@ -635,6 +642,8 @@ struct wall_job {
 };
 static struct wall_job wall_job;
 static char g_wall_shown[SETTING_ABI_VALUE_MAX];
+static char g_wall_file[WALL_PATH_MAX];   // the file g_wall_shown was decoded from
+static int g_wall_for_w, g_wall_for_h;    // the screen it was picked for
 static int g_wall_tried;
 static void wall_run(struct uworker_job *j);
 static void wall_install(void);
@@ -717,6 +726,7 @@ static void wallpaper_reload(void) {
             wallpaper_loaded = 0;
         }
         g_wall_shown[0] = '\0';   // a stem chosen again decodes again
+        g_wall_file[0] = '\0';
         wm_logf("desktop: no wallpaper");
         return;
     }
@@ -726,13 +736,17 @@ static void wallpaper_reload(void) {
     if (!wallpaper_loaded && !g_wall_tried) {
         g_wall_tried = 1;
         k_strlcpy(wall_job.name, name, sizeof wall_job.name);
+        wall_job.screen_w = screen_w;
+        wall_job.screen_h = screen_h;
+        wall_job.shown[0] = '\0';
         wall_run(&wall_job.job);
         wall_install();
     }
 }
 
-// THE DECODE, on the worker (base/uworker.h): the stem tried in each
-// format until one loads. Touches nothing but its job.
+// THE DECODE, on the worker (base/uworker.h): the size the picture's
+// folder has for this screen, else the stem tried in each format until
+// one loads. Touches nothing but its job.
 static void wall_run(struct uworker_job *j) {
     struct wall_job *w = (struct wall_job *)j;
     // THE FIRST FORMAT THAT LOADS: the value is the stem, as a ChoiceDir
@@ -740,6 +754,32 @@ static void wall_run(struct uworker_job *j) {
     static const char *const EXT[] = { "jpg", "gif", "png", "qoi" };
     uint64_t t0 = sys_ticks();
     w->rc = -1;
+    w->same = 0;
+    if (uwallpaper_path(WALLPAPER_DIR, w->name, w->screen_w, w->screen_h, w->path, sizeof w->path)) {
+        // A NEW SCREEN SIZE OFTEN PICKS THE SAME FILE (1280x720 and 1366x768
+        // both take 1920x1080's): the decoded one stays.
+        if (k_strcmp(w->path, w->shown) == 0) {
+            w->same = 1;
+            w->rc = 0;
+            w->err = "";
+            w->ticks = 0;
+            return;
+        }
+        w->rc = uimg_load(w->path, &w->img);
+    }
+    // A picture with no sizes is one file whatever the screen.
+    if (w->rc < 0 && w->shown[0] && k_strncmp(w->shown, WALLPAPER_DIR "/", sizeof WALLPAPER_DIR) == 0) {
+        const char *rest = w->shown + sizeof WALLPAPER_DIR;
+        size_t n = k_strlen(w->name);
+        if (k_strncmp(rest, w->name, n) == 0 && rest[n] == '.') {
+            k_strlcpy(w->path, w->shown, sizeof w->path);
+            w->same = 1;
+            w->rc = 0;
+            w->err = "";
+            w->ticks = 0;
+            return;
+        }
+    }
     for (unsigned e = 0; e < sizeof EXT / sizeof EXT[0] && w->rc < 0; e++) {
         k_snprintf(w->path, sizeof w->path, "%s/%s.%s", WALLPAPER_DIR, w->name, EXT[e]);
         w->rc = uimg_load(w->path, &w->img);   // a GIF's first frame: a picture is a still
@@ -758,6 +798,10 @@ static void wall_install(void) {
         return;
     }
     k_strlcpy(g_wall_shown, w->name, sizeof g_wall_shown);
+    g_wall_for_w = w->screen_w;
+    g_wall_for_h = w->screen_h;
+    if (w->same) return;
+    k_strlcpy(g_wall_file, w->rc < 0 ? "" : w->path, sizeof g_wall_file);
     if (w->rc < 0) {
         // NOT fatal and NOT silent: the desktop falls back to its plain
         // colour and says why, because a background that quietly does
@@ -775,8 +819,8 @@ static void wall_install(void) {
     wallpaper_loaded = 1;
     uui_image_set(&wallpaper_view, &wallpaper_src);
     desktop_background_changed();
-    wm_logf("desktop: wallpaper %s %dx%d mode %s in %u ticks", w->name,
-            wallpaper_src.w, wallpaper_src.h, wallpaper_mode, (unsigned)w->ticks);
+    wm_logf("desktop: wallpaper %s %dx%d (%s) mode %s in %u ticks", w->name,
+            wallpaper_src.w, wallpaper_src.h, w->path, wallpaper_mode, (unsigned)w->ticks);
 }
 
 // Every frame: take a finished decode, and ask for the picture the
@@ -785,8 +829,14 @@ static void wall_poll(void) {
     if (uworker_take(&wall_job.job)) wall_install();
     if (uworker_busy(&wall_job.job)) return;
     if (!wallpaper_name[0] || k_strcmp(wallpaper_name, "none") == 0) return;
-    if (k_strcmp(wallpaper_name, g_wall_shown) == 0) return;
+    // A NEW SCREEN SIZE ASKS AGAIN: its picture may have a better size.
+    if (k_strcmp(wallpaper_name, g_wall_shown) == 0 &&
+        screen_w == g_wall_for_w && screen_h == g_wall_for_h) return;
     k_strlcpy(wall_job.name, wallpaper_name, sizeof wall_job.name);
+    wall_job.screen_w = screen_w;
+    wall_job.screen_h = screen_h;
+    k_strlcpy(wall_job.shown, k_strcmp(wallpaper_name, g_wall_shown) == 0 ? g_wall_file : "",
+              sizeof wall_job.shown);
     wall_job.job.run = wall_run;
     uworker_submit(&wall_job.job);
 }

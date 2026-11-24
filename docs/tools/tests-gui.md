@@ -1521,13 +1521,15 @@ from the default (a sound card, a USB mouse, `--reboot`).
   touches is restored. In `gui_regress.py` as `livewall`.
 - **`wallpaper_mode_test.py`** -- `desktop.wallpaper.mode`, at a screen
   mode where the setting can actually be seen. **It sets 1024x768
-  because at the default it would measure nothing**: both stock
-  wallpapers are exactly 1280x720 and so is the boot mode, and at a
-  matching aspect ratio `fit` and `fill` produce the SAME pixels -- so a
-  check taken there passes whether the setting works or not. Its first
-  check asserts that premise rather than assuming it, so a future
-  wallpaper that breaks it says so here instead of quietly making the
-  tool pointless.
+  because at the default it would measure nothing**: at a matching
+  aspect ratio `fit` and `fill` produce the SAME pixels -- so a check
+  taken there passes whether the setting works or not. Its first check
+  asserts that premise rather than assuming it. **The stock pictures
+  come in a 4:3 size too**, so it first asserts that aurora decodes its
+  `1024x768.jpg` there (and fit equals fill: nothing to letterbox), then
+  measures fit against fill on `wpm_single`, a copy of aurora's one
+  16:9 file with no sizes folder, removed at the end -- and that a new
+  resolution decodes that one file nothing more.
 
   **The pair is what makes it evidence.** One check requires a MODE
   change to log no decode (`uui_image_draw()` re-fits the same decoded

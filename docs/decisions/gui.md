@@ -13766,3 +13766,31 @@ This does not reopen the 2026-11-19 refusal to vendor FreeType for the
 system's fonts (the CFF entry): fontd parses fonts from anywhere and
 stays one parser of our own. ScummVM's FreeType reads only ScummVM's
 own `fonts.dat`, inside an optional GPL port.
+
+## A wallpaper comes in sizes, a folder beside its one file, and the desktop decodes the size for its screen
+
+Decided 2026-11-24 (`userland/libs/base/uwallpaper.h`,
+`tools/gen/gen_imgdata.py`). Every stock wallpaper was one 1280x720
+JPEG, scaled to the screen, so a 1080p panel showed it visibly soft.
+Since the pictures are drawn by the generator, each is drawn at every
+size in `WALLPAPER_SIZES` (16:9, 16:10, 5:4 and 4:3, up to 3840x2160)
+into `<name>/<W>x<H>.jpg`, beside the `<name>.jpg` that stays.
+
+The shape is KDE Plasma's wallpaper package (`contents/images/<W>x<H>`
+beside a `screenshot`), flattened; Windows ships `img0_<W>x<H>.jpg`
+files side by side, and GNOME one large picture scaled down. One large
+picture was the smallest change and was declined: the ASUS would decode
+a 4K JPEG at every wallpaper change and keep 33 MB of it, and a 16:10
+or 4:3 screen would still be cropped. Side-by-side files would need
+every gallery to hide the variants; a folder is skipped already, since
+a `ChoiceDir` in stem mode lists files only -- so the galleries, First-
+boot setup and Image Viewer keep showing and setting the one file, and
+only the desktop reads the folder.
+
+The pick is the closest shape first (within 1%, so 1366x768 is 16:9),
+then the smallest size that covers the screen, else the largest. A
+resolution change picks again on the desktop's worker, and decodes only
+when the pick is a different file. The generator lays each drawing out
+in 1280x720 pixels times `min(w/1280, h/720)`, so 1280x720 stays the
+picture it was and a narrower screen keeps the boat in frame rather
+than cropping it.

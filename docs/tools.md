@@ -486,6 +486,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `utext_hostcheck.py` -- Check userland/libs/ui/utext.c's wrap accounting against a naive oracle, on the HOST
 - `utween_hostcheck.py` -- Check userland/libs/base/utween.c -- the desktop's one easing tween -- with
 - `uvid_hostcheck.py` -- Check userland/libs/media/uvid*.c (MPEG-1 video, the program stream) and
+- `uwallpaper_hostcheck.py` -- Check userland/libs/base/uwallpaper.c -- which of a wallpaper's sizes a
 - `uwinsetup_hostcheck.py` -- Check base/uwinsetup.c -- Windows 3.x installed from its disks
 - `uwmf_draw_hostcheck.py` -- Check userland/libs/ui/uwmf_draw.c (a metafile played into a box) on the HOST, against stub drawing calls
 - `uwmf_hostcheck.py` -- Check lib/uwmf's metafile decoder against an independent writer, and against hostile files

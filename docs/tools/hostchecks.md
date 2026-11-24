@@ -337,6 +337,15 @@ the rest in the sweep. Each stays a standalone script with its own
   the same colour exactly; HSL within a percent. Its positive control --
   a hue sector from the wrong channels -- fails thousands of colours. In
   `ondemand_sweep.py`.
+- **`uwallpaper_hostcheck.py`** -- `base/uwallpaper.h`, which of a
+  wallpaper's sizes a screen gets: the stock size set against sixteen
+  screens from 640x480 to 5120x2880 and portrait, each answer written
+  out by the rule (closest shape, then the smallest that covers, else
+  the largest), and the folder reader on a real directory -- a copy
+  named `1920x1080 (copy).jpg`, `0x0.jpg`, a `.bmp` and a directory
+  named like a size are not sizes, and no folder or a stem with a slash
+  answers none. Its positive control -- a pick that ignores the shape --
+  fails five screens. In `hostchecks.py` and `ondemand_sweep.py`.
 - **`winfnt_hostcheck.py FOLDER|FILE...`** -- `lib/winfnt`, the reader of
   Windows' bitmap fonts (.FON/.FNT) that w16 draws a program's text with,
   against FreeType's own winfnt driver compiled on the host: every raster
