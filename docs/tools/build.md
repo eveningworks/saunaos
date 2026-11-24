@@ -379,7 +379,17 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   than it. The source archive is an asset of its own because GitHub's
   automatic "Source code" links follow the tag and the repository, so a
   history rewrite or a re-pointed tag would silently change what they
-  give; the asset stays fixed to the images beside it.
+  give; the asset stays fixed to the images beside it. When the images
+  carry a GPL-3 program (the compiler, GNU make, ScummVM), the pinned
+  upstream tarballs it was built from join them, through
+  `release_sources.py`.
+- **`release_sources.py OUTDIR STAGING...`** -- copies into OUTDIR the
+  pinned upstream tarballs whose binaries a staging tree carries,
+  decided by the licence notices in its `usr/share/licenses` exactly as
+  `update_server.py`'s `SOURCE_SETS` decides for a publish, and REFUSES
+  when one is missing or off its pin -- the binaries go out with their
+  corresponding source or not at all. `release_assets.sh` runs it over
+  `seed/sync` and `build/live-seed/sync`.
 - **`run_release.sh`** -- standalone QEMU launcher shipped as a GitHub
   Release asset (not part of the build), for running from just a
   release download with no checkout. Gunzips `disk.img.gz` if needed,

@@ -191,7 +191,9 @@ or say which result predates it.
   clean (untracked files included), `v<version>` is HEAD and on origin at
   the same commit, and both images were built from that commit; then it
   writes `build/release/<version>/`: `saunaos-live.iso`,
-  `saunaos-usb.img.gz`, `saunaos-<version>-source.tar.gz` (the tag's
+  `saunaos-usb.img.gz`, the pinned upstream tarballs of any GPL-3
+  program the images carry (compiler, make, ScummVM -- `release_sources.py`,
+  refused when one is missing), `saunaos-<version>-source.tar.gz` (the tag's
   `git archive`, the source these images were built from, fixed to them
   whatever later happens to the history), `run_release.sh` and
   `SHA256SUMS` over all of them. `gh release create v<version>

@@ -26,6 +26,12 @@
 # source of these exact images whatever later happens to the history. It
 # is in SHA256SUMS with everything else, and gzip -n keeps it byte-stable
 # for one tag.
+#
+# SO DO THE PINNED UPSTREAM TARBALLS of any GPL-3 program the images carry
+# (the compiler, GNU make, ScummVM): their binaries are distributed with
+# their corresponding source, so tools/build/release_sources.py copies
+# them, and REFUSES -- once the other assets are written -- when one is
+# missing or off its pin.
 set -eu
 cd "$(dirname "$0")/../.."
 
@@ -63,6 +69,11 @@ git archive --format=tar --prefix="saunaos-$VER/" "$TAG" | gzip -9n > "$OUT/saun
 cp "$LIVE" "$OUT/"
 gzip -9nc "$USB" > "$OUT/$USB.gz"
 cp tools/build/run_release.sh "$OUT/"
+STAGINGS="seed/sync"
+[ -d build/live-seed/sync ] && STAGINGS="$STAGINGS build/live-seed/sync"
+# shellcheck disable=SC2086 -- two paths, no spaces
+python3 tools/build/release_sources.py "$OUT" $STAGINGS >/dev/null ||
+    die "the images carry GPL-3 programs whose source cannot be offered"
 (cd "$OUT" && sha256sum -- * > SHA256SUMS)
 
 echo "release_assets: $OUT, all from $TAG ($HEAD):"

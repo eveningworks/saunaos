@@ -612,6 +612,7 @@ Full entries: [`docs/tools/build.md`](tools/build.md).
 - `ovmf.py` -- QEMU's UEFI firmware (OVMF), found and wired up once
 - `quiet_sh.sh` -- quiet_sh.sh -- make's SHELL for a quiet build (the default; `make V=1`
 - `release_assets.sh` -- The assets of a GitHub Release, made only from a build that IS the tag
+- `release_sources.py` -- the pinned upstream tarballs a release's images need beside them
 - `run_release.sh` -- Launches a downloaded SaunaOS release with the device and display
 - `seed_disk.py` -- format-aware seeding front-end
 - `set_version.sh` -- Sets VERSION (repo root, plain text, one line) to a new value. This

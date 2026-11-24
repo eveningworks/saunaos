@@ -171,13 +171,15 @@ SRC_OUT="build/gen/SOURCE"
         case "$VERSION" in
             *-dev) ;;
             *)  echo "and as one archive, beside this release's images:"
-                echo "  $SOURCE_REPO/releases/tag/v$VERSION  (saunaos-$VERSION-source.tar.gz)" ;;
+                echo "  $SOURCE_REPO/releases/tag/v$VERSION  (saunaos-$VERSION-source.tar.gz)"
+                echo "  with the upstream release tarballs of the compiler, make and"
+                echo "  ScummVM when this build carries them." ;;
         esac
         echo
         echo "A machine that got this build from a SaunaOS update server can"
         echo "fetch the same source from that server, beside the build:"
-        echo "  <server>/main/source/  (or /release/source/), with the GNU"
-        echo "  release tarballs when the build carries the compiler or make."
+        echo "  <server>/main/source/  (or /release/source/), with the upstream"
+        echo "  release tarballs when the build carries the compiler, make or ScummVM."
         if [ "$SOURCE_EXACT" = 0 ]; then
             echo
             echo "This build was made from uncommitted changes on top of that"
