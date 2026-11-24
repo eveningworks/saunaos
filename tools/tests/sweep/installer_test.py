@@ -247,14 +247,27 @@ def live_iso_stale():
             return f"{rel} is newer than {LIVE_ISO} -- run `make live-iso`"
     return None
 
+def wait_log(sh, needle, secs):
+    """The log once it holds `needle`, or as it is after `secs` -- a line a
+    program writes at its own pace outruns a single read (a test waits on
+    what it asserts). Returns (log, seconds waited)."""
+    t0 = time.time()
+    klog = sh("log -n 3000")
+    while needle not in klog and time.time() < t0 + secs:
+        time.sleep(0.5)  # sleep-ok: polls the log for the line it asserts, bounded
+        klog = sh("log -n 3000")
+    return klog, time.time() - t0
+
 
 def phase1(dbg, qmp, res, target, tmp):
     sh = lambda c: dbg.send(f"sh {c}")   # noqa: E731
     desktop = sh("ls /home/Desktop")
     res.check("a live session has the Install SaunaOS launcher on its desktop", "installer.desktop" in desktop,
               desktop.strip().replace("\n", " ")[:120])
-    klog = sh("log -n 3000")
-    res.check("...and the compositor put up the live-session notice", "wm: live-session notice" in klog)
+    # The installer asks for it as it starts, which the checks can outrun.
+    klog, waited = wait_log(sh, "wm: live-session notice", 20)
+    res.check("...and the compositor put up the live-session notice", "wm: live-session notice" in klog,
+              f"waited {waited:.1f} s")
     res.check("...and First-boot setup did not run", "firstboot: step" not in klog)
     res.check("...nor does the desktop wait for it", "holding the desktop back" not in klog)
     res.check("fbs says a live session never shows setup", "live session never shows it" in sh("fbs"))
@@ -481,8 +494,14 @@ def phase2(dbg, res):
     res.check("...and no live-session notice", "live-session notice" not in klog)
     # Setup is due here, so the compositor shows no desktop until setup's
     # window is up -- let go BY setup, not by the timeout.
+    # The let-go comes with setup's first full-screen frame, which a quick
+    # run of the checks above can outrun: wait for it, up to the hold's
+    # own 20 s limit (wm_setup_hold.c's HOLD_MAX_NS) and a margin.
+    klog, waited = wait_log(sh, "desktop is let go", 25)
+    wm = [l.strip() for l in klog.splitlines() if "holding the desktop back" in l or "desktop is let go" in l]
     res.check("the desktop is held back until First-boot setup is up",
-              "holding the desktop back" in klog and "let go -- First-boot setup is up" in klog)
+              "holding the desktop back" in klog and "let go -- First-boot setup is up" in klog,
+              f"waited {waited:.1f} s; {len(klog.splitlines())} log lines, first {klog.lstrip()[:60]!r}; hold lines {wm}")
 
 
 def main():
