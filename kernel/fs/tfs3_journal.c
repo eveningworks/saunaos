@@ -989,6 +989,8 @@ static void pack_inode_into(uint8_t *p, const struct t3_inode *node) {
     for (int i = 0; i < 15; i++) wr32(p + 28 + i * 4, node->ptrs[i]);
     wr16(p + 92, node->mode);   // see struct t3_inode -- inside the checksum
     wr32(p + 96, node->modified_ns);   // ...and so is this
+    wr32(p + 100, node->uid);           // ...and the owner
+    wr32(p + 104, node->gid);
     uint8_t chk[124];
     k_memcpy(chk, p, 88);
     k_memcpy(chk + 88, p + 92, 36);

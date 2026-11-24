@@ -903,6 +903,10 @@ struct svc_creds {
     gid_t *groups;
     char **env;       // environ with the four replaced; NULL for root
     char  *strs[4];
+    // Where a SEAT service starts: its account's home, as login(1)
+    // chdir()s to pw_dir -- so what the desktop and the console shells
+    // start saves a bare name into /home, not into root's `/`. NULL: `/`.
+    const char *dir;
 };
 
 static int is_login_var(const char *e) {
@@ -967,8 +971,13 @@ static int creds_for(const struct service *s, struct sys_spawn_opts *o, struct s
     o->ngroups = (unsigned)ng;
     o->cred_flags = s->seat ? CRED_SEAT : 0;
     o->env = c->env;
+    if (s->seat) c->dir = c->strs[0] + 5;   // past "HOME="
     return 0;
 }
+
+// A spawn standing in `dir` (a cwd is inherited, and there is no spawn
+// option for one); init itself goes back to `/`.
+static int spawn_in(const char *dir, const char *exec, struct sys_spawn_opts *o, const char *name);
 
 // A kernel from before SPAWN_CREDS refuses the flag (-EINVAL, its rule
 // for unknown bits) -- a GRUB fallback to kernel.old, or a flash cut
@@ -985,6 +994,16 @@ static int spawn_as(const char *exec, struct sys_spawn_opts *o, const char *name
         o->flags &= ~SPAWN_CREDS;
         pid = sys_spawn_opts(exec, o);
     }
+    return pid;
+}
+
+static int spawn_in(const char *dir, const char *exec, struct sys_spawn_opts *o, const char *name) {
+    if (dir && chdir(dir) != 0) {
+        logf1("init: %s's home is not there -- starting it in /\n", name);
+        dir = 0;
+    }
+    int pid = spawn_as(exec, o, name);
+    if (dir) chdir("/");
     return pid;
 }
 
@@ -1011,7 +1030,7 @@ static void start_service(struct service *s) {
     if (s->stderr_as_stdout) o.stderr_fd = s->stdout_log ? SPAWN_FD_LOG : 1;
     else o.stderr_fd = SPAWN_FD_KMSG;
     struct svc_creds cr;
-    int pid = creds_for(s, &o, &cr) < 0 ? -1 : spawn_as(s->exec, &o, s->name);
+    int pid = creds_for(s, &o, &cr) < 0 ? -1 : spawn_in(cr.dir, s->exec, &o, s->name);
     creds_release(&cr);
     if (pid > 0) {
         // Before it has run a slice, since the spawn only made it READY.
@@ -1200,7 +1219,7 @@ static void vt_start(int n, struct service *t) {
     dup2(fd, 0);
     dup2(fd, 1);
     dup2(fd, 2);
-    int pid = ok ? spawn_as(t->exec, &o, t->name) : -1;
+    int pid = ok ? spawn_in(cr.dir, t->exec, &o, t->name) : -1;
     creds_release(&cr);
     if (in0 >= 0)  { dup2(in0, 0);  close(in0); }
     if (out1 >= 0) { dup2(out1, 1); close(out1); }

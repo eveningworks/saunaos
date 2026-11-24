@@ -1564,6 +1564,15 @@ struct sys_stat {
     uint32_t modified_ns;
 };
 
+// SYS_STATX's record: SYS_STAT's, then who owns it. A file on a
+// filesystem without owners reports its mount's; a pipe or a terminal,
+// the caller's own ids.
+struct sys_statx {
+    struct sys_stat st;
+    uint32_t uid, gid;
+    uint32_t reserved[4];   // 0; room for what comes next
+};
+
 // The inode number above is the filesystem's own, not a synthetic one.
 // Mirrors fs.h's FS_CAP_INODES for the one caller that needs to say so.
 #define SYS_STAT_INODES (1u << 0)
@@ -2186,6 +2195,27 @@ struct sys_stat {
                            // stage B); the grant dies with the process. The
                            // child's environment is the grant's, never the
                            // asker's. 0, -EINVAL, -EFAULT, -ENOENT or -ENOMEM.
+
+// FILE OWNERS (users stage C, docs/users-design.md).
+#define SYS_CHOWN 173      // RDI = path, RSI = uid, RDX = gid; SYS_OWNER_KEEP
+                           // leaves one as it is. ROOT gives a file to anyone;
+                           // its OWNER may move it into a group it is in, and
+                           // no one else may (-EPERM, Linux's chown rules).
+                           // -ENOTSUP on a filesystem without owners (FAT,
+                           // exFAT, ISO, a share) -- its files are its
+                           // MOUNT's, and a chown of the mount point changes
+                           // that, until it is unmounted. 0, -ENOENT, -EFAULT.
+#define SYS_FCHOWN 174     // RDI = a descriptor open on a FILE, RSI/RDX as
+                           // SYS_CHOWN, on the path it was opened by; -EBADF.
+#define SYS_OWNER_KEEP 0xFFFFFFFFu
+#define SYS_UMASK 175      // RDI = the new file-creation mask (the low 9
+                           // bits). Returns the OLD one -- umask(2), which
+                           // cannot fail. Inherited at spawn; 022 to start.
+#define SYS_STATX 176      // RDI = path, or 0 for RSI = a descriptor; RDX =
+                           // a `struct sys_statx *`. SYS_STAT/SYS_FSTAT with
+                           // the owner, which their 48-byte record has no
+                           // room for (Linux grew statx(2) for the same
+                           // reason). 0, -ENOENT, -EBADF or -EFAULT.
 
 #define SYS_SHM_OPEN 99   // RDI = pointer to a `struct shm_open_msg`.
                           // Returns a descriptor naming a SHARED

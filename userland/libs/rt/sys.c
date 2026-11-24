@@ -1681,6 +1681,24 @@ int sys_fchmod(int fd, unsigned mode) {
     return (int)err(syscall2(SYS_FCHMOD, (uint64_t)(int64_t)fd, (uint64_t)mode));
 }
 
+int sys_chown(const char *path, unsigned uid, unsigned gid) {
+    return (int)err(syscall3(SYS_CHOWN, (uint64_t)(uintptr_t)path, (uint64_t)uid, (uint64_t)gid));
+}
+
+int sys_fchown(int fd, unsigned uid, unsigned gid) {
+    return (int)err(syscall3(SYS_FCHOWN, (uint64_t)(int64_t)fd, (uint64_t)uid, (uint64_t)gid));
+}
+
+unsigned sys_umask(unsigned mask) { return (unsigned)syscall1(SYS_UMASK, (uint64_t)mask); }
+
+int sys_statx(const char *path, struct sys_statx *out) {
+    return (int)err(syscall3(SYS_STATX, (uint64_t)(uintptr_t)path, 0, (uint64_t)(uintptr_t)out));
+}
+
+int sys_fstatx(int fd, struct sys_statx *out) {
+    return (int)err(syscall3(SYS_STATX, 0, (uint64_t)(int64_t)fd, (uint64_t)(uintptr_t)out));
+}
+
 
 int sys_isatty(int fd) {
     struct sys_stat st;

@@ -13,11 +13,10 @@
 // The objection was right about ZEROES and wrong about invention. Most
 // of this struct is not invented: TFS3 carries the type, the link count,
 // the size, and both timestamps, and it grew real permission bits at
-// inode offset 92. What is genuinely made up is `st_uid`/`st_gid`, and
-// they are 0 because this is a single-user system -- which is a FACT,
-// not a placeholder. Linux's own FAT and NTFS drivers synthesise
-// uid/gid/mode from mount options for exactly this reason: a consistent
-// documented value is usable and a zero is not.
+// inode offset 92, and owners at 100 and 104 (users stage C). A volume
+// with no owners -- FAT, exFAT, ISO, a share -- reports its mount's, as
+// Linux's own FAT and NTFS drivers synthesise uid/gid/mode from mount
+// options: a consistent documented value is usable and a zero is not.
 //
 // What is NOT here: `st_blocks`, `st_blksize`, `st_rdev` and the
 // nanosecond timestamp fields. Nothing in this system can answer them
@@ -43,14 +42,13 @@ extern "C" {
 // says: `mkdir("/a/b/c")` fails with ENOENT if `/a/b` does not exist.
 int mkdir(const char *path, mode_t mode);
 
-// **ACCEPTED, RECORDED, AND APPLIED TO NOTHING.** A umask subtracts bits
-// from the mode a creation asks for -- but nothing here passes a mode to
-// creation: a file gets the default for its type (kernel/fs/tfs3_internal.h's
-// T3_MODE_DEFAULT) and there is no chmod to change it afterwards. The
-// value is stored and returned so the get-and-restore idiom every shell
-// uses (`old = umask(0); umask(old)`) behaves, and so a caller can read
-// back what it set. When creation learns to honour a mode, the mask is
-// already here.
+// THE KERNEL'S, per process and inherited (SYS_UMASK), 022 to start. A
+// new file or folder is the filesystem's default for its type, 0755
+// (kernel/fs/tfs3_internal.h's T3_MODE_DEFAULT), with the mask taken off:
+// the mode open() and mkdir() are given does not reach the kernel yet,
+// because the tools that write programs (a shell's `>`, the updater)
+// never chmod what they write (docs/roadmap.md, Multi-user & file
+// permissions).
 //
 // Returns the PREVIOUS mask, as POSIX says.
 mode_t umask(mode_t mask);
@@ -107,8 +105,8 @@ struct stat {
     ino_t     st_ino;      // the filesystem's own, where it has them
     mode_t    st_mode;     // type bits | permission bits
     nlink_t   st_nlink;
-    uid_t     st_uid;      // 0: a single-user system, not a placeholder
-    gid_t     st_gid;      // 0, likewise
+    uid_t     st_uid;      // the owner (SYS_STATX); the mount's on FAT
+    gid_t     st_gid;      // and its group
     dev_t     st_rdev;     // always 0 -- there are no device nodes
     off_t     st_size;
     // **st_atim IS st_mtim.** Nothing records an access time, and

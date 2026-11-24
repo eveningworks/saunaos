@@ -138,17 +138,25 @@ __attribute__((noreturn)) void _exit(int code);
 
 // --- does this path exist? --------------------------------------------
 //
-// **F_OK IS THE ONLY MODE THAT MEANS ANYTHING HERE.** access() asks
-// whether a path is reachable AND whether the caller may read, write or
-// execute it; this filesystem has no permission bits and no user to
-// check them against (docs/filesystem-layout.md), so R_OK/W_OK/X_OK can
-// only be answered as "yes, if it exists". They are accepted and treated
-// as F_OK rather than refused, because a caller asking "can I read
-// this?" on a system where every existing file is readable is asking a
-// question with a correct answer.
+// access() asks whether a path exists (F_OK) and whether the REAL user
+// may read, write or execute it (R_OK, W_OK, X_OK), by the file's owner,
+// group and mode as the kernel checks them (users stage C). Root may read
+// and write anything, and execute a file only if some x bit is set. It
+// does not ask the folders above it for search, which the kernel does:
+// a path refused only there passes here and fails at open.
 //
-// Returns 0 if the path exists, -1 with errno ENOENT if it does not.
+// Returns 0, or -1 with errno ENOENT, or EACCES when the mode says no.
 int access(const char *path, int mode);
+
+// A file's owner and group (users stage C): (uid_t)-1 or (gid_t)-1
+// leaves that half as it is. Root gives a file to anyone; its owner may
+// change the group to one it is in; anyone else gets EPERM. ENOTSUP on a
+// volume without owners (FAT, exFAT, ISO, a network share), whose files
+// belong to whoever it was mounted for. lchown() is chown(): a path's
+// last link is always followed here, as stat()'s is (<sys/stat.h>).
+int chown(const char *path, uid_t owner, gid_t group);
+int fchown(int fd, uid_t owner, gid_t group);
+int lchown(const char *path, uid_t owner, gid_t group);
 
 // THE SANDBOX, OpenBSD's two calls and strings (abi/sandbox_abi.h).
 // pledge() keeps only the named promises -- "stdio rpath shm", the words

@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "rt/sys.h"
+#include "base/upriv.h"   // an administrator tool: restarted elevated
 #include "base/human.h"
 #include "base/uprefs.h"
 #include "base/ucomponent.h"
@@ -1109,7 +1110,12 @@ static void default_size(int *w, int *h) {
     *h = ugfx_char_h() * 34;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    // Adding or removing a component writes /bin, /usr and
+    // /var/lib/update: run elevated, after the person allows it
+    // (base/upriv.h), as System Update does.
+    if (upriv_elevate_self(argv) < 0) return 1;
     if (!ugfx_font_init()) return 2;
     struct uui_builder *menus = uui_builder_load("software", MENU_NAMES,
                                                 (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));

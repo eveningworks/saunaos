@@ -415,8 +415,19 @@ without asking. Everything else goes through `privd`, a root broker
 Manager and Crash Test restart elevated, Date & Time, Device Manager and
 Task Manager ask for one action, and `sudo` runs one command -- after
 an Authentication Required dialog the desktop draws and no app can.
-A signal reaches only its sender's own processes. Files carry no owner
-yet (`docs/users-design.md`, stage C).
+A signal reaches only its sender's own processes.
+
+**Files have owners, and the kernel checks them.** Each file on the
+system volume carries an owner, a group and Unix permission bits, and
+every path a program names is checked against them -- owner, group,
+other; search on each folder above; the sticky bit on `/tmp`; root reads
+anything and runs only what is executable. The desktop owns `/home` and
+its own settings in `/etc`; the accounts, the services, `/bin` and
+`/lib` are root's, so changing them takes `sudo` or an elevated tool.
+`chown`, `chmod`, `umask` and `stat` show and change them; a USB stick or
+a network share belongs to the person at the machine. For now the
+checks LOG what they would refuse rather than refuse it; `fileperm=enforce`
+turns them on (`docs/users-design.md`, stage C).
 
 **Four virtual terminals, Ctrl+Alt+F1..F4**: the desktop on F1 and a
 text console with a shell of its own on each of F2-F4, started the first

@@ -47,6 +47,14 @@ void cred_describe(const struct cred *c, struct cred_info *out, uint32_t *groups
         for (uint32_t i = 0; i < c->ngroups && i < cap; i++) groups[i] = c->groups[i];
 }
 
+int cred_in_group(const struct cred *c, uint32_t gid) {
+    if (!c) return gid == 0;
+    if (c->egid == gid) return 1;
+    for (uint32_t i = 0; i < c->ngroups; i++)
+        if (c->groups[i] == gid) return 1;
+    return 0;
+}
+
 struct cred *cred_current(void) {
     struct cred **slot = scheduler_current_cred();
     return slot ? *slot : 0;

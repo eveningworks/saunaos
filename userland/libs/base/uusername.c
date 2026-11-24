@@ -32,3 +32,20 @@ const char *uusername(unsigned uid, unsigned width) {
     g_ent[g_n++] = (struct entry){ uid, width, text };
     return text;
 }
+
+int uusername_desktop(unsigned *uid, unsigned *gid) {
+    FILE *f = fopen("/etc/services.d/toywm", "r");
+    if (!f) return 0;
+    char line[160], name[64] = "";
+    while (fgets(line, sizeof line, f)) {
+        if (strncmp(line, "User=", 5)) continue;
+        size_t n = strcspn(line + 5, " \t\r\n");
+        if (n && n < sizeof name) { memcpy(name, line + 5, n); name[n] = 0; }
+    }
+    fclose(f);
+    struct passwd *pw = name[0] ? getpwnam(name) : 0;
+    if (!pw || pw->pw_uid == 0) return 0;
+    *uid = (unsigned)pw->pw_uid;
+    *gid = (unsigned)pw->pw_gid;
+    return 1;
+}

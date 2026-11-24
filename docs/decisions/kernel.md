@@ -11096,3 +11096,65 @@ broadcast, which is the kernel lock's; the lock-free write checks for a
 watch without writing anything (`fswatch_watching()`) and takes the lock
 for the note alone (`fs_note_watchers()`), as a last put takes it for a
 release.
+
+## File permissions are asked at the syscall boundary, and `/etc` stays the desktop's behind a sticky group bit until stage D
+
+Picked 2026-11-24 (`docs/users-design.md`, stage C; `kernel/fs/fsperm.c`,
+`kernel/fs/fs_syscalls.c`'s `resolve_user_path()`, `data/etc/owners.conf`).
+
+**The check is a parameter of `resolve_user_path()`, not a call inside
+`vfs.c`.** The plan said "one check in `vfs.c`", as Linux's
+`inode_permission()` sits under its path walk. Here the VFS is also the
+kernel's own file API -- the ELF loader reads a program's libraries
+through it, init's `/run` files and the panic store's dump go through
+it -- and a check there would refuse the kernel on behalf of whichever
+process happened to be on the CPU. Linux avoids that by giving kernel
+threads root's credentials; this kernel has no per-thread credential
+for its own work, so the honest place is the one boundary every path
+from ring 3 already crosses: the call that copies the path in and asks
+the sandbox. Making the question a PARAMETER there (search, read, write,
+exec, create, delete, own) means no new path syscall can forget it,
+which is the same reason the sandbox's question is one.
+
+**A new file's mode is the default less the umask, and open()'s mode is
+not honoured yet.** POSIX would create `cat > f` at 0666 & ~022 = 0644.
+Every tool that writes a program here -- a shell redirect, System Update,
+`remote.py sync` -- writes it and never chmods it, and 0644 binaries are
+what made dash unable to run anything on the ASUS once
+(`T3_MODE_DEFAULT`'s measurement). So the mode argument waits until
+those writers set their exec bit; the roadmap carries it.
+
+**`/etc` is root's, group `user`, mode 3775, and what is in it is the
+desktop's but for a list.** The desktop runs as `user` and writes some
+forty files in `/etc` -- every setting's `File=`, every app's
+preferences, files absent until first saved -- and stage D's settings
+split has not happened. The alternatives: make `/etc` the user's
+outright (the accounts and the service list would be the desktop's to
+rewrite, so stage C would protect nothing there), or route every
+settings write through privd (a broker round trip for each save, and
+plumbing stage D throws away). The sticky group bit gives the middle:
+the desktop creates and rewrites its own files, and cannot remove or
+replace root's -- `/etc/passwd`, `group`, `services.d`, `settings.d`,
+the shipped data. A file a root service makes in `/etc` would be stuck
+root's, so the `owners` pass re-applies the list at every boot.
+
+**Who owns what is a data file both the image seeder and the boot read**
+(`/etc/owners.conf`, systemd-tmpfiles' `z`/`Z` in shape) rather than a
+table in C: an old disk is root's throughout, a fresh one is seeded
+right, and the same rules decide both. Its `once` rules (`/home`) walk
+only when the file changes, so a boot costs a stat per `/etc` file, not
+one per file the person owns.
+
+**It ships PERMISSIVE, and is flipped the way `syscall_irq` was.**
+SELinux's permissive mode is what made its policies writable: run
+everything, read what would have been refused, fix the policy. The first
+run of the whole GUI suite under enforcement failed 48 tools, and the
+list read two ways: real gaps (/var/lib, root's files in /etc, the cwd
+of what the desktop starts, an installer that did not elevate), fixed;
+and the harness itself, which builds every fixture as root through the
+debug console and then has an app run as `user` change it -- a test
+artifact, but one that needs every such test touched. Enforcing by
+default before that is done would leave the gate red or the tests
+weakened; permissive keeps every question asked and every refusal
+logged, `CRED_PERM_ENFORCE` lets one process tree (the test) be
+enforced meanwhile, and the flip is one default.

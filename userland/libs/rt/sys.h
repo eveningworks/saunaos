@@ -907,6 +907,16 @@ int sys_fcntl_lock(int fd, int cmd, struct sys_flock *fl);
 // The same on the file a descriptor names (SYS_FCHMOD); -EBADF for one
 // that is not a file.
 int sys_fchmod(int fd, unsigned mode);
+// A path's or a descriptor's owner (SYS_CHOWN/SYS_FCHOWN); SYS_OWNER_KEEP
+// leaves a half as it is. 0, or -1 with errno -- EPERM unless root or,
+// for the group alone, the owner.
+int sys_chown(const char *path, unsigned uid, unsigned gid);
+int sys_fchown(int fd, unsigned uid, unsigned gid);
+// The file-creation mask (SYS_UMASK); returns the old one.
+unsigned sys_umask(unsigned mask);
+// SYS_STAT/SYS_FSTAT with the owner (SYS_STATX). 0, or -1 with errno.
+int sys_statx(const char *path, struct sys_statx *out);
+int sys_fstatx(int fd, struct sys_statx *out);
 
 // ICANON and ECHO off, ISIG on -- what every shell here wants, since
 // they all edit for themselves and none of them wants the kernel

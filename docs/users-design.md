@@ -1,6 +1,6 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: stage A BUILT (2026-11-24); stage B decided, being built.** The maintainer
+**Status: stages A, B and C BUILT (2026-11-24); stage D next, its account record decided first.** The maintainer
 picked the shape on 2026-11-23: four stages, stage A first, a ROOT
 BROKER for elevation (no setuid bits), ONE user account before several.
 Roadmap: "Multi-user & file permissions".
@@ -198,9 +198,9 @@ Beyond the plan above, building it found:
   or the window is marked Not Responding while the person reads; the
   Network adapter widget still asks on its frame (`base/unetlink.c`).
 
-**What stage B does not make safe.** Files carry no owner until stage
-C, so `user` can still rewrite `/bin` or `/etc/group` itself. Stage B
-makes the privileged CALLS ask; stage C makes the files hold.
+**What stage B did not make safe** -- files carried no owner, so `user`
+could still rewrite `/bin` or `/etc/group` itself -- is stage C's. Stage
+B makes the privileged CALLS ask; stage C makes the files hold.
 
 ### C. Files
 
@@ -210,6 +210,80 @@ makes the privileged CALLS ask; stage C makes the files hold.
   `inode_permission()`; ramfs keeps uid/gid in memory; FAT32/exFAT/ISO
   get an owner from the mount (Linux's `uid=`), SMB the share's.
 - `chown`, `umask`, `stat`'s `st_uid`/`st_gid` for real.
+
+**As built (2026-11-24).** Where it differs from the plan above, the code
+is right and this is what it does:
+
+- **The check is at the SYSCALL BOUNDARY, not inside `vfs.c`**
+  (`kernel/fs/fsperm.c`, `kernel/fsperm.h`). Every path syscall names its
+  question as a parameter of `resolve_user_path()`, beside the sandbox's
+  -- search, read, write, exec, create, delete, own -- and `open()`,
+  `rename()`, `chown()` and the descriptor calls ask theirs where they
+  know enough. The VFS stays unchecked, so the kernel's own reads (an
+  ELF's libraries, init's files) are never refused: Linux's kernel
+  threads run with root's credentials for the same reason.
+- **The rule is Linux's `generic_permission()`**: the FIRST class that
+  matches (owner, a group of the cred's, other) decides; SEARCH on every
+  folder above the path; root reads and writes anything and runs a file
+  only if some x bit is set. The STICKY bit: in a 1777 folder only the
+  file's owner or the folder's removes or replaces it. chmod and an
+  explicit utime are the owner's; "now" is a writer's. chown: root gives
+  a file to anyone, an owner moves it into a group it is in. A name that
+  is already there is the operation's EEXIST before any mode is asked.
+- **A MOUNT ROOT's owner and mode are the MOUNT's** (`struct mount`'s
+  `uid`, `gid`, `root_mode`): no backend here gives a root an entry, so a
+  chmod or chown of a mount point changes the record, in memory. The
+  mounting process owns a mount; `mount -o mode=,uid=,gid=` sets it, so
+  the `tmpfs` service mounts `/tmp` 1777. A volume with no owners on
+  disk (FAT32, exFAT, ISO, SMB) reports its mount's for every file, and
+  `udrive_mount()` and `smbfsd` hand a ROOT mount to the desktop's
+  account (`uusername_desktop()`, toywm's `User=`) -- udisks2's `uid=`.
+- **ramfs keeps a mode and an owner per node** (`FS_CAP_MODE`,
+  `FS_CAP_OWNER`), files 0755 like tfs3's default.
+- **A new file's mode is the backend's default (0755) less the creating
+  process's umask** (`SYS_UMASK`, inherited, 022): `open()`'s and
+  `mkdir()`'s mode arguments do not reach the kernel, because the tools
+  that write programs -- a shell's `>`, System Update, `remote.py sync`
+  -- never chmod what they write, and an honoured 0666 would leave every
+  binary they write unrunnable (the T3_MODE_DEFAULT measurement). The
+  owner is the creator's effective ids (`fs_new_attrs()`).
+- **`SYS_STATX` carries the owner**: `struct sys_stat` is 48 bytes for
+  good, so libc's `stat()`/`fstat()` ask the new call -- Linux grew
+  statx(2) for the same reason. `SYS_CHOWN`, `SYS_FCHOWN`, `SYS_UMASK`;
+  `access()` answers R/W/X for the real uid.
+- **WHO OWNS WHAT is a file, `/etc/owners.conf`**, applied at every boot
+  by the `owners` service (before the desktop) and by the image seeder.
+  An old disk is root's throughout, so the first boot after the update
+  walks `/home` once and gives it to `user`. `/etc` stays the desktop's
+  to write until stage D splits the settings: root's, group `user`, mode
+  3775 -- the desktop adds a file and rewrites its own, and cannot remove
+  or replace root's (the accounts, the services, the shipped data).
+- **A folder hands down** (`fs_new_attrs()`): a SETGID folder gives a
+  new file its group, and when its group may write, group read and write
+  too -- a POSIX default ACL's effect -- so a setting ROOT saves in /etc
+  stays the desktop's to change; a SETUID folder owned by an account
+  gives that account the file, FreeBSD's SUIDDIR, so what root (or the
+  test harness) puts in /home is the person's. `/etc`, `/var` and
+  `/var/lib` are 3775 root:user; `/home` 4755 user, its folders too.
+- **A seat session starts in its account's home** -- init `chdir()`s to
+  it for a `User=` service with `Seat=yes`, as login(1) does -- so what
+  the desktop starts saves a bare name into /home, not root's `/`; and
+  a file dialog given no folder opens in `$HOME`, as Windows' and
+  GNOME's do (`uui_filedialog`; Notepad's untitled Save As with it).
+- **The Software app restarts elevated**, as System Update does: it
+  writes /bin, /usr and /var/lib/update; `component` is `sudo component`.
+- **PERMISSIVE BY DEFAULT, for now.** The first run of the whole GUI
+  suite under enforcement failed 48 tools, nearly all on fixtures the
+  harness made as ROOT (the debug console's `sh`) for an app run as
+  `user` to change; the rest -- /var/lib and /var/cache, the folders'
+  inheritance, the home folder, Software -- are fixed above. So
+  `fileperm=` defaults to `permissive`: every check is asked and each
+  distinct refusal logged once (`fsperm: pid N (name) uid U refused ...
+  -- allowed, permissive`), nothing refused. `fileperm=enforce` turns
+  them on, and `CRED_PERM_ENFORCE` on a cred enforces one process tree
+  whatever the boot says -- `fileperm_test` runs that way. The flip is
+  on the roadmap: the harness's fixtures owned by the desktop's account
+  first, then a soak, as `syscall_irq` was flipped.
 
 ### D. Several people
 

@@ -404,7 +404,8 @@ int sys_getcwd(struct syscall_ctx *c);
 // Every syscall that takes a path must use this, and that includes the
 // ones outside the filesystem: spawn and exec take one, and copying it
 // raw is what made `./prog` fail from the directory holding it.
-int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out, unsigned need);
+#include "fsperm.h"   // enum fsp_ask
+int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out, unsigned need, enum fsp_ask ask);
 int sys_mkdir(struct syscall_ctx *c);
 int sys_rename(struct syscall_ctx *c);
 int sys_rename2(struct syscall_ctx *c);
@@ -498,6 +499,14 @@ int sys_dupfd(struct syscall_ctx *c);
 int sys_fd_cloexec(struct syscall_ctx *c);
 int sys_chmod(struct syscall_ctx *c);
 int sys_fchmod(struct syscall_ctx *c);
+int sys_chown(struct syscall_ctx *c);
+int sys_fchown(struct syscall_ctx *c);
+int sys_umask(struct syscall_ctx *c);
+int sys_statx(struct syscall_ctx *c);
+// SYS_STATX on a descriptor (kernel/proc/syscall_fd.c): SYS_FSTAT's record
+// and the owner. 0 or -EBADF.
+struct sys_stat;
+int fstat_fill(uint64_t pml4, int fd, struct sys_stat *out, uint32_t *uid, uint32_t *gid);
 int sys_ftruncate(struct syscall_ctx *c);
 int sys_utime(struct syscall_ctx *c);
 int sys_utimens(struct syscall_ctx *c);

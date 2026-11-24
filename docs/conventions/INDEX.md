@@ -40,6 +40,9 @@ whenever a headline here tells you something you did not already know.
 - **AN ADMIN CALL ANSWERS `-EPERM` TO ANYONE BUT ROOT, AND A PROGRAM
   GOES TO PRIVD -- `upriv_action()` FOR ONE CALL, `upriv_elevate_self()`
   FOR AN ADMINISTRATOR TOOL -- NEVER AROUND IT** (`base/upriv.h`)
+- **A PATH SYSCALL ASKS ITS FILE-PERMISSION QUESTION THROUGH
+  `resolve_user_path()`'s `ask`, AND THE KERNEL'S OWN FILE CALLS ARE
+  NEVER ASKED** (`kernel/fsperm.h`)
 - **AN OVERLAY ANSWERS WHERE IT IS; THE CORE DAMAGES IT**
 - **AN OVERLAY THAT REFRESHES ONLY WHILE OPEN GETS AN `on_open`, AND
   THE CORE FIRES IT**

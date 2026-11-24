@@ -330,6 +330,10 @@ struct fs_stat_info {
     // or was supplied.
     uint16_t mode;
     uint16_t nlink;   // hard links; 1 where the format has no count
+    // THE OWNER. A backend without FS_CAP_OWNER leaves these alone and
+    // the VFS answers with the mount's (struct mount's uid/gid), as Linux
+    // gives a FAT volume the uid= it was mounted with.
+    uint32_t uid, gid;
     // What fs_is_dir() and fs_size() would say, so ONE call answers a
     // stat(): each fs_*() call takes the volume's lock, and three in a
     // row queued behind whatever else was using the volume three times.
@@ -342,6 +346,10 @@ struct fs_stat_info {
 // implicit root "/", which has no entry of its own -- same as every
 // other per-entry call in this header.
 int fs_stat(const char *path, struct fs_stat_info *out);
+// fs_stat() for ANY path, a mount's root included -- the owner, mode
+// and type a permission check needs (kernel/fsperm.h). A mount root
+// answers from its mount record, with its times and size left 0.
+int fs_attrs(const char *path, struct fs_stat_info *out);
 
 // Change `path`'s permission bits. Returns 0, or a negative errno:
 // -ENOENT for a path that is not there, -ENOTSUP for a filesystem whose
@@ -353,6 +361,15 @@ int fs_stat(const char *path, struct fs_stat_info *out);
 // directory would be a corruption primitive, which is why POSIX's
 // chmod takes permissions only and why S_IFMT is masked off here.
 int fs_chmod(const char *path, uint16_t mode);
+
+// Change `path`'s owner and group; FS_OWNER_KEEP leaves one as it is.
+// Returns 0, -ENOENT, or -ENOTSUP for a filesystem that keeps no owners
+// (FS_CAP_OWNER) -- whose files belong to the mount's owner instead. A
+// MOUNT ROOT's owner is the mount record's, in memory, like its mode
+// (fs_chmod()): a root has no entry of its own on any backend here.
+// No permission check: the caller's (kernel/fsperm.h).
+#define FS_OWNER_KEEP ((uint32_t)-1)
+int fs_chown(const char *path, uint32_t uid, uint32_t gid);
 
 // Set `path`'s modification time to `epoch` (UTC seconds), or to now
 // with FS_MTIME_NOW -- `touch`, and make's way of saying "out of date".
@@ -380,6 +397,7 @@ int fs_set_mtime(const char *path, uint64_t epoch, uint32_t nsec);
 #define FS_CAP_REPLACE    (1u << 5) // a rename can replace an existing file atomically (fs_rename_replace)
 #define FS_CAP_REPAIR     (1u << 6) // fs_check()'s repair pass changes the volume (else it only reports)
 #define FS_CAP_RESIZE     (1u << 7) // an unmounted volume can be resized (fs_resize_device())
+#define FS_CAP_OWNER      (1u << 8) // format stores an owner and group per file (else the mount's)
 
 // The active backend's short name ("tfs3") -- diagnostic, for
 // df/fsck/about-style output. Valid after fs_init(); never NULL.

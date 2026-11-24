@@ -630,7 +630,7 @@ static int spawn_args_collect(uint64_t pml4, const struct spawn_msg *msg,
     // directory holding it -- and a shell answers a failed exec by
     // trying the file as a script, which is why running a binary
     // printed a syntax error rather than "not found".
-    int perr = resolve_user_path(pml4, (uint64_t)(uintptr_t)msg->path, a->path, UNVEIL_X);
+    int perr = resolve_user_path(pml4, (uint64_t)(uintptr_t)msg->path, a->path, UNVEIL_X, FSP_ASK_EXEC);
     if (perr < 0) {
         klog_printf(KLOG_ERR "syscall: %s() rejected -- bad path (%d)\n", who, perr);
         spawn_args_free(a);

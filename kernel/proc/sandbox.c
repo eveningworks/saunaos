@@ -314,7 +314,7 @@ int sys_unveil(struct syscall_ctx *c) {
         if (k_strlen(path) >= sizeof UNVEIL_SHM_PREFIX - 1 + SHM_NAME_MAX) {
             rc = -ENAMETOOLONG; goto out;
         }
-    } else if ((rc = resolve_user_path(c->pml4, c->a0, path, 0)) < 0) {
+    } else if ((rc = resolve_user_path(c->pml4, c->a0, path, 0, FSP_ASK_NONE)) < 0) {
         goto out;   // 0 = no unveil check: this call is what defines them
     }
 

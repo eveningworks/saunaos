@@ -6,7 +6,7 @@
 
 ## Synopsis
 
-    mount [-r] [-t <fstype>] [-o size=<n>[K|M|G]] <device|partition|none> <mountpoint>
+    mount [-r] [-t <fstype>] [-o size=<n>[K|M|G],mode=<octal>,uid=<n>,gid=<n>] <device|partition|none> <mountpoint>
            mount -t smb [-o user=<name>] //<server>/<share> <mountpoint>
            mount [-t iso9660] <image.iso> <mountpoint>
            mount                  list what is mounted
@@ -19,8 +19,13 @@
   recognise is then refused rather than mounted as something else.
 - `-o size=<n>[K|M|G]` -- cap a ramfs mount's memory. A bare number is
   MiB, rounded UP to a whole MiB; `T` works too, and `iB`/`B` may follow
-  the letter (`k_parse_size()`). It is the only option there is, and a
-  disk filesystem accepts and ignores it.
+  the letter (`k_parse_size()`). A disk filesystem accepts and ignores it.
+- `-o mode=<octal>,uid=<n>,gid=<n>` -- the mount ROOT's mode and owner,
+  and on a volume with no owners of its own (FAT32, exFAT, ISO) every
+  file's owner -- Linux's tmpfs and vfat options. Set by a chmod and a
+  chown of the point once it is mounted, so they last until it is
+  unmounted. The `tmpfs` service mounts `/tmp` with `mode=1777`. Options
+  go comma-separated in one `-o`, as mount(8)'s do.
 
 - `-t smb //server/share` -- a WINDOWS OR SAMBA SHARE, read-only. There
   is no SMB client in the kernel: `mount` starts `smbfsd --url`, which

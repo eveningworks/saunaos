@@ -291,6 +291,7 @@ void slot_free(int slot) {
     procs[slot].fd_holds = 0;
     sandbox_put(procs[slot].ext->sandbox);
     procs[slot].ext->sandbox = 0;
+    procs[slot].ext->umask = 022;
     cred_put(procs[slot].ext->cred);
     procs[slot].ext->cred = 0;
     cred_disarm_tid(pid);   // an arm whose spawn never ended must not outlive its tid
@@ -2790,6 +2791,17 @@ struct sandbox **scheduler_current_sandbox(void) {
 struct cred **scheduler_current_cred(void) {
     if (current_index < 0) return 0;
     return &procs[leader_index(current_index)].ext->cred;
+}
+
+uint16_t scheduler_umask(void) {
+    if (current_index < 0) return 022;
+    return __atomic_load_n(&procs[leader_index(current_index)].ext->umask, __ATOMIC_RELAXED);
+}
+
+uint16_t scheduler_set_umask(uint16_t mask) {
+    if (current_index < 0) return 022;
+    return __atomic_exchange_n(&procs[leader_index(current_index)].ext->umask,
+                               (uint16_t)(mask & 0777), __ATOMIC_RELAXED);
 }
 
 int scheduler_pid_ruid(int pid, uint32_t *ruid) {

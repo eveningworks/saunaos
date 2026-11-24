@@ -26,6 +26,7 @@
 #include "kfmt.h"      // klog_printf
 #include "sandbox.h"   // every path asks the unveil list (resolve_user_path)
 #include "sandbox_abi.h"
+#include "fsperm.h"      // ...and then the file's owner and mode
 #include "devnodes.h"    // /dev/null and friends, found by name
 #include "vt.h"          // /dev/tty1../dev/tty4
 #include "watchdog.h"    // /dev/watchdog's one-opener claim
@@ -160,7 +161,7 @@ int sys_open(struct syscall_ctx *c) {
 
     char *name = kpath_get();
     if (!name) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int perr = resolve_user_path(pml4, c->a0, name, 0);   // unveil below
+    int perr = resolve_user_path(pml4, c->a0, name, 0, FSP_ASK_NONE);   // unveil and mode below
     // A DEVICE (kernel/core/devnodes.c) is a description with no file.
     // /dev/null alone skips the unveil list, as OpenBSD's pledge_namei()
     // lets it past unveil (the row's RPATH promise still applies).
@@ -234,6 +235,19 @@ int sys_open(struct syscall_ctx *c) {
             }
             if (exists) {
                 c->regs[14] = (uint64_t)(int64_t)-EEXIST;
+                kpath_put(name);
+                return 0;
+            }
+        }
+
+        // THE FILE'S OWNER AND MODE (kernel/fsperm.h): reading and
+        // writing ask the file, creating asks its folder.
+        {
+            int prc = exists ? fsperm_may(name, (fd_mode_reads(mode) ? FSP_R : 0) |
+                                                (want_write ? FSP_W : 0))
+                    : (want_write && want_creat) ? fsperm_may_create(name) : 0;
+            if (prc) {
+                c->regs[14] = (uint64_t)(int64_t)prc;
                 kpath_put(name);
                 return 0;
             }
@@ -367,7 +381,7 @@ int sys_unlink(struct syscall_ctx *c) {
     uint64_t pml4 = c->pml4;
     char *name = kpath_get();
     if (!name) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(pml4, c->a0, name, UNVEIL_C);
+    int err = resolve_user_path(pml4, c->a0, name, UNVEIL_C, FSP_ASK_DELETE);
     if (err) {
         // 0 success / -errno failure since the polarity flip -- the
         // last of the boolean-returning syscalls converted, with every
@@ -405,7 +419,7 @@ static int listdir_common(struct syscall_ctx *c, uint64_t path_ptr,
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
     int perr = 0;
     if (!vmm_validate_user_range(pml4, out, (uint64_t)max * sizeof(struct sys_dirent)) ||
-        (perr = resolve_user_path(pml4, path_ptr, path, UNVEIL_R)) != 0) {
+        (perr = resolve_user_path(pml4, path_ptr, path, UNVEIL_R, FSP_ASK_READ)) != 0) {
         // The path's own answer (ENOENT for "", ENAMETOOLONG, a sandbox
         // refusal) where there is one; EFAULT only for the buffer.
         if (!perr) klog_write(KLOG_ERR "syscall: listdir() rejected -- invalid pointer\n");
@@ -513,7 +527,7 @@ int sys_getdents(struct syscall_ctx *c) {
         rc = -ENOMEM;
     } else if (!vmm_validate_user_range(c->pml4, req.buf, req.len)) {
         rc = -EFAULT;
-    } else if ((rc = resolve_user_path(c->pml4, req.path, path, UNVEIL_R)) != 0) {
+    } else if ((rc = resolve_user_path(c->pml4, req.path, path, UNVEIL_R, FSP_ASK_READ)) != 0) {
         // the path's own errno: opendir("") is ENOENT, which
         // std::filesystem::remove_all("") reads as "nothing to remove"
     } else {
@@ -554,7 +568,7 @@ int sys_fs_watch(struct syscall_ctx *c) {
     }
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int rc = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R);
+    int rc = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R, FSP_ASK_SEARCH);
     if (!rc) rc = fswatch_add(scheduler_current_tgid(), path);
     kpath_put(path);
     c->regs[14] = (uint64_t)(int64_t)rc;
@@ -564,7 +578,7 @@ int sys_fs_watch(struct syscall_ctx *c) {
 int sys_fs_generation_of(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int rc = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R);   // the VFS's own spelling
+    int rc = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R, FSP_ASK_SEARCH);   // the VFS's own spelling
     c->regs[14] = rc ? (uint64_t)(int64_t)rc : fs_generation_of(path);
     kpath_put(path);
     return 0;
@@ -611,7 +625,11 @@ int sys_fs_generation(struct syscall_ctx *c) {
 // it is there without that right. A parameter rather than a separate
 // call so no path-taking syscall can forget to ask; 0 asks nothing, for
 // SYS_UNVEIL itself.
-int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out, unsigned need) {
+//
+// **`ask` IS THE FILE PERMISSIONS' QUESTION** (kernel/fsperm.h), for the
+// same reason and asked after the sandbox's: a path the sandbox hides is
+// ENOENT before any mode bit is looked at.
+int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out, unsigned need, enum fsp_ask ask) {
     // Three buffers, none of them a local: the raw copy, the scratch
     // k_path_resolve() joins into, and the caller's `out`. At
     // FS_PATH_MAX = 4096 that is 16 KiB, a whole kernel stack.
@@ -635,6 +653,7 @@ int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out, unsigned need) {
     } else if (need) {
         rc = sandbox_path(out, need);
     }
+    if (!rc && ask != FSP_ASK_NONE) rc = fsperm_ask(out, ask);
     kpath_scratch_put(&sc);
     kpath_put(raw);
     return rc;
@@ -643,7 +662,7 @@ int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out, unsigned need) {
 int sys_chdir(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R);
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R, FSP_ASK_EXEC);
     if (err) {
         klog_write(KLOG_ERR "syscall: chdir() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -692,7 +711,7 @@ int sys_getcwd(struct syscall_ctx *c) {
 int sys_mkdir(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C);
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C, FSP_ASK_CREATE);
     if (err) {
         klog_write(KLOG_ERR "syscall: mkdir() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -758,8 +777,10 @@ static int rename_common(struct syscall_ctx *c, uint64_t flags) {
     if (!from) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
     char *to = kpath_get();
     if (!to) { kpath_put(from); c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, from, UNVEIL_C);
-    if (!err) err = resolve_user_path(c->pml4, c->a1, to, UNVEIL_C);
+    int err = resolve_user_path(c->pml4, c->a0, from, UNVEIL_C, FSP_ASK_DELETE);
+    if (!err) err = resolve_user_path(c->pml4, c->a1, to, UNVEIL_C, FSP_ASK_CREATE);
+    // Replacing a file there is removing it: the sticky bit's question.
+    if (!err && fs_exists(to)) err = fsperm_ask(to, FSP_ASK_DELETE);
     if (err) {
         klog_write(KLOG_ERR "syscall: rename() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -781,7 +802,7 @@ int sys_rename2(struct syscall_ctx *c) {
 int sys_truncate(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_W);
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_W, FSP_ASK_WRITE);
     if (err) {
         klog_write(KLOG_ERR "syscall: truncate() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -825,16 +846,10 @@ static int sys_ftruncate_held(struct syscall_ctx *c, struct open_file *f) {
     return 0;
 }
 
-int sys_stat(struct syscall_ctx *c) {
-    char *path = kpath_get();
-    if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R);
-    if (err) {
-        klog_write(KLOG_ERR "syscall: stat() rejected -- bad path\n");
-        c->regs[14] = (uint64_t)(int64_t)err;
-        kpath_put(path);
-        return 0;
-    }
+// What SYS_STAT and SYS_STATX answer for a resolved path: 0 and *res,
+// or -ENOENT. The owner goes beside it, not in it -- struct sys_stat is
+// 48 bytes for good (the assert below).
+static int stat_fill(const char *path, struct sys_stat *res, uint32_t *uid, uint32_t *gid) {
     int is_root = k_strcmp(path, "/") == 0;
     // ONE fs call where the backend can answer everything: each takes the
     // volume's lock, and exists-then-is_dir-then-size-then-stat queued
@@ -845,11 +860,7 @@ int sys_stat(struct syscall_ctx *c) {
     struct fs_stat_info st;
     k_memset(&st, 0, sizeof st);
     int have = !is_root && fs_stat(path, &st);
-    if (!is_root && !have && !fs_exists(path)) {
-        c->regs[14] = (uint64_t)(int64_t)-ENOENT;
-        kpath_put(path);
-        return 0;
-    }
+    if (!is_root && !have && !fs_exists(path)) return -ENOENT;
 
     struct sys_stat out;
     k_memset(&out, 0, sizeof out);
@@ -875,21 +886,65 @@ int sys_stat(struct syscall_ctx *c) {
         out.mode = 0755;
         out.nlink = 1;
     }
-    if (!vmm_copy_to_user(c->pml4, c->a1, &out, sizeof out)) {
-        klog_write(KLOG_ERR "syscall: stat() rejected -- invalid output pointer\n");
-        c->regs[14] = (uint64_t)(int64_t)-EFAULT;
+    *res = out;
+    if (have) {
+        *uid = st.uid;
+        *gid = st.gid;
+    } else {
+        struct fs_stat_info a;   // the implicit root: its mount's record
+        *uid = fs_attrs(path, &a) ? a.uid : 0;
+        *gid = fs_attrs(path, &a) ? a.gid : 0;
+    }
+    return 0;
+}
+
+int sys_stat(struct syscall_ctx *c) {
+    char *path = kpath_get();
+    if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R, FSP_ASK_SEARCH);
+    if (err) {
+        klog_write(KLOG_ERR "syscall: stat() rejected -- bad path\n");
+        c->regs[14] = (uint64_t)(int64_t)err;
         kpath_put(path);
         return 0;
     }
-    c->regs[14] = 0;
+    struct sys_stat out;
+    uint32_t uid, gid;
+    int rc = stat_fill(path, &out, &uid, &gid);
     kpath_put(path);
+    if (rc) { c->regs[14] = (uint64_t)(int64_t)rc; return 0; }
+    if (!vmm_copy_to_user(c->pml4, c->a1, &out, sizeof out)) {
+        klog_write(KLOG_ERR "syscall: stat() rejected -- invalid output pointer\n");
+        c->regs[14] = (uint64_t)(int64_t)-EFAULT;
+        return 0;
+    }
+    c->regs[14] = 0;
+    return 0;
+}
+
+int sys_statx(struct syscall_ctx *c) {
+    struct sys_statx out;
+    k_memset(&out, 0, sizeof out);
+    int rc;
+    if (c->a0) {
+        if (sandbox_require(PROMISE_RPATH, "stat a path", c->regs)) return 0;
+        char *path = kpath_get();
+        if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
+        rc = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R, FSP_ASK_SEARCH);
+        if (!rc) rc = stat_fill(path, &out.st, &out.uid, &out.gid);
+        kpath_put(path);
+    } else {
+        rc = fstat_fill(c->pml4, (int)c->a1, &out.st, &out.uid, &out.gid);
+    }
+    if (!rc && !vmm_copy_to_user(c->pml4, c->a2, &out, sizeof out)) rc = -EFAULT;
+    c->regs[14] = (uint64_t)(int64_t)rc;
     return 0;
 }
 
 int sys_chmod(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C);
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C, FSP_ASK_OWN);
     if (err) {
         klog_write(KLOG_ERR "syscall: chmod() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -908,7 +963,7 @@ int sys_chmod(struct syscall_ctx *c) {
 int sys_utime(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C);
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C, c->a1 == SYS_UTIME_NOW ? FSP_ASK_TOUCH : FSP_ASK_OWN);
     if (err) {
         c->regs[14] = (uint64_t)(int64_t)err;
         kpath_put(path);
@@ -932,7 +987,7 @@ int sys_utimens(struct syscall_ctx *c) {
     }
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C);
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C, c->a1 == SYS_UTIME_NOW ? FSP_ASK_TOUCH : FSP_ASK_OWN);
     if (err) {
         c->regs[14] = (uint64_t)(int64_t)err;
         kpath_put(path);
@@ -962,7 +1017,10 @@ static int sys_futimens_held(struct syscall_ctx *c, struct open_file *f) {
         return 0;
     }
     uint64_t t = c->a1 == SYS_UTIME_NOW ? FS_MTIME_NOW : c->a1;
-    c->regs[14] = (uint64_t)(int64_t)fs_set_mtime(f->file.name, t, (uint32_t)c->a2);
+    // "Now" is a writer's; any other time, the owner's (utimensat(2)).
+    int err = t == FS_MTIME_NOW ? (fd_mode_writes(f->file.mode) ? 0 : fsperm_may_touch(f->file.name))
+                                : fsperm_may_own(f->file.name);
+    c->regs[14] = (uint64_t)(int64_t)(err ? err : fs_set_mtime(f->file.name, t, (uint32_t)c->a2));
     return 0;
 }
 
@@ -982,7 +1040,8 @@ static int sys_fchmod_held(struct syscall_ctx *c, struct open_file *f) {
         c->regs[14] = (uint64_t)(int64_t)-EBADF;
         return 0;
     }
-    c->regs[14] = (uint64_t)(int64_t)fs_chmod(f->file.name, (uint16_t)c->a1);
+    int err = fsperm_may_own(f->file.name);
+    c->regs[14] = (uint64_t)(int64_t)(err ? err : fs_chmod(f->file.name, (uint16_t)c->a1));
     return 0;
 }
 
@@ -991,8 +1050,8 @@ int sys_link(struct syscall_ctx *c) {
     if (!from) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
     char *to = kpath_get();
     if (!to) { kpath_put(from); c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, from, UNVEIL_C);
-    if (!err) err = resolve_user_path(c->pml4, c->a1, to, UNVEIL_C);
+    int err = resolve_user_path(c->pml4, c->a0, from, UNVEIL_C, FSP_ASK_SEARCH);
+    if (!err) err = resolve_user_path(c->pml4, c->a1, to, UNVEIL_C, FSP_ASK_CREATE);
     if (err) {
         klog_write(KLOG_ERR "syscall: link() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -1306,3 +1365,43 @@ const struct fd_ops file_fd_ops = {
     .seek = file_fd_seek, .stat = file_fd_stat,
     .release = file_fd_release,
 };
+
+// ---- owners (users stage C) ------------------------------------------
+
+// The mount point's chown changes its mount record; anything else, the
+// file -- fs.h's fs_chown() says which backends keep one.
+int sys_chown(struct syscall_ctx *c) {
+    char *path = kpath_get();
+    if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
+    uint32_t uid = (uint32_t)c->a1, gid = (uint32_t)c->a2;
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C, FSP_ASK_NONE);
+    if (!err) err = fsperm_may_chown(path, uid, gid);
+    if (!err) err = fs_chown(path, uid, gid);
+    kpath_put(path);
+    c->regs[14] = (uint64_t)(int64_t)err;
+    return 0;
+}
+
+static int sys_fchown_held(struct syscall_ctx *c, struct open_file *f) {
+    if (!f || f->ops != &file_fd_ops) {
+        c->regs[14] = (uint64_t)(int64_t)-EBADF;
+        return 0;
+    }
+    uint32_t uid = (uint32_t)c->a1, gid = (uint32_t)c->a2;
+    int err = fsperm_may_chown(f->file.name, uid, gid);
+    if (!err) err = fs_chown(f->file.name, uid, gid);
+    c->regs[14] = (uint64_t)(int64_t)err;
+    return 0;
+}
+
+int sys_fchown(struct syscall_ctx *c) {
+    int di;
+    int parked = sys_fchown_held(c, fd_get_held(c->pml4, (int)c->a0, &di));
+    fd_put(di);   // held across the call: it waits on the volume
+    return parked;
+}
+
+int sys_umask(struct syscall_ctx *c) {
+    c->regs[14] = (uint64_t)scheduler_set_umask((uint16_t)(c->a0 & 0777));
+    return 0;
+}

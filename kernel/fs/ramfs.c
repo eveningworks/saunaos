@@ -118,6 +118,8 @@ struct rnode {
     uint64_t created;
     uint64_t modified;
     uint32_t modified_ns;   // what make orders two edits in one second by
+    uint16_t mode;          // permission bits; 0755 less the creator's umask
+    uint32_t uid, gid;      // whoever made it (fs_new_attrs())
     uint8_t **chunks;       // NULL for a directory, or an empty file
     uint32_t chunk_cap;     // entries in chunks[], not bytes
 };
@@ -234,6 +236,18 @@ static int node_alloc(struct ramfs_state *sbi, const char *name, int parent, int
     n->is_dir = (uint8_t)(is_dir != 0);
     stamp(n);
     n->created = n->modified;
+    {
+        // 0755 for files too, tfs3's default and for its reason
+        // (tfs3_internal.h, T3_MODE_DEFAULT): a program built into /tmp
+        // by a tool that never chmods must still run.
+        struct fs_new_attrs a;
+        const struct rnode *pn = parent >= 0 ? sbi->nodes[parent] : 0;
+        struct fs_parent_attrs pa = { pn ? pn->uid : 0, pn ? pn->gid : 0, pn ? pn->mode : 0 };
+        fs_new_attrs(0755, is_dir, pn ? &pa : 0, &a);
+        n->mode = a.mode;
+        n->uid = a.uid;
+        n->gid = a.gid;
+    }
     sbi->nodes[i] = n;
     sbi->free_hint = i + 1;
     return i;
@@ -787,14 +801,33 @@ static int ramfs_stat(void *st, const char *path, struct fs_stat_info *out) {
     out->created = sbi->nodes[idx]->created;
     out->modified = sbi->nodes[idx]->modified;
     out->modified_ns = sbi->nodes[idx]->modified_ns;
-    // NO STORED MODE (hence no FS_CAP_MODE): this format has nowhere to
-    // put one. The default for the type is reported rather than zero,
-    // because a caller cannot act on "unknown" -- see fs.h.
-    out->mode = sbi->nodes[idx]->is_dir ? 0755 : 0644;
+    out->mode = sbi->nodes[idx]->mode;
+    out->uid = sbi->nodes[idx]->uid;
+    out->gid = sbi->nodes[idx]->gid;
     out->nlink = 1;
     out->is_dir = sbi->nodes[idx]->is_dir ? 1 : 0;
     out->size = sbi->nodes[idx]->is_dir ? 0 : sbi->nodes[idx]->size;
     return 1;
+}
+
+// Kept in the node, like everything else here: gone at unmount.
+static int ramfs_chmod(void *st, const char *path, uint16_t mode) {
+    struct ramfs_state *sbi = st;
+    if (!sbi->mounted) return -ENOENT;
+    int idx = find(sbi, path);
+    if (idx < 0) return -ENOENT;
+    sbi->nodes[idx]->mode = (uint16_t)(mode & 07777);
+    return 0;
+}
+
+static int ramfs_chown(void *st, const char *path, uint32_t uid, uint32_t gid) {
+    struct ramfs_state *sbi = st;
+    if (!sbi->mounted) return -ENOENT;
+    int idx = find(sbi, path);
+    if (idx < 0) return -ENOENT;
+    if (uid != FS_OWNER_KEEP) sbi->nodes[idx]->uid = uid;
+    if (gid != FS_OWNER_KEEP) sbi->nodes[idx]->gid = gid;
+    return 0;
 }
 
 // A node keeps `modified` like any other field, so it can be told one.
@@ -863,7 +896,7 @@ const struct fs_ops ramfs_ops = {
     // format carries. No FS_CAP_HARDLINKS, and .link stays NULL to
     // match -- one fact stated twice, which vfs.c's caps_are_honest()
     // checks both ways.
-    .caps = FS_CAP_REPLACE,
+    .caps = FS_CAP_REPLACE | FS_CAP_MODE | FS_CAP_OWNER,
     // 0, and it is the first honest 0 this field has ever had: ramfs
     // does not go through the block layer at all, so try_partitions()
     // must never offer it a partition. See fs_ops.h.
@@ -896,6 +929,8 @@ const struct fs_ops ramfs_ops = {
     .read_range_step = ramfs_read_range_step,
     .rename = ramfs_rename,
     .set_mtime = ramfs_set_mtime,
+    .chmod = ramfs_chmod,
+    .chown = ramfs_chown,
     .truncate = ramfs_truncate,
     .is_dir = ramfs_is_dir,
     .exists = ramfs_exists,

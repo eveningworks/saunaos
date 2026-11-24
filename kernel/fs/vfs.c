@@ -38,6 +38,7 @@
 #include "tfs3.h"     // tfs3_threads_start()
 #include "fswatch.h" // a mutation tells whoever watches its path
 #include "cachesim.h" // what a page cache would have hit, when measuring
+#include "cred.h"     // fs_new_attrs(): who a new inode belongs to
 #include "initcall.h"
 #include "fs_defer.h" // the fd layer's calls, settled at close
 #include "timer.h"    // coarse_ticks(): how long a change has gone unsettled
@@ -1209,16 +1210,103 @@ void fs_list(const char *dir_path, fs_list_cb cb, void *ctx) {
     FS_OP_VOID(r.m, r.gen, list, r.sub, cb, ctx);
 }
 
+// A mount's own root: no backend gives it an entry, so its owner and
+// mode are the mount record's (mount.h).
+static int is_mount_root(const struct resolved *r) {
+    return !r->sub[0] || (r->sub[0] == '/' && !r->sub[1]);
+}
+
+// The owner half of a stat: the backend's when it keeps owners, the
+// mount's otherwise, and the mount's for its root whatever the backend
+// said.
+static void fill_owner(const struct resolved *r, struct fs_stat_info *out) {
+    if (is_mount_root(r)) {
+        out->uid = r->m->uid;
+        out->gid = r->m->gid;
+        out->mode = r->m->root_mode;
+    } else if (!(r->m->fs->caps & FS_CAP_OWNER)) {
+        out->uid = r->m->uid;
+        out->gid = r->m->gid;
+    }
+    // A format with no modes (FAT, exFAT, ISO, a share) gives a file x
+    // wherever it gives r, as Linux's vfat does by default: a program on
+    // a stick or a disc must still run once modes are enforced.
+    if (!(r->m->fs->caps & FS_CAP_MODE) && !out->is_dir)
+        out->mode = (uint16_t)(out->mode | ((out->mode & 0444) >> 2));
+}
+
 int fs_stat(const char *path, struct fs_stat_info *out) {
     struct resolved r;
     k_memset(out, 0, sizeof *out);   // a backend that keeps no nanoseconds leaves them 0
     if (!resolve(path, &r)) return 0;
-    return FS_OP(r.m, r.gen, stat, r.sub, out);
+    int ok = FS_OP(r.m, r.gen, stat, r.sub, out);
+    if (ok) fill_owner(&r, out);
+    return ok;
+}
+
+int fs_attrs(const char *path, struct fs_stat_info *out) {
+    struct resolved r;
+    k_memset(out, 0, sizeof *out);
+    if (!resolve(path, &r)) return 0;
+    if (is_mount_root(&r)) {
+        out->is_dir = 1;
+        out->nlink = 1;
+        fill_owner(&r, out);
+        return 1;
+    }
+    int ok = FS_OP(r.m, r.gen, stat, r.sub, out);
+    if (ok) fill_owner(&r, out);
+    return ok;
+}
+
+void fs_new_attrs(uint16_t default_mode, int is_dir, const struct fs_parent_attrs *parent,
+                  struct fs_new_attrs *out) {
+    struct cred *c = cred_current();
+    out->uid = cred_euid(c);
+    out->gid = cred_egid(c);
+    out->mode = (uint16_t)(default_mode & ~scheduler_umask() & 0777);
+    if (!parent) return;
+    if (parent->mode & 02000) {
+        out->gid = parent->gid;
+        if (is_dir) out->mode |= 02000;
+        if (parent->mode & 0020) out->mode |= is_dir ? 0070 : 0060;
+    }
+    if ((parent->mode & 04000) && parent->uid != 0) {
+        out->uid = parent->uid;
+        out->gid = parent->gid;
+        if (is_dir) out->mode |= 04000;
+    }
+}
+
+int fs_chown(const char *path, uint32_t uid, uint32_t gid) {
+    struct resolved r;
+    if (!resolve(path, &r)) return -ENOENT;
+    if (is_mount_root(&r)) {
+        // The record, in memory: a root has no entry to write to.
+        struct mount *m = (struct mount *)r.m;
+        mount_lock(m);
+        if (uid != FS_OWNER_KEEP) __atomic_store_n(&m->uid, uid, __ATOMIC_RELAXED);
+        if (gid != FS_OWNER_KEEP) __atomic_store_n(&m->gid, gid, __ATOMIC_RELAXED);
+        mount_unlock(m);
+        return 0;
+    }
+    if (!r.m->fs->chown) return -ENOTSUP;
+    if (!writable(&r, "chown", path)) return -EROFS;
+    int rc = FS_OP(r.m, r.gen, chown, r.sub, uid, gid);
+    if (rc == 0) settle(&r, 1);
+    return rc;
 }
 
 int fs_chmod(const char *path, uint16_t mode) {
     struct resolved r;
     if (!resolve(path, &r)) return -ENOENT;
+    if (is_mount_root(&r)) {
+        struct mount *m = (struct mount *)r.m;
+        mount_lock(m);
+        __atomic_store_n(&m->root_mode, (uint16_t)(mode & 07777), __ATOMIC_RELAXED);
+        mount_unlock(m);
+        return 0;
+    }
     // A backend with nowhere to keep permission bits leaves the slot
     // NULL rather than accepting and discarding them -- see fs_ops.h.
     if (!r.m->fs->chmod) return -ENOTSUP;

@@ -546,6 +546,12 @@ struct cred **scheduler_current_cred(void);
 // The REAL uid of process `pid` (its leader's cred) into *ruid: 1, or 0
 // for no such process. For the kill rule (kernel/privilege.h).
 int scheduler_pid_ruid(int pid, uint32_t *ruid);
+// THE FILE-CREATION MASK (umask(2)), a LEADER's, inherited at spawn and
+// fork like the cwd: what a new file's mode loses (vfs.c's
+// fs_new_attrs()). 022 for the kernel context. The setter answers the
+// old mask, as umask(2) does.
+uint16_t scheduler_umask(void);
+uint16_t scheduler_set_umask(uint16_t mask);
 
 // The current directory of whatever is running -- a scheduler slot's, or
 // the kernel context's when that is what is on the CPU. NEVER NULL, and

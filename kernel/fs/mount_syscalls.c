@@ -210,7 +210,7 @@ static int mount_image(struct syscall_ctx *c, const struct mount_request *req) {
         return -EINVAL;
     char *image = kpath_get();
     if (!image) return -ENOMEM;
-    int rc = resolve_user_path(c->pml4, c->a1, image, UNVEIL_R);
+    int rc = resolve_user_path(c->pml4, c->a1, image, UNVEIL_R, FSP_ASK_READ);
     if (!rc && !fs_exists(image)) rc = -ENOENT;
     if (!rc) {
         const char *why = "";
@@ -313,7 +313,7 @@ int sys_fs_check(struct syscall_ctx *c) {
     }
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int rc = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R);
+    int rc = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R, FSP_ASK_NONE);
     if (!rc && f == FSCK_PROGRESS) {
         struct fs_check_progress p;
         rc = fs_check_progress_at(path, &p);

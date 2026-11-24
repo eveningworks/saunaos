@@ -120,6 +120,13 @@ int sys_rename(const char *from, const char *to) {
 // Metadata nothing in a widget sets: refused, so a caller sees a failure
 // rather than a change that did not happen.
 int sys_chmod(const char *path, unsigned mode) { (void)path; (void)mode; return fail(-38); }
+// The raw call libc's newer calls go through (libc's prctl.c says why):
+// ENOSYS for all, so stat() and access() fall back to sys_stat() above,
+// as on a kernel from before SYS_STATX.
+int64_t sys_call(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3) {
+    (void)num; (void)a1; (void)a2; (void)a3;
+    return -38;
+}
 int sys_fchmod(int fd, unsigned mode) { (void)fd; (void)mode; return fail(-38); }
 int sys_utime(const char *path, unsigned long long epoch) { (void)path; (void)epoch; return fail(-38); }
 int sys_utimens(const char *path, unsigned long long epoch, unsigned nsec)

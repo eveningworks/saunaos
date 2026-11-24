@@ -123,6 +123,17 @@ struct mount {
     // -- for a name that ignores case (mount_backing_under()).
     const struct mount *backing_mount;
     uint64_t backing_ino;
+
+    // WHO OWNS THIS MOUNT (users stage C): its ROOT's owner and mode --
+    // no backend here gives a root an entry of its own -- and, on a
+    // backend without FS_CAP_OWNER, every file's owner (Linux's FAT
+    // `uid=`/`gid=`). Set at mount to the mounting process's effective
+    // ids, 0755; changed by a chown/chmod of the mount point, in memory
+    // only (a service re-applies it at every boot: tmpfs's 1777).
+    // Written under the mount's lock, read without it -- each is one
+    // aligned word.
+    uint32_t uid, gid;
+    uint16_t root_mode;
 };
 
 // Lock one mount for a backend call; its state is behind it.

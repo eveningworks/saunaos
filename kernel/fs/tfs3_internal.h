@@ -159,6 +159,12 @@ static inline int t3_range_fits(uint64_t offset, uint64_t len) {
 // `chmod` is what sets anything narrower, and the seeder still marks
 // data files 0644 where it knows better.
 #define T3_MODE_DEFAULT(type) ((void)(type), 0755u)
+// A mode SET ON PURPOSE, kept in the stored word's top bit: a stored 0
+// reads as "never set" (T3_MODE_DEFAULT), so without the mark a
+// `chmod 000` read back as 0755 -- a file nobody may open that everyone
+// could. An older kernel reads the bit as part of the mode and masks
+// it off at 07777, as every caller does.
+#define T3_MODE_SET 0x8000u
 
 // Deeper than any caller can currently express (every fs.h caller
 // holds FS_PATH_MAX=64 buffers), but the format has no path cap, so
@@ -274,6 +280,10 @@ struct t3_inode {
     // than it was and never a wrong one. No version bump. make orders a
     // header edited in the same second as its object by this field.
     uint32_t modified_ns;
+    // THE OWNER AND GROUP (users stage C), at 100 and 104 -- `mode`'s
+    // trick a third time: zero is what every older kernel wrote there,
+    // and zero is root, so a disk from before is root's and boots.
+    uint32_t uid, gid;
 };
 
 // THE DIRECTORY INODE CACHE (Linux's icache, for directories only):
@@ -550,6 +560,7 @@ struct t3_state {
         char tfs3_exists_norm[T3_PATH_BUF];
         char tfs3_list_norm[T3_PATH_BUF];
         char tfs3_chmod_norm[T3_PATH_BUF];
+        char tfs3_chown_norm[T3_PATH_BUF];
         char tfs3_set_mtime_norm[T3_PATH_BUF];
         char tfs3_stat_norm[T3_PATH_BUF];
         char create_entry_inner_norm[T3_PATH_BUF];

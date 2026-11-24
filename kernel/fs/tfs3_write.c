@@ -1071,7 +1071,18 @@ static int create_entry_inner(struct t3_state *sbi, const char *path, uint8_t ty
     // A NEW inode records its mode explicitly rather than leaning on the
     // read-time default, so that a later chmod has somewhere to write
     // and so an inode's stored mode means what it says.
-    node.mode = T3_MODE_DEFAULT(type);
+    {
+        // Owned by whoever made it, with that process's umask off the
+        // default -- fs_ops.h's fs_new_attrs().
+        struct fs_new_attrs a;
+        uint16_t pm = (parent.mode & T3_MODE_SET) ? (uint16_t)(parent.mode & 07777)
+                    : parent.mode ? parent.mode : (uint16_t)T3_MODE_DEFAULT(T3_TYPE_DIR);
+        struct fs_parent_attrs pa = { parent.uid, parent.gid, pm };
+        fs_new_attrs((uint16_t)T3_MODE_DEFAULT(type), type == T3_TYPE_DIR, &pa, &a);
+        node.mode = (uint16_t)(a.mode | T3_MODE_SET);
+        node.uid = a.uid;
+        node.gid = a.gid;
+    }
 
     if (type == T3_TYPE_DIR) {
         // The child's own dirent block: plain data until the inode
@@ -1653,7 +1664,7 @@ int tfs3_truncate(void *st, const char *path, uint64_t size) {
 static int inode_same(const struct t3_inode *a, const struct t3_inode *b) {
     if (a->type != b->type || a->links != b->links || a->size != b->size ||
         a->created != b->created || a->modified != b->modified || a->mode != b->mode ||
-        a->modified_ns != b->modified_ns)
+        a->modified_ns != b->modified_ns || a->uid != b->uid || a->gid != b->gid)
         return 0;
     for (int i = 0; i < 15; i++) if (a->ptrs[i] != b->ptrs[i]) return 0;
     return 1;

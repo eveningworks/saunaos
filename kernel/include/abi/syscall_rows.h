@@ -232,6 +232,15 @@ SYSCALL_ROW(SYS_UNVEIL, "unveil", sys_unveil, A_PATH, A_HEX, A_END, R_DEC, PROMI
 SYSCALL_ROW_MPSAFE(SYS_CLOCK_PAGE, "clock_page", sys_clock_page, A_END, A_END, A_END, R_HEX, PROMISE_STDIO)
 SYSCALL_ROW(SYS_GETCRED, "getcred", sys_getcred, A_HEX, A_HEX, A_INT, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_CRED_GRANT, "cred_grant", sys_cred_grant, A_HEX, A_END, A_END, R_DEC, PROMISE_ADMIN)
+// File owners: a chown is a file attribute, chmod's promise (OpenBSD's
+// fattr; chown is its own promise there, cpath's neighbour here).
+SYSCALL_ROW(SYS_CHOWN, "chown", sys_chown, A_PATH, A_INT, A_INT, R_DEC, PROMISE_CPATH)
+SYSCALL_ROW(SYS_FCHOWN, "fchown", sys_fchown, A_FD, A_INT, A_INT, R_DEC, PROMISE_CPATH)
+SYSCALL_ROW(SYS_UMASK, "umask", sys_umask, A_HEX, A_END, A_END, R_HEX, PROMISE_STDIO)
+// statx is libc's fstat() as well as its stat(): the row asks what
+// fstat's does (stdio), and the PATH form asks rpath inside the call, as
+// SYS_STAT's row does -- a program pledged to stdio alone calls fstat.
+SYSCALL_ROW(SYS_STATX, "statx", sys_statx, A_PATH, A_FD, A_HEX, R_DEC, PROMISE_STDIO)
 
 #ifdef SYSCALL_ROW_MPSAFE_DEFAULTED
 #undef SYSCALL_ROW_MPSAFE

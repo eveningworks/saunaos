@@ -25,6 +25,9 @@ uint32_t cred_ruid(const struct cred *c);
 uint32_t cred_egid(const struct cred *c);
 uint32_t cred_rgid(const struct cred *c);
 uint32_t cred_flags(const struct cred *c);   // CRED_* (abi/cred_abi.h); 0 for root
+// The effective group or one of the supplementary ones -- a file's
+// group class (kernel/fsperm.h). NULL (root) is in group 0 alone.
+int cred_in_group(const struct cred *c, uint32_t gid);
 
 // The current PROCESS's cred (its leader's); NULL in the kernel context.
 struct cred *cred_current(void);

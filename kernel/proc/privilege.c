@@ -186,7 +186,7 @@ int sys_cred_grant(struct syscall_ctx *c) {
         (uint64_t)req.args_len + req.env_len > SPAWN_ARGS_MAX) { rc = -EINVAL; goto out; }
     path = kpath_get();
     if (!path) { rc = -ENOMEM; goto out; }
-    rc = resolve_user_path(c->pml4, (uint64_t)(uintptr_t)req.path, path, 0);
+    rc = resolve_user_path(c->pml4, (uint64_t)(uintptr_t)req.path, path, 0, FSP_ASK_NONE);
     if (rc) goto out;
     g = kmalloc(sizeof *g + req.args_len);
     char *keep = g ? kmalloc(k_strlen(path) + 1) : 0;

@@ -1,0 +1,18 @@
+# Gives the system volume's files the owners /etc/owners.conf says, at
+# every boot -- an old disk is root's throughout, and a file a root
+# service made in /etc must stay the desktop's to rewrite (users stage C,
+# docs/commands/owners.md). The /home walk runs once per change of the
+# file; /var/lib/owners holds its hash.
+#
+# AFTER utf8migrate, which may rename what this would walk, and BEFORE
+# the desktop and the shells, which write /etc and /home as `user`.
+# `Ready=notify` that never announces: its exit releases them, as
+# utf8migrate's does (README.md, "Ready=").
+Name=owners
+Description=Give system files their owners
+Exec=/bin/owners
+Restart=no
+Ready=notify
+ReadyTimeout=60000
+After=utf8migrate
+Before=automountd clipboardd devices firstboot fontd installer kdfiled logd netd netheal ntpd remoted screentrial smbfsd snddrv soundd tosh toywm autovt

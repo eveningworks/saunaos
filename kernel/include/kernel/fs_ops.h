@@ -308,6 +308,9 @@ struct fs_ops {
     // the honest reply. FS_CAP_MODE is the same fact stated for readers;
     // the VFS refuses a backend that claims the bit and omits this.
     int (*chmod)(void *st, const char *path, uint16_t mode);
+    // OPTIONAL, with FS_CAP_OWNER, the same way: FS_OWNER_KEEP (fs.h)
+    // leaves that half as it is. NULL is -ENOTSUP from fs_chown().
+    int (*chown)(void *st, const char *path, uint32_t uid, uint32_t gid);
 
     // OPTIONAL, the same way: set `modified` to `epoch` (UTC seconds), or
     // to the backend's own "now" for FS_MTIME_NOW -- the clock its writes
@@ -400,5 +403,26 @@ struct fs_ops {
     void (*op_end)(void *st);
     int (*locks_held)(void *st);
 };
+
+// WHAT A NEW INODE STARTS AS -- asked by a backend with FS_CAP_OWNER
+// or FS_CAP_MODE while it builds one (vfs.c). The CALLING process's
+// effective uid and gid (root in the kernel context), and `mode`, the
+// backend's own default for the type, with that process's umask taken
+// off. A backend reads it on the creating thread, inside the op: it is
+// the current process's identity, not a parameter, as Linux's
+// inode_init_owner() reads current_fsuid().
+//
+// AND WHAT ITS FOLDER SAYS (`parent`, the folder's owner and mode; NULL
+// for none): a SETGID folder gives it the folder's group, and its own
+// setgid bit to a folder (Linux, BSD); a setgid folder that its group may
+// write also gives the new file group read and write, whatever the
+// umask -- the effect of a POSIX default ACL `d:g::rw`, what keeps /etc
+// the desktop's when root makes a file there. A SETUID folder owned by
+// an account gives it that account as owner, and its bit to a new folder
+// -- FreeBSD's SUIDDIR, what keeps /home the person's.
+struct fs_new_attrs { uint32_t uid, gid; uint16_t mode; };
+struct fs_parent_attrs { uint32_t uid, gid; uint16_t mode; };
+void fs_new_attrs(uint16_t default_mode, int is_dir, const struct fs_parent_attrs *parent,
+                  struct fs_new_attrs *out);
 
 #endif

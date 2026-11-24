@@ -212,7 +212,7 @@ def pack_gdt_entry(free_blocks, free_inodes):
     return body + struct.pack("<I", fnv1a(body))
 
 
-def pack_inode(typ, links, size, created, modified, ptrs, mode=None, modified_ns=0):
+def pack_inode(typ, links, size, created, modified, ptrs, mode=None, modified_ns=0, uid=0, gid=0):
     """ptrs: list of 15 u32s (12 direct + single + double + triple).
 
     `mode` is the permission bits, at offset 92 -- inside the range the
@@ -234,7 +234,9 @@ def pack_inode(typ, links, size, created, modified, ptrs, mode=None, modified_ns
     body = head + struct.pack("<15I", *ptrs)          # bytes 0..87
     # bytes 92..127: mode, two zero bytes, `modified`'s nanoseconds at 96
     # (the same extension, for the same reason), and zeros.
-    tail = struct.pack("<HHI", mode, 0, modified_ns) + b"\x00" * 28
+    # The owner and group at 100 and 104 (users stage C) -- zero, root,
+    # is what an older writer left, so an older image stays root's.
+    tail = struct.pack("<HHIII", mode, 0, modified_ns, uid, gid) + b"\x00" * 20
     cksum = fnv1a(body + tail)
     return body + struct.pack("<I", cksum) + tail
 
@@ -268,11 +270,91 @@ def parse_inode(raw: bytes):
     cksum = struct.unpack("<I", raw[88:92])[0]
     mode = struct.unpack("<H", raw[92:94])[0]
     modified_ns = struct.unpack("<I", raw[96:100])[0]
+    uid, gid = struct.unpack("<II", raw[100:108])
     if fnv1a(raw[0:88] + raw[92:128]) != cksum:
         return None
     return dict(type=typ, links=links, size=size, created=created,
                 modified=modified, ptrs=ptrs, mode=mode,
-                modified_ns=modified_ns if modified_ns < 1_000_000_000 else 0)
+                modified_ns=modified_ns if modified_ns < 1_000_000_000 else 0,
+                uid=uid, gid=gid)
+
+
+# ---- owners (users stage C) ---------------------------------------------
+#
+# /etc/owners.conf, read the way /bin/owners reads it
+# (userland/services/owners/owners.c): the most specific rule for a path
+# wins, `self` the path, `below` what is under it, `tree` both. A NEW
+# inode takes its owner from it; a rewritten one keeps its own. Set by
+# `sync` from the seed tree's own etc/, so the image and the boot-time
+# pass agree.
+_OWNER_RULES = []
+
+
+def _ids(path, field_name):
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                parts = line.rstrip("\n").split(":")
+                if len(parts) >= 3 and parts[2].isdigit():
+                    out[parts[0]] = int(parts[2])
+    except OSError:
+        pass
+    return out
+
+
+def load_owner_policy(etc_dir):
+    """Read etc_dir/owners.conf with etc_dir/passwd and group; quiet when absent."""
+    global _OWNER_RULES
+    conf = os.path.join(etc_dir, "owners.conf")
+    if not os.path.exists(conf):
+        _OWNER_RULES = []
+        return
+    users = _ids(os.path.join(etc_dir, "passwd"), "uid")
+    groups = _ids(os.path.join(etc_dir, "group"), "gid")
+
+    def num(word, table, lineno):
+        if word in table:
+            return table[word]
+        if word.isdigit():
+            return int(word)
+        raise SystemExit(f"{conf}:{lineno}: no account or group '{word}'")
+
+    rules = []
+    with open(conf, encoding="utf-8") as f:
+        for lineno, line in enumerate(f, 1):
+            w = line.split("#", 1)[0].split()
+            if not w:
+                continue
+            if len(w) not in (5, 6) or not w[0].startswith("/") or w[4] not in ("self", "below", "tree") \
+                    or (len(w) == 6 and w[5] != "once"):
+                raise SystemExit(f"{conf}:{lineno}: not PATH OWNER GROUP MODE SCOPE [once]")
+            path = w[0].rstrip("/") or "/"
+            # `-` keeps; `+BITS` adds BITS to folders only (owners.c's rule).
+            mode = None if w[3] == "-" else ("+", int(w[3][1:], 8)) if w[3].startswith("+") else int(w[3], 8)
+            rules.append((path, num(w[1], users, lineno), num(w[2], groups, lineno), mode,
+                          w[4] in ("self", "tree"), w[4] in ("below", "tree")))
+    _OWNER_RULES = rules
+
+
+def owner_for(path, is_dir=False):
+    """(uid, gid, mode or None) for a new inode at `path`; root's when no rule says."""
+    best, best_key = None, None
+    for rule in _OWNER_RULES:
+        rpath, _uid, _gid, _mode, self_, below = rule
+        exact = self_ and path == rpath
+        under = below and path != rpath and (rpath == "/" or path.startswith(rpath + "/"))
+        if not exact and not under:
+            continue
+        key = (len(rpath), exact)
+        if best_key is None or key > best_key:
+            best, best_key = rule, key
+    if best is None:
+        return 0, 0, None
+    mode = best[3]
+    if isinstance(mode, tuple):
+        mode = (0o755 | mode[1]) if is_dir else None
+    return best[1], best[2], mode
 
 
 # ---- the image ----------------------------------------------------------
@@ -643,7 +725,8 @@ class Tfs3Image:
         node["ptrs"][len(blocks)] = newblk
         node["size"] += BLOCK
         self.write_inode(dir_ino, pack_inode(TYPE_DIR, node["links"], node["size"],
-                                             node["created"], local_epoch(), node["ptrs"]))
+                                             node["created"], local_epoch(), node["ptrs"],
+                                             node["mode"] or None, 0, node["uid"], node["gid"]))
         _ = g
 
     def dir_remove(self, dir_ino, name):
@@ -950,8 +1033,10 @@ def write_file(img, data, dst):
         ptrs[slot] = build_table(img, rest[:span], slot - 11, pg)
         rest = rest[span:]
     now = local_epoch()
+    uid, gid, mode = owner_for(dst)
     img.write_inode(ino, pack_inode(TYPE_FILE, 1, len(data), now, now, ptrs,
-                                    mode_for(dst, False)))
+                                    mode if mode is not None else mode_for(dst, False),
+                                    uid=uid, gid=gid))
     img.dir_insert(parent, name, ino)
     return ino
 
@@ -975,12 +1060,14 @@ def mkdir_path(img, path):
     now = local_epoch()
     ptrs = [0] * 15
     ptrs[0] = blk
-    img.write_inode(ino, pack_inode(TYPE_DIR, 2, BLOCK, now, now, ptrs))
+    uid, gid, mode = owner_for(path, True)
+    img.write_inode(ino, pack_inode(TYPE_DIR, 2, BLOCK, now, now, ptrs, mode, uid=uid, gid=gid))
     img.dir_insert(parent, name, ino)
     # Parent gains a link (the child's ..).
     p = img.read_inode(parent)
     img.write_inode(parent, pack_inode(TYPE_DIR, p["links"] + 1, p["size"],
-                                       p["created"], p["modified"], p["ptrs"]))
+                                       p["created"], p["modified"], p["ptrs"],
+                                       p["mode"] or None, p["modified_ns"], p["uid"], p["gid"]))
     return ino
 
 
@@ -1002,7 +1089,7 @@ def link_path(img, ino, dst):
         node = img.read_inode(ino)
     img.write_inode(ino, pack_inode(TYPE_FILE, node["links"] + 1, node["size"],
                                     node["created"], node["modified"], node["ptrs"],
-                                    node["mode"] or None, node["modified_ns"]))
+                                    node["mode"] or None, node["modified_ns"], node["uid"], node["gid"]))
     img.dir_insert(parent, name, ino)
 
 
@@ -1041,7 +1128,7 @@ def delete_path(img, path):
     if node["type"] == TYPE_FILE and node["links"] > 1:
         img.write_inode(ino, pack_inode(TYPE_FILE, node["links"] - 1, node["size"],
                                         node["created"], node["modified"], node["ptrs"],
-                                        node["mode"] or None, node["modified_ns"]))
+                                        node["mode"] or None, node["modified_ns"], node["uid"], node["gid"]))
         return
     # Walk the POINTERS rather than file_blocks(), which reports data
     # blocks only: the single-indirect table was freed by hand here and
@@ -1059,7 +1146,8 @@ def delete_path(img, path):
     if node["type"] == TYPE_DIR:
         p = img.read_inode(parent)
         img.write_inode(parent, pack_inode(TYPE_DIR, p["links"] - 1, p["size"],
-                                           p["created"], p["modified"], p["ptrs"]))
+                                           p["created"], p["modified"], p["ptrs"],
+                                           p["mode"] or None, p["modified_ns"], p["uid"], p["gid"]))
 
 
 # ---- commands -------------------------------------------------------------
@@ -1146,6 +1234,7 @@ def cmd_sync(args):
     # when its partner is compared below (else an unchanged gcc whose cc
     # went away would be rewritten as a copy of itself).
     pruned = prune_exact(img, args.seed_dir)
+    load_owner_policy(os.path.join(args.seed_dir, "sync", "etc"))
     for mode in ("once", "sync"):
         root = os.path.join(args.seed_dir, mode)
         if not os.path.isdir(root):

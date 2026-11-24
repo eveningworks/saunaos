@@ -1,8 +1,9 @@
-// <sys/stat.h>: mkdir(), and stat()/lstat()/fstat() over SYS_STAT
+// <sys/stat.h>: mkdir(), and stat()/lstat()/fstat() over SYS_STATX
 // and SYS_FSTAT.
 #include <sys/stat.h>
 #include <fcntl.h>   // AT_FDCWD
 #include "rt/sys.h"
+#include "syscall_abi.h"   // SYS_STATX, SYS_UMASK
 #include <errno.h>
 #include <string.h>
 #include <time.h>
@@ -12,9 +13,8 @@
 #include <sys/time.h>  // utimes()
 
 int mkdir(const char *path, mode_t mode) {
-    // Read and discarded rather than left unnamed: this filesystem has
-    // no permission bits, so there is nothing for the mode to mean. See
-    // the header for why that is an ignore and not a dishonour.
+    // Read and discarded: a folder is made 0755 less the umask, whatever
+    // is asked (the header says why the mode does not reach the kernel).
     (void)mode;
     // sys_mkdir() already returns 0 or -1 with sys_errno() set, which is
     // exactly POSIX's contract -- there is nothing to translate.
@@ -39,7 +39,6 @@ static void fill(struct stat *st, const struct sys_stat *s) {
     // path was already resolved through it (see lstat).
     st->st_mode = (mode_t)(s->mode & 07777) | (s->is_dir ? S_IFDIR : S_IFREG);
     st->st_nlink = s->nlink ? s->nlink : 1;
-    st->st_uid = st->st_gid = 0;      // single-user, not a placeholder
     st->st_mtim.tv_sec = (time_t)cal_rtc_to_epoch(&s->modified);
     st->st_mtim.tv_nsec = s->modified_ns < 1000000000u ? (long)s->modified_ns : 0;
     st->st_ctim.tv_sec = (time_t)cal_rtc_to_epoch(&s->created);
@@ -50,12 +49,29 @@ static void fill(struct stat *st, const struct sys_stat *s) {
     st->st_blocks = (blkcnt_t)((s->size + 511) / 512);
 }
 
+// SYS_STATX, or a kernel from before it -- a GRUB fallback to kernel.old
+// boots this libc -- which answers ENOSYS: then SYS_STAT/SYS_FSTAT, and
+// root's ids, which is what every file was on that kernel.
+//
+// THROUGH sys_call(), as prctl.c says why: a program built before the
+// runtime grew sys_statx (an SDK port -- ScummVM) could not load this
+// libc otherwise.
+static int statx_or_old(const char *path, int fd, struct sys_statx *sx) {
+    int64_t r = sys_call(SYS_STATX, (uint64_t)(uintptr_t)path, (uint64_t)(int64_t)(path ? -1 : fd),
+                         (uint64_t)(uintptr_t)sx);
+    if (r == 0) return 0;
+    if (r != -ENOSYS) { errno = (int)-r; return -1; }
+    memset(sx, 0, sizeof *sx);
+    return path ? sys_stat(path, &sx->st) : sys_fstat(fd, &sx->st);
+}
+
 int stat(const char *path, struct stat *st) {
     if (!path || !st) { errno = EINVAL; return -1; }
-    struct sys_stat s;
-    int r = sys_stat(path, &s);
-    if (r < 0) return -1;             // sys_stat set errno
-    fill(st, &s);
+    struct sys_statx sx;
+    if (statx_or_old(path, -1, &sx) < 0) return -1;   // errno set
+    fill(st, &sx.st);
+    st->st_uid = sx.uid;
+    st->st_gid = sx.gid;
     return 0;
 }
 
@@ -67,9 +83,12 @@ int lstat(const char *path, struct stat *st) { return stat(path, st); }
 
 int fstat(int fd, struct stat *st) {
     if (fd < 0 || !st) { errno = EINVAL; return -1; }
-    struct sys_stat s;
-    if (sys_fstat(fd, &s) < 0) return -1;
+    struct sys_statx sx;
+    if (statx_or_old(0, fd, &sx) < 0) return -1;
+    struct sys_stat s = sx.st;
     fill(st, &s);
+    st->st_uid = sx.uid;
+    st->st_gid = sx.gid;
     // A pipe, a socket and a terminal are not regular files, and saying
     // so is what stops a caller seeking on one because S_ISREG was true.
     if (!(s.flags & SYS_STAT_SEEKABLE) && !s.is_dir)
@@ -78,13 +97,14 @@ int fstat(int fd, struct stat *st) {
     return 0;
 }
 
-// The process's file-creation mask. See <sys/stat.h> for why nothing
-// consults it yet and why it is stored anyway.
-static mode_t g_umask = 022;
-
+// The process's file-creation mask, the kernel's (SYS_UMASK).
+// A kernel from before SYS_UMASK answers -ENOSYS: the mask is then only
+// remembered, as it was before the kernel kept one.
 mode_t umask(mode_t mask) {
-    mode_t old = g_umask;
-    g_umask = mask & 07777;
+    static mode_t kept = 022;
+    long r = (long)sys_call(SYS_UMASK, (uint64_t)(mask & 0777), 0, 0);   // sys_call: prctl.c
+    mode_t old = r < 0 ? kept : (mode_t)r;
+    kept = mask & 0777;
     return old;
 }
 

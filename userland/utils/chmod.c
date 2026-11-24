@@ -1,10 +1,7 @@
 // chmod -- change a file's permission bits.
 //
-// **OCTAL ONLY, no `u+x` symbolic form.** The symbolic syntax is a small
-// parser plus a umask to resolve `+w` against, and this system has no
-// umask that anything consults (<sys/stat.h>). A half-implemented `+x`
-// that ignored the mask would be the quietly-wrong-under-a-familiar-name
-// failure `touch` avoids by not claiming to update timestamps.
+// **OCTAL ONLY, no `u+x` symbolic form** -- a small parser over the
+// umask that nothing here has needed; the octal form says what it sets.
 //
 // It exists because the mode had no way to change: a file was created
 // with the default and stayed there forever, which made the field a

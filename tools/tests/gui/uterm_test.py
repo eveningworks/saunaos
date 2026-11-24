@@ -299,18 +299,19 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # carry. Asserted through the FILESYSTEM, not through ink: every
     # other check here counts non-background pixels, and both a working
     # edit and a `not found` line add some, so ink cannot tell them
-    # apart. /tests/file_test writes /filetest.txt and `zfile_test`
+    # apart. /tests/file_test writes filetest.txt into the shell's folder
+    # -- /home, where a desktop session starts -- and `zfile_test`
     # does not exist, so the file is present only if Home and Delete
     # really moved the cursor and removed the z.
     #
     # An append-only editor fails both of these: it ignores Home,
     # Delete and Up entirely.
     def root_has(name):
-        out = dbg.send("sh ls /") or ""
+        out = dbg.send("sh ls /home") or ""
         return any(tok.rstrip("/") == name
                    for line in out.splitlines() for tok in line.split())
 
-    dbg.send("sh rm /filetest.txt")
+    dbg.send("sh rm /home/filetest.txt")
     dbg.settle()
     for ch in "zfile_test":
         key(dbg, HEX.get(ch, ch))
@@ -323,7 +324,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
     res.check("Home + Delete edit mid-line, and the edited command runs",
               root_has("filetest.txt"))
 
-    dbg.send("sh rm /filetest.txt")
+    dbg.send("sh rm /home/filetest.txt")
     dbg.settle()
     key(dbg, "0xf780")   # KEY_ARROW_UP -- recall the previous line
     dbg.settle()
@@ -379,7 +380,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # frozen window looks much like a live one, and the window object
     # survives either way -- so the assertion is that the shell reached a
     # prompt again and executed something, through the FILESYSTEM.
-    dbg.send("sh rm /filetest.txt")
+    dbg.send("sh rm /home/filetest.txt")
     dbg.settle()
     # A BARE `cat` NOW WAITS FOR INPUT, AND THAT IS THE FIX RATHER THAN
     # THE BUG. It used to return at once because the window had no

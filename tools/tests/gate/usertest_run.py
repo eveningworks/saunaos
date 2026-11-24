@@ -294,6 +294,10 @@ TESTS = [
     # ids, and the shipped /etc/passwd and /etc/group through <pwd.h> and
     # <grp.h>. SPAWNED: it waits for its children.
     ("cred_test", None, None, None),
+    # File permissions (kernel/fsperm.h): the classes, search above a
+    # path, the sticky bit, chmod and chown rights, the umask, access()
+    # and root's exec rule, asked by a child started as 1000. SPAWNED.
+    ("fileperm_test", None, None, None),
     # What an identity may do (kernel/privilege.h): the admin rows need
     # euid 0, the seat's unmounts only under /media/ and /net/, the kill
     # rule, and an elevated spawn only on privd's grant, once and for one

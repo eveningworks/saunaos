@@ -582,6 +582,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
         mmap_drop_exec_stack(&procs[slot].mm, as);   // the ELF asked; the sandbox says no
     // And the identity: the caller's, or the one SPAWN_CREDS armed.
     procs[slot].ext->cred = cred_for_child();
+    procs[slot].ext->umask = scheduler_umask();
 
     // WHAT A REMOTE SESSION STARTS IS RECORDED, auditd's execve shape --
     // here rather than in sys_spawn() because every spawn funnels
@@ -832,6 +833,7 @@ int scheduler_fork(const uint64_t *regs) {
     k_memcpy(&procs[slot].ext->cwd, &procs[leader].ext->cwd, sizeof procs[slot].ext->cwd);
     procs[slot].ext->sandbox = sandbox_get(procs[leader].ext->sandbox);
     procs[slot].ext->cred = cred_get(procs[leader].ext->cred);
+    procs[slot].ext->umask = procs[leader].ext->umask;
     procs[slot].ext->no_crash_report = procs[leader].ext->no_crash_report;
     strace_fork(procs[leader].pml4_phys, as);   // past the last failure path
     sched_publish(slot);   // placed, READY, unclaimed and counted, under its queue's lock

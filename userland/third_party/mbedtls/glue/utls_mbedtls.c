@@ -4,6 +4,7 @@
 // It is the only place in the tree that includes an mbedtls/ header
 // besides saunaos_platform.c, which is what keeps the engine swappable.
 #include <stdio.h>
+#include <sys/stat.h>   // fchmod: the key is 0600 from the start
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
@@ -469,9 +470,12 @@ static int read_file(const char *path, unsigned char **out, size_t *len) {
     return 0;
 }
 
-static int write_file(const char *path, const unsigned char *data, size_t len) {
+// `mode` is set before a byte is written: a private key must never sit
+// readable -- /etc hands a new file to group `user` (users stage C).
+static int write_file(const char *path, const unsigned char *data, size_t len, mode_t mode) {
     FILE *f = fopen(path, "wb");
     if (!f) return -1;
+    if (fchmod(fileno(f), mode) != 0) { fclose(f); return -1; }
     size_t put = fwrite(data, 1, len, f);
     fclose(f);
     return put == len ? 0 : -1;
@@ -510,7 +514,7 @@ static int load_or_make_key(const char *key_path, mbedtls_pk_context *key,
         free(pem);
         return -1;
     }
-    rc = write_file(key_path, pem, strlen((char *)pem));
+    rc = write_file(key_path, pem, strlen((char *)pem), 0600);
     memset(pem, 0, 2048);
     free(pem);
     if (rc) say(err, errcap, "cannot write %s", key_path);
@@ -635,7 +639,7 @@ int utls_server_identity(const char *key_path, const char *crt_path,
     len = strlen((char *)w->pem);
     // Written only when it differs: the same names make the same bytes.
     if ((read_file(crt_path, &old, &oldlen) != 0 || oldlen != len + 1 || memcmp(old, w->pem, len)) &&
-        write_file(crt_path, w->pem, len) != 0) {
+        write_file(crt_path, w->pem, len, 0644) != 0) {
         say(err, errcap, "cannot write %s", crt_path);
         goto out;
     }

@@ -5826,3 +5826,30 @@ Never a setuid bit, never a "privileged" flag on a service that runs as
 `user`, and never a setting that answers the prompt: the debug
 console's `gui prompt allow` is the harness's, held in memory only.
 
+
+## A PATH SYSCALL ASKS ITS FILE-PERMISSION QUESTION THROUGH `resolve_user_path()`'s `ask`, AND THE KERNEL'S OWN FILE CALLS ARE NEVER ASKED
+
+Users stage C (`kernel/fsperm.h`, `docs/users-design.md`). A new syscall
+that takes a path names its question where it copies the path in --
+`FSP_ASK_SEARCH` for a stat, `_READ`, `_WRITE`, `_EXEC`, `_CREATE`,
+`_DELETE`, `_OWN` -- or `FSP_ASK_NONE` and asks for itself once it knows
+more (`sys_open()` asks read/write of a file that exists and create of
+one that does not; `rename()` also asks delete of a destination it
+replaces). A descriptor call asks of `f->file.name` (fchmod, fchown).
+
+**Never put a check in `vfs.c` or a backend.** The VFS is also the
+kernel's file API -- the ELF loader, init's files, the panic store --
+and a check there refuses the kernel on behalf of whatever process is on
+the CPU. And never answer EACCES for a path that is NOT there: the
+checks return 0 for a missing path (and `fsperm_may_create()` for one
+that already exists), so the operation reports its own ENOENT or EEXIST
+-- `mkdir -p` and every startup `mkdir("/home")` depend on it.
+
+**The trap that comes with `/etc`:** a ROOT service that makes a file the
+desktop later rewrites leaves it root's, and the desktop's next save is
+refused. A write in place keeps the owner (an O_TRUNC open does); a NEW
+file or a temp-and-rename save does not -- unless the folder hands it
+down: /etc and /var/lib are setgid and group-writable, so a file root
+makes there is group `user`, group-writable (`fs_new_attrs()`). A
+temp-and-rename over it is still the sticky bit's refusal; the `owners`
+pass puts `/etc` back at the next boot (`/etc/owners.conf`).

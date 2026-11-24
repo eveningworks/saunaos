@@ -28,7 +28,13 @@ struct cred_info {
 // INTERACTIVE group in the token; Linux asks logind which session is
 // active. Set only through SPAWN_CREDS, so only by root (init's Seat=).
 #define CRED_SEAT 1u
-#define CRED_FLAGS_ALL CRED_SEAT
+// CRED_PERM_ENFORCE: this process's file permissions are ENFORCED even
+// while the machine runs `fileperm=permissive` (kernel/fsperm.h) --
+// SELinux's per-domain mode, turned round. For moving programs to
+// enforcement one at a time, and for the test that proves it works.
+// Inherited; set only through SPAWN_CREDS, so only by root.
+#define CRED_PERM_ENFORCE 2u
+#define CRED_FLAGS_ALL (CRED_SEAT | CRED_PERM_ENFORCE)
 
 // SYS_CRED_GRANT's request (abi/syscall_abi.h): process `pid` may spawn
 // `path` as root ONCE, with exactly the `args_len` bytes of `args` as

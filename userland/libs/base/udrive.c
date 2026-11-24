@@ -3,6 +3,7 @@
 #include "base/uchan.h"
 #include "base/human.h"
 #include "base/uiso.h"
+#include "base/uusername.h"   // whom a root mount is for
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "mount_abi.h"
@@ -132,6 +133,17 @@ int udrive_media_point(const struct udrive *d, char *out, size_t cap) {
     return -1;
 }
 
+// A ROOT mount of a stick or an image is the desktop's account's: its
+// files report that owner (a FAT volume keeps none of its own), so the
+// person at the machine can write to it -- udisks2's uid= for the
+// session's user. A mount made by that account is its own already.
+static void hand_to_desktop(const char *point) {
+    unsigned uid, gid;
+    if (geteuid() != 0 || !uusername_desktop(&uid, &gid)) return;
+    if (chown(point, (uid_t)uid, (gid_t)gid) < 0)
+        fprintf(stderr, "udrive: %s stays root's: %s\n", point, strerror(errno));
+}
+
 int udrive_mount(const struct udrive *d, char *point_out, size_t cap) {
     char point[64];
     if (udrive_media_point(d, point, sizeof point) < 0) return -1;
@@ -147,6 +159,7 @@ int udrive_mount(const struct udrive *d, char *point_out, size_t cap) {
         errno = e;
         return -1;
     }
+    hand_to_desktop(point);
     if (point_out) snprintf(point_out, cap, "%s", point);
     return 0;
 }
@@ -251,6 +264,7 @@ int udrive_mount_image(const char *path, char *point_out, size_t cap) {
         errno = e;
         return -1;
     }
+    hand_to_desktop(point);
     if (point_out) snprintf(point_out, cap, "%s", point);
     return 0;
 }

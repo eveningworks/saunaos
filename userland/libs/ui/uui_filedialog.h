@@ -82,7 +82,7 @@ int uui_filedialog_by_ext(void *ctx, const char *dir, const struct ulist_entry *
 struct uui_filedialog_opts {
     enum uui_filedialog_mode mode;
     const char *title;         // NULL derives one from the mode
-    const char *start_dir;     // NULL or "" starts at "/"
+    const char *start_dir;     // NULL or "" starts at $HOME (else "/")
     const char *initial_name;  // pre-fills the name field
 
     // THE "FILES OF TYPE" LIST, caller-owned and outliving the window.

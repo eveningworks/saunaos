@@ -35,6 +35,7 @@
 #include "signal_abi.h"
 #include "net/unetmount.h"
 #include "base/ugrow.h"
+#include "base/uusername.h"   // whom a root mount is for
 #include "base/ulistdir.h"
 #include "usmb.h"
 
@@ -578,6 +579,13 @@ static int worker(void) {
         return e == EBUSY ? 3 : 1;
     }
     g_handle = (int)h;
+    {
+        // A share mounted by root (a saved one, at boot) is the desktop's
+        // account's, as a stick is (base/udrive.c's hand_to_desktop()).
+        unsigned uid, gid;
+        if (geteuid() == 0 && uusername_desktop(&uid, &gid) && sys_chown(g_cfg.point, uid, gid) < 0)
+            fprintf(stderr, "smbfsd: %s stays root's: %s\n", g_cfg.point, strerror(errno));
+    }
     if (g_cfg.saved) {
         mkdirs(RUN_DIR);
         char pidf[96], pid[16];

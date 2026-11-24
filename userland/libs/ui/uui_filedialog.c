@@ -881,7 +881,12 @@ struct uapp_window *uui_filedialog_open(struct uapp *a, struct uui_filedialog *f
     fd->op_n = 0;
     fd->can_undo = 0;
     fd->note_text[0] = '\0';
-    const char *start = (opts->start_dir && opts->start_dir[0]) ? opts->start_dir : "/";
+    // Unnamed, it opens in the person's own folder ($HOME), as Windows'
+    // and GNOME's do -- `/` is root's, and a bare name saved there is
+    // refused once file permissions are enforced (users stage C).
+    const char *home = getenv("HOME");
+    const char *start = (opts->start_dir && opts->start_dir[0]) ? opts->start_dir
+                      : (home && home[0] == '/') ? home : "/";
     if (!uui_fileview_set_dir(&fd->view, start)) uui_fileview_set_dir(&fd->view, "/");
 
     uui_label_init(&fd->name_label, opts->mode == UUI_FILEDIALOG_FOLDER ? "Folder:" : "File name:");

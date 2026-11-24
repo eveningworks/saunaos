@@ -104,6 +104,8 @@ struct sched_slot_ext {
     // WHO IT IS (kernel/cred.h), a LEADER's only, the sandbox's rules:
     // NULL = root, a reference taken at spawn or fork, dropped by slot_free().
     struct cred *cred;
+    // umask(2), a LEADER's (scheduler.h's scheduler_umask()).
+    uint16_t umask;
     // I/O charged to this process (scheduler.h's struct sched_io). A
     // LEADER's only, like the sandbox: a thread charges its leader.
     struct sched_io io;

@@ -31,9 +31,10 @@
 #include "knum.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>   // strtoul
 
 static const char *USAGE =
-    "mount [-r] [-t <fstype>] [-o size=<n>[K|M|G]] <device|partition|none> <mountpoint>\n"
+    "mount [-r] [-t <fstype>] [-o size=<n>[K|M|G],mode=<octal>,uid=<n>,gid=<n>] <device|partition|none> <mountpoint>\n"
     "       mount -t smb [-o user=<name>] //<server>/<share> <mountpoint>\n"
     "       mount [-t iso9660] <image.iso> <mountpoint>\n"
     "       mount                  list what is mounted";
@@ -54,6 +55,42 @@ static long parse_size_mib(const char *opt) {
     unsigned long long mib = (total + (1024 * 1024 - 1)) / (1024 * 1024);
     if (mib > 0xFFFFFFFFULL) return -1;
     return (long)mib;
+}
+
+// mode=, uid=, gid=: the mount ROOT's owner and mode, and on a volume
+// without owners every file's (Linux's tmpfs and vfat options), set by a
+// chmod/chown of the point once it is mounted. -1 = not given.
+struct root_opts { long mode, uid, gid; };
+
+static int parse_num(const char *s, int base, long max, long *out) {
+    char *end;
+    unsigned long v = strtoul(s, &end, base);
+    if (!*s || *end || v > (unsigned long)max) return -1;
+    *out = (long)v;
+    return 0;
+}
+
+// One -o word. 1 = taken, 0 = not one of these, -1 = malformed.
+static int root_opt(const char *w, struct root_opts *ro) {
+    if (!strncmp(w, "mode=", 5)) return parse_num(w + 5, 8, 07777, &ro->mode) ? -1 : 1;
+    if (!strncmp(w, "uid=", 4)) return parse_num(w + 4, 10, 0x7FFFFFFF, &ro->uid) ? -1 : 1;
+    if (!strncmp(w, "gid=", 4)) return parse_num(w + 4, 10, 0x7FFFFFFF, &ro->gid) ? -1 : 1;
+    return 0;
+}
+
+static int apply_root(const char *point, const struct root_opts *ro) {
+    if (ro->uid >= 0 || ro->gid >= 0) {
+        if (sys_chown(point, ro->uid >= 0 ? (unsigned)ro->uid : SYS_OWNER_KEEP,
+                      ro->gid >= 0 ? (unsigned)ro->gid : SYS_OWNER_KEEP) < 0) {
+            cmd_fail("mount: setting the owner of", point);
+            return 1;
+        }
+    }
+    if (ro->mode >= 0 && sys_chmod(point, (unsigned)ro->mode) < 0) {
+        cmd_fail("mount: setting the mode of", point);
+        return 1;
+    }
+    return 0;
 }
 
 static int list(void) {
@@ -118,6 +155,7 @@ int main(int argc, char **argv) {
     struct mount_request req;
     memset(&req, 0, sizeof req);
     const char *user = NULL;
+    struct root_opts ro = { -1, -1, -1 };
 
     int i = 1;
     for (; i < argc && argv[i][0] == '-' && argv[i][1]; i++) {
@@ -128,10 +166,18 @@ int main(int argc, char **argv) {
             snprintf(req.fstype, sizeof req.fstype, "%s", argv[i]);
         } else if (strcmp(argv[i], "-o") == 0) {
             if (++i >= argc) { cmd_usage(USAGE); return 1; }
-            if (strncmp(argv[i], "user=", 5) == 0) { user = argv[i] + 5; continue; }
-            long mib = parse_size_mib(argv[i]);
-            if (mib < 0) { cmd_usage(USAGE); return 1; }
-            req.size_mib = (unsigned)mib;
+            // A comma-separated list, as mount(8)'s -o is.
+            char *opts = strdup(argv[i]);
+            if (!opts) { sys_eprint("mount: out of memory\n"); return 1; }
+            for (char *w = strtok(opts, ","); w; w = strtok(NULL, ",")) {
+                if (strncmp(w, "user=", 5) == 0) { user = w + 5; continue; }   // opts lives to exit
+                int r = root_opt(w, &ro);
+                if (r < 0) { cmd_usage(USAGE); return 1; }
+                if (r) continue;
+                long mib = parse_size_mib(w);
+                if (mib < 0) { cmd_usage(USAGE); return 1; }
+                req.size_mib = (unsigned)mib;
+            }
         } else {
             cmd_usage(USAGE);
             return 1;
@@ -169,5 +215,5 @@ int main(int argc, char **argv) {
         cmd_fail("mount", argv[i + 1]);
         return 1;
     }
-    return 0;
+    return apply_root(argv[i + 1], &ro);
 }

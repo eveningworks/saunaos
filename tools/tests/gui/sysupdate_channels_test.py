@@ -53,7 +53,7 @@ from gui_debug import DebugConsole, enter_gui   # noqa: E402
 from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
 import update_server                            # noqa: E402
-from harness import Results                     # noqa: E402
+from harness import Results, poll               # noqa: E402
 from update_test import Older                   # noqa: E402
 
 APP = "/bin/wm/system/sysupdate"
@@ -247,6 +247,12 @@ def main():
         logs(dbg)
         mark = len(LINES)
 
+        # THE CHECK NEEDS AN ADDRESS: it fetches from the host at once, and
+        # a desktop that comes up before DHCP's lease gets "cannot
+        # connect ... no such device" -- a race this test lost once boot
+        # reached the desktop a little sooner. Wait on the lease itself.
+        leased = poll(lambda: re.search(r"inet 10\.0\.2\.\d+", dbg.send("sh netctl") or ""), 60)
+        check("the guest has its DHCP address before the check", leased is not None)
         dbg.spawn(APP, TITLE)
         m = wait_for(dbg, r"sysupdate: channel (\S+) of (\d+), behind (\d)", mark)
         check("the check lands on Main, of the server's three channels",

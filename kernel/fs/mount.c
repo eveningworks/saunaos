@@ -581,6 +581,8 @@ static int caps_are_honest(const struct fs_ops *fs) {
     if (((fs->caps & FS_CAP_HARDLINKS) != 0) != (fs->link != 0)) return 0;
     if (((fs->caps & FS_CAP_REPLACE) != 0) != (fs->rename_replace != 0)) return 0;
     if (((fs->caps & FS_CAP_RESIZE) != 0) != (fs->resize != 0)) return 0;
+    if (((fs->caps & FS_CAP_MODE) != 0) != (fs->chmod != 0)) return 0;
+    if (((fs->caps & FS_CAP_OWNER) != 0) != (fs->chown != 0)) return 0;
     // alloc and free are one fact stated twice.
     int st_ops = (fs->state_alloc != 0) + (fs->state_free != 0);
     if (st_ops == 1) return 0;
@@ -603,6 +605,16 @@ static void record(struct mount *slot, const struct fs_ops *fs,
     slot->fs = fs;
     slot->dev = dev;
     slot->flags = flags;
+    {
+        // The mounting process owns it -- the kernel context (root) for
+        // every boot-time mount; automountd and smbfsd hand theirs on to
+        // the seat's account with a chown of the point.
+        struct fs_new_attrs a;
+        fs_new_attrs(0755, 1, 0, &a);
+        slot->uid = a.uid;
+        slot->gid = a.gid;
+        slot->root_mode = 0755;
+    }
     // Persistence is the DEVICE's answer as well as the backend's:
     // TFS3 mounts a RAM image exactly as it mounts a disk and cannot
     // tell them apart, so asking it alone would report a live session

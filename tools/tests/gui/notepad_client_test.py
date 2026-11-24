@@ -143,7 +143,7 @@ def last_rect(dbg, what):
 def find_window(dbg, want):
     """Notepad's title is the file's path with a leading '*' while
     dirty, so match on the BASENAME rather than the whole string --
-    "np_test.txt" and "/np_test.txt" are the same file."""
+    "np_test.txt" and "/home/np_test.txt" are the same file."""
     raw = dbg.json("gui windows --json")
     for w in raw.get("windows", []):
         t = w.get("title", "").lstrip("*")
@@ -252,16 +252,18 @@ def run(dbg, qmp, tmp, shot_dir, res):
 
     # The file must exist on the real filesystem, verified from OUTSIDE
     # the app -- the editor claiming success proves nothing.
-    listing = dbg.send("sh ls /")
+    # In /home: Notepad starts where the desktop session does, its
+    # account's home, and a bare name is saved there.
+    listing = dbg.send("sh ls /home")
     res.check("the file really exists on disk afterwards",
               SAVE_NAME in listing,
-              f"`ls /` did not mention {SAVE_NAME}")
+              f"`ls /home` did not mention {SAVE_NAME}")
 
     # The strongest save assertion is not a pixel one: read the file
     # back through a completely different path (the shell) and check the
     # bytes. If the editor wrote the wrong thing, this catches it in a
     # way "the title changed" never could.
-    catted = dbg.send(f"sh cat /{SAVE_NAME}")
+    catted = dbg.send(f"sh cat /home/{SAVE_NAME}")
     res.check("the file's CONTENT on disk is what was typed",
               body in catted.replace("\r", ""),
               f"`cat` returned: {catted[:200]!r}")
@@ -320,7 +322,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # computed an index one row off and then blamed the app.
     import re as _re
     entry = _re.compile(r"^[A-Za-z0-9._-]+/?$")
-    names = [l.strip().rstrip("/") for l in dbg.send("sh ls /").splitlines()
+    names = [l.strip().rstrip("/") for l in dbg.send("sh ls /home").splitlines()
              if entry.match(l.strip())]
     res.check("the saved file appears in the directory listing",
               SAVE_NAME in names, f"{SAVE_NAME} not among {names}")
@@ -339,7 +341,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # UUI_SEEK_WINDOW_MS between keystrokes, so a multi-letter search
     # sent over this console restarts if any one key is slow, which under
     # a loaded suite it will be. The first keystroke starts a fresh
-    # search and waits on nothing. `np` is the only entry at "/" starting
+    # search and waits on nothing. `np` is the only entry in /home starting
     # with that letter; if that ever stops being true the title check
     # below fails loudly rather than passing on the wrong file.
     found = False
@@ -485,7 +487,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
         qmp.screenshot(os.path.abspath(os.path.join(shot_dir, "ring3-notepad-reopened.png")))
 
     # Clean up the file so a re-run starts from the same state.
-    dbg.send(f"sh rm /{SAVE_NAME}")
+    dbg.send(f"sh rm /home/{SAVE_NAME}")
 
     # Esc must NOT close it. This check is the point of the whole
     # change: Esc used to quit, which put unsaved text one stray

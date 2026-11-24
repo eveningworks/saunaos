@@ -10,6 +10,8 @@
 #include "base/udate.h"
 #include <stdio.h>
 #include <locale.h>
+#include <pwd.h>
+#include <grp.h>
 
 // In the locale's spelling, local time -- what the kernel stores is a
 // UTC epoch (api/fs.h), and base/udate.h converts.
@@ -26,13 +28,14 @@ int main(int argc, char **argv) {
         cmd_usage("stat <path>");
         return 1;
     }
-    struct sys_stat st;
-    if (sys_stat(argv[1], &st) < 0) {
+    struct sys_statx sx;
+    if (sys_statx(argv[1], &sx) < 0) {
         cmd_fail("stat", argv[1]);
         return 1;
     }
 
-    char buf[96];
+    const struct sys_stat st = sx.st;
+    char buf[160];
     sys_print("  path:     "); sys_print(argv[1]); sys_print("\n");
     sys_print("  type:     ");
     sys_print(st.is_dir ? "directory\n" : "file\n");
@@ -49,6 +52,15 @@ int main(int argc, char **argv) {
              (st.flags & SYS_STAT_MODE) ? "" : " (default -- this "
                                                "filesystem stores none)");
     sys_print(buf);
+    // The owner by name where the account has one; a volume without
+    // owners (FAT, a share) reports whoever it was mounted for.
+    {
+        struct passwd *pw = getpwuid(sx.uid);
+        struct group *gr = getgrgid(sx.gid);
+        snprintf(buf, sizeof buf, "  owner:    %u (%s)  group: %u (%s)\n", (unsigned)sx.uid,
+                 pw ? pw->pw_name : "no name", (unsigned)sx.gid, gr ? gr->gr_name : "no name");
+        sys_print(buf);
+    }
     if (st.nlink > 1) {
         snprintf(buf, sizeof buf, "  links:    %u\n", (unsigned)st.nlink);
         sys_print(buf);

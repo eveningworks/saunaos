@@ -598,6 +598,8 @@ static int read_inode_uncached(struct t3_state *sbi, uint64_t ino, struct t3_ino
     out->mode = rd16(p + 92);
     out->modified_ns = rd32(p + 96);
     if (out->modified_ns >= 1000000000u) out->modified_ns = 0;   // not a time we wrote
+    out->uid = rd32(p + 100);
+    out->gid = rd32(p + 104);
     return 1;
 }
 
@@ -1627,10 +1629,33 @@ static int tfs3_chmod(void *st, const char *path, uint16_t mode) {
     if (!t3_resolve(sbi, norm, &ino)) return -ENOENT;
     if (!t3_lock(sbi, ino, 1)) return -EIO;   // or run again -- see t3_lock()
     if (!t3_read_inode(sbi, ino, &node)) return -ENOENT;
-    if ((node.mode & 07777) == (mode & 07777)) return 0;  // already so
-    node.mode = (uint16_t)(mode & 07777);
+    uint16_t want = (uint16_t)((mode & 07777) | T3_MODE_SET);
+    if (node.mode == want) return 0;  // already so
+    node.mode = want;
     // THROUGH THE JOURNAL, like every other inode change: a mode is a
     // metadata write and gets the same crash-safety as a rename.
+    if (!t3_txn_begin(sbi, 1)) return -EIO;
+    if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); return -EIO; }
+    return t3_txn_commit(sbi) ? 0 : -EIO;
+}
+
+// The owner and group -- FS_OWNER_KEEP leaves one as it is. The caller
+// has asked fsperm_may_chown() whether it may.
+static int tfs3_chown(void *st, const char *path, uint32_t uid, uint32_t gid) {
+    struct t3_state *sbi = st;
+    char *const norm = sbi->pb.tfs3_chown_norm; // per-function, see t3_normalize()
+    if (!sbi->mounted || !t3_normalize(sbi, path, norm)) return -ENOENT;
+    if (k_strcmp(norm, "/") == 0) return -ENOENT;   // root has no entry
+    uint64_t ino;
+    struct t3_inode node;
+    if (!t3_resolve(sbi, norm, &ino)) return -ENOENT;
+    if (!t3_lock(sbi, ino, 1)) return -EIO;   // or run again -- see t3_lock()
+    if (!t3_read_inode(sbi, ino, &node)) return -ENOENT;
+    uint32_t nu = uid == FS_OWNER_KEEP ? node.uid : uid;
+    uint32_t ng = gid == FS_OWNER_KEEP ? node.gid : gid;
+    if (nu == node.uid && ng == node.gid) return 0;   // already so
+    node.uid = nu;
+    node.gid = ng;
     if (!t3_txn_begin(sbi, 1)) return -EIO;
     if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); return -EIO; }
     return t3_txn_commit(sbi) ? 0 : -EIO;
@@ -1676,8 +1701,11 @@ static int tfs3_stat(void *st, const char *path, struct fs_stat_info *out) {
         out->modified_ns = node.modified_ns;
         // A zero on disk is an inode written before the field existed,
         // not a file nobody may touch -- see struct t3_inode.
-        out->mode = node.mode ? node.mode : (uint16_t)T3_MODE_DEFAULT(node.type);
+        out->mode = (node.mode & T3_MODE_SET) ? (uint16_t)(node.mode & 07777)
+                  : node.mode ? node.mode : (uint16_t)T3_MODE_DEFAULT(node.type);
         out->nlink = node.links;
+        out->uid = node.uid;
+        out->gid = node.gid;
         out->is_dir = node.type == T3_TYPE_DIR;
         out->size = node.type == T3_TYPE_FILE ? node.size : 0;
     }
@@ -1815,9 +1843,10 @@ const struct fs_ops tfs3_ops = {
     // the format (link counts, type 2) with their ops still to come --
     // see fs.h's FS_CAP_* comment on exactly this distinction.
     .chmod = tfs3_chmod,
+    .chown = tfs3_chown,
     .set_mtime = tfs3_set_mtime,
     .caps = FS_CAP_INODES | FS_CAP_HARDLINKS | FS_CAP_SYMLINKS | FS_CAP_EPOCH_TIME |
-            FS_CAP_MODE | FS_CAP_REPLACE | FS_CAP_REPAIR | FS_CAP_RESIZE,
+            FS_CAP_MODE | FS_CAP_REPLACE | FS_CAP_REPAIR | FS_CAP_RESIZE | FS_CAP_OWNER,
     .volume_relative = 1, // all I/O is volume-relative through vol_read/vol_write -- mountable from a partition
     // MORE THAN ONCE, because every per-volume field is in struct
     // t3_state and every op is handed its own. Two is what an

@@ -15,6 +15,7 @@
 // in kernel/net/, a terminal's in kernel/tty/.
 #include "flock.h"   // a close, an exit and an exec reach the process's file locks
 #include "syscalls.h"
+#include "cred.h"     // a pipe's owner in SYS_STATX
 #include "syscall_abi.h"
 #include "klog.h"
 #include "heap.h"  // bounce buffers come from here, not the stack
@@ -1032,6 +1033,28 @@ int sys_fstat(struct syscall_ctx *c) {
     return parked;
 }
 
+// The record SYS_FSTAT answers for a description.
+static void fstat_record(struct open_file *f, struct sys_stat *out) {
+    k_memset(out, 0, sizeof *out);
+    // Reported for EVERY kind, before the switch: non-blocking is a
+    // property of the description whatever it names, and fcntl(F_GETFL)
+    // has no other way to read it back.
+    if (f->nonblock) out->flags |= SYS_STAT_NONBLOCK;
+    if (f->ops->seek) out->flags |= SYS_STAT_SEEKABLE;
+    int reads = f->ops == &file_fd_ops ? fd_mode_reads(f->file.mode) : f->ops->read != 0;
+    int writes = f->ops == &file_fd_ops ? fd_mode_writes(f->file.mode) : f->ops->write != 0;
+    if (reads) out->flags |= SYS_STAT_READS;
+    if (writes) out->flags |= SYS_STAT_WRITES;
+    // What isatty() will read. A pty end is as much a terminal as the
+    // console is -- that is the entire claim of the tty layer, and a flag
+    // that said otherwise would make a program behave differently in a
+    // window than on the console.
+    if (f->ops->tty) out->flags |= SYS_STAT_TTY;
+    // A pipe end or a socket has no stat op: no size, no position, no
+    // timestamps. Zero is the honest answer rather than a lossy one.
+    if (f->ops->stat) f->ops->stat(f, out);
+}
+
 static int sys_fstat_held(struct syscall_ctx *c, struct open_file *f) {
     if (!f) {
         klog_write(KLOG_ERR "syscall: fstat() rejected -- bad fd\n");
@@ -1039,30 +1062,33 @@ static int sys_fstat_held(struct syscall_ctx *c, struct open_file *f) {
         return 0;
     }
     struct sys_stat out;
-    k_memset(&out, 0, sizeof out);
-    // Reported for EVERY kind, before the switch: non-blocking is a
-    // property of the description whatever it names, and fcntl(F_GETFL)
-    // has no other way to read it back.
-    if (f->nonblock) out.flags |= SYS_STAT_NONBLOCK;
-    if (f->ops->seek) out.flags |= SYS_STAT_SEEKABLE;
-    int reads = f->ops == &file_fd_ops ? fd_mode_reads(f->file.mode) : f->ops->read != 0;
-    int writes = f->ops == &file_fd_ops ? fd_mode_writes(f->file.mode) : f->ops->write != 0;
-    if (reads) out.flags |= SYS_STAT_READS;
-    if (writes) out.flags |= SYS_STAT_WRITES;
-    // What isatty() will read. A pty end is as much a terminal as the
-    // console is -- that is the entire claim of the tty layer, and a flag
-    // that said otherwise would make a program behave differently in a
-    // window than on the console.
-    if (f->ops->tty) out.flags |= SYS_STAT_TTY;
-    // A pipe end or a socket has no stat op: no size, no position, no
-    // timestamps. Zero is the honest answer rather than a lossy one.
-    if (f->ops->stat) f->ops->stat(f, &out);
+    fstat_record(f, &out);
     if (!vmm_copy_to_user(c->pml4, c->a1, &out, sizeof out)) {
         klog_write(KLOG_ERR "syscall: fstat() rejected -- invalid output pointer\n");
         c->regs[14] = (uint64_t)(int64_t)-EFAULT;
         return 0;
     }
     c->regs[14] = 0;
+    return 0;
+}
+
+int fstat_fill(uint64_t pml4, int fd, struct sys_stat *out, uint32_t *uid, uint32_t *gid) {
+    int di;
+    struct open_file *f = fd_get_held(pml4, fd, &di);
+    if (!f) { fd_put(di); return -EBADF; }
+    fstat_record(f, out);
+    // A file's owner is its path's; anything else -- a pipe, a socket, a
+    // terminal -- is the caller's own, as Linux's pipefs inode is.
+    struct fs_stat_info st;
+    if (f->ops == &file_fd_ops && fs_attrs(f->file.name, &st)) {
+        *uid = st.uid;
+        *gid = st.gid;
+    } else {
+        struct cred *cr = cred_current();
+        *uid = cred_euid(cr);
+        *gid = cred_egid(cr);
+    }
+    fd_put(di);
     return 0;
 }
 

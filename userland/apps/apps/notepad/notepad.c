@@ -1316,7 +1316,8 @@ static int file_dialog(int saving) {
 
     struct doc *d = cur();
     char dir[PATH_MAX_LEN];
-    if (!d->path[0] || !k_path_dirname(d->path, dir, sizeof dir)) strlcpy(dir, "/", sizeof dir);
+    // An untitled document's is "" -- the dialog's own default, $HOME.
+    if (!d->path[0] || !k_path_dirname(d->path, dir, sizeof dir)) dir[0] = '\0';
 
     static const struct uui_filedialog_filter types[] = {
         { "Text files", keep_text, 0, 0 },
