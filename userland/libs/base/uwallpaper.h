@@ -21,11 +21,12 @@ struct uwallpaper_size {
 // about 1% counts as the same, so 1366x768 is 16:9), then among those the
 // smallest that covers the screen, else the largest -- a crop or a
 // downscale, never an upscale while a bigger one exists. The index into
-// `sizes`, or -1 when n is 0. Ties go to the earlier entry.
+// `sizes`, or -1 when none has a positive width and height. Ties go to
+// the earlier entry.
 int uwallpaper_pick(const struct uwallpaper_size *sizes, int n, int screen_w, int screen_h);
 
-// The path of `stem`'s size for the screen, from `<dir>/<stem>/`: names
-// that are not `<W>x<H>.<jpg|png|qoi|gif>` are ignored. 1 with the path
+// The path of `stem`'s size for the screen, from `<dir>/<stem>/`: files
+// not named `<W>x<H>.<jpg|png|qoi|gif>` are ignored. 1 with the path
 // in `out`; 0 when there is no such folder, nothing in it parses, or the
 // path does not fit `cap` -- then the caller loads `<dir>/<stem>.<ext>`.
 int uwallpaper_path(const char *dir, const char *stem, int screen_w, int screen_h,

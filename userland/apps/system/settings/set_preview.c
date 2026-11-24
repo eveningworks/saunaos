@@ -15,6 +15,7 @@
 #include "ui/utheme.h"
 #include "base/usetting.h"
 #include "media/icon_cache.h"
+#include "base/uwallpaper.h"   // the size the desktop decodes for this screen
 #include <stdlib.h>
 
 // --- cursor sets and pictures: ui/uui_tiles.h, shared with First-boot setup
@@ -23,9 +24,11 @@
 static struct uui_cursor_tiles g_pv_cursor;
 static struct uui_picture_tiles g_pv_pic, g_pv_live;
 static struct uui_picture_tiles g_pv_icons, g_pv_menu, g_pv_glass;
-static char g_wi_stem[SETTING_ABI_VALUE_MAX];   // wallpaper_info()'s, below
+// `/usr/share/wallpapers/<stem>/<W>x<H>`: a picked size's directory and name.
+#define PICKED_MAX (sizeof "/usr/share/wallpapers" + 2 * SETTING_ABI_VALUE_MAX + 16)
+static char g_wi_stem[PICKED_MAX];   // wallpaper_info()'s, below
 static struct uimg g_place[2];   // Fill's and Fit's, each at its drawn size
-static char g_place_stem[2][SETTING_ABI_VALUE_MAX];
+static char g_place_stem[2][PICKED_MAX];
 static int g_place_w[2], g_place_h[2];   // the size each was made for
 #define PREVIEW_DARK UUI_TILE_DARK
 
@@ -416,23 +419,45 @@ static uint32_t desktop_colour(void) {
     return ulivewall_colour(page_value("desktop.background_colour", v, sizeof v));
 }
 
-// The wallpaper's stem and its size, by the first extension that has a
-// header -- the desktop's own order (apps/system/toywm/desktop.c). 0 with no picture.
-// Remembered by stem: a header read is up to 256 KiB, and every card of
-// three galleries asks on every paint.
+// The file the desktop decodes for this screen, as uui_tile_load_cover()
+// takes it: `<stem>/<W>x<H>` from the picture's folder of sizes
+// (base/uwallpaper.h), else `<stem>` itself, the one file.
+static void wallpaper_picked(const char *stem, char *dir, size_t dcap, char *name, size_t ncap) {
+    char path[PICKED_MAX];
+    if (uwallpaper_path(WALLPAPERS, stem, g_scr_w, g_scr_h, path, sizeof path)) {
+        char *slash = strrchr(path, '/');
+        char *dot = strrchr(slash, '.');
+        if (dot) *dot = '\0';
+        strlcpy(name, slash + 1, ncap);
+        *slash = '\0';
+        strlcpy(dir, path, dcap);
+        return;
+    }
+    strlcpy(dir, WALLPAPERS, dcap);
+    strlcpy(name, stem, ncap);
+}
+
+// The wallpaper's stem and the size of the file the desktop shows for
+// this screen, by the first extension that has a header -- the desktop's
+// own order (apps/system/toywm/desktop.c). 0 with no picture.
+// Remembered by that file: a header read is up to 256 KiB, and every
+// card of three galleries asks on every paint.
 static int g_wi_w, g_wi_h;
 
 static int wallpaper_info(char *stem, int cap, int *iw, int *ih) {
     static const char *const EXT[] = { "jpg", "gif", "png", "qoi" };
     page_value("desktop.wallpaper", stem, cap);
     if (!stem[0] || !strcmp(stem, "none")) return 0;
-    if (strcmp(stem, g_wi_stem) != 0) {
-        strlcpy(g_wi_stem, stem, sizeof g_wi_stem);
+    char dir[PICKED_MAX], name[PICKED_MAX], key[PICKED_MAX];
+    wallpaper_picked(stem, dir, sizeof dir, name, sizeof name);
+    snprintf(key, sizeof key, "%s/%s", dir, name);
+    if (strcmp(key, g_wi_stem) != 0) {
+        strlcpy(g_wi_stem, key, sizeof g_wi_stem);
         g_wi_w = g_wi_h = 0;
         for (unsigned e = 0; e < sizeof EXT / sizeof EXT[0] && !g_wi_w; e++) {
-            char path[SETTING_ABI_VALUE_MAX + 40];
+            char path[PICKED_MAX + 8];
             struct uimg_info in;
-            snprintf(path, sizeof path, WALLPAPERS "/%s.%s", stem, EXT[e]);
+            snprintf(path, sizeof path, "%s.%s", key, EXT[e]);
             if (uimg_load_info(path, &in) == 0 && in.w > 0 && in.h > 0) {
                 g_wi_w = in.w;
                 g_wi_h = in.h;
@@ -477,12 +502,15 @@ static void placement_tile(struct ugfx_surface *s, int i, int x, int y, int w, i
     // a bigger one, as uui_picture_tile() would reuse.
     if (i < 0 || i > 1) return;
     struct uimg *im = &g_place[i];
-    if (strcmp(g_place_stem[i], stem) || g_place_w[i] != dw || g_place_h[i] != dh) {
+    char dir[PICKED_MAX], name[PICKED_MAX], key[PICKED_MAX];
+    wallpaper_picked(stem, dir, sizeof dir, name, sizeof name);
+    snprintf(key, sizeof key, "%s/%s", dir, name);
+    if (strcmp(g_place_stem[i], key) || g_place_w[i] != dw || g_place_h[i] != dh) {
         uimg_free(im);
-        strlcpy(g_place_stem[i], stem, sizeof g_place_stem[i]);
+        strlcpy(g_place_stem[i], key, sizeof g_place_stem[i]);
         g_place_w[i] = dw;
         g_place_h[i] = dh;
-        if (!uui_tile_load_cover(WALLPAPERS, stem, dw, dh, im)) return;
+        if (!uui_tile_load_cover(dir, name, dw, dh, im)) return;
     }
     // The cover may be a pixel over in one axis: its centre.
     if (im->px && im->w >= dw && im->h >= dh)

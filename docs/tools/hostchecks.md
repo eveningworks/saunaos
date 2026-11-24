@@ -343,8 +343,9 @@ the rest in the sweep. Each stays a standalone script with its own
   out by the rule (closest shape, then the smallest that covers, else
   the largest), and the folder reader on a real directory -- a copy
   named `1920x1080 (copy).jpg`, `0x0.jpg`, a `.bmp` and a directory
-  named like a size are not sizes, and no folder or a stem with a slash
-  answers none. Its positive control -- a pick that ignores the shape --
+  named like a size are not sizes, nor is `02560x1440.jpg`; an entry
+  with no positive size is never picked; and no folder or a stem with a
+  slash answers none. Its positive control -- a pick that ignores the shape --
   fails five screens. In `hostchecks.py` and `ondemand_sweep.py`.
 - **`winfnt_hostcheck.py FOLDER|FILE...`** -- `lib/winfnt`, the reader of
   Windows' bitmap fonts (.FON/.FNT) that w16 draws a program's text with,

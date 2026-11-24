@@ -267,8 +267,9 @@ def main():
     finally:
         # RESTORED WHATEVER HAPPENED -- all three persist to /etc, and
         # the resolution changes the screen every later tool sees.
-        if orig_name:
-            set_setting(dbg, "desktop.wallpaper", orig_name)
+        # Off wpm_single BEFORE it goes, to the stock default when the
+        # original could not be read -- never a name with no file.
+        set_setting(dbg, "desktop.wallpaper", orig_name if orig_name and orig_name != SINGLE else "lakeside")
         dbg.send(f"sh rm {SINGLE_PATH}")
         if orig_mode:
             set_setting(dbg, "desktop.wallpaper.mode", orig_mode)

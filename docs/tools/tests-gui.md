@@ -1778,9 +1778,11 @@ from the default (a sound card, a USB mouse, `--reboot`).
   monitor is captioned with the mode on screen and holds the desktop in
   miniature. **A card's miniature is found by its DESKTOP colour's
   bounding box**, so the card's white margin is never counted. Then
-  round 3 (8 checks): Placement's cards show the wallpaper (not the plain
-  desktop colour) and, the built-in pictures being the screen's shape,
-  the same in both, with the line saying so; Icon size's folder grows
+  round 3: Placement's cards show the wallpaper (not the plain desktop
+  colour) and, the built-in pictures coming in the screen's shape, the
+  same in both, with the line saying so -- at the boot mode and again at
+  1024x768, where only the picture's 4:3 size (not its one 16:9 file,
+  which would letterbox) makes that true; Icon size's folder grows
   Small < Medium < Large; Menu spacing shows more rows the denser it is
   (rows counted only on the menu's light ground); Corners, after ticking
   Show advanced settings (**scroll to it first: it ends the page**),

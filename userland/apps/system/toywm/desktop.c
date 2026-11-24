@@ -801,6 +801,12 @@ static void wall_install(void) {
     g_wall_for_w = w->screen_w;
     g_wall_for_h = w->screen_h;
     if (w->same) return;
+    if (w->rc < 0 && w->shown[0] && wallpaper_loaded) {
+        // A RE-PICK FOR A NEW SCREEN that failed keeps what is shown.
+        wm_logf("desktop: wallpaper %s kept at %dx%d -- %s: %s", w->name,
+                wallpaper_src.w, wallpaper_src.h, w->path, w->err);
+        return;
+    }
     k_strlcpy(g_wall_file, w->rc < 0 ? "" : w->path, sizeof g_wall_file);
     if (w->rc < 0) {
         // NOT fatal and NOT silent: the desktop falls back to its plain
@@ -829,9 +835,11 @@ static void wall_poll(void) {
     if (uworker_take(&wall_job.job)) wall_install();
     if (uworker_busy(&wall_job.job)) return;
     if (!wallpaper_name[0] || k_strcmp(wallpaper_name, "none") == 0) return;
-    // A NEW SCREEN SIZE ASKS AGAIN: its picture may have a better size.
+    // A NEW SCREEN SIZE ASKS AGAIN: its picture may have a better size --
+    // once it is drawn; a plain colour defers it. (A live background
+    // does not: the picture is its fallback.)
     if (k_strcmp(wallpaper_name, g_wall_shown) == 0 &&
-        screen_w == g_wall_for_w && screen_h == g_wall_for_h) return;
+        ((screen_w == g_wall_for_w && screen_h == g_wall_for_h) || g_plain_only)) return;
     k_strlcpy(wall_job.name, wallpaper_name, sizeof wall_job.name);
     wall_job.screen_w = screen_w;
     wall_job.screen_h = screen_h;

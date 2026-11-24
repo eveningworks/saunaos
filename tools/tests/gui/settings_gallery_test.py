@@ -82,7 +82,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui        # noqa: E402
 from qmp_test import QMPSession                      # noqa: E402
 import port_guard  # noqa: E402
-from harness import Results  # noqa: E402
+from harness import Results, poll  # noqa: E402
 
 KEY = "system.cursor.theme"
 CONF = "/etc/saunaos.conf"
@@ -553,19 +553,26 @@ def run_round3(dbg, qmp, tmp, res):
     dbg.send("sh config set desktop.layout_log on")
     try:
         # PLACEMENT: the wallpaper itself in both cards. The built-in
-        # pictures are the screen's shape, so Fill and Fit draw the same
-        # and the page says so; a card showing only the desktop's colour
-        # is the bug where the wallpaper's name never reached the painter.
+        # pictures come in the screen's shape, so Fill and Fit draw the
+        # same and the page says so; a card showing only the desktop's
+        # colour is the bug where the wallpaper's name never reached the
+        # painter. AGAIN AT 4:3, where the one 16:9 file would letterbox
+        # but the desktop decodes the picture's 4:3 size -- the preview
+        # must show THAT (base/uwallpaper.h).
         key = "desktop.wallpaper.mode"
         names = {"Fill the screen (crop)", "Fit the whole picture"}
-        win, got = open_page(dbg, key, {key: names}, [key])
-        cards = scroll_to(dbg, qmp, win, key, "Fit the whole picture") if win else {}
-        if res.check("Placement is a gallery of Fill and Fit", names <= set(cards), f"{sorted(cards)}"):
+
+        def placement(at):
+            win, got = open_page(dbg, key, {key: names}, [key])
+            cards = scroll_to(dbg, qmp, win, key, "Fit the whole picture") if win else {}
+            if not res.check(f"Placement is a gallery of Fill and Fit{at}", names <= set(cards),
+                             f"{sorted(cards)}"):
+                return
             ox, oy = win["content"]["x"], win["content"]["y"]
             img, cards = settled_shot(dbg, qmp, win, tmp, "placement.png", key, cards)
             fill, fit = (card_box(cards[n], ox, oy) for n in ("Fill the screen (crop)", "Fit the whole picture"))
             plain = tile_count(img, fill, lambda p: p == DESKTOP, box=False)
-            res.check("the Fill card shows the wallpaper, not the desktop's plain colour", plain < 200,
+            res.check(f"the Fill card shows the wallpaper, not the desktop's plain colour{at}", plain < 200,
                       f"{plain} plain px")
             # The SCREEN only: the cards' grounds differ (one is selected).
             def screen(b):
@@ -573,10 +580,23 @@ def run_round3(dbg, qmp, tmp, res):
                         "w": b["w"] // 4, "h": b["h"] // 4}
             fill_px, fit_px = crop_pixels(img, screen(fill)), crop_pixels(img, screen(fit))
             same = sum(1 for a, b in zip(fill_px, fit_px) if a != b)
-            res.check("a picture of the screen's shape draws Fill and Fit the same", same < len(fill_px) // 20,
-                      f"{same} of {len(fill_px)} differ")
+            res.check(f"a picture of the screen's shape draws Fill and Fit the same{at}",
+                      same < len(fill_px) // 20, f"{same} of {len(fill_px)} differ")
             note = any("settings: layout placement_note " in l for l in dbg.logs(clear=False))
-            res.check("...and the page says so under them", note)
+            res.check(f"...and the page says so under them{at}", note)
+
+        placement("")
+        boot = (dbg.state()["screen"]["w"], dbg.state()["screen"]["h"])
+        dbg.send("sh config set resolution 1024x768")
+        try:
+            if res.check("the screen goes to 1024x768", poll(
+                    lambda: (dbg.state()["screen"]["w"], dbg.state()["screen"]["h"]) == (1024, 768), 10)):
+                dbg.settle()
+                placement(" (at 1024x768)")
+        finally:
+            dbg.send(f"sh config set resolution {boot[0]}x{boot[1]}")
+            poll(lambda: (dbg.state()["screen"]["w"], dbg.state()["screen"]["h"]) == boot, 10)
+            dbg.settle()
 
         # ICON SIZE: the folder's yellow grows Small < Medium < Large.
         key = "desktop.icon_size"

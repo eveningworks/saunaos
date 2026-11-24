@@ -6,10 +6,12 @@ Two halves, each against answers written out by hand here:
 
   - uwallpaper_pick() on the stock size set (tools/gen/gen_imgdata.py's
     WALLPAPER_SIZES) for screens from 640x480 to 5120x2880: the closest
-    shape first, then the smallest that covers, else the largest
+    shape first, then the smallest that covers, else the largest; an
+    entry with no positive size is never picked
   - uwallpaper_path() on a real folder: names that are not
-    `<W>x<H>.<ext>` ignored ("1920x1080 (copy).jpg", "0x0.jpg", a
-    directory named like a size), no folder or nothing in it answers 0
+    `<W>x<H>.<ext>` ignored ("1920x1080 (copy).jpg", "0x0.jpg",
+    "02560x1440.jpg", a directory named like a size), no folder or
+    nothing in it answers 0
 
     python3 tools/hostchecks/uwallpaper_hostcheck.py
     python3 tools/hostchecks/uwallpaper_hostcheck.py --positive-control   # must FAIL
@@ -82,12 +84,12 @@ PICKS = [
 
 # The folder half: files in a temp folder, then (screen, expected name or None).
 FILES = ["1280x720.jpg", "1920x1080.png", "800x600.qoi", "1920x1080 (copy).jpg",
-         "0x0.jpg", "2560x1440.bmp", "x9.jpg", "12x.jpg", "readme.txt"]
+         "0x0.jpg", "2560x1440.bmp", "x9.jpg", "12x.jpg", "readme.txt", "02560x1440.jpg"]
 DIRS = ["3840x2160.jpg"]
 PATHS = [
     ((1920, 1080), "1920x1080.png"),
     ((1280, 720), "1280x720.jpg"),
-    ((3840, 2160), "1920x1080.png"),   # the bmp and the directory are not sizes
+    ((3840, 2160), "1920x1080.png"),   # the bmp, 02560x1440 and the directory are not sizes
     ((800, 600), "800x600.qoi"),
 ]
 
@@ -119,7 +121,7 @@ def main():
 
         flat = " ".join(f"{w} {h}" for w, h in STOCK)
         feed = "".join(f"k {sw} {sh} {len(STOCK)} {flat}\n" for (sw, sh), _ in PICKS)
-        feed += "k 1920 1080 0\n"
+        feed += "k 1920 1080 0\nk 1920 1080 3 0 0 1920 1080 -4 3\nk 1920 1080 2 0 0 7 0\n"
         feed += "".join(f"p {pics} sea {sw} {sh}\n" for (sw, sh), _ in PATHS)
         feed += f"p {pics} empty 1920 1080\np {pics} nofolder 1920 1080\np {pics} sea/.. 1920 1080\n"
         out = subprocess.run([exe], input=feed, capture_output=True, text=True,
@@ -131,9 +133,12 @@ def main():
         if got != want:
             fails.append(f"pick for {sw}x{sh}: {got}, want {want}")
     rest = out[len(PICKS):]
-    n += 1
-    if rest[0] != "-1":
-        fails.append(f"pick from no sizes: {rest[0]}, want -1")
+    for what, want, line in (("no sizes", "-1", rest[0]), ("a zero and a negative entry", "1", rest[1]),
+                             ("only entries with no size", "-1", rest[2])):
+        n += 1
+        if line != want:
+            fails.append(f"pick from {what}: {line}, want {want}")
+    rest = rest[2:]
     for ((sw, sh), want), line in zip(PATHS, rest[1:]):
         n += 1
         if line != os.path.join(pics, "sea", want):
