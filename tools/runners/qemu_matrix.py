@@ -44,6 +44,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from harness import copy_disk  # noqa: E402
+from host_latency import shallow_idle  # noqa: E402
 
 # base image -> the QEMU it ships. Ubuntu 24.04 is what GitHub's
 # ubuntu-latest runner uses, which makes it the one that matters most.
@@ -107,8 +108,12 @@ def run_suite(tag, suite, virtio, timeout, run=1):
     cmd = ["docker", "run", "--rm", "--name", name,
            "--user", f"{os.getuid()}:{os.getgid()}",
            "-v", f"{os.getcwd()}:/saunaos", tag] + args
+    # Held HERE, on the host: the container cannot open
+    # /dev/cpu_dma_latency, and the request covers the whole machine, so
+    # its QEMU's timer wakes are not measured through the host's C-states.
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        with shallow_idle("qemu_matrix"):
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         subprocess.run(["docker", "kill", name], capture_output=True)
         return None, f"HUNG after {timeout:.0f}s (container killed)"
