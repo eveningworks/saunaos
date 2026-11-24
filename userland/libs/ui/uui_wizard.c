@@ -144,15 +144,18 @@ static const struct uui_widget_ops RAIL_OPS = {
 // that scrolls itself), at any depth of plain layouts. Such a page fills
 // the view; in the scroll view it would be laid out at its full height
 // and its list would never scroll.
-// FILL_H counts only down a COLUMN, its stacking axis -- in a row it is
-// "as tall as the row". A page that is one widget, not a layout, is
-// given the whole view, as it always was.
+// The room reaches a child only through FILL_H, in either direction: a
+// column grows it, a row stretches it to the row's height (First-boot's
+// Keyboard page is a row whose layout list does that). A child without
+// the flag keeps its natural height, so nothing under it absorbs any.
+// A UUI_GRID's cells are not counted (no wizard page is one).
+// A page that is one widget, not a layout, is given the whole view, as
+// it always was.
 static int layout_fills(const struct uui_layout *l) {
     for (int i = 0; i < l->count; i++) {
         const struct uui_item *c = &l->items[i];
-        if (c->hidden) continue;
-        if (l->dir == UUI_COLUMN && (c->flags & UUI_FILL_H)) return 1;
-        if (c->ops == &uui_layout_ops && layout_fills(c->widget)) return 1;
+        if (c->hidden || !(c->flags & UUI_FILL_H)) continue;
+        if (c->ops != &uui_layout_ops || layout_fills(c->widget)) return 1;
     }
     return 0;
 }

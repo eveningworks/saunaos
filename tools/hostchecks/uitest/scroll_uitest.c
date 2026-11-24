@@ -26,6 +26,7 @@
 #include "ui/uui_loglist.h"
 #include "ui/uui_table.h"
 #include "ui/uui_label.h"
+#include "ui/uui_listbox.h"
 #include "ui/uui_wizard.h"
 
 #define W 460
@@ -344,8 +345,51 @@ int main(void) {
     int px, py, pw, ph;
     // check_view() skips a view it cannot find: a wizard with no
     // scrolling page would otherwise pass with nothing checked.
-    utest_check(uitest_rect(&win, "page", &px, &py, &pw, &ph), "Setup wizard: its page is a scroll view");
+    utest_check(uitest_rect(&win, "page", &px, &py, &pw, &ph), "Setup wizard: its page is in the window");
+    // The holder's NAME stays "page" either way, so ask the wizard which it is.
+    utest_check(!wz.page_fills, "Setup wizard: its page is a scroll view");
     check_view(&win, &(struct view){ "Setup wizard page", "page", 0, 0, 0, 0, 0, 20, 20 });
+    uitest_window_free(&win);
+
+    // --- a wizard page that is a ROW with a stretching list -----------------------
+    // First-boot's Keyboard page: the list fills the page's height and
+    // scrolls itself, rather than the page scrolling a list laid out at
+    // its full height (broken by b4d3881c, which counted FILL_H in a
+    // column only).
+    #define KB_ROWS 200
+    static char kb_text[KB_ROWS][24];
+    static const char *kb_rows[KB_ROWS];
+    for (int i = 0; i < KB_ROWS; i++) {
+        snprintf(kb_text[i], sizeof kb_text[i], "Layout %d", i);
+        kb_rows[i] = kb_text[i];
+    }
+    static struct uui_listbox kb_list;
+    uui_listbox_init(&kb_list, 0, 0, 240, ugfx_char_h() * 40, kb_rows, KB_ROWS);
+    static struct uui_label kb_side;
+    uui_label_init(&kb_side, "Try it");
+    static struct uui_item kb_items[2];
+    kb_items[0] = (struct uui_item){ .ops = &uui_listbox_ops, .widget = &kb_list, .id = 1,
+                                     .name = "kblist", .flags = UUI_FILL_H };
+    kb_items[1] = (struct uui_item){ .ops = &uui_label_ops, .widget = &kb_side, .flags = UUI_FILL_W };
+    static struct uui_layout kb_page;
+    kb_page = (struct uui_layout){ .dir = UUI_ROW, .items = kb_items, .count = 2 };
+    static struct uui_wizard_step kb_steps[1];
+    kb_steps[0] = (struct uui_wizard_step){ "Keyboard", 0, { .ops = &uui_layout_ops, .widget = &kb_page }, 0 };
+    static struct uui_wizard kbw;
+    uui_wizard_init(&kbw, &(struct uui_wizard_desc){ .heading = "Set up", .steps = kb_steps, .count = 1 });
+    wit = uui_wizard_item(&kbw);
+    wit->ops->set_geometry(wit->widget, 0, 0, 800, 480);
+    uitest_window(&win, wit, 1, NULL, 800, 480);
+    ff.widget = wit->widget;
+    ff.ops = wit->ops;
+    uui_focus_init(&focus, &ff, 1);
+    uitest_set_focus(&win, &focus);
+    int lx, ly, lw, lh, nx, ny, nw, nh;
+    utest_check(uitest_rect(&win, "kblist", &lx, &ly, &lw, &lh) && uitest_rect(&win, "next", &nx, &ny, &nw, &nh),
+                "Setup wizard row page: its list and Next are in the window");
+    utest_check(kbw.page_fills, "Setup wizard row page: the page fills the view, not a scroll view");
+    utest_check(ly + lh <= ny, "Setup wizard row page: the list ends above Back/Next (it fills the page, not scrolls in it)");
+    check_view(&win, &(struct view){ "Setup wizard row page's list", "kblist", 0, 0, 0, 0, 0, 20, 20 });
     uitest_window_free(&win);
 
     return uitest_end();
