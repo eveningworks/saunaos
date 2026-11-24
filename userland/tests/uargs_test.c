@@ -10,7 +10,7 @@
 #include "base/uargs.h"
 #include "base/utest.h"
 
-static int f_one, f_cols, f_force, f_h;
+static int f_one, f_cols, f_force, f_h, n_verbose;
 static const char *v_file, *v_port;
 
 static const struct uargs_opt OPTS[] = {
@@ -19,9 +19,10 @@ static const struct uargs_opt OPTS[] = {
     { "force", 'f', 0,      "force", &f_force, 0 },
     { "file",  0,   "CFG",  "file", 0, &v_file },
     { "port",  'p', "PORT", "port", 0, &v_port },
+    { "verbose", 'v', 0,    "more", &n_verbose, 0 },
     { 0 },
 };
-static const struct uargs_prog PLAIN = { .name = "t", .usage = "[OPTION]... [X]", .opts = OPTS };
+static const struct uargs_prog PLAIN = { .name = "t", .usage = "[OPTION]... [X]", .opts = OPTS, .counted = "v" };
 
 static const struct uargs_opt HOPTS[] = { { 0, 'h', 0, "human", &f_h, 0 }, { 0 } };
 static const struct uargs_prog HUMAN = { .name = "t", .usage = "[-h]", .opts = HOPTS };
@@ -35,7 +36,7 @@ static struct uargs a;
 
 static int run(const struct uargs_prog *p, int n, const char **words) {
     static char *argv[16];
-    f_one = f_cols = f_force = f_h = 0;
+    f_one = f_cols = f_force = f_h = n_verbose = 0;
     v_file = v_port = 0;
     argv[0] = "t";
     for (int i = 0; i < n; i++) argv[i + 1] = (char *)words[i];
@@ -49,6 +50,9 @@ int main(void) {
 
     utest_check(RUN(&PLAIN, "-1", "x") == 0 && f_one && a.argc == 1 && !strcmp(a.argv[0], "x"),
                 "a flag and a positional");
+    utest_check(RUN(&PLAIN, "-vvv") == 0 && n_verbose == 3 && RUN(&PLAIN, "-v", "--verbose", "-1v") == 0 &&
+                n_verbose == 3 && RUN(&PLAIN, "x") == 0 && n_verbose == 0,
+                "a counted option counts every occurrence, bundled, long or apart");
     utest_check(RUN(&PLAIN, "-1C") == 0 && f_one && f_cols && f_cols == f_one,
                 "a bundle sets both, at the same position");
     utest_check(RUN(&PLAIN, "-1", "-C") == 0 && f_cols > f_one && RUN(&PLAIN, "-C", "-1") == 0 && f_one > f_cols,

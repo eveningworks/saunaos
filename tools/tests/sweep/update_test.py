@@ -64,6 +64,7 @@ up as a pass that should have been a failure.
 RUNNER = {"covers": "/bin/update: verify, install, stage for boot", "parallel": True}
 
 import argparse
+import gzip
 import http.server
 import os
 import re
@@ -260,16 +261,16 @@ def channel_checks(c, sh, srv, tmp):
         before = summed(sh, Older.PATH)
         out = sh.run("update --channel release")
         c.ok("--channel release is taken", "channel is now release" in out, out.strip()[-120:])
-        out = sh.run("update", timeout=600)
+        out = sh.run("update -y -vv", timeout=600)
         c.ok("a channel BEHIND the machine is not installed", "older than this machine" in out
              and summed(sh, Older.PATH) == before, out.strip()[-300:])
-        out = sh.run("update --go-back", timeout=600)
+        out = sh.run("update -y -vv --go-back", timeout=600)
         c.ok("--go-back installs the older build",
              summed(sh, Older.PATH) == (zlib.crc32(Older.BODY), len(Older.BODY)), out.strip()[-300:])
         out = sh.run("update --channel nosuch")
         c.ok("an unknown channel is refused", "no channel nosuch" in out, out.strip()[-120:])
         sh.run("update --channel main")
-        out = sh.run("update", timeout=600)
+        out = sh.run("update -y -vv", timeout=600)
         c.ok("back on main, the newer file returns", summed(sh, Older.PATH) == before,
              out.strip()[-300:])
     finally:
@@ -284,6 +285,10 @@ def patched_kernel(tmp):
     out = os.path.join(tmp, "kernel.twin")
     with open(out, "wb") as fh:
         fh.write(data.replace(BOOT_MSG, TWIN_MSG))
+    # GZIPPED TOO: an image whose GRUB records gzio (core.modules) takes
+    # only the kernel-gz line, and with the ELF alone it compared nothing.
+    with open(out + ".gz", "wb") as fh:
+        fh.write(gzip.compress(data.replace(BOOT_MSG, TWIN_MSG)))
     return out
 
 
@@ -304,9 +309,9 @@ def kernel_checks(c, sh, pidfile, disk, tmp, srv, url):
     twin = patched_kernel(tmp)
     if not c.ok("a twin kernel can be made (one boot message changed)", twin):
         return sh, pidfile
-    srv.manifest.kernel_elf, srv.manifest.kernel_media = twin, ""
+    srv.manifest.kernel_elf, srv.manifest.kernel_media = twin, twin + ".gz"
     before = summed(sh, "/boot/kernel.bin")
-    out = sh.run(f"update --from {url}", timeout=600)
+    out = sh.run(f"update -y -vv --from {url}", timeout=600)
     c.ok("with no GRUB menu a kernel update is refused whole",
          "cannot update" in out and "nothing" in out.lower(), out.strip()[-200:])
     c.ok("...and /boot/kernel.bin is untouched",
@@ -316,7 +321,7 @@ def kernel_checks(c, sh, pidfile, disk, tmp, srv, url):
     kill(pidfile)
     c.ok("the image's GRUB timeout can be raised from the host", raise_grub_timeout(disk))
     sh, pidfile = launch(disk, tmp, "upd3", "e1000")
-    out = sh.run(f"update --from {url}", timeout=600)
+    out = sh.run(f"update -y -vv --from {url}", timeout=600)
     c.ok("with a menu the kernel installs", "kernel: installed" in out, out.strip()[-200:])
     c.ok("...keeping the running one as kernel.old", "kernel.old" in sh.run("ls /boot"))
     sh.run("sync")
@@ -324,7 +329,7 @@ def kernel_checks(c, sh, pidfile, disk, tmp, srv, url):
     sh, pidfile = launch(disk, tmp, "upd4", "e1000")
     c.ok("the next boot runs the NEW kernel",
          TWIN_MSG.decode() in sh.run("dmesg"))
-    out = sh.run(f"update --from {url} --check", timeout=600)
+    out = sh.run(f"update -vv --from {url} --check", timeout=600)
     c.ok("...and is up to date against it", "up to date" in out, out.strip()[-300:])
     return sh, pidfile
 
@@ -368,7 +373,7 @@ def main():
         sh, pidfile = launch(disk, tmp, "upd", "e1000")
 
         # 1. a fresh image is its own build
-        out = sh.run(f"update --from {url} --check", timeout=600)
+        out = sh.run(f"update -vv --from {url} --check", timeout=600)
         c.ok("a fresh disk.img is up to date against its own build", "up to date" in out,
              out.strip()[-160:])
 
@@ -376,10 +381,26 @@ def main():
         doc = "/usr/share/doc/guide/kernel.md"
         sh.run("truncate -s 100 /bin/hello")
         sh.run(f"rm {doc}")
-        out = sh.run(f"update --from {url} --check", timeout=600)
+        out = sh.run(f"update -vv --from {url} --check", timeout=600)
         c.ok("--check lists a damaged binary", "/bin/hello" in out, out.strip()[-200:])
         c.ok("...and a missing file, as new", doc in out and " new" in out, out.strip()[-200:])
-        out = sh.run(f"update --from {url}", timeout=600)
+        # NO TERMINAL, NO -y: refused, nothing installed -- and the default
+        # run shows the summary, not the engine's log lines. The debug
+        # console's `sh` runs a program ON the console, a terminal, and has
+        # no `>`, so tosh sends stdout to a file to take the terminal away.
+        sh.run(f'tosh -c "update --from {url} > /tmp/upd.out"', timeout=600)
+        out = sh.run("cat /tmp/upd.out")
+        c.ok("with no terminal and no -y, nothing is installed",
+             "no terminal to ask -- add -y" in out and (summed(sh, "/bin/hello") or (0, 0))[1] == 100,
+             out.strip()[-200:])
+        c.ok("...and the default run shows a summary, not the log",
+             "Checking for updates... done" in out and "2 files to download" in out
+             and "compared " not in out, out.strip()[-300:])
+        out = sh.run(f"update -vvv --from {url} --check", timeout=600)
+        c.ok("-vvv adds each request and each file found different",
+             "GET " in out and "/manifest -> 200" in out and "/bin/hello: here 100 bytes" in out,
+             out.strip()[-300:])
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         c.ok("update installs both in place, no restart", "2 files updated" in out,
              out.strip()[-200:])
         for path in ("/bin/hello", doc):
@@ -390,7 +411,7 @@ def main():
         # 3. a corrupted transfer changes nothing
         sh.run("truncate -s 100 /bin/hello")
         srv.tamper = None if args.positive_control else "/bin/hello"
-        out = sh.run(f"update --from {url}", timeout=600)
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         srv.tamper = None
         c.ok("a file corrupted in transit is refused",
              "crc32 does not match" in out and "nothing was changed" in out, out.strip()[-200:])
@@ -400,9 +421,9 @@ def main():
         c.ok("...with no staged copy behind", "hello.upd" not in sh.run("ls /bin"))
 
         # 4. a library waits for the boot
-        sh.run(f"update --from {url}", timeout=600)   # put /bin/hello back first
+        sh.run(f"update -y -vv --from {url}", timeout=600)   # put /bin/hello back first
         sh.run("truncate -s 100 /lib/libhello.so")
-        out = sh.run(f"update --from {url}", timeout=600)
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         c.ok("a library is staged for the next boot, not replaced",
              "staged" in out and "restart" in out, out.strip()[-200:])
         c.ok("...listed in /var/lib/update/pending",
@@ -430,7 +451,7 @@ def main():
         edited = "/usr/share/doc/guide/kernel.md"
         sh.run(f"truncate -s 64 {edited}")
         srv.hide = {"/bin/hello", edited}
-        out = sh.run(f"update --from {url}", timeout=600)
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         c.ok("a file the manifest stopped listing is removed",
              "/bin/hello: removed" in out and "hello" not in sh.run("ls /bin"),
              out.strip()[-240:])
@@ -438,7 +459,7 @@ def main():
              "changed on this machine -- kept" in out and summed(sh, edited) is not None,
              out.strip()[-240:])
         srv.hide = {"/lib/libhello.so"}
-        out = sh.run(f"update --from {url}", timeout=600)
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         c.ok("a stale library is staged for the boot, not removed under the system",
              "staged" in out and summed(sh, "/lib/libhello.so") is not None, out.strip()[-200:])
         c.ok("...as a `-` line in the pending list",
@@ -451,7 +472,7 @@ def main():
              and summed(sh, "/lib/libhello.so") is None)
         # Serving it again brings it back -- a library, so after a boot.
         srv.hide = set()
-        out = sh.run(f"update --from {url}", timeout=600)
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         if "restart" in out:
             sh.run("sync")
             kill(pidfile)
@@ -465,13 +486,13 @@ def main():
         conf = "/etc/shells"
         release = sh.run(f"cat {conf}").replace("\r", "").strip() + "\n# release two\n"
         srv.replace = {conf: release.encode()}
-        out = sh.run(f"update --from {url}", timeout=600)
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         got = summed(sh, conf)
         c.ok("an unedited /etc file takes the shipped change",
              got is not None and got[0] == zlib.crc32(release.encode()), f"sum {got} {out[-200:]}")
         sh.run(f"truncate -s 7 {conf}")
         srv.replace = {conf: (release + "# release three\n").encode()}
-        out = sh.run(f"update --from {url}", timeout=600)
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         got = summed(sh, conf)
         c.ok("an EDITED one is kept, and said so",
              got is not None and got[1] == 7 and "changed on this machine -- kept" in out,
@@ -482,7 +503,7 @@ def main():
         srv.replace = {}
         svc = "/etc/services.d/automountd"
         dis = sh.run("service disable automountd")
-        out = sh.run(f"update --from {url}", timeout=600)
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         c.ok("a service disabled here stays disabled through an update, and it says so",
              summed(sh, svc) is None and "removed on this machine -- not reinstalled" in out,
              f"{dis.strip()[-80:]} | sum {summed(sh, svc)} | {out[-200:]}")
@@ -504,7 +525,7 @@ def main():
             "aaaaaaa4 new OLDER-THAN-THIS-BUILD",
         ]) + "\n"
         sh.run("truncate -s 100 /bin/hello")
-        out = sh.run(f"update --from {url} --check", timeout=600)
+        out = sh.run(f"update -vv --from {url} --check", timeout=600)
         c.ok("--check prints What's new with the newer notes",
              "What's new" in out and "Crash Reports lists past crashes" in out
              and "RECORDED-BUILD-NOTE" in out, out.strip()[-300:])
@@ -519,19 +540,19 @@ def main():
         c.ok("...and none at or older than the guest's own build",
              "OLDER-THAN-THIS-BUILD" not in out, out.strip()[-300:])
         srv.commit = recorded
-        sh.run(f"update --from {url}", timeout=600)
+        sh.run(f"update -y -vv --from {url}", timeout=600)
         srv.commit = None
         c.ok("the record carries the manifest's commit",
              f"# commit {recorded}" in sh.run("cat /var/lib/update/installed"))
         sh.run("truncate -s 100 /bin/hello")
         srv.notes = srv.notes.replace(f"{recorded} fixed RECORDED-BUILD-NOTE",
                                       f"{recorded} -")
-        out = sh.run(f"update --from {url} --check", timeout=600)
+        out = sh.run(f"update -vv --from {url} --check", timeout=600)
         c.ok("once recorded, the cut is at the RECORD's commit",
              "Crash Reports lists past crashes" in out and "Under the hood -- 1 change you "
              "won't see: System 1" in out and "HOOD-SOUND-LINE" not in out
              and "OLDER-THAN" not in out, out.strip()[-400:])
-        sh.run(f"update --from {url}", timeout=600)
+        sh.run(f"update -y -vv --from {url}", timeout=600)
         srv.notes = None
 
         # 5. the address
@@ -552,7 +573,7 @@ def main():
         victim = "/usr/share/doc/cmd/ls.md"
         srv.extra = {"/lib/x%0A-" + victim: b"hostile"}
         srv.replace = {"/lib/libhello.so": b"a library, so the set waits for the boot"}
-        out = sh.run(f"update --from {url}", timeout=600)
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         srv.extra, srv.replace = {}, {}
         sh.run("sync")
         kill(pidfile)
@@ -560,7 +581,7 @@ def main():
         sh, pidfile = launch(disk, tmp, "upd6", "e1000")
         c.ok("a manifest path holding an encoded newline deletes nothing at boot",
              summed(sh, victim) is not None, out.strip()[-200:])
-        out = sh.run(f"update --from {url}", timeout=600)   # libhello.so back
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)   # libhello.so back
         if "restart" in out:
             sh.run("sync")
             kill(pidfile)

@@ -216,7 +216,17 @@ this the obvious way), not from how much history it accumulated.
   human sizes, as in GNU). With commands, SHORT options stop at the
   command word, because a command's arguments may start with `-`
   (`bootcfg words 0 -nokaslr`). New and edited commands use it;
-  `cmd_usage()` one-liners convert as their program is touched.
+  `cmd_usage()` one-liners convert as their program is touched. A
+  repeatable `-v` is a COUNT (`.counted = "v"`), as in ssh and rsync.
+
+- **A COMMAND THAT ASKS BEFORE ACTING ASKS THROUGH `base/uask.h`, AND
+  `-y` ANSWERS FOR A RUN WITH NO TERMINAL.** apt's and dnf's `[Y/n]`,
+  the capital letter the default. With stdin or stdout not a terminal
+  the question is not asked and the command REFUSES, naming `-y` -- dnf's
+  rule, because installing unasked from a script is the wrong default.
+  The debug console's `sh` runs a program on the console, which IS a
+  terminal: a test passes `-y`, or redirects through `tosh -c` to take
+  the terminal away. `update` is the worked example.
 
 - **AN EVERYDAY COMMAND IS A `/bin` PROGRAM, NOT A BUILTIN, AND THE
   KERNEL'S OWN COPIES LIVE BEHIND ONE NAME: `rescue`.**

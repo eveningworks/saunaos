@@ -172,8 +172,8 @@ static const struct uargs_opt *by_short(const struct uargs_prog *p, char c) {
     return 0;
 }
 
-static void set(const struct uargs_opt *o, int pos, const char *val) {
-    if (o->flag) *o->flag = pos;
+static void set(const struct uargs_opt *o, int pos, const char *val, const struct uargs_prog *p) {
+    if (o->flag) *o->flag = o->shortc && p->counted && strchr(p->counted, o->shortc) ? *o->flag + 1 : pos;
     if (o->value && val) *o->value = val;
 }
 
@@ -196,7 +196,7 @@ int uargs_parse(struct uargs *a, const struct uargs_prog *p, int argc, char **ar
                 if (i + 1 >= argc) { a->status = uargs_error(p, "option '--%s' needs a value (--%s=%s)", o->name, o->name, o->arg); return 1; }
                 val = argv[++i];
             }
-            set(o, i, val);
+            set(o, i, val, p);
             continue;
         }
         if (shorts_ok && s[0] == '-' && s[1]) {
@@ -204,11 +204,11 @@ int uargs_parse(struct uargs *a, const struct uargs_prog *p, int argc, char **ar
                 if (s[j] == 'h' && !claims(p, 'h')) { uargs_help(p); return 1; }
                 const struct uargs_opt *o = by_short(p, s[j]);
                 if (!o) { a->status = uargs_error(p, "unknown option '-%c'", s[j]); return 1; }
-                if (!o->arg) { set(o, i, 0); continue; }
+                if (!o->arg) { set(o, i, 0, p); continue; }
                 // A value: the rest of this word, or the next one.
                 const char *val = s[j + 1] ? s + j + 1 : (i + 1 < argc ? argv[++i] : 0);
                 if (!val) { a->status = uargs_error(p, "option '-%c' needs a value (%s)", o->shortc, o->arg); return 1; }
-                set(o, i, val);
+                set(o, i, val, p);
                 break;
             }
             continue;

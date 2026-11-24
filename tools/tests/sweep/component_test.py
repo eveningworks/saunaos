@@ -207,12 +207,12 @@ def main():
         if args.positive_control:
             srv.retag = True
             sh.run("mv /usr/share/components /usr/share/components.hidden")
-        out = sh.run(f"update --from {url} --check -v", timeout=600)
+        out = sh.run(f"update -vv --from {url} --check", timeout=600)
         c.ok("update --check says the removed component's files are left out",
              "component demos: removed on this machine" in out, out.strip()[-300:])
         c.ok("...and lists none of them to fetch",
              "/tests/sample.txt" not in out and "/bin/wm/demos/counter" not in out, out.strip()[-300:])
-        sh.run(f"update --from {url}", timeout=900)
+        sh.run(f"update -y -vv --from {url}", timeout=900)
         c.ok("after `update`, /bin/wm/demos/counter is still absent", absent(sh, "/bin/wm/demos/counter"))
         c.ok("...and /tests/sample.txt", absent(sh, "/tests/sample.txt"))
         if args.positive_control:
@@ -221,7 +221,7 @@ def main():
 
         # 4. a server that tags nothing
         srv.untagged = True
-        out = sh.run(f"update --from {url} --check -v", timeout=600)
+        out = sh.run(f"update -vv --from {url} --check", timeout=600)
         srv.untagged = False
         c.ok("an untagged manifest (an older server) still leaves them out",
              "component demos: removed on this machine" in out and "/tests/sample.txt" not in out,
@@ -229,16 +229,16 @@ def main():
 
         # 8. a build that does not stage it at all: still removed afterwards
         srv.unstaged = "demos"
-        sh.run(f"update --from {url}", timeout=900)
+        sh.run(f"update -y -vv --from {url}", timeout=900)
         srv.unstaged = None
         state = sh.run("cat /var/lib/update/components")
         c.ok("a build that does not stage Demos and tests leaves it on the removed list",
              "removed demos" in state, state.strip()[-200:])
-        out = sh.run(f"update --from {url} --check -v", timeout=600)
+        out = sh.run(f"update -vv --from {url} --check", timeout=600)
         c.ok("...so the next build that has it again still leaves its files out",
              "component demos: removed on this machine" in out and "/tests/sample.txt" not in out,
              out.strip()[-300:])
-        sh.run(f"update --from {url}", timeout=900)      # its definition back, for `add`
+        sh.run(f"update -y -vv --from {url}", timeout=900)      # its definition back, for `add`
         if "removed demos" not in sh.run("cat /var/lib/update/components"):
             sh.run("component remove demos", timeout=300)   # so the checks below test their own thing
 
@@ -273,7 +273,7 @@ def main():
                  got is not None and got[0] == srv.crc(path), f"sum {got} manifest {srv.crc(path)}")
         state = sh.run("cat /var/lib/update/components")
         c.ok("...and the state file no longer names it", "removed demos" not in state, state.strip()[-200:])
-        out = sh.run(f"update --from {url} --check", timeout=600)
+        out = sh.run(f"update -vv --from {url} --check", timeout=600)
         c.ok("...and the machine is up to date again", "up to date" in out, out.strip()[-200:])
 
         # 6. Needs=
@@ -295,7 +295,7 @@ def main():
 
         # 11. no --from: the channel the machine's build came from
         sh.run(f"update --server {url}/nochannel")      # configured: a server with no such build
-        sh.run(f"update --from {url}/main", timeout=900)
+        sh.run(f"update -y -vv --from {url}/main", timeout=900)
         rec = sh.run("head -n 6 /var/lib/update/installed")
         c.ok("an update records where the build came from", f"# from {url}/main" in rec, rec.strip()[-300:])
         sh.run("component remove demos", timeout=300)

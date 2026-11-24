@@ -55,15 +55,15 @@ static const char *boot_path(int slot, const char *name) {
     return g_boot_path[slot];
 }
 
-static void say(const struct upd_hooks *h, const char *fmt, ...)
-    __attribute__((format(printf, 2, 3)));
-static void say(const struct upd_hooks *h, const char *fmt, ...) {
+static void say_at(const struct upd_hooks *h, int level, const char *fmt, ...)
+    __attribute__((format(printf, 3, 4)));
+static void say_at(const struct upd_hooks *h, int level, const char *fmt, ...) {
     char line[320];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(line, sizeof line, fmt, ap);
     va_end(ap);
-    if (g_log_fd >= 0) {
+    if (level <= UPD_LOG_FILE && g_log_fd >= 0) {
         char stamp[16] = "";
         time_t now = time(0);
         struct tm tm;
@@ -72,8 +72,13 @@ static void say(const struct upd_hooks *h, const char *fmt, ...) {
         write(g_log_fd, line, strlen(line));
         write(g_log_fd, "\n", 1);
     }
-    if (h && h->log) h->log(h->ctx, line);
+    if (h && h->log_at) h->log_at(h->ctx, level, line);
+    else if (h && h->log && level <= UPD_LOG_FILE) h->log(h->ctx, line);
 }
+#define say(h, ...)     say_at(h, UPD_LOG_STEP, __VA_ARGS__)
+#define problem(h, ...) say_at(h, UPD_LOG_PROBLEM, __VA_ARGS__)
+#define per_file(h, ...) say_at(h, UPD_LOG_FILE, __VA_ARGS__)
+#define debug(h, ...)   say_at(h, UPD_LOG_DEBUG, __VA_ARGS__)
 
 static void progress(const struct upd_hooks *h, const struct upd_plan *p, int idx) {
     if (h && h->progress) h->progress(h->ctx, p, idx);
@@ -85,7 +90,7 @@ static int cancelled(const struct upd_hooks *h) {
 
 static void set_error(struct upd_plan *p, const struct upd_hooks *h, const char *msg) {
     snprintf(p->error, sizeof p->error, "%s", msg);
-    say(h, "error: %s", msg);
+    problem(h, "error: %s", msg);
 }
 
 // ---- small file helpers ---------------------------------------------------
@@ -444,7 +449,7 @@ static void write_record(struct upd_plan *p, const struct upd_hooks *h) {
     int fl = snprintf(from, sizeof from, "# from %s\n", p->base);
     size_t len = strlen(p->manifest);
     if (fd < 0 || write(fd, from, (size_t)fl) != fl || write(fd, p->manifest, len) != (long)len)
-        say(h, "could not record the manifest in %s -- the next update removes nothing",
+        problem(h, "could not record the manifest in %s -- the next update removes nothing",
             UPD_INSTALLED_PATH);
     if (fd >= 0) close(fd);
 }
@@ -529,7 +534,9 @@ static void fetch_notes(struct upd_plan *p, const struct upd_hooks *h) {
     req.read_timeout_ms = UPD_READ_TIMEOUT_MS;
     req.sink = grow_sink;
     req.sink_ctx = &b;
-    if (uhttp_fetch(&req) != 0 || req.status != 200 || !b.p) {
+    int nrc = uhttp_fetch(&req);
+    debug(h, "GET %s -> %d%s%s", url, req.status, nrc ? ", " : "", nrc ? req.err : "");
+    if (nrc != 0 || req.status != 200 || !b.p) {
         free(b.p);
         say(h, "notes: none on this server");
         return;
@@ -754,7 +761,7 @@ static void compare_kernel(struct upd_plan *p, const struct upd_hooks *h) {
         if (refuse && !p->kernel_blocked) {
             // And the REST waits too: a userland newer than its kernel is
             // how a flashed laptop once came up with no network (remote.py).
-            say(h, "kernel: cannot update -- %s. Nothing will be installed.", refuse);
+            problem(h, "kernel: cannot update -- %s. Nothing will be installed.", refuse);
             snprintf(p->blocked_why, sizeof p->blocked_why, "%s", refuse);
             p->kernel_blocked = 1;
         }
@@ -790,7 +797,9 @@ static int check_run(const char *base, struct upd_plan *p, const struct upd_hook
     req.read_timeout_ms = UPD_READ_TIMEOUT_MS;
     req.sink = grow_sink;
     req.sink_ctx = &b;
-    if (uhttp_fetch(&req) != 0 || req.status != 200 || !b.p) {
+    int mrc = uhttp_fetch(&req);
+    debug(h, "GET %s -> %d%s%s", url, req.status, mrc ? ", " : "", mrc ? req.err : "");
+    if (mrc != 0 || req.status != 200 || !b.p) {
         char msg[sizeof req.err + 160];
         if (req.status && req.status != 200) {
             // The body says why (a stale build, no channel named): its
@@ -848,6 +857,9 @@ static int check_run(const char *base, struct upd_plan *p, const struct upd_hook
             else if (size != f->size) f->change = UPD_CHANGED;
             else if (file_crc(f->path, &crc) != 0 || crc != f->crc) f->change = UPD_CHANGED;
             else f->change = UPD_SAME;
+            if (f->change == UPD_CHANGED || f->change == UPD_NEW)
+                debug(h, "%s: here %llu bytes, shipped %llu -> %s", f->path, (unsigned long long)size,
+                      (unsigned long long)f->size, f->change == UPD_NEW ? "new" : "fetch");
         }
         if (f->change == UPD_CHANGED || f->change == UPD_NEW) {
             p->changed++;
@@ -906,7 +918,7 @@ static int fetch_one(struct upd_plan *p, int idx, const struct upd_hooks *h) {
     char tmp[UPD_PATH_MAX + 8];
     staged_name(f, tmp, sizeof tmp);
     if (mkdir_parents(f->path) != 0 || mkdir_parents(tmp) != 0) {
-        say(h, "%s: cannot create its directory", f->path);
+        problem(h, "%s: cannot create its directory", f->path);
         return -1;
     }
 
@@ -924,7 +936,7 @@ static int fetch_one(struct upd_plan *p, int idx, const struct upd_hooks *h) {
     for (int attempt = 0; attempt < 2; attempt++) {
         memset(&c, 0, sizeof c);
         c.fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC);
-        if (c.fd < 0) { say(h, "%s: cannot write %s", f->path, tmp); return -1; }
+        if (c.fd < 0) { problem(h, "%s: cannot write %s", f->path, tmp); return -1; }
         c.p = p; c.f = f; c.idx = idx; c.h = h;
         c.alg = uhash_find("crc32");
         c.alg->init(&c.crc);
@@ -939,8 +951,9 @@ static int fetch_one(struct upd_plan *p, int idx, const struct upd_hooks *h) {
         req.sink_ctx = &c;
         rc = uhttp_fetch(&req);
         close(c.fd);
+        debug(h, "GET %s -> %d, %llu bytes", url, req.status, (unsigned long long)f->got);
         if (rc == 0 || attempt || cancelled(h)) break;
-        say(h, "%s: fetch failed: %s -- retrying once", f->path, req.err);
+        problem(h, "%s: fetch failed: %s -- retrying once", f->path, req.err);
     }
 
     unsigned char d[UHASH_DIGEST_MAX];
@@ -956,12 +969,12 @@ static int fetch_one(struct upd_plan *p, int idx, const struct upd_hooks *h) {
     if (why) {
         unlink(tmp);
         f->status = UPD_FAILED;
-        say(h, "%s: %s", f->path, why);
+        problem(h, "%s: %s", f->path, why);
         progress(h, p, idx);
         return -1;
     }
     f->status = UPD_STAGED;
-    say(h, "%s: %llu bytes, crc %u ok", f->path, (unsigned long long)f->size, got_crc);
+    per_file(h, "%s: %llu bytes, crc %u ok", f->path, (unsigned long long)f->size, got_crc);
     progress(h, p, idx);
     return 0;
 }
@@ -1029,13 +1042,13 @@ static int install_kernel_rw(struct upd_file *f, const struct upd_hooks *h, int 
     snprintf(tmp, sizeof tmp, "%s%s", KERNEL_PATH, UPDATE_STAGED_SUFFIX);
     if (!previous) unlink(KERNEL_OLD);   // room first: kernel.bin is running and stays
     if (copy_checked(UPD_KERNEL_STAGED, tmp, f) != 0) {
-        say(h, "kernel: could not copy it into %s intact -- not installing", tmp);
+        problem(h, "kernel: could not copy it into %s intact -- not installing", tmp);
         return -1;
     }
     if (previous) {
         unlink(KERNEL_PATH);
         if (sys_rename(tmp, KERNEL_PATH) != 0) {
-            say(h, "kernel: could not rename %s into place -- GRUB falls back to %s", tmp, KERNEL_OLD);
+            problem(h, "kernel: could not rename %s into place -- GRUB falls back to %s", tmp, KERNEL_OLD);
             return -1;
         }
         say(h, "kernel: installed; this boot runs the previous kernel, so %s is kept and the "
@@ -1044,12 +1057,12 @@ static int install_kernel_rw(struct upd_file *f, const struct upd_hooks *h, int 
     }
     if (sys_rename(KERNEL_PATH, KERNEL_OLD) != 0) {
         unlink(tmp);
-        say(h, "kernel: could not keep the running kernel as %s -- not installing", KERNEL_OLD);
+        problem(h, "kernel: could not keep the running kernel as %s -- not installing", KERNEL_OLD);
         return -1;
     }
     if (sys_rename(tmp, KERNEL_PATH) != 0) {
         sys_rename(KERNEL_OLD, KERNEL_PATH);   // put the running one back
-        say(h, "kernel: could not rename %s into place", tmp);
+        problem(h, "kernel: could not rename %s into place", tmp);
         return -1;
     }
     say(h, "kernel: installed; the running kernel is kept as %s", KERNEL_OLD);
@@ -1066,14 +1079,14 @@ static int install_kernel(struct upd_file *f, const struct upd_hooks *h, int pre
         else if (ubootcfg_save(&g_cfg, GRUB_CFG, &why) == 0) why = 0;
         else if (!why) why = "?";
         if (why) {
-            say(h, "kernel: could not give %s its previous-kernel fallback (%s) -- not installing",
+            problem(h, "kernel: could not give %s its previous-kernel fallback (%s) -- not installing",
                 GRUB_CFG, why);
             return -1;
         }
         say(h, "kernel: %s now falls back to the previous kernel by itself", GRUB_CFG);
     }
     if (boot_mount(1) != 0) {
-        say(h, "kernel: could not mount /boot read-write -- not installing");
+        problem(h, "kernel: could not mount /boot read-write -- not installing");
         return -1;
     }
     int rc = install_kernel_rw(f, h, previous);
@@ -1192,7 +1205,7 @@ static const char *space_refusal(const struct upd_plan *p, int kernel, int previ
 static int write_pending(struct upd_plan *p, const struct upd_hooks *h) {
     mkdir_parents(UPDATE_PENDING_PATH);
     int fd = open(UPDATE_PENDING_PATH, O_WRONLY | O_CREAT | O_TRUNC);
-    if (fd < 0) { say(h, "cannot write %s", UPDATE_PENDING_PATH); return -1; }
+    if (fd < 0) { problem(h, "cannot write %s", UPDATE_PENDING_PATH); return -1; }
     int lines = 0;
     for (int i = 0; i < p->count; i++) {
         struct upd_file *f = &p->files[i];
@@ -1203,7 +1216,7 @@ static int write_pending(struct upd_plan *p, const struct upd_hooks *h) {
             write(fd, f->path, strlen(f->path)) < 0 || write(fd, "\n", 1) != 1) {
             close(fd);
             unlink(UPDATE_PENDING_PATH);
-            say(h, "cannot write %s", UPDATE_PENDING_PATH);
+            problem(h, "cannot write %s", UPDATE_PENDING_PATH);
             return -1;
         }
     }
@@ -1296,7 +1309,7 @@ static int apply_run(struct upd_plan *p, const struct upd_hooks *h) {
             } else {
                 f->status = UPD_FAILED;
                 p->failed = 1;
-                say(h, "%s: could not rename into place (%s kept)", f->path, tmp);
+                problem(h, "%s: could not rename into place (%s kept)", f->path, tmp);
             }
             progress(h, p, i);
         }
@@ -1305,11 +1318,11 @@ static int apply_run(struct upd_plan *p, const struct upd_hooks *h) {
             if (f->change != UPD_REMOVE) continue;
             if (unlink(f->path) == 0) {
                 f->status = UPD_REMOVED;
-                say(h, "%s: removed -- no longer shipped", f->path);
+                per_file(h, "%s: removed -- no longer shipped", f->path);
             } else {
                 f->status = UPD_FAILED;
                 p->failed = 1;
-                say(h, "%s: could not remove", f->path);
+                problem(h, "%s: could not remove", f->path);
             }
             progress(h, p, i);
         }
@@ -1373,7 +1386,9 @@ static int fetch_build(const char *base, struct upd_plan *p, const struct upd_ho
     req.read_timeout_ms = UPD_READ_TIMEOUT_MS;
     req.sink = grow_sink;
     req.sink_ctx = &b;
-    if (uhttp_fetch(&req) != 0 || req.status != 200 || !b.p) {
+    int mrc = uhttp_fetch(&req);
+    debug(h, "GET %s -> %d%s%s", url, req.status, mrc ? ", " : "", mrc ? req.err : "");
+    if (mrc != 0 || req.status != 200 || !b.p) {
         char msg[sizeof req.err + 160];
         if (req.status == 404) {
             // A build the server pruned, or never had: adding from another

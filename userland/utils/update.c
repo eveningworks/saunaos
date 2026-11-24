@@ -1,30 +1,77 @@
 // update -- bring this machine up to date from an update server.
 //
 // A FRONT END over userland/common/upd.c, which the System Update window
-// shares; what it prints IS the log (/var/log/update.log), so running it
-// over `remote.py exec` shows exactly what the window would have.
+// shares. The engine writes its whole log to /var/log/update.log; this
+// shows a summary and a progress bar, and the log by level with -v, -vv
+// and -vvv (enum upd_log_level). Like apt and dnf it asks before it
+// installs, and -y answers for a run with no terminal.
 // docs/commands/update.md has the usage, docs/update-design.md the why.
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "rt/sys.h"
-#include "base/cmd.h"
 #include "base/human.h"
+#include "base/uargs.h"
+#include "base/uask.h"
 #include "base/umd.h"
 #include "base/upager.h"
+#include "base/uprogress.h"
 #include "common/upd.h"
 #include "base/ubootrefresh.h"
 
-#define USAGE "update [--check] [-v] [--go-back] [--from <url>] | --server [<url>] | --channel [<name>] | --channels | --log"
+static int o_check, o_yes, o_verbose, o_go_back, o_server, o_channel, o_channels, o_log;
+static const char *o_from;
+
+static const struct uargs_opt OPTS[] = {
+    { "check",    'n', 0,     "show what would change, install nothing", &o_check, 0 },
+    { "yes",      'y', 0,     "install without asking (needed with no terminal)", &o_yes, 0 },
+    { "verbose",  'v', 0,     "say more: -v each decision, -vv each file, -vvv each request", &o_verbose, 0 },
+    { "from",     0,   "URL", "use this channel's address for this run only", 0, &o_from },
+    { "go-back",  0,   0,     "install the channel's build even if it is OLDER than this machine's", &o_go_back, 0 },
+    { "server",   0,   0,     "print the update server, or set it: --server URL", &o_server, 0 },
+    { "channel",  0,   0,     "print the channel this machine follows, or set it: --channel NAME", &o_channel, 0 },
+    { "channels", 0,   0,     "list the server's channels", &o_channels, 0 },
+    { "log",      0,   0,     "print the last run's log", &o_log, 0 },
+    { 0 },
+};
+
+static const struct uargs_prog PROG = {
+    .name = "update",
+    .usage = "[-n] [-y] [-v...] [--from URL] [--go-back]\n"
+             "--server [URL] | --channel [NAME] | --channels | --log",
+    .summary = "Bring this machine up to date from its update server: show what is new,\n"
+               "ask, then download and install. The System Update window does the same.",
+    .opts = OPTS,
+    .notes = "The full log of every run is /var/log/update.log, whatever -v says.\n"
+             "Exit status: 0 done or up to date, 1 failed or not installed, 2 bad usage.",
+    .counted = "v",
+};
 
 struct cli {
-    int tty;          // redraw a live line for the file being fetched
-    int drawn;        // that line is on screen and must be cleared first
-    int verbose;
-    long last_ms;     // when it was last redrawn: a few times a second is plenty
+    int tty;               // stdout is a terminal: draw the bar and the inline "done"
+    int inline_open;       // "Checking for updates..." waits for its "done" on this line
+    int bar_on;            // the bar is on screen and must be cleared before a line
+    struct uprogress bar;
 };
+
+static struct cli g;
+
+// A line from the engine, at or below the asked verbosity; problems always.
+static void on_log_at(void *ctx, int level, const char *line) {
+    (void)ctx;
+    if (level != UPD_LOG_PROBLEM && level > o_verbose) return;
+    if (g.inline_open) { printf("\n"); g.inline_open = 0; }
+    if (g.bar_on) { fputs("\r\033[K", stdout); g.bar.width = 0; }
+    printf("  %s\n", line);
+    fflush(stdout);
+}
+
+static void on_progress(void *ctx, const struct upd_plan *p, int idx) {
+    (void)ctx; (void)idx;
+    if (!g.bar_on) return;
+    uprogress_set(&g.bar, p->done_bytes);
+}
 
 // A NEWER BOOT LOADER, said and never written: an update replaces files,
 // and GRUB's core is the one write that decides whether the machine boots
@@ -35,82 +82,72 @@ static void boot_loader_note(void) {
     char what[200];
     ubootrefresh_offer_detail(&o, what, sizeof what);
     if (o.kind == UBOOTREFRESH_NEWER || o.kind == UBOOTREFRESH_DIFFERENT)
-        printf("update: a %s boot loader %s%s%s%s -- %s`install --bootloader confirm` writes it\n",
+        printf("A %s boot loader %s%s%s%s -- %s`install --bootloader confirm` writes it.\n",
                o.kind == UBOOTREFRESH_NEWER ? "newer" : "different",
                o.pending ? "comes with this update" : "is staged",
                what[0] ? " (" : "", what, what[0] ? ")" : "", o.pending ? "after the restart, " : "");
     else if (o.kind == UBOOTREFRESH_UNKNOWN)
-        printf("update: this disk's boot loader may be out of date (nothing records what it "
-               "carries) -- `install --bootloader confirm` writes the current one\n");
+        printf("This disk's boot loader may be out of date (nothing records what it carries) -- "
+               "`install --bootloader confirm` writes the current one.\n");
     ubootrefresh_offer_free(&o);
 }
 
-static long now_ms(void) { return (long)(sys_monotonic_ns() / 1000000ULL); }
-
-static void clear_live(struct cli *c) {
-    if (c->drawn) { fputs("\r\033[K", stdout); c->drawn = 0; }
+static int is_kernel(const struct upd_file *f) {
+    return (f->flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ)) != 0;
 }
 
-static void on_log(void *ctx, const char *line) {
-    struct cli *c = ctx;
-    clear_live(c);
-    printf("%s\n", line);
-    fflush(stdout);
-}
-
-static void on_progress(void *ctx, const struct upd_plan *p, int idx) {
-    struct cli *c = ctx;
-    if (!c->tty || idx < 0) return;
-    const struct upd_file *f = &p->files[idx];
-    if (f->status != UPD_FETCHING) return;
-    long t = now_ms();
-    if (c->drawn && t - c->last_ms < 250 && f->got != f->size) return;
-    c->last_ms = t;
-    char got[16], all[16];
-    human_size(got, sizeof got, p->done_bytes);
-    human_size(all, sizeof all, p->bytes);
-    int pct = f->size ? (int)(f->got * 100 / f->size) : 100;
-    printf("\r\033[K  %s  %d%%   (%s of %s)", f->path, pct, got, all);
-    fflush(stdout);
-    c->drawn = 1;
-}
-
-static void list_changes(const struct upd_plan *p, int verbose) {
+// Every file that changes, or the first ten.
+static void list_changes(const struct upd_plan *p, int all) {
     int shown = 0;
     for (int i = 0; i < p->count; i++) {
         const struct upd_file *f = &p->files[i];
         if (f->change != UPD_CHANGED && f->change != UPD_NEW && f->change != UPD_REMOVE) continue;
-        if (!verbose && shown == 10) {
+        if (!all && shown == 10) {
             printf("  ... %d more (update --check -v)\n", p->changed + p->removals - shown);
             return;
         }
+        shown++;
         if (f->change == UPD_REMOVE) {
             printf("  %-34s %7s  remove (no longer shipped)\n", f->path, "");
-            shown++;
             continue;
         }
         char sz[16];
         human_size(sz, sizeof sz, f->size);
         printf("  %-34s %7s%s%s\n", f->path, sz, f->change == UPD_NEW ? "  new" : "",
-               (f->flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ)) ? "  (restart needed)" : "");
-        shown++;
+               is_kernel(f) ? "  (restart needed)" : "");
     }
 }
 
 // The engine's notes are Markdown; umd wraps them to this terminal, as
 // /bin/doc does a page.
-static void show_notes(const struct upd_plan *p, int color) {
+static void show_notes(const struct upd_plan *p) {
     if (!p->notes) return;
     int cols = 80;
     upager_term(NULL, &cols);
     static char buf[65536];
-    struct umd_opts mo = { .cols = cols, .color = color, .indent = 2 };
+    struct umd_opts mo = { .cols = cols, .color = g.tty, .indent = 2 };
     struct umd_out o = { buf, (int)sizeof buf, 0, 0 };
     umd_render(p->notes, (int)strlen(p->notes), &mo, &o);
     printf("\nWhat's new\n");
     fwrite(buf, 1, (size_t)o.len, stdout);
     if (o.overflow) printf("  ... (cut short)\n");
-    printf("\n");
+}
+
+// "16 files to download, 6.1 MiB. The kernel is one: restart to finish."
+static void summary(const struct upd_plan *p) {
+    char total[16];
+    human_size(total, sizeof total, p->bytes);
+    int kernel = 0;
+    for (int i = 0; i < p->count; i++)
+        if (is_kernel(&p->files[i]) && (p->files[i].change == UPD_CHANGED || p->files[i].change == UPD_NEW))
+            kernel = 1;
+    printf("\n%d file%s to download, %s", p->changed, p->changed == 1 ? "" : "s", total);
+    if (p->removals) printf("; %d to remove", p->removals);
+    printf(".%s\n", kernel ? " The kernel is one: restart to finish." : "");
+    int kept = p->conf_kept + p->conf_removed + p->kept_edited;
+    if (kept && !o_verbose)
+        printf("%d file%s changed on this machine %s left as %s (update -v names them).\n", kept,
+               kept == 1 ? "" : "s", kept == 1 ? "is" : "are", kept == 1 ? "it is" : "they are");
 }
 
 static int show_log(void) {
@@ -186,72 +223,132 @@ static int channel_cmd(const char *name) {
     return 0;
 }
 
-int main(int argc, char **argv) {
-    int check_only = 0, verbose = 0, go_back = 0;
-    const char *from = 0;
-    for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--check") || !strcmp(argv[i], "-n")) check_only = 1;
-        else if (!strcmp(argv[i], "-v")) verbose = 1;
-        else if (!strcmp(argv[i], "--from") && i + 1 < argc) from = argv[++i];
-        else if (!strcmp(argv[i], "--server")) return server_cmd(i + 1 < argc ? argv[i + 1] : 0);
-        else if (!strcmp(argv[i], "--log")) return show_log();
-        else if (!strcmp(argv[i], "--channels")) return channels_cmd();
-        else if (!strcmp(argv[i], "--channel")) return channel_cmd(i + 1 < argc ? argv[i + 1] : 0);
-        else if (!strcmp(argv[i], "--go-back")) go_back = 1;
-        else { cmd_usage(USAGE); return 1; }
+static int install(struct upd_plan *p, const struct upd_hooks *h) {
+    if (o_yes && o_verbose) printf("Installing without asking (-y)\n");
+    // The bar and a line per file would fight over the same row.
+    g.bar_on = g.tty && o_verbose < UPD_LOG_FILE;
+    if (g.bar_on) {
+        uprogress_begin(&g.bar, 1, p->bytes);
+        g.bar.label = "Downloading";
+    } else if (!o_verbose) {
+        printf("Downloading and installing... ");
+        fflush(stdout);
+        g.inline_open = 1;
     }
+    int rc = upd_apply(p, h);
+    if (g.bar_on) {
+        if (rc == 0) uprogress_end(&g.bar);
+        else fputs("\r\033[K", stdout);
+        g.bar_on = 0;
+    }
+    if (g.inline_open) { printf("%s\n", rc == 0 ? "done" : "failed"); g.inline_open = 0; }
+    if (rc != 0) {
+        // A failed rename leaves the files before it in place: say so.
+        int done = 0;
+        for (int i = 0; i < p->count; i++)
+            done += p->files[i].status == UPD_INSTALLED || p->files[i].status == UPD_REMOVED;
+        if (done) printf("The update failed part-way: %d file%s installed, the rest not "
+                         "(update --log).\n", done, done == 1 ? " was" : "s were");
+        else printf("Nothing was installed.\n");
+        return 1;
+    }
+    if (g.tty && o_verbose < UPD_LOG_FILE) printf("Installing  %s\n", p->at_boot ? "staged for the restart" : "done");
+    if (p->at_boot || p->kernel_installed)
+        printf("Updated to %s. Restart to finish: reboot\n", p->version[0] ? p->version : "the new build");
+    else
+        printf("Updated to %s.\n", p->version[0] ? p->version : "the new build");
+    boot_loader_note();
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    struct uargs a;
+    if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
+    int modes = !!o_server + !!o_channel + !!o_channels + !!o_log;
+    if (modes > 1) return uargs_error(&PROG, "--server, --channel, --channels and --log go alone");
+    if (a.argc > (o_server || o_channel ? 1 : 0)) return uargs_error(&PROG, "unexpected '%s'", a.argv[a.argc - 1]);
+    if (o_server) return server_cmd(a.argc ? a.argv[0] : 0);
+    if (o_channel) return channel_cmd(a.argc ? a.argv[0] : 0);
+    if (o_channels) return channels_cmd();
+    if (o_log) return show_log();
+
+    g.tty = isatty(1);
+    struct upd_hooks h = { .ctx = &g, .log_at = on_log_at, .progress = on_progress };
 
     // --from names ONE channel's address, as it always did; otherwise
     // the server's list picks it (upd_resolve()).
     static char server[UPD_URL_MAX + 32];
     static struct upd_channels chs;
-    if (from) {
-        snprintf(server, sizeof server, "%s", from);
+    const char *channel = 0;
+    printf("Checking for updates... ");
+    fflush(stdout);
+    g.inline_open = 1;
+    if (o_from) {
+        snprintf(server, sizeof server, "%s", o_from);
     } else {
         static char base[UPD_URL_MAX], err[200];   // static: the ring-3 frame budget is 2 KiB
         upd_server_get(base, sizeof base);
         if (upd_resolve(base, NULL, server, sizeof server, &chs, err, sizeof err) != 0) {
-            printf("update: %s\n", err);
+            printf("failed\nupdate: %s\n", err);
             return 1;
         }
-        if (chs.chosen >= 0) printf("update: channel %s\n", chs.ch[chs.chosen].id);
+        if (chs.chosen >= 0) channel = chs.ch[chs.chosen].id;
     }
 
-    struct cli c = { .tty = isatty(1), .verbose = verbose };
-    struct upd_hooks h = { .ctx = &c, .log = on_log, .progress = on_progress };
     static struct upd_plan p;   // static: the ring-3 frame budget is 2 KiB
-    if (upd_check(server, &p, &h) != 0) { upd_plan_free(&p); return 1; }
+    if (upd_check(server, &p, &h) != 0) {
+        if (g.inline_open) printf("failed\n");
+        upd_plan_free(&p);
+        return 1;
+    }
+    if (g.inline_open) { printf("done\n"); g.inline_open = 0; }
 
-    if (p.staged_for_boot)
-        printf("update: an update is already staged -- restart to finish it\n");
-    if (p.kernel_blocked)
-        printf("update: nothing can be installed: %s (docs/commands/update.md)\n", p.blocked_why);
+    char mv[48], mb[48];
+    upd_machine_build(mv, sizeof mv, mb, sizeof mb);
+    // --check still lists what differs; an install stops here.
+    if (p.staged_for_boot) {
+        printf("An update is already staged -- restart to finish it: reboot\n");
+        if (!o_check) { upd_plan_free(&p); return 0; }
+    }
+    if (p.kernel_blocked) {
+        printf("Nothing can be installed: %s (doc update)\n", p.blocked_why);
+        if (!o_check) { upd_plan_free(&p); return 1; }
+    }
     if (!p.changed && !p.removals) {
-        printf("update: up to date\n");
+        printf("SaunaOS is up to date (%s%s%s).\n", mv[0] ? mv : "this build", mb[0] ? ", built " : "", mb);
         boot_loader_note();
         upd_plan_free(&p);
         return 0;
     }
-    if (p.behind && !go_back) {
-        printf("update: this channel's build (%s, %s) is older than this machine's -- waiting "
-               "until it passes it. `update --go-back` installs it now.\n", p.version, p.built);
+    if (p.behind && !o_go_back) {
+        printf("This channel's build (%s, %s) is older than this machine's -- waiting until it "
+               "passes it. `update --go-back` installs it now.\n", p.version, p.built);
         upd_plan_free(&p);
         return 0;
     }
-    show_notes(&p, c.tty);
-    char total[16];
-    human_size(total, sizeof total, p.bytes);
-    printf("%d file%s to fetch, %s", p.changed, p.changed == 1 ? "" : "s", total);
-    if (p.removals) printf("; %d stale to remove", p.removals);
-    printf(":\n");
-    list_changes(&p, verbose || !check_only);
-    if (check_only || p.staged_for_boot) { upd_plan_free(&p); return 0; }
 
-    int rc = upd_apply(&p, &h);
-    clear_live(&c);
-    if (p.at_boot || p.kernel_installed)
-        printf("update: restart to finish (`reboot`)\n");
-    if (rc == 0) boot_loader_note();
+    printf("SaunaOS %s is %s (built %s%s%s)\n", p.version[0] ? p.version : "(no version)",
+           p.behind ? "an OLDER build" : "available", p.built[0] ? p.built : "no date",
+           channel ? ", channel " : "", channel ? channel : "");
+    if (mv[0]) printf("This machine has %s%s%s%s\n", mv, mb[0] ? " (built " : "", mb, mb[0] ? ")" : "");
+    show_notes(&p);
+    summary(&p);
+    if (o_check || o_verbose) list_changes(&p, o_verbose > 0);
+    if (o_check) { upd_plan_free(&p); return 0; }
+
+    if (!o_yes) {
+        printf("\n");
+        int yes = uask_yes_no("Install the update?", 1);
+        if (yes == UASK_NO_TERMINAL) {
+            printf("update: %d file%s to install, and no terminal to ask -- add -y to install\n",
+                   p.changed, p.changed == 1 ? "" : "s");
+            upd_plan_free(&p);
+            return 1;
+        }
+        if (!yes) { printf("Nothing was installed.\n"); upd_plan_free(&p); return 1; }
+    }
+    printf("\n");
+    int rc = install(&p, &h);
     upd_plan_free(&p);
-    return rc == 0 ? 0 : 1;
+    return rc;
 }

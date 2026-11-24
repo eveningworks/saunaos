@@ -70,8 +70,9 @@ static void draw(struct uprogress *p, int final) {
     int cols = term_width(p->fd);
     int len = 0;
     line[len++] = '\r';
+    if (p->label) len += snprintf(line + len, sizeof line - (unsigned)len, "%-12.40s ", p->label);
 
-    int bar = cols - 1 - (int)strlen(tail);
+    int bar = cols - 1 - (int)strlen(tail) - (len - 1);
     if (p->total && bar >= 8) {
         int fill = bar - 2;                         // the two brackets
         int on = (int)((unsigned long long)fill * (unsigned long long)pct / 100ull);
@@ -109,6 +110,11 @@ void uprogress_add(struct uprogress *p, unsigned long long n) {
     if (now - p->last_ns < REDRAW_NS) return;
     p->last_ns = now;
     draw(p, 0);
+}
+
+void uprogress_set(struct uprogress *p, unsigned long long done) {
+    if (done < p->done) done = p->done;   // a total never goes back
+    uprogress_add(p, done - p->done);
 }
 
 void uprogress_end(struct uprogress *p) {

@@ -419,7 +419,12 @@ def do_update(host, port, url, reboot, wait, timeout):
     stalled = False
     try:
         try:
-            sess.run(f"update --from {url} > {log}", timeout)
+            # -y: with no terminal to ask on, `update` refuses without it.
+            # A machine still on a build before -y existed answers with
+            # its usage line, and gets the old form.
+            sess.run(f"update -y -vv --from {url} > {log}", timeout)
+            if "usage:" in "\n".join(sess.run(f"head -n 2 {log}", 20.0)):
+                sess.run(f"update --from {url} > {log}", timeout)
         except (TimeoutError, EOFError) as e:
             print(f"remote: update did not finish within {timeout:.0f} s ({e})", file=sys.stderr)
             stalled = True
@@ -435,7 +440,7 @@ def do_update(host, port, url, reboot, wait, timeout):
     print("\n".join(tail))
     if stalled:
         return 1
-    if not any("restart to finish" in ln for ln in tail):
+    if not any("restart to finish" in ln.lower() for ln in tail):
         return 0 if any("up to date" in ln.lower() or "nothing to" in ln.lower() for ln in tail) else 1
     if not reboot:
         return 0

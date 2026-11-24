@@ -134,10 +134,24 @@ struct upd_plan {
     char     error[160];          // why the whole run stopped, or ""
 };
 
+// How much a log line matters, for a front end that shows less than all
+// of it (`update`'s -v, -vv, -vvv). UPD_LOG_PATH and `log` get every line
+// up to UPD_LOG_FILE, as they always have; UPD_LOG_DEBUG reaches only
+// `log_at`.
+enum upd_log_level {
+    UPD_LOG_PROBLEM,   // something failed or was refused
+    UPD_LOG_STEP,      // what was decided: the server, the counts, a kept /etc file
+    UPD_LOG_FILE,      // one line per file fetched or removed
+    UPD_LOG_DEBUG,     // each request and each file's comparison
+};
+
 struct upd_hooks {
     void *ctx;
     // One finished line, no newline, already written to UPD_LOG_PATH.
     void (*log)(void *ctx, const char *line);
+    // Every line with its level, UPD_LOG_DEBUG too, after the file has it;
+    // when set, `log` is not called.
+    void (*log_at)(void *ctx, int level, const char *line);
     // Something about file `idx` changed (-1: the plan as a whole).
     // Called often while fetching; a caller throttles its own drawing.
     void (*progress)(void *ctx, const struct upd_plan *p, int idx);

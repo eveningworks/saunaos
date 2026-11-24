@@ -31,6 +31,7 @@ struct uprogress {
     unsigned long long start_ns;
     unsigned long long last_ns;
     int width;                     // columns of the last line drawn
+    const char *label;             // drawn before the bar ("Downloading"); set AFTER begin
 };
 
 // `total` 0 means "not known": the meter then shows bytes, rate and
@@ -39,6 +40,9 @@ void uprogress_begin(struct uprogress *p, int fd, unsigned long long total);
 
 // Account for `n` more bytes, redrawing if the cadence is due.
 void uprogress_add(struct uprogress *p, unsigned long long n);
+// The same, for a caller that knows the running total rather than each
+// chunk (a download engine's own byte count).
+void uprogress_set(struct uprogress *p, unsigned long long done);
 
 // Final redraw and a newline, so whatever prints next starts clean.
 // Safe on a meter that was never begun or that disabled itself.

@@ -155,7 +155,7 @@ def main():
         copy_disk(damaged, work)
         sh, pidfile = boot(work, tmp, "whole")
         t0 = time.time()
-        out = sh.run(f"update --from {url}", timeout=900)
+        out = sh.run(f"update -y -vv --from {url}", timeout=900)
         span = time.time() - t0
         c.ok("an uncut run installs and stages", "staged" in out or "updated" in out, out.strip()[-200:])
         sh.run("sync")
@@ -167,7 +167,7 @@ def main():
             copy_disk(damaged, work)
             sh, pidfile = boot(work, tmp, f"cut{i}")
             at = rng.uniform(0.05, span * 1.1)
-            sh.run(f"spawn /bin/update --from {url}")
+            sh.run(f"spawn /bin/update -y -vv --from {url}")
             time.sleep(at)   # sleep-ok: the cut's instant IS the test
             kill_and_wait(pidfile)
             pidfile = None
@@ -177,7 +177,7 @@ def main():
             label = f"cut {i} at {at:.2f} s"
             c.ok(f"{label}: the machine boots", sh is not None)
             check_targets(c, sh, targets, label)
-            out = sh.run(f"update --from {url}", timeout=900)
+            out = sh.run(f"update -y -vv --from {url}", timeout=900)
             if "restart" in out:
                 sh.run("sync")
                 kill_and_wait(pidfile)
@@ -191,7 +191,7 @@ def main():
         # A cut DURING the boot that applies the staged library.
         copy_disk(damaged, work)
         sh, pidfile = boot(work, tmp, "stage")
-        out = sh.run(f"update --from {url}", timeout=900)
+        out = sh.run(f"update -y -vv --from {url}", timeout=900)
         staged = "/lib/libhello.so" in sh.run("cat /var/lib/update/pending")
         c.ok("a run stages the library for the boot", staged, out.strip()[-160:])
         sh.run("sync")

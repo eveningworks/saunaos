@@ -53,6 +53,10 @@ struct uargs_prog {
     // another program needs it -- GNU getopt's leading '+', env's and
     // sudo's shape.
     int first_operand_ends_options;
+    // Short letters whose flag is a COUNT, not a position: -vvv, -v -v -v
+    // and --verbose three times all give 3 (ssh's and rsync's -v). The
+    // caller zeroes the flag before parsing.
+    const char *counted;
 };
 
 struct uargs {

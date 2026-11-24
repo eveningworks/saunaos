@@ -32,6 +32,7 @@ on a loopback port, reached through SLIRP's 10.0.2.2. Needs mtools.
 RUNNER = {"covers": "/bin/update's kernel: rescue boot keeps kernel.old, GRUB fallback, lock, free space"}
 
 import argparse
+import gzip
 import os
 import re
 import shutil
@@ -63,6 +64,10 @@ def kernel_saying(tmp, msg, name):
     out = os.path.join(tmp, name)
     with open(out, "wb") as fh:
         fh.write(data.replace(BOOT_MSG, msg))
+    # GZIPPED TOO: an image whose GRUB records gzio (core.modules) takes
+    # only the kernel-gz line, and with the ELF alone it compared nothing.
+    with open(out + ".gz", "wb") as fh:
+        fh.write(gzip.compress(data.replace(BOOT_MSG, msg)))
     return out
 
 
@@ -189,8 +194,8 @@ def main():
         kill_and_wait(pidfile)
         c.ok("/boot can be filled from the host", esp.fill(256 * 1024))
         sh, pidfile = launch(disk, tmp, "k2", "e1000")
-        srv.manifest.kernel_elf, srv.manifest.kernel_media = twin, ""
-        out = sh.run(f"update --from {url}", timeout=600)
+        srv.manifest.kernel_elf, srv.manifest.kernel_media = twin, twin + ".gz"
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         c.ok("with /boot full a kernel update is refused before fetching",
              "not enough room on /boot" in out and "fetching" not in out, out.strip()[-240:])
         c.ok("...and /boot/kernel.bin is untouched", summed(sh, "/boot/kernel.bin") == orig)
@@ -200,7 +205,7 @@ def main():
 
         # 3. an install on an old-style grub.cfg
         sh, pidfile = launch(disk, tmp, "k3", "e1000")
-        out = sh.run(f"update --from {url}", timeout=600)
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         c.ok("the kernel installs", "kernel: installed; the running kernel is kept" in out, out.strip()[-240:])
         c.ok("...the running kernel is now kernel.old", summed(sh, "/boot/kernel.old") == orig)
         cfg = sh.run("cat /boot/grub/grub.cfg")
@@ -219,12 +224,13 @@ def main():
         c.ok("the rescue boot runs the previous kernel (the original)",
              BOOT_MSG.decode() in dm and TWIN.decode() not in dm)
         c.ok("...and GRUB told it so", "kernel=previous" in booted_words(sh), " ".join(booted_words(sh)))
-        srv.manifest.kernel_elf = twin2
-        out = sh.run(f"update --from {url}", timeout=600)
+        srv.manifest.kernel_elf, srv.manifest.kernel_media = twin2, twin2 + ".gz"
+        out = sh.run(f"update -y -vv --from {url}", timeout=600)
         c.ok("an update on the rescue boot installs, saying it keeps kernel.old",
              "this boot runs the previous kernel" in out, out.strip()[-240:])
         c.ok("...kernel.old is still the kernel that works", summed(sh, "/boot/kernel.old") == orig)
-        c.ok("...and kernel.bin is the new one", summed(sh, "/boot/kernel.bin") == crc_of(twin2))
+        c.ok("...and kernel.bin is the new one",   # the gzipped one, on a GRUB with gzio
+             summed(sh, "/boot/kernel.bin") in (crc_of(twin2), crc_of(twin2 + ".gz")))
         sh.run("bootcfg default 0")
         sh.run("sync")
         kill_and_wait(pidfile)

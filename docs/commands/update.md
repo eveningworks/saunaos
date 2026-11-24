@@ -6,28 +6,44 @@
 
 ## Synopsis
 
-    update [--check] [-v] [--go-back] [--from <url>] | --server [<url>] | --channel [<name>] | --channels | --log
+    update [-n] [-y] [-v...] [--from URL] [--go-back]
+      or:  update --server [URL] | --channel [NAME] | --channels | --log
 
 ## Options
 
-- *(none)* -- check, then fetch and install everything that differs.
-- `--check` (or `-n`) -- check and list what differs; change nothing.
-- `-v` -- with `--check`, list every file rather than the first ten.
-- `--from <url>` -- use this CHANNEL'S address (`http://<host>:8080/dev`)
+- *(none)* -- check, show what is new, ask `Install the update? [Y/n]`,
+  then download and install.
+- `-n`, `--check` -- check and list what differs; install nothing.
+- `-y`, `--yes` -- install without asking. **Needed when there is no
+  terminal to ask on** (a script, `remote.py exec`, output redirected to
+  a file): `update` then refuses with `no terminal to ask -- add -y to
+  install`, as dnf does, rather than install unasked.
+- `-v`, `--verbose` -- say more; give it up to three times:
+  - `-v` -- each decision: the server, the counts, each `/etc` file kept,
+    and the whole list of files;
+  - `-vv` -- one line per file fetched or removed, which is everything
+    `/var/log/update.log` holds;
+  - `-vvv` -- also each request (`GET <url> -> 200`) and each file found
+    different (`here 72 bytes, shipped 73 -> fetch`), on the screen only.
+- `--from URL` -- use this CHANNEL'S address (`http://<host>:8080/dev`)
   for this run only; the server's list is not consulted.
 - `--go-back` -- install the channel's build even though it is OLDER than
   this machine's (see Channels, below).
 - `--server` -- print the server address and the recently used ones.
-- `--server <url>` -- set it (the `update.server` setting, also on
+- `--server URL` -- set it (the `update.server` setting, also on
   System Settings' Updates page) and add it to the recent list.
 - `--channels` -- list the server's channels, the one in use marked `*`,
   with each one's version, date and description, `[default]` and
   `[internal]`.
 - `--channel` -- print the channel this machine follows.
-- `--channel <name>` -- follow that one (the `update.channel` setting);
+- `--channel NAME` -- follow that one (the `update.channel` setting);
   `--channel default` follows the server's default again. A name the
   server does not list is refused.
 - `--log` -- print the last run's log, `/var/log/update.log`.
+- `-h`, `--help` -- the options, in short.
+
+Exit status: 0 done or already up to date, 1 failed, refused or
+answered no, 2 bad usage.
 
 ## Description
 
@@ -36,31 +52,41 @@ a static HTTP server carrying a manifest of files and their checksums,
 which `tools/dev/update_server.py` runs on the development host. The machine
 PULLS; nothing listens on it. The **System Update** window
 (`/bin/wm/system/sysupdate`, Start > System) is the same engine with a
-progress bar, and what this prints *is* the log that window shows.
+progress bar.
 
     $ update
-    server http://10.0.2.2:8080
-    manifest: 664 files, version 0.4.0-dev, built 2026-09-30 16:06
-    compared 664 files: 3 to fetch
-    3 files to fetch, 2.3M:
-      /bin/hello                          169.1K
-      /boot/kernel.bin                 2.0M  (restart needed)
-      /lib/libhello.so                     16.2K
-    fetching 3 files
-    /bin/hello: 173176 bytes, crc 1130093803 ok
-    ...
-    staged 2 files for the next boot (a library or font is in the set)
-    kernel: installed; the running kernel is kept as /boot/kernel.old
-    done: 3 files staged, restart to finish
-    update: restart to finish (`reboot`)
+    Checking for updates... done
+    SaunaOS 0.7.0-dev is available (built 2026-11-24 16:15, channel main)
+    This machine has 0.6.0 (built 2026-11-24 13:33)
 
-Run over `tools/dev/remote.py exec "update"` it streams the same lines back
-to the host.
+    What's new
+      Fixed
+      - Boot Manager asks whether to save unsaved changes when it is
+        closed, at a restart or shutdown too, instead of silently
+        refusing to close.
+
+    16 files to download, 6.1M. The kernel is one: restart to finish.
+    5 files in /etc you changed are kept (update -v names them).
+
+    Install the update? [Y/n] y
+
+    Downloading  [=========================>       ]  78% 4.8M/6.1M 1.9M/s eta 1s
+    Installing  staged for the restart
+    Updated to 0.7.0-dev. Restart to finish: reboot
+
+The bar is drawn only on a terminal; without one the run says
+`Downloading and installing... done`. A problem -- a failed download, a
+refusal -- is printed whatever `-v` says. **The log is always whole**:
+every run writes `/var/log/update.log` at `-vv`'s detail, and `update
+--log` prints it.
+
+Run over `tools/dev/remote.py update` it is `update -y -vv`, its output
+kept in a file on the machine.
 
 ## What's new
 
 When something differs, `update --check` (and `update`) print the
-server's **release notes** first -- only the ones NEWER than this
+server's **release notes** before the question -- only the ones NEWER than this
 machine's build, as apt-listchanges cuts a changelog at the installed
 version -- wrapped to the terminal:
 
@@ -181,11 +207,11 @@ and the kernel, never GRUB's core image -- the one write that decides
 whether the machine boots. When the staged boot loader differs from this
 disk's, the run ends with
 
-    update: a newer boot loader is staged (adds videoinfo, GRUB 2.12-1 -> 2.16-1.1) -- `install --bootloader confirm` writes it
+    A newer boot loader is staged (adds videoinfo, GRUB 2.12-1 -> 2.16-1.1) -- `install --bootloader confirm` writes it.
 
 "different" in place of "newer" when the staged GRUB is older or drops a
 module (a channel gone back), and on a disk with no record of its GRUB at
-all, `update: this disk's boot loader may be out of date (nothing records
+all, `This disk's boot loader may be out of date (nothing records
 what it carries) ...`. When the update waits for a restart, the payload
 in `/install` waits with it, so the line says the boot loader "comes with
 this update" and is written "after the restart" -- `install
@@ -246,7 +272,7 @@ for its channel list without saving anything.
 
     update --channels
     update --channel release
-    update --go-back
+    update --go-back -y
 
 A build reaches `main` only when it is published, after its tests, and
 `release` only when a published one is promoted:
