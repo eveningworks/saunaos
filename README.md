@@ -39,8 +39,11 @@
 > you care about.
 
 <p align="center">
-  <img src="screenshots/readme/desktop.png" alt="SaunaOS desktop: the Start menu, frosted glass, open on All Apps over the Image Viewer, the File Manager, DOOM and a Terminal" width="49%">
-  <img src="screenshots/readme/apps.png" alt="SaunaOS apps on the floating, frosted taskbar: a shaded teapot in Shapes, the Audio Player, Minesweeper, the Calculator and the Device Manager" width="49%">
+  <img src="screenshots/readme/desktop.png" alt="SaunaOS desktop: the Start menu open on All Apps over the Image Viewer, the File Manager, DOOM and a Terminal running about and df" width="98%">
+</p>
+<p align="center">
+  <img src="screenshots/readme/apps.png" alt="SaunaOS apps: a shaded teapot in Shapes, the Audio Player, Minesweeper, the Calculator and the Device Manager" width="49%">
+  <img src="screenshots/readme/multitasking.png" alt="Four windows snapped into quarters: ScummVM playing Lure of the Temptress, Task Manager's CPU graph with a line per core, Notepad showing Finnish, Greek, Ukrainian, Japanese, Chinese, Korean and emoji, and the Hex Viewer reading an ELF program" width="49%">
 </p>
 
 <p align="center">
