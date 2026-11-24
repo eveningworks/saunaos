@@ -93,7 +93,10 @@ def run_suite(tag, suite, virtio, timeout, run=1):
     script, prefix, verdicts = SUITES[suite]
     args = ["python3", "-u"] + script + ["--disk", f"{work}/disk.img"]
     if suite == "ktest":
-        args += ["--qemu-log", f"{work}/qemu.log"]
+        # The suite's own deadline is the matrix's, less the container's
+        # start: ktest_run's 120 s default is the CURRENT QEMU's, and an
+        # older one under TCG ran out of it mid-suite, still progressing.
+        args += ["--qemu-log", f"{work}/qemu.log", "--timeout", f"{max(timeout - 30, 60):.0f}"]
         if virtio:
             copy_disk("disk.img", f"{work}/virtio.img")
             args += ["--virtio-disk", f"{work}/virtio.img"]
