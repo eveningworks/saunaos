@@ -47,6 +47,7 @@ enum { TM_GROUP_APPS, TM_GROUP_BACKGROUND, TM_GROUP_SYSTEM, TM_GROUPS };
 
 struct tm_proc {
     int pid, ppid, pgid;
+    unsigned uid;             // the EFFECTIVE user (abi/proc_info.h), as procps' USER
     unsigned state, wait;     // PROC_STATE_*, PROC_WAIT_*
     int threads;              // 1 + the threads folded into it
     unsigned long long cpu_ns;
@@ -144,6 +145,11 @@ void tm_procs_init(struct tm_page *p);
 void tm_procs_size(void);   // pins the details pane; from the shell's size hook
 int  tm_procs_fit(void);    // hides/shows the pane by width; 1 = lay out again
 int  tm_procs_min_width(void);   // the page with its whole toolbar showing
+// View > Show: whose processes the table lists (tm_procs.c), saved in
+// TM_CONF when `save`.
+enum { TM_SHOW_ALL, TM_SHOW_MINE, TM_SHOW_SYSTEM, TM_SHOWS };
+int  tm_procs_show(void);
+void tm_procs_set_show(int show, int save);
 void tm_perf_init(struct tm_page *p);
 void tm_services_init(struct tm_page *p);
 

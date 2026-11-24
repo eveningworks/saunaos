@@ -540,6 +540,9 @@ struct sched_cwd *scheduler_current_cwd(void);
 // sandbox.c alone; NULL in the kernel context. *slot NULL = unrestricted.
 struct sandbox;
 struct sandbox **scheduler_current_sandbox(void);
+// The same for the identity (kernel/cred.h), for kernel/proc/cred.c alone.
+struct cred;
+struct cred **scheduler_current_cred(void);
 
 // The current directory of whatever is running -- a scheduler slot's, or
 // the kernel context's when that is what is on the CPU. NEVER NULL, and

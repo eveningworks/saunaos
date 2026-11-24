@@ -33,8 +33,10 @@
 #include <stdlib.h>
 #include <sched.h>
 #include "base/uargs.h"
+#include "base/uusername.h"
 
-static int o_tree, o_threads, o_sched, o_sandbox, o_ascii, o_delay;
+static int o_tree, o_threads, o_sched, o_sandbox, o_ascii, o_delay, o_user;
+
 
 static void put(const char *s) { write(1, s, strlen(s)); }
 
@@ -145,8 +147,12 @@ static void print_row(const struct proc_info *p, const char *prefix) {
     // it carries its leader's, so `tosh` twice in a listing would look
     // like two shells rather than one with a thread. `htop` colours
     // them instead, which a text column cannot.
-    snprintf(line, sizeof line, "%5s %5s %5s %-12s %8s %8s%s%s  %s%s%s%s",
-             pid, ppid, pgid, state, cpu, mem, sched, delay, prefix ? prefix : "",
+    // procps' USER is the EFFECTIVE user, the one a permission check reads.
+    char user[24];
+    user[0] = '\0';
+    if (o_user) snprintf(user, sizeof user, " %-8s", uusername(p->euid, 9));
+    snprintf(line, sizeof line, "%5s%s %5s %5s %-12s %8s %8s%s%s  %s%s%s%s",
+             pid, user, ppid, pgid, state, cpu, mem, sched, delay, prefix ? prefix : "",
              p->tgid == p->pid ? "" : "{", p->name,
              p->tgid == p->pid ? "" : "}");
     put(line);
@@ -181,7 +187,8 @@ static void header(void) {
     // STATE is twelve wide because the longest thing it holds is
     // `block(child)` -- widened rather than truncated, since it is the
     // one column here whose tail is the whole content.
-    put("  PID  PPID  PGID STATE          CPU(s)   MEM(K)");
+    put(o_user ? "  PID USER      PPID  PGID STATE          CPU(s)   MEM(K)"
+               : "  PID  PPID  PGID STATE          CPU(s)   MEM(K)");
     if (o_sched) put(" CLS RTPRIO  NI");
     if (o_delay) put("  DISK(s)  LOCK(s)  RUNQ(s)");
     put("  NAME");
@@ -265,12 +272,13 @@ static const struct uargs_opt OPTS[] = {
     { "sched",   'c', 0, "add the scheduling class, realtime priority and nice", &o_sched, 0 },
     { "sandbox", 's', 0, "add a sandboxed process's promises; - for one with no sandbox", &o_sandbox, 0 },
     { "delay",   'd', 0, "add the time waited on the disk, on kernel locks and for the CPU", &o_delay, 0 },
+    { "user",    'u', 0, "add the user each process runs as", &o_user, 0 },
     { 0 }
 };
 
 static const struct uargs_prog PROG = {
     .name = "ps",
-    .usage = "[--tree] [--ascii] [--threads] [--sched] [--sandbox] [--delay]",
+    .usage = "[--tree] [--ascii] [--threads] [--sched] [--sandbox] [--delay] [--user]",
     .summary = "What is running, and who started it.",
     .opts = OPTS,
 };

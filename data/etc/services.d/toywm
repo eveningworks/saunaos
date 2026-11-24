@@ -5,6 +5,9 @@
 Name=toywm
 Description=The desktop
 Exec=/bin/wm/system/toywm
+# Runs as the one person's account, not root (docs/users-design.md);
+# every other service stays root.
+User=user
 Target=graphical
 Restart=on-failure
 # The desktop reports ready at its FIRST COMPOSITED FRAME, not when it

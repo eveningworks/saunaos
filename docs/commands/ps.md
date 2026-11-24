@@ -6,7 +6,7 @@
 
 ## Synopsis
 
-    ps [--tree] [--ascii] [--threads] [--sched] [--sandbox] [--delay]
+    ps [--tree] [--ascii] [--threads] [--sched] [--sandbox] [--delay] [--user]
 
 ## Options
 
@@ -30,6 +30,11 @@
   process row sums its threads; with `--threads` each thread shows its
   own. A wait the program chose (a sleep, a key, a record lock) is in
   none of them.
+- `--user`, `-u` -- add a `USER` column after the PID: the account
+  each process runs as (its effective uid, named from `/etc/passwd`; a
+  uid with no name, or a name too long for the column, prints as the
+  number). The desktop, its apps and the shells are `user`; services
+  are `root` (`docs/users-design.md`).
 - `-h`, `--help` -- the options.
 
 ## Description

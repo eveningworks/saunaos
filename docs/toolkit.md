@@ -126,6 +126,7 @@
 | `utrash.h` | THE RECYCLE BIN: a delete that can be taken back, on the freedesktop Trash specification's layout so a Linux desktop reading the same disk sees the same bin. |
 | `utween.h` | An integer that moves from one value to another over a fixed time, eased -- the one interpolator the desktop has, shared by the toolkit (a scroll that glides) and the window manager (an effect that... |
 | `uunicode.h` | The Unicode NAMES and BLOCKS of the characters this system's fonts can draw ("LATIN SMALL LETTER E WITH ACUTE", "Latin-1 Supplement"), and the UTF-8 encoding of a code point. |
+| `uusername.h` | A user id's NAME for a listing -- `ps --user`'s and Task Manager's User column: getpwuid() once per uid, then from a cache, since <pwd.h> reads /etc/passwd on every call and a listing has a few uid... |
 | `uutf8.h` | UTF-8 stepping with the TRANSITION RULE: a byte that does not start a valid sequence is ONE character whose value is the byte -- its Latin-1 letter -- so decoding never fails and text written befor... |
 | `uwalk.h` | A DIRECTORY TREE WALK, one directory at a time, for a caller that has to stop, report progress or share a thread: the File Manager's search into subfolders and its folder sizes. |
 | `uwallpaper.h` | A WALLPAPER'S SIZE FOR A SCREEN: a picture may come drawn at several sizes, `<dir>/<stem>/<W>x<H>.<ext>` beside its `<dir>/<stem>.<ext>` -- KDE Plasma's wallpaper package (images/ beside a screensh... |

@@ -396,6 +396,10 @@ long long sys_lseek(int fd, long long offset, int whence) {
 }
 
 int sys_getpid(void) { return (int)syscall0(SYS_GETPID); }
+int sys_getcred(struct cred_info *out, uint32_t *groups, uint32_t cap) {
+    return (int)err(syscall3(SYS_GETCRED, (uint64_t)(uintptr_t)out,
+                             (uint64_t)(uintptr_t)groups, cap));
+}
 int sys_fork(void)   { return (int)err(syscall0(SYS_FORK)); }
 int sys_notify_ready(void) { return (int)err(syscall0(SYS_NOTIFY_READY)); }
 
@@ -1309,6 +1313,10 @@ void sys_spawn_opts_init(struct sys_spawn_opts *o) {
     o->pgid = 0;
     o->flags = 0;
     o->trace_ring = 0;
+    o->promises = 0;
+    o->uid = o->gid = 0;
+    o->groups = 0;
+    o->ngroups = 0;
 }
 
 int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
@@ -1345,6 +1353,11 @@ int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
     }
     msg.promises = o->promises;
     msg.reserved_sandbox = 0;
+    msg.uid = o->uid;
+    msg.gid = o->gid;
+    msg.groups = o->groups;
+    msg.ngroups = o->ngroups;
+    msg.reserved_creds = 0;
     msg.flags = flags;
     int64_t rc = syscall1(SYS_SPAWN, (uint64_t)(uintptr_t)&msg);
 

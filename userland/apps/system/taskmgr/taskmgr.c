@@ -231,6 +231,7 @@ static void refresh_model(void) {
         p->pid = in->pid;
         p->ppid = in->ppid;
         p->pgid = in->pgid;
+        p->uid = in->euid;
         p->state = in->state;
         p->wait = in->wait_reason;
         p->threads = 1;
@@ -320,11 +321,14 @@ struct uui_menubar g_ctx;
 // The menu bar, taskmgr.ui's: File, and View with Refresh now and
 // Update speed -- Windows 10's Task Manager's View menu.
 static struct uui_menubar g_menu;
-enum { CMD_EXIT = 1, CMD_REFRESH, CMD_SPEED };   // CMD_SPEED + TM_SPEED_*
+enum { CMD_EXIT = 1, CMD_REFRESH, CMD_SPEED,      // CMD_SPEED + TM_SPEED_*
+       CMD_SHOW = CMD_SPEED + TM_SPEEDS };            // CMD_SHOW + TM_SHOW_*
 static const struct uui_builder_name MENU_NAMES[] = {
     { "exit", CMD_EXIT }, { "refresh", CMD_REFRESH },
     { "speed_high", CMD_SPEED + TM_SPEED_HIGH }, { "speed_normal", CMD_SPEED + TM_SPEED_NORMAL },
     { "speed_low", CMD_SPEED + TM_SPEED_LOW }, { "speed_paused", CMD_SPEED + TM_SPEED_PAUSED },
+    { "show_all", CMD_SHOW + TM_SHOW_ALL }, { "show_mine", CMD_SHOW + TM_SHOW_MINE },
+    { "show_system", CMD_SHOW + TM_SHOW_SYSTEM },
 };
 
 // The window is a column -- the menu bar over BODY -- and BODY the row
@@ -471,6 +475,8 @@ static void refresh_now(struct uapp *a) {
 static unsigned menu_flags(int code) {
     if (code >= CMD_SPEED && code < CMD_SPEED + TM_SPEEDS)
         return code - CMD_SPEED == g_speed ? UUI_MI_CHECKED : 0;
+    if (code >= CMD_SHOW && code < CMD_SHOW + TM_SHOWS)
+        return code - CMD_SHOW == tm_procs_show() ? UUI_MI_CHECKED : 0;
     return 0;   // Exit and Refresh now always act (Refresh now samples even Paused)
 }
 
@@ -478,6 +484,10 @@ static void command(struct uapp *a, int code) {
     if (code == CMD_EXIT) { uapp_quit(a, 0); return; }
     if (code == CMD_REFRESH) { refresh_now(a); return; }
     if (code >= CMD_SPEED && code < CMD_SPEED + TM_SPEEDS) set_speed(a, code - CMD_SPEED, 1);
+    if (code >= CMD_SHOW && code < CMD_SHOW + TM_SHOWS) {
+        tm_procs_set_show(code - CMD_SHOW, 1);
+        uapp_redraw(a);
+    }
 }
 
 static void select_page(struct uapp *a, int index) {

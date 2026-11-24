@@ -5,6 +5,7 @@
 
 #include "cpuinfo.h"   // cpu_tsc_ns() -- delay totals in nanoseconds
 #include "sandbox.h"
+#include "cred.h"
 #include "sandbox_abi.h"
 #include "sched_internal.h"
 #include "irqflags.h"
@@ -227,6 +228,7 @@ int scheduler_proc_info(int index, struct proc_info *out) {
     out->promises = PROMISE_ALL;
     out->reserved_sandbox = 0;
     out->delay_disk_ns = out->delay_lock_ns = out->delay_runq_ns = 0;
+    out->uid = out->euid = out->gid = out->egid = 0;
 
     if (p->state == SCHED_UNUSED) return 1; // a real answer: slot empty
 
@@ -243,7 +245,12 @@ int scheduler_proc_info(int index, struct proc_info *out) {
     out->rt_prio = p->rt_prio;
     k_strlcpy(out->name, p->name, sizeof out->name);
     int lead = pid_slot(p->tgid);
-    if (lead >= 0) out->promises = sandbox_promises(procs[lead].ext->sandbox);
+    if (lead >= 0) {
+        out->promises = sandbox_promises(procs[lead].ext->sandbox);
+        const struct cred *cr = procs[lead].ext->cred;
+        out->uid = cred_ruid(cr); out->euid = cred_euid(cr);
+        out->gid = cred_rgid(cr); out->egid = cred_egid(cr);
+    }
 
     // A zombie's address space is already gone, so asking for its memory
     // would report whatever now lives at that PML4 address. Report 0.

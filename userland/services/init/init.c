@@ -83,6 +83,8 @@
 #include <unistd.h>
 #include <sched.h>
 #include <sys/resource.h>
+#include <pwd.h>    // User=
+#include <grp.h>
 #include "tmppath.h"
 
 #define SERVICES_DIR   "/etc/services.d"
@@ -257,6 +259,12 @@ struct service {
     // that needed one had to be a program with the arguments baked in.
     // `inetd -p 23 /bin/telnetd` is the first that genuinely does.
     char args[SVC_ARGS_MAX];
+    // User=: the account the service runs as (/etc/passwd), empty for
+    // root. Resolved at every start, so an edited passwd is seen. Linux's
+    // LOGIN_NAME_MAX; a value that FILLS it may have been cut, so it is
+    // refused (user_bad) rather than resolved as a shorter, other name.
+    char user[256];
+    int  user_bad;
     int  restart;      // SVC_RESTART_*
     int  pid;          // 0 when not running
     unsigned long long started_ms;
@@ -483,6 +491,10 @@ static void load_service(const char *file) {
     // with no arguments is the common case and says nothing.
     if (!etc_config_buf_get(&g_cfg, "Args", s->args, sizeof s->args))
         s->args[0] = '\0';
+    if (!etc_config_buf_get(&g_cfg, "User", s->user, sizeof s->user))
+        s->user[0] = '\0';
+    s->user_bad = strlen(s->user) >= sizeof s->user - 1;
+    if (s->user_bad) logf1("init: %s has a User= too long to be an account -- not starting it\n", s->name);
 
     // Absent means unconstrained, which is the common case and must
     // stay the terse one. Cleared rather than left alone, so removing
@@ -870,6 +882,101 @@ static const char *expand_specifiers(const char *in, char *out, unsigned cap) {
     return out;
 }
 
+// --- User= -------------------------------------------------------------
+//
+// systemd's User=: the child is started AS the account (SPAWN_CREDS --
+// its uid, primary group and every group naming it in /etc/group), with
+// HOME, USER, LOGNAME and SHELL from its passwd line in place of init's.
+// An account that does not exist starts NOTHING, as systemd refuses the
+// unit: running it as root instead would turn a typo into privilege.
+struct svc_creds {
+    gid_t *groups;
+    char **env;       // environ with the four replaced; NULL for root
+    char  *strs[4];
+};
+
+static int is_login_var(const char *e) {
+    static const char *const V[] = { "HOME=", "USER=", "LOGNAME=", "SHELL=" };
+    for (unsigned i = 0; i < sizeof V / sizeof V[0]; i++)
+        if (strncmp(e, V[i], strlen(V[i])) == 0) return 1;
+    return 0;
+}
+
+static char *env_pair(const char *k, const char *v) {
+    size_t n = strlen(k) + strlen(v) + 2;
+    char *p = malloc(n);
+    if (p) snprintf(p, n, "%s=%s", k, v);
+    return p;
+}
+
+static void creds_release(struct svc_creds *c) {
+    free(c->groups);
+    free(c->env);
+    for (int i = 0; i < 4; i++) free(c->strs[i]);
+}
+
+// 0 with `o` and `c` filled (nothing to do for root), -1 when the
+// account is unknown or memory ran out -- the service is not started.
+static int creds_for(const struct service *s, struct sys_spawn_opts *o, struct svc_creds *c) {
+    memset(c, 0, sizeof *c);
+    if (s->user_bad) return -1;   // said when read
+    if (!s->user[0]) return 0;
+    struct passwd *pw = getpwnam(s->user);
+    if (!pw) {
+        logf1("init: User=%s is not in /etc/passwd -- not starting it\n", s->user);
+        return -1;
+    }
+    // Copied before getgrouplist(): pw is static storage.
+    uid_t uid = pw->pw_uid;
+    gid_t gid = pw->pw_gid;
+    c->strs[0] = env_pair("HOME", pw->pw_dir);
+    c->strs[1] = env_pair("USER", pw->pw_name);
+    c->strs[2] = env_pair("LOGNAME", pw->pw_name);
+    c->strs[3] = env_pair("SHELL", pw->pw_shell);
+    int ng = 0;
+    getgrouplist(s->user, gid, NULL, &ng);
+    c->groups = malloc((size_t)(ng > 0 ? ng : 1) * sizeof *c->groups);
+    int ne = 0;
+    while (environ && environ[ne]) ne++;
+    c->env = malloc((size_t)(ne + 5) * sizeof *c->env);
+    if (!c->groups || !c->env || !c->strs[0] || !c->strs[1] || !c->strs[2] || !c->strs[3] ||
+        getgrouplist(s->user, gid, c->groups, &ng) < 0) {
+        logf1("init: could not build %s's identity -- not starting it\n", s->name);
+        creds_release(c);
+        return -1;
+    }
+    int k = 0;
+    for (int i = 0; i < ne; i++)
+        if (!is_login_var(environ[i])) c->env[k++] = environ[i];
+    for (int i = 0; i < 4; i++) c->env[k++] = c->strs[i];
+    c->env[k] = NULL;
+    o->flags |= SPAWN_CREDS;
+    o->uid = uid;
+    o->gid = gid;
+    o->groups = (const uint32_t *)c->groups;
+    o->ngroups = (unsigned)ng;
+    o->env = c->env;
+    return 0;
+}
+
+// A kernel from before SPAWN_CREDS refuses the flag (-EINVAL, its rule
+// for unknown bits) -- a GRUB fallback to kernel.old, or a flash cut
+// half-way. Nothing is enforced in stage A, so the service runs as root,
+// as every service did on that kernel, rather than leaving the machine
+// with no shell and no desktop. Said once.
+static int spawn_as(const char *exec, struct sys_spawn_opts *o, const char *name) {
+    static int said;
+    int pid = sys_spawn_opts(exec, o);
+    if (pid < 0 && (o->flags & SPAWN_CREDS) && sys_errno() == EINVAL) {
+        if (!said++)
+            logf1("init: this kernel cannot start a process as another user -- %s and the "
+                  "other User= services run as root\n", name);
+        o->flags &= ~SPAWN_CREDS;
+        pid = sys_spawn_opts(exec, o);
+    }
+    return pid;
+}
+
 static void start_service(struct service *s) {
     s->started_once = 1;
     s->last_exit = 0;
@@ -892,7 +999,9 @@ static void start_service(struct service *s) {
     // init itself was started. fd 1 is init's own stdout, the console.
     if (s->stderr_as_stdout) o.stderr_fd = s->stdout_log ? SPAWN_FD_LOG : 1;
     else o.stderr_fd = SPAWN_FD_KMSG;
-    int pid = sys_spawn_opts(s->exec, &o);
+    struct svc_creds cr;
+    int pid = creds_for(s, &o, &cr) < 0 ? -1 : spawn_as(s->exec, &o, s->name);
+    creds_release(&cr);
     if (pid > 0) {
         // Before it has run a slice, since the spawn only made it READY.
         // A failure is said and the service runs as an ordinary process.
@@ -1066,10 +1175,6 @@ static void vt_start(int n, struct service *t) {
     // The VT is the child's 0/1/2: dup2 around the spawn, as uvterm does
     // for a pty -- SYS_SPAWN inherits the descriptor table. Its own
     // SESSION, so it claims the VT and Ctrl-C there reaches its jobs.
-    int in0 = dup(0), out1 = dup(1), err2 = dup(2);
-    dup2(fd, 0);
-    dup2(fd, 1);
-    dup2(fd, 2);
     char args[SVC_ARGS_MAX];
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
@@ -1077,7 +1182,15 @@ static void vt_start(int n, struct service *t) {
     o.env = environ;
     o.pgid = PGID_NEW;
     o.flags = SPAWN_SETSID;
-    int pid = sys_spawn_opts(t->exec, &o);
+    // The identity BEFORE the dup2s below: its errors go to init's fd 2.
+    struct svc_creds cr;
+    int ok = creds_for(t, &o, &cr) == 0;
+    int in0 = dup(0), out1 = dup(1), err2 = dup(2);
+    dup2(fd, 0);
+    dup2(fd, 1);
+    dup2(fd, 2);
+    int pid = ok ? spawn_as(t->exec, &o, t->name) : -1;
+    creds_release(&cr);
     if (in0 >= 0)  { dup2(in0, 0);  close(in0); }
     if (out1 >= 0) { dup2(out1, 1); close(out1); }
     if (err2 >= 0) { dup2(err2, 2); close(err2); }

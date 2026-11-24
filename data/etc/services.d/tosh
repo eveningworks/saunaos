@@ -23,6 +23,9 @@
 Name=tosh
 Description=The console shell
 Exec=/bin/tosh
+# Runs as the one person's account, not root (docs/users-design.md);
+# every other service stays root.
+User=user
 Restart=always
 # THE ONE SERVICE THAT MUST NOT LOG ITS STDOUT: this is an interactive
 # shell and fd 1 is where its prompt and every command's output goes.

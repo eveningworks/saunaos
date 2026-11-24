@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <stddef.h>
 #include "rt/sys.h"
+#include "syscall_abi.h"   // SYS_GETCRED
 
 ssize_t read(int fd, void *buf, size_t n)        { return (ssize_t)sys_read(fd, buf, n); }
 ssize_t write(int fd, const void *buf, size_t n) { return (ssize_t)sys_write(fd, buf, n); }
@@ -55,11 +56,53 @@ pid_t tcgetpgrp(int fd)             { return sys_tcgetpgrp(fd); }
 int   tcsetpgrp(int fd, pid_t pgid) { return sys_tcsetpgrp(fd, pgid); }
 void  _exit(int code)               { sys_exit(code); }
 
-uid_t getuid(void)  { return 0; }
-uid_t geteuid(void) { return 0; }
-gid_t getgid(void)  { return 0; }
-gid_t getegid(void) { return 0; }
-int getgroups(int size, gid_t *list) { (void)size; (void)list; return 0; }
+// One SYS_GETCRED each: an identity never changes under a process in
+// stage A, but a cache here would be wrong the day one does. THROUGH
+// sys_call(), as prctl.c says why: a program built before sys_getcred
+// could not load this libc otherwise.
+static int64_t getcred(struct cred_info *c, gid_t *groups, uint32_t cap) {
+    return sys_call(SYS_GETCRED, (uint64_t)(uintptr_t)c, (uint64_t)(uintptr_t)groups, cap);
+}
+
+static struct cred_info cred(void) {
+    struct cred_info c;
+    if (getcred(&c, NULL, 0) < 0) {
+        c.ruid = c.euid = c.suid = 0;   // a kernel from before it: everything was root
+        c.rgid = c.egid = c.sgid = 0;
+        c.ngroups = 0;
+    }
+    return c;
+}
+uid_t getuid(void)  { return cred().ruid; }
+uid_t geteuid(void) { return cred().euid; }
+gid_t getgid(void)  { return cred().rgid; }
+gid_t getegid(void) { return cred().egid; }
+
+int getresuid(uid_t *r, uid_t *e, uid_t *s) {
+    struct cred_info c = cred();
+    if (r) *r = c.ruid;
+    if (e) *e = c.euid;
+    if (s) *s = c.suid;
+    return 0;
+}
+
+int getresgid(gid_t *r, gid_t *e, gid_t *s) {
+    struct cred_info c = cred();
+    if (r) *r = c.rgid;
+    if (e) *e = c.egid;
+    if (s) *s = c.sgid;
+    return 0;
+}
+
+// POSIX: size 0 asks for the count; a list too short for them all is
+// EINVAL, not a short answer.
+int getgroups(int size, gid_t *list) {
+    if (size < 0) { errno = EINVAL; return -1; }
+    struct cred_info c;
+    if (getcred(&c, size ? list : NULL, (uint32_t)size) < 0) return 0;
+    if (size && c.ngroups > (uint32_t)size) { errno = EINVAL; return -1; }
+    return (int)c.ngroups;
+}
 char *getlogin(void) { errno = ENXIO; return NULL; }
 
 unsigned sleep(unsigned sec)  { sys_sleep_ms((int)(sec * 1000)); return 0; }

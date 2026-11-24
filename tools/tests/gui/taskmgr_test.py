@@ -307,19 +307,24 @@ def check_spinners(dbg, qmp, n, tmp):
 
 
 def choose_speed(dbg, cx, cy, row):
-    """View > Update speed > row (0 High, 1 Normal, 2 Low, 3 Paused), by
-    the menu bar's own reported rects: View is title 1, Update speed row
-    1 of the View menu, the speeds the rows of the level under it."""
+    """View > Update speed > row (0 High, 1 Normal, 2 Low, 3 Paused)."""
+    return choose_view(dbg, cx, cy, 1, row)
+
+
+def choose_view(dbg, cx, cy, sub, row):
+    """View > the submenu at row `sub` (1 Update speed, 2 Show) > `row`, by
+    the menu bar's own reported rects: View is title 1, the submenus rows
+    of the View menu, their choices the rows of the level under it."""
     lay = wait_layout(dbg, lambda l: "menu.title1" in l)
     t = lay.get("menu.title1")
     if not t:
         return False
-    _layout.pop("menu.item0.1", None)
+    _layout.pop(f"menu.item0.{sub}", None)
     _layout.pop(f"menu.item1.{row}", None)
     dbg.send("gui click %d %d" % (cx + t[0] + t[2] // 2, cy + t[1] + t[3] // 2))
     dbg.settle()
-    lay = wait_layout(dbg, lambda l: "menu.item0.1" in l)
-    it = lay.get("menu.item0.1")
+    lay = wait_layout(dbg, lambda l: f"menu.item0.{sub}" in l)
+    it = lay.get(f"menu.item0.{sub}")
     if not it:
         return False
     dbg.send("gui click %d %d" % (cx + it[0] + it[2] // 2, cy + it[1] + it[3] // 2))
@@ -727,6 +732,52 @@ def main():
         armed = wait_log(dbg, "armed kill pid -1", 0.5) or wait_log(dbg, "killed pid -1", 0.5)
         check("Force Quit does nothing to a kind row", not armed)
 
+    # --- View > Show: whose processes ------------------------------------------
+    #
+    # The desktop runs as `user` and init as root (docs/users-design.md),
+    # so Mine (Task Manager's own user, the desktop's) keeps the desktop
+    # and Task Manager and drops init and the kind rows; System the
+    # reverse. A filter that read no uid would show both or neither.
+    tm_pid = win["client_pid"]
+
+    def set_show(row, word):
+        # The FIRST order after the show line: one already in flight when
+        # the click landed is the old filter's.
+        mark()
+        if not choose_view(dbg, cx, cy, 2, row):
+            return None
+        deadline = time.time() + 4.0
+        while time.time() < deadline:
+            layout(dbg)
+            at = next((k for k, l in enumerate(_lines) if f"taskmgr: show {word}" in l), None)
+            after = [] if at is None else [l for l in _lines[at:] if "taskmgr: order " in l]
+            if after:
+                return [int(v) for v in after[0].split("taskmgr: order ", 1)[1].split()
+                        if re.fullmatch(r"-?\d+", v)]
+            time.sleep(0.05)   # sleep-ok: the poll interval of a wait on the order line
+        return []
+
+    try:
+        mine = set_show(1, "mine")
+        check("View > Show > My processes: the desktop and Task Manager itself",
+              mine is not None and desktop_pid in mine and tm_pid in mine, f"order={mine}")
+        check("...and not init (root) or the kind rows",
+              mine is not None and 1 not in mine and -1 not in mine, f"order={mine}")
+        saved = dbg.send("sh cat /etc/taskmgr.conf") or ""
+        check("...saved", "show=mine" in saved, saved.strip())
+        system = set_show(2, "system")
+        check("View > Show > System processes: init and the kind rows, not the desktop's",
+              system is not None and 1 in system and -1 in system and desktop_pid not in system
+              and tm_pid not in system, f"order={system}")
+        every = set_show(0, "all")
+        check("View > Show > All processes: both again",
+              every is not None and 1 in every and desktop_pid in every, f"order={every}")
+    finally:
+        # A failed step left Show filtered for every later Task Manager on
+        # this image: put All back whatever happened.
+        if "show=all" not in (dbg.send("sh cat /etc/taskmgr.conf") or ""):
+            choose_view(dbg, cx, cy, 2, 0)
+
     # --- Performance -------------------------------------------------------
     rail = _layout.get("rail")
     rh = _layout.get("rail.row_h")
@@ -833,10 +884,12 @@ def main():
     rh = _layout.get("rail.row_h")
     if rail and rh:
         click((rail[0] + rail[2] // 2, rail[1] + rh // 2))
-    lay = wait_layout(dbg, lambda l: l.get("page") == 0 and "table.col7" in l)
+    # Columns by DECLARED index (tm_procs.c's COLUMNS): User is 3, so CPU
+    # is 4 and Read and Write 7 and 8.
+    lay = wait_layout(dbg, lambda l: l.get("page") == 0 and "table.col8" in l)
     if check("back on Processes, with the Read and Write columns",
-             "table.col7" in lay and lay["table.col6"][2] > 0 and lay["table.col7"][2] > 0,
-             f"col6={lay.get('table.col6')} col7={lay.get('table.col7')}"):
+             "table.col8" in lay and lay["table.col7"][2] > 0 and lay["table.col8"][2] > 0,
+             f"col7={lay.get('table.col7')} col8={lay.get('table.col8')}"):
         t, hh = lay["table"], lay["table.header_h"]
         head_y = t[1] + hh // 2
         pid = lay["table.col1"]
@@ -848,7 +901,7 @@ def main():
         c = conf()
         check("the header's menu hides PID (Down skips the locked Name), and it is saved",
               "-pid" in c and "name," in c, c.strip())
-        cpu, wr = lay["table.col3"], lay["table.col7"]
+        cpu, wr = lay["table.col4"], lay["table.col8"]
         dbg.drag_real(qmp, cx + cpu[0] + cpu[2] // 2, cy + head_y,
                       cx + wr[0] + wr[2] + 10, cy + head_y, steps=8)
         c = conf()
@@ -857,7 +910,7 @@ def main():
               "cpu" in order and "write" in order and order.index("cpu") == order.index("write") + 1,
               c.strip())
         check("...and the drag did not sort by CPU",
-              _layout.get("sort", (0, 0))[0] != 3, f"sort={_layout.get('sort')}")
+              _layout.get("sort", (0, 0))[0] != 4, f"sort={_layout.get('sort')}")
 
     # --- NARROW: the Name column keeps its room ----------------------------
     #
@@ -907,7 +960,7 @@ def main():
               and "update_speed=high" in (dbg.send("sh cat /etc/taskmgr.conf") or ""))
     # The columns chosen above came back with it: PID still hidden, CPU
     # still after Write.
-    pid, cpu, wr = (narrow.get(f"table.col{i}", (0, 0, 0, 0)) for i in (1, 3, 7))
+    pid, cpu, wr = (narrow.get(f"table.col{i}", (0, 0, 0, 0)) for i in (1, 4, 8))
     check("a reopened Task Manager keeps its columns: PID hidden, CPU after Write",
           pid[2] == 0 and cpu[2] > 0 and cpu[0] >= wr[0] + wr[2],
           f"pid={pid} cpu={cpu} write={wr}")

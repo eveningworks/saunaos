@@ -122,6 +122,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`font`](font.md)
 - [`heap`](heap.md)
 - [`hwdata`](hwdata.md)
+- [`id`](id.md)
 - [`kbd`](kbd.md)
 - [`kstack`](kstack.md)
 - [`lockstat`](lockstat.md)
@@ -143,6 +144,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`trace`](trace.md)
 - [`tty`](tty.md)
 - [`uptime`](uptime.md)
+- [`whoami`](whoami.md)
 
 ### Processes and programs
 

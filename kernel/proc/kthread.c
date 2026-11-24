@@ -63,6 +63,7 @@ int kthread_start(const char *name, void (*fn)(void *), void *arg) {
     k_memset(&procs[slot].mm, 0, sizeof procs[slot].mm);
     procs[slot].ext->cwd.path[0] = '\0';
     procs[slot].ext->sandbox = 0;
+    procs[slot].ext->cred = 0;   // root
     // EVERYTHING BEFORE READY: the caller is preemptible, and a short fn
     // can run to its end and free the slot before the next line here.
     int pid = procs[slot].pid;

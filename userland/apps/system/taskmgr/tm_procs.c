@@ -41,6 +41,8 @@
 #include "ui/uui_textbox.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_label.h"
+#include "base/uusername.h"
+#include <unistd.h>   // geteuid(): Show Mine
 #include "ui/uui_chart.h"
 #include "ui/uui_statusbar.h"
 #include "ui/uui_menubar.h"
@@ -66,6 +68,16 @@ static int g_nrows;
 static int g_group_count[TM_GROUPS];
 static int g_sel_pid;              // the selection, by pid; 0 = none, < 0 a kind row
 static int g_view = VIEW_GROUPED;
+
+// View > Show: whose processes, KDE System Monitor's owner filter. Mine
+// is this Task Manager's effective user; System is every account below
+// 1000, the system range of Linux's login.defs (UID_MIN), root today. The
+// rows no process owns (the kernel, the screen) are the system's. The
+// words are what /etc/taskmgr.conf keeps.
+static const char *const SHOW_WORDS[TM_SHOWS] = { "all", "mine", "system" };
+#define UID_FIRST_PERSON 1000
+static int g_show = TM_SHOW_ALL;
+static unsigned g_me;   // geteuid(), read once per rebuild_rows()
 
 // Folded parents, by pid, for the same reason the selection is a pid.
 static int *g_folded;   // g_proc_cap of them
@@ -128,7 +140,7 @@ static void toggle_fold(int pid) {
 
 // --- the table ----------------------------------------------------------
 
-enum { COL_NAME = 0, COL_PID, COL_STATUS, COL_CPU, COL_PRIVATE, COL_SHARED,
+enum { COL_NAME = 0, COL_PID, COL_STATUS, COL_USER, COL_CPU, COL_PRIVATE, COL_SHARED,
        COL_READ, COL_WRITE, COL_THREADS, COL_CPUTIME, COL_READ_TOTAL, COL_WRITE_TOTAL,
        COL_FILE_READ, COL_FILE_WRITE, COL_PATH };
 // The machine's totals are the status bar's, not the headers': a title
@@ -140,6 +152,11 @@ static const struct uui_table_column COLUMNS[] = {
     { "Name",   0, UUI_TALIGN_LEFT, "name", UUI_TCOL_LOCKED },
     { "PID",    6, UUI_TALIGN_RIGHT, "pid", 0 },
     { "Status", 18, UUI_TALIGN_LEFT, "status", 0 },
+    // The EFFECTIVE user, procps' USER: root for the services, `user` for
+    // the desktop and what it starts (docs/users-design.md). Hidden: shown,
+    // it opened the window past a 1280-wide screen; the details pane's
+    // subtitle names the selected process's.
+    { "User", 9, UUI_TALIGN_LEFT, "user", UUI_TCOL_HIDDEN },
     { "CPU",    7, UUI_TALIGN_RIGHT, "cpu", 0 },
     // PRIVATE sums to the memory in use; SHARED is what it maps that
     // another owner holds (abi/proc_info.h), so it is not summed.
@@ -200,6 +217,7 @@ static void cell(void *ctx, int row, int col, char *out, int cap) {
     case COL_NAME:   strlcpy(out, p->title[0] ? p->title : "(unnamed)", (size_t)cap); break;
     case COL_PID:    snprintf(out, (size_t)cap, "%d", p->pid); break;
     case COL_STATUS: strlcpy(out, tm_status_text(p), (size_t)cap); break;
+    case COL_USER:   strlcpy(out, uusername(p->uid, 0), (size_t)cap); break;
     case COL_CPU:
         // Tenths below ten percent, Windows' precision: a busy idle
         // machine is all "0%" otherwise.
@@ -237,6 +255,7 @@ static int compare_rows(void *ctx, int a, int b, int col) {
     case COL_NAME:   return strcasecmp(x->title, y->title);
     case COL_PID:    return x->pid - y->pid;
     case COL_STATUS: return strcmp(tm_status_text(x), tm_status_text(y));
+    case COL_USER:   return strcmp(uusername(x->uid, 0), uusername(y->uid, 0));
     case COL_CPU:    return (int)x->cpu_pm - (int)y->cpu_pm;
     case COL_PRIVATE:
         // NOT a subtraction: a difference that does not fit an int makes
@@ -399,7 +418,10 @@ static void fill_details(void) {
         if (p->pid == -1 - KIND_KERNEL) goto io;
         return;
     }
-    snprintf(g_d_sub_text, sizeof g_d_sub_text, "%s, pid %d", p->name, p->pid);
+    // The user in the subtitle, not a row: the pane's height sets the
+    // window's default (DETAIL_KEYS).
+    snprintf(g_d_sub_text, sizeof g_d_sub_text, "%s, pid %d, %s", p->name, p->pid,
+             uusername(p->uid, 0));
     strlcpy(g_d_val_text[0], p->path[0] ? p->path : "-", TM_PATH_MAX);
     int pr = tm_proc_row(p->ppid);
     if (pr >= 0) snprintf(g_d_val_text[1], TM_PATH_MAX, "%s (%d)", g_proc[pr].name, p->ppid);
@@ -502,8 +524,29 @@ static void report_order(int force) {
 // rewritten g_proc under the old g_rows, and the row names a neighbour.
 static int g_hover_pid;
 
+static void rebuild_rows(void);
+
+static int shown(const struct tm_proc *p) {
+    if (g_show == TM_SHOW_ALL) return 1;
+    if (p->pid <= 0) return g_show == TM_SHOW_SYSTEM;   // a kind row
+    if (g_show == TM_SHOW_MINE) return p->uid == g_me;
+    return p->uid < UID_FIRST_PERSON;
+}
+
+int tm_procs_show(void) { return g_show; }
+
+void tm_procs_set_show(int show, int save) {
+    if (show < 0 || show >= TM_SHOWS) return;
+    g_show = show;
+    if (save && !uconf_set(TM_CONF, "show", SHOW_WORDS[show]))
+        ulogf("taskmgr: could not save Show to %s\n", TM_CONF);
+    ulogf("taskmgr: show %s\n", SHOW_WORDS[show]);
+    if (g_rows) rebuild_rows();
+}
+
 static void rebuild_rows(void) {
     const char *needle = uui_textbox_text(&g_search);
+    g_me = (unsigned)geteuid();
     g_nrows = 0;
     for (int g = 0; g < TM_GROUPS; g++) g_group_count[g] = 0;
     // The kind rows FIRST in source order, so the table's row cap drops a
@@ -511,9 +554,9 @@ static void rebuild_rows(void) {
     // out of the caption's count, which counts processes.
     fill_kinds();
     for (int k = 0; k < KINDS; k++)
-        if (matches(&g_kind[k], needle)) g_rows[g_nrows++] = -1 - k;
+        if (matches(&g_kind[k], needle) && shown(&g_kind[k])) g_rows[g_nrows++] = -1 - k;
     for (int i = 0; i < g_nproc; i++) {
-        if (!matches(&g_proc[i], needle)) continue;
+        if (!matches(&g_proc[i], needle) || !shown(&g_proc[i])) continue;
         g_rows[g_nrows++] = i;
         g_group_count[g_proc[i].group]++;
     }
@@ -814,6 +857,10 @@ void tm_procs_init(struct tm_page *page) {
     uui_textbox_init(&g_search, "");
     g_search.placeholder = "Filter by name or PID";
     uui_segmented_init(&g_viewsel, VIEW_NAMES, 3, VIEW_GROUPED);
+    char show[16];
+    if (uconf_get(TM_CONF, "show", show, sizeof show))
+        for (int i = 0; i < TM_SHOWS; i++)
+            if (!strcmp(show, SHOW_WORDS[i])) g_show = i;
     uui_label_init(&g_spacer, "");
     uui_button_init(&g_btn_stop, 0, 0, 0, 0, "Stop", UUI_ROLE(control_bg), UUI_ROLE(text), ID_STOP);
     uui_button_init(&g_btn_close, 0, 0, 0, 0, "Close", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CLOSE);

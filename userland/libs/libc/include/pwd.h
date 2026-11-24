@@ -1,15 +1,15 @@
-// <pwd.h> -- the user database, which has ONE entry.
+// <pwd.h> -- the user database, /etc/passwd.
 //
-// This system has one user and no /etc/passwd (<unistd.h>'s "who we
-// are"): uid 0, which every Unix names `root`, with HOME's directory (`/`,
-// what init sets) and tosh as its login shell. So getpwuid(0) and
-// getpwnam("root") find it, and any other uid or name finds NOTHING --
-// NULL with errno untouched, which is POSIX's "no such entry", not an
-// error. A database that answered every name would expand `~bob` to a
-// home nobody has.
+// Read from the file on every call, as glibc's files backend does, so an
+// edit is seen at once. `name:x:uid:gid:gecos:home:shell`, a line each;
+// a malformed line names nobody. When the file cannot be read at all (a
+// sandbox that did not unveil it), root -- uid 0, home `/` -- is still
+// found, and nobody else. No such entry is NULL with errno untouched,
+// POSIX's "not found", not an error.
 //
-// The entry's strings are static and the same on every call; the _r
-// forms copy them into the caller's buffer (ERANGE when it is short).
+// The non-_r forms return static storage overwritten by the next call
+// of any of them; the _r forms copy into the caller's buffer (ERANGE
+// when it is short).
 #ifndef _PWD_H
 #define _PWD_H
 
@@ -22,7 +22,7 @@ extern "C" {
 
 struct passwd {
     char  *pw_name;
-    char  *pw_passwd;   // "x": there is no password, and no shadow file
+    char  *pw_passwd;   // "x": there are no passwords yet (docs/users-design.md, stage D)
     uid_t  pw_uid;
     gid_t  pw_gid;
     char  *pw_gecos;
@@ -37,6 +37,11 @@ int getpwnam_r(const char *name, struct passwd *pwd, char *buf, size_t buflen,
                struct passwd **result);
 int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t buflen,
                struct passwd **result);
+
+// Every entry in turn; setpwent() starts over, endpwent() closes the file.
+struct passwd *getpwent(void);
+void setpwent(void);
+void endpwent(void);
 
 #ifdef __cplusplus
 }

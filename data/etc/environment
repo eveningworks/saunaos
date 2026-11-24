@@ -4,9 +4,11 @@
 # starts after the next boot.
 PATH=/bin:/usr/bin
 HOME=/
+# HOME is /, root's; a service with User= (the desktop, the shells) gets
+# its account's home from /etc/passwd instead -- /home for `user`.
 # XDG's base directories under the one person's /home, for ported
-# programs (ScummVM's settings and saves, SDL's pref path): HOME stays /,
-# so a program that falls back to $HOME/.config would write to the root.
+# programs (ScummVM's settings and saves, SDL's pref path), so a root
+# service falling back to $HOME/.config does not write to the root.
 XDG_CONFIG_HOME=/home/.config
 XDG_DATA_HOME=/home/.local/share
 XDG_CACHE_HOME=/home/.cache

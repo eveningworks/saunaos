@@ -289,6 +289,11 @@ TESTS = [
     # the crash record a violation leaves. SPAWNED: every check runs in a
     # forked child so the one meant to die is the only one that does.
     ("sandbox_test", None, None, None),
+    # Who a process is (abi/cred_abi.h): getuid and friends, SPAWN_CREDS
+    # and who may use it, the identity through fork and spawn, proc_info's
+    # ids, and the shipped /etc/passwd and /etc/group through <pwd.h> and
+    # <grp.h>. SPAWNED: it waits for its children.
+    ("cred_test", None, None, None),
     # A futex parking and waking ACROSS two processes, through a shared
     # page. The KTESTs beside sys_futex_wait() cover key derivation and
     # every refusal and cannot cover this -- they run on the kernel

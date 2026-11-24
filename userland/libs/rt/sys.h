@@ -9,6 +9,7 @@
 #include "syscall_abi.h"
 #include "errno.h"   // sys_errno()'s values
 #include "proc_info.h" // struct proc_info -- sys_proc_info() below
+#include "cred_abi.h"  // struct cred_info -- sys_getcred() below
 #include "pci.h"     // struct pci_device, for sys_pci_info()
 #include "sound_abi.h" // struct snd_register_msg, for sys_snd_register()
 #include "cpuinfo.h" // struct cpu_info, for sys_cpu_info()
@@ -746,6 +747,10 @@ int sys_getpgid(int pid);
 // abi/syscall_abi.h's SYS_SETSID for what sessions are for here.
 int sys_setsid(void);
 int sys_getsid(int pid);
+// WHO THIS PROCESS IS (abi/cred_abi.h): the record, and up to `cap`
+// supplementary group ids into `groups` (NULL with cap 0 for the count
+// alone, in out->ngroups). 0, or -1 with sys_errno().
+int sys_getcred(struct cred_info *out, uint32_t *groups, uint32_t cap);
 int sys_remote_log(int kind, unsigned ip, const char *text);
 
 // --- signals: dispositions and handlers -------------------------------
@@ -1157,6 +1162,11 @@ struct sys_spawn_opts {
     // (abi/sandbox_abi.h) -- it starts sandboxed, before its first
     // instruction.
     unsigned    promises;
+    // With SPAWN_CREDS: who the child is -- `uid`, `gid` and `ngroups`
+    // supplementary groups at `groups`. Root alone may ask (-EPERM).
+    unsigned        uid, gid;
+    const uint32_t *groups;
+    unsigned        ngroups;
 };
 
 // The -1s that a zeroed struct would get wrong. Call it, then override.

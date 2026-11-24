@@ -1214,9 +1214,15 @@ def check_env(dbg, qmp, res):
     got = env_lines(dbg.send(f"sh cat {out}"))
     res.check("e1. /etc/environment names PATH (the image ships it)",
               any(w.startswith("PATH=") for w in want), f"/etc/environment: {want}")
-    missing = [w for w in want if w not in got]
+    # A User= service's HOME, USER, LOGNAME and SHELL come from its
+    # /etc/passwd line instead (docs/users-design.md): the desktop runs as
+    # `user`, whose HOME is /home.
+    login = ("HOME=", "USER=", "LOGNAME=", "SHELL=")
+    missing = [w for w in want if w not in got and not w.startswith(login)]
     res.check("e2. the Terminal's shell has every /etc/environment variable",
               want and not missing, f"missing {missing}; env printed {got}")
+    res.check("e2b. ...and the desktop account's login variables, from /etc/passwd",
+              all(v in got for v in ("HOME=/home", "USER=user", "LOGNAME=user")), f"env printed {got}")
     # The FILE was what init read, not its fallback -- which ships the
     # same two values, so e2 alone cannot tell them apart. init says when
     # it falls back; its "starting" line anchors the search, since a long

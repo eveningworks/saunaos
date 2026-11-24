@@ -165,6 +165,11 @@ struct proc_info {
     uint64_t delay_disk_ns;
     uint64_t delay_lock_ns;
     uint64_t delay_runq_ns;
+    // WHO IT IS (abi/cred_abi.h), the LEADER's: real and effective user
+    // and group. 0 is root -- every process the kernel started, and
+    // everything they start without SPAWN_CREDS. `ps` prints the user.
+    uint32_t uid, euid;
+    uint32_t gid, egid;
 };
 
 // SYS_PROC_INFO's index for "the calling thread" -- /proc/thread-self.
@@ -175,7 +180,7 @@ struct proc_info {
 // reshuffle, because every offset here is a contract with a ring-3
 // binary. The assert is the thing that notices, so update it
 // deliberately when a field is added and never to make a build pass.
-_Static_assert(sizeof(struct proc_info) == 112,
+_Static_assert(sizeof(struct proc_info) == 128,
                "struct proc_info must grow append-only -- existing fields never move");
 _Static_assert(__builtin_offsetof(struct proc_info, name) == 36,
                "struct proc_info's name must stay where ring-3 binaries expect it");

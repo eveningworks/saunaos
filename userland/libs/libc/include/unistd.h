@@ -162,24 +162,26 @@ int unveil(const char *path, const char *permissions);
 
 // --- who we are -------------------------------------------------------
 //
-// **ALL FIVE ANSWER 0 OR EMPTY, AND THAT IS A FACT RATHER THAN A STUB.**
-// This system has no login, no /etc/passwd and no second user. Zero is
-// root's id on every Unix, which is also the truthful answer here -- the
-// one user can do everything -- so a program branching on
-// `geteuid() == 0` takes the branch that is correct for this machine.
+// The process's identity (abi/cred_abi.h): real, effective and saved user
+// and group, root being 0. A process descended from the kernel without
+// a SPAWN_CREDS is root; the desktop and the shells run as `user`
+// (docs/users-design.md). <pwd.h> and <grp.h> turn the numbers into names.
 uid_t getuid(void);
 uid_t geteuid(void);
 gid_t getgid(void);
 gid_t getegid(void);
+// Linux's: real, effective and saved ids at once. Return 0 (they cannot fail).
+int getresuid(uid_t *ruid, uid_t *euid, uid_t *suid);
+int getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid);
 
-// The supplementary group list, which is empty. Returns the COUNT, 0,
-// for any size -- including the size-0 form that asks how many there
-// are.
+// The supplementary groups. `size` 0 returns how many there are; a
+// non-zero `size` smaller than that is -1 with EINVAL.
 int getgroups(int size, gid_t *list);
 
-// The session's login name, which does not exist: there is no login and
-// no record of one, so this is always NULL with ENXIO -- glibc's answer
-// with no utmp entry. The user's NAME is <pwd.h>'s, getpwuid(getuid()).
+// The session's login name: there is no login yet (the desktop's account
+// is chosen by init's User=) and no utmp record of one, so this is always
+// NULL with ENXIO -- glibc's answer with no utmp entry. The user's NAME is
+// <pwd.h>'s, getpwuid(getuid()).
 char *getlogin(void);
 
 // **vfork() IS fork(), and the distinction it names does not exist

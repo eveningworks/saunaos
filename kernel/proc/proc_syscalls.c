@@ -4,6 +4,8 @@
 #include "syscalls.h"
 #include "heap.h"  // the environment blob, kept off syscall_dispatch()'s frame
 #include "syscall.h"   // syscall_reset_mm()'s own declaration
+#include "cred.h"      // SPAWN_CREDS: who may name the child's identity
+#include "cred_abi.h"
 #include "sandbox.h"   // SPAWN_SANDBOX, and kill() of another pid wants PROC
 #include "sandbox_abi.h"
 #include "syscall_abi.h"
@@ -756,9 +758,37 @@ int sys_spawn(struct syscall_ctx *c) {
         return 0;
     }
 
+    // SPAWN_CREDS: only root names who a child is. -EPERM, never -EINVAL,
+    // which libsys reads as a kernel from before a flag and retries.
+    uint32_t *cr_groups = 0;
+    if (msg.flags & SPAWN_CREDS) {
+        if (cred_euid(cred_current()) != 0) {
+            c->regs[14] = (uint64_t)(int64_t)-EPERM;
+            return 0;
+        }
+        if (msg.ngroups > CRED_GROUPS_MAX) {   // E2BIG: an argument list too long, not an unknown flag
+            c->regs[14] = (uint64_t)(int64_t)-E2BIG;
+            return 0;
+        }
+        if (msg.ngroups) {
+            cr_groups = kmalloc((size_t)msg.ngroups * sizeof *cr_groups);
+            if (!cr_groups) {
+                c->regs[14] = (uint64_t)(int64_t)-ENOMEM;
+                return 0;
+            }
+            if (!vmm_copy_from_user(pml4, cr_groups, (uint64_t)(uintptr_t)msg.groups,
+                                    (uint64_t)msg.ngroups * sizeof *cr_groups)) {
+                kfree(cr_groups);
+                c->regs[14] = (uint64_t)(int64_t)-EFAULT;
+                return 0;
+            }
+        }
+    }
+
     struct spawn_args a;
     int rc = spawn_args_collect(pml4, &msg, &a, "spawn");
     if (rc < 0) {
+        kfree(cr_groups);
         c->regs[14] = (uint64_t)(int64_t)rc;
         return 0;
     }
@@ -838,6 +868,11 @@ int sys_spawn(struct syscall_ctx *c) {
         // spawn (kernel/sandbox.h): the child is narrowed before it runs.
         int sb_arm = (arm < 0 || !(msg.flags & SPAWN_SANDBOX)) ? 0
                    : sandbox_arm_spawn(msg.promises);
+        // ...and SPAWN_CREDS, the identity built here so the spawn cannot fail on it.
+        int cr_arm = (arm < 0 || sb_arm < 0 || !(msg.flags & SPAWN_CREDS)) ? 0
+                   : cred_arm_spawn(msg.uid, msg.gid, cr_groups, msg.ngroups);
+        kfree(cr_groups);
+        cr_groups = 0;
         // THE CHILD IS HELD UNTIL ITS SESSION, TERMINAL AND FOREGROUND
         // GROUP ARE SET BELOW: it is READY once the spawn returns, and a
         // syscall can be preempted, so it could otherwise run first and
@@ -845,12 +880,15 @@ int sys_spawn(struct syscall_ctx *c) {
         // SPAWN_STOPPED mechanism, released after them unless that was
         // asked for too.
         int hold = (msg.flags & (SPAWN_SETSID | SPAWN_FOREGROUND)) != 0;
-        int stop_arm = (arm < 0 || sb_arm < 0 || !((msg.flags & SPAWN_STOPPED) || hold)) ? 0
+        int stop_arm = (arm < 0 || sb_arm < 0 || cr_arm < 0 ||
+                        !((msg.flags & SPAWN_STOPPED) || hold)) ? 0
                      : scheduler_arm_spawn_stopped();
         if (arm < 0)
             spawn_rc = arm;
         else if (sb_arm < 0)
             spawn_rc = sb_arm;
+        else if (cr_arm < 0)
+            spawn_rc = cr_arm;
         else if (stop_arm < 0)
             spawn_rc = stop_arm;
         else
@@ -859,6 +897,7 @@ int sys_spawn(struct syscall_ctx *c) {
                                         c->pml4);
         strace_disarm();
         sandbox_disarm();
+        cred_disarm();
         scheduler_disarm_spawn_stopped();
         if (pid > 0) spawn_rc = pid;
         // SPAWN_FOREGROUND: the child's group in front of OUR fd 0,
@@ -910,6 +949,7 @@ int sys_spawn(struct syscall_ctx *c) {
         fd_desc_unref(stderr_desc);
     if (detach_in >= 0) fd_desc_unref(detach_in);
     if (detach_out >= 0) fd_desc_unref(detach_out);
+    kfree(cr_groups);   // NULL unless a stream was refused before the arm
     spawn_args_free(&a);
     c->regs[14] = (uint64_t)(int64_t)spawn_rc;
     return 0;

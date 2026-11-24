@@ -974,6 +974,16 @@ struct spawn_msg {
     // without the flag.
     uint32_t promises;
     uint32_t reserved_sandbox;
+
+    // With SPAWN_CREDS: who the child IS -- real, effective and saved
+    // uid all `uid`, likewise `gid`, and `ngroups` supplementary groups
+    // at `groups` (at most CRED_GROUPS_MAX, abi/cred_abi.h). Not read
+    // without the flag.
+    uint32_t uid;
+    uint32_t gid;
+    const uint32_t *groups;
+    uint32_t ngroups;
+    uint32_t reserved_creds;
 };
 
 // The child is TRACED: every syscall it makes is written as records into
@@ -1050,7 +1060,6 @@ struct spawn_msg {
 // apart by pid (`strace -f`).
 #define SPAWN_TRACE_FOLLOW 128
 
-// Every flag this kernel knows. Anything outside it is -EINVAL.
 // The child starts SANDBOXED: its promises are this process's AND
 // `promises` (abi/sandbox_abi.h), before its first instruction runs.
 // Pledging in its own main() would do the same a few calls later; the
@@ -1066,10 +1075,19 @@ struct spawn_msg {
 // spawn could lose the race to the child's first slice.
 #define SPAWN_STOPPED 512
 
+// The child runs as `uid`/`gid`/`groups` (above) instead of as its
+// parent -- systemd's User=, and THE ONE WAY a process starts as someone
+// else (docs/users-design.md: no setuid bits). Only a caller whose
+// EFFECTIVE uid is 0 may ask; anyone else gets -EPERM and no child, and
+// more than CRED_GROUPS_MAX groups is -E2BIG -- never -EINVAL, which
+// libsys reads as a kernel from before a flag.
+#define SPAWN_CREDS 1024
+
 // Every flag this kernel knows. Anything outside it is -EINVAL.
 #define SPAWN_FLAGS_ALL (SPAWN_TRACE | SPAWN_FOREGROUND | SPAWN_ARGV | SPAWN_SETSID | \
                          SPAWN_STDERR | SPAWN_DETACH | SPAWN_TRACE_RING | \
-                         SPAWN_TRACE_FOLLOW | SPAWN_SANDBOX | SPAWN_STOPPED)
+                         SPAWN_TRACE_FOLLOW | SPAWN_SANDBOX | SPAWN_STOPPED | \
+                         SPAWN_CREDS)
 
 #define SYS_WNOHANG 1
 
@@ -2142,6 +2160,16 @@ struct sys_stat {
                            // none -- a kernel from before it, or a boot
                            // that could not build it -- and the caller
                            // keeps making the syscall.
+
+#define SYS_GETCRED 171    // RDI = a `struct cred_info *` (abi/cred_abi.h),
+                           // RSI = a uint32_t array for the supplementary
+                           // groups, RDX = its capacity (0 with RSI NULL
+                           // asks for the count alone). Fills the record
+                           // whole -- `ngroups` is how many there ARE --
+                           // and copies the first min(RDX, ngroups) group
+                           // ids. 0, or -EFAULT. getresuid(2) and
+                           // getgroups(2) in one call: an identity is read
+                           // together or a caller can see half of a change.
 
 #define SYS_SHM_OPEN 99   // RDI = pointer to a `struct shm_open_msg`.
                           // Returns a descriptor naming a SHARED

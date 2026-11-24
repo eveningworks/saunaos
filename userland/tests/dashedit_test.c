@@ -99,8 +99,9 @@ int main(void) {
 
     // --- 1. it prompts -----------------------------------------------
     //
-    // `#`, NOT `$`: dash picks its default PS1 from geteuid(), and every
-    // id on this system answers 0, so dash believes it is root.
+    // `#`, NOT `$`: dash picks its default PS1 from geteuid(), and this
+    // test runs as root (the debug console starts it), so dash is root's.
+    // Under the desktop's `user` the same dash prompts `$`.
     // /bin/tosh's `$` means something else entirely -- ring 3 rather
     // than privilege -- and the two conventions collide by coincidence.
     int mark = waited(master, "#", 0);

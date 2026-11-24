@@ -15,5 +15,11 @@ menu #bar {
             item "Low" command=speed_low
             item "Paused" command=speed_paused
         }
+        // Whose processes Processes lists, KDE System Monitor's filter.
+        menu "Show" {
+            item "All processes" command=show_all
+            item "My processes" command=show_mine
+            item "System processes" command=show_system
+        }
     }
 }

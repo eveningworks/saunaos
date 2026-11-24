@@ -2823,6 +2823,11 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# /etc/environment: what init puts in every process's environment
 	# (userland/services/init/init.c, seed_environment()).
 	cp data/etc/environment $(SEED_DIR)/sync/etc/environment
+	# /etc/passwd and /etc/group: root and `user`, read by <pwd.h>/<grp.h> and
+	# by init's User= (docs/users-design.md). Shipped data while nothing on
+	# the machine adds an account; stage D's accounts make them the machine's.
+	cp data/etc/passwd $(SEED_DIR)/sync/etc/passwd
+	cp data/etc/group $(SEED_DIR)/sync/etc/group
 	# ...and the XDG base directories it names: a program makes only its
 	# own folder under them (ScummVM's scummvm/), so a missing one sent
 	# its settings to the working directory.

@@ -8,6 +8,7 @@
 #include "SDL_saunaos_video.h"
 #include "base/uopen.h"
 #include "ui/uapp.h"
+#include "rt/sys.h"    /* sys_errno() */
 
 #include <string.h>   /* strerror() */
 
@@ -18,8 +19,10 @@ bool SDL_SYS_OpenURL(const char *url)
      * caller. */
     int pid = SAUNAOS_app ? uapp_open_url(SAUNAOS_app, url) : uopen_url(url);
     if (pid < 0 && uopen_is_web_url(url)) {
-        /* The browser exists; its spawn failed, and the errno says why. */
-        return SDL_SetError("The Web Browser did not start for %s: %s", url, strerror(-pid));
+        /* The browser exists; its spawn failed, and the errno says why --
+         * sys_errno(), since the spawn answers -1 itself (strerror(-pid)
+         * named EPERM for every failure). */
+        return SDL_SetError("The Web Browser did not start for %s: %s", url, strerror(sys_errno()));
     }
     if (pid < 0) {
         return SDL_SetError("Nothing on SaunaOS opens %s", url);

@@ -4,6 +4,7 @@
 
 #include "uaddr.h" // uaddr_is_user() -- a new thread's RIP, RSP and FS
 #include "sandbox.h"   // a child inherits it, at spawn and at fork
+#include "cred.h"      // and its identity
 #include "sandbox_abi.h" // PROMISE_PROT_EXEC: an executable stack needs it
 #include "sched_internal.h"
 #include "futex.h"
@@ -579,6 +580,8 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
         sandbox_lockout(&procs[slot].ext->sandbox);
     if (!(sandbox_promises(procs[slot].ext->sandbox) & PROMISE_PROT_EXEC))
         mmap_drop_exec_stack(&procs[slot].mm, as);   // the ELF asked; the sandbox says no
+    // And the identity: the caller's, or the one SPAWN_CREDS armed.
+    procs[slot].ext->cred = cred_for_child();
 
     // WHAT A REMOTE SESSION STARTS IS RECORDED, auditd's execve shape --
     // here rather than in sys_spawn() because every spawn funnels
@@ -709,6 +712,7 @@ int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
     k_memset(&procs[slot].mm, 0, sizeof procs[slot].mm);
     procs[slot].ext->cwd.path[0] = '\0';
     procs[slot].ext->sandbox = 0;   // the leader's is the group's
+    procs[slot].ext->cred = 0;      // ...and so is the identity
     sched_publish(slot);   // placed, READY, unclaimed and counted, under its queue's lock
     return procs[slot].pid;
 }
@@ -827,6 +831,7 @@ int scheduler_fork(const uint64_t *regs) {
     }
     k_memcpy(&procs[slot].ext->cwd, &procs[leader].ext->cwd, sizeof procs[slot].ext->cwd);
     procs[slot].ext->sandbox = sandbox_get(procs[leader].ext->sandbox);
+    procs[slot].ext->cred = cred_get(procs[leader].ext->cred);
     procs[slot].ext->no_crash_report = procs[leader].ext->no_crash_report;
     strace_fork(procs[leader].pml4_phys, as);   // past the last failure path
     sched_publish(slot);   // placed, READY, unclaimed and counted, under its queue's lock
