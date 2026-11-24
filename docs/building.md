@@ -59,8 +59,8 @@ make run
 That builds the kernel, seeds a disk image, installs GRUB and the kernel
 onto it, and boots **the disk** in QEMU — no CD involved (`make run
 BOOT=cd` boots the ISO instead). **init brings the desktop up on its
-own**; *Exit to shell* in the Start menu drops to the `/>` prompt, and
-`gui` goes back. For a text-only boot, `make iso KCMDLINE="target=text"`
+own**; *Exit to shell* in the Start menu drops to `/bin/tosh`'s `/$` prompt,
+and `service start toywm` brings the desktop back. For a text-only boot, `make iso KCMDLINE="target=text"`
 (or `option cmdline` in `build.conf`, below). PageUp/PageDown scrolls the
 console history, including the boot log.
 

@@ -653,9 +653,15 @@ a bug in the new shell rather than as a handoff nobody sequenced.
 The boot TARGET is a fact the kernel has before init is even spawned
 (`target_init()` runs beside the other `/etc` readers, deliberately
 ahead of the spawn), so deciding from it removes the race rather than
-narrowing it. `graphical` is untouched: the desktop owns the screen and
-the kernel shell sits behind it, which is what *Exit to shell* returns
-to.
+narrowing it. `graphical` stands down too (2026-11-24): `/bin/tosh`
+runs there as well, parked on fd 0 behind the desktop, so a ring-0 REPL
+started on that boot left its banner and a `/#` prompt that took no keys
+above tosh's after *Exit to shell*. Only `rescue` -- no services -- keeps
+the kernel shell on the console. The cost, accepted as it was for `text`:
+a graphical boot whose tosh cannot run (disabled, given up after
+crash-looping, unloadable) has no console shell after *Exit to shell*;
+`target=rescue` on the GRUB line, or `sh` over the serial console, is
+the way back.
 
 Two conditions ride with it, and both are about not making the machine
 unreachable. It is gated on `scheduler_init_pid() != 0`, because a boot

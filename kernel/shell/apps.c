@@ -35,13 +35,15 @@ void app_list(void (*cb)(const char *name, const char *description)) {
     }
 }
 
-// THE PHYSICAL CONSOLE HAS ONE SHELL, AND ON A `text` BOOT IT IS NOT
-// THIS ONE.
+// THE PHYSICAL CONSOLE HAS ONE SHELL, AND WHEREVER INIT RUNS SERVICES
+// IT IS NOT THIS ONE.
 //
 // init starts whatever /etc/services.d names for the boot target, and
-// on `text` that is /bin/tosh on the console (docs/init-design.md's
-// stage 4). Two shells draining one key ring is exactly the bug
-// keyboard_claim_console() exists for -- but that claim is taken by the
+// on `text` and `graphical` alike that includes /bin/tosh on the console
+// (docs/init-design.md's stage 4) -- parked behind the desktop on
+// `graphical`, which is what *Exit to shell* lands in. Two shells
+// draining one key ring is exactly the bug keyboard_claim_console()
+// exists for -- but that claim is taken by the
 // first fd-0 READ, which is tosh reaching its prompt. Measured, that is
 // about ten milliseconds after init spawns it, and apps_start() runs
 // inside that same window: neither side controls the ordering. A REPL
@@ -51,8 +53,9 @@ void app_list(void (*cb)(const char *name, const char *description)) {
 //
 // So the decision is made from the TARGET, which the kernel knows
 // before init is even spawned, instead of being raced against the
-// claim. `graphical` is unchanged: the desktop owns the screen and this
-// shell sits behind it, which is what *Exit to shell* returns to.
+// claim. Only `rescue` starts no services, so it keeps this shell --
+// and it is the way back to a console when tosh cannot run (disabled,
+// given up after crash-looping, a filesystem it cannot load from).
 //
 // Gated on init ACTUALLY RUNNING, because a boot with no /bin/init is
 // supported and quiet (scheduler_init_pid() is 0 there) -- with nobody
@@ -60,7 +63,7 @@ void app_list(void (*cb)(const char *name, const char *description)) {
 // console at all.
 static int console_belongs_to_init(void) {
     return scheduler_init_pid() != 0 &&
-           k_strcmp(target_get(), TARGET_TEXT) == 0;
+           k_strcmp(target_get(), TARGET_RESCUE) != 0;
 }
 
 // Never returns. The kernel shell is not gone -- every one of its ~60
@@ -79,8 +82,8 @@ static void console_standby(void) {
               "init's shell]\n");
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     vga_present();
-    klog_write("apps: kernel shell standing down -- the console belongs to "
-               "init's shell (target=text)\n");
+    klog_printf("apps: kernel shell standing down -- the console belongs to "
+                "init's shell (target=%s)\n", target_get());
 
     for (;;) {
         scheduler_idle();

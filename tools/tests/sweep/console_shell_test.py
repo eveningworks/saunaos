@@ -246,6 +246,11 @@ def main():
             print("console_shell_test: could not start the VM")
             return 2
         dbg = DebugConsole(sock)
+        # A graphical boot runs tosh too, parked behind the desktop for
+        # Exit to shell: a kernel REPL here left a dead `/#` above it.
+        check("the kernel shell stands down on a graphical boot as well",
+              "standing down -- the console belongs to init's shell (target=graphical)"
+              in dmesg(dbg, "standing down"))
         dbg.send("sh keyboard us")
         dbg.send("sh config set system.default_target text")
         dbg.send(f"sh rm {PROBE}")

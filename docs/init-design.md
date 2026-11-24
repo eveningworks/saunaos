@@ -325,10 +325,10 @@ the same keystroke.
 
 ### Stage 4 -- the ring-3 shell -- DONE 2026-08-19
 
-`/bin/tosh` is a service (`data/etc/services.d/tosh`, `Target=text`,
-`Restart=always`), so init starts it on a `text` boot exactly as
+`/bin/tosh` is a service (`data/etc/services.d/tosh`, no `Target=`,
+`Restart=always`), so init starts it on a `text` or `graphical` boot exactly as
 systemd starts a getty, and puts a new prompt back when Ctrl-D ends the
-old one. `kernel/shell/shell.c` STANDS DOWN on that target rather than racing
+old one. `kernel/shell/shell.c` STANDS DOWN on both rather than racing
 it for the keyboard: it draws no prompt, takes no keys, and stays
 reachable as `sh <cmd>` over the serial debug console, which is how the
 test suite drives it anyway.

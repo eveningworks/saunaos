@@ -25,11 +25,11 @@ They used to be indistinguishable -- the kernel shell and the GUI
 Terminal both drew `<cwd>> `, and the kernel shell introduced itself as
 "tosh", which is a real program that is not it.
 
-**This is the KERNEL's shell** (`kernel/shell/shell.c`). On a `graphical` boot
-it is what sits behind the desktop and what *Exit to shell* returns to;
-on a `text` boot init starts `/bin/tosh` on the console instead and this
-one stands down, staying reachable as `sh <cmd>` over the serial debug
-console. `/bin/tosh` is a much smaller shell -- **seven builtins: `cd`,
+**This is the KERNEL's shell** (`kernel/shell/shell.c`). Whenever init
+runs -- a `text` or a `graphical` boot -- init starts `/bin/tosh` on the
+console, which is also what *Exit to shell* lands in, and this one stands
+down, staying reachable as `sh <cmd>` over the serial debug console. It
+has the console on a `rescue` boot, or one with no `/bin/init`. `/bin/tosh` is a much smaller shell -- **seven builtins: `cd`,
 `pwd`, `help`, `exit`, and the job-control three (`jobs`, `fg`, `bg`),
 plus anything on `PATH`** -- and none of the kernel-introspection
 commands below exist there.
