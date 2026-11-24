@@ -52,11 +52,9 @@ typedef long suseconds_t;
 #endif
 
 #ifndef __ULIB_UID_T
-// PRESENT AND ALWAYS ZERO, for the same reason mode_t below is present
-// and meaningless: this is a single-user system with no login, no
-// /etc/passwd and no notion of a second user. getuid()/geteuid() answer
-// 0 (<unistd.h> says why that is root rather than nobody), and a
-// signature carrying one compiles.
+// A user and a group id: root is 0, the desktop's account 1000
+// (/etc/passwd, docs/users-design.md). Every process carries both, and
+// every file on a volume with owners does (stat()'s st_uid/st_gid).
 #define __ULIB_UID_T
 typedef unsigned uid_t;
 typedef unsigned gid_t;
@@ -79,8 +77,8 @@ typedef int64_t  blkcnt_t;
 // **THERE ARE PERMISSION BITS NOW** -- TFS3 stores a mode at inode
 // offset 92 and <sys/stat.h>'s st_mode reports it. What is still
 // accepted and ignored is the mode ARGUMENT to mkdir() and open(): a
-// file is created with the default for its type, because there is no
-// umask and no chmod to change it afterwards.
+// file is created with the default for its type less the umask, and
+// chmod() changes it afterwards (<sys/stat.h>).
 typedef unsigned mode_t;
 #endif
 

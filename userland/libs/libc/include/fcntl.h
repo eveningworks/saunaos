@@ -46,8 +46,9 @@ extern "C" {
 
 // Open `path`. The variadic `mode` argument POSIX requires with O_CREAT
 // is accepted and IGNORED -- a file is created with the default for its
-// type (kernel/fs/tfs3_internal.h's T3_MODE_DEFAULT) because there is no umask
-// applied at creation and no chmod afterwards -- and is present so the
+// type (kernel/fs/tfs3_internal.h's T3_MODE_DEFAULT) less the process's
+// umask, because the tools that write programs never chmod what they
+// write (<sys/stat.h>'s umask() says more) -- and is present so the
 // universal `open(p, O_CREAT|O_WRONLY, 0644)` compiles unchanged.
 int open(const char *path, int flags, ...);
 
