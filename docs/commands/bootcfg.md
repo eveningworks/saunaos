@@ -34,10 +34,10 @@
   1 for the others.
 - `undo` -- swap `grub.cfg` and `grub.cfg.bak`, so a second `undo` redoes.
 - `known` -- every boot word it accepts, with its value's shape.
-- `resolution [WxH|auto|keep|drop]` -- the screen size GRUB sets, for a
-  display SaunaOS cannot set itself; see "The screen size GRUB sets".
-  Alone, it shows the size now, every boot's, a pending one and the
-  sizes this machine's firmware refused.
+- `resolution [WxH|auto|keep|drop|forget]` -- the screen size GRUB sets,
+  for a display SaunaOS cannot set itself; see "The screen size GRUB
+  sets". Alone, it shows the size now, every boot's, a pending one and
+  the sizes this machine's firmware refused; `forget` offers those again.
 - `--force` -- save despite a RISKY problem the edit introduces.
 - `--file=<cfg>` -- another file than `/boot/grub/grub.cfg`.
 - `-h`, `--help` -- every command and option in one page, as GNU tools
@@ -127,25 +127,28 @@ answer the same question from a shell, and `auto` goes back to GRUB's own
 choice from the next restart. System Settings > Display > Screen shows the
 same choice as a dropdown and a "Restart to try" button on such a display.
 
-A size the firmware does not offer comes up at GRUB's own size instead;
-`screentrial` says so, remembers it in `/etc/display.conf`
+A size the firmware does not offer comes up at GRUB's fallback, 1280x720,
+instead; `screentrial` says so, remembers it in `/etc/display.conf`
 (`firmware_refused=`, or `firmware_refused_uefi=` on a UEFI boot -- the two
 firmwares offer different lists, so each keeps its own), and restarts on the
 kept size when there is one.
 Settings marks it "(not offered)" from then on.
 
-**A refusal can be wrong.** A boot loader that sets NO mode -- every boot
-at the firmware's own size, whatever `toy_mode` says -- makes every size
-look refused (the X99, 2026-11-23: its GOP offers 2560x1440, yet a trial
-came up at 1024x768). What the firmware really offers is `videoinfo` at
-the GRUB prompt (press `c` at the menu). If the size is listed there,
-`install --bootloader confirm` writes the current boot loader (System
-Update offers the same as "Update boot loader..." when its record differs
-from the staged one), emptying
-`/etc/display.conf` forgets the refusal, and the trial is run again. The first use adds the
-stanza an older `grub.cfg` lacks -- the `toy_mode` lines after the
-one-shot one and a `gfxpayload` line after each `multiboot2` -- with the
-old file kept as `grub.cfg.bak`.
+**A trial that comes up at NEITHER size is a boot loader that set no mode
+at all** -- the firmware's own, whatever `toy_mode` says (the X99,
+2026-11-23: its GOP offers 2560x1440, yet a trial came up at 1024x768 under
+an older GRUB). `screentrial` then says "The boot loader did not set
+WxH", greys nothing, restarts on the kept size when there is one, and
+points at the refresh: `install --bootloader confirm`, or System Update's
+"Update boot loader..." when its record differs from the staged one. A
+refresh forgets the refusals of the boot path whose loader it wrote, and
+`bootcfg resolution forget` forgets both lists. What
+the firmware really offers is `videoinfo` at the GRUB prompt (press `c` at
+the menu). A refusal that GRUB's `auto` turned into a third size reads as
+"did not set" too -- the safe way to be wrong, costing one more restart.
+The first use adds the stanza an older `grub.cfg` lacks -- the `toy_mode`
+lines after the one-shot one and a `gfxpayload` line after each
+`multiboot2` -- with the old file kept as `grub.cfg.bak`.
 
 **`gfxpayload` is set AFTER the `multiboot2` line**: that command
 overwrites it from the kernel's framebuffer request

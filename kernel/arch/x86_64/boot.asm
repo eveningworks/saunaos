@@ -23,7 +23,7 @@ mb2_header_start:
     dw 5      ; type = framebuffer
     dw 0      ; flags
     dd 20     ; size
-    dd 1280   ; preferred width
+    dd 1280   ; preferred width -- = UBOOTMODE_FALLBACK (base/ubootmode.h)
     dd 720    ; preferred height
     dd 32     ; preferred depth (bits per pixel)
 

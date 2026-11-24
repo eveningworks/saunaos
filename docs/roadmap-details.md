@@ -9261,7 +9261,12 @@ fallback (1280x720) -- the firmware's own boot mode -- is "this boot
 loader cannot set screen sizes", not a refusal: nothing is greyed, and
 the dialog points at the boot-loader refresh (System Update's offer, the
 item below, or `install --bootloader confirm`). A stale refusal is
-cleared by emptying `/etc/display.conf`.
+cleared by a refresh or `bootcfg resolution forget`.
+
+**Built 2026-11-24** that way: `ubootmode_outcome()` reads SET, REFUSED
+(GRUB's fallback) or NOT_SET (anything else), `screentrial` says "The
+boot loader did not set WxH" for the last, and `ubootrefresh_run()`
+forgets the refusals of the boot path it wrote.
 
 ## System Update offers the boot-loader refresh when the installed one is older than the staged one
 

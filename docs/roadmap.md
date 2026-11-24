@@ -25,7 +25,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] Stage A of `docs/users-design.md`: a process's uid/gid, /etc/passwd, `SPAWN_CREDS`, the desktop as `user` -- nothing enforced  *(Multi-user & file permissions)*
-- [ ] A screen-size trial tells "GRUB set no mode at all" from "this size was refused"  *(virtio, and a real GPU driver)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
 
@@ -1292,7 +1291,7 @@ run on, not by order.
 - [x] ~~A screen size for GRUB's VESA framebuffer, chosen in Settings and tried once~~ DONE 2026-10-27 -- `bootcfg resolution`
 - [ ] A size list the firmware really offers, not the common sizes learned by refusal -- needs VBE `4F01` per mode, a real-mode call
 - [ ] Per-row greying in `uui_dropdown`, so a refused size is disabled rather than labelled "(not offered)"
-- [ ] **NEXT** A screen-size trial tells "GRUB set no mode at all" from "this size was refused"
+- [x] ~~A screen-size trial tells "GRUB set no mode at all" from "this size was refused"~~ DONE 2026-11-24
 - [x] ~~Initcall levels: drivers declare a boot slot instead of being called by name from `kernel_main()`~~ DONE 2026-09-12
 - [x] ~~Loadable drivers: `modload`, one PCI driver, `/etc/modules` -- `docs/modules-design.md`~~ DONE 2026-09-10
 - [x] ~~`virtio-net`: a NIC on the same transport~~ DONE 2026-09-12 -- `virtio_net.c` plus the `net_device` adapter

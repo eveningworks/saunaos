@@ -207,14 +207,18 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   the "Keep this resolution?" window, Enter keeps it and the next boot
   asks nothing; 1366x768, which QXL's BIOS does not offer, comes up at
   1280x720, is remembered in `/etc/display.conf` and restarts onto the
-  kept size; an unanswered 800x600 restarts by itself. A boot is told
-  from the one before it by a file in `/tmp` (ramfs). On demand: it
-  reboots six times, about four minutes.
+  kept size; an unanswered 800x600 restarts by itself; with `grub.cfg`
+  pinned to 800x600 (a boot loader that sets no mode), a 1600x900 trial
+  says "did not set", greys nothing and restarts, and `bootcfg
+  resolution forget` clears 1366x768's refusal. A boot is told from the one before it by a
+  file in `/tmp` (ramfs). On demand: it reboots seven times, about five
+  minutes.
 - **`uefi_boot_test.py`** -- a UEFI boot off the disk's own loader, under
   OVMF on q35 with QXL (vesafb on GOP's framebuffer, as an RTX with CSM
   off). On a copy of `disk.img`: with `EFI/BOOT/BOOTX64.EFI` deleted UEFI
   does NOT boot it (the control); a BIOS boot's `install --bootloader
-  confirm` puts it back; UEFI then reaches the desktop at 1280x720; and
+  --uefi confirm` puts it back; each refresh forgets the refused sizes
+  of the boot path it wrote (a plain one keeps the UEFI list); UEFI then reaches the desktop at 1280x720; and
   `bootcfg resolution 2560x1440` makes the next boot 2560x1440, a size
   QXL's VESA BIOS does not offer. Every UEFI boot has USB devices on the
   bus (`--usb xhci+crowd`): their port scans run before the scheduler

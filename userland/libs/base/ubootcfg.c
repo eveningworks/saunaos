@@ -1,5 +1,6 @@
 // See ubootcfg.h.
 #include "base/ubootcfg.h"
+#include "base/ubootmode.h"
 #include "base/ubootwords.h"
 #include <ctype.h>
 #include <string.h>
@@ -628,7 +629,8 @@ static const char VIDEO_STANZA[] =
     "fi\n"
     "export toy_mode_now\n";
 static const char VIDEO_LINE[] =
-    "if [ \"${toy_mode_now}\" ]; then set gfxpayload=\"${toy_mode_now}x32,${toy_mode_now},1280x720x32,1280x720,auto\"; fi";
+    "if [ \"${toy_mode_now}\" ]; then set gfxpayload=\"${toy_mode_now}x32,${toy_mode_now},"
+    UBOOTMODE_FALLBACK "x32," UBOOTMODE_FALLBACK ",auto\"; fi";
 #define VIDEO_STANZA_MARK "toy_mode_now=\""
 #define VIDEO_LINE_MARK   "gfxpayload=\"${toy_mode_now}"
 

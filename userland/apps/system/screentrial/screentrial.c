@@ -2,7 +2,8 @@
 // (base/ubootmode.h): "Keep this resolution?" with a countdown that
 // restarts on the old size when nobody answers -- which is what makes a
 // size the monitor cannot show safe to try. Or, when the firmware did not
-// offer the size, a notice that says so and remembers it.
+// offer the size, a notice that says so and remembers it; or, when the
+// boot loader set no size at all, one that points at refreshing it.
 //
 //   screentrial --boot    exit at once unless this boot is a trial
 //
@@ -24,7 +25,7 @@
 enum { A_KEEP = 1, A_BACK, A_RESTART, A_STAY };
 
 static struct ubootmode g_m;
-static char g_title[96], g_text[256], g_left[96], g_stay[48];
+static char g_title[96], g_text[320], g_left[96], g_stay[48];
 static int g_answer;
 
 static void done(void *ctx, int code) {
@@ -35,6 +36,27 @@ static void done(void *ctx, int code) {
 static void restart(void) {
     sys_sync();
     if (uinitctl_shutdown(1) < 0) ulog("screentrial: could not restart\n");
+}
+
+// The screen is not what was tried. A restart helps only when the kept
+// size is not what is on screen; otherwise there is nothing to do but OK.
+static void restart_or_ok(struct uui_countdown_spec *s, const char *now) {
+    if (g_m.kept[0] && strcmp(g_m.kept, now)) {
+        snprintf(g_left, sizeof g_left, "Restarting with %s in %%d seconds", g_m.kept);
+        snprintf(g_stay, sizeof g_stay, "Stay at %s", now);
+        s->remaining = g_left;
+        s->seconds = RESTART_SECONDS;
+        s->primary_label = "Restart now";
+        s->primary_code = A_RESTART;
+        s->other_label = g_stay;
+        s->other_code = A_STAY;
+        s->timeout_code = A_RESTART;
+        s->close_code = A_STAY;
+    } else {
+        s->primary_label = "OK";
+        s->primary_code = A_STAY;
+        s->close_code = A_STAY;
+    }
 }
 
 int main(int argc, char **argv) {
@@ -50,7 +72,8 @@ int main(int argc, char **argv) {
     const char *before = g_m.kept[0] ? g_m.kept : "the size it had before";
     struct uui_countdown_spec s = { .window_title = "Display" };
 
-    if (!strcmp(now, g_m.tried)) {
+    enum ubootmode_outcome got = ubootmode_outcome(g_m.tried, g_m.now_w, g_m.now_h);
+    if (got == UBOOTMODE_SET) {
         snprintf(g_title, sizeof g_title, "Keep this resolution?");
         snprintf(g_text, sizeof g_text,
                  "The screen is now %s. If you do not answer, the computer restarts with %s.",
@@ -65,9 +88,26 @@ int main(int argc, char **argv) {
         s.other_code = A_BACK;
         s.timeout_code = A_BACK;
         s.close_code = A_BACK;
+    } else if (got == UBOOTMODE_NOT_SET) {
+        // Nothing to remember: the size may well be offered, and greying
+        // it would hide it behind a boot loader that is about to be fixed.
+        // Or GRUB's `auto` came up at a third size after two refusals --
+        // which the text admits, and the restart below undoes.
+        ubootmode_drop();
+        ulogf("screentrial: %s not set, boot loader set no mode (came up at %s)\n",
+              g_m.tried, now);
+        snprintf(g_title, sizeof g_title, "The boot loader did not set %s", g_m.tried);
+        snprintf(g_text, sizeof g_text,
+                 "The screen came up at %s, neither %s nor the fallback " UBOOTMODE_FALLBACK
+                 ": the boot loader set no size, or this firmware offers neither. Nothing is "
+                 "greyed. An old boot loader is refreshed in System Update (or install "
+                 "--bootloader confirm).", now, g_m.tried);
+        s.title = g_title;
+        s.text = g_text;
+        restart_or_ok(&s, now);
     } else {
-        // GRUB fell back to its own choice: the firmware does not offer
-        // the size. Remembered, so Settings offers it greyed from now on.
+        // GRUB fell back to UBOOTMODE_FALLBACK: the firmware does not
+        // offer the size. Remembered, so Settings offers it greyed.
         ubootmode_refuse(g_m.tried);
         ubootmode_drop();
         ulogf("screentrial: %s not offered, came up at %s\n", g_m.tried, now);
@@ -77,23 +117,7 @@ int main(int argc, char **argv) {
                  "%s is greyed in Settings from now on.", now, g_m.tried);
         s.title = g_title;
         s.text = g_text;
-        // A restart helps only when the kept size is not what is on screen.
-        if (g_m.kept[0] && strcmp(g_m.kept, now)) {
-            snprintf(g_left, sizeof g_left, "Restarting with %s in %%d seconds", g_m.kept);
-            snprintf(g_stay, sizeof g_stay, "Stay at %s", now);
-            s.remaining = g_left;
-            s.seconds = RESTART_SECONDS;
-            s.primary_label = "Restart now";
-            s.primary_code = A_RESTART;
-            s.other_label = g_stay;
-            s.other_code = A_STAY;
-            s.timeout_code = A_RESTART;
-            s.close_code = A_STAY;
-        } else {
-            s.primary_label = "OK";
-            s.primary_code = A_STAY;
-            s.close_code = A_STAY;
-        }
+        restart_or_ok(&s, now);
     }
 
     struct uapp_desc d = { 0 };

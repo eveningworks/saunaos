@@ -98,6 +98,13 @@ int ubootmode_keep(void) {
 
 int ubootmode_drop(void) { return ubootmenu_env_set(UBOOTMODE_TRIED, 0); }
 
+enum ubootmode_outcome ubootmode_outcome(const char *tried, int now_w, int now_h) {
+    char now[UBOOTMODE_SIZE];
+    snprintf(now, sizeof now, "%dx%d", now_w, now_h);
+    if (!strcmp(now, tried)) return UBOOTMODE_SET;
+    return strcmp(now, UBOOTMODE_FALLBACK) ? UBOOTMODE_NOT_SET : UBOOTMODE_REFUSED;
+}
+
 // The list is bounded by SIZES, so it fits a buffer sized from it.
 #define REFUSED_CAP (NSIZES * UBOOTMODE_SIZE)
 
@@ -131,4 +138,18 @@ int ubootmode_refuse(const char *size) {
     if (!uconf_get(UBOOTMODE_CONF, key, list, sizeof list)) list[0] = 0;
     snprintf(out, sizeof out, "%s%s%s", list, list[0] ? "," : "", size);
     return uconf_set(UBOOTMODE_CONF, key, out) ? 0 : -1;
+}
+
+// uconf_unset() refuses a key that is not there, so only one that is
+// (uconf_get() finds an empty or truncated value too).
+static int forget_key(const char *key) {
+    char probe[2];
+    if (!uconf_get(UBOOTMODE_CONF, key, probe, sizeof probe)) return 0;
+    return uconf_unset(UBOOTMODE_CONF, key) ? 0 : -1;
+}
+
+int ubootmode_forget(int bios, int uefi) {
+    int a = bios ? forget_key(UBOOTMODE_REFUSED_KEY) : 0;
+    int b = uefi ? forget_key(UBOOTMODE_REFUSED_UEFI_KEY) : 0;
+    return a < 0 || b < 0 ? -1 : 0;
 }

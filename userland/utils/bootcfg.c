@@ -47,7 +47,7 @@ static const struct uargs_cmd CMDS[] = {
     { "check",   0,                    "report the file's problems" },
     { "undo",    0,                    "swap grub.cfg and grub.cfg.bak" },
     { "known",   0,                    "every boot word this accepts" },
-    { "resolution", "[WxH|auto|keep|drop]", "the screen size GRUB sets, for a display that cannot set its own" },
+    { "resolution", "[WxH|auto|keep|drop|forget]", "the screen size GRUB sets, for a display that cannot set its own" },
     { 0 },
 };
 
@@ -341,6 +341,11 @@ static int cmd_resolution(int n, char **arg) {
             return 1;
         }
         printf(keep ? "  kept %s for every boot\n" : "  dropped %s -- the next boot is back on the old size\n", m.tried);
+        return 0;
+    }
+    if (!strcmp(arg[0], "forget")) {
+        if (ubootmode_forget(1, 1) < 0) { printf("bootcfg: " UBOOTMODE_CONF " could not be written\n"); return 1; }
+        printf("  every size is offered again " C_DIM "-- a refused one is refused again by its next trial" C_OFF "\n");
         return 0;
     }
     if (!m.usable) { printf("bootcfg: cannot change the screen size here: %s\n", m.why_not); return 1; }

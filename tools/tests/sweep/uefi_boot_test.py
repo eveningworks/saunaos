@@ -12,6 +12,7 @@ of disk.img, under OVMF with QXL (no driver: vesafb on GOP's framebuffer):
   2. `install --bootloader confirm` from a BIOS boot does NOT put it back
      (a routine refresh never changes how a machine boots), and
      `install --bootloader --uefi confirm` does -- the opt-in upgrade;
+     each forgets the refused sizes of the boot path whose loader it wrote;
   3. UEFI then boots the disk alone to the desktop at GRUB's 1280x720,
      with USB devices on the bus (enumerated before the scheduler exists);
   4. 2560x1440, refused on the BIOS boot (as the X99's VESA BIOS did), is
@@ -115,21 +116,35 @@ def main():
         conf = os.path.join(tmp, "display.conf")
         with open(conf, "w") as f:
             f.write("firmware_refused=2560x1440\n")
-        vm(inst, "put", conf, "/etc/display.conf", timeout=60)
+        both = os.path.join(tmp, "display-both.conf")
+        with open(both, "w") as f:
+            f.write("firmware_refused=2560x1440\nfirmware_refused_uefi=1600x900\n")
+        vm(inst, "put", both, "/etc/display.conf", timeout=60)
         out = vm(inst, "exec", "bootcfg resolution", timeout=30)
         r.check("a BIOS-refused 2560x1440 is marked refused there", "2560x1440(refused)" in out,
                 out[-300:])
         # A ROUTINE REFRESH NEVER ADDS IT (System Update's button runs the
         # same): firmware that prefers the loader would boot UEFI from then
         # on, and the ASUS's GOP has no 1920x1080 (2026-11-23).
-        out = vm(inst, "exec", "install --bootloader confirm", "ls /boot/EFI/BOOT", timeout=120)
+        out = vm(inst, "exec", "install --bootloader confirm", "ls /boot/EFI/BOOT",
+                 "cat /etc/display.conf", timeout=120)
         r.check("a plain refresh from a BIOS boot adds NO UEFI loader",
                 "no UEFI loader added" in out and "BOOTX64.EFI" not in out
                 and "FAILED" not in out, out[-600:])
+        # Each boot path's refusals go with the loader rewritten there.
+        r.check("and forgets the BIOS path's refusals, not the UEFI one's",
+                "firmware_refused=" not in out and "firmware_refused_uefi=1600x900" in out,
+                out[-300:])
+        vm(inst, "put", both, "/etc/display.conf", timeout=60)
         out = vm(inst, "exec", "install --bootloader --uefi confirm", "ls /boot/EFI/BOOT",
                  timeout=120)
         r.check("install --bootloader --uefi writes the UEFI loader",
                 "BOOTX64.EFI" in out and "FAILED" not in out, out[-600:])
+        # Two commands, so each is headed: an empty answer is no pass.
+        out = vm(inst, "exec", "cat /etc/display.conf", "echo read", timeout=30)
+        r.check("and forgets both paths' refusals", "--- echo read ---" in out
+                and "firmware_refused" not in out, out[-300:])
+        vm(inst, "put", conf, "/etc/display.conf", timeout=60)   # back, for step 4
         vm(inst, "exec", "sync")
 
         # 3. UEFI, off the disk alone

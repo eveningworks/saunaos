@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "base/ubootcfg.h"
+#include "base/ubootmode.h"
 #include "base/ubootwords.h"
 #include "base/utest.h"
 
@@ -274,6 +275,18 @@ int main(void) {
     other = c;
     utest_check(ubootcfg_video_missing(&c) == 0 && ubootcfg_add_video(&c) == 0 &&
                 !strcmp(c.text, other.text), "a second pass changes nothing");
+    utest_check(strstr(c.text, "${toy_mode_now}x32,${toy_mode_now},1280x720x32,1280x720,auto\"") != 0,
+                "the added line falls back to 1280x720, then auto");
+
+    // What a trial came to, read from the size the screen came up at.
+    utest_check(ubootmode_outcome("2560x1440", 2560, 1440) == UBOOTMODE_SET, "the size tried: set");
+    utest_check(ubootmode_outcome("2560x1440", 1280, 720) == UBOOTMODE_REFUSED,
+                "GRUB's fallback: the firmware refused it");
+    utest_check(ubootmode_outcome("2560x1440", 1024, 768) == UBOOTMODE_NOT_SET,
+                "anything else: the boot loader set no mode");
+    utest_check(ubootmode_outcome("1280x720", 1280, 720) == UBOOTMODE_SET &&
+                ubootmode_outcome("1280x720", 1024, 768) == UBOOTMODE_NOT_SET,
+                "a trial OF the fallback is set, or not set -- never refused");
 
     // --- the previous kernel: its word and `set fallback` ------------------
     static const char PREV[] =

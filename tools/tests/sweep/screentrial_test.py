@@ -14,7 +14,11 @@ reboots:
   2. a size the firmware does not offer (1366x768 here) comes up at GRUB's
      own size, says so, is remembered in /etc/display.conf, and the
      countdown restarts onto the kept 1024x768;
-  3. a trial nobody answers (800x600) restarts by itself, onto 1024x768.
+  3. a trial nobody answers (800x600) restarts by itself, onto 1024x768;
+  4. a boot loader that sets NO mode -- grub.cfg pinned to 800x600, the
+     "firmware's own" size, neither the size tried nor GRUB's 1280x720 --
+     says so, greys nothing and offers the restart onto the kept size, and
+     `bootcfg resolution forget` clears the refusal from 2.
 
 Runs against a COPY of disk.img and reboots it several times.
 
@@ -22,9 +26,9 @@ Runs against a COPY of disk.img and reboots it several times.
 """
 
 # A screen size tried at a restart on QXL (GRUB's VESA framebuffer):
-# kept, refused by the firmware, and left unanswered. Reboots its
-# guest six times against a COPY of disk.img.
-RUNNER = {"covers": "a screen size tried once: kept, refused, unanswered"}
+# kept, refused by the firmware, left unanswered, and not set by a boot
+# loader that sets none. Reboots its guest repeatedly, against a COPY of disk.img.
+RUNNER = {"covers": "a screen size tried once: kept, refused, unanswered, not set"}
 
 
 import argparse
@@ -38,6 +42,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from harness import copy_disk  # noqa: E402
+import install_grub  # noqa: E402
 
 HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
@@ -167,6 +172,36 @@ def main():
         r.check("and restarts by itself onto the kept size", wait_screen(inst, "1024x768", 120))
         out = vm(inst, "exec", "bootcfg resolution")
         r.check("which is still every boot's size", "every boot   1024x768" in out, out[-400:])
+
+        # 4. a boot loader that sets no mode: every boot at one size, the
+        # "firmware's own", whatever grubenv asks for
+        vm(inst, "exec", "bootcfg resolution 1600x900", "sync")
+        vm(inst, "stop")
+        ok, why = install_grub.patch_grub_cfg(
+            disk, lambda cfg: re.sub(r'set gfxpayload="\$\{toy_mode_now\}[^"]*"',
+                                     "set gfxpayload=800x600", cfg), "noset")
+        r.check("grub.cfg is pinned to 800x600", ok, why)
+        out = vm(inst, "--disk", disk, "--vga", "qxl", "--reboot", "start", timeout=300)
+        r.check("the pinned boot comes up at neither size", "ready" in out
+                and wait_screen(inst, "800x600"), out[-300:])
+        r.check("and says so", wait_window(inst, "Display"))
+        log = vm(inst, "exec", "dmesg -n 4000")
+        r.check("as a boot loader that set no mode",
+                "screentrial: 1600x900 not set, boot loader set no mode" in log, log[-400:])
+        out = vm(inst, "exec", "bootcfg resolution")
+        r.check("greying nothing", "1600x900(refused)" not in out and "1366x768(refused)" in out,
+                out[-400:])
+        r.check("and the trial is answered", "a trial of" not in out, out[-400:])
+        # Restart now, the default: the kept 1024x768 is not on screen. The
+        # pinned loader brings the boot after up at 800x600 again.
+        vm(inst, "exec", f"touch {MARK}")
+        gui(inst, "gui key 0x0a")
+        r.check("Restart now restarts", wait_screen(inst, "800x600"))
+        out = vm(inst, "exec", "bootcfg resolution forget", "bootcfg resolution",
+                 "cat /etc/display.conf")
+        r.check("`forget` offers every size again",
+                "every size is offered again" in out and "(refused)" not in out
+                and "firmware_refused" not in out, out[-400:])
     finally:
         vm(inst, "stop")
         shutil.rmtree(tmp, ignore_errors=True)

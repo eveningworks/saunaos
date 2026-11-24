@@ -13,6 +13,7 @@
 #include "base/ubootcfg.h"
 #include "base/ubootlayout.h"
 #include "base/ubootmenu.h"
+#include "base/ubootmode.h"
 #include "base/ubootrefresh.h"
 #include "base/ufile.h"
 #include "base/uinstall.h"
@@ -254,6 +255,10 @@ int ubootrefresh_run(const struct ubootrefresh_plan *p,
              "records what it can do.", UBOOTREFRESH_RECORD);
     else
         unlink(UBOOTREFRESH_RECORD_OLD);   // superseded; a reader would fall back to it
+    // The old loader's refusals may be its own failure to set a mode: the
+    // BIOS core is always rewritten, the UEFI loader only when written.
+    if (ubootmode_forget(1, efi == 0) < 0)
+        sayf(say, ctx, "could not forget the refused screen sizes in " UBOOTMODE_CONF ".");
     why = 0;
     if (p->legacy) {
         sayf(say, ctx, "removing /boot/boot");

@@ -1007,6 +1007,20 @@ common VESA and panel sizes, and a refusal is learned once -- GRUB falls
 back to its own choice, `screentrial` sees the screen is not what was
 asked, and `/etc/display.conf` records it.
 
+**A refusal is read only from GRUB's FALLBACK, 1280x720** -- a trial at
+any third size is a boot loader that set no mode at all, and greys
+nothing. The X99's GOP offers 2560x1440, yet under an older GRUB every
+boot came up at the firmware's 1024x768 and the trial greyed the size
+(2026-11-23). GRUB's `auto` after a refused size AND a refused 1280x720
+reads the same way; that mistake costs one more restart (the notice
+says either may be the cause, and restarts onto the kept size), where
+the opposite one hides a size the machine can show, so the ambiguity is
+resolved toward offering. The reverse case -- a loader setting nothing
+on firmware that starts at 1280x720 -- still reads as a refusal. A
+boot-loader refresh forgets the refusals of the boot path whose loader
+it wrote (the BIOS core always, the UEFI loader when written), since
+that loader answers afresh (`ubootmode_forget()`).
+
 **The `gfxpayload` line goes AFTER `multiboot2`**, because that command
 overwrites the variable from the kernel's framebuffer tag; the top-level
 `set gfxpayload=auto` this grub.cfg carried since the UEFI work never did
