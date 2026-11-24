@@ -153,6 +153,7 @@ def qmp_diagnose(sock_path, screendump, timeout=6.0):
             f.readline()
             for cmd in ({"execute": "qmp_capabilities"},
                         {"execute": "query-status"},
+                        {"execute": "query-kvm"},
                         {"execute": "human-monitor-command",
                          "arguments": {"command-line": "info registers"}},
                         {"execute": "screendump", "arguments": {"filename": screendump}}):
@@ -163,8 +164,8 @@ def qmp_diagnose(sock_path, screendump, timeout=6.0):
                     if "return" in reply or "error" in reply or not reply:
                         break
                 r = reply.get("return")
-                if cmd["execute"] == "query-status":
-                    out.append(f"status: {r}")
+                if cmd["execute"] in ("query-status", "query-kvm"):
+                    out.append(f"{cmd['execute'][6:]}: {r}")
                 elif cmd["execute"] == "human-monitor-command" and isinstance(r, str):
                     out.append(r.rstrip())
                 elif "error" in reply:
@@ -223,7 +224,7 @@ def qmp_powerdown(sock_path, timeout=6.0, screendump=None):
     return False
 
 
-def launch_qemu(iso, disk, serial_log, qemu_log):
+def launch_qemu(iso, disk, serial_log, qemu_log, debug_log=None):
     # -no-reboot -no-shutdown: a triple fault would otherwise just
     # silently reset the VM (or QEMU would exit) with nothing useful in
     # either log -- these two flags make QEMU stop and report instead,
@@ -257,6 +258,11 @@ def launch_qemu(iso, disk, serial_log, qemu_log):
         # log. See qmp_powerdown().
         "-qmp", f"unix:{QMP_SOCK},server,nowait",
     ]
+    if debug_log:
+        # Every exception and reset the guest takes, to a file: which
+        # vector, at which RIP, with which error code -- what a triple
+        # fault before the IDT is loaded otherwise takes with it.
+        cmd += ["-d", "int,cpu_reset,guest_errors", "-D", debug_log]
     qlog = open(qemu_log, "wb")
     return subprocess.Popen(cmd, stdout=qlog, stderr=subprocess.STDOUT)
 
@@ -314,6 +320,8 @@ def main():
     ap.add_argument("--serial-log", default="smoke_serial.log")
     ap.add_argument("--qemu-log", default="smoke_qemu.log")
     ap.add_argument("-v", "--verbose", action="store_true", help="dump full serial log on failure")
+    ap.add_argument("--qemu-debug", metavar="FILE",
+                    help="log every guest exception and reset to FILE (QEMU's -d int,cpu_reset)")
     args = ap.parse_args()
 
     if not os.path.exists(args.iso):
@@ -331,7 +339,7 @@ def main():
         if os.path.exists(p):
             os.remove(p)
 
-    proc = launch_qemu(args.iso, args.disk, args.serial_log, args.qemu_log)
+    proc = launch_qemu(args.iso, args.disk, args.serial_log, args.qemu_log, args.qemu_debug)
 
     deadline = time.monotonic() + args.timeout
     seen_fail = None

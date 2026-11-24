@@ -109,7 +109,7 @@ jobs:
         run: python3 tools/checks/check_dispatch.py
 
       - name: Boot smoke test (headless, no GUI)
-        run: python3 tools/tests/gate/boot_smoke_test.py -v
+        run: python3 tools/tests/gate/boot_smoke_test.py -v --qemu-debug smoke_qemu_debug.log
       # What a silent boot left behind: the serial and QEMU logs and,
       # on a timeout, the screen at the deadline (boot_smoke_test's
       # qmp_diagnose()) -- the runner is the one machine it cannot be
@@ -122,6 +122,7 @@ jobs:
           path: |
             smoke_serial.log*
             smoke_qemu.log
+            smoke_qemu_debug.log
           if-no-files-found: ignore
 
       # The in-kernel test suite (kernel/include/kernel/ktest.h). The

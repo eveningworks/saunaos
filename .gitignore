@@ -90,6 +90,7 @@ serial.log
 # side by side don't clobber each other's logs.
 smoke_serial.log
 smoke_qemu.log
+smoke_qemu_debug.log
 
 # tools/tests/sweep/poweroff_test.py's defaults: a COPY of disk.img it ends by
 # stopping the machine, and the QEMU log beside it. Untracked and in the
