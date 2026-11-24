@@ -495,3 +495,14 @@ What made the mockups useful rather than decorative:
 So: **for anything with a visible layout, publish the mockups first and
 ask with them open.** ASCII previews are a fallback, not the question.
 Rationale for each option stays in the chat, never on an artboard.
+
+## Which real system to compare
+
+CLAUDE.md's "SAY WHAT REAL SYSTEMS DO" rule, by area (moved from there,
+2026-11-24): kernel and process model -> Linux, NT; filesystem ->
+ext2/3/4, NTFS; windowing -> Wayland (+KWin/Mutter/wlroots/XFCE), X11;
+settings -> sysctl, dconf/GSettings, macOS `defaults`, the registry;
+init -> systemd, launchd; IPC -> D-Bus, Binder, Mach ports. Decisions
+it changed rather than decorated: guard pages (`CONFIG_VMAP_STACK`),
+`(namespace, name)` settings, a poisoned revoked mapping
+(`wl_buffer.release`).

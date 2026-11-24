@@ -10,7 +10,13 @@ root file's other rules still apply.
 (base < net < media < ui: a helper that decodes an image is libmedia's,
 one that names a widget libui's), included as `"base/x.h"`,
 `"media/x.h"` -- the build refuses an edge pointing right
-(`docs/conventions/build.md`).
+(`tools/build/check_lib_layers.py` at link, `check_components.py` for
+includes; `docs/conventions/build.md`).
+
+- **`ttf.h` PARSES UNTRUSTED INPUT, IN RING 3 ONLY** --
+  `userland/libs/media/ttf.c`, for `/bin/fontd`; the kernel parses no font
+  (f34019fc). Every read is bounds-checked, and it allocates NOTHING (a
+  caller's `struct ttf_scratch`).
 
 ## Widgets and layout
 

@@ -271,3 +271,14 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `serial_backpressure_test.py` and `console_bleed_test.py`. Adding a
   tool to `tools/` does not add it here, and nothing checks that it
   did.
+
+**`gui_regress.py`'s wall clock** (moved from CLAUDE.md, 2026-11-24) is the
+larger of the slowest tool and the sum over jobs; the per-tool timeout
+is a hang guard. `DEFAULT_JOBS` is one guest per PHYSICAL CORE, capped
+at 16 (2026-10-24: one per thread went red on the i7-11700 host).
+`--list` on `gui_regress.py`, `ondemand_sweep.py`, `hostchecks.py` and
+`checks.py` names what each runs (`tools/t list` everything);
+`preflight.sh` takes no `--list` -- its header comment lists its steps.
+`iso_guard.py` refuses a stale `saunaos.iso`;
+`SAUNAOS_ALLOW_STALE_ISO=1` bypasses it deliberately. `qemu_matrix.py
+--suite usertest --runs N` turns the ring-3 suite into a rate.

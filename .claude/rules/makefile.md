@@ -1,7 +1,6 @@
 ---
 paths:
   - "Makefile"
-  - "mk/**"
 ---
 
 # Editing the Makefile

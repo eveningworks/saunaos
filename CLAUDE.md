@@ -62,14 +62,10 @@ programs written against the SDK (`docs/cc-design.md`).
 - **SAY WHAT REAL SYSTEMS DO, before proposing a design** -- Linux and
   Windows; for the desktop, Wayland and a compositor that implements it
   (KWin, Mutter, wlroots), or X11 where the history explains the shape.
-  Then say whether SaunaOS follows or deliberately differs, and why. By
-  area: kernel and process model -> Linux, NT; filesystem -> ext2/3/4,
-  NTFS; windowing -> Wayland (+KWin/Mutter/wlroots/XFCE), X11; settings
-  -> sysctl, dconf/GSettings, macOS `defaults`, the registry; init ->
-  systemd, launchd; IPC -> D-Bus, Binder, Mach ports. It has changed
-  decisions here, not decorated them: guard pages (`CONFIG_VMAP_STACK`),
-  `(namespace, name)` settings, a poisoned revoked mapping
-  (`wl_buffer.release`). **Copy the SHAPE, not the size**, and **check
+  Then say whether SaunaOS follows or deliberately differs, and why
+  (which system for which area: `questions-that-worked.md`, "Which real
+  system to compare"). It has changed decisions here, not decorated
+  them. **Copy the SHAPE, not the size**, and **check
   the claim before leaning on it** -- a wrong premise argued confidently
   is worse than no comparison at all.
 
@@ -109,26 +105,14 @@ TOOLKIT IS FOUR LIBRARIES IN AN ORDER, base < net < media < ui, and a
 module goes in the LOWEST its needs allow** -- strings, files, settings,
 IPC, the shell in `libbase`; DHCP/DNS/SMB in `libnet`; anything calling
 an image, sound or font codec in `libmedia`; anything naming a widget or
-`uapp` in `libui`. A library may use those to its LEFT only, and the
-build fails on an edge pointing right (`tools/build/check_lib_layers.py`
-at link, `check_components.py` for includes);
-`docs/conventions/build.md`. What bites:
+`uapp` in `libui`. The build fails on an edge pointing right
+(`userland/CLAUDE.md`, `docs/conventions/build.md`). What bites:
 
-- **`kfmt.h` is one header but TWO files** -- `kfmt.c` is freestanding
-  and shared with ring 3, the kernel sinks live in `kfmt_print.c`; a
-  kernel include in the former silently takes `snprintf` from userland.
-- **`fixed.h`'s angles are in TURNS**, so `FX_ONE` is a full rotation.
-  No floating point in the kernel (`-mno-sse`).
-- **`geom.h` is NOT a 3D engine** -- no matrices, faces, depth buffer or
-  clipping; the face list is the CALLER's. `geom_rotate3` is yaw, then
-  pitch, then roll, a fixed order.
-- **`krandom.h` is NOT a CSPRNG**; `krandom_quality()` says how much to
-  trust it (the enum is ORDERED BY TRUST). Read
-  `kernel/lib/stack_protector.c` before moving the canary randomisation.
-- **`ttf.h` PARSES UNTRUSTED INPUT, IN RING 3 ONLY** --
-  `userland/libs/media/ttf.c`, for `/bin/fontd`; the kernel parses no font
-  (f34019fc). Every read is bounds-checked, and it allocates NOTHING (a
-  caller's `struct ttf_scratch`).
+- **Each `kernel/lib/` header's traps are in `kernel/lib/CLAUDE.md`** --
+  read them before CALLING one too: `kfmt.h` is two files, `fixed.h`'s
+  angles are TURNS (no floating point in the kernel), `geom.h` is no 3D
+  engine, `krandom.h` is no CSPRNG. `ttf.h` parses untrusted input, in
+  ring 3 only (`userland/CLAUDE.md`).
 - **Draw through `uui_canvas` in ring 3, and `gfx_fill_circle()` in the
   kernel** -- the one shape ring 0 draws; bind another in `gfx.c` when a
   kernel caller needs it. Not `geom_*` directly. `geom.c` compiles TWICE
@@ -164,13 +148,11 @@ rather than shrink. `tools/checks/check_widget_ops.py` enforces the first.
 
 ### Anything drawn
 
-**Follows `docs/gui-guidelines.md`, which is binding; the six rules that
-bite most are in `userland/CLAUDE.md`.** The one that bites outside it:
+**Follows `docs/gui-guidelines.md`, which is binding; the rules that
+bite most are in `userland/CLAUDE.md`** (a new scrolling view is TESTED
+for scrolling, among them). The one that bites outside it:
 `gfx_draw_string()` does not clip -- `gfx_draw_string_clipped()` in any
-fixed box. **A new scrolling view is TESTED for scrolling** (wheel
-direction, thumb vs view, trough, drag: `tools/hostchecks/uitest/scroll_uitest.c`,
-rule 10 there) -- a mirrored scrollbar hid in three widgets until a folder gave
-one enough rows. **A widget's own logic is tested ON THE HOST**
+fixed box. **A widget's own logic is tested ON THE HOST**
 (`tools/hostchecks/uitest/`, in every preflight), its GUI tool keeping one
 end-to-end check (`docs/conventions/gui.md`).
 
@@ -179,8 +161,6 @@ end-to-end check (`docs/conventions/gui.md`).
 **ONE LINE EDITOR, COMPILED TWICE** (`kernel/lib/klineedit.c`, also in
 `libbase`): `/bin/tosh`, the GUI Terminal and the physical shell share
 it, so an editing key goes in the core's keymap, never one front end.
-The rest -- memory, `kline_free()`, ANSI decoding, history -- is in
-`kernel/lib/CLAUDE.md`.
 
 ### The filesystem
 
@@ -194,8 +174,6 @@ The rest -- memory, `kline_free()`, ANSI decoding, history -- is in
   refuses an oversized file, or `fs_read_range()` -- which answers 0 for
   an ERROR as for EOF and may come back short, so check what it returned
   (an unchecked one cached a page of zeros for a whole boot, a7d276b7).
-- The full rules (lock drops, tfs3 inode locks, config reads) are in
-  `kernel/fs/CLAUDE.md`.
 
 ### The sandbox
 
@@ -205,30 +183,26 @@ The rest -- memory, `kline_free()`, ANSI decoding, history -- is in
   reads settings unveils `/etc/settings.d` and the setting's `File=`.
   A syscall from a group it gave up kills it (SIGSYS, a crash report
   naming the call). `ps --sandbox` shows what each process kept.
-- **A program parsing hostile input pledges before the first byte, and
-  refuses to run if it cannot** (webcontent, fontd, `thumb`);
-  `docs/conventions/kernel.md` has the rule, `abi/sandbox_abi.h` the API.
+- **A program parsing hostile input pledges before the first byte**, or
+  refuses to run (`docs/conventions/kernel.md`, `abi/sandbox_abi.h`).
 - **`shm_unlink` is the CREATOR's alone** (-EPERM otherwise), and a
   uchan server adopts a ring only from the pid that made it.
 
 ### The static checks that fail the build
 
-Each waives with a named comment, and the reason is the mechanism, not
-the waiver. `docs/tools/checks.md` has what each one looks for; all of
-them run as one preflight step, `tools/runners/checks.py`.
-
-| Check | Fails on | Waiver |
-|---|---|---|
-| `check_widget_ops.py` | a widget ops slot it needs left NULL (`draw` needs `natural_size`+`set_geometry`; `set_geometry` needs `bounds`; `press` needs `release`; `key` needs `accepts_focus`; a scrollbar must not route `hit` through its row hit) | `widget-ops-ok:` |
-| `check_key_routing.py` | the inverse -- a filled slot nobody can reach: an app naming a `.key` widget without `.focus` or `.on_key`, or declaring `.widgets` while hand-routing its menu bar | `key-routing-ok:` |
-| `check_drivers.py` | a `.c` under `kernel/drivers/` with no `DRIVER_DECLARE`. It is FILE-SCOPE DATA, not a call inside `init()` | `driver-none:` |
-| `check_dispatch.py` | a dispatch chain over ~20 branches that should be a table (this project already has `display_driver`, `block_device`, `clocksource`, `syscall_table.c`) | `dispatch-ok:` |
-| `check_font_state.py` | a function that calls `ugfx_set_font()` and never puts the old font back (it zoomed a whole window once) | `font-ok:` |
-| `check_text_loops.py` | a BYTE of a string measured or drawn as a character (`ugfx_char_advance(s[i])`) -- strings are UTF-8; step with `ugfx_text_decode()` | `text-loop-ok:` |
-| `check_control_states.py` | a menu bar or toolbar with no `item_flags`: no command is ever greyed | `flags-ok:` |
-| `check_layout.py` | a staged file with no tracked source behind it | -- |
-| `check_components.py` | a program directory (`userland/apps/<class>/<name>/`, `services/<name>/`, a multi-file `utils/<name>/`) with no `component.mk`, or a manifest setting anything but `EXTRA`/`ULIBS`/`INSTALL_AS`/`NEEDS_PORT` | -- |
-| `check_test_sleeps.py` | a `tools/tests/*/*_test.py` that gained a `time.sleep(` past its frozen count -- wait on what you assert (`settle()` waits for idle, `check_eventually()`, `harness.poll()`) | `sleep-ok:` |
+All run as one preflight step (`tools/runners/checks.py`), and
+`docs/tools/checks.md` says what each looks for. Each waives with a
+NAMED comment, and the reason is the mechanism, not the waiver. What
+they refuse: a widget ops slot left NULL that another needs, or a
+filled one nobody can reach (`widget-ops-ok:`, `key-routing-ok:`); a
+`.c` under `kernel/drivers/` without a FILE-SCOPE `DRIVER_DECLARE`
+(`driver-none:`); a dispatch chain that should be a table
+(`dispatch-ok:`); `ugfx_set_font()` without putting the old font back
+(`font-ok:`); a BYTE of a UTF-8 string measured as a character -- step
+with `ugfx_text_decode()` (`text-loop-ok:`); a menu bar or toolbar with
+no `item_flags` (`flags-ok:`); a new `time.sleep(` in a test -- wait on
+what you assert (`sleep-ok:`); and, with no waiver, a staged file with
+no tracked source or a program directory without its `component.mk`.
 
 ### Files, comments and history
 
@@ -312,10 +286,6 @@ look fine.
   the BAND, not the change; SELECTION OUTRANKS HOVER. **The same goes for
   the WHEEL and a TOOLTIP**: they go where the REAL pointer is, so park it
   with `warp_cursor(qmp, x, y)` (`scroll_test.check_view(warp=True)`).
-- **USB AUDIO TESTING HAS TRAPS OF ITS OWN** -- which path a G6 result
-  exercised (UAC1/UAC2, the bind line), two playbacks back to back being
-  ONE stream: `.claude/rules/usb-audio.md`, which loads with the usb and
-  sound drivers, soundd and the audio tools.
 - **NOTHING REBUILDS OR EDITS THE TREE UNDER A RUNNING TEST, AND THAT IS
   ENFORCED** (`tools/lib/tree_lock.py`): a test holds a shared lock until it
   exits, `make` refuses while it is held, and a PreToolUse hook
@@ -336,18 +306,12 @@ look fine.
 
 ## Conventions indexed in `docs/conventions/INDEX.md`
 
-**Everything above is what fires UNANNOUNCED. The other conventions -- several hundred --
-are indexed by headline in `docs/conventions/INDEX.md`, one hop away** --
-`kernel.md`, `gui.md`, `storage.md`, `shell.md` and `build.md` carry the
-bodies, and the index names every rule in all five.
-
-**Read the index before editing an area**, ahead of the area file: skim
-for a headline that tells you something you did not know, then open the
-area file for its body. It lived here until it was 41 KB of always-loaded
-context, which is carried rather than read; moving it deleted no rule.
-
-**A new convention goes in `docs/conventions/<area>.md` AND gets its
-headline added to that index.** Half of that pairing is not optional.
+**Everything above fires UNANNOUNCED; the other conventions -- several
+hundred -- are indexed by headline in `docs/conventions/INDEX.md`**, the
+bodies in `kernel.md`, `gui.md`, `storage.md`, `shell.md` and
+`build.md`. Skim the index before editing an area, then open the area
+file. **A new convention goes in its area file AND gets its headline in
+the index.**
 
 ## This checkout, and the repo it pushes to
 
@@ -400,8 +364,9 @@ mode, and alone blurs the font), `LIVE=1`, `UEFI=1` (OVMF on q35), `BOOT=cd|disk
 - **`BOOT` IS DERIVED**: the disk, when `disk.img` carries GRUB and the
   kernel.
 - **Editing the Makefile** -- definitions are DEFERRED (`=`, `$(if ...)`),
-  `LIVE` changes the prerequisite, `MENU=1` derives `GRUB_TIMEOUT`:
-  `.claude/rules/makefile.md`, which loads with `Makefile`.
+  but **a rule's PREREQUISITE list expands when the rule is READ**, so a
+  variable defined further down is empty there: `.claude/rules/makefile.md`,
+  which loads with `Makefile`.
 - **`EXTRAS=1` IS THE ONLY THING THAT MAKES A BUILD REACH THE NETWORK,
   AND AN EXTRAS IMAGE IS NOT YOURS TO PUBLISH.** It fetches
   differently-licensed material after showing its licence
@@ -409,10 +374,8 @@ mode, and alone blurs the font), `LIVE=1`, `UEFI=1` (OVMF on q35), `BOOT=cd|disk
 - **Boot flags bake into the media**: `make iso KCMDLINE="video=1920x1080
   nokaslr"`; every word is in `docs/boot-flags.md`. **`video=` only does
   something on a MODESETTING driver.**
-- **Source discovery is recursive** (a new directory under `kernel/` needs
-  no Makefile edit) and **a CFLAGS change is not
-  dependency-tracked** (`make clean` after one) -- the detail is in
-  `.claude/rules/makefile.md`.
+- **A CFLAGS change is not dependency-tracked** -- `make clean` after one;
+  source discovery is recursive, so a new directory needs no Makefile edit.
 - **`make all` without `make iso` leaves the whole suite testing the
   PREVIOUS build**, as a clean PASS; `tools/lib/iso_guard.py` refuses that.
 - **Every automated test runs TCG, so a green suite says nothing about
@@ -441,17 +404,12 @@ mode, and alone blurs the font), `LIVE=1`, `UEFI=1` (OVMF on q35), `BOOT=cd|disk
 - **A MECHANISM THAT EXPLAINS THE SYMPTOMS IS NOT THE MECHANISM THAT
   CAUSED THEM** -- do the cheap disproving check, and prefer a
   discriminating experiment over a plausible story.
+- **GDB**: `make debug` (QEMU's stub) or the kernel's own, `make run
+  KDEBUG=1`, which works on bare metal (`docs/testing.md`).
 - **TWO OR THREE FAILED FIXES MEAN THE MODEL OF THE BUG IS WRONG** --
   revert each failed attempt before the next (never stack them), and
   after the third STOP and bring it to the user with what was ruled
   out. The ordered loop: `session-diagnosis.md`, "The loop, in order".
-
-## Debugging with GDB
-
-`make debug` (QEMU's stub) or **the kernel's own stub** (`make run
-KDEBUG=1`, the one that works on bare metal): `docs/testing.md`,
-"Debugging with GDB"; `.claude/rules/gdb.md` loads with `tools/gdb/` and
-the kdebug code.
 
 ## Testing in QEMU headlessly, via QMP
 
@@ -484,28 +442,14 @@ QMP. `docs/testing.md` has the `QMPSession`/`GuiFlow` API and its gotchas.
 
 ## tools/
 
-**`docs/tools.md` is the index, `docs/tools/<folder>.md` the full
-reference** -- what each script does, why it exists, the traps it
-encodes. **`tools/t` is the front door**: `tools/t which vm` finds a
-tool, `tools/t vm start` runs one, `tools/t test fm` runs every test
-named like it. Read it before reaching for a tool you
-haven't used recently, and add to it (not a one-off script) when
-something would save a future session real time -- the bar is "does this
-fix a rederive-from-scratch cost". `--list` on `gui_regress.py`,
-`ondemand_sweep.py`, `hostchecks.py` and `checks.py` names what each one
-runs (`tools/t list` everything); `preflight.sh` takes no `--list` -- its
-header comment lists its steps.
-
-**The question-to-tool index is at the top of `docs/tools.md`** -- is it
-MINE (`predates.py`), when did this check last fail or pass, at which
-commit and on which host (`test_history.py`, the LOCAL record of every
-run -- ask it FIRST when a check goes red; the guest's state at a test's first failed
-check is already saved, on its `failure bundle:` line), which commit broke it
-(`bisect_build.py`), can my test SEE the break (`mutate.py`), is it safe
-to commit (`preflight.sh`, your `vm.py` guest stopped), wait safely
-(`wait_for.sh`), before any change to the repo's history
-(`backup_repo.sh`) -- with the host tools (`bear`, `ruff`, `shellcheck`,
-`ccache`).
+**`docs/tools.md` is the index** -- its top is a question-to-tool table
+(is it MINE, when did this check last fail, which commit broke it, can
+my test SEE the break, is it safe to commit), `docs/tools/<folder>.md`
+the full reference, and **`tools/t` the front door** (`tools/t which
+vm`, `tools/t test fm`). **Ask `test_history.py` FIRST when a check goes
+red** -- the local record of every run; a failed test's guest state is
+already saved on its `failure bundle:` line. Add a tool (not a one-off
+script) when it fixes a rederive-from-scratch cost.
 
 **WHAT THE USER SAYS, AND WHAT IT MEANS** -- ask if a request is
 ambiguous between the matrix and GitHub:
@@ -519,39 +463,23 @@ ambiguous between the matrix and GitHub:
 - **`qemu_matrix.py` RUNS AT A RELEASE AND WHEN THE USER ASKS** (standing
   instruction). **OFFER it** when a change plausibly depends on the
   host's QEMU or CPU -- a driver, a poll loop, a timeout, a clocksource,
-  DMA. A finding is a REPORT, not a blocker. `--suite usertest --runs N`
-  turns the ring-3 suite into a rate.
-- **GITHUB CI RUNS ON A RELEASE TAG AND ON DEMAND ONLY** (2026-08-19) --
-  it is for a CLEAN-CHECKOUT build on someone else's machine.
+  DMA. A finding is a REPORT, not a blocker.
+- **GITHUB CI RUNS ON A RELEASE TAG AND ON DEMAND ONLY** (2026-08-19).
 - **`gui_regress.py` is the standard check** after touching `userland/`
-  or anything the WM draws -- always `--logs DIR`. Its wall clock is the
-  larger of the slowest tool and the sum over jobs; the per-tool timeout
-  is a hang guard. `DEFAULT_JOBS` is one guest per PHYSICAL CORE, capped
-  at 16 (2026-10-24: one per thread went red on the i7-11700 host).
-- **`damage_sweep.py`/`damage_hunt.py` are in NO runner** (they live in
-  `tools/tests/manual/`, each header's `manual` says why) -- run them by hand after touching
-  anything that draws or damages. `damage_sweep.py` needs a guest with
-  SOUND HARDWARE for the volume panel (`vm.py --audio-wav <path> --audio
-  both start`). **A clean result proves nothing until
+  or anything the WM draws -- always `--logs DIR`.
+- **`damage_sweep.py`/`damage_hunt.py` are in NO runner** -- run them by
+  hand after touching anything that draws or damages
+  (`docs/tools/tests-manual.md`). **A clean result proves nothing until
   `--positive-control` has shown it can fail** -- true of every positive
   control here.
-- **`iso_guard.py` refuses a stale `saunaos.iso`**;
-  `SAUNAOS_ALLOW_STALE_ISO=1` bypasses it deliberately.
 
 ## docs/
 
-**This file holds RULES; reference material lives in `docs/` behind a
-one-line pointer.** Add detail there.
-
-**What each file in `docs/` is, and the rules for editing it** -- a
-convention's headline in `INDEX.md`, a decision entry then
-`gen_decisions_index.py`, milestones NAMED, `**NEXT**` then
-`gen_next_up.py`, a roadmap item ONE line -- are in
+**What each file in `docs/` is, and the rules for editing it** are in
 `.claude/rules/docs-editing.md`, which loads with any `docs/` file.
 **Design documents (`docs/*-design.md`): read the one for the area
-first** -- the list, with what each has BUILT and when to read it, is
-`.claude/rules/design-docs.md`, loaded with `kernel/` and `userland/`
-files.
+first** -- the list is `.claude/rules/design-docs.md`, loaded with
+`kernel/` and `userland/` files.
 
 - **A NEW COMMAND NEEDS ITS `docs/commands/` PAGE IN THE SAME CHANGE** --
   the build refuses otherwise, and a declared `cmd_usage()` string must
@@ -571,14 +499,6 @@ Both are tracked here rather than in `~/.claude/skills/` so they have
 history, diff review and a backup. **Update them in the repo**, or the
 two copies drift and the untracked one silently wins.
 
-**The agents in `.claude/agents/` are the delegation targets** -- each
-fixes its model and tool list, which is what makes it cheap to start;
-when to use them is the feature workflow's "Delegating to agents".
-
-**`SKILL.md` is the PLAYBOOK; the lessons live in `references/`** -- the
-layout, the ~10 KB limit and "point at ONE section" are
-`.claude/rules/skills.md`, loaded with `.claude/skills/**`.
-
 ## Delivering changes
 
 The files are already on the real checkout: commit with plain `git`,
@@ -591,6 +511,11 @@ and push verified work.
   back", not "Ctrl-C now works". **Say when it is NOT reachable from the
   default boot** (`Ctrl-C` needs a `text` target; `hires` work needs
   `KCMDLINE="video=1920x1080"`). Nothing to see: say so in a line.
+- **EVERY CHANGE GETS ONE CODE REVIEW BEFORE ITS GATE** (standing
+  instruction, 2026-11-24): `/code-review` on the uncommitted change,
+  each finding checked against the code, the real ones fixed ONCE --
+  never a second review of the fixes (that loop never converged,
+  2026-10-04). Not for a docs-only change.
 - **LIST EVERY FILE ADDED OR EDITED** in the final response, compactly
   (standing instruction).
 - **WHEN THE WORK IS DONE, SWEEP THE DOCS BEFORE THE HAND-OVER**

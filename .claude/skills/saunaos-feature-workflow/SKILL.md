@@ -56,8 +56,8 @@ reader pays for them):
    reusable `userland/libs/ui/` widget. Skip only for an unambiguous one-liner.
    Say what Linux/Windows/Wayland do first (CLAUDE.md).
 
-3. **Implement** in the real checkout. **A GUI app also owes the nine
-   rules in `userland/CLAUDE.md`** -- greyed commands, selectable text,
+3. **Implement** in the real checkout. **A GUI app also owes the rules
+   in `userland/CLAUDE.md`** -- greyed commands, selectable text,
    a restored font -- and `delivery-checklist.md` lists how to prove them. **Comments are an invariant and a
    trap, not an essay**: would the sentence be true had nobody got it
    wrong? does `docs/decisions.md` already say it? naming a real system is
@@ -85,7 +85,10 @@ reader pays for them):
    commit that as `docs:`. Full text: `delivery-checklist.md`, "Steps 5
    and 6 in full".
 
-6. **Ship.** Gate with `tools/runners/preflight.sh` (and `gui_regress.py --logs`
+6. **Ship.** **Review first** (`/code-review` on the uncommitted change,
+   standing instruction 2026-11-24): check each finding against the code,
+   fix the real ones ONCE, and do not review the fixes again.
+   Gate with `tools/runners/preflight.sh` (and `gui_regress.py --logs`
    after anything userland or drawn), commit with plain `git`, push
    verified work to `main` without asking (tags, releases, force-pushes
    and history rewrites are confirmed first), and `update_server.py
@@ -125,8 +128,7 @@ reader pays for them):
   `.claude/jev-router.json` says where each size goes in this repo.
 - **Briefs do not say "read the skill" or "read session-testing.md"** --
   give CLAUDE.md plus the one reference section that matters.
-- **Code reviews only when the user asks.** Never review a fix-up commit.
-  **A finding is a claim, not an instruction**: check it against the
+- **A review finding is a claim, not an instruction** (step 6): check it against the
   code before applying it, and say plainly when one is wrong.
 - **Two strikes:** if a fix round introduces a new regression, stop
   patching -- write the design down in a few lines and ask (or decide

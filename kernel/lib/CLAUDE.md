@@ -1,7 +1,25 @@
-# kernel/lib/ -- the line editor
+# kernel/lib/ -- the line editor, and each header's traps
 
 Loaded when working under `kernel/lib/`. Moved from the root CLAUDE.md,
-which keeps the one-line rule.
+which keeps a one-line rule for each.
+
+## Header traps
+
+What bites a CALLER of these, not only an editor (the root CLAUDE.md
+points here):
+
+- **`kfmt.h` is one header but TWO files** -- `kfmt.c` is freestanding
+  and shared with ring 3, the kernel sinks live in `kfmt_print.c`; a
+  kernel include in the former silently takes `snprintf` from userland.
+- **`fixed.h`'s angles are in TURNS**, so `FX_ONE` is a full rotation.
+  No floating point in the kernel (`-mno-sse`).
+- **`geom.h` is NOT a 3D engine** -- no matrices, faces, depth buffer or
+  clipping; the face list is the CALLER's. `geom_rotate3` is yaw, then
+  pitch, then roll, a fixed order.
+- **`krandom.h` is NOT a CSPRNG**; `krandom_quality()` says how much to
+  trust it (the enum is ORDERED BY TRUST). Read
+  `kernel/lib/stack_protector.c` before moving the canary randomisation.
+
 
 ## The line editor
 
