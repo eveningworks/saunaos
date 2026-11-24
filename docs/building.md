@@ -24,12 +24,12 @@ A C toolchain, NASM, GRUB's rescue-image tools, and QEMU.
 
 | Distribution | Command |
 |---|---|
-| **Debian / Ubuntu / Mint** | `sudo apt install build-essential nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86 python3` |
+| **Debian / Ubuntu / Mint** | `sudo apt install build-essential nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools qemu-system-x86 python3` |
 | **Arch / CachyOS / Manjaro** | `sudo pacman -S --needed base-devel nasm grub xorriso mtools qemu-full python` |
-| **Fedora / RHEL / Rocky** | `sudo dnf install gcc make binutils nasm grub2-tools grub2-pc-modules xorriso mtools qemu-system-x86 python3` |
-| **openSUSE** | `sudo zypper install gcc make binutils nasm grub2 grub2-i386-pc xorriso mtools qemu-x86 python3` |
-| **Alpine** | `doas apk add build-base nasm grub grub-bios xorriso mtools qemu-system-x86_64 python3` |
-| **Void** | `sudo xbps-install -S base-devel nasm grub xorriso mtools qemu python3` |
+| **Fedora / RHEL / Rocky** | `sudo dnf install gcc make binutils nasm grub2-tools grub2-pc-modules grub2-efi-x64-modules xorriso mtools qemu-system-x86 python3` |
+| **openSUSE** | `sudo zypper install gcc make binutils nasm grub2 grub2-i386-pc grub2-x86_64-efi xorriso mtools qemu-x86 python3` |
+| **Alpine** | `doas apk add build-base nasm grub grub-bios grub-efi xorriso mtools qemu-system-x86_64 python3` |
+| **Void** | `sudo xbps-install -S base-devel nasm grub grub-x86_64-efi xorriso mtools qemu python3` |
 
 If your distribution names them differently, this is what each is for:
 
@@ -38,6 +38,7 @@ If your distribution names them differently, this is what each is for:
 | `gcc`, `binutils`, `make` | Compiles and links the kernel. Any GCC that can target x86-64 works; no cross-compiler required. |
 | `nasm` | Assembles the boot, interrupt and context-switch stubs. |
 | `grub-mkrescue` + `xorriso` + `mtools` | Builds the bootable ISO. `grub-mkrescue` needs all three, and the BIOS modules package (`grub-pc-bin` on Debian, `grub2-pc-modules` on Fedora, `grub2-i386-pc` on openSUSE) is easy to miss. The same three also make `disk.img` bootable: `grub-mkimage` builds the disk's `core.img` out of that modules package, and `mtools` writes the FAT32 `/boot` with no root and no loop device. |
+| GRUB's `x86_64-efi` modules | The UEFI loader on the ISO and the disk (`grub-efi-amd64-bin` on Debian). Without them the build still succeeds, BIOS-only, and says so. |
 | `qemu-system-x86_64` | Runs it. |
 | `python3` + Pillow | Build-time disk seeding and the test/dev tools. Pillow (`pip install pillow`) is needed for screenshots and by `preflight.sh`, whose `genttf.py --check` imports it. |
 

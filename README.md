@@ -23,9 +23,11 @@
 > **An experiment in building an operating system with Claude, and in how
 > far it can get.** All of
 > SaunaOS is written by [Claude Code](https://claude.com/claude-code),
-> Anthropic's agentic coding tool, except the third-party ports under
-> `userland/third_party/<port>/upstream/` (DOOM, NetSurf and its libraries, Mbed TLS, dash,
-> cJSON): a human makes the
+> Anthropic's agentic coding tool, except the third-party code: the ports
+> under `userland/third_party/<port>/upstream/` (DOOM, NetSurf and its
+> libraries, Mbed TLS, dash, cJSON, SDL 3 and sdl2-compat, FFmpeg's
+> Indeo 3 tables) and the programs built from fetched upstream releases
+> (GCC, binutils, GNU make, ScummVM): a human makes the
 > design calls and decides what ships; Claude does the implementation,
 > the testing and the documentation. The conventions it works under are
 > in [CLAUDE.md](CLAUDE.md), and the reasoning behind every design choice
@@ -60,9 +62,10 @@ that turned out wrong. It boots on real hardware and under QEMU.
 - **The machine, by hand** — Multiboot2 and the long-mode switch, per-process
   page tables, NX/W^X, SMEP/SMAP, kernel ASLR, ACPI, and a **tickless**
   one-shot timer.
-- **Real processes** — an ELF64 loader, a preemptive scheduler, `init` as
-  pid 1 supervising services, signals and job control, threads with TLS,
-  and **dynamic linking** against `/lib/libc.so`.
+- **Real processes, on every core** — an ELF64 loader, a preemptive
+  scheduler with a run queue per processor core, `init` as pid 1
+  supervising services, signals and job control, threads with TLS, and
+  **dynamic linking** against `/lib/libc.so`.
 - **Its own filesystem** — TFS3, journaled the way ext4's jbd2 is (one
   running transaction every operation shares, and a kernel thread that
   commits it in the background), with `fsck` and
@@ -76,7 +79,13 @@ that turned out wrong. It boots on real hardware and under QEMU.
   per tab), a file manager, a tabbed terminal, Paint, Notepad, an image
   viewer, audio and video players, a character map, Disks, a task manager,
   System Settings, Minesweeper and **DOOM** -- and **Windows 3.1 programs**
-  (Write, Solitaire, Hearts, Calculator) on an emulated 16-bit CPU.
+  (Program Manager, Write, Paintbrush, Solitaire, Hearts, Calculator) on
+  an emulated 16-bit CPU. Text is UTF-8 throughout, with colour emoji
+  and Chinese, Japanese and Korean.
+- **A compiler on the machine** — GCC, binutils and GNU make run on
+  SaunaOS itself, against an SDK in `/usr/include` and `/usr/lib`; SDL 2
+  and SDL 3 programs open real windows, and **ScummVM** plays classic
+  adventure games.
 - **Networking** — IPv4, ICMP, UDP and TCP on seven NIC drivers, with DHCP,
   DNS, `wget`, an `httpd` serving the machine's own files, and a VNC
   server for remote desktop.
@@ -127,8 +136,9 @@ A hobby project under active development, not production software. The
 current version is in [VERSION](VERSION); tagged builds are on
 [Releases](https://github.com/eveningworks/saunaos/releases).
 
-**Works today:** real hardware and QEMU boot; the shell; four
-filesystems (TFS3, FAT32, exFAT, ramfs), SMB shares, partitions with
+**Works today:** real hardware and QEMU boot, BIOS or UEFI; every
+processor core; the shell; five filesystems (TFS3, FAT32, exFAT,
+ramfs, and ISO 9660 for CD images), SMB shares, partitions with
 resize, and an installer; the ring-3 desktop and its
 apps; processes with pipes, signals, threads, job control, `mmap` and
 dynamic linking; per-process sandboxes for the programs that parse
@@ -142,7 +152,7 @@ machine's own files.
 **Known gaps:**
 
 - **No Secure Boot** — UEFI boots through an unsigned GRUB, so it must be off.
-- **One big kernel lock** — programs run on every core, but the kernel itself runs on one at a time.
+- **Most system calls still take one kernel lock** — programs run on every core, and the clocks, pipes, `lseek` and ramfs reads and writes run in parallel, but a disk filesystem's calls and most others run one at a time.
 - **No privilege model** — no user accounts or permission checks.
 - Swap that pages nothing out yet.
 
@@ -196,8 +206,19 @@ third-party material. In short:
   its one GPL file, `mksignames.c`, is not compiled --
   `tools/gen/gen_signames.py` generates that table instead.
 - `userland/third_party/cjson/upstream/` is MIT, under its own copyright.
+- `userland/third_party/sdl3/upstream/` and `sdl2compat/upstream/` are
+  under the zlib License and build into `/lib/libSDL3.so.0` and
+  `/lib/libSDL2-2.0.so.0`; `userland/third_party/indeo3/upstream/` is
+  FFmpeg's Indeo 3 tables, LGPL-2.1-or-later, compiled into
+  `/lib/libmedia.so`.
+- **GCC, binutils and GNU make (GPL-3) and ScummVM (GPL-3) are not in
+  this repository**: `make native-toolchain` and `make scummvm`, each
+  with `EXTRAS=1`, download pinned upstream releases after showing their
+  licences. An image that carries them says so in `/usr/share/licenses`,
+  and an update server publishing one serves their source beside it.
 - The runtime-loadable fonts in `data/fonts/` are under the Bitstream
-  Vera and SIL Open Font licenses, and the baked JetBrains Mono glyphs
+  Vera and SIL Open Font licenses, the Twemoji emoji artwork under
+  CC BY 4.0, and the baked JetBrains Mono glyphs
   in `kernel/drivers/font_ttf.c` under the SIL Open Font License 1.1.
 - The bundled `pci.ids` and `usb.ids` databases in `data/` are taken
   under the BSD-3-Clause side of their dual licence, and three Terminal
