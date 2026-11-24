@@ -8514,7 +8514,7 @@ command is consumed by something else, was not measured.
 
 **Open:** why the OUT endpoint halted. Candidates: the adapter itself under sustained transmit; `rtl_transmit()` calling `xhci_service()` when its ring is full (added 2026-09-30 for 64 KiB datagrams); the completion code that halted it (the log does not print it -- worth adding). The ASUS's RTL8153 has not shown it.
 
-## Close-all follow-ups: dialogs-first in close_batch, deferred close order, refusal logging, Boot Manager raise, sweep skips
+## Close-all follow-ups: dialogs-first in close_batch, deferred close order, refusal logging, sweep skips
 
 Left from the review of the Close-all / close-while-asking work
 (2026-10-05), none of them a regression:
@@ -8531,10 +8531,6 @@ Left from the review of the Close-all / close-while-asking work
 - **Refusal logging.** uapp logs `close refused -- a question is open`
   only for its own default refusal; an app's `on_close` refusal logs
   nothing. Log both, distinguishably (`devmgr_test` keys on the first).
-- **Boot Manager's note.** Its `on_close` refuses with a status-bar note
-  rather than a question, so the client never asks to be brought
-  forward (`WIN_REQ_ACTIVATE_OWN` is sent only with a question open).
-  The raise could follow any refusal of a single close.
 - **Sweep skip reporting.** `gui_regress.py`'s "all clear" names a
   skipped tool with the literal "nothing judged" rather than the tool's
   own SKIP reason; `ondemand_sweep.py` should count a `DIRTIES_IMAGE`

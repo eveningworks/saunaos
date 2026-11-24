@@ -923,7 +923,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Taskbar window previews (peek)~~ DONE 2026-09-29 -- `desktop.taskbar.peek`, with a highlight mode
 - [x] ~~Drag taskbar buttons to reorder~~ DONE 2026-09-29 -- live, gliding; a drag resting on a button raises its window
 - [x] ~~Pinned taskbar apps~~ DONE 2026-10-29 -- an icon until the app runs, then its window in its place (`wm_taskbar.c`)
-- [ ] Close-all follow-ups: dialogs-first in close_batch, deferred close order, refusal logging, Boot Manager raise, sweep skips
+- [ ] Close-all follow-ups: dialogs-first in close_batch, deferred close order, refusal logging, sweep skips
 - [ ] A USB keyboard's Caps Lock light -- the state and the PS/2 light work; USB needs a SET_REPORT output report
 - [x] ~~A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping~~ DONE 2026-10-29 (`wm_quick.c`)
 - [x] ~~Alt+Tab window switching~~ DONE 2026-10-29 -- a thumbnail grid, most recent first, Alt+` per app (`wm_switcher.c`)

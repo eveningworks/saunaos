@@ -14,6 +14,9 @@ WHAT IT CHECKS, and what a broken version would still pass:
   - the Text view refuses a broken file: a stray `}` typed at the top is
     reported as a problem, Save opens the refusal and the file on disk
     is unchanged afterwards (checked against `bootcfg`, not the app);
+  - closing with an unsaved change ASKS (Save / Don't save / Cancel), and
+    Save writes the file and closes -- a close that only refused leaves
+    the window up with no question, and a Restart waiting on it times out;
   - System Settings > Boot menu changes the default at once: the
     dropdown, then `bootcfg` shows the `*` moved -- and back.
 
@@ -192,6 +195,34 @@ def main():
         dbg.settle(0.5)
         dbg.key("0x08")     # Backspace takes the } back out
         lay = wait(dbg, "bootmgr", lay, lambda l: l.get("problems", 99) == base)
+
+    # A close with unsaved changes ASKS (Save / Don't save / Cancel), so a
+    # Restart's close request has a question to wait on; Enter is Save,
+    # and the window goes once the file is written. A close that only
+    # refused leaves the window up with no question.
+    click(dbg, win, lay.get("view.slot0", lay["view"]),
+          dx=None if "view.slot0" in lay else lay["view"][2] // 4)
+    lay = wait(dbg, "bootmgr", lay, lambda l: l.get("mode") == "entries")
+    words = listing(dbg)[debug_idx][2]
+    present = {w.split("=")[0] + ("=" if "=" in w else "") for w in words}
+    unused = [k for k in known if k not in present]
+    bare2 = next((k for k in unused if not k.endswith("=")), None)
+    row2 = len(words) + unused.index(bare2) if bare2 else -1
+    if f"words.check{row2}" in lay:
+        click(dbg, win, lay[f"words.check{row2}"])
+    lay = wait(dbg, "bootmgr", lay, lambda l: l.get("dirty") == 1)
+    if check(f"ticking {bare2} marks it unsaved", lay.get("dirty") == 1, f"dirty={lay.get('dirty')}"):
+        w = dbg.window(TITLE)
+        lay.pop("ask", None)   # the refusal's rect, from above
+        dbg.send(f"gui close {w['z']}")
+        lay = wait(dbg, "bootmgr", lay, lambda l: l.get("ask", (0, 0, 0, 0))[2] > 0)
+        check("closing with unsaved changes asks to save", lay.get("ask", (0, 0, 0, 0))[2] > 0
+              and dbg.window(TITLE) is not None, f"ask={lay.get('ask')}")
+        dbg.key(K_ENTER)    # Save, the default
+        dbg.wait_gone(TITLE, 6)
+        check("...Save writes the file and closes the window",
+              dbg.window(TITLE) is None and bare2 in listing(dbg)[debug_idx][2],
+              f"open={dbg.window(TITLE) is not None} words={listing(dbg)[debug_idx][2]}")
 
     w = dbg.window(TITLE)
     if w:

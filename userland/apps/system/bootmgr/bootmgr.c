@@ -49,6 +49,7 @@ enum {
     CMD_SAVE = 1, CMD_REVERT, CMD_UNDO, CMD_EXIT, CMD_COPY, CMD_REMOVE, CMD_DEFAULT,
     CMD_TRY, CMD_KEEP, CMD_DROP, CMD_ENTRIES, CMD_TEXT, CMD_SAVE_ANYWAY,
     ASK_REMOVE, ASK_TRY_NOW, ASK_TRY_LATER, ASK_SAVE_ANYWAY, ASK_KEEP, ASK_DROP, ASK_CANCEL,
+    ASK_CLOSE_SAVE, ASK_CLOSE_DISCARD,
 };
 
 #define ROWS_MAX   64
@@ -58,6 +59,7 @@ enum {
 static struct ubootcfg g_disk, g_cfg;   // as saved; as edited
 static int g_loaded;                   // 0: no grub.cfg on this boot
 static int g_sel;                      // the entry the pane shows
+static int g_quit_after_save;         // Save was the answer to closing: quit once it lands
 static int g_text_mode;
 static int g_trial_booted;
 static struct ubootmenu g_menu_state;  // next_entry and whether one-shot works
@@ -428,6 +430,23 @@ static void ask(const char *title, int nrows, const struct uui_dialog_button *b,
     uui_dialog_open(&g_ask, title, g_ask_rows, nrows, b, nb, 0, cancel);
 }
 
+// 1: nothing unsaved, close now. 0: the Save / Don't save / Cancel
+// question is open and its answer closes -- a session's Restart waits on
+// it, so a refusal with no question would only time out.
+static int ask_close(struct uapp *a) {
+    sync_title();
+    if (!dirty()) return 1;
+    static const struct uui_dialog_button b[] = {
+        { "Save", ASK_CLOSE_SAVE, UUI_DLG_PRIMARY }, { "Don't save", ASK_CLOSE_DISCARD, 0 },
+        { "Cancel", ASK_CANCEL, 0 },
+    };
+    snprintf(g_ask_line[0], sizeof g_ask_line[0], "The changes to %s are not saved yet.", UBOOTMENU_CFG);
+    ask("Save changes to the boot menu?", 1, b, 3, ASK_CANCEL);
+    note("Unsaved changes");
+    uapp_redraw(a);
+    return 0;
+}
+
 static int do_save(int force) {
     sync_title();
     if (g_text_mode && cfg_from_text() < 0) { note("The text is too big to save"); return -1; }
@@ -546,7 +565,7 @@ static void do_command(struct uapp *a, int code) {
     case CMD_SAVE_ANYWAY: do_save(1); break;
     case CMD_REVERT:      revert(); break;
     case CMD_UNDO:        undo_save(); break;
-    case CMD_EXIT:        uapp_quit(a, 0); return;
+    case CMD_EXIT:        if (!uapp_question_open(a) && ask_close(a)) uapp_quit(a, 0); return;
     case CMD_ENTRIES:     set_mode(0); break;
     case CMD_TEXT:        set_mode(1); break;
     case CMD_COPY: {
@@ -792,10 +811,18 @@ static void on_widget(struct uapp *a, int id, int reason) {
         } else if (code == ASK_TRY_NOW || code == ASK_TRY_LATER) {
             do_try(code == ASK_TRY_NOW);
         } else if (code == ASK_SAVE_ANYWAY) {
-            do_save(1);
+            if (do_save(1) == 0 && g_quit_after_save) { uapp_quit(a, 0); return; }
+        } else if (code == ASK_CLOSE_SAVE) {
+            // A refused save leaves its own question open, or says why.
+            g_quit_after_save = 1;
+            if (do_save(0) == 0) { uapp_quit(a, 0); return; }
+        } else if (code == ASK_CLOSE_DISCARD) {
+            uapp_quit(a, 0);
+            return;
         } else if (code == ASK_KEEP || code == ASK_DROP) {
             trial_end(code == ASK_KEEP);
         }
+        if (!uui_dialog_is_open(&g_ask)) g_quit_after_save = 0;   // the close was given up
         recheck();
         update_status();
         uapp_redraw(a);
@@ -882,9 +909,7 @@ static int on_tick(struct uapp *a) {
 
 static int on_close(struct uapp *a) {
     if (uapp_question_open(a)) return 0;   // its answer decides
-    if (!dirty()) return 1;
-    note("Unsaved changes -- Save, or Revert, then close");
-    return 0;
+    return ask_close(a);
 }
 
 static void on_open(struct uapp *a) {
