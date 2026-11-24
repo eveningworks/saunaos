@@ -110,6 +110,19 @@ jobs:
 
       - name: Boot smoke test (headless, no GUI)
         run: python3 tools/tests/gate/boot_smoke_test.py -v
+      # What a silent boot left behind: the serial and QEMU logs and,
+      # on a timeout, the screen at the deadline (boot_smoke_test's
+      # qmp_diagnose()) -- the runner is the one machine it cannot be
+      # reproduced on.
+      - name: Keep the smoke test's evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-smoke
+          path: |
+            smoke_serial.log*
+            smoke_qemu.log
+          if-no-files-found: ignore
 
       # The in-kernel test suite (kernel/include/kernel/ktest.h). The
       # smoke test above answers "does it still boot"; this answers "does

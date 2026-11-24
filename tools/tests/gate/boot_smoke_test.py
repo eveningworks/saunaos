@@ -137,6 +137,43 @@ POLL_INTERVAL = 0.2
 QMP_SOCK = ".smoke.qmp"
 
 
+def qmp_diagnose(sock_path, screendump, timeout=6.0):
+    """WHERE A SILENT BOOT STOPPED: the run state, the CPU's registers
+    and a picture of the screen, asked over QMP before QEMU is killed.
+    A boot that printed nothing could be the firmware, GRUB or the
+    kernel's first instructions, and the serial log cannot say which;
+    RIP and the screen can (GRUB draws on the screen, not the port).
+    Returns the text to print; the picture lands at `screendump`."""
+    out = []
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            s.connect(sock_path)
+            f = s.makefile("rwb")
+            f.readline()
+            for cmd in ({"execute": "qmp_capabilities"},
+                        {"execute": "query-status"},
+                        {"execute": "human-monitor-command",
+                         "arguments": {"command-line": "info registers"}},
+                        {"execute": "screendump", "arguments": {"filename": screendump}}):
+                f.write(json.dumps(cmd).encode() + b"\n")
+                f.flush()
+                while True:
+                    reply = json.loads(f.readline() or b"{}")
+                    if "return" in reply or "error" in reply or not reply:
+                        break
+                r = reply.get("return")
+                if cmd["execute"] == "query-status":
+                    out.append(f"status: {r}")
+                elif cmd["execute"] == "human-monitor-command" and isinstance(r, str):
+                    out.append(r.rstrip())
+                elif "error" in reply:
+                    out.append(f"{cmd['execute']}: {reply['error']}")
+    except (OSError, socket.timeout, ValueError) as e:
+        out.append(f"(QMP: {e})")
+    return "\n".join(out)
+
+
 def qmp_powerdown(sock_path, timeout=6.0, screendump=None):
     """Ask the guest to shut down over QMP, and wait for it to say it did.
 
@@ -332,6 +369,10 @@ def main():
         else:
             missing = [p for p in PASS_PATTERNS if p not in log]
             print(f"boot_smoke_test: FAIL -- timed out after {args.timeout}s, missing: {missing}", file=sys.stderr)
+            shot = os.path.abspath(args.serial_log + ".timeout.ppm")
+            print("----- where it stopped (QMP) -----", file=sys.stderr)
+            print(qmp_diagnose(QMP_SOCK, shot), file=sys.stderr)
+            print(f"(the screen: {shot})", file=sys.stderr)
 
         if args.verbose:
             print("----- serial log -----", file=sys.stderr)
