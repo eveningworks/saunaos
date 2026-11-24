@@ -206,6 +206,8 @@ it has exonerated one this session and convicted another.
 
 ## Reproducible
 
+- [ ] **UNDER `gui_regress.py --kvm`, `frame_pacing_test`'S LONE PRESS COMPOSES NO FRAME IN 1 RUN IN 6** (2026-11-25, 6 runs; 0 in 4 under TCG): "after a quiet moment, a single press waits for nothing" sees the frame count unchanged across a press and release on the Calculator's title bar. Two fixes were tried and REVERTED -- deactivating the window first so the press must repaint, and pressing where the title bar is after the drags (5 failures in 10) -- so the press itself is not reaching a repaint, and why is NOT established.
+- [ ] **UNDER `gui_regress.py --kvm`, `desktop_entries_test` AND `fm_progress_test` FAIL EVERY RUN: THEIR FIXTURES ARE SIZED FOR TCG'S SPEED** (2026-11-25, 3 runs in 3 at 9640fcea and after, the tree before stage C included; both pass under TCG). `desktop_entries_test` needs its 200-entry reload to read for over its 80 ms threshold, and under KVM no read is logged at all ("reads []"); `fm_progress_test` must pause a copy of 24 videos mid-way and the copy finishes first ("raise COPIES", which the 2026-11-16 fix already doubled). A test acting DURING a job races the host: the fix is a pace the test sets, not a bigger fixture. `--kvm` is the fast way to run the suite, so it reads two reds that are not.
 - [ ] **SETTINGS LOGS ITS WHOLE CONTROL LAYOUT ON EVERY SCROLL STEP, UNGATED** (2026-11-23, the X99): `settings.c`'s per-control dump ("whenever one MOVES") uses `ulogf()`, not `uapp_logf_layout()`, so `desktop.layout_log` (off by default) does not stop it -- about 200 lines in a few seconds of scrolling pushed the whole boot out of `dmesg`. The fix is the gated call; the Settings GUI tests read these lines, so they run in full with it.
 - [ ] **`boot_smoke_test.py`'S SHUTDOWN-SCREEN CHECK FAILED ONCE IN 200 RUNS AFTER THE SPLASH'S CLAIM-BEFORE-DRAW FIX** (2026-11-20). Before the fix, 4 in 126 runs showed the console's old text with the splash's later lines drawn over it -- a console present landing while the takeover drew, proven by injecting one (5 of 5 red, 0 of 5 with the fix). The one failure after the fix had its output discarded, so whether it was the same frame is not established; the rate swings with host conditions (the unfixed build also went 80 for 80 in a quiet stretch)
 - [ ] **w16: THE WINDOWS TUTORIAL'S PAGES 33-37 SHOW WRITE'S OPEN DIALOG WITH A DIMMED CAPTION; 3.11 SHOWS IT LIT** (since the review round after 215423d6, measured 2026-11-16 with `wb_walk.py`: ~10,000 pixels a page, every one the dialog's caption and frame). The Tutorial photographs the dialog straight after `SetFocus(2001)`, its main window and the dialog's owner, and w16 now deactivates the dialog inside that call. 3.11's own USER.EXE does the same -- `SetFocus` activates the top-level window, whose activation sends `WM_NCACTIVATE(FALSE)` to the dialog, and `DefDlgProc` hands that to `DefWindowProc` -- and six probes on the reference VM, the last a replica of the Tutorial's photograph routine call for call, all read the caption white after it. The Tutorial's dialog procedure, its CBT hook and its journal hooks change nothing. So the Tutorial takes a different path on 3.11 than w16's trace records; **cause NOT established**. The shipped build matched only by a race (toywm lit the dialog after the call). Repro in `docs/roadmap-details.md`.
@@ -392,6 +394,17 @@ afterwards, which at these counts distinguishes nothing** -- 3 clean is
 what a 40% rate produces about a fifth of the time. What would settle it
 is `flake_hunt.py` over the full suite, which this entry already asked
 for.
+
+**2026-11-25: one full parallel run under TCG at 809ba682 was 156 of
+157 clean**, and the one red was `frame_pacing_test`'s positive control:
+the unpaced drag composed 73 frames a second against a 94/s cap, so the
+run could not tell pacing from no pacing (history: 1 run in ~20). The
+HOST decided it -- eight TCG guests share the cores -- and the test now
+measures the pair again, up to three times, while the unpaced drag stays
+under the cap, printing every attempt. `hover_test` sent eight `gui
+move`s unsettled, and under KVM they landed in one WM iteration (2
+repaints for 8 moves, the bug's number from a working WM); each is
+settled now. Neither is the moving failure this entry is about.
 
 Neither was a new defect: both were fixed-sleep assumptions that a
 busier machine invalidated. **When a tool in this class fails, read its

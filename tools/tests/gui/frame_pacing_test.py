@@ -53,6 +53,7 @@ TITLE = "Calculator"
 SPAWN = "/bin/wm/apps/calculator"
 MOVES = 1800           # relative steps per drag, sent back to back
 MARGIN = 1.25          # frames a second over the refresh still counted as paced
+ATTEMPTS = 3           # pairs of drags, while the unpaced one cannot reach the cap
 
 
 def refresh_hz(dbg):
@@ -93,14 +94,28 @@ def run(dbg, qmp, res):
     if not win:
         return
     x, y = win["x"] + win["w"] // 2, win["y"] + 8
+    cap = hz * MARGIN
+    # THE PAIR IS MEASURED AGAIN while the unpaced drag stays under the
+    # cap, up to ATTEMPTS times: such a run tests nothing (check 2 is the
+    # precondition of check 1), and it is the HOST that decides it -- in
+    # the parallel suite, eight TCG guests share the cores, and an
+    # unpaced drag composed 73/s against a 94/s cap (2026-11-25, 1 run in
+    # ~20). Every attempt is said, so a guest that never gets there reads
+    # as that, not as pacing broken.
+    attempts = []
     try:
-        dbg.send("gui pacing on")
-        paced_rate, n_on = drag(dbg, qmp, x, y)
-        dbg.send("gui pacing off")
-        free_rate, n_off = drag(dbg, qmp, x, y)
+        for _ in range(ATTEMPTS):
+            dbg.send("gui pacing on")
+            paced_rate, n_on = drag(dbg, qmp, x, y)
+            dbg.send("gui pacing off")
+            free_rate, n_off = drag(dbg, qmp, x, y)
+            attempts.append(f"{paced_rate:.0f}/{free_rate:.0f}")
+            if free_rate > cap:
+                break
     finally:
         dbg.send("gui pacing on")   # leave the machine as found
-    cap = hz * MARGIN
+    if len(attempts) > 1:
+        print(f"  (paced/unpaced frames a second, by attempt: {', '.join(attempts)})")
     res.check("a fast window drag composes no more than one frame per refresh",
               n_on > 0 and paced_rate <= cap,
               f"{paced_rate:.0f}/s ({n_on} frames), cap {cap:.0f}/s")

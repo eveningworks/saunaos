@@ -101,10 +101,14 @@ def main():
     if len(rows) < 6:
         return 1
 
-    # Eight hover changes, as fast as the console allows.
+    # Eight hover changes, each SETTLED before the next: an injected
+    # position lasts one wm_run() iteration, so on a fast host (KVM)
+    # unsettled moves landed in one iteration and were counted as one --
+    # 2 repaints for 8 moves, the bug's own number, from a working WM.
     before = repaints()
     for cx, cy in rows[:8]:
         raw(f"gui move {cx} {cy}")
+        dbg.settle()
     after = repaints()
     gained = after - before
 
@@ -134,6 +138,7 @@ def main():
     before = repaints()
     for dx in (300, 400, 500, 600, 700, 800, 900, 1000):
         raw(f"gui move {dx} 300")
+        dbg.settle()   # one iteration each, as above
     gained = repaints() - before
     check("a move over nothing does not repaint the scene", gained <= 1,
           f"{gained} scene repaints for 8 moves with no overlay open")
