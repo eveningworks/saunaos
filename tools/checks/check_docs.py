@@ -399,6 +399,13 @@ def check_tools_are_documented(problems):
 # Commands that are real but are not something a person types at a
 # prompt, so a page for them would document the wrong thing. Each line
 # is a reason, not an apology.
+# Programs only an optional build puts in /usr/bin, by the script that
+# does: their pages are required whether or not this checkout built them.
+OPTIONAL_BUILD_COMMANDS = {
+    "scummvm": "tools/build/build_scummvm.sh",       # make scummvm EXTRAS=1
+    "sdl2-config": "tools/build/stage_sdk.py",       # with a cross toolchain
+}
+
 COMMAND_PAGE_EXEMPT = {
     "init":  "pid 1, spawned by the kernel -- nobody runs it",
     "hello": "the smallest possible ELF, a loader fixture",
@@ -466,6 +473,12 @@ def shell_commands():
     for script in ("build_native_toolchain.sh", "build_native_make.sh"):
         keep = re.search(r'^KEEP_BIN=\(([^)]*)\)', read(f"tools/build/{script}") or "", re.M)
         names.update(keep.group(1).split() if keep else ())
+    # The same for what a build only a toolchain or a fetch makes -- CI's
+    # clean clone has neither: each counts while the script that installs
+    # it still names its usr/bin path.
+    for name, script in OPTIONAL_BUILD_COMMANDS.items():
+        if f"usr/bin/{name}" in (read(script) or ""):
+            names.add(name)
     # The kernel shell's builtins are one table, SHELL_BUILTINS.
     table = re.search(r'SHELL_BUILTINS\[\] = \{(.*?)\n\};', read("kernel/shell/shell.c"), re.S)
     for m in re.finditer(r'\{ "([a-z0-9_]+)",', table.group(1) if table else ""):
