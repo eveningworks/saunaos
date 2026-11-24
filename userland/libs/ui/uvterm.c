@@ -30,13 +30,12 @@ static struct uvterm_cell *cells_new(int rows, int cols, int fg, int bg) {
     if (!p) return 0;
     for (size_t i = 0; i < n; i++) {
         p[i].ch = ' '; p[i].fg = (uint8_t)fg; p[i].bg = (uint8_t)bg;
-        p[i].wide = UVTERM_NARROW; p[i].pad_ = 0;
+        p[i].wide = UVTERM_NARROW; p[i].flags = 0;
     }
     return p;
 }
 
-// Grows the allocation to hold rows x cols, keeping what is there (a
-// crop-preserving copy -- xterm's behaviour; there is no reflow).
+// Grows the allocation to hold rows x cols, keeping what is there.
 // Everything is allocated before anything is swapped, so a failed malloc
 // leaves the terminal exactly as it was.
 static int grow_caps(struct uvterm *t, int rows, int cols) {
@@ -69,10 +68,12 @@ static int grow_caps(struct uvterm *t, int rows, int cols) {
     return 1;
 }
 
+// Erasing to the row's end also ends any soft wrap: what followed is gone.
 static void row_clear(const struct uvterm *t, struct uvterm_cell *row, int from) {
     for (int c = from; c < t->cap_cols; c++) {
         row[c].ch = ' '; row[c].fg = t->fg; row[c].bg = t->bg; row[c].wide = UVTERM_NARROW;
     }
+    row[0].flags &= (uint8_t)~UVTERM_ROW_WRAPPED;
 }
 
 // A blank in place of what was there, colours kept -- ERASE's mode 1.
@@ -250,7 +251,11 @@ static void putc_raw(struct uvterm *t, uint32_t c) {
     if (c == '\b') { if (t->cc > 0) t->cc--; return; }
     if (c == '\t') {
         do { t->cc++; } while (t->cc % 8 && t->cc < t->cols);
-        if (t->cc >= t->cols) { t->cc = 0; newline(t); }
+        if (t->cc >= t->cols) {
+            grid_row(t, t->cr)[0].flags |= UVTERM_ROW_WRAPPED;
+            t->cc = 0;
+            newline(t);
+        }
         return;
     }
     // Anything else unprintable is dropped: the C0 controls, and the C1
@@ -261,7 +266,11 @@ static void putc_raw(struct uvterm *t, uint32_t c) {
     if (w > t->cols) w = 1;
     // A WIDE CHARACTER NEVER STRADDLES THE EDGE: one that does not fit
     // starts the next line, as xterm and VTE wrap it.
-    if (t->cc + w > t->cols) { t->cc = 0; newline(t); }
+    if (t->cc + w > t->cols) {
+        grid_row(t, t->cr)[0].flags |= UVTERM_ROW_WRAPPED;
+        t->cc = 0;
+        newline(t);
+    }
     struct uvterm_cell *row = grid_row(t, t->cr);
     unpair(t, row, t->cc);
     if (w == 2) unpair(t, row, t->cc + 1);
@@ -610,6 +619,135 @@ static void rows_grown(struct uvterm *t, int old_rows, int new_rows) {
     t->cr += have;
 }
 
+// --- reflow ------------------------------------------------------------------
+//
+// A WIDTH CHANGE REJOINS AND RESPLITS THE MAIN SCREEN: rows a soft wrap
+// joined (UVTERM_ROW_WRAPPED) are one line again, split at the new width,
+// and the cursor keeps its place in its line -- VTE's, Konsole's and
+// Windows Terminal's behaviour (xterm crops). Scrollback is included, so
+// a long line scrolled away rewraps too. The alternate screen is not: a
+// full-screen program redraws on SIGWINCH.
+
+// The old content, scrollback then screen, as one run of physical rows.
+static const struct uvterm_cell *phys_row(const struct uvterm *t, int i) {
+    return i < t->sb_count ? sb_row(t, i) : grid_row(t, i - t->sb_count);
+}
+
+static int cell_blank(const struct uvterm *t, const struct uvterm_cell *c) {
+    return (c->ch == ' ' || c->ch == 0) && c->wide == UVTERM_NARROW && c->bg == t->bg;
+}
+
+// How many cells of physical row `i` belong to its line: all of a wrapped
+// row (less the blank a wide character left at its edge), up to the last
+// non-blank of a line's final row -- and never short of the cursor.
+static int row_len(const struct uvterm *t, int i, int old_cols, int cur_i, int cur_c) {
+    const struct uvterm_cell *r = phys_row(t, i);
+    int n = old_cols;
+    if (r[0].flags & UVTERM_ROW_WRAPPED) {
+        if (i + 1 < t->sb_count + t->rows && phys_row(t, i + 1)[0].wide == UVTERM_WIDE &&
+            cell_blank(t, &r[n - 1])) n--;
+        return n;
+    }
+    while (n > 0 && cell_blank(t, &r[n - 1])) n--;
+    if (i == cur_i && cur_c > n) n = cur_c > old_cols ? old_cols : cur_c;
+    return n;
+}
+
+// Splits the old rows [0, nphys) at `cols` into `out` (NULL: only counts).
+// Returns the rows made, where the cursor lands, and the row old row
+// `anchor_i` (the screen's first) starts in.
+static int resplit(const struct uvterm *t, int nphys, int old_cols, int cols, int cur_i, int cur_c,
+                   int anchor_i, struct uvterm_cell *out, int *pr, int *pc, int *pa) {
+    int row = 0, col = 0;
+    *pr = *pc = *pa = 0;
+    for (int i = 0; i < nphys; i++) {
+        int n = row_len(t, i, old_cols, cur_i, cur_c);
+        const struct uvterm_cell *r = phys_row(t, i);
+        if (i == anchor_i) *pa = row + (col >= cols && n > 0);
+        for (int c = 0; c <= n; c++) {
+            int w = 0;
+            if (c < n && r[c].wide != UVTERM_CONT) {
+                w = r[c].wide == UVTERM_WIDE && cols > 1 ? 2 : 1;
+                // A soft wrap at the new width, BEFORE the cursor is placed:
+                // a cursor on this character belongs to the next row.
+                if (col + w > cols && col > 0) {
+                    if (out) out[(size_t)row * cols].flags |= UVTERM_ROW_WRAPPED;
+                    row++;
+                    col = 0;
+                }
+            }
+            if (i == cur_i && c == cur_c) { *pr = row; *pc = col; }
+            if (!w) continue;   // the end, or a CONT copied with its WIDE cell
+            if (out) {
+                struct uvterm_cell *o = &out[(size_t)row * cols + col];
+                o[0] = r[c];
+                o[0].flags = 0;
+                if (w == 2) {
+                    o[1] = o[0];
+                    o[1].ch = 0;
+                    o[1].wide = UVTERM_CONT;
+                } else {
+                    o[0].wide = UVTERM_NARROW;   // a wide one squeezed into one column
+                }
+            }
+            col += w;
+        }
+        if (i == cur_i && cur_c > n) { *pr = row; *pc = col; }
+        if (!(r[0].flags & UVTERM_ROW_WRAPPED) || i == nphys - 1) { row++; col = 0; }
+    }
+    if (*pc >= cols) *pc = cols - 1;
+    return row;
+}
+
+// A width change NOT reflowed (the alternate screen, or no memory) leaves
+// rows cropped at the new width: their wrap marks, read at a later width,
+// would join the wrong cells, so they go.
+static void unwrap_all(struct uvterm *t) {
+    for (int r = 0; r < t->cap_rows; r++) {
+        grid_row(t, r)[0].flags &= (uint8_t)~UVTERM_ROW_WRAPPED;
+        saved_row(t, r)[0].flags &= (uint8_t)~UVTERM_ROW_WRAPPED;
+    }
+    for (int r = 0; r < t->sb_count; r++) sb_row(t, r)[0].flags &= (uint8_t)~UVTERM_ROW_WRAPPED;
+}
+
+// 0 when it could not allocate: the caller crops instead.
+static int reflow(struct uvterm *t, int old_cols, int rows, int cols) {
+    int last = t->cr;
+    for (int r = t->rows - 1; r > last; r--)
+        if (row_len(t, t->sb_count + r, old_cols, -1, 0) > 0) { last = r; break; }
+    int nphys = t->sb_count + last + 1;
+    int cur_i = t->sb_count + t->cr, cur_c = t->cc, pr, pc, pa;
+    int n = resplit(t, nphys, old_cols, cols, cur_i, cur_c, t->sb_count, NULL, &pr, &pc, &pa);
+    struct uvterm_cell *out = cells_new(n, cols, t->fg, t->bg);
+    if (!out) return 0;
+    resplit(t, nphys, old_cols, cols, cur_i, cur_c, t->sb_count, out, &pr, &pc, &pa);
+
+    // THE SCREEN'S FIRST LINE STAYS AT THE TOP, as rows_shrunk() and
+    // rows_grown() keep it for a height change: rows go to the scrollback
+    // only as far as the cursor needs to stay on screen, and only added
+    // rows pull history back -- so a width change alone leaves a `clear`
+    // clear.
+    int top = pa;
+    if (rows > t->rows) top -= rows - t->rows;
+    if (pr - top > rows - 1) top = pr - (rows - 1);
+    if (top < 0) top = 0;
+    int keep_sb = top < t->sb_rows ? top : t->sb_rows;
+    size_t rowbytes = (size_t)cols * sizeof(struct uvterm_cell);
+    for (int i = 0; i < keep_sb; i++) {
+        row_clear(t, sb_row(t, i), 0);
+        memcpy(sb_row(t, i), out + (size_t)(top - keep_sb + i) * cols, rowbytes);
+    }
+    t->sb_count = keep_sb;
+    for (int r = 0; r < t->cap_rows; r++) {
+        row_clear(t, grid_row(t, r), 0);
+        if (r < rows && top + r < n) memcpy(grid_row(t, r), out + (size_t)(top + r) * cols, rowbytes);
+    }
+    free(out);
+    t->cr = pr - top;
+    t->cc = pc;
+    return 1;
+}
+
 int uvterm_resize(struct uvterm *t, int rows, int cols) {
     int ok = grow_caps(t, rows, cols);
     if (!ok) {
@@ -617,16 +755,21 @@ int uvterm_resize(struct uvterm *t, int rows, int cols) {
         if (cols > t->cap_cols) cols = t->cap_cols;
     }
     if (rows == t->rows && cols == t->cols) return ok;
-    int old_rows = t->rows;
+    int old_rows = t->rows, old_cols = t->cols;
+    uvterm_sel_clear(t);
+    // THE ALTERNATE SCREEN IS NOT SCROLLED OR REFLOWED: it has no
+    // scrollback, and a full-screen program redraws every row when told
+    // the size changed.
+    int reflowed = !t->alt && cols != old_cols && reflow(t, old_cols, rows, cols);
+    if (cols != old_cols && !reflowed) unwrap_all(t);
     t->rows = rows;
     t->cols = cols;
     ansi_region_reset(&t->region, rows);
-    // THE ALTERNATE SCREEN IS NOT SCROLLED: it has no scrollback, and a
-    // full-screen program redraws every row when told the size changed.
-    if (!t->alt) {
+    if (!t->alt && !reflowed) {
         if (rows < old_rows)      rows_shrunk(t, old_rows, rows);
         else if (rows > old_rows) rows_grown(t, old_rows, rows);
     }
+    if (t->sb_view > t->sb_count) t->sb_view = t->sb_count;
     clamp_cursor(t);
     // LAST, because it raises SIGWINCH: the program repaints from where
     // the cursor is, so the grid has to be in its final shape first.

@@ -18,6 +18,84 @@ static struct uvterm g_t;   // ~1 KiB of struct; its buffers are malloc'd
 
 static const struct uvterm_cell *row0(void) { return uvterm_line(&g_t, g_t.sb_count); }
 
+// Line `line` of the virtual buffer as ASCII up to its last non-blank, a
+// wide character as '#', its continuation skipped.
+static const char *text_of(const struct uvterm *t, int line) {
+    static char bufs[4][128];   // a check's message reads several at once
+    static int next;
+    char *buf = bufs[next++ & 3];
+    const struct uvterm_cell *r = uvterm_line(t, line);
+    int n = 0, end = 0;
+    for (int c = 0; c < t->cols && n < 127; c++) {
+        if (r[c].wide == UVTERM_CONT) continue;
+        buf[n++] = r[c].wide == UVTERM_WIDE ? '#' : r[c].ch < 128 ? (char)r[c].ch : '?';
+        if (r[c].ch != ' ') end = n;
+    }
+    buf[end] = 0;
+    return buf;
+}
+
+// A WIDTH CHANGE REFLOWS: what a soft wrap split is one line again, a
+// hard newline is not, the cursor keeps its place, and it round-trips.
+// A broken version that crops passes every "the text is still there"
+// check at a wider size -- so the checks read WHERE each letter lands.
+static void reflow_checks(void) {
+    static struct uvterm t;
+    if (!uvterm_init(&t, 4, 10, 16, 7, 0)) { utest_check(0, "uvterm_init (reflow)"); return; }
+    uvterm_write(&t, "abcdefghijklmnopqrstuvwxy", 25);   // 10 + 10 + 5 at 10 columns
+    utest_checkf(t.cr == 2 && t.cc == 5 && !strcmp(text_of(&t, 0), "abcdefghij"),
+                 "25 letters wrap over three rows at 10 columns (cursor %d,%d)", t.cr, t.cc);
+    uvterm_resize(&t, 4, 30);
+    utest_checkf(!strcmp(text_of(&t, 0), "abcdefghijklmnopqrstuvwxy") && t.cr == 0 && t.cc == 25 &&
+                 !strcmp(text_of(&t, 1), ""),
+                 "widening joins them into one row, the cursor after the last letter (got '%s', %d,%d)",
+                 text_of(&t, 0), t.cr, t.cc);
+    uvterm_write(&t, "\r\nxy", 4);
+    uvterm_resize(&t, 4, 8);
+    utest_checkf(!strcmp(text_of(&t, 0), "abcdefgh") && !strcmp(text_of(&t, 3), "y") &&
+                 !strcmp(text_of(&t, 4), "xy") && t.sb_count == 1 && t.cr == 3 && t.cc == 2,
+                 "narrowing resplits at 8, a hard newline stays one, the top row into history "
+                 "(sb %d, cursor %d,%d, row 4 '%s')", t.sb_count, t.cr, t.cc, text_of(&t, 4));
+    uvterm_resize(&t, 4, 30);
+    utest_checkf(!strcmp(text_of(&t, 0), "abcdefghijklmnopqrstuvwxy") && !strcmp(text_of(&t, 1), "xy") &&
+                 t.sb_count == 0 && t.cr == 1 && t.cc == 2,
+                 "widening again takes the line back out of the history, whole (sb %d, cursor %d,%d)",
+                 t.sb_count, t.cr, t.cc);
+
+    // A WIDTH CHANGE ALONE PULLS NO HISTORY BACK: a cleared screen stays clear.
+    uvterm_init(&t, 4, 10, 16, 7, 0);
+    uvterm_write(&t, "1\r\n2\r\n3\r\n4\r\n5\r\n6\x1b[2J\x1b[H", 24);
+    int sb = t.sb_count;
+    uvterm_resize(&t, 4, 12);
+    utest_checkf(sb == 2 && t.sb_count == 2 && t.cr == 0 && !strcmp(text_of(&t, t.sb_count), ""),
+                 "after a clear, widening leaves the screen clear (sb %d -> %d, cursor row %d)",
+                 sb, t.sb_count, t.cr);
+
+    // The cursor ON a character that lands at a new row's start is there.
+    uvterm_init(&t, 4, 20, 16, 7, 0);
+    uvterm_write(&t, "abcdefghijklmnop\x1b[8D", 20);   // back onto 'i'
+    uvterm_resize(&t, 4, 8);
+    utest_checkf(t.cr == 1 && t.cc == 0 && uvterm_line(&t, t.sb_count + 1)[0].ch == 'i',
+                 "a cursor on the first letter of a new row stays on it (cursor %d,%d)", t.cr, t.cc);
+
+    // A tab that runs past the edge wraps softly too.
+    uvterm_init(&t, 4, 8, 16, 7, 0);
+    uvterm_write(&t, "abcdefg\tXYZ", 11);
+    uvterm_resize(&t, 4, 30);
+    utest_checkf(!strcmp(text_of(&t, 0), "abcdefg XYZ"),
+                 "a tab past the edge rejoins when widened (got '%s')", text_of(&t, 0));
+
+    // A wide character that did not fit left a blank at the edge, which
+    // is not part of the line.
+    uvterm_init(&t, 4, 10, 16, 7, 0);
+    uvterm_write(&t, "abcdefghi\xE4\xB8\xAD", 12);   // nine letters, then U+4E2D
+    utest_checkf(!strcmp(text_of(&t, 1), "#"), "a wide character that does not fit starts the next row");
+    uvterm_resize(&t, 4, 20);
+    utest_checkf(!strcmp(text_of(&t, 0), "abcdefghi#"),
+                 "...and widening puts it straight after the letters, no gap (got '%s')", text_of(&t, 0));
+    uvterm_free(&t);
+}
+
 int main(void) {
     uitest_begin("uvterm", "the terminal grid holds characters, not bytes");
     if (!uvterm_init(&g_t, 4, 10, 8, 7, 0)) {
@@ -177,5 +255,6 @@ int main(void) {
         uvterm_free(&q);
     }
     uvterm_free(&c);
+    reflow_checks();
     return uitest_end();
 }

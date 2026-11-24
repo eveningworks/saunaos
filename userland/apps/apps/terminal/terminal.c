@@ -131,8 +131,8 @@ static const char *shell_path(char *buf, size_t cap) {
 // fixed 200x60: a maximized terminal at 1920x1080 already wants
 // ~240x67 cells, so the old fixed
 // cap left a dead band below the last row and to the right of the last
-// column, silently. xterm reallocates on resize and CROPS (no reflow);
-// so does this. What bounds it now is the WINDOW, which the compositor
+// column, silently. A width change REFLOWS what is on screen and in the
+// scrollback (uvterm_resize). What bounds it now is the WINDOW, which the compositor
 // already clamps -- a program still cannot ask for an unbounded grid.
 //
 // EACH TAB'S TERMINAL OWNS ITS GRID (ui/uvterm.h); there is one window,

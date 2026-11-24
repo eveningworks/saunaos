@@ -1067,7 +1067,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~CPU/memory history graphs in Task Manager~~ DONE 2026-09-15 -- a Performance tab over `uui_chart`
 - [x] ~~Per-app settings persisted via `/etc/<app>.conf`~~ DONE 2026-09-12 -- desktop, files and settings all use it
 - [ ] `Terminal=true` on a `.desktop` entry, so a TUI program can be launched from the desktop
-- [ ] The Terminal CROPS COLUMNS on a resize rather than rewrapping -- Konsole and VTE reflow, which needs a per-row "this line wrapped" bit
+- [x] ~~The Terminal CROPS COLUMNS on a resize rather than rewrapping~~ DONE 2026-11-24 -- a width change reflows it (`uvterm.c`)
 - [ ] `/bin/edit` asks its terminal size once at startup and never repaints on SIGWINCH, as the pager now does
 - [ ] The Terminal's selection is DROPPED when the text scrolls under it, rather than following it
 - [ ] Dragging a Terminal selection past the edge scrolls only while the pointer MOVES -- autoscroll needs a tick this window has not got

@@ -39,7 +39,11 @@ struct uapp;
 // (ugfx.h: a tagged code point, a composed one, or a UGFX_CP_CLUSTER token);
 // an emoji sequence takes two cells (base/uwcwidth.h).
 enum { UVTERM_NARROW = 0, UVTERM_WIDE = 1, UVTERM_CONT = 2 };
-struct uvterm_cell { uint32_t ch; uint8_t fg, bg, wide, pad_; };
+struct uvterm_cell { uint32_t ch; uint8_t fg, bg, wide, flags; };
+// On a row's FIRST cell: the text ran past the last column and goes on in
+// the next row -- a soft wrap, which a width change joins back up. It
+// travels with the row through scrolling, since rows move whole.
+#define UVTERM_ROW_WRAPPED 0x01
 
 // A position in the VIRTUAL buffer: lines 0..sb_count-1 are scrollback
 // and the screen follows, so a line names the same text whether it is on
@@ -63,7 +67,8 @@ struct uvterm {
     // --- the screen --------------------------------------------------------
     // Heap-backed at cap_rows x cap_cols, GROWN when the grid outgrows
     // them and never shrunk: shrinking narrows rows/cols and leaves the
-    // buffers, as xterm's crop-not-reflow does.
+    // buffers. A width change REFLOWS the main screen and its scrollback
+    // (uvterm_resize).
     int cap_rows, cap_cols;
     struct uvterm_cell *grid;   // cap_rows x cap_cols
     struct uvterm_cell *sb;     // sb_rows  x cap_cols
@@ -165,8 +170,11 @@ int  uvterm_key(struct uvterm *t, int key, unsigned mods);
 
 // The grid to rows x cols: shrinking scrolls rows off the top into
 // history and growing takes them back (xterm's round trip), the cursor
-// clamped, and the program told (SIGWINCH) last. 0 when no memory: the
-// size is then clamped to what is allocated.
+// clamped, and the program told (SIGWINCH) last. A WIDTH change reflows
+// the main screen and its scrollback -- soft-wrapped rows rejoined and
+// split at the new width, the cursor keeping its screen row -- while the
+// alternate screen is cropped. 0 when no memory: the size is then
+// clamped to what is allocated.
 int  uvterm_resize(struct uvterm *t, int rows, int cols);
 // Keeps the NEWEST lines. A failed malloc keeps the old depth.
 void uvterm_set_scrollback(struct uvterm *t, int lines);

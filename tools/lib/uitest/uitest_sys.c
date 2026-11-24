@@ -60,6 +60,9 @@ int64_t sys_write(int fd, const void *buf, size_t len) {
 }
 
 static int shm_close(int fd);
+// A terminal's size, told to the pty it does not have here: nothing to tell.
+int sys_tcsetwinsz(int fd, const struct tty_winsize *ws) { (void)fd; (void)ws; return -1; }
+
 int sys_close(int fd) {
     if (shm_close(fd)) return 0;
     int rc = uh_close(fd);
