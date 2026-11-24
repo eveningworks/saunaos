@@ -80,6 +80,14 @@ jobs:
           # Latin-1 (aogonek, scaron); gen_kbs.py refuses to run without it.
           sudo apt-get install -y -qq -o Acquire::Retries=3 nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso qemu-system-x86 mtools libxkbcommon-tools libx11-data x11proto-dev
 
+      # Which compiler and which default -march the kernel was built with:
+      # the runner image carries several GCCs, and a default that is not
+      # the baseline x86-64 emits instructions QEMU's default CPU lacks.
+      - name: Toolchain versions
+        run: |
+          gcc --version | head -1; ld --version | head -1; nasm -v
+          gcc -Q --help=target | grep -E '^ +-m(arch|tune)=' || true
+
       - name: make clean && make all
         run: make clean && make all
 
@@ -123,6 +131,8 @@ jobs:
             smoke_serial.log*
             smoke_qemu.log
             smoke_qemu_debug.log
+            build/kernel.bin
+            build/kernel.pass2.elf
           if-no-files-found: ignore
 
       # The in-kernel test suite (kernel/include/kernel/ktest.h). The
