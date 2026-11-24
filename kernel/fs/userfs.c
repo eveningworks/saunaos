@@ -27,6 +27,7 @@
 // unfinished after a timeout unlinks it under the same lock. That is
 // what lets an unmount free the mount's state while callers still hold
 // requests that were queued on it.
+#include "privilege.h"  // priv_seat_point()
 #include "fs_ops.h"
 #include "fs.h"
 #include "mount.h"
@@ -529,6 +530,7 @@ static int64_t op_mount(struct syscall_ctx *c) {
     if (!vmm_copy_from_user(c->pml4, &m, c->a1, sizeof m)) return -EFAULT;
     m.point[sizeof m.point - 1] = m.type[sizeof m.type - 1] = m.source[sizeof m.source - 1] = '\0';
     if (m.point[0] != '/' || !m.type[0]) return -EINVAL;
+    if (priv_seat_point(m.point)) return -EPERM;   // not root: under /media/ or /net/
     int me = scheduler_current_tgid();
 
     // A point this backend already serves: adopt it if its server is gone.

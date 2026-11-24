@@ -1,6 +1,6 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: stage A BUILT (2026-11-24); stage B next.** The maintainer
+**Status: stage A BUILT (2026-11-24); stage B decided, being built.** The maintainer
 picked the shape on 2026-11-23: four stages, stage A first, a ROOT
 BROKER for elevation (no setuid bits), ONE user account before several.
 Roadmap: "Multi-user & file permissions".
@@ -109,22 +109,98 @@ uid < 1000, login.defs' UID_MIN) and the user in the details subtitle.
 
 ### B. Privilege and the broker
 
-- `PROMISE_ADMIN` syscalls require euid 0 (`-EPERM`), checked in the
-  syscall layer beside the promise check.
-- **`privd`**, a root service on a uchan: a request names an ACTION from
-  a fixed table (format a volume, write the boot loader, install an
-  update, set the clock, mount), never a command line. A caller in
-  `wheel` is asked for consent; anyone else for root's password. The
-  prompt is drawn by the compositor, not the requesting app, so an app
-  cannot fake the dialog (UAC's secure desktop, in the compositor's own
-  layer).
-- Disks, the installer, System Update, Date & Time and `mount` call it;
-  a CLI `sudo`-shaped front end for the shell.
-- telnetd and tftpd then need a login: they hand the network a machine
-  with the run of itself today (`docs/decisions/shell.md`).
-- The calls whose ABI comments say "there is no user model" to justify
-  being unprivileged -- `SYS_KILL`, `SETTING_OP_RELOAD`, `SYS_SHM_OPEN`
-  -- are re-argued here: there is one now, only unenforced.
+**Decided 2026-11-24** (the maintainer's picks; the mockup canvas was
+https://claude.ai/artifact/S2MjCXxtMr5sfPDVLFgkNy, option P2).
+
+- **The gate.** A `PROMISE_ADMIN` syscall from euid != 0 is `-EPERM`,
+  checked in the dispatcher beside the sandbox's promise check
+  (`kernel/proc/privilege.c` holds which rows are exceptions).
+- **SEAT RIGHTS** -- what the person at the machine may do without
+  asking, logind's and udisks2's default polkit policy (`allow_active`):
+  power off and reboot, turn the screen off, read the shutdown status,
+  and mount, unmount and eject REMOVABLE drives, disc images and network
+  shares, at points under `/media/` and `/net/` only (udisks keeps to
+  `/media/<user>`; a stick mounted over `/bin` would be root). The seat
+  is a mark on the cred, `CRED_SEAT`, that init sets for a service with
+  `Seat=yes` (toywm, the console shell, the VT shells) and that every
+  descendant inherits -- Windows' INTERACTIVE group in the token, where
+  Linux asks logind which session is active. A telnet shell runs as
+  `user` WITHOUT it.
+- **`SYS_KILL` follows Linux's rule**: the sender's real or effective
+  uid equals the target's real uid, or the sender is root. A group kill
+  reaches the members it may and is `-EPERM` only when it may reach
+  none. Settings writes and a public `shm_open` stay as they are until
+  stage D splits the settings.
+- **`privd`**, a root service on the uchan `privd`. Its policy: a caller
+  with euid 0 is granted; a caller whose account is in `wheel`
+  (`/etc/group`, as polkit's `unix-group:` reads it) AND holds the seat
+  is ASKED; anyone else is refused, since there is no password to ask
+  for before stage D. Two kinds of request:
+  - **an ACTION** from a fixed table, run by privd itself: set the
+    clock, load or unload a module, signal a process the caller may not,
+    mount or unmount anything the seat may not.
+  - **an ELEVATED SPAWN**, the `pkexec`/UAC "run as administrator" half:
+    privd grants the CALLER one spawn of exactly that path and argv as
+    root (`SYS_CRED_GRANT`, root only), and the caller makes it with
+    `SPAWN_ELEVATED`. So the elevated program is the caller's own child,
+    with its terminal, its foreground group and its exit status -- as
+    Windows' AppInfo service makes the elevated process a child of the
+    one that asked. A grant binds the path and a hash of the argv, lasts
+    30 seconds, is used once, and dies with its process.
+- **The prompt** is drawn by the COMPOSITOR, as polkit's agent dialog
+  (KDE's shape, option P2): a modal "Authentication Required" window,
+  the action in plain words, a details grid (action, program and pid,
+  the asking account), Cancel and Allow. toywm registers with privd as
+  the AGENT, and privd believes only an agent whose cred holds the seat
+  and whose program is `/bin/wm/system/toywm`. With no agent -- a text boot --
+  privd asks on the caller's controlling VT itself, which the caller
+  cannot answer for it (pkexec's text agent is the caller's own).
+- **Who calls it**: Disks, the Installer and System Update's install
+  step restart ELEVATED (a desktop entry's `Admin=true`; the launcher
+  asks before it starts them); Date & Time sets the clock and Device
+  Manager loads a module as ACTIONS; Task Manager's End on another
+  account's process is the signal ACTION; Files needs nothing (seat).
+- **`sudo`** is privd's command-line client: `sudo CMD ARGS` asks for an
+  elevated spawn of CMD and runs it. It is NOT setuid sudo -- no
+  sudoers, no `-u`; its page says so.
+- **telnetd and tftpd run as `user`** (`User=user`, no seat): the
+  network gets an ordinary account and no route to a prompt.
+
+**As built (2026-11-24).** The gate is `kernel/proc/privilege.c`
+(`SEAT_ROWS`, `ANY_ROWS`), the broker `userland/services/privd/`, its
+client `base/upriv.h`, the agent `toywm`'s `wm_priv.c`, and `sudo`.
+Beyond the plan above, building it found:
+
+- **The grant carries the child's ENVIRONMENT** -- privd's own, root's --
+  and the kernel substitutes it at the elevated spawn, so a PATH or HOME
+  the asker set never reaches a root program (sudo's `env_reset`).
+- **A verdict lands only on the process that asked**: privd re-reads the
+  asker's uid and program before granting, since its pid may have gone
+  to someone else while the person read the prompt. A grant dies with
+  its process (`slot_free()`).
+- **A command line too long for the prompt is refused**, never shown cut.
+- **Some actions are the seat's without a prompt** (logind's
+  `allow_active`): the next boot entry and the screen-size trial
+  (`bootenv`, `bootmode`), and ending or muting a remote session
+  (`remote`, only a `QUERY_REMOTESESS` leader, only TERM/USR1/USR2).
+  The rest ask: `settime`, `modload`/`modunload`, `kill`, `bootcfg`
+  (grub.cfg, parsed by privd), `netlink` (a card's speed, EEE, flow,
+  moderation).
+- **The desktop's own Force Quit** of an elevated window goes to privd as
+  the agent's kill, not asked again: the person chose it there.
+- **A signal to init is root's now**, and the SIGHUP doorbell meant
+  "somebody is reading" to Task Manager and `service`: init's channel
+  grew `INITCTL_STATUS`, which any account may send.
+- **`gui prompt` and `gui kill` refuse a ring-3 sender that is not root**
+  -- the kernel marks such a debug command `DIAG_F_UNPRIVILEGED` -- or any
+  program could have switched the prompt off.
+- **A GUI program asks off its frame** (`ui/uapp.h`'s `uapp_run_then()`),
+  or the window is marked Not Responding while the person reads; the
+  Network adapter widget still asks on its frame (`base/unetlink.c`).
+
+**What stage B does not make safe.** Files carry no owner until stage
+C, so `user` can still rewrite `/bin` or `/etc/group` itself. Stage B
+makes the privileged CALLS ask; stage C makes the files hold.
 
 ### C. Files
 
@@ -176,5 +252,5 @@ name, icon and language for the login screen, a pointer to its settings
 
 ## Not decided yet
 
-- Whether settings writes need `privd` in stage B or wait for the split
-  in D.
+- Nothing open for stage B. Settings writes wait for stage D's split
+  (decided 2026-11-24).

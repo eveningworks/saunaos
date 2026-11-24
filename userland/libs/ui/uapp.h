@@ -678,6 +678,16 @@ void uapp_kick(struct uapp *a);
 // thread that runs for the program's life (a reader): that is never done.
 int uapp_thread_start(struct uapp *a, pthread_t *out, void *(*fn)(void *arg), void *arg);
 
+// A BLOCKING CALL OFF THE FRAME, ITS ANSWER ON IT: `work(arg)` runs on a
+// worker thread (uapp_thread_start()), and `done(a, rc, err, arg)` then
+// runs on the MAIN thread with what it returned and the errno it left --
+// for a call that waits on a person, privd's prompt (base/upriv.h), which
+// would otherwise freeze the window into "Not Responding". The toolkit
+// handles the hand-back itself; `on_user` never sees it. 0, or an errno
+// when the thread could not start (nothing runs).
+int uapp_run_then(struct uapp *a, int (*work)(void *arg), void *arg,
+                  void (*done)(struct uapp *a, int rc, int err, void *arg));
+
 // Marks the content dirty. The loop draws and presents ONCE before it
 // next blocks, so a mouse drag crossing three buttons costs one present
 // rather than three, and an app can call this from as many places as it

@@ -362,7 +362,10 @@ static int copy_file(const char *from, const char *to) {
     return ok;
 }
 
+// "Somebody is reading" -- over init's channel; the SIGHUP doorbell only
+// when it has none (a signal to init is root's).
 static void ring_init(void) {
+    if (uinitctl_status() == 0) return;
     int pid = init_pid();
     if (pid > 0) sys_kill(pid, SIGHUP);
 }

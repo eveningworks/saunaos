@@ -716,10 +716,10 @@ int sys_query_field_get(const char *qualified, unsigned long long *out_value,
 // Terminates `pid` immediately, reporting `exit_code`. Returns 1 if it
 // was killed, 0 if there is no such process.
 //
-// The FORCE path, and unprivileged: any process may kill any other (see
-// abi/syscall_abi.h, which explains why there is no permission check
-// and what would have to change for there to be one). The polite path
-// is the window close handshake, which an app may refuse.
+// The FORCE path. Your own processes only, unless root -- Linux's rule
+// (abi/syscall_abi.h); another account's goes through privd's kill
+// action (base/upriv.h). The polite path is the window close handshake,
+// which an app may refuse.
 int sys_kill(int pid, int sig);
 
 // --- signals and process groups (abi/signal_abi.h) --------------------
@@ -1167,12 +1167,19 @@ struct sys_spawn_opts {
     unsigned        uid, gid;
     const uint32_t *groups;
     unsigned        ngroups;
+    unsigned        cred_flags;   // CRED_* (abi/cred_abi.h), with SPAWN_CREDS
 };
 
 // The -1s that a zeroed struct would get wrong. Call it, then override.
 void sys_spawn_opts_init(struct sys_spawn_opts *o);
 
 int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o);
+
+// SYS_CRED_GRANT (root only): process `pid` may spawn `path` with exactly
+// `argv` as root, once, within 30 s -- with SPAWN_ARGV | SPAWN_ELEVATED
+// and the same vector -- and the child gets `env` (NULL: empty), never
+// the asker's. privd's call; 0 or -1 with errno.
+int sys_cred_grant(int pid, const char *path, char *const *argv, char **env);
 
 // execv(): `argv` (argv[0] included, NULL-terminated) carried WHOLE, with
 // the caller's environment. What a caller passing a PATH wants -- the

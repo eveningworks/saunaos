@@ -231,6 +231,7 @@ SYSCALL_ROW(SYS_UNVEIL, "unveil", sys_unveil, A_PATH, A_HEX, A_END, R_DEC, PROMI
 // Where the clock page is mapped (abi/clock_abi.h).
 SYSCALL_ROW_MPSAFE(SYS_CLOCK_PAGE, "clock_page", sys_clock_page, A_END, A_END, A_END, R_HEX, PROMISE_STDIO)
 SYSCALL_ROW(SYS_GETCRED, "getcred", sys_getcred, A_HEX, A_HEX, A_INT, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW(SYS_CRED_GRANT, "cred_grant", sys_cred_grant, A_HEX, A_END, A_END, R_DEC, PROMISE_ADMIN)
 
 #ifdef SYSCALL_ROW_MPSAFE_DEFAULTED
 #undef SYSCALL_ROW_MPSAFE

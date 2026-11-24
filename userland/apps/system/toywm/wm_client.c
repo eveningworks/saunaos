@@ -2082,7 +2082,9 @@ void wm_client_poll_debug(void) {
     if (sys_diag(&q) != 1) return; // nothing waiting
 
     static char reply[DIAG_REPLY_MAX];
+    wm_debug_unprivileged = (q.flags & DIAG_F_UNPRIVILEGED) != 0;
     int n = wm_client_debug_command(q.text, reply, sizeof reply);
+    wm_debug_unprivileged = 0;
 
     struct diag_msg r;
     if (n < 0) {

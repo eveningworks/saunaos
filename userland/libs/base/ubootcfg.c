@@ -1,4 +1,6 @@
 // See ubootcfg.h.
+#include "base/upriv.h"   // grub.cfg from an account that is not root
+#include <errno.h>
 #include "base/ubootcfg.h"
 #include "base/ubootmode.h"
 #include "base/ubootwords.h"
@@ -910,6 +912,16 @@ static int same_as(const char *path, const char *buf, int len) {
 }
 
 int ubootcfg_save(const struct ubootcfg *c, const char *path, const char **why) {
+    if (under_boot(path) && geteuid() != 0) {   // root's: privd asks the person
+        static char text[UBOOTCFG_MAX + 1];
+        int n = c->len < UBOOTCFG_MAX ? c->len : UBOOTCFG_MAX;
+        memcpy(text, c->text, (size_t)n);
+        text[n] = '\0';
+        const char *args[] = { path, text, 0 };
+        if (upriv_action(UPRIV_ACT_BOOTCFG, args, 0) == 0) return 0;
+        *why = errno == ECANCELED ? "not allowed" : "changing the boot menu needs an administrator";
+        return -1;
+    }
     char nw[160], bak[160], dev[64] = "";
     snprintf(nw, sizeof nw, "%s.new", path);
     snprintf(bak, sizeof bak, "%s.bak", path);

@@ -225,6 +225,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `pins_test.py` -- pinned taskbar apps (userland/apps/system/toywm/wm_taskbar.h,
 - `player_test.py` -- the Audio Player, on a machine with NO SOUND
 - `popup_test.py` -- a menu leaves its window: popup surfaces
+- `privd_prompt_test.py` -- the Authentication Required prompt
 - `properties_test.py` -- Properties: the facts it shows, the sections it opens, and the edits it makes
 - `quick_test.py` -- Quick Settings (userland/apps/system/toywm/wm_quick.h): the
 - `recent_gui_test.py` -- Recent in the File Manager (base/urecent.h, fm_recent.c), checked

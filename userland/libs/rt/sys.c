@@ -1317,6 +1317,28 @@ void sys_spawn_opts_init(struct sys_spawn_opts *o) {
     o->uid = o->gid = 0;
     o->groups = 0;
     o->ngroups = 0;
+    o->cred_flags = 0;
+}
+
+int sys_cred_grant(int pid, const char *path, char *const *argv, char **env) {
+    struct spawn_blob blob = { 0, 0, 0 }, envb = { 0, 0, 0 };
+    if (!flatten_argv(argv, &blob)) return -1;
+    if (!flatten_env(env, SPAWN_ARGS_MAX - blob.len, &envb)) {
+        spawn_blob_release(&blob);
+        return -1;
+    }
+    struct cred_grant g;
+    __builtin_memset(&g, 0, sizeof g);
+    g.pid = pid;
+    g.path = path;
+    g.args = blob.p;
+    g.args_len = (uint32_t)blob.len;
+    g.env = envb.p;
+    g.env_len = (uint32_t)envb.len;
+    int64_t rc = syscall1(SYS_CRED_GRANT, (uint64_t)(uintptr_t)&g);
+    spawn_blob_release(&blob);
+    spawn_blob_release(&envb);
+    return (int)err(rc);
 }
 
 int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
@@ -1357,7 +1379,7 @@ int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
     msg.gid = o->gid;
     msg.groups = o->groups;
     msg.ngroups = o->ngroups;
-    msg.reserved_creds = 0;
+    msg.cred_flags = o->cred_flags;
     msg.flags = flags;
     int64_t rc = syscall1(SYS_SPAWN, (uint64_t)(uintptr_t)&msg);
 

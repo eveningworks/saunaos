@@ -21,6 +21,7 @@
 //
 // NOTHING IS ERASED UNTIL THE CONFIRM on Ready names what goes, and the
 // rail and the buttons are held from then until the run returns.
+#include "base/upriv.h"   // an administrator tool: restarted elevated
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -928,6 +929,9 @@ static void offer(int notice) {
 
 int main(int argc, char **argv) {
     int boot = argc > 1 && !strcmp(argv[1], "--boot");
+    // Erasing a disk is root's: run elevated, after the person allows it
+    // (base/upriv.h). The boot-time offer is init's, so root already.
+    if (!boot && upriv_elevate_self(argv) < 0) return 1;
     if (boot) {
         int word = uinstall_boot_word();
         if (word == 2) return 0;                         // installer=off: nothing at all

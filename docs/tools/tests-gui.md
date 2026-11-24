@@ -1020,6 +1020,13 @@ from the default (a sound card, a USB mouse, `--reboot`).
   Injected keys drain one per frame and send a press alone, so the flood
   is 300 keys and the wait 10 s. Shown red by sending input straight to
   the inbox again: 106 of 200 characters arrived. In `gui_regress.py`.
+- **`privd_prompt_test.py`** -- privd's Authentication Required prompt
+  (`docs/users-design.md`, stage B): Disks started as `user` asks to run
+  elevated; the dialog names it, Allow is drawn in the accent, Cancel
+  keeps Disks away (no window, no process), Allow brings a Disks owned by
+  root. It sets `gui prompt ask`, which every other tool's `enter_gui()`
+  sets to `allow`. Positive control: make `wm_priv_poll()` answer 1
+  before showing -- four checks go red.
 - **`forcequit_test.py`** -- not-responding detection and force quit
   (TWP's ping/pong, `scheduler_kill()`, the dialog, and the slot
   reaping). 15 checks. The design point it encodes: a client that

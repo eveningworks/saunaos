@@ -18,5 +18,6 @@ Exec=/bin/tosh
 # Runs as the one person's account, not root (docs/users-design.md);
 # every other service stays root.
 User=user
+Seat=yes
 TTY=vt
 Restart=always

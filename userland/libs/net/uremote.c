@@ -1,4 +1,5 @@
 // See net/uremote.h.
+#include "base/upriv.h"   // a remote session from an account that is not root
 #include "net/uremote.h"
 #include "base/uconf.h"
 #include "rt/sys.h"
@@ -214,8 +215,18 @@ void uremote_describe(const struct query_remotesess *s, char *out, size_t cap) {
     else snprintf(out, cap, "%s", s->comm);
 }
 
-int uremote_disconnect(int pid) { return sys_kill(pid, SIGTERM) < 0 ? -1 : 0; }
-
-int uremote_set_view_only(int pid, int on) {
-    return sys_kill(pid, on ? SIGUSR1 : SIGUSR2) < 0 ? -1 : 0;
+// A remote session is root's process: from another account the seat asks
+// privd, which grants it without a prompt (base/upriv.h).
+static int session_signal(int pid, int sig) {
+    if (sys_kill(pid, sig) == 0) return 0;
+    if (sys_errno() != EPERM) return -1;
+    char p[16], s[8];
+    snprintf(p, sizeof p, "%d", pid);
+    snprintf(s, sizeof s, "%d", sig);
+    const char *args[] = { p, s, 0 };
+    return upriv_action(UPRIV_ACT_REMOTE, args, 0);
 }
+
+int uremote_disconnect(int pid) { return session_signal(pid, SIGTERM); }
+
+int uremote_set_view_only(int pid, int on) { return session_signal(pid, on ? SIGUSR1 : SIGUSR2); }

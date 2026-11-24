@@ -17,6 +17,7 @@ struct cred {
     uint32_t ruid, euid, suid;
     uint32_t rgid, egid, sgid;
     uint32_t ngroups;
+    uint32_t flags;   // CRED_*
     uint32_t groups[];
 };
 
@@ -33,6 +34,7 @@ uint32_t cred_euid(const struct cred *c) { return c ? c->euid : 0; }
 uint32_t cred_ruid(const struct cred *c) { return c ? c->ruid : 0; }
 uint32_t cred_egid(const struct cred *c) { return c ? c->egid : 0; }
 uint32_t cred_rgid(const struct cred *c) { return c ? c->rgid : 0; }
+uint32_t cred_flags(const struct cred *c) { return c ? c->flags : 0; }
 
 void cred_describe(const struct cred *c, struct cred_info *out, uint32_t *groups, uint32_t cap) {
     k_memset(out, 0, sizeof *out);
@@ -40,6 +42,7 @@ void cred_describe(const struct cred *c, struct cred_info *out, uint32_t *groups
     out->ruid = c->ruid; out->euid = c->euid; out->suid = c->suid;
     out->rgid = c->rgid; out->egid = c->egid; out->sgid = c->sgid;
     out->ngroups = c->ngroups;
+    out->flags = c->flags;
     if (groups)
         for (uint32_t i = 0; i < c->ngroups && i < cap; i++) groups[i] = c->groups[i];
 }
@@ -57,14 +60,16 @@ struct cred *cred_current(void) {
 #define ARMS 8
 static struct { int tid; struct cred *c; } g_arm[ARMS];
 
-int cred_arm_spawn(uint32_t uid, uint32_t gid, const uint32_t *groups, uint32_t ngroups) {
-    if (ngroups > CRED_GROUPS_MAX) return -EINVAL;
+int cred_arm_spawn(uint32_t uid, uint32_t gid, const uint32_t *groups, uint32_t ngroups,
+                   uint32_t flags) {
+    if (ngroups > CRED_GROUPS_MAX || (flags & ~CRED_FLAGS_ALL)) return -EINVAL;
     struct cred *c = kmalloc(sizeof *c + (size_t)ngroups * sizeof c->groups[0]);
     if (!c) return -ENOMEM;
     c->refs = 1;
     c->ruid = c->euid = c->suid = uid;
     c->rgid = c->egid = c->sgid = gid;
     c->ngroups = ngroups;
+    c->flags = flags;
     for (uint32_t i = 0; i < ngroups; i++) c->groups[i] = groups[i];
 
     int tid = scheduler_current_pid();
@@ -82,6 +87,21 @@ int cred_arm_spawn(uint32_t uid, uint32_t gid, const uint32_t *groups, uint32_t 
         kfree(c);
         klog_printf(KLOG_WARN "cred: %d spawns arming an identity at once -- refused\n", ARMS);
     }
+    return rc;
+}
+
+// A tid with a NULL cred: cred_for_child() hands the child NULL, root.
+int cred_arm_root(void) {
+    int tid = scheduler_current_pid(), rc = -EBUSY;
+    scheduler_preempt_disable();
+    for (int i = 0; i < ARMS; i++) {
+        if (g_arm[i].tid) continue;
+        g_arm[i].tid = tid;
+        g_arm[i].c = 0;
+        rc = 0;
+        break;
+    }
+    scheduler_preempt_enable();
     return rc;
 }
 

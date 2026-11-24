@@ -511,6 +511,7 @@ int sys_tcsetattr(struct syscall_ctx *c);
 int sys_proc_info(struct syscall_ctx *c);
 int sys_getpid(struct syscall_ctx *c);
 int sys_getcred(struct syscall_ctx *c);   // kernel/proc/cred.c
+int sys_cred_grant(struct syscall_ctx *c);   // kernel/proc/privilege.c
 int sys_fork(struct syscall_ctx *c);
 int sys_exec(struct syscall_ctx *c);
 int sys_gettid(struct syscall_ctx *c);

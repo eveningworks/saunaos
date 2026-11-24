@@ -700,6 +700,7 @@ gui state [--json]       overlays, cursor, armed drag/resize/press, damage rect
 gui damage [verify on|off]  the damage rect; verify catches missed damage
 gui open <App>           open a window directly -- no Start-menu clicking
 gui dialog [--json]      the open confirm dialog's message and button CENTRES
+gui prompt [allow|deny|ask]  privd's questions answered unseen, or shown (toywm's wm_priv.h); enter_gui() sets allow
 gui leave [--json]       the Leave page: phase, focus, every control's centre,
                          and the apps it asked to close
 gui leave dry on|off     make its final action a `leave: would ...` log line

@@ -5,8 +5,9 @@
 #include "query_abi.h"
 #include "rt/sys.h"
 
-int uself_path(char *buf, size_t cap) {
-    int me = getpid();
+int uself_path(char *buf, size_t cap) { return uproc_path(getpid(), buf, cap); }
+
+int uproc_path(int me, char *buf, size_t cap) {
     struct query_procpath r;
     QUERY_FOREACH(QUERY_PROCPATH, r, i) {
         if (r.pid != me) continue;

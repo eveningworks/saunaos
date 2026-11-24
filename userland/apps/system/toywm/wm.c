@@ -63,6 +63,7 @@
 #include "wm_overlay.h"
 #include "osk.h"
 #include "emoji_picker.h"
+#include "wm_priv.h"
 #include "confirm_dialog.h"
 #include "leave_page.h"
 #include "desktop.h"
@@ -735,7 +736,7 @@ static void wm_force_quit_yes(void) {
     // here as well would be a second teardown of the same thing.
     // SIGKILL: a client that has stopped answering its event queue is
     // exactly the case a catchable signal cannot reach.
-    sys_kill(g_force_quit_pid, SIGKILL);
+    wm_priv_kill(g_force_quit_pid, SIGKILL);   // an elevated window's too
     g_force_quit_pid = 0;
     WM_REDRAW();
 }
@@ -1641,6 +1642,7 @@ void wm_run(void) {
         wm_setup_hold_poll();
         leave_page_poll();       // the apps asked to close: gone yet?
         close_all_poll();        // ...and a Close all's
+        wm_priv_poll();          // privd's questions, as the Authentication Required dialog
 
         // Drain everything the kernel has queued for us, then read the
         // position out of it. One pump per frame, fully draining -- see

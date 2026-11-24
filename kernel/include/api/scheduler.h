@@ -543,6 +543,9 @@ struct sandbox **scheduler_current_sandbox(void);
 // The same for the identity (kernel/cred.h), for kernel/proc/cred.c alone.
 struct cred;
 struct cred **scheduler_current_cred(void);
+// The REAL uid of process `pid` (its leader's cred) into *ruid: 1, or 0
+// for no such process. For the kill rule (kernel/privilege.h).
+int scheduler_pid_ruid(int pid, uint32_t *ruid);
 
 // The current directory of whatever is running -- a scheduler slot's, or
 // the kernel context's when that is what is on the CPU. NEVER NULL, and

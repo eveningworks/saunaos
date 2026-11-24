@@ -116,6 +116,9 @@ void dbg_out_rollback(struct dbg_out *o, int mark);
 //
 // `line` is tokenised IN PLACE, so it must be writable.
 int wm_debug_dispatch_out(char *line, struct dbg_out *out);
+// Set while a command from a ring-3 process that is not root runs
+// (DIAG_F_UNPRIVILEGED): what only the console and root may change refuses.
+extern int wm_debug_unprivileged;
 
 // --- synthetic input, drained by wm_run() ---------------------------
 //

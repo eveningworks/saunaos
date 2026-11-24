@@ -29,6 +29,7 @@
 // THREADS: a check or an install runs on a worker, which owns the plan
 // while it runs and talks to this thread ONLY through uapp_post() and
 // the log queue below. Everything drawn is touched here.
+#include "base/upriv.h"   // an administrator tool: restarted elevated
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1187,7 +1188,11 @@ static void on_open(struct uapp *a) {
     start_job(a, JOB_CHECK);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    // Installing writes /boot and the system: run elevated, after the
+    // person allows it (base/upriv.h).
+    if (upriv_elevate_self(argv) < 0) return 1;
     if (!ugfx_font_init()) return 2;
     upd_server_get(g_server, sizeof g_server);
 

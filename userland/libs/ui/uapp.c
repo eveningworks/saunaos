@@ -192,6 +192,55 @@ static void *work_thread_main(void *p) {
     return r;
 }
 
+// uapp_run_then()'s finished calls, waiting for the main thread. A list
+// under the post lock; the post that follows each wakes the loop.
+#define RUN_THEN_POST (-0x7fff0001)   // a0 of the toolkit's own post
+struct run_then {
+    struct run_then *next;
+    struct uapp *a;
+    int (*work)(void *);
+    void (*done)(struct uapp *, int, int, void *);
+    void *arg;
+    int rc, err;
+};
+static struct run_then *g_run_done;
+
+static void *run_then_main(void *p) {
+    struct run_then *r = p;
+    errno = 0;
+    r->rc = r->work(r->arg);
+    r->err = errno;
+    post_lock();
+    r->next = g_run_done;
+    g_run_done = r;
+    post_unlock();
+    uapp_post(r->a, RUN_THEN_POST, 0);
+    return 0;
+}
+
+int uapp_run_then(struct uapp *a, int (*work)(void *arg), void *arg,
+                  void (*done)(struct uapp *a, int rc, int err, void *arg)) {
+    struct run_then *r = calloc(1, sizeof *r);
+    if (!r) return ENOMEM;
+    r->a = a; r->work = work; r->done = done; r->arg = arg;
+    int rc = uapp_thread_start(a, 0, run_then_main, r);
+    if (rc) free(r);
+    return rc;
+}
+
+static void run_then_drain(void) {
+    post_lock();
+    struct run_then *r = g_run_done;
+    g_run_done = 0;
+    post_unlock();
+    while (r) {
+        struct run_then *n = r->next;
+        if (r->done) r->done(r->a, r->rc, r->err, r->arg);
+        free(r);
+        r = n;
+    }
+}
+
 int uapp_thread_start(struct uapp *a, pthread_t *out, void *(*fn)(void *), void *arg) {
     struct work_thread *t = malloc(sizeof *t);
     if (!t) return ENOMEM;
@@ -1038,6 +1087,7 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         // Posted by this program itself, almost always from a worker
         // thread -- see uapp_post(). Nothing in the toolkit interprets
         // the payload; waking the loop IS the message.
+        if ((int)ev->a == RUN_THEN_POST) { run_then_drain(); a->top.dirty = 1; break; }
         if (d->on_user && d->on_user(a, (int)ev->a, (int)ev->b)) a->top.dirty = 1;
         break;
 

@@ -24,7 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] Stage B of `docs/users-design.md`: admin calls need euid 0, and `privd`, a root broker, asks consent  *(Multi-user & file permissions)*
+- [ ] Stage C of `docs/users-design.md`: files carry an owner, and `vfs.c` checks it  *(Multi-user & file permissions)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
 
@@ -243,10 +243,12 @@ only expensive part of it.
 ### Multi-user & file permissions
 
 - [x] ~~Stage A of `docs/users-design.md`: uids in the process, the desktop as `user`~~ DONE 2026-11-24 -- `SYS_GETCRED`, `User=`, `id`
-- [ ] **NEXT** Stage B of `docs/users-design.md`: admin calls need euid 0, and `privd`, a root broker, asks consent
+- [x] ~~Stage B of `docs/users-design.md`: the euid gate, and `privd` asks consent~~ DONE 2026-11-24 -- `sudo`, the prompt
+- [ ] **NEXT** Stage C of `docs/users-design.md`: files carry an owner, and `vfs.c` checks it
+- [ ] `service start`/`stop` and Task Manager's Services page reach init as any account -- gate them through privd
 - [x] ~~A minimal user/group model~~ DONE 2026-11-24 -- root and `user` in `/etc/passwd`, `wheel` in `/etc/group`
-- [ ] Per-file owner + permission bits -- TFS3's inode already reserves the room for them
-- [ ] Permission checks in `fs_ops` calls
+- [ ] Per-file owner + permission bits -- TFS3's inode already reserves the room for them (stage C)
+- [ ] Permission checks in `fs_ops` calls (stage C)
 - [ ] A login prompt (even single-user-by-default)
 - [ ] Lock on resume: waking from the screensaver asks for the password, Windows' "On resume, display logon screen"
 - [ ] Password hashing + an `/etc/passwd`-shaped file

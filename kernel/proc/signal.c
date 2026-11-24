@@ -132,7 +132,9 @@ int signal_send(int pid, int sig) {
     return scheduler_signal_raise(pid, sig);
 }
 
-int signal_send_group(int pgid, int sig) {
+int signal_send_group(int pgid, int sig) { return signal_send_group_may(pgid, sig, 0, 0); }
+
+int signal_send_group_may(int pgid, int sig, int (*may)(int pid), int *denied) {
     if (pgid < 1 || !SIGNAL_VALID(sig)) return 0;
 
     // BY SLOT, not by pid, and taking the pid from the report: a slot's
@@ -148,6 +150,7 @@ int signal_send_group(int pgid, int sig) {
         if (!scheduler_proc_info(i, &info)) continue;
         if (info.pid == 0) continue;
         if (scheduler_pgid(info.pid) != pgid) continue;
+        if (may && !may(info.pid)) { if (denied) (*denied)++; continue; }
         if (signal_send(info.pid, sig)) reached++;
     }
     return reached;

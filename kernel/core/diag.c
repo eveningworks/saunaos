@@ -7,6 +7,7 @@
 // one command at a time, an owner that lapses, a reply chunked back to
 // the caller -- and it sat in win_server.c only because the compositor
 // was the first service anybody wanted to interrogate.
+#include "privilege.h"   // DIAG_F_UNPRIVILEGED
 #include "clockevent.h" // clockevent_idle_halt()
 #include "diag.h"
 #include "string.h"
@@ -56,6 +57,7 @@ static uint64_t g_owner_until;
 // sent.
 static char g_pending[DIAG_CMD_LEN];
 static int  g_pending_valid;
+static int  g_pending_unpriv;   // DIAG_F_UNPRIVILEGED for the command pending
 static int  g_pending_pid;      // which provider owes us the answer
 static char g_incoming[DIAG_REPLY_MAX];
 static uint32_t g_incoming_len;
@@ -229,6 +231,7 @@ int diag_request(int pid, struct diag_msg *msg) {
         }
         k_strlcpy(msg->text, g_pending, DIAG_CMD_LEN);
         msg->len = (uint32_t)k_strlen(msg->text);
+        msg->flags = g_pending_unpriv ? DIAG_F_UNPRIVILEGED : 0;
         // Cleared on TAKE, not on reply: a second TAKE must get nothing
         // rather than run the same command twice.
         g_pending_valid = 0;
@@ -296,6 +299,7 @@ int diag_request(int pid, struct diag_msg *msg) {
 
         g_owner = pid;
         g_owner_until = coarse_ticks() + DIAG_OWNER_TICKS;
+        g_pending_unpriv = pid > 0 && !priv_is_root();
         g_len = 0; g_sent = 0; g_reply_flags = 0;
 
         if (pid > 0) {

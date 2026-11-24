@@ -6,6 +6,7 @@
 #include "syscall.h"   // syscall_reset_mm()'s own declaration
 #include "cred.h"      // SPAWN_CREDS: who may name the child's identity
 #include "cred_abi.h"
+#include "privilege.h" // SPAWN_ELEVATED's grant, and who kill() may reach
 #include "sandbox.h"   // SPAWN_SANDBOX, and kill() of another pid wants PROC
 #include "sandbox_abi.h"
 #include "syscall_abi.h"
@@ -479,8 +480,20 @@ int sys_kill(struct syscall_ctx *c) {
     // 1-based, so this cannot collide with one -- which is exactly why
     // POSIX could spell it this way and why copying the spelling costs
     // nothing.
-    int reached = target < 0 ? signal_send_group(-target, sig)
+    // THE KILL RULE (kernel/privilege.h): a process the caller does not
+    // own is -EPERM; a group reaches the members it may, and is -EPERM
+    // only when there were some and it may reach none (Linux's).
+    int denied = 0;
+    if (target > 0 && target != scheduler_current_tgid() && !priv_may_signal(target)) {
+        c->regs[14] = (uint64_t)(int64_t)-EPERM;
+        return 0;
+    }
+    int reached = target < 0 ? signal_send_group_may(-target, sig, priv_may_signal, &denied)
                               : signal_send(target, sig);
+    if (!reached && denied) {
+        c->regs[14] = (uint64_t)(int64_t)-EPERM;
+        return 0;
+    }
     if (reached) {
         klog_printf("syscall: kill(%s %d, SIG%s) by pid %d\n",
                     target < 0 ? "pgid" : "pid",
@@ -766,6 +779,10 @@ int sys_spawn(struct syscall_ctx *c) {
             c->regs[14] = (uint64_t)(int64_t)-EPERM;
             return 0;
         }
+        if (msg.cred_flags & ~CRED_FLAGS_ALL) {   // a kernel that knows the flag: never "old kernel"
+            c->regs[14] = (uint64_t)(int64_t)-EPERM;
+            return 0;
+        }
         if (msg.ngroups > CRED_GROUPS_MAX) {   // E2BIG: an argument list too long, not an unknown flag
             c->regs[14] = (uint64_t)(int64_t)-E2BIG;
             return 0;
@@ -787,6 +804,22 @@ int sys_spawn(struct syscall_ctx *c) {
 
     struct spawn_args a;
     int rc = spawn_args_collect(pml4, &msg, &a, "spawn");
+    // SPAWN_ELEVATED spends privd's grant for exactly this path and
+    // vector (kernel/privilege.h) -- after the collect, so what is
+    // compared is what the loader will run.
+    if (rc >= 0 && (msg.flags & SPAWN_ELEVATED)) {
+        char *genv = 0;
+        uint64_t genv_len = 0;
+        rc = ((msg.flags & SPAWN_CREDS) || !(msg.flags & SPAWN_ARGV)) ? -EPERM
+           : priv_grant_take(a.path, a.args, a.args_len, &genv, &genv_len);
+        if (rc < 0) {
+            spawn_args_free(&a);
+        } else {   // the grant's environment, never the caller's
+            if (a.envbuf) kfree(a.envbuf);
+            a.envbuf = genv;
+            a.env = genv;
+        }
+    }
     if (rc < 0) {
         kfree(cr_groups);
         c->regs[14] = (uint64_t)(int64_t)rc;
@@ -869,8 +902,10 @@ int sys_spawn(struct syscall_ctx *c) {
         int sb_arm = (arm < 0 || !(msg.flags & SPAWN_SANDBOX)) ? 0
                    : sandbox_arm_spawn(msg.promises);
         // ...and SPAWN_CREDS, the identity built here so the spawn cannot fail on it.
-        int cr_arm = (arm < 0 || sb_arm < 0 || !(msg.flags & SPAWN_CREDS)) ? 0
-                   : cred_arm_spawn(msg.uid, msg.gid, cr_groups, msg.ngroups);
+        int cr_arm = (arm < 0 || sb_arm < 0) ? 0
+                   : (msg.flags & SPAWN_ELEVATED) ? cred_arm_root()
+                   : !(msg.flags & SPAWN_CREDS) ? 0
+                   : cred_arm_spawn(msg.uid, msg.gid, cr_groups, msg.ngroups, msg.cred_flags);
         kfree(cr_groups);
         cr_groups = 0;
         // THE CHILD IS HELD UNTIL ITS SESSION, TERMINAL AND FOREGROUND

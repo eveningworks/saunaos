@@ -106,8 +106,12 @@ void tm_services_read(void) {
     enum ufile_result r = ufile_slurp(STATUS_PATH, 0, &raw, &n);
     if (r == UFILE_NOENT) {
         if (!g_rang) {
-            int pid = init_pid();
-            if (pid > 0) sys_kill(pid, SIGHUP);   // "somebody is reading"
+            // "Somebody is reading": init's channel, and the doorbell only
+            // when there is none (a SIGHUP to init is root's).
+            if (uinitctl_status() < 0) {
+                int pid = init_pid();
+                if (pid > 0) sys_kill(pid, SIGHUP);
+            }
             g_rang = 1;
         }
         return;   // the next read finds it

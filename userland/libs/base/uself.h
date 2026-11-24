@@ -16,6 +16,10 @@ extern "C" {
 // the kernel has no path for this process or it does not fit in `cap`.
 int uself_path(char *buf, size_t cap);
 
+// The same for any live process `pid`: the path it was spawned from, as
+// the kernel recorded it (QUERY_PROCPATH), never anything it said.
+int uproc_path(int pid, char *buf, size_t cap);
+
 #ifdef __cplusplus
 }
 #endif

@@ -8,6 +8,7 @@
 // The ABI's reasoning -- why the source is a partition NUMBER rather
 // than a device path, and why there is no options string -- is in
 // abi/mount_abi.h.
+#include "privilege.h"  // the seat may mount a removable disk under /media/ or /net/
 #include "mount.h"
 #include "mount_abi.h"
 #include "syscall_table.h"
@@ -235,6 +236,12 @@ int sys_mount(struct syscall_ctx *c) {
     req.fstype[MOUNT_FSTYPE_MAX - 1] = '\0';
     req.point[MOUNT_POINT_MAX - 1] = '\0';
 
+    // NOT ROOT: the seat's mount -- a point under /media/ or /net/, and a
+    // removable disk or an image (kernel/privilege.h).
+    if ((req.flags & SYS_MNT_IMAGE) && priv_seat_point(req.point)) {
+        c->regs[14] = (uint64_t)(int64_t)-EPERM;
+        return 0;
+    }
     if (req.flags & SYS_MNT_IMAGE) {
         c->regs[14] = (uint64_t)(int64_t)mount_image(c, &req);
         return 0;
@@ -247,6 +254,10 @@ int sys_mount(struct syscall_ctx *c) {
     if (!source_device(req.source, &dev)) {
         klog_printf("mount: no partition named \"%s\"\n", req.source);
         c->regs[14] = (uint64_t)(int64_t)-EINVAL;
+        return 0;
+    }
+    if (priv_seat_mount(dev, req.point)) {
+        c->regs[14] = (uint64_t)(int64_t)-EPERM;
         return 0;
     }
 
@@ -271,6 +282,10 @@ int sys_umount(struct syscall_ctx *c) {
     char point[MOUNT_POINT_MAX];
     if (!vmm_copy_string_from_user(c->pml4, point, c->a0, sizeof(point))) {
         c->regs[14] = (uint64_t)(int64_t)-EFAULT;
+        return 0;
+    }
+    if (priv_seat_point(point)) {   // not root: only what the seat may mount
+        c->regs[14] = (uint64_t)(int64_t)-EPERM;
         return 0;
     }
     const char *why = "";

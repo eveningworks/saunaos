@@ -73,6 +73,10 @@
 // with DIAG_MORE. A caller that treats this as "done" prints nothing and
 // reports a working service as silent.
 #define DIAG_F_PENDING  0x04
+// On DIAG_TAKE: the command came from a ring-3 process whose euid is not
+// 0. A provider refuses what only the console and root may change -- the
+// desktop's `gui prompt`, which would answer privd for the person.
+#define DIAG_F_UNPRIVILEGED 0x08
 
 // `pid` for a request originating in the kernel itself rather than in a
 // scheduled process -- the serial debug console is the only such client.

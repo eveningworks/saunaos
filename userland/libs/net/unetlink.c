@@ -1,4 +1,5 @@
 // A network card's adapter settings -- see unetlink.h.
+#include "base/upriv.h"   // a card's link settings from an account that is not root
 #include <stdio.h>
 #include <string.h>
 #include "net/unetlink.h"
@@ -126,11 +127,27 @@ int unetlink_load(const struct etc_config_buf *conf, const struct query_netdev *
     return n;
 }
 
+// The kernel's SYS_NET_LINK, or -- for an account that is not root --
+// privd's netlink action, after the person allows it (base/upriv.h).
+// BLOCKS while the prompt is up.
+static int link_apply(const struct net_linkcfg *req) {
+    if (sys_net_link(req) == 0) return 0;
+    if (sys_errno() != EPERM) return -1;
+    char f[5][16];
+    snprintf(f[0], sizeof f[0], "%u", (unsigned)req->which);
+    snprintf(f[1], sizeof f[1], "%u", (unsigned)req->rates);
+    snprintf(f[2], sizeof f[2], "%u", (unsigned)req->eee);
+    snprintf(f[3], sizeof f[3], "%u", (unsigned)req->flow);
+    snprintf(f[4], sizeof f[4], "%u", (unsigned)req->moderation);
+    const char *args[] = { req->name, f[0], f[1], f[2], f[3], f[4], 0 };
+    return upriv_action(UPRIV_ACT_NETLINK, args, 0);
+}
+
 int unetlink_set(const struct query_netdev *d, const struct net_linkcfg *want) {
     struct net_linkcfg req = *want;
     memset(req.name, 0, sizeof req.name);
     strncpy(req.name, d->name, sizeof req.name - 1);
-    if (sys_net_link(&req) < 0) return -1;
+    if (link_apply(&req) < 0) return -1;
 
     char slot[18];
     const char *sec = unetlink_card_key(d, 0, slot);
@@ -154,7 +171,7 @@ int unetlink_reset(const struct query_netdev *d) {
     memset(&req, 0, sizeof req);
     strncpy(req.name, d->name, sizeof req.name - 1);
     req.which = NET_LINK_DEFAULTS;
-    if (sys_net_link(&req) < 0) return -1;
+    if (link_apply(&req) < 0) return -1;
     char slot[18];
     const char *sec = unetlink_card_key(d, 0, slot);
     static const char *const keys[] = { "speed", "eee", "flow", "moderation" };

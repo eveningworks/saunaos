@@ -39,6 +39,7 @@
 //   crashtest: ring0 <kind> refused
 //   crashtest: desktop SIGSEGV to pid <n>
 //   crashtest: armed <0|1> kinds <n>
+#include "base/upriv.h"   // root's kernel crashes: restarted elevated
 #include "rt/sys.h"
 #include "base/ulog.h"
 #include "ui/uapp.h"
@@ -289,7 +290,11 @@ static struct uui_layout LAYOUT = {
     .count = 4,
 };
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    // The kernel half crashes the KERNEL: root's (SYS_CRASHTEST), so this
+    // runs elevated, after the person allows it (base/upriv.h).
+    if (upriv_elevate_self(argv) < 0) return 1;
     build();
     struct uapp_desc desc = {
         .title = "Crash Test",

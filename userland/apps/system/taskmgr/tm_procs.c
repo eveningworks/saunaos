@@ -22,8 +22,10 @@
 // second -- docs/gui-guidelines.md's press-then-commit rule standing in
 // for a confirmation dialog. Stop and Continue are SIGSTOP/SIGCONT and
 // need no confirmation: each undoes the other.
+#include "base/upriv.h"   // root's calls, through privd
 #include <stdint.h>
 #include "base/uconf.h"   // the saved column layout
+#include <errno.h>
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -599,6 +601,33 @@ static void select_pid(int pid) {
 
 // --- the verbs -----------------------------------------------------------------
 
+// A process of another account is privd's to signal, after the person
+// allows it (base/upriv.h) -- asked off the frame, so the window keeps
+// answering while the prompt is up; our own is ours, at once.
+static int kill_work(void *arg) {
+    long v = (long)arg;
+    char p[16], s[8];
+    snprintf(p, sizeof p, "%ld", v >> 8);
+    snprintf(s, sizeof s, "%ld", v & 0xff);
+    const char *args[] = { p, s, 0 };
+    return upriv_action(UPRIV_ACT_KILL, args, 0);
+}
+
+static void kill_done(struct uapp *a, int rc, int err, void *arg) {
+    long v = (long)arg;
+    if (rc == 0) ulogf("taskmgr: signalled pid %ld (%ld) through privd\n", v >> 8, v & 0xff);
+    else ulogf("taskmgr: could not signal pid %ld: %s\n", v >> 8, strerror(err));
+    uapp_redraw(a);
+}
+
+static int signal_pid(struct uapp *a, int pid, int sig) {
+    if (sys_kill(pid, sig) == 0) return 0;
+    if (sys_errno() != EPERM) return -1;
+    if (uapp_run_then(a, kill_work, (void *)(((long)pid << 8) | (sig & 0xff)), kill_done) != 0) return -1;
+    ulogf("taskmgr: pid %d is another account's -- asking privd\n", pid);
+    return 1;   // asked: kill_done says how it ended
+}
+
 static void act(struct uapp *a, int cmd) {
     const struct tm_proc *p = row_proc(row_of_pid(g_sel_pid));
     if (!p) { ulogf("taskmgr: no row selected\n"); return; }
@@ -607,7 +636,7 @@ static void act(struct uapp *a, int cmd) {
     switch (cmd) {
     case CMD_STOP:
     case CMD_CONTINUE:
-        if (sys_kill(pid, cmd == CMD_STOP ? SIGSTOP : SIGCONT) == 0)
+        if (signal_pid(a, pid, cmd == CMD_STOP ? SIGSTOP : SIGCONT) == 0)
             ulogf("taskmgr: %s pid %d\n", cmd == CMD_STOP ? "stopped" : "continued", pid);
         break;
     case CMD_CLOSE:
@@ -615,8 +644,11 @@ static void act(struct uapp *a, int cmd) {
         ulogf("taskmgr: asked pid %d to close\n", pid);
         break;
     case CMD_KILL:
-        sys_kill(pid, SIGKILL);
-        ulogf("taskmgr: killed pid %d\n", pid);
+        {
+            int r = signal_pid(a, pid, SIGKILL);
+            if (r == 0) ulogf("taskmgr: killed pid %d\n", pid);
+            else if (r < 0) ulogf("taskmgr: could not kill pid %d: %s\n", pid, strerror(sys_errno()));
+        }
         break;
     case CMD_LOCATE:
         // The File Manager selects a file it is handed (docs/conventions).

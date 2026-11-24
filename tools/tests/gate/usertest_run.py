@@ -294,6 +294,11 @@ TESTS = [
     # ids, and the shipped /etc/passwd and /etc/group through <pwd.h> and
     # <grp.h>. SPAWNED: it waits for its children.
     ("cred_test", None, None, None),
+    # What an identity may do (kernel/privilege.h): the admin rows need
+    # euid 0, the seat's unmounts only under /media/ and /net/, the kill
+    # rule, and an elevated spawn only on privd's grant, once and for one
+    # exact command line. SPAWNED: it waits for its children.
+    ("priv_test", None, None, None),
     # A futex parking and waking ACROSS two processes, through a shared
     # page. The KTESTs beside sys_futex_wait() cover key derivation and
     # every refusal and cannot cover this -- they run on the kernel

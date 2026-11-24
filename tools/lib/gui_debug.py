@@ -1102,6 +1102,7 @@ class DebugConsole:
         The reply is still returned on success, so existing callers that
         read it are unaffected.
         """
+        self.prompt_policy("allow")
         before = self._window_snapshot()
         out = self.send(f"gui open {name}") or ""
         if "no app named" in out:
@@ -1126,6 +1127,15 @@ class DebugConsole:
             time.sleep(0.05)
         return out
 
+    def prompt_policy(self, mode):
+        """privd's questions: "allow" or "deny" them unseen, or "ask" (show
+        the Authentication Required dialog). open_app() and spawn() set
+        "allow" first, since an administrator tool opened by a test would
+        otherwise wait for a person; a test OF the prompt sets "ask" after
+        (base/upriv.h, toywm's wm_priv.h). The reply line, e.g.
+        "prompt: allow, agent registered, 2 questions"."""
+        return self.send(f"gui prompt {mode}") or ""
+
     def _window_snapshot(self):
         try:
             w = self.json("gui windows --json")
@@ -1147,6 +1157,7 @@ class DebugConsole:
         Returns the window dict once it appears, or None on timeout (with
         `title` None, returns immediately after spawning).
         """
+        self.prompt_policy("allow")
         out = self.send(f"gui spawn {path}")
         if title is None:
             return None
@@ -1594,6 +1605,19 @@ def _hold_setting(c, name, value):
     return _restore
 
 
+def _allow_prompts(sock):
+    """privd's questions answered Allow for this run (`gui prompt allow`).
+
+    Disks, the Installer, System Update, Boot Manager and others start by
+    asking privd to run them elevated, and the desktop asks the person --
+    a test opening one would wait for a click nobody makes. The debug
+    console already has the run of the machine, so answering for it gives
+    nothing away; toywm keeps the answer in memory only, never as a setting.
+    tools/tests/gui/privd_prompt_test.py sets "ask" to test the prompt."""
+    with DebugConsole(sock) as c:
+        c.send("gui prompt allow")
+
+
 def _steady_caret(sock):
     """`desktop.caret_blink` OFF for this run, restored at exit.
 
@@ -1734,6 +1758,7 @@ def enter_gui(qmp, sock=".vm.serial", timeout=8.0):
         _enable_layout_log(sock)
         _steady_caret(sock)
         _race_delay(sock)
+        _allow_prompts(sock)
     except Exception:
         # A tool that cannot reach the console has bigger problems than
         # the layout log, and its own first assertion will say so more

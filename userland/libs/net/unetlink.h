@@ -64,6 +64,9 @@ const char *unetlink_mod_label(uint32_t mod);           // "Medium"
 int unetlink_load(const struct etc_config_buf *conf, const struct query_netdev *d,
                   struct net_linkcfg *out, int *bad);
 
+// Root's (SYS_NET_LINK): from another account BOTH of these go to privd and
+// BLOCK while the person is asked (base/upriv.h).
+//
 // Apply `want`'s fields (want->which) to the card at once, then SAVE them
 // to its own [MAC] section, so netd applies them again at the next boot.
 // 0, or -1 with sys_errno() -- an apply the kernel refused saves nothing.

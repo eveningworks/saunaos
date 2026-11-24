@@ -26,6 +26,7 @@ so there is no second format to maintain.
 | `CPUSchedulingPriority` | with `fifo`/`rr` | 1..99, higher first. |
 | `Nice` | no | -20..19, the service's share of the CPU among ordinary processes; lower gets more. Default 0. |
 | `User` | no | An account in `/etc/passwd` to run as -- its uid, primary group and every `/etc/group` line naming it, with `HOME`, `USER`, `LOGNAME` and `SHELL` from its line. Absent means root. An account that does not exist starts nothing (systemd's rule): running it as root instead would turn a typo into privilege. |
+| `Seat` | no | `yes` or `no` (the default): with `User=`, the service is the person AT the machine -- the desktop and the console shells. It and everything it starts get the seat rights (power off, screen off, removable drives under `/media/`) and may ask `privd` for administrator rights; a network service never says it (`docs/users-design.md`, stage B). |
 | `TTY` | no | `vt`: a TEMPLATE, never started itself -- one instance, `<Name>@ttyN`, runs on each text virtual terminal (Ctrl+Alt+F2..F4) from the first time it is shown, with that VT as its 0/1/2 and a session of its own. `autovt` is the one there is. |
 
 **`Args=` UNDERSTANDS TWO SPECIFIERS, `%T` AND `%V`.** They expand to the

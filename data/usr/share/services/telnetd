@@ -12,5 +12,6 @@
 Name=telnetd
 Description=A shell over the network (telnet, port 23)
 Exec=/bin/inetd
+User=user
 Args=-p 23 /bin/telnetd
 Restart=always

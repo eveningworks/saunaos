@@ -92,6 +92,7 @@
 #include "uaddr.h" // uaddr_is_user() -- a thread pointer ring 3 may hold
 #include "sandbox.h"   // slot_free() drops the slot's reference
 #include "cred.h"      // ...and its identity
+#include "privilege.h" // ...and any elevated spawn privd granted it
 #include "sched_internal.h"
 #include "bkl.h"
 #include "smp.h"      // smp=run: which core runs a slot, the reschedule IPI
@@ -293,6 +294,7 @@ void slot_free(int slot) {
     cred_put(procs[slot].ext->cred);
     procs[slot].ext->cred = 0;
     cred_disarm_tid(pid);   // an arm whose spawn never ended must not outlive its tid
+    if (procs[slot].tgid == pid) priv_grant_drop(pid);   // nor privd's grant its process
     k_memset(&procs[slot].ext->io, 0, sizeof procs[slot].ext->io);
     procs[slot].ext->no_crash_report = 0;   // whatever reuses the slot reports
     if (pid > 0 && pid < SCHED_PID_MAX && g_pid_slot[pid] == slot + 1) g_pid_slot[pid] = 0;
@@ -2788,6 +2790,13 @@ struct sandbox **scheduler_current_sandbox(void) {
 struct cred **scheduler_current_cred(void) {
     if (current_index < 0) return 0;
     return &procs[leader_index(current_index)].ext->cred;
+}
+
+int scheduler_pid_ruid(int pid, uint32_t *ruid) {
+    int slot = pid_slot(pid);
+    if (slot < 0) return 0;
+    *ruid = cred_ruid(procs[leader_index(slot)].ext->cred);
+    return 1;
 }
 
 struct sched_cwd *scheduler_current_cwd(void) {

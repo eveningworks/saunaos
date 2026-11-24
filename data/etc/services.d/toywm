@@ -8,6 +8,7 @@ Exec=/bin/wm/system/toywm
 # Runs as the one person's account, not root (docs/users-design.md);
 # every other service stays root.
 User=user
+Seat=yes
 Target=graphical
 Restart=on-failure
 # The desktop reports ready at its FIRST COMPOSITED FRAME, not when it
@@ -25,7 +26,7 @@ Ready=notify
 # 2026-10-10. fontd reports ready once it has published (or found
 # nothing to publish), init waits at most ReadyTimeout for it, and a
 # fontd that is down holds nothing up: ordering, not a requirement.
-After=fontd
+After=fontd privd
 # The compositor outranks every app, as KWin's SCHED_RR main thread does:
 # a frame waits for nothing ordinary. It blocks between frames, which is
 # what makes that safe -- see data/etc/services.d/README.md.

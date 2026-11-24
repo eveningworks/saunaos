@@ -1,4 +1,5 @@
 // See ubootmenu.h.
+#include "base/upriv.h"   // a boot variable from an account that is not root
 #include "base/ubootmenu.h"
 #include "base/ubootrefresh.h"
 #include <string.h>
@@ -247,6 +248,10 @@ void uboot_restore(const char *dev) {
 }
 
 int ubootmenu_env_set(const char *name, const char *value) {
+    if (geteuid() != 0) {   // /boot is root's: the seat asks privd (base/upriv.h)
+        const char *args[] = { name, value ? value : "", 0 };
+        return upriv_action(UPRIV_ACT_BOOTENV, args, 0);
+    }
     char dev[64];
     if (uboot_writable(dev, sizeof dev) < 0) return -1;
     int rc = ubootmenu_env_set_at(UBOOTMENU_ENV, name, value);

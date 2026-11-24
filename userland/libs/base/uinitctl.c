@@ -57,3 +57,15 @@ int uinitctl_realtime(int pid, int policy, int prio, int *got_policy, int *got_p
     }
     return (int)reply.result;
 }
+
+int uinitctl_status(void) {
+    struct uchan_client c;
+    if (uchan_client_open(&c, INITCTL_SERVICE) < 0) return -1;
+    struct initctl_msg m, reply;
+    memset(&m, 0, sizeof m);
+    memset(&reply, 0, sizeof reply);
+    m.verb = INITCTL_STATUS;
+    int rc = uchan_call(&c, &m, sizeof m, &reply, sizeof reply, REPLY_MS) == 0 ? 0 : -1;
+    uchan_client_close(&c);
+    return rc;
+}

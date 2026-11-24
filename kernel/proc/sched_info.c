@@ -226,7 +226,7 @@ int scheduler_proc_info(int index, struct proc_info *out) {
     out->rt_prio = 0;
     out->reserved_sched = 0;
     out->promises = PROMISE_ALL;
-    out->reserved_sandbox = 0;
+    out->cred_flags = 0;
     out->delay_disk_ns = out->delay_lock_ns = out->delay_runq_ns = 0;
     out->uid = out->euid = out->gid = out->egid = 0;
 
@@ -250,6 +250,7 @@ int scheduler_proc_info(int index, struct proc_info *out) {
         const struct cred *cr = procs[lead].ext->cred;
         out->uid = cred_ruid(cr); out->euid = cred_euid(cr);
         out->gid = cred_rgid(cr); out->egid = cred_egid(cr);
+        out->cred_flags = cred_flags(cr);
     }
 
     // A zombie's address space is already gone, so asking for its memory

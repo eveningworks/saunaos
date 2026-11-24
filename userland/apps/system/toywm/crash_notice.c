@@ -7,6 +7,7 @@
 // on the first three itself, because the client is usually gone by the
 // time anyone clicks; a request is the one whose answer goes BACK to the
 // client that asked (WIN_EV_REMOTE_ANSWER), which is waiting for it.
+#include "wm_priv.h"   // wm_priv_kill()
 #include "wm_internal.h"
 #include "wm_overlay.h"
 #include "wm_shadow.h"
@@ -853,7 +854,7 @@ int crash_notice_handle_click(int mx, int my) {
                 if (w < 0) continue;
                 if (windows[w].client_pid > 0) {
                     wm_logf("closeall: force-quitting pid %d\n", windows[w].client_pid);
-                    sys_kill(windows[w].client_pid, SIGKILL);
+                    wm_priv_kill(windows[w].client_pid, SIGKILL);   // an elevated one's too
                 } else {
                     close_window(w);
                 }

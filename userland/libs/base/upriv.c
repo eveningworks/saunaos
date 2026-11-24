@@ -1,0 +1,155 @@
+// privd's client and agent halves -- base/upriv.h has the contract.
+#include "base/upriv.h"
+#include "base/ubulk.h"
+#include "base/uself.h"
+#include "query_abi.h"   // QUERY_PROCPATH_MAX
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>   // environ
+
+static uint32_t g_next_id = 1;
+
+// The request's bytes: u32 flags, then each string with its NUL.
+static char *pack(unsigned flags, const char *first, const char *const *rest, uint32_t *len) {
+    size_t n = sizeof(uint32_t) + strlen(first) + 1;
+    for (int i = 0; rest && rest[i]; i++) n += strlen(rest[i]) + 1;
+    if (n > UBULK_REC_MAX) { errno = E2BIG; return 0; }
+    char *b = malloc(n);
+    if (!b) { errno = ENOMEM; return 0; }
+    uint32_t f = flags;
+    memcpy(b, &f, sizeof f);
+    size_t at = sizeof f;
+    size_t k = strlen(first) + 1;
+    memcpy(b + at, first, k);
+    at += k;
+    for (int i = 0; rest && rest[i]; i++) {
+        k = strlen(rest[i]) + 1;
+        memcpy(b + at, rest[i], k);
+        at += k;
+    }
+    *len = (uint32_t)n;
+    return b;
+}
+
+// Sends one request and waits for its answer: 0, or -1 with errno.
+static int ask(uint32_t type, char *rec, uint32_t len) {
+    struct ubulk_client c;
+    if (ubulk_client_open(&c, UPRIV_SERVICE) < 0) { free(rec); errno = ENOENT; return -1; }
+    uint32_t id = __atomic_fetch_add(&g_next_id, 1, __ATOMIC_RELAXED);
+    int rc = ubulk_send(&c, type, id, rec, len, 5000);
+    free(rec);
+    if (rc < 0) { ubulk_client_close(&c); errno = EIO; return -1; }
+    char *buf = malloc(UBULK_REC_MAX);
+    if (!buf) { ubulk_client_close(&c); errno = ENOMEM; return -1; }
+    int answer = -ETIMEDOUT;
+    for (int waited = 0; waited < UPRIV_TIMEOUT_MS; ) {
+        struct ubulk_msg m;
+        if (ubulk_client_recv(&c, &m, buf, UBULK_REC_MAX) == 1) {
+            if (m.type == UPRIV_T_ANSWER && m.id == id && m.len >= sizeof(int32_t)) {
+                int32_t v;
+                memcpy(&v, m.data, sizeof v);
+                answer = v;
+                break;
+            }
+            continue;
+        }
+        if (!ubulk_client_server_alive(&c)) { answer = -EIO; break; }
+        ubulk_client_wait(&c, 1000);
+        waited += 1000;
+    }
+    free(buf);
+    ubulk_client_close(&c);
+    if (answer < 0) { errno = -answer; return -1; }
+    return 0;
+}
+
+int upriv_spawn(const char *path, char *const *argv, const struct sys_spawn_opts *o,
+                unsigned flags) {
+    if (!path || !argv || !argv[0]) { errno = EINVAL; return -1; }
+    uint32_t len;
+    char *rec = pack(flags, path, (const char *const *)argv, &len);
+    if (!rec || ask(UPRIV_T_SPAWN, rec, len) < 0) return -1;
+    struct sys_spawn_opts so;
+    if (o) so = *o;
+    else { sys_spawn_opts_init(&so); so.env = environ; }
+    so.argv = argv;
+    so.flags |= SPAWN_ARGV | SPAWN_ELEVATED;
+    return sys_spawn_opts(path, &so);
+}
+
+int upriv_action(const char *action, const char *const *args, unsigned flags) {
+    if (!action) { errno = EINVAL; return -1; }
+    uint32_t len;
+    char *rec = pack(flags, action, args, &len);
+    return rec ? ask(UPRIV_T_ACTION, rec, len) : -1;
+}
+
+int upriv_elevate_self(char **argv) {
+    if (geteuid() == 0) return 0;
+    char self[QUERY_PROCPATH_MAX];
+    if (uself_path(self, sizeof self) < 0) { errno = ENOENT; return -1; }
+    int pid = upriv_spawn(self, argv, 0, 0);
+    if (pid < 0) return -1;
+    // Waits, so whoever started this pid -- the desktop's launch list, a
+    // test -- sees it live as long as the program is.
+    int code = 1;
+    sys_waitpid(pid, &code);
+    exit(code);
+}
+
+// --- the agent --------------------------------------------------------------
+
+struct ubulk_client *upriv_agent_open(void) {
+    struct ubulk_client *c = malloc(sizeof *c);
+    if (!c) return 0;
+    if (ubulk_client_open(c, UPRIV_SERVICE) < 0 ||
+        ubulk_send(c, UPRIV_T_AGENT, 0, "", 0, 1000) < 0) {
+        free(c);
+        return 0;
+    }
+    return c;
+}
+
+// The next field of [*at, end). Always a pointer INTO the buffer, whose
+// byte at `end` is a NUL: past the end it is `end` itself, an empty
+// string a caller may re-base like any other field.
+static const char *field(const char **at, const char *end) {
+    const char *s = *at;
+    if (s >= end) return end;
+    const char *nul = memchr(s, '\0', (size_t)(end - s));
+    *at = nul ? nul + 1 : end;
+    return s;
+}
+
+int upriv_agent_next(struct ubulk_client *a, struct upriv_prompt *p) {
+    static char buf[UBULK_REC_MAX];   // the agent is one thread
+    struct ubulk_msg m;
+    while (ubulk_client_recv(a, &m, buf, sizeof buf) == 1) {
+        if (m.type == UPRIV_T_CANCEL) { p->id = m.id; return -1; }
+        if (m.type != UPRIV_T_PROMPT) continue;
+        uint32_t n = m.len < sizeof p->buf ? m.len : (uint32_t)sizeof p->buf - 1;
+        memcpy(p->buf, m.data, n);
+        p->buf[n] = '\0';
+        const char *at = p->buf, *end = p->buf + n;
+        p->id = m.id;
+        p->headline = field(&at, end);
+        p->body = field(&at, end);
+        p->action = field(&at, end);
+        p->program = field(&at, end);
+        p->asker = field(&at, end);
+        return 1;
+    }
+    return 0;
+}
+
+void upriv_agent_answer(struct ubulk_client *a, uint32_t id, int allow) {
+    uint32_t v = allow ? 1 : 0;
+    ubulk_send(a, UPRIV_T_VERDICT, id, &v, sizeof v, 1000);
+}
+
+void upriv_agent_close(struct ubulk_client *a) {
+    if (!a) return;
+    ubulk_client_close(a);
+    free(a);
+}

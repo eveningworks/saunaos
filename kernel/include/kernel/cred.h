@@ -24,6 +24,7 @@ uint32_t cred_euid(const struct cred *c);
 uint32_t cred_ruid(const struct cred *c);
 uint32_t cred_egid(const struct cred *c);
 uint32_t cred_rgid(const struct cred *c);
+uint32_t cred_flags(const struct cred *c);   // CRED_* (abi/cred_abi.h); 0 for root
 
 // The current PROCESS's cred (its leader's); NULL in the kernel context.
 struct cred *cred_current(void);
@@ -32,7 +33,10 @@ struct cred *cred_current(void);
 // by the asking THREAD with an identity already built, consumed by its
 // own spawn. -ENOMEM, or -EBUSY when every arm is taken -- the caller
 // then starts no child.
-int  cred_arm_spawn(uint32_t uid, uint32_t gid, const uint32_t *groups, uint32_t ngroups);
+int  cred_arm_spawn(uint32_t uid, uint32_t gid, const uint32_t *groups, uint32_t ngroups,
+                    uint32_t flags);
+// SPAWN_ELEVATED's arm: the next spawn by this thread starts as root.
+int  cred_arm_root(void);
 void cred_disarm(void);
 // The same for a thread that is GONE (slot_free()): pids cycle, so an arm
 // its spawn never consumed would make some later thread's child someone

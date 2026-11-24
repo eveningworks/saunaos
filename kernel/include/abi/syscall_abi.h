@@ -983,7 +983,7 @@ struct spawn_msg {
     uint32_t gid;
     const uint32_t *groups;
     uint32_t ngroups;
-    uint32_t reserved_creds;
+    uint32_t cred_flags;   // CRED_* (abi/cred_abi.h); an unknown bit is -EPERM, never -EINVAL
 };
 
 // The child is TRACED: every syscall it makes is written as records into
@@ -1083,11 +1083,19 @@ struct spawn_msg {
 // libsys reads as a kernel from before a flag.
 #define SPAWN_CREDS 1024
 
+// The child runs as ROOT, spending the grant privd made for exactly this
+// path and argument vector (SYS_CRED_GRANT) -- so an elevated program is
+// the asking process's own child, with its terminal and exit status, as
+// Windows' AppInfo makes an elevated process the asker's child. Needs
+// SPAWN_ARGV, and not SPAWN_CREDS; no matching grant is -EPERM and no
+// child.
+#define SPAWN_ELEVATED 2048
+
 // Every flag this kernel knows. Anything outside it is -EINVAL.
 #define SPAWN_FLAGS_ALL (SPAWN_TRACE | SPAWN_FOREGROUND | SPAWN_ARGV | SPAWN_SETSID | \
                          SPAWN_STDERR | SPAWN_DETACH | SPAWN_TRACE_RING | \
                          SPAWN_TRACE_FOLLOW | SPAWN_SANDBOX | SPAWN_STOPPED | \
-                         SPAWN_CREDS)
+                         SPAWN_CREDS | SPAWN_ELEVATED)
 
 #define SYS_WNOHANG 1
 
@@ -1190,7 +1198,7 @@ struct spawn_msg {
                           // Returns 0 if the signal was delivered,
                           // -ESRCH if there was no such process (or the
                           // group was empty, or the number is not a
-                          // signal).
+                          // signal), -EPERM if it is not the caller's.
                           //
                           // **RDI < 0 NAMES A PROCESS GROUP**, POSIX's
                           // rule: `kill(-pgid, sig)` signals every live
@@ -1223,17 +1231,15 @@ struct spawn_msg {
                           // syscall is woken with -EINTR so that it gets
                           // there. See docs/signals-design.md.
                           //
-                          // **UNPRIVILEGED, DELIBERATELY.** Any process
-                          // may kill any other, including the window
-                          // manager once it is a process (Milestone 41
-                          // stage 4). There is no user model, no
-                          // capability and no process-group notion in
-                          // this kernel, so a permission check here
-                          // would be decoration -- it would have to
-                          // invent the very thing it claims to enforce.
-                          // Written down rather than quietly assumed;
-                          // when a privilege model lands, THIS is the
-                          // syscall it has to gate first.
+                          // **WHO MAY SIGNAL WHOM IS LINUX'S RULE**
+                          // (kernel/privilege.h, docs/users-design.md
+                          // stage B): root may signal anything; anyone
+                          // else only a process whose REAL uid is the
+                          // caller's real or effective uid, else
+                          // -EPERM. A group reaches the members the
+                          // caller may, and is -EPERM only when it
+                          // reached none and skipped some. privd's kill
+                          // action is the way past it, with consent.
                           //
                           // Killing the WM is not a hole to be closed,
                           // it is the property stage 4 has to prove: the
@@ -1698,11 +1704,12 @@ struct sys_stat {
                           // a pgid no live process is in and that is not
                           // `pid` itself.
                           //
-                          // **UNPRIVILEGED, like SYS_KILL and for the
-                          // same stated reason** -- there is no user
-                          // model here to gate it on, and POSIX's "your
-                          // own children, before they exec" rule needs a
-                          // session concept this kernel does not have.
+                          // **UNPRIVILEGED** -- POSIX's "your own
+                          // children, before they exec" rule needs a
+                          // session concept this kernel does not have,
+                          // and moving a process into another group lets
+                          // nothing reach it that SYS_KILL's owner rule
+                          // does not already gate.
                           //
                           // MOSTLY YOU WILL NOT NEED IT: a child
                           // inherits its spawner's group, and SYS_SPAWN
@@ -2170,6 +2177,15 @@ struct sys_stat {
                            // ids. 0, or -EFAULT. getresuid(2) and
                            // getgroups(2) in one call: an identity is read
                            // together or a caller can see half of a change.
+
+#define SYS_CRED_GRANT 172 // RDI = a `struct cred_grant *` (abi/cred_abi.h).
+                           // ROOT ONLY (-EPERM): lets process `pid` make ONE
+                           // spawn of that path and argv as root, with
+                           // SPAWN_ELEVATED, within 30 s. privd's half of
+                           // "run as administrator" (docs/users-design.md,
+                           // stage B); the grant dies with the process. The
+                           // child's environment is the grant's, never the
+                           // asker's. 0, -EINVAL, -EFAULT, -ENOENT or -ENOMEM.
 
 #define SYS_SHM_OPEN 99   // RDI = pointer to a `struct shm_open_msg`.
                           // Returns a descriptor naming a SHARED

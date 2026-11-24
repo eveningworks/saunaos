@@ -5799,3 +5799,30 @@ computes its arguments before the macro has thrown that away.
   that moves its own pointer** (`install_everywhere()`): a call never
   lands inside a write, so nobody is still writing the old one -- the
   shape to keep if the rings ever grow while armed.
+
+## AN ADMIN CALL ANSWERS `-EPERM` TO ANYONE BUT ROOT, AND A PROGRAM GOES TO PRIVD -- `upriv_action()` FOR ONE CALL, `upriv_elevate_self()` FOR AN ADMINISTRATOR TOOL -- NEVER AROUND IT
+
+Since stage B of `docs/users-design.md` (2026-11-24) the `PROMISE_ADMIN`
+rows need euid 0, checked in the dispatcher (`kernel/proc/privilege.c`);
+the seat's few exceptions -- power, screen off, mounts under `/media/`
+and `/net/` -- are listed there. The desktop and everything it starts
+run as `user`, so a GUI program that calls one of them gets `-EPERM`
+the first time it runs anywhere but a root shell.
+
+- **One call** (set the clock, load a module, signal another account's
+  process, rewrite grub.cfg): try it, and on `EPERM` ask privd for the
+  matching action (`upriv_action()`) -- from a GUI program through
+  `uapp_run_then()`, off the frame, since the call waits for a person. Add a privd action when there is
+  none -- a NARROW one, validated in privd, never "run this file".
+- **A whole tool** whose every page is root's (Disks, the Installer,
+  System Update, Boot Manager): `upriv_elevate_self(argv)` as the first
+  line of `main()`. The non-elevated copy waits for the elevated one,
+  so the pid a launcher knows stays alive.
+- **A library helper below an app** (`base/ubootmenu.c`, `ubootcfg.c`,
+  `ubootmode.c`) does the routing itself when `geteuid() != 0`, so every
+  caller is covered at once.
+
+Never a setuid bit, never a "privileged" flag on a service that runs as
+`user`, and never a setting that answers the prompt: the debug
+console's `gui prompt allow` is the harness's, held in memory only.
+

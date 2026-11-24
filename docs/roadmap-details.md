@@ -4755,6 +4755,15 @@ staging.*
 *Wants the TFS3 inode layer's inode layer first -- per-file owner/mode bits
 belong on an inode, not on a path-keyed record.*
 
+- [ ] **`service start`/`stop` and Task Manager's Services page reach init
+  as any account -- gate them through privd.** Found building stage B
+  (2026-11-24): init's control channel (`base/uinitctl.h`) answers START
+  and STOP from whoever connects, so `user` -- and a telnet shell -- can
+  stop `netd`. systemd asks polkit for `manage-units`. The shape here: init
+  refuses both from euid != 0 (`-EPERM`), `sudo service stop netd` works,
+  and Task Manager's Services page asks privd for a new `service` action.
+  Shutting down stays the seat's.
+
 - [ ] **A memory limit for the other parsers of untrusted input.** The
   Web Browser's engine takes `RLIMIT_DATA` from the app's `--memory`
   before its sandbox (`utils/webcontent/webcontent.c`); `/bin/fontd` and `/bin/thumb`

@@ -12,6 +12,7 @@
 // A BOOT WORD IS KEPT AS WRITTEN unless its row was edited: the list's
 // value field is shorter than the longest word (a `kdebug=net,...,key=`
 // line), and showing a word must not be able to truncate it.
+#include "base/upriv.h"   // an administrator tool: restarted elevated
 #include <stdio.h>
 #include <string.h>
 #include <dirent.h>
@@ -936,7 +937,10 @@ static void on_size(int *w, int *h) {
     *h = ugfx_char_h() * 38;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    // /boot is root's: run elevated, after the person allows it (base/upriv.h).
+    if (upriv_elevate_self(argv) < 0) return 1;
     // Never freed: the menu rows live in the builder.
     struct uui_builder *menus = uui_builder_load("bootmgr", MENU_NAMES,
                                                 (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));

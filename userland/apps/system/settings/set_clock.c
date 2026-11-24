@@ -10,6 +10,7 @@
 // refuses for the same reason). Both extras are found by the SETTING a
 // page carries, like the screensaver's Test, so renaming a page in
 // /etc/settings.d keeps them.
+#include "base/upriv.h"   // root's calls, through privd
 #include "apps/system/settings/settings_internal.h"
 #include <time.h>
 #include <locale.h>
@@ -281,6 +282,26 @@ static void cd_close(struct uapp_window *w) {
     if (g_app) uapp_redraw(g_app);
 }
 
+static char g_set_when[64], g_set_secs[24];
+
+static void settime_report(int rc, long long utc) {
+    if (rc == 0) snprintf(g_status, sizeof g_status, "Clock set to %s", g_set_when);
+    else snprintf(g_status, sizeof g_status, "The clock refused %s", g_set_when);
+    ulogf("settings: clock set %lld result %d\n", utc, rc);
+}
+
+static int settime_work(void *arg) {
+    (void)arg;
+    const char *args[] = { g_set_secs, 0 };
+    return upriv_action(UPRIV_ACT_SETTIME, args, 0);
+}
+
+static void settime_done(struct uapp *a, int rc, int err, void *arg) {
+    (void)arg; (void)err;
+    settime_report(rc, strtoll(g_set_secs, 0, 10));
+    uapp_redraw(a);
+}
+
 static void cd_set(struct uapp_window *w) {
     struct tm tm = {
         .tm_year = uui_spinbox_value(&g_cd_year) - 1900,
@@ -292,11 +313,17 @@ static void cd_set(struct uapp_window *w) {
     };
     time_t utc = mktime(&tm);
     int rc = utc > 0 ? sys_settime((uint64_t)utc, 0) : -1;
-    char when[64];
-    udate_format_tm(when, sizeof when, &tm, UDATE_DATE | UDATE_TIME | UDATE_SECONDS);
-    if (rc == 0) snprintf(g_status, sizeof g_status, "Clock set to %s", when);
-    else snprintf(g_status, sizeof g_status, "The clock refused %s", when);
-    ulogf("settings: clock set %lld result %d\n", (long long)utc, rc);
+    udate_format_tm(g_set_when, sizeof g_set_when, &tm, UDATE_DATE | UDATE_TIME | UDATE_SECONDS);
+    // Root's: as `user` privd asks the person, off the frame (base/upriv.h).
+    if (rc < 0 && utc > 0 && sys_errno() == EPERM && g_app) {
+        snprintf(g_set_secs, sizeof g_set_secs, "%lld", (long long)utc);
+        if (uapp_run_then(g_app, settime_work, 0, settime_done) == 0) {
+            snprintf(g_status, sizeof g_status, "Asking for administrator rights...");
+            cd_close(w);
+            return;
+        }
+    }
+    settime_report(rc, utc);
     cd_close(w);
 }
 

@@ -49,6 +49,9 @@ int signal_send(int pid, int sig);
 // it reached; 0 means the group has no live members, which a caller
 // should treat as "nothing to signal" rather than as an error.
 int signal_send_group(int pgid, int sig);
+// The same, to the members `may(pid)` allows; *denied counts the rest.
+// SYS_KILL's form (the kill rule, kernel/privilege.h).
+int signal_send_group_may(int pgid, int sig, int (*may)(int pid), int *denied);
 
 // Act on anything pending for `pid`, if the moment is right. Called from
 // idt.c, after the trap has been handled, and only when the interrupted

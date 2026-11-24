@@ -155,7 +155,9 @@ struct proc_info {
     // for a process that never pledged, which is nearly all of them.
     // `ps` marks a sandboxed one. Grows the struct one aligned step.
     uint32_t promises;
-    uint32_t reserved_sandbox;
+    // The leader's CRED_* flags (abi/cred_abi.h) -- took a reserved
+    // word's place, so no offset moved. privd reads CRED_SEAT here.
+    uint32_t cred_flags;
     // DELAY ACCOUNTING, Linux's delayacct (taskstats' blkio_delay_total
     // and cpu_delay_total): nanoseconds this THREAD spent parked on a disk
     // transfer, parked on a kernel lock (a mount's, an inode's), and READY

@@ -60,7 +60,7 @@ int main(void) {
         memset(&pi, 0xA5, sizeof pi);
         if (sys_proc_info(PROC_INFO_SELF, &pi) != 0) { bad_proc++; continue; }
         size_t used = used_len(pi.name, sizeof pi.name);
-        size_t hole = offsetof(struct proc_info, reserved_sandbox) + sizeof pi.reserved_sandbox;
+        size_t hole = offsetof(struct proc_info, cred_flags) + sizeof pi.cred_flags;
         if (!zero(pi.name + used, sizeof pi.name - used) ||
             !zero((uint8_t *)&pi + hole, offsetof(struct proc_info, delay_disk_ns) - hole))
             bad_proc++;

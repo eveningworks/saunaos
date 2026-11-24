@@ -103,6 +103,7 @@
 | `upins.h` | PLACES: the list down the top of a file window's side pane, in the person's order -- Explorer's Quick access and Dolphin's Places panel, ONE list: Recent, Home, the personal folders and the Recycle... |
 | `upixscale.h` | A 32-bit PICTURE SCALED SHARP: nearest-neighbour up to the next whole factor, then bilinear to the size asked -- the "sharp bilinear" retro emulators default to. |
 | `uprefs.h` | uprefs -- an app's options file described as a TABLE: one row per key names the field it fills, its type, its range or words and its default, and load, save and Defaults all walk that one table --... |
+| `upriv.h` | Administrator rights through privd, the root broker -- polkit's and UAC's shape, never setuid (docs/users-design.md, stage B). |
 | `uprocio.h` | Each process's I/O RATE, from two reads of QUERY_PROCIO (Linux's /proc/<pid>/io) and the time between them -- what iotop and Windows' Resource Monitor show. |
 | `uprogress.h` | A one-line transfer meter, redrawn in place with `\r`. |
 | `urace.h` | A RACE AMPLIFIER FOR GUI TESTS: `desktop.test_race_delay` milliseconds slept wherever background work hands its result over -- a worker's uapp_post(), a uworker job's finish, w16's program taking a... |

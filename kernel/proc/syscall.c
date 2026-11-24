@@ -12,6 +12,8 @@
 // which is exactly how this function's frame reached 4832 bytes on a
 // 16 KiB per-process kernel stack. It is 96 bytes now.
 #include "sandbox.h"
+#include "privilege.h" // priv_admin_check(): the euid gate on admin rows
+#include "sandbox_abi.h"
 #include "syscall.h"
 #include "userfs.h"   // userfs_space_gone()
 #include "mmap.h" // mmap_release_regions -- the region list is allocated
@@ -245,8 +247,13 @@ void syscall_dispatch(uint64_t *regs) {
     // interrupts off and therefore the stall everything else feels.
     // Disarmed this is one global compare; armed it is two clocksource
     // reads (kernel/syscall_stall.h says what that costs).
+    // THE PRIVILEGE GATE (kernel/privilege.h): an admin row needs euid
+    // 0, bar the seat's rights. -EPERM is an answer, not a kill -- a
+    // program asks, and goes to privd when told no.
+    int denied = d && d->fn && d->promise == PROMISE_ADMIN && priv_admin_check(nr);
     struct syscall_stall_mark stall = syscall_stall_begin();
-    if (d && d->fn) blocked = d->fn(&c);
+    if (denied) c.regs[14] = (uint64_t)(int64_t)-EPERM;
+    else if (d && d->fn) blocked = d->fn(&c);
     else c.regs[14] = (uint64_t)(int64_t)-ENOSYS;
     syscall_stall_end((int)nr, stall);
     // AN ARM NEVER OUTLIVES THE CALL THAT MADE IT. A wait arms before

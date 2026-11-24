@@ -44,6 +44,11 @@ extern "C" {
 // request above it is refused, not lowered. `name` is unused. The reply
 // carries what was granted in `policy` and `prio`.
 #define INITCTL_REALTIME 5
+// "Somebody is reading": init publishes its status file (/run's) from
+// now on, and writes it on this pass. What the SIGHUP doorbell meant to
+// a reader -- a signal to init is root's now (the kill rule, stage B of
+// docs/users-design.md), and any account may ask this.
+#define INITCTL_STATUS   6
 
 // A reply's `result`.
 #define INITCTL_OK        0
@@ -77,6 +82,10 @@ int uinitctl_shutdown(int reboot);
 // result, or -1 when init could not be asked; on INITCTL_OK the granted
 // class is in *got_policy / *got_prio (either may be NULL).
 int uinitctl_realtime(int pid, int policy, int prio, int *got_policy, int *got_prio);
+
+// INITCTL_STATUS. 0, or -1 when init could not be asked -- the caller may
+// then ring the old doorbell (SIGHUP), which only root's reaches.
+int uinitctl_status(void);
 
 #ifdef __cplusplus
 }

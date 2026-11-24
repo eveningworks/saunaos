@@ -61,6 +61,23 @@ void confirm_dialog_open_with(const char *message, void (*on_yes)(void), void (*
 void confirm_dialog_open_labelled(const char *message, const char *yes, const char *no,
                                    void (*on_yes)(void), void (*on_no)(void));
 
+// The DETAILED form -- privd's Authentication Required prompt (KDE's
+// polkit dialog; docs/users-design.md, stage B): a title strip, a lock,
+// a headline, a wrapped body and a grid of `nrows` key/value rows, with
+// the affirmative button in the accent. The strings ARE copied.
+#define CONFIRM_DETAIL_ROWS 4
+struct confirm_detail {
+    const char *title, *headline, *body;
+    const char *key[CONFIRM_DETAIL_ROWS], *val[CONFIRM_DETAIL_ROWS];
+    int nrows;
+};
+void confirm_dialog_open_detailed(const struct confirm_detail *d, const char *yes, const char *no,
+                                  void (*on_yes)(void), void (*on_no)(void));
+
+// Closes whatever is open, answering neither callback -- for a question
+// whose asker has gone (privd's cancel).
+void confirm_dialog_close(void);
+
 // Button 0 (yes/affirmative) or 1 (no), and the open dialog's message.
 // For the debug console, and therefore for tests -- see the note in the
 // .c on why scanning for them by colour was worse. 0 if nothing is open.

@@ -404,8 +404,19 @@ timer.
 run as `user` (uid 1000, in `wheel`), the services as `root` -- Unix's
 uids, read by `getuid()`, `id` and `whoami`, named in `/etc/passwd` and
 `/etc/group`, shown by `ps --user` and by Task Manager (a User column
-and View > Show: all, my or system processes). Nothing is refused on
-the strength of it yet; `docs/users-design.md` has the stages after.
+and View > Show: all, my or system processes).
+
+**Administrator rights are asked for, never setuid.** The calls that
+change the machine -- partitions, formats, mounts of the system's own
+disks, the boot loader, the clock, driver modules -- are root's; the
+person at the machine keeps power off, screen off and removable drives
+without asking. Everything else goes through `privd`, a root broker
+(polkit's and UAC's shape): Disks, the Installer, System Update, Boot
+Manager and Crash Test restart elevated, Date & Time, Device Manager and
+Task Manager ask for one action, and `sudo` runs one command -- after
+an Authentication Required dialog the desktop draws and no app can.
+A signal reaches only its sender's own processes. Files carry no owner
+yet (`docs/users-design.md`, stage C).
 
 **Four virtual terminals, Ctrl+Alt+F1..F4**: the desktop on F1 and a
 text console with a shell of its own on each of F2-F4, started the first

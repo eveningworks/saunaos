@@ -17,6 +17,7 @@
 // (SYS_PARTEDIT) and needs only that partition unmounted, as Resize does
 // (the table, then SYS_FS_RESIZE for the filesystem). Everything goes
 // through the same calls `mkpart`, `part`, `mkfs`, `fsck` and `mount` make.
+#include "base/upriv.h"   // an administrator tool: restarted elevated
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -1635,6 +1636,9 @@ static void default_size(int *w, int *h) {
 }
 
 int main(int argc, char **argv) {
+    // Partitions, formats and the boot loader are root's: run elevated,
+    // after the person allows it, or not at all (base/upriv.h).
+    if (upriv_elevate_self(argv) < 0) return 1;
     if (!ugfx_font_init()) return 2;
     // Never freed: the menu rows live in the builder.
     struct uui_builder *menus = uui_builder_load("disks", MENU_NAMES,

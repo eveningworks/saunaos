@@ -265,6 +265,10 @@ struct service {
     // refused (user_bad) rather than resolved as a shorter, other name.
     char user[256];
     int  user_bad;
+    // Seat=yes: with User=, the service is the person AT the machine
+    // (CRED_SEAT, abi/cred_abi.h) -- the desktop and the console shells,
+    // never a network service. logind's active local session.
+    int  seat;
     int  restart;      // SVC_RESTART_*
     int  pid;          // 0 when not running
     unsigned long long started_ms;
@@ -494,6 +498,12 @@ static void load_service(const char *file) {
     if (!etc_config_buf_get(&g_cfg, "User", s->user, sizeof s->user))
         s->user[0] = '\0';
     s->user_bad = strlen(s->user) >= sizeof s->user - 1;
+    char seat[8];
+    s->seat = 0;
+    if (etc_config_buf_get(&g_cfg, "Seat", seat, sizeof seat)) {
+        if (k_strcmp(seat, "yes") == 0) s->seat = 1;
+        else if (k_strcmp(seat, "no") != 0) logf1("init: %s has an unknown Seat=, using no\n", s->name);
+    }
     if (s->user_bad) logf1("init: %s has a User= too long to be an account -- not starting it\n", s->name);
 
     // Absent means unconstrained, which is the common case and must
@@ -955,6 +965,7 @@ static int creds_for(const struct service *s, struct sys_spawn_opts *o, struct s
     o->gid = gid;
     o->groups = (const uint32_t *)c->groups;
     o->ngroups = (unsigned)ng;
+    o->cred_flags = s->seat ? CRED_SEAT : 0;
     o->env = c->env;
     return 0;
 }
@@ -1807,6 +1818,7 @@ static int serve_channel(void) {
         if (m.verb == INITCTL_START)      r = control_start(m.name);
         else if (m.verb == INITCTL_REALTIME) r = control_realtime(from, &m, &reply);
         else if (m.verb == INITCTL_STOP)  r = control_stop(m.name);
+        else if (m.verb == INITCTL_STATUS) { r = INITCTL_OK; g_hup = 1; }   // a reader: publish now
         else if (m.verb == INITCTL_REBOOT || m.verb == INITCTL_POWEROFF) {
             // ANSWERED FIRST, acted on by the loop: the caller is waiting
             // for this reply, and it is among what the shutdown stops.

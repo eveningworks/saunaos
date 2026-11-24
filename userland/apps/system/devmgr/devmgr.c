@@ -17,6 +17,7 @@
 // (each device's binding and holder, the USB slots, the event count) and
 // relists only when it moved -- a USB device plugged in, or a driver let
 // go.
+#include "base/upriv.h"   // root's calls, through privd
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -598,26 +599,52 @@ static void keep_changed(void) {
 }
 
 // LOADING A MODULE is `modload`: the kernel links it and offers it every
-// device no driver holds, this one included (kernel/core/module.c).
-static void load_driver(void) {
-    const struct udevice *d = selected();
-    int k = uui_dropdown_selected(&g_mods);
-    if (!d || g_drv_mode != 1 || k < 0 || k >= g_nmods) return;
-    char path[64], msg[96];
-    snprintf(path, sizeof path, "/lib/modules/%s.ko", g_mod_name[k]);
-    if (sys_modload(path) < 0) {
-        snprintf(msg, sizeof msg, "could not load %s: %s", g_mod_name[k], strerror(sys_errno()));
+// device no driver holds, this one included (kernel/core/module.c). It is
+// root's: as `user` the request goes to privd, off the frame, and the
+// note says how it ended once the person has answered.
+static char g_pend_path[64], g_pend_mod[64], g_pend_id[24];
+
+static void load_finish(int rc, int err) {
+    char msg[96];
+    if (rc < 0) {
+        snprintf(msg, sizeof msg, "could not load %s: %s", g_pend_mod, strerror(err));
     } else {
-        char id[24];
-        strlcpy(id, d->id, sizeof id);
         relist();
-        const struct udevice *now = find_id(id);
-        snprintf(msg, sizeof msg, "loaded %s -- %s", g_mod_name[k],
+        const struct udevice *now = find_id(g_pend_id);
+        snprintf(msg, sizeof msg, "loaded %s -- %s", g_pend_mod,
                  now && now->driver[0] ? "it drives this device" : "it did not take this device");
     }
     set_note(msg);
-    ulogf("devmgr: load %s -> %s\n", g_mod_name[k], msg);
+    ulogf("devmgr: load %s -> %s\n", g_pend_mod, msg);
     g_sig = signature();
+}
+
+static int load_work(void *arg) {
+    (void)arg;
+    const char *args[] = { g_pend_path, 0 };
+    return upriv_action(UPRIV_ACT_MODLOAD, args, 0);
+}
+
+static void load_done(struct uapp *a, int rc, int err, void *arg) {
+    (void)arg;
+    load_finish(rc, err);
+    uapp_redraw(a);
+}
+
+static void load_driver(struct uapp *a) {
+    const struct udevice *d = selected();
+    int k = uui_dropdown_selected(&g_mods);
+    if (!d || g_drv_mode != 1 || k < 0 || k >= g_nmods) return;
+    snprintf(g_pend_path, sizeof g_pend_path, "/lib/modules/%s.ko", g_mod_name[k]);
+    strlcpy(g_pend_mod, g_mod_name[k], sizeof g_pend_mod);
+    strlcpy(g_pend_id, d->id, sizeof g_pend_id);
+    int rc = sys_modload(g_pend_path);
+    int err = rc < 0 ? sys_errno() : 0;
+    if (rc < 0 && err == EPERM && uapp_run_then(a, load_work, 0, load_done) == 0) {
+        set_note("asking for administrator rights...");
+        return;
+    }
+    load_finish(rc, err);
 }
 
 // UNLOADING TAKES THE MODULE AWAY FROM EVERY DEVICE IT DRIVES, so it asks.
@@ -631,10 +658,10 @@ static void ask_unload(struct uapp *a) {
     ask(a, "Unload driver", "Unload", ASK_UNLOAD);
 }
 
-static void unload_driver(void) {
+static void unload_finish(int rc, int err) {
     char msg[96];
-    if (sys_modunload(g_ask_module) < 0)
-        snprintf(msg, sizeof msg, "could not unload %s: %s", g_ask_module, strerror(sys_errno()));
+    if (rc < 0)
+        snprintf(msg, sizeof msg, "could not unload %s: %s", g_ask_module, strerror(err));
     else
         snprintf(msg, sizeof msg, "unloaded %s", g_ask_module);
     set_note(msg);
@@ -642,6 +669,28 @@ static void unload_driver(void) {
     g_ask_module[0] = 0;
     relist();
     g_sig = signature();
+}
+
+static int unload_work(void *arg) {
+    (void)arg;
+    const char *args[] = { g_ask_module, 0 };
+    return upriv_action(UPRIV_ACT_MODUNLOAD, args, 0);
+}
+
+static void unload_done(struct uapp *a, int rc, int err, void *arg) {
+    (void)arg;
+    unload_finish(rc, err);
+    uapp_redraw(a);
+}
+
+static void unload_driver(struct uapp *a) {
+    int rc = sys_modunload(g_ask_module);
+    int err = rc < 0 ? sys_errno() : 0;
+    if (rc < 0 && err == EPERM && uapp_run_then(a, unload_work, 0, unload_done) == 0) {
+        set_note("asking for administrator rights...");
+        return;
+    }
+    unload_finish(rc, err);
 }
 
 // --- copy, export, the log ------------------------------------------------------
@@ -922,7 +971,7 @@ static void do_command(struct uapp *a, int code) {
     case CMD_EXPORT:   export_report(a); uapp_redraw(a); return;
     case CMD_FIND:     focus_filter(); uapp_redraw(a); return;
     case CMD_LOAD:
-        if (g_drv_mode == 1) load_driver();
+        if (g_drv_mode == 1) load_driver(a);
         else set_note("this device has a driver, or no module could drive it");
         break;
     case CMD_UNLOAD:
@@ -991,7 +1040,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         int code = uui_dialog_take_code(&g_ask);     // -1 on every press
         if (code < 0) return;
         if (code == ASK_UNLOAD) {
-            unload_driver();
+            unload_driver(a);
         } else {
             const struct udevice *d = code == ASK_DISABLE ? find_id(g_ask_id) : 0;
             if (d && d->can_disable) {

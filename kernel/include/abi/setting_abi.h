@@ -180,8 +180,8 @@ enum setting_op {
     // and rescans /etc/config.d. Fills `count` with how many values
     // were REJECTED by their owner -- a typo in a hand-edited file,
     // which must be reported rather than look like the setting simply
-    // not working. Unprivileged, like SYS_KILL and for the same
-    // reason: there is no user model here to gate it on.
+    // not working. Unprivileged: settings are the machine's, in /etc,
+    // until stage D of docs/users-design.md splits out each person's.
     SETTING_OP_RELOAD     = 7,
 
     // In: `name`. Removes the key from its file, so the setting falls

@@ -1,4 +1,6 @@
 // See ubootmode.h.
+#include "base/upriv.h"   // a trial from an account that is not root
+#include <unistd.h>
 #include "base/ubootmode.h"
 #include "base/ubootmenu.h"
 #include "base/ubootcfg.h"
@@ -72,6 +74,12 @@ int ubootmode_try(const char *size, const char **why) {
     int w, h;
     *why = 0;
     if (size && !ubootmode_parse(size, &w, &h)) { *why = "not a screen size"; return -1; }
+    if (geteuid() != 0) {   // /boot is root's: the seat asks privd (base/upriv.h)
+        const char *args[] = { size ? size : "", 0 };
+        if (upriv_action(UPRIV_ACT_BOOTMODE, args, 0) == 0) return 0;
+        *why = "the boot loader's settings could not be changed";
+        return -1;
+    }
     char dev[64];
     if (uboot_writable(dev, sizeof dev) < 0) { *why = "cannot remount /boot read-write"; return -1; }
     int rc = ensure_stanza(why);

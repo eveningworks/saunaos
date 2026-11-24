@@ -5,6 +5,8 @@
 #include "ui/uui.h"
 #include "ui/utheme.h"
 #include "kapi.h"
+#include <stdio.h>
+#include <string.h>
 
 int confirm_dialog_open = 0;
 
@@ -39,6 +41,85 @@ static struct uui_button_group g_group;
 // because the layout is measured from them -- a "Force Quit" button
 // sized for the word "Yes" is exactly the kind of bug this file's own
 // comment about hand-drawn geometry warns about.
+// The detailed form's text, copied, and where its lines break.
+#define WRAP_MAX 12
+static struct {
+    int on;
+    char title[64], headline[200], body[400];
+    char key[CONFIRM_DETAIL_ROWS][32], val[CONFIRM_DETAIL_ROWS][160];
+    int nrows;
+    int head_at[WRAP_MAX], head_len[WRAP_MAX], nhead;
+    int body_at[WRAP_MAX], body_len[WRAP_MAX], nbody;
+    int bar_h, text_x, key_w;
+} g_d;
+
+// Breaks `s` at spaces into lines no wider than `w`; a word wider than
+// `w` stands alone and is clipped when drawn. Past WRAP_MAX lines the
+// rest is not shown -- privd's record bounds the text well inside it.
+static int fits(const char *s, int n, int w) {
+    char line[400];
+    if (n >= (int)sizeof line) return 0;
+    memcpy(line, s, (size_t)n);
+    line[n] = '\0';
+    return ugfx_text_width(line) <= w;
+}
+
+static int wrap(const char *s, int w, int *at, int *len) {
+    int n = 0, i = 0, total = (int)strlen(s);
+    while (i < total && n < WRAP_MAX) {
+        while (s[i] == ' ') i++;
+        if (i >= total) break;
+        int start = i, end = -1;
+        for (int j = i; ; ) {
+            int k = j;
+            while (k < total && s[k] != ' ') k++;
+            int ok = fits(s + start, k - start, w);
+            if (ok || end < 0) end = k;
+            if (!ok || k >= total) break;
+            j = k + 1;
+        }
+        at[n] = start;
+        len[n] = end - start;
+        n++;
+        i = end;
+    }
+    return n;
+}
+
+static void layout_detailed(int yes_w, int no_w, int btn_h) {
+    int ch = ugfx_char_h();
+    int icon = ch * 2;
+    g_d.bar_h = ch + ugfx_px(12);
+    g_w = ugfx_text_width("m") * 46 + icon + DIALOG_PAD * 3;
+    if (g_w > screen_w - DIALOG_PAD * 2) g_w = screen_w - DIALOG_PAD * 2;
+    g_d.text_x = DIALOG_PAD + icon + DIALOG_PAD;
+    int text_w = g_w - g_d.text_x - DIALOG_PAD;
+    const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+    g_d.nhead = wrap(g_d.headline, text_w, g_d.head_at, g_d.head_len);
+    ugfx_set_font(was);
+    g_d.nbody = wrap(g_d.body, text_w, g_d.body_at, g_d.body_len);
+    g_d.key_w = 0;
+    for (int i = 0; i < g_d.nrows; i++) {
+        int kw = ugfx_text_width(g_d.key[i]);
+        if (kw > g_d.key_w) g_d.key_w = kw;
+    }
+    int row_h = ch + ugfx_px(4);
+    int body_h = g_d.nhead * ch + ugfx_px(8) + g_d.nbody * ch + ugfx_px(10) +
+                 g_d.nrows * row_h + ugfx_px(12);
+    if (body_h < icon) body_h = icon;
+    int foot_h = btn_h + ugfx_px(24);
+    g_h = g_d.bar_h + DIALOG_PAD + body_h + DIALOG_PAD + foot_h;
+    g_x = (screen_w - g_w) / 2;
+    g_y = (screen_h - g_h) / 2;
+    int btn_y = g_y + g_h - foot_h + ugfx_px(12);
+    int right = g_x + g_w - DIALOG_PAD;
+    // The affirmative first, as every other dialog here orders them.
+    uui_button_init(&g_btns[BTN_NO], right - no_w, btn_y, no_w, btn_h, g_no_label,
+                    UTHEME_BUTTON_BG, UTHEME_TEXT, BTN_NO);
+    uui_button_init(&g_btns[BTN_YES], right - no_w - BTN_GAP - yes_w, btn_y, yes_w, btn_h,
+                    g_yes_label, UTHEME_ACCENT, UTHEME_ACCENT_TEXT, BTN_YES);
+}
+
 static void open_common(const char *message, void (*on_yes)(void), void (*on_no)(void)) {
     g_message = message;
     g_on_yes = on_yes;
@@ -57,6 +138,13 @@ static void open_common(const char *message, void (*on_yes)(void), void (*on_no)
 
     g_w = (msg_w > buttons_w ? msg_w : buttons_w) + DIALOG_PAD * 2;
     int btn_h = ch + BTN_H_EXTRA;
+    if (g_d.on) {
+        layout_detailed(yes_w, no_w, btn_h);
+        uui_button_group_init(&g_group, g_btns, 2);
+        confirm_dialog_open = 1;
+        confirm_dialog_damage();
+        return;
+    }
     g_h = DIALOG_PAD + ch + DIALOG_PAD + btn_h + DIALOG_PAD;
 
     g_x = (screen_w - g_w) / 2;
@@ -80,8 +168,67 @@ static void close_dialog(void) {
     WM_REDRAW();
 }
 
+// A padlock, from rectangles: the shackle's two sides and top over the body.
+static void draw_lock(int x, int y, int size, uint32_t c) {
+    int t = size / 12 > 1 ? size / 12 : 2;
+    int bw = size * 3 / 4, bh = size / 2, bx = x + (size - bw) / 2, by = y + size - bh;
+    int sw = bw * 2 / 3, sx = x + (size - sw) / 2, sy = y + size / 8;
+    ugfx_fill_rect(wm_surface(), sx, sy, t, by - sy, c);
+    ugfx_fill_rect(wm_surface(), sx + sw - t, sy, t, by - sy, c);
+    ugfx_fill_rect(wm_surface(), sx, sy, sw, t, c);
+    ugfx_fill_rect(wm_surface(), bx, by, bw, bh, c);
+}
+
+static void draw_detailed(void) {
+    struct ugfx_surface *s = wm_surface();
+    int ch = ugfx_char_h();
+    uint32_t text = UTHEME_TEXT, muted = utheme_current()->text_muted;
+    ugfx_fill_rect(s, g_x, g_y, g_w, g_h, UTHEME_WHITE);
+    ugfx_fill_rect(s, g_x, g_y, g_w, g_d.bar_h, UTHEME_CHROME);
+    ugfx_fill_rect(s, g_x, g_y + g_d.bar_h - 1, g_w, 1, UTHEME_SEPARATOR);
+    const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+    ugfx_draw_string_clipped(s, g_x + DIALOG_PAD, g_y + (g_d.bar_h - ch) / 2, g_w - DIALOG_PAD * 2,
+                             g_d.title, text, UTHEME_CHROME);
+    int y = g_y + g_d.bar_h + DIALOG_PAD;
+    int tx = g_x + g_d.text_x, tw = g_w - g_d.text_x - DIALOG_PAD;
+    char line[400];
+    for (int i = 0; i < g_d.nhead; i++, y += ch) {
+        memcpy(line, g_d.headline + g_d.head_at[i], (size_t)g_d.head_len[i]);
+        line[g_d.head_len[i]] = '\0';
+        ugfx_draw_string_clipped(s, tx, y, tw, line, text, UTHEME_WHITE);
+    }
+    ugfx_set_font(was);
+    draw_lock(g_x + DIALOG_PAD, g_y + g_d.bar_h + DIALOG_PAD, ch * 2, UTHEME_ACCENT);
+    y += ugfx_px(8);
+    for (int i = 0; i < g_d.nbody; i++, y += ch) {
+        memcpy(line, g_d.body + g_d.body_at[i], (size_t)g_d.body_len[i]);
+        line[g_d.body_len[i]] = '\0';
+        ugfx_draw_string_clipped(s, tx, y, tw, line, muted, UTHEME_WHITE);
+    }
+    y += ugfx_px(10);
+    int row_h = ch + ugfx_px(4);
+    if (g_d.nrows) {
+        int gh = g_d.nrows * row_h + ugfx_px(8);
+        ugfx_fill_rect(s, tx, y, tw, gh, UTHEME_PANEL_BG);
+        ugfx_draw_rect(s, tx, y, tw, gh, UTHEME_SEPARATOR);
+        int ky = y + ugfx_px(4) + ugfx_px(2);
+        int kx = tx + ugfx_px(8), vx = kx + g_d.key_w + ugfx_px(16);
+        for (int i = 0; i < g_d.nrows; i++, ky += row_h) {
+            ugfx_draw_string_clipped(s, kx, ky, vx - kx, g_d.key[i], muted, UTHEME_PANEL_BG);
+            ugfx_draw_string_clipped(s, vx, ky, tx + tw - ugfx_px(8) - vx, g_d.val[i], text,
+                                     UTHEME_PANEL_BG);
+        }
+    }
+    int foot_y = g_btns[BTN_YES].y - ugfx_px(12);
+    ugfx_fill_rect(s, g_x, foot_y, g_w, g_y + g_h - foot_y, UTHEME_PANEL_BG);
+    ugfx_fill_rect(s, g_x, foot_y, g_w, 1, UTHEME_SEPARATOR);
+    ugfx_draw_rect(s, g_x, g_y, g_w, g_h, UTHEME_BORDER);
+    uui_button_group_draw(&g_group, s);
+}
+
 void confirm_dialog_draw(void) {
     if (!confirm_dialog_open) return;
+    if (g_d.on) { draw_detailed(); return; }
 
     uint32_t bg = UTHEME_PANEL_BG, border = UTHEME_BORDER, fg = UTHEME_TEXT;
     ugfx_fill_rect(wm_surface(), g_x, g_y, g_w, g_h, bg);
@@ -159,6 +306,7 @@ void confirm_dialog_open_with(const char *message, void (*on_yes)(void), void (*
     // one. This is the only place that can guarantee it.
     g_yes_label = "Yes";
     g_no_label = "No";
+    g_d.on = 0;
     open_common(message, on_yes, on_no);
 }
 
@@ -166,7 +314,29 @@ void confirm_dialog_open_labelled(const char *message, const char *yes, const ch
                                    void (*on_yes)(void), void (*on_no)(void)) {
     g_yes_label = yes ? yes : "Yes";
     g_no_label = no ? no : "No";
+    g_d.on = 0;
     open_common(message, on_yes, on_no);
+}
+
+void confirm_dialog_open_detailed(const struct confirm_detail *d, const char *yes, const char *no,
+                                  void (*on_yes)(void), void (*on_no)(void)) {
+    g_yes_label = yes ? yes : "Yes";
+    g_no_label = no ? no : "No";
+    memset(&g_d, 0, sizeof g_d);
+    g_d.on = 1;
+    snprintf(g_d.title, sizeof g_d.title, "%s", d->title ? d->title : "");
+    snprintf(g_d.headline, sizeof g_d.headline, "%s", d->headline ? d->headline : "");
+    snprintf(g_d.body, sizeof g_d.body, "%s", d->body ? d->body : "");
+    g_d.nrows = d->nrows < CONFIRM_DETAIL_ROWS ? d->nrows : CONFIRM_DETAIL_ROWS;
+    for (int i = 0; i < g_d.nrows; i++) {
+        snprintf(g_d.key[i], sizeof g_d.key[i], "%s", d->key[i] ? d->key[i] : "");
+        snprintf(g_d.val[i], sizeof g_d.val[i], "%s", d->val[i] ? d->val[i] : "");
+    }
+    open_common(g_d.headline, on_yes, on_no);
+}
+
+void confirm_dialog_close(void) {
+    if (confirm_dialog_open) close_dialog();
 }
 
 // The buttons' own rects, for the debug console (`gui dialog`) and so

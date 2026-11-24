@@ -1,0 +1,15 @@
+# The root broker: the one way an ordinary account gets administrator
+# rights -- an action from a fixed table, or one command line run
+# elevated -- after the person says yes in the desktop's prompt
+# (docs/users-design.md, stage B; base/upriv.h).
+#
+# Runs as root (no User=), in `text` as well as `graphical`: `sudo` on a
+# text console asks it too. Ready=notify so the desktop, ordered after
+# it, finds the channel to register its prompt on.
+#
+# See docs/commands/privd.md.
+Name=privd
+Description=Grant administrator rights, after asking
+Exec=/bin/privd
+Restart=always
+Ready=notify

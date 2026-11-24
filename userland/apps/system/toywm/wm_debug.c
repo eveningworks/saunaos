@@ -49,6 +49,7 @@
 #include "media/icon_cache.h"
 #include "apps/system/toywm/wm_watch.h"
 #include "apps/system/toywm/wm_rawin.h"
+#include "apps/system/toywm/wm_priv.h"
 
 // ---------------------------------------------------------------------
 // Synthetic input queue
@@ -1789,6 +1790,26 @@ static void cmd_open(struct dbg_out *o, const char *name) {
 //
 // Tracked for reaping exactly as a Start-menu launch is, so this does
 // not quietly reintroduce the leak wm_track_launched() exists to fix.
+// `gui prompt [allow|deny|ask]`: privd's questions answered unseen, or
+// shown (wm_priv.h). Prints the policy, whether privd has us as its
+// agent, and how many questions came.
+int wm_debug_unprivileged;
+
+static void cmd_prompt(struct dbg_out *o, const char *arg) {
+    if (arg && wm_debug_unprivileged) {   // it would answer privd for the person
+        dbg_out_write(o, "prompt: only the console or root may change it\r\n");
+        return;
+    }
+    if (arg && k_strcmp(arg, "allow") == 0) wm_priv_set_policy(WM_PRIV_ALLOW);
+    else if (arg && k_strcmp(arg, "deny") == 0) wm_priv_set_policy(WM_PRIV_DENY);
+    else if (arg && k_strcmp(arg, "ask") == 0) wm_priv_set_policy(WM_PRIV_ASK);
+    else if (arg) { dbg_out_write(o, "prompt: allow, deny or ask\r\n"); return; }
+    int pol = wm_priv_policy();
+    dbg_out_printf(o, "prompt: %s, agent %s, %u questions\r\n",
+                   pol == WM_PRIV_ALLOW ? "allow" : pol == WM_PRIV_DENY ? "deny" : "ask",
+                   wm_priv_registered() ? "registered" : "not registered", wm_priv_questions());
+}
+
 static void cmd_spawn(struct dbg_out *o, const char *path, const char *args) {
     int pid = sys_spawn(path, args, -1);
     if (pid > 0) {
@@ -1813,7 +1834,9 @@ static void cmd_kill(struct dbg_out *o, int pid) {
         dbg_out_write(o, "usage: gui kill PID\r\n");
         return;
     }
-    if (sys_kill(pid, SIGKILL) == 0) {
+    // The console's word reaches an elevated window too; a ring-3 sender's
+    // does not (DIAG_F_UNPRIVILEGED).
+    if ((wm_debug_unprivileged ? sys_kill(pid, SIGKILL) : wm_priv_kill(pid, SIGKILL)) == 0) {
         dbg_out_printf(o, "gui: killed pid %d\r\n", pid);
     } else {
         dbg_out_printf(o, "gui: no such process %d\r\n", pid);
@@ -2665,6 +2688,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
     if (k_strcmp(sub, "quick") == 0)        { cmd_quick(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "ctxmenu") == 0)      { cmd_ctxmenu(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "dialog") == 0)       { cmd_dialog(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "prompt") == 0)       { cmd_prompt(o, next_tok(&p)); return 1; }
     if (k_strcmp(sub, "leave") == 0) {
         char *arg = next_tok(&p);
         if (arg && k_strcmp(arg, "dry") == 0) {
