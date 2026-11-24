@@ -226,8 +226,14 @@ KERNEL_INCLUDES = $(API_INCLUDES) -Ikernel/include/kernel
 # kernel/arch/x86_64/linker.ld discards the section as well, since the flag does not cover
 # hand-written .asm and an orphan .eh_frame would land in whichever
 # segment ld chose.
+# THE TARGET CPU IS NAMED, never the host compiler's default: Ubuntu
+# 26.04's GCC defaults to -march=x86-64-v3, and a kernel built with it
+# executed a BMI2 shrx in arch_has_rdseed() before its IDT existed --
+# a triple fault on QEMU's default CPU (and any pre-Haswell machine).
+# Linux pins its own in arch/x86/Makefile for the same reason.
+TARGET_ARCH = -march=x86-64 -mtune=generic
 CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-protector-guard=global -fno-pic -fno-pie \
-         -mno-red-zone -mcmodel=kernel -mno-mmx -mno-sse -mno-sse2 \
+         $(TARGET_ARCH) -mno-red-zone -mcmodel=kernel -mno-mmx -mno-sse -mno-sse2 \
          -fno-asynchronous-unwind-tables \
          -Wall -Wextra -Wframe-larger-than=1024 -O2 -g -c $(KERNEL_INCLUDES) -Ikernel/shell -MMD -MP \
          $(UBSAN_FOR) $(KASAN_FOR) $(DEBUG_PREEMPT_DEFS) $(LOCKDEP_DEFS)
@@ -327,7 +333,7 @@ $(BUILD)/userland/libs/rt/%.o $(BUILD)/userland/libs/ldso/%.o: USERLAND_GUARD = 
 # with SSE on, GCC emits XMM in ordinary code (struct copies, inlined
 # memcpy), so an FP-enabled kernel would need an FXSAVE on every
 # interrupt vector rather than only where the scheduler swaps processes.
-USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong $(USERLAND_GUARD) -fpie \
+USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong $(USERLAND_GUARD) -fpie $(TARGET_ARCH) \
                    -mno-direct-extern-access -Wa,-mrelax-relocations=no \
                    -mno-red-zone -mcmodel=small -ftls-model=local-exec \
                    -Wall -Wextra -Wframe-larger-than=2048 -O2 -g -c $(LIBC_INCLUDES) $(API_INCLUDES) -Iuserland -Iuserland/libs \

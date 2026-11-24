@@ -842,6 +842,21 @@ this the obvious way), not from how much history it accumulated.
   for a link only the maintainer's own account can open. Only the
   2026-11-07 batch was rewritten, before anything referred to it.
 
+## THE TARGET CPU IS NAMED IN THE MAKEFILE, NEVER LEFT TO THE HOST COMPILER'S DEFAULT
+
+`TARGET_ARCH` (`-march=x86-64 -mtune=generic`) is in `CFLAGS` and
+`USERLAND_CFLAGS`, and every other target flag set derives from one of
+them. A distribution may build its GCC for a higher default: Ubuntu
+26.04's (GitHub's `ubuntu-latest` from 2026-11) defaults to
+`-march=x86-64-v3`, and a kernel built with it ran a BMI2 `shrx` in
+`arch_has_rdseed()` before the IDT was loaded -- a silent triple fault
+on QEMU's default CPU and on any machine before Haswell, with an empty
+serial log. Linux pins its target in `arch/x86/Makefile` the same way.
+A new set of target flags derives from `CFLAGS` or `USERLAND_CFLAGS`,
+or names `$(TARGET_ARCH)` itself. Host tools (`HOSTCC`) keep the
+host's default: they run here. Changing it is a CFLAGS change: `make
+clean` after.
+
 ## A `.d` FILE MUST NEVER BE REMAKEABLE, OR make BUILDS THE WRONG FILE AND STILL EXITS 0
 
 make tries to rebuild every makefile it includes, and the `-include

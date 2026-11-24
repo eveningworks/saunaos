@@ -1295,6 +1295,9 @@ whenever a headline here tells you something you did not already know.
 
 `docs/conventions/build.md`
 
+- **THE TARGET CPU IS NAMED IN THE MAKEFILE, NEVER LEFT TO THE HOST
+  COMPILER'S DEFAULT** -- `TARGET_ARCH`, `-march=x86-64`; Ubuntu 26.04's
+  GCC defaults to x86-64-v3 and its kernel triple-faulted at boot
 - **A GUI PROGRAM IS A DIRECTORY WITH A `component.mk`, AND THE MANIFEST
   SAYS ONLY WHAT THE DIRECTORY CANNOT** -- every `.c` in it is linked;
   `EXTRA`/`ULIBS`/`INSTALL_AS`/`NEEDS_PORT` and nothing else
