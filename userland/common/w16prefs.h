@@ -172,9 +172,8 @@ int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned 
 int w16_prefs_save_effect(const char *exe, const char *word);
 
 // THE LAUNCHER'S FOLDERS, as many as there are: `folders=N` and
-// folderI / folderI_name in /etc/win16.conf. A file from before the count
-// (folder1..folder8, empties skipped) still reads. `name` "" is "named
-// for its folder".
+// folderI / folderI_name in /etc/win16.conf; with no `folders`, the
+// samples and drive C. `name` "" is "named for its folder".
 struct w16_folder { char *path, *name; };
 int  w16_folders_load(struct w16_folder **out);              // how many; *out allocated
 int  w16_folders_save(const struct w16_folder *f, int n);    // 0, or -1

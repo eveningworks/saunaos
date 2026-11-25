@@ -261,13 +261,9 @@ int w16_folders_load(struct w16_folder **out) {
             add_folder(&f, &n, v, name);
         }
     } else {
-        // Before the count: eight keys, the first two with defaults.
-        const char *const DEF[] = { "/usr/share/w16", w16_default_drive_c() };
-        for (int i = 1; i <= 8; i++) {
-            snprintf(key, sizeof key, "folder%d", i);
-            if (!uconf_get(W16_CONF, key, v, FOLDER_PATH)) snprintf(v, FOLDER_PATH, "%s", i <= 2 ? DEF[i - 1] : "");
-            if (v[0] == '/') add_folder(&f, &n, v, "");
-        }
+        // Never saved: the samples and drive C.
+        add_folder(&f, &n, "/usr/share/w16", "");
+        add_folder(&f, &n, w16_default_drive_c(), "");
     }
     free(v);
     free(name);
@@ -277,7 +273,7 @@ int w16_folders_load(struct w16_folder **out) {
 
 int w16_folders_save(const struct w16_folder *f, int n) {
     char v[16], key[32];
-    int was = uconf_get(W16_CONF, "folders", v, sizeof v) ? atoi(v) : 8, ok = 1;
+    int was = uconf_get(W16_CONF, "folders", v, sizeof v) ? atoi(v) : 0, ok = 1;
     snprintf(v, sizeof v, "%d", n);
     if (!uconf_set(W16_CONF, "folders", v)) ok = 0;
     for (int i = 1; i <= n; i++) {
