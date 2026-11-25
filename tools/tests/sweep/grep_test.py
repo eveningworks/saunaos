@@ -68,8 +68,9 @@ def read_out(dbg):
     out = dbg.send(f"sh cat {OUT}") or ""
     if "no such file" in out or "not found" in out:
         return None
-    # The console interleaves its own chatter with the reply, and tosh
-    # prints `[exit N]` after a command that failed. Dropping the exit
+    # The console interleaves its own chatter with the reply, and its
+    # `sh` verb (kernel/core/debug_console.c) ends a failed command's
+    # reply with `[exit N]`. Dropping the exit
     # marker matters: without it a grep that correctly matched NOTHING
     # returns one line of content and reads as a match.
     #

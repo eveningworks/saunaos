@@ -376,6 +376,10 @@ TESTS = [
     # tosh's job table, grown past the eight it used to hold: ids stay
     # the lowest free, and a job's pointer survives the table growing.
     ("toshjobs_test", 0, None, None),
+    # tosh's exit status: no `[exit N]` of the shell's own after a
+    # failure, `$?` expanded by quoting rule, every line setting it.
+    # Spawned: it spawns echo and grep through the shell.
+    ("toshstatus_test", None, None, None),
     # base/ugrow.h, the growable-array macro every ring-3 list uses: it
     # grows, and a request it cannot meet leaves the array as it was.
     ("ugrow_test", 0, None, None),

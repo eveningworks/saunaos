@@ -415,9 +415,8 @@ int main(int argc, char **argv) {
         line[n] = '\0';
         // **AN EXIT STATUS IS A BYTE.** tosh_run_line() answers a
         // shell status (127 not found, 126 not runnable, 2 a syntax
-        // error), but a job that was signalled comes back as 128 + sig
-        // and a stopped one higher still -- and anything negative
-        // reaches ring 0 as PROCESS_CRASHED.
+        // error, 128 + sig for a job signalled or stopped), never
+        // negative -- which would reach ring 0 as PROCESS_CRASHED.
         int code = tosh_run_line(&g_sh, line);
         if (g_sh.exit_requested) return g_sh.exit_code;
         return code < 0 ? TOSH_ST_NOEXEC : code & 0xff;

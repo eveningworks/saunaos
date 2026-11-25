@@ -66,7 +66,7 @@ struct tosh {
     // docs/tty-design.md.
     tosh_out_fn out;
     void *ctx;
-    int last_status; // exit code of the last external command
+    int last_status; // the last line's status: `$?`
     // `exit [N]` was run: the FRONT END ends the session after this
     // line, with `exit_code`. The library cannot end it -- it is a loop
     // of the front end's, in the front end's process.

@@ -776,7 +776,17 @@ Eight things that bite:
   for one that died of a signal. Anything that treats a waitpid result
   as an exit is wrong on that path -- which is why `sys_waitpid_untraced()`
   is a separate entry point rather than a flag on `sys_waitpid()`, and
-  why `run_stripped()` suppresses its `[exit N]` line for one.
+  why tosh's `$?` turns one into bash's 128 + the signal (148 for
+  Ctrl-Z).
+- **tosh PRINTS NO STATUS FOR A FAILED COMMAND; `$?` HOLDS IT**
+  (2026-11-25, bash's and dash's shape -- the `[exit N]` line it used
+  to print is gone). `$?` is the ONE parameter tosh expands, outside
+  quotes and inside double ones, never single, and EVERY line sets it,
+  a builtin's too (`cd` to a missing folder is 1). A background job that
+  fails says so when it is reaped, as bash does: `[1]+  Exit 2  grep x
+  y`. The debug console's `tsh` verb still ends its reply with
+  `[exit N]`: that is the harness's line, `kernel/core/debug_console.c`,
+  not the shell's.
 - **`[1]+ Done` IS PRINTED AT A PROMPT, AND `SIGCHLD` IS WHAT MAKES A
   PROMPT HAPPEN WITH NOBODY TYPING.** `tosh_reap_jobs()` runs from
   `fresh_prompt()` and nowhere else, because a report landing mid-command

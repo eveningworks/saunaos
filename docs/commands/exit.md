@@ -18,6 +18,7 @@ an empty prompt does the same.
 `n` is the status the shell exits with. **With no argument it is the
 last command's status**, as POSIX has it, so `false` then `exit` exits
 1 — what a script ending on a failed command is expected to report.
+The status itself is not printed after a failure; `echo $?` shows it.
 A status is a byte: `exit 300` exits 44.
 
 **In a pipeline it ends nothing.** `exit | cat` runs, prints nothing and

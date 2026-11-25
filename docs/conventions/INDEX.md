@@ -1265,6 +1265,7 @@ whenever a headline here tells you something you did not already know.
 - **RING-3 HISTORY PERSISTS, AND IT APPENDS RATHER THAN REWRITING**
 - **TAB COMPLETION IN COMMAND POSITION IS BUILTINS PLUS ALL OF `PATH`,
   DEDUPLICATED AND SORTED, WITH NO DIRECTORIES.**
+- **tosh PRINTS NO STATUS FOR A FAILED COMMAND; `$?` HOLDS IT** -- every line sets it; a failed background job says `Exit N`
 - **`/bin/tosh -c <command>` RUNS ONE LINE AND EXITS, WITH A SHELL'S
   EXIT STATUS**
 - **`#` IS RING 0 AND `$` IS RING 3, AND THE PROMPT IS WHERE THAT

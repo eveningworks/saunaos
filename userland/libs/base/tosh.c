@@ -39,6 +39,7 @@
 #include <stdlib.h>   // strtol -- `exit N`
 #include <ksignal.h> // signal_name() -- one table, shared with the kernel
 #include "base/tosh_jobs.h"
+#include "knum.h"     // k_itoa() -- $?
 #include "base/upath.h"  // upath_find_program() -- shared with /bin/strace
 
 static int slen(const char *s) { int n = 0; while (s && s[n]) n++; return n; }
@@ -94,7 +95,7 @@ static void emit_int(struct tosh *sh, int v) {
 
 // --- builtins ---------------------------------------------------------
 
-static void bi_cd(struct tosh *sh, const char *arg) {
+static int bi_cd(struct tosh *sh, const char *arg) {
     // One syscall. The checks this used to do by hand -- does it exist,
     // is it a directory -- are the kernel's now and come back as
     // distinct errno values, so `cd notes.txt` says "not a directory"
@@ -106,7 +107,9 @@ static void bi_cd(struct tosh *sh, const char *arg) {
         emit(sh, ": ");
         emit(sh, sys_strerror(sys_errno()));
         emit(sh, "\n");
+        return TOSH_ST_ERROR;
     }
+    return 0;
 }
 
 // --- redirection -------------------------------------------------------
@@ -593,13 +596,21 @@ void tosh_reap_jobs(struct tosh *sh) {
 
         emit(sh, "[");
         emit_int(sh, id);
-        emit(sh, "]+  Done  ");
-        emit(sh, job->cmd);
-        if (code != 0) {
-            emit(sh, "  [exit ");
+        // bash's words: `Done`, `Exit N` for a job that failed, the
+        // signal's name for one that was killed.
+        int sig = code - SIGNAL_EXIT_BASE;
+        if (sig > 0 && sig <= SIGNAL_MAX) {
+            emit(sh, "]+  Killed by SIG");
+            emit(sh, signal_name(sig));
+            emit(sh, "  ");
+        } else if (code != 0) {
+            emit(sh, "]+  Exit ");
             emit_int(sh, code);
-            emit(sh, "]");
+            emit(sh, "  ");
+        } else {
+            emit(sh, "]+  Done  ");
         }
+        emit(sh, job->cmd);
         emit(sh, "\n");
         tosh_jobs_remove(id);
     }
@@ -638,6 +649,17 @@ static int op_kind(const char *p) {
 
 static int is_blank(char c) { return c == ' ' || c == '\t'; }
 
+// `$?` -- the last line's status in decimal, the one parameter this
+// shell expands: outside quotes and inside double ones, never single.
+// 0 when it does not fit.
+static int put_status(struct tosh *sh, char **out, char *end) {
+    char num[24];
+    size_t n = k_itoa(sh->last_status, num, sizeof num);
+    if (!n || *out + n >= end - 1) return 0;
+    for (size_t i = 0; i < n; i++) *(*out)++ = num[i];
+    return 1;
+}
+
 // Fills sh->words from `line`, unquoting into sh->unq. Returns the
 // count, or -1 after saying why -- an unterminated quote is refused
 // rather than closed for the user, because the version that "helps"
@@ -667,10 +689,19 @@ static int lex(struct tosh *sh, const char *in) {
             if (q == '\\') {
                 if (!in[1]) { emit(sh, "tosh: nothing after the backslash\n"); return -1; }
                 in++;
+            } else if (q == '$' && in[1] == '?') {
+                if (!put_status(sh, &out, end)) goto full;
+                in += 2;
+                continue;
             } else if (q == '\'' || q == '"') {
                 in++;
                 while (*in && *in != q) {
-                    if (q == '"' && *in == '\\' && (in[1] == '"' || in[1] == '\\')) in++;
+                    if (q == '"' && *in == '\\' && (in[1] == '"' || in[1] == '\\' || in[1] == '$')) in++;
+                    else if (q == '"' && *in == '$' && in[1] == '?') {
+                        if (!put_status(sh, &out, end)) goto full;
+                        in += 2;
+                        continue;
+                    }
                     if (out >= end - 1) goto full;
                     *out++ = *in++;
                 }
@@ -893,7 +924,7 @@ static int run_simple(struct tosh *sh, const char **argv, int argc,
         sh->exit_code = code & 0xff;   // a status is a byte
         return 0;
     }
-    if (seq(cmd, "cd"))   { bi_cd(sh, arg1);  return 0; }
+    if (seq(cmd, "cd"))   { return bi_cd(sh, arg1); }
     if (seq(cmd, "jobs")) { bi_jobs(sh);       return 0; }
     if (seq(cmd, "fg"))   { return bi_fg(sh, arg1); }
     if (seq(cmd, "bg"))   { return bi_bg(sh, arg1); }
@@ -924,6 +955,7 @@ static int run_simple(struct tosh *sh, const char **argv, int argc,
                  "  cmd < file    read the input from file\n"
                  "  cmd &         run in the background\n"
                  "  \"a b\" 'a b'   one argument with a space in it; \\ escapes one character\n"
+                 "  $?            the last command's exit status (echo $?)\n"
                  "\n"
                  "Keys:\n"
                  "  Tab     complete             Ctrl-R  search history\n"
@@ -952,17 +984,9 @@ static int run_simple(struct tosh *sh, const char **argv, int argc,
         return TOSH_ST_NOTFOUND;
     }
 
-    int code = run_external(sh, path, argv, label, background);
-    sh->last_status = code;
-    // A STOP IS NOT AN EXIT, and `[exit 276]` for a job the user just
-    // suspended would be a lie about a process that is still there.
-    // job_stopped() has already said what happened.
-    if (code != 0 && !SIGNAL_IS_STOP(code)) {
-        emit(sh, "[exit ");
-        emit_int(sh, code);
-        emit(sh, "]\n");
-    }
-    return code;
+    // A failure prints nothing of its own: the program said what went
+    // wrong, and the status waits in `$?` (bash's and dash's shape).
+    return run_external(sh, path, argv, label, background);
 }
 
 // --- pipelines ---------------------------------------------------------
@@ -1014,6 +1038,10 @@ static int run_pipeline(struct tosh *sh, struct tosh_stage *st, int n,
     // one Ctrl-C end `cat big | grep x | less` rather than only its last
     // stage. See job_foreground() above.
     int job_pgid = 0;
+    // THE LAST STAGE'S STATUS IS THE PIPELINE'S, as in every Bourne
+    // shell -- so one that never ran (not found, refused, a builtin)
+    // answers its own, never 0 from a stage before it.
+    int last_code = 0;
 
     // Pass 1: the external stages, in order.
     for (int i = 0; i < n; i++) {
@@ -1025,6 +1053,7 @@ static int run_pipeline(struct tosh *sh, struct tosh_stage *st, int n,
         if (upath_find_program(argv[0], path, TOSH_PATH_MAX) <= 0) {
             emit(sh, argv[0]);
             emit(sh, ": not found\n");
+            if (i == n - 1) last_code = TOSH_ST_NOTFOUND;
             continue; // its stage simply produces nothing
         }
 
@@ -1048,7 +1077,8 @@ static int run_pipeline(struct tosh *sh, struct tosh_stage *st, int n,
         // with a status nothing had earned, which is how a script that
         // would not run looked like the shell ignoring the command.
         if (st[i].pid <= 0) {
-            (void)report_spawn_failure(sh, argv[0], path, sys_errno());
+            int why = report_spawn_failure(sh, argv[0], path, sys_errno());
+            if (i == n - 1) last_code = why;
         }
 
         if (st[i].pid > 0 && job_pgid <= 0)
@@ -1089,7 +1119,8 @@ static int run_pipeline(struct tosh *sh, struct tosh_stage *st, int n,
             sh->ctx = (void *)(long)st[i].out_fd;
         }
 
-        run_simple(sh, argv, argc, label, 0);
+        int code = run_simple(sh, argv, argc, label, 0);
+        if (i == n - 1) last_code = code;
 
         sh->out = prev;
         sh->ctx = prev_ctx;
@@ -1112,7 +1143,7 @@ static int run_pipeline(struct tosh *sh, struct tosh_stage *st, int n,
     int npid = 0;
     for (int i = 0; i < n && npid < TOSH_JOB_PIDS_MAX; i++)
         if (st[i].pid > 0) pids[npid++] = st[i].pid;
-    if (!npid) { job_done(); return 0; }
+    if (!npid) { job_done(); return last_code; }
 
     if (background) {
         job_backgrounded(sh, job_pgid, pids, npid, label);
@@ -1121,7 +1152,8 @@ static int run_pipeline(struct tosh *sh, struct tosh_stage *st, int n,
 
     // One function for the simple command, the pipeline and `fg`,
     // because all three end the same way -- see job_wait().
-    return job_wait(sh, job_pgid, pids, npid, label);
+    int code = job_wait(sh, job_pgid, pids, npid, label);
+    return st[n - 1].pid > 0 ? code : last_code;
 }
 
 int tosh_run_line(struct tosh *sh, const char *line) {
@@ -1168,5 +1200,11 @@ int tosh_run_line(struct tosh *sh, const char *line) {
     sh->out = saved_out;
     sh->ctx = saved_ctx;
     redir_undo(&r);
+    // EVERY LINE SETS `$?`, a builtin's too, as POSIX has it. A job the
+    // user stopped is 128 + its signal, bash's 148 for Ctrl-Z -- the
+    // waitpid code above 255 is this kernel's, not a status.
+    if (SIGNAL_IS_STOP(code)) code = 128 + (code - SIGNAL_STOP_BASE);
+    else if (code < 0) code = TOSH_ST_ERROR;   // a wait that failed is no status
+    sh->last_status = code;
     return code;
 }
