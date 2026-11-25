@@ -39,6 +39,12 @@ struct uchan_server {
     char               name[UCHAN_NAME_MAX];
     unsigned           next;   // round-robin, so one busy client cannot
                                 // starve the others
+    // The wake word as the last scan began (`scan_valid` once one has):
+    // the wait parks against THAT, so a ring that appeared and rang after
+    // the scan looked is not slept through -- adopted only next scan, its
+    // message is in no ring the wait can check.
+    uint32_t           scan_wake;
+    int                scan_valid;
 };
 
 struct uchan_client {

@@ -83,6 +83,8 @@ static int ring_index(struct uchan_server *s, int pid) {
 int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
     int ngone = 0;
     if (!s->beacon) return 0;
+    s->scan_wake = __atomic_load_n(&s->beacon->wake, __ATOMIC_ACQUIRE);   // BEFORE the walk
+    s->scan_valid = 1;
     // Rings whose NAME now belongs to another object: the client execed
     // (the kernel let its old ring's name go) and opened its channel
     // again before this scan ran, so the name never stopped resolving.
@@ -205,7 +207,11 @@ void uchan_server_reply(struct uchan_server *s, int pid, const void *msg,
 
 void uchan_server_wait(struct uchan_server *s, int timeout_ms) {
     if (!s->beacon) { sys_sleep_ms(timeout_ms); return; }
-    uint32_t seen = s->beacon->wake;
+    // SINCE THE LAST SCAN, not since now: a client whose ring the scan
+    // did not see yet rang after it, and only the word sampled before the
+    // scan has moved for it (struct uchan_server's `scan_wake`).
+    uint32_t seen = s->scan_valid ? s->scan_wake : s->beacon->wake;
+    s->scan_valid = 0;   // one use: a loop that waits without scanning samples afresh
     // ANYTHING ALREADY QUEUED MEANS DO NOT PARK. Checked after sampling
     // the word, so a message arriving between the two moves it and the
     // wait below returns at once instead of sleeping through it.
