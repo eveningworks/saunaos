@@ -47,14 +47,18 @@ static void in_home(char *out, size_t cap, const char *rel) {
 static void load(void) {
     if (g_loaded) return;
     g_loaded = 1;
-    struct etc_config_buf doc, *buf = &doc;   // the file, read once
-    int ok = uconf_load(UDIRS_CONF, buf);
+    // LAYER BY LAYER, both spellings in each: a person's XDG-spelled line
+    // must beat the machine's short one, which a merged document would not.
+    struct uconf_layers l;   // the files, read once
+    uconf_load_layered("/etc/" UDIRS_CONF, &l);
+    const struct etc_config_buf *layer[2] = { &l.user, &l.machine };
     for (int d = 0; d < UDIR_COUNT; d++) {
         char v[128] = "";
         char xdg[40];
         snprintf(xdg, sizeof xdg, "XDG_%s_DIR", DIRS[d].conf);
-        if (ok && (!etc_config_buf_get(buf, DIRS[d].conf, v, sizeof v) || !v[0]))
-            etc_config_buf_get(buf, xdg, v, sizeof v);
+        for (int k = 0; k < 2 && !v[0]; k++)
+            if (!etc_config_buf_get(layer[k], DIRS[d].conf, v, sizeof v) || !v[0])
+                etc_config_buf_get(layer[k], xdg, v, sizeof v);
         char *p = v;
         size_t n = strlen(p);
         if (n >= 2 && p[0] == '"' && p[n - 1] == '"') { p[n - 1] = '\0'; p++; }
@@ -62,7 +66,7 @@ static void load(void) {
         else if (p[0] == '/') snprintf(g_path[d], sizeof g_path[d], "%s", p);
         else in_home(g_path[d], sizeof g_path[d], DIRS[d].def);   // a parser rejects rather than guesses
     }
-    etc_config_buf_free(buf);
+    uconf_layers_free(&l);
 }
 
 const char *udir_path(enum udir d)  { if ((unsigned)d >= UDIR_COUNT) return udir_home(); load(); return g_path[d]; }

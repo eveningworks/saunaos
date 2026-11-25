@@ -1413,7 +1413,7 @@ static void recent_sync_menu(void) {
     if (g_recent_count == 0) strlcpy(g_recent[0], "(empty)", PATH_MAX_LEN);
 }
 
-// A list of paths, one a line: /var/lib/notepad/recent and .../session.
+// A list of paths, one a line: ~/.local/state/notepad/recent and .../session.
 // Each path is handed to `fn` until it answers 0; the file is read whole,
 // at its own size. How many were handed over.
 static int paths_each(const char *file, int (*fn)(const char *path, void *ctx), void *ctx) {
@@ -1440,9 +1440,7 @@ static int paths_each(const char *file, int (*fn)(const char *path, void *ctx), 
 
 // The file a list is written to, emptied; -1 when it cannot be.
 static int paths_create(const char *file) {
-    sys_mkdir("/var/lib");
-    sys_mkdir(NOTEPAD_STATE_DIR);
-    return sys_open(file, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
+    return file ? sys_open(file, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC) : -1;
 }
 
 static void paths_line(int fd, const char *path) {

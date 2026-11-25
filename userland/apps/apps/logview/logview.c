@@ -13,7 +13,7 @@
 // Seeing the same error 33 times is worth one line in the details pane
 // ("Seen 33 times") and one command (Only this message); a program that
 // logs its layout on every paint is worth muting, and a mute is kept in
-// /etc/logview.conf so the next open does not need it again.
+// ~/.config/logview.conf so the next open does not need it again.
 #include "ui/uapp.h"
 #include "ui/uui.h"
 #include "ui/uui_loglist.h"
@@ -52,7 +52,7 @@
 
 #define LOG_DIR    "/var/log"
 #define BOOT_DIR   "/var/log/boot"
-#define CONF_PATH  "/etc/logview.conf"
+#define CONF_PATH  "logview.conf"
 
 enum {
     ID_MENU = 1, ID_TB, ID_SOURCE, ID_SHOW, ID_FROM, ID_SEARCH, ID_LIST,

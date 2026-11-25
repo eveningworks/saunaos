@@ -13,6 +13,7 @@
 // IT PERSISTS BY APPENDING, and to its own file. See the header for why
 // both halves of that are the answer rather than a shortcut.
 #include "base/uhistory.h"
+#include "base/udatadir.h"
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -100,8 +101,10 @@ const char *uhist_at(const struct uhistory *h, int i) {
 
 // --- the file ---------------------------------------------------------
 
+const char *uhist_file(void) { return udatadir_state_file("tosh_history", "/etc/tosh_history"); }
+
 void uhist_persist(const char *line) {
-    if (!line || !line[0]) return;
+    if (!line || !line[0] || !UHIST_FILE) return;
     int fd = open(UHIST_FILE, O_WRONLY | O_CREAT | O_APPEND);
     if (fd < 0) return;   // a read-only or RAM-only root is not an error here
     // ONE write, not two. The line and its terminator go out together so
@@ -142,17 +145,19 @@ static void trim(int fd, long size, const char *path) {
     const char *start = memchr(tail, '\n', (size_t)got);   // a whole line first
     if (!start) return;
     start++;
-    char tmp[128];
-    snprintf(tmp, sizeof tmp, "%s.new", path);
+    char *tmp = 0;
+    if (asprintf(&tmp, "%s.new", path) < 0) return;
     int out = open(tmp, O_WRONLY | O_CREAT | O_TRUNC);
-    if (out < 0) return;
-    long n = (long)(tail + got - start);
-    int ok = write(out, start, (size_t)n) == n;
-    close(out);
-    if (!ok || rename(tmp, path) != 0) unlink(tmp);
+    if (out >= 0) {
+        long n = (long)(tail + got - start);
+        int ok = write(out, start, (size_t)n) == n;
+        close(out);
+        if (!ok || rename(tmp, path) != 0) unlink(tmp);
+    }
+    free(tmp);
 }
 
-void uhist_load(struct uhistory *h) { uhist_load_from(h, UHIST_FILE); }
+void uhist_load(struct uhistory *h) { if (UHIST_FILE) uhist_load_from(h, UHIST_FILE); }
 
 void uhist_load_from(struct uhistory *h, const char *path) {
     int fd = open(path, O_RDONLY);

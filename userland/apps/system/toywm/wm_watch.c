@@ -13,6 +13,7 @@
 #include "base/uworker.h"
 #include "setting_abi.h"   // SETTING_OP_COUNT
 #include "base/utrash.h"
+#include "base/udatadir.h"
 
 static const char *PATH[WM_TOPIC_COUNT] = {
     [WM_TOPIC_SETTINGS] = 0,                    // an event, not a path
@@ -21,7 +22,9 @@ static const char *PATH[WM_TOPIC_COUNT] = {
     [WM_TOPIC_DESKTOP]  = 0,                    // the known folder, set below
     [WM_TOPIC_EFFECTS]  = "/etc/effects",
     [WM_TOPIC_TRASH]    = 0,                    // in the home, set below
-    [WM_TOPIC_THUMBS]   = "/var/cache/thumbnails",
+    [WM_TOPIC_THUMBS]   = 0,                    // the person's cache, set below
+    [WM_TOPIC_USER_CONF] = 0,                   // $XDG_CONFIG_HOME, set below
+    [WM_TOPIC_USER_EFFECTS] = 0,
 };
 
 static int g_id[WM_TOPIC_COUNT];         // the kernel's watch id, > 0
@@ -72,8 +75,19 @@ void wm_watch_init(void) {
     sys_mkdir(bin_files);
     sys_mkdir(bin_info);
     PATH[WM_TOPIC_TRASH] = bin_files;
-    sys_mkdir("/var/cache");
-    sys_mkdir("/var/cache/thumbnails");
+    // The person's cache and config folders (users stage D1c).
+    char *thumbs = udatadir_cache_prepare("thumbnails", "/var/cache/thumbnails");
+    if (thumbs) sys_mkdir(thumbs);
+    PATH[WM_TOPIC_THUMBS] = thumbs;   // kept for the process's life
+    static char user_conf[UCONF_USER_PATH_MAX], user_effects[UCONF_USER_PATH_MAX];
+    if (uconf_user_path("/etc/effects", user_effects, sizeof user_effects) == 1 &&
+        uconf_user_dir_ensure()) {
+        sys_mkdir(user_effects);
+        snprintf(user_conf, sizeof user_conf, "%s", user_effects);
+        *strrchr(user_conf, '/') = 0;
+        PATH[WM_TOPIC_USER_CONF] = user_conf;
+        PATH[WM_TOPIC_USER_EFFECTS] = user_effects;
+    }
     for (int t = 0; t < WM_TOPIC_COUNT; t++) {
         g_gen[t] = 1;
         if (!PATH[t]) continue;
@@ -108,10 +122,13 @@ static void settings_published(void) {
 
 const char *wm_watch_path(enum wm_topic t) { return (unsigned)t < WM_TOPIC_COUNT ? PATH[t] : 0; }
 
+static uint64_t one_gen(enum wm_topic t) { return g_primed ? g_pub[t] : raw_gen(t); }
+
 uint64_t wm_watch_gen(enum wm_topic t) {
     if (t < 0 || t >= WM_TOPIC_COUNT) return 0;
-    if (!g_primed) return raw_gen(t);
-    return g_pub[t];
+    if (t == WM_TOPIC_ETC) return one_gen(t) + one_gen(WM_TOPIC_USER_CONF);
+    if (t == WM_TOPIC_EFFECTS) return one_gen(t) + one_gen(WM_TOPIC_USER_EFFECTS);
+    return one_gen(t);
 }
 
 uint32_t wm_setting_generation(void) { return g_primed ? g_kgen_pub : raw_kgen(); }

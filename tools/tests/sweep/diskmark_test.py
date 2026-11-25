@@ -23,7 +23,7 @@ everywhere is a repaint, not a result.
 
 THE RUN'S CHART, THE HISTORY AND STOP: the chart reports how many
 samples and phase marks it holds, the finished run must be a line in
-/var/lib/diskmark/history that F9 shows, and a second run stopped with
+/home/user/.local/state/diskmark/history that F9 shows, and a second run stopped with
 Esc must be killed, reaped and leave no files.
 
 THE SIZE AND THE LOCATION: a custom size through its dialog, and a
@@ -268,7 +268,7 @@ def main():
         check("...with the four phases marked", chart[5] == 4, f"{chart[5]} marks")
 
     # THE HISTORY: the finished run is a line in the file, and F9 shows it.
-    hist = con.send("sh cat /var/lib/diskmark/history")
+    hist = con.send("sh cat /home/user/.local/state/diskmark/history")
     rows = [l.split() for l in hist.splitlines() if len(l.split()) == 12 and l.split()[0].isdigit()]
     check("the finished run was added to the history", any(r[1] == "16" for r in rows),
           f"{len(rows)} rows")
@@ -328,7 +328,7 @@ def main():
 
     # THE TEST SIZE: the dropdown's last row, Custom..., opens a dialog
     # bounded by the volume's room; OK sets the size, which survives a
-    # restart (/etc/diskmark.conf). Nothing here RUNS a large size -- a
+    # restart (/home/user/.config/diskmark.conf). Nothing here RUNS a large size -- a
     # GiB is minutes under TCG -- so what is asserted is the choice, the
     # bound and diskbench's own refusal.
     def sizes_said():
@@ -352,7 +352,7 @@ def main():
             con.key("0x0d")                   # Enter: the field, then OK
             said = sizes_said()
             check("3, g, Enter sets 3 GiB", said[-1:] == ["3072"], f"{said[-3:]}")
-            conf = con.send("sh cat /etc/diskmark.conf")
+            conf = con.send("sh cat /home/user/.config/diskmark.conf")
             check("...and it is remembered", "size=3072" in conf, conf.strip()[-60:])
 
             # Over the room: the field refuses it and OK keeps 3 GiB.
@@ -379,7 +379,7 @@ def main():
 
         # Back to the first preset, so no later tool inherits a GiB run.
         choose_size_row(0)
-        conf = con.send("sh cat /etc/diskmark.conf")
+        conf = con.send("sh cat /home/user/.config/diskmark.conf")
         check("the first preset puts it back to 16 MiB", "size=16" in conf, conf.strip()[-60:])
 
     # THE LOCATION: "Choose folder...", the location dropdown's last row,
@@ -411,7 +411,7 @@ def main():
         con.settle()
         chosen = said("diskmark: location ")
         check("...and the folder chosen there is the location", chosen[-1:] == [folder], f"{chosen[-2:]}")
-        conf = con.send("sh cat /etc/diskmark.conf")
+        conf = con.send("sh cat /home/user/.config/diskmark.conf")
         check("...remembered as the newest folder", f"folder1={folder}" in conf and
               f"location={folder}" in conf, conf.strip()[-120:])
 
@@ -441,7 +441,7 @@ def main():
 
         # ...and dropped at the next start, with one in RAM beside it.
         con.send("sh mkdir /tmp/dmram")
-        con.send('sh tosh -c "echo folder2=/tmp/dmram >> /etc/diskmark.conf"')
+        con.append_line("/home/user/.config/diskmark.conf", "folder2=/tmp/dmram")
         con.close_window(TITLE)
         con.open_app(TITLE)
         con.settle()
@@ -453,7 +453,7 @@ def main():
                                                          for d in dropped), f"{dropped[-2:]}")
         check("...and a folder in RAM", any(d.startswith("/tmp/dmram is in memory") for d in dropped),
               f"{dropped[-2:]}")
-        conf = con.send("sh cat /etc/diskmark.conf")
+        conf = con.send("sh cat /home/user/.config/diskmark.conf")
         check("...and the file no longer names them, back on the root volume",
               folder not in conf and "/tmp/dmram" not in conf and
               re.search(r"^location=/\s*$", conf, re.M) is not None,

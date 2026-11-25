@@ -1,7 +1,7 @@
 // open -- start the program that Handles= a file's type, from the
 // shell. The resolver is base/uopen.h (the File Manager's double-click
 // goes through the same one); this program adds the management verbs
-// for the user's override file, which is what makes /etc/mimeapps.conf
+// for the user's override file, which is what makes ~/.config/mimeapps.conf
 // editable without an editor.
 #include "base/uopen.h"
 #include "base/uconf.h"
@@ -9,6 +9,7 @@
 #include "base/cmd.h"
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>   // geteuid
 #include <ctype.h>
 #include <errno.h>
 
@@ -18,12 +19,15 @@ static void lower(char *s) {
 
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "-l") == 0) {
-        // The raw file IS the listing: one ".ext=entry" per line.
-        FILE *f = fopen(UOPEN_CONF, "r");
-        if (!f) { printf("no overrides (%s)\n", UOPEN_CONF); return 0; }
-        char line[96];
-        while (fgets(line, sizeof line, f)) fputs(line, stdout);
-        fclose(f);
+        // The document IS the listing: one ".ext=entry" per line, the
+        // person's over the machine's.
+        struct etc_config_buf doc;
+        if (!uconf_load(UOPEN_CONF, &doc)) {
+            printf("no overrides (%s/%s)\n", geteuid() == 0 ? "/etc" : "~/.config", UOPEN_CONF);
+            return 0;
+        }
+        fwrite(doc.data, 1, doc.size, stdout);
+        etc_config_buf_free(&doc);
         return 0;
     }
 

@@ -970,7 +970,7 @@ int uui_fileview_selected_path(const struct uui_fileview *fv, char *out, int cap
 //
 // Conflating them shipped as a file manager that scrolled itself back
 // to the top every half second in any directory full of images. The
-// loop: decoding a thumbnail WRITES it to /var/cache/thumbnails, which
+// loop: decoding a thumbnail WRITES it to ~/.cache/thumbnails, which
 // bumps sys_fs_generation(), which has files.c's tick reload both
 // panes, which restored the selection, which revealed it. Explorer and
 // Dolphin both keep the offset across a refresh for this reason -- a

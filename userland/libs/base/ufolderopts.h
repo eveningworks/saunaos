@@ -13,12 +13,12 @@ extern "C" {
 // File Manager's Options window edits them (its View, General and Rename
 // and delete pages); the desktop only reads them.
 //
-// STORED IN THE FILE MANAGER'S OWN FILE, /etc/files.conf, under the keys
+// STORED IN THE FILE MANAGER'S OWN FILE, ~/.config/files.conf, under the keys
 // it always had, so nothing moved for an existing install. One table
 // (`ufolderopts_prefs`) for both readers, so they cannot disagree about a
 // key or its default.
 
-#define UFOLDEROPTS_CONF "/etc/files.conf"
+#define UFOLDEROPTS_CONF "files.conf"
 
 struct ufolderopts {
     int single_click;     // a click opens, not a double click

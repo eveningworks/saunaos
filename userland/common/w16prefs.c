@@ -1,6 +1,7 @@
 // w16prefs.c -- the settings table w16 and Retro Launcher
 // share (w16prefs.h).
 #include "common/w16prefs.h"
+#include "base/udatadir.h"
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -108,10 +109,21 @@ void w16_prog_key(const char *exe, char *out, int cap) {
     out[n] = 0;
 }
 
+const char *w16_state_dir(void) {
+    const char *d = udatadir_state_file("win16", "/var/lib/win16");
+    return d ? d : "/var/lib/win16";
+}
+
 static void prog_file(const char *dir, const char *exe, const char *ext, char *out, int cap) {
     char key[W16_PATH_MAX];
     w16_prog_key(exe, key, sizeof key);
-    snprintf(out, (size_t)cap, "%s/%s%s", dir, key, ext);
+    int n = snprintf(out, (size_t)cap, "%s/%s%s", dir, key, ext);
+    if (n < 0 || n >= cap) {
+        static int said;   // W16_PROG_PATH: a cap that stays logs when it bites
+        if (!said++) fprintf(stderr, "w16: %s/%s%s is past %d bytes -- that program's file is not used\n",
+                              dir, key, ext, cap - 1);
+        out[0] = 0;
+    }
 }
 
 void w16_prog_conf(const char *exe, char *out, int cap) { prog_file(W16_PROG_DIR, exe, ".conf", out, cap); }
@@ -184,7 +196,7 @@ void w16_prefs_load(struct w16_prefs *p, const char *exe) {
     memset(p, 0, sizeof *p);
     uprefs_load(&w16_prefs_defaults, p);
     if (exe) {
-        char path[W16_PATH_MAX + 32];
+        char path[W16_PROG_PATH];
         w16_prog_conf(exe, path, sizeof path);
         const struct uprefs own = { path, w16_prefs_keys, w16_prefs_program_keys };
         uprefs_read(&own, p);
@@ -193,7 +205,7 @@ void w16_prefs_load(struct w16_prefs *p, const char *exe) {
 }
 
 unsigned w16_prefs_overridden(const char *exe) {
-    char path[W16_PATH_MAX + 32], v[W16_PATH_MAX];
+    char path[W16_PROG_PATH], v[W16_PATH_MAX];
     w16_prog_conf(exe, path, sizeof path);
     unsigned mask = 0;
     for (int i = 0; i < w16_prefs_program_keys; i++)
@@ -202,9 +214,8 @@ unsigned w16_prefs_overridden(const char *exe) {
 }
 
 int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned mask) {
-    char path[W16_PATH_MAX + 32];
+    char path[W16_PROG_PATH];
     w16_prog_conf(exe, path, sizeof path);
-    mkdir(W16_PROG_DIR, 0755);                   // shipped, but a parent is never assumed
     int ok = 1;
     for (int i = 0; i < w16_prefs_program_keys; i++) {
         if (mask & (1u << i)) {

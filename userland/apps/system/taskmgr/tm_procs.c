@@ -75,7 +75,7 @@ static int g_view = VIEW_GROUPED;
 // is this Task Manager's effective user; System is every account below
 // 1000, the system range of Linux's login.defs (UID_MIN), root today. The
 // rows no process owns (the kernel, the screen) are the system's. The
-// words are what /etc/taskmgr.conf keeps.
+// words are what ~/.config/taskmgr.conf keeps.
 static const char *const SHOW_WORDS[TM_SHOWS] = { "all", "mine", "system" };
 #define UID_FIRST_PERSON 1000
 static int g_show = TM_SHOW_ALL;
@@ -148,7 +148,7 @@ enum { COL_NAME = 0, COL_PID, COL_STATUS, COL_USER, COL_CPU, COL_PRIVATE, COL_SH
 // The machine's totals are the status bar's, not the headers': a title
 // that grows a digit when the load does is clipped by the sort arrow.
 // Columns are CHOSEN (right-click the header) and MOVED (drag one), and
-// the layout is kept in /etc/taskmgr.conf by these ids -- so an id is
+// the layout is kept in ~/.config/taskmgr.conf by these ids -- so an id is
 // never renamed, and a new column takes a new one.
 static const struct uui_table_column COLUMNS[] = {
     { "Name",   0, UUI_TALIGN_LEFT, "name", UUI_TCOL_LOCKED },
@@ -744,7 +744,7 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
 // only on the release (or a key). Acting on every report sent each
 // signal three or four times.
 // The Processes table's columns, as the header's menu and a drag left
-// them -- /etc/taskmgr.conf's `columns`, ids in order (uui_table.h).
+// them -- ~/.config/taskmgr.conf's `columns`, ids in order (uui_table.h).
 static void save_columns(void) {
     char layout[256];
     if (!uui_table_columns_save(&g_table, layout, sizeof layout)) return;

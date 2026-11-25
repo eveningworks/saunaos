@@ -8,7 +8,7 @@ extern "C" {
 // THE PERSONAL FOLDERS -- Desktop, Documents, Music, Pictures, Videos,
 // Downloads and Screenshots -- asked for BY NAME, never by path: XDG's
 // user-dirs (`xdg-user-dir MUSIC`) and Windows' Known Folders. Each is
-// <home>/<Name> unless /etc/user-dirs.conf says otherwise
+// <home>/<Name> unless ~/.config/user-dirs.conf says otherwise
 // (`MUSIC=/home/user/Audio`, one line per folder; XDG's own file is
 // `XDG_MUSIC_DIR="$HOME/Music"`, read here without the decoration).
 //
@@ -21,7 +21,7 @@ enum udir {
     UDIR_COUNT
 };
 
-#define UDIRS_CONF "/etc/user-dirs.conf"
+#define UDIRS_CONF "user-dirs.conf"
 
 // THE PERSON'S HOME -- what a path that used to be spelled "/home" means
 // (users stage D1, docs/users-design.md): $HOME when it names a folder

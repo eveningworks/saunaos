@@ -26,7 +26,7 @@ file is involved.
 4. **INI files, both ways**: gdi.exe draws a magenta square only when
    GDITEST.INI (written here first, in drive C:'s WINDOWS folder) says
    Square=1, and writes Written=yes to it itself.
-5. **A program's own settings** (/etc/win16/<program>.conf, w16prefs.h):
+5. **A program's own settings** (/home/user/.config/win16/<program>.conf, w16prefs.h):
    scale=2 opens gdi.exe at exactly twice its size, scale=1.5 at exactly
    1.5 times with method=pixels leaving only pure colours across an edge
    and method=smooth blending them, and frame=desktop gives hello.exe
@@ -53,7 +53,7 @@ file is involved.
    I-beam over the text, an arrow over the scroll bar, and dragging the
    thumb onto the text keeps the arrow until the button is let go.
 10. **Drives and folders**: drive D: mapped to /home/user/w16d gets hello.exe's
-   D:\\HELLO.TXT; nine folders in /etc/win16.conf make ten sidebar rows (the
+   D:\\HELLO.TXT; nine folders in /home/user/.config/win16.conf make ten sidebar rows (the
    list had room for eight); a folder's right-click Move down is saved.
 11. **From the File Manager** (`retrolauncher FILE`, `--details`, the desktop
    entry's actions): hello.exe runs at once, fault.exe (a call missing)
@@ -212,12 +212,12 @@ from harness import Results, poll  # noqa: E402
 GDI_TITLE = "GDI test (Win16)"
 HELLO_TITLE = "Hello (Win16)"
 INI = "/home/user/Win16/WINDOWS/GDITEST.INI"
-GDI_CONF = "/etc/win16/usr_share_w16_gdi.exe.conf"
+GDI_CONF = "/home/user/.config/win16/usr_share_w16_gdi.exe.conf"
 POPUP_TITLE = "Popup test"
 FULLSCR_TITLE = "Fullscreen test"
 FULLSCR_INI = "/home/user/Win16/WINDOWS/FULLSCR.INI"
-HELLO_CONF = "/etc/win16/usr_share_w16_hello.exe.conf"
-LAST = "/var/lib/win16/usr_share_w16_{}.exe.last"   # what the launcher's "Last run" reads
+HELLO_CONF = "/home/user/.config/win16/usr_share_w16_hello.exe.conf"
+LAST = "/home/user/.local/state/win16/usr_share_w16_{}.exe.last"   # what the launcher's "Last run" reads
 FAULT_TITLE = "Fault (Win16)"
 FRAME, CAPTION = 4, 19     # userland/utils/w16/w16_internal.h's W16_FRAME, W16_CAPTION
 
@@ -365,7 +365,7 @@ def hard_truetype(dbg, res):
     was = sh(dbg, f"cat {WIN16_CONF}")
     sh(dbg, f"append {WIN16_CONF} truetype=hard")
     sh(dbg, "rm /home/user/Win16/WINDOWS/W16PROBE.INI")
-    sh(dbg, "w16 /usr/share/w16/w16probe.exe")
+    dbg.as_user("w16 /usr/share/w16/w16probe.exe")   # the person's win16.conf: root reads /etc's alone
     got = dict(re.findall(r"(\w+)=([0-9A-F]+)", sh(dbg, "cat /home/user/Win16/WINDOWS/W16PROBE.INI")))
     res.check("truetype=hard: an Arial letter's pixels are each black or white, none grey", got.get("Grey") == "0000", got)
     lines = [ln for ln in was.splitlines() if "=" in ln or ln.startswith("[")] if "No such" not in was else []
@@ -829,7 +829,7 @@ def capture_cursor(dbg, qmp, res):
     dbg.close_window(HELLO_TITLE)
 
 
-WIN16_CONF = "/etc/win16.conf"
+WIN16_CONF = "/home/user/.config/win16.conf"
 
 
 def layout_lines(dbg, prefix, ok, timeout=6.0):
@@ -2722,7 +2722,7 @@ def open_dialog(dbg, res):
 # --- The Retro Launcher round (2026-11-01): missing calls answered 0 by choice, Run with trace, its INI
 # file, a drive's Type and Label, CD-ROM drives in the sidebar ------------------------------------------
 
-FAULT_CONF = "/etc/win16/usr_share_w16_fault.exe.conf"
+FAULT_CONF = "/home/user/.config/win16/usr_share_w16_fault.exe.conf"
 FAULT_INI = "/home/user/Win16/WINDOWS/FAULT.INI"
 CD_ROOT = "/home/user/W16CD"
 OPTIONS_TITLE = "Retro Launcher Options"
@@ -2824,7 +2824,7 @@ def panel_overflow(res, lines, what):
 
 
 def retro_round(dbg, qmp, res):
-    for f in (LAST.format("fault"), "/var/lib/win16/usr_share_w16_fault.exe.trace", FAULT_CONF, FAULT_INI,
+    for f in (LAST.format("fault"), "/home/user/.local/state/win16/usr_share_w16_fault.exe.trace", FAULT_CONF, FAULT_INI,
               WIN16_CONF):
         sh(dbg, f"rm {f}")
 
@@ -2906,10 +2906,10 @@ def retro_round(dbg, qmp, res):
             dbg.click(c["x"] + items[1][0] + items[1][2] // 2, c["y"] + items[1][1] + items[1][3] // 2)
             stopped = fault_stops(dbg)
             last = last_of(dbg, "fault")
-            trace = sh(dbg, "cat /var/lib/win16/usr_share_w16_fault.exe.trace")
+            trace = sh(dbg, "cat /home/user/.local/state/win16/usr_share_w16_fault.exe.trace")
             res.check("Run with trace writes the trace and the record names it and the call that stopped it",
                       stopped and "missing USER.200 OpenComm" in last and
-                      "trace /var/lib/win16/usr_share_w16_fault.exe.trace" in last and "USER.200" in trace,
+                      "trace /home/user/.local/state/win16/usr_share_w16_fault.exe.trace" in last and "USER.200" in trace,
                       f"stopped {stopped}, the record {last!r}, trace {trace[:120]!r}")
             dbg.logs("retrolauncher:", clear=True)
             dbg.send("gui resize 1200 640")
@@ -3218,6 +3218,9 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
+    # The programs' own files' folder, which w16 makes only at a first save;
+    # made as the desktop's account, so the app can still write in it.
+    dbg.as_user("mkdir -p /home/user/.config/win16")
     checks = [("gdi_checks", None), ("fault", lambda: fault(dbg, res)), ("settings", lambda: settings(dbg, qmp, res)),
               ("screen_effect", lambda: screen_effect(dbg, qmp, res)),
               ("launcher", lambda: launcher(dbg, res)), ("calls", lambda: calls(dbg, res)),

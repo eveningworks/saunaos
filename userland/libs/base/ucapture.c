@@ -4,11 +4,14 @@
 #include <stdlib.h>
 #include "rt/sys.h"
 
+extern char **environ;
+
 char *ucapture(const char *bin, char *const argv[]) {
     int fds[2];
     if (sys_pipe(fds) < 0) return 0;
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
+    o.env = environ;   // NULL is an EMPTY environment: no XDG folders, no person's settings
     o.argv = (char **)argv;
     o.stdout_fd = fds[1];
     o.stderr_fd = SPAWN_FD_LOG;

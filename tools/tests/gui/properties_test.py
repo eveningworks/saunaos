@@ -12,7 +12,7 @@ WHAT IT CHECKS, and what a broken version would still pass:
   - clearing Others > Read changes the file's mode as `stat` -- an
     independent reader -- sees it;
   - Compute SHA-256 yields the digest `sum -a sha256` prints for the file;
-  - choosing another app under Opens with writes /etc/mimeapps.conf;
+  - choosing another app under Opens with writes /home/user/.config/mimeapps.conf;
   - typing a new name and Enter renames the file (`ls` sees it) and the
     window's title follows;
   - a folder's Contains settles on the true recursive count.
@@ -211,7 +211,7 @@ def main():
     check("...with the compare field still shown after Compute, no scroll needed",
           "compare" in lay.rect, f"rects={sorted(lay.rect)}")
 
-    # Opens with: the next app in the list, into /etc/mimeapps.conf.
+    # Opens with: the next app in the list, into /home/user/.config/mimeapps.conf.
     lay = toggle(dbg, win, lay, "Checksum", 0)
     lay = toggle(dbg, win, lay, "Opens with", 1)
     lay = wait(dbg, lay, lambda l: "opens" in l.rect)
@@ -221,11 +221,11 @@ def main():
         dbg.key(K_DOWN)
         dbg.key(K_ENTER)
     lay = wait(dbg, lay, lambda l: l.rows.get("Opens with") != was_opens, 4.0)
-    conf = dbg.send("sh cat /etc/mimeapps.conf")
-    check("choosing another app writes /etc/mimeapps.conf",
+    conf = dbg.send("sh cat /home/user/.config/mimeapps.conf")
+    check("choosing another app writes /home/user/.config/mimeapps.conf",
           lay.rows.get("Opens with") != was_opens and re.search(r"^\.jpg=\S+", conf, re.M) is not None,
           f"opens {was_opens} -> {lay.rows.get('Opens with')}; conf: {conf.strip()[-160:]}")
-    dbg.send("sh open -s .jpg imgview")   # put the type back
+    dbg.as_user("open -s .jpg imgview")   # put the type back, in the person's file
 
     # Rename.
     lay = toggle(dbg, win, lay, "Opens with", 0)

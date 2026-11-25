@@ -156,6 +156,7 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
+    dbg.as_user(f"mkdir -p {SAVER_CONF}")   # made by a first save; the fixtures come first
     _QMP[0] = qmp
     if not pin_wallpaper(dbg):   # the probes were calibrated on aurora's colours (gui_debug.pin_wallpaper)
         print("screensaver_test: could not show the aurora wallpaper")
@@ -322,11 +323,11 @@ def main():
     return report()
 
 
-SAVER_CONF = "/etc/savers"
+SAVER_CONF = "/home/user/.config/savers"   # the person's (base/usaver.h)
 
 
 def write_conf(dbg, saver, values):
-    """Put `values` in /etc/savers/<saver>.conf, replacing what is there.
+    """Put `values` in /home/user/.config/savers/<saver>.conf, replacing what is there.
 
     Through `tosh -c` and its redirection, which is the only writer a
     test outside the guest has: the kernel shell has no `>` and these

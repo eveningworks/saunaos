@@ -923,7 +923,7 @@ static void arrange_reload(void) {
     wm_damage_rect(0, 0, screen_w, screen_h);
 }
 
-// The File Manager's Folder Options (/etc/files.conf), read again when /etc
+// The File Manager's Folder Options (~/.config/files.conf), read again when /etc
 // changes. Each option undoes only what it decides.
 static void folder_opts_reload(int first) {
     struct ufolderopts was = g_fo;

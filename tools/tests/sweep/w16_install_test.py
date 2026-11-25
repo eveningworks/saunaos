@@ -198,7 +198,7 @@ def dialog(g):
         g.sh("guictl click %d %d" % nxt)
     done = wait_log(g, r"wininstall: (done|FAILED|STOPPED)", None, 90)
     check("Install runs to Done", done == "done", str(done))
-    folders = g.sh("cat /etc/win16.conf")
+    folders = g.sh("cat /home/user/.config/win16.conf")
     check("Retro Launcher's folders gain C:\\WINDOWS as Windows",
           re.search(r"folder(\d+)=/home/user/Win16/WINDOWS\n(?:.*\n)*?folder\1_name=Windows", folders) is not None,
           folders[-300:])

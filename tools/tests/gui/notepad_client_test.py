@@ -1064,7 +1064,7 @@ def utf8_checks(dbg, qmp, tmp, res):
 
 SECOND_CLOSE_FILE = "/tmp/np_second_close.txt"
 SECOND_CLOSE_B = "/tmp/np_second_b.txt"   # tab 2, saved by FULL PATH in the chooser
-NOTEPAD_SESSION = "/var/lib/notepad/session"
+NOTEPAD_SESSION = "/home/user/.local/state/notepad/session"
 
 
 def tabs_now(dbg):

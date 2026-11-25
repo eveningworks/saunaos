@@ -1,5 +1,6 @@
 // Live wallpapers -- see ui/ulivewall.h.
 #include "ui/ulivewall.h"
+#include "base/uconf.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -428,7 +429,7 @@ static int on_tick(struct uapp *a) {
     // AFTER A PAUSE (the compositor withholds the timer while the
     // desktop is covered) carry on from where it stopped, not jump.
     if (dt > 250) dt = 250;
-    long long gen = sys_fs_generation_of(g_conf);
+    long long gen = uconf_generation(g_conf);
     if (gen != g_conf_gen) {
         g_conf_gen = gen;
         ulivewall_reload(&g_wall, g_name);
@@ -449,7 +450,7 @@ int ulivewall_main(const char *name) {
         return 1;
     }
     ulivewall_conf_path(name, g_conf, sizeof g_conf);
-    g_conf_gen = sys_fs_generation_of(g_conf);
+    g_conf_gen = uconf_generation(g_conf);
     // A SMALL FIRST WINDOW: the compositor proposes the screen's size at
     // once, and this is what it would otherwise allocate twice.
     struct uapp_desc desc = {

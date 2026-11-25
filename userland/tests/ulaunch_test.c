@@ -1,7 +1,7 @@
 // base/ulaunch.h: what a file is to a double-click -- programs, an app,
 // a library, scripts with and without their interpreter or an execute
 // bit, a document -- then the argv per act, the execute bit set, and the
-// policy's round trip through /etc/mimeapps.conf.
+// policy's round trip through ~/.config/mimeapps.conf.
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>

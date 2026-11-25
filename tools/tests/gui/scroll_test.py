@@ -192,8 +192,7 @@ def main():
         dbg.send(f"sh mkdir {FOLDER}")
         for i in range(PROGRAMS):
             dbg.send(f"sh cp /usr/share/w16/hello.exe {FOLDER}/p{i:02d}.exe")
-        dbg.send("sh write /etc/win16.conf folders=1")
-        dbg.send(f"sh append /etc/win16.conf folder1={FOLDER}")
+        dbg.write_lines("/home/user/.config/win16.conf", ["folders=1", f"folder1={FOLDER}"])
         win = dbg.spawn("/bin/wm/apps/retrolauncher", "Retro Launcher")
         if res.check("the Retro Launcher opens", win is not None, "no window"):
             time.sleep(15)       # programs are examined a few a tick

@@ -39,6 +39,8 @@
 #include "common/w16prefs.h"
 #include "base/udirs.h"
 
+extern char **environ;
+
 #define W16_FILE_MAX (16u << 20)   // NE files are at most a few MiB
 
 static int g_info, g_check, g_fonts, g_sounds;
@@ -444,7 +446,7 @@ static int maximized(void) {
 // "... stopped <the fault's headline>", then the call it lacked, each call answered 0 and the trace
 // written (w16prefs.h).
 static void record_last(const char *what, const char *missing) {
-    char path[W16_PATH_MAX + 32];
+    char path[W16_PROG_PATH];
     w16_prog_last(g_exe, path, sizeof path);
     FILE *f = fopen(path, "w");
     if (!f) return;
@@ -1509,6 +1511,7 @@ static void start_help_broker(void) {
     if (sys_pipe(back) != 0) { close(fds[0]); close(fds[1]); return; }
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
+    o.env = environ;   // NULL is an EMPTY environment: no XDG folders, no person's settings
     char *argv[] = { (char *)"/bin/hlpbroker", NULL };
     o.argv = argv;
     o.stdin_fd = fds[0];
@@ -1689,7 +1692,7 @@ int main(int argc, char **argv) {
         mkdirs(g_w16_drive_c);
         mkdirs(W16_STATE_DIR);
         mount_discs();
-        static char trace[W16_PATH_MAX + 32];
+        static char trace[W16_PROG_PATH];
         if (!g_trace_path && g_w16_prefs.trace) {
             w16_trace_path(g_exe, trace, sizeof trace);
             g_trace_path = trace;

@@ -32,7 +32,7 @@ extern "C" {
 
 #define LIVEWALL_DIR       "/bin/wm/wallpapers"
 #define LIVEWALL_DESC_DIR  "/usr/wm/wallpapers"
-#define LIVEWALL_CONF_DIR  "/etc/wallpapers"
+#define LIVEWALL_CONF_DIR  "wallpapers"
 #define LIVEWALL_DEFAULT   "aurora"
 // ANIMATED PICTURES are live wallpapers too: `desktop.wallpaper.live`
 // lists this directory's GIFs beside the effects, and the player plays

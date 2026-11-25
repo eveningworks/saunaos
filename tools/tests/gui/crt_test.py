@@ -13,7 +13,7 @@ WHAT IT CHECKS, and what a broken version would still pass:
     not enough; a second Ctrl+Shift+E makes the band plain again;
   - Options > Screen effect > the Curved card > OK: the window turns
     curved, the grid's corner is BEZEL (dark, neutral, not the page),
-    and /etc/terminal.conf says so, read back with `cat` rather than
+    and /home/user/.config/terminal.conf says so, read back with `cat` rather than
     believed;
   - under that curve, a double-click on where the banner's first word
     APPEARS selects exactly that word (4 bytes). Where it appears comes
@@ -127,7 +127,7 @@ def main():
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
     print("Terminal screen effect (userland/libs/ui/ucrt.c)")
-    dbg.send("sh rm /etc/terminal.conf")
+    dbg.send("sh rm /home/user/.config/terminal.conf")
     dbg.logs("", clear=True)
     if not dbg.spawn(SPAWN, TITLE):
         check("the Terminal opens", False)
@@ -210,8 +210,8 @@ def main():
     check("OK on the Curved card turns this window curved",
           field(dbg, "effect") == 1 and field(dbg, "curve") == 3,   # UCRT_CURVE_STRONG: off, slight, subtle, strong
           f"effect {field(dbg, 'effect')} curve {field(dbg, 'curve')}")
-    conf = dbg.send("sh cat /etc/terminal.conf") or ""
-    check("...and /etc/terminal.conf says so", "effect=on" in conf and "crt_curve=strong" in conf,
+    conf = dbg.send("sh cat /home/user/.config/terminal.conf") or ""
+    check("...and /home/user/.config/terminal.conf says so", "effect=on" in conf and "crt_curve=strong" in conf,
           conf.strip().replace("\n", " ")[-160:])
     gx, gy, gw, gh = grid_rect(dbg)
     im = shot(qmp, args.tmp, "curved")
@@ -234,7 +234,7 @@ def main():
           f"selbytes {got}")
 
     dbg.key("0x05", mods="shift")          # leave the window plain
-    dbg.send("sh rm /etc/terminal.conf")
+    dbg.send("sh rm /home/user/.config/terminal.conf")
     w = dbg.window(TITLE)
     if w:
         dbg.send(f"gui close {w['z']}")

@@ -40,9 +40,9 @@ import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
 
 FILES_EXEC = "/bin/wm/apps/files"
-FILES_CONF = "/etc/files.conf"
+FILES_CONF = "/home/user/.config/files.conf"
 ICON_DIR = "/usr/share/icons"
-THUMB_CACHE = "/var/cache/thumbnails"
+THUMB_CACHE = "/home/user/.cache/thumbnails"
 # REAL STORAGE, not /tmp: this fixture is about mtimes on disk
 # (docs/filesystem-layout.md).
 STALE_DIR = "/var/tmp/thumbstale"
@@ -91,7 +91,7 @@ def wait_drain(dbg, seen, after, timeout=45.0):
 def open_icons_on(dbg, path):
     """A FRESH File Manager showing `path` in the icons view.
 
-    The view mode is REMEMBERED per pane (/etc/files.conf), so a tool
+    The view mode is REMEMBERED per pane (/home/user/.config/files.conf), so a tool
     that inherited whatever the last session left would thumbnail
     nothing at all in details view and report that as a broken cache.
     Removing the file is how this establishes its own precondition --
@@ -194,7 +194,7 @@ def run(dbg, res):
               "none-cached means it ignores the cache entirely")
 
     # PUT THE MACHINE BACK. This tool opens a File Manager four times and
-    # removes /etc/files.conf to get a known view mode, and BOTH outlive
+    # removes /home/user/.config/files.conf to get a known view mode, and BOTH outlive
     # it: run straight afterwards, imgview_test went from 20/20 to 9/11,
     # failing on pixels with this tool's windows still on the desktop.
     # A tool that leaves the machine changed breaks whatever runs next

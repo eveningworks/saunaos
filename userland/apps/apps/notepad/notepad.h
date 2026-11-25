@@ -1,15 +1,17 @@
 #ifndef NOTEPAD_H
 #define NOTEPAD_H
 
+#include "base/udatadir.h"   // NOTEPAD_RECENT, NOTEPAD_SESSION
+
 // Notepad's own pieces outside the app file: its options (np_conf.c),
 // their window (np_prefs.c), and the state it keeps between runs.
 
 struct uapp;
 
-#define NOTEPAD_CONF        "/etc/notepad.conf"
-#define NOTEPAD_STATE_DIR   "/var/lib/notepad"
-#define NOTEPAD_RECENT      "/var/lib/notepad/recent"    // one path a line, newest first
-#define NOTEPAD_SESSION     "/var/lib/notepad/session"   // the tabs open at the last exit
+#define NOTEPAD_CONF        "notepad.conf"
+// The person's state (users stage D1c, base/udatadir.h); root's is /var/lib.
+#define NOTEPAD_RECENT      udatadir_state_file("notepad/recent", "/var/lib/notepad/recent")    // one path a line, newest first
+#define NOTEPAD_SESSION     udatadir_state_file("notepad/session", "/var/lib/notepad/session")   // the tabs open at the last exit
 
 #define NP_FONT_MIN    8
 #define NP_FONT_MAX    40
@@ -42,7 +44,7 @@ struct np_conf {
     int confirm_close;   // closing the window with several tabs asks
 };
 
-// The table behind /etc/notepad.conf, which notepad.ui's Options rows bind to.
+// The table behind ~/.config/notepad.conf, which notepad.ui's Options rows bind to.
 struct uprefs;
 extern const struct uprefs np_conf_prefs;
 void np_conf_defaults(struct np_conf *c);

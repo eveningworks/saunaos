@@ -518,7 +518,7 @@ whenever a headline here tells you something you did not already know.
 - **A TITLE COMES FROM THE SHELL, AS AN OSC**
 - **TERMINAL IS A TERMINAL EMULATOR, NOT A SHELL WITH A WINDOW**
 - **AN APP'S OWN PREFERENCES ARE THE APP'S, NOT THE SETTINGS REGISTRY'S
-  -- `/etc/terminal.conf` IS THE FIRST, A COLOUR SCHEME IS A DATA FILE,
+  -- `~/.config/terminal.conf` IS THE FIRST, A COLOUR SCHEME IS A DATA FILE,
   THE FILE IS IN ANSI ORDER WHILE A CELL HOLDS A VGA INDEX, AND THE
   GRID'S FONT IS THE TERMINAL'S WHILE THE CHROME'S IS THE DESKTOP'S**
 - **THE TERMINAL'S SCREEN IS A GRID, AND THE ANSI PARSER IS THE KERNEL'S
@@ -715,7 +715,7 @@ whenever a headline here tells you something you did not already know.
 - **AN EFFECT THAT PAINTS SOMETHING OTHER THAN ITS LERPED RECT MUST
   DAMAGE THE WHOLE TRAVEL.**
 - **AN EFFECT'S OWN OPTIONS ARE A DESCRIPTOR, THE WAY A SCREENSAVER'S
-  ARE** -- `/usr/wm/effects/<name>.effect`, `/etc/effects/<name>.conf`.
+  ARE** -- `/usr/wm/effects/<name>.effect`, `~/.config/effects/<name>.conf`.
 - **AN EFFECT'S OPTIONS OPEN IN A DIALOG; A SAVER'S STAY ON ITS PAGE.**
 - **ONE `g_saver` SERVES WHICHEVER PAGE HAS AN OWNER, so a page without
   one must CLEAR it.**
@@ -897,7 +897,7 @@ whenever a headline here tells you something you did not already know.
 - **PROPERTIES IS A PROCESS, `/bin/wm/apps/properties`, and a folder's
   total is walked a few directories per tick**
 - **WHAT OPENS A FILE TYPE IS DECLARED BY THE APP THAT OPENS IT
-  (`Handles=`), AND `/etc/mimeapps.conf` OUTRANKS IT**
+  (`Handles=`), AND `~/.config/mimeapps.conf` OUTRANKS IT**
 - **A PROGRAM OR SCRIPT IS RUN THROUGH `base/ulaunch.h`, NEVER SPAWNED
   BY AN OPENER BY HAND**
 - **A TITLE-BAR BUTTON IS A DISC, AND EVERY GLYPH CENTRES ON THE SAME
@@ -1135,6 +1135,8 @@ whenever a headline here tells you something you did not already know.
 - **REMOVING A FILESYSTEM BACKEND SILENTLY REFORMATS EVERY DISK IN THAT
   FORMAT**
 - **`/etc` on the persistent filesystem is the config-file convention.**
+- **AN APP'S OWN FILE IS NAMED BY ITS BARE NAME, AND A PERSON'S STATE
+  BY `base/udatadir.h` -- NEVER AN `/etc` OR `/var/lib` PATH**
 - **A RESOLVED PATH IS CACHED, AND `ncache_flush()` IS WHAT INVALIDATES
   IT**
 - **`sync` IS `fs_sync()`, IT FLUSHES EVERY MOUNT, AND ZERO SECTORS IS

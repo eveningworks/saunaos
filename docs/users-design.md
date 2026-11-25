@@ -1,6 +1,6 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25 and D1 building.** The maintainer
+**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 next.** The maintainer
 picked the shape on 2026-11-23: four stages, stage A first, a ROOT
 BROKER for elevation (no setuid bits), ONE user account before several.
 Roadmap: "Multi-user & file permissions".
@@ -329,7 +329,7 @@ speed, the keyboard layout) at logon from HKCU.
   a prompt for the seat's own account.
 - No reader exists before D2's login screen, so D1 builds none of it.
 
-**D1 -- a home each, and the settings split.** D1a, the home, and D1b, `Scope=`, BUILT 2026-11-25; D1c (the apps' own files) next:
+**D1 -- a home each, and the settings split.** D1a, the home, D1b, `Scope=`, and D1c, the apps' own files and state, all BUILT 2026-11-25:
 
 - **`/home/<name>`.** The account's home is `/home/user`, not `/home`;
   `/home` itself becomes root's 0755, Linux's shape. `XDG_CONFIG_HOME`,
@@ -382,6 +382,33 @@ speed, the keyboard layout) at logon from HKCU.
   dir). What describes the MACHINE stays in `/etc`: `net.conf`,
   `resolv.conf`, `remote.conf`, `mounts.d`, `display.conf`,
   `devices.conf`, the services and the shipped data.
+- **As built (D1c):** an app names its own file by its BARE NAME --
+  `"notepad.conf"`, `"savers/starfield.conf"` -- and `uconf_load()`,
+  `uconf_get*()` and `uconf_set*()` take it where they take a path,
+  KConfig's `openConfig("notepadrc")` shape: a read merges the person's
+  keys over `/etc/<name>`'s, key by key and section by section (KDE's
+  cascade over `/etc/xdg`), a write goes to `~/.config/<name>` alone with
+  its folders made, and root -- no person's layer -- uses `/etc`'s. An
+  unset of a key `/etc` also has leaves a TOMBSTONE in the person's file,
+  `<key>[$d]=1` (KConfig's deletion mark), so a "forget" does not bring
+  the machine's value back; a set removes it. A LINE-LIST file (`places.conf`) is whole-file:
+  `uconf_own_read_path()` answers the person's file if it exists, else
+  `/etc`'s, and `uconf_own_write_path()` the person's. A file name built
+  at run time is a bare name too (`savers/`, `effects/`, `wallpapers/`,
+  `win16/<program>.conf`), and the compositor watches `~/.config` and
+  `~/.config/effects` beside `/etc` and `/etc/effects`. PER-PERSON STATE
+  left `/var/lib` for the XDG folders through `base/udatadir.h`, root
+  keeping the `/var` path: `recent`, Notepad's `recent` and `session`,
+  Mines' best times, Disk Mark's history, w16's per-program records and
+  `tosh_history` in `~/.local/state`; the Web Browser's bookmarks,
+  history, permissions and cookie jar in `~/.local/share/browser` (data,
+  not state, by XDG's test: they are worth a backup); the thumbnails in
+  `~/.cache/thumbnails`, the freedesktop spec's place. The machine's
+  state stays: `update/`, `owners`, `fbs/`, `netheal`, `logd.seq`.
+  `soundd`'s per-app volumes (`/etc/sound.conf`) stay the machine's while
+  soundd is a root service, as `display.scale` does with fontd. No
+  migration: a disk from before D1c keeps its `/etc/<app>.conf` files as
+  the machine's defaults, and the ASUS's were moved by hand.
 - **What stays machine-scoped in D1, though a person's elsewhere:**
   `display.scale` (`fontd`, root, renders for the screen; GNOME and
   Windows keep it per person, and D3 moves it with fontd into the

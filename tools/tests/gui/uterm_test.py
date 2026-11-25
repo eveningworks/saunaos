@@ -1938,20 +1938,14 @@ def prefs_checks(dbg, qmp, tmp, win, res):
         dbg.settle()
         time.sleep(1.0)
 
-        # Through tosh, because the `#` shell has no redirection of its
-        # own; the kernel splits this string by tosh's quoting rules
-        # (docs/conventions/shell.md).
-        #
-        # **POLLED FOR ITS CONTENT, not slept on.** The spawn returns
-        # before the child has written, so a fixed pause reads an EMPTY
-        # file perfectly happily -- and the window opened next then
-        # takes the default scheme.
-        dbg.send('sh spawn /bin/tosh -c "echo scheme=green > /etc/terminal.conf"')
+        # As the desktop's account (write_lines()), whose ~/.config the
+        # Terminal reads; polled for its content below all the same.
+        dbg.write_lines("/home/user/.config/terminal.conf", ["scheme=green"])
         dbg.settle()
         conf = ""
         deadline = time.time() + 10
         while time.time() < deadline:
-            conf = dbg.send("sh cat /etc/terminal.conf") or ""
+            conf = dbg.send("sh cat /home/user/.config/terminal.conf") or ""
             if "scheme=green" in conf:
                 break
             time.sleep(0.4)
@@ -1968,7 +1962,7 @@ def prefs_checks(dbg, qmp, tmp, win, res):
             if not fresh:
                 time.sleep(0.3)
         if not fresh:
-            res.check("p4. a scheme in /etc/terminal.conf reaches the grid",
+            res.check("p4. a scheme in /home/user/.config/terminal.conf reaches the grid",
                       False, "no Terminal window came back after the spawn")
             return
         dbg.settle()
@@ -1979,7 +1973,7 @@ def prefs_checks(dbg, qmp, tmp, win, res):
         top = layout_field(dbg, "chrome", 4)
         probe = (fc["x"] + fc["w"] // 2, fc["y"] + top + fc["h"] // 2)
         now_grid, now_desk = pixels("ut_scheme_after.png")
-        res.check("p4. a scheme in /etc/terminal.conf reaches the grid",
+        res.check("p4. a scheme in /home/user/.config/terminal.conf reaches the grid",
                   now_grid == (0, 27, 0),
                   f"grid was {was_grid}, now {now_grid} -- wanted green.scheme's "
                   "#001b00 background")
@@ -1993,7 +1987,7 @@ def prefs_checks(dbg, qmp, tmp, win, res):
         # later tool -- the trap CLAUDE.md records for settings_test, and
         # one this check hit for real (a stale font_size reddened the
         # reverse-video assertion three sections earlier).
-        dbg.send("sh rm /etc/terminal.conf")
+        dbg.send("sh rm /home/user/.config/terminal.conf")
         dbg.settle()
         dbg.key("f4", mods="alt")
         dbg.settle()

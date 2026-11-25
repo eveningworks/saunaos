@@ -1,4 +1,4 @@
-// thumb -- make thumbnails in the shared cache, /var/cache/thumbnails.
+// thumb -- make thumbnails in the person's cache, ~/.cache/thumbnails.
 //
 // THE DESKTOP'S THUMBNAILER. The desktop is drawn by the compositor,
 // which must never run a picture or video decoder on someone else's
@@ -27,7 +27,7 @@ static const struct uargs_opt OPTS[] = {
 static const struct uargs_prog PROG = {
     .name = "thumb",
     .usage = "[-s PX] [-q] FILE...",
-    .summary = "Make each FILE's thumbnail in /var/cache/thumbnails, or confirm the one\n"
+    .summary = "Make each FILE's thumbnail in ~/.cache/thumbnails, or confirm the one\n"
                "there is newer than the file. Pictures (QOI, PNG, JPEG, BMP, GIF) and videos.",
     .opts = OPTS,
     .notes = "Exit status: 0 every FILE has one, 1 some FILE is not a picture or a video,\n"

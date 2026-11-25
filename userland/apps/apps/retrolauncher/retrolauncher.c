@@ -214,7 +214,7 @@ static void prog_free(struct prog *p) {
 // Its last-run record (w16prefs.h): how it ended, then the call it lacked, the calls answered 0 and the
 // trace written, a line each.
 static void read_last(struct prog *p) {
-    char path[W16_PATH_MAX + 32];
+    char path[W16_PROG_PATH];
     w16_prog_last(p->path, path, sizeof path);
     p->last = 0;
     free(p->stop_call); p->stop_call = 0;
@@ -539,7 +539,7 @@ static const struct uui_table_column COLS[COL_COUNT] = {
     { "Description", 30, UUI_TALIGN_LEFT,  "description", UUI_TCOL_HIDDEN },
 };
 
-#define LAUNCHER_CONF "/etc/retrolauncher.conf"
+#define LAUNCHER_CONF "retrolauncher.conf"
 static int g_details;                        // the Details view is showing, not the icons
 static int g_sort = COL_NAME, g_sort_desc;   // the order both views show
 static int g_nfolder_progs;                  // what the folder choice offered, before the search
@@ -700,7 +700,7 @@ static void log_list(const char *why) {
     ulogf("retrolauncher: %s\n", line);
 }
 
-// How the list is shown and ordered, kept for the next time (/etc/retrolauncher.conf).
+// How the list is shown and ordered, kept for the next time (~/.config/retrolauncher.conf).
 static void save_state(void) {
     char cols[200];
     uconf_set(LAUNCHER_CONF, "view", g_details ? "details" : "icons");
@@ -1107,7 +1107,7 @@ static void run_as(const char *path, int how) {
     if (!path) return;
     static const char *const HOW[] = { "", " with trace", " skipping missing calls" };
     ulogf("retrolauncher: run %s%s\n", file_name(path), HOW[how]);
-    char trace[W16_PATH_MAX + 32];
+    char trace[W16_PROG_PATH];
     char *args[5] = { "w16", 0 };
     int n = 1;
     if (how == RUN_TRACE) {
@@ -2831,7 +2831,12 @@ static void default_size(int *w, int *h) {
 // Asks the launcher -- the one open, or the one about to open -- to show
 // `path`: a file it reads when it opens and whenever it gets the focus,
 // since a second copy of it only raises the first (UAPP_SINGLE_INSTANCE).
-#define SHOW_FILE W16_STATE_DIR "/show"
+static const char *show_file(void) {
+    static char *f;
+    if (!f && asprintf(&f, "%s/show", W16_STATE_DIR) < 0) f = 0;
+    return f ? f : "/nonexistent";
+}
+#define SHOW_FILE show_file()
 static void request_show(const char *path) {
     mkdir(W16_STATE_DIR, 0755);
     FILE *f = fopen(SHOW_FILE, "w");

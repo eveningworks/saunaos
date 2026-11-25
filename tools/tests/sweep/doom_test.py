@@ -50,7 +50,7 @@ THE ASSERTIONS THAT MATTER, and why each is shaped the way it is:
     DOOM's 200 rows.** Read from row PAIRS inside one source line: both
     show the same game pixels, so a darker last row is the effect and
     nothing else, whatever the demo is drawing. Off before and after,
-    and /etc/doom.conf read back rather than believed.
+    and /home/user/.config/doom.conf read back rather than believed.
   * **The frame RATE.** Doom targets 35Hz and sleeps to hold it, so a
     number well under that means the emulator is not keeping up. Asserted
     loosely (>15 fps) because this is TCG and the host is shared -- the
@@ -176,9 +176,9 @@ def scanline_dips(img, lines=200):
 
 def run(dbg, qmp, tmp, res):
     # The screen effect starts OFF: a previous run, or a person, may have
-    # left /etc/doom.conf behind. And no launcher page: this tool is about
+    # left /home/user/.config/doom.conf behind. And no launcher page: this tool is about
     # the game (doom_data_test.py has the page).
-    dbg.write_lines("/etc/doom.conf", ["show_page=off"])
+    dbg.write_lines("/home/user/.config/doom.conf", ["show_page=off"])
     dbg.send(f"gui spawn {EXEC}")
 
     win = None
@@ -417,18 +417,18 @@ def run(dbg, qmp, tmp, res):
               total > 40 and dips > total * 0.9,
               f"{dips} of {total} source lines end in a darker row")
     said = " ".join(dbg.logs("doom: screen effect", clear=False))
-    conf = dbg.send("sh cat /etc/doom.conf") or ""
-    res.check("...and the choice is saved to /etc/doom.conf",
+    conf = dbg.send("sh cat /home/user/.config/doom.conf") or ""
+    res.check("...and the choice is saved to /home/user/.config/doom.conf",
               "subtle" in said and "screen_effect=subtle" in conf,
               f"log {said!r}, conf {conf.strip()!r}")
     for _ in range(4):                   # Soft CRT, Classic CRT, Curved, off
         alt_c(qmp)
     dips, total = scanline_dips(shot("crt_off_again"))
-    conf = dbg.send("sh cat /etc/doom.conf") or ""
+    conf = dbg.send("sh cat /home/user/.config/doom.conf") or ""
     res.check("four more presses cycle back to off",
               "screen_effect=off" in conf and total > 40 and dips < total * 0.1,
               f"conf {conf.strip()!r}, {dips} of {total} lines still dark")
-    dbg.send("sh rm /etc/doom.conf")
+    dbg.send("sh rm /home/user/.config/doom.conf")
 
     # --- maximized, and still 4:3 ------------------------------------
     #

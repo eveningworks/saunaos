@@ -8,7 +8,7 @@
 
 struct uapp;
 
-#define SHOT_CONF         "/etc/screenshot.conf"   // the app's own (docs/conventions/gui.md)
+#define SHOT_CONF         "screenshot.conf"   // the app's own (docs/conventions/gui.md)
 #define SHOT_DEFAULT_DIR  udir_path(UDIR_SCREENSHOTS)   // Pictures/Screenshots (base/udirs.h)
 #define SHOT_DEFAULT_NAME "shot-<date>-<time>"
 // THE COMPOSITOR'S CARD CARRIES A PATH OF AT MOST 124 BYTES
@@ -40,7 +40,7 @@ struct shot_conf {
 extern const char *const SHOT_MODE_NAME[SHOT_MODES];
 
 void shot_conf_defaults(struct shot_conf *c);
-// The table behind /etc/screenshot.conf, which screenshot.ui's Options rows bind to.
+// The table behind ~/.config/screenshot.conf, which screenshot.ui's Options rows bind to.
 struct uprefs;
 extern const struct uprefs shot_conf_prefs;
 void shot_conf_load(struct shot_conf *c);

@@ -363,7 +363,7 @@ def run_effects(dbg, qmp, tmp, res):
                 # put in place with cp -- the debug console's `sh` runs a
                 # program and does not lex a redirect, so a fixture is
                 # how a test writes a file here.
-                dbg.send(f"sh cp /tests/shatter_{motion}.conf /etc/effects/shatter.conf")
+                dbg.send(f"sh cp /tests/shatter_{motion}.conf /home/user/.config/effects/shatter.conf")
                 # ...and a generation bump so the WM re-reads it: adopt()
                 # runs on a SETTING change, and setting the effect to what
                 # it already is does nothing at all.

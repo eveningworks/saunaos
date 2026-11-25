@@ -253,7 +253,7 @@ def finds(dbg, qmp):
 
 
 def file_manager(dbg):
-    conf = "/etc/files.conf"
+    conf = "/home/user/.config/files.conf"
     # The tree: opening a folder under dirs/ opens dirs/, and all its rows show.
     dbg.write_lines(conf, ["panes=1", "tree=1", "left_view=details", "details_pane=0"])
     dbg.logs("files: layout view", clear=True)

@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define START_CONF "/etc/start-menu.conf"
+#define START_CONF "start-menu.conf"
 
 // One row per app the machine has launched, as many as there are, each
 // id its own allocation. An id not in the registry any more stays in the

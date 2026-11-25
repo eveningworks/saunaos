@@ -52,6 +52,7 @@
 #include "ui/uui_toast.h"
 #include "media/usnd.h"
 #include "base/uconf.h"
+#include "base/udatadir.h"
 #include "ui/uapp.h"
 #include "ui/utheme.h"
 
@@ -102,17 +103,16 @@ static struct uui_menubar g_menu;
 
 // --- best times ------------------------------------------------------
 //
-// One line per level, "<key> <seconds>", in /var/lib: state a program
-// must keep (docs/filesystem-layout.md). A missing or unreadable file
-// is "no best yet", never an error.
-#define BEST_DIR  "/var/lib/mines"
-#define BEST_PATH BEST_DIR "/best"
+// One line per level, "<key> <seconds>", in the person's state folder
+// (base/udatadir.h; root's /var/lib). A missing or unreadable file is
+// "no best yet", never an error.
+#define BEST_PATH udatadir_state_file("mines/best", "/var/lib/mines/best")
 
 static int g_best[LEVEL_COUNT];   // seconds, 0 = none yet
 
 static void best_load(void) {
     for (int i = 0; i < LEVEL_COUNT; i++) g_best[i] = 0;
-    FILE *f = fopen(BEST_PATH, "r");
+    FILE *f = BEST_PATH ? fopen(BEST_PATH, "r") : 0;
     if (!f) return;
     char line[64];
     while (fgets(line, sizeof line, f)) {
@@ -126,9 +126,8 @@ static void best_load(void) {
 }
 
 static void best_save(void) {
-    mkdir(BEST_DIR, 0755);   // first use; an existing one is fine
-    FILE *f = fopen(BEST_PATH, "w");
-    if (!f) { ulog("mines: cannot write " BEST_PATH "\n"); return; }
+    FILE *f = BEST_PATH ? fopen(BEST_PATH, "w") : 0;
+    if (!f) { ulogf("mines: cannot write %s\n", BEST_PATH ? BEST_PATH : "the best times"); return; }
     for (int i = 0; i < LEVEL_COUNT; i++)
         if (g_best[i]) fprintf(f, "%s %d\n", LEVELS[i].key, g_best[i]);
     fclose(f);
@@ -414,7 +413,7 @@ static int g_have_sound;
 // THE CARD rather than playing silence: the stream is exclusive without
 // the sound daemon, and a muted game holding it would keep the Audio
 // Player quiet too.
-#define MINES_CONF "/etc/mines.conf"
+#define MINES_CONF "mines.conf"
 static int g_sound_on = 1;
 
 static void sound_init(void) {

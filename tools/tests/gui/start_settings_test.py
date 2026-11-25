@@ -20,7 +20,7 @@ reopens. What a broken version would still pass, per setting:
   * start_opens: each choice opens on its folder; `last` reopens on a
     folder chosen by hand, which a menu that always reset would fail.
   * start_recent: off removes the Recent folder AND the launches recorded
-    in /etc/start-menu.conf (read back with `sh cat`, an independent
+    in /home/user/.config/start-menu.conf (read back with `sh cat`, an independent
     path); on records again.
   * start_hover: on opens a folder the pointer rests on; off does not --
     the pair, so a menu that ignored the setting fails one of them.
@@ -192,7 +192,7 @@ def run(dbg, qmp, tmp, res):
     time.sleep(0.5)
     m = reopen(dbg)
     cats = [c["label"] for c in rows_of(m, "category")]
-    conf = dbg.send("sh cat /etc/start-menu.conf") or ""
+    conf = dbg.send("sh cat /home/user/.config/start-menu.conf") or ""
     res.check("a launch makes a Recent folder, recorded in the file",
               "Recent" in cats and "run.calculator" in conf, f"{cats} {conf.strip()[:200]!r}")
     set_key(dbg, "start.opens", "all")
@@ -211,14 +211,14 @@ def run(dbg, qmp, tmp, res):
     set_key(dbg, "start.recent", "off")
     m = reopen(dbg)
     cats = [c["label"] for c in rows_of(m, "category")]
-    conf = dbg.send("sh cat /etc/start-menu.conf") or ""
+    conf = dbg.send("sh cat /home/user/.config/start-menu.conf") or ""
     res.check("Recent apps off: no Recent folder", "Recent" not in cats, f"{cats}")
     res.check("...and the recorded launches are gone from the file",
               "run.calculator" not in conf.lower(), f"{conf.strip()[:200]!r}")
     close_menu(dbg)
     dbg.open_app("Calculator")
     time.sleep(0.5)
-    conf = dbg.send("sh cat /etc/start-menu.conf") or ""
+    conf = dbg.send("sh cat /home/user/.config/start-menu.conf") or ""
     res.check("...and a launch while off is not recorded", "run." not in conf, f"{conf.strip()[:200]!r}")
     set_key(dbg, "start.recent", None)
 

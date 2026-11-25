@@ -3,7 +3,7 @@
 
 // The open tabs and each one's back/forward list, kept across a restart
 // -- Firefox's sessionstore, Chrome's "Continue where you left off".
-// /var/lib/browser/session.tsv, rewritten whole (write, then rename) a
+// ~/.local/share/browser/session.tsv, rewritten whole (write, then rename) a
 // moment after anything in it changes, so a browser that is killed loses
 // at most that moment.
 #include "ui/uui_webview.h"

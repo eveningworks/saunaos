@@ -70,8 +70,8 @@ TITLE = "File Manager"
 SPAWN_PATH = "/bin/wm/apps/files"
 SRC = "/fmtest"
 DST = "/fmdest"
-FILES_CONF = "/etc/files.conf"
-# /etc/places.conf as a fresh machine writes it (base/upins.c's defaults),
+FILES_CONF = "/home/user/.config/files.conf"
+# /home/user/.config/places.conf as a fresh machine writes it (base/upins.c's defaults),
 # then `pins`: a file without the defaults has none.
 PLACES_DEFAULTS = ["quick:/", "recent:/", "/home/user", "udir:desktop", "udir:documents", "udir:music",
                    "udir:pictures", "udir:videos", "udir:downloads", "trash:/"]
@@ -1169,8 +1169,8 @@ def run(dbg, qmp, tmp, res):
     # The LEFT pane is the one this run navigated, so it is the one whose
     # saved value can be asserted; requiring `right=` too would be
     # asserting that something got written which nothing asked for.
-    conf = dbg.send("sh cat /etc/files.conf") or ""
-    res.check("the navigated pane's directory is written to /etc/files.conf",
+    conf = dbg.send("sh cat /home/user/.config/files.conf") or ""
+    res.check("the navigated pane's directory is written to /home/user/.config/files.conf",
               f"left={SRC}" in conf, f"conf: {conf!r}")
 
 
@@ -1422,14 +1422,14 @@ def run(dbg, qmp, tmp, res):
 
         # 7. Both positions are remembered, as fractions.
         conf = dbg.send(f"sh cat {FILES_CONF}") or ""
-        res.check("both divider positions persist in /etc/files.conf",
+        res.check("both divider positions persist in /home/user/.config/files.conf",
                   "pane_split=" in conf and "tree_split=" in conf, f"conf: {conf!r}")
 
     # The choices persist -- and are then RESET, because a leftover
     # icons/tree state changes what every later run of this tool sees
     # (CLAUDE.md: a test that applies a setting changes the machine).
     conf = dbg.send(f"sh cat {FILES_CONF}") or ""
-    res.check("the view choices persist in /etc/files.conf",
+    res.check("the view choices persist in /home/user/.config/files.conf",
               "left_view=icons" in conf and "tree=1" in conf and "panes=2" in conf,
               f"conf: {conf!r}")
 
@@ -1989,7 +1989,7 @@ def run(dbg, qmp, tmp, res):
             dbg.send(f"gui click {oc['x'] + ok[0] + ok[2] // 2} {oc['y'] + ok[1] + ok[3] // 2}")
             dbg.settle(1.0)
         conf = dbg.send(f"sh cat {FILES_CONF}") or ""
-        res.check("OK writes the choice to /etc/files.conf", "rename=dialog" in conf,
+        res.check("OK writes the choice to /home/user/.config/files.conf", "rename=dialog" in conf,
                   f"conf: {conf!r}")
         dbg.key(K_HOME)
         dbg.key(K_DOWN)
@@ -2675,11 +2675,11 @@ def run(dbg, qmp, tmp, res):
         logged = "\n".join(dbg.logs(match="open: "))
         return first + "\n" + second + "\n" + logged
 
-    spawn_out("sh spawn /bin/open -s .txt imgview")
+    spawn_out("as user open -s .txt imgview")   # the person's choice, as the desktop's
     dbg.key("0x72")  # 'r' seeks readme.txt
     lay = wait_layout(dbg, win, lambda l: l.selected == "readme.txt")
     titles = open_selected_and_wait("Image")
-    res.check("an override in /etc/mimeapps.conf outranks the Handles= declaration",
+    res.check("an override in /home/user/.config/mimeapps.conf outranks the Handles= declaration",
               any("Image" in t for t in titles), f"windows {titles}")
     close_others()
 
@@ -2687,13 +2687,13 @@ def run(dbg, qmp, tmp, res):
     # split the child's line mid-characters; a quiet retry arrives whole.
     out = ""
     for _ in range(3):
-        out = spawn_out("sh spawn /bin/open -l")
+        out = spawn_out("as user open -l")
         if ".txt=imgview" in out:
             break
         time.sleep(0.5)
     res.check("open -l lists the override", ".txt=imgview" in out, repr(out[:160]))
 
-    spawn_out("sh spawn /bin/open -s .txt -")
+    spawn_out("as user open -s .txt -")
     titles = open_selected_and_wait("readme.txt")
     res.check("clearing it (-s .txt -) hands the type back to the declaration",
               any("readme.txt" in t and "Image" not in t for t in titles),
@@ -2703,7 +2703,7 @@ def run(dbg, qmp, tmp, res):
     out = spawn_out(f"sh spawn /bin/open {SRC}/game.qoi.nope")
     res.check("open refuses a type nothing claims, by name",
               "nothing opens" in out, repr(out[:160]))
-    dbg.send("sh rm /etc/mimeapps.conf")
+    dbg.send("sh rm /home/user/.config/mimeapps.conf")
 
     # --- 17. the view toggles, and the widget slots they drive ---------
     #

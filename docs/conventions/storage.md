@@ -592,6 +592,23 @@ commit-per-write.
 
 If you touch this, know these:
 
+- **AN APP'S OWN FILE IS NAMED BY ITS BARE NAME, AND A PERSON'S STATE
+  BY `base/udatadir.h` -- NEVER AN `/etc` OR `/var/lib` PATH** (users
+  stage D1c, `docs/users-design.md`). `#define FOO_CONF "foo.conf"`, not
+  `"/etc/foo.conf"`: `uconf_*()` then reads the person's keys over the
+  machine's and writes `~/.config/foo.conf`, and root -- no person's
+  layer -- uses `/etc`'s. A line-list file asks
+  `uconf_own_read_path()`/`uconf_own_write_path()` for its path; a file
+  watched for change compares `uconf_generation()`, which moves with
+  either layer. A history, a recent list or a session is
+  `udatadir_state_file("app/x", "/var/lib/app/x")` -- the second argument
+  is ROOT's, which never writes into a home. Only what describes the
+  MACHINE keeps an `/etc` path (`net.conf`, `devices.conf`, the
+  services). **An unset of a key `/etc` also has writes a TOMBSTONE**,
+  `<key>[$d]=1`, into the person's file -- a reader that walks the
+  person's file whole sees it, so enumerate through `uconf_load()`, which
+  takes tombstones out.
+
 - **`txn_begin()` commits any deferred transaction first.** It zeroes
   `txn_count`, so an operation opening its own would discard every
   staged inode -- writes reported as succeeded, gone. Forced there so no
@@ -2100,7 +2117,7 @@ another remote backend has to do the same or a big folder crawls.
 ## A PERSONAL FOLDER IS ASKED FOR BY NAME: `udir_path(UDIR_MUSIC)`, NEVER `"/home/user/Music"`
 
 Desktop, Documents, Music, Pictures, Videos, Downloads and Screenshots
-are `base/udirs.h`'s: `/home/<Name>` unless `/etc/user-dirs.conf` moves
+are `base/udirs.h`'s: `/home/<Name>` unless `~/.config/user-dirs.conf` moves
 one, read once per process. A path spelled out in an app is one a moved
 folder leaves behind -- XDG's `xdg-user-dir` and Windows' Known Folders
 exist for the same reason. The one exception is a constant that must be

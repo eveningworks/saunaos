@@ -11,7 +11,7 @@
 //
 //   desktop.notifications.dnd        on | off
 //   desktop.notifications.dnd_for    1h | 4h | off -- how long it lasts
-//   /etc/notify.conf  app.<name>=on | quiet | off, one per app seen
+//   ~/.config/notify.conf  app.<name>=on | quiet | off, one per app seen
 //                     (quiet: the history only; the name with every
 //                     character a key cannot hold as `_`), and
 //                     dnd_until=<seconds since 1970> when Do Not Disturb

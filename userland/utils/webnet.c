@@ -39,13 +39,16 @@
 #include "net/webnet_proto.h"
 #include "rt/sys.h"
 #include "base/udirs.h"
+#include "base/udatadir.h"
 #include "uhttp.h"
 #include "utls.h"
 #include "nspsl.h"
 
-#define STATE_DIR     "/var/lib/browser"
-#define JAR_FILE      STATE_DIR "/cookie-jar"
-#define NETSURF_JAR   STATE_DIR "/cookies"      // NetSurf's own, read once
+// The Web Browser's folder in the person's data (apps/browser/browser.c).
+static char *g_state_dir, *g_jar_file, *g_netsurf_jar;
+#define STATE_DIR     g_state_dir
+#define JAR_FILE      g_jar_file
+#define NETSURF_JAR   g_netsurf_jar             // NetSurf's own, read once
 #define DOWNLOAD_DIR  udir_path(UDIR_DOWNLOADS)
 #define FETCH_STACK   (256 * 1024)
 #define REPLAY_MAX    (1024 * 1024)
@@ -1082,7 +1085,11 @@ int main(int argc, char **argv) {
     snprintf(service, sizeof service, WEBNET_SERVICE_FMT, g_app_pid);
     ucookie_jar_init(&g_jar);
     g_jar.is_public_suffix = is_public_suffix;
-    mkdir("/var/lib", 0755);
+    // Root has no person's data folder (base/udatadir.h's rule): /var/lib's.
+    g_state_dir = geteuid() == 0 ? strdup("/var/lib/browser") : udatadir_prepare("browser");
+    if (!g_state_dir || asprintf(&g_jar_file, "%s/cookie-jar", g_state_dir) < 0 ||
+        asprintf(&g_netsurf_jar, "%s/cookies", g_state_dir) < 0)
+        return uargs_error(&PROG, "out of memory");
     mkdir(STATE_DIR, 0755);
     if (exists(JAR_FILE)) {
         ucookie_load(&g_jar, JAR_FILE, now_s());

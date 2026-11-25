@@ -40,7 +40,7 @@
 
 // This app's own preferences: the toggles, remembered (an app's own
 // preferences are the app's, not the settings registry's).
-#define PLAYER_CONF "/etc/player.conf"
+#define PLAYER_CONF "player.conf"
 
 enum { ID_MENU = 1, ID_TOOLBAR, ID_LIST, ID_POS, ID_VOL, ID_TRANSPORT };
 

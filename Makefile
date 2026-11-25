@@ -2615,7 +2615,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	cp data/wm/wallpapers/*.wallpaper $(SEED_DIR)/sync/usr/wm/wallpapers/
 	# Terminal colour schemes -- one .scheme per palette the GUI Terminal
 	# offers (userland/apps/apps/terminal/term.h). Read-only data, so /usr/share rather
-	# than beside the binary; the chosen one is a key in /etc/terminal.conf.
+	# than beside the binary; the chosen one is a key in ~/.config/terminal.conf.
 	mkdir -p $(SEED_DIR)/sync/usr/share/terminal
 	cp data/usr/share/terminal/*.scheme $(SEED_DIR)/sync/usr/share/terminal/
 	# Desktop themes -- one .theme per look (userland/libs/ui/utheme_file.h,

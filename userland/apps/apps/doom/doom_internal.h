@@ -16,7 +16,7 @@
 // $XDG_DATA_HOME/doom, and one shipped or put there by an administrator is
 // found in /usr/share/doom.
 #define DOOM_DATA    "doom"
-#define DOOM_CONF    "/etc/doom.conf"
+#define DOOM_CONF    "doom.conf"
 
 // --- the game data (doom_wad.c) ---------------------------------------
 
@@ -31,7 +31,7 @@ extern const int DOOM_IWAD_COUNT;
 char *doom_iwad_path(const struct udata_item *w);
 int doom_iwad_present(const struct udata_item *w);
 const struct udata_item *doom_iwad_named(const char *file);
-// The one to play: /etc/doom.conf's `iwad=` if it is here, else the
+// The one to play: ~/.config/doom.conf's `iwad=` if it is here, else the
 // first present in table order. NULL when there is none.
 const struct udata_item *doom_iwad_chosen(void);
 int doom_iwad_choose(const struct udata_item *w);

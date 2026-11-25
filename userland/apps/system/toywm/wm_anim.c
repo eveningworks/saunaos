@@ -663,7 +663,7 @@ static void adopt(void) {
 //
 // **SEPARATE FROM adopt(), AND WATCHED ON THE FILESYSTEM**, because an
 // option is NOT a registered setting: System Settings writes it with
-// uconf_set() straight to /etc/effects/<name>.conf, which moves no
+// uconf_set() straight to ~/.config/effects/<name>.conf, which moves no
 // generation the settings registry reports. Reading these in adopt()
 // meant the compositor kept whatever it had at boot -- every window
 // shattered into the default 24 pieces however the option was set, and

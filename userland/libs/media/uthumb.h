@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 // uthumb -- thumbnails: a LOOKUP on the draw path, a decode on a WORKER
-// THREAD, and a copy on disk (/var/cache/thumbnails) that outlives the
+// THREAD, and a copy on disk (~/.cache/thumbnails) that outlives the
 // process. The File Manager's icons view, the Image Viewer's filmstrip
 // and the Video Player's playlist all draw through it -- a video's
 // thumbnail is one of its frames (media/uvid.h).

@@ -254,13 +254,13 @@ def main():
                 q.mouse_up()
             conf = ""
             for _ in range(20):
-                conf = dc.send("sh cat /etc/places.conf") or ""
+                conf = dc.send("sh cat /home/user/.config/places.conf") or ""
                 if "dev:/net/public" in conf and "dev:/net/media" in conf:
                     break
                 time.sleep(0.5)
             moved = ("dev:/net/public" in conf and "dev:/net/media" in conf
                      and conf.index("dev:/net/public") < conf.index("dev:/net/media"))
-            res.check("a share dragged above the other moves there (dev: lines in /etc/places.conf)",
+            res.check("a share dragged above the other moves there (dev: lines in /home/user/.config/places.conf)",
                       moved, conf[-300:])
             public_row = 0 if moved else 1         # Forget below aims at `public`, wherever it is now
 

@@ -7,7 +7,8 @@ extern "C" {
 
 // RECENT FILES: what was opened lately, by any app, and in which --
 // freedesktop's recently-used.xbel and Windows' Recent Items, as one
-// plain-text list in /var/lib/recent. Written where files are OPENED for
+// plain-text list in the person's state folder, ~/.local/state/recent
+// (root's: /var/lib/recent). Written where files are OPENED for
 // a person rather than by each app: base/uopen.h's spawn (a double click,
 // `open`) and the shared file dialog (Windows records in its shell and
 // its common dialog for the same reason), plus Notepad's own Recent menu.
@@ -17,7 +18,6 @@ extern "C" {
 // past URECENT_MAX the oldest go. Read whole and rewritten through a
 // temporary file and a rename, under a lock file (urecent.c says why).
 
-#define URECENT_FILE "/var/lib/recent"
 #define URECENT_MAX  100
 #define URECENT_APP  48
 #define URECENT_PATH 256
@@ -38,6 +38,9 @@ int urecent_list(struct urecent_item *out, int cap);
 // Take `path` off the list / empty it. 0, or -errno.
 int urecent_forget(const char *path);
 int urecent_clear(void);
+// The folder the list lives in (the person's state folder, root's
+// /var/lib) -- what a view of it watches, since a rewrite renames into it.
+const char *urecent_dir(void);
 
 // The name a person knows `exec` by -- its desktop entry's Name=, else
 // the program's file name. For a caller that has only the program.

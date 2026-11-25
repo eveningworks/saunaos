@@ -72,7 +72,7 @@ def run(dbg, qmp, res):
               f"dir={lay and lay.dir.get(0)} groups={got}")
 
     # 3.
-    dbg.send(f"sh open {ROOT}/hello.txt")
+    dbg.as_user(f"open {ROOT}/hello.txt")   # as the desktop's account: root's recent list is /var/lib's
     time.sleep(3)
     dbg.key(K_CTRL_R, mods="ctrl")
     want = ["Pinned folders", "Recent files", "Drives"]

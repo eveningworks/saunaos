@@ -12,21 +12,21 @@ extern "C" {
 // Any entry can be unpinned, renamed or moved; "Restore default places"
 // brings back a default that was unpinned.
 //
-// Kept in /etc/places.conf, one entry per line, optionally a TAB and the
+// Kept in ~/.config/places.conf (else /etc/places.conf, the machine's), one entry per line, optionally a TAB and the
 // name it is shown by (GTK's bookmarks file says "file:///path Name";
 // a TAB because a path here may hold spaces). An ENTRY is a folder's
 // path, or one of
 //     recent:/        Recent (the File Manager's)
 //     trash:/         the Recycle Bin
 //     udir:<key>      a personal folder BY NAME (base/udirs.h): it
-//                     follows the folder if /etc/user-dirs.conf moves it
+//                     follows the folder if ~/.config/user-dirs.conf moves it
 // No file (or an empty one) is the defaults; a file is the whole list,
 // so a default it lacks was unpinned. A pinned folder that
 // has gone is kept in the file and skipped when listed: a disk that is
 // not mounted today may be tomorrow. The File Manager and the shared file
 // dialog list the same entries.
 
-#define UPINS_FILE  "/etc/places.conf"
+#define UPINS_FILE  "places.conf"   // the person's, else /etc's (base/uconf.h)
 #define UPINS_MAX   24
 #define UPINS_PATH  256
 #define UPINS_LABEL 24   // uui_places' label

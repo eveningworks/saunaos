@@ -32,7 +32,7 @@ What it proves, and what a broken version would still pass:
     is not "it is drawn", and the neighbour is half the assertion.
   * A PIN SURVIVES A REBOOT. Pinning through the row's own context menu
     makes a Favourites folder appear and the app show in it; the store
-    is then read back from `/etc/start-menu.conf` through an
+    is then read back from `/home/user/.config/start-menu.conf` through an
     INDEPENDENT path (`sh cat`), and the guest is REBOOTED and asked
     again -- which is the only version of this check worth having,
     since a pin that lasted until the next boot would be the bug.
@@ -601,7 +601,7 @@ def run(dbg, qmp, tmp, res):
     # THROUGH AN INDEPENDENT PATH: the menu believing it is pinned and
     # the file saying so are different claims, and only the second
     # survives a boot.
-    stored = dbg.send("sh cat /etc/start-menu.conf") or ""
+    stored = dbg.send("sh cat /home/user/.config/start-menu.conf") or ""
     res.check("...and the store on disk says so",
               "pinned=" in stored and "notepad" in stored,
               stored.strip().splitlines()[-1] if stored.strip() else "empty")

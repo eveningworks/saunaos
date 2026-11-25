@@ -11,8 +11,9 @@ while one is open survives the open one writing its list back (config
 patch 0002), and one lost that way before the fix is added back, once.
 
 THE DOWNLOAD NEVER LEAVES THIS MACHINE. The guest's
-/etc/scummvm-games.conf gets `mirror=` pointed at a server this tool
-runs on loopback (QEMU's 10.0.2.2), serving data/scummvm/lure-1.1.zip.
+/etc/scummvm-games.conf -- the MACHINE's layer, read under the person's
+~/.config one (base/uconf.h), so the `rm -r ~/.config` below cannot take
+it -- gets `mirror=` pointed at a server this tool runs on loopback (QEMU's 10.0.2.2), serving data/scummvm/lure-1.1.zip.
 
 THE CONTROL COMES FIRST: the server hands out the zip with one byte
 flipped, and the download must be REFUSED on its SHA-256 and leave no
@@ -198,18 +199,25 @@ def check_licence_selectable(dbg, qmp, tmp):
           before == 0 and after > rect[2] * 4, f"before={before} after={after}")
 
 
+MACHINE_CONF = "/etc/scummvm-games.conf"
+
+
 def run(dbg, qmp, mirror, tmp):
     if "scummvm" not in (dbg.send("sh ls /usr/bin") or "").split():
         check("the image carries /usr/bin/scummvm (make scummvm, then make iso)", False)
         return
     clean(dbg)
-    dbg.write_lines("/etc/scummvm-games.conf", [f"mirror=http://10.0.2.2:{mirror.port}"])
+    dbg.write_lines(MACHINE_CONF, [f"mirror=http://10.0.2.2:{mirror.port}"], account=None)
     # A MACHINE UPDATED FROM BEFORE THE XDG FOLDERS SHIPPED has none, and
     # the front makes them -- a loop that started one character late made
     # them at /ome instead (17.11-22.11.2026), so ScummVM could write no
     # list and every game stayed out of it.
     for d in ("/home/user/.config", "/home/user/.local", "/home/user/.cache"):
         dbg.send(f"sh rm -r {d}")
+    # NEVER THE REAL SERVER: with the mirror gone the card fetches from
+    # downloads.scummvm.org, and every check below still "works".
+    if not check("the loopback mirror is in place", f":{mirror.port}" in (dbg.send(f"sh cat {MACHINE_CONF}") or "")):
+        return
 
     # --- 1. no game: the card ------------------------------------------
     dbg.logs("scummvm:", clear=True)
@@ -310,7 +318,7 @@ def run(dbg, qmp, mirror, tmp):
               and bool(wait_log(dbg, says, 5)))
         poll(lambda: running(dbg), 30)
         kill_all(dbg)
-        conf = dbg.send("sh cat /etc/scummvm-games.conf") or ""
+        conf = dbg.send("sh cat /home/user/.config/scummvm-games.conf") or ""
         if attempt == "second":
             check("...and is not marked offered while tries are left", "added_bass" not in conf,
                   conf.strip()[-120:])
@@ -367,8 +375,8 @@ def run(dbg, qmp, mirror, tmp):
     # It stayed marked offered, so the front never asked again. Its first start
     # since unmarks a game on disk that the list lacks; a person removing it
     # after that is respected.
-    dbg.send("sh rm /etc/scummvm-games.conf")
-    dbg.send("sh write /etc/scummvm-games.conf added_lure=yes")
+    dbg.send("sh rm /home/user/.config/scummvm-games.conf")
+    dbg.write_lines("/home/user/.config/scummvm-games.conf", ["added_lure=yes"])
     dbg.send(f"sh write {ini_path} [scummvm]")
     dbg.logs("scummvm:", clear=True)
     dbg.send(f"gui spawn {EXEC}")
@@ -406,7 +414,8 @@ def main():
             dbg.settle()
             run(dbg, qmp, mirror, args.tmp)
             clean(dbg)
-            dbg.send("sh rm /etc/scummvm-games.conf")
+            dbg.send("sh rm /home/user/.config/scummvm-games.conf")
+            dbg.send(f"sh rm {MACHINE_CONF}")
     finally:
         mirror.close()
     bad = [n for n, ok in checks if not ok]

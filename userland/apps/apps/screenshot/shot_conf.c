@@ -1,4 +1,4 @@
-// Screenshot's options file, /etc/screenshot.conf: `name=value`, booleans
+// Screenshot's options file, ~/.config/screenshot.conf: `name=value`, booleans
 // as on/off -- one base/uprefs.h table, Notepad's arrangement (np_conf.c),
 // the folder and the name template included, each with its own check.
 #include "screenshot.h"

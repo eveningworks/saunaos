@@ -12,7 +12,7 @@ WHAT IT CHECKS, and what a broken version would still pass:
   - the Errors segment shows exactly the fixture's errors, and choosing
     the repeated error reports `seen 2` -- the repeat count, not 1;
   - Only this message keeps the two copies, and Mute hides the `test`
-    subsystem's lines -- and writes /etc/logview.conf, read back with
+    subsystem's lines -- and writes /home/user/.config/logview.conf, read back with
     `cat`, so a mute that only lived in memory fails; Unmute takes it out.
 
 Geometry and state are the app's own report (`logview: layout ...`,
@@ -39,7 +39,7 @@ from harness import Results  # noqa: E402
 APP = "/bin/wm/apps/logview"
 TITLE = "Log Viewer"
 FIXTURE = "/var/log/logview_fixture.log"
-CONF = "/etc/logview.conf"
+CONF = "/home/user/.config/logview.conf"
 ERR_RED = (178, 58, 50)       # utheme_severity(UTHEME_SEV_ERROR)
 WARN_AMBER = (160, 92, 0)     # utheme_severity(UTHEME_SEV_WARNING)
 
@@ -194,7 +194,7 @@ def main():
     check("Mute hides the test lines", lay.get("mutes") == 1 and lay.get("shown") == 1,
           f"mutes={lay.get('mutes')} shown={lay.get('shown')}")
     conf = dbg.send(f"sh cat {CONF}")
-    check("...and is kept in /etc/logview.conf", "mute=test" in conf, conf.strip()[-120:])
+    check("...and is kept in /home/user/.config/logview.conf", "mute=test" in conf, conf.strip()[-120:])
     lay = wait(dbg, lay, lambda l: "unmute" in l)
     if "unmute" in lay:
         x, y, w, h = lay["unmute"]

@@ -51,11 +51,21 @@ int main(int argc, char **argv) {
     if (argc != 3) return 2;
     char *p = !strcmp(argv[1], "home") ? udatadir_home(argv[2])
             : !strcmp(argv[1], "find") ? udatadir_find(argv[2])
+            : !strcmp(argv[1], "state") ? udatadir_state(argv[2], "/var/lib/m")
+            : !strcmp(argv[1], "cache") ? udatadir_cache(argv[2], "/var/cache/m")
             : udatadir_prepare(argv[2]);
     printf("%s\n", p ? p : "NULL");
     free(p);
     return 0;
 }
+"""
+
+# The ring-3 futex lock udatadir_state_file() takes, as a host spin lock:
+# this check runs one thread.
+ULOCK = r"""
+#pragma once
+static inline void ulock_take(volatile int *l) { while (__atomic_exchange_n(l, 1, __ATOMIC_ACQUIRE)) {} }
+static inline void ulock_drop(volatile int *l) { __atomic_store_n(l, 0, __ATOMIC_RELEASE); }
 """
 
 # Looks in the system folders without trying the person's first.
@@ -73,6 +83,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         hostcheck.stage(tmp, "userland/libs/base/udatadir.h", dest="base/udatadir.h")
         hostcheck.stage(tmp, "userland/libs/base/udirs.h", dest="base/udirs.h")
+        hostcheck.write(tmp, "rt/ulock.h", ULOCK)
         src = hostcheck.stage(tmp, "userland/libs/base/udatadir.c", edits=[CONTROL],
                               apply=args.positive_control, tool="udatadir_hostcheck")
         drv = hostcheck.write(tmp, "driver.c", DRIVER)
@@ -81,7 +92,7 @@ def main():
 
         def run(op, rel, **env):
             e = {k: v for k, v in os.environ.items()
-                 if k not in ("XDG_DATA_HOME", "XDG_DATA_DIRS", "HOME")}
+                 if k not in ("XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_STATE_HOME", "XDG_CACHE_HOME", "HOME")}
             e.update({k: v for k, v in env.items() if v is not None})
             return subprocess.run([exe, op, rel], env=e, capture_output=True, text=True).stdout.strip()
 
@@ -120,6 +131,14 @@ def main():
         only = touch(home, "games/y")
         expect("the person's folder alone",
                run("find", "games/y", XDG_DATA_HOME=home, XDG_DATA_DIRS=dirs), only)
+
+        # The person's state and cache (users stage D1c); root's /var path
+        # is the euid rule, which a check not run as root cannot reach.
+        expect("state from XDG_STATE_HOME", run("state", "app/x", XDG_STATE_HOME=home), f"{home}/app/x")
+        expect("state from HOME", run("state", "app/x", HOME="/u"), "/u/.local/state/app/x")
+        expect("cache from XDG_CACHE_HOME", run("cache", "thumbnails", XDG_CACHE_HOME=home),
+               f"{home}/thumbnails")
+        expect("cache from HOME", run("cache", "thumbnails", HOME="/u"), "/u/.cache/thumbnails")
 
         made = run("prepare", "licenses/deep/l.txt", XDG_DATA_HOME=home)
         expect("prepare answers home's path", made, f"{home}/licenses/deep/l.txt")

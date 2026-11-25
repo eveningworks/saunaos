@@ -109,7 +109,7 @@
 | `uprogress.h` | A one-line transfer meter, redrawn in place with `\r`. |
 | `urace.h` | A RACE AMPLIFIER FOR GUI TESTS: `desktop.test_race_delay` milliseconds slept wherever background work hands its result over -- a worker's uapp_post(), a uworker job's finish, w16's program taking a... |
 | `urange.h` | A FILE READ BY RANGE, through a small page cache, never held whole: a hex viewer's bytes, a structure decoder's fields -- whatever reads a few bytes here and a few there from a file that may be gig... |
-| `urecent.h` | RECENT FILES: what was opened lately, by any app, and in which -- freedesktop's recently-used.xbel and Windows' Recent Items, as one plain-text list in /var/lib/recent. |
+| `urecent.h` | RECENT FILES: what was opened lately, by any app, and in which -- freedesktop's recently-used.xbel and Windows' Recent Items, as one plain-text list in the person's state folder, ~/.local/state/rec... |
 | `uregion.h` | A REGION: a bounded list of disjoint rectangles, cut by subtraction -- what the compositor draws each window inside once the opaque windows above it are taken away (pixman's region32, which wlroots... |
 | `urename.h` | RENAMING MANY FILES AT ONCE: the new names a rule gives a set of names, and whether the set can be renamed as planned -- Dolphin's "Rename items", Thunar's Bulk Rename, PowerToys' PowerRename. |
 | `urgn.h` | A GROWABLE REGION: any number of disjoint rectangles, with the set operations Windows' GDI regions have -- intersect, union, subtract, xor -- and offset, equality, containment. |
@@ -181,7 +181,7 @@ Private seams of a split module, not for apps: `ubinmap_internal.h`.
 | `usnd_sink.h` | Where mixed samples go. |
 | `usnd_synth.h` | A General MIDI synthesiser over a SoundFont bank: sixteen channels of MIDI state and a pool of sample-playing voices. |
 | `usndfmt.h` | usndfmt -- each sound card's chosen output format: its rate policy and its width, kept in SND_CARDS_FILE (abi/sound_abi.h) as one `[<card>]` section per card, keyed by the card's stable name. |
-| `uthumb.h` | uthumb -- thumbnails: a LOOKUP on the draw path, a decode on a WORKER THREAD, and a copy on disk (/var/cache/thumbnails) that outlives the process. |
+| `uthumb.h` | uthumb -- thumbnails: a LOOKUP on the draw path, a decode on a WORKER THREAD, and a copy on disk (~/.cache/thumbnails) that outlives the process. |
 | `uvid.h` | uvid -- decoding video files into frames, in RING 3. |
 | `uvid_play.h` | uvid_play -- PLAYING a video: a thread decoding a few frames ahead, the sound through media/usnd.h, and the frame due now for whoever draws. |
 | `uwmf.h` | Windows metafiles (MS-WMF): a 16-bit metafile's records, decoded and checked, one at a time, for a caller that draws them -- w16's PlayMetaFile into a GDI DC, or an image viewer into a canvas. |

@@ -7,7 +7,7 @@ pane itself reports (`left.col N`, `left.columns`).
 2. **Dragging the divider after Name resizes it**: Name narrows by about
    the drag, Size starts where Name now ends, and the width is in the
    layout.
-3. **The layout is saved** in /etc/files.conf (`left_cols`) once the drag
+3. **The layout is saved** in /home/user/.config/files.conf (`left_cols`) once the drag
    is done.
 4. **A right-click on the header is the checklist, not the file menu**:
    Down, Enter hides Size (Name is locked, greyed and skipped).

@@ -1,7 +1,7 @@
 # Colour schemes
 
 One `<name>.scheme` per palette the GUI Terminal offers. The file name
-without the extension is the name; `/etc/terminal.conf`'s `scheme=` key
+without the extension is the name; `~/.config/terminal.conf`'s `scheme=` key
 holds the chosen one. See `userland/apps/apps/terminal/term.h` for the format and
 `docs/filesystem-layout.md` for why they live here rather than beside
 the binary.

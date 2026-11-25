@@ -4,7 +4,7 @@
 WHY THIS EXISTS
 ---------------
 The compositor remembers each application's window position and size
-across launches (`userland/apps/system/toywm/wm_geometry.c`, `/etc/windows.conf`). Two
+across launches (`userland/apps/system/toywm/wm_geometry.c`, `/home/user/.config/windows.conf`). Two
 halves can rot independently and neither is visible from a screenshot:
 the SAVE, which happens once in close_window(), and the RESTORE, which
 has to survive a screen that is no longer the size it was.
@@ -71,7 +71,7 @@ import port_guard                                      # noqa: E402
 from harness import Results, poll  # noqa: E402
 
 DEFAULT_SOCK = ".vm.serial"
-CONF = "/etc/windows.conf"
+CONF = "/home/user/.config/windows.conf"
 APP = "System Settings"
 APP_KEY = "/bin/wm/system/settings"      # the path: the key a save writes
 
@@ -126,7 +126,9 @@ def answered(dbg, want, timeout=10.0):
 
 
 def set_conf(dbg, line):
-    dbg.send(f"sh write {CONF} {line}")
+    """The person's windows.conf holding `line`, written as the desktop's
+    account -- the compositor, which rewrites it, runs as that account."""
+    dbg.write_lines(CONF, [line])
     time.sleep(0.5)
 
 
@@ -229,7 +231,7 @@ def run(dbg, qmp, res):
     set_conf(dbg, f"{APP_KEY}=300,100,900,600")  # fits 1280x720; see below
     # Above Task Manager's own MINIMUM: an app clamps a proposal below it
     # (uapp.c's WIN_EV_RESIZE), and at 520 wide this measured the clamp.
-    dbg.send("sh append /etc/windows.conf /bin/wm/system/taskmgr=40,60,960,480")
+    dbg.append_line(CONF, "/bin/wm/system/taskmgr=40,60,960,480")
     time.sleep(0.5)
     a = open_and_read(dbg)
     a_geom = answered(dbg, (300, 100, 900, 600)) if a else None
@@ -285,7 +287,7 @@ def run(dbg, qmp, res):
     #     restores its own size, keyed path:sub-id. One shared key gave
     #     every Win16 program the last one's size.
     set_conf(dbg, "/bin/w16:w16-hello=100,100,420,260")
-    dbg.send("sh append /etc/windows.conf /bin/w16:w16-gditest=520,120,300,220")
+    dbg.append_line(CONF, "/bin/w16:w16-gditest=520,120,300,220")
     time.sleep(0.5)
     hello = dbg.spawn("/bin/w16 /usr/share/w16/hello.exe", "Hello (Win16)")
     hg = (hello["x"], hello["y"], hello["w"], hello["h"]) if hello else None
@@ -304,8 +306,7 @@ def run(dbg, qmp, res):
     #     the second answer equalled its own size it was never sent: the
     #     window lost the chrome at every launch -- w16's Control Panel,
     #     which saves its size and asks for it again.
-    dbg.send(f"sh write {CONF} ")
-    time.sleep(0.5)
+    set_conf(dbg, "")
     first = dbg.spawn("/bin/w16 /usr/share/w16/hello.exe", "Hello (Win16)")
     own = (first["w"], first["h"]) if first else None
     dbg.close_window("Hello (Win16)")
@@ -367,7 +368,7 @@ def run(dbg, qmp, res):
     #    is obvious rather than marginal -- but still small enough not
     #    to trip the on-screen clamp, which check 2 covers and which
     #    would move the POSITION as well and confuse this check.
-    dbg.send(f"sh write {CONF} /bin/wm/apps/calculator=180,120,700,500")
+    set_conf(dbg, "/bin/wm/apps/calculator=180,120,700,500")
     time.sleep(0.5)
     w = open_and_read(dbg, app="Calculator")
     pos = (w["x"], w["y"]) if w else None
@@ -406,7 +407,7 @@ def placement_states(dbg, qmp, res, sw, sh, tb):
     """7. The STATE a window closed in, a save at a drag's END rather than
     at close, the Settings switch, and Forget Saved Position.
 
-    Each reads /etc/windows.conf itself, so the SAVE is asserted apart
+    Each reads /home/user/.config/windows.conf itself, so the SAVE is asserted apart
     from the restore: a restore that ignored the state field would pass
     any "it reopened" check whose window happened to open maximized."""
     from harness import poll
@@ -467,7 +468,7 @@ def placement_states(dbg, qmp, res, sw, sh, tb):
     res.check("with remembering off, a drag writes nothing", conf_line(dbg) == before,
               f"{before!r} -> {conf_line(dbg)!r}")
     close_all(dbg)
-    dbg.send(f"sh write {CONF} {APP_KEY}=210,130,760,500")
+    set_conf(dbg, f"{APP_KEY}=210,130,760,500")
     w = open_and_read(dbg)
     got = answered(dbg, (210, 130, 760, 500), timeout=3) if w else None
     res.check("...and a saved geometry is not restored", got != (210, 130, 760, 500), f"opened at {got}")

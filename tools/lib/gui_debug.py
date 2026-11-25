@@ -417,6 +417,15 @@ class DebugConsole:
 
     # -- conveniences over the raw commands ------------------------------
 
+    def append_line(self, path, line, account=DESKTOP_ACCOUNT):
+        """Append one line to `path` AS `account` (write_lines()'s reason:
+        a root-made file in the person's ~/.config is one the app cannot
+        rewrite under `fileperm=enforce`). One write, so it cannot tear."""
+        cmd = f"printf '%s\\n' {shlex.quote(line)} >> {shlex.quote(path)}"
+        if len(f"as {account} {cmd}".encode()) >= DBG_LINE_MAX:
+            raise ValueError(f"append_line: past the debug console's {DBG_LINE_MAX - 1}-byte line")
+        return self.as_user(cmd, account)
+
     def write_lines(self, path, lines, tries=25, account=DESKTOP_ACCOUNT):
         """Replace `path` in the guest with `lines`; True once all landed.
 

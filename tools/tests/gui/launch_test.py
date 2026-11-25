@@ -11,7 +11,7 @@ file, the Terminal logs the exit status, the mode is read back with
 3. **Run in Terminal** runs it in a Terminal that stays open with the
    exit status; **Ctrl+D closes** that window.
 4. **"Always do this" + Run** writes application/x-shellscript=run to
-   /etc/mimeapps.conf, and the next Enter runs it without asking.
+   /home/user/.config/mimeapps.conf, and the next Enter runs it without asking.
 5. **Shift+Enter** runs it in a Terminal without asking.
 6. **The context menu's first row is Run in Terminal** for a script --
    it starts a Terminal, where Open would have asked.
@@ -43,7 +43,7 @@ SCRIPT = f"{DIR}/hello.sh"
 NOX = f"{DIR}/nox.sh"
 PROG = f"{DIR}/uptime"
 MARK = f"{DIR}/ran"
-MIME = "/etc/mimeapps.conf"
+MIME = "/home/user/.config/mimeapps.conf"
 SAVED = "/var/tmp/lt-mimeapps.conf"
 CALC = "/bin/wm/apps/calculator"
 K_CTRL_D = "0x04"

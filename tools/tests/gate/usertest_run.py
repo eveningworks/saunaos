@@ -103,6 +103,10 @@ TESTS = [
     # (users stage D1b): routed writes and unsets, a machine key never
     # read from the person's file, no layer without XDG_CONFIG_HOME.
     ("usetting_scope_test", 0, None, None),
+    # An app's own file by its bare name (users stage D1c): the person's
+    # keys over /etc's, writes to ~/.config with its folders made, root's
+    # to /etc; the state folder's root rule.
+    ("uconf_own_test", 0, None, None),
     # What one setting costs, in syscalls (strace -c), against ceilings:
     # `config set` once walked the whole registry per name. SPAWNED: it
     # waits for its children.

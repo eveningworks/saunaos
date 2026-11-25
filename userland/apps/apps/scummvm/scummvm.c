@@ -41,7 +41,7 @@
 // The games' data name (base/udatafetch.h): a download goes to the person's
 // $XDG_DATA_HOME/games, and a game shipped in /usr/share/games is found too.
 #define GAMES_DATA "games"
-#define GAMES_CONF "/etc/scummvm-games.conf"   // `mirror=`, a stand-in download server
+#define GAMES_CONF "scummvm-games.conf"   // `mirror=`, a stand-in download server
 
 extern char **environ;
 

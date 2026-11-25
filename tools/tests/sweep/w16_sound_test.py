@@ -184,7 +184,7 @@ def main():
         ("WIN.INI", setup0 + [("mkdir /home/user/Win16",), ("mkdir /home/user/Win16/WINDOWS",),
                               ("put", win_ini, "/home/user/Win16/WINDOWS/WIN.INI"),
                               ("put", test_wav, "/home/user/Win16/WINDOWS/TEST.WAV")]),
-        ("off", setup0 + [("put", conf_off, "/etc/win16.conf")]),
+        ("off", setup0 + [("put", conf_off, "/home/user/.config/win16.conf")]),
     ]
     for name, setup in cases:
         img = os.path.join(tmp, f"{name}.img")

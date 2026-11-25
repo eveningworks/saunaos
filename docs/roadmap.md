@@ -247,7 +247,7 @@ only expensive part of it.
 - [x] ~~Stage C of `docs/users-design.md`: files carry an owner, and the syscalls check it~~ DONE 2026-11-24 -- `chown`
 - [ ] **NEXT** Enforce file permissions by default -- the suite passes enforced (2026-11-25); flip after days of ASUS use
 - [x] ~~Stage D1b of `docs/users-design.md`: a setting's `Scope=`, `~/.config` over `/etc`~~ DONE 2026-11-25 -- `config --machine`
-- [ ] Stage D1c of `docs/users-design.md`: the apps' own `/etc/<app>.conf` files move to `$XDG_CONFIG_HOME`
+- [x] ~~Stage D1c of `docs/users-design.md`: the apps' own files and state move to `~/.config` and the XDG folders~~ DONE 2026-11-25
 - [ ] Root windows on the person's desktop draw in the person's look -- First-boot setup, screen trial, elevated tools see the machine's
 - [ ] `open()`'s and `mkdir()`'s mode reach the kernel -- once every tool that writes a program sets its exec bit (stage C)
 - [ ] `ls -l` shows the mode and the owner, and File Manager's Properties the owner -- today `stat` does
@@ -1042,7 +1042,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~An operation's item list sized to the selection~~ DONE 2026-10-28 -- the job's arrays and the undo journal's steps grow
 - [x] ~~Properties of a volume or share~~ DONE 2026-10-11 -- a used/free ring and its facts (`uui_volinfo`), and in the details pane
 - [x] ~~Personal folders under /home~~ DONE 2026-10-11 -- Documents, Music, Pictures, Videos, Downloads; `base/udirs.h`, moved once
-- [ ] A personal folder's Location: move it from its Properties, written to `/etc/user-dirs.conf` -- Windows' Location tab
+- [ ] A personal folder's Location: move it from its Properties, written to `~/.config/user-dirs.conf` -- Windows' Location tab
 - [ ] The left pane's menu from the keyboard -- the Menu key and Shift+F10 open it on the selected row
 - [ ] Sign in to a share from its Properties window -- the sign-in dialog lives in the File Manager today
 - [x] ~~A Help browser over `docs/`~~ DONE 2026-09-14 -- `/bin/wm/apps/help`; contents, links, history and search since 2026-09-29

@@ -17,7 +17,7 @@ extern "C" {
 // refuses would make the bit meaningless. A file without it is reported
 // as such (`runnable` 0) and the caller offers to set it.
 //
-// What a double-click does per kind is a POLICY in /etc/mimeapps.conf,
+// What a double-click does per kind is a POLICY in ~/.config/mimeapps.conf,
 // keyed by freedesktop's MIME names (application/x-shellscript,
 // application/x-executable) beside the per-extension choices -- so the
 // File Manager, the desktop and `open` all read the same answer.

@@ -2,14 +2,14 @@
 """The File Manager's View > Group by: the details view in bands under
 captions, asserted from the captions the app reports in its layout.
 
-1. **Group by type** (from /etc/files.conf, as a saved choice comes back)
+1. **Group by type** (from /home/user/.config/files.conf, as a saved choice comes back)
    bands the fixture as Folders, Pictures, Music and sounds, Documents --
    in that order, the order a person reads them in.
 2. **`..` is left out while grouped**: the rows are the fixture's alone.
 3. **The View menu's Group by > Size** puts the empty file under Empty
    and the folder under Folders.
 4. **Group by > Name** regroups by first letter, and the choice is
-   written to /etc/files.conf.
+   written to /home/user/.config/files.conf.
 5. **Group by > None** takes the captions away and brings `..` back -- the
    negative control: a view that drew captions regardless would fail here.
 

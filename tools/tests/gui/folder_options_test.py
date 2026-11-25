@@ -4,7 +4,7 @@ the double-click speed is one setting.
 
 WHAT THIS IS
 ------------
-The File Manager's options in /etc/files.conf (base/ufolderopts.h) apply
+The File Manager's options in /home/user/.config/files.conf (base/ufolderopts.h) apply
 to the desktop too, and `system.double_click` (base/udclick.h) is the one
 double-click time every widget asks:
 
@@ -46,7 +46,7 @@ import port_guard                               # noqa: E402
 from harness import Results                     # noqa: E402
 
 DESK = "/home/user/Desktop"
-CONF = "/etc/files.conf"
+CONF = "/home/user/.config/files.conf"
 CURSOR_HAND = 7   # wm_internal.h's WM_CURSOR_HAND
 _res = Results()
 check = _res.check
@@ -71,7 +71,7 @@ def wait_for(fn, timeout=10.0):
 
 
 def options(dbg, **kv):
-    """/etc/files.conf holding exactly these keys (the rest default)."""
+    """/home/user/.config/files.conf holding exactly these keys (the rest default)."""
     lines = [f"{k}={v}" for k, v in kv.items()] or ["# defaults"]
     dbg.send(f"sh write {CONF} {lines[0]}")
     for line in lines[1:]:

@@ -12,7 +12,7 @@ extern "C" {
 // minimize effects:
 //
 //   /usr/wm/effects/<name>.effect   what options exist -- shipped, read-only
-//   /etc/effects/<name>.conf        what they are set to -- written by the user
+//   ~/.config/effects/<name>.conf        what they are set to -- written by the user
 //
 // **WHY NOT TWO FLAT SETTINGS IN /etc/settings.d.** Because an option
 // belongs to ONE effect, and a flat setting cannot say so: `shatter`'s
@@ -33,7 +33,7 @@ extern "C" {
 // and take no configuring. `shatter` is the first that does.
 
 #define UEFFECT_DESC_DIR "/usr/wm/effects"
-#define UEFFECT_CONF_DIR "/etc/effects"
+#define UEFFECT_CONF_DIR "effects"
 
 // Loads `effect`'s descriptor and its saved values. Returns 1 when a
 // descriptor was read, 0 when there is none -- and `out` is usable

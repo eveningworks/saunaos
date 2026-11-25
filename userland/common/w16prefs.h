@@ -1,15 +1,15 @@
-// w16prefs.h -- how a Win16 program runs: the defaults in /etc/win16.conf
-// and one program's own overrides in /etc/win16/<key>.conf, as ONE TABLE
+// w16prefs.h -- how a Win16 program runs: the defaults in ~/.config/win16.conf
+// and one program's own overrides in ~/.config/win16/<key>.conf, as ONE TABLE
 // (base/uprefs.h) that w16 and Retro Launcher both read, so
 // they cannot disagree about a key or its default. A program's overrides
 // file holds only the keys it overrides; a missing key is "the default".
 //
-// Also where a program's LAST RUN is recorded (/var/lib/win16/<key>.last),
+// Also where a program's LAST RUN is recorded (~/.local/state/win16/<key>.last),
 // which w16 writes and the launcher shows: "<seconds> ended" or "<seconds>
 // stopped <why>", then a line each for what more is known --
 //   missing USER.7 ExitWindows    the call w16 lacked that stopped it
 //   zero USER.7 ExitWindows       a call w16 lacked, answered 0 (one each, in order)
-//   trace /var/lib/win16/...      the trace the run wrote
+//   trace ~/.local/state/win16/...      the trace the run wrote
 #define W16_LAST_MISSING "missing "
 #define W16_LAST_ZERO    "zero "
 #define W16_LAST_TRACE   "trace "
@@ -21,16 +21,22 @@
 #include "base/uprefs.h"
 #include "ui/ucrt.h"
 
-#define W16_CONF        "/etc/win16.conf"
-#define W16_PROG_DIR    "/etc/win16"
+#define W16_CONF        "win16.conf"
+#define W16_PROG_DIR    "win16"
 // Each call w16 answers, a section per call ("## USER.121 ..."), generated from
 // the comments above its handler (tools/gen/gen_w16_calls.py)
 #define W16_CALLS_DOC   "/usr/share/doc/windows/calls.md"
 // ...and each call it does NOT answer that Windows 3.11's own programs import
 // (userland/utils/w16/missing16.c)
 #define W16_MISSING_DOC "/usr/share/doc/windows/missing.md"
-#define W16_STATE_DIR   "/var/lib/win16"
+// The person's state folder (users stage D1c, base/udatadir.h): a program's
+// last run, its trace, the launcher's hand-off; root's is /var/lib/win16.
+const char *w16_state_dir(void);
+#define W16_STATE_DIR   w16_state_dir()
 #define W16_PATH_MAX    128
+// A per-program file's path: a folder in the home, then a key of up to
+// W16_PATH_MAX. One that does not fit comes back EMPTY, never cut.
+#define W16_PROG_PATH   (W16_PATH_MAX + 160)
 
 // The scale: Auto, then the steps, as quarters (4 = 1x, 6 = 1.5x, 12 = 3x)
 // in w16_prefs_scale_q[]. Between whole steps the METHOD says how a pixel
@@ -172,7 +178,7 @@ int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned 
 int w16_prefs_save_effect(const char *exe, const char *word);
 
 // THE LAUNCHER'S FOLDERS, as many as there are: `folders=N` and
-// folderI / folderI_name in /etc/win16.conf; with no `folders`, the
+// folderI / folderI_name in ~/.config/win16.conf; with no `folders`, the
 // samples and drive C. `name` "" is "named for its folder".
 struct w16_folder { char *path, *name; };
 int  w16_folders_load(struct w16_folder **out);              // how many; *out allocated

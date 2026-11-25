@@ -261,6 +261,9 @@ static void load_and_put(const char *path, long long gen, struct etc_config_buf 
     if (gen > 0) cache_put(path, gen, buf);
 }
 
+static int load_own(const char *name, struct etc_config_buf *buf);
+static int own_name(const char *path) { return path && path[0] && path[0] != '/'; }
+
 int uconf_load(const char *path, struct etc_config_buf *buf) {
     if (!buf) return 0;
     buf->data = 0;
@@ -268,6 +271,7 @@ int uconf_load(const char *path, struct etc_config_buf *buf) {
     buf->valid = 0;
     buf->mem = 0;
     if (!path) return 0;
+    if (own_name(path)) return load_own(path, buf);
 
     long long gen = sys_fs_generation_of(path);
     if (gen > 0 && cache_get(path, gen, buf)) return buf->valid;
@@ -318,8 +322,12 @@ int uconf_get(const char *path, const char *key, char *out, uint32_t out_size) {
     return uconf_get_in(path, 0, key, out, out_size);
 }
 
+static char *own_write_path(const char *name, int *person);
+static int own_set(const char *name, const char *section, const char *key, const char *value);
+
 int uconf_set_in(const char *path, const char *section,
                  const char *key, const char *value) {
+    if (own_name(path)) return own_set(path, section, key, value);
     // A missing file is not an error: the key is appended to an empty
     // document and the file created. Same behaviour as the kernel's
     // etc_config_set(), because it is the same rewriter underneath.
@@ -451,4 +459,251 @@ int uconf_user_dir_ensure(void) {
     if (sys_mkdir(home) != 0) return sys_stat(home, &st) == 0;   // lost a race: fine
     sys_chmod(home, 0700);
     return 1;
+}
+
+// ---- an app's own file, by its bare name (users stage D1c) --------------
+
+static int g_own_long_said;
+
+// "savers/starfield.conf": relative, no empty, `.` or `..` component.
+static int name_ok(const char *name) {
+    if (!own_name(name)) return 0;
+    for (const char *c = name; *c; ) {
+        const char *e = strchr(c, '/');
+        size_t n = e ? (size_t)(e - c) : strlen(c);
+        if (n == 0 || (n == 1 && c[0] == '.') || (n == 2 && c[0] == '.' && c[1] == '.')) return 0;
+        if (!e) break;
+        c = e + 1;
+    }
+    return 1;
+}
+
+// `<dir>/<name>`, malloc'd; NULL when out of memory or past PATH_MAX.
+static char *join(const char *dir, const char *name) {
+    size_t n = strlen(dir) + 1 + strlen(name) + 1;
+    if (n > UCONF_USER_PATH_MAX) return 0;
+    char *p = malloc(n);
+    if (p) snprintf(p, n, "%s/%s", dir, name);
+    return p;
+}
+
+// The person's half, malloc'd: 1 with *out set, 0 when there is no
+// person's layer, -1 when it cannot be named (too long, no memory).
+static int person_of(const char *name, char **out) {
+    *out = 0;
+    const char *home = config_home();
+    if (!home) return 0;
+    *out = join(home, name);
+    if (*out) return 1;
+    say_once(&g_own_long_said, "uconf: the person's %s cannot be named (past %llu "
+             "bytes, or no memory) -- read from /etc, not written (said once)\n",
+             name, UCONF_USER_PATH_MAX, 0);
+    return -1;
+}
+
+// The person's keys over the machine's: a copy of the machine's document
+// with each of the person's values set into it, section by section --
+// the same answer, key by key, as uconf_layers_get() gives -- and each key
+// the person TOMBSTONED (`<key>[$d]=1`, KConfig's deletion mark) taken
+// out of it. The tombstones themselves are not in the answer.
+#define TOMB "[$d]"
+#define TOMB_LEN 4
+struct merge_ctx {
+    const struct etc_config_buf *user;
+    const char *section;
+    char *doc;
+    uint32_t len;
+    char *value;              // user->size + 1: no value is longer than its file
+    int failed;
+};
+
+static int merge_one(const char *key, uint32_t key_len, const char *v, uint32_t v_len,
+                     void *ctx) {
+    (void)v; (void)v_len;
+    struct merge_ctx *m = ctx;
+    char *k = malloc(key_len + 1);
+    if (!k) { m->failed = 1; return 1; }
+    memcpy(k, key, key_len);
+    k[key_len] = '\0';
+    if (key_len > TOMB_LEN && !memcmp(k + key_len - TOMB_LEN, TOMB, TOMB_LEN)) {
+        k[key_len - TOMB_LEN] = '\0';
+        uint32_t n = 0;
+        char *d = etc_config_buf_set_alloc(m->doc, m->len, m->section, k, 0, &uconf_mem, &n);
+        if (d) {   // NULL: the machine has no such key -- nothing to hide
+            free(m->doc);
+            m->doc = d;
+            m->len = n;
+        }
+        free(k);
+        return 0;
+    }
+    // The FIRST of a repeated key, as a lookup answers; an empty value is
+    // none (uconf_layers_get()'s rule).
+    if (etc_config_buf_get_in(m->user, m->section, k, m->value, m->user->size + 1) &&
+        m->value[0]) {
+        uint32_t n = 0;
+        char *d = etc_config_buf_set_alloc(m->doc, m->len, m->section, k, m->value,
+                                           &uconf_mem, &n);
+        if (!d) { free(k); m->failed = 1; return 1; }
+        free(m->doc);
+        m->doc = d;
+        m->len = n;
+    }
+    free(k);
+    return 0;
+}
+
+// 1 with `out` filled, 0 for an EMPTY result (every key tombstoned), -1
+// when out of memory. `machine` may be invalid: the person's tombstones
+// are then all that is taken out.
+static int merge(const struct etc_config_buf *user, const struct etc_config_buf *machine,
+                 struct etc_config_buf *out) {
+    uint32_t msize = machine->valid ? machine->size : 0;
+    struct merge_ctx m = { user, 0, malloc(msize + 1), msize, malloc(user->size + 1), 0 };
+    if (!m.doc || !m.value) { free(m.doc); free(m.value); return -1; }
+    if (msize) memcpy(m.doc, machine->data, msize);
+    m.doc[msize] = '\0';
+    etc_config_buf_each_in(user, 0, merge_one, &m);
+    char sec[ETC_CONFIG_SECTION_MAX];
+    int count = etc_config_section_count(user);
+    for (int i = 0; i < count && !m.failed; i++) {
+        if (!etc_config_section_name(user, i, sec, sizeof sec)) continue;
+        m.section = sec;
+        etc_config_buf_each_in(user, sec, merge_one, &m);
+    }
+    free(m.value);
+    if (m.failed || !m.len) { free(m.doc); return m.failed ? -1 : 0; }
+    out->data = m.doc;
+    out->size = m.len;
+    out->valid = 1;
+    out->mem = &uconf_mem;
+    return 1;
+}
+
+static int load_own(const char *name, struct etc_config_buf *buf) {
+    if (!name_ok(name)) return 0;
+    char *machine_path = join("/etc", name), *user_path = 0;
+    if (!machine_path) return 0;
+    struct etc_config_buf user = { 0 }, machine = { 0 };
+    if (person_of(name, &user_path) == 1) uconf_load(user_path, &user);
+    uconf_load(machine_path, &machine);
+    free(user_path);
+    free(machine_path);
+    // Merged when both layers have a file, or the person's alone carries a
+    // tombstone (one whose machine key has since gone). A merge out of
+    // memory answers the person's file alone.
+    if (user.valid && (machine.valid || strstr(user.data, TOMB "="))) {
+        int r = merge(&user, &machine, buf);
+        if (r >= 0) {
+            etc_config_buf_free(&user);
+            etc_config_buf_free(&machine);
+            return r;
+        }
+        etc_config_buf_free(&machine);
+        *buf = user;
+        return 1;
+    }
+    *buf = user.valid ? user : machine;
+    return buf->valid;
+}
+
+// Where a write of an app's own file goes, malloc'd: the person's, with
+// every folder above it made (the config folder 0700, XDG's rule), or
+// /etc's when there is no person's layer. NULL refuses the write -- never
+// a fallback to /etc for a person whose own path could not be named.
+static void make_folders(char *p, size_t base_len) {
+    for (char *s = strchr(p + base_len + 1, '/'); s; s = strchr(s + 1, '/')) {
+        *s = 0;
+        sys_mkdir(p);   // exists already: fine
+        *s = '/';
+    }
+}
+
+static char *own_write_path(const char *name, int *person) {
+    if (person) *person = 0;
+    if (!name_ok(name)) return 0;
+    char *p = 0;
+    int r = person_of(name, &p);
+    if (r < 0) return 0;
+    if (r == 0) {
+        if ((p = join("/etc", name))) make_folders(p, 4);
+        return p;
+    }
+    if (!uconf_user_dir_ensure()) { free(p); return 0; }
+    make_folders(p, strlen(config_home()));
+    if (person) *person = 1;
+    return p;
+}
+
+// THE PERSON'S WRITE. An unset of a key the MACHINE also has leaves a
+// tombstone in the person's file, or the machine's value would show
+// again -- a "forget" that forgets nothing; a set takes the tombstone
+// away. An unset is a success once the key reads as absent, whether or
+// not either file had it.
+static int own_set(const char *name, const char *section, const char *key, const char *value) {
+    int person;
+    char *at = own_write_path(name, &person), *tomb = 0;
+    if (!at) return 0;
+    if (!person || asprintf(&tomb, "%s" TOMB, key) < 0) {
+        int rc = uconf_set_in(at, section, key, value);
+        free(at);
+        return rc;
+    }
+    int rc;
+    if (value) {
+        rc = uconf_set_in(at, section, key, value);
+        char v[2];
+        if (rc && uconf_get_in(at, section, tomb, v, sizeof v)) rc = uconf_set_in(at, section, tomb, 0);
+    } else {
+        char *machine = join("/etc", name), v[2];
+        struct etc_config_buf mdoc;
+        int machine_has = machine && uconf_load(machine, &mdoc) &&
+                          etc_config_buf_get_in(&mdoc, section, key, v, sizeof v) && v[0];
+        if (machine) etc_config_buf_free(&mdoc);
+        free(machine);
+        char mine[2];
+        rc = !uconf_get_in(at, section, key, mine, sizeof mine) || uconf_set_in(at, section, key, 0);
+        if (rc && machine_has) rc = uconf_set_in(at, section, tomb, "1");
+    }
+    free(tomb);
+    free(at);
+    return rc;
+}
+
+int uconf_own_write_path(const char *name, char *out, uint32_t cap) {
+    if (out && cap) out[0] = '\0';
+    char *p = own_write_path(name, 0);
+    int ok = p && out && strlen(p) < cap;
+    if (ok) memcpy(out, p, strlen(p) + 1);
+    free(p);
+    return ok;
+}
+
+int uconf_own_read_path(const char *name, char *out, uint32_t cap) {
+    if (out && cap) out[0] = '\0';
+    if (!name_ok(name) || !out) return 0;
+    char *p = 0;
+    struct sys_stat st;
+    if (person_of(name, &p) != 1 || sys_stat(p, &st) != 0) {
+        free(p);
+        p = join("/etc", name);
+    }
+    int ok = p && strlen(p) < cap;
+    if (ok) memcpy(out, p, strlen(p) + 1);
+    free(p);
+    return ok;
+}
+
+long long uconf_generation(const char *path) {
+    if (!own_name(path)) return sys_fs_generation_of(path);
+    if (!name_ok(path)) return 0;
+    char *machine = join("/etc", path), *user = 0;
+    long long g = machine ? sys_fs_generation_of(machine) : 0, u = 0;
+    if (person_of(path, &user) == 1) u = sys_fs_generation_of(user);
+    free(machine);
+    free(user);
+    // MIXED, not summed: a sum repeats when one layer's number falls (the
+    // person's file deleted) as the other's rises.
+    return (long long)((unsigned long long)(g > 0 ? g : 0) * 0x9E3779B97F4A7C15ull +
+                       (unsigned long long)(u > 0 ? u : 0));
 }

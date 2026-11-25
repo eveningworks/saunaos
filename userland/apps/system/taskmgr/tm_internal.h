@@ -40,7 +40,7 @@ unsigned tm_interval_ms(void);
 enum { TM_GROUP_APPS, TM_GROUP_BACKGROUND, TM_GROUP_SYSTEM, TM_GROUPS };
 
 // Task Manager's own options: the Processes columns (docs/filesystem-layout.md).
-#define TM_CONF "/etc/taskmgr.conf"
+#define TM_CONF "taskmgr.conf"
 
 #define TM_PATH_MAX 96
 #define TM_NAME_MAX 32

@@ -19,6 +19,23 @@ char *udatadir_prepare(const char *rel);
 // The first of the data folders holding `rel`, or NULL.
 char *udatadir_find(const char *rel);
 
+// A person's STATE -- a history, a recent list, the tabs open at exit:
+// $XDG_STATE_HOME/`rel`, else $HOME/.local/state -- and CACHE, what can
+// be made again: $XDG_CACHE_HOME/`rel`, else $HOME/.cache (users stage
+// D1c). ROOT HAS NEITHER: for euid 0 `machine`, the /var path, is
+// answered instead, so a root process never leaves a root-owned file in
+// a home (base/uconf.h's rule for the person's settings). Allocated;
+// NULL only when out of memory. The _prepare calls make every folder
+// above it first.
+char *udatadir_state(const char *rel, const char *machine);
+char *udatadir_state_prepare(const char *rel, const char *machine);
+char *udatadir_cache(const char *rel, const char *machine);
+char *udatadir_cache_prepare(const char *rel, const char *machine);
+// udatadir_state_prepare(), REMEMBERED: the same string for the same
+// `rel` for the life of the process -- what a state file's #define
+// becomes. Never freed. NULL only when out of memory.
+const char *udatadir_state_file(const char *rel, const char *machine);
+
 #ifdef __cplusplus
 }
 #endif

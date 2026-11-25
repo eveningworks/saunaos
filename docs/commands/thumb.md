@@ -20,9 +20,10 @@ thumb [-s PX] [-q] FILE...
 
 ## Description
 
-Makes each FILE's thumbnail in `/var/cache/thumbnails`, or confirms the
-one there is newer than the file -- the cache the File Manager, the
-Image Viewer's filmstrip and the desktop all read (`media/uthumb.h`). A
+Makes each FILE's thumbnail in `~/.cache/thumbnails` (`$XDG_CACHE_HOME`,
+the freedesktop Thumbnail Managing Standard's place; root's is
+`/var/cache/thumbnails`), or confirms the one there is newer than the
+file -- the cache the File Manager, the Image Viewer's filmstrip and the desktop all read (`media/uthumb.h`). A
 video's thumbnail is one of its frames.
 
 ```
@@ -40,7 +41,7 @@ handlers and GNOME's sandboxed thumbnailers make the same split.
 
 **IT DECODES SANDBOXED** (`pledge`/`unveil`, `abi/sandbox_abi.h`): before
 the first decode it can read only the folders of the FILEs it was given
-and write only `/var/cache/thumbnails`, and it keeps no promise but
+and write only `~/.cache/thumbnails`, and it keeps no promise but
 files -- no network, no spawn. Given files in more folders than the
 unveil list holds, it reads everything instead, still writing only the
 cache. `ps --sandbox` shows it while it runs.

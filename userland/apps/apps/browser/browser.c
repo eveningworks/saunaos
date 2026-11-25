@@ -13,6 +13,7 @@
 // webnet reports (apps/apps/browser/ns_net.c), and the open tabs across a restart
 // (apps/apps/browser/ns_session.c).
 #include <stdio.h>
+#include <unistd.h>   // geteuid: root keeps /var/lib/browser
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -40,6 +41,7 @@
 #include "ui/uui_webview.h"
 #include "ui/uui_siteperm.h"
 #include "base/ulog.h"
+#include "base/udatadir.h"
 #include "base/ugrow.h"
 #include "net/usiteperm.h"
 #include "base/usetting.h"
@@ -47,10 +49,17 @@
 #include "win_proto.h"   // WIN_TAB_*, WIN_TABS_MAX, WIN_TITLE_LEN
 
 #define HOME_URL "file:///usr/share/netsurf/start.html"
-// What the browser KEEPS, in /var/lib like every app's kept state
-// (docs/filesystem-layout.md): bookmarks and history here, the cookie
-// jar in /bin/webnet.
-#define STATE_DIR    "/var/lib/browser"
+// What the browser KEEPS, in the person's data folder (users stage D1c,
+// base/udatadir.h): bookmarks, history and site permissions here, the
+// cookie jar in /bin/webnet -- the same folder.
+static const char *state_dir(void) {
+    static char *dir;
+    // Root has no person's data folder (base/udatadir.h's rule): /var/lib's.
+    if (!dir && (dir = geteuid() == 0 ? strdup("/var/lib/browser") : udatadir_prepare("browser")))
+        mkdir(dir, 0755);
+    return dir ? dir : "/nonexistent";
+}
+#define STATE_DIR state_dir()
 
 enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE, ID_CTX, ID_FIND, ID_ADDRBAR, ID_CARD,
        ID_DLPANEL, ID_DLLIST, ID_SIDE_TABS, ID_SIDE_SEARCH, ID_SIDE_LIST, ID_DIALOG, ID_ASK };
@@ -1085,7 +1094,9 @@ int main(int argc, char **argv) {
         else if (argv[i][0] != '-') g_first_url = argv[i];
     }
     if (!ns_marks_init(STATE_DIR)) ulogf("browser: bookmarks could not be loaded\n");
-    if (usiteperm_load(&g_perms, STATE_DIR "/permissions") != 0)
+    static char *perms;   // the store may keep it: never freed
+    if (!perms && asprintf(&perms, "%s/permissions", STATE_DIR) < 0) perms = 0;
+    if (!perms || usiteperm_load(&g_perms, perms) != 0)
         ulogf("browser: site permissions could not be loaded\n");
     perms_push();   // before the first tab's content process says hello
 

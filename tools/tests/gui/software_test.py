@@ -430,8 +430,11 @@ def main():
         dbg.logs("software:", clear=True)
         win = dbg.spawn(APP, TITLE)
         st = app.wait(lambda s: s.get("view") == "list")
-        res.check("closed on the list, it opens on the list",
-                  st and "view=list" in (dbg.send("sh cat /etc/software-app.conf") or ""), str(st))
+        # In EITHER layer: after the installs above the app ran elevated, and
+        # root's own file is the machine's (base/uconf.h), read under the person's.
+        kept = (dbg.send("sh cat /home/user/.config/software-app.conf") or "") + \
+               (dbg.send("sh cat /etc/software-app.conf") or "")
+        res.check("closed on the list, it opens on the list", st and "view=list" in kept, str(st))
         dbg.key("1", mods="ctrl")
         app.wait(lambda s: s.get("view") == "cards")
 

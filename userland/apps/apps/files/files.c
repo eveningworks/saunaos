@@ -1377,7 +1377,7 @@ void do_command(struct uapp *a, int code) {
     case CMD_CLIP_PASTE: clip_paste(); break;
     case CMD_OPEN:
         // The same act as Enter or a double click, so a directory
-        // descends and a file goes to whatever /etc/mimeapps.conf and
+        // descends and a file goes to whatever ~/.config/mimeapps.conf and
         // the Handles= declarations resolve to (base/uopen.h).
         if (!fm_goto_activate(g_active)) set_note("nothing selected");
         break;
@@ -2133,7 +2133,7 @@ static int on_tick(struct uapp *a) {
     return changed;
 }
 
-// The resolver is base/uopen.h now -- the user's /etc/mimeapps.conf
+// The resolver is base/uopen.h now -- the user's ~/.config/mimeapps.conf
 // override outranks the .desktop declarations, and /bin/open speaks
 // the same one, so a double click here and `open x.txt` at a prompt
 // cannot disagree.

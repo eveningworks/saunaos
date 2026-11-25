@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define NOTIFY_CONF "/etc/notify.conf"
+#define NOTIFY_CONF "notify.conf"
 #define SET_DND     "desktop.notifications.dnd"
 #define SET_FOR     "desktop.notifications.dnd_for"
 // A POLICY CAP, logged when it bites: the oldest row goes. Windows keeps

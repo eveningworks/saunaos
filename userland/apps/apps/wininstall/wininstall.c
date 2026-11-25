@@ -35,6 +35,8 @@
 #include "common/w16prefs.h"   // the launcher's folders
 #include "base/udirs.h"
 
+extern char **environ;
+
 #define W16_BIN      "/bin/w16"
 #define LAUNCHER_BIN "/bin/wm/apps/retrolauncher"
 #define LOG_LINES    8
@@ -64,6 +66,7 @@ static char *run_capture(char *const argv[]) {
     if (sys_pipe(fds) < 0) return 0;
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
+    o.env = environ;   // NULL is an EMPTY environment: no XDG folders, no person's settings
     o.argv = (char **)argv;
     o.stdout_fd = fds[1];
     o.stderr_fd = fds[1];
@@ -232,6 +235,7 @@ static void start_install(void) {
     if (sys_pipe(fds) < 0) goto fail;
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
+    o.env = environ;   // NULL is an EMPTY environment: no XDG folders, no person's settings
     o.argv = argv;
     o.stdout_fd = fds[1];
     o.stderr_fd = fds[1];

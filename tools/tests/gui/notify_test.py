@@ -40,7 +40,7 @@ from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
 from harness import Results, poll               # noqa: E402
 
-CONF = "/etc/notify.conf"
+CONF = "/home/user/.config/notify.conf"
 
 
 def main():

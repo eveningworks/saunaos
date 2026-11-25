@@ -26,7 +26,7 @@ extern "C" {
 // **THIS WAS `wm_conf_*` AND MOVED HERE WHEN IT GOT A SECOND CALLER.**
 // It lived in `userland/apps/system/toywm/` while the window manager was the only
 // ring-3 thing with an /etc file of its own; the File Manager, which
-// remembers each pane's directory in /etc/files.conf, is the second.
+// remembers each pane's directory in ~/.config/files.conf, is the second.
 // `wm_conf_*` still exists and now delegates -- the WM's own wrapper
 // also answers `wm_setting_generation()`, which is about the SETTINGS
 // REGISTRY rather than about a file and stays there.
@@ -138,6 +138,36 @@ int uconf_load_layered(const char *etc_path, struct uconf_layers *l);
 int uconf_layers_get(const struct uconf_layers *l, const char *key, char *out,
                      uint32_t out_size);
 void uconf_layers_free(struct uconf_layers *l);
+
+// ---- an app's own file, named by its BARE NAME (users stage D1c) --------
+//
+// A path that does not start with `/` names an APP'S OWN FILE --
+// "taskmgr.conf", "savers/starfield.conf" -- KConfig's
+// openConfig("taskmgrrc") shape: uconf_load(), uconf_get*() and
+// uconf_set*()/uconf_unset() take it where they take a path. A READ is
+// the person's keys over the machine's (`$XDG_CONFIG_HOME/<name>` over
+// `/etc/<name>`, key by key, sections kept; an empty value is none); a
+// WRITE goes to the person's file alone, making its folders, or to
+// `/etc/<name>` where there is no person's layer (root). A name with an
+// empty, `.` or `..` component is refused.
+//
+// AN UNSET MUST NOT LET THE MACHINE'S VALUE SHOW AGAIN -- a "forget" that
+// forgets nothing -- so an unset of a key /etc also has leaves a
+// TOMBSTONE in the person's file, `<key>[$d]=1` (KConfig's deletion
+// mark), which a read takes the machine's key out under; a set removes
+// it. An unset succeeds once the key reads as absent, either file having
+// it or not. A whole-file reader sees the tombstone lines as they are.
+
+// Whole-file readers of an app's own file (a line list, not key=value):
+// the person's file if it exists, else /etc's. 1 with `out` filled.
+int uconf_own_read_path(const char *name, char *out, uint32_t cap);
+// Where a whole-file WRITER of it writes -- the person's, its folders
+// made, or /etc's with no person's layer. 0 refuses the write.
+int uconf_own_write_path(const char *name, char *out, uint32_t cap);
+
+// sys_fs_generation_of() for a path or a bare name -- for a name, a
+// number that moves when EITHER layer is written. Compare for equality.
+long long uconf_generation(const char *path);
 
 // Makes the person's config directory ($XDG_CONFIG_HOME) when it is
 // missing, 0700 as the XDG spec asks of a writer -- a fresh home has

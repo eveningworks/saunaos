@@ -11,7 +11,7 @@ extern "C" {
 //
 // FREEDESKTOP'S SPLIT, WITHOUT THE DAEMON. Two layers, asked in order:
 //
-//   1. /etc/mimeapps.conf -- the USER's choice per extension:
+//   1. ~/.config/mimeapps.conf -- the USER's choice per extension:
 //      `.jpg=imgview`, where the value names a DESKTOP ENTRY (the
 //      filename stem under /usr/wm/applications), or a literal /path as the
 //      escape hatch, or `-` for "cleared". mimeapps.list's
@@ -28,7 +28,7 @@ extern "C" {
 // Extensions match WHOLE and case-insensitively, INCLUDING the dot
 // (".md" never claims ".mdx").
 
-#define UOPEN_CONF "/etc/mimeapps.conf"
+#define UOPEN_CONF "mimeapps.conf"
 
 // FREEDESKTOP'S SECTION NAMES, READ BUT NOT WRITTEN. Both files are
 // read from their section first and then from the top level, so a

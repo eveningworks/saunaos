@@ -23,7 +23,6 @@ static int exists(const char *p) {
 }
 
 int ns_marks_init(const char *dir) {
-    mkdir("/var/lib", 0755);
     mkdir(dir, 0755);
     snprintf(g_marks_path, sizeof g_marks_path, "%s/bookmarks.tsv", dir);
     snprintf(g_hist_path, sizeof g_hist_path, "%s/history.tsv", dir);

@@ -70,7 +70,7 @@ int main(void) {
     // call System Settings uses, reload, and require it back.
     char path[64];
     usaver_conf_path("starfield", path, sizeof path);
-    utest_checkf(strcmp(path, "/etc/savers/starfield.conf") == 0,
+    utest_checkf(strcmp(path, "savers/starfield.conf") == 0,
                  "the conf path is derived (%s)", path);
     int wrote = uconf_set(path, "stars", "123");
     usaver_load("starfield", &g_s);
@@ -102,7 +102,12 @@ int main(void) {
 
     // LEAVE NOTHING BEHIND: /etc/savers is a real directory this image
     // ships empty, and a file left here would change what the machine
-    // draws for every later boot -- and fail check_layout.py.
-    sys_unlink(path);
+    // draws for every later boot. `path` is a bare name: root's write
+    // went to the machine's file, so that is the one removed.
+    char written[UCONF_USER_PATH_MAX];
+    utest_check(uconf_own_write_path(path, written, sizeof written) &&
+                !strcmp(written, "/etc/savers/starfield.conf"),
+                "root's write of a bare name went to /etc");
+    sys_unlink(written);
     return utest_end();
 }

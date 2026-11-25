@@ -6,7 +6,7 @@ volume card they and the details pane open (ui/uui_volinfo.h).
    Recycle Bin, a pin at each end of the list, a disk volume, a volume
    in memory, a heading -- read from the app's `placemenu` log line, and
    the popup is OPEN (its rows are laid out), not just logged.
-2. **Move down / Rename / Unpin** change /etc/places.conf, read back
+2. **Move down / Rename / Unpin** change /home/user/.config/places.conf, read back
    with `cat`, and the tree follows. Places is ONE list (base/upins.h):
    the defaults, then the pins.
 3. **A default unpins like a pin**, and **Restore default places** on a
@@ -72,7 +72,7 @@ def run(dbg, qmp, res, positive_control):
     for p in (PA, PB):
         sh(f"rm -r {p}")
         sh(f"mkdir {p}")
-    dbg.write_lines("/etc/places.conf", fm.places_lines(PA, PB))
+    dbg.write_lines("/home/user/.config/places.conf", fm.places_lines(PA, PB))
     dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details", "details_pane=1"])
     win = dbg.spawn(f"{fm.SPAWN_PATH} /home/user", fm.TITLE)
     res.check("the File Manager opens", win is not None, "no window")
@@ -155,7 +155,7 @@ def run(dbg, qmp, res, positive_control):
               and got[2] == "Folder tree", f"got={got}")
 
     def conf():
-        return [ln.strip() for ln in sh("cat /etc/places.conf").splitlines() if ln and not ln.startswith("#")]
+        return [ln.strip() for ln in sh("cat /home/user/.config/places.conf").splitlines() if ln and not ln.startswith("#")]
 
     def pins_of(c):
         return [x for x in c if x.startswith((PA, PB))]
@@ -331,7 +331,7 @@ def run(dbg, qmp, res, positive_control):
 
     for p in (PA, PB):
         sh(f"rm -r {p}")
-    sh("rm /etc/places.conf")
+    sh("rm /home/user/.config/places.conf")
     dbg.close_window(fm.TITLE)
 
 

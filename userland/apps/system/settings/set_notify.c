@@ -1,7 +1,7 @@
 // System Settings: Desktop > Notifications' "Apps" card -- every app that
 // has notified, and for the one chosen whether it shows notifications,
 // keeps them in the bell's history only, or neither. Windows' and KDE's
-// per-app switches; the list is /etc/notify.conf's `app.<name>` lines,
+// per-app switches; the list is ~/.config/notify.conf's `app.<name>` lines,
 // which the compositor writes the first time an app notifies
 // (userland/apps/system/toywm/wm_notify.h). A choice is written AT ONCE, like the
 // keyboard layouts list beside it on its own page -- it is not a staged
@@ -16,7 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define NOTIFY_CONF   "/etc/notify.conf"
+#define NOTIFY_CONF   "notify.conf"   // the person's, over /etc's (base/uconf.h)
 #define SET_DND_FOR   "desktop.notifications.dnd_for"
 
 static const char *const MODES[3]      = { "On", "History only", "Off" };
@@ -48,26 +48,25 @@ static void row_text(struct nf_app *a) {
     snprintf(a->row, sizeof a->row, "%s \xe2\x80\x94 %s", name, MODES[a->mode]);
 }
 
-// The `app.` lines of /etc/notify.conf, in file order.
+static int add_app(const char *key, uint32_t key_len, const char *v, uint32_t v_len, void *ctx) {
+    (void)ctx;
+    if (key_len < 4 || strncmp(key, "app.", 4)) return 0;
+    if (!UGROW(g_apps, g_apps_cap, g_napps + 1)) return 1;
+    struct nf_app *a = &g_apps[g_napps++];
+    snprintf(a->key, sizeof a->key, "%.*s", (int)key_len, key);
+    char value[16];
+    snprintf(value, sizeof value, "%.*s", (int)v_len, v);
+    a->mode = mode_of(value);
+    row_text(a);
+    return 0;
+}
+
+// The `app.` keys of notify.conf, in file order.
 static void load(void) {
     g_napps = 0;
-    FILE *f = fopen(NOTIFY_CONF, "r");
-    if (!f) return;
-    char line[160];
-    while (fgets(line, sizeof line, f)) {
-        if (strncmp(line, "app.", 4)) continue;
-        char *eq = strchr(line, '=');
-        if (!eq) continue;
-        *eq = 0;
-        char *v = eq + 1;
-        v[strcspn(v, "\r\n")] = 0;
-        if (!UGROW(g_apps, g_apps_cap, g_napps + 1)) break;
-        struct nf_app *a = &g_apps[g_napps++];
-        snprintf(a->key, sizeof a->key, "%s", line);
-        a->mode = mode_of(v);
-        row_text(a);
-    }
-    fclose(f);
+    struct etc_config_buf doc;
+    if (uconf_load(NOTIFY_CONF, &doc)) etc_config_buf_each_in(&doc, 0, add_app, 0);
+    etc_config_buf_free(&doc);
     if (!UGROW(g_rows, g_rows_cap, g_napps + 1)) { g_napps = 0; return; }
     for (int i = 0; i < g_napps; i++) g_rows[i] = g_apps[i].row;
     uui_listbox_set_items(&g_list, g_rows, g_napps);

@@ -15,7 +15,7 @@
 // signs (freedoom-0.13.0-CHECKSUM, PGP-signed by the project); the
 // shareware one is id's 1.9 doom1.wad (MD5 f0cefca49926d00903cf57551d901abe,
 // the widely published value). ORDER IS PREFERENCE when nothing is
-// chosen in /etc/doom.conf: id's own data first, as before this list existed.
+// chosen in ~/.config/doom.conf: id's own data first, as before this list existed.
 static const struct udata_part SHAREWARE[] = { {
     "https://raw.githubusercontent.com/Akbar30Bill/DOOM_wads/master/doom1.wad",
     "1d7d43be501e67d927e415e0b8f3e29c3bf33075e859721816f652a526cac771",

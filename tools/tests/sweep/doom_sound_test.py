@@ -157,7 +157,7 @@ def play(instance, img, wav, extra, seconds, res, label):
         enter_gui(qmp, sock)
         dbg = DebugConsole(sock)
         # Straight into the game: the launcher page waits for Start.
-        dbg.write_lines("/etc/doom.conf", ["show_page=off"])
+        dbg.write_lines("/home/user/.config/doom.conf", ["show_page=off"])
         dbg.send("gui spawn /bin/wm/apps/doom" + (" " + extra if extra else ""))
         # Wait for the game to REPORT itself ready rather than sleeping a
         # guessed amount: precaching 56 effects is real work under TCG.

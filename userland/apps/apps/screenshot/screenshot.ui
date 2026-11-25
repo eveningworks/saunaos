@@ -1,5 +1,5 @@
 // Screenshot's Options window (the overlay's gear) over the shared one,
-// ui/uui_prefs.h. Each key= is a setting in /etc/screenshot.conf --
+// ui/uui_prefs.h. Each key= is a setting in ~/.config/screenshot.conf --
 // shot_conf.c's table says its type -- and a choice's value= is spelt as
 // that file spells it. The Print Screen keys live in /etc/shortcuts.conf,
 // so their rows are the program's, as are the timer's sets, the folder,

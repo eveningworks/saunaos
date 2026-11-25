@@ -73,7 +73,7 @@ static int g_view = UUI_APPCARD_CARDS;
 // The view is REMEMBERED in the app's own options file (a uprefs table,
 // docs/conventions/gui.md) -- not /etc/software.conf, which is the
 // settings registry's file for software.show_gpl.
-#define SOFTWARE_PREFS "/etc/software-app.conf"
+#define SOFTWARE_PREFS "software-app.conf"
 static const char *const VIEW_WORDS[] = { "cards", "list" };   // UUI_APPCARD_* order
 struct sw_prefs { int view; };
 static const struct upref PREF_KEYS[] = {

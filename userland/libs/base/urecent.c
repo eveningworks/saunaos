@@ -11,8 +11,28 @@
 #include "kpath.h"
 #include "base/uappentry.h"
 
-#define TMP_FILE  URECENT_FILE ".new"
-#define LOCK_FILE URECENT_FILE ".lock"
+#include "base/udatadir.h"
+
+// The list and its two companions, named once a process: the person's
+// state folder (users stage D1c), root's /var/lib.
+static char *g_file, *g_tmp, *g_lockf, *g_dir;
+static int names(void) {
+    if (g_lockf) return 1;
+    char *f = udatadir_state_prepare("recent", "/var/lib/recent"), *t = 0, *l = 0;
+    if (!f || asprintf(&t, "%s.new", f) < 0 || asprintf(&l, "%s.lock", f) < 0) {
+        free(f);
+        free(t);
+        return 0;
+    }
+    g_file = f;
+    g_tmp = t;
+    if ((g_dir = strdup(f))) *strrchr(g_dir, '/') = '\0';
+    g_lockf = l;   // last: names() is done once this is set
+    return 1;
+}
+#define URECENT_FILE g_file
+#define TMP_FILE  g_tmp
+#define LOCK_FILE g_lockf
 
 // EVERY READ AND EVERY REWRITE HOLDS A LOCK FILE: the double click that
 // spawns Notepad records the file, and Notepad records it again as it
@@ -22,8 +42,7 @@
 // A holder takes milliseconds; one that died holding it is waited out
 // for a second and then broken.
 static void lock(void) {
-    sys_mkdir("/var");
-    sys_mkdir("/var/lib");
+    if (!names()) return;
     for (int i = 0; i < 100; i++) {
         int fd = open(LOCK_FILE, O_WRONLY | O_CREAT | O_EXCL, 0644);
         if (fd >= 0) { close(fd); return; }
@@ -33,11 +52,12 @@ static void lock(void) {
     // Stale: its holder died. Take it over.
 }
 
-static void unlock(void) { unlink(LOCK_FILE); }
+static void unlock(void) { if (names()) unlink(LOCK_FILE); }
 
 // Every line, oldest first, missing files included. Heap: a full list is
 // ~30 KB, and every caller is some app's ring-3 frame.
 static int read_all(struct urecent_item *out, int cap) {
+    if (!names()) return 0;
     FILE *f = fopen(URECENT_FILE, "r");
     if (!f) return 0;
     int n = 0;
@@ -58,6 +78,7 @@ static int read_all(struct urecent_item *out, int cap) {
 }
 
 static int write_all(const struct urecent_item *in, int n) {
+    if (!names()) return -ENOMEM;
     FILE *f = fopen(TMP_FILE, "w");
     if (!f) return -errno;
     for (int i = 0; i < n; i++) fprintf(f, "%lld %s\t%s\n", in[i].when, in[i].app, in[i].path);
@@ -140,3 +161,5 @@ void urecent_app_of_exec(const char *exec, char *out, int cap) {
     if (uappentry_find_exec(exec, &e)) strlcpy(out, e.name, (size_t)cap);
     else strlcpy(out, k_path_basename(exec), (size_t)cap);
 }
+
+const char *urecent_dir(void) { return names() && g_dir ? g_dir : "/var/lib"; }

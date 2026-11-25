@@ -74,7 +74,7 @@ nobody:
     in the pixels, and none of it lower down (control);
   - a page of 1 MiB -- more than the network ring holds -- loads whole;
   - a cookie the server set is sent back on the next page, and kept in
-    /var/lib/browser/cookie-jar (the network process's) when the window
+    /home/user/.local/share/browser/cookie-jar (the network process's) when the window
     closes;
   - words that are not an address become a search (--search-url points
     it at the same server, so nothing leaves the machine);
@@ -309,7 +309,7 @@ def main():
             shutil.rmtree(net["dir"], ignore_errors=True)
 
 
-SESSION = "/var/lib/browser/session.tsv"
+SESSION = "/home/user/.local/share/browser/session.tsv"
 
 
 def forget_session(dbg):
@@ -1101,7 +1101,7 @@ def javascript_sites(dbg, host, page, at, shot):
         green, red = script_bands(shot("js_allowed"), page, at)
         check("Allow on this site reloads the page with its scripts run",
               st.get("js") == 1 and green > 3000 and red < 50, f"js {st.get('js')} green {green} red {red}")
-        kept = dbg.send("sh cat /var/lib/browser/permissions")
+        kept = dbg.send("sh cat /home/user/.local/share/browser/permissions")
         check("...and keeps the choice", f"{GATEWAY}\tjavascript\tallow" in kept, kept.strip()[-120:])
 
     def card_choose(value):
@@ -1127,7 +1127,7 @@ def javascript_sites(dbg, host, page, at, shot):
         check("the connection card shows a JavaScript row on a web page", False, f"{state(dbg).get('js_slot')}")
     if card_choose(0):                  # Default: the global switch, on
         st = wait(dbg, lambda s: loaded(url)(s) and s.get("js") == 1, 15)
-        kept = dbg.send("sh cat /var/lib/browser/permissions")
+        kept = dbg.send("sh cat /home/user/.local/share/browser/permissions")
         check("Default forgets the site's choice and follows the switch",
               st.get("js") == 1 and "javascript" not in kept, f"js {st.get('js')} kept {kept.strip()[-80:]}")
     js_global(dbg, "on")
@@ -1265,14 +1265,14 @@ def network(dbg, net, page, at, shot):
         time.sleep(0.25)
     jar = ""
     for _ in range(20):   # webnet saves as it exits, a moment after the window
-        jar = dbg.send("sh cat /var/lib/browser/cookie-jar") or ""
+        jar = dbg.send("sh cat /home/user/.local/share/browser/cookie-jar") or ""
         if "toy" in jar:
             break
         time.sleep(0.25)
-    check("closing the window keeps the cookie in /var/lib/browser",
+    check("closing the window keeps the cookie in /home/user/.local/share/browser",
           gone and "toy" in jar and "yes" in jar, jar.strip()[-120:])
-    marks = dbg.send("sh cat /var/lib/browser/bookmarks.tsv") or ""
-    check("...and the bookmark in /var/lib/browser/bookmarks.tsv", "tests/web/text.html" in marks,
+    marks = dbg.send("sh cat /home/user/.local/share/browser/bookmarks.tsv") or ""
+    check("...and the bookmark in /home/user/.local/share/browser/bookmarks.tsv", "tests/web/text.html" in marks,
           marks.strip()[-160:])
 
     # Clear, from the card, in a new window (the jar above is checked

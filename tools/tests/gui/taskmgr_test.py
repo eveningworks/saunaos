@@ -394,7 +394,7 @@ def check_glide(dbg, qmp, win, tmp):
     check("View > Update speed > Low: the chart's interval is 4 s",
           ok and wait_log(dbg, "taskmgr: update speed low, interval 4000 ms", 2.0)
           and lay.get("perfchart.interval") == 4000, f"interval={lay.get('perfchart.interval')}")
-    check("...saved in /etc/taskmgr.conf", "update_speed=low" in (dbg.send("sh cat /etc/taskmgr.conf") or ""))
+    check("...saved in /home/user/.config/taskmgr.conf", "update_speed=low" in (dbg.send("sh cat /home/user/.config/taskmgr.conf") or ""))
 
     mark()
     ok = choose_speed(dbg, cx, cy, 3)
@@ -763,7 +763,7 @@ def main():
               mine is not None and desktop_pid in mine and tm_pid in mine, f"order={mine}")
         check("...and not init (root) or the kind rows",
               mine is not None and 1 not in mine and -1 not in mine, f"order={mine}")
-        saved = dbg.send("sh cat /etc/taskmgr.conf") or ""
+        saved = dbg.send("sh cat /home/user/.config/taskmgr.conf") or ""
         check("...saved", "show=mine" in saved, saved.strip())
         system = set_show(2, "system")
         check("View > Show > System processes: init and the kind rows, not the desktop's",
@@ -775,7 +775,7 @@ def main():
     finally:
         # A failed step left Show filtered for every later Task Manager on
         # this image: put All back whatever happened.
-        if "show=all" not in (dbg.send("sh cat /etc/taskmgr.conf") or ""):
+        if "show=all" not in (dbg.send("sh cat /home/user/.config/taskmgr.conf") or ""):
             choose_view(dbg, cx, cy, 2, 0)
 
     # --- Performance -------------------------------------------------------
@@ -875,10 +875,10 @@ def main():
     # the layout log, and a menu the keys cannot drive is a bug of its own.
     # The drag uses the REAL pointer (DebugConsole.drag_real): a client
     # never sees `gui drag`'s injected motion. The result is read back from
-    # /etc/taskmgr.conf, the app's own saved layout (uui_table.h), and
+    # /home/user/.config/taskmgr.conf, the app's own saved layout (uui_table.h), and
     # after the restart below from the table's geometry.
     def conf():
-        return dbg.send("sh cat /etc/taskmgr.conf") or ""
+        return dbg.send("sh cat /home/user/.config/taskmgr.conf") or ""
 
     rail = _layout.get("rail")
     rh = _layout.get("rail.row_h")
@@ -919,7 +919,7 @@ def main():
     # width. A REMEMBERED size can go below it -- the laptop reopened
     # Task Manager at a size saved before this layout, under a larger
     # face, and Name came out zero pixels wide -- so the size is seeded
-    # the same way (/etc/windows.conf, keyed by its path) and the app is
+    # the same way (/home/user/.config/windows.conf, keyed by its path) and the app is
     # opened again into it.
     tm = window(dbg)
     if tm:
@@ -931,7 +931,7 @@ def main():
     # closing window's own geometry, and a line appended before that
     # write loses to it.
     time.sleep(1.0)
-    dbg.send("sh write /etc/windows.conf /bin/wm/system/taskmgr=40,60,600,420")
+    dbg.write_lines("/home/user/.config/windows.conf", ["/bin/wm/system/taskmgr=40,60,600,420"])
     time.sleep(0.5)
     _layout.clear()
     dbg.spawn(TASKMGR, "Task Manager")
@@ -957,7 +957,7 @@ def main():
         ok = choose_speed(dbg, w["content"]["x"], w["content"]["y"], 0)
         check("...and High again, saved",
               ok and wait_log(dbg, "taskmgr: update speed high", 2.0)
-              and "update_speed=high" in (dbg.send("sh cat /etc/taskmgr.conf") or ""))
+              and "update_speed=high" in (dbg.send("sh cat /home/user/.config/taskmgr.conf") or ""))
     # The columns chosen above came back with it: PID still hidden, CPU
     # still after Write.
     pid, cpu, wr = (narrow.get(f"table.col{i}", (0, 0, 0, 0)) for i in (1, 4, 8))

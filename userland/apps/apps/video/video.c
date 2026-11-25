@@ -52,7 +52,7 @@
 #include "keyboard.h"
 #include "base/udirs.h"
 
-#define VIDEO_CONF  "/etc/video.conf"   // this app's own preferences
+#define VIDEO_CONF  "video.conf"   // this app's own preferences
 #define DEFAULT_DIR "/usr/share/videos"
 #define PROPERTIES  "/bin/wm/apps/properties"
 #define SAVE_DIR    udir_home()

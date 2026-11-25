@@ -65,7 +65,7 @@ from harness import Results, poll  # noqa: E402
 DEFAULT_SOCK = ".vm.serial"
 SETTINGS = "/bin/wm/system/settings"
 CONF = "/etc/saunaos.conf"
-SETTINGS_CONF = "/etc/settings.conf"
+SETTINGS_CONF = "/home/user/.config/settings.conf"
 
 
 
@@ -851,13 +851,13 @@ def main():
                       f"dialog={dlg.get('dialog')} modal={dlg.get('modal')} "
                       f"owner={dlg.get('owner')}")
 
-                before = dbg.send("sh cat /etc/effects/shatter.conf") or ""
+                before = dbg.send("sh cat /home/user/.config/effects/shatter.conf") or ""
                 dc = dlg["content"]
                 # Cancel writes NOTHING -- it and the X are one answer.
                 dbg.send(f"gui click {dc['x'] + 92} {dc['y'] + dc['h'] - 22}")
                 time.sleep(1.5)
                 dbg.settle(1.0)
-                after = dbg.send("sh cat /etc/effects/shatter.conf") or ""
+                after = dbg.send("sh cat /home/user/.config/effects/shatter.conf") or ""
                 check("effects: Cancel closes it and writes nothing",
                       dbg.window("Shatter options") is None and after == before,
                       f"before={before.strip()!r} after={after.strip()!r}")
@@ -909,7 +909,7 @@ def main():
                     drain(dbg)
                     return bool(_since(mk, r"settings: set shatter\."))
 
-                conf = "/etc/effects/shatter.conf"
+                conf = "/home/user/.config/effects/shatter.conf"
                 if check("effects: the dialog opens again", open_opts()):
                     got = edit_then(3)             # Motion, OK, Cancel
                     now = dbg.send(f"sh cat {conf}") or ""
@@ -1480,7 +1480,7 @@ def main():
                       f"System: {rows_under(shown, 'System')}")
                 check("...in the order /etc/settings.d gives: Kernel last before About",
                       heads[-2:] == ["Kernel", "About"], f"headings={heads}")
-                check("...and the tick is remembered in /etc/settings.conf",
+                check("...and the tick is remembered in /home/user/.config/settings.conf",
                       stored_value(dbg, "show_debug", SETTINGS_CONF) == "1",
                       f"show_debug={stored_value(dbg, 'show_debug', SETTINGS_CONF)!r}")
                 hidden = flip_debug()
@@ -1670,7 +1670,7 @@ def main():
     #
     # These rows are NOT registry settings. They are declared by a data
     # file beside each saver (/usr/wm/savers/<name>.saver) and written to
-    # a file of its own (/etc/savers/<name>.conf), because a saver's
+    # a file of its own (/home/user/.config/savers/<name>.conf), because a saver's
     # options belong to a program that is not running and depend on which
     # saver is chosen -- see userland/libs/base/usaver.h. So everything below
     # is asking whether synthesised rows behave like real ones.
@@ -1826,7 +1826,7 @@ def main():
         # "the app thinks it saved" from "it saved" (the reasoning every
         # other check in this file uses for /etc/saunaos.conf).
         target, target_opts = pick_saver(want="starfield")
-        conf = f"/etc/savers/{target}.conf"
+        conf = f"/home/user/.config/savers/{target}.conf"
         spins = [o for o in target_opts if o["kind"] == "spin"]
         if check("starfield offers a numeric option to change", bool(spins),
                  f"target={target!r}"):

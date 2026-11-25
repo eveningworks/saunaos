@@ -88,7 +88,12 @@ const char *uhist_at(const struct uhistory *h, int i);
 // zsh keep separate ones: they are different shells with different
 // histories, and merging them would put `#` commands in a `$` shell's
 // Ctrl-R where most of them do not exist.
-#define UHIST_FILE "/etc/tosh_history"
+//
+// THE PERSON'S STATE, $XDG_STATE_HOME/tosh_history (bash's
+// ~/.bash_history; users stage D1c) -- root's is /etc/tosh_history.
+// Named once a process; NULL only when out of memory.
+const char *uhist_file(void);
+#define UHIST_FILE uhist_file()
 
 // The longest line the file carries. TOSH_CMD_MAX is what the shell can
 // run, and this matches it so that a command which ran can be recalled

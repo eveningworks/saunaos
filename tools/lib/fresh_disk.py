@@ -5,7 +5,7 @@
     python3 tools/lib/fresh_disk.py --make OUT.img   # a pristine image of this build
 
 WHY. `make iso` SYNCS disk.img rather than reformatting it, so what a
-test or a `make run` left behind -- `/etc/windows.conf`'s remembered
+test or a `make run` left behind -- `/home/user/.config/windows.conf`'s remembered
 window positions, a launcher in `/home/user/Desktop` -- stays on the image and
 reaches every later VM booted from a copy of it. On 2026-09-30 that made
 four GUI tools fail deterministically, and `predates.py` then called them

@@ -1,4 +1,4 @@
-// Notepad's options file, /etc/notepad.conf: `name=value`, booleans as
+// Notepad's options file, ~/.config/notepad.conf: `name=value`, booleans as
 // on/off -- one base/uprefs.h table, so load, save and the defaults cannot
 // disagree about which keys exist or what they default to.
 #include "notepad.h"

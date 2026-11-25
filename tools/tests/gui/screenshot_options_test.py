@@ -12,7 +12,7 @@ from the disk and the compositor rather than from the app.
 4. **Alt+PrtSc saves the window with the focus**, at its size, and
    <app> names it -- checked against `gui windows`.
 5. **The popover (the pill's "...") toggles an option at once** and it
-   is in /etc/screenshot.conf after the overlay closes; Esc closes the
+   is in /home/user/.config/screenshot.conf after the overlay closes; Esc closes the
    popover before the overlay.
 6. **The Options window moves a Print Screen key** in /etc/shortcuts.conf:
    "Does nothing" takes Print Screen out of `screenshot` and PrtSc then
@@ -42,7 +42,7 @@ from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
 
-CONF = "/etc/screenshot.conf"
+CONF = "/home/user/.config/screenshot.conf"
 SHORTCUTS = f"{USER_CONFIG}/shortcuts.conf"   # shortcuts.* is Scope=user
 DIR = "/home/user/shot-opt"
 PRTSC = "0xf888"

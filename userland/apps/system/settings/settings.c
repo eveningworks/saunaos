@@ -93,7 +93,7 @@ static struct uui_layout FOOTER_LAYOUT;
 
 // The sidebar's width is the user's, dragged. Persisted in this app's
 // own /etc/<app_id>.conf -- this window's furniture, not a setting.
-#define SETTINGS_CONF "/etc/settings.conf"
+#define SETTINGS_CONF "settings.conf"
 #define SIDE_SPLIT_DEFAULT 200
 
 static struct uui_splitter g_side_split;

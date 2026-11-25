@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Pin to Places in the File Manager (base/upins.h): a folder's context
 menu pins it, the side column lists it under Pinned, a click there goes
-to it, and Unpin takes it away -- each read back from /etc/places.conf
+to it, and Unpin takes it away -- each read back from /home/user/.config/places.conf
 with `cat` as well as from the app.
 
-1. **"Pin to Places" writes the folder to /etc/places.conf** and the
+1. **"Pin to Places" writes the folder to /home/user/.config/places.conf** and the
    side column gains a row for it.
 2. **That row goes to the folder.**
 3. **"Unpin from Places" takes it out of the file and the column.**
@@ -43,10 +43,10 @@ def run(dbg, qmp, res):
     def sh(cmd):
         return dbg.send(f"sh {cmd}") or ""
 
-    sh("rm /etc/places.conf")
+    sh("rm /home/user/.config/places.conf")
     sh(f"rm -r {GONE}")
     sh(f"mkdir {GONE}")
-    dbg.write_lines("/etc/places.conf", fm.places_lines(GONE))
+    dbg.write_lines("/home/user/.config/places.conf", fm.places_lines(GONE))
     dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details", "details_pane=0"])
     win = dbg.spawn(f"{fm.SPAWN_PATH} {START}", fm.TITLE)
     res.check("the File Manager opens", win is not None, "no window")
@@ -55,7 +55,7 @@ def run(dbg, qmp, res):
     lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == START and l.rowy) or fm.layout_now(dbg, win)
 
     def pinned():
-        return TARGET in [ln.strip() for ln in sh("cat /etc/places.conf").splitlines()]
+        return TARGET in [ln.strip() for ln in sh("cat /home/user/.config/places.conf").splitlines()]
 
     def menu_on_doc():
         """Right-click the target's row and wait for its menu. Typed in
@@ -88,7 +88,7 @@ def run(dbg, qmp, res):
         time.sleep(0.3)
     lay = fm.wait_layout(dbg, win, lambda l: tree_row(l, TARGET) is not None) or fm.layout_now(dbg, win)
     row = tree_row(lay, TARGET)
-    res.check("'Pin to Places' writes the folder to /etc/places.conf and adds a row",
+    res.check("'Pin to Places' writes the folder to /home/user/.config/places.conf and adds a row",
               m is not None and pinned() and row is not None,
               f"menu={m is not None} file={pinned()} row={row} tree={lay.treerow}")
 
@@ -137,7 +137,7 @@ def run(dbg, qmp, res):
               lay.dir.get(0) == START and tree_row(lay, GONE) is None,
               f"row={row} note={lay.note if lay else None!r} dir={lay.dir.get(0) if lay else None!r} "
               f"still={tree_row(lay, GONE) if lay else None}")
-    sh("rm /etc/places.conf")
+    sh("rm /home/user/.config/places.conf")
 
 
 def main():

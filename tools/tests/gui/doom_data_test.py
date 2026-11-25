@@ -5,7 +5,7 @@ userland/apps/apps/doom/: with no IWAD, DOOM shows a card that downloads one;
 afterwards a launcher page with the keys; in game, F1 is a key sheet
 over a paused level and F1 on the sheet is DOOM's own help.
 
-THE DOWNLOAD NEVER LEAVES THIS MACHINE. The guest's /etc/doom.conf
+THE DOWNLOAD NEVER LEAVES THIS MACHINE. The guest's /home/user/.config/doom.conf
 gets `mirror=` pointed at a server this tool runs on loopback (QEMU's
 10.0.2.2), serving data/doom/doom1.wad and, when it is there,
 data/doom/freedoom-0.13.0.zip -- the latter behind a 302 to a URL over
@@ -193,7 +193,7 @@ def run(dbg, qmp, mirror, tmp):
         dbg.send(f"sh rm {d}/doom1.wad")
         dbg.send(f"sh rm {d}/freedoom1.wad")
     dbg.send("sh rm /home/user/.local/share/licenses/doom-shareware.txt")
-    dbg.write_lines("/etc/doom.conf", [f"mirror=http://10.0.2.2:{mirror.port}"])
+    dbg.write_lines("/home/user/.config/doom.conf", [f"mirror=http://10.0.2.2:{mirror.port}"])
 
     # --- 1. no game data: the card ------------------------------------
     spawn(dbg)
@@ -339,7 +339,7 @@ def run(dbg, qmp, mirror, tmp):
     dbg.send("sh rm /home/user/.local/share/doom/freedoom1.wad")
     dbg.send("sh rm /home/user/.local/share/licenses/doom-shareware.txt")
     dbg.send("sh rm /home/user/.local/share/licenses/freedoom.txt")
-    dbg.send("sh rm /etc/doom.conf")
+    dbg.send("sh rm /home/user/.config/doom.conf")
 
 
 def main():

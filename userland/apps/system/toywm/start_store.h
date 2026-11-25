@@ -2,7 +2,7 @@
 #define START_STORE_H
 
 // THE START MENU'S OWN STATE: what is pinned, and what has been
-// launched. One file, `/etc/start-menu.conf`, keyed by APP ID.
+// launched. One file, `~/.config/start-menu.conf`, keyed by APP ID.
 //
 // WHY APP ID AND NOT NAME OR POSITION. A pin has to survive the two
 // things that routinely move an entry: renaming the app (the desktop's

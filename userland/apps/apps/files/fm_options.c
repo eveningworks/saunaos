@@ -66,7 +66,7 @@ void options_apply(void) {
 
 // --- the window -----------------------------------------------------------
 // files.ui's `options #options`: every row bound to a key of the two
-// tables but Scripts and Programs, which are /etc/mimeapps.conf's.
+// tables but Scripts and Programs, which are ~/.config/mimeapps.conf's.
 
 // A SEGMENT IS KNOWN BY ITS id= (the file may reorder them): which act each is.
 static const struct { const char *id; int act; } ACTS[] = {

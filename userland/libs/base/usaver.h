@@ -23,7 +23,7 @@ extern "C" {
 // sitting beside `starfield` would become a saver you could select and
 // which would fail to start.
 #define SCREENSAVER_DESC_DIR "/usr/wm/savers"
-#define SCREENSAVER_CONF_DIR "/etc/savers"
+#define SCREENSAVER_CONF_DIR "savers"
 
 // The factory values, and the twin of the declaration file's `Default=`
 // and `Max=`. Minutes; ZERO MEANS NEVER, which is why there is no
@@ -47,7 +47,7 @@ extern "C" {
 // one options without giving it a settings UI:
 //
 //   /usr/wm/savers/<name>.saver   what options exist -- shipped, read-only
-//   /etc/savers/<name>.conf       what they are set to -- written by the user
+//   ~/.config/savers/<name>.conf       what they are set to -- written by the user
 //
 // XScreenSaver's arrangement, and the reason for it: each hack there
 // ships an XML descriptor of its options and `xscreensaver-settings`

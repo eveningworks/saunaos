@@ -12,6 +12,7 @@
 #include <caltime.h>
 #include "kpath.h"
 #include "base/utrash.h"
+#include "base/urecent.h"
 #include "base/human.h"
 #include "base/udate.h"
 #include "ui/uui_table.h"
@@ -122,8 +123,8 @@ const char *fm_watch_path(const char *dir) {
         snprintf(info, sizeof info, "%s/info", utrash_home_bin());
         return info;
     }
-    if (strcmp(dir, FM_RECENT) == 0) return "/var/lib";   // urecent renames its file in
-    if (strcmp(dir, FM_QUICK) == 0) return "/var/lib";    // ...and Quick access shows it
+    if (strcmp(dir, FM_RECENT) == 0) return urecent_dir();   // urecent renames its file in
+    if (strcmp(dir, FM_QUICK) == 0) return urecent_dir();    // ...and Quick access shows it
     // An archive's view changes when the archive does.
     static char archive[PATH_MAX_LEN];
     const char *inner;

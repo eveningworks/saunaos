@@ -14,7 +14,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
-#include "base/ulistdir.h"   // the cache sweep's listing
+#include "base/ulistdir.h"
+#include "base/udatadir.h"   // the cache sweep's listing
 
 #define THUMB_MAX 96
 #define THUMB_PATH 128
@@ -22,9 +23,24 @@
 // under the freedesktop Thumbnail Managing Standard, thumbcache_*.db on
 // Windows -- because the second visit to a folder of photographs should
 // not pay for the first one again.
-#define THUMB_CACHE_DIR  "/var/cache/thumbnails"
+// The person's (users stage D1c, $XDG_CACHE_HOME/thumbnails); root's is
+// the machine's /var/cache/thumbnails.
+#define THUMB_CACHE_DIR  thumb_dir()
 #define THUMB_CACHE_MAX  512      // files kept there; the oldest go first
 #define THUMB_SWEEP_EVERY 128     // writes between sweeps
+
+static const char *thumb_dir(void) {
+    static char *dir;
+    if (!dir) dir = udatadir_cache("thumbnails", "/var/cache/thumbnails");
+    return dir ? dir : "/var/cache/thumbnails";
+}
+
+// Makes the folder and those above it: deleting a cache is allowed.
+static void thumb_dir_make(void) {
+    char *p = udatadir_cache_prepare("thumbnails", "/var/cache/thumbnails");
+    if (p) sys_mkdir(p);
+    free(p);
+}
 
 enum thumb_state { THUMB_EMPTY = 0, THUMB_PENDING, THUMB_DECODING,
                    THUMB_READY, THUMB_NOT_IMAGE };
@@ -69,7 +85,10 @@ static unsigned long long g_batch_t0;
 
 static int wake(void) { return g_cfg.wake ? g_cfg.wake(g_cfg.ctx) : 0; }
 
-void uthumb_init(const struct uthumb_config *cfg) { g_cfg = *cfg; }
+void uthumb_init(const struct uthumb_config *cfg) {
+    g_cfg = *cfg;
+    thumb_dir();   // named here, before a decode worker can race to name it
+}
 
 // --- the disk cache -----------------------------------------------------
 
@@ -99,7 +118,7 @@ static int cache_path(const char *src, int px, char *out, int cap) {
     char name[64];
     if (snprintf(name, sizeof name, "%s-%d.qoi", m, px) >= (int)sizeof name)
         return 0;
-    int len = snprintf(out, (size_t)cap, THUMB_CACHE_DIR "/%s", name);
+    int len = snprintf(out, (size_t)cap, "%s/%s", THUMB_CACHE_DIR, name);
     return len > 0 && len < cap;
 }
 
@@ -181,8 +200,7 @@ static void cache_store(const char *cache, const struct uimg *im) {
     static unsigned writes;
     if (writes++ % THUMB_SWEEP_EVERY == 0) cache_sweep();
     if (uimg_save(cache, im, "qoi") == 0) return;
-    sys_mkdir("/var/cache");
-    sys_mkdir(THUMB_CACHE_DIR);
+    thumb_dir_make();
     uimg_save(cache, im, "qoi");
 }
 
@@ -455,8 +473,7 @@ int uthumb_load_cached(const char *path, const struct rtc_time *mtime, int px, s
 }
 
 int uthumb_sandbox(char *const *files, int n) {
-    sys_mkdir("/var/cache");
-    sys_mkdir(THUMB_CACHE_DIR);
+    thumb_dir_make();
     static char dirs[UNVEIL_MAX - 2][256];
     int nd = 0, all = 0;
     for (int i = 0; i < n && !all; i++) {

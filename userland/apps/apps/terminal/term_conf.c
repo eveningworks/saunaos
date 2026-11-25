@@ -1,4 +1,4 @@
-// /etc/terminal.conf and the colour schemes beside it -- the reading
+// ~/.config/terminal.conf and the colour schemes beside it -- the reading
 // and writing half of the GUI Terminal's preferences. The dialog that
 // edits them is term_prefs.c; see term.h for why they are the
 // application's rather than the settings registry's.
@@ -174,7 +174,7 @@ int term_scheme_list(char (**names_out)[TERM_NAME_MAX], int *ncap,
     return count;
 }
 
-// --- /etc/terminal.conf -----------------------------------------------
+// --- ~/.config/terminal.conf -----------------------------------------------
 
 // Declared ahead of the table they read; defined with it below.
 static void table_defaults(struct term_conf *c);

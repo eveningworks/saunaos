@@ -1,5 +1,6 @@
 // Places, one ordered list -- see upins.h.
 #include "base/upins.h"
+#include "base/uconf.h"
 #include "base/udirs.h"
 #include <stdio.h>
 #include <string.h>
@@ -44,7 +45,8 @@ static int read_all(struct pin *out, int cap) {
     static struct pin old[UPINS_MAX];   // 6 KiB: never on a ring-3 frame
     int nold = 0;
     g_ndev = 0;
-    FILE *f = fopen(UPINS_FILE, "r");
+    static char at[UCONF_USER_PATH_MAX];
+    FILE *f = uconf_own_read_path(UPINS_FILE, at, sizeof at) ? fopen(at, "r") : 0;
     if (f) {
         char line[UPINS_PATH + UPINS_LABEL + 4];
         while (fgets(line, sizeof line, f)) {
@@ -76,7 +78,9 @@ static int read_all(struct pin *out, int cap) {
 }
 
 static int write_all(const struct pin *in, int n) {
-    FILE *f = fopen(UPINS_FILE, "w");
+    static char at[UCONF_USER_PATH_MAX];
+    if (!uconf_own_write_path(UPINS_FILE, at, sizeof at)) return -ENAMETOOLONG;
+    FILE *f = fopen(at, "w");
     if (!f) return -errno;
     fputs(VERSION_LINE "\n# Places, in order (the File Manager, the file dialog): entry[TAB name]\n", f);
     for (int i = 0; i < n; i++) {

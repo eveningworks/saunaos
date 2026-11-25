@@ -1,5 +1,5 @@
 // Notepad's Options window (Edit > Options...) over the shared one,
-// ui/uui_prefs.h. Each key= is a setting in /etc/notepad.conf -- np_conf.c's
+// ui/uui_prefs.h. Each key= is a setting in ~/.config/notepad.conf -- np_conf.c's
 // table says its type and range -- and a choice's value= is spelt as that
 // file spells it. The language: docs/ui-files-design.md. Read when Notepad
 // starts: edit this on the disk (/usr/share/ui/notepad.ui) and reopen it.

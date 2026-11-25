@@ -1,5 +1,5 @@
 // The GUI Terminal's Options window over the shared one, ui/uui_prefs.h.
-// Each key= is a setting in /etc/terminal.conf -- term_conf.c's table says
+// Each key= is a setting in ~/.config/terminal.conf -- term_conf.c's table says
 // its type and range -- and a choice's value= is spelt as that file spells
 // it. The colour schemes, the shell list and the Screen effect page are
 // the program's. The language: docs/ui-files-design.md. Read when the

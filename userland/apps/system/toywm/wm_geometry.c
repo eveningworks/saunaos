@@ -10,13 +10,13 @@
 #include "knum.h"
 #include "kfmt.h"
 
-#define WINDOWS_CONF_PATH "/etc/windows.conf"
+#define WINDOWS_CONF_PATH "windows.conf"
 
 // READ FRESH ON EVERY RESTORE, deliberately not cached.
 //
 // The first version cached the parsed file and invalidated it only when
 // this module's own save rewrote it -- which makes the WM blind to any
-// other writer, including a person editing /etc/windows.conf and the
+// other writer, including a person editing ~/.config/windows.conf and the
 // test that writes a known geometry before opening a window. It failed
 // exactly there, and the general shape is worth naming: a cache
 // invalidated only by its owner's writes is correct only while its

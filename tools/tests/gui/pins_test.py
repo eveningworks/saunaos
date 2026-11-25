@@ -3,7 +3,7 @@
 start_store.h's `taskbar` list): a pin is its icon until the app runs,
 then the app's window button stands in its place; unpinned windows come
 after the pins; the menus pin and unpin; a drag reorders the pins and
-the order is kept in /etc/start-menu.conf.
+the order is kept in /home/user/.config/start-menu.conf.
 
 WHAT THIS ASSERTS THAT "THE ICON IS THERE" WOULD NOT
 ---------------------------------------------------
@@ -13,7 +13,7 @@ WHAT THIS ASSERTS THAT "THE ICON IS THERE" WOULD NOT
 * AN UNPINNED WINDOW STAYS AFTER THE PINS, even dragged to the front:
   a drop the next layout would undo is refused while dragging.
 * THE ORDER IS THE FILE'S: after a drag and a menu pin, the `taskbar`
-  line in /etc/start-menu.conf names the pins in the strip's order.
+  line in /home/user/.config/start-menu.conf names the pins in the strip's order.
 * CLOSING THE APP GIVES THE PIN BACK, where it was.
 
     python3 tools/lib/vm.py --disk <copy> start
@@ -97,7 +97,7 @@ def main():
             return [p["app_id"] for p in pins()]
 
         def conf_order():
-            out = dbg.send("sh cat /etc/start-menu.conf") or ""
+            out = dbg.send("sh cat /home/user/.config/start-menu.conf") or ""
             for line in out.splitlines():
                 line = line.strip()
                 if line.startswith("taskbar"):
@@ -147,7 +147,7 @@ def main():
         got = poll(lambda: order()[0] == "terminal" and order(), 3) or order()
         res.check("dragging the Terminal pin to the front reorders the pins",
                   got == ["terminal", "files", "browser"], f"order {got}")
-        res.check("...and the order is written to /etc/start-menu.conf",
+        res.check("...and the order is written to /home/user/.config/start-menu.conf",
                   conf_order() == got, f"conf {conf_order()}")
 
         # HELD, not dropped: the layout puts every unpinned window back

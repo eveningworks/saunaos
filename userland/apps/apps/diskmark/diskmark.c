@@ -19,6 +19,7 @@
 #include "syscall_abi.h"   // SYS_WRITE_MAX -- named in the status bar
 #include "kpath.h"
 #include "base/ulog.h"
+#include "base/udatadir.h"
 #include "ui/ugfx.h"
 #include "ui/uui_builder.h"
 #include "ui/uui_stack.h"
@@ -68,8 +69,7 @@ static const char *root_work_path(void) {
     return p;
 }
 #define BENCH_PATH   "/bin/diskbench"
-#define HISTORY_DIR  "/var/lib/diskmark"
-#define HISTORY_PATH "/var/lib/diskmark/history"
+#define HISTORY_PATH udatadir_state_file("diskmark/history", "/var/lib/diskmark/history")
 
 // Display order is CrystalDiskMark's read-then-write; diskbench runs
 // them write-first and names each result, so the orders never agree.
@@ -99,7 +99,7 @@ static const int PRESET_MIB[] = { 16, 64, 256, 512, 1024 };
 // The remembered choices, in the app's own options file
 // (docs/conventions/gui.md) -- a size or a place picked once is the one
 // next time. `location` is a volume's mount point or one of the folders.
-#define DISKMARK_CONF "/etc/diskmark.conf"
+#define DISKMARK_CONF "diskmark.conf"
 #define FOLDERS_MAX 3
 #define DIR_MAX UUI_DROPROWS_LABEL
 struct dm_prefs { int size_mib; char location[DIR_MAX]; char folder[FOLDERS_MAX][DIR_MAX]; };
@@ -404,7 +404,7 @@ static int g_nruns;
 
 static void history_load(void) {
     g_nruns = 0;
-    FILE *f = fopen(HISTORY_PATH, "r");
+    FILE *f = HISTORY_PATH ? fopen(HISTORY_PATH, "r") : 0;
     if (!f) { uui_table_set_rows(g_hist, 0); return; }
     static struct run all[HIST_MAX];   // static: the ring-3 frame budget is 2 KiB
     int n = 0;
@@ -426,8 +426,7 @@ static void history_load(void) {
 }
 
 static void history_append(void) {
-    mkdir(HISTORY_DIR, 0755);   // first use; an existing one is fine
-    FILE *f = fopen(HISTORY_PATH, "a");
+    FILE *f = HISTORY_PATH ? fopen(HISTORY_PATH, "a") : 0;
     if (!f) return;
     fprintf(f, "%lld %d %s %s %llu %llu %llu %llu %llu %llu %llu %llu\n",
             (long long)g_run_when, g_run_mib, g_run_vol[0] ? g_run_vol : "/",

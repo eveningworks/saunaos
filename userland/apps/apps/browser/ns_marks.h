@@ -10,7 +10,7 @@
 enum { NS_MARKS_BOOKMARKS, NS_MARKS_HISTORY };
 #define NS_MARKS_MAX 256
 
-// Loads both lists from `dir` (/var/lib/browser), taking NetSurf's old
+// Loads both lists from `dir` (~/.local/share/browser), taking NetSurf's old
 // files the first time. 1, or 0 when the bookmarks could not be read.
 int ns_marks_init(const char *dir);
 // A page the person reached: History's entry for it made or moved up.

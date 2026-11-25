@@ -5,7 +5,7 @@
 #include <string.h>
 
 // THE FILE HALF MOVED TO base/uconf.h when it got a second caller (the
-// File Manager's /etc/files.conf). These three stay as the WM's own
+// File Manager's ~/.config/files.conf). These three stay as the WM's own
 // names because every call site here reads better for it, and because
 // wm_setting_generation() below -- which is about the SETTINGS REGISTRY
 // rather than about a file -- has no business in a general config

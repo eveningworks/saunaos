@@ -81,7 +81,7 @@ static struct doom_state g_st;
 // --- the screen effect -------------------------------------------------
 //
 // The Terminal's CRT presets (ui/ucrt.h) over the picture, cycled by
-// Alt+C and kept in /etc/doom.conf. A scanline closes each of DOOM's own
+// Alt+C and kept in ~/.config/doom.conf. A scanline closes each of DOOM's own
 // rows however tall the window makes them, and the picture is scaled
 // into g_pic and composed from there: a SCANOUT surface is never read.
 #define DOOM_LINES (DOOM_RESY / 2)   // doomgeneric draws 320x200 doubled

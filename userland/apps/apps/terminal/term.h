@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "ui/ucrt.h"
 
-// The GUI Terminal's own preferences: what is in /etc/terminal.conf,
+// The GUI Terminal's own preferences: what is in ~/.config/terminal.conf,
 // what a colour scheme is, and the dialog that edits both.
 //
 // **THESE ARE THE TERMINAL'S, NOT THE REGISTRY'S.** Everything else
@@ -17,11 +17,11 @@
 // desktop. Following the registry here would also mean ring-0 code
 // (setting_register() is the kernel's) for a ring-3 app's appearance.
 //
-// The file is etc_config's format, so `edit /etc/terminal.conf` and
+// The file is etc_config's format, so `edit ~/.config/terminal.conf` and
 // `config` read it like any other -- no second parser (uconf.h).
 
 #define TERM_SCHEME_DIR  "/usr/share/terminal"
-#define TERM_CONF_PATH   "/etc/terminal.conf"
+#define TERM_CONF_PATH   "terminal.conf"
 
 #define TERM_NAME_MAX    24   // a scheme's file name, without .scheme
 #define TERM_LABEL_MAX   32   // its `Name=`, which is what a UI shows
@@ -67,7 +67,7 @@ enum term_newtab_dir { TERM_NEWTAB_HERE = 0, TERM_NEWTAB_HOME };
 
 #define TERM_SHELL_MAX 64   // a path from /etc/shells
 
-// One field per key in /etc/terminal.conf. Ints rather than strings
+// One field per key in ~/.config/terminal.conf. Ints rather than strings
 // because every consumer wants a number; the file's words are resolved
 // once, on load.
 struct term_conf {
@@ -102,7 +102,7 @@ struct term_conf {
 #define TERM_ROWS_MIN 10
 #define TERM_ROWS_MAX 100
 
-// The shipped defaults -- what a machine with no /etc/terminal.conf
+// The shipped defaults -- what a machine with no ~/.config/terminal.conf
 // runs, and what the file is compared against when saving.
 void term_conf_defaults(struct term_conf *c);
 
@@ -110,7 +110,7 @@ void term_conf_defaults(struct term_conf *c);
 // or out of range keeps its default rather than failing the load: a
 // hand-edited file with one bad line should cost that line and nothing
 // else.
-// The table behind /etc/terminal.conf, which terminal.ui's Options rows bind to.
+// The table behind ~/.config/terminal.conf, which terminal.ui's Options rows bind to.
 struct uprefs;
 extern const struct uprefs term_conf_prefs;
 void term_conf_load(struct term_conf *c);

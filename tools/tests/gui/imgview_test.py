@@ -919,7 +919,7 @@ def restore_window_size(dbg, was):
     """Drag the grip back to the size the window was.
 
     NOT a courtesy: the compositor SAVES a window's geometry when it
-    closes and restores it at the next launch (`/etc/windows.conf`), so
+    closes and restores it at the next launch (`/home/user/.config/windows.conf`), so
     a check that leaves the viewer covering the screen hands the next
     RUN of this tool a window with no desktop beside it -- which is how
     a wallpaper check that samples the desktop starts failing a day

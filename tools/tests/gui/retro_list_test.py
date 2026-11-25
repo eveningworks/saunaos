@@ -2,7 +2,7 @@
 """Retro Launcher's list: the Details view, the search box and the order, as a person uses them.
 
 WHAT IT CHECKS, on the sample programs in /usr/share/w16 (their call counts differ):
-  - /etc/retrolauncher.conf's `view=details` is honoured (the table is the widget on screen, the grid is not);
+  - /home/user/.config/retrolauncher.conf's `view=details` is honoured (the table is the widget on screen, the grid is not);
   - the search box filters as you type, by NAME and by FILE name (`.EXE` is in no title, only in every file's),
     whatever the case; it says `N of M programs`, and Esc empties it and brings every program back;
   - a click on a column's HEADER sorts by it and a second click reverses it -- the log line the app writes after a
@@ -10,7 +10,7 @@ WHAT IT CHECKS, on the sample programs in /usr/share/w16 (their call counts diff
   - the selection stays on the same program when the order changes;
   - the toolbar's Icons and Details buttons switch the view and keep the order and the selection;
   - a double click on a row runs that program;
-  - the choices are in /etc/retrolauncher.conf, and a second launch opens as they were left.
+  - the choices are in /home/user/.config/retrolauncher.conf, and a second launch opens as they were left.
 
 The scrolling of the table (wheel, thumb, trough, drag) is in scroll_test.py, rule 10 of userland/CLAUDE.md.
 
@@ -40,7 +40,7 @@ from harness import Results, poll               # noqa: E402
 
 TITLE = "Retro Launcher"
 APP = "/bin/wm/apps/retrolauncher"
-CONF = "/etc/retrolauncher.conf"
+CONF = "/home/user/.config/retrolauncher.conf"
 COL_NAME, COL_FILE, COL_CALLS, COL_MISSING = 0, 1, 2, 3
 K_ESC = "0x1b"
 K_UP, K_DOWN, K_LEFT, K_RIGHT = "0xf780", "0xf781", "0xf784", "0xf785"
@@ -136,8 +136,7 @@ def main():
     print("retro_list: the Details view, the search and the order")
     try:
         dbg.send("sh rm " + CONF)
-        dbg.send("sh write /etc/win16.conf folders=1")
-        dbg.send("sh append /etc/win16.conf folder1=/usr/share/w16")
+        dbg.write_lines("/home/user/.config/win16.conf", ["folders=1", "folder1=/usr/share/w16"])
         dbg.send(f"sh write {CONF} view=details")
         win = dbg.spawn(APP, TITLE)
         if not res.check("the Retro Launcher opens", win is not None, "no window"):
@@ -242,15 +241,13 @@ def main():
 
         # --- the choices are kept ------------------------------------------------------------------------------
         conf = dbg.send("sh cat " + CONF)
-        res.check("the view, the order and the columns are in /etc/retrolauncher.conf",
+        res.check("the view, the order and the columns are in /home/user/.config/retrolauncher.conf",
                   "view=details" in conf and "sort=file" in conf and "order=ascending" in conf, conf)
     finally:
         pass
     dbg.close_window(TITLE)
     # A second launch opens as it was left: Details, by file name.
-    dbg.send("sh write /etc/retrolauncher.conf view=details")
-    dbg.send("sh append /etc/retrolauncher.conf sort=missing")
-    dbg.send("sh append /etc/retrolauncher.conf order=descending")
+    dbg.write_lines(CONF, ["view=details", "sort=missing", "order=descending"])
     win = dbg.spawn(APP, TITLE)
     if res.check("it opens again", win is not None, "no window"):
         poll(lambda: dbg.widgets(TITLE).get("search"), 10, 0.3)

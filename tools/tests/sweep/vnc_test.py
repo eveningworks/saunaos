@@ -924,7 +924,7 @@ def stage_ext_clipboard(args, r, tmp):
     a.tap(0xFF0D)
     time.sleep(2.0)   # sleep-ok: the shell writes its history file
     a.close()
-    raw = guest_bytes(args, "/etc/tosh_history", tmp)
+    raw = guest_bytes(args, "/home/user/.local/state/tosh_history", tmp)
     r.check("pasted in the Terminal, an Extended viewer's text past Latin-1 is whole UTF-8",
             text2.encode("utf-8") in raw, repr(raw[-120:]))
 
@@ -1268,10 +1268,10 @@ def main():
         v.tap(0xFF0D)
         time.sleep(2.0)
         dc.close()   # vm.py exec needs the console's socket
-        hist = vm(args, "exec", "cat /etc/tosh_history").stdout
+        hist = vm(args, "exec", "cat /home/user/.local/state/tosh_history").stdout
         r.check("typed text reaches the shell, Shift characters and all",
                 line in hist, hist[-300:])
-        raw = guest_bytes(args, "/etc/tosh_history", tmp)
+        raw = guest_bytes(args, "/home/user/.local/state/tosh_history", tmp)
         r.check("pasted in the Terminal, it is UTF-8 on this machine",
                 clip.encode("utf-8") in raw, repr(raw[-120:]))
         v.close()   # remoted takes two viewers at a time

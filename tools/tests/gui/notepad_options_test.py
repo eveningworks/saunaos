@@ -4,11 +4,11 @@ Drives the Options window (Edit > Options..., over the shared
 ui/uui_prefs.h dialog) and then asserts on what the options DO, not on
 the window having drawn:
 
-  * OK writes /etc/notepad.conf, only the keys that moved;
+  * OK writes /home/user/.config/notepad.conf, only the keys that moved;
   * the status bar going off gives the text its height (the text rect grows);
   * Tab types spaces to the next 8-column stop, and Save trims the
     trailing spaces typed -- read back with `cat`, an independent path;
-  * the saved file is kept in /var/lib/notepad/recent;
+  * the saved file is kept in /home/user/.local/state/notepad/recent;
   * "Reopen the last tabs": closing the window and opening Notepad again
     brings the file back;
   * the Markdown preview set to Always and Below sits UNDER the text.
@@ -35,7 +35,7 @@ import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
 
 NOTEPAD = "/bin/wm/apps/notepad"
-CONF = "/etc/notepad.conf"
+CONF = "/home/user/.config/notepad.conf"
 DOC = "/var/tmp/npo.txt"
 F10, RIGHT, TAB, ENTER, CTRL_S = "0xf793", "0xf785", "0x09", "0x0d", "0x13"
 
@@ -146,7 +146,7 @@ def run(dbg, res):
     res.check("Tab types spaces to the 8-column stop, and Save trims the trailing ones",
               first == "x       y", f"first line {first!r}")
 
-    recent = dbg.send("sh cat /var/lib/notepad/recent") or ""
+    recent = dbg.send("sh cat /home/user/.local/state/notepad/recent") or ""
     res.check("the saved file is kept in Recent across runs", DOC in recent, f"{recent!r}")
     res.check("...once: opening then saving one file is ONE recent entry",
               recent.count(DOC) == 1 and "(empty)" not in recent, f"{recent!r}")

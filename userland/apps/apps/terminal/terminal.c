@@ -95,7 +95,7 @@
 #include "ansi.h"   // the kernel's parser, compiled into libbase too
 #include "ui/uvterm.h"   // one terminal: grid, scrollback, pty, selection
 #include "ui/umonofont.h"   // the grid's face at a chosen size
-#include "apps/apps/terminal/term.h"    // /etc/terminal.conf and the Preferences dialog
+#include "apps/apps/terminal/term.h"    // terminal.conf and the Preferences dialog
 #include "base/udclick.h"  // the double-click time
 #include "base/udirs.h"
 
@@ -108,7 +108,7 @@
 // terminal still opens at -- xterm, GNOME Terminal, Konsole, macOS
 // Terminal, all 80x24 -- is inherited rather than chosen, and this
 // window is resizable anyway.
-// The grid a window opens at is /etc/terminal.conf's `cols`/`rows`
+// The grid a window opens at is ~/.config/terminal.conf's `cols`/`rows`
 // (120x30 by default, Windows Terminal's).
 
 #define SHELL_FALLBACK "/bin/tosh"
@@ -140,7 +140,7 @@ static const char *shell_path(char *buf, size_t cap) {
 // so g_rows x g_cols is every tab's size, and size_changed() resizes them
 // all alike. A terminal's allocation only ever grows.
 // Scrollback depth, the margin and the palette are all
-// /etc/terminal.conf's now (userland/apps/apps/terminal/term.h). They are read
+// ~/.config/terminal.conf's now (userland/apps/apps/terminal/term.h). They are read
 // into plain globals because every one of them is asked for per row
 // drawn, and a struct field behind a pointer would be the same
 // number with an indirection in front of it.
@@ -1908,7 +1908,7 @@ static void on_prefs_commit(const struct term_conf *next) {
     // rewrites the whole document per call.
     struct term_conf old = g_conf;
     if (term_conf_save(next, &old) < 0)
-        ulog("uterm: /etc/terminal.conf could not be written; the change is this session only\n");
+        ulog("uterm: terminal.conf could not be written; the change is this session only\n");
     // The dialog's "on" is what new windows do; it reaches this one when
     // it CHANGED, so a window toggled from the menu keeps its state
     // through an unrelated OK.

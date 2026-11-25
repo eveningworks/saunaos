@@ -25,7 +25,12 @@ enum wm_topic {
     WM_TOPIC_DESKTOP,    // the Desktop folder (base/udirs.h) -- the icons on the desktop
     WM_TOPIC_EFFECTS,    // /etc/effects -- the effects' options
     WM_TOPIC_TRASH,      // <home>/.Trash/files -- the desktop's Recycle Bin picture
-    WM_TOPIC_THUMBS,     // /var/cache/thumbnails -- the desktop's thumbnails, made
+    WM_TOPIC_THUMBS,     // $XDG_CACHE_HOME/thumbnails -- the desktop's thumbnails, made
+    // The person's halves of ETC and EFFECTS ($XDG_CONFIG_HOME, and its
+    // effects/): never asked for alone -- wm_watch_gen() of ETC or
+    // EFFECTS includes them, as a read of either file includes both.
+    WM_TOPIC_USER_CONF,
+    WM_TOPIC_USER_EFFECTS,
     WM_TOPIC_COUNT
 };
 
