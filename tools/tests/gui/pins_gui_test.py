@@ -46,7 +46,7 @@ def run(dbg, qmp, res):
     sh("rm /etc/places.conf")
     sh(f"rm -r {GONE}")
     sh(f"mkdir {GONE}")
-    dbg.write_lines("/etc/places.conf", [GONE])
+    dbg.write_lines("/etc/places.conf", fm.places_lines(GONE))
     dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details", "details_pane=0"])
     win = dbg.spawn(f"{fm.SPAWN_PATH} {START}", fm.TITLE)
     res.check("the File Manager opens", win is not None, "no window")

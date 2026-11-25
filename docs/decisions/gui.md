@@ -11432,10 +11432,10 @@ same thing on every row. GNOME Files keeps its built-in places fixed and
 reorders only bookmarks, which is the shape this replaced.
 
 **`udir:<key>`, not a path, for a personal folder**, so the entry follows
-the folder if `/etc/user-dirs.conf` moves it (`base/udirs.h`). A file
-without the `#places 2` line is the older pins-only file, read as the
-defaults followed by its pins. (files.conf's `hidden_places` was read
-once to carry a machine across, and dropped on 2026-11-25.)
+the folder if `/etc/user-dirs.conf` moves it (`base/udirs.h`). No file is
+the defaults; a file is the whole list. (The older pins-only file, with
+no `#places 2` line, and files.conf's `hidden_places` were read once to
+carry a machine across, and dropped on 2026-11-25.)
 
 **The mounts reorder within their groups, not into Places** (chosen the
 same day): a volume among the volumes under This computer, a share among

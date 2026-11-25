@@ -7,7 +7,7 @@
 #include "rt/sys.h"
 #include "kpath.h"
 
-#define VERSION_LINE "#places 2"
+#define VERSION_LINE "#places 2"   // the format's first line; a reader skips it as a comment
 
 struct pin { char entry[UPINS_PATH]; char label[UPINS_LABEL]; };
 
@@ -36,9 +36,9 @@ static int index_of(const struct pin *all, int n, const char *entry) {
 }
 
 // Every entry of the file, existing folders or not: what a rewrite must
-// not lose. No file, or the old pins-only one: the defaults come first.
+// not lose. No file: the defaults.
 static int read_all(struct pin *out, int cap) {
-    int n = 0, versioned = 0;
+    int n = 0;
     static struct pin old[UPINS_MAX];   // 6 KiB: never on a ring-3 frame
     int nold = 0;
     g_ndev = 0;
@@ -48,7 +48,6 @@ static int read_all(struct pin *out, int cap) {
         while (fgets(line, sizeof line, f)) {
             size_t l = strlen(line);
             while (l && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = '\0';
-            if (!strcmp(line, VERSION_LINE)) { versioned = 1; continue; }
             if (!strncmp(line, "dev:", 4)) {
                 if (g_ndev < UPINS_DEV_MAX && line[4] == '/') strlcpy(g_dev[g_ndev++], line + 4, sizeof g_dev[0]);
                 continue;
@@ -61,12 +60,12 @@ static int read_all(struct pin *out, int cap) {
             nold++;
         }
         fclose(f);
-    }
-    if (!versioned)
+    } else {
         for (int i = 0; i < N_DEFAULTS && n < cap; i++) {
             strlcpy(out[n].entry, DEFAULTS(i), UPINS_PATH);
             out[n++].label[0] = '\0';
         }
+    }
     for (int i = 0; i < nold && n < cap; i++)
         if (index_of(out, n, old[i].entry) < 0) out[n++] = old[i];
     return n;
@@ -270,7 +269,5 @@ int upins_dev_set_order(char (*points)[64], int n) {
     }
     memcpy(g_dev, merged, sizeof merged[0] * (size_t)m);
     g_ndev = m;
-    // An unversioned file is the old one: writing it makes it the new
-    // shape, defaults and all -- which read_all() has already put in g_all.
     return write_all(g_all, np);
 }

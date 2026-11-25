@@ -71,6 +71,14 @@ SPAWN_PATH = "/bin/wm/apps/files"
 SRC = "/fmtest"
 DST = "/fmdest"
 FILES_CONF = "/etc/files.conf"
+# /etc/places.conf as a fresh machine writes it (base/upins.c's defaults),
+# then `pins`: a file without the defaults has none.
+PLACES_DEFAULTS = ["quick:/", "recent:/", "/home/user", "udir:desktop", "udir:documents", "udir:music",
+                   "udir:pictures", "udir:videos", "udir:downloads", "trash:/"]
+
+
+def places_lines(*pins):
+    return ["#places 2"] + PLACES_DEFAULTS + list(pins)
 PROPERTIES_EXEC = "/bin/wm/apps/properties"
 FILES_EXEC = "/bin/wm/apps/files"
 # Ctrl+<letter> arrives as the control code (api/keyboard.h).

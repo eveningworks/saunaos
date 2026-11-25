@@ -72,7 +72,7 @@ def run(dbg, qmp, res, positive_control):
     for p in (PA, PB):
         sh(f"rm -r {p}")
         sh(f"mkdir {p}")
-    dbg.write_lines("/etc/places.conf", [PA, PB])
+    dbg.write_lines("/etc/places.conf", fm.places_lines(PA, PB))
     dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details", "details_pane=1"])
     win = dbg.spawn(f"{fm.SPAWN_PATH} /home/user", fm.TITLE)
     res.check("the File Manager opens", win is not None, "no window")

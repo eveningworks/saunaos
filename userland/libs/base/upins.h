@@ -20,8 +20,8 @@ extern "C" {
 //     trash:/         the Recycle Bin
 //     udir:<key>      a personal folder BY NAME (base/udirs.h): it
 //                     follows the folder if /etc/user-dirs.conf moves it
-// A file without the "#places 2" line is the old one -- pins only -- and
-// is read as the defaults followed by those pins. A pinned folder that
+// No file is the defaults; a file is the whole list, so a default it
+// lacks was unpinned. A pinned folder that
 // has gone is kept in the file and skipped when listed: a disk that is
 // not mounted today may be tomorrow. The File Manager and the shared file
 // dialog list the same entries.
