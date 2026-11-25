@@ -597,6 +597,11 @@ As built (2026-11-25), and where it differs from the plan:
   `local_info.txt` (or `SAUNAOS_REMOTE_ACCOUNT` / `_PASSWORD`), answers
   `login:`, then runs `sudo /bin/tosh` with the password, so its
   commands still run as root.
+- **A machine's own copy of a descriptor survives System Update**
+  (`/etc` files changed on the machine are kept, `update -v` lists
+  them): one whose `/etc/services.d/tosh` predates `User=@session` keeps
+  a ROOT console shell behind the login screen. The ASUS was migrated
+  by hand on 2026-11-25 (there are no migrations; nobody else runs it).
 
 **D3 -- several people.**
 

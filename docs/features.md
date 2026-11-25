@@ -429,6 +429,16 @@ Task Manager ask for one action, and `sudo` runs one command -- after
 an Authentication Required dialog the desktop draws and no app can.
 A signal reaches only its sender's own processes.
 
+**A password, a login screen and a lock -- when you want them.** With no
+password the computer starts straight to the desktop. Set one (Settings >
+Users, first-boot setup, or `passwd`; kept by `privd` in `/etc/shadow`,
+yescrypt) and it starts at a login screen drawn by a `greeter` account,
+`sudo` and the Authentication Required dialog ask for it, Win+L locks the
+desktop and the screen saver locks it when it ends, and Sign out on the
+Leave page goes back to the login screen. The text terminals and telnet
+ask too -- `/bin/login` -- whenever no session is on or it is locked
+(`docs/users-design.md`, stage D2).
+
 **Files have owners, and the kernel checks them.** Each file on the
 system volume carries an owner, a group and Unix permission bits, and
 every path a program names is checked against them -- owner, group,
@@ -443,7 +453,8 @@ checks LOG what they would refuse rather than refuse it; `fileperm=enforce`
 turns them on (`docs/users-design.md`, stage C).
 
 **Four virtual terminals, Ctrl+Alt+F1..F4**: the desktop on F1 and a
-text console with a shell of its own on each of F2-F4, started the first
+text console with a shell of its own on each of F2-F4 -- a `login:`
+prompt instead while the login screen is up or the desktop is locked -- started the first
 time it is shown and restarted on a cleared screen after `exit`. The
 kernel takes the keys ahead of the desktop -- Windows' secure attention
 shape -- so a desktop that has stopped answering can still be left, and

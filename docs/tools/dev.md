@@ -80,7 +80,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   from deb.debian.org; nothing after that leaves the machine. A fixture,
   not a test, so no runner names it.
 - **`remote.py`** -- drive a SaunaOS machine over the NETWORK: run
-  commands, push and pull files, or open an interactive session.
+  commands, push and pull files, or open an interactive session. A
+  machine with a password answers telnet with `login:` (users D2c):
+  remote.py signs in from a `login <host> <account> <password>` line in
+  the untracked `local_info.txt` (or `SAUNAOS_REMOTE_ACCOUNT` /
+  `SAUNAOS_REMOTE_PASSWORD`) and becomes root with `sudo /bin/tosh`.
 
       python3 tools/dev/remote.py --host <machine-ip> exec "lsusb" "dmesg"
       python3 tools/dev/remote.py --host <machine-ip> put build/userland/utils/ls /bin/ls
