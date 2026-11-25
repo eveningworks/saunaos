@@ -28,7 +28,9 @@ THE ROOT. A guest path resolves under build/hostui/root/ (UITEST_ROOT):
 .ui file (as the Makefile stages them), the rest of /usr/share the
 tree's data/usr/share, /tmp is empty, and there is no
 /etc -- so no setting exists unless a case declares it
-(uitest_setting) and the host's own files never answer.
+(uitest_setting, or a declaration written with uitest_file()) and the
+host's own files never answer. /etc and /home are EACH CASE'S OWN
+(root/private.<pid>/), since cases run in parallel over one root.
 
 `--positive-control` rebuilds the archive with each control's edit
 applied to a COPY of its source, and requires every case the control
@@ -172,6 +174,12 @@ CONTROLS = [
      "    uui_fill_round_rect(s, x, y, w, h, uui_control_radius(0), fill);\n    uui_button_draw_label",
      "    ugfx_fill_rect(s, x, y, w, h, fill);\n    uui_button_draw_label",
      ["button_corners"]),
+    # Where a value came from, blind to the person's file: the editor's
+    # From column says Machine for a value of the person's own.
+    ("userland/libs/base/usetting_schema.c",
+     "    return o->has_user ? USCHEMA_FROM_USER :",
+     "    return 0 ? USCHEMA_FROM_USER :",
+     ["confedit_app"]),
     # uui_chart's legend measured on every ask again: n squared text
     # measurements a frame at sixteen lines (the code review's finding).
     ("userland/libs/ui/uui_chart.c",
@@ -474,6 +482,9 @@ def make_root():
     tmp = os.path.join(root, "tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
+    # Each case's own /etc and /home (uitest_host.c), from earlier runs.
+    for old in glob.glob(os.path.join(root, "private.*")):
+        shutil.rmtree(old, ignore_errors=True)
     return root
 
 

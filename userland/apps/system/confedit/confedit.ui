@@ -1,0 +1,25 @@
+// Configuration Editor's menus.
+// Read when the program starts -- edit this on the disk (/usr/share/ui/confedit.ui)
+// and reopen it. Which rows are greyed is the program's, asked each time a
+// menu draws; the language is docs/ui-files-design.md.
+
+menu #bar {
+    menu "File" {
+        item "Refresh" command=refresh accel="F5"
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "Edit" {
+        item "Edit value..." command=edit accel="Enter"
+        item "Reset to machine's" command=reset
+        separator
+        item "Copy name" command=copy_name accel="Ctrl+C"
+        item "Copy value" command=copy_value
+        separator
+        item "Find" command=find accel="Ctrl+F"
+    }
+    menu "View" {
+        item "Expand all" command=expand
+        item "Collapse all" command=collapse
+    }
+}

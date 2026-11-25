@@ -50,6 +50,7 @@ pthread_rwlock_wrlock
 pthread_self
 pthread_setspecific
 sys_bind
+sys_call
 sys_chdir
 sys_chmod
 sys_close

@@ -25,7 +25,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] Enforce file permissions by default -- the suite passes enforced (2026-11-25); flip after days of ASUS use  *(Multi-user & file permissions)*
-- [ ] A Configuration Editor: every setting and fact as a raw tree, editable -- picks and mockups 2026-11-25  *(Desktop productivity apps)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
 
@@ -1082,7 +1081,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] `/bin/edit` asks its terminal size once at startup and never repaints on SIGWINCH, as the pager now does
 - [ ] The Terminal's selection is DROPPED when the text scrolls under it, rather than following it
 - [ ] Dragging a Terminal selection past the edge scrolls only while the pointer MOVES -- autoscroll needs a tick this window has not got
-- [ ] **NEXT** A Configuration Editor: every setting and fact as a raw tree, editable -- picks and mockups 2026-11-25
+- [x] ~~A Configuration Editor: every setting and fact as a raw tree, editable~~ DONE 2026-11-25 -- `/bin/wm/system/confedit`
 
 ### A web browser
 **Needs:** nothing for stages 0-1. `docs/browser-design.md` stages it; NetSurf at a pinned master commit, chosen 2026-10-12.

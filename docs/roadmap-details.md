@@ -9341,6 +9341,15 @@ switch that may now wait for the lock.
 
 ## A Configuration Editor: every setting and fact as a raw tree, editable
 
+**BUILT 2026-11-25** as picked below (`userland/apps/system/confedit/`),
+with the open question answered: a KERNEL-REGISTERED setting edits
+(From says Kernel, the write goes to its `/etc` file through the kernel,
+as System Settings' does) -- the debugging knobs are most of them, and
+users D3 revisits it when pointer, keyboard and font become per-person.
+The tree is `base/usetting_tree.h`, shared with `config get <branch>`;
+where a value came from is `uschema_origin()`. Beyond the mockup, the
+design language's menu bar (File, Edit, View) sits over the command bar.
+
 Picked 2026-11-25, after users stage D1b. System Settings stays the easy
 view; this is the RAW one -- regedit, GNOME's dconf-editor and Firefox's
 `about:config` -- with every value in one tree and editable in place.

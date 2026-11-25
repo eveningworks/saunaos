@@ -1,0 +1,6 @@
+# Configuration Editor -- see this directory's README.md for the format.
+Name=Configuration Editor
+Exec=/bin/wm/system/confedit
+Category=system
+Comment=Every setting and kernel fact as a raw tree, editable
+Icon=confedit

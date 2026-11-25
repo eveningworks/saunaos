@@ -27,13 +27,14 @@
 #include <stdint.h>
 #include "rt/sys.h"
 #include <string.h>
-#include <stdlib.h>   // qsort -- the tree, by name
+#include <stdlib.h>
 #include <ctype.h>
 #include <stdio.h>
 #include "setting_abi.h" // enum setting_result, struct setting_msg
 #include <fcntl.h>
 #include <unistd.h>
 #include "base/usetting.h" // the MERGED registry -- see the header
+#include "base/usetting_tree.h"
 #include "base/uargs.h"
 #include "query_abi.h"     // walking the facts for a branch
 
@@ -300,71 +301,18 @@ static int try_fact(const char *name) {
 // branch prints every name under it; a bare namespace prints ONE level
 // with counts, dconf list's shape, unless --recursive.
 
-// GROWN AS THE REGISTRY IS READ: a fixed table dropped every name past
-// its size without a word.
-static struct tree_ent {
-    char name[SETTING_ABI_QUALIFIED_MAX];
-    char value[SETTING_ABI_VALUE_MAX];
-    char fact;               // a kernel fact: read-only, never stored
-} *g_tree;
-static int g_tree_n, g_tree_cap;
+// THE TREE IS base/usetting_tree.h's, shared with the Configuration
+// Editor: settings and facts in one list, in the tree's own order.
+static struct usetting_entry *g_tree;
+static int g_tree_n;
 static int g_recursive;
 // --machine: the machine's layer alone (main()).
 static int g_machine;
 
-static void tree_add(const char *name, const char *value, int fact) {
-    if (g_tree_n == g_tree_cap) {
-        int cap = g_tree_cap ? g_tree_cap * 2 : 256;
-        struct tree_ent *t = realloc(g_tree, (size_t)cap * sizeof *t);
-        if (!t) return;
-        g_tree = t;
-        g_tree_cap = cap;
-    }
-    struct tree_ent *e = &g_tree[g_tree_n++];
-    strlcpy(e->name, name, sizeof e->name);
-    strlcpy(e->value, value, sizeof e->value);
-    e->fact = (char)fact;
-}
-
-static int by_name(const void *a, const void *b) {
-    return strcmp(((const struct tree_ent *)a)->name, ((const struct tree_ent *)b)->name);
-}
-
 static void tree_collect(void) {
-    static struct setting_msg m;
-    g_tree_n = 0;
-    memset(&m, 0, sizeof m);
-    if (op(&m, SETTING_OP_COUNT)) {
-        int n = (int)m.count;
-        for (int i = 0; i < n; i++) {
-            memset(&m, 0, sizeof m);
-            m.op = SETTING_OP_INFO;
-            m.index = (uint32_t)i;
-            if (usetting_dispatch(&m) != 0) continue;
-            char q[SETTING_ABI_QUALIFIED_MAX];
-            qualified(&m, q, sizeof q);
-            tree_add(q, m.value, 0);
-        }
-    }
-    // Every SCALAR provider's named fields; a list has no single value.
-    struct query_provider_info p;
-    QUERY_FOREACH(QUERY_PROVIDERS, p, i) {
-        if (p.flags & QUERY_F_LIST) continue;
-        int nf = sys_query_field_count(p.cls);
-        for (int f = 0; f < nf; f++) {
-            char field[QUERY_FIELD_PATH_MAX], q[SETTING_ABI_QUALIFIED_MAX], v[32];
-            unsigned type = 0;
-            unsigned long long val = 0;
-            if (sys_query_field_info(p.cls, (unsigned)f, field, &type) != 0) continue;
-            snprintf(q, sizeof q, "%s.%s", p.name, field);
-            if (sys_query_field_get(q, &val, &type) != 0) continue;
-            snprintf(v, sizeof v, "%llu", val);
-            tree_add(q, v, 1);
-        }
-    }
-    // By NAME, as dconf lists: registry order is an accident of
-    // registration and of the directory, and differs between machines.
-    qsort(g_tree, (size_t)g_tree_n, sizeof g_tree[0], by_name);
+    free(g_tree);
+    g_tree_n = usetting_tree_collect(&g_tree);
+    if (g_tree_n < 0) g_tree_n = 0;
 }
 
 static int under(const char *name, const char *branch, size_t blen) {
@@ -407,7 +355,7 @@ static int cmd_tree(const char *branch) {
             seen = under(g_tree[k].name, branch, blen) && (!strcmp(g_tree[k].name, child) ||
                    (!strncmp(g_tree[k].name, child, strlen(child)) && g_tree[k].name[strlen(child)] == '.'));
         if (seen) continue;
-        const struct tree_ent *own = 0;
+        const struct usetting_entry *own = 0;
         int below = 0, facts = 0;
         size_t clen = strlen(child);
         for (int k = 0; k < g_tree_n; k++) {

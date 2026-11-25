@@ -118,6 +118,7 @@
 | `usetting.h` | One setting, by qualified name, for a ring-3 program: the GET and SET halves of `SYS_SETTING` with the message built here rather than in every caller. |
 | `usetting_schema.h` | A setting DECLARED by a file, and owned by ring 3. |
 | `usetting_text.h` | The human-facing text for a setting: its description, and a display name per choice. |
+| `usetting_tree.h` | THE WHOLE DOTTED TREE: every setting in the merged registry and every scalar kernel fact, by qualified name, in one sorted list -- what `config get <branch>` walks and the Configuration Editor shows. |
 | `ushortcuts.h` | The desktop's global keyboard shortcuts. |
 | `ustageline.h` | A long job's STAGE LINE on a terminal, redrawn in place over the last one -- "fsck: stage 2 of 3, compare the allocation maps: 18 of 28 groups (64%)", e2fsck -C's shape -- from the kernel's progres... |
 | `utags.h` | utags -- what a sound file says about itself: title, artist, album, and an embedded picture. |

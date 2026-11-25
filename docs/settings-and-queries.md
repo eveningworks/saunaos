@@ -227,6 +227,14 @@ so is the whole reason the third answer exists.
 The files stay hand-editable. `config` is an INDEX over them, which is
 the half `/etc` cannot provide about itself.
 
+**The Configuration Editor** (`/bin/wm/system/confedit`) is the same
+tree in a window -- `base/usetting_tree.h` collects it for both -- with
+where each value came from beside it (`uschema_origin()`: the person's
+file, `/etc`, the schema's `Default=`, or the kernel). It edits a
+person's value and a kernel setting through the same SET; a machine-wide
+declared setting is read-only there until a second person makes
+"change the machine" a privilege (`docs/users-design.md`, D3).
+
 `config get` falls back to the query registry for facts, and **labels
 the answer** so it cannot be mistaken for an `/etc` key:
 

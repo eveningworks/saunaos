@@ -32,11 +32,33 @@
 
 #include "uitest_host.h"
 
+// /etc AND /home ARE EACH CASE'S OWN: the root is shared by cases running
+// in parallel, so a case that writes settings (uitest_file()) writes them
+// under private.<pid>/ -- empty until then, which keeps "there is no /etc"
+// true for every other case.
+static int is_private(const char *guest) {
+    static const char *const DIRS[] = { "/etc", "/home" };
+    for (unsigned i = 0; i < sizeof DIRS / sizeof DIRS[0]; i++) {
+        size_t n = strlen(DIRS[i]);
+        if (!strncmp(guest, DIRS[i], n) && (guest[n] == '/' || !guest[n])) return 1;
+    }
+    return 0;
+}
+
 static int host_path(const char *guest, char *out, size_t cap) {
     const char *root = getenv("UITEST_ROOT");
     if (!root || !*root || !guest) return 0;
-    int n = guest[0] == '/' ? snprintf(out, cap, "%s%s", root, guest)
+    int n;
+    if (guest[0] == '/' && is_private(guest)) {
+        char base[4096];
+        int b = snprintf(base, sizeof base, "%s/private.%ld", root, (long)syscall(SYS_getpid));
+        if (b <= 0 || (size_t)b >= sizeof base) return 0;
+        syscall(SYS_mkdirat, AT_FDCWD, base, 0755);   // EEXIST after the first
+        n = snprintf(out, cap, "%s%s", base, guest);
+    } else {
+        n = guest[0] == '/' ? snprintf(out, cap, "%s%s", root, guest)
                             : snprintf(out, cap, "%s/%s", root, guest);
+    }
     return n > 0 && (size_t)n < cap;
 }
 

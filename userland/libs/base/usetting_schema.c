@@ -332,6 +332,25 @@ int uschema_stored(const struct uschema *s, char *out, uint32_t cap) {
     return uconf_get(s->file, s->name, out, cap);
 }
 
+int uschema_origin(const struct uschema *s, struct uschema_origin *o) {
+    if (!o) return USCHEMA_FROM_DEFAULT;
+    memset(o, 0, sizeof *o);
+    if (!s || !s->file[0]) return USCHEMA_FROM_DEFAULT;
+    if (s->scope == USCHEMA_SCOPE_USER) {
+        struct uconf_layers l;
+        uconf_load_layered(s->file, &l);
+        o->has_user = etc_config_buf_get(&l.user, s->name, o->user, sizeof o->user) && o->user[0];
+        o->has_machine = etc_config_buf_get(&l.machine, s->name, o->machine, sizeof o->machine) &&
+                         o->machine[0];
+        uconf_layers_free(&l);
+        if (!o->has_user) o->user[0] = '\0';
+    } else {
+        o->has_machine = uconf_get(s->file, s->name, o->machine, sizeof o->machine) && o->machine[0];
+    }
+    if (!o->has_machine) o->machine[0] = '\0';
+    return o->has_user ? USCHEMA_FROM_USER : o->has_machine ? USCHEMA_FROM_MACHINE : USCHEMA_FROM_DEFAULT;
+}
+
 void uschema_get(const struct uschema *s, char *out, uint32_t cap) {
     if (!out || !cap) return;
     if (!uschema_stored(s, out, cap) || !out[0]) strlcpy(out, s->def, cap);

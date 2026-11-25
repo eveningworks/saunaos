@@ -207,6 +207,24 @@ void uschema_get(const struct uschema *s, char *out, uint32_t cap);
 // person's file and then the machine's (USCHEMA_SCOPE_USER above).
 int uschema_stored(const struct uschema *s, char *out, uint32_t cap);
 
+// WHERE THE VALUE COMES FROM -- the layer uschema_stored() answered
+// from, and what each layer holds, for a front end that shows them side
+// by side (the Configuration Editor's From column). USER only for a user
+// key in a process with a person's layer; a layer counts only with a
+// NON-EMPTY value, as uschema_get() reads an empty key as absent -- so
+// the answer names the file that decides the value. A setting the kernel
+// registered has no declaration and is not asked here: its value is the
+// kernel's.
+#define USCHEMA_FROM_DEFAULT 0   // neither file: `Default=`
+#define USCHEMA_FROM_MACHINE 1   // /etc
+#define USCHEMA_FROM_USER    2   // the person's file
+struct uschema_origin {
+    char user[SETTING_ABI_VALUE_MAX];      // "" when has_user is 0
+    char machine[SETTING_ABI_VALUE_MAX];   // "" when has_machine is 0
+    uint8_t has_user, has_machine;
+};
+int uschema_origin(const struct uschema *s, struct uschema_origin *out);
+
 // 1 if `value` is one this setting may take. The rules are the kernel
 // registry's, kept deliberately identical: an INT must parse and fall
 // within min..max, an ENUM must be one of its choices -- UNLESS the

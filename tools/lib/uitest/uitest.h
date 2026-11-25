@@ -117,6 +117,20 @@ uint64_t uitest_now_ns(void);
 // A setting as sys_setting() and usetting_get() answer it (NULL value
 // forgets it). Settings not set here do not exist.
 void uitest_setting(const char *name, const char *value);
+// A KERNEL-REGISTERED setting: set as above, and also LISTED by the
+// registry's COUNT and INFO (ns = the name's first segment), with its
+// SETTING_ABI_TYPE_* -- an INT's SET refused outside min..max, as the
+// kernel's setting_set() refuses it.
+void uitest_kernel_setting(const char *name, const char *value, int type, int min, int max);
+// A scalar kernel fact, "<provider>.<field>", as sys_query_field_get()
+// and the QUERY_PROVIDERS walk answer it.
+void uitest_fact(const char *name, unsigned long long value);
+// Writes `text` to the guest file `path`, making its directories -- a
+// declaration in /etc/settings.d, a person's ~/.config file. /etc and
+// /home are this case's own (uitest_host.c). 1 on success.
+int uitest_file(const char *path, const char *text);
+// The guest file's text into `out` ("" when absent). 1 when it was read.
+int uitest_read_file(const char *path, char *out, size_t cap);
 // What the process has logged (base/ulog.h): a mark now, then the LAST
 // line after it containing `needle`, copied to `out`. 0 when none.
 size_t uitest_log_mark(void);

@@ -149,6 +149,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `clock_settings_test.py` -- System Settings' Date & time page: setting the clock by hand, and its lock
 - `compositor_death_test.py` -- The compositor death path -- The GUI in ring 3's R7
 - `compositor_test.py` -- Drive userland/tests/compclient.c -- The GUI in ring 3, stage 2's raw input
+- `confedit_test.py` -- Configuration Editor (/bin/wm/system/confedit) on the real desktop: edit a person's value, read it back
 - `corners_test.py` -- Corners (desktop.corners) and the always-visible scrollbar
 - `crashtest_test.py` -- Crash Test: the fault paths, and the gate in front of the dangerous half
 - `crashview_test.py` -- The crash report viewer (Crash Reports' viewer face, base/ucrash.c): a

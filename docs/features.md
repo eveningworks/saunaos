@@ -367,6 +367,18 @@ every step, not the nearest whole size. First-boot setup asks too
 (Appearance), starting at the recommended step. The font size under Fonts
 is the text size at 100%.
 
+**Configuration Editor** (Start > System): every setting and every
+kernel fact as one dotted tree -- what `config get` walks -- branches on
+the left, the chosen branch's values in a table with where each comes
+from (You, Machine, Default or Kernel), and the details under it: label,
+description, each layer's value, what it accepts and where a change is
+saved. Edit value... (Enter, or a double-click) is checked as `config
+set` is, and a refused value keeps the dialog open with what would be
+accepted. A person's own value is saved in `~/.config` and Reset to
+machine's removes it; a kernel setting edits as System Settings does;
+machine-wide settings and facts are read-only. Find (Ctrl+F) lists
+every name or value holding the text.
+
 **Pinned taskbar apps**: File Manager, Web Browser and Terminal are
 pinned to the taskbar out of the box. A pin is its app's icon until the
 app runs; then the app's window button stands in its place. Unpinned

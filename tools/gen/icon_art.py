@@ -553,6 +553,24 @@ def devmgr():
     return finish(shadow(im))
 
 
+def confedit():
+    # The raw tree: branches down the left, each row a name and its value
+    # -- one value in the accent, the one a person changed.
+    im = canvas()
+    m = m_rr(6, 6, 58, 58, 10)
+    fill(im, m, ((92, 112, 150), (52, 68, 104)))
+    d = D4(im)
+    pale = (220, 228, 242, 255)
+    d.line([(16, 15), (16, 47)], fill=pale, width=2)
+    for i, y in enumerate((19, 32, 45)):
+        d.line([(16, y), (22, y)], fill=pale, width=2)
+        d.rounded_rectangle((24, y - 3, 36, y + 3), radius=2.5, fill=WHITE)
+        val = (255, 196, 72, 255) if i == 1 else (150, 168, 200, 255)
+        d.rounded_rectangle((39, y - 3, 52, y + 3), radius=2.5, fill=val)
+    d.ellipse((13, 12, 19, 18), fill=WHITE)
+    return finish(shadow(im))
+
+
 def bootmgr():
     im, m = window(bar=(72, 96, 160))
     d = D4(im)
@@ -1109,7 +1127,7 @@ ART = {
     "imgview": imgview, "player": player, "video": video, "settings": settings, "taskmgr": taskmgr,
     "mines": mines, "screenshot": screenshot, "about": about, "help": help_app, "browser": browser,
     "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "hexview": hexview, "disks": disks, "win16": win16, "themeedit": themeedit, "paint": paint,
-    "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr, "installer": installer,
+    "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "confedit": confedit, "bootmgr": bootmgr, "installer": installer,
     "sysupdate": sysupdate, "software": software, "diskmark": diskmark, "properties": properties,
     "folder": plain_folder, "file": plain_file, "drive": drive, "drive-ram": drive_ram,
     "drive-network": drive_network, "drive-usb": drive_usb, "drive-cd": drive_cd, "lock": lock,

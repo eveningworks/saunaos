@@ -77,7 +77,8 @@ the rest in the sweep. Each stays a standalone script with its own
   archive with each `CONTROLS` edit on a copy and requires exactly its
   named cases red and the rest green (uui_sbar's bottom-counted offset
   reddens `sbar` and `scroll`; uui_grid's unflipped thumb `scroll`; a
-  square plain button `button_corners`).
+  square plain button `button_corners`; `uschema_origin()` blind to the
+  person's file `confedit_app`).
   **WHOLE APPS, TOO (stage 2)**: a case whose first line is
   `// uitest-app: DIR` builds that app's sources with `main` renamed and
   drives its REAL main through `tools/lib/uitest/uitest_app.h` --
@@ -91,8 +92,20 @@ the rest in the sweep. Each stays a standalone script with its own
   frame's time on the clock, or an animation never ends. The app's log is
   kept (`uitest_log_find`), `sys_getrandom` is fixed, a second thread is
   refused (tolibc's `pthread.c` is linked), and POPUP/DIALOG/NOTICE are
-  refused, so popups draw in the window. Cases: `calculator_app`,
-  `mines_app`, and four for the C++ layer: `counterxx_app`,
+  refused, so popups draw in the window. **Settings and facts are the
+  case's to declare**: `uitest_setting()` answers a GET by name,
+  `uitest_kernel_setting()` also lists it in the kernel registry's COUNT
+  and INFO (an INT refused outside its range), `uitest_fact()` a scalar
+  fact by `<provider>.<field>`, and `uitest_file()` writes any guest file
+  -- a declaration in `/etc/settings.d`, a person's `~/.config`. **`/etc`
+  and `/home` are each case's own** (`root/private.<pid>/`, removed at the
+  next run), since the cases run in parallel over one root; the file
+  generation moves on every write, so a cache keyed on it (uconf) sees a
+  file the app wrote. Cases: `calculator_app`,
+  `mines_app`, `confedit_app` (the Configuration Editor over a declared
+  registry: From for each of its four answers, an edit read back from BOTH
+  files' bytes, a refused value keeping the dialog, Reset, both panes
+  past their rows, Find), and four for the C++ layer: `counterxx_app`,
   `widgetsxx_app` (the value widgets' `on_change`, input only),
   `notesxx_app` (menus, bound shortcuts, timers on the harness's clock, a
   busy bar, tabbed pages) and `throwxx_app` (a throwing `on_click`

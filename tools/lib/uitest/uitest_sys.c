@@ -42,7 +42,10 @@ int sys_errno(void) { return g_errno; }
 
 // --- files, under $UITEST_ROOT ---------------------------------------------
 
+static long long g_fs_gen = 1;   // sys_fs_generation_of(), below
+
 int sys_open(const char *path, int flags) {
+    if (flags & (SYS_O_CREAT | SYS_O_TRUNC)) g_fs_gen++;
     int rc = uh_open(path, (flags & SYS_O_WRITE) != 0, (flags & SYS_O_CREAT) != 0,
                      (flags & SYS_O_TRUNC) != 0, (flags & SYS_O_APPEND) != 0,
                      (flags & SYS_O_RDWR) != 0);
@@ -55,6 +58,7 @@ int64_t sys_read(int fd, void *buf, size_t len) {
 }
 
 int64_t sys_write(int fd, const void *buf, size_t len) {
+    if (fd > 2) g_fs_gen++;
     long long n = uh_write(fd, buf, len);
     return n < 0 ? fail(n) : n;
 }
@@ -103,16 +107,48 @@ int sys_fstat(int fd, struct sys_stat *out) {
 }
 
 int sys_mkdir(const char *path) {
+    g_fs_gen++;
     int rc = uh_mkdir(path);
     return rc < 0 ? fail(rc) : 0;
 }
 
+int uitest_file(const char *path, const char *text) {
+    char dir[512];
+    strlcpy(dir, path, sizeof dir);
+    for (char *p = dir + 1; (p = strchr(p, '/')); p++) {
+        *p = '\0';
+        uh_mkdir(dir);   // EEXIST past the first
+        *p = '/';
+    }
+    g_fs_gen++;
+    int fd = uh_open(path, 1, 1, 1, 0, 0);
+    if (fd < 0) return 0;
+    size_t n = strlen(text);
+    int ok = uh_write(fd, text, n) == (long long)n;
+    uh_close(fd);
+    return ok;
+}
+
+int uitest_read_file(const char *path, char *out, size_t cap) {
+    if (!cap) return 0;
+    out[0] = '\0';
+    int fd = uh_open(path, 0, 0, 0, 0, 0);
+    if (fd < 0) return 0;
+    long long n = uh_read(fd, out, cap - 1);
+    uh_close(fd);
+    if (n < 0) return 0;
+    out[n] = '\0';
+    return 1;
+}
+
 int sys_unlink(const char *path) {
+    g_fs_gen++;
     int rc = uh_unlink(path);
     return rc < 0 ? fail(rc) : 0;
 }
 
 int sys_rename(const char *from, const char *to) {
+    g_fs_gen++;
     int rc = uh_rename(from, to);
     return rc < 0 ? fail(rc) : 0;
 }
@@ -123,9 +159,35 @@ int sys_chmod(const char *path, unsigned mode) { (void)path; (void)mode; return 
 // The raw call libc's newer calls go through (libc's prctl.c says why):
 // ENOSYS for all, so stat() and access() fall back to sys_stat() above,
 // as on a kernel from before SYS_STATX.
+// SYS_QUERY's field ops, which a shared library makes through sys_call()
+// (base/usetting_tree.c), answered from uitest_fact()'s table below.
 int64_t sys_call(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3) {
-    (void)num; (void)a1; (void)a2; (void)a3;
-    return -38;
+    (void)a2; (void)a3;
+    if (num != SYS_QUERY || !a1) return -38;
+    struct query_msg *m = (struct query_msg *)(uintptr_t)a1;
+    int rc;
+    switch (m->op) {
+    case QUERY_OP_FIELD_COUNT:
+        rc = sys_query_field_count(m->cls);
+        if (rc >= 0) m->returned = (uint32_t)rc;
+        break;
+    case QUERY_OP_FIELD_INFO: {
+        unsigned type = 0;
+        rc = sys_query_field_info(m->cls, m->index, m->name, &type);
+        m->type = type;
+        break;
+    }
+    case QUERY_OP_FIELD_GET: {
+        unsigned long long v = 0;
+        unsigned type = 0;
+        rc = sys_query_field_get(m->name, &v, &type);
+        m->value = v;
+        m->type = type;
+        break;
+    }
+    default: return -38;
+    }
+    return rc < 0 ? -g_errno : 0;
 }
 int sys_fchmod(int fd, unsigned mode) { (void)fd; (void)mode; return fail(-38); }
 int sys_utime(const char *path, unsigned long long epoch) { (void)path; (void)epoch; return fail(-38); }
@@ -134,8 +196,11 @@ int sys_utimens(const char *path, unsigned long long epoch, unsigned nsec)
 int sys_futimens(int fd, unsigned long long epoch, unsigned nsec)
 { (void)fd; (void)epoch; (void)nsec; return fail(-38); }
 
-// Nothing else writes the root while a test runs, so one generation.
-long long sys_fs_generation_of(const char *path) { (void)path; return 1; }
+// One generation for the whole root, moved by every write through these
+// stubs -- an app that writes a file it also caches (uconf) must see it
+// move, as the guest's per-file generation does; a case that writes
+// nothing sees a constant.
+long long sys_fs_generation_of(const char *path) { (void)path; return g_fs_gen; }
 
 // SYS_GETDENTS: whole records from the `start`th entry, each padded to 8.
 int sys_getdents(const char *path, void *buf, uint32_t len, uint32_t start) {
@@ -320,7 +385,84 @@ int sys_win_request(struct win_request_msg *req) { (void)req; return 0; }
 
 // QUERY_SHM is answered (uchan's server finds its clients' rings by it);
 // every other class has no records, and a caller takes its default.
+// --- facts: what uitest_fact() declared ----------------------------------------
+//
+// A provider per first segment, its fields the rest -- "mem.frame.free" is
+// provider "mem", field "frame.free" -- each a scalar class numbered past
+// every real one.
+#define FACT_CLS0 0x7000u
+struct fact { char provider[QUERY_NAME_MAX], field[QUERY_FIELD_PATH_MAX]; unsigned long long v; };
+static struct fact *g_facts;
+static int g_nfacts;
+
+void uitest_fact(const char *name, unsigned long long value) {
+    const char *dot = strchr(name, '.');
+    if (!dot) return;
+    struct fact *f = realloc(g_facts, (size_t)(g_nfacts + 1) * sizeof *f);
+    if (!f) return;
+    g_facts = f;
+    f = &g_facts[g_nfacts++];
+    memset(f, 0, sizeof *f);
+    snprintf(f->provider, sizeof f->provider, "%.*s", (int)(dot - name), name);
+    strlcpy(f->field, dot + 1, sizeof f->field);
+    f->v = value;
+}
+
+// The `index`th distinct provider's first fact, or -1.
+static int provider_at(unsigned index) {
+    unsigned seen = 0;
+    for (int i = 0; i < g_nfacts; i++) {
+        int first = 1;
+        for (int k = 0; k < i && first; k++) first = strcmp(g_facts[k].provider, g_facts[i].provider) != 0;
+        if (first && seen++ == index) return i;
+    }
+    return -1;
+}
+
+int sys_query_field_count(unsigned cls) {
+    int p = provider_at(cls - FACT_CLS0), n = 0;
+    if (cls < FACT_CLS0 || p < 0) return fail(-2);
+    for (int i = 0; i < g_nfacts; i++) n += !strcmp(g_facts[i].provider, g_facts[p].provider);
+    return n;
+}
+
+int sys_query_field_info(unsigned cls, unsigned index, char *name, unsigned *out_type) {
+    int p = provider_at(cls - FACT_CLS0);
+    if (cls < FACT_CLS0 || p < 0) return fail(-2);
+    for (int i = 0; i < g_nfacts; i++)
+        if (!strcmp(g_facts[i].provider, g_facts[p].provider) && index-- == 0) {
+            strlcpy(name, g_facts[i].field, QUERY_FIELD_PATH_MAX);
+            *out_type = QUERY_TYPE_U64;
+            return 0;
+        }
+    return fail(-2);
+}
+
+int sys_query_field_get(const char *qualified, unsigned long long *out_value, unsigned *out_type) {
+    for (int i = 0; i < g_nfacts; i++) {
+        size_t n = strlen(g_facts[i].provider);
+        if (!strncmp(qualified, g_facts[i].provider, n) && qualified[n] == '.' &&
+            !strcmp(qualified + n + 1, g_facts[i].field)) {
+            *out_value = g_facts[i].v;
+            *out_type = QUERY_TYPE_U64;
+            return 0;
+        }
+    }
+    return fail(-2);
+}
+
 int sys_query_record(unsigned cls, unsigned index, void *out, unsigned len) {
+    if (cls == QUERY_PROVIDERS && len >= sizeof(struct query_provider_info)) {
+        int p = provider_at(index);
+        if (p < 0) return 0;
+        struct query_provider_info r;
+        memset(&r, 0, sizeof r);
+        r.cls = FACT_CLS0 + index;
+        r.count = 1;
+        strlcpy(r.name, g_facts[p].provider, sizeof r.name);
+        memcpy(out, &r, sizeof r);
+        return (int)sizeof r;
+    }
     if (cls != QUERY_SHM || len < sizeof(struct query_shm)) return fail(-2);
     int live = -1;
     for (int i = 0; i < g_shm_count; i++) {
@@ -448,6 +590,9 @@ int sys_gettime(struct rtc_time *out) {
 struct setting {
     struct setting *next;
     char *name, *value;
+    // uitest_kernel_setting()'s: listed by COUNT/INFO, as the kernel
+    // registry lists its own, and an INT refused outside min..max.
+    int listed, type, min, max;
 };
 static struct setting *g_settings;
 static uint32_t g_generation = 1;
@@ -476,13 +621,48 @@ void uitest_setting(const char *name, const char *value) {
     g_generation++;
 }
 
+void uitest_kernel_setting(const char *name, const char *value, int type, int min, int max) {
+    uitest_setting(name, value);
+    for (struct setting *s = g_settings; s; s = s->next)
+        if (!strcmp(s->name, name)) { s->listed = 1; s->type = type; s->min = min; s->max = max; }
+}
+
+static struct setting *listed_at(int index) {
+    for (struct setting *s = g_settings; s; s = s->next)
+        if (s->listed && index-- == 0) return s;
+    return 0;
+}
+
 int sys_setting(struct setting_msg *m) {
     m->generation = g_generation;
     struct setting *s = g_settings;
     switch (m->op) {
     case SETTING_OP_COUNT:
-        m->count = 0;   // the registry's INFO walk is not stubbed: a GET by name is
+        // Only what uitest_kernel_setting() declared is LISTED; the rest
+        // answer a GET by name alone.
+        m->count = 0;
+        while (listed_at(m->count)) m->count++;
         return 0;
+    case SETTING_OP_INFO: {
+        struct setting *k = listed_at(m->index);
+        if (!k) { g_errno = 22; return -1; }
+        const char *dot = strchr(k->name, '.');
+        if (dot) {
+            snprintf(m->ns, sizeof m->ns, "%.*s", (int)(dot - k->name), k->name);
+            strlcpy(m->name, dot + 1, sizeof m->name);
+        } else {
+            strlcpy(m->name, k->name, sizeof m->name);
+        }
+        strlcpy(m->label, m->name, sizeof m->label);
+        strlcpy(m->file, "/etc/saunaos.conf", sizeof m->file);
+        strlcpy(m->value, k->value, sizeof m->value);
+        strlcpy(m->stored, k->value, sizeof m->stored);
+        m->type = (uint32_t)k->type;
+        m->imin = k->min;
+        m->imax = k->max;
+        m->istep = 1;
+        return 0;
+    }
     case SETTING_OP_TOUCH:
         g_generation++;
         m->generation = g_generation;
@@ -496,6 +676,15 @@ int sys_setting(struct setting_msg *m) {
     case SETTING_OP_SET:
         while (s && strcmp(s->name, m->name)) s = s->next;
         if (!s) { g_errno = 2; return -1; }
+        if (s->listed) {
+            char *end = 0;
+            long v = strtol(m->value, &end, 10);
+            if (s->type == SETTING_ABI_TYPE_INT && (!m->value[0] || *end || v < s->min || v > s->max)) {
+                m->result = SETTING_INVALID;
+                return 0;
+            }
+            m->result = SETTING_SAVED;
+        }
         uitest_setting(m->name, m->value);
         return 0;
     default:

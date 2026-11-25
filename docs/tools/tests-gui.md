@@ -2157,6 +2157,17 @@ from the default (a sound card, a USB mouse, `--reboot`).
   Manager's half of the same panel is checked in `devmgr_test.py`: only
   the offered row, and a notch of scroll CUTS the panel (ui/uui_clip.h)
   rather than hiding it -- red with the old whole-slot rule.
+- **`confedit_test.py`** -- the Configuration Editor
+  (`userland/apps/system/confedit/`) on the real desktop: Find lists
+  `desktop.clock_seconds` from any branch and Enter goes from the field to
+  the row; an edit of that person's setting is read back through `config
+  get` run as the desktop's account, and `config --machine get` must still
+  say what it said before -- an edit that wrote `/etc` passes the first
+  read and fails the second; Reset to machine's on the command bar makes
+  the two agree again. Then `scroll_test.check_view()` over the desktop
+  branch's table and over the tree after View > Expand all. The person's
+  own value is put back if they had one. Red (31 of 35) with a person's
+  write routed to `/etc`: the editor then greys Edit for the key.
 - **`devmgr_test.py`** -- the Device Manager (`userland/apps/system/devmgr/devmgr.c`
   over `base/udevice.c`): the tree is DRAWN with its icons, "By connection"
   keeps the selection, and Disable/Enable on the network card round-trip

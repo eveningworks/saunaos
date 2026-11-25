@@ -7,6 +7,9 @@
 // in a child started as the desktop's account (`--child`), and the
 // parent, as root, checks that it cannot see what the child wrote.
 //
+// uschema_origin() -- which layer decides, and both layers' values -- is
+// asked at each step, as the Configuration Editor's From column asks it.
+//
 // WHAT A BROKEN VERSION WOULD STILL PASS: reading back through the same
 // library proves nothing, so every write is checked in BOTH files through
 // uconf_get(), an independent path to the bytes -- a write that went to
@@ -21,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "base/usetting.h"
+#include "base/usetting_schema.h"
 #include "base/uconf.h"
 #include "base/uaccount.h"
 #include "base/utest.h"
@@ -48,6 +52,13 @@ static void put_back(void) {
 
 static int file_says(const char *path, const char *key, char *out, uint32_t cap) {
     return uconf_get(path, key, out, cap);
+}
+
+// uschema_origin() for `name`, with what it said each layer holds.
+static int origin(const char *name, struct uschema_origin *o) {
+    static struct uschema s;
+    if (!uschema_find(name, &s)) return -1;
+    return uschema_origin(&s, o);
 }
 
 static int child_main(void);
@@ -137,6 +148,10 @@ static int child_main(void) {
     utest_checkf(!strcmp(v, "on"), "the person's value wins (%s)", v);
     utest_check(uconf_get_layered(USER_FILE, "clock_seconds", f, sizeof f) && !strcmp(f, "on"),
                 "uconf_get_layered() agrees");
+    struct uschema_origin o;
+    utest_check(origin(USER_KEY, &o) == USCHEMA_FROM_USER && o.has_user && !strcmp(o.user, "on") &&
+                o.has_machine && !strcmp(o.machine, "off"),
+                "uschema_origin() says the person's file decides, with both layers' values");
     {
         struct uconf_layers l;
         uconf_load_layered(USER_FILE, &l);
@@ -167,6 +182,8 @@ static int child_main(void) {
     usetting_get(USER_KEY, v, sizeof v);
     utest_checkf(!strcmp(v, "off") && file_says(USER_FILE, "clock_seconds", f, sizeof f) &&
                  !strcmp(f, "off"), "...and reads the machine's value again, /etc untouched (%s)", v);
+    utest_check(origin(USER_KEY, &o) == USCHEMA_FROM_MACHINE && !o.has_user,
+                "...and uschema_origin() says the machine's file decides");
     memset(&m, 0, sizeof m);
     m.op = SETTING_OP_UNSET;
     strlcpy(m.name, USER_KEY, sizeof m.name);
@@ -182,6 +199,8 @@ static int child_main(void) {
     uconf_set(XDG "/update.conf", "show_internal", "off");
     usetting_get(MACH_KEY, v, sizeof v);
     utest_checkf(!strcmp(v, "on"), "a machine key in the person's file is not read (%s)", v);
+    utest_check(origin(MACH_KEY, &o) == USCHEMA_FROM_MACHINE && !o.has_user && !strcmp(o.machine, "on"),
+                "...nor counted by uschema_origin()");
 
     // A path too long to open: the write is refused, never sent to /etc.
     char lng[UCONF_USER_PATH_MAX + 8];
@@ -202,6 +221,8 @@ static int child_main(void) {
     usetting_get(USER_KEY, v, sizeof v);
     file_says(USER_FILE, "clock_seconds", f, sizeof f);
     utest_checkf(!strcmp(v, f), "an empty person's value reads the machine's (%s, /etc %s)", v, f);
+    utest_check(origin(USER_KEY, &o) == USCHEMA_FROM_MACHINE && !o.has_user,
+                "...and is no layer to uschema_origin() either");
     memset(&m, 0, sizeof m);
     m.op = SETTING_OP_UNSET;
     strlcpy(m.name, USER_KEY, sizeof m.name);
