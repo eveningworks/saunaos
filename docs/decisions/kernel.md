@@ -11158,3 +11158,17 @@ default before that is done would leave the gate red or the tests
 weakened; permissive keeps every question asked and every refusal
 logged, `CRED_PERM_ENFORCE` lets one process tree (the test) be
 enforced meanwhile, and the flip is one default.
+
+**The fixtures moved on 2026-11-25, MADE as the account, not chowned.**
+The debug console grew `as <account> <line>` (`/bin/runuser -u`,
+util-linux's, root only) and the harness's writers use it by default, as
+Android's `run-as` makes an app's files under its uid: a place the
+account may not write then fails the test as it would fail the app. Two
+other shapes were weighed and dropped. Making the console itself run as
+the desktop's account (`adb shell`'s) is more honest but would sort every
+one of several hundred `sh` calls into root and not. Chowning a root-made
+fixture afterwards is the smallest, but it can put a file where the
+account could not have made it, hiding exactly the refusal enforcement
+exists to show. With that, the GUI suite and the usertests pass under
+`fileperm=enforce`; the default flips after the ASUS has run with the
+word for a few days.
