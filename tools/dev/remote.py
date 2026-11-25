@@ -284,29 +284,6 @@ def render(text):
     return lines
 
 
-class Session:
-    """One shell session, with the marker framing `exec` documents.
-
-    Its own class because `sync` runs dozens of commands and a session
-    per command costs a TCP connect and a settle each time -- which is
-    most of the wall clock when the commands themselves are `sum`.
-    """
-
-    def __init__(self, host, port, timeout):
-        self.t = Telnet(host, port, timeout)
-        self.timeout = timeout
-        self._n = 0
-        # Settle: wait for the shell to say something. A prompt is
-        # whatever it is -- we never match on it, only on our markers.
-        time.sleep(0.4)
-        try:
-            self.t.s.settimeout(2.0)
-            self.t.buf += self.t._strip(self.t.s.recv(4096))
-        except (socket.timeout, OSError):
-            pass
-        sign_in(self.t, host)
-
-
 def _wait_for(t, words, timeout=10.0):
     """Read until one of `words` (bytes) is in what arrived; which one, or None."""
     end = time.time() + timeout
@@ -372,6 +349,30 @@ def sign_in(t, host):
         t.send_line(pw)
     time.sleep(1.0)
     t.drain_quiet()
+
+
+class Session:
+    """One shell session, with the marker framing `exec` documents.
+
+    Its own class because `sync` runs dozens of commands and a session
+    per command costs a TCP connect and a settle each time -- which is
+    most of the wall clock when the commands themselves are `sum`.
+    """
+
+    def __init__(self, host, port, timeout):
+        self.t = Telnet(host, port, timeout)
+        self.timeout = timeout
+        self._n = 0
+        # Settle: wait for the shell to say something. A prompt is
+        # whatever it is -- we never match on it, only on our markers.
+        time.sleep(0.4)
+        try:
+            self.t.s.settimeout(2.0)
+            self.t.buf += self.t._strip(self.t.s.recv(4096))
+        except (socket.timeout, OSError):
+            pass
+        sign_in(self.t, host)
+
 
     def run(self, cmd, timeout=None):
         """Run one command, returning its output lines."""
