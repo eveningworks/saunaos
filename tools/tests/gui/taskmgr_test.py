@@ -919,7 +919,7 @@ def main():
     # width. A REMEMBERED size can go below it -- the laptop reopened
     # Task Manager at a size saved before this layout, under a larger
     # face, and Name came out zero pixels wide -- so the size is seeded
-    # the same way (/etc/windows.conf, keyed by app_id) and the app is
+    # the same way (/etc/windows.conf, keyed by its path) and the app is
     # opened again into it.
     tm = window(dbg)
     if tm:
@@ -931,7 +931,7 @@ def main():
     # closing window's own geometry, and a line appended before that
     # write loses to it.
     time.sleep(1.0)
-    dbg.send("sh write /etc/windows.conf taskmgr=40,60,600,420")
+    dbg.send("sh write /etc/windows.conf /bin/wm/system/taskmgr=40,60,600,420")
     time.sleep(0.5)
     _layout.clear()
     dbg.spawn(TASKMGR, "Task Manager")

@@ -30,9 +30,7 @@ WHAT IT ASSERTS
 - an app that has never been opened gets its own default, not another
   app's geometry
 - THE KEY IS THE PROGRAM'S PATH (wm_app_key()): a save writes
-  `/bin/wm/system/settings=`, a path-keyed line restores verbatim, and a
-  line under the old declared-id key (`settings=`, which most checks
-  above write) is still read, so nobody's sizes reset; two programs on
+  `/bin/wm/system/settings=` and a path-keyed line restores verbatim; two programs on
   ONE executable told apart by their sub-id (w16's hello and gdi, both
   /bin/w16) each restore their own
 - a window that draws its own frame, saved at exactly the size it asks
@@ -75,7 +73,6 @@ from harness import Results, poll  # noqa: E402
 DEFAULT_SOCK = ".vm.serial"
 CONF = "/etc/windows.conf"
 APP = "System Settings"
-APP_ID = "settings"                      # the declared id: the legacy key
 APP_KEY = "/bin/wm/system/settings"      # the path: the key a save writes
 
 
@@ -146,7 +143,7 @@ def run(dbg, qmp, res):
     #    whose bottom is under the taskbar, which is a placement the WM
     #    allows on purpose.
     want = (200, 150, 800, 560)
-    set_conf(dbg, f"{APP_ID}={want[0]},{want[1]},{want[2]},{want[3]}")
+    set_conf(dbg, f"{APP_KEY}={want[0]},{want[1]},{want[2]},{want[3]}")
     w = open_and_read(dbg)
     got = (w["x"], w["y"], w["w"], w["h"]) if w else None
     res.check("a geometry that fits is restored verbatim", got == want,
@@ -163,7 +160,7 @@ def run(dbg, qmp, res):
     # 2. Larger than the screen: clamped to the work area, not restored
     #    whole. A window wider than the screen has its close button off
     #    the right edge.
-    set_conf(dbg, f"{APP_ID}=5000,5000,4000,3000")
+    set_conf(dbg, f"{APP_KEY}=5000,5000,4000,3000")
     w = open_and_read(dbg)
     # EXACTLY the screen width, not merely "not too big". A default-sized
     # window is also "not too big", so `<=` would pass with the whole
@@ -210,7 +207,7 @@ def run(dbg, qmp, res):
     close_all(dbg)
 
     # 3. A negative position is pulled back, title bar reachable.
-    set_conf(dbg, f"{APP_ID}=-400,-300,640,480")
+    set_conf(dbg, f"{APP_KEY}=-400,-300,640,480")
     w = open_and_read(dbg)
     # The SIZE is asserted too, and that is what makes this check mean
     # something: 640x480 can only have come from the file, whereas a
@@ -229,10 +226,10 @@ def run(dbg, qmp, res):
     #    measures clamping instead of keying: 300,200,900,600 bottoms out
     #    at 800 on a 720-high screen, came back at y=120, and read as a
     #    failure of something else entirely.
-    set_conf(dbg, f"{APP_ID}=300,100,900,600")  # fits 1280x720; see below
+    set_conf(dbg, f"{APP_KEY}=300,100,900,600")  # fits 1280x720; see below
     # Above Task Manager's own MINIMUM: an app clamps a proposal below it
     # (uapp.c's WIN_EV_RESIZE), and at 520 wide this measured the clamp.
-    dbg.send("sh append /etc/windows.conf taskmgr=40,60,960,480")
+    dbg.send("sh append /etc/windows.conf /bin/wm/system/taskmgr=40,60,960,480")
     time.sleep(0.5)
     a = open_and_read(dbg)
     a_geom = answered(dbg, (300, 100, 900, 600)) if a else None
@@ -370,7 +367,7 @@ def run(dbg, qmp, res):
     #    is obvious rather than marginal -- but still small enough not
     #    to trip the on-screen clamp, which check 2 covers and which
     #    would move the POSITION as well and confuse this check.
-    dbg.send(f"sh write {CONF} calculator=180,120,700,500")
+    dbg.send(f"sh write {CONF} /bin/wm/apps/calculator=180,120,700,500")
     time.sleep(0.5)
     w = open_and_read(dbg, app="Calculator")
     pos = (w["x"], w["y"]) if w else None
