@@ -52,14 +52,6 @@ static const char *geom_key(const struct window *win) {
     return 0;
 }
 
-// The key a size was saved under before keys were paths: the declared
-// app_id. Read once as a fallback so nobody's window sizes reset; the
-// next save writes the new key.
-static const char *legacy_key(const struct window *win) {
-    if (win->app && win->app->app_id && win->app->app_id[0]) return win->app->app_id;
-    return win->app_id[0] ? win->app_id : 0;
-}
-
 // Does this app want its geometry remembered? Looked up in the registry
 // rather than read off the window, because a client window has no
 // `gui_app` to carry the flag and both kinds are launched from the same
@@ -167,10 +159,7 @@ int wm_geometry_restore(int idx) {
 
     geom_load();
     char value[64];
-    const char *old = legacy_key(win);
-    if (!etc_config_buf_get(&g_cfg, key, value, sizeof value) &&
-        !(old && etc_config_buf_get(&g_cfg, old, value, sizeof value)))
-        return 0;
+    if (!etc_config_buf_get(&g_cfg, key, value, sizeof value)) return 0;
 
     int x, y, w, h;
     unsigned state;
@@ -287,11 +276,10 @@ int wm_geometry_saved(const struct window *win) {
 }
 
 void wm_geometry_forget(struct window *win) {
-    const char *key = geom_key(win), *old = legacy_key(win);
+    const char *key = geom_key(win);
     if (!key) return;
     win->geom_forgot = 1;
     wm_conf_unset(WINDOWS_CONF_PATH, key);
-    if (old && k_strcmp(old, key) != 0) wm_conf_unset(WINDOWS_CONF_PATH, old);
 }
 
 void wm_geometry_fit(int idx) {
