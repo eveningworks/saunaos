@@ -328,7 +328,7 @@ def main():
     # with no shapes at all -- is no longer reachable through `config`,
     # which is a better floor than asserting how gracefully it failed.
     before_theme, before_n = loaded_count(dbg)
-    dbg.send("gui spawn /bin/config set cursor_theme broken")
+    dbg.send("gui spawn /bin/config set cursor.theme broken")
     time.sleep(1.0)
     theme, n = loaded_count(dbg)
     # NO NEW REPORT IS THE PASS. The compositor logs a line when it

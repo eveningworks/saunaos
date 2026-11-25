@@ -2577,7 +2577,7 @@ def run(dbg, qmp, tmp, res):
                   f"grid={lay.cellgrid[0]} origin={(ox, oy)} rects={cell_rect(2)} {cell_rect(3)}")
 
         # The wheel: down scrolls DOWN (this shipped inverted once), and
-        # the universal scroll_dir setting flips it for every app at the
+        # the universal scroll.dir setting flips it for every app at the
         # kernel's single consuming point. The observable is the grid's
         # first cell riding up (cellgrid y falls) as the view scrolls.
         # ENOUGH TO OVERFLOW THE PANE, with room to spare. Fourteen was
@@ -2602,15 +2602,15 @@ def run(dbg, qmp, tmp, res):
                   0 in lay.cellgrid and lay.cellgrid[0][1] < y_before,
                   f"cell y {y_before} -> {lay.cellgrid.get(0)}")
 
-        dbg.send("sh config set scroll_dir inverted")
+        dbg.send("sh config set scroll.dir inverted")
         y_now = lay.cellgrid[0][1]
         qmp.wheel("down", 2)
         lay = wait_layout(dbg, win, lambda l: 0 in l.cellgrid and
                            l.cellgrid[0][1] != y_now) or lay
-        res.check("scroll_dir=inverted flips it, from the one kernel knob",
+        res.check("scroll.dir=inverted flips it, from the one kernel knob",
                   0 in lay.cellgrid and lay.cellgrid[0][1] > y_now,
                   f"cell y {y_now} -> {lay.cellgrid.get(0)}")
-        dbg.send("sh config set scroll_dir normal")
+        dbg.send("sh config set scroll.dir normal")
 
         # **A REFRESH MUST NOT MOVE THE VIEW**, and this is the check
         # that says so. reload() restores the selection BY NAME, and

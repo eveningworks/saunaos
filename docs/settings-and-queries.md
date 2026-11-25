@@ -196,16 +196,12 @@ Name a new setting into its family's branch, and give a word pair that
 is one idea one key: `browser.user_agent` is a leaf, not
 `browser.user.agent`.
 
-**The names before the dotted ones still work** (2026-10-18,
-`api/etc_renamed.h`). Every reader of `/etc` -- the kernel, the
-toolkit, `/bin/config` -- shares one table of what each key was called:
-a file written before the rename reads under its old keys, a write
-replaces the old key's line where it stands, and `config get
-desktop.transparency_taskbar` answers with a note that the name is now
-`desktop.transparency.taskbar`. A fact's old field name (`mem.frame_free`)
-is kept the same way, by `QUERY_FIELD_AS()`. A program with its own
-`/etc` parser does not get this for free -- `libc/locale.c` passes the
-old key itself.
+**The names before the dotted ones no longer work.** From 2026-10-18 to
+2026-11-25 one table (`api/etc_renamed.h`) let every `/etc` reader find
+a key under its old name; it was removed once no machine had a file
+from before the rename, and `config get desktop.transparency_taskbar`
+now finds nothing. A fact's field keeps its C member's name through
+`QUERY_FIELD_AS()` (`mem.frame_free` in C, `mem.frame.free` here).
 
 ## At the shell
 

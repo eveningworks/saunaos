@@ -143,13 +143,10 @@ KTEST("setting", "the kernel's own settings are registered") {
     KTEST_ASSERT(setting_find("no_such_setting") == 0);
 }
 
-KTEST("setting", "a name from before the dotted names finds the setting it became") {
-    // api/etc_renamed.h: system.font_size is system.font.size now.
-    const struct setting *now = setting_find("system.font.size");
-    KTEST_ASSERT(now != 0);
-    KTEST_ASSERT(setting_find("system.font_size") == now);
-    KTEST_ASSERT(setting_find("font_size") == now);       // bare, too
-    KTEST_ASSERT(setting_matches("system.font_size") == 1);
+KTEST("setting", "a name from before the dotted names finds nothing") {
+    KTEST_ASSERT(setting_find("system.font.size") != 0);
+    KTEST_ASSERT(setting_find("system.font_size") == 0);
+    KTEST_ASSERT(setting_matches("system.font_size") == 0);
 }
 
 KTEST("setting", "every registered setting reports a value and a home") {

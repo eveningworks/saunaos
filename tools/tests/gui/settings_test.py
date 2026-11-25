@@ -1554,7 +1554,7 @@ def main():
             # must not write.
             check("typing does NOT write it yet",
                   stored_value(dbg, "ntp.server") == before_server,
-                  f"{before_server!r} -> {stored_value(dbg, 'ntp_server')!r}")
+                  f"{before_server!r} -> {stored_value(dbg, 'ntp.server')!r}")
 
             press("apply")
             time.sleep(0.5)
@@ -1860,7 +1860,7 @@ def main():
                       on_disk is not None and on_disk == staged_opt,
                       f"{conf}: {key}={on_disk!r}, staged {staged_opt!r}")
             # PUT THE MACHINE BACK. A setting this tool applies is the
-            # machine every later tool runs on -- an applied mouse_accel
+            # machine every later tool runs on -- an applied mouse.accel
             # once made two unrelated tools fail as "hover does nothing".
             # The saver's file goes too: it changes what the screen draws.
             dbg.send(f"sh rm {conf}")
@@ -1922,7 +1922,7 @@ def main():
         check("Discard goes on to the page asked for, writing nothing",
               went is not None and stored_value(dbg, "mouse.speed") == on_disk,
               f"page {went and went['page']!r}, on disk "
-              f"{stored_value(dbg, 'mouse_speed')!r} (was {on_disk!r})")
+              f"{stored_value(dbg, 'mouse.speed')!r} (was {on_disk!r})")
 
     # --- THE SEARCH BOX FILTERS THE SIDEBAR -----------------------------
     #

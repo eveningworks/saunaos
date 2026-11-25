@@ -4025,7 +4025,7 @@ too:** after the disk cache, the file reads it would serve are memory
 copies already; what it would remove is TFS3's CPU, at the price of
 caching data twice. Measure that before building it.
 
-## A setting's name is a dotted path, a branch may hold a value, and old names stay aliases in the /etc parser
+## A setting's name is a dotted path, a branch may hold a value, and old names were aliases in the /etc parser until no file had them
 
 **Decision (2026-10-18).** After the namespace, a name is a PATH:
 `desktop.transparency.taskbar`, `system.font.size`, `mem.frame.free`.
@@ -4053,7 +4053,12 @@ the registries stay two (a fact has no stored form, and `config set` on
 one still fails for want of a setting), but `config get mem` and `config
 get desktop` are the same verb on the same addressing, marked `(fact)`.
 
-**Why the aliases live in the /etc parser, not in each program.** A key
+**The aliases were removed on 2026-11-25** (with the other upgrade
+paths: decisions/build.md, "No migration code for a machine nobody
+runs"), once the ASUS's files had been moved to the dotted names by
+hand. What follows is why they were built the way they were.
+
+**Why the aliases lived in the /etc parser, not in each program.** A key
 is read by the kernel's subsystems (`font_config.c` reads its own key),
 by the ring-3 toolkit and by the desktop directly through `uconf_get()`.
 One table (`api/etc_renamed.h`) compiled into both rings, consulted by

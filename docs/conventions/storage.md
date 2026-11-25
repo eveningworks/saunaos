@@ -221,10 +221,10 @@ this the obvious way), not from how much history it accumulated.
   `config get desktop.transparency` lists, and the family's switch keeps
   the branch's own name (`desktop.transparency` = on/off). A word pair
   that is one idea is one key (`browser.user_agent`). **A RENAMED KEY
-  GOES IN `api/etc_renamed.h`'s TABLE**, which every `/etc` reader
-  consults, so old files and old scripts keep working; a program with a
-  private `/etc` parser must ask for the old key itself (`libc/locale.c`).
-  A fact's field takes a dotted name with `QUERY_FIELD_AS()`, which keeps
+  HAS NO ALIAS**: the old name stops reading, and the test machines'
+  files are moved by hand (`docs/decisions/build.md`, "No migration code
+  for a machine nobody runs"; the 2026-10-18 table, `api/etc_renamed.h`,
+  was removed on 2026-11-25). A fact's field takes a dotted name with `QUERY_FIELD_AS()`, which keeps
   the member's name as the old one. `docs/settings-and-queries.md`,
   "Names", has the rest.
 - **A CLIENT SIZES ITS SETTINGS TABLES FROM `SETTING_OP_COUNT`, AT EVERY

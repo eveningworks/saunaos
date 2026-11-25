@@ -35,7 +35,6 @@
 #include <unistd.h>
 #include "base/usetting.h" // the MERGED registry -- see the header
 #include "base/uargs.h"
-#include "etc_renamed.h"   // the names from before the dotted ones
 #include "query_abi.h"     // walking the facts for a branch
 
 static void put(const char *s) { sys_print(s); }
@@ -143,20 +142,8 @@ static void qualified(const struct setting_msg *m, char *out, int cap) {
 // than one. Returns the count.
 static int resolve_exact(const char *want, struct setting_msg *first, int complain);
 
-// The name a setting has NOW for one it had before the dotted names
-// (api/etc_renamed.h), with a line saying so; else `want` itself.
-static const char *renamed_note(const char *want, char *buf, int cap) {
-    if (resolve_exact(want, 0, 0) || !etc_renamed_now(want, buf, (uint32_t)cap)) return want;
-    char line[160];
-    snprintf(line, sizeof line, "  (%s is now %s)", want, buf);
-    sys_eprint(line);
-    sys_eprint("\n");
-    return buf;
-}
-
 static int resolve(const char *want, struct setting_msg *first, int complain) {
-    char now[SETTING_ABI_QUALIFIED_MAX];
-    return resolve_exact(renamed_note(want, now, sizeof now), first, complain);
+    return resolve_exact(want, first, complain);
 }
 
 static int resolve_reading(const char *want, struct setting_msg *first, int complain);
@@ -465,18 +452,7 @@ static int any_under(const char *n) {
 }
 
 static int cmd_get(const char *name) {
-    char now[SETTING_ABI_QUALIFIED_MAX];
     const char *n = name;
-    if (resolve_exact(name, 0, 0) == 0) {
-        unsigned long long v;
-        unsigned t;
-        if (sys_query_field_get(name, &v, &t) != 0 && etc_renamed_now(name, now, sizeof now)) {
-            n = now;   // an old name of a SETTING; a branch never had one
-            char line[160];
-            snprintf(line, sizeof line, "  (%s is now %s)\n", name, now);
-            sys_eprint(line);
-        }
-    }
     // A branch, or a name that is both a value and a branch: the tree.
     // A leaf keeps the one-value answer below, which scripts read.
     if (!any_under(n)) return cmd_get_one(n);

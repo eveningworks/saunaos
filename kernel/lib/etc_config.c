@@ -30,7 +30,6 @@
 // own /etc/<name>.conf path instead. Nothing here favors one file over
 // many; that choice belongs to each caller.
 #include "etc_config.h"
-#include "etc_renamed.h"
 #include "string.h"
 
 // k_isblank() is string.h's now -- line-oriented, so NOT k_isspace(),
@@ -167,10 +166,7 @@ int etc_config_buf_get_in(const struct etc_config_buf *buf, const char *section,
     if (!out || out_size == 0) return 0;
     out[0] = '\0';
     if (!buf || !buf->valid || buf->size == 0) return 0;
-    if (find_key(buf->data, buf->size, section, key, out, out_size)) return 1;
-    // A file from before the dotted names says it under the old key.
-    const char *was = etc_renamed_was(key);
-    return was && find_key(buf->data, buf->size, section, was, out, out_size);
+    return find_key(buf->data, buf->size, section, key, out, out_size);
 }
 
 // find_key()'s scan with the key test taken out: the same scope rules,
@@ -344,11 +340,6 @@ static int64_t set_core(const char *in, uint32_t in_len, const char *section,
     int started = want_top, ended = 0, in_scope = want_top;
     uint32_t pos = 0;
     const char *ls, *le;
-    // The key's name before the dotted names (api/etc_renamed.h): its
-    // line is REPLACED where it stands when the new key is not there yet,
-    // and dropped otherwise, so a file migrates by being written.
-    const char *was = etc_renamed_was(key);
-    int old_line = -1;
 
     while (next_line(in, in_len, &pos, &ls, &le)) {
         const char *ns, *ks, *vs;
@@ -361,12 +352,10 @@ static int64_t set_core(const char *in, uint32_t in_len, const char *section,
         } else if (in_scope && parse_kv(ls, le, &ks, &klen, &vs, &vlen)) {
             if (!ended) last_kv = idx;
             if (match < 0 && key_matches(ks, klen, key)) match = idx;
-            if (old_line < 0 && was && key_matches(ks, klen, was)) old_line = idx;
         }
         idx++;
     }
     total = idx;
-    if (match < 0 && old_line >= 0) { match = old_line; old_line = -1; }
 
     // Removing a key that was not there changes nothing, and saying so
     // matters: the caller must not rewrite the file identically and
@@ -389,8 +378,6 @@ static int64_t set_core(const char *in, uint32_t in_len, const char *section,
             return -1;
         if (idx == match) {
             if (value && !emit_kv(out, &out_len, out_cap, key, value)) return -1;
-        } else if (idx == old_line) {
-            // the old key's line, beside the new one: gone
         } else {
             uint32_t n = (uint32_t)(le - ls);
             if (!emit_bytes(out, &out_len, out_cap, ls, n)) return -1;

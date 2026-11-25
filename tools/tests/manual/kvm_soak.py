@@ -147,7 +147,7 @@ def real_themes(dbg):
 
     Needed because a theme that is genuinely absent SHOULD load 0 of 6 --
     `cursor_theme_test.py` deliberately sets a nonexistent theme named
-    `broken`, and `cursor_theme` persists to the disk image, so a soak
+    `broken`, and `cursor.theme` persists to the disk image, so a soak
     run can inherit it and see a perfectly correct 0-of-6. Checking only
     themes that exist is what makes an incomplete load mean something.
     """
@@ -274,7 +274,7 @@ def drive_workload(dbg, qmp, rounds, themes=()):
         # change makes System Settings reload the page it shows, which
         # drops the focused control, and a key after it lands nowhere.
         if len(themes) >= 2:
-            dbg.send(f"sh config set cursor_theme {sorted(themes)[n % len(themes)]}")
+            dbg.send(f"sh config set cursor.theme {sorted(themes)[n % len(themes)]}")
             time.sleep(0.5)
         seen.extend(l.strip() for l in dbg.logs())
         # IN the line, not at its start: the serial console interleaves the
@@ -283,7 +283,7 @@ def drive_workload(dbg, qmp, rounds, themes=()):
         # which failed every round.
         changes += sum(1 for l in seen[mark:] if "settings: set " in l)
     if "default" in themes:
-        dbg.send("sh config set cursor_theme default")
+        dbg.send("sh config set cursor.theme default")
     time.sleep(1.0)
     seen.extend(l.strip() for l in dbg.logs())
     # The workload must have CHANGED something, or the disk saw nothing.
@@ -420,7 +420,7 @@ def main():
             # whatever the last run left on the image -- the same rule
             # cursor_theme_test.py follows, and for the same reason.
             if "default" in themes:
-                dbg.send("sh config set cursor_theme default")
+                dbg.send("sh config set cursor.theme default")
                 time.sleep(0.5)
                 dbg.logs()
             log, ok = drive_workload(dbg, qmp, args.changes, themes)

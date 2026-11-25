@@ -58,7 +58,7 @@ DEFAULT_SOCK = ".vm.serial"
 # and of the version text in the bottom-right corner.
 PARK = (900, 520)
 # The window the diff is taken over. Generous enough for the largest
-# shape at 3x scale, so a cursor_size setting left behind by another tool
+# shape at 3x scale, so a cursor.size setting left behind by another tool
 # cannot push ink outside what is being read.
 HALF = 40
 
@@ -232,8 +232,8 @@ def main():
     # /etc/saunaos.conf, which a build does not re-seed, so a previous
     # cursor_theme_test.py run leaves `large` behind and every bbox here
     # is then measured against a shape three times the size.
-    dbg.send("sh config set cursor_size normal")
-    dbg.send("sh config set cursor_theme default")
+    dbg.send("sh config set cursor.size normal")
+    dbg.send("sh config set cursor.theme default")
     dbg.send("sh config set desktop.layout_log on")
     dbg.settle()
 

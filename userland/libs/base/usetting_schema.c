@@ -13,7 +13,6 @@
 #include <string.h>
 #include <dirent.h>
 #include "base/usetting_schema.h"
-#include "etc_renamed.h"
 #include "base/uconf.h"
 #include "base/ushortcuts.h" // shortcut_value_valid: see uschema_validate
 
@@ -184,12 +183,8 @@ static int find_exact(const char *qualified, struct uschema *out) {
     return 1;
 }
 
-// A name from before the dotted names (api/etc_renamed.h) finds the
-// declaration it became.
 int uschema_find(const char *qualified, struct uschema *out) {
-    if (find_exact(qualified, out)) return 1;
-    char now[SETTING_ABI_NS_MAX + SETTING_ABI_NAME_MAX + 1];
-    return etc_renamed_now(qualified, now, sizeof now) && find_exact(now, out);
+    return find_exact(qualified, out);
 }
 
 int uschema_count(void) { ensure_names(); return g_name_count; }

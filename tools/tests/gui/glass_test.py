@@ -73,8 +73,10 @@ class Glass:
         kv.update({f"transparency.{k}.glass": v for k, v in only.items()})
         self.set(**kv)
 
-    def set(self, **kv):
-        for k, v in kv.items():
+    def set(self, kv=None, **more):
+        """Desktop settings by their names under desktop.: a dict for the
+        dotted ones, keywords for the plain."""
+        for k, v in {**(kv or {}), **more}.items():
             self.dbg.send(f"sh config set desktop.{k} {v}")
         self.dbg.settle(1.0)
 
@@ -115,10 +117,10 @@ def taskbar(g, res):
     g.set(transparency="off")
     off = g.shot("taskbar_off").getpixel((x, y))
     res.check("off: the taskbar is its own colour", off == bar, f"px={off} bar={bar}")
-    g.set(transparency="on", transparency_taskbar="75")
+    g.set({"transparency": "on", "transparency.taskbar": "75"})
     g.glass("clear")
     p75 = g.shot("taskbar_75").getpixel((x, y))
-    g.set(transparency_taskbar="50")
+    g.set({"transparency.taskbar": "50"})
     p50 = g.shot("taskbar_50").getpixel((x, y))
     d75 = [p75[c] - bar[c] for c in range(3)]
     d50 = [p50[c] - bar[c] for c in range(3)]
@@ -127,13 +129,13 @@ def taskbar(g, res):
               f"px={p75} bar={bar}")
     res.check("...and at 50 % twice as far from the bar's colour",
               abs(d50[c] - 2 * d75[c]) <= 3, f"75%={d75} 50%={d50}")
-    g.set(transparency_taskbar="100")
+    g.set({"transparency.taskbar": "100"})
     p100 = g.shot("taskbar_100").getpixel((x, y))
     res.check("100 %: the taskbar is opaque again", p100 == bar, f"px={p100}")
 
     # FLOATING, it casts a shadow -- which must not be shaded UNDER the
     # see-through panel, where it showed as a dark band along its edges.
-    g.set(taskbar_float="on", transparency_taskbar="40")
+    g.set({"taskbar.float": "on", "transparency.taskbar": "40"})
     tb = g.dbg.json("gui taskbar --json")
     p = tb["panel"]
     im = g.shot("taskbar_float40")
@@ -152,7 +154,7 @@ def taskbar(g, res):
         corners[(cx, cy)] = lum(im.getpixel((cx, cy))) - lum(im.getpixel((cx, p["y"] + p["h"] // 2)))
     res.check("...and none in its corners, inside the arc",
               all(abs(d) <= 4 for d in corners.values()), f"corner minus same column's middle={corners}")
-    g.set(taskbar_float="off", transparency_taskbar="75")
+    g.set({"taskbar.float": "off", "transparency.taskbar": "75"})
 
 
 def row_profile(im, y, x0, x1):
@@ -293,22 +295,22 @@ def windows(g, res):
     im = g.shot("win_off")
     solid = title(im, right)
     res.check("off: both bodies are pure white", body(im, left) == body(im, right) == (255, 255, 255))
-    g.set(transparency="on", transparency_windows="none")
+    g.set({"transparency": "on", "transparency.windows": "none"})
     im = g.shot("win_none")
     res.check("none: both bodies are pure white, the title bar solid",
               body(im, left) == body(im, right) == (255, 255, 255) and title(im, right) == solid,
               f"title={title(im, right)} solid={solid}")
-    g.set(transparency_windows="titlebars")
+    g.set({"transparency.windows": "titlebars"})
     im = g.shot("win_titlebars")
     res.check("title bars: the bodies stay white", body(im, left) == body(im, right) == (255, 255, 255))
     res.check("...and the focused title bar shows the desktop through it",
               title(im, right) != solid, f"title={title(im, right)} solid={solid}")
-    g.set(transparency_windows="inactive")
+    g.set({"transparency.windows": "inactive"})
     im = g.shot("win_inactive")
     res.check("inactive: the focused body is white, the other see-through",
               body(im, right) == (255, 255, 255) and lum(body(im, left)) <= 248,
               f"focused={body(im, right)} inactive={body(im, left)}")
-    g.set(transparency_windows="all")
+    g.set({"transparency.windows": "all"})
     im = g.shot("win_all")
     res.check("all: both bodies are see-through",
               lum(body(im, right)) <= 248 and lum(body(im, left)) <= 248,
@@ -316,7 +318,7 @@ def windows(g, res):
 
     # WHILE MOVING: a REAL button held on the title bar, the frame taken
     # mid-drag. An injected `gui drag` releases in the same breath.
-    g.set(transparency_windows="none", transparency_moving="on")
+    g.set({"transparency.windows": "none", "transparency.moving": "on"})
     g.dbg.send(f"gui warp {right['x'] + 120} {right['y'] + 10}")
     g.dbg.settle(0.5)
     g.qmp.mouse_down()
@@ -345,7 +347,7 @@ def tiers(g, res):
     # twice is the control -- a scene that changes by itself (a caret, the
     # clock) would differ there too, and the check would mean nothing.
     from PIL import ImageChops, ImageDraw
-    g.set(transparency_moving="off", transparency_windows="all")
+    g.set({"transparency.moving": "off", "transparency.windows": "all"})
     g.click_away()   # nothing focused: no caret blinks in either Notepad
     clock = g.dbg.json("gui calendar --json")["clock"]   # it shows seconds
 

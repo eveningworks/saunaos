@@ -8,7 +8,6 @@
 // time.
 #include "splash.h"   // splash_setting_register()
 #include "setting.h"
-#include "etc_renamed.h"   // an old name means the setting it became
 #include "string.h"
 #include "klog.h"
 #include "kfmt.h" // klog_printf -- a refusal says which limit it hit
@@ -217,29 +216,19 @@ static int read_name(const char *name, struct reading *r) {
     return count_as(r);
 }
 
-// A name from before the dotted names (api/etc_renamed.h) means the
-// setting it became -- but only when nothing has that name now.
-static const char *current(const char *name, char *buf, uint32_t cap) {
-    struct reading r;
-    if (read_name(name, &r)) return name;
-    return etc_renamed_now(name, buf, cap) ? buf : name;
-}
-
 int setting_matches(const char *name) {
     if (!name || !*name) return 0;
-    char now[SETTING_QUALIFIED_MAX];
     struct reading r;
-    return read_name(current(name, now, sizeof now), &r);
+    return read_name(name, &r);
 }
 
 const struct setting *setting_find(const char *name) {
     if (!name || !*name) return 0;
-    char now[SETTING_QUALIFIED_MAX];
     struct reading r;
     // AMBIGUOUS: refuse rather than return the first. Returning one
     // would make which setting a bare name means depend on
     // registration order, i.e. on boot sequence.
-    if (read_name(current(name, now, sizeof now), &r) != 1) return 0;
+    if (read_name(name, &r) != 1) return 0;
     for (int i = 0; i < g_count; i++)
         if (match(g_settings[i], r.ns, r.bare)) return g_settings[i];
     return 0;

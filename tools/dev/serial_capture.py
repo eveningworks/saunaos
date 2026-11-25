@@ -34,7 +34,7 @@ USAGE
     python3 tools/dev/serial_capture.py
 
     # enter the desktop over QMP, then run a command that may panic
-    python3 tools/dev/serial_capture.py --gui --send "gui spawn /bin/config set cursor_size normal"
+    python3 tools/dev/serial_capture.py --gui --send "gui spawn /bin/config set cursor.size normal"
 
     # a different VM slot (vm.py --instance N), to a file
     python3 tools/dev/serial_capture.py --sock .vm.2.serial --out /tmp/panic.txt

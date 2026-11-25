@@ -1089,7 +1089,7 @@ whenever a headline here tells you something you did not already know.
 - **A SETTING'S NAME FITS THE ABI: `<namespace>.<name>`, under
   `SETTING_ABI_NS_MAX` (23 bytes) and `SETTING_ABI_NAME_MAX` (47).**
 - **A SETTING'S NAME IS A PATH: A FAMILY SHARES A BRANCH, AND A BRANCH
-  MAY HOLD A VALUE** -- a rename goes in `api/etc_renamed.h`
+  MAY HOLD A VALUE** -- a rename is a rename, with no alias
 - **A CLIENT SIZES ITS SETTINGS TABLES FROM `SETTING_OP_COUNT`, AT EVERY
   READ -- THERE IS NO CAP TO MIRROR.**
 - **A RING-3 WRITE TO A SETTING'S FILE MUST ANNOUNCE ITSELF**, with
