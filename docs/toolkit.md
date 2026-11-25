@@ -282,6 +282,7 @@ Private seams of a split module, not for apps: `ttf_internal.h`, `uimg_jpeg_int.
 | `uui_nametpl.h` | uui_nametpl -- a FILE-NAME TEMPLATE FIELD: a text field, a row of chips that each type a <token> at the caret, and the name the template gives today under them ("Next file: shot-20261007-...qoi"),... |
 | `uui_netadapter.h` | uui_netadapter -- one network card's ADAPTER SETTINGS as a panel: Link speed, Energy Efficient Ethernet, Flow control and Interrupt moderation, each a setting row shown only when the card's driver... |
 | `uui_netshare.h` | THE TWO NETWORK-SHARE DIALOGS, for any app with a uui_dialog: "Add network share" (an address, a name, open it now) and "Sign in to <server>" (a user, a password, Remember). |
+| `uui_newpassword.h` | uui_newpassword -- a NEW password asked twice: two masked fields, each with its label to its left, and a line under them saying what is wrong ("The two passwords differ."). |
 | `uui_optlist.h` | A scrolling list of OPTIONS, one per row: a checkbox, the option's name, an optional value field edited in place, and a one-line description. |
 | `uui_paintcanvas.h` | uui_paintcanvas -- A PICTURE TO PAINT ON, ZOOMED AND SCROLLED: the view half of a paint program. |
 | `uui_para.h` | uui_para -- A PARAGRAPH A PERSON CAN SELECT AND COPY: read-only text, word-wrapped to its width, with drag, double and triple click, Ctrl+A, Ctrl+C and the shared right-click menu (Copy, Select All... |

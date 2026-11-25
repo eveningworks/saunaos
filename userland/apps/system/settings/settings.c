@@ -136,6 +136,7 @@ static void report_rows(void);
 
 static void navigate(int node_id) {
     int was = g_page_group;
+    users_forget();
     g_page_node = node_id;
     // New cards: the previous fit says nothing about them.
     g_prose_fitted = 0;
@@ -326,6 +327,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
     if (snd_on_widget(a, id)) { uapp_redraw(a); return; }
     if (adapters_on_widget(id)) { relayout_page(); uapp_redraw(a); return; }
     if (remote_on_widget(id)) { relayout_page(); uapp_redraw(a); return; }
+    if (users_on_widget(id)) { relayout_page(); uapp_redraw(a); return; }
 
     switch (id) {
     case ID_SIDE_SPLIT:
@@ -389,6 +391,7 @@ static void on_action(struct uapp *a, int code) {
     if (theme_on_action(a, code)) { uapp_redraw(a); return; }
     if (adapters_on_action(code)) { relayout_page(); uapp_redraw(a); return; }
     if (remote_on_action(code)) { relayout_page(); uapp_redraw(a); return; }
+    if (users_on_action(code)) { relayout_page(); uapp_redraw(a); return; }
     switch (code) {
     case ID_RESET:
         if (page_dirty() && g_page_group >= 0) {
@@ -744,6 +747,7 @@ int main(int argc, char **argv) {
     bootmode_init();
     adapters_init();
     remote_init();
+    users_init();
     snd_init();
     startup_init();
 

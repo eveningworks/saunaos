@@ -49,6 +49,18 @@ extern "C" {
 // a reader -- a signal to init is root's now (the kill rule, stage B of
 // docs/users-design.md), and any account may ask this.
 #define INITCTL_STATUS   6
+// START A SESSION for the account `name` (users D2b): what GDM asks of
+// logind once the greeter's password was right. ROOT ONLY -- privd sends
+// it after checking the password. init stops the greeter (`Session=none`)
+// and starts the desktop as that account (`User=@session`). REFUSED while
+// a session runs, or for an account that is root, a system one (uid
+// under 1000) or unknown.
+#define INITCTL_SESSION  7
+
+// The desktop's exit code for SIGN OUT: init ends the session and starts
+// the greeter again. (0 stays "Exit to shell": the desktop stops and the
+// session goes on in the console.)
+#define INITCTL_EXIT_SIGN_OUT 10
 
 // A reply's `result`.
 #define INITCTL_OK        0
@@ -77,6 +89,10 @@ _Static_assert(sizeof(struct initctl_msg) <= UCHAN_SLOT_BYTES,
 // that failed too. `reboot --force` is the one caller that skips init
 // on purpose -- systemd's `reboot -f`.
 int uinitctl_shutdown(int reboot);
+
+// INITCTL_SESSION for `account` (root only; privd after a sign-in): the
+// reply's INITCTL_* result, or -1 when init could not be asked.
+int uinitctl_session(const char *account);
 
 // INITCTL_REALTIME for `pid` (0 = the caller). Returns an INITCTL_*
 // result, or -1 when init could not be asked; on INITCTL_OK the granted

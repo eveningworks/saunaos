@@ -116,6 +116,14 @@ int upriv_auth(const char *account, const char *password) {
     return rec ? ask(UPRIV_T_AUTH, rec, len) : -1;
 }
 
+int upriv_login(const char *account, const char *password) {
+    if (!account || !password) { errno = EINVAL; return -1; }
+    const char *rest[] = { password, 0 };
+    uint32_t len;
+    char *rec = pack(0, account, rest, &len);
+    return rec ? ask(UPRIV_T_LOGIN, rec, len) : -1;
+}
+
 int upriv_has_password(const char *account) {
     if (!account) { errno = EINVAL; return -1; }
     const char *rest[] = { "", 0 };

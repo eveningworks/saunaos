@@ -180,6 +180,8 @@ void config_files_scan(void) {
                          "The Web Browser's options", 1);
     config_file_register("software", "/etc/software.conf",
                          "Which optional apps the Start menu lists", 1);
+    config_file_register("login", "/etc/login.conf",
+                         "How this machine signs in", 1);
     config_file_register("keymaps", "/usr/share/kbs",
                          "Keyboard layout tables (dir)", 1);
     config_file_register("apps", "/usr/wm/applications",

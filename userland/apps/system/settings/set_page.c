@@ -750,6 +750,7 @@ void relayout_page(void) {
         }
         int kn = kbd_emit_slot(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         if (kn < 0) kn = bootmode_emit_slot(PAGE, n, i, FOCUS, &FOCUS_COUNT);
+        if (kn < 0) kn = users_emit_slot(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = kn >= 0 ? kn : emit_slot(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = clock_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = kbd_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
@@ -853,6 +854,7 @@ int refit_prose(void) {
     if (mouse_fit()) changed = 1;
     if (bootmode_fit()) changed = 1;
     if (g_show_remote && remote_fit()) changed = 1;
+    if (users_fit()) changed = 1;
     if (changed) relayout_page();
     return changed;
 }

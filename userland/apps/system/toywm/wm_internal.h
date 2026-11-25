@@ -223,6 +223,12 @@ extern int taskbar_h;
 // after click handling, same place Esc used to be checked before it
 // moved to a Start menu item.
 extern int wm_exit_requested;
+// What the process exits with once it has: 0, or INITCTL_EXIT_SIGN_OUT
+// for the Leave page's Sign out (base/uinitctl.h).
+extern int wm_exit_code;
+// Started as `toywm --greeter` (users D2b): the login screen alone -- no
+// apps, no tray, no privd agent.
+extern int wm_greeter;
 
 extern int dragging; // index into windows[], or -1 if not dragging
 extern int drag_off_x, drag_off_y;

@@ -69,7 +69,7 @@ the rest in the sweep. Each stays a standalone script with its own
 
   The cases are the in-guest widget tests that moved down (`sbar`,
   `droprows`, `focusring`, `table_tree`, `table_columns`, `typeahead`,
-  `scalerec`, `sizefield`, `transfers`, `wrap`, `uibuilder`, `ucrt`,
+  `scalerec`, `sizefield`, `newpassword`, `transfers`, `wrap`, `uibuilder`, `ucrt`,
   `uvterm`), `button_corners` (a plain and an outlined button's corner
   pixel is the ground: rounded at the theme's control radius),
   `tree_expander` (a tree's chevron in near-text ink, its hover chip as a

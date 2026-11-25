@@ -7,8 +7,13 @@
 #include "base/ubootcfg.h"   // ubootcfg_cmdline(), ubootcfg_onoff_in()
 #include "ui/ugfx.h"        // ugfx_simd_set()
 #include <stdlib.h>
+#include <string.h>
+#include "apps/system/toywm/wm_internal.h"
 
-int main(void) {
+int main(int argc, char **argv) {
+    // `--greeter`: the login screen (users D2b, data/etc/services.d/greeter).
+    for (int i = 1; i < argc; i++)
+        if (!strcmp(argv[i], "--greeter")) wm_greeter = 1;
     // `simd=off` runs ugfx's C pixel loops here and, through UGFX_SIMD in
     // the environment, in every program this desktop starts -- read here
     // because a sandboxed client may not query the command line itself.
@@ -21,5 +26,5 @@ int main(void) {
     // session ends; the kernel restores the console when it sees the
     // compositor deregister (R7).
     wm_run();
-    return 0;
+    return wm_exit_code;   // INITCTL_EXIT_SIGN_OUT ends the session (init)
 }

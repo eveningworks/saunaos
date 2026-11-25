@@ -951,6 +951,12 @@ const struct ugfx_font *ugfx_font_display(void) {
     return bold_at(&s, px < 16 ? 16 : px);
 }
 
+const struct ugfx_font *ugfx_font_hero(void) {
+    static struct sized_bold s;
+    int px = ugfx_font_session(UGFX_FONT_REGULAR)->line_h * 4;
+    return bold_at(&s, px < 32 ? 32 : px > UGFX_FONT_PX_MAX ? UGFX_FONT_PX_MAX : px);
+}
+
 const struct ugfx_font *ugfx_font_caption(void) {
     static struct sized_bold s;
     int px = ugfx_font_session(UGFX_FONT_REGULAR)->line_h * 2 / 3;

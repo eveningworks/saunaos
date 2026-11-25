@@ -1,0 +1,8 @@
+Type=string
+File=/etc/login.conf
+Label=Sign in automatically
+Category=System
+Group=Users
+Default=
+Description=The account whose desktop starts at boot without the login screen; empty for the login screen
+Order=20

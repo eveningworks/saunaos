@@ -58,6 +58,25 @@ int uinitctl_realtime(int pid, int policy, int prio, int *got_policy, int *got_p
     return (int)reply.result;
 }
 
+int uinitctl_session(const char *account) {
+    if (!account || strlen(account) >= sizeof ((struct initctl_msg *)0)->name) return INITCTL_REFUSED;
+    if (!g_rt_open) {
+        if (uchan_client_open(&g_rt, INITCTL_SERVICE) < 0) return -1;
+        g_rt_open = 1;
+    }
+    struct initctl_msg m, reply;
+    memset(&m, 0, sizeof m);
+    memset(&reply, 0, sizeof reply);
+    m.verb = INITCTL_SESSION;
+    memcpy(m.name, account, strlen(account) + 1);
+    if (uchan_call(&g_rt, &m, sizeof m, &reply, sizeof reply, REPLY_MS) != 0) {
+        uchan_client_close(&g_rt);
+        g_rt_open = 0;
+        return -1;
+    }
+    return (int)reply.result;
+}
+
 int uinitctl_status(void) {
     struct uchan_client c;
     if (uchan_client_open(&c, INITCTL_SERVICE) < 0) return -1;

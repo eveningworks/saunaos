@@ -21,6 +21,7 @@
 #include "wm_overlay.h"
 #include "confirm_dialog.h"
 #include "leave_page.h"
+#include "wm_login.h"
 #include "desktop.h"
 #include "wm_tray.h"
 #include "rt/sys.h"   // sys_monotonic_ns(), for the frame timer below
@@ -2302,7 +2303,7 @@ static void render_scene(int mx, int my, int has_damage) {
     // Everything under this frame's clip is painted afresh: no shadow on it yet.
     wm_shadow_cover(0, 0, screen_w, screen_h);
     // UNDER THE LEAVE PAGE'S SNAPSHOT nothing of the scene shows: skip it.
-    int under_page = leave_page_covers();
+    int under_page = leave_page_covers() || wm_login_covers();
 
     // Phase 3: a window whose rect doesn't overlap this frame's damage
     // box gets skipped entirely -- not just clipped. Its chrome and

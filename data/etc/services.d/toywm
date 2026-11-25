@@ -5,9 +5,10 @@
 Name=toywm
 Description=The desktop
 Exec=/bin/wm/system/toywm
-# Runs as the one person's account, not root (docs/users-design.md);
-# every other service stays root.
-User=user
+# Runs as the account whose SESSION is on (users D2b): the one
+# `login.autologin` names at boot, or the one that signed in at the
+# login screen (data/etc/services.d/greeter). Not while no session is.
+User=@session
 Seat=yes
 Target=graphical
 Restart=on-failure

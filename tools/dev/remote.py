@@ -30,9 +30,11 @@ not implement terminal emulation, so a full-screen program (`edit`,
 `less`) is not usable through `exec`. Use `shell` for those, or better,
 do not -- the point of this is text you can assert on.
 
-Not authenticated or encrypted, because neither end can be: see
-`docs/commands/telnetd.md`. This connects to whatever answers on the
-port and trusts it.
+Not encrypted, and it trusts whatever answers on the port: see
+`docs/commands/telnetd.md`. A machine with a password (users D2c) asks
+`login:` first; this answers from SAUNAOS_REMOTE_PASSWORD or a
+`login <host> <account> <password>` line in local_info.txt, then makes
+the session root with `sudo /bin/tosh` (sign_in()).
 
 THE PROMPT IS THE FRAME, and that is the load-bearing decision here.
 There is no request/response framing in a shell session, so `exec` finds
@@ -302,6 +304,74 @@ class Session:
             self.t.buf += self.t._strip(self.t.s.recv(4096))
         except (socket.timeout, OSError):
             pass
+        sign_in(self.t, host)
+
+
+def _wait_for(t, words, timeout=10.0):
+    """Read until one of `words` (bytes) is in what arrived; which one, or None."""
+    end = time.time() + timeout
+    while time.time() < end:
+        for w in words:
+            if w in t.buf:
+                return w
+        try:
+            t.s.settimeout(max(0.1, end - time.time()))
+            chunk = t.s.recv(4096)
+        except (socket.timeout, OSError):
+            break
+        if not chunk:
+            break
+        t.buf += t._strip(chunk)
+    return None
+
+
+def login_for(host):
+    """(account, password) for `host`: SAUNAOS_REMOTE_PASSWORD (account
+    `user`), else a `login <host> <account> <password>` line in
+    local_info.txt -- the untracked file this network's details live in,
+    never a tracked one. (None, None) when neither has one."""
+    pw = os.environ.get("SAUNAOS_REMOTE_PASSWORD")
+    if pw:
+        return os.environ.get("SAUNAOS_REMOTE_ACCOUNT", "user"), pw
+    info = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "local_info.txt")
+    try:
+        for line in open(info, encoding="utf-8", errors="replace"):
+            f = line.split()
+            if len(f) >= 4 and f[0] == "login" and f[1] == host:
+                return f[2], f[3]
+    except OSError:
+        pass
+    return None, None
+
+
+def sign_in(t, host):
+    """A machine with a password asks `login:` first (users D2c, telnetd
+    starts /bin/login): answer it, then make the session ROOT with `sudo
+    /bin/tosh` and the same password -- what every command here assumed of
+    the old root telnet. A machine with no password gives a shell at once,
+    and this does nothing."""
+    if b"login:" not in t.buf:
+        return
+    account, pw = login_for(host)
+    if not pw:
+        raise RuntimeError(f"{host} asks for a login: set SAUNAOS_REMOTE_PASSWORD, or put "
+                           f"`login {host} <account> <password>` in local_info.txt")
+    t.buf = b""
+    t.send_line(account)
+    if _wait_for(t, [b"Password:"]) is None:
+        raise RuntimeError(f"{host}: no Password: prompt after the account")
+    t.buf = b""
+    t.send_line(pw)
+    got = _wait_for(t, [b"Login incorrect", b"$ ", b"# "], timeout=20.0)
+    if got in (None, b"Login incorrect"):
+        raise RuntimeError(f"{host}: the login was refused")
+    t.buf = b""
+    t.send_line("sudo /bin/tosh")
+    if _wait_for(t, [b"password for"], timeout=10.0) is not None:
+        t.buf = b""
+        t.send_line(pw)
+    time.sleep(1.0)
+    t.drain_quiet()
 
     def run(self, cmd, timeout=None):
         """Run one command, returning its output lines."""

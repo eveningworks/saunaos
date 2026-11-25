@@ -64,6 +64,7 @@
 #include "osk.h"
 #include "emoji_picker.h"
 #include "wm_priv.h"
+#include "wm_login.h"
 #include "confirm_dialog.h"
 #include "leave_page.h"
 #include "desktop.h"
@@ -154,6 +155,8 @@ int title_hover_kind = -1;
 int title_tab_idx = -1;   // the tab a hover or an armed press is on
 
 int wm_exit_requested = 0;
+int wm_exit_code = 0;
+int wm_greeter = 0;
 
 int dragging = -1; // index into windows[], or -1 if not dragging
 int drag_off_x, drag_off_y;
@@ -1419,10 +1422,10 @@ void wm_run(void) {
     // Build the app list from /usr/wm/applications/ before anything draws a
     // menu or an icon. Data on disk, not a compiled-in table -- see
     // apps/gui_apps.c.
-    gui_apps_load();
+    if (!wm_greeter) gui_apps_load();
     // AFTER the registry: the store asks it which apps exist, so their
     // history can be found by id (start_store.c).
-    start_store_load();
+    if (!wm_greeter) start_store_load();
 
     window_count = 0;
     wm_overlay_close_others(0);
@@ -1444,18 +1447,24 @@ void wm_run(void) {
     // full repaint (a font, a mode) must not make an open overlay look
     // freshly opened.
     wm_overlay_reset();
-    tray_init();
-    layout_tray_init();   // the active layout's code, left of the keyboard icon
-    wm_notify_tray_init(); // the bell: notifications and Do Not Disturb
-    osk_init();   // its tray item, beside the clock's
-    volume_tray_init();   // the tray's second item, after the clock takes slot 0
-    brightness_tray_init();
-    crash_notice_init();   // after the app list: a notice names the app
-    wm_setup_hold_begin();  // First-boot setup on its way: no desktop until it is up
-    network_tray_init();  // furthest right of the non-clock items
-    remote_tray_init();   // hidden unless somebody is connected
-    drives_tray_init();   // hidden unless a USB stick is plugged in
-    wm_quick_init();      // LAST: it groups network, volume and brightness
+    if (wm_greeter) {
+        // THE LOGIN SCREEN ALONE: no tray, no setup hold, no notices -- the
+        // greeter draws one overlay over a wallpaper (wm_login.h).
+        wm_login_show(WM_LOGIN_GREETER);
+    } else {
+        tray_init();
+        layout_tray_init();   // the active layout's code, left of the keyboard icon
+        wm_notify_tray_init(); // the bell: notifications and Do Not Disturb
+        osk_init();   // its tray item, beside the clock's
+        volume_tray_init();   // the tray's second item, after the clock takes slot 0
+        brightness_tray_init();
+        crash_notice_init();   // after the app list: a notice names the app
+        wm_setup_hold_begin();  // First-boot setup on its way: no desktop until it is up
+        network_tray_init();  // furthest right of the non-clock items
+        remote_tray_init();   // hidden unless somebody is connected
+        drives_tray_init();   // hidden unless a USB stick is plugged in
+        wm_quick_init();      // LAST: it groups network, volume and brightness
+    }
 
     // Announced once per run of this loop. Reset here rather than
     // declared static-and-forgotten, because `gui` can re-enter it:
@@ -1634,15 +1643,20 @@ void wm_run(void) {
         wm_shadow_poll_config(); // `desktop.shadows`, same poll
         wm_glass_poll_config();  // `desktop.transparency*`, same poll
         wm_anim_poll_config();   // `desktop.animations`, same poll
-        volume_poll_config();   // the level and the device list, and the debounced write
-        brightness_poll_config();
-        crash_notice_poll();
-        wm_notify_poll();        // Do Not Disturb's settings, and its end
-        wm_quick_poll();         // desktop.tray.quick
-        wm_setup_hold_poll();
+        // The tray's and the notices' state: none of it is set up in the
+        // greeter (wm_run()'s start), and polling it there faults.
+        if (!wm_greeter) {
+            volume_poll_config();   // the level and the device list, and the debounced write
+            brightness_poll_config();
+            crash_notice_poll();
+            wm_notify_poll();        // Do Not Disturb's settings, and its end
+            wm_quick_poll();         // desktop.tray.quick
+            wm_setup_hold_poll();
+        }
         leave_page_poll();       // the apps asked to close: gone yet?
         close_all_poll();        // ...and a Close all's
-        wm_priv_poll();          // privd's questions, as the Authentication Required dialog
+        if (!wm_greeter) wm_priv_poll();   // privd's questions, as the Authentication Required dialog
+        wm_login_poll();         // the login or lock screen's sign-in, and its clock
 
         // Drain everything the kernel has queued for us, then read the
         // position out of it. One pump per frame, fully draining -- see
@@ -2062,7 +2076,7 @@ void wm_run(void) {
                     // the same: an X11 grab produces exactly this shape.
                     // Tracking held keys means ignoring an up you have no
                     // down for, which is the sane implementation anyway.
-                    if (kt >= 0 &&
+                    if (kt >= 0 && !wm_keys_private() &&
                         wm_client_is_client_window(&windows[kt])) {
                         wm_client_send_key_up(&windows[kt], key, key_mods);
                     }

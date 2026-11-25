@@ -2843,6 +2843,13 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# reads as no password for `user` and root locked, and `passwd` makes it.
 	mkdir -p $(SEED_DIR)/once/etc
 	cp data/etc/shadow $(SEED_DIR)/once/etc/shadow
+	# /etc/login.conf: `autologin=user`, ONCE as well -- the machine's own
+	# answer from then on (Settings > Users; privd clears it when the
+	# account gets a password). A disk without it signs `user` in (init).
+	cp data/etc/login.conf $(SEED_DIR)/once/etc/login.conf
+	# The greeter account's home (users D2b): the login screen keeps
+	# nothing there, but init starts a seat service in its home.
+	mkdir -p $(SEED_DIR)/sync/var/lib/greeter
 	# ...and the XDG base directories it names: a program makes only its
 	# own folder under them (ScummVM's scummvm/), so a missing one sent
 	# its settings to the working directory.

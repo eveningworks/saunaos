@@ -50,19 +50,22 @@ static uint32_t *g_snap;
 static int g_snap_w, g_snap_h, g_snap_ok;
 static char g_note[96];             // why the last action did not happen
 
-enum { C_RESTART, C_SHUTDOWN, C_EXIT, C_INTO, C_CANCEL, C_ANYWAY, C_ROW0,
+enum { C_RESTART, C_SHUTDOWN, C_EXIT, C_SIGNOUT, C_INTO, C_CANCEL, C_ANYWAY, C_ROW0,
        CTLS = C_ROW0 + LEAVE_ROWS };
 struct rect { int x, y, w, h; };
 static struct rect g_r[CTLS];
 static int g_rows_shown;            // app rows that fit the screen
 static int g_hot = -1, g_pressed = -1;
 
-static const char *const NAME[LEAVE_ACTIONS] = { "Restart", "Shut down", "Exit to shell" };
-static const char *const ANYWAY[LEAVE_ACTIONS] = { "Restart anyway", "Shut down anyway", "Exit anyway" };
-static const char *const DOING[LEAVE_ACTIONS] = { "restarting", "shutting down", "exiting to the shell" };
+static const char *const NAME[LEAVE_ACTIONS] = { "Restart", "Shut down", "Exit to shell", "Sign out" };
+static const char *const ANYWAY[LEAVE_ACTIONS] = { "Restart anyway", "Shut down anyway", "Exit anyway",
+                                                   "Sign out anyway" };
+static const char *const DOING[LEAVE_ACTIONS] = { "restarting", "shutting down", "exiting to the shell",
+                                                  "signing out" };
 static const char *const THEN[LEAVE_ACTIONS] = {
     "Then the computer restarts.", "Then the computer shuts down.",
     "Then SaunaOS returns to the text shell.",
+    "Then the login screen comes back.",
 };
 
 // --- the apps ------------------------------------------------------------
@@ -88,7 +91,8 @@ static void perform(void) {
     const char *into = g_into >= 0 && g_into != g_boot.def ? g_boot.title[g_into] : 0;
     if (g_dry) {
         wm_logf("leave: would %s%s%s\n", g_action == LEAVE_RESTART ? "restart"
-                : g_action == LEAVE_SHUTDOWN ? "shut down" : "exit to the shell",
+                : g_action == LEAVE_SHUTDOWN ? "shut down" : g_action == LEAVE_SIGNOUT ? "sign out"
+                : "exit to the shell",
                 into && g_action == LEAVE_RESTART ? " into " : "",
                 into && g_action == LEAVE_RESTART ? into : "");
         leave_page_cancel();
@@ -115,6 +119,11 @@ static void perform(void) {
         if (uinitctl_shutdown(1) == 0) { wm_setup_hold_shutdown(1); break; }
         if (g_into >= 0) ubootmenu_set_next(0);   // the choice is taken back
         refused("The computer could not restart.");
+        break;
+    case LEAVE_SIGNOUT:
+        leave_page_cancel();
+        wm_exit_code = INITCTL_EXIT_SIGN_OUT;
+        wm_exit_requested = 1;
         break;
     default:
         leave_page_cancel();
@@ -296,6 +305,20 @@ static void text_c(struct ugfx_surface *s, int cx, int y, const char *t, uint32_
 
 static void glyph(struct ugfx_surface *s, int action, int cx, int cy, uint32_t c) {
     int sz = u() * 2;
+    if (action == LEAVE_SIGNOUT) {
+        // A door left open and an arrow going out of it.
+        int h = sz * 4 / 5, w = h * 3 / 5, x = cx - sz / 2, y = cy - h / 2;
+        for (int k = 0; k < 2; k++) {
+            ugfx_fill_rect(s, x + k, y, 1, h, c);
+            ugfx_fill_rect(s, x, y + k, w, 1, c);
+            ugfx_fill_rect(s, x, y + h - 1 - k, w, 1, c);
+        }
+        int ay = cy, ax0 = x + w / 2, ax1 = x + sz, k = h / 4;
+        ugfx_fill_rect(s, ax0, ay - 1, ax1 - ax0, 2, c);
+        ugfx_draw_line(s, ax1 - k, ay - k, ax1, ay, c, GEOM_AA);
+        ugfx_draw_line(s, ax1, ay, ax1 - k, ay + k, c, GEOM_AA);
+        return;
+    }
     if (action == LEAVE_EXIT) {
         // A terminal: a frame, a prompt and a cursor. No icon file has one.
         int w = sz, h = sz * 4 / 5, x = cx - w / 2, y = cy - h / 2;
@@ -382,7 +405,8 @@ static void draw_closing(struct ugfx_surface *s) {
                    DOING[g_action]);
         text_c(s, cx, top + D + u(), t, WHITE);
         k_snprintf(t, sizeof t, "Cancel to go back and save your work, or %s anyway and lose it.",
-                   g_action == LEAVE_RESTART ? "restart" : g_action == LEAVE_SHUTDOWN ? "shut down" : "exit");
+                   g_action == LEAVE_RESTART ? "restart" : g_action == LEAVE_SHUTDOWN ? "shut down"
+                   : g_action == LEAVE_SIGNOUT ? "sign out" : "exit");
         text_c(s, cx, top + D + u() * 2 + u() / 2, t, SOFT);
     } else {
         text_c(s, cx, top + D + u(), "Closing apps...", WHITE);
@@ -438,7 +462,7 @@ static int ctl_at(int x, int y) {
 }
 
 static void activate(int id) {
-    if (id >= C_RESTART && id <= C_EXIT) { begin(id - C_RESTART); return; }
+    if (id >= C_RESTART && id < C_RESTART + LEAVE_ACTIONS) { begin(id - C_RESTART); return; }
     if (id == C_INTO) {
         const struct rect *r = &g_r[C_INTO];
         // A child of this page, as a row's menu is of Start.
@@ -518,7 +542,7 @@ const char *leave_page_phase(void) {
 int leave_page_focus(void) { return g_focus; }
 
 int leave_page_control(int i, const char **name, int *x, int *y, int *w, int *h) {
-    static const char *const CN[] = { "restart", "shutdown", "exit", "into", "cancel", "anyway" };
+    static const char *const CN[] = { "restart", "shutdown", "exit", "signout", "into", "cancel", "anyway" };
     if (!leave_page_open || i < 0 || i >= C_ROW0) return 0;
     layout();
     if (g_r[i].w <= 0) return 0;

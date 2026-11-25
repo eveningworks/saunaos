@@ -526,6 +526,36 @@ telnetd runs `login(1)` as root, which drops to the account.
   setup gains an optional Password step**; skipped, the machine is as
   before.
 
+- **As built (D2b, 2026-11-25):** init keeps the session's account
+  (`User=@session`, `Session=none`, `INITCTL_SESSION` from root alone,
+  the desktop's exit code `INITCTL_EXIT_SIGN_OUT` ending it); a greeter
+  stopped for a session is stopped as `service stop` stops one, so its
+  SIGTERM is no failure. `toywm --greeter` sets up no tray, no app list
+  and no privd agent, and polls none of them. The login screen is the
+  overlay `wm_login.c` over a blurred, darkened copy of the wallpaper --
+  never the windows. `login.autologin` is SEEDED ONCE as `user` in
+  `/etc/login.conf` and declares an EMPTY default, because the settings
+  layer reads an empty value as the default: with `Default=user` the
+  login screen could not be chosen at all. Sign out is the Leave page's
+  fourth action. First-boot setup's Password step comes after Network,
+  not after the computer's name as drawn: `ufbs`'s answered-pages bits
+  are the first six steps in order. The new password asked twice is
+  `ui/uui_newpassword.h`, shared by both. The Caps Lock warning drawn on
+  the mockup is not built: ring 3 cannot read the lock state yet.
+  The console shell and the VT shells are `User=@session` too, so no
+  Ctrl+Alt+F2 reaches a shell past the login screen; a session's end
+  (Sign out, or its desktop given up on) stops them with it, and the next
+  session starts them again. An ABSENT `autologin` key means the login
+  screen to init as it does to the settings layer -- the seeded file says
+  `user`. `/etc/login.conf` is root's: Settings changes it through privd's
+  `autologin` action -- switching it off is the seat's right, switching it
+  on asks (for the password once there is one), and only for the asker's
+  own account -- so no program running as the person can turn automatic
+  sign-in back on behind a password. Until D2c's `/bin/login`, a TEXT boot with the
+  login screen chosen has no console shell at all (no greeter there to
+  start a session): the debug console's `sh` and `config set --machine
+  login.autologin user` are the way back.
+
 **D2c -- the lock screen and remote logins.**
 
 - **Lock**: Win+L, the Start menu's Lock, and waking from the screen

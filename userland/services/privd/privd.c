@@ -24,6 +24,8 @@
 #include "base/ubootmenu.h"
 #include "base/ubootmode.h"
 #include "pass.h"
+#include "base/usetting.h"
+#include "base/uinitctl.h"
 #include <errno.h>
 #include <grp.h>
 #include <pwd.h>
@@ -33,6 +35,8 @@
 #include <time.h>
 
 #define AGENT_PATH "/bin/wm/system/toywm"
+#define GREETER_ACCOUNT "greeter"
+#define SET_AUTOLOGIN "login.autologin"   // /etc/login.conf, the machine's
 
 struct who {
     int      pid;
@@ -238,6 +242,8 @@ static int32_t do_action(const struct req *r) {
         const char *why = 0;
         return ubootmode_try(x[0] ? x : 0, &why) < 0 ? -EIO : 0;
     } else if (!strcmp(a, UPRIV_ACT_BOOTCFG) && x && y) return boot_cfg(x, y);
+    else if (!strcmp(a, UPRIV_ACT_AUTOLOGIN) && x)
+        return usetting_set(SET_AUTOLOGIN, x) == SETTING_SAVED ? 0 : -EIO;
     else if (!strcmp(a, UPRIV_ACT_NETLINK) && r->nstrs >= 7) {
         struct net_linkcfg req;
         memset(&req, 0, sizeof req);
@@ -321,6 +327,11 @@ static uint32_t words(const struct req *r, const struct who *w, char *out, uint3
         snprintf(body, sizeof body, "The file %s is rewritten; the old one is kept as .bak.",
                  r->nstrs > 1 ? r->strs[1] : "");
         snprintf(act, sizeof act, "Change the boot menu");
+    } else if (!strcmp(a, UPRIV_ACT_AUTOLOGIN) && r->nstrs > 1) {
+        snprintf(head, sizeof head, "%s wants to sign %s in automatically", name, r->strs[1]);
+        snprintf(body, sizeof body, "At boot the desktop starts without the login screen, and without "
+                 "asking for a password.");
+        snprintf(act, sizeof act, "Sign in automatically");
     } else if (!strcmp(a, UPRIV_ACT_KILL) && r->nstrs > 2) {
         char victim[64];
         int vpid = atoi(r->strs[1]);
@@ -412,7 +423,38 @@ static void handle_passwd(const struct ubulk_msg *m, struct req *r, const struct
     int32_t rc = pass_set(acct, pw);
     logf1(rc ? "privd: could not change %s's password (pid %d)\n"
              : "privd: %s's password changed (pid %d)\n", acct, m->pid);
+    // SETTING ONE TURNS AUTOMATIC SIGN-IN OFF for the account (users
+    // D2b): a password nobody is asked for protects nothing.
+    if (!rc && pw[0]) {
+        // Through the settings layer, as Settings writes it, so every
+        // reader's cache sees the change (root: the machine's layer).
+        char who[256] = "";
+        if (usetting_get(SET_AUTOLOGIN, who, sizeof who) && !strcmp(who, acct) &&
+            usetting_set(SET_AUTOLOGIN, "") == SETTING_SAVED)
+            logf1("privd: %s signs in at the login screen from now on (pid %d)\n", acct, m->pid);
+    }
     answer(m->pid, m->id, rc);
+}
+
+// UPRIV_T_LOGIN: the greeter's sign-in. Believed from the compositor
+// running as the greeter account at the seat, and from nothing else.
+static void handle_login(const struct ubulk_msg *m, struct req *r, const struct who *w) {
+    if (r->nstrs < 2) { answer(m->pid, m->id, -EINVAL); return; }
+    const char *acct = r->strs[0], *pw = r->strs[1];
+    struct passwd *g = getpwnam(GREETER_ACCOUNT);
+    if (!g || g->pw_uid != w->uid || !w->seat || strcmp(w->path, AGENT_PATH) != 0) {
+        logf1("privd: %s is not the login screen -- no sign-in (pid %d)\n", w->path, m->pid);
+        answer(m->pid, m->id, -EPERM);
+        return;
+    }
+    struct passwd *who = getpwnam(acct);
+    if (!who || who->pw_uid < 1000) { answer(m->pid, m->id, -EPERM); return; }
+    if (penalized(w->uid)) { answer(m->pid, m->id, -EAGAIN); return; }
+    if (!pass_check(acct, pw)) { wrong(m->pid, m->id, w->uid, acct); return; }
+    int rc = uinitctl_session(acct);
+    logf1(rc == INITCTL_OK ? "privd: %s signed in (pid %d)\n" : "privd: init started no session for %s (pid %d)\n",
+          acct, m->pid);
+    answer(m->pid, m->id, rc == INITCTL_OK ? 0 : rc < 0 ? -EIO : -EBUSY);
 }
 
 static void handle_request(const struct ubulk_msg *m) {
@@ -434,6 +476,7 @@ static void handle_request(const struct ubulk_msg *m) {
     struct who w;
     if (!identify(r->pid, &w)) { req_free(r); return; }   // gone already
     if (r->type == UPRIV_T_AUTH) { handle_auth(m, flags, r, &w); req_free(r); return; }
+    if (r->type == UPRIV_T_LOGIN) { handle_login(m, r, &w); req_free(r); return; }
     if (r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], UPRIV_ACT_PASSWD)) {
         handle_passwd(m, r, &w);
         req_free(r);
@@ -445,6 +488,13 @@ static void handle_request(const struct ubulk_msg *m) {
         carry_out(r);
         req_free(r);
         return;
+    }
+    // AUTOMATIC SIGN-IN names only the asker's own account; switching it
+    // off is the seat's right, switching it on goes through the question.
+    if (r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], UPRIV_ACT_AUTOLOGIN) && w.euid != 0) {
+        if (r->nstrs < 2) { answer(r->pid, r->id, -EINVAL); req_free(r); return; }
+        if (r->strs[1][0] && !own(r->strs[1], &w)) { answer(r->pid, r->id, -EPERM); req_free(r); return; }
+        if (!r->strs[1][0] && w.seat) { carry_out(r); req_free(r); return; }
     }
     if (w.euid == 0 || (w.seat && seat_action(r))) { carry_out(r); req_free(r); return; }
     char *me = name_of(w.uid);
@@ -587,7 +637,8 @@ int main(void) {
         for (int i = 0; i < n && i < 16; i++) gone(left[i]);
         struct ubulk_msg m;
         while (ubulk_server_recv(&g_srv, &m, buf, UBULK_REC_MAX) == 1) {
-            if (m.type == UPRIV_T_SPAWN || m.type == UPRIV_T_ACTION || m.type == UPRIV_T_AUTH)
+            if (m.type == UPRIV_T_SPAWN || m.type == UPRIV_T_ACTION || m.type == UPRIV_T_AUTH ||
+                m.type == UPRIV_T_LOGIN)
                 handle_request(&m);
             else if (m.type == UPRIV_T_AGENT) handle_agent(m.pid);
             else if (m.type == UPRIV_T_VERDICT) handle_verdict(&m);

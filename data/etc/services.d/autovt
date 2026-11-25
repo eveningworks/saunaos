@@ -15,9 +15,9 @@
 Name=autovt
 Description=A shell on each text virtual terminal
 Exec=/bin/tosh
-# Runs as the one person's account, not root (docs/users-design.md);
-# every other service stays root.
-User=user
+# Runs as the account whose SESSION is on (users D2b), and only while one
+# is: the login screen must not be a Ctrl+Alt+F2 away from a shell.
+User=@session
 Seat=yes
 TTY=vt
 Restart=always

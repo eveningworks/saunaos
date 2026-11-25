@@ -1025,7 +1025,21 @@ from the default (a sound card, a USB mouse, `--reboot`).
   keeps Disks away (no window, no process), Allow brings a Disks owned by
   root. It sets `gui prompt ask`, which every other tool's `enter_gui()`
   sets to `allow`. Positive control: make `wm_priv_poll()` answer 1
-  before showing -- four checks go red.
+  before showing -- four checks go red. ALSO a password round (users D2a):
+  the prompt asks for user's password, a wrong one comes back as "Wrong
+  password" with its dots gone, the right one and Allow bring Disks as
+  root; red with privd's `pass_check()` always 1.
+- **`login_test.py`** -- users D2b end to end: System Settings > Users
+  (as the desktop's account) sets a password -- Set greyed while the two
+  fields differ, `passwd -S` saying P after, automatic sign-in turned
+  off -- then the Leave page's Sign out ends the session and the LOGIN
+  SCREEN comes up (the greeter, drawn: the field white, its arrow in the
+  accent), a wrong password is refused with the field emptied, and the
+  right one starts the session again as `user`. Puts the machine back
+  (no password, automatic sign-in on). Clicks in the dialog wait for a
+  settled frame: keys typed in the same moment were lost (`docs/bugs.md`).
+  Positive control: make privd's `pass_check()` always 1 -- the wrong
+  password's two checks go red.
 - **`forcequit_test.py`** -- not-responding detection and force quit
   (TWP's ping/pong, `scheduler_kill()`, the dialog, and the slot
   reaping). 15 checks. The design point it encodes: a client that

@@ -18,6 +18,7 @@
 #include <stdlib.h>   // malloc: the client widget map
 #include <string.h>   // memcpy: a long title's pieces
 #include "wm_internal.h"
+#include "wm_login.h"
 #include "wm_prof.h"
 #include "crash_notice.h"
 #include "wm_thumb.h"
@@ -2260,6 +2261,7 @@ void wm_client_route_phys_key(int keycode, int down, unsigned mods) {
     int f = wm_focus_index();
     if (f < 0 || !wm_client_is_client_window(&windows[f]) || !windows[f].phys_keys) return;
     if (down && wm_overlay_any_open()) return;
+    if (wm_keys_private()) return;   // not even a release: a password is being typed
     struct win_event ev = {0};
     ev.type = WIN_EV_KEY_PHYS;
     ev.window = windows[f].client_win;

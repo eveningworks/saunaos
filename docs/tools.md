@@ -208,6 +208,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `launch_test.py` -- Running programs and scripts from the File Manager, the desktop and
 - `leave_test.py` -- The Leave page: Restart / Shut down / Exit to shell, and apps asked to close
 - `live_wallpaper_test.py` -- Live wallpapers: the background client, what it draws, when it stops
+- `login_test.py` -- passwords, sign-out and the login screen
 - `logview_test.py` -- The Log Viewer, on a fixture log it is opened at (`logview <file>`)
 - `menubar_test.py` -- the menu bar and status bar, against ring-3 Notepad
 - `mines_test.py` -- Drive Minesweeper (userland/apps/apps/mines/mines.c) and assert on it

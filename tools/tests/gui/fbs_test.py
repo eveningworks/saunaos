@@ -16,6 +16,7 @@ WHAT IT CHECKS, and what a broken version would still pass:
     that only stored the choice for later passes everything else here;
   - an invalid computer name ("bad name") keeps Next on its step, and a
     valid one moves on and lands in system.hostname;
+  - the Password step (users D2b) left empty moves on and sets none;
   - Next on the last step ends it: the window goes and `fbs` reports
     "finished"; Skip, then Return on the question, ends it "skipped";
   - the wizard STARTS at the recommended display scale: 1280 wide leaves
@@ -190,7 +191,11 @@ def main():
           setting(dbg, "system.hostname"))
 
     click_widget(dbg, "next")
-    check("Next reaches Ready", step_seen(dbg, 6))
+    check("Next reaches the Password step", step_seen(dbg, 6))
+    click_widget(dbg, "next")
+    check("left empty, it moves on: no password is required", step_seen(dbg, 7))
+    st = sh(dbg, "passwd -S user")
+    check("...and none was set", "user NP" in st, st.strip()[-60:])
     click_widget(dbg, "next")
     check("the last Next closes the wizard", wait_window(dbg, False))
     st = sh(dbg, "fbs")

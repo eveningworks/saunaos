@@ -1,5 +1,9 @@
 // A user id's name for a listing (uusername.h).
 #include "base/uusername.h"
+#include "base/uself.h"
+#include "proc_info.h"
+#include "query_abi.h"
+#include "rt/sys.h"
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,7 +47,24 @@ int uusername_desktop(unsigned *uid, unsigned *gid) {
         if (n && n < sizeof name) { memcpy(name, line + 5, n); name[n] = 0; }
     }
     fclose(f);
-    struct passwd *pw = name[0] ? getpwnam(name) : 0;
+    // `User=@session` (users D2b): the desktop runs as whoever signed in --
+    // the account its running compositor has, else the first person's.
+    struct passwd *pw = 0;
+    if (!strcmp(name, "@session")) {
+        struct proc_info pi;
+        char path[QUERY_PROCPATH_MAX];
+        for (int i = 0; !pw && sys_proc_info(i, &pi) == 0; i++)
+            if (pi.pid && pi.pid == pi.tgid && pi.uid >= 1000 && uproc_path(pi.pid, path, sizeof path) >= 0 &&
+                !strcmp(path, "/bin/wm/system/toywm"))
+                pw = getpwuid(pi.uid);
+        if (!pw) {
+            setpwent();
+            while ((pw = getpwent()) && pw->pw_uid < 1000) { }
+            endpwent();
+        }
+    } else if (name[0]) {
+        pw = getpwnam(name);
+    }
     if (!pw || pw->pw_uid == 0) return 0;
     *uid = (unsigned)pw->pw_uid;
     *gid = (unsigned)pw->pw_gid;

@@ -494,6 +494,10 @@ int ugfx_font_load(const char *path, int px, int bold,
 // session's cell height changes. Never NULL.
 const struct ugfx_font *ugfx_font_display(void);
 
+// Four times the session's height, bold -- the HERO size the login and
+// lock screens' clock is drawn at. Same contract as ugfx_font_display().
+const struct ugfx_font *ugfx_font_hero(void);
+
 // Two thirds of the session's height, bold -- the CAPTION size a count
 // badge or a small figure on an icon is drawn at (the taskbar's group
 // count). Same contract as ugfx_font_display(): private, cached,

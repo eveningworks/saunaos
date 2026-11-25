@@ -54,6 +54,9 @@
 #include "base/udate.h"
 #include "base/ufbs.h"
 #include "base/uhostname.h"
+#include "base/upriv.h"
+#include "ui/uui_newpassword.h"
+#include <pwd.h>
 #include "query_abi.h"
 
 #define SET_REGION   "locale.region"
@@ -73,7 +76,9 @@
 
 // A PAGE, in base/ufbs.h's UFBS_PAGE_* order; the wizard's steps are the
 // pages not already answered, then Ready (g_page maps one to the other).
-enum { S_REGION, S_KEYBOARD, S_TIME, S_LOOK, S_NAME, S_NET, S_READY, S_COUNT };
+// PASSWORD (users D2b) comes AFTER the pages UFBS_ANSWERED's bits name
+// (base/ufbs.h's ufbs_page, the first six in this order), so they still match.
+enum { S_REGION, S_KEYBOARD, S_TIME, S_LOOK, S_NAME, S_NET, S_PASSWORD, S_READY, S_COUNT };
 
 enum {
     ID_REGION = 1, ID_TIMEFMT, ID_LAYOUTS, ID_TRY, ID_DEAD, ID_TZ, ID_NTP,
@@ -145,6 +150,15 @@ static const char *const READY_LABEL[READY_ROWS] = {
 };
 static char g_ready_text[READY_ROWS][160];
 static struct uui_custom g_ready;
+
+// The Password page: the new password twice, for the first person's
+// account; left empty, the machine keeps signing in without one.
+static struct uui_newpassword g_newpw;
+static struct uui_label g_pw_note, g_pw_err;
+static char *g_pw_acct = "user";   // the first person's account, sized to fit
+static char g_pw_note_text[320];
+static struct uui_item P_PW[3];
+static struct uui_layout L_PW;
 
 static struct uui_item P_REGION[5], P_KB_RIGHT[4], P_KB[2], P_TIME[4], P_LOOK_ROW[2],
                        P_LOOK_TB[2], P_LOOK_GL[2], P_LOOK[8], P_NAME[4], P_NET[7],
@@ -302,6 +316,9 @@ static void focus_for(int step) {
     case S_NET:
         f[n++] = (struct uui_focusable){ &g_server, &uui_textbox_focus_ops };
         break;
+    case S_PASSWORD:
+        n += uui_newpassword_focusables(&g_newpw, &f[n]);
+        break;
     }
     // Next first among the buttons, so Tab from the page lands on it.
     const struct uui_widget_ops *ops[3];
@@ -339,6 +356,18 @@ static int can_leave(int step) {
         if (strcmp(was, uui_textbox_text(&g_name)) != 0) {
             usetting_set(UHOSTNAME_SETTING, uui_textbox_text(&g_name));
             ulogf("firstboot: %s=%s\n", UHOSTNAME_SETTING, uui_textbox_text(&g_name));
+        }
+    }
+    if (step == S_PASSWORD) {
+        enum uui_newpassword_state st = uui_newpassword_state(&g_newpw);
+        g_pw_err.text = st == UUI_NEWPW_PARTIAL ? "Type it again under Confirm." : "";
+        if (st == UUI_NEWPW_PARTIAL || st == UUI_NEWPW_DIFFER) { uui_focus_set(&g_focus, 1); return 0; }
+        if (st == UUI_NEWPW_MATCH) {
+            // Root's: privd takes no current password from root.
+            int rc = upriv_passwd(g_pw_acct, 0, uui_newpassword_text(&g_newpw));
+            ulogf("firstboot: password for %s %s\n", g_pw_acct, rc ? "NOT set" : "set");
+            if (rc) { g_pw_err.text = "The password could not be set."; return 0; }
+            uui_newpassword_clear(&g_newpw);
         }
     }
     if (step == S_NET) {
@@ -689,6 +718,29 @@ static void build(void) {
     P_NET[6] = item(&uui_label_ops, &g_server_err, 0, "server_error", UUI_FILL_W);
     L_NET = column(P_NET, 7);
 
+    // Password -- for the first person's account (one until users D3).
+    struct passwd *pw;
+    setpwent();
+    while ((pw = getpwent()) && pw->pw_uid < 1000) { }
+    if (pw && pw->pw_name) {
+        char *a = strdup(pw->pw_name);
+        if (a) g_pw_acct = a;
+    }
+    snprintf(g_pw_note_text, sizeof g_pw_note_text,
+             "For the account %s (%s). It can be changed or removed later in System Settings > Users.",
+             pw && pw->pw_gecos && pw->pw_gecos[0] ? pw->pw_gecos : g_pw_acct, g_pw_acct);
+    endpwent();
+    uui_newpassword_init(&g_newpw, "Password", "Confirm");
+    hint(&g_pw_note, g_pw_note_text);
+    uui_label_init(&g_pw_err, "");
+    g_pw_err.fg = UUI_ROLE(severity[UTHEME_SEV_ERROR]);
+    P_PW[0] = item(&uui_newpassword_ops, &g_newpw, 0, "password", 0);
+    P_PW[1] = item(&uui_label_ops, &g_pw_note, 0, "password_note", UUI_FILL_W);
+    P_PW[2] = item(&uui_label_ops, &g_pw_err, 0, "password_error", UUI_FILL_W);
+    L_PW = column(P_PW, 3);
+    P_PW[0].main_size = 0;
+    g_newpw.w = cw * 50;
+
     // Ready
     g_ready = (struct uui_custom){ .w = cw * 70, .h = ready_row_h() * READY_ROWS, .draw = draw_ready };
     P_READY[0] = item(&uui_custom_ops, &g_ready, 0, "summary", UUI_FILL_W);
@@ -701,6 +753,8 @@ static void build(void) {
         { "Appearance", "Each of these is in System Settings > Desktop as well.", &L_LOOK },
         { "Computer name", "What this computer is called.", &L_NAME },
         { "Network", "How this machine reaches the network, and where its updates come from.", &L_NET },
+        { "Password", "Optional. With one, this computer asks for it at the login screen and before an "
+                      "administrator change. Leave both empty to keep signing in without one.", &L_PW },
         { "Ready", "These are saved. Each one is also in System Settings.", &L_READY },
     };
     g_nsteps = 0;
@@ -731,15 +785,9 @@ static void build(void) {
 
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--boot") && !ufbs_needed()) return 0;
+    // An install never carries the Password page (users D2b), so setup
+    // always has that and Ready left to show, however much it carried.
     g_answered = ufbs_answered();
-    // Every page carried by the install: nothing is left to ask.
-    unsigned all = (1u << UFBS_PAGES) - 1;
-    if ((g_answered & all) == all) {
-        ufbs_mark("finished");
-        ufbs_clear_answered();
-        ulogf("firstboot: every page was answered before the install -- nothing to ask\n");
-        return 0;
-    }
     // Empty until on_open fills it.
     g_root = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_widgets, .count = 0, .margin = 1 };
     struct uapp_desc desc = {

@@ -36,6 +36,7 @@
 #include "wm_quick.h"
 #include "context_menu.h"
 #include "confirm_dialog.h"
+#include "wm_login.h"
 #include "leave_page.h"
 #include "gui_apps.h"
 #include "kapi.h"
@@ -827,6 +828,25 @@ static void cmd_dialog(struct dbg_out *o, int json) {
         dbg_out_printf(o, "  button %d centre=%d,%d  %s\r\n", i, x + w / 2, y + h / 2,
                      label ? label : "");
     }
+}
+
+// The login or lock screen (wm_login.h): open, its mode, the account, the
+// line under the field, BUSY, how much is typed, and each control's rect.
+static void cmd_login(struct dbg_out *o) {
+    int mode = 0, busy = 0, typed = 0;
+    const char *acct = "", *err = "";
+    int open = wm_login_state(&mode, &acct, &err, &busy, &typed);
+    dbg_out_printf(o, "{\"open\":%s,\"greeter\":%s,\"mode\":\"%s\",\"account\":\"", open ? "true" : "false",
+                   wm_greeter ? "true" : "false", mode == WM_LOGIN_LOCK ? "lock" : "login");
+    dbg_out_jstr(o, acct);
+    dbg_out_write(o, "\",\"message\":\"");
+    dbg_out_jstr(o, err);
+    dbg_out_printf(o, "\",\"busy\":%s,\"typed\":%d,\"controls\":[", busy ? "true" : "false", typed);
+    const char *name; int x, y, w, h;
+    for (int i = 0; wm_login_control(i, &name, &x, &y, &w, &h); i++)
+        dbg_out_printf(o, "%s{\"name\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d}",
+                       i ? "," : "", name, x, y, w, h, x + w / 2, y + h / 2);
+    dbg_out_write(o, "]}\r\n");
 }
 
 static const char *menu_kind_name(int kind) {
@@ -2698,9 +2718,22 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
     if (k_strcmp(sub, "quick") == 0)        { cmd_quick(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "ctxmenu") == 0)      { cmd_ctxmenu(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "dialog") == 0)       { cmd_dialog(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "login") == 0)        { cmd_login(o); return 1; }
     if (k_strcmp(sub, "prompt") == 0)       { cmd_prompt(o, next_tok(&p)); return 1; }
     if (k_strcmp(sub, "leave") == 0) {
         char *arg = next_tok(&p);
+        // `gui leave show restart|shutdown|exit|signout`: open the page
+        // with that one focused, as Start's power rows do.
+        if (arg && k_strcmp(arg, "show") == 0) {
+            char *v = next_tok(&p);
+            static const char *const A[LEAVE_ACTIONS] = { "restart", "shutdown", "exit", "signout" };
+            int a = -1;
+            for (int i = 0; v && i < LEAVE_ACTIONS; i++) if (k_strcmp(v, A[i]) == 0) a = i;
+            if (a < 0) { dbg_out_write(o, "usage: gui leave show restart|shutdown|exit|signout\r\n"); return 1; }
+            leave_page_show((enum leave_action)a);
+            dbg_out_printf(o, "leave: shown, %s focused\r\n", A[a]);
+            return 1;
+        }
         if (arg && k_strcmp(arg, "dry") == 0) {
             char *v = next_tok(&p);
             leave_page_set_dry_run(v && k_strcmp(v, "on") == 0);

@@ -21,6 +21,7 @@
 #include "layout_popup.h"
 #include "confirm_dialog.h"
 #include "leave_page.h"
+#include "wm_login.h"
 #include "osk.h"
 #include "emoji_picker.h"
 #include "wm_tooltip.h"
@@ -44,6 +45,7 @@ static int open_layout(void)  { return layout_open; }
 static int open_notify(void)  { return wm_notify_open; }
 static int open_confirm(void) { return confirm_dialog_open; }
 static int open_leave(void) { return leave_page_open; }
+static int open_login(void) { return wm_login_open; }
 static int open_osk(void)     { return osk_open; }
 static int open_emoji(void)   { return emoji_picker_open; }
 static int open_notice(void)  { return crash_notice_open; }
@@ -74,6 +76,12 @@ static const struct wm_overlay g_overlays[] = {
     // whole screen while it fades.
     { "flash",    wm_flash_open, wm_flash_draw,    tooltip_click,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, WM_OVERLAY_REPAINT_WHILE_OPEN },
+    // The login and lock screen (wm_login.h): over everything but the
+    // passive flash and tooltip, so nothing of the session draws over it
+    // or hears a key while it is up.
+    { "login",    open_login,    wm_login_draw,    wm_login_click,
+      wm_login_hover_at,         wm_login_damage,         0 /* the whole screen */, wm_login_update_press, 0, wm_login_key, 0, 0, 0, 0, 1,
+      WM_OVERLAY_REPAINT_WHILE_OPEN },
     { "tooltip",  open_tooltip,  wm_tooltip_draw,  tooltip_click,
       0, wm_tooltip_damage, wm_tooltip_rect, 0, 0, 0, wm_tooltip_cancel, 0, 0, 0, 0, 0 },
     // The taskbar's window preview (wm_peek.h): above every menu, since

@@ -446,6 +446,16 @@ int  adapters_tick(void);
 
 // Network > Remote Desktop (set_remote.c): /etc/remote.conf, the trusted
 // addresses, the sessions open now.
+// System > Users (set_users.c): login.autologin's slot drawn as the
+// account, password and automatic sign-in cards; changes saved at once.
+void users_init(void);
+void users_forget(void);
+void users_load(void);
+int  users_emit_slot(struct uui_item *out, int n, int i, struct uui_focusable *focus, int *nfocus);
+int  users_fit(void);
+int  users_on_widget(int id);
+int  users_on_action(int code);
+
 extern int g_show_remote;
 void remote_init(void);
 void remote_fonts(void);

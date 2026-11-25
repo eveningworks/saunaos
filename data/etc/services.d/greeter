@@ -1,0 +1,23 @@
+# The login screen (users D2b, docs/users-design.md). Started by init
+# when the boot target is `graphical` and NO session is on: at boot when
+# `login.autologin` names no account, and again after a sign-out. The
+# compositor in greeter mode draws the login screen alone; privd checks
+# the password and asks init to start the session, which stops this.
+#
+# See data/etc/services.d/README.md for the format.
+Name=greeter
+Description=The login screen
+Exec=/bin/wm/system/toywm
+Args=--greeter
+# GDM's greeter account: no password, no shell, no home of its own but
+# /var/lib/greeter. The seat mark lets it restart and power off, as
+# logind lets a greeter.
+User=greeter
+Seat=yes
+Session=none
+Target=graphical
+Restart=on-failure
+Ready=notify
+After=fontd privd
+CPUSchedulingPolicy=rr
+CPUSchedulingPriority=1

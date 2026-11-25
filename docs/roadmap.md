@@ -248,6 +248,10 @@ only expensive part of it.
 - [ ] **NEXT** Enforce file permissions by default -- the suite passes enforced (2026-11-25); flip after days of ASUS use
 - [x] ~~Stage D1b of `docs/users-design.md`: a setting's `Scope=`, `~/.config` over `/etc`~~ DONE 2026-11-25 -- `config --machine`
 - [x] ~~Stage D1c of `docs/users-design.md`: the apps' own files and state move to `~/.config` and the XDG folders~~ DONE 2026-11-25
+- [x] ~~Stage D2a of `docs/users-design.md`: passwords, kept by privd in `/etc/shadow`~~ DONE 2026-11-25 -- `passwd`, yescrypt
+- [x] ~~Stage D2b of `docs/users-design.md`: the login screen, a greeter session, Sign out~~ DONE 2026-11-25 -- Settings > Users
+- [ ] The login screen says when Caps Lock is on -- ring 3 cannot read the lock state yet
+- [ ] Sign out ends the session's processes too -- today only its windows close (logind's KillUserProcesses)
 - [ ] Root windows on the person's desktop draw in the person's look -- First-boot setup, screen trial, elevated tools see the machine's
 - [ ] `open()`'s and `mkdir()`'s mode reach the kernel -- once every tool that writes a program sets its exec bit (stage C)
 - [ ] `ls -l` shows the mode and the owner, and File Manager's Properties the owner -- today `stat` does
@@ -256,9 +260,9 @@ only expensive part of it.
 - [x] ~~A minimal user/group model~~ DONE 2026-11-24 -- root and `user` in `/etc/passwd`, `wheel` in `/etc/group`
 - [x] ~~Per-file owner + permission bits~~ DONE 2026-11-24 -- TFS3's inode at 100/104, ramfs per node, a mount's for FAT
 - [x] ~~Permission checks on file access~~ DONE 2026-11-24 -- at the syscall boundary (`kernel/fsperm.h`)
-- [ ] A login prompt (even single-user-by-default)
+- [x] ~~A login prompt (even single-user-by-default)~~ DONE 2026-11-25 -- the greeter (D2b), opt-in with a password
 - [ ] Lock on resume: waking from the screensaver asks for the password, Windows' "On resume, display logon screen"
-- [ ] Password hashing + an `/etc/passwd`-shaped file
+- [x] ~~Password hashing + an `/etc/passwd`-shaped file~~ DONE 2026-11-25 -- `/etc/shadow`, yescrypt, privd (D2a)
 - [ ] `su`-style user switching
 - [ ] Meltdown/Spectre mitigations (KPTI, retpolines), or a written decision -- the ASUS's Broadwell lets ring 3 read the kernel
 - [ ] Home directories + `~` expansion

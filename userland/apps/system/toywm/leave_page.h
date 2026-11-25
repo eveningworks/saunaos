@@ -15,7 +15,9 @@
 // countdown: nothing here acts unless a button is pressed.
 #include <stdint.h>
 
-enum leave_action { LEAVE_RESTART, LEAVE_SHUTDOWN, LEAVE_EXIT, LEAVE_ACTIONS };
+// SIGN OUT (users D2b) ends the session: the desktop exits with
+// INITCTL_EXIT_SIGN_OUT and init brings the login screen back.
+enum leave_action { LEAVE_RESTART, LEAVE_SHUTDOWN, LEAVE_EXIT, LEAVE_SIGNOUT, LEAVE_ACTIONS };
 
 extern int leave_page_open;
 

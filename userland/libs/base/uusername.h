@@ -22,8 +22,8 @@ const char *uusername(unsigned uid, unsigned width);
 // (/etc/services.d/toywm), looked up in /etc/passwd: whom a root service
 // mounts a stick or a share FOR, as udisks2 mounts for the session's
 // user (users stage C). 1 and its uid and primary group, or 0 when the
-// desktop runs as root or names no account. Stage D replaces it with the
-// active session's.
+// desktop runs as root or names no account. `User=@session` (users D2b)
+// is the account the running desktop has, else the first person's.
 int uusername_desktop(unsigned *uid, unsigned *gid);
 
 #ifdef __cplusplus

@@ -31,6 +31,7 @@ extern "C" {
 #define UPRIV_T_CANCEL  7   // privd -> agent: close prompt `id`, its asker is gone
 #define UPRIV_T_AUTH    8   // client: u32 flags, account\0 password\0 -- is it right?
 #define UPRIV_T_RETRY   9   // privd -> agent: prompt `id`'s password was wrong; u32 tries left
+#define UPRIV_T_LOGIN  10   // the greeter: u32 flags, account\0 password\0 -- sign in (D2b)
 
 // The request's flags. SELF_CONSENT: the asker already asked the
 // person on its own terminal -- `sudo` on a TEXT boot, where no desktop
@@ -62,6 +63,11 @@ extern "C" {
 // sends no current one; anyone else only their own, with the current one
 // ("" when it has none). Never prompted: the current password is the proof.
 #define UPRIV_ACT_PASSWD    "passwd"
+// Automatic sign-in (users D2b): the account to sign in at boot, or ""
+// for the login screen. "" is the seat's without asking -- it only makes
+// the machine ask for more; naming an account is ASKED (with its
+// password once it has one), and only for the asker's own account.
+#define UPRIV_ACT_AUTOLOGIN "autologin"
 // The SEAT's, granted to the person at the machine WITHOUT asking --
 // logind's set-reboot-to-boot-loader-entry is allow_active: which entry
 // the next boot takes, and the screen size it tries.
@@ -95,6 +101,12 @@ int upriv_auth(const char *account, const char *password);
 // 1 when the account has a password, 0 when it has none, -1 with errno.
 // Root, or the account's own.
 int upriv_has_password(const char *account);
+// SIGN IN (users D2b), the greeter's alone: privd checks the password and
+// asks init to start `account`'s session (INITCTL_SESSION). 0 when it
+// has; -1 with errno EACCES (wrong, after the fail delay), EPERM (not the
+// greeter, or not a person's account), EBUSY (a session is on), EAGAIN (a
+// wrong answer still pending), EIO (init did not answer).
+int upriv_login(const char *account, const char *password);
 // Sets (or, with `password` "", removes) the account's password --
 // UPRIV_ACT_PASSWD. `current` NULL for root.
 int upriv_passwd(const char *account, const char *current, const char *password);
