@@ -67,6 +67,24 @@ static int layout_int(const char *name) {
     return atoi(strstr(line, needle) + strlen(needle));
 }
 
+// Branch `name`'s row in the tree's newest listing, or -1.
+static int tree_row(const char *name) {
+    char line[160], needle[80];
+    snprintf(needle, sizeof needle, "\"%s\"", name);
+    if (!uitest_log_find(g_mark, needle, line, sizeof line)) return -1;
+    const char *p = strstr(line, "tree row ");
+    return p ? atoi(p + 9) : -1;
+}
+
+// The centre of branch `name`'s row, or 0.
+static int branch_at(const char *name, int *cx, int *cy) {
+    int x, y, w, h, rh = layout_int("tree.row_h"), top = num("tree", "top"), row = tree_row(name);
+    if (row < 0 || !layout("tree", &x, &y, &w, &h)) return 0;
+    *cx = x + w / 2;
+    *cy = y + (row - top) * rh + rh / 2;
+    return 1;
+}
+
 static int file_has(const char *path, const char *line) {
     char buf[4096];
     return uitest_read_file(path, buf, sizeof buf) && strstr(buf, line) != NULL;
@@ -242,22 +260,52 @@ int main(void) {
     field("branch", "branch", v, sizeof v);
     utest_checkf(!strcmp(v, "system.mouse"), "Right and Down reach system.mouse (%s)", v);
     {
-        int x, y, w, h, rh = layout_int("tree.row_h"), top = num("tree", "top"), row = -1;
-        char line[160];
-        if (uitest_log_find(g_mark, "confedit: tree row ", line, sizeof line)) {
-            // The newest listing: find system's row in it.
-            for (int r = 0; r < 64 && row < 0; r++) {
-                char needle[64];
-                snprintf(needle, sizeof needle, "confedit: tree row %d \"system\"", r);
-                if (uitest_log_find(g_mark, needle, line, sizeof line)) row = r;
-            }
-        }
+        int x, y, w, h, cx, cy;
         layout("tree", &x, &y, &w, &h);
-        uitest_app_click_at(x + 6, y + (row - top) * rh + rh / 2);   // its expander
+        if (branch_at("system", &cx, &cy)) uitest_app_click_at(x + 8, cy);   // its expander
     }
     field("branch", "branch", v, sizeof v);
     utest_checkf(!strcmp(v, "system") && num("branch", "rows") == 1,
                  "collapsing system over system.mouse selects system, the table following (%s)", v);
+
+    // A DOUBLE-CLICK on a branch's row opens it, and another closes it
+    // (every uui_tree, Explorer's and regedit's gesture).
+    {
+        int cx, cy, rows0 = num("tree", "rows");
+        if (branch_at("system", &cx, &cy)) uitest_app_double_click_at(cx, cy);
+        utest_checkf(num("tree", "rows") == rows0 + 1, "a double-click on system's row opens it (%d -> %d rows)",
+                     rows0, num("tree", "rows"));
+        if (branch_at("system", &cx, &cy)) uitest_app_click_at(cx, cy);
+        uitest_check_int("...one click does not close it again", num("tree", "rows"), rows0 + 1);
+        if (branch_at("system", &cx, &cy)) uitest_app_double_click_at(cx, cy);
+        uitest_check_int("...and a second double-click closes it", num("tree", "rows"), rows0);
+    }
+
+    // A RIGHT-CLICK selects what it lands on, then shows its menu.
+    {
+        int cx, cy;
+        if (branch_at("update", &cx, &cy)) uitest_app_rclick_at(cx, cy);
+        field("branch", "branch", v, sizeof v);
+        char line[256];
+        utest_checkf(!strcmp(v, "update") && uitest_log_find(g_mark, "confedit: layout ctxmenu", line, sizeof line),
+                     "a right-click on a branch selects it and opens a menu (%s)", v);
+        uitest_app_key(0x1B, 0);
+        // The branch menu's first row toggles it: Expand on a closed one.
+        int rows0 = num("tree", "rows"), ix, iy, iw, ih;
+        if (branch_at("system", &cx, &cy)) uitest_app_rclick_at(cx, cy);
+        if (layout("ctxmenu.item 0 0", &ix, &iy, &iw, &ih)) uitest_app_click_at(ix + iw / 2, iy + ih / 2);
+        utest_checkf(num("tree", "rows") == rows0 + 1, "the branch menu's Expand opens system (%d -> %d rows)",
+                     rows0, num("tree", "rows"));
+        // A value row's first row is Edit value...
+        click_row(0);
+        int tx, ty, tw, th, rh = layout_int("values.row_h"), hh = layout_int("values.header_h");
+        layout("values", &tx, &ty, &tw, &th);
+        uitest_app_rclick_at(tx + 20, ty + hh + rh / 2);
+        if (layout("ctxmenu.item 0 0", &ix, &iy, &iw, &ih)) uitest_app_click_at(ix + iw / 2, iy + ih / 2);
+        utest_check(uitest_app_has_widget("value"), "the value menu's Edit value... opens the edit dialog");
+        uitest_app_key(0x1B, 0);
+        if (branch_at("system", &cx, &cy)) uitest_app_click_at(cx, cy);
+    }
     uitest_app_key(KEY_ARROW_UP, 0);
     field("branch", "branch", v, sizeof v);
     utest_checkf(!strcmp(v, "p39"), "the fact branches sit above (%s)", v);

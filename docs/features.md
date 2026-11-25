@@ -377,7 +377,9 @@ set` is, and a refused value keeps the dialog open with what would be
 accepted. A person's own value is saved in `~/.config` and Reset to
 machine's removes it; a kernel setting edits as System Settings does;
 machine-wide settings and facts are read-only. Find (Ctrl+F) lists
-every name or value holding the text.
+every name or value holding the text. A right-click on a value or a
+branch selects it and opens its menu; a double-click on a branch opens
+or closes it, as in every tree on the desktop.
 
 **Pinned taskbar apps**: File Manager, Web Browser and Terminal are
 pinned to the taskbar out of the box. A pin is its app's icon until the

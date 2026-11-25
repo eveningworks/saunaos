@@ -149,6 +149,12 @@ void uui_backdrop_round_rect(struct ugfx_surface *s, int x, int y, int w, int h,
 // See docs/decisions.md for why the accent rather than a derived tint.
 void uui_focus_ring(struct ugfx_surface *s, int x, int y, int w, int h);
 
+// A CHEVRON, anti-aliased: pointing down when `open`, else right, `size`
+// px along its long side, centred on (cx, cy), with a rounded stroke of
+// about a sixth of that. A tree's expander; a caller passing a size from
+// ugfx_px() follows display.scale.
+void uui_draw_chevron(struct ugfx_surface *s, int cx, int cy, int size, int open, uint32_t c);
+
 // Fills the rect with `bg` shifted for `state` -- rounded at the
 // control radius, as an outlined uui_button is -- then centres `label`
 // (may be NULL) in `fg`. Pressed draws a darker fill plus a 1px

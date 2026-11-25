@@ -180,6 +180,21 @@ CONTROLS = [
      "    return o->has_user ? USCHEMA_FROM_USER :",
      "    return 0 ? USCHEMA_FROM_USER :",
      ["confedit_app"]),
+    # The tree's chevron back in the muted grey, its hover chip gone, and
+    # a double-click on a row that toggles nothing -- the three picks of
+    # 2026-11-25 for every uui_tree.
+    ("userland/libs/ui/uui_tree.c",
+     "selected && strong ? sel_fg : ugfx_blend(fg, bg, 40));",
+     "selected && strong ? sel_fg : ugfx_blend(fg, bg, 120));",
+     ["tree_expander"]),
+    ("userland/libs/ui/uui_tree.c",
+     "            if (node == t->exp_hot) {",
+     "            if (0 && node == t->exp_hot) {",
+     ["tree_expander"]),
+    ("userland/libs/ui/uui_tree.c",
+     "    if (!t->no_dbl_toggle && n >= 0 && !on_exp",
+     "    if (0 && !t->no_dbl_toggle && n >= 0 && !on_exp",
+     ["tree_expander", "confedit_app"]),
     # uui_chart's legend measured on every ask again: n squared text
     # measurements a frame at sixteen lines (the code review's finding).
     ("userland/libs/ui/uui_chart.c",

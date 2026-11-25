@@ -51,6 +51,9 @@ static void tree_set_open(const char *path, int open);
 void tree_init(void) {
     uui_tree_init(&g_tree, 0, 0, 100, 100, g_tree_nodes, 0);
     uui_tree_set_on_toggle(&g_tree, tree_toggle, 0);
+    // files.c toggles on a double-click itself, with slack for the first
+    // click's navigation; the widget's own would toggle a second time.
+    g_tree.no_dbl_toggle = 1;
     places_reorder_init();
     g_tree_open_count = 0;
     tree_set_open("/", 1);

@@ -71,20 +71,23 @@ the rest in the sweep. Each stays a standalone script with its own
   `droprows`, `focusring`, `table_tree`, `table_columns`, `typeahead`,
   `scalerec`, `sizefield`, `transfers`, `wrap`, `uibuilder`, `ucrt`,
   `uvterm`), `button_corners` (a plain and an outlined button's corner
-  pixel is the ground: rounded at the theme's control radius) and
+  pixel is the ground: rounded at the theme's control radius),
+  `tree_expander` (a tree's chevron in near-text ink, its hover chip as a
+  pixel, a double-click toggling a row and `no_dbl_toggle` keeping it) and
   `scroll`, `scroll_test.py`'s four rules over six widgets
   with the thumb read from pixels. `--positive-control` rebuilds the
   archive with each `CONTROLS` edit on a copy and requires exactly its
   named cases red and the rest green (uui_sbar's bottom-counted offset
   reddens `sbar` and `scroll`; uui_grid's unflipped thumb `scroll`; a
   square plain button `button_corners`; `uschema_origin()` blind to the
-  person's file `confedit_app`).
+  person's file `confedit_app`; the tree's muted chevron, no hover chip,
+  or no double-click toggle `tree_expander`, the last `confedit_app` too).
   **WHOLE APPS, TOO (stage 2)**: a case whose first line is
   `// uitest-app: DIR` builds that app's sources with `main` renamed and
   drives its REAL main through `tools/lib/uitest/uitest_app.h` --
   `uitest_app_start`, `_click(name)` from the window's widget map
   (`_has_widget(name)` asks without failing, for a hidden page),
-  `_rclick_at`, `_key`, `_type`, `_tick`, `_settle`, `_pixel` of the
+  `_rclick_at`, `_double_click_at`, `_key`, `_type`, `_tick`, `_settle`, `_pixel` of the
   presented frame, `_close`. `uitest_app.c` is a stand-in compositor
   serving the app's real `base/uchan.h` channel over the stubs' shared
   memory; the app runs on its own stack and the test runs only while it
@@ -105,7 +108,8 @@ the rest in the sweep. Each stays a standalone script with its own
   `mines_app`, `confedit_app` (the Configuration Editor over a declared
   registry: From for each of its four answers, an edit read back from BOTH
   files' bytes, a refused value keeping the dialog, Reset, both panes
-  past their rows, Find), and four for the C++ layer: `counterxx_app`,
+  past their rows, Find, a double-click on a branch, the right-click
+  menus and a row of each run), and four for the C++ layer: `counterxx_app`,
   `widgetsxx_app` (the value widgets' `on_change`, input only),
   `notesxx_app` (menus, bound shortcuts, timers on the harness's clock, a
   busy bar, tabbed pages) and `throwxx_app` (a throwing `on_click`

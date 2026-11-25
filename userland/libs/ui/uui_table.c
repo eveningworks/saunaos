@@ -1730,8 +1730,18 @@ static int col_menu_run(void *w, int code) {
     return 1;
 }
 
+void uui_table_set_row_menu(struct uui_table *t,
+                            int (*fn)(void *ctx, int row, struct uui_ctxmenu_src *out), void *ctx) {
+    t->row_menu = fn;
+    t->row_menu_ctx = ctx;
+}
+
 static int tb_ops_context_menu(void *w, int cx, int cy, struct uui_ctxmenu_src *out) {
     struct uui_table *t = (struct uui_table *)w;
+    if (t->row_menu) {
+        int row = uui_table_hit(t, cx, cy);
+        if (row >= 0) return t->row_menu(t->row_menu_ctx, row, out);
+    }
     if (!t->col_mode || uui_table_header_h(t) <= 0) return 0;
     if (!uui_hit(t->x, t->y, t->w, uui_table_header_h(t), cx, cy)) return 0;
     // EVERY column, in the order the app declared them -- Windows' list

@@ -4,13 +4,17 @@
 #include "ui/uui_route.h" // UUI_NOWHERE -- a drag_over's leave
 #include "ui/uui_widget.h"
 #include "keyboard.h" // KEY_* codes, as delivered by WIN_EV_KEY
+#include "base/udclick.h" // a double-click toggles a branch
 #include "media/icon_cache.h" // icon_get() -- a node may carry an icon
 #include <stdio.h>
 #include <string.h>
 
 #define UUI_TREE_PAD_X   4  // left inset before the first expander
-#define UUI_TREE_INDENT  12 // per depth level
-#define UUI_TREE_EXP_W   10 // the expander's hit width
+
+// The indent per level and the expander's column -- its hit width too --
+// through ugfx_px(), so display.scale reaches them.
+static int indent(void) { return ugfx_px(14); }
+static int exp_w(void) { return ugfx_px(16); }
 
 void uui_tree_init(struct uui_tree *t, int x, int y, int w, int h,
                     const struct uui_tree_node *nodes, int count) {
@@ -19,6 +23,7 @@ void uui_tree_init(struct uui_tree *t, int x, int y, int w, int h,
     t->count = count;
     t->selected = count > 0 ? 0 : -1;
     t->hovered = -1;
+    t->exp_hot = -1;
     t->drop_node = -1;
     t->dropped_node = -1;
     t->can_drag = 0;
@@ -27,6 +32,12 @@ void uui_tree_init(struct uui_tree *t, int x, int y, int w, int h,
     t->press_node = t->pre_press_sel = -1;
     t->drag_node = -1;
     t->action_hot = t->action_press = t->acted = -1;
+    t->exp_hot = -1;
+    t->dbl_id = -1;
+    t->no_dbl_toggle = t->dbl_collapsed = 0;
+    memset(&t->dbl_run, 0, sizeof t->dbl_run);
+    t->node_menu = 0;
+    t->node_menu_ctx = 0;
     t->ins_y = t->ins_after = t->ins_before = -1;
     t->dropped_from = t->dropped_after = t->dropped_before = -1;
     t->dropped_insert = 0;
@@ -117,6 +128,7 @@ int uui_tree_set_filter(struct uui_tree *t, const char *text,
     int n = compute_filter(t);
     t->top = 0;
     t->hovered = -1;
+    t->exp_hot = -1;
     // A selection the filter hides moves to the first match, so what the
     // page beside the tree shows is something the tree still shows.
     if (t->filter[0] && (t->selected < 0 || node_hidden(t, t->selected))) {
@@ -133,6 +145,7 @@ void uui_tree_set_nodes(struct uui_tree *t, const struct uui_tree_node *nodes, i
     t->count = count;
     if (t->selected >= count) t->selected = count > 0 ? count - 1 : -1;
     t->hovered = -1;
+    t->exp_hot = -1;
     t->drop_node = -1;
     t->top = 0;
     // Collapsed state is DROPPED with the nodes it described: bit 3 of
@@ -393,7 +406,7 @@ static int icon_gutter(const struct uui_tree *t) {
 void uui_tree_natural_size(const struct uui_tree *t, int *out_w, int *out_h) {
     int widest = 0, gutter = icon_gutter(t);
     for (int i = 0; i < t->count; i++) {
-        int w = t->nodes[i].depth * UUI_TREE_INDENT + UUI_TREE_EXP_W + gutter +
+        int w = t->nodes[i].depth * indent() + exp_w() + gutter +
                 ugfx_text_width(t->nodes[i].label);
         if (w > widest) widest = w;
     }
@@ -407,24 +420,8 @@ void uui_tree_natural_size(const struct uui_tree *t, int *out_w, int *out_h) {
 static int meter_w(void) { return ugfx_char_advance('0') * 4; }
 
 static int row_text_x(const struct uui_tree *t, int node) {
-    return t->x + UUI_TREE_PAD_X + t->nodes[node].depth * UUI_TREE_INDENT +
-           UUI_TREE_EXP_W + icon_gutter(t);
-}
-
-// A CHEVRON, two pixels thick: right when collapsed, down when expanded
-// -- Windows 11's and Plasma's disclosure mark, in a muted colour so the
-// labels lead. Drawn, not spelled, so it does not depend on the font.
-static void draw_expander(struct ugfx_surface *s, int cx, int cy, int open,
-                           uint32_t col) {
-    for (int i = 0; i < 4; i++) {
-        if (open) {
-            ugfx_fill_rect(s, cx - 3 + i, cy - 1 + i, 2, 1, col);
-            ugfx_fill_rect(s, cx + 2 - i, cy - 1 + i, 2, 1, col);
-        } else {
-            ugfx_fill_rect(s, cx - 1 + i, cy - 3 + i, 1, 2, col);
-            ugfx_fill_rect(s, cx - 1 + i, cy + 2 - i, 1, 2, col);
-        }
-    }
+    return t->x + UUI_TREE_PAD_X + t->nodes[node].depth * indent() +
+           exp_w() + icon_gutter(t);
 }
 
 // The right edge a row's note, meter and action are laid from.
@@ -547,17 +544,22 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
         // fileview draws, so a drag reads the same over both.
         if (node == t->drop_node) uui_focus_ring(s, t->x, ry, t->w - bar, rh);
 
+        int ecx = t->x + UUI_TREE_PAD_X + t->nodes[node].depth * indent() + exp_w() / 2;
         if (uui_tree_is_parent(t, node)) {
-            draw_expander(s, t->x + UUI_TREE_PAD_X +
-                              t->nodes[node].depth * UUI_TREE_INDENT + 4,
-                          ry + rh / 2, !uui_tree_is_collapsed(t, node),
-                          selected && strong ? sel_fg : muted);
+            // UNDER THE POINTER IT IS A BUTTON OF ITS OWN: a chip a step
+            // darker than the row behind it (the maintainer's pick,
+            // 2026-11-25, over a bare chevron).
+            if (node == t->exp_hot) {
+                int cs = ugfx_px(18) < rh - 2 ? ugfx_px(18) : rh - 2;   // never past its row
+                uui_fill_round_rect(s, ecx - cs / 2, ry + (rh - cs) / 2, cs, cs, ugfx_px(5),
+                                    uui_state_bg(row_bg, UUI_STATE_HOVER));
+            }
+            uui_draw_chevron(s, ecx, ry + rh / 2, ugfx_px(9), !uui_tree_is_collapsed(t, node),
+                             selected && strong ? sel_fg : ugfx_blend(fg, bg, 40));
         } else if (t->nodes[node].depth > 0) {
             // A guide tick for a child row, so depth reads at a glance
             // without an expander to anchor it.
-            ugfx_fill_rect(s, t->x + UUI_TREE_PAD_X +
-                               t->nodes[node].depth * UUI_TREE_INDENT + 3,
-                           ry + rh / 2, 3, 1, guide);
+            ugfx_fill_rect(s, ecx - 1, ry + rh / 2, ugfx_px(3), 1, guide);
         }
 
         // ugfx_blit_alpha(), never ugfx_blit(): an icon's corners are
@@ -703,15 +705,17 @@ int uui_tree_hit(const struct uui_tree *t, int cx, int cy) {
 int uui_tree_hit_expander(const struct uui_tree *t, int cx, int cy) {
     int node = uui_tree_hit(t, cx, cy);
     if (node < 0 || !uui_tree_is_parent(t, node)) return 0;
-    int ex = t->x + UUI_TREE_PAD_X + t->nodes[node].depth * UUI_TREE_INDENT;
-    return cx >= ex && cx < ex + UUI_TREE_EXP_W;
+    int ex = t->x + UUI_TREE_PAD_X + t->nodes[node].depth * indent();
+    return cx >= ex && cx < ex + exp_w();
 }
 
 int uui_tree_hover(struct uui_tree *t, int cx, int cy) {
     int n = uui_tree_hit(t, cx, cy);
     if (is_header(t, n)) n = -1;
-    if (n == t->hovered) return 0;
+    int e = n >= 0 && uui_tree_hit_expander(t, cx, cy) ? n : -1;
+    if (n == t->hovered && e == t->exp_hot) return 0;
     t->hovered = n;
+    t->exp_hot = e;
     return 1;
 }
 
@@ -752,7 +756,21 @@ int uui_tree_press(struct uui_tree *t, int cx, int cy) {
     if (t->action_press >= 0) { t->press_node = -1; return 1; }
     t->pre_press_sel = t->selected;
     t->press_node = uui_tree_hit(t, cx, cy);
+    int n = t->press_node, on_exp = uui_tree_hit_expander(t, cx, cy);
     uui_tree_click(t, cx, cy);
+    int clicks = udclick_count(&t->dbl_run, cx, cy);   // the desktop's time and slop
+    if (!t->no_dbl_toggle && n >= 0 && !on_exp && n < t->count && uui_tree_is_parent(t, n)) {
+        if (clicks == 2 && t->nodes[n].id == t->dbl_id) {
+            t->dbl_id = -1;
+            // Last: a lazy tree's callback may hand the widget new nodes.
+            uui_tree_set_collapsed(t, n, !t->dbl_collapsed);
+        } else if (clicks == 1) {
+            t->dbl_id = t->nodes[n].id;
+            t->dbl_collapsed = uui_tree_is_collapsed(t, n);
+        }
+    } else {
+        t->dbl_id = -1;
+    }
     // NON-ZERO ON ANY HIT, even when nothing changed: the router takes
     // its pointer grab only when press does, so returning 0 for a
     // re-click on the selected row would silently cost that one row its
@@ -861,7 +879,7 @@ static int tree_motion_op(void *w, int cx, int cy, unsigned buttons) {
     if (t->sb.grab >= 0) return uui_tree_drag(t, cx, cy);
     int r = uui_sbar_motion(tree_sbar(t), cx, cy, buttons);   // the bar's hover
     if (r & UUI_SBAR_TOOK) {
-        if (t->hovered != -1) { t->hovered = -1; r |= UUI_SBAR_REDRAW; }
+        if (t->hovered != -1 || t->exp_hot != -1) { t->hovered = t->exp_hot = -1; r |= UUI_SBAR_REDRAW; }
         return (r & UUI_SBAR_REDRAW) != 0;
     }
     int hot = buttons ? t->action_hot : action_at(t, cx, cy), moved = hot != t->action_hot;
@@ -917,6 +935,19 @@ static void tree_set_focused_op(void *w, int focused) {
 
 static int tree_accepts_focus_op(const void *w) {
     return ((const struct uui_tree *)w)->count > 0;
+}
+
+void uui_tree_set_node_menu(struct uui_tree *t,
+                            int (*fn)(void *ctx, int id, struct uui_ctxmenu_src *out), void *ctx) {
+    t->node_menu = fn;
+    t->node_menu_ctx = ctx;
+}
+
+static int tree_context_menu_op(void *w, int cx, int cy, struct uui_ctxmenu_src *out) {
+    struct uui_tree *t = (struct uui_tree *)w;
+    int n = t->node_menu ? uui_tree_hit(t, cx, cy) : -1;
+    if (n < 0 || is_header(t, n)) return 0;
+    return t->node_menu(t->node_menu_ctx, t->nodes[n].id, out);
 }
 
 static void tree_describe_op(const void *w, const struct uui_describe *d) {
@@ -1039,6 +1070,7 @@ static int tree_drop_op(void *w, int cx, int cy, const struct uui_drag *d) {
 }
 
 const struct uui_widget_ops uui_tree_ops = {
+    .context_menu = tree_context_menu_op,
     .draw = tree_draw_op,
     .bounds = tree_bounds_op,
     .accepts_focus = tree_accepts_focus_op,

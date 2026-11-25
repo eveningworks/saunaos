@@ -41,6 +41,7 @@
 #include "ui/uui_statusbar.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_focus.h"
+#include "ui/uui_ctxmenu.h"
 #include "confedit_internal.h"
 
 #define ID_MENU    1
@@ -56,6 +57,7 @@
 enum {
     CMD_REFRESH = 1, CMD_EXIT, CMD_EDIT, CMD_RESET, CMD_COPY_NAME, CMD_COPY_VALUE, CMD_FIND,
     CMD_EXPAND, CMD_COLLAPSE,
+    CMD_BRANCH_TOGGLE, CMD_BRANCH_EXPAND_UNDER, CMD_BRANCH_COPY,
     DLG_SAVE, DLG_CANCEL,
 };
 
@@ -334,11 +336,13 @@ static void cell(void *ctx, int row, int col, char *out, int cap) {
     const struct usetting_entry *e = &g_m.e[i];
     switch (col) {
     case 0:
-        // Under a branch, a name is shown from the branch down: the
-        // status bar says which branch.
-        if (g_m.branch >= 0 && strcmp(e->name, g_m.b[g_m.branch].name)) {
+        // UNDER A BRANCH, A NAME IS SHOWN FROM THE BRANCH DOWN -- regedit's
+        // and dconf-editor's shape; the status bar names the branch. Its
+        // own value is regedit's "(Default)". A find lists full names: its
+        // rows come from anywhere.
+        if (g_m.branch >= 0) {
             size_t len = strlen(g_m.b[g_m.branch].name);
-            snprintf(out, (size_t)cap, "\xE2\x80\xA6%s", e->name + len + 1);
+            strlcpy(out, e->name[len] ? e->name + len + 1 : "(this branch)", (size_t)cap);
         } else {
             strlcpy(out, e->name, (size_t)cap);
         }
@@ -515,6 +519,79 @@ static void copy(int value) {
     update_details();
 }
 
+// --- right-click menus ------------------------------------------------------
+//
+// THE CLICK SELECTS WHAT IT LANDS ON, then its menu opens on the release --
+// Explorer's and regedit's order, through the widgets' own context-menu op
+// -- and the rows are the command bar's, greyed by the same item_flags().
+
+static struct uapp *g_app;
+
+static const struct uui_menu_item ROW_MENU[] = {
+    UUI_MENU("Edit value...", CMD_EDIT, "Enter"),
+    UUI_MENU("Reset to machine's", CMD_RESET, 0),
+    UUI_MENU_SEP,
+    UUI_MENU("Copy name", CMD_COPY_NAME, "Ctrl+C"),
+    UUI_MENU("Copy value", CMD_COPY_VALUE, 0),
+};
+// Built here rather than in confedit.ui: the first row says Expand or
+// Collapse, whichever the branch is not.
+static struct uui_menu_item g_branch_menu[] = {
+    UUI_MENU("Expand", CMD_BRANCH_TOGGLE, 0),
+    UUI_MENU("Expand all under it", CMD_BRANCH_EXPAND_UNDER, 0),
+    UUI_MENU_SEP,
+    UUI_MENU("Copy name", CMD_BRANCH_COPY, 0),
+};
+
+static void do_command(struct uapp *a, int code);
+
+static unsigned menu_flags(void *w, int code) {
+    (void)w;
+    int k = sel_branch();
+    switch (code) {
+    case CMD_BRANCH_TOGGLE: return k >= 0 && g_m.b[k].kids ? 0 : UUI_MI_DISABLED;
+    case CMD_BRANCH_EXPAND_UNDER: return k >= 0 && g_m.b[k].kids ? 0 : UUI_MI_DISABLED;
+    case CMD_BRANCH_COPY: return k >= 0 ? 0 : UUI_MI_DISABLED;
+    default: return item_flags(code);
+    }
+}
+
+static int menu_run(void *w, int code) {
+    (void)w;
+    if (g_app) do_command(g_app, code);
+    return 0;
+}
+
+// The table's and the tree's row_menu/node_menu: asked at the secondary
+// press and again at the release, where the toolkit opens the menu.
+static int row_menu(void *ctx, int row, struct uui_ctxmenu_src *out) {
+    (void)ctx;
+    if (row < 0 || row >= g_m.nrows) return 0;
+    if (g_table.selected != row) {
+        g_table.selected = row;
+        update_details();
+        if (g_app) uapp_redraw(g_app);
+    }
+    *out = (struct uui_ctxmenu_src){ 0, ROW_MENU, (int)(sizeof ROW_MENU / sizeof ROW_MENU[0]),
+                                     menu_flags, menu_run };
+    return 1;
+}
+
+static int node_menu(void *ctx, int id, struct uui_ctxmenu_src *out) {
+    (void)ctx;
+    if (id < 0 || id >= g_m.nb) return 0;
+    if (sel_branch() != id) {
+        uui_tree_select_id(&g_tree, id);
+        if (!g_m.find[0]) show_rows(0);
+        if (g_app) uapp_redraw(g_app);
+    }
+    g_branch_menu[0].label = g_m.b[id].open ? "Collapse" : "Expand";
+    *out = (struct uui_ctxmenu_src){ 0, g_branch_menu,
+                                     (int)(sizeof g_branch_menu / sizeof g_branch_menu[0]),
+                                     menu_flags, menu_run };
+    return 1;
+}
+
 // --- layout and drawing --------------------------------------------------
 
 static uint32_t pane_bg(void) { return ugfx_blend(UTHEME_CHROME, UTHEME_WHITE, 110); }
@@ -584,7 +661,10 @@ static void set_all_open(int open) {
     show_rows(0);
 }
 
+static void on_toggle(void *ctx, int id, int expand);
+
 static void do_command(struct uapp *a, int code) {
+    int k = sel_branch();
     switch (code) {
     case CMD_REFRESH:    reload(); snprintf(g_st_note, sizeof g_st_note, "Refreshed"); break;
     case CMD_EXIT:       uapp_quit(a, 0); return;
@@ -595,6 +675,24 @@ static void do_command(struct uapp *a, int code) {
     case CMD_FIND:       focus_find(); break;
     case CMD_EXPAND:     set_all_open(1); break;
     case CMD_COLLAPSE:   set_all_open(0); break;
+    case CMD_BRANCH_TOGGLE:
+        if (k >= 0 && g_m.b[k].kids) on_toggle(0, k, !g_m.b[k].open);
+        break;
+    case CMD_BRANCH_EXPAND_UNDER:
+        if (k >= 0) {
+            size_t len = strlen(g_m.b[k].name);
+            for (int j = 0; j < g_m.nb; j++)
+                if (j == k || (!strncmp(g_m.b[j].name, g_m.b[k].name, len) && g_m.b[j].name[len] == '.'))
+                    g_m.b[j].open = g_m.b[j].kids;
+            rebuild_tree(k);
+        }
+        break;
+    case CMD_BRANCH_COPY:
+        if (k >= 0) {
+            int ok = uclip_set_text(g_m.b[k].name, (int)strlen(g_m.b[k].name));
+            snprintf(g_st_note, sizeof g_st_note, ok ? "Copied %s" : "The clipboard refused %s", g_m.b[k].name);
+        }
+        break;
     default: return;
     }
     uapp_redraw(a);
@@ -654,8 +752,8 @@ static void on_widget(struct uapp *a, int id, int reason) {
 }
 
 static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
-    (void)buttons;
     if (uui_dialog_is_open(&g_dlg)) return;
+    if (!(buttons & 0x1)) return;
     if (uui_table_double_click(&g_table, x, y) >= 0) do_command(a, CMD_EDIT);
 }
 
@@ -713,6 +811,7 @@ static void on_setting(struct uapp *a) {
 }
 
 static void on_open(struct uapp *a) {
+    g_app = a;
     layout_all(uapp_width(a), uapp_height(a));
     load(0, 0);
 }
@@ -752,6 +851,8 @@ int main(void) {
     uui_table_init(&g_table, 0, 0, 0, 0, COLS, (int)(sizeof COLS / sizeof COLS[0]), cell, 0);
     uui_table_set_fade(&g_table, fade);
     uui_table_set_dot(&g_table, dot);
+    uui_table_set_row_menu(&g_table, row_menu, 0);
+    uui_tree_set_node_menu(&g_tree, node_menu, 0);
     uui_props_init(&g_details);
     uui_dialog_init(&g_dlg);
     uui_statusbar_init(&g_status);

@@ -52,6 +52,7 @@ void uitest_app_press_at(int x, int y);
 void uitest_app_move_to(int x, int y, unsigned buttons);
 void uitest_app_release_at(int x, int y);
 void uitest_app_rclick_at(int x, int y);           // the secondary button
+void uitest_app_double_click_at(int x, int y);     // two primary clicks 60 ms apart
 void uitest_app_click(const char *name);           // its centre
 void uitest_app_key(int key, unsigned mods);       // a press and its release
 void uitest_app_type(const char *text);            // ASCII, one key each

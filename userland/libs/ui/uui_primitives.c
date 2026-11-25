@@ -1,6 +1,7 @@
 // Interaction states and the button painter. Split out of uui.c --
 // see ui/uui_primitives.h.
 #include "ui/uui_primitives.h"
+#include <stdlib.h>
 #include "ui/utheme.h"
 #include "ui/ugfx_pix.h"
 
@@ -46,6 +47,67 @@ int uui_glyph_ink(const char *icon, uint32_t fg, uint32_t bg, uint32_t *ink) {
 
 int uui_hit(int x, int y, int w, int h, int px, int py) {
     return px >= x && px < x + w && py >= y && py < y + h;
+}
+
+// The squared distance from (px, py) to the segment a-b, all in 1/16 px.
+static long long seg_dist2(long long px, long long py, long long ax, long long ay,
+                           long long bx, long long by) {
+    long long dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+    long long t = len2 ? (px - ax) * dx + (py - ay) * dy : 0;
+    if (t < 0) t = 0;
+    if (t > len2) t = len2;
+    long long nx = ax + (len2 ? dx * t / len2 : 0), ny = ay + (len2 ? dy * t / len2 : 0);
+    return (px - nx) * (px - nx) + (py - ny) * (py - ny);
+}
+
+// THE COVERAGE IS COMPUTED ONCE PER SIZE AND DIRECTION: sixteen samples a
+// pixel, each two segment distances, is too dear for every parent row of
+// a tree on every hover repaint. A few masks are kept, the oldest replaced.
+struct chev_mask { int size, open, r; unsigned char *a; };
+static struct chev_mask g_chev[4];
+static int g_chev_next;
+
+static const struct chev_mask *chevron_mask(int size, int open) {
+    for (unsigned i = 0; i < sizeof g_chev / sizeof g_chev[0]; i++)
+        if (g_chev[i].a && g_chev[i].size == size && g_chev[i].open == open) return &g_chev[i];
+    int r = size / 2 + 2, side = 2 * r + 1;
+    unsigned char *a = malloc((size_t)side * (size_t)side);
+    if (!a) return 0;
+    // In sixteenths of a pixel, about the centre of the mask's middle pixel.
+    long long ox = r * 16LL + 8, oy = r * 16LL + 8, l = size * 8LL, k = size * 4LL;
+    long long ax, ay, bx, by, ex, ey;
+    if (open) { ax = ox - l; ay = oy - k; bx = ox; by = oy + k; ex = ox + l; ey = oy - k; }
+    else      { ax = ox - k; ay = oy - l; bx = ox + k; by = oy; ex = ox - k; ey = oy + l; }
+    long long hw = size * 16LL / 11;           // half the stroke: 0.8 px at size 9
+    if (hw < 10) hw = 10;
+    for (int y = 0; y < side; y++)
+        for (int x = 0; x < side; x++) {
+            int in = 0;
+            for (int sy = 0; sy < 4; sy++)
+                for (int sx = 0; sx < 4; sx++) {
+                    long long px = x * 16LL + sx * 4 + 2, py = y * 16LL + sy * 4 + 2;
+                    long long d = seg_dist2(px, py, ax, ay, bx, by), e = seg_dist2(px, py, bx, by, ex, ey);
+                    in += (d < e ? d : e) <= hw * hw;
+                }
+            a[y * side + x] = (unsigned char)(in * 255 / 16);
+        }
+    struct chev_mask *m = &g_chev[g_chev_next];
+    g_chev_next = (g_chev_next + 1) % (int)(sizeof g_chev / sizeof g_chev[0]);
+    free(m->a);
+    *m = (struct chev_mask){ size, open, r, a };
+    return m;
+}
+
+void uui_draw_chevron(struct ugfx_surface *s, int cx, int cy, int size, int open, uint32_t c) {
+    if (size < 4) size = 4;
+    const struct chev_mask *m = chevron_mask(size, !!open);
+    if (!m) return;
+    int side = 2 * m->r + 1;
+    for (int y = 0; y < side; y++)
+        for (int x = 0; x < side; x++) {
+            unsigned char v = m->a[y * side + x];
+            if (v) ugfx_blend_pixel(s, cx - m->r + x, cy - m->r + y, c, v);
+        }
 }
 
 void uui_button_draw(struct ugfx_surface *s, int x, int y, int w, int h,

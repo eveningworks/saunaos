@@ -302,6 +302,15 @@ void uitest_app_click_at(int x, int y) {
     uitest_app_release_at(x, y);
 }
 
+void uitest_app_double_click_at(int x, int y) {
+    uitest_app_click_at(x, y);
+    uitest_advance_ms(60);     // well inside the desktop's double-click time
+    send_event(WIN_EV_MOUSE_MOVE, x, y, 0);
+    send_event(WIN_EV_MOUSE_DOWN, x, y, 1);
+    uitest_app_settle();
+    uitest_app_release_at(x, y);
+}
+
 void uitest_app_rclick_at(int x, int y) {
     uitest_advance_ms(1000);
     send_event(WIN_EV_MOUSE_MOVE, x, y, 0);

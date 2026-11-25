@@ -236,7 +236,7 @@ def main():
     # its heading, so the arrows still have a row to move from: Down
     # opens the next category. Left at no selection, Down did nothing.
     rows_open = lay["rows"]
-    expander = (tx + 4 + 5, ty + rh // 2)     # uui_tree's PAD_X, EXP_W / 2
+    expander = (tx + 4 + 5, ty + rh // 2)     # inside uui_tree's expander column, PAD_X 4 .. 4 + ugfx_px(16)
     click(dbg, win, *expander)
     lay = wait(dbg, lambda l: l["rows"] < rows_open and l.get("sel") == "Getting started")
     check("collapsing the open page's branch selects its heading",

@@ -6,6 +6,7 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_sbar.h"
 #include "ui/uui_scrollanim.h"
+#include "base/udclick.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -99,6 +100,8 @@ struct uui_tree_node {
     uint32_t swatch;
 };
 
+struct uui_ctxmenu_src;   // a node's right-click menu (ui/uui_ctxmenu.h)
+
 struct uui_tree {
     int x, y, w, h;
     const struct uui_tree_node *nodes; // caller-owned, display order
@@ -131,6 +134,23 @@ struct uui_tree {
     int drag_node;                   // the row being dragged, -1; OWNED
     int action_hot, action_press;    // the node whose `action` is hovered / armed, -1; OWNED
     int acted;                       // the node whose `action` fired, -1; OWNED
+    int exp_hot;                     // the node whose expander is under the pointer, -1; OWNED
+    // A DOUBLE-CLICK ON A PARENT'S ROW EXPANDS OR COLLAPSES IT -- Explorer,
+    // regedit, Qt's expandsOnDoubleClick. On by default; an app giving a
+    // double-click a meaning of its own sets `no_dbl_toggle`. The state the
+    // FIRST press saw is what flips, since that click may itself reveal it.
+    int no_dbl_toggle;
+    // The first press's node, by its app ID -- an app may rebuild the nodes
+    // between the presses, and an index can then name another node.
+    int dbl_id, dbl_collapsed;       // OWNED
+    struct udclick_run dbl_run;      // OWNED
+
+    // A NODE'S RIGHT-CLICK MENU, the app's (uui_tree_set_node_menu()):
+    // asked with the node's id on a secondary press over its row, and again
+    // at the release, where the toolkit opens it -- Qt's
+    // customContextMenuRequested. The app may select the node there.
+    int (*node_menu)(void *ctx, int id, struct uui_ctxmenu_src *out);
+    void *node_menu_ctx;
     int ins_y, ins_after, ins_before;   // the gap under the pointer; ins_y -1 none. OWNED
     int dropped_from, dropped_after, dropped_before, dropped_insert;   // the last drop. OWNED
     char drag_label[64];             // OWNED, the ghost's
@@ -217,6 +237,10 @@ int  uui_tree_set_filter(struct uui_tree *t, const char *text,
 // Whether `haystack` contains `needle`, ignoring case -- the label
 // match, for an app's own `match` to build on.
 int  uui_tree_text_matches(const char *haystack, const char *needle);
+
+// See `node_menu` above; NULL turns it off.
+void uui_tree_set_node_menu(struct uui_tree *t,
+                            int (*fn)(void *ctx, int id, struct uui_ctxmenu_src *out), void *ctx);
 
 // The lazy half of UUI_TREE_CLOSED/OPEN -- see struct uui_tree_node.
 // Without a callback, a kind-declared expander is inert.

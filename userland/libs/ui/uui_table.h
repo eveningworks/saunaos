@@ -215,6 +215,8 @@ struct uui_table_column {
 
 #define UUI_TABLE_MAX_COLS 24
 
+struct uui_ctxmenu_src;   // a row's right-click menu (ui/uui_ctxmenu.h)
+
 struct uui_table {
     int x, y, w, h;
 
@@ -334,7 +336,18 @@ struct uui_table {
     short hx[UUI_TABLE_MAX_COLS], hw[UUI_TABLE_MAX_COLS];
     short bx[UUI_TABLE_MAX_COLS], bw[UUI_TABLE_MAX_COLS];
     struct uui_menu_item col_menu[UUI_TABLE_MAX_COLS + 2];
+
+    // A ROW'S RIGHT-CLICK MENU, the app's (uui_table_set_row_menu()):
+    // asked with the APP row on a secondary press over it, and again at the
+    // release, where the toolkit opens it -- Qt's customContextMenuRequested.
+    // The app may select the row there. The header keeps the column chooser.
+    int (*row_menu)(void *ctx, int row, struct uui_ctxmenu_src *out);
+    void *row_menu_ctx;
 };
+
+// See `row_menu` above; NULL turns it off.
+void uui_table_set_row_menu(struct uui_table *t,
+                            int (*fn)(void *ctx, int row, struct uui_ctxmenu_src *out), void *ctx);
 
 void uui_table_init(struct uui_table *t, int x, int y, int w, int h,
                      const struct uui_table_column *cols, int col_count,
