@@ -70,11 +70,14 @@ the rest in the sweep. Each stays a standalone script with its own
   The cases are the in-guest widget tests that moved down (`sbar`,
   `droprows`, `focusring`, `table_tree`, `table_columns`, `typeahead`,
   `scalerec`, `sizefield`, `transfers`, `wrap`, `uibuilder`, `ucrt`,
-  `uvterm`) and `scroll`, `scroll_test.py`'s four rules over six widgets
+  `uvterm`), `button_corners` (a plain and an outlined button's corner
+  pixel is the ground: rounded at the theme's control radius) and
+  `scroll`, `scroll_test.py`'s four rules over six widgets
   with the thumb read from pixels. `--positive-control` rebuilds the
   archive with each `CONTROLS` edit on a copy and requires exactly its
   named cases red and the rest green (uui_sbar's bottom-counted offset
-  reddens `sbar` and `scroll`; uui_grid's unflipped thumb `scroll`).
+  reddens `sbar` and `scroll`; uui_grid's unflipped thumb `scroll`; a
+  square plain button `button_corners`).
   **WHOLE APPS, TOO (stage 2)**: a case whose first line is
   `// uitest-app: DIR` builds that app's sources with `main` renamed and
   drives its REAL main through `tools/lib/uitest/uitest_app.h` --

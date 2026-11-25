@@ -149,7 +149,8 @@ void uui_backdrop_round_rect(struct ugfx_surface *s, int x, int y, int w, int h,
 // See docs/decisions.md for why the accent rather than a derived tint.
 void uui_focus_ring(struct ugfx_surface *s, int x, int y, int w, int h);
 
-// Fills the rect with `bg` shifted for `state`, then centres `label`
+// Fills the rect with `bg` shifted for `state` -- rounded at the
+// control radius, as an outlined uui_button is -- then centres `label`
 // (may be NULL) in `fg`. Pressed draws a darker fill plus a 1px
 // down-right nudge of the label -- the darker fill alone reads as a
 // colour change rather than a press.

@@ -166,6 +166,12 @@ CONTROLS = [
      "    int was = b->pressed;\n    b->pressed = 0;",
      "    int was = 1;\n    b->pressed = 0;",
      ["calculator_app", "counterxx_app"]),
+    # A plain button's face filled square again, as it was beside the
+    # rounded outlined one (System Settings' square buttons).
+    ("userland/libs/ui/uui_primitives.c",
+     "    uui_fill_round_rect(s, x, y, w, h, uui_control_radius(0), fill);\n    uui_button_draw_label",
+     "    ugfx_fill_rect(s, x, y, w, h, fill);\n    uui_button_draw_label",
+     ["button_corners"]),
     # uui_chart's legend measured on every ask again: n squared text
     # measurements a frame at sixteen lines (the code review's finding).
     ("userland/libs/ui/uui_chart.c",

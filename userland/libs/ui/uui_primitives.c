@@ -52,7 +52,7 @@ void uui_button_draw(struct ugfx_surface *s, int x, int y, int w, int h,
                       const char *label, uint32_t bg, uint32_t fg,
                       enum uui_state state) {
     uint32_t fill = uui_state_bg(bg, state);
-    ugfx_fill_rect(s, x, y, w, h, fill);
+    uui_fill_round_rect(s, x, y, w, h, uui_control_radius(0), fill);
     uui_button_draw_label(s, x, y, w, h, label, fg, fill, state);
 }
 
