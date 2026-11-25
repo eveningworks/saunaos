@@ -300,7 +300,6 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `audio_test.py` -- AC97 and the PCM stream, end to end, judged
 - `bigdisk_test.py` -- a disk past 2 TiB, through each 64-bit driver
 - `boot_entry_test.py` -- A one-shot GRUB entry is taken ONCE, and GRUB is what ends it
-- `boot_migrate_test.py` -- A machine with the old /boot/boot layout moves up to /boot by itself,
 - `boot_splash_test.py` -- The boot splash: the logo from the framebuffer's first moment to the
 - `bootcfg_test.py` -- `bootcfg` against a real /boot: edits land, refusals change nothing,
 - `component_test.py` -- /bin/component end to end: remove an optional component, update past it, add it back

@@ -304,9 +304,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   partition -- with its own block list patched, the part
   `grub-bios-setup` normally does, and `kernel.bin` + `grub/` written at
   the FAT32 partition's root (SaunaOS's `/boot`) with `mtools` -- no root,
-  no loop device, no mount. A volume still holding the old `::/boot/`
-  tree has it moved up and removed once the new core image is written;
-  **`--legacy-layout`** writes that old tree instead, as a test fixture.
+  no loop device, no mount.
 
   **Why `/boot` is FAT32 at all:** GRUB cannot read TFS3 and never will
   without a module written into its own GPLv3 source tree. Every real

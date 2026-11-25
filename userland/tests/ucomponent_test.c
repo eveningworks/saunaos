@@ -74,12 +74,9 @@ static void nameless(void) {
 // read-only by policy, so a component holding a file there and one in
 // /tmp is removed only in part. Proved read-only first, or skipped.
 static const char *boot_file(void) {
-    static const char *const CAND[] = { "/boot/kernel.bin", "/boot/boot/kernel.bin" };
     int fd = open("/boot/uct.probe", O_WRONLY | O_CREAT | O_TRUNC);
     if (fd >= 0) { close(fd); unlink("/boot/uct.probe"); return 0; }   // writable: never risk it
-    for (size_t i = 0; i < sizeof CAND / sizeof CAND[0]; i++)
-        if (exists(CAND[i])) return CAND[i];
-    return 0;
+    return exists("/boot/kernel.bin") ? "/boot/kernel.bin" : 0;
 }
 
 static void partial_remove(void) {

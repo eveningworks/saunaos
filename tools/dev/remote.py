@@ -1124,15 +1124,7 @@ def _boot_device(sess, timeout):
     return None, None
 
 
-def _boot_dir(sess, timeout):
-    """Where kernel.bin and grub/ are: /boot, or /boot/boot on a machine
-    whose boot volume the `bootmigrate` service has not moved up yet
-    (userland/libs/base/ubootlayout.h)."""
-    legacy = any(ln.strip() == "boot/" for ln in sess.run("ls /boot", timeout))
-    return "/boot/boot" if legacy else "/boot"
-
-
-# Set by do_flash() once it has asked the machine; the paths below read it.
+# Where kernel.bin and grub/ are.
 BOOT_DIR = "/boot"
 
 
@@ -1168,8 +1160,7 @@ def _core_modules(sess, timeout):
     """
     # The FIRST record that exists, in ubootrefresh_record()'s order: a
     # stale /etc stamp must not lend a module the core on /boot lacks.
-    for path in ("/boot/grub/core.modules", "/boot/boot/grub/core.modules",
-                 "/etc/grub-core.modules"):
+    for path in ("/boot/grub/core.modules", "/etc/grub-core.modules"):
         mods = set()
         for ln in sess.run(f"cat {path}", timeout):
             t = ln.strip()
@@ -1398,11 +1389,9 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
         print(f"remote: no such file: {local}", file=sys.stderr)
         return 1
 
-    global BOOT_DIR
     sess = Session(host, telnet_port, timeout)
     try:
         dev, opts = _boot_device(sess, timeout)
-        BOOT_DIR = _boot_dir(sess, timeout)
         if not dev:
             print("remote: nothing is mounted at /boot", file=sys.stderr)
             return 1

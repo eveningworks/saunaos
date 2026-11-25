@@ -29,7 +29,6 @@
 #include "base/uargs.h"
 #include "base/human.h"
 #include "base/ufile.h"
-#include "base/ubootlayout.h"
 #include "base/ubootrefresh.h"
 #include "base/udiskscan.h"
 #include "base/ugrow.h"
@@ -41,7 +40,7 @@
 #include <unistd.h>
 
 static const char *f_disk, *f_esp, *f_without;
-static int f_mbr, f_ask_all, f_bootloader, f_migrate, f_only_system, f_uefi;
+static int f_mbr, f_ask_all, f_bootloader, f_only_system, f_uefi;
 
 static const struct uargs_opt OPTS[] = {
     { "disk", 0, "NAME", "the target, as `lsblk` names it; refuses the one this machine runs from", 0, &f_disk },
@@ -53,15 +52,13 @@ static const struct uargs_opt OPTS[] = {
     { "only-system", 0, 0, "leave every optional component out: the base system alone", &f_only_system, 0 },
     { "bootloader", 0, 0, "rewrite THIS machine's bootloader in place; no partitioning", &f_bootloader, 0 },
     { "uefi", 0, 0, "with --bootloader: ADD the UEFI loader to a disk that boots BIOS/CSM, so the firmware may boot it the UEFI way", &f_uefi, 0 },
-    { "migrate", 0, 0, "the same, only when /boot/boot is still there (the boot-migrate service)", &f_migrate, 0 },
     { 0 },
 };
 
 static const struct uargs_prog PROG = {
     .name = "install",
     .usage = "[--disk NAME] [--esp MIB] [--mbr] [--ask-all] [--without ID,...] [--only-system] [confirm]\n"
-             "--bootloader [--uefi] [confirm]\n"
-             "--migrate [confirm]",
+             "--bootloader [--uefi] [confirm]",
     .summary = "Put this running system onto another disk, and make that disk boot.\n"
                "With no --disk at a terminal it asks which; `confirm` ERASES the target.",
     .opts = OPTS,
@@ -89,9 +86,6 @@ static int refresh_bootloader(int confirmed) {
 
     printf("install: this rewrites %s's bootloader in place (%s layout):\n",
            p.disk, p.mbr ? "MBR" : "GPT");
-    if (p.legacy)
-        printf("  /boot/boot     copied up to /boot first, removed once the new GRUB "
-               "is in place\n");
     printf("  boot sector    LBA 0, keeping this disk's partition table\n");
     printf("  core image     %s\n", p.core);
     if (p.has_efi)
@@ -99,9 +93,7 @@ static int refresh_bootloader(int confirmed) {
                UINSTALL_PAYLOAD "/bootx64.efi\n");
     else if (p.efi_kept_off)
         printf("  UEFI loader    none added -- this disk boots BIOS/CSM (--uefi adds one)\n");
-    if (p.legacy) {
-        // grub.cfg is read once it has moved up
-    } else if (p.cfg_missing > 0) {
+    if (p.cfg_missing > 0) {
         printf("  grub.cfg       bootpart= added to %d entr%s (a .bak is kept)\n",
                p.cfg_missing, p.cfg_missing == 1 ? "y" : "ies");
     } else if (p.cfg_missing == 0) {
@@ -383,26 +375,14 @@ int main(int argc, char **argv) {
     int esp = f_esp ? atoi(f_esp) : UINSTALL_ESP_DEFAULT;
     g_flags = f_ask_all ? UINSTALL_ASK_ALL : 0;
 
-    if ((f_migrate || f_bootloader) && (f_without || f_only_system)) {
+    if (f_bootloader && (f_without || f_only_system)) {
         refuse("--without and --only-system choose what a NEW install copies; "
-               "--bootloader and --migrate copy nothing.");
+               "--bootloader copies nothing.");
         return 1;
     }
     if (f_uefi && !f_bootloader) {
         refuse("--uefi adds the UEFI loader to THIS machine's disk; it goes with --bootloader.");
         return 1;
-    }
-    if (f_migrate) {
-        if (f_bootloader || f_disk || f_mbr) {
-            refuse("--migrate rewrites THIS machine's bootloader; it takes no other flag.");
-            return 1;
-        }
-        if (!ubootlayout_legacy()) {
-            printf("install: /boot has kernel.bin and grub/ at its root already -- "
-                   "nothing to move.\n");
-            return 0;
-        }
-        return refresh_bootloader(confirmed);
     }
     if (f_bootloader) {
         // The target is this machine's own disk and the layout is read

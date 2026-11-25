@@ -33,8 +33,8 @@ extern "C" {
 #define UBOOTREFRESH_RECORD_OLD "/etc/grub-core.modules"   // where `install --bootloader` kept it first
 #define UBOOTREFRESH_STAGED     "/install/core.modules"
 
-// This disk's record, NUL-terminated, from UBOOTREFRESH_RECORD (or the
-// legacy layout's /boot/boot/grub/core.modules), else the old /etc one.
+// This disk's record, NUL-terminated, from UBOOTREFRESH_RECORD, else the
+// old /etc one.
 // NULL when there is none. The caller frees it.
 char *ubootrefresh_record(void);
 
@@ -47,7 +47,6 @@ int ubootrefresh_has(const char *record, const char *module);
 struct ubootrefresh_plan {
     char disk[16];      // the root's disk, as lsblk names it
     int mbr;            // the table: 1 MBR, 0 GPT
-    int legacy;         // /boot/boot is still there and is moved up first
     int cfg_missing;    // grub.cfg entries that gain bootpart=; -1 unreadable
     // A UEFI loader is written: the payload carries one AND this disk
     // already has /boot/EFI/BOOT/BOOTX64.EFI or this boot came through
@@ -70,8 +69,7 @@ const char *ubootrefresh_plan(struct ubootrefresh_plan *p);
 // from System Update's button. 0, or -1 when no loader was staged.
 int ubootrefresh_add_efi(struct ubootrefresh_plan *p);
 
-// Rewrite it: the move up from /boot/boot when `legacy`, the boot sector
-// and core image (read back before the boot sector is written), the UEFI
+// Rewrite it: the boot sector and core image (read back before the boot sector is written), the UEFI
 // loader, the record, then bootpart= in grub.cfg. Each step and each
 // problem is handed to `say` as a sentence. 0 done (a later step's problem
 // said but not fatal); -1 when the boot loader was NOT written, and the

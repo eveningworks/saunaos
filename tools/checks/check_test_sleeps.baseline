@@ -9,7 +9,6 @@
 3 tools/tests/gui/bad_present_test.py
 3 tools/tests/gui/blank_window_test.py
 1 tools/tests/sweep/boot_entry_test.py
-2 tools/tests/sweep/boot_migrate_test.py
 1 tools/tests/gate/boot_smoke_test.py
 2 tools/tests/sweep/boot_splash_test.py
 1 tools/tests/sweep/bootcfg_test.py

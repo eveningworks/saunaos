@@ -270,9 +270,7 @@ simply stays empty, which is the honest picture.
 **What is INSIDE it is the volume's own layout, not this table's.**
 `install_grub.py` writes `kernel.bin` and `grub/` at the volume's ROOT,
 so the running kernel is `/boot/kernel.bin` and GRUB's config
-`/boot/grub/grub.cfg` -- a Linux `/boot` partition's shape. Disks
-written before 2026-10-11 had both one level down (`/boot/boot/...`);
-the `bootmigrate` service moves them up (`docs/commands/install.md`).
+`/boot/grub/grub.cfg` -- a Linux `/boot` partition's shape.
 
 **No merged `/usr`.** Modern distributions make `/bin` a symlink to
 `/usr/bin`. SaunaOS has no symlinks at all, so that isn't expressible;

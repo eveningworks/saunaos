@@ -448,29 +448,6 @@ def _mdir_names(disk, esp, path):
             if ln.strip()]
 
 
-def drop_legacy(disk, esp, verbose=True):
-    """Remove the pre-flat layout (::/boot/kernel.bin, ::/boot/grub) from a
-    volume this tool has just written flat. What SaunaOS itself put there
-    -- kernel.old, grubenv, a kernel copied in by hand -- moves up rather
-    than being deleted; GRUB's modules were re-copied to ::/grub."""
-    names = _mdir_names(disk, esp, "::/boot")
-    if not names:
-        return
-    mmove = _tool("mmove")
-    root = set(_mdir_names(disk, esp, "::/"))
-    for n in names:
-        if n.lower() in ("grub", ".", "..") or n in root:
-            continue
-        _run([mmove, "-i", mtools_at(disk, esp), f"::/boot/{n}", f"::/{n}"])
-    if "grubenv" in _mdir_names(disk, esp, "::/boot/grub") and \
-            "grubenv" not in _mdir_names(disk, esp, "::/grub"):
-        _run([mmove, "-i", mtools_at(disk, esp), "::/boot/grub/grubenv", "::/grub/grubenv"])
-    _run([_tool("mdeltree"), "-i", mtools_at(disk, esp), "::/boot"])
-    if verbose:
-        print(f"install_grub: {disk} -- moved ::/boot up to the volume's root "
-              "(SaunaOS shows it as /boot, not /boot/boot)")
-
-
 def has_boot_partition(disk):
     bios, esp = parts_of(disk)
     return bios is not None and esp is not None
@@ -559,7 +536,7 @@ def stage_payload(outdir, kernel, grub_cfg, verbose=True):
     return True
 
 
-def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
+def install(disk, kernel, grub_cfg, verbose=True, optional=False):
     mkimage = _tool("grub-mkimage", "grub2-mkimage")
     if not mkimage:
         sys.exit("install_grub: grub-mkimage not found (looked for "
@@ -597,30 +574,20 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
     fresh = not fat_present(disk, esp)
     if fresh:
         format_fat(disk, esp)
-    # `legacy` writes the layout before this one, everything one level
-    # down in ::/boot -- a FIXTURE, for tools/tests/sweep/boot_migrate_test.py.
-    top = "::/boot" if legacy else "::"
-    stamp_at = STAMP.replace("::", top, 1)
-    if legacy:
-        cfg_text = open(grub_cfg).read()
-        grub_cfg = os.path.join(os.path.dirname(os.path.abspath(kernel)), "grub-legacy.cfg")
-        with open(grub_cfg, "w") as f:
-            f.write(re.sub(r"^(\s*multiboot2\s+)/", r"\1/boot/", cfg_text, flags=re.MULTILINE))
-        mkdirs(disk, esp, ["::/boot"])
-    mkdirs(disk, esp, [f"{top}/grub", f"{top}/grub/i386-pc"])
-    mcopy_into(disk, esp, [kernel], f"{top}/kernel.bin")
-    mcopy_into(disk, esp, [grub_cfg], f"{top}/grub/grub.cfg")
+    mkdirs(disk, esp, ["::/grub", "::/grub/i386-pc"])
+    mcopy_into(disk, esp, [kernel], "::/kernel.bin")
+    mcopy_into(disk, esp, [grub_cfg], "::/grub/grub.cfg")
 
     stamp = grub_version(mkimage)
-    if fresh or (mtype(disk, esp, stamp_at) or "").strip() != stamp:
+    if fresh or (mtype(disk, esp, STAMP) or "").strip() != stamp:
         mod_files = [os.path.join(mods, f) for f in sorted(os.listdir(mods))
                      if f.endswith((".mod", ".lst"))]
-        mcopy_into(disk, esp, mod_files, f"{top}/grub/i386-pc/")
+        mcopy_into(disk, esp, mod_files, "::/grub/i386-pc/")
         stamp_path = os.path.join(os.path.dirname(os.path.abspath(kernel)),
                                   ".grub-stamp")
         with open(stamp_path, "w") as f:
             f.write(stamp + "\n")
-        mcopy_into(disk, esp, [stamp_path], stamp_at)
+        mcopy_into(disk, esp, [stamp_path], STAMP)
 
     # ---- 2. core.img, into the BIOS boot partition ------------------
     #
@@ -630,7 +597,7 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
     # disk is not hd0 wants a `search --file` in the config rather than
     # a cleverer guess here.
     scheme = "gpt" if _is_gpt(disk) else "msdos"
-    prefix = f"(hd0,{scheme}{esp[0]}){top[2:]}/grub"
+    prefix = f"(hd0,{scheme}{esp[0]})/grub"
     core_path = os.path.join(os.path.dirname(os.path.abspath(kernel)), "core.img")
     _run([mkimage, "-O", "i386-pc", "-d", mods, "-p", prefix,
           "-o", core_path, *CORE_MODULES])
@@ -671,13 +638,13 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
     # images land, which is the target's business and not this one's.
     # SYS_INSTALL_BOOT applies them.
     mcopy_into(disk, esp, [os.path.join(mods, "boot.img"), core_path],
-               f"{top}/grub/i386-pc/")
+               "::/grub/i386-pc/")
     # ...and what that core carries, beside it (core_record()). Rewritten
     # with the core on every run, so it cannot drift from the sectors.
     record_path = os.path.join(os.path.dirname(os.path.abspath(kernel)), "core.modules")
     with open(record_path, "w") as f:
         f.write(core_record(mkimage))
-    mcopy_into(disk, esp, [record_path], f"{top}/grub/core.modules")
+    mcopy_into(disk, esp, [record_path], "::/grub/core.modules")
 
     # ---- 4. the UEFI loader, as a file in the ESP -------------------
     #
@@ -685,20 +652,10 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
     # a host that has since lost its EFI target is left alone -- it still
     # boots this layout, since the prefix names no device.
     efi_path = os.path.join(os.path.dirname(os.path.abspath(kernel)), "bootx64.efi")
-    efi = not legacy and build_efi(mkimage, efi_path)
+    efi = build_efi(mkimage, efi_path)
     if efi:
         mkdirs(disk, esp, ["::/EFI", "::/EFI/BOOT"])
         mcopy_into(disk, esp, [efi_path], EFI_LOADER)
-
-    # ---- 5. the layout before this one, removed ---------------------
-    #
-    # Only now, with the core image reading ::/grub in place: until it
-    # was written, ::/boot was what this disk booted from.
-    if legacy:
-        _run([_tool("mdeltree"), "-i", mtools_at(disk, esp), "::/grub"])
-        _run([_tool("mdel"), "-i", mtools_at(disk, esp), "::/kernel.bin"])
-    else:
-        drop_legacy(disk, esp, verbose)
 
     if verbose:
         where = f"partition {bios[0]}" if bios[0] else "the MBR gap"
@@ -782,10 +739,6 @@ def main():
                     help="an image with no boot partition is reported and "
                          "skipped rather than being an error -- what the build "
                          "passes, so a pre-existing disk.img keeps working")
-    ap.add_argument("--legacy-layout", action="store_true",
-                    help="write the layout before the flat one (everything under "
-                         "the volume's boot/, so SaunaOS shows /boot/boot) -- a "
-                         "fixture for tools/tests/sweep/boot_migrate_test.py, never for a build")
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args()
 
@@ -809,7 +762,7 @@ def main():
     if not (args.kernel and args.grub_cfg):
         ap.error("--kernel and --grub-cfg are both required (or use --check)")
     install(args.disk, args.kernel, args.grub_cfg, verbose=not args.quiet,
-            optional=args.optional, legacy=args.legacy_layout)
+            optional=args.optional)
     return 0
 
 

@@ -2550,7 +2550,7 @@ machine's own `/boot` back afterwards. All three were one mechanism —
 protecting a single shared instance from a second user — and all three
 stop existing once there can be two.
 
-## The boot volume is flat -- `/boot/kernel.bin`, not `/boot/boot/kernel.bin` -- and old machines move themselves
+## The boot volume is flat -- `/boot/kernel.bin`, not `/boot/boot/kernel.bin` -- and old machines moved themselves
 
 Until 2026-10-11 `install_grub.py` wrote `boot/kernel.bin` and
 `boot/grub/` INSIDE the FAT32 volume, copying the ISO's tree so that one
@@ -2578,7 +2578,12 @@ stops at a rescue prompt. So the move is copy up, rewrite the core image
 old tree -- bootable after every step, the old core reading the old tree
 until the new core is written (`base/ubootlayout.h`).
 
-**It runs as a boot service (`bootmigrate`), not inside System Update**,
+**(The move below, `bootmigrate`, `install --migrate` and
+`base/ubootlayout.h`, was removed on 2026-11-25, once no machine had the
+old tree: decisions/build.md, "No migration code for a machine nobody
+runs".)**
+
+**It ran as a boot service (`bootmigrate`), not inside System Update**,
 because the update that delivers it is applied by the PREVIOUS updater,
 and the payload whose `core.img` reads `/grub` only lands at the reboot
 after it -- a `postinst` that re-runs `grub-install`, Debian's grub-pc

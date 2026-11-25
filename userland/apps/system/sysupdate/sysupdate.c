@@ -404,8 +404,8 @@ static void open_boot_dialog(struct uapp *a) {
     }
     const struct ubootrefresh_plan *p = &g_boot_plan;
     int n = 0;
-    snprintf(g_boot_line[n++], sizeof g_boot_line[0], "%sGRUB is rewritten in place (%s layout):",
-             p->legacy ? "/boot/boot moves up to /boot, then " : "", p->mbr ? "MBR" : "GPT");
+    snprintf(g_boot_line[n++], sizeof g_boot_line[0], "GRUB is rewritten in place (%s layout):",
+             p->mbr ? "MBR" : "GPT");
     snprintf(g_boot_line[n++], sizeof g_boot_line[0],
              "Boot sector: LBA 0, keeping this disk's partition table");
     snprintf(g_boot_line[n++], sizeof g_boot_line[0], "Core image: %s", p->core);

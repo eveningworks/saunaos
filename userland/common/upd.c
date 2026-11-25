@@ -16,7 +16,6 @@
 #include "uhash.h"
 #include "uhttp.h"
 #include "common/upd.h"
-#include "base/ubootlayout.h"
 #include "base/ucomponent.h"
 #include "base/ubootcfg.h"
 #include "base/ubootrefresh.h"
@@ -24,13 +23,9 @@
 #include "version.h"     // SAUNAOS_BUILD_ID, generated -- tools/build/gen_version.sh
 
 #define MANIFEST_MAX (1024u * 1024u)
-// /boot/kernel.bin, or /boot/boot/kernel.bin on a machine whose boot
-// volume has not been moved up yet (base/ubootlayout.h) -- asked each time,
-// because the update that brings the move runs on the old layout.
-static char g_boot_path[3][40];
-#define KERNEL_PATH  boot_path(0, "kernel.bin")
-#define KERNEL_OLD   boot_path(1, "kernel.old")
-#define GRUB_CFG     boot_path(2, "grub/grub.cfg")
+#define KERNEL_PATH  "/boot/kernel.bin"
+#define KERNEL_OLD   "/boot/kernel.old"
+#define GRUB_CFG     "/boot/grub/grub.cfg"
 #define DEFAULT_SERVER "http://10.0.2.2:8080"
 
 static int g_log_fd = -1;
@@ -48,11 +43,6 @@ static void log_open(void) {
 static void log_close(void) {
     if (g_log_fd >= 0) close(g_log_fd);
     g_log_fd = -1;
-}
-
-static const char *boot_path(int slot, const char *name) {
-    snprintf(g_boot_path[slot], sizeof g_boot_path[slot], "%s/%s", ubootlayout_dir(), name);
-    return g_boot_path[slot];
 }
 
 static void say_at(const struct upd_hooks *h, int level, const char *fmt, ...)
@@ -276,9 +266,7 @@ static int parse_line(char *line, struct upd_file *f) {
             else if (!strncmp(o, "src=", 4) && o[4] == '/') snprintf(f->src, sizeof f->src, "%s", o + 4);
         }
     }
-    // THE KERNEL GOES WHERE THIS MACHINE'S GRUB READS IT, whatever path
-    // the manifest names: the server still says /boot/boot/kernel.bin, so
-    // that an updater from before the flat layout keeps working.
+    // THE KERNEL GOES WHERE GRUB READS IT, whatever path the manifest names.
     if (f->flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ))
         snprintf(f->path, sizeof f->path, "%s", KERNEL_PATH);
     // /boot TAKES THE KERNEL ONLY. It is read-only at the boot that applies

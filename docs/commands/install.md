@@ -8,7 +8,6 @@
 
     install [--disk NAME] [--esp MIB] [--mbr] [--ask-all] [--without ID,...] [--only-system] [confirm]
     install --bootloader [--uefi] [confirm]
-    install --migrate [confirm]
 
 ## Options
 
@@ -39,10 +38,6 @@
 - `--uefi` -- with `--bootloader`: ADD the UEFI loader to a disk that boots
   BIOS/CSM. Without it a refresh only replaces a UEFI loader the disk already
   has (or one this boot came through); see "Adding a UEFI boot" below.
-- `--migrate` -- `--bootloader`, but only on a machine whose boot volume
-  still has the old `/boot/boot` layout; anywhere else it says so and
-  exits 0. See "Moving `/boot/boot` up to `/boot`" below. It takes no
-  other flag.
 - `confirm` -- go ahead without asking; it ERASES the target disk.
 - `-h`, `--help` -- every option on one page.
 
@@ -284,36 +279,6 @@ an "Update boot loader..." bar that runs the same steps after asking, and the
 dry run above adds a line saying what is new:
 
       adds           videoinfo
-
-## Moving `/boot/boot` up to `/boot`
-
-    install --migrate confirm
-
-The boot volume holds `kernel.bin` and `grub/` at its ROOT, which SaunaOS
-shows as `/boot/kernel.bin` and `/boot/grub/` — a Linux `/boot` partition's
-shape. Disks written before 2026-10-11 kept both one level down, so SaunaOS
-showed `/boot/boot/...`, and their GRUB core image has `/boot/grub` baked into
-its prefix: the files cannot simply be moved. So the move is three steps around
-the one write that changes what GRUB reads (`base/ubootlayout.h`):
-
-| step | the machine boots |
-| --- | --- |
-| copy `/boot/boot/*` up to `/boot`; grub.cfg's `/boot/kernel.bin` becomes `/kernel.bin` | the old tree, through the old core |
-| write the payload's core image, whose prefix is `/grub` | the new tree, through the new core |
-| delete `/boot/boot` | the new tree |
-
-A failed core-image write deletes the copies again, so the machine is as it
-was. `kernel.old`, `grubenv`, `grub.cfg.bak` and anything else in `/boot/boot`
-come along; the machine's own grub.cfg edits are kept.
-
-**It runs by itself, once**: `/etc/services.d/bootmigrate` runs `install
---migrate confirm` at every boot, which is a no-op on a machine already moved.
-It is a boot service rather than a step of System Update because the update that
-brings it runs the PREVIOUS updater, and the payload whose core image reads
-`/grub` only lands at the reboot after it — so an old machine moves on the
-first boot of the update and reads the flat layout from the boot after that.
-`/install/core.prefix` must say the staged images read `/grub`, or nothing is
-written.
 
 ## Installing from live media
 

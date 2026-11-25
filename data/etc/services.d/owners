@@ -13,4 +13,4 @@ Exec=/bin/owners
 Restart=no
 Ready=notify
 ReadyTimeout=60000
-Before=automountd autovt bootmigrate clipboardd devices firstboot fontd installer kdfiled logd netd netheal ntpd privd remoted screentrial smbfsd snddrv soundd tmpfs tosh toywm
+Before=automountd autovt clipboardd devices firstboot fontd installer kdfiled logd netd netheal ntpd privd remoted screentrial smbfsd snddrv soundd tmpfs tosh toywm

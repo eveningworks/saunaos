@@ -2348,7 +2348,7 @@ and it cost three things that a display-only rename would not have:
   `/var/log/toyos.log{,.1}` right after the root mount -- only where the
   new name is free, so a machine with both keeps both
   (`tools/tests/sweep/rename_migrate_test.py`). A one-shot SERVICE, the shape
-  `bootmigrate` has, would run too late.
+  `bootmigrate` had, would run too late.
 - **Some old names are part of the past and stay.** Git history is not
   rewritten (every cited SHA would go stale), so old commits are
   authored `toy-os <noreply@toy-os.local>`; releases up to v0.5.0 ship

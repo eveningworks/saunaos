@@ -11,7 +11,6 @@
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "base/ubootcfg.h"
-#include "base/ubootlayout.h"
 #include "base/ubootmenu.h"
 #include "base/ubootmode.h"
 #include "base/ubootrefresh.h"
@@ -29,11 +28,8 @@ static char *read_text(const char *path) {
     return s;
 }
 
-// The flat layout first: a refresh always writes there, even when the
-// legacy tree's removal after it failed and /boot/boot is still about.
 char *ubootrefresh_record(void) {
     char *r = read_text(UBOOTREFRESH_RECORD);
-    if (!r) r = read_text(UBOOTLAYOUT_LEGACY "/grub/core.modules");
     return r ? r : read_text(UBOOTREFRESH_RECORD_OLD);
 }
 
@@ -117,7 +113,6 @@ static const char *plan_disk(struct ubootrefresh_plan *p) {
     p->mbr = t.kind == QUERY_PART_MBR;
     const char *missing = uinstall_payload_problem(p->mbr);
     if (missing) return missing;
-    p->legacy = ubootlayout_legacy();
     p->core = p->mbr ? UINSTALL_PAYLOAD "/core-msdos.img" : UINSTALL_PAYLOAD "/core.img";
     struct sys_stat st;
     int staged = sys_stat(UINSTALL_PAYLOAD "/bootx64.efi", &st) == 0 && !st.is_dir;
@@ -198,31 +193,12 @@ out:
 
 int ubootrefresh_run(const struct ubootrefresh_plan *p,
                      void (*say)(void *ctx, const char *line), void *ctx) {
-    // THE MOVE UP FROM /boot/boot, around the write: the copy is made
-    // while the old core still boots the old tree, and the old tree goes
-    // only once a core reading /boot/grub is in place (base/ubootlayout.h).
     char dev[64] = "";
     const char *why = 0;
-    if (p->legacy) {
-        sayf(say, ctx, "copying /boot/boot up to /boot");
-        if (uboot_writable(dev, sizeof dev) < 0) {
-            sayf(say, ctx, "cannot remount /boot read-write -- nothing was changed.");
-            return -1;
-        }
-        int ok = ubootlayout_copy_up(&why) == 0;
-        if (!ok) ubootlayout_drop_flat();
-        uboot_restore(dev);     // read-only again, which flushes the copy
-        if (!ok) { sayf(say, ctx, "%s -- nothing was changed.", why); return -1; }
-    }
-
     sayf(say, ctx, "writing the bootloader");
     const char *failed = uinstall_write_bootloader(p->disk, p->mbr, 1);
     if (failed) {
         sayf(say, ctx, "%s", failed);
-        if (p->legacy && uboot_writable(dev, sizeof dev) == 0) {
-            ubootlayout_drop_flat();
-            uboot_restore(dev);
-        }
         sayf(say, ctx, "FAILED -- %s still has the bootloader it had.", p->disk);
         return -1;
     }
@@ -259,17 +235,6 @@ int ubootrefresh_run(const struct ubootrefresh_plan *p,
     // BIOS core is always rewritten, the UEFI loader only when written.
     if (ubootmode_forget(1, efi == 0) < 0)
         sayf(say, ctx, "could not forget the refused screen sizes in " UBOOTMODE_CONF ".");
-    why = 0;
-    if (p->legacy) {
-        sayf(say, ctx, "removing /boot/boot");
-        int ok = uboot_writable(dev, sizeof dev) == 0 && ubootlayout_drop_legacy(&why) == 0;
-        uboot_restore(dev);
-        if (!ok)
-            sayf(say, ctx, "%s -- the machine boots from /boot already; run "
-                 "`install --migrate confirm` again to tidy it.",
-                 why ? why : "cannot remount /boot read-write");
-    }
-
     sayf(say, ctx, "adding bootpart= to grub.cfg");
     int added = add_bootpart(say, ctx);
     if (added > 0)

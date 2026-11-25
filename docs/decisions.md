@@ -330,7 +330,7 @@ first before re-litigating it from scratch.
 - [Why a FAT32-only driver, and why it accepts an out-of-spec cluster count](decisions/storage.md#why-a-fat32-only-driver-and-why-it-accepts-an-out-of-spec-cluster-count)
 - [Enumerating every disk is a separate question from choosing the root](decisions/storage.md#enumerating-every-disk-is-a-separate-question-from-choosing-the-root)
 - [A backend's volume state is per mount, and every op is handed it](decisions/storage.md#a-backends-volume-state-is-per-mount-and-every-op-is-handed-it)
-- [The boot volume is flat -- `/boot/kernel.bin`, not `/boot/boot/kernel.bin` -- and old machines move themselves](decisions/storage.md#the-boot-volume-is-flat----bootkernelbin-not-bootbootkernelbin----and-old-machines-move-themselves)
+- [The boot volume is flat -- `/boot/kernel.bin`, not `/boot/boot/kernel.bin` -- and old machines moved themselves](decisions/storage.md#the-boot-volume-is-flat----bootkernelbin-not-bootbootkernelbin----and-old-machines-moved-themselves)
 - [The installer is five ordinary operations, and the kernel never learns what a bootloader is](decisions/storage.md#the-installer-is-five-ordinary-operations-and-the-kernel-never-learns-what-a-bootloader-is)
 - [The parent directory is resolved as its own step, rather than giving `fs_ops` an errno](decisions/storage.md#the-parent-directory-is-resolved-as-its-own-step-rather-than-giving-fs_ops-an-errno)
 - [A config file can have `[sections]`, and the section is an argument](decisions/storage.md#a-config-file-can-have-sections-and-the-section-is-an-argument)

@@ -160,11 +160,9 @@ import fetch_scummvm      # noqa: E402
 import components         # noqa: E402
 
 REPO = toolpath.REPO
-# THE PATH UPDATERS BEFORE THE FLAT /boot EXPECT, kept for them: they
-# stage and install the kernel at this exact path, and every machine they
-# run on still has the /boot/boot layout. A current updater ignores it and
-# writes the kernel where that machine's GRUB reads it (upd.c).
-KERNEL_TARGET = "/boot/boot/kernel.bin"
+# Where GRUB reads the kernel. The updater puts a `kernel` line there
+# whatever path it names (upd.c).
+KERNEL_TARGET = "/boot/kernel.bin"
 STORE = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"),
                      "saunaos", "updates")
 SEEDING = os.path.join(REPO, "build", ".seeding")   # the Makefile's seed step, while it runs

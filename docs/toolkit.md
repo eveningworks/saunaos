@@ -25,7 +25,6 @@
 | `ubase64.h` | ubase64 -- RFC 4648 base64, the standard alphabet with '=' padding: what an HTTP Basic credential, a data: URL or a MIME part carries. |
 | `ubinmap.h` | A BINARY FILE'S STRUCTURE MAP: what the bytes of an ELF program, a DOOM WAD, a TrueType font, a disk image's MBR or GPT, a FAT boot sector, a QOI or BMP picture ARE -- a flat outline of nodes, each... |
 | `ubootcfg.h` | GRUB's grub.cfg as an EDITABLE model: parse, change one thing, check, save -- for `bootcfg`, the Boot Manager and the Startup settings page. |
-| `ubootlayout.h` | Where GRUB's files are on the boot volume, and the one-time move from the layout before this one. |
 | `ubootmenu.h` | GRUB's menu, read from its grub.cfg, and the ONE-SHOT choice of which entry the next boot takes -- `grub-reboot`'s mechanism, for `reboot --entry` and the Leave page's "Restart into". |
 | `ubootmode.h` | The screen size GRUB sets at boot, for a display SaunaOS cannot set itself -- a VESA framebuffer on a card with no driver here (an RTX on a BIOS boot). |
 | `ubootrefresh.h` | THE BOOT LOADER, REWRITTEN IN PLACE -- `grub-install` on a machine that is already installed -- and whether it is worth doing: what `install --bootloader` runs and what System Update offers. |

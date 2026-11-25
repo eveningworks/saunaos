@@ -173,15 +173,6 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   unknown entry, and a core recorded without `loadenv`. On demand: it
   reboots twice. **The debug console's shell has no redirection** -- a
   file the test needs in the guest goes in with `vm.py put`.
-- **`boot_migrate_test.py`** -- a machine with the old `/boot/boot`
-  layout moves up to `/boot` by itself and boots from the result. Writes
-  the OLD layout onto a copy of `disk.img` (`install_grub.py
-  --legacy-layout`, plus a `kernel.old` and a marker word on the default
-  entry), boots it, waits for the `bootmigrate` service, checks the flat
-  tree, then REBOOTS: the marker on the second boot's command line can
-  only have come through the rewritten core image, since the old tree is
-  gone. Its control -- the core write skipped -- fails at "came back".
-  On demand: it reboots.
 - **`rename_migrate_test.py`** -- a machine installed as toy-os keeps its
   settings and log when it boots as SaunaOS. On a copy of `disk.img` it
   saves a setting, stops `logd` (running, it recreates the log behind

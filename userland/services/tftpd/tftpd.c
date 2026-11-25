@@ -261,7 +261,7 @@ static void close_tid(int fd) {
 // a live /lib/*.so under a running program can fault in the new bytes
 // beneath the old relocations. And an ABORTED transfer -- a timeout, a
 // client that goes away -- used to leave the target truncated, so a
-// failed push of /boot/boot/kernel.bin destroyed the kernel it was
+// failed push of a kernel destroyed the kernel it was
 // replacing. Now the original is untouched until the last byte is in.
 //
 // This is dpkg's `.dpkg-new` plus a rename, for the same reason.
