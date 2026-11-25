@@ -9339,3 +9339,44 @@ clean. An event could do the same; what it must settle first is the
 tick's acknowledgement (`ack`), which the event path sends before a
 switch that may now wait for the lock.
 
+## A Configuration Editor: every setting and fact as a raw tree, editable
+
+Picked 2026-11-25, after users stage D1b. System Settings stays the easy
+view; this is the RAW one -- regedit, GNOME's dconf-editor and Firefox's
+`about:config` -- with every value in one tree and editable in place.
+Mockups: https://claude.ai/artifact/VNeJgK7vRDzMgmQac6S3QY (layout A
+picked).
+
+- **What it shows:** every setting, kernel-registered and declared, and
+  the kernel's facts read-only, under one dotted tree: what `config get`
+  walks (`userland/utils/config.c`'s tree commands over
+  `base/usetting.h`'s `usetting_each_name()` / `usetting_dispatch()`, and
+  the query registry for facts, `docs/settings-and-queries.md`).
+- **Layout A, two panes:** a branch tree on the left (namespace counts,
+  "16 facts"); the chosen branch's values in a table -- Name, Value,
+  From (You / Machine / Default / Kernel), Type; a details strip under it
+  (label, description, You / Machine / Default values, choices or range,
+  scope and the file a write goes to); a command bar with Edit value...,
+  Reset to machine's, Copy name, and Find (name or value). A status line
+  ("11 settings, 1 changed by you").
+- **Editing:** validated as `config set` is (the registry's three-way
+  answer shown honestly: saved, applied but not saved, refused with what
+  would be accepted). A user key writes the person's `~/.config` file;
+  Reset unsets the person's override. Machine values are READ-ONLY here
+  until D3 puts machine writes behind privd (the maintainer's pick); a
+  fact never edits. Still to ask: whether a kernel-registered setting
+  (no person's layer yet, `system.mouse.speed`) counts as machine here.
+- **Where a value came from** needs one small `libbase` call beside
+  `uschema_stored()` (the person's file, `/etc`, or the schema's
+  `Default=`); kernel settings report Kernel.
+- **Its own app** in System tools (`userland/apps/system/`), a Start-menu
+  entry (`data/wm/applications/`), an icon (`tools/gen/gen_icons.py`);
+  System Settings' "Kernel and debugging settings" page may link to it.
+  Composed from `ui/uui_tree.h` + `ui/uui_table.h` + `ui/uui_splitter.h`
+  -- no new widget (the maintainer's pick); the app design language is
+  Image Viewer's (`docs/gui-guidelines.md`).
+- **Tests:** the app's logic on the host (`tools/hostchecks/uitest/`, an
+  offscreen `uapp`), one end-to-end GUI tool in `tools/tests/gui/` that
+  edits a value and reads it back through `config get` (an independent
+  path), and the scroll checks for both panes (more rows than fit).
+
