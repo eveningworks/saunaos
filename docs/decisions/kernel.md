@@ -10013,9 +10013,9 @@ leaves the window open, as closing it is the user's, as with Windows Help.
 
 Chosen 2026-11-02, with the control menu's Screen effect cascade, which
 saves a choice as the running program's own setting in
-`/etc/win16/<program>.conf`. The sandboxed `w16` may write only `/home`,
+`~/.config/win16/<program>.conf`. The sandboxed `w16` may write only `/home`,
 drive C:, its state folder and its trace; the obvious fix, unveiling
-`/etc/win16` (or the one file) `rwc`, was found to be an escape across
+`~/.config/win16` (or the one file) `rwc`, was found to be an escape across
 runs: a program's file also holds `drive_c`, so a `w16` taken over could
 set `drive_c=/` for its next run, which unveils drive C: `rwc` -- the
 whole tree. Flatpak's answer to "an app saves its settings" is its own

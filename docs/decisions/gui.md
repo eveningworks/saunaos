@@ -55,7 +55,7 @@ between them.
 
 Every app reopened at a cascade position and its `default_size()`, so a
 window you had sized and placed came back wrong every launch. The
-compositor stores per-application geometry in `/etc/windows.conf` now
+compositor stores per-application geometry in `~/.config/windows.conf` now
 and applies it at create time.
 
 **Keyed by `app_id`, not by `app_identity`** (until 2026-10-19: now the
@@ -5841,7 +5841,7 @@ existed -- `Handles=` on each app's `.desktop` entry -- and the choice
 was what to add: a central database file replacing it, a resolver
 daemon, or freedesktop's split. The split won: apps DECLARE where the
 app lives (installing one brings its associations), the USER overrides
-per extension in `/etc/mimeapps.conf`, and the override outranks.
+per extension in `~/.config/mimeapps.conf`, and the override outranks.
 
 **Why no central-file-as-single-source.** Windows' Registry shape
 means installing an app no longer brings its associations -- the
@@ -5980,7 +5980,7 @@ and the same value means something different after a font-size change or
 on a different screen. Qt's `QSplitter` stores absolute sizes and then
 spends `setStretchFactor` and a resize handler putting the proportion
 back; a fraction is that behaviour with nothing to remember. It also
-makes persistence trivial -- the number written to `/etc/files.conf` is
+makes persistence trivial -- the number written to `~/.config/files.conf` is
 the number the widget holds.
 
 **The drag is a DELTA from the press, never the pointer's absolute
@@ -7786,7 +7786,7 @@ type and no colour widget, and a sixteen-entry palette is not a setting
 in any case (see below).
 
 **What was given up, stated plainly.** `config get terminal.scheme`
-does not work; `/etc/terminal.conf` is read with `edit` or `cat`
+does not work; `~/.config/terminal.conf` is read with `edit` or `cat`
 instead. System Settings shows nothing about the Terminal. A second app
 wanting preferences will write its own loader rather than inheriting
 one -- `userland/apps/apps/terminal/term_conf.c` is about two hundred lines, and the
@@ -7795,7 +7795,7 @@ there is a second real caller, which is this project's usual bar and
 not a plausible one.
 
 **The file is `etc_config`'s format through `base/uconf.h`,** so it is
-not a private format either: `edit /etc/terminal.conf` works, the
+not a private format either: `edit ~/.config/terminal.conf` works, the
 parser is the kernel's own compiled a second time, and there is no
 second set of answers to what a `name=value` document means.
 
@@ -7857,7 +7857,7 @@ be off, and `uterm_test.py`'s tab-switch check failed exactly that way:
 it had passed on the three runs before blinking was added and failed on
 the next, with tab switching working perfectly.
 
-So `cursor_blink` ships off and is one line in `/etc/terminal.conf` for
+So `cursor_blink` ships off and is one line in `~/.config/terminal.conf` for
 anyone who wants it. The cost of the other choice is not "a slightly
 noisier screenshot" -- it is that every frame comparison against a
 Terminal becomes unreliable, including ones written later by somebody
@@ -8794,7 +8794,7 @@ Favorites and keeps Recent beside it; Windows 11's whole Start is those
 two lists over a search box. SaunaOS follows, with the folders it already
 had underneath.
 
-**One file, `/etc/start-menu.conf`, holding both.** A pin is a
+**One file, `~/.config/start-menu.conf`, holding both.** A pin is a
 preference and a launch count is variable state, which the FHS would
 split between `/etc` and `/var`. They are kept together because they are
 read together, once, by one reader at startup -- and because a menu
@@ -9754,7 +9754,7 @@ than layout.
 **The thumbnails are the File Manager's cache, moved into
 `media/uthumb.h`.** The File Manager already had a lookup that never
 decodes on the draw path, one worker thread for the process's life and a
-copy on disk under `/var/cache/thumbnails`. A second implementation in
+copy on disk under `~/.cache/thumbnails`. A second implementation in
 the viewer would have been a second cache for the same files, filling
 the disk twice and disagreeing about staleness. So the cache moved
 verbatim and both apps adapt it: a `wake` callback stands in for each
@@ -10103,7 +10103,7 @@ chosen from mockups), and the footer's version and power buttons set its
 floor, about 460 px against 638.
 
 **Recent off forgets.** Off stops recording AND removes the recorded
-launches from `/etc/start-menu.conf`, as Windows clears its list when
+launches from `~/.config/start-menu.conf`, as Windows clears its list when
 "Show recently opened items" goes off. Hiding a list while keeping the
 history it was built from would surprise anyone who turned it off for
 privacy. Pins are untouched -- they are a choice, not a history.
@@ -10193,7 +10193,7 @@ DOOM's Options menu is already full to the status bar: a menu page would
 be a permanent patch to `m_menu.c`, where Crispy Doom carries its own.
 The key follows vanilla's F5 (detail), which says what it did on the
 message line -- `dg_message()` in the backend does the same. **The
-setting is the app's, in `/etc/doom.conf`**, not Chocolate Doom's
+setting is the app's, in `~/.config/doom.conf`**, not Chocolate Doom's
 extended config, which only knows the variables in its own list. And the
 picture is scaled into a buffer of the app's and composed from there
 (`ucrt_apply_from()`), because DOOM's surface may be the display's
@@ -10235,13 +10235,13 @@ work out of the box; with the hash pinned in `doom_wad.c` a substituted
 or truncated file fails anyway, so the fetch runs `insecure` and accepts
 weak entropy -- nothing about a public file needs secrecy -- and the
 card says the file is checked. apt over plain http with signed hashes
-is the same argument. **A `mirror=` in `/etc/doom.conf` replaces all but
+is the same argument. **A `mirror=` in `~/.config/doom.conf` replaces all but
 the file name** for the same reason: any server will do when the bytes
 are checked, which is also how the test serves them from loopback.
 
 **A licence step comes before the download** (mockup L2): id's
 shareware terms must be AGREED to -- asked once per text, remembered by
-its CRC in `/etc/doom.conf`, the rule `tools/fetch/fetch_extras.py` applies to
+its CRC in `~/.config/doom.conf`, the rule `tools/fetch/fetch_extras.py` applies to
 the same file at build time -- while Freedoom's BSD licence is shown and
 needs no agreement. The card also says the shareware comes from a third
 party's repository, not id. Each licence is saved in
@@ -10317,7 +10317,7 @@ Hidden means hidden from SEARCH too, or typing "heap" would find what the
 box was meant to keep out of the way; opening a page BY NAME
 (`settings kernel.heap_debug`) still works and lists that page while it
 is open, so scripts and links do not depend on the tick. The tick is the
-app's furniture (`/etc/settings.conf`, beside the sidebar width), not a
+app's furniture (`~/.config/settings.conf`, beside the sidebar width), not a
 registry setting -- a setting would itself need a page, and `config`
 already reaches every hidden one.
 
@@ -10412,7 +10412,7 @@ copy of the dialog. Two rules came with it: **an option changed from a
 menu is the same option** (Notepad's View toggles write the same keys
 the window does, as Windows Notepad's Word wrap is remembered), and
 **what a program KEEPS is not an option** -- the recent list and the
-tabs to reopen live in `/var/lib/notepad/`, the options in `/etc`, the
+tabs to reopen live in `~/.local/state/notepad/`, the options in `/etc`, the
 FHS's split between state and configuration.
 
 **Declared, not copied (2026-10-07).** Moving onto the shared window left
@@ -10441,7 +10441,7 @@ resolution, never data), Disk Mark differences them into a chart in
 `uui_chart`'s run mode, and each phase is marked.
 
 A benchmark is read against the last one, so finished runs go to
-`/var/lib/diskmark/history` (state the program must keep -- the FHS's
+`~/.local/state/diskmark/history` (state the program must keep -- the FHS's
 `/var/lib`, not a cache) and the History table compares each with the
 run before it on the same volume and size; a comparison across sizes or
 disks says nothing. Any mounted, persistent, writable filesystem can be
@@ -10842,7 +10842,7 @@ in Explorer and every browser.
 Places; the File Manager's side column lists the pins under their own
 **Pinned** heading, between the named places and This computer, and the
 shared file dialog lists them too -- `base/upins.h` over
-`/etc/places.conf`, one path per line, GTK's bookmarks file. A pin to a
+`~/.config/places.conf`, one path per line, GTK's bookmarks file. A pin to a
 folder that is not there today (an unplugged disk) stays in the file and
 is skipped when listed, rather than being dropped by the first app that
 cannot see it. At most 8.
@@ -10951,7 +10951,7 @@ rare need and a confusing field), dates or metadata in the pattern.
 **Picked 2026-10-06** (artboard H). freedesktop's recently-used.xbel
 and Windows' Recent Items both keep ONE per-user list of what was
 opened, with the app it opened in; KDE shows it as `recentlyused:/`.
-SaunaOS keeps it in `/var/lib/recent` (`base/urecent.h`), plain text
+SaunaOS keeps it in `~/.local/state/recent` (`base/urecent.h`), plain text
 rather than XBEL. **It is written where files are opened for a person,
 not by each app**: `uopen_spawn()` (a double click, `open`, the
 desktop), the File Manager's own open, and the shared file dialog on
@@ -11030,7 +11030,7 @@ one that shows what the thing printed.
   refuses the same way. A file without it gets the card's other face,
   "Allow running, and run" (`chmod a+x` by read bit). FAT32 keeps no
   mode, and the card says the change did not take.
-- **The policy lives in `/etc/mimeapps.conf` under freedesktop's MIME
+- **The policy lives in `~/.config/mimeapps.conf` under freedesktop's MIME
   names** (`application/x-shellscript`, `application/x-executable`),
   beside the per-extension choices, rather than in the File Manager's
   own file: the desktop's double-click and `open` read the same answer,
@@ -11380,7 +11380,7 @@ someone who picked single click in Files still double-clicked on the
 desktop. And the double-click time itself was eight constants at two
 values (2026-10-11).
 
-**The desktop reads the File Manager's `/etc/files.conf`**
+**The desktop reads the File Manager's `~/.config/files.conf`**
 (`base/ufolderopts.h`) rather than gaining `desktop.*` settings of its
 own. Explorer's Folder Options set Explorer and the desktop together,
 and KDE's single-click is one global switch; two copies of "show
@@ -11417,7 +11417,7 @@ first, which could be hidden by a switch (`hidden_places=` in
 files.conf); folders pinned by the person followed under a "Pinned"
 heading, reorderable among themselves.
 
-**What it is:** ONE list in `/etc/places.conf`, in the person's order --
+**What it is:** ONE list in `~/.config/places.conf`, in the person's order --
 the old places are default entries (`recent:/`, `/home`, `udir:<key>`,
 `trash:/`) and a pinned folder is an entry like them. Any entry can be
 renamed, moved up or down, dragged anywhere in the list, or unpinned;
@@ -11432,7 +11432,7 @@ same thing on every row. GNOME Files keeps its built-in places fixed and
 reorders only bookmarks, which is the shape this replaced.
 
 **`udir:<key>`, not a path, for a personal folder**, so the entry follows
-the folder if `/etc/user-dirs.conf` moves it (`base/udirs.h`). No file is
+the folder if `~/.config/user-dirs.conf` moves it (`base/udirs.h`). No file is
 the defaults; a file is the whole list. (The older pins-only file, with
 no `#places 2` line, and files.conf's `hidden_places` were read once to
 carry a machine across, until the hidden_places removal (64e8b829) and
@@ -11442,7 +11442,7 @@ the whole-list read (a184c0c8).)
 same day): a volume among the volumes under This computer, a share among
 the shares under Network -- Dolphin's Devices. Explorer lets a drive be
 pinned into Quick access instead; not taken, so a drag keeps one meaning
-per group. The order is `dev:<mount point>` lines in `/etc/places.conf`,
+per group. The order is `dev:<mount point>` lines in `~/.config/places.conf`,
 so a mount that is not there today keeps its place for when it is.
 
 
@@ -11990,7 +11990,7 @@ or source folder; "Windows 3.x" in descriptive text only (the Start
 menu's Comment=, the run card's "a Windows 3.x program"). "Win16" stays
 the API's name in docs and code, as WOW was never used (w16-design.md).
 The emulator keeps its name, `w16`, and its settings files keep theirs
-(`/etc/win16.conf`), so the rename moved no setting.
+(`~/.config/win16.conf`), so the rename moved no setting.
 
 ## Tables and Options windows are the user's to size
 
@@ -12684,7 +12684,7 @@ unveiling `/home` for writing and creating -- w16's arrangement for its
 drive -- rather than dropping it: an exploited decoder can then write
 under `/home` but cannot run what it writes, reach the network or touch
 the system's own files. Two things the sandbox costs: the file dialog's
-Recent list is not written (`/var/lib/recent` is not unveiled), and a
+Recent list is not written (`~/.local/state/recent` is not unveiled), and a
 share address typed into its file dialog opens only a share already
 mounted -- the dialog's `no_mount` option, since mounting one spawns
 `smbfsd` and a spawn under this pledge is a SIGSYS kill, not an error.
@@ -12921,7 +12921,7 @@ the program's.** The file says what each page holds, never how the
 window looks: every Options window stays one shape, and the five
 converted measured identical to their C (2026-11-07). Settings stored
 elsewhere (the File Manager's double-click policy, in
-/etc/mimeapps.conf; Screenshot's Print Screen keys) or not shaped like
+~/.config/mimeapps.conf; Screenshot's Print Screen keys) or not shaped like
 one field (a colour-scheme gallery, a drive list) are ordinary widgets,
 `app` places the program fills -- Qt Designer's promoted widget -- or
 `rows` where a composite adds its own. A font size whose 0 means the

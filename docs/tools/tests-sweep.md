@@ -234,7 +234,7 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   (the volume page: its address, Connected, the user it signed in as --
   the `properties: row` lines), Forget this share from the row's own
   menu (two Ups from nothing: Properties is the last row), a share
-  dragged above the other (`dev:` lines in `/etc/places.conf`), an `smb://` address in the address bar opening a
+  dragged above the other (`dev:` lines in `~/.config/places.conf`), an `smb://` address in the address bar opening a
   session share whose Save to Network bar saves it, and the "not
   answering" dialog.
   Each step waits on the app's `files: netshare` log line. The positive
@@ -250,7 +250,7 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   PointerEvent landing exactly where the compositor reports the pointer;
   Super opening the Start menu; an incremental update smaller than the
   screen that patches back to the screendump; and `echo VNC_typed-42!`
-  typed into a Terminal arriving in `/etc/tosh_history`; with the Cursor
+  typed into a Terminal arriving in `~/.local/state/tosh_history`; with the Cursor
   pseudo-encoding, the shape arriving and a pointer move sending no
   pixels near the pointer, and with PointerPos the machine's own mouse
   (moved through QMP) reported where the compositor has it while the
@@ -1377,13 +1377,13 @@ report is ON only after `enter_gui()`").
   argument for the rule rather than a reason to move the phase.
 - **`diskmark_test.py`** -- drives the **Disk Mark** GUI benchmark and
   asserts on it, then on its run chart (samples and four phase marks),
-  its history (the run is a line in `/var/lib/diskmark/history` and F9
+  its history (the run is a line in `~/.local/state/diskmark/history` and F9
   shows the table) and Stop (Esc kills, reaps and cleans up a second
   run -- at the 1 GiB preset, sent once its spawn is logged: a 16 MiB
   run finished before a fixed one-second wait, so Esc found nothing to
   stop). Then the TEST SIZE without running one: Custom... opens a
   dialog bounded by the volume's room, `3`, `g`, Enter sets 3 GiB and
-  `/etc/diskmark.conf` keeps it across a restart, a size over the room
+  `~/.config/diskmark.conf` keeps it across a restart, a size over the room
   is refused, and the first preset puts it back to 16 MiB so no later
   tool inherits a GiB run. Then the LOCATION: Choose folder... opens the
   chooser at Documents, a folder with a SPACE in its name is chosen,

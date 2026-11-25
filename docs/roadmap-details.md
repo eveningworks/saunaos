@@ -1612,7 +1612,7 @@ program's SetWindowPos.
 ### Window placement, the rest -- maximized/snapped state, a save when a drag ends, a Settings switch, Forget
 
 Size and position across runs are BUILT (`userland/apps/system/toywm/wm_geometry.c`,
-`/etc/windows.conf`, keyed on the program's path, written at close,
+`~/.config/windows.conf`, keyed on the program's path, written at close,
 clamped to the screen at open; `RememberGeometry=false` in a desktop
 entry opts out). Picked 2026-10-29: reopen a window maximized or snapped
 as it closed, keeping its normal rect for Restore; write the placement
@@ -1633,7 +1633,7 @@ from the timezone's city), and a tray toggle.
 BUILT 2026-10-29: `ui/unotify.h` (`WIN_REQ_NOTIFY`, fields in pieces,
 answered with an id; `WIN_EV_NOTIFY` carries the action back), `/bin/notify`,
 the toast as `crash_notice.c`'s compact card, and `wm_notify.c`'s history
-behind the tray's bell with Do Not Disturb and `/etc/notify.conf`'s
+behind the tray's bell with Do Not Disturb and `~/.config/notify.conf`'s
 per-app On / History only / Off (Settings > Desktop > Notifications).
 Open: the history is not kept across a desktop restart; the bell's card
 shows the newest rows that fit rather than scrolling.

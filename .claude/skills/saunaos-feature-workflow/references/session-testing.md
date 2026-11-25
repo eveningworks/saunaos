@@ -2925,7 +2925,7 @@ PRE-EXISTING, BECAUSE BOTH SIDES OF `predates.py` BOOT IT.** Four GUI
 tools failed deterministically (popup, shot, smooth, icons), stayed red
 alone, and `predates.py` called them pre-existing with identical counts
 -- and `docs/bugs.md` already carried an entry saying so. Preflight had
-printed the cause in passing: files on the image (`/etc/windows.conf`,
+printed the cause in passing: files on the image (`~/.config/windows.conf`,
 `/etc/desktop.conf`) that nothing in `seed/sync` places any more.
 `make clean-disk && make iso` turned three green; only the check with
 its own bugs entry stayed red. Order matters: FRESH IMAGE, THEN

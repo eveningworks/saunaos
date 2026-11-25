@@ -381,7 +381,7 @@ options" canvas and two question rounds the same day:
   several games at once, and does the same once its window has closed --
   never inside the event loop, since each `--add` is a ScummVM run of
   its own. A game is offered to ScummVM ONCE (`added_<id>` in
-  `/etc/scummvm-games.conf`), so one removed from ScummVM's list stays
+  `~/.config/scummvm-games.conf`), so one removed from ScummVM's list stays
   removed. Its left button opens ScummVM's launcher, whose Add Game is
   the way in for a game a person owns.
 - **A ScummVM already open keeps a game another one added**: it writes
@@ -402,7 +402,7 @@ options" canvas and two question rounds the same day:
   passed in as `uhttp_download`: libhttp is not a toolkit library.
 - **Every game is pinned by the `.sha256` ScummVM publishes beside it**,
   and fetched from `downloads.scummvm.org` (`mirror=` in
-  `/etc/scummvm-games.conf` stands in). Their licence is one freeware
+  `~/.config/scummvm-games.conf` stands in). Their licence is one freeware
   text -- share it unchanged and free -- so it is a notice to read, not
   an agreement; each game's own readme is saved to `/usr/share/licenses`.
 - **The component** is `scummvm` (GPL-3.0-or-later, `Built=if-present`):

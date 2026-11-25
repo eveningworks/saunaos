@@ -643,7 +643,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
 
   **AND ONE TRAP IT CAN ONLY NAME: BOTH SIDES BOOT THE SAME `disk.img`.**
   `make iso` syncs rather than reformats, so state a test left on the
-  image -- `/etc/windows.conf`'s remembered window positions,
+  image -- `~/.config/windows.conf`'s remembered window positions,
   `/etc/desktop.conf` -- is there for HEAD's run as much as yours, and a
   dirty FIXTURE measures as PRE-EXISTING. On 2026-09-30 four GUI tools
   measured pre-existing that way; after `make clean-disk && make iso`

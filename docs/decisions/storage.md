@@ -3911,7 +3911,7 @@ paths were spelled out in the File Manager and the file dialog.
 `Pictures`, `Videos`, `Downloads`, and `Pictures/Screenshots`, made
 empty by the compositor at start; shipped content stays in `/usr/share`
 where the players and the wallpaper picker already list it. Apps ask
-`base/udirs.h` by name, and `/etc/user-dirs.conf` may move any of them.
+`base/udirs.h` by name, and `~/.config/user-dirs.conf` may move any of them.
 
 **Why this shape:**
 - **XDG user-dirs and Windows' Known Folders both separate "where the

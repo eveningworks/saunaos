@@ -297,7 +297,7 @@ All five stages, each tested red before green (`components_hostcheck`,
   set holding a library staged for the restart as a whole; the app then
   says "Restart to finish". It reads the GPL switch on the settings
   signal (`uapp_desc.on_setting`), not by polling.
-- **The view is remembered** (2026-11-09) in `/etc/software-app.conf`
+- **The view is remembered** (2026-11-09) in `~/.config/software-app.conf`
   (`view=cards|list`, a `base/uprefs.h` table -- not `/etc/software.conf`,
   which is the settings registry's file for `software.show_gpl`), and the
   details pane's Source names the channel the build came from (the

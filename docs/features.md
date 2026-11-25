@@ -386,10 +386,10 @@ pinned to the taskbar out of the box. A pin is its app's icon until the
 app runs; then the app's window button stands in its place. Unpinned
 windows follow the pins. Right-click a window's button (or an app in
 Start) for Pin to taskbar, and a pin for Unpin from taskbar; drag a pin
-to reorder them. The order is kept in `/etc/start-menu.conf`.
+to reorder them. The order is kept in `~/.config/start-menu.conf`.
 
 **Windows reopen where they were**: each app's size and position, and
-whether it was maximized or snapped, are kept in `/etc/windows.conf`,
+whether it was maximized or snapped, are kept in `~/.config/windows.conf`,
 written when a move, resize, snap or maximize ends and at close. A
 window's menu has **Forget Saved Position**; Settings > Appearance >
 Windows > Remember window size and position turns it off.

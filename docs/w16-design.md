@@ -144,13 +144,13 @@ LOUDLY and by name (below), never as a silent zero.
   SaunaOS tree, names matched without case; a program starts in its own
   folder, and the common dialogs browse both.
 - **The sandbox** (`userland/utils/w16/w16.c`): the whole tree read-only (drive
-  Z:), the person's home (`/home/user`), drive C: and `/var/lib/win16` read-write, the clipboard,
+  Z:), the person's home (`/home/user`), drive C: and `~/.local/state/win16` read-write, the clipboard,
   the compositor's and fontd's beacons by exact name, and `stdio rpath
   wpath cpath shm window settings query`; `--info` and `--check` keep
   only the file and `stdio rpath`. Settings are read BEFORE the
   sandbox, which is what decides drive C:.
-- **Settings** (`userland/common/w16prefs.c`): `/etc/win16.conf` the
-  defaults, `/etc/win16/<program>.conf` one program's overrides, keyed by
+- **Settings** (`userland/common/w16prefs.c`): `~/.config/win16.conf` the
+  defaults, `~/.config/win16/<program>.conf` one program's overrides, keyed by
   its path -- the shape of Windows' per-executable compatibility
   settings. Retro Launcher edits both and reads programs
   only through `w16 --check`, so the one parser of hostile files stays
@@ -281,7 +281,7 @@ because they drive and copy Microsoft programs):
 
 1. **w16's side: `w16vm.py start`** -- a SaunaOS VM on slot 3 from a FRESH
    copy of `disk.img` (after `make iso`; toywm remembers each app's last
-   size and place in `/etc/windows.conf`, so a reused image opens the
+   size and place in `~/.config/windows.conf`, so a reused image opens the
    program wherever it was left), the programs under test copied to
    `/home/user/Win16/sol/`, and **3.11's own fonts** -- the VGA `.FON` set
    (VGASYS, VGAFIX, VGAOEM, SSERIFE, SERIFE, COURE, SMALLE, SYMBOLE) AND

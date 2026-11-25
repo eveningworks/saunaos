@@ -13,7 +13,7 @@ where there should be one; that is the honest state and the reason the
 stage is still written below. Two things landed that this document did
 not plan, both because the choice was put to the maintainer: marking a
 SET of files, and remembering each pane's directory in
-`/etc/files.conf`. Each stage's section says what actually happened.
+`~/.config/files.conf`. Each stage's section says what actually happened.
 
 The request was "a file manager", and the interesting half of the answer
 is not the app. It is that **this system already draws a directory
@@ -321,7 +321,7 @@ gates.
 `Handles=` on `.desktop` entries; Enter on a `.txt` opens Notepad.
 The "query for who opens this" this section predicted arrived with the
 second caller (2026-08-28): `userland/libs/base/uopen.c` resolves for the
-manager AND `/bin/open`, with the user's `/etc/mimeapps.conf` override
+manager AND `/bin/open`, with the user's `~/.config/mimeapps.conf` override
 outranking the declarations (see `docs/decisions.md`).
 
 ### Later, in rough order

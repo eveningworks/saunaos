@@ -44,7 +44,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   Level cell has the theme's red, the warning's its amber, an ordinary
   row neither, from a settled screenshot), Errors shows exactly the two,
   the error reports `seen 2`, Only this message and Show the lines
-  around it, and a Mute kept in `/etc/logview.conf` (read back with
+  around it, and a Mute kept in `~/.config/logview.conf` (read back with
   `cat`) and taken out again. In `gui_regress.py`. Controls
   (`mutate.py`): the severity drawn in text colour reddens the colour
   checks; a Mute that never writes the file reddens the `/etc` check.
@@ -86,7 +86,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   changes the mode as `stat` sees it; Checksum opened at the window's
   foot shows its button and compare field at once, a sum typed BEFORE
   computing compares as a match, the field is still shown after Compute,
-  and Compute SHA-256 equals `sum -a sha256`; another app under Opens with lands in `/etc/mimeapps.conf`;
+  and Compute SHA-256 equals `sum -a sha256`; another app under Opens with lands in `~/.config/mimeapps.conf`;
   a typed name renames the file (`ls`) and retitles the window; a
   folder's Contains settles on the true recursive count. In
   `gui_regress.py`. Positive control: with `ufileinfo_chmod()`'s
@@ -104,7 +104,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   Ctrl+Shift+E turns it on and the same band repeats a darker row at the
   scanline pitch the app derives from its font, off again is plain;
   Options > Screen effect > Curved > OK curves the window, puts the
-  grid's corner on the bezel and writes `/etc/terminal.conf` (read back
+  grid's corner on the bezel and writes `~/.config/terminal.conf` (read back
   with `cat`); and a double-click where the banner's `tosh` SHOWS under
   the curve selects those 4 bytes -- the shown position from this
   tool's OWN model of the warp, so the app is not checking itself. It
@@ -692,7 +692,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   the header beside its settings button, and that a description the row
   shows whole raises NO tooltip. It also covers what PERSISTS: a pin made
   through the row's own context menu is read back from
-  `/etc/start-menu.conf` through an independent path (`sh cat`), and
+  `~/.config/start-menu.conf` through an independent path (`sh cat`), and
   then the guest is REBOOTED and asked again -- the only version of that
   check worth having. **It is the one tool that reboots its guest**, so
   `gui_regress.py` launches it with `--reboot`: the default
@@ -737,7 +737,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   only while it is offered -- the pair, so an empty result means
   something. Opens on All Apps, Recent and the last folder chosen by
   hand. Recent off: the folder gone AND `run.*` gone from
-  `/etc/start-menu.conf` (read with `sh cat`, after asserting a launch
+  `~/.config/start-menu.conf` (read with `sh cat`, after asserting a launch
   had put it there), and a launch while off unrecorded. Hover on opens a
   rested-on folder, off does not. Positive controls in its docstring.
 - **`trash_gui_test.py`** -- the Recycle Bin through the GUI: the
@@ -814,7 +814,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   `ui/uui_runask.h`, `/bin/wm/system/runask`, Terminal's `-e`) from the
   File Manager and through `/bin/open`: the "Run hello.sh?" card and
   each of its answers, the Terminal held open with the exit status and
-  closed by Ctrl+D, "Always do this" kept in `/etc/mimeapps.conf`,
+  closed by Ctrl+D, "Always do this" kept in `~/.config/mimeapps.conf`,
   Shift+Enter, the context menu's first row, a file without an execute
   bit, an ELF program, an app (no card) and `open` on a script. **Each
   act is proved by its EFFECT** -- the script touches a marker, uterm
@@ -830,12 +830,12 @@ from the default (a sound card, a USB mouse, `--reboot`).
   Always save and the Shift+Enter handler: each reddens its own check
   and only that one.
 - **`pins_gui_test.py`** -- Pin to Places (`base/upins.h`) through the
-  File Manager's context menu, read back from `/etc/places.conf` with
+  File Manager's context menu, read back from `~/.config/places.conf` with
   `cat` and from the side column's rows by PATH. **The target is
   `/usr/share/sounds`, no personal folder** (`base/udirs.h`): a lookup by
   path would find the standard place first. Its positive control
   stops the app listing pins: the row check reddens. Check 4 pins
-  `/home/user/pin-gone` through `/etc/places.conf` BEFORE the app starts (a
+  `/home/user/pin-gone` through `~/.config/places.conf` BEFORE the app starts (a
   pin is listed only while its folder exists), deletes it under the
   running app and clicks the row; its control is the tree click
   ignoring `fm_goto()`'s refusal, which lands the pane in the deleted
@@ -844,13 +844,13 @@ from the default (a sound card, a USB mouse, `--reboot`).
   (`userland/apps/apps/files/fm_places.c`): one menu per kind of row, read from the
   app's `files: placemenu <kind> <path> rows a|b|-|c` line AND the popup
   laid out; Move down, Rename pin and Unpin read back from
-  `/etc/places.conf`; Properties on System opens the VOLUME page
+  `~/.config/places.conf`; Properties on System opens the VOLUME page
   (`ui/uui_volinfo.h`) whose ring is sampled all round its middle circle
   in the window's pixels (`properties: layout ring x y d`, content-
   relative); the details pane at `/` logs `files: details volume /
   button Open in Disks`; Places as ONE list -- a default unpinned and
   restored, a row DRAGGED above Home and a folder dragged from the pane
-  into a gap, each read back from `/etc/places.conf`. **A row is found
+  into a gap, each read back from `~/.config/places.conf`. **A row is found
   by PATH in the layout's `treerow` lines, a heading by its `-`**; the
   dragged folder is `0pin`, first under `..` in any sort order.
   `--positive-control` aims Properties at `/home/user`, a folder, which gets
@@ -969,7 +969,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   <state> <got> <total> <rate>` lines. Its positive control (a Pause
   that never waits) reddens five checks. In `gui_regress.py`.
 - **`recent_gui_test.py`** -- Recent (`base/urecent.h`, `fm_recent.c`):
-  `open` on a .txt and a .jpg records both in /var/lib/recent under the
+  `open` on a .txt and a .jpg records both in ~/.local/state/recent under the
   desktop entries' names (Notepad, Image Viewer); Places has the row;
   `recent:/` lists newest first in two day bands (the layout's
   `captions` count, from a line three days old); Delete takes a row off
@@ -1129,7 +1129,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   and so need `base/uargbatch.h`'s several spawns. Its positive control
   is the build before: 64 icons in all.
 - **`folder_options_test.py`** -- the desktop following the File
-  Manager's Folder Options (`/etc/files.conf`, `base/ufolderopts.h`) and
+  Manager's Folder Options (`~/.config/files.conf`, `base/ufolderopts.h`) and
   the one double-click time (`system.double_click`, `base/udclick.h`), in
   `gui_regress.py`: extensions off and on in `gui icons` names (a folder
   keeps its name), a dot-file appearing only with `hidden=on`, thumbnails
@@ -1352,7 +1352,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   icon drawn (a pixel off the strip's colour); a click on a pin starts
   the app and its window's button stands at the pin's x, flagged
   `pinned`; an unpinned window comes after the pins; a drag puts the
-  Terminal pin first and `/etc/start-menu.conf`'s `taskbar` line says
+  Terminal pin first and `~/.config/start-menu.conf`'s `taskbar` line says
   so; an unpinned window dragged to the front stays after the pins
   WHILE HELD (the drop alone cannot show it; SKIPped on bare metal,
   which injects no press without its release); a window's button menu
@@ -1368,7 +1368,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   **`notify --wait` prints the label of the action clicked on the card**
   (the answer reaching the sender), and the answered row leaves the
   history; under Do Not Disturb a normal one has no card but is kept and
-  a critical one shows; an app set `off` in `/etc/notify.conf` keeps
+  a critical one shows; an app set `off` in `~/.config/notify.conf` keeps
   nothing, `quiet` keeps without a card, `-t` is never kept; the bell
   opens the history and clears the badge, a row's x removes it, the
   switch writes `desktop.notifications.dnd`, Clear all empties it; and
@@ -1607,7 +1607,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   bar is content. In `gui_regress.py`.
 - **`window_geometry_test.py`** -- windows come back where you left
   them (`userland/apps/system/toywm/wm_geometry.c`). Most of it drives the RESTORE half
-  from a hand-written `/etc/windows.conf` rather than from a previous
+  from a hand-written `~/.config/windows.conf` rather than from a previous
   run, on purpose: a round-trip test alone passes if both halves are
   broken the same way -- save the wrong rect, restore the wrong rect,
   get it back. Writing a known geometry and demanding exactly that one
@@ -1974,7 +1974,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   needs to START A FRESH APP TWICE, once cold and once against a
   populated cache: a second process is what proves the DISK was read
   rather than an in-memory table. Two fixture traps it paid for:
-  `/etc/files.conf` remembers the view mode, so it removes that file to
+  `~/.config/files.conf` remembers the view mode, so it removes that file to
   get the icons view rather than inheriting whatever ran last; and
   SaunaOS's `touch` does NOT move an existing file's mtime, so the
   staleness check copies a different icon over one instead -- the first
@@ -2071,10 +2071,10 @@ from the default (a sound card, a USB mouse, `--reboot`).
   (HWND_TOPMOST, a program's control-menu item) is in `w16_gui_test.py`'s
   dialog.exe checks. In `gui_regress.py`.
 - **`notepad_options_test.py`** -- Notepad Options, asserted by what
-  the options DO: OK writes `/etc/notepad.conf` (only the keys that
+  the options DO: OK writes `~/.config/notepad.conf` (only the keys that
   moved); the status bar going off gives the text its height; Tab types
   spaces to an 8-column stop and Save trims the trailing ones, read back
-  with `cat`; the saved file is ONE entry in `/var/lib/notepad/recent`;
+  with `cat`; the saved file is ONE entry in `~/.local/state/notepad/recent`;
   closing and reopening Notepad brings the tab back; Preview Always +
   Below puts the Markdown pane under the text. Opens Options by keys
   (F10, Right, `o` -- the unique letter in Edit) and clicks the rows the
@@ -2261,7 +2261,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   `WIN_EV_SUSPENDED` arrival and `taskmgr: glide off`, restoring `glide
   on`. View > Update speed is driven by the menu bar's own `menu.title`
   and `menu.item` rects: Low must give the chart a 4000 ms `interval`
-  and be saved in `/etc/taskmgr.conf`; Paused must freeze the chart (two
+  and be saved in `~/.config/taskmgr.conf`; Paused must freeze the chart (two
   settled frames 1.2 s apart identical); F5 must sample once while
   Paused; Normal, chosen last, must come back with the reopen near the
   end, which then sets High again. Two raw frames 100 ms apart are saved
@@ -2358,7 +2358,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
 - **`scummvm_data_test.py`** -- ScummVM's front (`userland/apps/apps/scummvm/`,
   `docs/sdl-design.md` stage 4): with no game, the free-games card
   (`ui/uui_datacard.h`, several at once: a click ticks and unticks); a
-  download from a mirror on loopback (`/etc/scummvm-games.conf`'s
+  download from a mirror on loopback (`~/.config/scummvm-games.conf`'s
   `mirror=`) -- **the control first**: a zip with one byte flipped is
   refused on its SHA-256 and leaves no folder, not even its `.part` --
   then Lure for real, unpacked into `/usr/share/games/lure/`, registered
@@ -2372,7 +2372,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
 - **`doom_data_test.py`** -- DOOM's front end (`userland/apps/apps/doom/`): with
   no IWAD the game-data card, a download, the launcher page, and F1's key
   sheet over a level. **The download never leaves the machine**: the
-  guest's `/etc/doom.conf` gets `mirror=` aimed at a server the tool runs
+  guest's `~/.config/doom.conf` gets `mirror=` aimed at a server the tool runs
   on loopback, serving `data/doom/doom1.wad` and (when `fetch_wad.py
   --freedoom` has run) Freedoom's zip behind a 302 to a 1100-character
   URL, GitHub's shape. The licence step is checked on the way: id's is
@@ -2565,7 +2565,7 @@ runs first**: a `doom1.wad` with one
   runs against `web_server.py`: a typed `10.0.2.2:PORT/net.html` is
   fetched over http and its SEPARATELY fetched stylesheet's red is in
   the pixels, with none lower down; a cookie the server set comes back
-  on the next page and is in `/var/lib/browser/cookies` after the window
+  on the next page and is in `~/.local/share/browser/cookies` after the window
   closes; words become a search, pointed at the same server with the
   app's `--search-url`; the server saw fewer connections than requests;
   and with the test CA fetched into `/etc/ssl/certs` by wget, https loads
@@ -2582,7 +2582,7 @@ runs first**: a `doom1.wad` with one
   stage 5): a page's process is killed and Back goes back, in a new
   process, scrolled where the page was left, and Forward returns; the
   window closed and opened again restores the tab, scroll and both
-  directions from `/var/lib/browser/session.tsv` (`forget_session()`
+  directions from `~/.local/share/browser/session.tsv` (`forget_session()`
   deletes it before any check that wants the start page). An HTTP Basic
   page on `web_server.py`'s `/auth/` opens the app's sign-in, a wrong
   password asks again, the right one loads it, a second tab is let in
@@ -2827,7 +2827,7 @@ runs first**: a `doom1.wad` with one
   `mutate.py`: the grid's draw without its flip, the log list's hit test
   without its flip, the hex grid's bar given its top mirrored. In `gui_regress.py`.
 - **`retro_list_test.py`** -- Retro Launcher's list as a person uses it,
-  on the sample programs: `view=details` in `/etc/retrolauncher.conf`
+  on the sample programs: `view=details` in `~/.config/retrolauncher.conf`
   opens the table; the search box filters by name and by FILE name (the
   query `.EXE` is in no title, description or module, so it reaches only
   the file-name term -- a first query, `wincalls`, matched the module and

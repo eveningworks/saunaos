@@ -12,7 +12,7 @@
 
 Start the program that opens a file's type -- the same resolution the
 File Manager's double-click uses (`userland/libs/base/uopen.c`): the user's
-choice in `/etc/mimeapps.conf` first, then whichever `.desktop` entry
+choice in `~/.config/mimeapps.conf` first, then whichever `.desktop` entry
 declares the extension in its `Handles=` list. A directory opens in the
 File Manager. The handler is spawned and not waited for, so `open`
 returns at once and prints nothing on success.
@@ -29,7 +29,7 @@ Manager, or with `smb login`.
 A PROGRAM OR A SCRIPT is run instead of opened, before any extension is
 looked at (`userland/libs/base/ulaunch.h`): an ELF with a window -- a desktop
 entry runs it, or it lives under `/bin/wm` -- starts at once; any other
-ELF program or `#!` script does what `/etc/mimeapps.conf`'s
+ELF program or `#!` script does what `~/.config/mimeapps.conf`'s
 `application/x-executable` / `application/x-shellscript` key says
 (`terminal`, `run`, `edit` for a script), and with no key -- or when the
 file has no execute bit or its interpreter is missing -- asks through

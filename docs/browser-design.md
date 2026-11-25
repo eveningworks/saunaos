@@ -244,7 +244,7 @@ NULL. NetSurf runs six fetches at once and six per host
 (`max_fetchers`, `max_fetchers_per_host`; its default was 24 threads).
 
 **The app**: cookies and the global history are kept in
-`/var/lib/browser` (`cookies`, `history`) -- the place every app's kept
+`~/.local/share/browser` (`cookies`, `history`) -- the place every app's kept
 state has, not the personal folders, which hold a person's documents
 (Firefox and Chrome keep theirs in `~/.config`/`%APPDATA%` too). The
 cache stays in memory: NetSurf's disk cache was left out in stage 0.
@@ -392,7 +392,7 @@ none.
 
 **Built: bookmarks and history**, in a sidebar left of the page
 (Ctrl+B, Ctrl+H), as Firefox has them. Bookmarks are NetSurf's hotlist,
-kept in its own HTML file at `/var/lib/browser/bookmarks` -- started
+kept in its own HTML file at `~/.local/share/browser/bookmarks` -- started
 EMPTY rather than with NetSurf's default links -- and history is its URL
 database, the pages browsed to, newest first under a heading per day.
 Both are drawn by a toolkit widget, `ui/uui_entrylist.h` (entries under
@@ -596,7 +596,7 @@ its commit arrives. 50 entries, Chrome's `kMaxSessionHistoryEntries`. A
 stopped or unloaded view goes Back by starting a process for the entry.
 
 **The tabs survive a restart** (`apps/apps/browser/ns_session.c`, Firefox's
-sessionstore): `/var/lib/browser/session.tsv`, every tab's list and
+sessionstore): `~/.local/share/browser/session.tsv`, every tab's list and
 which was in front, rewritten two seconds after a title or address
 changes and when the window closes. Restored tabs start unloaded but
 the one in front; a page named on the command line opens in a tab of
@@ -692,7 +692,7 @@ when it creates an HTML content, so `wc_js.c` wraps
 hooks) and sets it for THAT content's own host: the site's exception,
 else `browser.javascript`. An iframe is decided by its own site --
 NoScript's rule; Chrome keys on the top frame's. The exceptions are the
-APP's (`/var/lib/browser/permissions`, `net/usiteperm.h`), pushed whole
+APP's (`~/.local/share/browser/permissions`, `net/usiteperm.h`), pushed whole
 to every content process (`WV_PERMS`) after HELLO and on each change; a
 change reloads the page it was made on. The engine reports whether its
 page's scripts ran and how many `<script>` elements it has

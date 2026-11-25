@@ -190,7 +190,7 @@ Every stage keeps the interpreter as the reference:
   against the host CPU and the interpreter both;
 - `tools/bench/cpu16_bench.py`'s checksum must stay equal, and its MIPS
   is the number to beat;
-- a `jit=off` program setting (the `/etc/win16/<program>.conf` file
+- a `jit=off` program setting (the `~/.config/win16/<program>.conf` file
   Lighthouse already has) and a `--no-jit` switch, so a program the JIT
   breaks still runs, and a bug can be bisected to it.
 

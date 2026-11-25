@@ -861,7 +861,7 @@ built, check whether its reason is still true before believing it.**
 
 ## RING-3 HISTORY PERSISTS, AND IT APPENDS RATHER THAN REWRITING
 
-`/etc/tosh_history`, and both halves of that are decisions.
+`~/.local/state/tosh_history`, and both halves of that are decisions.
 
 **A DIFFERENT FILE FROM THE KERNEL SHELL'S**, which writes
 `/etc/history`. bash and zsh keep separate histories for the same

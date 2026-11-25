@@ -30,7 +30,7 @@ game in `/home/user/.local/share/games` or `/usr/share/games` it adds any new on
 ScummVM's launcher; with none, or as **Free Adventure Games**
 (`/bin/wm/apps/scummvm --games`), it shows a card that downloads the four
 freeware games, each checked against the SHA-256 ScummVM publishes, and
-starts ScummVM when they are in. `mirror=` in `/etc/scummvm-games.conf`
+starts ScummVM when they are in. `mirror=` in `~/.config/scummvm-games.conf`
 fetches them from another server.
 
 Its list and options are `/home/user/.config/scummvm/scummvm.ini`, its saves

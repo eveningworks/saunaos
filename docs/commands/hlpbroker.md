@@ -34,7 +34,7 @@ which `w16`'s sandbox keeps it from writing. The FIRST line is `PROGRAM`
 and the program's absolute path, written by `w16` before its sandbox
 closes and never taken again; a later `EFFECT` line with `off`,
 `subtle`, `soft`, `classic` or `curved` (the CRT presets' words) sets
-that program's `effect` and `crt_*` keys in `/etc/win16/<program>.conf`,
+that program's `effect` and `crt_*` keys in `~/.config/win16/<program>.conf`,
 and `custom` turns the effect on with the look the file already holds;
 nothing else is written.
 

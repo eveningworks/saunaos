@@ -720,7 +720,7 @@ this the obvious way), not from how much history it accumulated.
   window, and the real answer is on the roadmap.
 
 - **AN APP'S OWN PREFERENCES ARE THE APP'S, NOT THE SETTINGS REGISTRY'S
-  -- `/etc/terminal.conf` IS THE FIRST.**
+  -- `~/.config/terminal.conf` IS THE FIRST.**
 
   Everything with a knob in this system registers a setting and gets a
   row in System Settings for free (`api/setting.h`), and that stays
@@ -732,7 +732,7 @@ this the obvious way), not from how much history it accumulated.
   here would put a ring-3 app's appearance in ring 0.
 
   The file is `etc_config`'s format through `base/uconf.h`, so `edit
-  /etc/terminal.conf` and `config` read it like any other and there is
+  ~/.config/terminal.conf` and `config` read it like any other and there is
   no second parser. `userland/apps/apps/terminal/` holds it: the emulator is one
   translation unit, the configuration and the dialog are two more, linked
   in because every `.c` in a program's directory is (`component.mk`).
@@ -1412,7 +1412,7 @@ this the obvious way), not from how much history it accumulated.
   get dismiss-on-input for free, and neither can strand the screen.
 - **A SAVER'S OPTIONS ARE A DATA FILE BESIDE IT, AND SYSTEM SETTINGS
   GENERATES THE CONTROLS FROM IT.** `/usr/wm/savers/<name>.saver`
-  declares what a saver lets you change and `/etc/savers/<name>.conf`
+  declares what a saver lets you change and `~/.config/savers/<name>.conf`
   holds what it is set to; `userland/libs/base/usaver.h` is the one parser,
   compiled into the saver and into System Settings alike. Adding an
   option is a line of text in the descriptor plus the code that reads
@@ -2124,7 +2124,7 @@ this the obvious way), not from how much history it accumulated.
   `tools/tests/gui/notify_test.py`.
 - **A WINDOW'S PLACEMENT IS SAVED WHEN A CHANGE ENDS, AND A RESTORED
   STATE WAITS FOR THE CLIENT'S HINTS.** `userland/apps/system/toywm/wm_geometry.c`
-  writes `/etc/windows.conf` at a drag's and a resize's end, on a snap
+  writes `~/.config/windows.conf` at a drag's and a resize's end, on a snap
   or maximize, and at close -- never per frame -- and skips an unchanged
   line. A client's size at a resize's end is its last PROPOSAL
   (`wm_geometry_save_size()`), not the `w`/`h` it has not adopted. A
@@ -2520,7 +2520,7 @@ this the obvious way), not from how much history it accumulated.
   been pinned or launched yet; `desktop.start.opens` can name Recent,
   All Apps or the last folder used instead.
 - **WHAT IS PINNED AND WHAT HAS BEEN LAUNCHED IS KEYED BY APP ID**, in
-  `/etc/start-menu.conf` (`userland/apps/system/toywm/start_store.h`). Not by name and
+  `~/.config/start-menu.conf` (`userland/apps/system/toywm/start_store.h`). Not by name and
   not by row: both move -- a rename, and every reload's re-sort -- and
   the desktop's Name-keyed icon positions already pay that price. A
   launch is recorded in `open_app()`, the ONE place a launcher starts
@@ -2688,7 +2688,7 @@ this the obvious way), not from how much history it accumulated.
 ## A WINDOW'S GEOMETRY IS REMEMBERED PER APP, KEYED BY `wm_app_key()` -- NEVER `app_identity`
 
 `userland/apps/system/toywm/wm_geometry.c` saves position and size in
-`/etc/windows.conf` and applies them at create time, for kernel-space
+`~/.config/windows.conf` and applies them at create time, for kernel-space
 apps and ring-3 clients alike. The key is `wm_app_key()`: the program's
 path, and its sub-id when one executable runs several programs
 (`/bin/w16:w16-hello`); a line under the bare declared `app_id` is
@@ -2823,7 +2823,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
 
 - **AN EFFECT'S OWN OPTIONS ARE A DESCRIPTOR, THE WAY A SCREENSAVER'S
   ARE.** `/usr/wm/effects/<name>.effect` declares what an effect lets
-  you change and `/etc/effects/<name>.conf` holds the values -- the same
+  you change and `~/.config/effects/<name>.conf` holds the values -- the same
   format, the same parser (`usaver_load_files()`) and the same reason as
   `/usr/wm/savers`: an option belongs to ONE effect, and a flat setting
   in `/etc/settings.d` cannot say so. `shatter`'s piece count would
@@ -4250,7 +4250,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
 
   **`g_single`/`g_tree_on` DEFAULT TO 1 AND ARE PERSISTED**, so the
   compiled-in value decides a machine's first run only; after that
-  `/etc/files.conf` wins, which is what makes changing it safe. Ten
+  `~/.config/files.conf` wins, which is what makes changing it safe. Ten
   things to know, the first being where
   they are: **the app is SIX translation units** -- `files.c` is the
   menus, the commands, input and `main()`; `userland/apps/apps/files/` holds the view,
@@ -4283,7 +4283,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
     cannot say where two panes are, and the active one is drawn in the
     accent colour -- "which pane does F5 copy FROM" has to be answerable
     without asking.
-  - **Each pane's directory is remembered in `/etc/files.conf`**, the
+  - **Each pane's directory is remembered in `~/.config/files.conf`**, the
     per-app config convention's second user after `desktop.conf`. An
     explicit command-line argument WINS and is not saved: it is a
     statement about that launch.
@@ -4295,7 +4295,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
     hidden pane's directory, which keeps existing; "Folder tree" adds a
     lazy `uui_tree` column on the left whose rows navigate the active
     pane, with only user-expanded directories ever listed. All four
-    choices persist in `/etc/files.conf`
+    choices persist in `~/.config/files.conf`
     (`left_view`/`right_view`/`panes`/`tree`). The menu ticks its
     active options (`item_flags`), and a `uui_toolbar` under the bar
     presents Up/Refresh plus the four toggles through the same
@@ -4356,9 +4356,9 @@ real scanout hardware does. Do not write a pixel assertion for one.
     `mkdir` in one pane left the other pane, showing the same folder,
     stale.
 - **WHAT OPENS A FILE TYPE IS DECLARED BY THE APP THAT OPENS IT --
-  AND THE USER'S CHOICE IN `/etc/mimeapps.conf` OUTRANKS IT.**
+  AND THE USER'S CHOICE IN `~/.config/mimeapps.conf` OUTRANKS IT.**
   `Handles=.txt .md .conf` on the app's `.desktop` entry declares;
-  `/etc/mimeapps.conf` (`.jpg=imgview`, a desktop-entry name, a
+  `~/.config/mimeapps.conf` (`.jpg=imgview`, a desktop-entry name, a
   literal `/path`, or `-` for cleared) overrides -- freedesktop's
   declarations-vs-`mimeapps.list` split, resolved by
   `userland/libs/base/uopen.c` with NO daemon (Linux and KDE run none
@@ -4382,7 +4382,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   BY AN OPENER BY HAND.** Anything that starts a file a person picked
   asks `ulaunch_classify()` first (an ELF program or a `#!` script, by
   content and mode), honours `ulaunch_policy()` (the user's "Always do
-  this", kept in `/etc/mimeapps.conf`), and asks with `ui/uui_runask.h`
+  this", kept in `~/.config/mimeapps.conf`), and asks with `ui/uui_runask.h`
   -- or `/bin/wm/system/runask` when it has no window -- otherwise. An
   opener that spawned an executable itself would skip the execute-bit
   check the card exists to make, and a fourth answer to "what does a
@@ -6100,10 +6100,10 @@ wait (0.6-1.7 s frames, measured). The WM's pollers compare a TOPIC
 counter from `userland/apps/system/toywm/wm_watch.h` instead: `WM_TOPIC_SETTINGS` moves
 on `WIN_EV_SETTING` (the registry's generation bump, pushed), the path
 topics on `WIN_EV_FSWATCH` from a `SYS_FS_WATCH` on `/etc`,
-`/etc/effects`, `/usr/wm/applications` and `/home/user/Desktop`. A new
+`~/.config/effects`, `/usr/wm/applications` and `/home/user/Desktop`. A new
 config poller picks a topic, or adds one with its path; it never reads
 the fs generation. The watch is on a directory's DIRECT children, so a
-file two levels down needs its own topic (that is why `/etc/effects` is
+file two levels down needs its own topic (that is why `~/.config/effects` is
 separate from `/etc`). Hand edits are covered by the directory watch;
 the registry's own writes arrive both ways, which is harmless.
 
@@ -6187,7 +6187,7 @@ and fails on anything appearing.
 ## A CLIENT HOLDS ITS OWN MINIMUM: `uapp` CLAMPS A PROPOSED SIZE TO `min_w`/`min_h`
 
 TWS clamps a resize proposal to the minimum a client declared in its
-hints -- but a size remembered in `/etc/windows.conf` is proposed at
+hints -- but a size remembered in `~/.config/windows.conf` is proposed at
 CREATE, before those hints arrive, so it can be anything. `uapp`'s
 `WIN_EV_RESIZE` handler therefore raises a proposal to `desc.min_w` and
 `min_h` before resizing; the client commits its own size (Wayland's
@@ -6534,7 +6534,7 @@ word is not built.
 ## THE DESKTOP FOLLOWS THE FILE MANAGER'S FOLDER OPTIONS (`base/ufolderopts.h`)
 
 Single click, thumbnails and their size cap, hidden files, extensions
-and asking before a delete are ONE table in `/etc/files.conf`, which the
+and asking before a delete are ONE table in `~/.config/files.conf`, which the
 File Manager's Options window edits and the desktop only reads --
 Explorer's Folder Options, which set both. Add an option the desktop
 should obey to that table, not to the File Manager's own `struct
