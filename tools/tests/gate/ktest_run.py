@@ -45,12 +45,12 @@ from serial_console import DEFAULT_PORT, SerialGuest  # noqa: E402
 import test_history  # noqa: E402
 from host_latency import shallow_idle  # noqa: E402
 
-# A HANG GUARD, sized in HOST seconds against a suite that reports ~40 s
-# of GUEST time: under TCG the guest clock lags a loaded host, and a
-# 60 s guard once expired at 65 s host time on a transcript that already
-# held "ktest: PASSED ... in 40.3s" (1 run in 6, 2026-09-11). Twice the
-# suite's own reading is still a hang guard, not a budget.
-DEFAULT_TIMEOUT = 120.0
+# A HANG GUARD, in HOST seconds, kept well clear of what the suite takes:
+# under TCG the guest clock lags a loaded host, and the suite grows with
+# every KTEST. A guard near a normal run reads a slow PASS as a hang -- it
+# did twice (2026-09-11, and 2026-11-25 with a 118 s PASS against 120 s).
+# The PASS line prints the suite's own time; keep this a few times that.
+DEFAULT_TIMEOUT = 300.0
 
 
 def fail(message, facts):
