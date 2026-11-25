@@ -674,14 +674,13 @@ static void wallpaper_reload(void) {
     if (usetting_get("desktop.wallpaper.mode", v, sizeof v) && v[0])
         k_strlcpy(mode, v, sizeof mode);
 
-    // THE TYPE AND THE PLAIN COLOUR. "none" is what a plain background
-    // was before the type existed, and still reads as one.
+    // THE TYPE AND THE PLAIN COLOUR.
     char type[16] = "picture";
     if (usetting_get("desktop.wallpaper.type", v, sizeof v) && v[0])
         k_strlcpy(type, v, sizeof type);
     uint32_t plain = ulivewall_colour(
         usetting_get("desktop.background_colour", v, sizeof v) ? v : "blue");
-    int plain_only = k_strcmp(type, "colour") == 0 || k_strcmp(name, "none") == 0;
+    int plain_only = k_strcmp(type, "colour") == 0;
     if (plain != g_plain_rgb || plain_only != g_plain_only) {
         g_plain_rgb = plain;
         g_plain_only = plain_only;
@@ -719,7 +718,7 @@ static void wallpaper_reload(void) {
     // thread that owes the next frame.
     if (!name_changed && wallpaper_loaded) return;
 
-    if (!name[0] || k_strcmp(name, "none") == 0) {
+    if (!name[0]) {
         uui_image_set(&wallpaper_view, NULL);
         if (wallpaper_loaded) {
             uimg_free(&wallpaper_src);
@@ -834,7 +833,7 @@ static void wall_install(void) {
 static void wall_poll(void) {
     if (uworker_take(&wall_job.job)) wall_install();
     if (uworker_busy(&wall_job.job)) return;
-    if (!wallpaper_name[0] || k_strcmp(wallpaper_name, "none") == 0) return;
+    if (!wallpaper_name[0]) return;
     // A NEW SCREEN SIZE ASKS AGAIN: its picture may have a better size --
     // once it is drawn; a plain colour defers it. (A live background
     // does not: the picture is its fallback.)

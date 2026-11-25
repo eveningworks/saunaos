@@ -111,10 +111,10 @@ existing ones without renumbering.
 | `Otherwise` | The value the setting READS as while `Requires` is unmet -- what GET answers and a UI shows. The file keeps the stored choice, so meeting the requirement again brings it back. `desktop.taskbar.align` is the example: centred while Start is. |
 | `WhenUnmet` | `hide`: while `Requires` names a setting ON THE SAME PAGE, System Settings shows this row only while that setting's STAGED value meets it -- so a switch swaps the rows under it as it is clicked, before Apply (the Wallpaper page's Background). Without it an unmet row greys. Apply writes the page in `Order`, so give the switch the lowest. |
 
-`Choices` and `ChoiceDir` **compose**, in that order: the
-wallpaper declares `Choices=none` beside a `ChoiceDir`, which is how
-"No wallpaper" sits ahead of a directory the declaration knows nothing
-about.
+`Choices` and `ChoiceDir` **compose**, in that order, so a fixed
+choice can sit ahead of a directory the declaration knows nothing
+about. No declaration uses both today (a plain background is
+`desktop.wallpaper.type=colour`, not a wallpaper named `none`).
 
 **A value is validated against the declaration**, exactly as the kernel
 registry validates its own: an `int` must parse and fall inside

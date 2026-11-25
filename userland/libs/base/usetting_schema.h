@@ -69,8 +69,7 @@ struct uschema {
     char def[SETTING_ABI_VALUE_MAX];   // Default=, when the key is absent
     char unit[SETTING_ABI_UNIT_MAX];
     // The literal options, comma-separated as written. They come FIRST
-    // in the choice list, so `Choices=none` beside a ChoiceDir is how
-    // the wallpaper offers "none" ahead of the pictures.
+    // in the choice list, ahead of a ChoiceDir's entries.
     char choices[SETTING_ABI_VALUE_MAX * 4];
     // ONE OR MORE directories, comma-separated, listed in that order --
     // the live wallpapers are programs and animated pictures. Wider than
@@ -162,8 +161,8 @@ void uschema_invalidate(void);
 // asking for a count first.
 //
 // The list is the literal `Choices=` first, then `ChoiceDir=`'s
-// entries. Composing rather than choosing lets the wallpaper's "none"
-// sit ahead of a directory it knows nothing about.
+// entries. Composing rather than choosing lets a fixed choice sit ahead
+// of a directory it knows nothing about.
 //
 // THERE IS NO `ChoiceFile=` HERE, though `struct setting` has one. No
 // declaration needs it -- the only setting whose options are a file is

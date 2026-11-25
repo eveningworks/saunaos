@@ -447,7 +447,7 @@ static int g_wi_w, g_wi_h;
 static int wallpaper_info(char *stem, int cap, int *iw, int *ih) {
     static const char *const EXT[] = { "jpg", "gif", "png", "qoi" };
     page_value("desktop.wallpaper", stem, cap);
-    if (!stem[0] || !strcmp(stem, "none")) return 0;
+    if (!stem[0]) return 0;
     char dir[PICKED_MAX], name[PICKED_MAX], key[PICKED_MAX];
     wallpaper_picked(stem, dir, sizeof dir, name, sizeof name);
     snprintf(key, sizeof key, "%s/%s", dir, name);
