@@ -107,7 +107,6 @@ a command), and the `gui3`/`nano` aliases.
 - [`touch`](touch.md)
 - [`trash`](trash.md)
 - [`truncate`](truncate.md)
-- [`utf8migrate`](utf8migrate.md)
 - [`write`](write.md)
 
 ### System information

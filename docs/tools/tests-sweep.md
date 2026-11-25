@@ -3172,18 +3172,6 @@ report is ON only after `enter_gui()`").
   ON DEMAND: two boots against a COPY of `disk.img` (never the real
   one), and it SKIPS cleanly without `mtools`. Needs `dosfstools` for
   the audit half.
-- **`utf8migrate_boot_test.py`** -- the `utf8migrate` SERVICE across two
-  boots, judged on the HOST. A copy of `disk.img` gets Latin-1 names and
-  contents written by `tfs3_writer` (raw bytes the serial console could
-  not type), boots, shuts down cleanly and is read back on the host: the
-  name and the bytes converted, an already-UTF-8 file untouched, the
-  marker and the log written; a second boot must log "nothing to do" and
-  leave the disk as it was. `/tests/utf8migrate_test` (usertest) covers
-  the program's rules over a fixture with `--root`; this covers what it
-  cannot -- that the boot runs it, over the real root, once.
-  `--positive-control` deletes the service's descriptor from the copy,
-  and the conversion checks go red. `ondemand_sweep.py`; two boots, about
-  a minute.
 - **`w16_install_test.py`** -- `w16 --install` and the Install Windows 3.x
   dialog in a guest booted from a fresh image, from `gen_win3_disks.py`'s
   synthetic floppy images and folder. The CLI: `--dry-run` plans every file

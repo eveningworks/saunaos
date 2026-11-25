@@ -407,7 +407,6 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `usb_multi_test.py` -- USB on TWO xHCI controllers, each driven as its own bus
 - `usb_storage_test.py` -- USB sticks on QEMU: bulk-only transport, quick removal, a pull, a re-plug
 - `usb_test.py` -- USB: an xHCI controller, and a HID boot keyboard and mouse
-- `utf8migrate_boot_test.py` -- The utf8migrate SERVICE across two boots, judged on the host
 - `virtio_boot_test.py` -- Boot SaunaOS with NO IDE controller and its filesystem on virtio-blk
 - `virtio_gpu_test.py` -- the virtio GPU, end to end
 - `virtio_input_test.py` -- virtio keyboard, mouse and tablet

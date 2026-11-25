@@ -26,9 +26,7 @@ or reads it: the GUI decodes every string (a stray Latin-1 byte draws
 as its letter), a typed key is a codepoint and reaches a terminal as
 its UTF-8, the Terminal's cells and the shell's line editor step by
 character, and the kernel console decodes UTF-8 onto its Latin-1 font
-(`?` past it). On disk too: a machine updated from Latin-1 converts its
-old file names and text files once, at the next boot (`utf8migrate`,
-logged in `/var/log/utf8migrate.log`), and FAT32, exFAT and SMB names
+(`?` past it). On disk too: FAT32, exFAT and SMB names
 cross as UTF-16 both ways. PIT, CMOS RTC, PC speaker, MBR/GPT partition parsing.
 The installed `grub.cfg` is edited from inside the OS by `bootcfg`
 (grubby's shape, plus a visudo-style `edit`), checked before it is saved

@@ -1,5 +1,5 @@
 // Tests for api/kutf8.h's whole-string helpers: validity, the Latin-1
-// conversion utf8migrate makes once, and the UTF-16 converters exFAT,
+// conversion, and the UTF-16 converters exFAT,
 // FAT32 and SMB share.
 #include "ktest.h"
 #include "kutf8.h"

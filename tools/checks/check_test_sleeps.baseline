@@ -183,7 +183,6 @@
 1 tools/tests/sweep/usb_storage_test.py
 23 tools/tests/sweep/usb_test.py
 67 tools/tests/gui/uterm_test.py
-1 tools/tests/sweep/utf8migrate_boot_test.py
 9 tools/tests/gui/video_test.py
 7 tools/tests/sweep/virtio_gpu_test.py
 8 tools/tests/sweep/virtio_input_test.py

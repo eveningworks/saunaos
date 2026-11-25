@@ -278,6 +278,11 @@ paste as themselves into any field.
 
 ### Step 3 -- the disk
 
+**`utf8migrate` was REMOVED on 2026-11-25** with the other one-time
+migrations: every machine that needed the conversion had run it, and
+nobody else runs SaunaOS (`docs/decisions/build.md`, "No migration code
+for a machine nobody runs"). What follows is what it did.
+
 - BUILT: **the conversion, once, at the first boot after the update** --
   `/bin/utf8migrate`, a one-shot service (`data/etc/services.d/utf8migrate`,
   `Restart=no` + `Ready=notify`, `Before=` every other service by name,

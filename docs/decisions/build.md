@@ -3035,3 +3035,37 @@ existing boot path to preserve, and a machine whose GOP is small is covered
 by the Intel driver taking the panel's own size (`docs/conventions/kernel.md`,
 the Intel display entry) -- on any other GPU, `bootcfg resolution` and
 `videoinfo` are the remedy.
+
+## No migration code for a machine nobody runs
+
+**Decided 2026-11-25 by the maintainer**, while moving `user`'s home from
+`/home` to `/home/user` (users stage D1): SaunaOS has no users outside
+its own test machines, so a change to the disk's layout or a settings
+file's format ships WITHOUT a one-time migration. The machines are
+reflashed or given a fresh image, and the one machine whose disk is
+carried forward -- the ASUS laptop -- is moved by hand, once, over
+`tools/dev/remote.py`.
+
+**What real systems do.** Debian's maintainer scripts and Fedora's
+`%post` migrate an installed system's data across an upgrade, and keep
+the code for about one release before dropping it (Debian supports an
+upgrade only from the release before). Windows' setup migrates whole
+profiles. Both have millions of installs they cannot reflash.
+
+**Why not here.** The migrations already written -- `utf8migrate`
+(Latin-1 names and files), `bootmigrate` (`/boot/boot` up to `/boot`),
+the old setting names before the dotted ones, the lower-case personal
+folders, the old window-size keys and Places formats -- each cost a
+service or a fallback path, its tests, its docs and a place in the boot
+order, for a disk state that existed on one laptop for a day. Each ran
+once on the ASUS and then only ever answered "nothing to do". A public
+`v0.x` release is a snapshot, not an upgrade promise.
+
+**What is NOT a migration, and stays:** a fallback for booting an OLDER
+KERNEL under today's userland -- libc's path for a kernel without
+`SYS_STATX`, init's for one without `SPAWN_CREDS`. GRUB's fallback entry
+(`kernel=previous`) boots `kernel.old` after a failed update on any
+machine, so that pairing is live, not historical.
+
+**Revisit** when someone other than the maintainer runs SaunaOS on a
+disk they cannot reimage.

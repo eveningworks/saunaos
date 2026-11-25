@@ -165,8 +165,8 @@ def main():
                          (reboot.stdout + reboot.stderr).strip()[-120:]):
             return 1
         # POLLED, bounded: the debug console answers before init has
-        # started the services, and every boot now waits first for the
-        # utf8migrate one-shot -- read once at "up 1.2s", ps listed neither.
+        # started the services, and every boot waits first for the
+        # `owners` one-shot -- ps lists nothing until it has run.
         ps = ""
         deadline = time.time() + 30
         while time.time() < deadline:

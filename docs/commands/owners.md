@@ -20,7 +20,7 @@
 
 Gives the system volume's files the owners and modes `/etc/owners.conf`
 says (`docs/users-design.md`, stage C). It runs at EVERY boot as the
-`owners` service, after `utf8migrate` and before the desktop and the
+`owners` service, first and before the desktop and the
 shells, because two things would otherwise go wrong:
 
 - **an old disk is root's throughout** -- an inode written before stage C

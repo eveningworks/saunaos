@@ -60,7 +60,7 @@ one-shot is down either way and the code is the only thing left that
 says whether it worked. `After=` on a one-shot means "after it was
 SPAWNED" -- unless it also declares `Ready=notify`: then its EXIT
 releases the barrier (a one-shot that has had its run can never
-announce, so init stops waiting), which is how `utf8migrate` makes the
+announce, so init stops waiting), which is how `owners` makes the
 whole boot wait for it without ever calling `sys_notify_ready()`. **A
 service held at a barrier does not hold the ones `After=` IT** -- they
 are launch order only -- so such a one-shot names every service it must

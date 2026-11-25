@@ -4,15 +4,13 @@
 # docs/commands/owners.md). The /home walk runs once per change of the
 # file; /var/lib/owners holds its hash.
 #
-# AFTER utf8migrate, which may rename what this would walk, and BEFORE
-# the desktop and the shells, which write /etc and /home as `user`.
-# `Ready=notify` that never announces: its exit releases them, as
-# utf8migrate's does (README.md, "Ready=").
+# FIRST, BEFORE EVERY OTHER SERVICE BY NAME -- the desktop and the
+# shells write /etc and their home as `user`. `Ready=notify` that never
+# announces: its exit releases them (README.md, "Ready=").
 Name=owners
 Description=Give system files their owners
 Exec=/bin/owners
 Restart=no
 Ready=notify
 ReadyTimeout=60000
-After=utf8migrate
-Before=automountd clipboardd devices firstboot fontd installer kdfiled logd netd netheal ntpd remoted screentrial smbfsd snddrv soundd tosh toywm autovt
+Before=automountd autovt bootmigrate clipboardd devices firstboot fontd installer kdfiled logd netd netheal ntpd privd remoted screentrial smbfsd snddrv soundd tmpfs tosh toywm

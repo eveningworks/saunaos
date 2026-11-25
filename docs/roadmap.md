@@ -379,7 +379,7 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [x] ~~Keyboard layout files emitting codepoints, not Latin-1 bytes~~ DONE 2026-10-28 -- dead keys past U+10FFFF, the key path 32 bits
 - [x] ~~Layouts waiting on codepoints: Estonian, Latvian, Polish, Romanian~~ DONE 2026-10-28 -- 25 layouts
 - [x] ~~Filesystem path handling (both backends) audited for multi-byte names~~ DONE 2026-10-28 -- FAT32, exFAT, SMB via `kutf8.h`
-- [x] ~~A migration story for existing Latin-1 content on disk~~ DONE 2026-10-28 -- `/bin/utf8migrate`, a one-shot boot service
+- [x] ~~A migration story for existing Latin-1 content on disk~~ DONE 2026-10-28 -- `/bin/utf8migrate` (removed 2026-11-25)
 - [ ] Audit every `char`-sized assumption first
 - [x] ~~Decide the internal representation~~ DONE 2026-10-28 -- UTF-8 in every `char *`, decoded at the edges
 - [x] ~~Column width vs byte length vs codepoint count~~ DONE 2026-10-28 -- `utext`, the terminal's cells, `uline_paint()`

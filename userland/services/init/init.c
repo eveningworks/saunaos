@@ -165,8 +165,8 @@ static int g_arrived;  // a scan added a fresh descriptor
 // a descriptor may name a service whose file has not been read yet, so
 // resolving as we parse would depend on listdir order, which is exactly
 // what this feature exists to stop depending on. A list that fills the
-// field is LOGGED, because a cut one names half a service (utf8migrate's
-// Before= lost "netd" at 64 bytes).
+// field is LOGGED, because a cut one names half a service (a one-shot's
+// Before= once lost "netd" at 64 bytes).
 #define SVC_DEPS_MAX   256
 
 // A service that dies within this of starting counts as a FAST failure,
