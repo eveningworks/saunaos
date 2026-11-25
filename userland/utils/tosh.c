@@ -430,7 +430,13 @@ int main(int argc, char **argv) {
     // A SHELL LEADS ITS OWN GROUP. Started by init, this shell would
     // otherwise be in init's, and putting init's group in front of the
     // console would point every Ctrl-C at pid 1.
+    // AND A SHELL THAT WAS IN FRONT STAYS IN FRONT (bash's init_job_stuff):
+    // started inside another program's job -- `sudo /bin/tosh` -- this
+    // leaves that group for a new one, which nothing else would put in
+    // front of the terminal, and its first read would wait forever.
+    int was_front = sys_tcgetpgrp(0) == sys_getpgid(0);
     sys_setpgid(PGID_SELF, PGID_SELF);
+    if (was_front) sys_tcsetpgrp(0, sys_getpgid(0));
     // AND IGNORES SIGINT, which every real shell does. Whenever no job
     // is running, this shell's own group is the console's foreground
     // group -- so a SIGINT sent by hand (`kill -INT`) would end the

@@ -327,7 +327,9 @@ def sign_in(t, host):
     /bin/tosh` and the same password -- what every command here assumed of
     the old root telnet. A machine with no password gives a shell at once,
     and this does nothing."""
-    if b"login:" not in t.buf:
+    # THE PROMPT MAY COME IN A LATER PACKET than the option bytes the
+    # settle read caught: wait for it, or for a shell's prompt.
+    if _wait_for(t, [b"login:", b"$ ", b"# "], timeout=8.0) != b"login:" and b"login:" not in t.buf:
         return
     account, pw = login_for(host)
     if not pw:

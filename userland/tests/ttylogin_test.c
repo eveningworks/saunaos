@@ -107,6 +107,14 @@ int main(void) {
     sys_sleep_ms(1500);
     say("id\n");
     utest_checkf(expect("uid=1000", 15000), "the right one starts the shell as user, not root");
+    // ROOT FROM THERE, as tools/dev/remote.py makes its session: sudo's
+    // password, then a root shell that takes this terminal's keys.
+    say("sudo /bin/tosh\n");
+    utest_check(expect("password for user", 10000), "sudo /bin/tosh asks for user's password");
+    say(PW "\n");
+    sys_sleep_ms(1500);
+    say("id\n");
+    utest_checkf(expect("uid=0", 15000), "...and the root shell answers on this terminal (%.200s)", g_out);
     stop();
 
     utest_check(upriv_passwd("user", 0, "") == 0, "the password is removed again");
