@@ -494,7 +494,6 @@ static void rename_from_toy_os(void) {
     static const char *const moves[][2] = {
         { "/etc/toyos.conf",     "/etc/saunaos.conf" },
         { "/var/log/toyos.log",   "/var/log/saunaos.log" },
-        { "/var/log/toyos.log.1", "/var/log/saunaos.log.1" },
     };
     for (unsigned i = 0; i < sizeof moves / sizeof moves[0]; i++) {
         if (!fs_exists(moves[i][0]) || fs_exists(moves[i][1])) continue;

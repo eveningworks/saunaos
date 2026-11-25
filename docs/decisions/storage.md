@@ -2579,22 +2579,22 @@ old tree -- bootable after every step, the old core reading the old tree
 until the new core is written (`base/ubootlayout.h`).
 
 **(The move below, `bootmigrate`, `install --migrate` and
-`base/ubootlayout.h`, was removed on 2026-11-25, once no machine had the
-old tree: decisions/build.md, "No migration code for a machine nobody
+`base/ubootlayout.h`, went in the /boot/boot move's removal (1acb73b5),
+once no machine had the old tree: decisions/build.md, "No migration code for a machine nobody
 runs".)**
 
 **It ran as a boot service (`bootmigrate`), not inside System Update**,
 because the update that delivers it is applied by the PREVIOUS updater,
 and the payload whose `core.img` reads `/grub` only lands at the reboot
 after it -- a `postinst` that re-runs `grub-install`, Debian's grub-pc
-shape, moved to the first boot. Three things keep that hop safe:
-`update_server.py` still names the kernel `/boot/boot/kernel.bin`, which
-the old updater installs exactly as before; the current updater ignores
-that path and installs where the machine's GRUB reads (`ubootlayout_dir()`),
-so a machine the service has not moved yet still updates; and
+shape, moved to the first boot. Three things kept that hop safe:
+`update_server.py` went on naming the kernel `/boot/boot/kernel.bin`,
+which the old updater installed exactly as before; the updater of the
+time ignored that path and installed where the machine's GRUB read, so a
+machine the service had not moved yet still updated; and
 `/install/core.prefix` must say `/grub` or no core image is written at
-all. `remote.py flash` asks the machine which layout it has for the same
-reason. Rejected: moving machines only on reinstall (permanent dual paths
+all (still true). `remote.py flash` asked the machine which layout it
+had for the same reason. Rejected: moving machines only on reinstall (permanent dual paths
 in every tool), and a manual step per machine (the fleet is updated far
 more often than anyone would remember it).
 
@@ -3921,8 +3921,8 @@ where the players and the wallpaper picker already list it. Apps ask
 - **Capitalised**, as XDG, Windows and macOS all spell them -- and
   `/home/desktop` moved with them rather than stay the one lower-case
   folder. (`udir_migrate()` moved the old `/home/desktop` and
-  `/home/screenshots` across once at the compositor's start; it was
-  dropped on 2026-11-25, when no machine had them.)
+  `/home/screenshots` across once at the compositor's start, until the
+  move's removal, f46dd2bb.)
 - **Shipped content is not copied in** (the option that makes the
   folders look less empty): it would cost the disk twice and blur whose
   files are whose. Windows 7's Libraries -- a place showing a personal
@@ -4053,7 +4053,7 @@ the registries stay two (a fact has no stored form, and `config set` on
 one still fails for want of a setting), but `config get mem` and `config
 get desktop` are the same verb on the same addressing, marked `(fact)`.
 
-**The aliases were removed on 2026-11-25** (with the other upgrade
+**The aliases were removed (db305cd2)** (with the other upgrade
 paths: decisions/build.md, "No migration code for a machine nobody
 runs"), once the ASUS's files had been moved to the dotted names by
 hand. What follows is why they were built the way they were.

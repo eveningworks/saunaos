@@ -71,7 +71,7 @@ was meant to keep. journald's shape, minus the binary store and the query
 language; `log --list` and `log -p N` are the readers.
 
 **Size** is `storage.log.max`, in MiB, shared across every retained boot:
-each gets `log_max / (log_keep + 1)`, the `+1` being the live one. Setting
+each gets `log.max / (log.keep + 1)`, the `+1` being the live one. Setting
 it to **0 disables logging**, and `logd` then exits cleanly rather than
 staying up doing nothing.
 

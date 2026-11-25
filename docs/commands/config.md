@@ -78,6 +78,5 @@ leaf's does, so a script reading the first line still reads the value:
     75
 
 A name from before the dotted names (`desktop.transparency_taskbar`)
-still works for every command, with a note on stderr saying what it is
-called now, and a file still holding the old keys reads as it did and
-is rewritten under the new ones as each setting is saved.
+finds nothing, and a file line under one is not read
+(`docs/settings-and-queries.md`, "Names").

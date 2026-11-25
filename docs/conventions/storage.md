@@ -223,8 +223,9 @@ this the obvious way), not from how much history it accumulated.
   that is one idea is one key (`browser.user_agent`). **A RENAMED KEY
   HAS NO ALIAS**: the old name stops reading, and the test machines'
   files are moved by hand (`docs/decisions/build.md`, "No migration code
-  for a machine nobody runs"; the 2026-10-18 table, `api/etc_renamed.h`,
-  was removed on 2026-11-25). A fact's field takes a dotted name with `QUERY_FIELD_AS()`, which keeps
+  for a machine nobody runs"; the old-name table, `api/etc_renamed.h`,
+  went in the aliases' removal, db305cd2). A fact's field takes a dotted
+  name with `QUERY_FIELD_AS()`, which keeps
   the member's name as the old one. `docs/settings-and-queries.md`,
   "Names", has the rest.
 - **A CLIENT SIZES ITS SETTINGS TABLES FROM `SETTING_OP_COUNT`, AT EVERY

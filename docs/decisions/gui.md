@@ -11435,7 +11435,8 @@ reorders only bookmarks, which is the shape this replaced.
 the folder if `/etc/user-dirs.conf` moves it (`base/udirs.h`). No file is
 the defaults; a file is the whole list. (The older pins-only file, with
 no `#places 2` line, and files.conf's `hidden_places` were read once to
-carry a machine across, and dropped on 2026-11-25.)
+carry a machine across, until the hidden_places removal (64e8b829) and
+the whole-list read (a184c0c8).)
 
 **The mounts reorder within their groups, not into Places** (chosen the
 same day): a volume among the volumes under This computer, a share among

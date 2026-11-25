@@ -36,9 +36,11 @@ static int index_of(const struct pin *all, int n, const char *entry) {
 }
 
 // Every entry of the file, existing folders or not: what a rewrite must
-// not lose. No file: the defaults.
+// not lose. No file, or one that holds nothing at all (write_all()
+// truncates before it writes, so a cut there leaves 0 bytes): the
+// defaults.
 static int read_all(struct pin *out, int cap) {
-    int n = 0;
+    int n = 0, empty = 1;
     static struct pin old[UPINS_MAX];   // 6 KiB: never on a ring-3 frame
     int nold = 0;
     g_ndev = 0;
@@ -48,6 +50,7 @@ static int read_all(struct pin *out, int cap) {
         while (fgets(line, sizeof line, f)) {
             size_t l = strlen(line);
             while (l && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = '\0';
+            if (line[0]) empty = 0;
             if (!strncmp(line, "dev:", 4)) {
                 if (g_ndev < UPINS_DEV_MAX && line[4] == '/') strlcpy(g_dev[g_ndev++], line + 4, sizeof g_dev[0]);
                 continue;
@@ -60,7 +63,8 @@ static int read_all(struct pin *out, int cap) {
             nold++;
         }
         fclose(f);
-    } else {
+    }
+    if (empty) {
         for (int i = 0; i < N_DEFAULTS && n < cap; i++) {
             strlcpy(out[n].entry, DEFAULTS(i), UPINS_PATH);
             out[n++].label[0] = '\0';

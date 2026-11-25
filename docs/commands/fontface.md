@@ -58,7 +58,7 @@ kernel parses no font) and rasterize the
 101-glyph set the baked font also carries, at the size currently in
 effect, into an atlas laid out exactly like a baked one -- which is why
 the console, the desktop and every ring-3 client change together. The
-choice persists to `/etc/saunaos.conf` as `font_face` and is applied on
+choice persists to `/etc/saunaos.conf` as `font.face` and is applied on
 the next boot BEFORE the size, since an arbitrary size is only
 rasterizable once a face is loaded.
 

@@ -196,10 +196,10 @@ Name a new setting into its family's branch, and give a word pair that
 is one idea one key: `browser.user_agent` is a leaf, not
 `browser.user.agent`.
 
-**The names before the dotted ones no longer work.** From 2026-10-18 to
-2026-11-25 one table (`api/etc_renamed.h`) let every `/etc` reader find
-a key under its old name; it was removed once no machine had a file
-from before the rename, and `config get desktop.transparency_taskbar`
+**The names before the dotted ones no longer work.** One table
+(`api/etc_renamed.h`) let every `/etc` reader find a key under its old
+name until the aliases' removal (db305cd2), once no machine had a file
+from before the rename; and `config get desktop.transparency_taskbar`
 now finds nothing. A fact's field keeps its C member's name through
 `QUERY_FIELD_AS()` (`mem.frame_free` in C, `mem.frame.free` here).
 
@@ -385,9 +385,9 @@ a setting uses, but not its bounds: presentation is the file's business
 and a constraint is not.
 
 **Pick ENUM over INT when the names are doing real work.**
-`mouse_accel`'s values are thresholds where lower means more
+`mouse.accel`'s values are thresholds where lower means more
 acceleration, so `high` is a better name than `3` — the numbers run
-backwards from the effect. `mouse_speed` is a percentage and reads
+backwards from the effect. `mouse.speed` is a percentage and reads
 better as one, which is why it stopped being four named levels.
 
 **Do not add a setting as a bare `etc_config_get`/`_set` pair.** That is
