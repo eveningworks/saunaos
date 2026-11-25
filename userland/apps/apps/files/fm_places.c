@@ -28,29 +28,10 @@
 
 #define DISKS_EXEC    "/bin/wm/apps/disks"
 #define SETTINGS_EXEC "/bin/wm/system/settings"
-#define HIDDEN_KEY    "hidden_places"   // the old hide switch, read once to migrate
-
-// HIDDEN PLACES WERE A SWITCH; they are entries unpinned now. A
-// files.conf from before still naming some is turned into that once.
-static void migrate_hidden(void) {
-    char list[128] = "";
-    if (!uconf_get(FILES_CONF, HIDDEN_KEY, list, sizeof list) || !list[0]) return;
-    for (char *k = strtok(list, ","); k; k = strtok(0, ",")) {
-        char entry[256];
-        if (!strcmp(k, "recent")) strlcpy(entry, "recent:/", sizeof entry);
-        else if (!strcmp(k, "bin")) strlcpy(entry, "trash:/", sizeof entry);
-        else if (!strcmp(k, "home")) strlcpy(entry, udir_home(), sizeof entry);
-        else snprintf(entry, sizeof entry, "udir:%s", k);
-        upins_remove(entry);
-    }
-    uconf_unset(FILES_CONF, HIDDEN_KEY);
-}
 
 // PLACES IS ONE LIST (base/upins.h): the defaults and the pins in the
 // person's order, then every mounted volume.
 void places_build(void) {
-    static int migrated;
-    if (!migrated) { migrated = 1; migrate_hidden(); }
     uui_places_init(&g_places);
     uui_places_add_pins(&g_places, 1);
     uui_places_refresh(&g_places);

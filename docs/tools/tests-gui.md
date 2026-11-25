@@ -844,8 +844,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   (`userland/apps/apps/files/fm_places.c`): one menu per kind of row, read from the
   app's `files: placemenu <kind> <path> rows a|b|-|c` line AND the popup
   laid out; Move down, Rename pin and Unpin read back from
-  `/etc/places.conf`; Hide and Show hidden places from files.conf's
-  `hidden_places=`; Properties on System opens the VOLUME page
+  `/etc/places.conf`; Properties on System opens the VOLUME page
   (`ui/uui_volinfo.h`) whose ring is sampled all round its middle circle
   in the window's pixels (`properties: layout ring x y d`, content-
   relative); the details pane at `/` logs `files: details volume /

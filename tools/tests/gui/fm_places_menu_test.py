@@ -28,7 +28,7 @@ its Properties is the file page, so the ring check must go red.
 
 RUNNER = {
     "name": "placesmenu",
-    "covers": "left-pane menus: one per row kind, move/rename/unpin/hide, a volume's Properties ring, its details card",
+    "covers": "left-pane menus: one per row kind, move/rename/unpin, a volume's Properties ring, its details card",
 }
 
 import argparse
