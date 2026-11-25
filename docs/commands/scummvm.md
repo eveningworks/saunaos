@@ -22,11 +22,11 @@ that game straight away. Every option ScummVM documents works as
 documented (`scummvm --help` lists them).
 
     # scummvm --list-engines
-    # scummvm --add --path=/usr/share/games/lure
+    # scummvm --add --path=/home/.local/share/games/lure
     # scummvm lure
 
 **The Start menu's ScummVM is a front** (`/bin/wm/apps/scummvm`): with a
-game in `/usr/share/games` it adds any new one with `--add` and opens
+game in `/home/.local/share/games` or `/usr/share/games` it adds any new one with `--add` and opens
 ScummVM's launcher; with none, or as **Free Adventure Games**
 (`/bin/wm/apps/scummvm --games`), it shows a card that downloads the four
 freeware games, each checked against the SHA-256 ScummVM publishes, and

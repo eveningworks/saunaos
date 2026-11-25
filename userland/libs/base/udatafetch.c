@@ -4,6 +4,7 @@
 #include "base/uconf.h"
 #include "base/ufileop.h"
 #include "base/ulog.h"
+#include "base/udatadir.h"
 #include "base/uzip.h"
 #include <fcntl.h>
 #include <kcrc.h>
@@ -14,19 +15,29 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define LICENCE_DIR "/usr/share/licenses"
 #define SCRATCH_DIR "/var/tmp"
 
-char *udata_path(const char *dir, const struct udata_item *it) {
+static char *rel_of(const char *name, const char *id) {
     char *p = NULL;
-    return asprintf(&p, "%s/%s", dir, it->id) < 0 ? NULL : p;
+    return asprintf(&p, "%s/%s", name, id) < 0 ? NULL : p;
 }
 
-int udata_present(const char *dir, const struct udata_item *it) {
-    char *p = udata_path(dir, it);
-    int ok = p && access(p, F_OK) == 0;
+char *udata_path(const char *name, const struct udata_item *it) {
+    char *rel = rel_of(name, it->id), *p = rel ? udatadir_home(rel) : NULL;
+    free(rel);
+    return p;
+}
+
+char *udata_find(const char *name, const struct udata_item *it) {
+    char *rel = rel_of(name, it->id), *p = rel ? udatadir_find(rel) : NULL;
+    free(rel);
+    return p;
+}
+
+int udata_present(const char *name, const struct udata_item *it) {
+    char *p = udata_find(name, it);
     free(p);
-    return ok;
+    return p != NULL;
 }
 
 unsigned long udata_size(const struct udata_item *it) {
@@ -83,16 +94,24 @@ static int put(int fd, const char *s) {
     return write(fd, s, n) == (long)n;
 }
 
+// Every folder above `path`, made (mkdir -p's walk, the leaf left).
+static void make_parents(char *path) {
+    for (char *s = path + 1; (s = strchr(s, '/')); s++) {
+        *s = 0;
+        mkdir(path, 0755);
+        *s = '/';
+    }
+}
+
 // The archive's own text when it has one, else the notice that was
 // shown. Best effort: the data is good either way, and the log says when
 // the licence could not be written.
 static void save_licence(const struct udata_item *it, const char *zip) {
     if (!it->licence_file) return;
-    char *path = NULL, err[96];
-    if (asprintf(&path, LICENCE_DIR "/%s", it->licence_file) < 0) return;
-    mkdir("/usr", 0755);
-    mkdir("/usr/share", 0755);
-    mkdir(LICENCE_DIR, 0755);
+    char *rel = rel_of("licenses", it->licence_file), *path = rel ? udatadir_prepare(rel) : NULL;
+    char err[96];
+    free(rel);
+    if (!path) return;
     if (zip && it->licence_member) {
         if (uzip_extract(zip, it->licence_member, path, 0, 0, err, sizeof err) != 0)
             ulogf("udatafetch: could not save %s: %s\n", path, err);
@@ -153,15 +172,6 @@ static int member_progress(void *ctx, unsigned long done, unsigned long total) {
     return unpack_progress(ctx, done, total);
 }
 
-// Every folder above `path`, made (mkdir -p's walk, the leaf left).
-static void make_parents(char *path) {
-    for (char *s = path + 1; (s = strchr(s, '/')); s++) {
-        *s = 0;
-        mkdir(path, 0755);
-        *s = '/';
-    }
-}
-
 static int under(const struct run *r, const char *name) {
     size_t n = strlen(r->prefix);
     return !strncmp(name, r->prefix, n) && name[n];
@@ -194,7 +204,9 @@ static void remove_tree(const char *path) {
 int udata_fetch_run(struct udata_fetch *f, const struct udata_item *it) {
     f->err[0] = 0;
     if (it->part_count <= 0) return failf(f, "%s has no download", it->name);
-    char *dest = udata_path(f->dir, it), *part = NULL;
+    char *rel = rel_of(f->name, it->id), *part = NULL;
+    char *dest = rel ? udatadir_prepare(rel) : NULL;   // its folders made
+    free(rel);
     if (!dest || asprintf(&part, "%s.part", dest) < 0) {
         free(dest);
         return failf(f, "out of memory");
@@ -206,7 +218,6 @@ int udata_fetch_run(struct udata_fetch *f, const struct udata_item *it) {
         failf(f, "out of memory");
         goto out;
     }
-    make_parents(dest);
     mkdir("/var", 0755);
     mkdir(SCRATCH_DIR, 0755);
     remove_tree(part);
@@ -268,7 +279,7 @@ int udata_fetch_run(struct udata_fetch *f, const struct udata_item *it) {
         }
     }
     if (rename(part, dest) != 0) {
-        failf(f, "could not move it into %s", f->dir);
+        failf(f, "could not move it into %s", dest);
         goto out;
     }
     save_licence(it, it->parts[0].how == UDATA_FILE ? NULL : scratch[0]);

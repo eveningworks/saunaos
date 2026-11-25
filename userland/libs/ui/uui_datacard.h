@@ -33,7 +33,7 @@ extern "C" {
 struct uui_datacard_desc {
     const char *log;            // the log lines' prefix: "doom"
     const char *conf;           // licences agreed to, and `mirror=`
-    const char *dir;            // where the items live
+    const char *name;           // the program's data, "doom" (base/udatafetch.h)
     const struct udata_item *items;
     int count;
     int multi;                  // checkboxes, several at once; else one, radio rows

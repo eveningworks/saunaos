@@ -364,8 +364,10 @@ options" canvas and two question rounds the same day:
   ("Couldn't load font ... LiberationSans-Bold.ttf") and drew its plain
   built-in one, green on black. No MP3, FLAC, network or OpenGL: nothing
   these four games need.
-- **The game data lives in `/usr/share/games/<id>/`** (Debian's
-  shape, as DOOM's `/usr/share/doom`); ScummVM's settings and saves go
+- **The game data lives in `$XDG_DATA_HOME/games/<id>/`**, the
+  person's (`/home/.local/share/games`; `/usr/share/games` is looked in
+  after it -- 2026-11-25, once file permissions were enforced: a download
+  as `user` cannot write `/usr`); ScummVM's settings and saves go
   where its POSIX backend puts them, `$XDG_CONFIG_HOME/scummvm` and
   `$XDG_DATA_HOME/scummvm/saves` -- which `/etc/environment` now sets
   to `/home/.config` and `/home/.local/share` (HOME stays `/`), the

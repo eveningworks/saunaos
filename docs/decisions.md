@@ -928,7 +928,7 @@ first before re-litigating it from scratch.
 - [A published build's source is served beside it, by the update server](decisions/build.md#a-published-builds-source-is-served-beside-it-by-the-update-server)
 - [A removed optional component is a difference list, added back at the machine's own build](decisions/build.md#a-removed-optional-component-is-a-difference-list-added-back-at-the-machines-own-build)
 - [SDL is SDL3 with sdl2-compat, built as an SDL "private platform"](decisions/build.md#sdl-is-sdl3-with-sdl2-compat-built-as-an-sdl-private-platform)
-- [ScummVM is fetched and cross-built, its libraries linked in, its data under /usr/share/games](decisions/build.md#scummvm-is-fetched-and-cross-built-its-libraries-linked-in-its-data-under-usrsharegames)
+- [ScummVM is fetched and cross-built, its libraries linked in, its data in the person's data folder](decisions/build.md#scummvm-is-fetched-and-cross-built-its-libraries-linked-in-its-data-in-the-persons-data-folder)
 - [A boot-loader refresh never changes HOW a machine boots; adding UEFI is `--uefi`](decisions/build.md#a-boot-loader-refresh-never-changes-how-a-machine-boots-adding-uefi-is---uefi)
 
 **Workflow, testing & tooling** -- [`decisions/workflow.md`](decisions/workflow.md) (11 entries)

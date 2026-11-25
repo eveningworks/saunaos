@@ -466,6 +466,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `ubinmap_hostcheck.py` -- Check lib/ubinmap (the Hex Viewer's structure decoders) and lib/ubyteval (its inspector) on the HOST
 - `ucolour_hostcheck.py` -- Check userland/libs/base/ucolour.c's HSL and HSV conversions against
 - `ucrt_hostcheck.py` -- Check userland/libs/ui/ucrt.c -- the CRT effect -- with the host gcc, against
+- `udatadir_hostcheck.py` -- Check userland/libs/base/udatadir.c -- where a program's data is written
 - `uemojidata_hostcheck.py` -- The emoji list's parser, search and recents (base/uemojidata.c), on the HOST
 - `ufatimg_hostcheck.py` -- Check base/ufatimg.c -- FAT12/FAT16 disk images read from memory
 - `ugfx_fill_hostcheck.py` -- Check ugfx's anti-aliased fills against Pillow, on the HOST

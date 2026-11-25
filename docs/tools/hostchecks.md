@@ -330,6 +330,13 @@ the rest in the sweep. Each stays a standalone script with its own
   `--render SONG OUT.wav` just renders, for listening. Needs `gcc`;
   the oracle half needs `fluidsynth` (skipped, loudly, without it).
   Run by `ondemand_sweep.py`.
+- **`udatadir_hostcheck.py`** -- `base/udatadir`, where a program's
+  data is written and found: `$XDG_DATA_HOME`, else `$HOME/.local/share`,
+  else `/home/.local/share`; a lookup tries the person's folder, then
+  each `$XDG_DATA_DIRS` entry in order, skipping a relative one; prepare
+  makes the folders above the file and not the file. Its positive
+  control -- a lookup that skips the person's folder -- fails the order
+  checks. In every preflight.
 - **`ucolour_hostcheck.py`** -- `lib/ucolour`'s HSV and HSL conversions
   against Python's `colorsys`, over a 17-step RGB grid and random
   colours: to_hsv within 0.2 degrees and 0.002, keeping the caller's hue

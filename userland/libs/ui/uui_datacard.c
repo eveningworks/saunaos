@@ -4,6 +4,7 @@
 // "ScummVM games options" canvas's G2.
 #include "ui/uui_datacard.h"
 #include "base/uconf.h"
+#include "base/udatadir.h"
 #include "base/ulog.h"
 #include "input_keys.h"
 #include "keyboard.h"
@@ -39,7 +40,7 @@ static int in(const struct uui_datacard_rect *r, int x, int y) {
 // pointer motion, and each real answer is a path and an access().
 static int present(const struct uui_datacard *c, int i) { return c->here[i]; }
 static void read_presence(struct uui_datacard *c) {
-    for (int i = 0; i < c->d->count; i++) c->here[i] = (unsigned char)udata_present(c->d->dir, ITEM(c, i));
+    for (int i = 0; i < c->d->count; i++) c->here[i] = (unsigned char)udata_present(c->d->name, ITEM(c, i));
 }
 
 // What the card offers: everything that downloads, and anything else
@@ -281,7 +282,11 @@ static void draw_licence(struct uui_datacard *c, struct ugfx_surface *s) {
     uui_para_ops.set_geometry(&c->lic, x + p, y + p / 2, w - 2 * p, lines * u());
     uui_para_ops.draw(s, &c->lic);
     if (it->licence_file) {
-        snprintf(t, sizeof t, "Saved in /usr/share/licenses/%s.", it->licence_file);
+        char rel[96], *at;
+        snprintf(rel, sizeof rel, "licenses/%s", it->licence_file);
+        at = udatadir_home(rel);
+        snprintf(t, sizeof t, "Saved in %s.", at ? at : rel);
+        free(at);
         dim(t, s, x + p, y + bh - u() - p / 2, w - 2 * p, UTHEME_WHITE);
     }
     ugfx_fill_rect(s, k->x + 1, c->r[C_BACK].y - p / 2, k->w - 2, 1, UTHEME_SEPARATOR);
@@ -300,7 +305,9 @@ static void draw_fetch(struct uui_datacard *c, struct ugfx_surface *s) {
     snprintf(t, sizeof t, c->phase ? "Unpacking %s%s" : "Downloading %s%s", it->name, of);
     bold(t, s, x, y, w, bg);
     y += u() + u() / 2;
-    snprintf(t, sizeof t, "From %s to %s/%s", c->host, c->d->dir, it->id);
+    char *to = udata_path(c->d->name, it);
+    snprintf(t, sizeof t, "From %s to %s", c->host, to ? to : it->id);
+    free(to);
     dim(t, s, x, y, w, bg);
     y += u() + p;
     unsigned long got = c->got, total = c->total;
@@ -364,7 +371,7 @@ static void start_one(struct uui_datacard *c) {
     c->got = c->total = 0;
     c->phase = c->part = 0;
     c->fetch = (struct udata_fetch){
-        .dir = c->d->dir, .mirror = c->mirror[0] ? c->mirror : NULL, .download = c->d->download,
+        .name = c->d->name, .mirror = c->mirror[0] ? c->mirror : NULL, .download = c->d->download,
         .progress = fetch_progress, .cancel = &c->cancel, .ctx = c,
     };
     c->view = UUI_DATACARD_FETCH;

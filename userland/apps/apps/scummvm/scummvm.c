@@ -37,7 +37,9 @@
 #include <unistd.h>
 
 #define SCUMMVM    "/usr/bin/scummvm"
-#define GAMES_DIR  "/usr/share/games"
+// The games' data name (base/udatafetch.h): a download goes to the person's
+// $XDG_DATA_HOME/games, and a game shipped in /usr/share/games is found too.
+#define GAMES_DATA "games"
 #define GAMES_CONF "/etc/scummvm-games.conf"   // `mirror=`, a stand-in download server
 
 extern char **environ;
@@ -177,7 +179,7 @@ static void make_xdg_dirs(void) {
         char *p = v && *v == '/' ? strdup(v) : NULL;
         // Each '/' after the first ends a parent to make. Starting at
         // p + 1 itself turned "/home/.config" into "//ome/.config"
-        // (17.11-22.11.2026): heal_stray_dirs() takes back what it made.
+        // (17.11-22.11.2026).
         for (char *s = p ? strchr(p + 1, '/') : NULL; s; s = strchr(s + 1, '/')) {
             *s = 0;
             mkdir(p, 0755);
@@ -186,16 +188,6 @@ static void make_xdg_dirs(void) {
         if (p) mkdir(p, 0755);
         free(p);
     }
-}
-
-// The folders the bug above made at the root instead: /ome/.config,
-// /ome/.local/share and /ome/.cache, and /ome itself. rmdir() takes only
-// an EMPTY folder, so one anything else has written into stays.
-static void heal_stray_dirs(void) {
-    static const char *const STRAY[] = {
-        "/ome/.config", "/ome/.local/share", "/ome/.local", "/ome/.cache", "/ome",
-    };
-    for (size_t i = 0; i < sizeof STRAY / sizeof STRAY[0]; i++) rmdir(STRAY[i]);
 }
 
 // Another ScummVM process (not a thread, not this one): it holds its own
@@ -217,8 +209,8 @@ static void heal_lost_games(void) {
     char v[8];
     if (uconf_get(GAMES_CONF, HEAL_KEY, v, sizeof v) && !strcmp(v, "yes")) return;
     for (int i = 0; i < GAME_COUNT; i++) {
-        char *dir = udata_path(GAMES_DIR, &GAMES[i]), key[48];
-        if (dir && access(dir, F_OK) == 0 && offered(&GAMES[i]) && !registered(dir)) {
+        char *dir = udata_find(GAMES_DATA, &GAMES[i]), key[48];
+        if (dir && offered(&GAMES[i]) && !registered(dir)) {
             snprintf(key, sizeof key, "added_%s", GAMES[i].id);
             uconf_set(GAMES_CONF, key, "no");
             snprintf(key, sizeof key, "tries_%s", GAMES[i].id);
@@ -235,15 +227,14 @@ static void heal_lost_games(void) {
 // -- once, unless the list itself is gone (a fresh /home).
 static void register_games(void) {
     make_xdg_dirs();
-    heal_stray_dirs();
     char *ini = ini_path();
     int have_ini = ini && access(ini, F_OK) == 0;
     free(ini);
     if (have_ini) heal_lost_games();
     int busy = other_scummvm_running();
     for (int i = 0; i < GAME_COUNT; i++) {
-        char *dir = udata_path(GAMES_DIR, &GAMES[i]), *arg = NULL;
-        if (!dir || access(dir, F_OK) != 0 || (have_ini && offered(&GAMES[i]))) {
+        char *dir = udata_find(GAMES_DATA, &GAMES[i]), *arg = NULL;
+        if (!dir || (have_ini && offered(&GAMES[i]))) {
             free(dir);
             continue;
         }
@@ -273,7 +264,7 @@ static void register_games(void) {
 
 static int any_game(void) {
     for (int i = 0; i < GAME_COUNT; i++)
-        if (udata_present(GAMES_DIR, &GAMES[i])) return 1;
+        if (udata_present(GAMES_DATA, &GAMES[i])) return 1;
     return 0;
 }
 
@@ -316,10 +307,10 @@ static void card_cancel(struct uapp *a, void *ctx) {
 }
 
 static const struct uui_datacard_desc CARD = {
-    .log = "scummvm", .conf = GAMES_CONF, .dir = GAMES_DIR,
+    .log = "scummvm", .conf = GAMES_CONF, .name = GAMES_DATA,
     .items = GAMES, .count = GAME_COUNT, .multi = 1,
     .title_empty = "ScummVM needs a game", .title_some = "Free games for ScummVM",
-    .subtitle = "Choose the games to download. They go to " GAMES_DIR ".",
+    .subtitle = "Choose the games to download. They go to your own data folder.",
     .aux_label = "Open ScummVM",
     .noun = "game", .nouns = "games",
     .download = uhttp_download,

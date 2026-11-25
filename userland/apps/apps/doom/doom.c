@@ -41,8 +41,8 @@
 #include "third_party/doom/glue/dg_saunaos.h"
 #include "input_keys.h"   // INPUT_KEY_ENTER -- a key by position
 // The front end -- launcher, game data, F1 sheet -- and which IWAD
-// (userland/apps/apps/doom/). WHERE AN IWAD LIVES is one directory, not d_iwad.c's
-// search path: docs/filesystem-layout.md owns DOOM_WAD_DIR.
+// (userland/apps/apps/doom/). WHERE AN IWAD LIVES is udatafetch's data folders
+// (DOOM_DATA), not d_iwad.c's search path: docs/filesystem-layout.md owns them.
 #include "apps/apps/doom/doom_internal.h"
 
 // WHERE SAVEGAMES GO, and why this is done with chdir() of all things.
@@ -488,7 +488,7 @@ void doom_start_game(struct uapp *a, const struct udata_item *w) {
     }
 
     // argv, as Doom expects it. `-iwad <path>` rather than letting
-    // d_iwad.c search: see DOOM_WAD_DIR.
+    // d_iwad.c search: see DOOM_DATA.
     //
     // ANYTHING THIS PROGRAM WAS GIVEN IS APPENDED, so Doom's own
     // switches work: `gui spawn /bin/wm/apps/doom -nomusic`, `-nosfx`,
@@ -497,9 +497,14 @@ void doom_start_game(struct uapp *a, const struct udata_item *w) {
     // continuous to bursts, which no single boot can show.
     static char arg0[] = "doom";
     static char arg1[] = "-iwad";
-    static char wad[160];
+    static char *wad;            // argv's, for the life of the game
     static char *argv[DOOM_MAXARGS];
-    doom_iwad_path(w, wad, sizeof wad);
+    free(wad);
+    wad = doom_iwad_path(w);
+    if (!wad) {
+        ulog("doom: out of memory for the IWAD's path\n");
+        return;
+    }
     int n = 0;
     argv[n++] = arg0;
     argv[n++] = arg1;

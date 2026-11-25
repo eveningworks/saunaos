@@ -934,7 +934,7 @@ def do_sync(host, telnet_port, tftp_port, local_dir, remote_dir, timeout,
 
     `delete` also removes the machine's files that the local tree does
     not have -- rsync's `--delete`, and opt-in for the same reason: a
-    tree that is not wholly the build's (/usr/share/doom holds WADs the
+    tree that is not wholly the build's (/home holds the WADs and games the
     machine downloaded, /etc its configuration) must never be pruned.
     Files only; an emptied directory stays.
 

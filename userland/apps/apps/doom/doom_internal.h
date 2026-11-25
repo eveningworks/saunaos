@@ -12,18 +12,23 @@
 #include "ui/ugfx.h"
 #include "base/udatafetch.h"
 
-#define DOOM_WAD_DIR "/usr/share/doom"
+// The IWADs' data name (base/udatafetch.h): a download goes to the person's
+// $XDG_DATA_HOME/doom, and one shipped or put there by an administrator is
+// found in /usr/share/doom.
+#define DOOM_DATA    "doom"
 #define DOOM_CONF    "/etc/doom.conf"
 
 // --- the game data (doom_wad.c) ---------------------------------------
 
 // The IWADs this port knows by name, as udatafetch items: `id` is the
-// file's name in DOOM_WAD_DIR; one with no parts is never downloaded,
+// file's name in DOOM_DATA's folders; one with no parts is never downloaded,
 // only found -- a retail file the person brings themselves.
 extern const struct udata_item DOOM_IWADS[];
 extern const int DOOM_IWAD_COUNT;
 
-int doom_iwad_path(const struct udata_item *w, char *out, int cap);
+// Where `w` is, or where a copy of it goes when it is nowhere yet.
+// Allocated; free() it. NULL only when out of memory.
+char *doom_iwad_path(const struct udata_item *w);
 int doom_iwad_present(const struct udata_item *w);
 const struct udata_item *doom_iwad_named(const char *file);
 // The one to play: /etc/doom.conf's `iwad=` if it is here, else the

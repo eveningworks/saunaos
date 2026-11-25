@@ -51,11 +51,12 @@ const struct udata_item DOOM_IWADS[] = {
 };
 const int DOOM_IWAD_COUNT = (int)(sizeof DOOM_IWADS / sizeof DOOM_IWADS[0]);
 
-int doom_iwad_path(const struct udata_item *w, char *out, int cap) {
-    return snprintf(out, (size_t)cap, "%s/%s", DOOM_WAD_DIR, w->id) < cap;
+char *doom_iwad_path(const struct udata_item *w) {
+    char *p = udata_find(DOOM_DATA, w);
+    return p ? p : udata_path(DOOM_DATA, w);
 }
 
-int doom_iwad_present(const struct udata_item *w) { return udata_present(DOOM_WAD_DIR, w); }
+int doom_iwad_present(const struct udata_item *w) { return udata_present(DOOM_DATA, w); }
 
 // CASE-BLIND: a retail DOOM.WAD off a DOS install or a FAT stick is the
 // same file. The table's lower-case name is what it is installed as.

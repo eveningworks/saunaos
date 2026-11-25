@@ -11,6 +11,7 @@
 #include "doom_internal.h"
 #include "third_party/doom/glue/dg_saunaos.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -18,6 +19,7 @@
 #include "kpath.h"
 #include "base/ulog.h"
 #include "base/uconf.h"
+#include "base/udatadir.h"
 #include "base/ufileop.h"
 #include "ui/utheme.h"
 #include "ui/uui_checkbox.h"
@@ -163,8 +165,9 @@ static void button(struct ugfx_surface *s, int id, const char *label, int primar
 // The title picture, aspect-corrected to 4:3 into `w` x `h` (nearest).
 static void draw_title(struct ugfx_surface *s, int x, int y, int w, int h) {
     if (g_title_of != g_cur) {
-        char p[160];
-        g_title_ok = g_cur && doom_iwad_path(g_cur, p, sizeof p) && doom_wad_titlepic(p, g_title) == 0;
+        char *p = g_cur ? doom_iwad_path(g_cur) : NULL;
+        g_title_ok = p && doom_wad_titlepic(p, g_title) == 0;
+        free(p);
         g_title_of = g_cur;
     }
     ugfx_fill_rect(s, x - 1, y - 1, w + 2, h + 2, UTHEME_OUTLINE);
@@ -207,8 +210,15 @@ static void draw_page(struct ugfx_surface *s) {
     bold(g_cur ? g_cur->name : "No game data", s, p, y, tw, side);
     y += u() + u() / 2;
     if (g_cur) {
+        // The folder it was found in: the person's, or the system's.
+        char *at = doom_iwad_path(g_cur);
         dim(g_cur->id, s, p, y, tw, side);
-        dim(DOOM_WAD_DIR, s, p, y + u(), tw, side);
+        if (at) {
+            char *slash = strrchr(at, '/');
+            if (slash && slash != at) *slash = 0;
+            dim(at, s, p, y + u(), tw, side);
+            free(at);
+        }
     }
     const struct rect *c = &g_r[C_CHANGE];
     uint32_t link = utheme_action(UTHEME_ACT_NAV);
@@ -243,10 +253,10 @@ static void card_file(struct uapp *a, void *ctx);
 static void card_cancel(struct uapp *a, void *ctx);
 
 static const struct uui_datacard_desc CARD = {
-    .log = "doom", .conf = DOOM_CONF, .dir = DOOM_WAD_DIR,
+    .log = "doom", .conf = DOOM_CONF, .name = DOOM_DATA,
     .items = DOOM_IWADS,                       // .count is DOOM_IWAD_COUNT, set at open
     .title_empty = "DOOM needs game data", .title_some = "Game data",
-    .subtitle = "Choose one. Downloads go to " DOOM_WAD_DIR ".",
+    .subtitle = "Choose one. Downloads go to your own data folder.",
     .aux_label = "Use a file...",
     .download = uhttp_download,
     .on_done = card_done, .on_use = card_use, .on_aux = card_file, .on_cancel = card_cancel,
@@ -296,23 +306,35 @@ static void file_chosen(void *ctx, const char *path) {
         uui_datacard_note(&g_card_ui, t);
         return;
     }
-    char dest[160];
-    doom_iwad_path(w, dest, sizeof dest);
-    if (strcmp(dest, path)) {
+    // A copy goes to the person's own folder, never over the system's.
+    char *dest = udata_path(DOOM_DATA, w);
+    char *here = udata_find(DOOM_DATA, w);
+    int same = here && !strcmp(here, path);
+    free(here);
+    if (!dest) return;
+    if (!same) {
         // Copied, not linked: the file may be on a stick about to leave.
         // THROUGH .part AND A RENAME, so a copy that fails half way never
         // costs the WAD already installed under that name.
         static struct ufileop op;   // ~33 KB of walk state: never a local
-        char part[176];
-        snprintf(part, sizeof part, "%s.part", dest);
-        mkdir(DOOM_WAD_DIR, 0755);
+        char *part = NULL, *rel = NULL, *t = NULL;
+        if (asprintf(&part, "%s.part", dest) < 0) part = NULL;
+        if (asprintf(&rel, DOOM_DATA "/%s", w->id) < 0) rel = NULL;
+        if (rel) free(udatadir_prepare(rel));   // its folders
+        free(rel);
         struct ufileop_policy pol = { 0 };
-        if (ufileop_copy(path, part, &op, &pol) != UFILEOP_OK || rename(part, dest) != 0) {
-            unlink(part);
-            uui_datacard_note(&g_card_ui, "Could not copy it to " DOOM_WAD_DIR ".");
+        if (!part || ufileop_copy(path, part, &op, &pol) != UFILEOP_OK || rename(part, dest) != 0) {
+            if (part) unlink(part);
+            if (asprintf(&t, "Could not copy it to %s.", dest) < 0) t = NULL;
+            uui_datacard_note(&g_card_ui, t ? t : "Could not copy it.");
+            free(t);
+            free(part);
+            free(dest);
             return;
         }
+        free(part);
     }
+    free(dest);
     doom_iwad_choose(w);
     g_cur = w;
     uui_datacard_close(&g_card_ui);
@@ -368,7 +390,7 @@ int doom_front_open(struct uapp *a, int has_args) {
     g_show.checked = show;
     g_cur = doom_iwad_chosen();
     if (!g_cur) {
-        ulogf("doom: no IWAD in %s\n", DOOM_WAD_DIR);
+        ulogf("doom: no IWAD in the %s data folders\n", DOOM_DATA);
         show_data(a, 0);
         return 0;
     }

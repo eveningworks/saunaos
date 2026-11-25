@@ -2951,7 +2951,7 @@ through `SDL_Foo_REAL`; here the link binds them inside the library.
 doomgeneric glue). Smaller for ScummVM alone, but DOSBox and every
 other port would each need their own; SDL is that work once.
 
-## ScummVM is fetched and cross-built, its libraries linked in, its data under /usr/share/games
+## ScummVM is fetched and cross-built, its libraries linked in, its data in the person's data folder
 
 *2026-11-17, the maintainer's picks (`docs/sdl-design.md`, stage 4).*
 
@@ -2972,8 +2972,17 @@ DOSBox or another port wants the same, and until then the base image
 gains nothing. Linux distributions share them because hundreds of
 programs link them; SaunaOS has one.
 
-**The games live in `/usr/share/games/<id>/`**, system data as DOOM's
-`/usr/share/doom` is, Debian's place for a game-data package. Settings
+**The games live in the person's `$XDG_DATA_HOME/games/<id>/`**
+(`/home/.local/share/games`), and `/usr/share/games` is looked in after
+it. They were system data under `/usr/share/games`, Debian's place for a
+game-data package, until file permissions were enforced (2026-11-25): the
+card runs as the desktop's account, which cannot write `/usr`. The
+maintainer's pick over asking an administrator for every download
+(GNOME Software's polkit shape) and over handing `/usr/share/games` to
+`user`: a download is the PERSON's, as Steam, Lutris and Flatpak keep
+it, and a copy an administrator puts in `/usr/share` still counts
+(`base/udatadir.h`, XDG's data-folder order). DOOM's IWADs and the
+licences that come with a download moved the same way. Settings
 and saves follow ScummVM's own POSIX rule -- `$XDG_CONFIG_HOME` and
 `$XDG_DATA_HOME` -- which `/etc/environment` now sets under `/home`
 rather than moving `HOME` from `/`: tosh's `~` and everything else that

@@ -7,6 +7,12 @@
 // Debian's game-data-packager shape. The card that offers them is
 // ui/uui_datacard.h.
 //
+// **A PROGRAM'S DATA IS NAMED, NOT PLACED** ("doom", "games"): a fetch
+// writes into the PERSON's data folder, $XDG_DATA_HOME/<name> (base/udatadir.h),
+// so it needs no administrator -- Steam's, Lutris's and Flatpak's shape --
+// and a lookup finds the item there first, then under $XDG_DATA_DIRS
+// (/usr/share/<name>), where the system's own copy lives.
+//
 // **THE CHECKSUM IS THE AUTHORITY, NOT THE TRANSPORT**: a fetch skips
 // certificate checks (a machine has no CA bundle by default) and a
 // `mirror=` stands in for the origin, because a substituted file fails
@@ -51,7 +57,7 @@ struct udata_item {
     int part_count;
     // THE LICENCE, shown before a download: its name, the notice in plain
     // words ('\n' between paragraphs), and whether the person must AGREE
-    // or is only told. Saved as /usr/share/licenses/<licence_file> --
+    // or is only told. Saved as $XDG_DATA_HOME/licenses/<licence_file> --
     // from <licence_member> of the first part's zip when there is one
     // (the real text), else the notice itself.
     const char *licence;
@@ -61,9 +67,13 @@ struct udata_item {
     const char *licence_member;
 };
 
-// Where the item lives: `dir`/`id`. Allocated; free() it.
-char *udata_path(const char *dir, const struct udata_item *it);
-int udata_present(const char *dir, const struct udata_item *it);
+// Where a fetch of the item WRITES: $XDG_DATA_HOME/`name`/`id`.
+// Allocated; free() it.
+char *udata_path(const char *name, const struct udata_item *it);
+// Where the item IS -- that folder, else the first of $XDG_DATA_DIRS
+// holding it. Allocated, or NULL when it is nowhere.
+char *udata_find(const char *name, const struct udata_item *it);
+int udata_present(const char *name, const struct udata_item *it);
 // The bytes a fetch downloads, summed over the parts.
 unsigned long udata_size(const struct udata_item *it);
 // The URL a part is fetched from: `mirror` (no trailing slash) replaces
@@ -81,10 +91,10 @@ void udata_licence_agree(const char *conf, const struct udata_item *it);
 #define UDATA_ERR_MAX 192
 
 // One fetch, run on a worker thread: every part downloaded to /var/tmp,
-// checked, unpacked into `dir`/`id`.part and renamed into place once all
+// checked, unpacked into udata_path()'s `.part` and renamed into place once all
 // of them are, then the licence saved. Nothing is left on failure.
 struct udata_fetch {
-    const char *dir;
+    const char *name;        // the program's data, "doom" (udata_path())
     const char *mirror;      // or NULL
     int (*download)(struct uhttp_download *d);
     // Phase 0 downloading, 1 unpacking; `part` counts from 0. Called from
