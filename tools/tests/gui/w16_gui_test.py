@@ -52,7 +52,7 @@ file is involved.
 9. **The pointer under a capture** (hello.exe's scrolling edit): an
    I-beam over the text, an arrow over the scroll bar, and dragging the
    thumb onto the text keeps the arrow until the button is let go.
-10. **Drives and folders**: drive D: mapped to /home/w16d gets hello.exe's
+10. **Drives and folders**: drive D: mapped to /home/user/w16d gets hello.exe's
    D:\\HELLO.TXT; nine folders in /etc/win16.conf make ten sidebar rows (the
    list had room for eight); a folder's right-click Move down is saved.
 11. **From the File Manager** (`retrolauncher FILE`, `--details`, the desktop
@@ -211,11 +211,11 @@ from harness import Results, poll  # noqa: E402
 
 GDI_TITLE = "GDI test (Win16)"
 HELLO_TITLE = "Hello (Win16)"
-INI = "/home/Win16/WINDOWS/GDITEST.INI"
+INI = "/home/user/Win16/WINDOWS/GDITEST.INI"
 GDI_CONF = "/etc/win16/usr_share_w16_gdi.exe.conf"
 POPUP_TITLE = "Popup test"
 FULLSCR_TITLE = "Fullscreen test"
-FULLSCR_INI = "/home/Win16/WINDOWS/FULLSCR.INI"
+FULLSCR_INI = "/home/user/Win16/WINDOWS/FULLSCR.INI"
 HELLO_CONF = "/etc/win16/usr_share_w16_hello.exe.conf"
 LAST = "/var/lib/win16/usr_share_w16_{}.exe.last"   # what the launcher's "Last run" reads
 FAULT_TITLE = "Fault (Win16)"
@@ -262,11 +262,11 @@ def probe(dbg, res):
     """w16probe.exe's answers (userland/utils/w16/samples/w16probe.asm), against Windows 3.1's: the dialog
     base units at VGA, no button down, a 1000-pixel font measuring ten times a 100-pixel one (Clock
     sizes its digits so), and R2_NOT on light grey giving the palette's dark grey (Clock's second hand)."""
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/WINDOWS")
-    sh(dbg, "rm /home/Win16/WINDOWS/W16PROBE.INI")
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")
+    sh(dbg, "rm /home/user/Win16/WINDOWS/W16PROBE.INI")
     sh(dbg, "w16 /usr/share/w16/w16probe.exe")
-    out = sh(dbg, "cat /home/Win16/WINDOWS/W16PROBE.INI")
+    out = sh(dbg, "cat /home/user/Win16/WINDOWS/W16PROBE.INI")
     got = dict(re.findall(r"(\w+)=([0-9A-F]+)", out))
     res.check("GetDialogBaseUnits answers 3.1's VGA units, 8 by 16", got.get("Base") == "00100008", got)
     res.check("GetAsyncKeyState says the left button is up", got.get("Async") == "0000", got)
@@ -364,9 +364,9 @@ def hard_truetype(dbg, res):
     """win16.conf's truetype=hard draws TrueType as 3.1 did: w16probe.exe's Arial "O" has no grey pixel."""
     was = sh(dbg, f"cat {WIN16_CONF}")
     sh(dbg, f"append {WIN16_CONF} truetype=hard")
-    sh(dbg, "rm /home/Win16/WINDOWS/W16PROBE.INI")
+    sh(dbg, "rm /home/user/Win16/WINDOWS/W16PROBE.INI")
     sh(dbg, "w16 /usr/share/w16/w16probe.exe")
-    got = dict(re.findall(r"(\w+)=([0-9A-F]+)", sh(dbg, "cat /home/Win16/WINDOWS/W16PROBE.INI")))
+    got = dict(re.findall(r"(\w+)=([0-9A-F]+)", sh(dbg, "cat /home/user/Win16/WINDOWS/W16PROBE.INI")))
     res.check("truetype=hard: an Arial letter's pixels are each black or white, none grey", got.get("Grey") == "0000", got)
     lines = [ln for ln in was.splitlines() if "=" in ln or ln.startswith("[")] if "No such" not in was else []
     if lines:                                    # the file as it was
@@ -378,8 +378,8 @@ def hard_truetype(dbg, res):
 
 
 def gdi_checks(dbg, qmp, res, tmp):
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")
     sh(dbg, f"write {INI} [GdiTest]")
     sh(dbg, f"append {INI} Square=1")
     sh(dbg, f"rm {GDI_CONF}")
@@ -856,20 +856,20 @@ def drives_and_folders(dbg, res):
     """Drive D: reaches its folder; the folder list has no cap; a folder's
     right-click Move down is saved in order."""
     # hello.exe writes D:\HELLO.TXT: with D: mapped, the file lands there.
-    sh(dbg, "mkdir /home/w16d")
-    sh(dbg, f"write {WIN16_CONF} drive_d=/home/w16d")
+    sh(dbg, "mkdir /home/user/w16d")
+    sh(dbg, f"write {WIN16_CONF} drive_d=/home/user/w16d")
     if dbg.spawn("/bin/w16 /usr/share/w16/hello.exe", HELLO_TITLE):
         dbg.close_window(HELLO_TITLE)
-    listing = sh(dbg, "ls /home/w16d")
-    res.check("drive D: is its folder: hello.exe's D:\\HELLO.TXT lands in /home/w16d",
+    listing = sh(dbg, "ls /home/user/w16d")
+    res.check("drive D: is its folder: hello.exe's D:\\HELLO.TXT lands in /home/user/w16d",
               "hello.txt" in listing.lower(), f"ls: {listing!r}")
     # Nine folders, past the eight there used to be room for.
     sh(dbg, f"write {WIN16_CONF} folders=9")
     sh(dbg, f"append {WIN16_CONF} folder1=/usr/share/w16")
-    sh(dbg, f"append {WIN16_CONF} folder2=/home/Win16")
+    sh(dbg, f"append {WIN16_CONF} folder2=/home/user/Win16")
     for i in range(3, 10):
-        sh(dbg, f"mkdir /home/w16f{i}")
-        sh(dbg, f"append {WIN16_CONF} folder{i}=/home/w16f{i}")
+        sh(dbg, f"mkdir /home/user/w16f{i}")
+        sh(dbg, f"append {WIN16_CONF} folder{i}=/home/user/w16f{i}")
     dbg.logs("retrolauncher:", clear=True)
     win = dbg.spawn("/bin/wm/apps/retrolauncher", "Retro Launcher")
     res.check("Retro Launcher opens on the nine folders", win is not None, "no window")
@@ -900,8 +900,8 @@ def drives_and_folders(dbg, res):
             dbg.click(c["x"] + item[0] + item[2] // 2, c["y"] + item[1] + item[3] // 2)
             dbg.settle()
             conf = sh(dbg, f"cat {WIN16_CONF}")
-            res.check("Move down is saved: /home/Win16 first, then the samples",
-                      "folder1=/home/Win16" in conf and "folder2=/usr/share/w16" in conf, f"the file: {conf!r}")
+            res.check("Move down is saved: /home/user/Win16 first, then the samples",
+                      "folder1=/home/user/Win16" in conf and "folder2=/usr/share/w16" in conf, f"the file: {conf!r}")
     dbg.close_window("Retro Launcher")
     sh(dbg, f"rm {WIN16_CONF}")
 
@@ -921,10 +921,10 @@ def wait_title(dbg, title, t=10.0):
 def from_file_manager(dbg, qmp, res):
     """What the File Manager's Open does with an .exe (`retrolauncher FILE`), the
     rows it shows about one (`--details`), and its right-click actions."""
-    sh(dbg, "write /home/notwin.exe MZ this is not a Windows program")
+    sh(dbg, "write /home/user/notwin.exe MZ this is not a Windows program")
     out = sh(dbg, f"{LAUNCHER_BIN} --details /usr/share/w16/fault.exe")
     res.check("--details: fault.exe runs partly, one call missing", "Runs\tPartly: 1 call missing" in out, repr(out))
-    out = sh(dbg, f"{LAUNCHER_BIN} --details /home/notwin.exe")
+    out = sh(dbg, f"{LAUNCHER_BIN} --details /home/user/notwin.exe")
     res.check("--details: an MZ file that is not Windows 3.x is named for what it is",
               "Program\ta DOS program" in out and "Runs\tNo" in out, repr(out))
     # Opened from elsewhere, by the default: ask only when it may not work.
@@ -936,7 +936,7 @@ def from_file_manager(dbg, qmp, res):
     res.check("fault.exe, which lacks a call, gets the run card first", wait_title(dbg, "Run fault.exe?"),
               f"windows {[w['title'] for w in dbg.windows()]}")
     dbg.close_window("Run fault.exe?")
-    dbg.send(f"gui spawn {LAUNCHER_BIN} /home/notwin.exe")
+    dbg.send(f"gui spawn {LAUNCHER_BIN} /home/user/notwin.exe")
     res.check("a DOS .exe gets the card that says it cannot run here", wait_title(dbg, "notwin.exe cannot run here"),
               f"windows {[w['title'] for w in dbg.windows()]}")
     dbg.close_window("notwin.exe cannot run here")
@@ -1126,7 +1126,7 @@ def sound_page(dbg, res):
 
 
 DLG_TITLE = "Dialog test (Win16)"
-DLG_INI = "/home/Win16/WINDOWS/DIALOG.INI"
+DLG_INI = "/home/user/Win16/WINDOWS/DIALOG.INI"
 
 
 def wait_titles(dbg, pred, t=8.0):
@@ -1144,9 +1144,9 @@ def key_repeat(dbg, qmp, res):
     delay and two a second (3 and 0), a physical 1 held 1.75 s is typed at 0, 1.0 and 1.5 s -- Value=111 --
     where QEMU's own PS/2 typematic, which w16 must drop, would type a dozen. A key held through QMP,
     since only a physical press is ever repeated (input16.c)."""
-    sh(dbg, "write /home/Win16/WINDOWS/WIN.INI [windows]")
-    sh(dbg, "append /home/Win16/WINDOWS/WIN.INI KeyboardDelay=3")
-    sh(dbg, "append /home/Win16/WINDOWS/WIN.INI KeyboardSpeed=0")
+    sh(dbg, "write /home/user/Win16/WINDOWS/WIN.INI [windows]")
+    sh(dbg, "append /home/user/Win16/WINDOWS/WIN.INI KeyboardDelay=3")
+    sh(dbg, "append /home/user/Win16/WINDOWS/WIN.INI KeyboardSpeed=0")
     dbg.send("gui key 0xF789")                    # F2: the Number dialog, 42 selected
     titles = wait_titles(dbg, lambda t: "Number" in t)
     if "Number" not in titles:
@@ -1165,7 +1165,7 @@ def key_repeat(dbg, qmp, res):
     res.check("a held key repeats on WIN.INI's KeyboardDelay and KeyboardSpeed: Value=111", value == "111",
               f"Value={value}")
     wait_titles(dbg, lambda t: "Number" not in t)
-    sh(dbg, "rm /home/Win16/WINDOWS/WIN.INI")
+    sh(dbg, "rm /home/user/Win16/WINDOWS/WIN.INI")
 
 
 def dialog_control_menu(dbg, res, title):
@@ -1256,11 +1256,11 @@ def caption_line_ends(dbg, qmp, res, title):
 def dialogs(dbg, qmp, res):
     sh(dbg, f"rm {DLG_INI}")
     # DlgDirList's folder: two .TXT files and one that does not match, and a folder.
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/W16DIR")
-    sh(dbg, "mkdir /home/Win16/W16DIR/SUB")
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/W16DIR")
+    sh(dbg, "mkdir /home/user/Win16/W16DIR/SUB")
     for name in ("B.TXT", "A.TXT", "C.DAT"):
-        sh(dbg, f"write /home/Win16/W16DIR/{name} x")
+        sh(dbg, f"write /home/user/Win16/W16DIR/{name} x")
     win = dbg.spawn("/bin/w16 /usr/share/w16/dialog.exe", DLG_TITLE)
     res.check("dialog.exe opens its window", win is not None, "no window")
     if not win:
@@ -1307,8 +1307,8 @@ def dialogs(dbg, qmp, res):
     dbg.send("gui key n")
     res.check("its No answers by mnemonic: Box=7 (IDNO)", ini_has(dbg, "Box=7"), sh(dbg, f"cat {DLG_INI}"))
     # Control Panel's Mouse swaps the buttons in WIN.INI: a LEFT click is then the program's right one.
-    sh(dbg, "write /home/Win16/WINDOWS/WIN.INI [windows]")
-    sh(dbg, "append /home/Win16/WINDOWS/WIN.INI SwapMouseButtons=1")
+    sh(dbg, "write /home/user/Win16/WINDOWS/WIN.INI [windows]")
+    sh(dbg, "append /home/user/Win16/WINDOWS/WIN.INI SwapMouseButtons=1")
     try:
         dbg.click(win["x"] + win["w"] // 2, win["y"] + win["h"] - 20)
         titles = wait_titles(dbg, lambda t: t.count(DLG_TITLE) == 2)
@@ -1318,7 +1318,7 @@ def dialogs(dbg, qmp, res):
             dbg.send("gui key n")
             wait_titles(dbg, lambda t: t.count(DLG_TITLE) == 1)
     finally:
-        sh(dbg, "rm /home/Win16/WINDOWS/WIN.INI")
+        sh(dbg, "rm /home/user/Win16/WINDOWS/WIN.INI")
     always_on_top(dbg, res)
     dbg.send("gui key h alt")
     wait_titles(dbg, lambda t: "Popup" in t)
@@ -1521,23 +1521,23 @@ def groups(dbg, res):
     do -- each of Retro Launcher's folders becomes a group file, RL1.GRP for the first (the samples),
     listed once in PROGMAN.INI's [Groups] and first in its Order; run again, nothing is listed twice."""
     for f in ("PROGMAN.INI", "RL1.GRP", "RL2.GRP", "PROGMAN.EXE"):
-        sh(dbg, f"rm /home/Win16/WINDOWS/{f}")
+        sh(dbg, f"rm /home/user/Win16/WINDOWS/{f}")
     out = sh(dbg, "w16 --groups")
     res.check("without Program Manager on drive C: no group is made", "no Program Manager" in out, out[-200:])
-    sh(dbg, "mkdir /home/Win16/WINDOWS")
-    sh(dbg, "write /home/Win16/WINDOWS/PROGMAN.EXE stand-in")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")
+    sh(dbg, "write /home/user/Win16/WINDOWS/PROGMAN.EXE stand-in")
     out = sh(dbg, "w16 --groups")
     m = re.search(r"group .+ C:\\WINDOWS\\RL1\.GRP (\d+)", out)
     res.check("--groups makes the first folder's group, RL1.GRP, with the samples in it", m is not None and int(m.group(1)) > 5,
               out[-300:])
-    ini = sh(dbg, "cat /home/Win16/WINDOWS/PROGMAN.INI")
+    ini = sh(dbg, "cat /home/user/Win16/WINDOWS/PROGMAN.INI")
     first = ini.count("=C:\\WINDOWS\\RL1.GRP")
     sh(dbg, "w16 --groups")
-    ini2 = sh(dbg, "cat /home/Win16/WINDOWS/PROGMAN.INI")
+    ini2 = sh(dbg, "cat /home/user/Win16/WINDOWS/PROGMAN.INI")
     res.check("PROGMAN.INI lists it once, and once still after a second run",
               first == 1 and ini2.count("=C:\\WINDOWS\\RL1.GRP") == 1 and "Order=" in ini2, ini2[-300:])
     for f in ("PROGMAN.INI", "RL1.GRP", "RL2.GRP", "PROGMAN.EXE"):
-        sh(dbg, f"rm /home/Win16/WINDOWS/{f}")
+        sh(dbg, f"rm /home/user/Win16/WINDOWS/{f}")
 
 
 MDI_TITLE = "MDI test"
@@ -1569,7 +1569,7 @@ def mdi(dbg, qmp, res, tmp):
               b == NAVY and a == WHITE, f"One {a}, Two {b}")
     # Two's scroll bar inside its 4-pixel frame and under its caption, as 3.1 drew it: its left line
     # 17 + 4 - 1 in from Two's right edge, not 17 (over the frame, its arrow over Maximize).
-    rect = re.search(r"Two=([0-9A-F]{16})", sh(dbg, "cat /home/Win16/WINDOWS/MDITEST.INI") or "")
+    rect = re.search(r"Two=([0-9A-F]{16})", sh(dbg, "cat /home/user/Win16/WINDOWS/MDITEST.INI") or "")
     if rect:
         l, t, r, b = (int(rect.group(1)[i:i + 4], 16) for i in range(0, 16, 4))
         mid = y0 + (t + b) // 2
@@ -1581,7 +1581,7 @@ def mdi(dbg, qmp, res, tmp):
                   f"{under}")
     else:
         res.check("mdi.exe wrote Two's window rectangle", False, "no Two= in MDITEST.INI")
-    ini = sh(dbg, "cat /home/Win16/WINDOWS/MDITEST.INI") or ""
+    ini = sh(dbg, "cat /home/user/Win16/WINDOWS/MDITEST.INI") or ""
     calc, client = re.search(r"Calc=(\w+)", ini), re.search(r"Client=(\w+)", ini)
     res.check("WM_NCCALCSIZE shrinks a window's rectangle to its client area, as GetClientRect has it",
               calc and client and calc.group(1) == client.group(1) and client.group(1).startswith("00000000"),
@@ -1615,7 +1615,7 @@ def mdi(dbg, qmp, res, tmp):
     # DefWindowProc drew it so). Inside the two documents, the held frame differs from the one before
     # the press (boxes round the pointer left out); behind them, it would not.
     rects = dict((k, [int(v[i:i + 4], 16) for i in range(0, 16, 4)])
-                 for k, v in re.findall(r"(One|Two)=([0-9A-F]{16})", sh(dbg, "cat /home/Win16/WINDOWS/MDITEST.INI") or ""))
+                 for k, v in re.findall(r"(One|Two)=([0-9A-F]{16})", sh(dbg, "cat /home/user/Win16/WINDOWS/MDITEST.INI") or ""))
     cap = (x0 + 4 + 60, y0 + top + 4 + 9)
     dbg.warp_cursor(qmp, *cap)
     dbg.settle(0.5)
@@ -1675,7 +1675,7 @@ def mdi(dbg, qmp, res, tmp):
 
 
 FULLWIN_TITLE = "Full windows test"
-FULLWIN_INI = "/home/Win16/WINDOWS/FULLWIN.INI"
+FULLWIN_INI = "/home/user/Win16/WINDOWS/FULLWIN.INI"
 
 
 def fullwin(dbg, qmp, res, tmp):
@@ -1685,8 +1685,8 @@ def fullwin(dbg, qmp, res, tmp):
     painted and copied off the screen with no wait between; maximized, hidden and SW_SHOWNORMALed back
     to its rect; a journal hook's last click before what it posts as it unhooks; and no SaunaOS shadow
     round the second window, as 3.1 drew none."""
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")
     sh(dbg, f"rm {FULLWIN_INI}")
     win = dbg.spawn("/bin/w16 /usr/share/w16/fullwin.exe", FULLWIN_TITLE)
     res.check("fullwin.exe opens its main window", win is not None, "no window")
@@ -1778,15 +1778,15 @@ def fullwin_screen_dc(dbg, qmp, res, tmp, second):
 
 
 MENUKEYS_TITLE = "Menu keys test"
-MENUKEYS_INI = "/home/Win16/WINDOWS/MENUKEYS.INI"
+MENUKEYS_INI = "/home/user/Win16/WINDOWS/MENUKEYS.INI"
 
 
 def menukeys(dbg, qmp, res, tmp):
     """Menus from the keyboard (menukeys.exe, each step in its header): a journal's played keys open
     and choose from the second window's menu, as the Windows Tutorial opens Write's File menu; then real
     keys -- QMP's, so Alt alone is a physical key as on a keyboard -- on the main window's bar."""
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")
     sh(dbg, f"rm {MENUKEYS_INI}")
     win = dbg.spawn("/bin/w16 /usr/share/w16/menukeys.exe", MENUKEYS_TITLE)
     res.check("menukeys.exe opens its main window", win is not None, "no window")
@@ -1853,15 +1853,15 @@ def menukeys(dbg, qmp, res, tmp):
 
 
 MENUWRAP_TITLE = "Menu wrap test"
-MENUWRAP_INI = "/home/Win16/WINDOWS/MENUWRAP.INI"
+MENUWRAP_INI = "/home/user/Win16/WINDOWS/MENUWRAP.INI"
 MENU_ROW = 19                 # w16_internal.h's W16_MENU_H: a bar row, 3.11's 18 and the line
 
 
 def menuwrap(dbg, qmp, res, tmp):
     """A menu bar wider than its window (menuwrap.exe, each step in its header), wrapped as 3.11 wrapped
     WinBench 3.1's: rows of 19, the bottom line under the last, Help on the last row's right."""
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")
     sh(dbg, f"rm {MENUWRAP_INI}")
     win = dbg.spawn("/bin/w16 /usr/share/w16/menuwrap.exe", MENUWRAP_TITLE)
     res.check("menuwrap.exe opens its window", win is not None, "no window")
@@ -1928,14 +1928,14 @@ def busy_draw(dbg, qmp, res, tmp):
 
 
 DLGHIDE_TITLE = "Dialog hide test"
-DLGHIDE_INI = "/home/Win16/WINDOWS/DLGHIDE.INI"
+DLGHIDE_INI = "/home/user/Win16/WINDOWS/DLGHIDE.INI"
 
 
 def dialog_hide(dbg, qmp, res, tmp):
     """dlghide.exe (its header has each step): CreateDialog's dialog active at once on the screen, then
     hidden by ShowWindow(SW_HIDE) -- its window gone, not left on the screen."""
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")
     sh(dbg, f"rm {DLGHIDE_INI}")
     win = dbg.spawn("/bin/w16 /usr/share/w16/dlghide.exe", DLGHIDE_TITLE)
     res.check("dlghide.exe opens its window", win is not None, "no window")
@@ -1958,7 +1958,7 @@ def dialog_hide(dbg, qmp, res, tmp):
 
 
 SYSCOLOR_TITLE = "SysColor test"
-SYSCOLOR_INI = "/home/Win16/WINDOWS/SYSCOLOR.INI"
+SYSCOLOR_INI = "/home/user/Win16/WINDOWS/SYSCOLOR.INI"
 
 
 def syscolor_erase(dbg, qmp, res, tmp):
@@ -1966,8 +1966,8 @@ def syscolor_erase(dbg, qmp, res, tmp):
     SetFocus that raises a window erases every owed background inside the call, its paint left owed,
     and one that raises nothing erases nothing -- 3.11's answers (Windows Basics' page 43 photographs
     Program Manager so)."""
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")
     sh(dbg, f"rm {SYSCOLOR_INI}")
     win = dbg.spawn("/bin/w16 /usr/share/w16/syscolor.exe", SYSCOLOR_TITLE)
     res.check("syscolor.exe opens its window", win is not None, "no window")
@@ -1992,7 +1992,7 @@ def syscolor_erase(dbg, qmp, res, tmp):
 
 
 CBHEIGHT_TITLE = "Combo height test"
-CBHEIGHT_INI = "/home/Win16/WINDOWS/CBHEIGHT.INI"
+CBHEIGHT_INI = "/home/user/Win16/WINDOWS/CBHEIGHT.INI"
 
 
 def combo_height(dbg, qmp, res, tmp):
@@ -2000,8 +2000,8 @@ def combo_height(dbg, qmp, res, tmp):
     h + 4 + min(h / 4, 4), and no WS_BORDER left on it -- the Windows Tutorial's sundae dialog has a
     WS_BORDER drop-down list in the System font. Only the System font and Helv 8 are compared: w16
     draws every dialog font at 8 points."""
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")
     sh(dbg, f"rm {CBHEIGHT_INI}")
     win = dbg.spawn("/bin/w16 /usr/share/w16/cbheight.exe", CBHEIGHT_TITLE)
     res.check("cbheight.exe opens its window", win is not None, "no window")
@@ -2019,15 +2019,15 @@ def combo_height(dbg, qmp, res, tmp):
 
 
 LBRECT_TITLE = "Border rectangle test"
-LBRECT_INI = "/home/Win16/WINDOWS/LBRECT.INI"
+LBRECT_INI = "/home/user/Win16/WINDOWS/LBRECT.INI"
 
 
 def border_rects(dbg, qmp, res, tmp):
     """lbrect.exe (its header has each step): a list box is a pixel bigger on every side than it was
     asked, a border or none, from a template or CreateWindow; an edit and a static keep the template's
     rectangle -- 3.11's answers (the Windows Tutorial's Open dialog, Windows Basics pages 33-37)."""
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")
     sh(dbg, f"rm {LBRECT_INI}")
     win = dbg.spawn("/bin/w16 /usr/share/w16/lbrect.exe", LBRECT_TITLE)
     res.check("lbrect.exe opens its window", win is not None, "no window")
@@ -2116,7 +2116,7 @@ def ownact(dbg, qmp, res, tmp):
 
 
 MCI_TITLE = "MCI test"
-MCI_INI = "/home/Win16/WINDOWS/MCI.INI"
+MCI_INI = "/home/user/Win16/WINDOWS/MCI.INI"
 
 
 def mci(dbg, qmp, res, tmp):
@@ -2126,8 +2126,8 @@ def mci(dbg, qmp, res, tmp):
     MM_MCINOTIFY's MCI_NOTIFY_SUCCESSFUL at its end, stopped -- then sought to frame 75; an unknown
     device's error and its text; "where window", a binary type!element open, MCI_WINDOW's text and one
     notification for a play with both wait and notify."""
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")
     sh(dbg, f"rm {MCI_INI}")
     win = dbg.spawn("/bin/w16 /usr/share/w16/mci.exe", MCI_TITLE)
     res.check("mci.exe opens its window", win is not None, "no window")
@@ -2596,7 +2596,7 @@ def own_cursor(dbg, qmp, res, tmp):
     dbg.close_window(CURSOR_TITLE)
 
 
-FPU_INI = "/home/Win16/WINDOWS/FPUTEST.INI"
+FPU_INI = "/home/user/Win16/WINDOWS/FPUTEST.INI"
 
 
 def coprocessor(dbg, qmp, res):
@@ -2620,16 +2620,16 @@ def coprocessor(dbg, qmp, res):
               f"Root={got.get('Root')}")
 
 
-CALL_INI = "/home/Win16/WINDOWS/WINCALLS.INI"
+CALL_INI = "/home/user/Win16/WINDOWS/WINCALLS.INI"
 
 
 def calls_answered(dbg, res):
     """wincalls.exe asks for what needs no window and writes each answer to WINCALLS.INI; the
     values are what Windows 3.11 answers (the sample's header lists them)."""
-    sh(dbg, "mkdir /home/Win16")
-    sh(dbg, "mkdir /home/Win16/WINDOWS")             # C:\WINDOWS, where OVERRUN.BIN is made
+    sh(dbg, "mkdir /home/user/Win16")
+    sh(dbg, "mkdir /home/user/Win16/WINDOWS")             # C:\WINDOWS, where OVERRUN.BIN is made
     sh(dbg, f"rm {CALL_INI}")
-    sh(dbg, "rm /home/Win16/WINDOWS/OVERRUN.BIN")
+    sh(dbg, "rm /home/user/Win16/WINDOWS/OVERRUN.BIN")
     sh(dbg, "spawn /bin/w16 /usr/share/w16/wincalls.exe")
     end, text = time.time() + 15, ""
     while time.time() < end and "Pal=" not in text:
@@ -2688,7 +2688,7 @@ def calls_answered(dbg, res):
                         (("FreedEs",), "GlobalFree of the block in ES leaves ES 0000, as 3.11's KERNEL did")):
         res.check(f"wincalls.exe: {what}", all(got.get(n) == want[n] for n in names),
                   "; ".join(f"{n}={got.get(n)!r} (want {want[n]!r})" for n in names if got.get(n) != want[n]))
-    size = sh(dbg, "stat /home/Win16/WINDOWS/OVERRUN.BIN")
+    size = sh(dbg, "stat /home/user/Win16/WINDOWS/OVERRUN.BIN")
     res.check("wincalls.exe: ...and the file holds all 32 bytes", re.search(r"\b32 bytes\b|[Ss]ize:?\s*32\b", size) is not None,
               size[-200:])
     # The size depends on the font, so the two calls are held to each other, and to something.
@@ -2697,7 +2697,7 @@ def calls_answered(dbg, res):
               f"Ext={got.get('Ext')} ExtPt={got.get('ExtPt')}")
 
 
-OPEN_INI ="/home/Win16/WINDOWS/OPENDLG.INI"
+OPEN_INI ="/home/user/Win16/WINDOWS/OPENDLG.INI"
 
 
 def open_dialog(dbg, res):
@@ -2723,8 +2723,8 @@ def open_dialog(dbg, res):
 # file, a drive's Type and Label, CD-ROM drives in the sidebar ------------------------------------------
 
 FAULT_CONF = "/etc/win16/usr_share_w16_fault.exe.conf"
-FAULT_INI = "/home/Win16/WINDOWS/FAULT.INI"
-CD_ROOT = "/home/W16CD"
+FAULT_INI = "/home/user/Win16/WINDOWS/FAULT.INI"
+CD_ROOT = "/home/user/W16CD"
 OPTIONS_TITLE = "Retro Launcher Options"
 
 
@@ -2944,7 +2944,7 @@ def retro_round(dbg, qmp, res):
         opened = lambda: {t for t in {w["title"] for w in dbg.windows()} - before
                           if "FAULT.INI" in t or "Notepad" in t}
         new = poll(opened, 10) or ({w["title"] for w in dbg.windows()} - before)
-        made = "FAULT.INI" in sh(dbg, "ls /home/Win16/WINDOWS")
+        made = "FAULT.INI" in sh(dbg, "ls /home/user/Win16/WINDOWS")
         res.check("Make one... makes FAULT.INI in C:\\WINDOWS and opens it in Notepad",
                   made and any("FAULT.INI" in t or "Notepad" in t for t in new), f"made {made}, new windows {new}")
         for t in new:
@@ -2978,11 +2978,11 @@ def retro_round(dbg, qmp, res):
                   f"log {got}")
     dbg.close_window("Retro Launcher")
     # w16 sees the label set for it.
-    sh(dbg, "rm /home/w16trace.txt")
-    dbg.send("gui spawn /bin/w16 --trace /home/w16trace.txt /usr/share/w16/hello.exe")
+    sh(dbg, "rm /home/user/w16trace.txt")
+    dbg.send("gui spawn /bin/w16 --trace /home/user/w16trace.txt /usr/share/w16/hello.exe")
     if poll(lambda: dbg.window(HELLO_TITLE), 10):
         dbg.close_window(HELLO_TITLE)
-    out = sh(dbg, "cat /home/w16trace.txt")
+    out = sh(dbg, "cat /home/user/w16trace.txt")
     res.check("w16 names drive D: a CD-ROM labelled as label_d says", f"drive D: {CD_ROOT} (CD-ROM), labelled DKTEST" in out,
               f"trace head {out[:300]!r}")
 
@@ -3046,11 +3046,11 @@ def retro_round(dbg, qmp, res):
     if dbg.window(OPTIONS_TITLE):
         dbg.close_window(OPTIONS_TITLE)
     dbg.close_window("Retro Launcher")
-    for f in (WIN16_CONF, FAULT_INI, FAULT_CONF, "/home/w16trace.txt"):
+    for f in (WIN16_CONF, FAULT_INI, FAULT_CONF, "/home/user/w16trace.txt"):
         sh(dbg, f"rm {f}")
 
 NEEDS_TITLE = "Runtime test needs a file"
-NEEDS_DLL = "/home/Win16/WINDOWS/SYSTEM/VBRUN300.DLL"
+NEEDS_DLL = "/home/user/Win16/WINDOWS/SYSTEM/VBRUN300.DLL"
 CHOOSE_TITLE = "Choose VBRUN300.DLL"
 
 
@@ -3141,14 +3141,14 @@ def missing_dll(dbg, qmp, res):
         refused = ok and poll(lambda: any("w16: refused /usr/share/w16/hello.exe" in ln
                                           for ln in dbg.logs("w16:", clear=False)), 8, 0.3)
         res.check("Choose file... on a program, not a DLL: refused, said in the dialog, nothing copied",
-                  refused and dbg.window(NEEDS_TITLE) is not None and "VBRUN300" not in sh(dbg, "ls /home/Win16/WINDOWS/SYSTEM"),
+                  refused and dbg.window(NEEDS_TITLE) is not None and "VBRUN300" not in sh(dbg, "ls /home/user/Win16/WINDOWS/SYSTEM"),
                   f"chooser {ok} log {dbg.logs('w16:', clear=False)[-3:]}")
         poll(lambda: dbg.window(CHOOSE_TITLE) is None, 5, 0.2)
         dbg.click(*centre(ch))
         ok = wait_title(dbg, CHOOSE_TITLE) and choose_in_chooser(dbg, "/usr/share/w16/rtstub.dll")
         started = ok and wait_title(dbg, "Runtime test", 15)
         res.check("Choose file... on rtstub.dll: copied to C:\\WINDOWS\\SYSTEM as VBRUN300.DLL, and the program starts",
-                  started and dbg.window(NEEDS_TITLE) is None and "VBRUN300.DLL" in sh(dbg, "ls /home/Win16/WINDOWS/SYSTEM"),
+                  started and dbg.window(NEEDS_TITLE) is None and "VBRUN300.DLL" in sh(dbg, "ls /home/user/Win16/WINDOWS/SYSTEM"),
                   f"chooser {ok} windows {[x['title'] for x in dbg.windows()]} log {dbg.logs('w16:', clear=False)[-3:]}")
         dbg.close_window("Runtime test")
     else:
@@ -3183,7 +3183,7 @@ def missing_dll(dbg, qmp, res):
     if add:
         dbg.click(*dbg.widget_center("add-file", "Retro Launcher"))
         ok = wait_title(dbg, CHOOSE_TITLE) and choose_in_chooser(dbg, "/usr/share/w16/rtstub.dll")
-        copied = ok and poll(lambda: any("add file /usr/share/w16/rtstub.dll as /home/Win16/WINDOWS/SYSTEM/VBRUN300.DLL: copied"
+        copied = ok and poll(lambda: any("add file /usr/share/w16/rtstub.dll as /home/user/Win16/WINDOWS/SYSTEM/VBRUN300.DLL: copied"
                                          in ln for ln in dbg.logs("retrolauncher:", clear=False)), 8, 0.3)
         res.check("Add file... copies the file chosen into C:\\WINDOWS\\SYSTEM as VBRUN300.DLL", copied,
                   f"chooser {ok} {dbg.logs('retrolauncher: add', clear=False)[-2:]}")

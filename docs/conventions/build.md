@@ -1316,7 +1316,7 @@ could not have made it, and hide a real refusal):
   (`/etc/fonts`, `/etc/ssl`; `/etc/owners.conf` says which);
 - `user_dir(path)` for a scaffold folder at `/`, where `user` may make
   nothing: made by root, then the account's with mode 4755, so what root
-  puts in it is the account's too -- `/home`'s own rule;
+  puts in it is the account's too -- the home's own rule;
 - a program a person would start (`open`, an app) is started as the
   account too: `sh open` records Recent as root.
 

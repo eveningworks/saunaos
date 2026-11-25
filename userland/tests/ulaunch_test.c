@@ -11,7 +11,7 @@
 #include "base/uopen.h"
 #include "rt/sys.h"
 
-#define DIR "/home/ulaunch_test"
+#define DIR "/home/user/ulaunch_test"
 
 // A check whose detail -- what was got -- shows only when it fails.
 __attribute__((format(printf, 3, 4)))

@@ -147,7 +147,7 @@ def empty_clipboard(dbg):
     """ESTABLISH "nothing to paste" rather than inherit it: a cut is spent
     by its paste (desktop.c, the File Manager's rule), and pasting onto
     the desktop a file already there moves nothing."""
-    dbg.send("sh touch /home/Desktop/clipreset.txt")
+    dbg.send("sh touch /home/user/Desktop/clipreset.txt")
     time.sleep(1.5)
     ic = icon(dbg, "clipreset.txt")
     if ic:
@@ -155,7 +155,7 @@ def empty_clipboard(dbg):
         dbg.key("x", mods="ctrl")
         dbg.key("v", mods="ctrl")
         dbg.click(*EMPTY)
-    dbg.send("sh rm -f /home/Desktop/clipreset.txt")
+    dbg.send("sh rm -f /home/user/Desktop/clipreset.txt")
     time.sleep(1.0)
 
 
@@ -170,7 +170,7 @@ def check_background_menu(dbg, res):
               f"paste={p}")
     close_menu(dbg)
     # Copy a file icon, then the same row must be live.
-    dbg.send("sh touch /home/Desktop/menutest.txt")
+    dbg.send("sh touch /home/user/Desktop/menutest.txt")
     time.sleep(1.5)
     ic = icon(dbg, "menutest.txt")
     if ic:
@@ -275,7 +275,7 @@ def check_icon_menu(dbg, res):
 
 
 def check_rename(dbg, res):
-    dbg.send("sh mkdir '/home/Desktop/Rename me'")
+    dbg.send("sh mkdir '/home/user/Desktop/Rename me'")
     time.sleep(1.5)
     ic = icon(dbg, "Rename me")
     if not ic:
@@ -296,10 +296,10 @@ def check_rename(dbg, res):
         dbg.key(c)
     dbg.key("0x0a")
     time.sleep(1.5)
-    listing = dbg.send("sh ls /home/Desktop") or ""
+    listing = dbg.send("sh ls /home/user/Desktop") or ""
     res.check("Enter renames the folder on disk", "Done" in listing and "Rename me" not in listing,
               f"ls={listing.strip()[:120]}")
-    dbg.send("sh rm -r /home/Desktop/Done")
+    dbg.send("sh rm -r /home/user/Desktop/Done")
     # GONE BEFORE ANY CELL IS READ: an icon with no saved cell is placed in
     # sort order, folders first, so Terminal moves when Done goes -- a rect
     # read before the desktop noticed is a click on its neighbour.
@@ -313,11 +313,11 @@ def check_rename(dbg, res):
             dbg.key(c)
         dbg.key("0x0a")
         time.sleep(1.5)
-        text = dbg.send("sh cat /home/Desktop/terminal.desktop") or ""
+        text = dbg.send("sh cat /home/user/Desktop/terminal.desktop") or ""
         res.check("a launcher's rename rewrites Name= and keeps the rest",
                   "Name=Shell" in text and "Exec=" in text and icon(dbg, "Shell") is not None,
                   f"file={text.strip()[:120]}")
-        dbg.send("sh rm /home/Desktop/terminal.desktop")   # a fresh disk restores it
+        dbg.send("sh rm /home/user/Desktop/terminal.desktop")   # a fresh disk restores it
         poll(lambda: icon(dbg, "Shell") is None, 5)          # and the cells after it move up
     else:
         res.check("rename: the Terminal launcher is on the desktop", False,
@@ -514,7 +514,7 @@ def run(dbg, qmp, tmp, res):
     check_hover_and_glass(dbg, qmp, res, tmp)
     check_app_popup_corners(dbg, qmp, res, tmp)
     check_menu_spacing(dbg, qmp, res, tmp)
-    dbg.send("sh rm -f /home/Desktop/menutest.txt")
+    dbg.send("sh rm -f /home/user/Desktop/menutest.txt")
 
 
 def main():

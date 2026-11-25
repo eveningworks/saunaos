@@ -55,6 +55,7 @@
 #include "base/udclick.h"   // the folder tree's double-click
 #include "base/ulog.h"
 #include "keyboard.h"
+#include "base/udirs.h"
 
 #define WIN_W 960
 #define WIN_H 560
@@ -1334,7 +1335,7 @@ void do_command(struct uapp *a, int code) {
         break;
     }
     case CMD_UNPIN:          pin_selected(0); break;
-    case CMD_NEW_TAB:        tab_new(a, uui_fileview_dir(active())[0] == '/' ? uui_fileview_dir(active()) : "/home"); break;
+    case CMD_NEW_TAB:        tab_new(a, uui_fileview_dir(active())[0] == '/' ? uui_fileview_dir(active()) : udir_home()); break;
     case CMD_CLOSE_TAB:      tab_close(a, tab_current()); break;
     case CMD_OPEN_TAB: {
         char path[PATH_MAX_LEN];
@@ -2626,7 +2627,7 @@ int main(int argc, char **argv) {
 
     // Options' "Open in": where the last run left off, Home, or the root.
     if (g_opt.start != FM_START_LAST) {
-        strlcpy(saved_left, g_opt.start == FM_START_HOME ? "/home" : "/", sizeof saved_left);
+        strlcpy(saved_left, g_opt.start == FM_START_HOME ? udir_home() : "/", sizeof saved_left);
         strlcpy(saved_right, saved_left, sizeof saved_right);
     }
     const char *left = (argc > 1 && argv[1][0]) ? argv[1]

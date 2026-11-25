@@ -2831,7 +2831,9 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# ...and the XDG base directories it names: a program makes only its
 	# own folder under them (ScummVM's scummvm/), so a missing one sent
 	# its settings to the working directory.
-	mkdir -p $(SEED_DIR)/sync/home/.config $(SEED_DIR)/sync/home/.local/share $(SEED_DIR)/sync/home/.cache
+	# They are under the ACCOUNT's home, /home/user (users stage D1).
+	mkdir -p $(SEED_DIR)/sync/home/user/.config $(SEED_DIR)/sync/home/user/.local/share \
+	    $(SEED_DIR)/sync/home/user/.local/state $(SEED_DIR)/sync/home/user/.cache
 	# /etc/locales: the regional formats, the same kind of shipped table
 	# (userland/libs/libc/locale.c reads it).
 	cp data/etc/locales $(SEED_DIR)/sync/etc/locales
@@ -2844,10 +2846,10 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# (userland/apps/system/toywm/desktop.c). A few launchers are seeded ONCE -- the
 	# writer's once/ mode copies a file only when it is missing -- so a
 	# launcher deleted from the desktop stays deleted across `make iso`.
-	mkdir -p $(SEED_DIR)/sync/home/Desktop $(SEED_DIR)/once/home/Desktop
+	mkdir -p $(SEED_DIR)/sync/home/user/Desktop $(SEED_DIR)/once/home/user/Desktop
 	@for a in about files notepad settings terminal; do \
-	    cp data/wm/applications/$$a.desktop $(SEED_DIR)/once/home/Desktop/; done
-	cp data/wm/desktop/trash.desktop $(SEED_DIR)/once/home/Desktop/
+	    cp data/wm/applications/$$a.desktop $(SEED_DIR)/once/home/user/Desktop/; done
+	cp data/wm/desktop/trash.desktop $(SEED_DIR)/once/home/user/Desktop/
 	@for f in data/etc/ssl/certs/*; do \
 	    if [ -f "$$f" ] && [ "$$(basename $$f)" != "README.md" ]; then \
 	        cp "$$f" $(SEED_DIR)/sync/etc/ssl/certs/; fi; \

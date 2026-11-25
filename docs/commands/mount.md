@@ -160,7 +160,7 @@ mounted as something it is not.
     mount -r 2 /boot               # read-only (what boot does)
     mount -t ramfs none /mnt       # a scratch filesystem in RAM
     mount -t fat32 3 /mnt          # only FAT32 is asked; anything else is refused
-    mount /home/DKMMSCIE.iso /mnt  # a CD image, read-only
+    mount /home/user/DKMMSCIE.iso /mnt  # a CD image, read-only
 
 ## See also
 

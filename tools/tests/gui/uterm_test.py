@@ -300,18 +300,18 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # other check here counts non-background pixels, and both a working
     # edit and a `not found` line add some, so ink cannot tell them
     # apart. /tests/file_test writes filetest.txt into the shell's folder
-    # -- /home, where a desktop session starts -- and `zfile_test`
+    # -- /home/user, where a desktop session starts -- and `zfile_test`
     # does not exist, so the file is present only if Home and Delete
     # really moved the cursor and removed the z.
     #
     # An append-only editor fails both of these: it ignores Home,
     # Delete and Up entirely.
     def root_has(name):
-        out = dbg.send("sh ls /home") or ""
+        out = dbg.send("sh ls /home/user") or ""
         return any(tok.rstrip("/") == name
                    for line in out.splitlines() for tok in line.split())
 
-    dbg.send("sh rm /home/filetest.txt")
+    dbg.send("sh rm /home/user/filetest.txt")
     dbg.settle()
     for ch in "zfile_test":
         key(dbg, HEX.get(ch, ch))
@@ -324,7 +324,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
     res.check("Home + Delete edit mid-line, and the edited command runs",
               root_has("filetest.txt"))
 
-    dbg.send("sh rm /home/filetest.txt")
+    dbg.send("sh rm /home/user/filetest.txt")
     dbg.settle()
     key(dbg, "0xf780")   # KEY_ARROW_UP -- recall the previous line
     dbg.settle()
@@ -380,7 +380,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # frozen window looks much like a live one, and the window object
     # survives either way -- so the assertion is that the shell reached a
     # prompt again and executed something, through the FILESYSTEM.
-    dbg.send("sh rm /home/filetest.txt")
+    dbg.send("sh rm /home/user/filetest.txt")
     dbg.settle()
     # A BARE `cat` NOW WAITS FOR INPUT, AND THAT IS THE FIX RATHER THAN
     # THE BUG. It used to return at once because the window had no
@@ -1217,13 +1217,15 @@ def check_env(dbg, qmp, res):
               any(w.startswith("PATH=") for w in want), f"/etc/environment: {want}")
     # A User= service's HOME, USER, LOGNAME and SHELL come from its
     # /etc/passwd line instead (docs/users-design.md): the desktop runs as
-    # `user`, whose HOME is /home.
+    # `user`, whose HOME is /home/user.
     login = ("HOME=", "USER=", "LOGNAME=", "SHELL=")
     missing = [w for w in want if w not in got and not w.startswith(login)]
     res.check("e2. the Terminal's shell has every /etc/environment variable",
               want and not missing, f"missing {missing}; env printed {got}")
     res.check("e2b. ...and the desktop account's login variables, from /etc/passwd",
-              all(v in got for v in ("HOME=/home", "USER=user", "LOGNAME=user")), f"env printed {got}")
+              all(v in got for v in ("HOME=/home/user", "USER=user", "LOGNAME=user",
+                                     "XDG_CONFIG_HOME=/home/user/.config",
+                                     "XDG_DATA_HOME=/home/user/.local/share")), f"env printed {got}")
     # The FILE was what init read, not its fallback -- which ships the
     # same two values, so e2 alone cannot tell them apart. init says when
     # it falls back; its "starting" line anchors the search, since a long

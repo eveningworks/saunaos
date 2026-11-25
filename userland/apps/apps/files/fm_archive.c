@@ -21,6 +21,7 @@
 #include "ui/uui_filedialog.h"
 #include "base/ulog.h"
 #include "base/ugrow.h"
+#include "base/udirs.h"
 
 // What one pane's listing holds, by index. PER PANE: the two panes may
 // show two archives, or two folders of one, and a row index from one
@@ -284,7 +285,7 @@ void extract_command(int code) {
         set_note("not an archive");
         return;
     }
-    if (!k_path_dirname(archive, dir, sizeof dir)) strlcpy(dir, "/home", sizeof dir);
+    if (!k_path_dirname(archive, dir, sizeof dir)) strlcpy(dir, udir_home(), sizeof dir);
     struct uui_filedialog_opts o = {
         .mode = UUI_FILEDIALOG_FOLDER,
         .title = "Extract to",

@@ -1861,7 +1861,7 @@ def run(dbg, qmp, tmp, res):
               f"segments={sorted(lay.pathseg)} dir0={lay.dir.get(0)}")
 
     # The places and volumes are rows of the side column's tree, found
-    # BY PATH: "/" is the System volume, and the FIRST /home is the Home
+    # BY PATH: "/" is the System volume, and the FIRST /home/user is the Home
     # place (the same folder under System comes after it).
     def tree_row(path):
         rows = [r for r, p in sorted(lay.treerow.items()) if p == path]
@@ -1875,13 +1875,13 @@ def run(dbg, qmp, tmp, res):
               sysrow is not None and lay.dir.get(0) == "/" and
               lay.treesel is not None and lay.treesel[0] == "/",
               f"rows={lay.treerow} dir0={lay.dir.get(0)} sel={lay.treesel}")
-    homerow = tree_row("/home")
+    homerow = tree_row("/home/user")
     if homerow is not None:
         tx, ty, tw, th, trh, _ = lay.treebox
         sure_click(dbg, qmp, ox + tx + tw // 2, oy + ty + homerow * trh + trh // 2)
-        lay = wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home") or lay
-    res.check("Home goes to /home",
-              homerow is not None and lay.dir.get(0) == "/home", f"dir0={lay.dir.get(0)}")
+        lay = wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/user") or lay
+    res.check("Home goes to /home/user",
+              homerow is not None and lay.dir.get(0) == "/home/user", f"dir0={lay.dir.get(0)}")
 
     # Search filters the folder by name, anywhere in it: in /fmtest, "rli"
     # leaves ".." and charlie.txt ("ch" would keep echo.txt too); Esc gives
@@ -3170,7 +3170,7 @@ def run(dbg, qmp, tmp, res):
     #
     # The compositor brokers a drag between windows (userland/apps/system/toywm/
     # wm_dnd.c): a row dragged onto the desktop background lands in
-    # /home/Desktop, and a desktop file icon dragged into a pane lands in
+    # /home/user/Desktop, and a desktop file icon dragged into a pane lands in
     # that pane's directory. Both asserted through the shell's listing.
     # The window is moved clear of the icon columns first, since the
     # desktop's file icons sit after the launchers and a window over
@@ -3180,7 +3180,7 @@ def run(dbg, qmp, tmp, res):
     # moves one into /dddest), so reusing one couples this section to
     # whether an earlier drag flaked. `dragme.txt` is created here and
     # nothing else touches it.
-    dbg.send("sh rm -r /home/Desktop/dragme.txt")
+    dbg.send("sh rm -r /home/user/Desktop/dragme.txt")
     dbg.send(f"sh touch {DD}/dragme.txt")
     lay = wait_layout(dbg, win, lambda l: "dragme.txt" in
                       [None] or l.rows.get(0, 0) >= 2) or lay
@@ -3221,10 +3221,10 @@ def run(dbg, qmp, tmp, res):
             time.sleep(0.1)
         time.sleep(0.3)
         qmp.mouse_up()
-    landed = wait_listing(dbg, "/home/Desktop", lambda names: "dragme.txt" in names)
-    res.check("a row dragged onto the desktop moves the file to /home/Desktop",
+    landed = wait_listing(dbg, "/home/user/Desktop", lambda names: "dragme.txt" in names)
+    res.check("a row dragged onto the desktop moves the file to /home/user/Desktop",
               landed and "dragme.txt" not in listing(dbg, DD),
-              f"row={dragme_row} desktop={listing(dbg, '/home/Desktop')} src={listing(dbg, DD)}")
+              f"row={dragme_row} desktop={listing(dbg, '/home/user/Desktop')} src={listing(dbg, DD)}")
     # ...and back: the desktop's icon for it, into the RIGHT pane (DDST).
     reply = dbg.send("gui icons --json") or ""
     start = reply.rfind('{"cached"')
@@ -3268,8 +3268,8 @@ def run(dbg, qmp, tmp, res):
         qmp.mouse_up()
         back = wait_listing(dbg, DDST, lambda names: "dragme.txt" in names)
         res.check("a desktop icon dragged into a pane moves the file there",
-                  back and "dragme.txt" not in listing(dbg, "/home/Desktop"),
-                  f"dst={listing(dbg, DDST)} desktop={listing(dbg, '/home/Desktop')}")
+                  back and "dragme.txt" not in listing(dbg, "/home/user/Desktop"),
+                  f"dst={listing(dbg, DDST)} desktop={listing(dbg, '/home/user/Desktop')}")
 
     # Back to section 18's window for what follows.
     for w2 in sorted(dbg.windows(), key=lambda w2: -w2["z"]):

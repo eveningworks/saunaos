@@ -28,6 +28,7 @@
 #include "ui/uui_table.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
+#include "base/udirs.h"
 
 struct call {
     char *module;          // "USER"
@@ -311,7 +312,7 @@ static void command(struct uapp *a, int cmd) {
     case CMD_SAVE: {
         if (uui_filedialog_is_open(&g_saver)) break;
         struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_SAVE, .title = "Save the list as text",
-                                         .start_dir = "/home/Documents", .initial_name = "calls.txt" };
+                                         .start_dir = udir_path(UDIR_DOCUMENTS), .initial_name = "calls.txt" };
         uui_filedialog_open(a, &g_saver, &o, saved, 0);
         break;
     }

@@ -16,7 +16,7 @@
 | `tosh.h` | tosh -- the SaunaOS shell (t + OS + h), running in ring 3. |
 | `tosh_jobs.h` | The shell's JOB TABLE: what `jobs`, `fg` and `bg` are lists of. |
 | `tunable.h` | Reading and writing a kernel TUNABLE from ring 3 -- the write half of the commands whose read half is a query provider (`heap`, `ata`, `kstack`). |
-| `uaccount.h` | Starting a program AS AN ACCOUNT: its uid, primary group and every group /etc/group names it in, with HOME, USER, LOGNAME and SHELL from its passwd line -- what `runuser -u NAME` and login(1) hand... |
+| `uaccount.h` | Starting a program AS AN ACCOUNT: its uid, primary group and every group /etc/group names it in, with HOME, USER, LOGNAME and SHELL from its passwd line and XDG's four base directories under that H... |
 | `uappentry.h` | The desktop's application entries -- /usr/wm/applications/*.desktop -- read one, walk them, or find the one that launches a given program. |
 | `uarchive.h` | AN ARCHIVE, WHICHEVER KIND IT IS -- .zip (base/uzip.h), .tar, .tar.gz or .tgz, and a lone .gz (base/utar.h) -- listed, a member taken out, or a new one made from files and folders. |
 | `uargbatch.h` | A LONG ARGUMENT LIST SPLIT ACROSS AS MANY SPAWNS AS IT NEEDS -- xargs' job against ARG_MAX, here against SPAWN_ARGS_MAX: a spawn's whole argv and environment, every string's NUL included, fit in th... |

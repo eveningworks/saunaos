@@ -85,13 +85,13 @@ def run(dbg, qmp, res):
               len(labels(w)) == 2 and w["active_tab"] == 1, f"tabs={labels(w)} active={w and w['active_tab']}")
 
     # 3.
-    goto("/home")
-    w = tabs(lambda w: labels(w) == ["usr", "home"])
+    goto("/home/user")
+    w = tabs(lambda w: labels(w) == ["usr", "user"])
     res.check("a tab's label follows its folder, and the other tab's does not",
-              labels(w) == ["usr", "home"], f"tabs={labels(w)}")
+              labels(w) == ["usr", "user"], f"tabs={labels(w)}")
 
     # 4. Back in tab 0 must reach ITS wallpapers; a history shared with tab
-    #    1 ([/usr, /home]) would step from /usr to /usr and stay.
+    #    1 ([/usr, /home/user]) would step from /usr to /usr and stay.
     click(w["tabs"][0])
     lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/usr") or fm.layout_now(dbg, win)
     w = tabs(lambda w: w["active_tab"] == 0)

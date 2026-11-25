@@ -3,6 +3,7 @@
 #include "apps/system/toywm/wm_log.h"
 #include "apps/system/toywm/wm_conf.h"   // wm_setting_generation(), defined here
 #include "wm_internal.h"   // wm_render_reset()
+#include <stdio.h>
 #include <string.h>
 #include "rt/sys.h"
 #include "base/udclick.h"
@@ -11,6 +12,7 @@
 #include "base/uconf.h"
 #include "base/uworker.h"
 #include "setting_abi.h"   // SETTING_OP_COUNT
+#include "base/utrash.h"
 
 static const char *PATH[WM_TOPIC_COUNT] = {
     [WM_TOPIC_SETTINGS] = 0,                    // an event, not a path
@@ -18,7 +20,7 @@ static const char *PATH[WM_TOPIC_COUNT] = {
     [WM_TOPIC_APPS]     = "/usr/wm/applications",
     [WM_TOPIC_DESKTOP]  = 0,                    // the known folder, set below
     [WM_TOPIC_EFFECTS]  = "/etc/effects",
-    [WM_TOPIC_TRASH]    = "/home/.Trash/files",
+    [WM_TOPIC_TRASH]    = 0,                    // in the home, set below
     [WM_TOPIC_THUMBS]   = "/var/cache/thumbnails",
 };
 
@@ -66,9 +68,13 @@ void wm_watch_init(void) {
     PATH[WM_TOPIC_DESKTOP] = udir_path(UDIR_DESKTOP);
     // The bin and the thumbnail cache are made on first use, and a watch
     // needs a folder to watch: one refused falls back to EVERY write.
-    sys_mkdir("/home/.Trash");
-    sys_mkdir("/home/.Trash/files");
-    sys_mkdir("/home/.Trash/info");
+    static char bin_files[288], bin_info[288];
+    snprintf(bin_files, sizeof bin_files, "%s/files", utrash_home_bin());
+    snprintf(bin_info, sizeof bin_info, "%s/info", utrash_home_bin());
+    sys_mkdir(utrash_home_bin());
+    sys_mkdir(bin_files);
+    sys_mkdir(bin_info);
+    PATH[WM_TOPIC_TRASH] = bin_files;
     sys_mkdir("/var/cache");
     sys_mkdir("/var/cache/thumbnails");
     for (int t = 0; t < WM_TOPIC_COUNT; t++) {
@@ -102,6 +108,8 @@ static void settings_published(void) {
     utheme_settings_reload();
     if (memcmp(&before, utheme_current(), sizeof before)) wm_render_reset();
 }
+
+const char *wm_watch_path(enum wm_topic t) { return (unsigned)t < WM_TOPIC_COUNT ? PATH[t] : 0; }
 
 uint64_t wm_watch_gen(enum wm_topic t) {
     if (t < 0 || t >= WM_TOPIC_COUNT) return 0;

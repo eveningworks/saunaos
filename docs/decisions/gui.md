@@ -7513,7 +7513,7 @@ shortcut" adds a file. Nobody shows every installed application on
 the desktop, and nobody has for twenty years.
 
 **SaunaOS follows.** The database is `/usr/wm/applications`, the desktop
-is exactly `/home/Desktop`, a `.desktop` file there is a launcher read
+is exactly `/home/user/Desktop`, a `.desktop` file there is a launcher read
 by the same parser (`gui_app_read_entry()`), and "Add to desktop" on a
 Start menu row writes one. A launcher on the desktop opens through the
 registry entry with the same `AppId` so single-instance and remembered
@@ -10663,7 +10663,7 @@ shape). No size cap or automatic emptying yet.
 `$Recycle.Bin` on each drive and freedesktop keeps `.Trash-$uid` at each
 mount's top for the same reason: moving a tree to another disk to
 "delete" it is slow, can fail half way, and needs the very space being
-freed. The system volume's bin is `/home/.Trash` (the spec's "home
+freed. The system volume's bin is `/home/user/.Trash` (the spec's "home
 trash" -- SaunaOS has one home), any other persistent volume's is
 `<mount>/.Trash-0`. **A RAM volume and a read-only one have no bin**, and
 a delete there says so on its card and is permanent, as Windows does for
@@ -10687,7 +10687,7 @@ restore onto a name that is now taken is refused too; both say why.
 uui_fileview asks a resolver for a SOURCE on every reload, so Back,
 Forward, the saved pane folder and the breadcrumb (which names a scheme
 root) reach the bin with no special case each. The alternative -- the
-File Manager listing `/home/.Trash/files` itself -- would show bin
+File Manager listing `/home/user/.Trash/files` itself -- would show bin
 names instead of where things came from, one volume at a time, and
 would teach every caller what a bin looks like on disk. The same source
 hook is what search results, the inside of a .zip, Recent and folder
@@ -11309,7 +11309,7 @@ virtual item the desktop invents. Being a file is what gives it a saved
 position, a place in the grid's order, and a way to remove it (delete
 it, as Windows lets you hide the bin) with no code. The desktop knows it
 by its AppId: it draws it full or empty from a watch on
-`/home/.Trash/files` (which the compositor creates at start, since a
+`/home/user/.Trash/files` (which the compositor creates at start, since a
 watch on a missing folder falls back to every write in the machine),
 opens the File Manager on `trash:/` rather than its Exec, and offers
 Empty on its menu. Linux desktops do the same with a `trash:///` link.

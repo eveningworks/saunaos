@@ -332,7 +332,7 @@ the rest in the sweep. Each stays a standalone script with its own
   Run by `ondemand_sweep.py`.
 - **`udatadir_hostcheck.py`** -- `base/udatadir`, where a program's
   data is written and found: `$XDG_DATA_HOME`, else `$HOME/.local/share`,
-  else `/home/.local/share`; a lookup tries the person's folder, then
+  else `/home/user/.local/share`; a lookup tries the person's folder, then
   each `$XDG_DATA_DIRS` entry in order, skipping a relative one; prepare
   makes the folders above the file and not the file. Its positive
   control -- a lookup that skips the person's folder -- fails the order

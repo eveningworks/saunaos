@@ -122,6 +122,10 @@ int main(void) {
         utest_check(strcmp(path, "/bin:/usr/bin") == 0, "PATH was inherited from init");
         const char *home = getenv("HOME");
         utest_check(home && strcmp(home, "/") == 0, "and HOME");
+        // A root service has no XDG folders: only init's User= sets them,
+        // under the account's home (users stage D1).
+        utest_check(!getenv("XDG_CONFIG_HOME") && !getenv("XDG_DATA_HOME"),
+                    "and no XDG_CONFIG_HOME or XDG_DATA_HOME for root");
     } else {
         utest_notef("note: no inherited environment -- this process's parent "
                     "had none to pass. The child below must MIRROR that, which "

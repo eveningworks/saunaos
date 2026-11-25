@@ -9,7 +9,7 @@ the whole selection, which past about 1 KiB of paths is refused at spawn
 (SPAWN_ARGS_MAX) and moved nothing. Now every per-icon table grows with
 the folder and the Delete runs in batches (base/uargbatch.h).
 
-  1. 75 files go into /home/Desktop; ALL 75 must become icons
+  1. 75 files go into /home/user/Desktop; ALL 75 must become icons
      (`gui icons --json`), beside the stock launchers.
   2. A rubber band over the columns that hold only test files selects
      every icon it covers -- worked out from the icons' own rects, so the
@@ -41,7 +41,7 @@ from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
 from harness import Results                     # noqa: E402
 
-DESK = "/home/Desktop"
+DESK = "/home/user/Desktop"
 N = 75
 NAMES = [f"m{k:02d}" for k in range(N)]
 K_DELETE = "0xf788"
@@ -74,9 +74,14 @@ def binned(dbg):
 
 def run(dbg):
     dbg.send("sh trash empty")
-    # The debug console takes a 128-byte line: six paths a `touch`.
-    for at in range(0, N, 6):
-        dbg.send("sh touch " + " ".join(f"{DESK}/{n}" for n in NAMES[at:at + 6]))
+    # The debug console takes a 128-byte line: as many paths a `touch` as fit.
+    line = "sh touch"
+    for n in NAMES:
+        if len(line) + len(DESK) + len(n) + 2 > 127:
+            dbg.send(line)
+            line = "sh touch"
+        line += f" {DESK}/{n}"
+    dbg.send(line)
     want = set(NAMES)
     have = wait_for(lambda: want <= {i["name"] for i in icons(dbg)})
     ic = icons(dbg)

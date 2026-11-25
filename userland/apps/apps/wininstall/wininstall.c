@@ -33,6 +33,7 @@
 #include "ui/uui_primitives.h"
 #include "base/human.h"
 #include "common/w16prefs.h"   // the launcher's folders
+#include "base/udirs.h"
 
 #define W16_BIN      "/bin/w16"
 #define LAUNCHER_BIN "/bin/wm/apps/retrolauncher"
@@ -556,7 +557,7 @@ static void on_action(struct uapp *a, int code) {
         if (uui_filedialog_is_open(&g_chooser)) break;
         struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_FOLDER,
                                          .title = "Choose the folder the Windows disks are in",
-                                         .start_dir = "/home" };
+                                         .start_dir = udir_home() };
         uui_filedialog_open(a, &g_chooser, &o, chosen, 0);
         break;
     }

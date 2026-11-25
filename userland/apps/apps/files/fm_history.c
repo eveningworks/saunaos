@@ -13,6 +13,7 @@
 #include "kpath.h"
 #include <string.h>
 #include <stdio.h>
+#include "base/udirs.h"
 
 static struct unavhist g_hist[2];
 
@@ -41,7 +42,7 @@ void fm_history_replay(int pane, const char *dir) {
     g_replaying = 1;
     if (!still_there(0, dir)) {
         snprintf(g_stat_note, sizeof g_stat_note, "%s is gone -- showing Home", k_path_basename(dir));
-        dir = "/home";
+        dir = udir_home();
     }
     uui_fileview_set_dir(&g_pane[pane], dir);
     g_replaying = 0;

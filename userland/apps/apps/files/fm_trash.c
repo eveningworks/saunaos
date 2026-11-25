@@ -117,7 +117,11 @@ int bin_item_flags(int code, unsigned *out) {
 // the system volume's bin's info folder, which every put, restore and
 // empty there touches.
 const char *fm_watch_path(const char *dir) {
-    if (strcmp(dir, FM_BIN) == 0) return "/home/.Trash/info";
+    static char info[288];
+    if (strcmp(dir, FM_BIN) == 0) {
+        snprintf(info, sizeof info, "%s/info", utrash_home_bin());
+        return info;
+    }
     if (strcmp(dir, FM_RECENT) == 0) return "/var/lib";   // urecent renames its file in
     if (strcmp(dir, FM_QUICK) == 0) return "/var/lib";    // ...and Quick access shows it
     // An archive's view changes when the archive does.

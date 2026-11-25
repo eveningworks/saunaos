@@ -42,7 +42,7 @@ from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
 from harness import Results, poll               # noqa: E402
 
-LAUNCHER = "/home/Desktop/doom.desktop"
+LAUNCHER = "/home/user/Desktop/doom.desktop"
 KEY_SUPER = "0xf795"
 
 

@@ -144,7 +144,7 @@ LOUDLY and by name (below), never as a silent zero.
   SaunaOS tree, names matched without case; a program starts in its own
   folder, and the common dialogs browse both.
 - **The sandbox** (`userland/utils/w16/w16.c`): the whole tree read-only (drive
-  Z:), `/home`, drive C: and `/var/lib/win16` read-write, the clipboard,
+  Z:), the person's home (`/home/user`), drive C: and `/var/lib/win16` read-write, the clipboard,
   the compositor's and fontd's beacons by exact name, and `stdio rpath
   wpath cpath shm window settings query`; `--info` and `--check` keep
   only the file and `stdio rpath`. Settings are read BEFORE the
@@ -283,10 +283,10 @@ because they drive and copy Microsoft programs):
    copy of `disk.img` (after `make iso`; toywm remembers each app's last
    size and place in `/etc/windows.conf`, so a reused image opens the
    program wherever it was left), the programs under test copied to
-   `/home/Win16/sol/`, and **3.11's own fonts** -- the VGA `.FON` set
+   `/home/user/Win16/sol/`, and **3.11's own fonts** -- the VGA `.FON` set
    (VGASYS, VGAFIX, VGAOEM, SSERIFE, SERIFE, COURE, SMALLE, SYMBOLE) AND
    its TrueType `.TTF` files (ARIAL*, COUR*, TIMES*, SYMBOL, WINGDING) --
-   to `/home/Win16/WINDOWS/SYSTEM`, drive C:'s, where w16 looks. **Without
+   to `/home/user/Win16/WINDOWS/SYSTEM`, drive C:'s, where w16 looks. **Without
    the `.TTF`s w16 draws Times New Roman and Arial with Liberation twins**,
    whose advances round differently: the Tutorial's drop-cap "T" moved
    the rest of its line a pixel. `w16 --fonts` lists the `.FON`s it found.

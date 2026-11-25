@@ -26,9 +26,9 @@ Image Viewer's filmstrip and the desktop all read (`media/uthumb.h`). A
 video's thumbnail is one of its frames.
 
 ```
-/$ thumb -s 48 /home/Desktop/beach.jpg /home/Desktop/notes.txt
-/home/Desktop/beach.jpg: ok
-/home/Desktop/notes.txt: not a picture or a video
+/$ thumb -s 48 /home/user/Desktop/beach.jpg /home/user/Desktop/notes.txt
+/home/user/Desktop/beach.jpg: ok
+/home/user/Desktop/notes.txt: not a picture or a video
 ```
 
 **IT IS THE DESKTOP'S THUMBNAILER.** The desktop is drawn by the

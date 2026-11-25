@@ -90,7 +90,7 @@ def run(dbg, qmp, res):
     res.check("open records each file with its app's name", ok, f"list={recorded()}")
 
     dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=1", "left_view=details", "details_pane=0"])
-    win = dbg.spawn(f"{fm.SPAWN_PATH} /home", fm.TITLE)
+    win = dbg.spawn(f"{fm.SPAWN_PATH} /home/user", fm.TITLE)
     res.check("the File Manager opens", win is not None, "no window")
     if not win:
         return

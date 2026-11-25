@@ -41,7 +41,7 @@ from harness import copy_disk         # noqa: E402
 import mkpart_test                    # noqa: E402
 
 WRITER = toolpath.tool("tfs3_writer.py")
-GUEST_DIR = "/home/isot"
+GUEST_DIR = "/home/user/isot"
 SAMPLE = 24
 
 _fail = 0

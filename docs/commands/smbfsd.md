@@ -19,7 +19,7 @@ It is the service `smbfsd` (`/etc/services.d/smbfsd`); nobody needs to
 run it by hand.
 
     ls /net/media
-    cp /net/media/Photos/beach.jpg /home/Pictures/
+    cp /net/media/Photos/beach.jpg /home/user/Pictures/
 
 **Saved shares are one file each in `/etc/mounts.d`**, and the file's
 name is the share's name under `/net`. The File Manager's **Add network

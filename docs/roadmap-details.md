@@ -1903,7 +1903,7 @@ in a `uui_tree`, each region's bytes tinted), the byte grid
 file is read in ring 3 through `base/urange.h`'s page cache -- open, lseek,
 read, never held -- so a disk image of gigabytes scrolls; Find scans it on
 a worker thread. Read-only, and sandboxed: `hexview_sandbox()` reads
-everywhere and writes only under `/home` (Save selection as...). Why this
+everywhere and writes only in the person's home (Save selection as...). Why this
 shape: `docs/decisions/gui.md`, "The Hex Viewer: decoders in lib,
 read-only first, a sandbox that still saves". Left: the two items below.
 
@@ -1916,7 +1916,7 @@ write on Save; insert or delete in the middle of a large file then means
 rewriting everything after it, so Save needs either a temporary copy and
 a rename, or a write-in-place path for overwrite-only edits. Decide that,
 add the undo log (`uui_undo`'s shape, but for byte ranges), and widen the
-sandbox's write unveil to the file being edited -- today it is `/home`
+sandbox's write unveil to the file being edited -- today it is the person's home
 only.
 
 ### Hex Viewer: a raw disk or partition view -- needs a privileged raw block read; ring 3 has none
@@ -5552,7 +5552,7 @@ The whole plan, the routes and the case against each are in `docs/w16-design.md`
 - [x] ~~**Stage 1: the 16-bit CPU interpreter.** The foreign check needs the host kernel's `modify_ldt` (`CONFIG_MODIFY_LDT_SYSCALL`); a host without it skips the check and says so, it does not pass.~~ DONE 2026-10-18: about 600k random instructions match the host CPU, undefined flags masked; x87 is not emulated (a fault that says so).
 - [x] ~~**Stage 2: toywm's undecorated windows and client-started move/resize.** A new layer boundary: the client, not the WM, draws the frame of such a window, and asks the WM to run the drag. The taskbar button, focus and Alt+F4 stay the WM's.~~ DONE 2026-10-18 -- `docs/decisions/gui.md`, "A client may draw its own frame and ask the compositor to run its drags".
 - [x] ~~**w16: a fault or an unimplemented call as a crash report.**~~ DONE 2026-10-19: the Windows 3.1 Application Error box in the program's window, then `abort()` with `set_abort_message()` naming the call or the fault, CS:IP and the registers as the fault found them -- `docs/decisions/kernel.md`, "A program's last words are an address, read at the crash". `/usr/share/w16/fault.exe` faults on a click and calls ExitWindows on a right click.
-- [x] ~~**w16: INI files on drive C:, and the Win16 Programs launcher with per-program settings.**~~ DONE 2026-10-19: the profile calls read and write real INI files below `drive_c` (`/home/Win16`; a bare name is in its `WINDOWS`, as 3.1 put it). `/etc/win16.conf` holds the defaults -- scale, frame, the version GetVersion answers, what a fault does, trace, drive C: and the folders the launcher looks in -- and `/etc/win16/<program>.conf` the first six for one program, keyed by its path, as Windows' compatibility settings are keyed by the executable. The launcher (`/bin/wm/apps/win16`) learns each program's description, icon and how much of what it imports `w16` has from `w16 --check`, so it parses no program itself, and shows the last run from `/var/lib/win16/<program>.last`.
+- [x] ~~**w16: INI files on drive C:, and the Win16 Programs launcher with per-program settings.**~~ DONE 2026-10-19: the profile calls read and write real INI files below `drive_c` (`/home/user/Win16`; a bare name is in its `WINDOWS`, as 3.1 put it). `/etc/win16.conf` holds the defaults -- scale, frame, the version GetVersion answers, what a fault does, trace, drive C: and the folders the launcher looks in -- and `/etc/win16/<program>.conf` the first six for one program, keyed by its path, as Windows' compatibility settings are keyed by the executable. The launcher (`/bin/wm/apps/win16`) learns each program's description, icon and how much of what it imports `w16` has from `w16 --check`, so it parses no program itself, and shows the last run from `/var/lib/win16/<program>.last`.
 - [x] ~~**w16: a program's missing calls in a window of their own, with names and kinds for every Win16 DLL.**~~ DONE 2026-10-19: `win16 --calls FILE` (the details panel's Missing calls... button) lists module, ordinal, function and kind with a chip per module (`ui/uui_chips.h`), a search, Copy, Save as text and Show all imports -- Dependency Walker's shape. The name table covers COMMDLG, SHELL, KEYBOARD, SOUND, SYSTEM, TOOLHELP, MMSYSTEM, DDEML, OLECLI, OLESVR, LZEXPAND, VER and WIN87EM beside KERNEL, USER and GDI, and KERNEL's constants; each export's kind comes from the generator's `KIND_RULES`. `uui_table` sorts any number of rows now (it stopped at 256, and Write imports 262).
 - [x] ~~**w16: the menu bar from the MENU resource, accelerators, dialogs from DIALOG resources, MessageBox.**~~ DONE 2026-10-19: Minesweeper's Game and Help menus, Best Times, Custom Field and About all work; `/usr/share/w16/dialog.exe` is the committed sample `w16_gui_test.py` drives. The choices that day: a dialog is an owned window (not a toolkit popup), ShellAbout in 3.1's layout with SaunaOS where 3.1 named itself, and WinHelp saying it cannot show a .HLP file.
 - [ ] **w16: the main window's paint 3.11 still has pending at a program's first GetMessage.** SkiFree 1.0 (the author's 16-bit build, local only) shows, paints and then blocks in GetMessage; any message at all lets its PeekMessage loop run the first frame, which is the start screen (logo, skier, signs). On real 3.11 that screen appears with no input; under w16 the slope stays white until a click or key. Measured 2026-11-01 on the reference VM with patched copies that drop one class of message before dispatch: dropping mouse (0x2xx) or key/timer (0x1xx) messages still draws it, dropping WM_PAINT or every message for the main window leaves it white, and never showing the status child still draws it -- so 3.11 has a WM_PAINT for the main window queued after its UpdateWindow, and w16 does not. What invalidates it there is NOT established (the program calls no InvalidateRect on that path; the Enter key's release is ruled out -- held down, the screen still drew).
@@ -8826,8 +8826,8 @@ BUILT 2026-11-01, all four stages, in the picked order "DK first":
   ring 3; a mounted image is a drive in `udrive_list()`.
 - w16: a drive or a program's `cd` that is an image is mounted as the
   program starts (left mounted until Eject, picked), a CD-ROM to MSCDEX
-  labelled from the disc. DK's TIEDE runs from `/home/DKMMSCIE.iso` on
-  QEMU (drive_d=/home/DKMMSCIE.iso).
+  labelled from the disc. DK's TIEDE runs from `/home/user/DKMMSCIE.iso` on
+  QEMU (drive_d=/home/user/DKMMSCIE.iso).
 - Retro Launcher: Add drive... / Change... ask "A folder..." or "A disc
   image (.iso)..." (R3, a drop-down through the new `uapp_popup_menu()`);
   an image drive's programs listed once mounted; the details panel's

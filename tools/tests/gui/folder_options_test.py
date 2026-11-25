@@ -45,7 +45,7 @@ from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
 from harness import Results                     # noqa: E402
 
-DESK = "/home/Desktop"
+DESK = "/home/user/Desktop"
 CONF = "/etc/files.conf"
 CURSOR_HAND = 7   # wm_internal.h's WM_CURSOR_HAND
 _res = Results()

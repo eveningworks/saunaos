@@ -41,6 +41,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "base/udirs.h"
 
 // A RETENTION WINDOW, NOT A CAP ON A LIST: the newest win, as in the
 // klog ring this views. A quiet boot on the test laptop is ~600 lines;
@@ -339,7 +340,7 @@ static void save_as(struct uapp *a) {
     else if (!strncmp(label, "Boot ", 5)) snprintf(name, sizeof name, "boot-%s.log", label + 5);
     else snprintf(name, sizeof name, "%s", label);
     struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_SAVE, .title = "Save shown lines",
-                                     .start_dir = "/home", .initial_name = name };
+                                     .start_dir = udir_home(), .initial_name = name };
     uui_filedialog_open(a, &g_fd, &o, save_done, a);
 }
 

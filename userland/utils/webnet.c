@@ -38,6 +38,7 @@
 #include "base/uargs.h"
 #include "net/webnet_proto.h"
 #include "rt/sys.h"
+#include "base/udirs.h"
 #include "uhttp.h"
 #include "utls.h"
 #include "nspsl.h"
@@ -45,7 +46,7 @@
 #define STATE_DIR     "/var/lib/browser"
 #define JAR_FILE      STATE_DIR "/cookie-jar"
 #define NETSURF_JAR   STATE_DIR "/cookies"      // NetSurf's own, read once
-#define DOWNLOAD_DIR  "/home/Downloads"
+#define DOWNLOAD_DIR  udir_path(UDIR_DOWNLOADS)
 #define FETCH_STACK   (256 * 1024)
 #define REPLAY_MAX    (1024 * 1024)
 #define SEND_WAIT_MS  60000                      // a content process that stopped reading
@@ -267,13 +268,13 @@ static void choose_path(const char *suggested, char *out, size_t cap) {
     for (char *c = name; *c; c++)
         if (*c == '/' || (unsigned char)*c < 0x20) *c = '_';
     if (name[0] == '.') name[0] = '_';   // never hidden, never "." or ".."
-    snprintf(out, cap, DOWNLOAD_DIR "/%s", name);
+    snprintf(out, cap, "%s/%s", DOWNLOAD_DIR, name);
     char part[280];
     snprintf(part, sizeof part, "%s.part", out);
     const char *dot = strrchr(name, '.');
     int stem = dot && dot != name ? (int)(dot - name) : (int)strlen(name);
     for (int n = 1; (exists(out) || exists(part)) && n < 100; n++) {
-        snprintf(out, cap, DOWNLOAD_DIR "/%.*s (%d)%s", stem, name, n, name + stem);
+        snprintf(out, cap, "%s/%.*s (%d)%s", DOWNLOAD_DIR, stem, name, n, name + stem);
         snprintf(part, sizeof part, "%s.part", out);
     }
 }

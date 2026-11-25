@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "base/udirs.h"
 
 static struct uui_netshare g_ns;
 struct uui_infobar g_netbar;
@@ -166,7 +167,7 @@ void net_command(int code) {
         for (int p = 0; p < 2; p++) {
             struct query_fsinfo in;
             if (share_of(uui_fileview_dir(&g_pane[p]), &in) && !strcmp(in.point, point))
-                fm_goto(p, "/home");
+                fm_goto(p, udir_home());
         }
         struct unetmount m;
         if (unetmount_load(name, &m) && !strncmp(point, UNETMOUNT_ROOT "/", strlen(UNETMOUNT_ROOT) + 1)) {

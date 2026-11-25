@@ -430,7 +430,7 @@ def run(dbg, qmp, tmp, res, data, at):
         if win2:   # the window grew for 32 a row; where its content is now
             cx0, cy0 = win2["content"]["x"], win2["content"]["y"]
 
-    # --- 11. the file dialogs work INSIDE the sandbox: Save under /home, refused elsewhere, Open ---------
+    # --- 11. the file dialogs work INSIDE the sandbox: Save under /home/user, refused elsewhere, Open ---------
     def save_as(path):
         x, y, w, h = cell(0x18)
         dbg.click(x + w // 2, y + h // 2)
@@ -447,16 +447,16 @@ def run(dbg, qmp, tmp, res, data, at):
         dbg.key(K_ENTER)
         return True
 
-    dbg.send("sh rm /home/hvsave.bin")
-    ok = save_as("/home/hvsave.bin")
-    saved = v.wait_log(r"hexview: saved 8 of 8 bytes to /home/hvsave\.bin", 10)
-    listing = dbg.send("sh ls -l /home/hvsave.bin") or ""
-    check("Save as writes the selection under /home (8 bytes, inside the sandbox)", ok and saved and " 8 " in listing,
+    dbg.send("sh rm /home/user/hvsave.bin")
+    ok = save_as("/home/user/hvsave.bin")
+    saved = v.wait_log(r"hexview: saved 8 of 8 bytes to /home/user/hvsave\.bin", 10)
+    listing = dbg.send("sh ls -l /home/user/hvsave.bin") or ""
+    check("Save as writes the selection under /home/user (8 bytes, inside the sandbox)", ok and saved and " 8 " in listing,
           f"{listing.strip()[-120:]}")
     ok = save_as("/tmp/hvsave.bin")
     refused = v.wait_log(r"hexview: save refused for /tmp/hvsave\.bin", 10)
-    check("...and is refused outside /home, with the app still running", ok and refused and dbg.window(TITLE) is not None)
-    dbg.send("sh rm /home/hvsave.bin")
+    check("...and is refused outside /home/user, with the app still running", ok and refused and dbg.window(TITLE) is not None)
+    dbg.send("sh rm /home/user/hvsave.bin")
     dbg.key("0x0f", mods="ctrl")
     if check("File > Open's dialog opens in the sandbox", poll(lambda: dbg.window("Open File"), 8, 0.3) is not None):
         # The name field takes a whole path; an Open dialog starts with the listing focused, so it is

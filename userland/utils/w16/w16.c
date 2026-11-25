@@ -37,6 +37,7 @@
 #include "ui/uui_anim.h"
 #include "utils/w16/w16_internal.h"
 #include "common/w16prefs.h"
+#include "base/udirs.h"
 
 #define W16_FILE_MAX (16u << 20)   // NE files are at most a few MiB
 
@@ -1700,10 +1701,11 @@ int main(int argc, char **argv) {
         // (media/usnd_sink_daemon.c names it by pid) -- never the device.
         char snd_ring[48];
         snprintf(snd_ring, sizeof snd_ring, "shm:" SND_CLIENT_PREFIX "%d", (int)getpid());
-        // Drive Z: is the whole tree to read, and /home to write as well
-        // (file16.c) -- what a program can reach of SaunaOS's files, Wine's
-        // shape with the system's own folders kept read-only.
-        ok = unveil("/", "r") == 0 && unveil("/home", "rwc") == 0
+        // Drive Z: is the whole tree to read, and the person's home to
+        // write as well (file16.c) -- what a program can reach of SaunaOS's
+        // files, Wine's shape with the system's own folders kept read-only.
+        // No person's home (root, no desktop account) is "/": not writable.
+        ok = unveil("/", "r") == 0 && (!strcmp(udir_home(), "/") || unveil(udir_home(), "rwc") == 0)
              && unveil(g_w16_drive_c, "rwc") == 0 && unveil(W16_STATE_DIR, "rwc") == 0
              && unveil("shm:" CLIP_SHM_NAME, "rw") == 0
              && unveil("shm:toywm", "r") == 0 && unveil("shm:" FONT_BEACON_NAME, "r") == 0

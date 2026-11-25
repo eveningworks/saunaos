@@ -61,8 +61,8 @@ playback.
     1       44 ms B b8e386d1
     2       77 ms B a67c1374
 3 frames in 61 ms, 49.18 fps
-/$ vplay -t 30 -o /home/frame.png /usr/share/videos/first-boot.mpg
-/home/frame.png
+/$ vplay -t 30 -o /home/user/frame.png /usr/share/videos/first-boot.mpg
+/home/user/frame.png
 ```
 
 ## What it deliberately does not do

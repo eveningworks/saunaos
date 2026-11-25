@@ -64,7 +64,7 @@ import mkpart_test  # noqa: E402
 
 TOOL = "disc_desktop_test"
 WRITER = toolpath.tool("tfs3_writer.py")
-DIR = "/home/disc"
+DIR = "/home/user/disc"
 ISO = f"{DIR}/test.iso"
 LABEL = "TESTDISC"
 POINT = "/media/" + LABEL

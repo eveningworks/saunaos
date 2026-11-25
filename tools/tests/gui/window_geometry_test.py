@@ -329,13 +329,13 @@ def run(dbg, qmp, res):
     #     Write window opened at the Tutorial's 640x480 on every run but the
     #     first) and dragging it wrote over the owner's line.
     set_conf(dbg, "")
-    dbg.send("sh rm /home/Win16/WINDOWS/FULLWIN.INI")
+    dbg.send("sh rm /home/user/Win16/WINDOWS/FULLWIN.INI")
     dbg.spawn("/bin/w16 /usr/share/w16/fullwin.exe", "Full windows test")
     own = second_rect(dbg)
     close_all(dbg)
     big = "/bin/w16:w16-fullwin=40,40,900,600"
     set_conf(dbg, big)
-    dbg.send("sh rm /home/Win16/WINDOWS/FULLWIN.INI")
+    dbg.send("sh rm /home/user/Win16/WINDOWS/FULLWIN.INI")
     dbg.spawn("/bin/w16 /usr/share/w16/fullwin.exe", "Full windows test")
     again = second_rect(dbg)
     res.check("a second top-level window opens at its own size, not its owner's saved one",

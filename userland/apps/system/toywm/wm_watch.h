@@ -24,7 +24,7 @@ enum wm_topic {
     WM_TOPIC_APPS,       // /usr/wm/applications -- the .desktop entries
     WM_TOPIC_DESKTOP,    // the Desktop folder (base/udirs.h) -- the icons on the desktop
     WM_TOPIC_EFFECTS,    // /etc/effects -- the effects' options
-    WM_TOPIC_TRASH,      // /home/.Trash/files -- the desktop's Recycle Bin picture
+    WM_TOPIC_TRASH,      // <home>/.Trash/files -- the desktop's Recycle Bin picture
     WM_TOPIC_THUMBS,     // /var/cache/thumbnails -- the desktop's thumbnails, made
     WM_TOPIC_COUNT
 };
@@ -41,6 +41,8 @@ void wm_watch_setting(void);
 // once the worker has re-read the config files the cache holds (wm_watch.c).
 // Compare for equality only.
 uint64_t wm_watch_gen(enum wm_topic t);
+// The folder a topic watches, or NULL for an event; set by wm_watch_init().
+const char *wm_watch_path(enum wm_topic t);
 
 // Once a frame, before any config poller: takes a finished refresh and
 // publishes, or starts one for counters that moved. wm_setting_generation()

@@ -1,5 +1,5 @@
 // ini16.c -- KERNEL's profile calls over real INI files on drive C:
-// (w16prefs.h's drive_c, /home/Win16 by default): Get/WritePrivateProfile*
+// (w16prefs.h's drive_c, <home>/Win16 by default): Get/WritePrivateProfile*
 // on a program's own file, Get/WriteProfile* on WIN.INI.
 //
 // A file named without a path is in C:\WINDOWS, as Windows put it; one
@@ -19,7 +19,7 @@
 
 #define INI_MAX (64 * 1024)
 
-char g_w16_drive_c[128] = "/home/Win16";
+char g_w16_drive_c[128];   // the drive_c preference, set at start (w16.c)
 
 static int ieq(const char *a, const char *b, size_t n) {
     for (size_t i = 0; i < n; i++) {

@@ -261,7 +261,7 @@ def wait_log(sh, needle, secs):
 
 def phase1(dbg, qmp, res, target, tmp):
     sh = lambda c: dbg.send(f"sh {c}")   # noqa: E731
-    desktop = sh("ls /home/Desktop")
+    desktop = sh("ls /home/user/Desktop")
     res.check("a live session has the Install SaunaOS launcher on its desktop", "installer.desktop" in desktop,
               desktop.strip().replace("\n", " ")[:120])
     # The installer asks for it as it starts, which the checks can outrun.
@@ -454,7 +454,7 @@ def phase0(dbg, res):
               f"{(win or {}).get('state')} first frame {ff.get('w')}x{ff.get('h')} "
               f"window {(win or {}).get('w')}x{(win or {}).get('h')}")
     res.check("...with the Install SaunaOS launcher on the desktop behind it",
-              "installer.desktop" in sh("ls /home/Desktop"))
+              "installer.desktop" in sh("ls /home/user/Desktop"))
     klog = sh("log -n 3000")
     res.check("...and no live-session notice", "wm: live-session notice" not in klog and
               "notice not asked for" in klog)
@@ -473,7 +473,7 @@ def phase2(dbg, res):
     res.check("First-boot setup skips exactly the two pages the session answered",
               carried == ["Computer name", "Region & formats"], str(carried))
     res.check("...and has not run yet", "not done" in fbs)
-    res.check("an installed machine gets no launcher", "installer.desktop" not in sh("ls /home/Desktop"))
+    res.check("an installed machine gets no launcher", "installer.desktop" not in sh("ls /home/user/Desktop"))
     media = sh(f"ls /media/{STICK_LABEL}")
     res.check("the live session's USB stick was not copied onto the disk",
               STICK_MARK not in media and "no such" not in media.lower(), media.strip()[-80:])

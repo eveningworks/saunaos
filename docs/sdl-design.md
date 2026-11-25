@@ -275,7 +275,7 @@ The maintainer's picks from the "SDL message box options" canvas and
 the question round of the same day:
 
 - **`SDL_GetPrefPath()`** is `$XDG_DATA_HOME/<org>/<app>/`, else
-  `/home/.local/share/<org>/<app>/` -- SDL's Unix answer under the one
+  `/home/user/.local/share/<org>/<app>/` -- SDL's Unix answer under the one
   user's home, made if missing (an empty org is left out). Saves are the
   person's data and travel with `/home`; `/var/lib` is system state
   (browser, diskmark) and `/var/games` would fit games only.
@@ -365,12 +365,12 @@ options" canvas and two question rounds the same day:
   built-in one, green on black. No MP3, FLAC, network or OpenGL: nothing
   these four games need.
 - **The game data lives in `$XDG_DATA_HOME/games/<id>/`**, the
-  person's (`/home/.local/share/games`; `/usr/share/games` is looked in
+  person's (`/home/user/.local/share/games`; `/usr/share/games` is looked in
   after it -- 2026-11-25, once file permissions were enforced: a download
   as `user` cannot write `/usr`); ScummVM's settings and saves go
   where its POSIX backend puts them, `$XDG_CONFIG_HOME/scummvm` and
   `$XDG_DATA_HOME/scummvm/saves` -- which `/etc/environment` now sets
-  to `/home/.config` and `/home/.local/share` (HOME stays `/`), the
+  to `/home/user/.config` and `/home/user/.local/share` (HOME stays `/`), the
   image ships those folders, and the front makes them on a machine
   updated from before: ScummVM makes only its own folder beneath them.
 - **The front is DOOM's card (G2)** -- `/bin/wm/apps/scummvm`, the

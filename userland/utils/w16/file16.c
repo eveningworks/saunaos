@@ -334,7 +334,7 @@ static char *far_path(struct w16 *w, uint32_t far) {
 // OF_PARSE only works out the full path, and answers 0.
 // w16: The same, over the drives the program sees: a DOS path becomes a SaunaOS one (C: is the Win16
 // folder, Z: all of SaunaOS), names match without case as DOS's did, and the OFSTRUCT gets the full
-// path in capitals, as DOS gave it. A drive outside /home is read-only. A bare name not in the
+// path in capitals, as DOS gave it. A drive outside the home is read-only. A bare name not in the
 // current folder is looked for in C:\WINDOWS, C:\WINDOWS\SYSTEM and the program's own folder,
 // Windows' order (PATH and network drives aside).
 static int api_OpenFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {

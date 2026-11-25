@@ -41,16 +41,16 @@ and the desktop's Delete use, so either sees what the other did. `gio
 trash` and trash-cli are this command on a Linux desktop.
 
 ```
-/$ trash put /home/notes.txt /usr/share/pictures/dusk-24bit.bmp
+/$ trash put /home/user/notes.txt /usr/share/pictures/dusk-24bit.bmp
 /$ trash list
 dusk-24bit.bmp              1.4M  2026-10-06 09:41  /usr/share/pictures/dusk-24bit.bmp
-notes.txt                     2K  2026-10-06 09:41  /home/notes.txt
+notes.txt                     2K  2026-10-06 09:41  /home/user/notes.txt
 /$ trash restore notes.txt
-/home/notes.txt
+/home/user/notes.txt
 ```
 
 **One bin per volume**, because putting something in the bin is a
-rename, never a copy: the system volume's bin is `/home/.Trash`, any
+rename, never a copy: the system volume's bin is `/home/user/.Trash`, any
 other disk's is `.Trash-0` at its top. Each holds `files/` and
 `info/NAME.trashinfo` (the original path and the time), the freedesktop
 Trash layout, so a Linux desktop reading the same disk sees the same

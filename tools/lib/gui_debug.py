@@ -442,7 +442,7 @@ class DebugConsole:
         return False
 
     def user_dir(self, path, account=DESKTOP_ACCOUNT):
-        """A fresh folder at `path` shaped like /home: owned by `account`
+        """A fresh folder at `path` shaped like a home: owned by `account`
         and mode 4755, so what root makes in it is `account`'s too
         (fs_new_attrs()'s SUIDDIR rule, docs/users-design.md). For a
         test's scaffold where the account could not make a folder itself

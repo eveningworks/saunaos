@@ -40,7 +40,7 @@ import port_guard                               # noqa: E402
 from harness import Results                      # noqa: E402
 
 N = 600
-DIR = "/home/big"
+DIR = "/home/user/big"
 SBAR = 19             # the overlay scroll bar plus the view's own inset, as measured (cells 112..126 over 1020..1180)
 END = "0xf787"        # KEY_END (api/keyboard.h): the row after Home's 0xf786
 

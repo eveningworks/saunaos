@@ -161,7 +161,7 @@ static void check_glue(void) {
     utest_checkf(base && strcmp(base, "/tests/") == 0,
                  "SDL_GetBasePath() is this program's directory (%s)", base ? base : SDL_GetError());
     const char *docs = SDL_GetUserFolder(SDL_FOLDER_DOCUMENTS);   // SDL's cached copy
-    utest_checkf(docs && strcmp(docs, "/home/Documents/") == 0,
+    utest_checkf(docs && strcmp(docs, "/home/user/Documents/") == 0,
                  "SDL_GetUserFolder(DOCUMENTS) is the personal folder (%s)", docs ? docs : SDL_GetError());
 
     SDL_Time now;

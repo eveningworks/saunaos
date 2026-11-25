@@ -2,7 +2,7 @@
 """ScummVM's free-games card, the download, and ScummVM starting on it.
 
 userland/apps/apps/scummvm/ (docs/sdl-design.md, stage 4): with no game
-in /home/.local/share/games, the Start menu's ScummVM shows the card the four
+in /home/user/.local/share/games, the Start menu's ScummVM shows the card the four
 freeware games download from (ui/uui_datacard.h, several at once); a
 download is checked, unpacked, registered with ScummVM by ScummVM itself
 (`--add`), and ScummVM's own launcher starts. Next time the front hands
@@ -166,10 +166,10 @@ def clean(dbg):
     # /usr/share/games too: ScummVM's front finds a game there after the
     # person's folder, and a disk downloaded into before 2026-11-25 has one.
     for d in ("bass", "fotaq", "lure", "drascula", "lure.part"):
-        dbg.send(f"sh rm -r /home/.local/share/games/{d}")
+        dbg.send(f"sh rm -r /home/user/.local/share/games/{d}")
         dbg.send(f"sh rm -r /usr/share/games/{d}")
-    dbg.send("sh rm /home/.local/share/licenses/lure-of-the-temptress.txt")
-    dbg.send("sh rm /home/.config/scummvm/scummvm.ini")
+    dbg.send("sh rm /home/user/.local/share/licenses/lure-of-the-temptress.txt")
+    dbg.send("sh rm /home/user/.config/scummvm/scummvm.ini")
 
 
 def selected_px(qmp, tmp, rect):
@@ -208,7 +208,7 @@ def run(dbg, qmp, mirror, tmp):
     # the front makes them -- a loop that started one character late made
     # them at /ome instead (17.11-22.11.2026), so ScummVM could write no
     # list and every game stayed out of it.
-    for d in ("/home/.config", "/home/.local", "/home/.cache"):
+    for d in ("/home/user/.config", "/home/user/.local", "/home/user/.cache"):
         dbg.send(f"sh rm -r {d}")
 
     # --- 1. no game: the card ------------------------------------------
@@ -240,7 +240,7 @@ def run(dbg, qmp, mirror, tmp):
     press(dbg, "agree")
     said = wait_log(dbg, "download of lure failed", 60)
     check("a lure-1.1.zip with one byte flipped is REFUSED", bool(said) and "SHA-256" in said, str(said))
-    left = (dbg.send("sh ls /home/.local/share/games") or "").split()
+    left = (dbg.send("sh ls /home/user/.local/share/games") or "").split()
     check("...and no game folder is left, nor its .part",
           not any(f.startswith("lure") for f in left), str(left))
     check("...and the card is back to try again", bool(wait_log(dbg, "game data card", 10)))
@@ -271,18 +271,18 @@ def run(dbg, qmp, mirror, tmp):
     check("...and its launcher's window opens after the card's", launcher is not None,
           str([w["title"] for w in dbg.windows()]))
     root = (dbg.send("sh ls -a /") or "").split()
-    check("the front made the XDG folders in /home, and none at /ome",
+    check("the front made the XDG folders in /home/user, and none at /ome",
           "ome/" not in root and "ome" not in root and
-          "no such" not in (dbg.send("sh ls -a /home/.local/share") or "").lower(), str(root))
-    ini = dbg.send("sh cat /home/.config/scummvm/scummvm.ini") or ""
+          "no such" not in (dbg.send("sh ls -a /home/user/.local/share") or "").lower(), str(root))
+    ini = dbg.send("sh cat /home/user/.config/scummvm/scummvm.ini") or ""
     check("scummvm.ini, under XDG_CONFIG_HOME, names the game's folder",
-          "path=/home/.local/share/games/lure" in ini, ini.strip()[-120:])
-    exe = dbg.send("sh sum -a sha256 /home/.local/share/games/lure/Lure.exe") or ""
+          "path=/home/user/.local/share/games/lure" in ini, ini.strip()[-120:])
+    exe = dbg.send("sh sum -a sha256 /home/user/.local/share/games/lure/Lure.exe") or ""
     check("the zip's lure/ folder is the game's folder (Lure.exe at its top)",
           "Lure.exe" in exe and "no such" not in exe.lower(), exe.strip()[:80])
-    lic = dbg.send("sh cat /home/.local/share/licenses/lure-of-the-temptress.txt") or ""
+    lic = dbg.send("sh cat /home/user/.local/share/licenses/lure-of-the-temptress.txt") or ""
     check("its own LICENSE.txt is saved as its licence", "Revolution Software" in lic, lic.strip()[:80])
-    left = (dbg.send("sh ls /home/.local/share/games") or "").split()
+    left = (dbg.send("sh ls /home/user/.local/share/games") or "").split()
     check("...and no .part is left", not any(f.endswith(".part") for f in left), str(left))
 
     # --- 4. next time: straight to ScummVM, then the game -------------------
@@ -300,8 +300,8 @@ def run(dbg, qmp, mirror, tmp):
     # failed; now only a game ScummVM's list names is marked -- and a folder
     # it never takes is left alone after three tries, or every start of the
     # front would run a ScummVM for it.
-    dbg.send("sh mkdir /home/.local/share/games/bass")
-    dbg.send("sh write /home/.local/share/games/bass/readme.txt not a game")
+    dbg.send("sh mkdir /home/user/.local/share/games/bass")
+    dbg.send("sh write /home/user/.local/share/games/bass/readme.txt not a game")
     for attempt, says in (("first", "asked again"), ("second", "asked again"), ("third", "left alone")):
         dbg.logs("scummvm:", clear=True)
         dbg.send(f"gui spawn {EXEC}")
@@ -317,7 +317,7 @@ def run(dbg, qmp, mirror, tmp):
     check("...and is marked after the third, so no fourth ScummVM runs for it", "added_bass=yes" in conf,
           conf.strip()[-120:])
     check("...while Lure, which ScummVM listed, is", "added_lure=yes" in conf, conf.strip()[-120:])
-    dbg.send("sh rm -r /home/.local/share/games/bass")
+    dbg.send("sh rm -r /home/user/.local/share/games/bass")
     dbg.send("gui spawn /usr/bin/scummvm lure")
     win = poll(lambda: next((w for w in dbg.windows() if w["title"].startswith("Lure of the Temptress")),
                             None), 60, step=0.5)
@@ -343,13 +343,13 @@ def run(dbg, qmp, mirror, tmp):
     # 0002 (userland/third_party/scummvm/patches/). The game section is written
     # here as that second ScummVM would; a copy of Lure would not do, as
     # `--add` skips a game it has listed already.
-    ini_path = "/home/.config/scummvm/scummvm.ini"
+    ini_path = "/home/user/.config/scummvm/scummvm.ini"
     dbg.send("gui spawn /usr/bin/scummvm")
     up = poll(lambda: next((w for w in dbg.windows() if w["title"].startswith("ScummVM 2")), None), 60)
     if check("ScummVM's launcher is open", up is not None, str([w["title"] for w in dbg.windows()])):
         before = dbg.send(f"sh cat {ini_path}") or ""
         for line in ("[lure-added-meanwhile]", "gameid=lure", "engineid=lure",
-                     "description=Added while ScummVM was open", "path=/home/.local/share/games/lure"):
+                     "description=Added while ScummVM was open", "path=/home/user/.local/share/games/lure"):
             dbg.send(f"sh append {ini_path} {line}")
         mid = dbg.send(f"sh cat {ini_path}") or ""
         check("...a game section is written to its list meanwhile, as `--add` writes one",
@@ -378,7 +378,7 @@ def run(dbg, qmp, mirror, tmp):
     poll(lambda: running(dbg), 30)
     kill_all(dbg)
     ini = dbg.send(f"sh cat {ini_path}") or ""
-    check("...back in scummvm.ini", "path=/home/.local/share/games/lure" in ini, ini.strip()[-160:])
+    check("...back in scummvm.ini", "path=/home/user/.local/share/games/lure" in ini, ini.strip()[-160:])
     dbg.send(f"sh write {ini_path} [scummvm]")
     dbg.logs("scummvm:", clear=True)
     dbg.send(f"gui spawn {EXEC}")

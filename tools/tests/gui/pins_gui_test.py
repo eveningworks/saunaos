@@ -36,7 +36,7 @@ from harness import Results  # noqa: E402
 
 START = "/usr/share"
 TARGET = "/usr/share/sounds"   # not a standard place (base/udirs.h names those)
-GONE = "/home/pin-gone"        # pinned, then deleted under the running app
+GONE = "/home/user/pin-gone"        # pinned, then deleted under the running app
 
 
 def run(dbg, qmp, res):

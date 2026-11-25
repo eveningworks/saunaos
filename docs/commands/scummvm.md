@@ -22,19 +22,19 @@ that game straight away. Every option ScummVM documents works as
 documented (`scummvm --help` lists them).
 
     # scummvm --list-engines
-    # scummvm --add --path=/home/.local/share/games/lure
+    # scummvm --add --path=/home/user/.local/share/games/lure
     # scummvm lure
 
 **The Start menu's ScummVM is a front** (`/bin/wm/apps/scummvm`): with a
-game in `/home/.local/share/games` or `/usr/share/games` it adds any new one with `--add` and opens
+game in `/home/user/.local/share/games` or `/usr/share/games` it adds any new one with `--add` and opens
 ScummVM's launcher; with none, or as **Free Adventure Games**
 (`/bin/wm/apps/scummvm --games`), it shows a card that downloads the four
 freeware games, each checked against the SHA-256 ScummVM publishes, and
 starts ScummVM when they are in. `mirror=` in `/etc/scummvm-games.conf`
 fetches them from another server.
 
-Its list and options are `/home/.config/scummvm/scummvm.ini`, its saves
-`/home/.local/share/scummvm/saves/` -- ScummVM's own rule for
+Its list and options are `/home/user/.config/scummvm/scummvm.ini`, its saves
+`/home/user/.local/share/scummvm/saves/` -- ScummVM's own rule for
 `XDG_CONFIG_HOME` and `XDG_DATA_HOME`, which `/etc/environment` sets (the
 front sets the same defaults when started without them, or ScummVM would
 write its list into its working directory). A game counts as added once

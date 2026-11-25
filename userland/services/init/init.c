@@ -896,21 +896,29 @@ static const char *expand_specifiers(const char *in, char *out, unsigned cap) {
 //
 // systemd's User=: the child is started AS the account (SPAWN_CREDS --
 // its uid, primary group and every group naming it in /etc/group), with
-// HOME, USER, LOGNAME and SHELL from its passwd line in place of init's.
+// HOME, USER, LOGNAME and SHELL from its passwd line in place of init's,
+// and XDG's four base directories under that HOME -- pam_systemd's and
+// a login shell's job on Linux, here because init is what logs in.
+// A root service gets none of the XDG ones (/etc/environment sets none),
+// so it can never be steered by a file a person wrote.
 // An account that does not exist starts NOTHING, as systemd refuses the
 // unit: running it as root instead would turn a typo into privilege.
+#define NLOGIN_VARS 8   // HOME USER LOGNAME SHELL + XDG_{CONFIG,DATA,STATE,CACHE}_HOME
 struct svc_creds {
     gid_t *groups;
-    char **env;       // environ with the four replaced; NULL for root
-    char  *strs[4];
+    char **env;       // environ with the login variables replaced; NULL for root
+    char  *strs[NLOGIN_VARS];
     // Where a SEAT service starts: its account's home, as login(1)
     // chdir()s to pw_dir -- so what the desktop and the console shells
-    // start saves a bare name into /home, not into root's `/`. NULL: `/`.
+    // start saves a bare name into their home, not into root's `/`. NULL: `/`.
     const char *dir;
 };
 
+// An old /etc/environment still names the XDG folders under /home; they
+// are replaced too, not inherited beside the account's own.
 static int is_login_var(const char *e) {
-    static const char *const V[] = { "HOME=", "USER=", "LOGNAME=", "SHELL=" };
+    static const char *const V[] = { "HOME=", "USER=", "LOGNAME=", "SHELL=", "XDG_CONFIG_HOME=",
+                                     "XDG_DATA_HOME=", "XDG_STATE_HOME=", "XDG_CACHE_HOME=" };
     for (unsigned i = 0; i < sizeof V / sizeof V[0]; i++)
         if (strncmp(e, V[i], strlen(V[i])) == 0) return 1;
     return 0;
@@ -926,7 +934,7 @@ static char *env_pair(const char *k, const char *v) {
 static void creds_release(struct svc_creds *c) {
     free(c->groups);
     free(c->env);
-    for (int i = 0; i < 4; i++) free(c->strs[i]);
+    for (int i = 0; i < NLOGIN_VARS; i++) free(c->strs[i]);
 }
 
 // 0 with `o` and `c` filled (nothing to do for root), -1 when the
@@ -947,14 +955,23 @@ static int creds_for(const struct service *s, struct sys_spawn_opts *o, struct s
     c->strs[1] = env_pair("USER", pw->pw_name);
     c->strs[2] = env_pair("LOGNAME", pw->pw_name);
     c->strs[3] = env_pair("SHELL", pw->pw_shell);
+    static const char *const XDG[][2] = { { "XDG_CONFIG_HOME", ".config" }, { "XDG_DATA_HOME", ".local/share" },
+                                          { "XDG_STATE_HOME", ".local/state" }, { "XDG_CACHE_HOME", ".cache" } };
+    // A home of "/" would make "//.config", which a path compare misses.
+    const char *base = strcmp(pw->pw_dir, "/") ? pw->pw_dir : "";
+    for (int i = 0; i < 4; i++) {
+        size_t n = strlen(XDG[i][0]) + strlen(base) + strlen(XDG[i][1]) + 3;
+        if ((c->strs[4 + i] = malloc(n))) snprintf(c->strs[4 + i], n, "%s=%s/%s", XDG[i][0], base, XDG[i][1]);
+    }
     int ng = 0;
     getgrouplist(s->user, gid, NULL, &ng);
     c->groups = malloc((size_t)(ng > 0 ? ng : 1) * sizeof *c->groups);
     int ne = 0;
     while (environ && environ[ne]) ne++;
-    c->env = malloc((size_t)(ne + 5) * sizeof *c->env);
-    if (!c->groups || !c->env || !c->strs[0] || !c->strs[1] || !c->strs[2] || !c->strs[3] ||
-        getgrouplist(s->user, gid, c->groups, &ng) < 0) {
+    c->env = malloc((size_t)(ne + NLOGIN_VARS + 1) * sizeof *c->env);
+    int strs_ok = 1;
+    for (int i = 0; i < NLOGIN_VARS; i++) strs_ok &= c->strs[i] != NULL;
+    if (!c->groups || !c->env || !strs_ok || getgrouplist(s->user, gid, c->groups, &ng) < 0) {
         logf1("init: could not build %s's identity -- not starting it\n", s->name);
         creds_release(c);
         return -1;
@@ -962,7 +979,7 @@ static int creds_for(const struct service *s, struct sys_spawn_opts *o, struct s
     int k = 0;
     for (int i = 0; i < ne; i++)
         if (!is_login_var(environ[i])) c->env[k++] = environ[i];
-    for (int i = 0; i < 4; i++) c->env[k++] = c->strs[i];
+    for (int i = 0; i < NLOGIN_VARS; i++) c->env[k++] = c->strs[i];
     c->env[k] = NULL;
     o->flags |= SPAWN_CREDS;
     o->uid = uid;

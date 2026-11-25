@@ -49,7 +49,7 @@ from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
 
-PA, PB = "/home/pin-a", "/home/pin-b"
+PA, PB = "/home/user/pin-a", "/home/user/pin-b"
 GREEN = (44, 122, 61)        # utheme's UTHEME_ACT_CREATE: a disk volume's meter
 TRACK = (205, 205, 210)      # utheme's separator: the ring's unused part
 
@@ -74,11 +74,11 @@ def run(dbg, qmp, res, positive_control):
         sh(f"mkdir {p}")
     dbg.write_lines("/etc/places.conf", [PA, PB])
     dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details", "details_pane=1"])
-    win = dbg.spawn(f"{fm.SPAWN_PATH} /home", fm.TITLE)
+    win = dbg.spawn(f"{fm.SPAWN_PATH} /home/user", fm.TITLE)
     res.check("the File Manager opens", win is not None, "no window")
     if not win:
         return
-    lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home" and l.treebox and l.treerow) \
+    lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/user" and l.treebox and l.treerow) \
         or fm.layout_now(dbg, win)
     # Neither answered: no layout line at all. A check, not an AttributeError
     # three frames later (2026-11-21, once in a full run).
@@ -124,7 +124,7 @@ def run(dbg, qmp, res, positive_control):
     want = {
         "quick:/": ("quick", "Open|Open in new tab|-|" + lst(0, 1)),
         "recent:/": ("recent", "Open|Open in new tab|-|Clear list|-|" + lst(1, 1)),
-        "/home": ("place", "Open|Open in new tab|-|" + lst(1, 1) + "|-|Copy path|Open in Terminal|-|Properties"),
+        "/home/user": ("place", "Open|Open in new tab|-|" + lst(1, 1) + "|-|Copy path|Open in Terminal|-|Properties"),
         "trash:/": ("bin", "Open|Open in new tab|-|Restore all|Empty Recycle Bin|Recycle Bin settings...|-|"
                            + lst(1, 1)),
         PA: ("place", "Open|Open in new tab|-|" + lst(1, 1) + "|-|Copy path|Open in Terminal|-|Properties"),
@@ -196,20 +196,20 @@ def run(dbg, qmp, res, positive_control):
               not any(x.startswith(PB) for x in c) and row_of(lay, PB) is None, f"conf={c}")
 
     # 3. A default unpinned, and Restore default places on a heading
-    got, pop = rclick_row(lay, row_of(lay, "/home/Music"))
+    got, pop = rclick_row(lay, row_of(lay, "/home/user/Music"))
     pick(pop, got[2] if got else "", "Unpin from Places")
     c = wait_conf(lambda c: "udir:music" not in c)
-    lay = fm.wait_layout(dbg, win, lambda l: row_of(l, "/home/Music") is None) or fm.layout_now(dbg, win)
+    lay = fm.wait_layout(dbg, win, lambda l: row_of(l, "/home/user/Music") is None) or fm.layout_now(dbg, win)
     res.check("a default place unpins like any other (udir:music leaves the list)",
-              "udir:music" not in c and row_of(lay, "/home/Music") is None, f"conf={c}")
+              "udir:music" not in c and row_of(lay, "/home/user/Music") is None, f"conf={c}")
     heads = [r for r, p in sorted(lay.treerow.items()) if p == "-"]
     got, pop = rclick_row(lay, heads[0]) if heads else (None, None)
     pick(pop, got[2] if got else "", "Restore default places")
     c = wait_conf(lambda c: "udir:music" in c)
-    lay = fm.wait_layout(dbg, win, lambda l: row_of(l, "/home/Music") is not None) or fm.layout_now(dbg, win)
+    lay = fm.wait_layout(dbg, win, lambda l: row_of(l, "/home/user/Music") is not None) or fm.layout_now(dbg, win)
     res.check("Restore default places brings it back",
               got is not None and "Restore default places" in got[2]
-              and "udir:music" in c and row_of(lay, "/home/Music") is not None, f"got={got} conf={c}")
+              and "udir:music" in c and row_of(lay, "/home/user/Music") is not None, f"got={got} conf={c}")
 
     # 3b. Drag and drop: a row to another gap, and a folder from the pane
     def row_y(l, r):
@@ -217,24 +217,24 @@ def run(dbg, qmp, res, positive_control):
         return l.ox + tx + tw // 3, l.oy + ty + r * trh + trh // 2
 
     lay = fm.layout_now(dbg, win) or lay
-    ra, rh = row_of(lay, PA), row_of(lay, "/home")
+    ra, rh = row_of(lay, PA), row_of(lay, "/home/user")
     if ra is not None and rh is not None:
         x0, y0 = row_y(lay, ra)
         x1, y1 = row_y(lay, rh)
         trh = lay.treebox[4]
         fm.band_drag(dbg, qmp, x0, y0, x1, y1 - trh // 3, steps=6)   # the upper half of Home: before it
-    c = wait_conf(lambda c: c.index(next(x for x in c if x.startswith(PA))) < c.index("/home")
-                  if any(x.startswith(PA) for x in c) and "/home" in c else False)
+    c = wait_conf(lambda c: c.index(next(x for x in c if x.startswith(PA))) < c.index("/home/user")
+                  if any(x.startswith(PA) for x in c) and "/home/user" in c else False)
     order = [x.split("\t")[0] for x in c]
     res.check("a place dragged above Home lands there, in the file and the tree",
-              PA in order and "/home" in order and order.index(PA) == order.index("/home") - 1,
+              PA in order and "/home/user" in order and order.index(PA) == order.index("/home/user") - 1,
               f"conf={c}")
 
-    sh("mkdir /home/0pin")   # first under ".." in any sort order: digits before letters
-    # The pane reloads by itself when /home changes (its generation).
-    fm.wait_listing(dbg, "/home", lambda names: "0pin" in [n.rstrip("/") for n in names])
+    sh("mkdir /home/user/0pin")   # first under ".." in any sort order: digits before letters
+    # The pane reloads by itself when /home/user changes (its generation).
+    fm.wait_listing(dbg, "/home/user", lambda names: "0pin" in [n.rstrip("/") for n in names])
     time.sleep(1.0)
-    lay = fm.wait_layout(dbg, win, lambda l: l.rowy and l.dir.get(0) == "/home") or fm.layout_now(dbg, win)
+    lay = fm.wait_layout(dbg, win, lambda l: l.rowy and l.dir.get(0) == "/home/user") or fm.layout_now(dbg, win)
     target_row = row_of(lay, "trash:/")
     if target_row is not None and lay.rowy:
         px, py, pw, ph = lay.pane[0]
@@ -243,12 +243,12 @@ def run(dbg, qmp, res, positive_control):
         tx, ty = row_y(lay, target_row)
         trh = lay.treebox[4]
         fm.band_drag(dbg, qmp, sx, sy, tx, ty + trh // 2 - 2, steps=8)   # the lower edge of Recycle Bin
-    c = wait_conf(lambda c: "/home/0pin" in c)
+    c = wait_conf(lambda c: "/home/user/0pin" in c)
     order = [x.split("\t")[0] for x in c]
     res.check("a folder dragged from the pane to a gap is pinned there",
-              "/home/0pin" in order and "trash:/" in order
-              and order.index("/home/0pin") == order.index("trash:/") + 1, f"conf={c}")
-    sh("rm -r /home/0pin")
+              "/home/user/0pin" in order and "trash:/" in order
+              and order.index("/home/user/0pin") == order.index("trash:/") + 1, f"conf={c}")
+    sh("rm -r /home/user/0pin")
 
     # 3c. A volume moves among volumes (dev: lines), and never into Places
     lay = fm.layout_now(dbg, win) or lay
@@ -264,7 +264,7 @@ def run(dbg, qmp, res, positive_control):
               "dev:/tmp" in c and "dev:/" in c and c.index("dev:/tmp") < c.index("dev:/")
               and (row_of(lay, "/tmp") or 99) < (row_of(lay, "/") or -1), f"conf={c} tree={lay.treerow}")
     before = conf()
-    rt, rh2 = row_of(lay, "/tmp"), row_of(lay, "/home")
+    rt, rh2 = row_of(lay, "/tmp"), row_of(lay, "/home/user")
     if rt is not None and rh2 is not None:
         x0, y0 = row_y(lay, rt)
         x1, y1 = row_y(lay, rh2)
@@ -276,7 +276,7 @@ def run(dbg, qmp, res, positive_control):
               and "/tmp" not in after, f"before={before} after={after}")
 
     # 4. Properties of a volume: the volume page, ring drawn
-    target = "/home" if positive_control else "/"
+    target = "/home/user" if positive_control else "/"
     title = "home Properties" if positive_control else "System Properties"
     dbg.logs("properties:")
     lay = fm.layout_now(dbg, win) or lay      # the rows moved: a pin was added above

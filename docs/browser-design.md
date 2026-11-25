@@ -419,7 +419,7 @@ hit tests do, and shows the I-beam Chrome and Firefox show there.
 (`userland/apps/apps/browser/ns_download.c`), which takes the response already
 arriving -- a second fetch through `uhttp_download` would lose a POST's
 result and a download that needs the session's cookie. A file is
-written to `/home/Downloads/<name>.part` and renamed when whole; a
+written to `/home/user/Downloads/<name>.part` and renamed when whole; a
 failed or cancelled one is deleted; a name already there becomes
 "name (1).ext", as Chrome's does. The flyout under the down arrow opens
 when a download starts, and its list is a toolkit widget,

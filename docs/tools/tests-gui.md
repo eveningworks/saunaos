@@ -835,7 +835,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   `/usr/share/sounds`, no personal folder** (`base/udirs.h`): a lookup by
   path would find the standard place first. Its positive control
   stops the app listing pins: the row check reddens. Check 4 pins
-  `/home/pin-gone` through `/etc/places.conf` BEFORE the app starts (a
+  `/home/user/pin-gone` through `/etc/places.conf` BEFORE the app starts (a
   pin is listed only while its folder exists), deletes it under the
   running app and clicks the row; its control is the tree click
   ignoring `fm_goto()`'s refusal, which lands the pane in the deleted
@@ -854,7 +854,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   into a gap, each read back from `/etc/places.conf`. **A row is found
   by PATH in the layout's `treerow` lines, a heading by its `-`**; the
   dragged folder is `0pin`, first under `..` in any sort order.
-  `--positive-control` aims Properties at `/home`, a folder, which gets
+  `--positive-control` aims Properties at `/home/user`, a folder, which gets
   the file page and no ring: that check reddens. Then a VOLUME dragged
   above System (the `dev:` lines and the tree) and one dragged into Places
   landing nowhere. The drag checks were shown red by `mutate.py` -- every
@@ -1122,7 +1122,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   controls: folders never targets turns the three folder checks red; a
   cache the compositor can never read turns the thumbnail check red.
 - **`desktop_many_test.py`** -- a desktop past its old 64-icon table:
-  75 files in `/home/Desktop` must all be icons (`gui icons --json`); a
+  75 files in `/home/user/Desktop` must all be icons (`gui icons --json`); a
   rubber band over the columns holding only test files -- worked out
   from the icons' own rects, not an assumed layout -- must select every
   icon it covers; and Delete, then the dialog's Move, must put every one
@@ -1989,7 +1989,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
 - **`sdl_stage3_test.py`** -- what an SDL port reaches for beyond a window
   and sound (`docs/sdl-design.md`, stage 3), over `/tests/sdlmisc_test`,
   one mode per run, its answers on `sdlmisc:` lines. `SDL_GetPrefPath`
-  under `/home/.local/share`, written and read back; a clipboard text set
+  under `/home/user/.local/share`, written and read back; a clipboard text set
   by one SDL program read back and heard by another as
   `SDL_EVENT_CLIPBOARD_UPDATE`; `SDL_OpenURL` of a percent-escaped file:
   URL starting Notepad, of an http: URL starting the Web Browser (on the
@@ -2535,7 +2535,7 @@ runs first**: a `doom1.wad` with one
   file after the window closes. Shown red by never adding a bookmark.
 
   **Downloads** (the network half): an attachment opens the flyout and
-  lands in `/home/Downloads` with the server's bytes (`sum`'s CRC-32
+  lands in `/home/user/Downloads` with the server's bytes (`sum`'s CRC-32
   against `download_bytes()`), a second of the same name is
   "data (1).bin", a connection that breaks a moment after it started and
   a Cancel clicked on the row's reported rect each leave nothing behind,
@@ -2862,7 +2862,7 @@ runs first**: a `doom1.wad` with one
   exactly the interpreter's bytes; Find in hex and text; Copy as hex
   pasted back into Find finding its source; Go to absolute and relative;
   32 per row; Copy as hex greyed by its own pixels and the right-click
-  rows by their contrast; Save as writing under `/home` and refused
+  rows by their contrast; Save as writing under `/home/user` and refused
   under `/tmp` with the app alive (the sandbox); File > Open in the
   sandbox. The menu bar is the control that must not change; the pointer
   is parked on the status bar before each capture. Its controls, both

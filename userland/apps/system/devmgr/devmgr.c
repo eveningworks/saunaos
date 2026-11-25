@@ -49,6 +49,7 @@
 #include "ui/uui_sndformat.h"
 #include "ui/uui_netadapter.h"
 #include "ui/uui_clip.h"
+#include "base/udirs.h"
 
 #define ID_MENU    1
 #define ID_VIEW    2
@@ -741,7 +742,7 @@ static void export_report(struct uapp *a) {
     struct uui_filedialog_opts o = {
         .mode = UUI_FILEDIALOG_SAVE,
         .title = "Export hardware report",
-        .start_dir = "/home",
+        .start_dir = udir_home(),
         .initial_name = "hardware-report.txt",
     };
     if (!uui_filedialog_open(a, &g_save, &o, export_chosen, a))

@@ -2,7 +2,8 @@
 #define ULIB_UACCOUNT_H
 // Starting a program AS AN ACCOUNT: its uid, primary group and every
 // group /etc/group names it in, with HOME, USER, LOGNAME and SHELL from
-// its passwd line -- what `runuser -u NAME` and login(1) hand a child.
+// its passwd line and XDG's four base directories under that HOME --
+// what `runuser -u NAME` and login(1) (with pam_systemd) hand a child.
 // The spawn is SPAWN_CREDS, so only root's succeeds. init builds the
 // same identity for a `User=` service in its own copy (it links no
 // libraries, userland/services/init/component.mk).
@@ -13,10 +14,12 @@
 extern "C" {
 #endif
 
+#define UACCOUNT_NVARS 8   // HOME USER LOGNAME SHELL + XDG_{CONFIG,DATA,STATE,CACHE}_HOME
+
 struct uaccount_spawn {
     gid_t *groups;
-    char **env;        // `base` with the four login variables replaced
-    char  *strs[4];
+    char **env;        // `base` with the login variables replaced
+    char  *strs[UACCOUNT_NVARS];
     const char *home;  // the account's home (inside strs[0])
 };
 

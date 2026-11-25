@@ -16,11 +16,13 @@ struct pin { char entry[UPINS_PATH]; char label[UPINS_LABEL]; };
 static char g_dev[UPINS_DEV_MAX][64];
 static int g_ndev;
 
-static const char *const DEFAULTS[] = {
-    "quick:/", "recent:/", "/home", "udir:desktop", "udir:documents", "udir:music",
+// "Home" is a plain path, the person's home -- the third entry.
+static const char *const DEFAULT_ENTRIES[] = {
+    "quick:/", "recent:/", 0, "udir:desktop", "udir:documents", "udir:music",
     "udir:pictures", "udir:videos", "udir:downloads", "trash:/",
 };
-#define N_DEFAULTS ((int)(sizeof DEFAULTS / sizeof DEFAULTS[0]))
+#define N_DEFAULTS ((int)(sizeof DEFAULT_ENTRIES / sizeof DEFAULT_ENTRIES[0]))
+#define DEFAULTS(i) (DEFAULT_ENTRIES[i] ? DEFAULT_ENTRIES[i] : udir_home())
 
 static int is_entry(const char *s) {
     return s[0] == '/' || !strcmp(s, "recent:/") || !strcmp(s, "trash:/") || !strcmp(s, "quick:/") ||
@@ -62,7 +64,7 @@ static int read_all(struct pin *out, int cap) {
     }
     if (!versioned)
         for (int i = 0; i < N_DEFAULTS && n < cap; i++) {
-            strlcpy(out[n].entry, DEFAULTS[i], UPINS_PATH);
+            strlcpy(out[n].entry, DEFAULTS(i), UPINS_PATH);
             out[n++].label[0] = '\0';
         }
     for (int i = 0; i < nold && n < cap; i++)
@@ -98,12 +100,12 @@ int upins_resolve(const char *entry, char *path, int pcap, char *label, int lcap
         enum udir d = UDIR_COUNT;
         for (int k = 0; k < UDIR_COUNT; k++)
             if (!strcmp(udir_key((enum udir)k), entry + 5)) d = (enum udir)k;
-        strlcpy(path, d < UDIR_COUNT ? udir_path(d) : "/home", (size_t)pcap);
+        strlcpy(path, d < UDIR_COUNT ? udir_path(d) : udir_home(), (size_t)pcap);
         name = d < UDIR_COUNT ? udir_label(d) : entry + 5;
         ic = d < UDIR_COUNT ? udir_icon(d) : "folder";
     } else {
         strlcpy(path, entry, (size_t)pcap);
-        if (!strcmp(entry, "/home")) { name = "Home"; ic = "place-home"; }
+        if (!strcmp(entry, udir_home())) { name = "Home"; ic = "place-home"; }
         else { const char *b = k_path_basename(entry); name = b[0] ? b : entry; }
     }
     if (label) {
@@ -147,7 +149,7 @@ int upins_add_before(const char *path, const char *before) {
     if (!path || path[0] != '/' || strlen(path) >= UPINS_PATH ||
         sys_stat(path, &st) != 0 || !st.is_dir) return -EINVAL;
     if (upins_has(path)) return -EEXIST;
-    // `before` may be a path the list holds as an entry (/home/Music is
+    // `before` may be a path the list holds as an entry (/home/user/Music is
     // udir:music): asked for as the tree shows it.
     char b[UPINS_PATH];
     int have_b = before && upins_entry_of(before, b, sizeof b);
@@ -189,7 +191,7 @@ int upins_set_label(const char *entry, const char *label) {
     const char *b = k_path_basename(p);
     strlcpy(def, !strcmp(e, "recent:/") ? "Recent" : !strcmp(e, "trash:/") ? "Recycle Bin"
                  : !strcmp(e, "quick:/") ? "Quick access"
-                 : !strcmp(e, "/home") ? "Home" : b, sizeof def);
+                 : !strcmp(e, udir_home()) ? "Home" : b, sizeof def);
     if (!strncmp(e, "udir:", 5))
         for (int k = 0; k < UDIR_COUNT; k++)
             if (!strcmp(udir_key((enum udir)k), e + 5)) strlcpy(def, udir_label((enum udir)k), sizeof def);
@@ -232,15 +234,15 @@ int upins_move_before(const char *entry, const char *before) {
 
 int upins_missing_defaults(void) {
     int n = read_all(g_all, UPINS_MAX), miss = 0;
-    for (int i = 0; i < N_DEFAULTS; i++) if (index_of(g_all, n, DEFAULTS[i]) < 0) miss++;
+    for (int i = 0; i < N_DEFAULTS; i++) if (index_of(g_all, n, DEFAULTS(i)) < 0) miss++;
     return miss;
 }
 
 int upins_restore_defaults(void) {
     int n = read_all(g_all, UPINS_MAX), back = 0;
     for (int i = 0; i < N_DEFAULTS && n < UPINS_MAX; i++) {
-        if (index_of(g_all, n, DEFAULTS[i]) >= 0) continue;
-        strlcpy(g_all[n].entry, DEFAULTS[i], UPINS_PATH);
+        if (index_of(g_all, n, DEFAULTS(i)) >= 0) continue;
+        strlcpy(g_all[n].entry, DEFAULTS(i), UPINS_PATH);
         g_all[n++].label[0] = '\0';
         back++;
     }

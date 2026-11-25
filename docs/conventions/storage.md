@@ -2083,7 +2083,7 @@ one request per entry, made while the listing holds the mount's lock.
 `smbfsd` answers those from the listing it just fetched (`from_list()`);
 another remote backend has to do the same or a big folder crawls.
 
-## A PERSONAL FOLDER IS ASKED FOR BY NAME: `udir_path(UDIR_MUSIC)`, NEVER `"/home/Music"`
+## A PERSONAL FOLDER IS ASKED FOR BY NAME: `udir_path(UDIR_MUSIC)`, NEVER `"/home/user/Music"`
 
 Desktop, Documents, Music, Pictures, Videos, Downloads and Screenshots
 are `base/udirs.h`'s: `/home/<Name>` unless `/etc/user-dirs.conf` moves

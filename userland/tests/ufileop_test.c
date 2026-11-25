@@ -1,5 +1,5 @@
 // base/ufileop.h's tree walks and move-with-replace on real files under
-// /home, read back through sys_stat -- plus the name checks the File
+// /home/user, read back through sys_stat -- plus the name checks the File
 // Manager leans on: ufileop_name_ok(), uarchive_name_safe() (the
 // zip-slip refusal) and ufind_name_has() (the search box's match).
 //
@@ -16,7 +16,7 @@
 #include "base/uarchive.h"
 #include "base/ufind.h"
 
-#define DIR "/home/ufo-test"
+#define DIR "/home/user/ufo-test"
 enum { DIRS = 100 };
 
 static struct ufileop g_s;   // static: tens of KB

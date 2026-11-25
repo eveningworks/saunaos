@@ -93,7 +93,7 @@ def main():
     dbg = DebugConsole(args.sock)
 
     # A file on the desktop, selected, then Delete: the dialog asks.
-    dbg.send("sh touch /home/Desktop/dialogtest.txt")
+    dbg.send("sh touch /home/user/Desktop/dialogtest.txt")
     fi, deadline = None, time.time() + 10
     while fi is None and time.time() < deadline:   # the desktop polls its folder
         icons = dbg.json("gui icons --json") or {}
@@ -102,7 +102,7 @@ def main():
             dbg.settle()
     check("the file to delete is a desktop icon", fi is not None, str(icons)[:200])
     if not fi:
-        dbg.send("sh rm /home/Desktop/dialogtest.txt")
+        dbg.send("sh rm /home/user/Desktop/dialogtest.txt")
         return 1
     dbg.send(f"gui click {fi['x'] + fi['w'] // 2} {fi['y'] + fi['w'] // 2}")
     dbg.settle()
@@ -111,7 +111,7 @@ def main():
     state = dbg.json("gui state --json")
     check("dialog opened", state["overlays"]["confirm_dialog"], str(state["overlays"]))
     if not state["overlays"]["confirm_dialog"]:
-        dbg.send("sh rm /home/Desktop/dialogtest.txt")
+        dbg.send("sh rm /home/user/Desktop/dialogtest.txt")
         return 1
 
     scr = state["screen"]
@@ -130,7 +130,7 @@ def main():
     btns = info.get("buttons", [])
     check("the WM reports both dialog buttons", len(btns) == 2, str(info))
     if len(btns) != 2:
-        dbg.send("sh rm /home/Desktop/dialogtest.txt")
+        dbg.send("sh rm /home/user/Desktop/dialogtest.txt")
         return 1
 
     runs = [(b["x"], b["x"] + b["w"] - 1) for b in btns]
@@ -180,7 +180,7 @@ def main():
     check("No closes the dialog", not st3["overlays"]["confirm_dialog"],
           str(st3["overlays"]))
 
-    dbg.send("sh rm /home/Desktop/dialogtest.txt")
+    dbg.send("sh rm /home/user/Desktop/dialogtest.txt")
     print(f"\n=== {len(fails)} failed ===")
     for f in fails:
         print("  FAILED:", f)

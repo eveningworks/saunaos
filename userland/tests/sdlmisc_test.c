@@ -124,7 +124,7 @@ static int msgbox(void) {
     static const SDL_MessageBoxButtonData one[] = { { 0, 44, "Fine" } };
     struct { Uint32 flags; const char *title, *msg; const SDL_MessageBoxButtonData *b; int n; } boxes[] = {
         { SDL_MESSAGEBOX_ERROR, "Game data",
-          "No game data was found in /home/Games/sky. Copy the game's files into that folder and try again.",
+          "No game data was found in /home/user/Games/sky. Copy the game's files into that folder and try again.",
           three, 3 },
         { SDL_MESSAGEBOX_WARNING, "Second", "Esc answers Quit.", three, 3 },
         { SDL_MESSAGEBOX_INFORMATION, "Third", "No escape button: closing it answers -1.", one, 1 },

@@ -55,7 +55,7 @@ import hlpgen                                   # noqa: E402
 from harness import Results, poll               # noqa: E402
 
 SAMPLE = "/tmp/sample.hlp"
-WIN_SAMPLE = "/home/Win16/WINDOWS/SAMPLE.HLP"     # where winhelp.exe asks for it as C:\\WINDOWS\\SAMPLE.HLP
+WIN_SAMPLE = "/home/user/Win16/WINDOWS/SAMPLE.HLP"     # where winhelp.exe asks for it as C:\\WINDOWS\\SAMPLE.HLP
 CLIP = "/tmp/hlpclip.txt"
 K_ENTER, K_ESC = "0x0d", "0x1b"
 K_LEFT, K_RIGHT = "0xf784", "0xf785"
@@ -70,7 +70,7 @@ def put_sample(instance):
         f.write(hlpgen.sample().build())
         host = f.name
     vm = [sys.executable, toolpath.tool("vm.py"), "--instance", str(instance)]
-    subprocess.run(vm + ["exec", "mkdir /home/Win16", "mkdir /home/Win16/WINDOWS"], capture_output=True)
+    subprocess.run(vm + ["exec", "mkdir /home/user/Win16", "mkdir /home/user/Win16/WINDOWS"], capture_output=True)
     ok = all(subprocess.run(vm + ["put", host, dst], capture_output=True).returncode == 0
              for dst in (SAMPLE, WIN_SAMPLE))
     os.unlink(host)

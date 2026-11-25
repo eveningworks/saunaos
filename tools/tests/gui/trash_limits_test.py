@@ -44,8 +44,8 @@ from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
 from harness import Results                     # noqa: E402
 
-DESK = "/home/Desktop"
-BIN = "/home/.Trash"
+DESK = "/home/user/Desktop"
+BIN = "/home/user/.Trash"
 _res = Results()
 check = _res.check
 
@@ -86,9 +86,9 @@ def run(dbg, qmp):
     for c in (f"mkdir {BIN}", f"mkdir {BIN}/files", f"mkdir {BIN}/info",
               f"write {BIN}/files/old.txt from 2020",
               f"write {BIN}/info/old.txt.trashinfo [Trash Info]",
-              f"append {BIN}/info/old.txt.trashinfo Path=/home/old.txt",
+              f"append {BIN}/info/old.txt.trashinfo Path=/home/user/old.txt",
               f"append {BIN}/info/old.txt.trashinfo DeletionDate=2020-01-01T00:00:00",
-              "write /home/fresh.txt from now", "trash put /home/fresh.txt"):
+              "write /home/user/fresh.txt from now", "trash put /home/user/fresh.txt"):
         sh(c)
     listed = sh("trash list")
     check("both are in the bin", "old.txt" in listed and "fresh.txt" in listed, listed[-300:])

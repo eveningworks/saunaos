@@ -3,7 +3,7 @@ a window and sound (docs/sdl-design.md, stage 3), over `/tests/sdlmisc_test`.
 
 Asserted:
 
-  * SDL_GetPrefPath is /home/.local/share/<org>/<app>/, made if missing,
+  * SDL_GetPrefPath is /home/user/.local/share/<org>/<app>/, made if missing,
     and a file written there reads back;
   * SDL_SetClipboardText puts text on the system clipboard and
     SDL_GetClipboardText reads it back; another SDL program hears
@@ -47,8 +47,8 @@ from harness import Results  # noqa: E402
 from PIL import Image  # noqa: E402
 
 PROG = "/tests/sdlmisc_test"
-PREF = "/home/.local/share/SaunaOS Tests/sdlmisc/"
-MESSAGE = "No game data was found in /home/Games/sky. Copy the game's files into that folder and try again."
+PREF = "/home/user/.local/share/SaunaOS Tests/sdlmisc/"
+MESSAGE = "No game data was found in /home/user/Games/sky. Copy the game's files into that folder and try again."
 ERROR_RED = (178, 58, 50)   # utheme_default()'s severity[ERROR]
 PANEL = (236, 236, 236)     # ...and its panel_bg
 
@@ -86,7 +86,7 @@ def run(dbg, log, args):
 def check_pref(dbg, log, res):
     run(dbg, log, "pref")
     ln = log.wait("pref ")
-    res.check("SDL_GetPrefPath is under /home/.local/share, made and writable",
+    res.check("SDL_GetPrefPath is under /home/user/.local/share, made and writable",
               ln is not None and f"pref {PREF} wrote 1 read 'level 3'" in ln, f"log: {log.tail()}")
 
 
@@ -107,7 +107,7 @@ def check_clipboard(dbg, log, res):
 def check_url(dbg, log, res):
     # The pref check's file, its space escaped: Notepad opens it.
     before = {p["pid"] for p in dbg.processes_named("notepad")}
-    run(dbg, log, "url file:///home/.local/share/SaunaOS%20Tests/sdlmisc/save.txt")
+    run(dbg, log, "url file:///home/user/.local/share/SaunaOS%20Tests/sdlmisc/save.txt")
     ln = log.wait("url file:")
     res.check("SDL_OpenURL accepts a file: URL", ln is not None and " ok 1 " in ln, f"log: {log.tail()}")
     note = None

@@ -8,10 +8,9 @@ extern "C" {
 // THE PERSONAL FOLDERS -- Desktop, Documents, Music, Pictures, Videos,
 // Downloads and Screenshots -- asked for BY NAME, never by path: XDG's
 // user-dirs (`xdg-user-dir MUSIC`) and Windows' Known Folders. Each is
-// /home/<Name> unless /etc/user-dirs.conf says otherwise
-// (`MUSIC=/home/Audio`, one line per folder; XDG's own file is
+// <home>/<Name> unless /etc/user-dirs.conf says otherwise
+// (`MUSIC=/home/user/Audio`, one line per folder; XDG's own file is
 // `XDG_MUSIC_DIR="$HOME/Music"`, read here without the decoration).
-// SaunaOS has no accounts, so /home is the one user's home.
 //
 // What ships -- the wallpapers, the music, the documentation -- stays in
 // /usr/share; these start empty and are the person's own.
@@ -23,9 +22,14 @@ enum udir {
 };
 
 #define UDIRS_CONF "/etc/user-dirs.conf"
-// The defaults, for a constant that must name one (a preference's default).
-#define UDIR_DEFAULT_DESKTOP     "/home/Desktop"
-#define UDIR_DEFAULT_SCREENSHOTS "/home/Pictures/Screenshots"
+
+// THE PERSON'S HOME -- what a path that used to be spelled "/home" means
+// (users stage D1, docs/users-design.md): $HOME when it names a folder
+// other than root's `/`, else the desktop account's home from
+// /etc/passwd (uusername_desktop()), so a ROOT service acting for the
+// person (a mount) finds the same folder the desktop does;
+// "/" when there is neither. Read once per process.
+const char *udir_home(void);
 
 // The folder's path. Read from the file once per process: a move takes
 // effect in a program started after it.
@@ -42,7 +46,7 @@ int udir_of(const char *path);
 void udir_create_all(void);
 // Makes one folder and its parents (mkdir -p); 0, or -1 if it is not there after.
 int udir_make(enum udir d);
-// THE MOVE FROM THE LOWER-CASE LAYOUT (/home/desktop, /home/screenshots),
+// THE MOVE FROM THE LOWER-CASE LAYOUT (<home>/desktop, <home>/screenshots),
 // once, before anything lists them: each old folder is renamed to its
 // new place, or -- when an update has already seeded the new one --
 // emptied into it entry by entry and removed. How many moved.

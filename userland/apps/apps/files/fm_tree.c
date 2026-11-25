@@ -283,7 +283,7 @@ void tree_rebuild(void) {
         for (int j = 0; j < n; j++) {
             if (!g_tree_scratch[j].is_dir) continue;
             // Options' "hidden files", as the panes obey it -- or a bin
-            // (/home/.Trash) shows up in the tree.
+            // (<home>/.Trash) shows up in the tree.
             if (!g_opt.folder.hidden && g_tree_scratch[j].name[0] == '.') continue;
             if (!k_path_join(g_tree_path[i], g_tree_scratch[j].name, probe,
                               sizeof probe)) continue;

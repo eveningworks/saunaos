@@ -9,7 +9,7 @@
 struct uapp;
 
 #define SHOT_CONF         "/etc/screenshot.conf"   // the app's own (docs/conventions/gui.md)
-#define SHOT_DEFAULT_DIR  UDIR_DEFAULT_SCREENSHOTS   // Pictures/Screenshots (base/udirs.h)
+#define SHOT_DEFAULT_DIR  udir_path(UDIR_SCREENSHOTS)   // Pictures/Screenshots (base/udirs.h)
 #define SHOT_DEFAULT_NAME "shot-<date>-<time>"
 // THE COMPOSITOR'S CARD CARRIES A PATH OF AT MOST 124 BYTES
 // (WIN_NOTICE_PIECES_MAX pieces), so a folder and a name together must

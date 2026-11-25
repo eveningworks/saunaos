@@ -2973,7 +2973,7 @@ gains nothing. Linux distributions share them because hundreds of
 programs link them; SaunaOS has one.
 
 **The games live in the person's `$XDG_DATA_HOME/games/<id>/`**
-(`/home/.local/share/games`), and `/usr/share/games` is looked in after
+(`/home/user/.local/share/games`), and `/usr/share/games` is looked in after
 it. They were system data under `/usr/share/games`, Debian's place for a
 game-data package, until file permissions were enforced (2026-11-25): the
 card runs as the desktop's account, which cannot write `/usr`. The

@@ -35,6 +35,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "base/udirs.h"
 
 #define SCUMMVM    "/usr/bin/scummvm"
 // The games' data name (base/udatafetch.h): a download goes to the person's
@@ -167,19 +168,21 @@ static int run_wait(char *const argv[]) {
 // ScummVM makes only its own folder under them, and without them writes
 // scummvm.ini into its working directory -- where this front never looks,
 // so the game it just added was in a list nobody read. The defaults are
-// /etc/environment's, for a ScummVM started with no environment at all
-// (the kernel shell, the debug console's `sh`).
+// what init gives the desktop's account, for a ScummVM started with no
+// environment at all (the kernel shell, the debug console's `sh`).
 static void make_xdg_dirs(void) {
     static const char *const VARS[] = { "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME" };
-    static const char *const DEFAULTS[] = { "/home/.config", "/home/.local/share", "/home/.cache" };
+    static const char *const UNDER[] = { ".config", ".local/share", ".cache" };
+    const char *home = udir_home();
     for (int i = 0; i < 3; i++) {
         const char *now = getenv(VARS[i]);
-        if (!now || *now != '/') setenv(VARS[i], DEFAULTS[i], 1);
+        char def[300];
+        snprintf(def, sizeof def, "%s/%s", strcmp(home, "/") ? home : "", UNDER[i]);
+        if (!now || *now != '/') setenv(VARS[i], def, 1);
         const char *v = getenv(VARS[i]);
         char *p = v && *v == '/' ? strdup(v) : NULL;
         // Each '/' after the first ends a parent to make. Starting at
-        // p + 1 itself turned "/home/.config" into "//ome/.config"
-        // (17.11-22.11.2026).
+        // p + 1 itself turned "/home/.config" into "//ome/.config".
         for (char *s = p ? strchr(p + 1, '/') : NULL; s; s = strchr(s + 1, '/')) {
             *s = 0;
             mkdir(p, 0755);

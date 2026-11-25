@@ -2465,7 +2465,7 @@ this the obvious way), not from how much history it accumulated.
   LIVE, no restart: the WM watches `fs_generation()` and re-reads the
   directory when it moves. **One directory feeds the Start menu and the
   desktop menu's Open > submenu**, with `ShowIn=desktop startmenu`
-  choosing which; the desktop's own icons come from `/home/Desktop`
+  choosing which; the desktop's own icons come from `/home/user/Desktop`
   (the entry above), never from here. **Anything positional
   must go through `gui_app_visible_count()`/`_at()`** -- the Start
   menu's rows are indexed by position, so filtering the draw while
@@ -5867,9 +5867,9 @@ its `Name=`, rewritten line by line with the rest of the file kept, so
 the file name, its saved position and its AppId do not move. `gui icons
 --json` reports `hovered` and `renaming` per icon.
 
-## THE DESKTOP IS `/home/Desktop` AND NOTHING ELSE: A `.desktop` FILE THERE IS A LAUNCHER, THE APPLICATION DATABASE IS `/usr/wm/applications`, AND EVERY VERB IS A CHILD PROCESS
+## THE DESKTOP IS `/home/user/Desktop` AND NOTHING ELSE: A `.desktop` FILE THERE IS A LAUNCHER, THE APPLICATION DATABASE IS `/usr/wm/applications`, AND EVERY VERB IS A CHILD PROCESS
 
-Every icon in `userland/apps/system/toywm/desktop.c` is an entry of `/home/Desktop`, in
+Every icon in `userland/apps/system/toywm/desktop.c` is an entry of `/home/user/Desktop`, in
 name order, directories first -- KDE's Folder View and the Windows
 desktop are folders with the shortcuts in them. A `.desktop` file there
 is drawn as the launcher it describes (`gui_app_read_entry()`, the same
@@ -5918,7 +5918,7 @@ the router's `uui_router_extern_over/leave/drop`, so a widget's
 `drag_over`/`drop` ops serve a drag from anywhere -- the File Manager's
 panes and tree accept a drop from the desktop with no code of their
 own beyond `do_drop_extern()`, which reads the slot. The desktop is a
-target (files land in `/home/Desktop`, Ctrl copies) and a source (a file
+target (files land in `/home/user/Desktop`, Ctrl copies) and a source (a file
 icon dragged onto a window; the icon stays in its cell when a window
 took the drop). Wayland's `wl_data_device` is this shape; X11's XDND
 made the two windows talk directly, which every compositor since has
@@ -6100,7 +6100,7 @@ wait (0.6-1.7 s frames, measured). The WM's pollers compare a TOPIC
 counter from `userland/apps/system/toywm/wm_watch.h` instead: `WM_TOPIC_SETTINGS` moves
 on `WIN_EV_SETTING` (the registry's generation bump, pushed), the path
 topics on `WIN_EV_FSWATCH` from a `SYS_FS_WATCH` on `/etc`,
-`/etc/effects`, `/usr/wm/applications` and `/home/Desktop`. A new
+`/etc/effects`, `/usr/wm/applications` and `/home/user/Desktop`. A new
 config poller picks a topic, or adds one with its path; it never reads
 the fs generation. The watch is on a directory's DIRECT children, so a
 file two levels down needs its own topic (that is why `/etc/effects` is

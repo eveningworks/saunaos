@@ -1,6 +1,6 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: stages A, B and C BUILT (2026-11-24); stage D next, its account record decided first.** The maintainer
+**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25 and D1 building.** The maintainer
 picked the shape on 2026-11-23: four stages, stage A first, a ROOT
 BROKER for elevation (no setuid bits), ONE user account before several.
 Roadmap: "Multi-user & file permissions".
@@ -299,20 +299,101 @@ is right and this is what it does:
 
 ### D. Several people
 
+Picked 2026-11-25, in three parts, each shippable alone: **D1** a home
+per account and the settings split, built with the one person there is;
+**D2** passwords and a login screen; **D3** a second person, switching,
+and the settings the kernel keeps applied per session.
+
+**What real systems do.** Linux keeps the account in `/etc/passwd` and
+the hash in `/etc/shadow`, and a display manager's greeter (GDM) reads
+everything else it shows -- picture, language, the session to start --
+from **AccountsService**, `/var/lib/AccountsService/users/<name>`, root's
+and written through a D-Bus daemon, so the greeter never opens a home.
+Settings are LAYERED: an XDG program reads `~/.config/<file>` over
+`/etc/xdg/<file>`, dconf reads the user's database over `/etc/dconf`'s,
+and Windows reads HKCU over HKLM -- the machine's copy is the default
+and the administrator's policy, the person's the choice. Windows also
+applies the per-person halves of what the kernel holds (the pointer
+speed, the keyboard layout) at logon from HKCU.
+
+**The account record** (decided 2026-11-25, the AccountsService shape):
+
+- The real name stays in passwd's GECOS field -- `getpwnam()` callers
+  and `finger`-shaped tools already read it there.
+- Everything else the login screen shows is `/var/lib/accounts/<name>`,
+  a `name=value` file (`Picture=`, `Language=`), root's and 0644, so the
+  greeter reads every account's without reading anyone's home; the
+  picture is copied beside it as `/var/lib/accounts/<name>.picture`. A
+  person changes theirs through a privd action -- the polkit
+  `org.freedesktop.accounts.change-own-user-data` right, allowed without
+  a prompt for the seat's own account.
+- No reader exists before D2's login screen, so D1 builds none of it.
+
+**D1 -- a home each, and the settings split.** D1a, the home, BUILT 2026-11-25; D1b (`Scope=`) and D1c (the apps' own files) next:
+
+- **`/home/<name>`.** The account's home is `/home/user`, not `/home`;
+  `/home` itself becomes root's 0755, Linux's shape. `XDG_CONFIG_HOME`,
+  `XDG_DATA_HOME` and `XDG_CACHE_HOME` leave `/etc/environment` and are
+  set by init from the passwd line beside `HOME`, so a root service has
+  none and a `User=` service gets its own.
+- **A setting has a SCOPE.** A schema in `/etc/settings.d` says
+  `Scope=user` or `Scope=machine` (the default, so a schema that says
+  nothing keeps today's behaviour). A user key is READ from
+  `$XDG_CONFIG_HOME/<file>` and then `/etc/<file>` -- the machine's
+  value is the default -- and WRITTEN to the person's file only; a
+  machine key reads and writes `/etc` alone. The file keeps its
+  basename, so `File=/etc/desktop.conf` is `~/.config/desktop.conf`
+  for the person's half.
+- **One layered lookup, in `libbase`.** The person's half of a file is
+  read through one helper over `uconf` (the user file, then `/etc`), and
+  `usetting_schema` routes a write by scope. Without `XDG_CONFIG_HOME`
+  -- a root service -- the person's layer is skipped, so `fontd`
+  and `privd` see the machine's values and nothing a person writes can
+  steer a root service.
+- **The apps' own files are the person's.** Notepad's, Task Manager's,
+  the File Manager's, the Terminal's, the Start menu's pins and the
+  window positions (`windows.conf`) -- every `/etc/<app>.conf` an app
+  writes for itself -- move to `$XDG_CONFIG_HOME`, read through the
+  same layered call; the shell's history moves to
+  `$XDG_STATE_HOME/tosh_history` (bash's `~/.bash_history`, XDG's state
+  dir). What describes the MACHINE stays in `/etc`: `net.conf`,
+  `resolv.conf`, `remote.conf`, `mounts.d`, `display.conf`,
+  `devices.conf`, the services and the shipped data.
+- **What stays machine-scoped in D1, though a person's elsewhere:**
+  `display.scale` (`fontd`, root, renders for the screen; GNOME and
+  Windows keep it per person, and D3 moves it with fontd into the
+  session) and the kernel registry's own settings -- pointer, keyboard,
+  font, scaling -- which with one person need no split. D3 applies the
+  person's at login.
+- **No migration.** Nobody runs SaunaOS on a disk that cannot be
+  reimaged (`docs/decisions/build.md`, "No migration code for a machine
+  nobody runs"), so an old disk's `/home` is not moved at boot: the test
+  machines get a fresh image and the ASUS was moved by hand -- its
+  entries into `/home/user`, the stored `/home/...` paths in its
+  settings rewritten, `owners --all`.
+- **Machine keys stay writable by the desktop** (`/etc` is 3775
+  root:user) until D3, when a second person makes "change the machine"
+  a privilege; then it goes through privd, as hostname1 and timedate1
+  do under polkit.
+
+**D2 -- passwords and the login screen.**
+
 - Passwords hashed with a slow KDF (yescrypt or Argon2id, as current
-  distributions use), in `/etc/shadow`; the salt from a CSPRNG --
-  `krandom.h` is not one, so this needs a real `getrandom` first.
-- A login screen drawn by the compositor (mockup first), auto-login
-  kept as an option; lock on resume.
-- `/home/<name>`, and the settings split: what is the person's
-  (wallpaper, theme, pins, recent files) moves to their home, the
-  machine's stays in `/etc`, by a `Scope=` in each setting's schema --
-  dconf's user database against `/etc/dconf`, or HKCU against HKLM.
-- Switching users.
-- First, DECIDE the richer account record ("Why plain files, not a user
-  database"): what the login screen and the settings split need beyond
-  a passwd line, and whether it is a userdb-shaped record or a field or
-  two beside `/etc/passwd`.
+  distributions use), in `/etc/shadow`, root's and 0600; the salt from
+  `getrandom`, which the KDF refuses on `QUERY_RANDOM_JITTER` alone --
+  `krandom.h` is not a CSPRNG.
+- A login screen drawn by the compositor (mockup first) reading the
+  account record above; auto-login kept as an option; lock on resume.
+- The privd prompt gains the password field it lacks today.
+
+**D3 -- several people.**
+
+- More than one account: a Users page in Settings, `useradd`-shaped
+  CLI through privd.
+- Switching users (a session per seat, the logind shape).
+- The kernel registry's per-person settings applied by the session at
+  login, and `fontd` (with `display.scale`) run per session.
+- Machine-scoped writes need the admin right (privd), as above.
 
 ## Why plain files, not a user database
 
@@ -332,9 +413,9 @@ so no `<uid>.user` -- a uid lookup that parses every record; what they
 buy (a real name, icon, language, a per-user secrets file) has no
 reader before stage D. So the store stays `/etc/passwd` and
 `/etc/group`, with `/etc/shadow` for stage D's hashes as Linux and the
-BSDs keep them. Whether an account also gets a RICHER record -- a real
-name, icon and language for the login screen, a pointer to its settings
--- is decided at the start of stage D, when those have a reader.
+BSDs keep them. The RICHER record -- a picture and a language for the
+login screen -- was decided at the start of stage D (2026-11-25): GECOS
+for the name, `/var/lib/accounts/<name>` for the rest (stage D above).
 
 ## Not decided yet
 

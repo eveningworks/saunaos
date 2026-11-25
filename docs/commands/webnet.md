@@ -33,7 +33,7 @@ It keeps:
 | file | what |
 |---|---|
 | `/var/lib/browser/cookie-jar` | the cookies, a line each, tab-separated; session cookies are not written. Saved every ten seconds when it changed, and on exit. |
-| `/home/Downloads/<name>` | each download, as `<name>.part` until it is whole |
+| `/home/user/Downloads/<name>` | each download, as `<name>.part` until it is whole |
 
 The first time it starts with no `cookie-jar`, it reads NetSurf's own
 cookie file (`/var/lib/browser/cookies`, from before stage 5) once.

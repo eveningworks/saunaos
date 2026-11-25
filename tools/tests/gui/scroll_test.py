@@ -50,7 +50,7 @@ from harness import Results, poll               # noqa: E402
 
 K_HOME, K_END = "0xf786", "0xf787"
 PROGRAMS = 60
-FOLDER = "/home/w16many"
+FOLDER = "/home/user/w16many"
 
 
 def thumb(im, wx, wy, ww, wh):

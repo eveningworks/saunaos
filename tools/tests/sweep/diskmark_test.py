@@ -388,7 +388,7 @@ def main():
     # is refused at Run and dropped at the next start. The name has a
     # SPACE: a string spawn splits on whitespace, and diskbench would then
     # refuse the second half as an unexpected argument.
-    folder = "/home/Documents/dm test"
+    folder = "/home/user/Documents/dm test"
     con.send(f'sh mkdir "{folder}"')
 
     def said(what):
@@ -403,7 +403,7 @@ def main():
         con.key("0x0d")
         con.settle()
         opened = said("diskmark: folder chooser open at ")
-        check("Choose folder... opens the chooser at Documents", opened[-1:] == ["/home/Documents"],
+        check("Choose folder... opens the chooser at Documents", opened[-1:] == ["/home/user/Documents"],
               f"{opened[-2:]}")
         # The listing opens on "..": Down is the folder, Enter chooses it.
         con.key("0xf781")

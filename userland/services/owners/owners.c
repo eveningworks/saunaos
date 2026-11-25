@@ -7,7 +7,7 @@
 //
 // WHAT A BOOT COSTS: one stat per file the every-boot rules cover (/etc,
 // a few hundred), and a chown only where an owner is wrong. A `once`
-// rule's tree (/home) is walked when the file changes -- its hash is in
+// rule's tree (/home/user) is walked when the file changes -- its hash is in
 // /var/lib/owners -- or with --all.
 //
 // It never follows a symlink, never enters another mount, and never

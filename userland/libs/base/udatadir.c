@@ -4,12 +4,13 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "base/udirs.h"
 
 char *udatadir_home(const char *rel) {
-    const char *v = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
+    const char *v = getenv("XDG_DATA_HOME"), *home = udir_home();
     char *p = NULL;
     int n = v && *v == '/' ? asprintf(&p, "%s/%s", v, rel)
-                           : asprintf(&p, "%s/.local/share/%s", home && *home == '/' ? home : "/home", rel);
+                           : asprintf(&p, "%s/.local/share/%s", strcmp(home, "/") ? home : "", rel);
     return n < 0 ? NULL : p;
 }
 

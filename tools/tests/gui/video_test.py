@@ -233,7 +233,7 @@ def run(dbg, qmp, tmp, res):
     time.sleep(1.0)
     poll_logs(dbg)
     saved = [l for l in since(mark) if "video: save frame" in l]
-    res.check("Ctrl+S saves the frame showing", any("/home/orbit-" in l and l.endswith("ok") for l in saved),
+    res.check("Ctrl+S saves the frame showing", any("/home/user/orbit-" in l and l.endswith("ok") for l in saved),
               f"{saved}")
 
     # --- 7. the seek preview -------------------------------------------------------

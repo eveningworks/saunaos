@@ -97,6 +97,7 @@
 #include "ui/umonofont.h"   // the grid's face at a chosen size
 #include "apps/apps/terminal/term.h"    // /etc/terminal.conf and the Preferences dialog
 #include "base/udclick.h"  // the double-click time
+#include "base/udirs.h"
 
 // THE WINDOW IS SIZED FOR A GRID, NOT IN PIXELS. A fixed pair does not
 // survive the font: 640x400 was 78x21 at size 14 and 44x12 at size 24,
@@ -736,7 +737,7 @@ static int open_tab_with(const char *shell) {
     }
     const char *dir = 0;
     struct session *cur = active();
-    if (g_conf.newtab_dir == TERM_NEWTAB_HOME) dir = "/home";
+    if (g_conf.newtab_dir == TERM_NEWTAB_HOME) dir = udir_home();
     else if (cur && cur->t.cwd[0]) dir = cur->t.cwd;
     if (!session_start(slot, shell, dir)) return 0;
     // APPENDED, so a new tab is always the RIGHT-HAND one whatever slot

@@ -35,7 +35,7 @@ from harness import Results  # noqa: E402
 HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
 ROOT = "/tt"
-BIN = "/home/.Trash"
+BIN = "/home/user/.Trash"
 
 
 def run(cmd, instance=None):

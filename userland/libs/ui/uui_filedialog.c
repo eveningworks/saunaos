@@ -18,6 +18,7 @@
 #include "ui/uui_verbs.h"
 #include <errno.h>
 #include <stdlib.h>
+#include "base/udirs.h"
 
 // Widget ids, which are also the toolbar/button codes. One space: the
 // window has one on_widget and one switch.
@@ -884,9 +885,7 @@ struct uapp_window *uui_filedialog_open(struct uapp *a, struct uui_filedialog *f
     // Unnamed, it opens in the person's own folder ($HOME), as Windows'
     // and GNOME's do -- `/` is root's, and a bare name saved there is
     // refused once file permissions are enforced (users stage C).
-    const char *home = getenv("HOME");
-    const char *start = (opts->start_dir && opts->start_dir[0]) ? opts->start_dir
-                      : (home && home[0] == '/') ? home : "/";
+    const char *start = (opts->start_dir && opts->start_dir[0]) ? opts->start_dir : udir_home();
     if (!uui_fileview_set_dir(&fd->view, start)) uui_fileview_set_dir(&fd->view, "/");
 
     uui_label_init(&fd->name_label, opts->mode == UUI_FILEDIALOG_FOLDER ? "Folder:" : "File name:");

@@ -50,6 +50,7 @@
 #include "media/uimg.h"
 #include "media/uclip.h"
 #include "apps/apps/paint/paint.h"
+#include "base/udirs.h"
 
 #define PATH_MAX_LEN 256
 #define NEW_W 800
@@ -779,7 +780,8 @@ static void open_new_dialog(void);
 static void start_dir(char *out, int cap) {
     if (g_path[0]) { k_path_dirname(g_path, out, (size_t)cap); return; }
     struct sys_stat st;
-    snprintf(out, (size_t)cap, "%s", sys_stat("/home/Pictures", &st) == 0 ? "/home/Pictures" : "/home");
+    const char *pics = udir_path(UDIR_PICTURES);
+    snprintf(out, (size_t)cap, "%s", sys_stat(pics, &st) == 0 ? pics : udir_home());
 }
 
 static void open_chosen(void *ctx, const char *path) {

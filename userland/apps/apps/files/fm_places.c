@@ -36,10 +36,10 @@ static void migrate_hidden(void) {
     char list[128] = "";
     if (!uconf_get(FILES_CONF, HIDDEN_KEY, list, sizeof list) || !list[0]) return;
     for (char *k = strtok(list, ","); k; k = strtok(0, ",")) {
-        char entry[40];
+        char entry[256];
         if (!strcmp(k, "recent")) strlcpy(entry, "recent:/", sizeof entry);
         else if (!strcmp(k, "bin")) strlcpy(entry, "trash:/", sizeof entry);
-        else if (!strcmp(k, "home")) strlcpy(entry, "/home", sizeof entry);
+        else if (!strcmp(k, "home")) strlcpy(entry, udir_home(), sizeof entry);
         else snprintf(entry, sizeof entry, "udir:%s", k);
         upins_remove(entry);
     }
@@ -293,7 +293,7 @@ void fm_leave_volume(const char *point) {
     size_t n = strlen(point);
     for (int p = 0; p < 2; p++) {
         const char *d = uui_fileview_dir(&g_pane[p]);
-        if (!strncmp(d, point, n) && (d[n] == '\0' || d[n] == '/')) fm_goto(p, "/home");
+        if (!strncmp(d, point, n) && (d[n] == '\0' || d[n] == '/')) fm_goto(p, udir_home());
     }
 }
 

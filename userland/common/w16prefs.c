@@ -13,6 +13,7 @@
 #include "base/umd.h"
 #include "query_abi.h"
 #include "rt/sys.h"
+#include "base/udirs.h"
 
 static const char *const SCALE_WORDS[] = { "auto", "1", "1.25", "1.5", "1.75", "2", "2.5", "3" };
 const int w16_prefs_scale_q[W16_SCALE_COUNT] = { 0, 4, 5, 6, 7, 8, 10, 12 };
@@ -69,7 +70,7 @@ const struct upref w16_prefs_keys[] = {
     [W16K_VERSION] = UPREF_WORD_KEY("version", struct w16_prefs, version, VERSION_WORDS, 3, W16_VER_310),
     [W16K_ON_FAULT] = UPREF_WORD_KEY("on_fault", struct w16_prefs, on_fault, FAULT_WORDS, 2, W16_FAULT_BOX),
     [W16K_TRACE] = UPREF_BOOL_KEY("trace", struct w16_prefs, trace, 0),
-    [W16K_DRIVE_C] = UPREF_TEXT_KEY("drive_c", struct w16_prefs, drive_c, "/home/Win16", is_abs_path),
+    [W16K_DRIVE_C] = UPREF_TEXT_KEY("drive_c", struct w16_prefs, drive_c, "", is_abs_path),   // "": w16_default_drive_c()
     [W16K_METHOD] = UPREF_WORD_KEY("method", struct w16_prefs, method, METHOD_WORDS, 3, W16_METHOD_SHARP),
     [W16K_FONTS] = UPREF_WORD_KEY("fonts", struct w16_prefs, fonts, FONTS_WORDS, 2, W16_FONTS_WIN311),
     [W16K_SOUNDS] = UPREF_WORD_KEY("sounds", struct w16_prefs, sounds, SOUNDS_WORDS, 3, W16_SOUNDS_WIN311),
@@ -166,14 +167,29 @@ int w16_drive_label(const struct w16_prefs *p, char d, const char *root, char *o
     return n > 0;
 }
 
+const char *w16_default_drive_c(void) {
+    static char dir[W16_PATH_MAX];
+    if (!dir[0]) {
+        const char *h = udir_home();
+        snprintf(dir, sizeof dir, "%s/Win16", strcmp(h, "/") ? h : "");
+    }
+    return dir;
+}
+
+void w16_prefs_fill(struct w16_prefs *p) {
+    if (!p->drive_c[0]) snprintf(p->drive_c, sizeof p->drive_c, "%s", w16_default_drive_c());
+}
+
 void w16_prefs_load(struct w16_prefs *p, const char *exe) {
     memset(p, 0, sizeof *p);
     uprefs_load(&w16_prefs_defaults, p);
-    if (!exe) return;
-    char path[W16_PATH_MAX + 32];
-    w16_prog_conf(exe, path, sizeof path);
-    const struct uprefs own = { path, w16_prefs_keys, w16_prefs_program_keys };
-    uprefs_read(&own, p);
+    if (exe) {
+        char path[W16_PATH_MAX + 32];
+        w16_prog_conf(exe, path, sizeof path);
+        const struct uprefs own = { path, w16_prefs_keys, w16_prefs_program_keys };
+        uprefs_read(&own, p);
+    }
+    w16_prefs_fill(p);
 }
 
 unsigned w16_prefs_overridden(const char *exe) {
@@ -246,7 +262,7 @@ int w16_folders_load(struct w16_folder **out) {
         }
     } else {
         // Before the count: eight keys, the first two with defaults.
-        static const char *const DEF[] = { "/usr/share/w16", "/home/Win16" };
+        const char *const DEF[] = { "/usr/share/w16", w16_default_drive_c() };
         for (int i = 1; i <= 8; i++) {
             snprintf(key, sizeof key, "folder%d", i);
             if (!uconf_get(W16_CONF, key, v, FOLDER_PATH)) snprintf(v, FOLDER_PATH, "%s", i <= 2 ? DEF[i - 1] : "");

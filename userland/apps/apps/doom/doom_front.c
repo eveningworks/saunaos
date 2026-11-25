@@ -28,6 +28,7 @@
 #include "ui/uui_keysheet.h"
 #include "ui/uui_primitives.h"
 #include "uhttp.h"
+#include "base/udirs.h"
 
 enum view { V_GAME, V_PAGE, V_DATA };     // V_DATA: the card has the window
 static enum view g_view = V_GAME;
@@ -347,7 +348,7 @@ static void card_file(struct uapp *a, void *ctx) {
     struct uui_filedialog_opts o = {
         .mode = UUI_FILEDIALOG_OPEN,
         .title = "Use a WAD file",
-        .start_dir = "/home",
+        .start_dir = udir_home(),
     };
     uui_filedialog_open(a, &g_fd, &o, file_chosen, a);
 }

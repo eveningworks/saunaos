@@ -81,7 +81,7 @@ static int row_h(void) { return icon_px() + 4 + label_h() + 10; } // icon + gap 
 // The application database (/usr/wm/applications) feeds the Start menu
 // and the Open > submenu, never an icon. Read on the same generation
 // poll as the wallpaper; a change re-derives the grid.
-// The known folder (base/udirs.h): /home/Desktop unless moved.
+// The known folder (base/udirs.h): /home/user/Desktop unless moved.
 #define DESKTOP_DIR udir_path(UDIR_DESKTOP)
 // EVERY PER-ITEM ARRAY BELOW is indexed by the item and `g_item_cap` long,
 // grown together by items_reserve() -- so a desktop holds however many
@@ -1006,7 +1006,7 @@ void desktop_poll_config(void) {
     uint64_t bg = wm_watch_gen(WM_TOPIC_TRASH);
     if (bg != bin_gen) {
         bin_gen = bg;
-        int full = ulistdir_any("/home/.Trash/files") > 0;
+        int full = ulistdir_any(wm_watch_path(WM_TOPIC_TRASH)) > 0;
         if (full != g_bin_full) {
             g_bin_full = full;
             for (int i = 0; i < item_count(); i++) if (item_is_bin(i)) damage_icon_hl(i);

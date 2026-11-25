@@ -7,8 +7,9 @@ folder and found there BEFORE the system's copy, so a wrong order either
 hides a download behind an old system file or never finds the system's.
 Checked against the XDG Base Directory rules:
 
-  - home: $XDG_DATA_HOME/REL; unset or relative, $HOME/.local/share/REL;
-    no HOME either, /home/.local/share/REL
+  - home: $XDG_DATA_HOME/REL; unset or relative, <home>/.local/share/REL,
+    <home> being udir_home() -- $HOME, else the desktop account's home,
+    which the driver stands in for with /home/user
   - find: the home folder first, then each $XDG_DATA_DIRS entry in order;
     a relative entry is skipped; nowhere is NULL
   - prepare: home's answer, with every folder above it made
@@ -32,6 +33,16 @@ import hostcheck  # noqa: E402
 
 DRIVER = r"""
 #include "base/udatadir.h"
+#include "base/udirs.h"
+#include <stdlib.h>
+#include <string.h>
+
+// udir_home()'s contract (base/udirs.h) without /etc/passwd: $HOME when
+// it is a folder other than `/`, else the desktop account's home.
+const char *udir_home(void) {
+    const char *h = getenv("HOME");
+    return h && h[0] == '/' && h[1] ? h : "/home/user";
+}
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +72,7 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         hostcheck.stage(tmp, "userland/libs/base/udatadir.h", dest="base/udatadir.h")
+        hostcheck.stage(tmp, "userland/libs/base/udirs.h", dest="base/udirs.h")
         src = hostcheck.stage(tmp, "userland/libs/base/udatadir.c", edits=[CONTROL],
                               apply=args.positive_control, tool="udatadir_hostcheck")
         drv = hostcheck.write(tmp, "driver.c", DRIVER)
@@ -91,7 +103,8 @@ def main():
         expect("home from HOME", run("home", "doom/a.wad", HOME="/u"), "/u/.local/share/doom/a.wad")
         expect("a relative XDG_DATA_HOME is ignored",
                run("home", "doom/a.wad", XDG_DATA_HOME="rel", HOME="/u"), "/u/.local/share/doom/a.wad")
-        expect("no HOME at all", run("home", "doom/a.wad"), "/home/.local/share/doom/a.wad")
+        expect("no HOME at all: the account's home", run("home", "doom/a.wad"),
+               "/home/user/.local/share/doom/a.wad")
 
         dirs = f"rel:{sys1}:{sys2}"
         expect("nowhere is NULL", run("find", "games/x", XDG_DATA_HOME=home, XDG_DATA_DIRS=dirs), "NULL")

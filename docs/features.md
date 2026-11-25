@@ -419,7 +419,7 @@ A signal reaches only its sender's own processes.
 system volume carries an owner, a group and Unix permission bits, and
 every path a program names is checked against them -- owner, group,
 other; search on each folder above; the sticky bit on `/tmp`; root reads
-anything and runs only what is executable. The desktop owns `/home` and
+anything and runs only what is executable. The desktop owns its home, `/home/user`, and
 its own settings in `/etc`; the accounts, the services, `/bin` and
 `/lib` are root's, so changing them takes `sudo` or an elevated tool.
 `chown`, `chmod`, `umask` and `stat` show and change them; a USB stick or
@@ -458,7 +458,7 @@ games -- Beneath a Steel Sky, Flight of the Amazon Queen, Lure of the
 Temptress and Drascula with its music -- on the same card DOOM uses,
 several at once; each is checked against ScummVM's published SHA-256,
 added to ScummVM's list, and ScummVM's own launcher opens. Saves and
-settings live under `/home` (XDG's folders).
+settings live under `/home/user` (XDG's folders).
 
 **Windows 3.1 programs run in a window of their own** (`/bin/w16`, the
 shape of otvdm and Wine): an emulated 16-bit CPU in an ordinary ring-3
@@ -680,7 +680,7 @@ UTF-8 character in either byte order, offers the value as an offset to
 go to, and copies or saves the selection. Find takes hex bytes or text,
 Go to takes `0x`, decimal or `+`/`-` relative offsets, and the selection
 copies as hex, as text or as a C array. It is read-only and runs in a
-sandbox: it reads anything, and writes only under `/home`.
+sandbox: it reads anything, and writes only in the person's home.
 
 **Images are decoded in ring 3, and the kernel never sees one.** JPEG
 (baseline and progressive), PNG, QOI, BMP (every Windows and OS/2

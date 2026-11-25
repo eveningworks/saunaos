@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
+#include "base/udirs.h"
 
 #define SET_THEME "desktop.theme"
 #define THEME_EDITOR "/bin/wm/apps/themeedit"
@@ -205,7 +206,7 @@ static void import_open(struct uapp *a) {
     struct uui_filedialog_opts o = {
         .mode = UUI_FILEDIALOG_OPEN,
         .title = "Import a theme file",
-        .start_dir = "/home",
+        .start_dir = udir_home(),
         .filters = types,
         .filter_count = (int)(sizeof types / sizeof types[0]),
     };

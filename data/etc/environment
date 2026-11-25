@@ -5,10 +5,7 @@
 PATH=/bin:/usr/bin
 HOME=/
 # HOME is /, root's; a service with User= (the desktop, the shells) gets
-# its account's home from /etc/passwd instead -- /home for `user`.
-# XDG's base directories under the one person's /home, for ported
-# programs (ScummVM's settings and saves, SDL's pref path), so a root
-# service falling back to $HOME/.config does not write to the root.
-XDG_CONFIG_HOME=/home/.config
-XDG_DATA_HOME=/home/.local/share
-XDG_CACHE_HOME=/home/.cache
+# its account's home from /etc/passwd instead -- /home/user for `user` --
+# and XDG's base directories under it (XDG_CONFIG_HOME, XDG_DATA_HOME,
+# XDG_STATE_HOME, XDG_CACHE_HOME), set by init beside HOME. A root
+# service has none, so nothing it reads can be a person's file.

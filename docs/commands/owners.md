@@ -25,7 +25,7 @@ shells, because two things would otherwise go wrong:
 
 - **an old disk is root's throughout** -- an inode written before stage C
   reads owner 0 -- so the desktop, which runs as `user`, could not write
-  its own `/home`;
+  its own home;
 - **a file a root service makes in `/etc` is root's**, and the desktop
   must still be able to rewrite it.
 
@@ -41,7 +41,7 @@ SCOPE is `self` (the path), `below` (everything under it) or `tree`
 left as it is, which on every disk is root's. A line that does not parse
 stops the whole run, with its number, rather than apply half a policy.
 
-`once` marks a big tree (`/home`): it is walked only when the file
+`once` marks a big tree (`/home/user`): it is walked only when the file
 changes -- `/var/lib/owners` holds the hash of the file it last applied
 in full -- or with `--all`. The every-boot rules cover `/etc`, a few
 hundred files; a boot spends one stat on each and a chown only where an

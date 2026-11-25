@@ -14,8 +14,8 @@
 // **ONE BIN PER VOLUME, because a delete must be a RENAME** -- copying a
 // tree to another disk to "delete" it would be slow, could fail half
 // way, and would need the space it is supposed to free. The system
-// volume's bin is `/home/.Trash` (the spec's "home trash"; SaunaOS has
-// one home); any other persistent volume's is `<mount>/.Trash-0` (the
+// volume's bin is `<home>/.Trash` (the spec's "home trash",
+// utrash_home_bin()); any other persistent volume's is `<mount>/.Trash-0` (the
 // spec's per-user top-directory bin). A RAM volume and a read-only one
 // have NONE: utrash_bin_for() says 0 and the caller deletes for real,
 // after saying so -- what Windows does for a drive with no Recycle Bin.
@@ -46,6 +46,10 @@ struct utrash_item {
     uint64_t size;             // 0 for a folder
     int is_dir;
 };
+
+// The system volume's bin, `<home>/.Trash` (udir_home()); its files and
+// info folders are beneath it.
+const char *utrash_home_bin(void);
 
 // The bin `path` would go to: 1 and the bin's directory in `out`, or 0
 // when its volume has none (RAM, read-only, or the path is a bin).

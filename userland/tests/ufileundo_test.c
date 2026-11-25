@@ -1,5 +1,5 @@
 // base/ufileundo.h: each kind of operation undone and redone on real
-// files under /home (a volume with a Recycle Bin), with the result read
+// files under /home/user (a volume with a Recycle Bin), with the result read
 // back through sys_stat -- not through the journal, which is under test.
 //
 // Then the journal itself: a new record drops what could have been
@@ -14,7 +14,7 @@
 #include "base/ufileundo.h"
 #include "base/utrash.h"
 
-#define DIR "/home/ufu-test"
+#define DIR "/home/user/ufu-test"
 
 static struct ufileundo g_u;      // static: hundreds of KB
 static struct ufileop g_s;

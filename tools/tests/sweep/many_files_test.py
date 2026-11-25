@@ -75,16 +75,16 @@ CRASH = "SaunaOS crash report\npid: 4242\nprogram: /tests/many_files\nfault: pag
 def seed_script():
     loop = "i=0; while [ $i -lt {n} ]; do {body}; i=$((i+1)); done"
     lines = [
-        "rm -r /home/many",
+        "rm -r /home/user/many",
         "mkdir /var/crash",   # made by the first crash; a fresh disk has none
-        "mkdir /home/many", "mkdir /home/many/img", "mkdir /home/many/vid", "mkdir /home/many/mus",
-        loop.format(n=N_IMG, body="cp /usr/share/icons/about.qoi /home/many/img/i$i.qoi"),
-        loop.format(n=N_VID, body="cp /tmp/many_vid.mpg /home/many/vid/v$i.mpg"),
-        loop.format(n=N_MUS, body="cp /usr/share/music/first-boot.mid /home/many/mus/m$i.mid"),
+        "mkdir /home/user/many", "mkdir /home/user/many/img", "mkdir /home/user/many/vid", "mkdir /home/user/many/mus",
+        loop.format(n=N_IMG, body="cp /usr/share/icons/about.qoi /home/user/many/img/i$i.qoi"),
+        loop.format(n=N_VID, body="cp /tmp/many_vid.mpg /home/user/many/vid/v$i.mpg"),
+        loop.format(n=N_MUS, body="cp /usr/share/music/first-boot.mid /home/user/many/mus/m$i.mid"),
         loop.format(n=N_CRASH, body="cp /tmp/many.crash /var/crash/many$i.crash"),
-        loop.format(n=AB_LINES, body="printf '%s\\n' '" + "ab " * (AB_PER_LINE - 1) + "ab' >> /home/many/ab.txt"),
-        "mkdir /home/many/dirs",
-        loop.format(n=N_DIRS, body="mkdir /home/many/dirs/d$i"),
+        loop.format(n=AB_LINES, body="printf '%s\\n' '" + "ab " * (AB_PER_LINE - 1) + "ab' >> /home/user/many/ab.txt"),
+        "mkdir /home/user/many/dirs",
+        loop.format(n=N_DIRS, body="mkdir /home/user/many/dirs/d$i"),
         # A page per (folder, page); its category cycles through HELP_CATS.
         f"d=0; while [ $d -lt {HELP_DIRS} ]; do mkdir /usr/share/doc/many$d; p=0; "
         f"while [ $p -lt {HELP_PAGES} ]; do "
@@ -176,12 +176,12 @@ def app_count(dbg, spawn, title, prefix, pattern, want, what):
 
 def run(dbg, qmp):
     terminal_tabs(dbg, qmp)
-    app_count(dbg, "/bin/wm/apps/imgview /home/many/img/i0.qoi", "Image Viewer",
-              "imgview: listing /home/many/img", r"(\d+) image\(s\)", N_IMG, "Image Viewer")
-    app_count(dbg, "/bin/wm/apps/video /home/many/vid", "Video Player",
-              "video: listing /home/many/vid", r"(\d+) video\(s\)", N_VID, "Video")
-    app_count(dbg, "/bin/wm/apps/player /home/many/mus", "Audio Player",
-              "player: listing /home/many/mus", r"(\d+) track\(s\)", N_MUS, "Audio Player")
+    app_count(dbg, "/bin/wm/apps/imgview /home/user/many/img/i0.qoi", "Image Viewer",
+              "imgview: listing /home/user/many/img", r"(\d+) image\(s\)", N_IMG, "Image Viewer")
+    app_count(dbg, "/bin/wm/apps/video /home/user/many/vid", "Video Player",
+              "video: listing /home/user/many/vid", r"(\d+) video\(s\)", N_VID, "Video")
+    app_count(dbg, "/bin/wm/apps/player /home/user/many/mus", "Audio Player",
+              "player: listing /home/user/many/mus", r"(\d+) track\(s\)", N_MUS, "Audio Player")
 
     crashes = [ln.split()[-1] for ln in (dbg.send("sh ls /var/crash") or "").splitlines()
                if ln.rstrip().endswith(".crash")]
@@ -225,7 +225,7 @@ def finds(dbg, qmp):
     want = AB_LINES * AB_PER_LINE
     # Notepad: Ctrl+F, "ab".
     dbg.logs("notepad: find", clear=True)
-    dbg.spawn("/bin/wm/apps/notepad /home/many/ab.txt")
+    dbg.spawn("/bin/wm/apps/notepad /home/user/many/ab.txt")
     time.sleep(2.0)
     dbg.key("0x06")
     type_keys(dbg, "ab")
@@ -237,7 +237,7 @@ def finds(dbg, qmp):
     # Terminal: the file on screen and in its scrollback, then Ctrl+Shift+F.
     dbg.logs("uterm: layout cursor", clear=True)
     if dbg.spawn("/bin/wm/apps/uterm", "Terminal"):
-        type_keys(dbg, "cat /home/many/ab.txt")
+        type_keys(dbg, "cat /home/user/many/ab.txt")
         dbg.key("0x0d")
         time.sleep(3.0)
         dbg.send("gui key 0x06 shift")
@@ -257,7 +257,7 @@ def file_manager(dbg):
     # The tree: opening a folder under dirs/ opens dirs/, and all its rows show.
     dbg.write_lines(conf, ["panes=1", "tree=1", "left_view=details", "details_pane=0"])
     dbg.logs("files: layout view", clear=True)
-    dbg.spawn("/bin/wm/apps/files /home/many/dirs/d0")
+    dbg.spawn("/bin/wm/apps/files /home/user/many/dirs/d0")
     n = layout_num(dbg, "files: layout view", "tree", lambda v: v >= 0, timeout=5.0)
     rows = None
     end = time.time() + 30
@@ -275,11 +275,11 @@ def file_manager(dbg):
           f"{rows} rows (tree {n})")
     close(dbg, "File Manager")
 
-    # The search: every name with a dot under /home/many.
+    # The search: every name with a dot under /home/user/many.
     want = N_IMG + N_VID + N_MUS + 1
     dbg.write_lines(conf, ["panes=1", "tree=0", "left_view=details", "details_pane=0"])
     dbg.logs("files: search done", clear=True)
-    dbg.spawn("/bin/wm/apps/files /home/many")
+    dbg.spawn("/bin/wm/apps/files /home/user/many")
     time.sleep(2.0)
     dbg.key("0x06")
     type_keys(dbg, ".")
@@ -301,13 +301,13 @@ def imgview_folder_gone(dbg):
     NULL, so a current index left over from before reads through NULL --
     Properties reads the current entry on every paint."""
     dbg.logs("imgview:", clear=True)
-    dbg.spawn("/bin/wm/apps/imgview /home/many/img/i5.qoi")
-    count_line(dbg, "imgview: listing /home/many/img", r"(\d+) image")
+    dbg.spawn("/bin/wm/apps/imgview /home/user/many/img/i5.qoi")
+    count_line(dbg, "imgview: listing /home/user/many/img", r"(\d+) image")
     time.sleep(1.5)
     dbg.key("i")                      # Properties
     dbg.settle()
     before = pids_of(dbg, "imgview")
-    dbg.send("sh rm -r /home/many/img")
+    dbg.send("sh rm -r /home/user/many/img")
     dbg.key("0xf79b")                 # F5, Reload
     time.sleep(3.0)
     dbg.settle()
@@ -321,7 +321,7 @@ def imgview_folder_gone(dbg):
 
 
 def cleanup(dbg):
-    dbg.send("sh rm -r /home/many")
+    dbg.send("sh rm -r /home/user/many")
     for d in range(HELP_DIRS):
         dbg.send(f"sh rm -r /usr/share/doc/many{d}")
     for i in range(N_CRASH):

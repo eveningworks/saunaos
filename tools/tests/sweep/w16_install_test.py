@@ -105,16 +105,16 @@ def wait_log(g, pattern, want=None, timeout=40.0):
 
 def cli(g, tmp):
     print("w16 --install:")
-    out = g.sh("w16 --install /tmp/disks --dry-run", "ls /home/Win16")
+    out = g.sh("w16 --install /tmp/disks --dry-run", "ls /home/user/Win16")
     want = gen_win3_disks.build(os.path.join(tmp, "unused"), "flat")
     check("--dry-run reads the four images and plans every file",
           "disks 4" in out and "files %d" % len(want) in out and "missing 0" in out, out)
-    check("...and changes nothing", "WINDOWS" not in out.split("--- ls /home/Win16 ---")[-1], out)
+    check("...and changes nothing", "WINDOWS" not in out.split("--- ls /home/user/Win16 ---")[-1], out)
     # The console names a non-zero exit ("w16: exit 1"); silence is 0.
     out = g.sh("w16 --install /tmp/disks")
     check("the install runs to its end, exit status 0", "done %d files" % len(want) in out and "w16: exit" not in out,
           out)
-    listing = g.sh("ls -l /home/Win16/WINDOWS", "ls -l /home/Win16/WINDOWS/SYSTEM")
+    listing = g.sh("ls -l /home/user/Win16/WINDOWS", "ls -l /home/user/Win16/WINDOWS/SYSTEM")
     sizes = {}
     where = None
     for line in listing.splitlines():
@@ -131,40 +131,40 @@ def cli(g, tmp):
     bad = sorted(set(want) ^ (set(sizes) - made)) + sorted(p for p in want if p in sizes and sizes[p] != len(want[p])
                                                            and p not in gen_win3_disks.INI_FILES)
     check("every file in its folder at its size, nothing else (%d files)" % len(want), not bad, ", ".join(bad[:6]))
-    ini = g.sh("cat /home/Win16/WINDOWS/PROGMAN.INI").upper()
+    ini = g.sh("cat /home/user/Win16/WINDOWS/PROGMAN.INI").upper()
     unlisted = [p for p in groups if ("=C:\\WINDOWS\\" + p.split("/")[1]) not in ini]
     check("...and Program Manager's RLn.GRP groups, each listed in PROGMAN.INI",
           groups and not unlisted, "groups %s, unlisted %s: %s" % (groups, unlisted, ini[-300:]))
     why = []
     for p in gen_win3_disks.INI_FILES:              # its template, plus the lines Setup writes
-        text = g.sh("cat /home/Win16/" + p).split("---\n", 1)[-1].encode("latin-1")
+        text = g.sh("cat /home/user/Win16/" + p).split("---\n", 1)[-1].encode("latin-1")
         w = gen_win3_disks.ini_ok(p, text.replace(b"\n", b"\r\n"), want[p])
         if w:
             why.append("%s: %s" % (p, w))
     check("WIN.INI and SYSTEM.INI are their templates plus the [fonts], [boot] and [keyboard] Setup writes",
           not why, "; ".join(why))
-    out = g.sh("cat /home/Win16/WINDOWS/SYSTEM/MAIN.CPL", "cat /home/Win16/WINDOWS/WINVER.EXE")
+    out = g.sh("cat /home/user/Win16/WINDOWS/SYSTEM/MAIN.CPL", "cat /home/user/Win16/WINDOWS/WINVER.EXE")
     check("their contents expand from the KWAJ files", "test file MAIN.CPL" in out and "MZw16 installer test file WINVER" in out,
           out[:200])
 
-    g.sh("rm /home/Win16/WINDOWS/WIN.INI")
-    g.put(os.path.join(tmp, "mine.ini"), "/home/Win16/WINDOWS/WIN.INI")
-    out = g.sh("w16 --install /tmp/disks", "cat /home/Win16/WINDOWS/WIN.INI")
+    g.sh("rm /home/user/Win16/WINDOWS/WIN.INI")
+    g.put(os.path.join(tmp, "mine.ini"), "/home/user/Win16/WINDOWS/WIN.INI")
+    out = g.sh("w16 --install /tmp/disks", "cat /home/user/Win16/WINDOWS/WIN.INI")
     check("an existing WIN.INI is kept", "[mine]" in out.split("--- cat")[-1], out[-200:])
-    out = g.sh("w16 --install /tmp/disks --replace-ini", "cat /home/Win16/WINDOWS/WIN.INI")
+    out = g.sh("w16 --install /tmp/disks --replace-ini", "cat /home/user/Win16/WINDOWS/WIN.INI")
     check("...and made afresh with --replace-ini", "test file WIN.SRC" in out.split("--- cat")[-1], out[-200:])
 
-    out = g.sh("rm /tmp/flat/CALC.EX_", "rm /home/Win16/WINDOWS/CALC.EXE", "w16 --install /tmp/flat",
-               "ls /home/Win16/WINDOWS")
+    out = g.sh("rm /tmp/flat/CALC.EX_", "rm /home/user/Win16/WINDOWS/CALC.EXE", "w16 --install /tmp/flat",
+               "ls /home/user/Win16/WINDOWS")
     check("a set missing CALC.EXE: exit status 1, the file named",
           "w16: exit 1" in out and "missing C:\\WINDOWS\\CALC.EXE" in out, out[-300:])
-    check("...and nothing written for it", "CALC.EXE" not in out.split("--- ls /home/Win16/WINDOWS ---")[-1],
+    check("...and nothing written for it", "CALC.EXE" not in out.split("--- ls /home/user/Win16/WINDOWS ---")[-1],
           out[-200:])
 
 
 def dialog(g):
     print("the dialog:")
-    g.sh("rm -r /home/Win16/WINDOWS")
+    g.sh("rm -r /home/user/Win16/WINDOWS")
     g.sh("guictl open 'Retro Launcher'")
     time.sleep(4)
     bar = widget(g, "Retro Launcher", "winbar")
@@ -200,7 +200,7 @@ def dialog(g):
     check("Install runs to Done", done == "done", str(done))
     folders = g.sh("cat /etc/win16.conf")
     check("Retro Launcher's folders gain C:\\WINDOWS as Windows",
-          re.search(r"folder(\d+)=/home/Win16/WINDOWS\n(?:.*\n)*?folder\1_name=Windows", folders) is not None,
+          re.search(r"folder(\d+)=/home/user/Win16/WINDOWS\n(?:.*\n)*?folder\1_name=Windows", folders) is not None,
           folders[-300:])
     if nxt:
         g.sh("guictl click %d %d" % nxt)        # Close: the launcher has the focus back, and looks again

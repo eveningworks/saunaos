@@ -41,7 +41,7 @@ from snap_test import arrow_codes                      # noqa: E402
 import port_guard                                      # noqa: E402
 from harness import Results                            # noqa: E402
 
-DIR = "/home/dragimg"
+DIR = "/home/user/dragimg"
 NOTEPAD = "/bin/wm/apps/notepad"
 
 

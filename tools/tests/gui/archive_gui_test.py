@@ -65,7 +65,7 @@ MEMBERS = {
     "dir/lorem.txt": b"lorem ipsum dolor sit amet " * 60,
     "dir/sub/deep.txt": b"three levels down\n" * 9,
 }
-ARCHIVES = ("/home/zt.zip", "/home/zt.tar.gz")
+ARCHIVES = ("/home/user/zt.zip", "/home/user/zt.tar.gz")
 
 
 class _Empty:
@@ -117,13 +117,13 @@ def run(dbg, qmp, res, instance):
     def sh(cmd):
         return dbg.send(f"sh {cmd}") or ""
 
-    sh("rm -r /home/zt")
+    sh("rm -r /home/user/zt")
     dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details", "details_pane=0"])
-    win = dbg.spawn(f"{fm.SPAWN_PATH} /home", fm.TITLE)
+    win = dbg.spawn(f"{fm.SPAWN_PATH} /home/user", fm.TITLE)
     res.check("the File Manager opens", win is not None, "no window")
     if not win:
         return
-    fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home")
+    fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/user")
 
     def seek(name):
         dbg.key(fm.K_HOME)
@@ -157,9 +157,9 @@ def run(dbg, qmp, res, instance):
 
         # 3.
         dbg.key(fm.K_BACKSPACE)
-        lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home") or fm.layout_now(dbg, win) or EMPTY
+        lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/user") or fm.layout_now(dbg, win) or EMPTY
         res.check(f".{kind}: Up from the top goes to the folder the archive is in",
-                  lay.dir.get(0) == "/home", f"dir={lay.dir.get(0)!r}")
+                  lay.dir.get(0) == "/home/user", f"dir={lay.dir.get(0)!r}")
 
         # 4. Extract all: the archive toolbar's first item
         seek(base)
@@ -169,18 +169,18 @@ def run(dbg, qmp, res, instance):
         r = lay.tbitems.get(0)
         if r:
             fm.sure_click(dbg, qmp, lay.ox + r[0] + r[2] // 2, lay.oy + r[1] + r[3] // 2)
-        lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/zt", timeout=30) \
+        lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/user/zt", timeout=30) \
             or fm.layout_now(dbg, win) or EMPTY
-        sizes = {n: fm.size_of(dbg, "/home/zt/" + os.path.dirname(n), os.path.basename(n))
+        sizes = {n: fm.size_of(dbg, "/home/user/zt/" + os.path.dirname(n), os.path.basename(n))
                  for n in MEMBERS}
         want = {n: len(b) for n, b in MEMBERS.items()}
-        res.check(f".{kind}: Extract all writes every member into /home/zt, sizes as written, and goes there",
-                  lay.dir.get(0) == "/home/zt" and sizes == want,
+        res.check(f".{kind}: Extract all writes every member into /home/user/zt, sizes as written, and goes there",
+                  lay.dir.get(0) == "/home/user/zt" and sizes == want,
                   f"dir={lay.dir.get(0)!r} sizes={sizes} want={want}")
 
         # 5. open a member
         dbg.key(fm.K_BACKSPACE)
-        fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home")
+        fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/user")
         seek(base)
         dbg.key(fm.K_ENTER)
         fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == root)
@@ -206,14 +206,14 @@ def run(dbg, qmp, res, instance):
         fpx, fpy, fpw, fph = foot.pane[0]
         fm.sure_click(dbg, qmp, foot.ox + fpx + fpw // 2, foot.oy + fpy + fph - 6)
         dbg.key(fm.K_BACKSPACE)
-        fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home")
+        fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/user")
         if archive != ARCHIVES[-1]:
-            sh("rm -r /home/zt")    # the next archive extracts to the same name
+            sh("rm -r /home/user/zt")    # the next archive extracts to the same name
 
-    # --- Compress, on what the last extract left in /home/zt -------------
+    # --- Compress, on what the last extract left in /home/user/zt -------------
     seek("zt")
     dbg.key(fm.K_ENTER)
-    fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/zt")
+    fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/user/zt")
     lay = fm.wait_layout(dbg, win, lambda l: l.rowy.get(0) is not None and l.rowh) or lay
     if lay.rowy.get(0) is None:
         res.check("the compress checks could be placed (row geometry reported)", False, "no rowy")
@@ -241,22 +241,22 @@ def run(dbg, qmp, res, instance):
         or fm.layout_now(dbg, win) or EMPTY
     res.check("Compress to ZIP makes hello.zip and drops it into an in-place rename",
               bool(lay.renaming) and lay.renaming[2] == "hello.zip" and
-              fm.size_of(dbg, "/home/zt", "hello.zip") > 0,
-              f"rows={rows} renaming={lay.renaming} size={fm.size_of(dbg, '/home/zt', 'hello.zip')}")
+              fm.size_of(dbg, "/home/user/zt", "hello.zip") > 0,
+              f"rows={rows} renaming={lay.renaming} size={fm.size_of(dbg, '/home/user/zt', 'hello.zip')}")
     dbg.key(fm.K_ESC)
     fm.wait_layout(dbg, win, lambda l: not l.renaming)
 
     # 7.
     seek("hello.zip")
     dbg.key(fm.K_ENTER)
-    zroot = "archive:/home/zt/hello.zip"
+    zroot = "archive:/home/user/zt/hello.zip"
     lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == zroot and l.rows.get(0) == 1) \
         or fm.layout_now(dbg, win) or EMPTY
     res.check("...and it opens as a folder holding hello.txt",
               lay.dir.get(0) == zroot and lay.rows.get(0) == 1 and lay.selected in (None, "-", "hello.txt"),
               f"dir={lay.dir.get(0)!r} rows={lay.rows.get(0)}")
     dbg.key(fm.K_BACKSPACE)
-    fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/zt")
+    fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/user/zt")
 
     # 8. Compress... on the folder, .tar.gz chosen from the keyboard
     rows = ctx_on_name("dir")
@@ -268,12 +268,12 @@ def run(dbg, qmp, res, instance):
     dbg.key(fm.K_ENTER)        # the form declines Return, so the dialog commits
     end, made = time.time() + 30, -1
     while time.time() < end and made <= 0:
-        made = fm.size_of(dbg, "/home/zt", "dir.tar.gz")
+        made = fm.size_of(dbg, "/home/user/zt", "dir.tar.gz")
         time.sleep(0.5)
     fm.wait_layout(dbg, win, lambda l: True)
     seek("dir.tar.gz")
     dbg.key(fm.K_ENTER)
-    troot = "archive:/home/zt/dir.tar.gz"
+    troot = "archive:/home/user/zt/dir.tar.gz"
     lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == troot and l.rows.get(0) == 1) \
         or fm.layout_now(dbg, win) or EMPTY
     top = lay.dir.get(0) == troot and lay.rows.get(0) == 1
@@ -285,21 +285,21 @@ def run(dbg, qmp, res, instance):
               made > 0 and top and lay.dir.get(0) == troot + "/dir" and lay.rows.get(0) == 2,
               f"size={made} top={top} dir={lay.dir.get(0)!r} rows={lay.rows.get(0)}")
 
-    # --- Extract here / Extract to..., on an archive FILE in /home --------
+    # --- Extract here / Extract to..., on an archive FILE in /home/user --------
     dbg.key(fm.K_BACKSPACE)
-    fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "archive:/home/zt/dir.tar.gz")
+    fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "archive:/home/user/zt/dir.tar.gz")
     dbg.key(fm.K_BACKSPACE)
-    fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/zt")
+    fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/user/zt")
     dbg.key(fm.K_BACKSPACE)
-    home = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home" and l.rowy.get(0) is not None) \
+    home = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/user" and l.rowy.get(0) is not None) \
         or fm.layout_now(dbg, win) or EMPTY
 
     def row_of(name):
-        """Where `name` sits in /home's listing: ".." first, then the
+        """Where `name` sits in /home/user's listing: ".." first, then the
         folders by name, then the files -- read from `ls`, hidden names
         left out as the pane leaves them."""
         dirs, files = [], []
-        for ln in (sh("ls /home") or "").splitlines():
+        for ln in (sh("ls /home/user") or "").splitlines():
             ln = ln.strip()
             if not ln or ln.startswith(".") or ln.startswith("ls"):
                 continue
@@ -321,17 +321,17 @@ def run(dbg, qmp, res, instance):
     # 9. Extract here makes "zt" beside the archive -- and selects it. (Not
     # "zt (2)": a name with a space defeats both the console's `ls` and
     # the layout lines this reads, which split on spaces.)
-    sh("rm -r /home/zt")
+    sh("rm -r /home/user/zt")
     time.sleep(1.0)
     rows = ctx_on_file("zt.zip")
     fm.ctx_pick(dbg, qmp, win, rows, "Extract here")
-    lay = fm.wait_layout(dbg, win, lambda l: l.selected == "zt" and l.dir.get(0) == "/home", timeout=30) \
+    lay = fm.wait_layout(dbg, win, lambda l: l.selected == "zt" and l.dir.get(0) == "/home/user", timeout=30) \
         or fm.layout_now(dbg, win) or EMPTY
-    got = fm.size_of(dbg, "/home/zt", "hello.txt")
+    got = fm.size_of(dbg, "/home/user/zt", "hello.txt")
     res.check("an archive file's context menu has Extract here and Extract to...",
               bool(rows) and "Extract here" in rows and "Extract to..." in rows, f"rows={rows}")
     res.check("...Extract here makes 'zt' beside it, stays, and selects it",
-              lay is not None and lay.dir.get(0) == "/home" and lay.selected == "zt" and
+              lay is not None and lay.dir.get(0) == "/home/user" and lay.selected == "zt" and
               got == len(MEMBERS["hello.txt"]),
               f"dir={lay and lay.dir.get(0)!r} selected={lay and lay.selected!r} hello={got}")
 
@@ -351,7 +351,7 @@ def run(dbg, qmp, res, instance):
 
     for path in ARCHIVES:
         sh(f"rm {path}")
-    sh("rm -r /home/zt")
+    sh("rm -r /home/user/zt")
 
 
 def main():

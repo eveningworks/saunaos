@@ -315,7 +315,7 @@ static bool g_drawn;
 
 int main() {
     char buf[64];
-    k_path_join("/home", "notes.txt", buf, sizeof buf);
+    k_path_join("/home/user", "notes.txt", buf, sizeof buf);
     std::printf("cxx: path %s\n", std::string(buf).c_str());
     std::printf("cxx: type %s\n", ufiletype_name("photo.jpg", 0));
     struct uimg im = {};
@@ -345,7 +345,7 @@ int main() {
     return 0;
 }
 """
-TOOLKIT_WANT = ["cxx: path /home/notes.txt", "cxx: type JPEG image",
+TOOLKIT_WANT = ["cxx: path /home/user/notes.txt", "cxx: type JPEG image",
                 "cxx: image 0 2x1 ffff0000 ff0000ff", "cxx: desktop 1",
                 "cxx: window drawn 1", "cxx: closed 0"]
 

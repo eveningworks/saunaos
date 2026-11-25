@@ -999,7 +999,7 @@ whenever a headline here tells you something you did not already know.
   `title_btn_at()` HIT-TESTS THEM**
 - **THE DESKTOP'S SELECTION IS GLASS, ITS HOVER ASKS
   `wm_point_on_desktop()`, AND A CAPTION RENAMES IN PLACE**
-- **THE DESKTOP IS `/home/Desktop` AND NOTHING ELSE: A `.desktop` FILE
+- **THE DESKTOP IS `/home/user/Desktop` AND NOTHING ELSE: A `.desktop` FILE
   THERE IS A LAUNCHER, THE APPLICATION DATABASE IS
   `/usr/wm/applications`, AND EVERY VERB IS A CHILD PROCESS**
 - **MARKS SURVIVE A RELOAD BY PATH, BECAUSE THE VOLUME'S GENERATION
@@ -1239,7 +1239,7 @@ whenever a headline here tells you something you did not already know.
 - **A LISTING STATS EVERY ENTRY IT RETURNS, ON THE SAME MOUNT** -- a
   remote backend answers those from the listing
 - **A PERSONAL FOLDER IS ASKED FOR BY NAME: `udir_path(UDIR_MUSIC)`,
-  NEVER `"/home/Music"`** -- `base/udirs.h`; what ships stays in `/usr/share`
+  NEVER `"/home/user/Music"`** -- `base/udirs.h`; what ships stays in `/usr/share`
 
 ### The shell, the console, and line editing
 

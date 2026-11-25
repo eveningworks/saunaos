@@ -117,7 +117,7 @@ class Keyboard:
 
 
 # Where the Terminal starts (its account's HOME), so where `./name` lands.
-HOME_DIR = "/home"
+HOME_DIR = "/home/user"
 
 
 def spell(word):

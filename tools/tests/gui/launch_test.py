@@ -38,7 +38,7 @@ from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
 
-DIR = "/home/lt"
+DIR = "/home/user/lt"
 SCRIPT = f"{DIR}/hello.sh"
 NOX = f"{DIR}/nox.sh"
 PROG = f"{DIR}/uptime"

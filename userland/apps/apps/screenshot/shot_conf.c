@@ -49,20 +49,28 @@ static const struct upref KEYS[] = {
     UPREF_BOOL_KEY("flash",       C, flash,       0),
     UPREF_BOOL_KEY("png",         C, png,         0),
     UPREF_BOOL_KEY("ask",         C, ask,         0),
-    UPREF_TEXT_KEY("folder",      C, folder,      SHOT_DEFAULT_DIR, shot_folder_ok),
+    UPREF_TEXT_KEY("folder",      C, folder,      "", shot_folder_ok),   // "": udir_path(UDIR_SCREENSHOTS)
     UPREF_TEXT_KEY("name",        C, name,        SHOT_DEFAULT_NAME, name_ok),
 };
 #undef C
 const struct uprefs shot_conf_prefs = { SHOT_CONF, KEYS, (int)(sizeof KEYS / sizeof KEYS[0]) };
 
+// The folder's default is the person's Screenshots folder, which is
+// under their home and so no constant a table can hold.
+static void default_folder(struct shot_conf *c) {
+    if (!c->folder[0]) snprintf(c->folder, sizeof c->folder, "%s", SHOT_DEFAULT_DIR);
+}
+
 void shot_conf_defaults(struct shot_conf *c) {
     memset(c, 0, sizeof *c);
     uprefs_defaults(&shot_conf_prefs, c);
+    default_folder(c);
 }
 
 void shot_conf_load(struct shot_conf *c) {
     memset(c, 0, sizeof *c);
     uprefs_load(&shot_conf_prefs, c);
+    default_folder(c);
 }
 
 void shot_conf_save(const struct shot_conf *c) {

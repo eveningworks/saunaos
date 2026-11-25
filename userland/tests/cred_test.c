@@ -124,8 +124,8 @@ int main(int argc, char **argv) {
 
     // The databases, as shipped.
     struct passwd *pw = getpwnam("user");
-    utest_check(pw && pw->pw_uid == 1000 && pw->pw_gid == 1000 && !strcmp(pw->pw_dir, "/home"),
-                "getpwnam(\"user\"): uid 1000, gid 1000, home /home");
+    utest_check(pw && pw->pw_uid == 1000 && pw->pw_gid == 1000 && !strcmp(pw->pw_dir, "/home/user"),
+                "getpwnam(\"user\"): uid 1000, gid 1000, home /home/user");
     pw = getpwuid(0);
     utest_check(pw && !strcmp(pw->pw_name, "root") && !strcmp(pw->pw_dir, "/"), "getpwuid(0) is root, home /");
     errno = 0;

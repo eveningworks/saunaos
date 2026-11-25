@@ -14,9 +14,19 @@
 #include "base/usetting.h"
 #include "base/ufileop.h"
 #include "base/uwalk.h"
+#include "base/udirs.h"
 
-#define HOME_BIN "/home/.Trash"
+#define HOME_BIN utrash_home_bin()
 #define TOP_BIN  ".Trash-0"
+
+const char *utrash_home_bin(void) {
+    static char *bin;
+    if (!bin) {
+        const char *h = udir_home();
+        if (asprintf(&bin, "%s/.Trash", strcmp(h, "/") ? h : "") < 0) bin = NULL;
+    }
+    return bin ? bin : "/.Trash";
+}
 
 // The mount `path` is on: the longest mount point that is a prefix of
 // it, at a component boundary. 1 with its flags, or 0.

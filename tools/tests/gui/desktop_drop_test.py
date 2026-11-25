@@ -48,7 +48,7 @@ from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
 from harness import Results                     # noqa: E402
 
-DESK = "/home/Desktop"
+DESK = "/home/user/Desktop"
 _res = Results()
 check = _res.check
 
@@ -130,7 +130,7 @@ def run(dbg, qmp):
           str({n: (ic.get(n, {}).get("thumb"), ic.get(n, {}).get("peeks")) for n in ("pic.qoi", "aurora.jpg", "Holiday")}))
     check("...and a text file is not", ic.get("notes.txt", {}).get("thumb") is False)
     cache = dbg.send("sh ls /var/cache/thumbnails")
-    check("...and they came from /bin/thumb's cache", "home%Desktop%aurora.jpg-" in cache, cache[-200:])
+    check("...and they came from /bin/thumb's cache", "home%user%Desktop%aurora.jpg-" in cache, cache[-200:])
 
     # 2. A folder takes it; a plain file does not.
     ic, drop = hold_over(dbg, qmp, "notes.txt", "junk.txt")

@@ -336,11 +336,11 @@ TESTS = [
     # whole and in order, a parked end told of EOF and EPIPE. SPAWNED:
     # its threads.
     ("lockless_rw_test", None, None, None),
-    # base/ufileundo.h on real files under /home: each kind undone and
+    # base/ufileundo.h on real files under /home/user: each kind undone and
     # redone, a new record dropping the redo, a refused step failing
     # alone. SPAWNED: the copy and move engine is ufileop's.
     ("ufileundo_test", None, None, None),
-    # base/ufileop.h on real files under /home: a copy, remove and move of a
+    # base/ufileop.h on real files under /home/user: a copy, remove and move of a
     # tree with more folders than the walk's old fixed queue (64), a move
     # onto a file leaving nothing set aside; then the name checks --
     # ufileop_name_ok, uarchive_name_safe (zip-slip), ufind_name_has.

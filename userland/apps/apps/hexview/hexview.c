@@ -487,7 +487,7 @@ static void save_chosen(void *ctx, const char *path) {
     if (!path || !uui_hexview_selection(&g_grid, &lo, &len)) { uapp_redraw(a); return; }
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
-        snprintf(g_note, sizeof g_note, "Could not write %s -- the Hex Viewer saves under /home only",
+        snprintf(g_note, sizeof g_note, "Could not write %s -- the Hex Viewer saves only in your home folder",
                  k_path_basename(path));
         ulogf("hexview: save refused for %s\n", path);
         uapp_redraw(a);
@@ -1035,12 +1035,13 @@ static void on_size(int *w, int *h) {
 // A file to read is untrusted input. Give up what a viewer does not do --
 // spawning, the network, devices -- before the first byte, and refuse to
 // run if that is not possible. It reads everywhere (any file it is asked
-// to open, its fonts and settings), writes only beneath /home (Save
+// to open, its fonts and settings), writes only in the person's home (Save
 // selection as...), and keeps the window and the shared memory the
 // desktop and the clipboard need.
 static int hexview_sandbox(void) {
     if (unveil("/", "r") != 0) return -1;
-    if (unveil("/home", "rwc") != 0) return -1;
+    // No person's home (root, no desktop account) is "/": nothing to write.
+    if (strcmp(udir_home(), "/") && unveil(udir_home(), "rwc") != 0) return -1;
     if (unveil(UNVEIL_SHM_PREFIX, "r") != 0) return -1;
     if (unveil(NULL, NULL) != 0) return -1;
     return pledge("stdio rpath wpath cpath shm window settings query", NULL);

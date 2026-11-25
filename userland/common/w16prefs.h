@@ -149,7 +149,13 @@ int w16_label_char(char c);
 // is SAUNAOS. 0 when nothing is left.
 int w16_drive_label(const struct w16_prefs *p, char d, const char *root, char *out);
 
-// The defaults, then the program's overrides (exe NULL: the defaults alone).
+// Drive C:'s default, <home>/Win16 -- under the person's home, so no
+// table constant (udir_home(), users stage D1).
+const char *w16_default_drive_c(void);
+// An empty drive_c becomes w16_default_drive_c(): after uprefs_defaults().
+void w16_prefs_fill(struct w16_prefs *p);
+// The defaults, then the program's overrides (exe NULL: the defaults
+// alone), then w16_prefs_fill().
 void w16_prefs_load(struct w16_prefs *p, const char *exe);
 
 // Which of the per-program keys `exe`'s own file sets, as a bit each.

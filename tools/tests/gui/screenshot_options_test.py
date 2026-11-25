@@ -44,7 +44,7 @@ from harness import Results  # noqa: E402
 
 CONF = "/etc/screenshot.conf"
 SHORTCUTS = "/etc/shortcuts.conf"
-DIR = "/home/shot-opt"
+DIR = "/home/user/shot-opt"
 PRTSC = "0xf888"
 CALC = "/bin/wm/apps/calculator"
 HERE = toolpath.TOOLS

@@ -50,11 +50,12 @@
 #include "base/ulog.h"
 #include "ui/utheme.h"
 #include "keyboard.h"
+#include "base/udirs.h"
 
 #define VIDEO_CONF  "/etc/video.conf"   // this app's own preferences
 #define DEFAULT_DIR "/usr/share/videos"
 #define PROPERTIES  "/bin/wm/apps/properties"
-#define SAVE_DIR    "/home"
+#define SAVE_DIR    udir_home()
 #define PATH_MAX_V  256
 #define HIDE_MS     2500                // full screen: the bar hides after this still
 #define SEEK_STEP   10000               // Left/Right, ms

@@ -37,7 +37,7 @@ WHAT IT CHECKS, and what a broken version would still pass:
     share a code), the row's remove button deletes the bookmark, and
     Ctrl+B again closes the sidebar; the bookmark is in its file after
     the window closes;
-  - downloads (over the network): an attachment lands in /home/Downloads
+  - downloads (over the network): an attachment lands in /home/user/Downloads
     with the server's exact bytes (CRC-32 from `sum`), a second of the
     same name is "name (1)", a broken connection and a Cancel both leave
     nothing behind, and Clear finished empties the flyout;
@@ -1440,9 +1440,9 @@ def downloads(dbg, host, at, shot):
     check("an attachment downloads, and the Downloads flyout opens for it",
           dl_event("done", "data.bin")(st) and st.get("dlp_open") == 1,
           f"events {st.get('dl')} open {st.get('dlp_open')}")
-    got = guest_crc(dbg, "/home/Downloads/data.bin")
-    check("...into /home/Downloads, byte for byte", got == want, f"sum {got}, want {want}")
-    part = dbg.send("sh ls /home/Downloads") or ""
+    got = guest_crc(dbg, "/home/user/Downloads/data.bin")
+    check("...into /home/user/Downloads, byte for byte", got == want, f"sum {got}, want {want}")
+    part = dbg.send("sh ls /home/user/Downloads") or ""
     check("...leaving no .part behind, and the page it came from shown", ".part" not in part
           and state(dbg).get("url") == page_before, f"ls: {part.strip()[-120:]}")
     go(dbg, f"{host}/download/data.bin?size=1000")
@@ -1452,7 +1452,7 @@ def downloads(dbg, host, at, shot):
 
     go(dbg, f"{host}/download/broken.bin?size={size}&drop=5000")
     st = wait(dbg, dl_event("failed", "broken.bin"), 30)
-    ls = dbg.send("sh ls /home/Downloads") or ""
+    ls = dbg.send("sh ls /home/user/Downloads") or ""
     check("a download whose connection breaks fails, and leaves nothing",
           dl_event("failed", "broken.bin")(st) and "broken" not in ls,
           f"events {st.get('dl')} ls: {ls.strip()[-120:]}")
@@ -1468,7 +1468,7 @@ def downloads(dbg, host, at, shot):
         x, y, w, h = act
         dbg.send("gui click %d %d" % (at((x + w // 2, y + h // 2, 0, 0))[:2]))
     st = wait(dbg, dl_event("cancelled", "slow.bin"), 10)
-    ls = dbg.send("sh ls /home/Downloads") or ""
+    ls = dbg.send("sh ls /home/user/Downloads") or ""
     check("Cancel on a running download's row stops it and leaves nothing",
           dl_event("cancelled", "slow.bin")(st) and "slow" not in ls,
           f"events {st.get('dl')} ls: {ls.strip()[-120:]}")

@@ -4,7 +4,7 @@
 // /proc/self/exe, which SaunaOS has not got. The user's folders are the
 // personal folders base/udirs.h names; SaunaOS has no accounts, so
 // /home is the one user's home, and a program's own files go under
-// /home/.local/share (XDG's place). Moving, listing and making files is
+// /home/user/.local/share (XDG's place). Moving, listing and making files is
 // SDL's POSIX fsops (SDL_FSOPS_POSIX), unchanged.
 #include "SDL_internal.h"
 
@@ -44,17 +44,19 @@ char *SDL_SYS_GetExeName(void)
     return path;
 }
 
-// $XDG_DATA_HOME/<org>/<app>/, else /home/.local/share/<org>/<app>/ --
-// SDL's Unix answer under the one user's home (HOME is "/" here), made if
-// missing. An empty org is left out, as SDL's Unix driver does.
+// $XDG_DATA_HOME/<org>/<app>/, else <home>/.local/share/<org>/<app>/ --
+// SDL's Unix answer, made if missing (udir_home(): $HOME, or the desktop
+// account's for a program started as root). An empty org is left out, as
+// SDL's Unix driver does.
 char *SDL_SYS_GetPrefPath(const char *org, const char *app)
 {
     const char *base = SDL_getenv("XDG_DATA_HOME");
-    if (!base || !*base) {
-        base = "/home/.local/share";
-    }
+    const char *home = udir_home();
     char *path = NULL;
-    if (SDL_asprintf(&path, "%s/%s%s%s/", base, org, *org ? "/" : "", app) < 0) {
+    int n = base && *base == '/'
+        ? SDL_asprintf(&path, "%s/%s%s%s/", base, org, *org ? "/" : "", app)
+        : SDL_asprintf(&path, "%s/.local/share/%s%s%s/", SDL_strcmp(home, "/") ? home : "", org, *org ? "/" : "", app);
+    if (n < 0) {
         return NULL;
     }
     if (!SDL_CreateDirectory(path)) {
@@ -68,7 +70,7 @@ char *SDL_SYS_GetUserFolder(SDL_Folder folder)
 {
     const char *dir;
     switch (folder) {
-    case SDL_FOLDER_HOME:        dir = "/home"; break;
+    case SDL_FOLDER_HOME:        dir = udir_home(); break;
     case SDL_FOLDER_DESKTOP:     dir = udir_path(UDIR_DESKTOP); break;
     case SDL_FOLDER_DOCUMENTS:   dir = udir_path(UDIR_DOCUMENTS); break;
     case SDL_FOLDER_DOWNLOADS:   dir = udir_path(UDIR_DOWNLOADS); break;

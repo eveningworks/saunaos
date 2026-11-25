@@ -209,7 +209,7 @@ def main():
         plug()
         poll(lambda: any(r["point"] == POINT for r in drives()["rows"]), 20)
         dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details"])
-        win = dbg.spawn(f"{fm.SPAWN_PATH} /home", fm.TITLE)
+        win = dbg.spawn(f"{fm.SPAWN_PATH} /home/user", fm.TITLE)
         res.check("the File Manager opens", win is not None, "no window")
         if win:
             lay = fm.wait_layout(dbg, win, lambda l: l.treebox and POINT in l.treerow.values())

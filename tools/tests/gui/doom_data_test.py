@@ -18,7 +18,7 @@ every later assertion.
 
 THE LICENCE comes before each download: id's must be agreed to, once
 per text (a second Download does not ask), Freedoom's BSD is a notice;
-both end up in /home/.local/share/licenses, Freedoom's as its own COPYING.txt.
+both end up in /home/user/.local/share/licenses, Freedoom's as its own COPYING.txt.
 
 Without data/doom/doom1.wad on the host only the card and the control
 run, and the tool says what it skipped. `tools/fetch/fetch_wad.py` gets it;
@@ -175,7 +175,7 @@ def spawn(dbg):
 
 
 def files(dbg):
-    return dbg.send("sh ls /home/.local/share/doom").split()
+    return dbg.send("sh ls /home/user/.local/share/doom").split()
 
 
 def row_named(lay, wad):
@@ -189,10 +189,10 @@ def run(dbg, qmp, mirror, tmp):
     kill_doom(dbg)
     # The system's copies too: DOOM finds /usr/share/doom after the person's
     # folder, and an EXTRAS=1 image seeds one there (this guest's disk is a copy).
-    for d in ("/home/.local/share/doom", "/usr/share/doom"):
+    for d in ("/home/user/.local/share/doom", "/usr/share/doom"):
         dbg.send(f"sh rm {d}/doom1.wad")
         dbg.send(f"sh rm {d}/freedoom1.wad")
-    dbg.send("sh rm /home/.local/share/licenses/doom-shareware.txt")
+    dbg.send("sh rm /home/user/.local/share/licenses/doom-shareware.txt")
     dbg.write_lines("/etc/doom.conf", [f"mirror=http://10.0.2.2:{mirror.port}"])
 
     # --- 1. no game data: the card ------------------------------------
@@ -221,7 +221,7 @@ def run(dbg, qmp, mirror, tmp):
     said = wait_log(dbg, "download of doom1.wad failed", 60)
     check("a doom1.wad with one byte flipped is REFUSED", bool(said) and "SHA-256" in said, str(said))
     left = files(dbg)
-    check("...and nothing is left in /home/.local/share/doom",
+    check("...and nothing is left in /home/user/.local/share/doom",
           not any(f.startswith("doom1.wad") for f in left), str(left))
     check("...and the card is back to try again", bool(wait_log(dbg, "game data card", 10)))
     mirror.tamper = False
@@ -246,9 +246,9 @@ def run(dbg, qmp, mirror, tmp):
           bool(wait_log(dbg, "downloaded doom1.wad, checksum matches", 120)))
     check("...and the game starts on it", bool(wait_log(dbg, "doom: ready", 120)))
     mirror.gzip = False
-    lic = dbg.send("sh cat /home/.local/share/licenses/doom-shareware.txt") or ""
+    lic = dbg.send("sh cat /home/user/.local/share/licenses/doom-shareware.txt") or ""
     check("its licence is saved beside it", "id Software" in lic, lic.strip()[:80])
-    sha = dbg.send("sh sum -a sha256 /home/.local/share/doom/doom1.wad") or ""
+    sha = dbg.send("sh sum -a sha256 /home/user/.local/share/doom/doom1.wad") or ""
     check("the file on the guest's disk is id's 1.9 shareware", SHAREWARE_SHA in sha, sha.strip()[:80])
     deadline = time.time() + 30
     while time.time() < deadline and not dbg.window("DOOM Shareware"):
@@ -330,15 +330,15 @@ def run(dbg, qmp, mirror, tmp):
         while time.time() < deadline and not dbg.window("Freedoom: Phase 1"):
             time.sleep(0.5)
         check("...and the game runs it", dbg.window("Freedoom: Phase 1") is not None)
-        lic = dbg.send("sh cat /home/.local/share/licenses/freedoom.txt") or ""
+        lic = dbg.send("sh cat /home/user/.local/share/licenses/freedoom.txt") or ""
         check("...and its own COPYING.txt is saved as its licence",
               "Redistribution and use" in lic, lic.strip()[:80])
 
     kill_doom(dbg)
-    dbg.send("sh rm /home/.local/share/doom/doom1.wad")
-    dbg.send("sh rm /home/.local/share/doom/freedoom1.wad")
-    dbg.send("sh rm /home/.local/share/licenses/doom-shareware.txt")
-    dbg.send("sh rm /home/.local/share/licenses/freedoom.txt")
+    dbg.send("sh rm /home/user/.local/share/doom/doom1.wad")
+    dbg.send("sh rm /home/user/.local/share/doom/freedoom1.wad")
+    dbg.send("sh rm /home/user/.local/share/licenses/doom-shareware.txt")
+    dbg.send("sh rm /home/user/.local/share/licenses/freedoom.txt")
     dbg.send("sh rm /etc/doom.conf")
 
 

@@ -9,7 +9,7 @@
 #include "base/utest.h"
 #include "base/urename.h"
 
-#define DIR "/home/urename-test"
+#define DIR "/home/user/urename-test"
 
 static void check(const struct urename_rule *r, const char *in, int i, const char *want) {
     char out[URENAME_NAME];

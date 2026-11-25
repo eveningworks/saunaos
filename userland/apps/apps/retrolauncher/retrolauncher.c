@@ -63,6 +63,7 @@
 #include "ui/uui_toolbar.h"
 #include "common/w16prefs.h"
 #include "apps/apps/retrolauncher/retrolauncher.h"
+#include "base/udirs.h"
 
 #define MISSING_SHOWN 3                      // the panel names this many; the window lists all
 
@@ -1071,7 +1072,7 @@ static void cd_chosen(int letter_changed) {
         switch (g_cd_kind[sel]) {
         case CDK_NONE:   set_prog_cd(p, 0, 0); break;
         case CDK_FOLDER: pick_folder(7, -1, "Choose the folder that is its CD", dir); break;     // PICK_PROG_CD
-        case CDK_IMAGE:  pick_image(8, -1, "Choose its CD's disc image", "/home"); break;       // PICK_PROG_CD_IMAGE
+        case CDK_IMAGE:  pick_image(8, -1, "Choose its CD's disc image", udir_home()); break;       // PICK_PROG_CD_IMAGE
         default: break;
         }
     }
@@ -1277,7 +1278,7 @@ static void pick_dll(const struct prog *p) {
     g_pick = PICK_DLL;
     static char title[64];
     snprintf(title, sizeof title, "Choose %s", p->needs[0]);
-    struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_OPEN, .title = title, .start_dir = "/home",
+    struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_OPEN, .title = title, .start_dir = udir_home(),
                                      .filters = FILTERS, .filter_count = 2 };
     uui_filedialog_open(g_app, &g_chooser, &o, chosen, g_app);
 }
@@ -1365,7 +1366,7 @@ static void pick_folder(int why, int row, const char *title, const char *start) 
     g_pick = why;
     g_pick_row = row;
     struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_FOLDER, .title = title,
-                                     .start_dir = start && start[0] ? start : "/home" };
+                                     .start_dir = start && start[0] ? start : udir_home() };
     uui_filedialog_open(g_app, &g_chooser, &o, chosen, g_app);
 }
 
@@ -1385,7 +1386,7 @@ static void pick_image(int why, int row, const char *title, const char *start) {
     g_pick = why;
     g_pick_row = row;
     struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_OPEN, .title = title,
-                                     .start_dir = start && start[0] ? start : "/home",
+                                     .start_dir = start && start[0] ? start : udir_home(),
                                      .filters = FILTERS, .filter_count = 2 };
     uui_filedialog_open(g_app, &g_chooser, &o, chosen, g_app);
 }
@@ -1402,13 +1403,13 @@ static int g_kind_change;                    // the drop-down is Change...'s, fo
 static int drive_kind_run(void *w, int code) {
     (void)w;
     int row = g_kind_change ? uui_listedit_selected(&g_drives) : -1;
-    const char *start = row >= 0 && row < g_ndrive_rows ? drive_slot(&g_edit, g_drive_rows[row]) : "/home";
+    const char *start = row >= 0 && row < g_ndrive_rows ? drive_slot(&g_edit, g_drive_rows[row]) : udir_home();
     if (code == DK_FOLDER)
         pick_folder(g_kind_change ? PICK_DRIVE_CHANGE : PICK_DRIVE_ADD, row,
                     g_kind_change ? "Choose the drive's folder" : "Choose the folder for a new drive", start);
     else if (code == DK_IMAGE)
         pick_image(g_kind_change ? PICK_DRIVE_CHANGE : PICK_DRIVE_ADD, row,
-                   g_kind_change ? "Choose the drive's disc image" : "Choose a disc image for a new drive", "/home");
+                   g_kind_change ? "Choose the drive's disc image" : "Choose a disc image for a new drive", udir_home());
     return 0;
 }
 
@@ -1606,9 +1607,11 @@ static const char *drive_details(void *ctx, int row) {
         if (fonts) card_add(&t, &n, &cap, "Fonts\t%d in WINDOWS\\SYSTEM\n", fonts);
         else card_add(&t, &n, &cap, "Fonts\tNone -- SaunaOS's stand-ins draw the text\n");
     }
-    card_add(&t, &n, &cap, "Programs may\t%s", d == 'Z' ? "read everything, and write under /home"
-                                         : !strncmp(root, "/home/", 6) || !strcmp(root, "/home") || d == 'C'
-                                         ? "read and write here" : "only read here (it is outside /home)");
+    size_t hl = strlen(udir_home());
+    int in_home = !strncmp(root, udir_home(), hl) && (root[hl] == '/' || root[hl] == 0);
+    card_add(&t, &n, &cap, "Programs may\t%s", d == 'Z' ? "read everything, and write in your home folder"
+                                         : in_home || d == 'C'
+                                         ? "read and write here" : "only read here (it is outside your home folder)");
     g_drive_card = t;
     return t;
 }
@@ -1703,7 +1706,7 @@ static void opt_copy_folders(const struct w16_folder *from, int n) {
 }
 
 static void opt_defaults(void) {
-    static const struct w16_folder DEF[] = { { "/usr/share/w16", "" }, { "/home/Win16", "" } };
+    const struct w16_folder DEF[] = { { "/usr/share/w16", "" }, { (char *)w16_default_drive_c(), "" } };
     opt_copy_folders(DEF, 2);
     opt_folders_changed(-1);
     opt_drives_changed(-1);
@@ -1729,7 +1732,7 @@ static void opt_action(int code) {
             opt_drives_changed(-1);
         }
         break;
-    case ID_FOL_ADD:    pick_folder(PICK_OPT_ADD, -1, "Add a folder of programs", "/home"); break;
+    case ID_FOL_ADD:    pick_folder(PICK_OPT_ADD, -1, "Add a folder of programs", udir_home()); break;
     case ID_FOL_CHANGE: if (fr >= 0) pick_folder(PICK_OPT_CHANGE, fr, "Choose the folder", g_ofold[fr].path); break;
     case ID_FOL_RENAME: if (fr >= 0) rename_folder(1, fr); break;
     case ID_FOL_REMOVE: folders_remove(g_ofold, &g_nofold, fr); opt_folders_changed(fr < g_nofold ? fr : g_nofold - 1); break;
@@ -1756,7 +1759,7 @@ static void opt_ok(void) {
     uapp_redraw(g_app);
 }
 
-static void edit_defaults(void *edit) { uprefs_defaults(&w16_prefs_defaults, edit); }
+static void edit_defaults(void *edit) { uprefs_defaults(&w16_prefs_defaults, edit); w16_prefs_fill(edit); }
 
 // --- Options > Screen effect ---------------------------------------------------------
 
@@ -1919,7 +1922,7 @@ static void command(struct uapp *a, int cmd) {
     case CMD_PROPS:   g_panel = !g_panel; break;
     case CMD_VIEW_ICONS: case CMD_VIEW_DETAILS: set_details(cmd == CMD_VIEW_DETAILS); break;
     case CMD_SORT_ASC: case CMD_SORT_DESC: g_sort_desc = cmd == CMD_SORT_DESC; build_view(); save_state(); log_list("sort"); break;
-    case CMD_ADD:    pick_folder(PICK_ADD, -1, "Add a folder of programs", "/home"); break;
+    case CMD_ADD:    pick_folder(PICK_ADD, -1, "Add a folder of programs", udir_home()); break;
     case CMD_CHANGE: {
         int f = target_folder();
         if (f >= 0 && f < g_nfolders) pick_folder(PICK_CHANGE, f, "Choose the folder", g_folders[f].path);

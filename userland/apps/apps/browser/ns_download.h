@@ -6,11 +6,12 @@
 // is saved by /bin/webnet from the SAME response, not a second fetch, so
 // a POST's result and a file behind the session's cookie download too,
 // and it goes on after its tab closes. Written to
-// /home/Downloads/<name>.part and renamed when whole; a failed or
+// /home/user/Downloads/<name>.part and renamed when whole; a failed or
 // cancelled one leaves nothing behind.
 #include "ui/uui_transfers.h"
+#include "base/udirs.h"
 
-#define NS_DOWNLOAD_DIR "/home/Downloads"
+#define NS_DOWNLOAD_DIR udir_path(UDIR_DOWNLOADS)
 
 
 // The list, newest first, in the shape uui_transfers draws.
