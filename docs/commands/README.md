@@ -138,6 +138,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`lsusb`](lsusb.md)
 - [`meminfo`](meminfo.md)
 - [`parttable`](parttable.md)
+- [`passwd`](passwd.md)
 - [`pmap`](pmap.md)
 - [`privd`](privd.md)
 - [`ps`](ps.md)

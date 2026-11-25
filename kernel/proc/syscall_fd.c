@@ -1077,12 +1077,15 @@ int fstat_fill(uint64_t pml4, int fd, struct sys_stat *out, uint32_t *uid, uint3
     struct open_file *f = fd_get_held(pml4, fd, &di);
     if (!f) { fd_put(di); return -EBADF; }
     fstat_record(f, out);
-    // A file's owner is its path's; anything else -- a pipe, a socket, a
-    // terminal -- is the caller's own, as Linux's pipefs inode is.
+    // A file's owner AND MODE are its path's, as stat() reports them (the
+    // file op's record carries neither -- a 0644 file read as 0 through a
+    // descriptor until users D2a's shadow check); anything else -- a pipe,
+    // a socket, a terminal -- is the caller's own, as Linux's pipefs inode is.
     struct fs_stat_info st;
     if (f->ops == &file_fd_ops && fs_attrs(f->file.name, &st)) {
         *uid = st.uid;
         *gid = st.gid;
+        out->mode = st.mode;
     } else {
         struct cred *cr = cred_current();
         *uid = cred_euid(cr);

@@ -1,10 +1,13 @@
 // sudo -- run one command as root, through privd (base/upriv.h). NOT
-// setuid sudo: no sudoers file, no -u, no password before stage D of
-// docs/users-design.md. privd decides and asks the person -- on the
-// desktop when one is running, else this program asks on its terminal --
-// and the command then runs as this program's own child.
+// setuid sudo: no sudoers file, no -u. Once the account has a password
+// (docs/users-design.md, D2a) it is asked for HERE, on the terminal, and
+// privd checks it; without one privd asks the person -- on the desktop
+// when one is running, else this program asks y/N on its terminal. The
+// command then runs as this program's own child.
 #include "base/uargs.h"
+#include "base/uaskpass.h"
 #include "base/upriv.h"
+#include <pwd.h>
 #include "rt/sys.h"
 #include <errno.h>
 #include <stdio.h>
@@ -16,11 +19,11 @@
 static const struct uargs_prog PROG = {
     "sudo", "COMMAND [ARG]...",
     "Run COMMAND as root, after the person at the machine allows it.\n"
-    "Asks through privd: on the desktop's prompt, or on this terminal\n"
-    "when no desktop is running.",
+    "With a password set, asks for it on this terminal; without one, asks\n"
+    "through privd: on the desktop's prompt, or here when no desktop runs.",
     0, 0,
-    "Not setuid: there is no sudoers file and no password yet. Only an\n"
-    "account in the wheel group, at the machine itself, may ask.",
+    "Not setuid: there is no sudoers file. Only an account in the wheel\n"
+    "group may ask -- at the machine itself, unless it gives its password.",
     0, 1, 0,
 };
 
@@ -70,7 +73,7 @@ int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
     if (a.argc < 1) return uargs_error(&PROG, "missing COMMAND");
-    char path[1024];
+    static char path[1024];   // static: main's frame holds the spawn options too
     if (resolve(a.argv[0], path, sizeof path) < 0) {
         fprintf(stderr, "sudo: %s: command not found\n", a.argv[0]);
         return 127;
@@ -92,13 +95,35 @@ int main(int argc, char **argv) {
         o.flags |= SPAWN_ARGV;
         pid = sys_spawn_opts(path, &o);
     } else {
-        pid = upriv_spawn(path, cargv, &o, 0);
-        if (pid < 0 && errno == ENXIO && ask_here(a.argv[0]))
-            pid = upriv_spawn(path, cargv, &o, UPRIV_SELF_CONSENT);
+        struct passwd *pw = getpwuid(getuid());
+        char me[64] = "";
+        if (pw) snprintf(me, sizeof me, "%s", pw->pw_name);
+        int has = me[0] ? upriv_has_password(me) : 0;
+        if (has == 1 && !isatty(0)) {
+            fprintf(stderr, "sudo: a password is needed, and there is no terminal to ask on\n");
+            return 1;
+        }
+        if (has == 1) {
+            static char prompt[96], typed[256];   // off the stack: main has path[] too
+            snprintf(prompt, sizeof prompt, "[sudo] password for %s: ", me);
+            pid = -1;
+            for (int i = 0; i < UPRIV_AUTH_TRIES; i++) {
+                if (uaskpass(prompt, typed, sizeof typed) < 0) { errno = ECANCELED; break; }
+                pid = upriv_spawn_password(path, cargv, &o, typed);
+                memset(typed, 0, sizeof typed);
+                if (pid >= 0 || errno != EACCES) break;
+                if (i + 1 < UPRIV_AUTH_TRIES) fprintf(stderr, "Sorry, try again.\n");
+            }
+        } else {
+            pid = upriv_spawn(path, cargv, &o, 0);
+            if (pid < 0 && errno == ENXIO && ask_here(a.argv[0]))
+                pid = upriv_spawn(path, cargv, &o, UPRIV_SELF_CONSENT);
+        }
     }
     if (pid < 0) {
         int e = errno;
-        const char *why = e == EPERM     ? "this account may not run commands as administrator"
+        const char *why = e == EACCES    ? "the password was wrong"
+                        : e == EPERM     ? "this account may not run commands as administrator"
                         : e == ECANCELED ? "not allowed"
                         : e == ENXIO     ? "no one to ask: the desktop is not running"
                         : e == ENOENT    ? "privd is not running"

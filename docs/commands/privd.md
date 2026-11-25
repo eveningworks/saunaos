@@ -24,12 +24,23 @@ A request is ONE of:
 - **an elevated spawn**: privd lets the asking process start exactly
   one path with exactly one argument vector as root, once, within 30
   seconds (`SYS_CRED_GRANT`, `SPAWN_ELEVATED`) -- what `sudo` and the
-  desktop's "run as administrator" launches use.
+  desktop's "run as administrator" launches use;
+- **a password question** (users D2a): is this the account's password
+  (`UPRIV_T_AUTH`) -- root may ask about any account, anyone else only
+  about their own -- or set one (`passwd`, the action behind `passwd.md`).
 
 Its policy, in order: a root caller is granted; an account in `wheel`
 (read from `/etc/group`, as polkit reads `unix-group:`) whose process
 holds the seat (`Seat=yes` in its service, inherited by everything it
-starts) is ASKED; anyone else is refused.
+starts) is ASKED -- for its PASSWORD once it has one; a `wheel` account
+that sends its right password with the request (`sudo` on a terminal)
+is granted, at the machine or not; anyone else is refused.
+
+**privd is the only program that reads `/etc/shadow` or links a
+password hash** (yescrypt; `docs/users-design.md`, D2a) -- LSASS's
+shape, since there is no setuid `unix_chkpwd`. A wrong password is
+answered two seconds later, without holding up anyone else's request,
+and the desktop's prompt takes three tries before refusing.
 
 The question is drawn by the desktop -- toywm registers as the agent,
 and privd believes only `/bin/wm/system/toywm` holding the seat. With

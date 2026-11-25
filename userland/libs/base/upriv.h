@@ -26,8 +26,11 @@ extern "C" {
 #define UPRIV_T_ANSWER  3   // privd: i32 0 or -errno
 #define UPRIV_T_AGENT   4   // agent: "I draw the prompt" (no payload)
 #define UPRIV_T_PROMPT  5   // privd -> agent: headline\0 body\0 action\0 program\0 asker\0
-#define UPRIV_T_VERDICT 6   // agent: u32 1 allow, 0 cancel
+                            //   password_for\0 -- the account whose password to ask, "" for none
+#define UPRIV_T_VERDICT 6   // agent: u32 1 allow, 0 cancel; then the password\0 if one was asked
 #define UPRIV_T_CANCEL  7   // privd -> agent: close prompt `id`, its asker is gone
+#define UPRIV_T_AUTH    8   // client: u32 flags, account\0 password\0 -- is it right?
+#define UPRIV_T_RETRY   9   // privd -> agent: prompt `id`'s password was wrong; u32 tries left
 
 // The request's flags. SELF_CONSENT: the asker already asked the
 // person on its own terminal -- `sudo` on a TEXT boot, where no desktop
@@ -35,6 +38,17 @@ extern "C" {
 // registered this boot, and it is a typo guard, not a boundary: stage
 // D's password is what makes a text prompt one.
 #define UPRIV_SELF_CONSENT 1u
+// WITH_PASSWORD: the request's first string is the ASKER's password,
+// read on its own terminal (`sudo`) -- a right one from an account in
+// wheel is consent, at the machine or not, as sudo's is.
+#define UPRIV_WITH_PASSWORD 2u
+// PROBE, on UPRIV_T_AUTH: does the account have a password at all? The
+// password sent is ignored and "" tested, so it answers at once.
+#define UPRIV_PROBE 4u
+// A wrong password costs this long before the answer (pam_faildelay),
+// and the prompt asks this many times before the request is refused.
+#define UPRIV_FAIL_DELAY_MS 2000
+#define UPRIV_AUTH_TRIES    3
 
 // The actions privd runs itself. Arguments are strings.
 #define UPRIV_ACT_SETTIME   "settime"     // seconds since 1970, UTC
@@ -43,6 +57,11 @@ extern "C" {
 #define UPRIV_ACT_KILL      "kill"        // pid, signal number
 #define UPRIV_ACT_BOOTCFG   "bootcfg"     // grub.cfg's whole new text
 #define UPRIV_ACT_NETLINK   "netlink"     // card, which, rates, eee, flow, moderation
+// An account's password (docs/users-design.md, D2a): account, its current
+// password, the new one ("" removes it). Root may set any account's and
+// sends no current one; anyone else only their own, with the current one
+// ("" when it has none). Never prompted: the current password is the proof.
+#define UPRIV_ACT_PASSWD    "passwd"
 // The SEAT's, granted to the person at the machine WITHOUT asking --
 // logind's set-reboot-to-boot-loader-entry is allow_active: which entry
 // the next boot takes, and the screen size it tries.
@@ -65,6 +84,21 @@ int upriv_spawn(const char *path, char *const *argv, const struct sys_spawn_opts
 // above, or what the action itself failed with.
 int upriv_action(const char *action, const char *const *args, unsigned flags);
 
+// upriv_spawn() with the asker's own password, read on its terminal
+// (UPRIV_WITH_PASSWORD). EACCES: the password was wrong.
+int upriv_spawn_password(const char *path, char *const *argv, const struct sys_spawn_opts *o,
+                         const char *password);
+// Is `password` the account's? 0 yes; -1 with errno EACCES (no -- after
+// UPRIV_FAIL_DELAY_MS), EPERM (not root, and not this account's own),
+// ENOENT (no privd). An account with no password matches only "".
+int upriv_auth(const char *account, const char *password);
+// 1 when the account has a password, 0 when it has none, -1 with errno.
+// Root, or the account's own.
+int upriv_has_password(const char *account);
+// Sets (or, with `password` "", removes) the account's password --
+// UPRIV_ACT_PASSWD. `current` NULL for root.
+int upriv_passwd(const char *account, const char *current, const char *password);
+
 // An ADMINISTRATOR TOOL's first line -- Disks, the Installer, System
 // Update; Windows' requireAdministrator manifest. Root: returns 0 and the
 // program carries on. Anyone else: asks privd to run this same program
@@ -79,6 +113,8 @@ int upriv_elevate_self(char **argv);
 struct upriv_prompt {
     uint32_t id;
     const char *headline, *body, *action, *program, *asker;   // into `buf`
+    const char *password_for;   // "" when Allow alone answers
+    uint32_t tries_left;        // a RETRY's
     char buf[1024];
 };
 
@@ -87,9 +123,12 @@ struct ubulk_client;
 // running (try again later). privd believes only the desktop.
 struct ubulk_client *upriv_agent_open(void);
 // The next prompt to show: 1 with `p` filled, -1 for a cancel of `p->id`
-// (close that prompt unanswered), 0 for nothing waiting.
+// (close that prompt unanswered), 2 for a RETRY of `p->id` (its password
+// was wrong; `p->tries_left` more), 0 for nothing waiting.
 int  upriv_agent_next(struct ubulk_client *a, struct upriv_prompt *p);
 void upriv_agent_answer(struct ubulk_client *a, uint32_t id, int allow);
+// Allow, with the password the prompt asked for.
+void upriv_agent_answer_password(struct ubulk_client *a, uint32_t id, const char *password);
 void upriv_agent_close(struct ubulk_client *a);
 
 #ifdef __cplusplus

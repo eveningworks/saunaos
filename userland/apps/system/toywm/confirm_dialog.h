@@ -70,9 +70,28 @@ struct confirm_detail {
     const char *title, *headline, *body;
     const char *key[CONFIRM_DETAIL_ROWS], *val[CONFIRM_DETAIL_ROWS];
     int nrows;
+    // A PASSWORD FIELD under the grid ("Password for User"), NULL for none
+    // (users D2a). With one, the affirmative button does NOT close the
+    // dialog: it goes BUSY -- greyed, the field read-only -- until the
+    // caller closes it or calls confirm_dialog_password_wrong(). Enter in
+    // the field presses it.
+    const char *password_label;
 };
 void confirm_dialog_open_detailed(const struct confirm_detail *d, const char *yes, const char *no,
                                   void (*on_yes)(void), void (*on_no)(void));
+
+// The typed password, while a detailed dialog with a field is open.
+const char *confirm_dialog_password(void);
+// The password was wrong: out of BUSY, the field emptied, `why` shown
+// under it ("Wrong password. 2 tries left.").
+void confirm_dialog_password_wrong(const char *why);
+// Keys while open: the field's, Enter for the affirmative. 1 when used.
+int confirm_dialog_key(int key, uint8_t mods);
+// The field as the debug console reports it: 1 with its label, the
+// "wrong password" line, BUSY, how many characters are typed and the
+// field's rect; 0 when no dialog with a field is open.
+int confirm_dialog_password_state(const char **label, const char **err, int *busy, int *typed,
+                                  int *x, int *y, int *w, int *h);
 
 // Closes whatever is open, answering neither callback -- for a question
 // whose asker has gone (privd's cancel).

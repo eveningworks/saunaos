@@ -3,6 +3,8 @@
 #include "wm_internal.h"
 #include "wm_overlay.h"
 #include "ui/uui.h"
+#include "ui/uui_caret.h"
+#include "ui/uui_textbox.h"
 #include "ui/utheme.h"
 #include "kapi.h"
 #include <stdio.h>
@@ -51,7 +53,13 @@ static struct {
     int head_at[WRAP_MAX], head_len[WRAP_MAX], nhead;
     int body_at[WRAP_MAX], body_len[WRAP_MAX], nbody;
     int bar_h, text_x, key_w;
+    // The password field (users D2a): its label, the field, a line for
+    // "wrong password", and BUSY while privd checks what was typed.
+    int pw_on, busy;
+    char pw_label[96], pw_err[96];
+    int pw_label_y, pw_err_y;
 } g_d;
+static struct uui_textbox g_pw;
 
 // Breaks `s` at spaces into lines no wider than `w`; a word wider than
 // `w` stands alone and is clipped when drawn. Past WRAP_MAX lines the
@@ -106,11 +114,21 @@ static void layout_detailed(int yes_w, int no_w, int btn_h) {
     int row_h = ch + ugfx_px(4);
     int body_h = g_d.nhead * ch + ugfx_px(8) + g_d.nbody * ch + ugfx_px(10) +
                  g_d.nrows * row_h + ugfx_px(12);
+    int field_h = ch + ugfx_px(10);
+    int pw_h = g_d.pw_on ? ugfx_px(10) + ch + ugfx_px(6) + field_h + ugfx_px(4) + ch : 0;
+    body_h += pw_h;
     if (body_h < icon) body_h = icon;
     int foot_h = btn_h + ugfx_px(24);
     g_h = g_d.bar_h + DIALOG_PAD + body_h + DIALOG_PAD + foot_h;
     g_x = (screen_w - g_w) / 2;
     g_y = (screen_h - g_h) / 2;
+    if (g_d.pw_on) {
+        // Under the grid, the last thing in the body.
+        int top = g_y + g_d.bar_h + DIALOG_PAD + body_h - pw_h + ugfx_px(10);
+        g_d.pw_label_y = top;
+        uui_textbox_set_geometry(&g_pw, g_x + g_d.text_x, top + ch + ugfx_px(6), text_w, field_h);
+        g_d.pw_err_y = top + ch + ugfx_px(6) + field_h + ugfx_px(4);
+    }
     int btn_y = g_y + g_h - foot_h + ugfx_px(12);
     int right = g_x + g_w - DIALOG_PAD;
     // The affirmative first, as every other dialog here orders them.
@@ -164,6 +182,11 @@ static void open_common(const char *message, void (*on_yes)(void), void (*on_no)
 }
 
 static void close_dialog(void) {
+    if (g_d.pw_on) {
+        uui_textbox_set_text(&g_pw, "");
+        g_btns[BTN_YES].disabled = 0;
+        g_d.pw_on = g_d.busy = 0;
+    }
     confirm_dialog_open = 0;   // where it was drawn is damaged by the core (wm_overlay.h)
     WM_REDRAW();
 }
@@ -219,6 +242,15 @@ static void draw_detailed(void) {
                                      UTHEME_PANEL_BG);
         }
     }
+    if (g_d.pw_on) {
+        was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+        ugfx_draw_string_clipped(s, tx, g_d.pw_label_y, tw, g_d.pw_label, text, UTHEME_WHITE);
+        ugfx_set_font(was);
+        uui_textbox_draw(s, &g_pw);
+        if (g_d.pw_err[0])
+            ugfx_draw_string_clipped(s, tx, g_d.pw_err_y, tw, g_d.pw_err,
+                                     utheme_severity(UTHEME_SEV_ERROR), UTHEME_WHITE);
+    }
     int foot_y = g_btns[BTN_YES].y - ugfx_px(12);
     ugfx_fill_rect(s, g_x, foot_y, g_w, g_y + g_h - foot_y, UTHEME_PANEL_BG);
     ugfx_fill_rect(s, g_x, foot_y, g_w, 1, UTHEME_SEPARATOR);
@@ -243,6 +275,62 @@ void confirm_dialog_draw(void) {
                              g_w - DIALOG_PAD, g_message, fg, bg);
 
     uui_button_group_draw(&g_group, wm_surface()); // screen-absolute, so no origin
+}
+
+static void set_busy(int busy) {
+    g_d.busy = busy;
+    g_btns[BTN_YES].disabled = busy;
+    g_pw.ed.flags = busy ? (g_pw.ed.flags | UUI_EDIT_READONLY) : (g_pw.ed.flags & ~UUI_EDIT_READONLY);
+    confirm_dialog_damage();
+    WM_REDRAW();
+}
+
+// A button chose: the affirmative of a password dialog waits for the
+// caller's verdict (BUSY) rather than closing.
+static void commit(int code) {
+    if (code == BTN_YES && g_d.pw_on) {
+        if (g_d.busy) return;
+        g_d.pw_err[0] = '\0';
+        set_busy(1);
+        if (g_on_yes) g_on_yes();
+        return;
+    }
+    close_dialog();
+    if (code == BTN_YES) { if (g_on_yes) g_on_yes(); }
+    else                 { if (g_on_no) g_on_no(); }
+}
+
+const char *confirm_dialog_password(void) {
+    return confirm_dialog_open && g_d.pw_on ? uui_textbox_text(&g_pw) : 0;
+}
+
+void confirm_dialog_password_wrong(const char *why) {
+    if (!confirm_dialog_open || !g_d.pw_on) return;
+    snprintf(g_d.pw_err, sizeof g_d.pw_err, "%s", why ? why : "");
+    uui_textbox_set_text(&g_pw, "");
+    set_busy(0);
+}
+
+int confirm_dialog_password_state(const char **label, const char **err, int *busy, int *typed,
+                                  int *x, int *y, int *w, int *h) {
+    if (!confirm_dialog_open || !g_d.pw_on) return 0;
+    *label = g_d.pw_label;
+    *err = g_d.pw_err;
+    *busy = g_d.busy;
+    *typed = (int)strlen(uui_textbox_text(&g_pw));
+    *x = g_pw.x; *y = g_pw.y; *w = g_pw.w; *h = g_pw.h;
+    return 1;
+}
+
+int confirm_dialog_key(int key, uint8_t mods) {
+    if (!confirm_dialog_open || !g_d.on || !g_d.pw_on) return 0;
+    if (key == '\n' || key == '\r') { commit(BTN_YES); return 1; }
+    if (!g_d.busy && uui_textbox_key_mods(&g_pw, key, mods)) {
+        uui_caret_reset();
+        confirm_dialog_damage();
+        WM_REDRAW();
+    }
+    return 1;   // modal: nothing under it hears the keys while it is up
 }
 
 int confirm_dialog_handle_click(int mx, int my) {
@@ -273,10 +361,7 @@ void confirm_dialog_update_press(int mx, int my, uint8_t buttons) {
     // point of committing on release.
     int code = uui_button_group_release(&g_group);
     if (code < 0) return;
-
-    close_dialog();
-    if (code == BTN_YES) { if (g_on_yes) g_on_yes(); }
-    else                 { if (g_on_no) g_on_no(); }
+    commit(code);
 }
 
 // The registry's two ops (wm_overlay.h). `hover_at` ADOPTS the hover as
@@ -331,6 +416,15 @@ void confirm_dialog_open_detailed(const struct confirm_detail *d, const char *ye
     for (int i = 0; i < g_d.nrows; i++) {
         snprintf(g_d.key[i], sizeof g_d.key[i], "%s", d->key[i] ? d->key[i] : "");
         snprintf(g_d.val[i], sizeof g_d.val[i], "%s", d->val[i] ? d->val[i] : "");
+    }
+    if (d->password_label) {
+        g_d.pw_on = 1;
+        snprintf(g_d.pw_label, sizeof g_d.pw_label, "%s", d->password_label);
+        uui_textbox_init(&g_pw, "");
+        g_pw.masked = 1;
+        g_pw.ed.flags |= UUI_EDIT_MASKED;
+        uui_textbox_set_active(&g_pw, 1);
+        uui_caret_reset();
     }
     open_common(g_d.headline, on_yes, on_no);
 }

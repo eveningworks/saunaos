@@ -492,6 +492,7 @@ USERLAND_ELVES    = $(patsubst userland/%.c,$(BUILD)/userland/%.elf,$(USERLAND_P
 # trees stay byte for byte, which is why the declaration is not a file
 # inside them.
 PORT_LICENSE_cjson   = MIT
+PORT_LICENSE_yescrypt = BSD-2-Clause
 PORT_LICENSE_dash    = BSD-3-Clause
 PORT_LICENSE_doom    = GPL-2.0-or-later
 PORT_LICENSE_mbedtls = Apache-2.0 OR GPL-2.0-or-later
@@ -1516,6 +1517,15 @@ EXTRA_OBJS_update    = common/upd
 # The optional components: removing is libbase's (base/ucomponent.h), adding
 # back fetches, so it is the update engine's too.
 EXTRA_OBJS_component = common/upd
+
+# yescrypt (userland/third_party/yescrypt/upstream/: upstream's files byte for
+# byte, plus the LICENSE collected from their headers) is
+# linked into privd alone -- its component.mk names the objects -- and
+# privd's pass.c is the one file that includes it.
+$(BUILD)/userland/services/privd/pass.o: USERLAND_CFLAGS += -Iuserland/third_party/yescrypt/upstream
+# Upstream's own notes (#warning on the SIMD it picked) and one always-false
+# overflow guard on 64-bit -- not ours to edit.
+$(BUILD)/userland/third_party/yescrypt/upstream/%.o: USERLAND_CFLAGS += -Wno-cpp -Wno-type-limits
 
 EXTRA_OBJS_cjson_test = third_party/cjson/upstream/cJSON
 EXTRA_OBJS_cjson_bench = third_party/cjson/upstream/cJSON
@@ -2827,6 +2837,12 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# the machine adds an account; stage D's accounts make them the machine's.
 	cp data/etc/passwd $(SEED_DIR)/sync/etc/passwd
 	cp data/etc/group $(SEED_DIR)/sync/etc/group
+	# /etc/shadow: the password hashes (users D2a) -- ONCE, never synced: a
+	# password set on the machine must survive the next `make iso`, and
+	# owners.conf makes it root's and 0600. Absent (a disk from before), it
+	# reads as no password for `user` and root locked, and `passwd` makes it.
+	mkdir -p $(SEED_DIR)/once/etc
+	cp data/etc/shadow $(SEED_DIR)/once/etc/shadow
 	# ...and the XDG base directories it names: a program makes only its
 	# own folder under them (ScummVM's scummvm/), so a missing one sent
 	# its settings to the working directory.

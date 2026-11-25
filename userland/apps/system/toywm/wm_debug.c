@@ -806,7 +806,17 @@ static void cmd_dialog(struct dbg_out *o, int json) {
                          i ? "," : "", label ? label : "", x, y, w, h,
                          x + w / 2, y + h / 2);
         }
-        dbg_out_write(o, "]}\r\n");
+        dbg_out_write(o, "]");
+        const char *pl, *pe; int busy, typed, px, py, pw, ph;
+        if (confirm_dialog_password_state(&pl, &pe, &busy, &typed, &px, &py, &pw, &ph)) {
+            dbg_out_write(o, ",\"password\":{\"label\":\"");
+            dbg_out_jstr(o, pl);   // the account's real name: anything may be in it
+            dbg_out_write(o, "\",\"error\":\"");
+            dbg_out_jstr(o, pe);
+            dbg_out_printf(o, "\",\"busy\":%s,\"typed\":%d,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}",
+                           busy ? "true" : "false", typed, px, py, pw, ph);
+        }
+        dbg_out_write(o, "}\r\n");
         return;
     }
     if (!msg) { dbg_out_write(o, "dialog: closed\r\n"); return; }

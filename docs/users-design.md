@@ -1,6 +1,6 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 next.** The maintainer
+**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 planned 2026-11-25 (D2a, D2b, D2c below) and being built.** The maintainer
 picked the shape on 2026-11-23: four stages, stage A first, a ROOT
 BROKER for elevation (no setuid bits), ONE user account before several.
 Roadmap: "Multi-user & file permissions".
@@ -426,15 +426,125 @@ speed, the keyboard layout) at logon from HKCU.
   a privilege; then it goes through privd, as hostname1 and timedate1
   do under polkit.
 
-**D2 -- passwords and the login screen.**
+**D2 -- passwords and the login screen.** Picked 2026-11-25: the
+centred login screen (L1 on the mockup canvas), a greeter SESSION rather
+than a lock over the person's desktop, yescrypt, and a password that is
+OPT-IN -- a machine nobody set one on boots and behaves as before. Three
+parts, each shippable alone: **D2a** the password, **D2b** the greeter,
+**D2c** the lock screen and remote logins.
 
-- Passwords hashed with a slow KDF (yescrypt or Argon2id, as current
-  distributions use), in `/etc/shadow`, root's and 0600; the salt from
-  `getrandom`, which the KDF refuses on `QUERY_RANDOM_JITTER` alone --
-  `krandom.h` is not a CSPRNG.
-- A login screen drawn by the compositor (mockup first) reading the
-  account record above; auto-login kept as an option; lock on resume.
-- The privd prompt gains the password field it lacks today.
+**What real systems do.** Linux keeps the hash in `/etc/shadow` (root's,
+0600) and checks it in PAM, inside a ROOT process -- GDM's worker,
+`login(1)`, `sudo` (setuid) -- or, for a program that is not root, through
+the setuid `unix_chkpwd`, which answers only for the CALLER's own
+account. Current distributions write yescrypt (`$y$`, libxcrypt); RFC 9106
+recommends Argon2id. GDM and SDDM run the GREETER as an unprivileged
+account in a session of its own and start a new compositor as the person
+who signed in; the LOCK screen (kscreenlocker, GNOME Shell's) is the
+person's own session drawing over itself. Windows has the same split:
+LogonUI on Winlogon's secure desktop for sign-in, LSASS the one checker.
+telnetd runs `login(1)` as root, which drops to the account.
+
+**D2a -- the password.**
+
+- **`/etc/shadow`**, Linux's format (`name:hash:lastchg:::::::`), root's
+  and 0600. An EMPTY hash field is an account with no password -- the
+  shipped `user` -- and `!` or `*` one that cannot sign in by password
+  (root's: `sudo` asks for the ASKER's password, as Ubuntu's does).
+  `<shadow.h>`'s `getspnam()` in the C library reads it, so only root can.
+- **yescrypt**, Openwall's reference implementation vendored byte for
+  byte (`userland/third_party/yescrypt/`), libxcrypt's default cost
+  (`$y$j9T$`, N=4096 r=32: 16 MiB, a fraction of a second on hardware).
+  A hash written by a Linux box verifies here and the other way round;
+  the host check holds it against the host's own libxcrypt. The salt is
+  `getrandom`'s: a salt must be UNIQUE, not secret, so the jitter source
+  is enough for it (`krandom.h` is still no CSPRNG, and nothing here
+  makes a key from it).
+- **privd is the ONE checker** (LSASS's shape; no setuid, so no
+  `unix_chkpwd`): only privd links yescrypt and reads `/etc/shadow`.
+  `UPRIV_T_AUTH` (an account and a password) answers yes or no to root,
+  to the greeter account, and to anyone else for THEIR OWN account
+  only; a wrong answer costs the asker two seconds before the reply
+  (`pam_faildelay`), so a loop guesses slowly. `UPRIV_ACT_PASSWD` sets
+  or removes a password: root for any account, an account for itself
+  with its current password; the file is replaced whole (written beside
+  it, then renamed), so a power cut leaves the old one or the new one.
+- **Setting a password turns auto-login off** for that account; Settings
+  can turn it back on (Windows' "netplwiz" checkbox). Auto-login is the
+  machine key `login.autologin` -- an account name, or empty for the
+  login screen -- shipped as `user`.
+- **The consent prompt asks for the ASKER's password** once the account
+  has one (KDE's polkit dialog: "Password for User"), in the dialog
+  stage B drew: privd marks the prompt, the agent sends the typed
+  password with Allow, privd checks it -- wrong, and the agent is told to
+  ask again, three times before the request is refused. With no password
+  set, Allow alone still answers, as today. **`sudo` on a text boot
+  sends the password it read** with echo off, and privd checks it, which
+  turns the stage-B typo guard into a real boundary.
+- **`passwd`**: the account's own password (current, new, new again),
+  `passwd -d` to remove it, `passwd <name>` as root -- through privd.
+- **As built (D2a, 2026-11-25):** a shadow file that is there but NOT
+  root's alone (0600) locks every account -- someone wrote it who should
+  not have -- while no file at all (a disk from before D2a) is no
+  password, root locked; the file is seeded ONCE, so `make iso` keeps a
+  password set on the machine. A password sent WITH a request is
+  consent only from an account that HAS one: "" from an account with
+  none would otherwise be root for the asking, from anywhere. While an
+  account's wrong answer is pending, its next check is refused unhashed
+  (EAGAIN), so requests in flight cannot be hashed back to back. An
+  agent's Allow with no password reads as Cancel, so the debug console's
+  `gui priv allow` never answers a password question. Under
+  `fileperm=permissive` -- still the default -- the file's mode is
+  logged, not enforced: the hashes are only as private as enforcing
+  makes them.
+
+**D2b -- the greeter.**
+
+- **A `greeter` account** (uid 90, no shell, no home of its own:
+  `/var/lib/greeter`) runs the compositor as `toywm --greeter`, with the
+  SEAT mark -- the login screen may power the machine off, as logind
+  allows a greeter -- and draws the login screen alone: no taskbar, no
+  apps, no desktop. It asks privd `UPRIV_T_LOGIN` (an account and a
+  password); privd checks it and asks init to START THE SESSION for that
+  account (a new `INITCTL_SESSION`, root's only). init stops the greeter
+  and starts the desktop service as the account -- `User=` in
+  `services.d/toywm` becomes `User=@session`, the account the session
+  belongs to -- with the seat mark and the login variables, as today.
+- **At boot**, `login.autologin` naming an account that exists makes
+  init start that account's session directly (today's boot); empty, it
+  starts the greeter. **Signing out** (the Start menu's new item) ends
+  the desktop and init starts the greeter again; "Exit to shell" keeps
+  its meaning.
+- **The login screen is L1**: the clock and date at the top, the
+  account's picture, real name (GECOS) and a password field in the
+  middle, a Caps Lock warning under it, the keyboard layout and the
+  computer's name bottom-left, Restart and Shut down bottom-right. It is
+  one overlay in the compositor, `wm_login.c`, so the lock screen (D2c)
+  is the same drawing over the person's own desktop.
+- **Settings > Users** (one account until D3): the name, Change
+  password, Remove password, and "Sign in automatically". **First-boot
+  setup gains an optional Password step**; skipped, the machine is as
+  before.
+
+**D2c -- the lock screen and remote logins.**
+
+- **Lock**: Win+L, the Start menu's Lock, and waking from the screen
+  saver or a turned-off screen when the account has a password
+  (`desktop.lock_on_resume`, a user key, on by default: Windows'
+  "On resume, display logon screen"). The person's own compositor draws
+  L1 over everything, takes all input, and unlocks through
+  `UPRIV_T_AUTH` for its own account -- the compositor never reads
+  `/etc/shadow`.
+- **`/bin/login`**, run as root: asks for the account and the password
+  (`saunaos login:`), checks them through privd, and starts the
+  account's shell with its identity and login variables -- what init
+  does for a `User=` service. **telnetd** runs as root and starts
+  `login` on the pty once any account has a password; with none, it
+  starts the shell as `user` (no seat) as before. The text virtual
+  terminals and the console shell do the same through init.
+- **`tools/dev/remote.py`** answers the login prompt from the
+  machine's entry in `local_info.txt`, so a laptop with a password
+  stays reachable.
 
 **D3 -- several people.**
 

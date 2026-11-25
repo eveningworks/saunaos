@@ -22,6 +22,7 @@
 | `uargbatch.h` | A LONG ARGUMENT LIST SPLIT ACROSS AS MANY SPAWNS AS IT NEEDS -- xargs' job against ARG_MAX, here against SPAWN_ARGS_MAX: a spawn's whole argv and environment, every string's NUL included, fit in th... |
 | `uargs.h` | A /bin program's arguments from a DECLARED TABLE: one table is both what the parser accepts and what -h/--help prints, so the help cannot list an option the program does not take (clap's, argparse'... |
 | `uask.h` | A YES/NO QUESTION on the terminal, apt's and dnf's "[Y/n]": the default is the capital letter and is what Enter answers; y, yes, n and no in any case answer; anything else asks again. |
+| `uaskpass.h` | Reading a password at a terminal: the prompt on stderr, the line from stdin with ECHO off, the terminal put back however the read ends -- Ctrl+C included (BSD's readpassphrase(), not glibc's getpas... |
 | `ubase64.h` | ubase64 -- RFC 4648 base64, the standard alphabet with '=' padding: what an HTTP Basic credential, a data: URL or a MIME part carries. |
 | `ubinmap.h` | A BINARY FILE'S STRUCTURE MAP: what the bytes of an ELF program, a DOOM WAD, a TrueType font, a disk image's MBR or GPT, a FAT boot sector, a QOI or BMP picture ARE -- a flat outline of nodes, each... |
 | `ubootcfg.h` | GRUB's grub.cfg as an EDITABLE model: parse, change one thing, check, save -- for `bootcfg`, the Boot Manager and the Startup settings page. |

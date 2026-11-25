@@ -4,12 +4,16 @@
 // over or click for the person -- and sends back Allow or Cancel.
 //
 // Questions arriving while a dialog is up wait their turn, oldest first.
+// Once the asker's account has a password (users D2a) the dialog asks for
+// it; Allow then waits, BUSY, for privd -- which closes the prompt when the
+// password was right and sends a RETRY when it was not.
 #include "wm_priv.h"
 #include "confirm_dialog.h"
 #include "base/upriv.h"
 #include "base/ubulk.h"
 #include "rt/sys.h"
 #include <errno.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +27,7 @@ static struct ubulk_client *g_agent;
 static uint64_t g_next_try;          // sys_ticks() of the next registration attempt
 static struct queued *g_queue;       // oldest first
 static uint32_t g_showing;           // the prompt on screen, 0 for none
+static int g_showing_pw;             // ...and it asks for a password
 static int g_policy = WM_PRIV_ASK;
 static unsigned g_questions;
 
@@ -34,8 +39,14 @@ unsigned wm_priv_questions(void) { return g_questions; }
 static void answered(int allow) {
     if (g_agent && g_showing) upriv_agent_answer(g_agent, g_showing, allow);
     g_showing = 0;
+    g_showing_pw = 0;
 }
-static void on_allow(void)  { answered(1); }
+// A password dialog stays up, BUSY, until privd's CANCEL or RETRY.
+static void on_allow(void) {
+    if (!g_showing_pw) { answered(1); return; }
+    const char *pw = confirm_dialog_password();
+    if (g_agent) upriv_agent_answer_password(g_agent, g_showing, pw ? pw : "");
+}
 static void on_cancel(void) { answered(0); }
 
 static void show_next(void) {
@@ -51,6 +62,19 @@ static void show_next(void) {
     d.key[1] = "Program";  d.val[1] = q->p.program;
     d.key[2] = "Asked by"; d.val[2] = q->p.asker;
     d.nrows = 3;
+    // "Password for User": the account's real name (GECOS), else its name.
+    char label[96];
+    g_showing_pw = q->p.password_for[0] != '\0';
+    if (g_showing_pw) {
+        struct passwd *pw = getpwnam(q->p.password_for);
+        const char *who = pw && pw->pw_gecos && pw->pw_gecos[0] ? pw->pw_gecos : q->p.password_for;
+        char real[64];
+        snprintf(real, sizeof real, "%s", who);
+        char *comma = strchr(real, ',');   // GECOS's other fields
+        if (comma) *comma = '\0';
+        snprintf(label, sizeof label, "Password for %s", real);
+        d.password_label = label;
+    }
     g_showing = q->p.id;
     confirm_dialog_open_detailed(&d, "Allow", "Cancel", on_allow, on_cancel);
     free(q);
@@ -59,6 +83,7 @@ static void show_next(void) {
 static void drop(uint32_t id) {
     if (id == g_showing) {
         g_showing = 0;
+        g_showing_pw = 0;
         confirm_dialog_close();
         return;
     }
@@ -75,7 +100,7 @@ static void lost(void) {
     upriv_agent_close(g_agent);
     g_agent = 0;
     while (g_queue) { struct queued *q = g_queue; g_queue = q->next; free(q); }
-    if (g_showing) { g_showing = 0; confirm_dialog_close(); }
+    if (g_showing) { g_showing = 0; g_showing_pw = 0; confirm_dialog_close(); }
 }
 
 int wm_priv_kill(int pid, int sig) {
@@ -103,9 +128,20 @@ void wm_priv_poll(void) {
     int r;
     while ((r = upriv_agent_next(g_agent, &p)) != 0) {
         if (r < 0) { drop(p.id); continue; }
+        if (r == 2) {
+            if (p.id == g_showing) {
+                char why[64];
+                snprintf(why, sizeof why, "Wrong password. %u %s left.", (unsigned)p.tries_left,
+                         p.tries_left == 1 ? "try" : "tries");
+                confirm_dialog_password_wrong(why);
+            }
+            continue;
+        }
         g_questions++;
         if (g_policy != WM_PRIV_ASK) {
-            upriv_agent_answer(g_agent, p.id, g_policy == WM_PRIV_ALLOW);
+            // A question that needs a password is never allowed by policy:
+            // the policy knows none, and privd reads a bare Allow as Cancel.
+            upriv_agent_answer(g_agent, p.id, g_policy == WM_PRIV_ALLOW && !p.password_for[0]);
             continue;
         }
         struct queued *q = malloc(sizeof *q);
@@ -118,6 +154,7 @@ void wm_priv_poll(void) {
         q->p.action   = q->p.buf + (p.action - p.buf);
         q->p.program  = q->p.buf + (p.program - p.buf);
         q->p.asker    = q->p.buf + (p.asker - p.buf);
+        q->p.password_for = q->p.buf + (p.password_for - p.buf);
         struct queued **tail = &g_queue;
         while (*tail) tail = &(*tail)->next;
         *tail = q;

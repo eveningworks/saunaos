@@ -35,9 +35,15 @@ static char *pack(unsigned flags, const char *first, const char *const *rest, ui
 // Sends one request and waits for its answer: 0, or -1 with errno.
 static int ask(uint32_t type, char *rec, uint32_t len) {
     struct ubulk_client c;
-    if (ubulk_client_open(&c, UPRIV_SERVICE) < 0) { free(rec); errno = ENOENT; return -1; }
+    if (ubulk_client_open(&c, UPRIV_SERVICE) < 0) {
+        memset(rec, 0, len);
+        free(rec);
+        errno = ENOENT;
+        return -1;
+    }
     uint32_t id = __atomic_fetch_add(&g_next_id, 1, __ATOMIC_RELAXED);
     int rc = ubulk_send(&c, type, id, rec, len, 5000);
+    memset(rec, 0, len);   // it may carry a password
     free(rec);
     if (rc < 0) { ubulk_client_close(&c); errno = EIO; return -1; }
     char *buf = malloc(UBULK_REC_MAX);
@@ -76,6 +82,54 @@ int upriv_spawn(const char *path, char *const *argv, const struct sys_spawn_opts
     so.argv = argv;
     so.flags |= SPAWN_ARGV | SPAWN_ELEVATED;
     return sys_spawn_opts(path, &so);
+}
+
+int upriv_spawn_password(const char *path, char *const *argv, const struct sys_spawn_opts *o,
+                         const char *password) {
+    if (!path || !argv || !argv[0] || !password) { errno = EINVAL; return -1; }
+    int n = 0;
+    while (argv[n]) n++;
+    // password, path, argv... -- privd takes the first string off.
+    const char **rest = calloc((size_t)n + 2, sizeof *rest);
+    if (!rest) { errno = ENOMEM; return -1; }
+    rest[0] = path;
+    for (int i = 0; i < n; i++) rest[i + 1] = argv[i];
+    uint32_t len;
+    char *rec = pack(UPRIV_WITH_PASSWORD, password, rest, &len);
+    free(rest);
+    if (!rec) return -1;
+    int rc = ask(UPRIV_T_SPAWN, rec, len);   // ask() wipes and frees rec
+    if (rc < 0) return -1;
+    struct sys_spawn_opts so;
+    if (o) so = *o;
+    else { sys_spawn_opts_init(&so); so.env = environ; }
+    so.argv = argv;
+    so.flags |= SPAWN_ARGV | SPAWN_ELEVATED;
+    return sys_spawn_opts(path, &so);
+}
+
+int upriv_auth(const char *account, const char *password) {
+    if (!account || !password) { errno = EINVAL; return -1; }
+    const char *rest[] = { password, 0 };
+    uint32_t len;
+    char *rec = pack(0, account, rest, &len);
+    return rec ? ask(UPRIV_T_AUTH, rec, len) : -1;
+}
+
+int upriv_has_password(const char *account) {
+    if (!account) { errno = EINVAL; return -1; }
+    const char *rest[] = { "", 0 };
+    uint32_t len;
+    char *rec = pack(UPRIV_PROBE, account, rest, &len);
+    if (!rec) return -1;
+    if (ask(UPRIV_T_AUTH, rec, len) == 0) return 0;
+    return errno == EACCES ? 1 : -1;
+}
+
+int upriv_passwd(const char *account, const char *current, const char *password) {
+    if (!account || !password) { errno = EINVAL; return -1; }
+    const char *args[] = { account, current ? current : "", password, 0 };
+    return upriv_action(UPRIV_ACT_PASSWD, args, 0);
 }
 
 int upriv_action(const char *action, const char *const *args, unsigned flags) {
@@ -127,6 +181,12 @@ int upriv_agent_next(struct ubulk_client *a, struct upriv_prompt *p) {
     struct ubulk_msg m;
     while (ubulk_client_recv(a, &m, buf, sizeof buf) == 1) {
         if (m.type == UPRIV_T_CANCEL) { p->id = m.id; return -1; }
+        if (m.type == UPRIV_T_RETRY) {
+            p->id = m.id;
+            p->tries_left = 0;
+            if (m.len >= sizeof(uint32_t)) memcpy(&p->tries_left, m.data, sizeof(uint32_t));
+            return 2;
+        }
         if (m.type != UPRIV_T_PROMPT) continue;
         uint32_t n = m.len < sizeof p->buf ? m.len : (uint32_t)sizeof p->buf - 1;
         memcpy(p->buf, m.data, n);
@@ -138,6 +198,8 @@ int upriv_agent_next(struct ubulk_client *a, struct upriv_prompt *p) {
         p->action = field(&at, end);
         p->program = field(&at, end);
         p->asker = field(&at, end);
+        p->password_for = field(&at, end);
+        p->tries_left = UPRIV_AUTH_TRIES;
         return 1;
     }
     return 0;
@@ -146,6 +208,19 @@ int upriv_agent_next(struct ubulk_client *a, struct upriv_prompt *p) {
 void upriv_agent_answer(struct ubulk_client *a, uint32_t id, int allow) {
     uint32_t v = allow ? 1 : 0;
     ubulk_send(a, UPRIV_T_VERDICT, id, &v, sizeof v, 1000);
+}
+
+void upriv_agent_answer_password(struct ubulk_client *a, uint32_t id, const char *password) {
+    size_t n = strlen(password) + 1;
+    if (n > UBULK_REC_MAX - sizeof(uint32_t)) { upriv_agent_answer(a, id, 0); return; }
+    char *rec = malloc(sizeof(uint32_t) + n);
+    if (!rec) { upriv_agent_answer(a, id, 0); return; }
+    uint32_t v = 1;
+    memcpy(rec, &v, sizeof v);
+    memcpy(rec + sizeof v, password, n);
+    ubulk_send(a, UPRIV_T_VERDICT, id, rec, (uint32_t)(sizeof v + n), 1000);
+    memset(rec, 0, sizeof v + n);
+    free(rec);
 }
 
 void upriv_agent_close(struct ubulk_client *a) {

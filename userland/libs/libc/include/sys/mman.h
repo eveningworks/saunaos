@@ -12,8 +12,9 @@
 // a debugger: MAP_SHARED works ONLY over a shared-memory object
 // (rt/sys.h's sys_shm_open -- a shared mapping of a FILE is still
 // refused, and writes never reach the file), munmap()'s range may span
-// adjacent mappings but no hole, and mprotect() changes ANONYMOUS memory
-// only. A
+// adjacent mappings but no hole (its length, and mprotect()'s, is rounded
+// up to whole pages, as Linux's is), and mprotect() changes ANONYMOUS
+// memory only. A
 // file is snapshot-at-first-touch per page, not coherent with later
 // writes. **W^X: PROT_WRITE with PROT_EXEC is refused (EACCES) by both
 // mmap() and mprotect()** -- write code RW, then make it RX -- and

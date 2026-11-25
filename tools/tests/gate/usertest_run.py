@@ -308,6 +308,11 @@ TESTS = [
     # rule, and an elevated spawn only on privd's grant, once and for one
     # exact command line. SPAWNED: it waits for its children.
     ("priv_test", None, None, None),
+    # Passwords through privd (users D2a): set, check, change and remove,
+    # who may ask about whose, a right password as sudo's consent, the
+    # fail delay, /etc/shadow's owner and mode, and a libxcrypt hash
+    # verifying. SPAWNED: it waits for its child; restores /etc/shadow.
+    ("passwd_test", None, None, None),
     # A futex parking and waking ACROSS two processes, through a shared
     # page. The KTESTs beside sys_futex_wait() cover key derivation and
     # every refusal and cannot cover this -- they run on the kernel

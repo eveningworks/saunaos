@@ -16,6 +16,7 @@
 #include "rt/sys.h"
 #include "tty_abi.h"
 #include "base/uargs.h"
+#include "base/uaskpass.h"
 #include "base/udate.h"
 #include "base/human.h"
 #include "usmb.h"
@@ -54,22 +55,9 @@ static const struct uargs_prog PROG = {
              "The server is a name or an address; the port defaults to 445.",
 };
 
-// Read a password from the terminal with echo off.
+// Read a password from the terminal with echo off; "" at end of input.
 static void ask_password(char *out, size_t cap) {
-    struct tty_termios saved, quiet;
-    int tty = sys_tcgetattr(0, &saved) == 0;
-    if (tty) {
-        quiet = saved;
-        quiet.lflag &= ~(uint32_t)TTY_ECHO;
-        sys_tcsetattr(0, &quiet);
-    }
-    fputs("Password: ", stdout);
-    fflush(stdout);
-    size_t n = 0;
-    char c;
-    while (n + 1 < cap && read(0, &c, 1) == 1 && c != '\n' && c != '\r') out[n++] = c;
-    out[n] = '\0';
-    if (tty) { sys_tcsetattr(0, &saved); fputs("\n", stdout); }
+    if (uaskpass("Password: ", out, cap) < 0) out[0] = '\0';
 }
 
 static void when(char *out, size_t cap, uint64_t t) {

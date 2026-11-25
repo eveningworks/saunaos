@@ -91,7 +91,7 @@ static const struct wm_overlay g_overlays[] = {
     // MODAL, so it covers the whole screen for input (confirm_covers)
     // while it damages only its own rect.
     { "confirm",  open_confirm,  draw_confirm,     confirm_dialog_handle_click,
-      confirm_dialog_hover_at,   confirm_dialog_damage,   confirm_dialog_rect, confirm_dialog_update_press, 0, 0, 0, 0,
+      confirm_dialog_hover_at,   confirm_dialog_damage,   confirm_dialog_rect, confirm_dialog_update_press, 0, confirm_dialog_key, 0, 0,
       confirm_covers, 0, 1, WM_OVERLAY_REPAINT_ON_CLOSE },
     { "context",  open_context,  context_menu_draw, context_menu_handle_click,
       context_menu_hover_at,     context_menu_damage,     0 /* a rect per submenu level */, 0, 0, context_menu_key, context_menu_close, 0,

@@ -15,17 +15,23 @@ person through the desktop (toywm's wm_priv.c). So:
   * it is DRAWN -- the Allow button is filled with the accent and the
     Cancel button is not (pixel values, the pointer parked away);
   * Cancel: no Disks window comes, and its process is gone;
-  * Allow: the Disks window comes, and the process behind it is ROOT.
+  * Allow: the Disks window comes, and the process behind it is ROOT;
+  * WITH A PASSWORD (users D2a): the prompt asks for user's, a wrong one
+    typed and Entered comes back as "Wrong password" with the field
+    emptied, its dots drawn and then gone; the right one and Allow
+    bring Disks, as root.
 
 What a broken version would still pass: an agent that answered Allow by
 itself passes the Allow half, so Cancel must keep Disks away; a privd
 that ran Disks without asking passes both window checks, so the prompt
 must have been open first; a Disks that never elevated still opens its
-window, so its owner must be root.
+window, so its owner must be root; a field that took no keys passes the
+"emptied" check, so the typed count must reach the length first.
 
 POSITIVE CONTROL: make wm_priv_poll() answer every question with 1
 before showing it -- "the prompt opens" and "Cancel keeps Disks away"
-go red.
+go red. Make privd's pass_check() always 1 -- "a wrong password comes
+back" goes red.
 """
 
 RUNNER = {"covers": "privd's consent prompt, Cancel and Allow, by pixel and by owner"}
@@ -47,6 +53,7 @@ from PIL import Image  # noqa: E402
 
 DISKS = "/bin/wm/apps/disks"
 ACCENT = (70, 110, 160)
+PW = "pw-gui1"
 
 _res = Results()
 check = _res.check
@@ -91,6 +98,62 @@ def wait_prompt(dbg, timeout=15):
         time.sleep(0.1)  # sleep-ok: polls the guest's own dialog state
         info = dialog(dbg)
     return info
+
+
+def type_text(dbg, text):
+    dbg.input([f"key 0x{ord(c):02x}" for c in text])
+
+
+def dark_in(img, r):
+    """Pixels darker than mid-grey inside the field, away from its frame."""
+    n = 0
+    for x in range(r["x"] + 4, r["x"] + r["w"] - 4):
+        for y in range(r["y"] + 4, r["y"] + r["h"] - 4):
+            if sum(img.getpixel((x, y))) < 3 * 110:
+                n += 1
+    return n
+
+
+def password_round(dbg, qmp, tmp):
+    # dash for printf, which the shell has no builtin for.
+    dbg.send(f"sh dash -c \"printf '{PW}\\\\n{PW}\\\\n' | passwd user\"")
+    st = dbg.send("sh passwd -S user") or ""
+    check("passwd sets user's password from a pipe", "user P" in st, st.strip()[-80:])
+    dbg.send(f"gui spawn {DISKS}")
+    info = wait_prompt(dbg)
+    pw = info.get("password") or {}
+    check("the prompt now asks for user's password", pw.get("label") == "Password for User", str(info)[:200])
+    if not pw:
+        return
+    type_text(dbg, "wrong")
+    pw = dialog(dbg).get("password") or {}
+    check("...and the field takes the keys", pw.get("typed") == 5, str(pw))
+    scr = dbg.json("gui state --json")["screen"]
+    dbg.warp_cursor(qmp, 5, scr["h"] // 2)
+    shot = os.path.join(tmp, "privd-prompt-pw.png")
+    qmp.screenshot(shot)
+    typed_dark = dark_in(Image.open(shot).convert("RGB"), pw)
+    check("...drawing them masked, as dots", typed_dark > 10, f"{typed_dark} dark pixels")
+    dbg.key("0x0a")   # Enter
+    pw = _res.check_eventually("a wrong password comes back as Wrong password, the field emptied",
+                               lambda: dialog(dbg).get("password") or {},
+                               ok=lambda v: "Wrong password" in v.get("error", "") and not v.get("busy")
+                               and v.get("typed") == 0, timeout=10)
+    if pw:
+        qmp.screenshot(shot)
+        left = dark_in(Image.open(shot).convert("RGB"), pw)
+        # The caret stays (a 2-pixel bar); five dots are what must go.
+        check("...with its dots gone, the caret alone left", left + 20 <= typed_dark,
+              f"{left} dark pixels now, {typed_dark} with five typed")
+    type_text(dbg, PW)
+    pick(dbg, "Allow")
+    wins = _res.check_eventually("the right password and Allow: the Disks window comes",
+                                 lambda: disks_windows(dbg), timeout=20)
+    if wins:
+        owner = wins[0].get("client_pid")
+        procs = dict(disks_procs(dbg))
+        check("...as root", procs.get(owner) == "root", f"pid {owner}, ps {procs}")
+        dbg.close_window("Disks")
 
 
 def pick(dbg, label):
@@ -157,6 +220,14 @@ def main():
         procs = dict(disks_procs(dbg))
         check("...and the process behind it is root", procs.get(owner) == "root", f"pid {owner}, ps {procs}")
         dbg.close_window("Disks")
+
+    # --- with a password ---
+    try:
+        password_round(dbg, qmp, args.tmp)
+    finally:
+        dbg.send("sh passwd -d user")   # root: no current password asked
+    st = dbg.send("sh passwd -S user") or ""
+    check("passwd -d removes it again", "user NP" in st, st.strip()[-80:])
     dbg.prompt_policy("allow")
     return _res.finish("privd_prompt_test")
 

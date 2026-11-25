@@ -135,6 +135,17 @@ with the binaries as their licenses require.
                           notice is separate from SaunaOS's above and
                           must be preserved.
 
+  userland/third_party/yescrypt/upstream/ yescrypt, Copyright 2009 Colin Percival,
+                          2012-2025 Alexander Peslyak, 2005-2016 Colin
+                          Percival (sha256), under the BSD 2-Clause
+                          License and a shorter permissive notice, file
+                          by file. It ships no licence file of its own;
+                          userland/third_party/yescrypt/upstream/LICENSE
+                          collects its headers' notices verbatim. Linked
+                          into /bin/privd only. Its copyright notices are
+                          separate from SaunaOS's above and must be
+                          preserved.
+
   userland/third_party/indeo3/upstream/  indeo3data.h, the Indeo Video 3 codebooks from
                           FFmpeg, Copyright (c) 2009-2011 Maxim
                           Poliakovski, under the GNU Lesser General
