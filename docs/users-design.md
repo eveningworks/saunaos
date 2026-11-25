@@ -416,7 +416,10 @@ speed, the keyboard layout) at logon from HKCU.
 - Switching users (a session per seat, the logind shape).
 - The kernel registry's per-person settings applied by the session at
   login, and `fontd` (with `display.scale`) run per session.
-- Machine-scoped writes need the admin right (privd), as above.
+- Machine-scoped writes need the admin right (privd), as above -- which
+  is also when the Configuration Editor's machine-wide values become
+  editable (read-only there until then), and when its kernel-registered
+  ones, editable now, split into the person's and the machine's.
 
 ## Why plain files, not a user database
 
