@@ -125,7 +125,7 @@ def main():
     close_all(dbg)
     dbg.send(f"sh rm {PIC}")
     dbg.send(f"sh rm /var/tmp/{NEW}")
-    dbg.send(f"sh cp /usr/share/wallpapers/aurora.jpg {PIC}")
+    dbg.as_user(f"cp /usr/share/wallpapers/aurora.jpg {PIC}")
 
     dbg.logs("properties:", clear=True)
     win = dbg.spawn(f"{PROPS} {PIC}", "props_test.jpg Properties")

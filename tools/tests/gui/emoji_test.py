@@ -117,7 +117,7 @@ def main():
     print("emoji: colour glyphs from the fallback list's emoji face")
     if args.positive_control:
         res.check("control: the list without the emoji face is written",
-                  dbg.write_lines("/etc/fonts/fallback.conf", NO_EMOJI_LIST))
+                  dbg.write_lines("/etc/fonts/fallback.conf", NO_EMOJI_LIST, account=None))
     for path, text in FILES.items():
         res.check(f"{path} is written", dbg.write_lines(path, [text]))
     with tempfile.TemporaryDirectory() as tmp:

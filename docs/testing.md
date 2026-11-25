@@ -152,7 +152,13 @@ printed before that is in the reply, as on any terminal.
 and knows no `;`, quotes or `$?`. `tsh <line>` is a whole `/bin/sh` (dash)
 command line, VERBATIM** -- `tsh grep -c "a b" /x; echo $?`, as `ssh host 'cmd'`
 hands its string to the remote `sh -c` -- with a non-zero exit said as
-`[exit N]` (`DebugConsole.tsh()`). `sh tosh -c <words>` runs SaunaOS's
+`[exit N]` (`DebugConsole.tsh()`). **`as <account> <line>` is `tsh`'s line
+run AS THAT ACCOUNT** (`/bin/runuser -u`, `DebugConsole.as_user()`, the
+desktop's account by default): `sh` and `tsh` run as ROOT, so a fixture
+they make in `/tmp` is root's, and under `fileperm=enforce` an app -- which
+runs as `user` -- cannot rewrite or delete it. **A file an app changes is
+made with `as`**; a place that account cannot write then fails the test as
+it would the app. `sh tosh -c <words>` runs SaunaOS's
 interactive shell, which has no `;` or `||`, on words already split.
 **And the reply carries terminal control sequences** (`ls` colours its
 names on a tty): `vm.py` and `DebugConsole` strip them, `readfile`'s

@@ -1433,6 +1433,10 @@ whenever a headline here tells you something you did not already know.
   TOOL MAY NOT GAIN A FIXED SLEEP** (`settle()` waits for idle,
   `check_eventually()`, `run_and_wait()`, `harness.poll()`,
   `check_test_sleeps.py`)
+- **A FIXTURE AN APP CHANGES IS MADE AS THE DESKTOP'S ACCOUNT** --
+  `as_user()`, `write_lines()` (its default), `user_dir()` for a folder at
+  `/`; `sh` and `tsh` are root, and a root-made file in `/tmp` is one the
+  app cannot rewrite under `fileperm=enforce`
 - **A TEST'S HOST-SIDE SCRATCH FILES GO UNDER `tempfile.gettempdir()`**,
   never a literal `/tmp`: `--repeat` runs twins that share it
 - **A TEST'S FOLDER IS ITS RUNNER, AND A TOOL IS NAMED BY BASENAME**

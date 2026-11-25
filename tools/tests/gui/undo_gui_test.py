@@ -68,8 +68,7 @@ def run(dbg, qmp, res):
         return None
 
     sh("trash empty")
-    sh(f"rm -r {ROOT}")
-    sh(f"mkdir {ROOT}")
+    dbg.user_dir(ROOT)
     sh(f"touch {ROOT}/apple.txt")
     sh(f"touch {ROOT}/berry.txt")
     # No confirmation, so Delete acts at once and the toast is the answer.

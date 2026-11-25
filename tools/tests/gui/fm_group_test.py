@@ -42,9 +42,8 @@ VIEW_GROUP_ROW = fm.menu_rows("view_items")["Group by"]
 
 
 def setup(dbg):
-    dbg.send(f"sh rm -r {ROOT}")
-    dbg.send(f"sh mkdir {ROOT}")
-    dbg.send(f"sh mkdir {ROOT}/Albums")
+    dbg.user_dir(ROOT)
+    dbg.as_user(f"mkdir {ROOT}/Albums")
     dbg.send(f"sh cp /usr/share/pictures/swatches.gif {ROOT}/swatches.gif")
     dbg.send(f"sh cp /usr/share/music/first-boot.mid {ROOT}/first-boot.mid")
     dbg.write_lines(f"{ROOT}/notes.txt", ["a few words"])

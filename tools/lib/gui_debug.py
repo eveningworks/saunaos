@@ -58,6 +58,7 @@ import re
 import atexit
 import codecs
 import contextlib
+import shlex
 import socket
 import sys
 import threading
@@ -92,6 +93,10 @@ SPAWN_TIMEOUT_S = 60.0  # how long spawn() waits for a client's window: the WM d
                         # fast start costs nothing, a crash at start fails at once, and only a hang waits it out
 SH_TIMEOUT_S = 60.0     # send(): `sh PROGRAM` runs a guest program, which under the parallel suite can take
                         # far past the console's 6 s; the read ends at the prompt, so a pass costs nothing
+# The debug console's line buffer (kernel/core/debug_console.c): a longer line is DROPPED.
+DBG_LINE_MAX = 128
+# The account the desktop and its apps run as (data/etc/services.d/toywm's User=); as_user()'s default.
+DESKTOP_ACCOUNT = "user"
 RETRIES_ON_SPLICED_JSON = 3  # see json() -- a klog line can land mid-object
 FIRST_PRESENT_S = 0.4  # grace after a client's window appears -- see spawn()
 # The debug console is a tty, so replies carry terminal control sequences
@@ -271,6 +276,14 @@ class DebugConsole:
         none of them. A non-zero exit ends the reply with `[exit N]`."""
         return self.send(f"tsh {line}")
 
+    def as_user(self, line, account=None):
+        """tsh()'s line run as `account` -- the desktop's (DESKTOP_ACCOUNT)
+        by default -- through the console's `as` verb (/bin/runuser). A
+        FIXTURE AN APP CHANGES IS MADE THIS WAY: one made by `sh` or tsh()
+        is root's, and under `fileperm=enforce` the app, running as the
+        desktop's account, cannot rewrite or delete it in /tmp."""
+        return self.send(f"as {account or DESKTOP_ACCOUNT} {line}")
+
     def send(self, command, timeout=None):
         """Run one debug-console command, return its output as text.
         `timeout` overrides the deadline (failure_bundle.py bounds its
@@ -294,7 +307,7 @@ class DebugConsole:
         # 600` under the parallel suite ran past the console's 6 s, and the
         # check then parsed an EMPTY reply (docs/gui-test-sync-design.md,
         # stage 3's diagnosis).
-        wait_s = timeout or (SH_TIMEOUT_S if command.startswith("sh ") else self.timeout)
+        wait_s = timeout or (SH_TIMEOUT_S if command.startswith(("sh ", "tsh ", "as ")) else self.timeout)
         t0 = time.time()
         buf = self._read_to_prompt(wait_s).replace("\r", "")
         if not command.startswith("readfile"):
@@ -381,35 +394,33 @@ class DebugConsole:
 
     # -- conveniences over the raw commands ------------------------------
 
-    def write_lines(self, path, lines, tries=25):
+    def write_lines(self, path, lines, tries=25, account=DESKTOP_ACCOUNT):
         """Replace `path` in the guest with `lines`; True once all landed.
 
-        The only writer a test outside the guest has is `tosh -c` with a
-        redirection, and it has two traps. UNQUOTED: the kernel shell's
-        `spawn` passes a quoted word through WITH its quotes, so tosh
-        runs a command literally named "echo panes=2 > ..." and nothing
-        is written. And ONE LINE AT A TIME, each confirmed on disk before
-        the next: `spawn` returns at once, so a `>` and a `>>` sent back
-        to back can land in either order, and the truncating one landing
-        last wipes the line before it.
+        **WRITTEN AS `account`** -- the desktop's by default, through
+        as_user() -- because what a test writes is what an app would
+        have saved: a root-made file in /tmp is one the app cannot
+        rewrite under `fileperm=enforce`. `account=None` writes as root.
 
-        **CONFIRMED BY ITS EXACT BYTES, NEWLINE INCLUDED.** `echo` writes
-        its text and its newline as two writes, so a file whose lines
-        merely CONTAIN the line can still be owed that newline -- and the
-        next `>>` then lands first, and the late newline overwrites the
-        appended line's first byte at the old writer's offset (`tree=0`
-        read back as `ree=0`, which cost w16_gui_test 15 checks a run).
-        Hence the byte count too: the lines are matched loosely (the
-        kernel may narrate a program load into `cat`'s reply), the SIZE
-        exactly.
+        Each line is ONE `printf '%s\n' 'LINE' >> PATH` through /bin/sh,
+        the line single-quoted, so it lands byte for byte (no word
+        splitting, no `#` comment, no glob) in a single write. The
+        command returns when the writer has exited, so the next line
+        cannot overtake it; the size check stays as the proof.
         """
         self.send(f"sh rm {path}")
         for i, line in enumerate(lines):
-            self.send(f"sh spawn /bin/tosh -c echo {line} "
-                      f"{'>' if i == 0 else '>>'} {path}")
+            cmd = f"printf '%s\\n' {shlex.quote(line)} {'>' if i == 0 else '>>'} {shlex.quote(path)}"
+            full = f"as {account} {cmd}" if account else f"tsh {cmd}"
+            if len(full.encode()) >= DBG_LINE_MAX:
+                raise ValueError(f"write_lines: {len(full.encode())} bytes is past the debug console's "
+                                 f"{DBG_LINE_MAX - 1}-byte line; write a longer line with `vm.py put`")
+            if account:
+                self.as_user(cmd, account)
+            else:
+                self.tsh(cmd)
             want = [ln.strip() for ln in lines[:i + 1]]
-            # As echo writes it: the shell's words, single-spaced.
-            size = sum(len(" ".join(ln.split()).encode()) + 1 for ln in lines[:i + 1])
+            size = sum(len(ln.encode()) + 1 for ln in lines[:i + 1])
             for _ in range(tries):
                 got = [ln.strip() for ln in (self.send(f"sh cat {path}") or "").splitlines()]
                 if all(w in got for w in want) and _first_int(self.send(f"sh wc -c {path}")) == size:
@@ -418,6 +429,28 @@ class DebugConsole:
             else:
                 return False
         return True
+
+    def wait_network(self, timeout=30.0):
+        """True once an interface has an address (`netctl` shows `inet`):
+        a test that fetches right after boot otherwise races DHCP, and
+        the fetch fails with "no such device" -- no interface to route on."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if "inet " in (self.send("sh netctl") or ""):
+                return True
+            time.sleep(0.3)
+        return False
+
+    def user_dir(self, path, account=DESKTOP_ACCOUNT):
+        """A fresh folder at `path` shaped like /home: owned by `account`
+        and mode 4755, so what root makes in it is `account`'s too
+        (fs_new_attrs()'s SUIDDIR rule, docs/users-design.md). For a
+        test's scaffold where the account could not make a folder itself
+        (`/`); a file in /tmp is made with as_user() instead."""
+        self.send(f"sh rm -r {path}")
+        self.send(f"sh mkdir {path}")
+        self.send(f"sh chown {account} {path}")
+        self.send(f"sh chmod 4755 {path}")
 
     def events(self, prefix="uidemo:"):
         """Kernel log lines emitted since the last command, as a list.

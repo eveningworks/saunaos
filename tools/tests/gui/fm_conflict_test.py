@@ -46,9 +46,8 @@ def run(dbg, qmp, res):
     def cat(path):
         return (dbg.send(f"sh cat {path}") or "").strip()
 
-    dbg.send(f"sh rm -r {ROOT}")
-    for d in (ROOT, f"{ROOT}/src", f"{ROOT}/dst"):
-        dbg.send(f"sh mkdir {d}")
+    dbg.user_dir(ROOT)
+    dbg.as_user(f"mkdir {ROOT}/src {ROOT}/dst")
     # Dates by ORDER OF WRITING, a couple of seconds apart (whole seconds
     # are what a file keeps): dst/a, then both sources, then dst/b.
     dbg.write_lines(f"{ROOT}/dst/a.txt", ["old a"])

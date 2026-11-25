@@ -70,8 +70,7 @@ def run(dbg, qmp, res):
     def dialog_open(timeout=10.0):
         return wait(lambda: dbg.window(DIALOG) is not None, timeout)
 
-    sh(f"rm -r {ROOT}")
-    sh(f"mkdir {ROOT}")
+    dbg.user_dir(ROOT)
     for n, c in BEFORE.items():
         dbg.write_lines(f"{ROOT}/{n}", [c])
     dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details"])

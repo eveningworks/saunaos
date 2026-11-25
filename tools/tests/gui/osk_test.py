@@ -9,8 +9,10 @@ FOCUSED client, encoded the way the physical keyboard encodes it.
 THE LOAD-BEARING CHECK IS A ROUND TRIP THROUGH THE FILESYSTEM, not ink
 on a screen. Typing into Notepad and watching the pixel count rise is
 exactly the "it responds, therefore it works" trap CLAUDE.md names: a
-blinking caret moves those pixels too. So this types `mkdir /<name>`
-into the Terminal and then asks the SHELL whether the directory exists
+blinking caret moves those pixels too. So this types `mkdir ./<name>`
+into the Terminal -- which starts in its account's home, HOME_DIR, the
+one place `user` may make a folder -- and then asks the SHELL whether
+the directory exists
 -- one assertion that covers the keycap hit-test, wm_client_send_key(),
 the client, the line editor and the filesystem, and that a broken
 version cannot pass.
@@ -114,19 +116,23 @@ class Keyboard:
         return int(m.group(1), 16) if m else -1
 
 
+# Where the Terminal starts (its account's HOME), so where `./name` lands.
+HOME_DIR = "/home"
+
+
 def spell(word):
-    """`mkdir /<word>` as a list of keycap labels."""
-    return list("mkdir") + ["Space", "/"] + list(word) + ["Enter"]
+    """`mkdir ./<word>` as a list of keycap labels."""
+    return list("mkdir") + ["Space", ".", "/"] + list(word) + ["Enter"]
 
 
 def listing(dbg):
     dbg.logs()          # drain app logs, or they interleave with the reply
     time.sleep(0.2)
-    return dbg.send("sh ls /") or ""
+    return dbg.send(f"sh ls {HOME_DIR}") or ""
 
 
 def listed(dbg, name, timeout=6.0):
-    """`ls /` once `name` is in it, or the last listing at the deadline:
+    """`ls HOME_DIR` once `name` is in it, or the last listing at the deadline:
     a typed command runs when the shell gets to it, not after a fixed
     sleep."""
     return poll(lambda: (lambda out: out if name in out else "")(listing(dbg)),
@@ -205,7 +211,7 @@ def main():
         kb.type_caps(["Ctrl", "c"])
         time.sleep(0.4)
 
-        kb.type_caps(list("mkdir") + ["Space", "/", "Shift", "z", "z", "Enter"])
+        kb.type_caps(list("mkdir") + ["Space", ".", "/", "Shift", "z", "z", "Enter"])
         after = listed(dbg, "Zz/")
         check("Shift types the shifted cap, and only for one key",
               "Zz/" in after, "wanted Zz/ -- ZZ/ means it stuck, zz/ that it never armed")
@@ -231,7 +237,7 @@ def main():
         k = dbg.json("gui osk --json")
         check("...and follows the setting to Finnish", k.get("layout") == "Finnish",
               f"layout={k.get('layout')!r}")
-        fi_slash = ["Space", "Shift", "7"]
+        fi_slash = ["Space", ".", "Shift", "7"]
         kb.type_caps(list("mkdir") + fi_slash + ["a", "AltGr", "2", "b", "Enter"])
         after = listed(dbg, "a@b/")
         check("AltGr types the layout's third level", "a@b/" in after,

@@ -142,6 +142,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`pmap`](pmap.md)
 - [`privd`](privd.md)
 - [`ps`](ps.md)
+- [`runuser`](runuser.md)
 - [`snddrv`](snddrv.md)
 - [`sudo`](sudo.md)
 - [`time`](time.md)

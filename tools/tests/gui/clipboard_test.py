@@ -326,7 +326,7 @@ def run(dbg, qmp, tmp, res):
     latin1 = "/tests/utf8/latin1.txt"
     u8_path = "/var/tmp/clip_utf8.txt"
     dbg.send("sh rm " + u8_path)
-    dbg.send("sh touch " + u8_path)
+    dbg.as_user("touch " + u8_path)
     for path, then in ((latin1, (CTRL_A, CTRL_C)), (u8_path, (CTRL_V, CTRL_S))):
         dbg.send("gui spawn %s %s" % (NOTEPAD, path))
         time.sleep(2.0)

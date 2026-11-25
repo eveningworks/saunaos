@@ -44,8 +44,7 @@ def caps(l):
 
 
 def run(dbg, qmp, res):
-    dbg.send(f"sh rm -r {ROOT}")
-    dbg.send(f"sh mkdir {ROOT}")
+    dbg.user_dir(ROOT)
     dbg.write_lines(f"{ROOT}/hello.txt", ["hello from Quick access"])
     dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details", "details_pane=0"])
     win = dbg.spawn(f"{fm.SPAWN_PATH} /home", fm.TITLE)

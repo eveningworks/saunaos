@@ -38,6 +38,9 @@ from harness import Results  # noqa: E402
 
 ROOT = "/rc"
 RECENT = "/var/lib/recent"
+# put_old_line()'s copy, which run() moves into place AS THE DESKTOP'S ACCOUNT:
+# `vm.py put` writes as root, and Recent rewrites the list as `user`.
+SEED = "/tmp/recent_gui.seed"
 K_CTRL_L, K_DELETE = "0x0c", "0xf788"
 TB_OPEN_FOLDER, TB_CLEAR = 0, 3   # recent_toolbar_items, separators counted
 
@@ -64,14 +67,16 @@ def run(dbg, qmp, res):
             time.sleep(0.4)
         return False
 
-    sh(f"rm -r {ROOT}")
-    sh(f"mkdir {ROOT}")
+    dbg.user_dir(ROOT)
+    sh(f"rm {RECENT}")
+    dbg.as_user(f"cp {SEED} {RECENT}")
+    sh(f"rm {SEED}")
     dbg.write_lines(f"{ROOT}/notes.txt", ["notes"])
     dbg.write_lines(f"{ROOT}/old.txt", ["old"])
     sh(f"cp /usr/share/wallpapers/dusk.jpg {ROOT}/dusk.jpg")
 
     # 1. open records
-    sh(f"open {ROOT}/notes.txt")
+    dbg.as_user(f"open {ROOT}/notes.txt")
     # NOTEPAD RECORDS THE FILE TOO, when it loads it -- after `open` has --
     # and a second record moves it to the top. So wait for its window
     # before the next open, or the newest entry is whichever of Notepad's
@@ -79,7 +84,7 @@ def run(dbg, qmp, res):
     # committing on their own and urecent's rewrite got faster).
     wait(lambda: any(w.get("app_id") == "notepad" for w in dbg.windows()))
     dbg.settle()
-    sh(f"open {ROOT}/dusk.jpg")
+    dbg.as_user(f"open {ROOT}/dusk.jpg")
     want = [("Notepad", f"{ROOT}/notes.txt"), ("Image Viewer", f"{ROOT}/dusk.jpg")]
     ok = wait(lambda: all(w in recorded() for w in want))
     res.check("open records each file with its app's name", ok, f"list={recorded()}")
@@ -155,10 +160,10 @@ def put_old_line(instance):
     with tempfile.NamedTemporaryFile("w", suffix=".recent", delete=False) as f:
         f.write(f"{int(time.time()) - 3 * 86400} Test\t{ROOT}/old.txt\n")
     r = subprocess.run([sys.executable, toolpath.tool("vm.py"),
-                        "--instance", str(instance), "put", f.name, RECENT],
+                        "--instance", str(instance), "put", f.name, SEED],
                        capture_output=True, text=True)
     os.unlink(f.name)
-    print(f"put {RECENT}: rc={r.returncode} {(r.stdout + r.stderr).strip()[-200:]}")
+    print(f"put {SEED}: rc={r.returncode} {(r.stdout + r.stderr).strip()[-200:]}")
 
 
 def main():

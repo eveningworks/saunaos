@@ -731,7 +731,7 @@ def check_manage(dbg, res):
     each read back from the DISK (`ls`), not from the listing, so a
     dialog that only redrew a row cannot pass."""
     dbg.send(f"sh rm -r {MANAGE_DIR}")
-    dbg.send(f"sh mkdir {MANAGE_DIR}")
+    dbg.as_user(f"mkdir {MANAGE_DIR}")
     dbg.write_lines(f"{MANAGE_DIR}/keep.txt", ["keep"])
     dbg.write_lines(f"{MANAGE_DIR}/gone.txt", ["gone"])
     owner, dlg = open_chooser(dbg, NOTEPAD, "untitled")

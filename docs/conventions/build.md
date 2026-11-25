@@ -1298,6 +1298,31 @@ tree passes it too**. The live image deliberately does not, and
 exists for. The marker is not in the seed tree because the live image is
 made from the same tree.
 
+## A FIXTURE AN APP CHANGES IS MADE AS THE DESKTOP'S ACCOUNT
+
+The debug console's `sh` and `tsh` run as ROOT, and the desktop's apps as
+`user`. A file root makes in `/tmp` (1777) or in a folder of its own is
+one the app may read but, under `fileperm=enforce`, not rewrite, rename
+or delete -- the test then fails on the fixture, or passes only while
+permissions are permissive. So a fixture the app CHANGES is made by the
+account that will change it, as Android's `run-as` and `runuser -u` do
+it, never chowned afterwards (a chown can put a file where the account
+could not have made it, and hide a real refusal):
+
+- `DebugConsole.as_user(line)` -- one `/bin/sh` line through the console's
+  `as <account> <line>` (`/bin/runuser`), the desktop's account by default;
+- `write_lines()` writes as the desktop's account unless given
+  `account=None` -- which a file in a root-kept tree needs
+  (`/etc/fonts`, `/etc/ssl`; `/etc/owners.conf` says which);
+- `user_dir(path)` for a scaffold folder at `/`, where `user` may make
+  nothing: made by root, then the account's with mode 4755, so what root
+  puts in it is the account's too -- `/home`'s own rule;
+- a program a person would start (`open`, an app) is started as the
+  account too: `sh open` records Recent as root.
+
+A test that types into the Terminal works where `user` may write -- its
+home or `/tmp`, never `/`.
+
 ## A TEST WAITS ON WHAT IT ASSERTS, NEVER A GUESSED INTERVAL -- AND A TEST TOOL MAY NOT GAIN A FIXED SLEEP
 
 A sleep before a look is a bet that the machine is as fast as it was

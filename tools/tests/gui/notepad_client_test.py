@@ -816,8 +816,7 @@ def markdown_checks(dbg, qmp, tmp, res):
     txt = "/var/tmp/np_md.txt"
     dbg.send(f"sh rm {doc}")
     dbg.send(f"sh rm {txt}")
-    dbg.send(f"sh cp {src} {doc}")
-    dbg.send(f"sh cp {src} {txt}")
+    dbg.as_user(f"cp {src} {doc} && cp {src} {txt}")
 
     dbg.send(f"gui spawn {SPAWN_PATH} {doc}")
     deadline = time.time() + SPAWN_TIMEOUT_S
@@ -1004,7 +1003,7 @@ def utf8_checks(dbg, qmp, tmp, res):
         # EDITING, read back from the bytes on disk.
         f = "/tmp/np_utf8_edit.txt"
         dbg.send(f"sh rm {f}")
-        dbg.send(f"sh cp {UTF8_DIR}/edit.txt {f}")
+        dbg.as_user(f"cp {UTF8_DIR}/edit.txt {f}")
         pid, win, g = open_file(dbg, qmp, f, pids)
         if not win:
             res.check("utf8: Notepad opens the editing fixture", False)
@@ -1029,7 +1028,7 @@ def utf8_checks(dbg, qmp, tmp, res):
         # its own `aż`.
         f = "/tmp/np_utf8_layouts.txt"
         dbg.send(f"sh rm {f}")
-        dbg.send(f"sh cp {UTF8_DIR}/edit.txt {f}")
+        dbg.as_user(f"cp {UTF8_DIR}/edit.txt {f}")
         dbg.send("sh config set system.keyboard.layouts us,pl,ro,ee")
         try:
             pid, win, g = open_file(dbg, qmp, f, pids)
@@ -1152,7 +1151,7 @@ def _click_ask(dbg, pid, i):
 def two_named_dirty_tabs(dbg, res, pids):
     """A Notepad on SECOND_CLOSE_FILE with a second tab saved as
     SECOND_CLOSE_B, both dirty, tab 2 current. (pid, title(), ready)."""
-    dbg.send(f"sh write {SECOND_CLOSE_FILE} kept")
+    dbg.as_user(f"printf kept > {SECOND_CLOSE_FILE}")
     dbg.send(f"sh rm {SECOND_CLOSE_B}")
     pid = spawn_notepad(dbg, SECOND_CLOSE_FILE)
     pids.append(pid)
@@ -1258,7 +1257,7 @@ def minimized_prompt_comes_forward(dbg, res, pids):
 
 def second_close_tab(dbg, res, pids):
     dbg.logs("notepad: close while asking", clear=True)
-    dbg.send(f"sh write {SECOND_CLOSE_FILE} kept")
+    dbg.as_user(f"printf kept > {SECOND_CLOSE_FILE}")
     dbg.send(f"sh rm {NOTEPAD_SESSION}")
     pid, title, ready = two_named_dirty_tabs(dbg, res, pids)
     if pid is None:

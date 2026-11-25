@@ -96,8 +96,7 @@ def run(dbg, qmp, res):
               f"button={label!r} {why} bin={binned()}")
     sh("trash empty")
 
-    sh(f"rm -r {ROOT}")
-    sh(f"mkdir {ROOT}")
+    dbg.user_dir(ROOT)
     sh(f"touch {ROOT}/keep.txt")
     sh(f"touch {ROOT}/kept.txt")
     sh(f"touch {ROOT}/gone.txt")

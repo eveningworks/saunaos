@@ -59,11 +59,10 @@ def size_of(dbg, path):
 
 
 def setup(dbg):
-    dbg.send(f"sh rm -r {ROOT}")
-    for d in (ROOT, f"{ROOT}/src", f"{ROOT}/src/big", f"{ROOT}/dst"):
-        dbg.send(f"sh mkdir {d}")
+    dbg.user_dir(ROOT)
+    dbg.as_user(f"mkdir {ROOT}/src {ROOT}/src/big {ROOT}/dst")
     for i in range(COPIES):
-        dbg.send(f"sh cp {VIDEO} {ROOT}/src/big/v{i}.mpg")
+        dbg.as_user(f"cp {VIDEO} {ROOT}/src/big/v{i}.mpg")
     dbg.write_lines(f"{ROOT}/src/small.txt", ["small but whole"])
     dbg.write_lines(f"{ROOT}/src/other.txt", ["never copied"])
 

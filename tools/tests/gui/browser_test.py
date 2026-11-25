@@ -1206,7 +1206,9 @@ def network(dbg, net, page, at, shot):
           reqs >= 7 and conns < reqs, f"connections={conns} requests={reqs}")
 
     if net.get("certs"):
-        dbg.send(f"gui spawn /bin/wget -O /etc/ssl/certs/saunaos-test-ca.pem http://{host}/ca.pem")
+        # As ROOT: the trust store is root's to change (/etc/owners.conf), and
+        # `gui spawn` runs a program as the desktop's account.
+        dbg.tsh(f"wget -O /etc/ssl/certs/saunaos-test-ca.pem http://{host}/ca.pem")
         for _ in range(40):
             if "BEGIN CERTIFICATE" in (dbg.send("sh cat /etc/ssl/certs/saunaos-test-ca.pem") or ""):
                 break

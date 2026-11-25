@@ -270,6 +270,9 @@ def main():
             enter_gui(qmp, args.sock)
         dbg = DebugConsole(args.sock)
         print("System Update (userland/common/upd.c, uui_progress)")
+        # Its check starts as it opens, and a guest this new may not have
+        # its DHCP lease yet.
+        check("the guest has an address", dbg.wait_network())
         url = f"http://10.0.2.2:{srv.server_address[1]}"
         dbg.send(f"sh update --server {url}")
         for path in DAMAGE:

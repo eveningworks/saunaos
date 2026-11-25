@@ -75,6 +75,7 @@ static void dbg_cmd_help(void) {
     dbg_write("  ktest [suite] - run the in-kernel test suite\r\n");
     dbg_write("  sh <command>  - run any shell command, output back here\r\n");
     dbg_write("  tsh <line>    - one /bin/sh command line, verbatim: ; && | > $? quotes\r\n");
+    dbg_write("  as <acct> <line> - tsh's line, run as that account (runuser)\r\n");
     dbg_write("  gui <sub>     - inspect/drive the window manager (`gui help`)\r\n");
     dbg_write("  diag [name [cmd]] - ask any registered service; no args lists them\r\n");
     dbg_write("  mark <text>   - write `mark <text>` to the kernel log\r\n");
@@ -198,31 +199,14 @@ static void dbg_cmd_sh(char *line) {
 }
 
 
-// `tsh <line>`: the line, VERBATIM, as /bin/sh's one `-c` argument -- `ssh host 'cmd'` and
-// `adb shell 'cmd'`'s shape: `;`, `&&`, `||`, pipes, redirection, `$?` and quotes, which `sh`'s
-// one-command kernel dispatcher has none of. /bin/sh is dash, a POSIX shell; tosh, the interactive
-// one, has no `;` or `||`. The same session as `sh` (dbg_cmd_sh()), and a non-zero exit said as
-// `[exit N]`.
-static void dbg_cmd_tsh(const char *line) {
-    if (!line || line[0] == '\0') {
-        dbg_write("usage: tsh <line>  (one POSIX sh command line: ; && || | > $? and quotes)\r\n");
-        return;
-    }
-    static const char path[] = "/bin/sh";
-    size_t n = k_strlen(line);
-    size_t len = sizeof path + 3 + n + 1;            // "/bin/sh\0" "-c\0" line "\0"
-    char *vec = kmalloc(len);
-    if (!vec) { dbg_write("tsh: out of memory\r\n"); return; }
-    k_memcpy(vec, path, sizeof path);
-    k_memcpy(vec + sizeof path, "-c", 3);
-    k_memcpy(vec + sizeof path + 3, line, n + 1);
-
+// Run the argv vector `vec` (`len` bytes, NULs between) as one session on this
+// wire, as dbg_cmd_sh() runs a command, and say a non-zero exit as `[exit N]`.
+static void dbg_run_vector(const char *who, const char *vec, size_t len) {
     const struct vga_sink *prev = vga_set_sink(&g_serial_sink);
     fd_set_kernel_tty(g_tty);
-    int pid = scheduler_spawn_group(path, vec, len, -1, -1, -1, 0, 0, 0);
-    kfree(vec);
+    int pid = scheduler_spawn_group(vec, vec, len, -1, -1, -1, 0, 0, 0);
     if (pid <= 0) {
-        dbg_write("tsh: could not start /bin/sh\r\n");
+        dbg_printf("%s: could not start %s\r\n", who, vec);
     } else {
         if (fd_kernel_tty()) tty_attach_kernel_session(fd_kernel_tty(), pid);
         int code = -1;
@@ -236,6 +220,65 @@ static void dbg_cmd_tsh(const char *line) {
     tty_hangup(g_tty);
     serial_tty_reset();
     vga_set_sink(prev);
+}
+
+// Append NUL-terminated `w` to the vector at `*at`.
+static void vec_put(char *vec, size_t *at, const char *w) {
+    size_t n = k_strlen(w) + 1;
+    k_memcpy(vec + *at, w, n);
+    *at += n;
+}
+
+// `tsh <line>`: the line, VERBATIM, as /bin/sh's one `-c` argument -- `ssh host 'cmd'` and
+// `adb shell 'cmd'`'s shape: `;`, `&&`, `||`, pipes, redirection, `$?` and quotes, which `sh`'s
+// one-command kernel dispatcher has none of. /bin/sh is dash, a POSIX shell; tosh, the interactive
+// one, has no `;` or `||`. The same session as `sh` (dbg_cmd_sh()), and a non-zero exit said as
+// `[exit N]`.
+static void dbg_cmd_tsh(const char *line) {
+    if (!line || line[0] == '\0') {
+        dbg_write("usage: tsh <line>  (one POSIX sh command line: ; && || | > $? and quotes)\r\n");
+        return;
+    }
+    size_t len = sizeof "/bin/sh" + sizeof "-c" + k_strlen(line) + 1, at = 0;
+    char *vec = kmalloc(len);
+    if (!vec) { dbg_write("tsh: out of memory\r\n"); return; }
+    vec_put(vec, &at, "/bin/sh");
+    vec_put(vec, &at, "-c");
+    vec_put(vec, &at, line);
+    dbg_run_vector("tsh", vec, at);
+    kfree(vec);
+}
+
+// `as <account> <line>`: `tsh` as another account -- /bin/runuser -u ACCOUNT /bin/sh -c LINE,
+// runuser(1) and Android's `run-as` -- so what a test makes for an app belongs to the account
+// the app runs as, and a place that account may not write fails the test as it would the app.
+static void dbg_cmd_as(const char *arg) {
+    char who[64];
+    int i = 0;
+    while (arg && arg[i] && arg[i] != ' ' && i < (int)sizeof(who) - 1) { who[i] = arg[i]; i++; }
+    who[i] = '\0';
+    if (arg && arg[i] && arg[i] != ' ') {
+        dbg_write("as: account name too long\r\n");
+        return;
+    }
+    const char *line = arg ? arg + i : "";
+    while (*line == ' ') line++;
+    if (!who[0] || !*line) {
+        dbg_write("usage: as <account> <line>  (tsh's line, run as the account)\r\n");
+        return;
+    }
+    size_t len = sizeof "/bin/runuser" + sizeof "-u" + k_strlen(who) + 1 + sizeof "/bin/sh" +
+                 sizeof "-c" + k_strlen(line) + 1, at = 0;
+    char *vec = kmalloc(len);
+    if (!vec) { dbg_write("as: out of memory\r\n"); return; }
+    vec_put(vec, &at, "/bin/runuser");
+    vec_put(vec, &at, "-u");
+    vec_put(vec, &at, who);
+    vec_put(vec, &at, "/bin/sh");
+    vec_put(vec, &at, "-c");
+    vec_put(vec, &at, line);
+    dbg_run_vector("as", vec, at);
+    kfree(vec);
 }
 
 static void dbg_cmd_ktest(const char *suite) {
@@ -543,6 +586,7 @@ static void dbg_dispatch(char *line) {
     else if (k_strcmp(line, "ktest") == 0) dbg_cmd_ktest(arg);
     else if (k_strcmp(line, "sh") == 0) dbg_cmd_sh((char *)arg);
     else if (k_strcmp(line, "tsh") == 0) dbg_cmd_tsh(arg);
+    else if (k_strcmp(line, "as") == 0) dbg_cmd_as(arg);
     // A LINE ON THE KERNEL LOG, so a tool reading the log on its own port
     // knows that port has caught up to this moment once the mark arrives
     // -- a wait on the log, not a guessed pause (gui_debug.py's logs()).

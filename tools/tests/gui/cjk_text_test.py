@@ -95,7 +95,7 @@ def show(dbg, qmp, path, tmp):
 def run(dbg, qmp, res, control):
     conf = [ln for ln in LIST if not ln.startswith("noto-sans-cjk")] if control else LIST
     res.check("the fallback list is written" + (" WITHOUT the CJK face (control)" if control else ""),
-              dbg.write_lines(CONF, conf))
+              dbg.write_lines(CONF, conf, account=None))
     for path, text in FILES.items():
         res.check(f"{path} is written", dbg.write_lines(path, [text]))
     with tempfile.TemporaryDirectory() as tmp:
@@ -119,7 +119,8 @@ def run(dbg, qmp, res, control):
             return
         sc = seen["/tmp/cjk_bone.txt"][1]
         res.check("the list naming member :0 instead is written",
-                  dbg.write_lines(CONF, [ln.replace("cjk-regular:2", "cjk-regular:0") for ln in LIST]))
+                  dbg.write_lines(CONF, [ln.replace("cjk-regular:2", "cjk-regular:0") for ln in LIST],
+                                  account=None))
         _, jp, _ = show(dbg, qmp, "/tmp/cjk_bone.txt", tmp)
         differ = sc is not None and jp is not None and len(sc) == len(jp) and \
             sum(1 for a, b in zip(sc, jp) if abs(a - b) > 64)

@@ -282,8 +282,20 @@ is right and this is what it does:
   -- allowed, permissive`), nothing refused. `fileperm=enforce` turns
   them on, and `CRED_PERM_ENFORCE` on a cred enforces one process tree
   whatever the boot says -- `fileperm_test` runs that way. The flip is
-  on the roadmap: the harness's fixtures owned by the desktop's account
-  first, then a soak, as `syscall_irq` was flipped.
+  on the roadmap, as `syscall_irq` was flipped: the harness's fixtures
+  first, then a soak.
+- **The tests' fixtures are the desktop's (2026-11-25).** A file a test
+  makes for an app to change is MADE as `user` -- the debug console's
+  `as <account> <line>` (`/bin/runuser -u`, util-linux's, root only),
+  `DebugConsole.as_user()`, and `write_lines()` by default -- as Android's
+  `run-as` makes an app's files as its uid; a scaffold folder at `/` is
+  made `/home`-shaped (`user_dir()`: the account's, 4755). With that, the
+  whole GUI suite and the usertests pass under `fileperm=enforce`; the
+  default flips after daily use on the ASUS with the word on.
+- **Downloaded game data is the person's** (the same day): DOOM's and
+  ScummVM's cards write `$XDG_DATA_HOME/doom` and `.../games`, with their
+  licences in `.../licenses`, and find a copy in `/usr/share` after it
+  (`base/udatadir.h`) -- they run as `user`, which cannot write `/usr`.
 
 ### D. Several people
 

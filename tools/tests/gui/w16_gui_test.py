@@ -195,6 +195,7 @@ RUNNER = {
 
 import argparse
 import re
+import shlex
 import sys
 import time
 
@@ -246,6 +247,14 @@ def inv(c):
 
 
 def sh(dbg, cmd):
+    """A kernel-shell command -- except `write`/`append`, which write their
+    line AS THE DESKTOP'S ACCOUNT (DebugConsole.as_user()): every file this
+    tool writes is one w16, its brokers or the desktop then rewrites."""
+    verb, _, rest = cmd.partition(" ")
+    if verb in ("write", "append"):
+        path, _, text = rest.partition(" ")
+        op = ">" if verb == "write" else ">>"
+        return dbg.as_user(f"printf '%s\\n' {shlex.quote(text)} {op} {shlex.quote(path)}") or ""
     return dbg.send(f"sh {cmd}") or ""
 
 

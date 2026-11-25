@@ -277,7 +277,7 @@ def main():
 
     # --- copy, to the clipboard and out through Notepad -------------------------------------------------
     dbg.send(f"sh rm {CLIP}")
-    dbg.send(f"sh touch {CLIP}")
+    dbg.as_user(f"touch {CLIP}")
     dbg.key("a", mods="ctrl")
     dbg.key("c", mods="ctrl")
     dbg.settle()

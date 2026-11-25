@@ -49,9 +49,8 @@ ROW_ANY, ROW_PICTURES, ROW_EMPTY = 0, 1 + KIND_PICTURES, SIZE_EMPTY
 
 
 def setup(dbg):
-    dbg.send(f"sh rm -r {ROOT}")
-    for d in (ROOT, f"{ROOT}/a"):
-        dbg.send(f"sh mkdir {d}")
+    dbg.user_dir(ROOT)
+    dbg.as_user(f"mkdir {ROOT}/a")
     dbg.write_lines(f"{ROOT}/dusk.jpg", ["not really a picture"])
     dbg.send(f"sh touch {ROOT}/empty.txt")
     dbg.write_lines(f"{ROOT}/notes.txt", ["shopping", "milk", "bread",

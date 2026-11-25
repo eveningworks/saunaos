@@ -24,7 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] Enforce file permissions by default -- the GUI tests' root-made fixtures the desktop's first  *(Multi-user & file permissions)*
+- [ ] Enforce file permissions by default -- the suite passes enforced (2026-11-25); flip after days of ASUS use  *(Multi-user & file permissions)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
 
@@ -245,7 +245,7 @@ only expensive part of it.
 - [x] ~~Stage A of `docs/users-design.md`: uids in the process, the desktop as `user`~~ DONE 2026-11-24 -- `SYS_GETCRED`, `User=`, `id`
 - [x] ~~Stage B of `docs/users-design.md`: the euid gate, and `privd` asks consent~~ DONE 2026-11-24 -- `sudo`, the prompt
 - [x] ~~Stage C of `docs/users-design.md`: files carry an owner, and the syscalls check it~~ DONE 2026-11-24 -- `chown`
-- [ ] **NEXT** Enforce file permissions by default -- the GUI tests' root-made fixtures the desktop's first
+- [ ] **NEXT** Enforce file permissions by default -- the suite passes enforced (2026-11-25); flip after days of ASUS use
 - [ ] `open()`'s and `mkdir()`'s mode reach the kernel -- once every tool that writes a program sets its exec bit (stage C)
 - [ ] `ls -l` shows the mode and the owner, and File Manager's Properties the owner -- today `stat` does
 - [ ] A setgid folder gives a new file its group (BSD's rule; Linux's with `g+s`)

@@ -519,9 +519,9 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # nothing on its own.
     full = (c["x"], c["y"], c["x"] + c["w"], c["y"] + c["h"])
     plain = bar_run(qmp, tmp, "ut_nobar.png", full)
-    dbg.send("sh rm /uterm_edit.txt")
+    dbg.send("sh rm /tmp/uterm_edit.txt")
     dbg.settle()
-    type_line(dbg, "edit /uterm_edit.txt", settle=2.5)
+    type_line(dbg, "edit /tmp/uterm_edit.txt", settle=2.5)
     for ch in "hello":
         key(dbg, HEX.get(ch, ch))
     dbg.settle()
@@ -553,7 +553,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
     time.sleep(1.5)
     key(dbg, "0xf78a")   # F3 -- exit
     time.sleep(1.5)
-    out = dbg.send("sh cat /uterm_edit.txt") or ""
+    out = dbg.send("sh cat /tmp/uterm_edit.txt") or ""
     res.check("a full-screen editor runs IN THE WINDOW and saves",
               "hello" in out, out.strip()[:70])
 
@@ -1147,9 +1147,9 @@ def check_meta(dbg, qmp, res):
     key(dbg, "0x0d")
     dbg.settle()
     for d in ("mwaa", "mwbb", "xmwbb", "mwbbbx"):
-        dbg.send(f"sh rm /{d}")
+        dbg.send(f"sh rm /tmp/{d}")
     dbg.settle()
-    type_text(dbg, "mkdir /mwaa /mwbb")
+    type_text(dbg, "mkdir /tmp/mwaa /tmp/mwbb")
     time.sleep(0.3)
     qmp.key_down("alt")
     time.sleep(0.15)
@@ -1159,13 +1159,13 @@ def check_meta(dbg, qmp, res):
     time.sleep(0.4)
     dbg.settle()
     type_line(dbg, "x", settle=1.5)
-    listing = dbg.send("sh ls /") or ""
+    listing = dbg.send("sh ls /tmp") or ""
     names = {tok.rstrip("/") for line in listing.splitlines() for tok in line.split()}
     res.check("m1. Alt+B in the Terminal moves back a word (ESC b reaches the shell)",
               "xmwbb" in names and "mwbb" not in names,
-              f"expected /xmwbb; / has {sorted(n for n in names if n.startswith(('mw', 'xmw')))}")
+              f"expected /tmp/xmwbb; /tmp has {sorted(n for n in names if n.startswith(('mw', 'xmw')))}")
     for d in ("mwaa", "mwbb", "xmwbb", "mwbbbx"):
-        dbg.send(f"sh rm /{d}")
+        dbg.send(f"sh rm /tmp/{d}")
 
 
 def env_lines(text):
@@ -1264,8 +1264,8 @@ def check_completion(dbg, qmp, res):
     key(dbg, "0x0d")
     dbg.settle()
 
-    dbg.send("sh rm /ct_gui_dir")
-    dbg.send("sh rm /ct_gui_file")
+    dbg.send("sh rm /tmp/ct_gui_dir")
+    dbg.send("sh rm /tmp/ct_gui_file")
     dbg.settle()
 
     # `mkdi<Tab>` -> `mkdir`, proving FIRST-WORD completion off PATH.
@@ -1275,17 +1275,17 @@ def check_completion(dbg, qmp, res):
     key(dbg, "0x09")   # Tab, the same path every other keystroke here takes
     dbg.settle()
     time.sleep(0.5)
-    type_line(dbg, " /ct_gui_dir", settle=1.5)
-    listing = dbg.send("sh ls /")
+    type_line(dbg, " /tmp/ct_gui_dir", settle=1.5)
+    listing = dbg.send("sh ls /tmp")
     res.check("c14. Tab completed a PATH program in first position",
               "ct_gui_dir" in listing,
               "the directory was never created, so `mkdi` did not become `mkdir`")
 
     # A file beside it, sharing the prefix. Now `cd /ct_gui_<Tab>` has
     # two candidates unless `cd` filters to directories.
-    dbg.send("sh write /ct_gui_file x")
+    dbg.send("sh write /tmp/ct_gui_file x")
     dbg.settle()
-    type_text(dbg, "cd /ct_gui_")
+    type_text(dbg, "cd /tmp/ct_gui_")
     key(dbg, "0x09")   # Tab, the same path every other keystroke here takes
     dbg.settle()
     time.sleep(0.5)
@@ -1301,8 +1301,8 @@ def check_completion(dbg, qmp, res):
               any(l.endswith("/ct_gui_dir") for l in titles),
               f"last titles: {titles[-3:]}")
 
-    dbg.send("sh rm /ct_gui_file")
-    dbg.send("sh rm /ct_gui_dir")
+    dbg.send("sh rm /tmp/ct_gui_file")
+    dbg.send("sh rm /tmp/ct_gui_dir")
     dbg.settle()
 
 
@@ -2044,8 +2044,7 @@ def check_utf8(dbg, qmp, tmp, res):
     """
     d = "/tmp/u8"
     dbg.send(f"sh rm -r {d}")
-    dbg.send(f"sh mkdir {d}")
-    dbg.send(f"sh mkdir {d}/Kesä")
+    dbg.as_user(f"mkdir {d} {d}/Kesä")
     dbg.send("sh config set system.keyboard.layouts us,fi,pl,ro,ee")
     dbg.send("sh config set system.keyboard.layout fi")
     win = fresh_terminal(dbg, res, "u")

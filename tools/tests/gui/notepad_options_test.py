@@ -95,7 +95,7 @@ def page(dbg, ow, n):
 def run(dbg, res):
     dbg.send(f"sh rm {CONF}")
     dbg.send(f"sh rm {DOC}")
-    dbg.send(f"sh cp /etc/shells {DOC}")
+    dbg.as_user(f"cp /etc/shells {DOC}")
     dbg.send(f"gui spawn {NOTEPAD} {DOC}")
     win = window(dbg, "npo.txt")
     if not win:
