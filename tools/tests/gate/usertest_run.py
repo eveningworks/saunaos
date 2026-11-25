@@ -313,6 +313,10 @@ TESTS = [
     # fail delay, /etc/shadow's owner and mode, and a libxcrypt hash
     # verifying. SPAWNED: it waits for its child; restores /etc/shadow.
     ("passwd_test", None, None, None),
+    # /bin/login on a pty, as telnetd starts it (users D2c): -f with no
+    # password is a shell at once, with one it asks, refuses a wrong one
+    # and starts the shell AS the account. SPAWNED; removes its password.
+    ("ttylogin_test", None, None, None),
     # A futex parking and waking ACROSS two processes, through a shared
     # page. The KTESTs beside sys_futex_wait() cover key derivation and
     # every refusal and cannot cover this -- they run on the kernel

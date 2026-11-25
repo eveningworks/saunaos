@@ -6,12 +6,13 @@
 #     service enable telnetd     # copies it into /etc/services.d
 #     service disable telnetd
 #
-# Telnet has no encryption and no authentication and this OS has no
-# users, so a connection is a shell with the run of the machine. Do not
-# enable it on a network you do not own.
+# Telnet has no encryption. A connection gets /bin/login (users D2c):
+# the first person's shell at once when that account has no password, or
+# `login:` and `Password:` once it has one -- so with no password set it
+# is a shell for anyone who can reach port 23. Do not enable it on a
+# network you do not own. Runs as root, as login(1) must.
 Name=telnetd
 Description=A shell over the network (telnet, port 23)
 Exec=/bin/inetd
-User=user
 Args=-p 23 /bin/telnetd
 Restart=always

@@ -297,6 +297,13 @@ them has its own checks:
   the hand over links; any font a function selects is put back
   (`check_font_state.py` proves that one). Drive the zoom, the selection
   and the menu on the guest and send the maintainer the screenshot.
+  And every TEXT FIELD, in a window or drawn by the compositor: the text
+  cursor over it (`DebugConsole.cursor_shape()` after `warp_cursor()`,
+  4), a caret that BLINKS (two settled frames half a blink apart differ),
+  and Enter in it answering the dialog through its named default button
+  (`uapp_window_desc.default_button`; an overlay fills `text_at`) --
+  maintainer, 2026-11-25, after the login screen shipped without all
+  three (`docs/conventions/gui.md`, "A text field owes...").
 - Adding a syscall means: the number and its contract in
   `abi/syscall_abi.h`, a handler, a typed wrapper in `sys.h`/`sys.c`,
   a `strace.c` table entry, and a KTEST. Missing the strace entry is

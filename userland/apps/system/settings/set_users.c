@@ -281,7 +281,7 @@ static void users_open_dialog(struct uapp *a, int mode) {
         .w = w, .h = h, .flags = UAPP_WIN_MODAL,
         .widgets = UD, .widget_count = n, .layout = &UD_LAYOUT, .focus = &g_ud_focus,
         .on_widget = ud_on_widget, .on_action = ud_on_action, .on_key = ud_on_key, .on_close = ud_close,
-        .log_prefix = "settings.users",
+        .log_prefix = "settings.users", .default_button = &g_ud_ok,
     });
     ulogf("settings: users dialog %s %s\n", mode == U_REMOVE ? "remove" : mode == U_SET ? "set" : "change",
           g_ud_win ? "open" : "FAILED");

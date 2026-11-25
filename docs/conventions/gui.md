@@ -4769,6 +4769,39 @@ The read-only widgets that still have no selection are on the roadmap
 (`uui_markdown` and the labels among them): a new app uses one that has,
 or adds it to the widget, rather than shipping unselectable text.
 
+## A TEXT FIELD OWES THE TEXT CURSOR, A BLINKING CARET AND ENTER -- WHEREVER IT IS DRAWN, THE COMPOSITOR'S TOO.
+
+Three things a person expects of every field and every dialog, in a
+window or drawn by the compositor itself (the login and lock screen, the
+Authentication Required dialog, the Start menu's search). Each shipped
+missing once from a field the toolkit did not draw (users D2, 2026-11-25):
+
+- **THE TEXT CURSOR OVER THE FIELD**, the arrow off it. A window's widget
+  names `WIN_CURSOR_TEXT` itself; **a compositor overlay with a field
+  fills its `text_at` slot** (`toywm/wm_overlay.h`), which
+  `client_cursor_at()` asks before any other overlay rule.
+- **THE CARET BLINKS** (`ui/uui_caret.h`'s one phase, solid after ten
+  idle seconds). uapp wakes a window for the flip by itself; the
+  compositor wakes for an overlay's only because the same `text_at` slot
+  puts it in `wm_overlay_caret_wait_ms()` -- an overlay drawn with a
+  caret and no `text_at` shows it SOLID, forever.
+- **ENTER IN A FIELD ANSWERS THE DIALOG** with its default button (OK,
+  Set, Rename), as Windows' `DM_GETDEFID` and Qt's `setDefault()` do;
+  greyed, it does nothing; a focused button keeps its own Enter. A uapp
+  dialog window names it in **`uapp_window_desc.default_button`** -- not
+  an `on_key` that tests for `'\n'`; `uui_dialog` has its own
+  `default_button`. A dialog whose Enter means something more particular
+  (a file dialog opening a folder, a renamer committing in place) keeps
+  its own handler and says why.
+
+And a picture on a compositor surface is the THEME's icon (`icon_get()`,
+tinted), not a glyph built from circles and bars: the login screen's
+hand-drawn Restart arrow was the odd one out beside the Leave page's.
+
+Tested: `tools/hostchecks/uitest/default_button_uitest.c` (the rule),
+`tools/tests/gui/login_test.py` (all three on the lock screen, Enter in
+Settings > Users; the blink check red with the wait hook removed).
+
 ## THE SELECTED FONT IS THE PROCESS'S: A FUNCTION THAT SELECTS ONE PUTS BACK THE ONE IT FOUND.
 
 `ugfx_set_font()` is not a widget's setting, it is the whole process's:

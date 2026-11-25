@@ -91,6 +91,7 @@
 | `uline.h` | uline -- the PAINTING half of a ring-3 line-editing front end. |
 | `ulistdir.h` | A WHOLE DIRECTORY LISTING, however many entries it has: SYS_GETDENTS's variable-length records read in pages into one malloc'd array of entries with a FIXED 256-byte name -- glibc's struct dirent o... |
 | `ulog.h` | Toolkit diagnostics: one line to the app's stderr, which the kernel routes to its log and to a QMP test's console (CLAUDE.md's "diagnostics go to stderr"). |
+| `ulogin.h` | An ACCOUNT'S IDENTITY FOR A SPAWN: its uid, primary group, every /etc/group line naming it, and the login variables -- HOME, USER, LOGNAME, SHELL and XDG's four base directories under its home -- r... |
 | `ulogset.h` | ulogset -- log lines held for READING: the kernel ring, the application ring, a stored boot or any /var/log file, parsed into time, level, source and subsystem, merged in time order, counted for re... |
 | `ulru.h` | ulru -- a hash table with a least-recently-used list, INTRUSIVE: the caller's entry embeds a `struct ulru_node`, and the caller keeps the key, the bytes and the budget. |
 | `umd.h` | umd -- rendering Markdown as text for a terminal. |

@@ -1,6 +1,10 @@
 // See wm_idle.h.
 #include "wm_internal.h"
 #include "wm_idle.h"
+#include "wm_login.h"
+#include "base/upriv.h"
+#include <pwd.h>
+#include <unistd.h>
 #include "apps/system/toywm/wm_conf.h"
 #include "base/uconf.h"
 #include "wm_log.h"
@@ -49,6 +53,18 @@ static void adopt_settings(void) {
         if (n >= 0 && n <= SCREENSAVER_IDLE_MAX) g_off_minutes = n;
     }
     g_off_refused = 0;
+}
+
+// desktop.lock_on_resume, and only for an account that HAS a password: a
+// lock that opens on an empty Enter protects nothing. privd answers the
+// question at once (UPRIV_PROBE); asked only when a saver or a dark
+// screen is ended, never per frame.
+static int lock_on_resume(void) {
+    if (wm_greeter || wm_login_open) return 0;
+    char v[8] = "";
+    if (uconf_get_layered(DESKTOP_CONF, "lock_on_resume", v, sizeof v) && !strcmp(v, "off")) return 0;
+    struct passwd *pw = getpwuid(getuid());
+    return pw && upriv_has_password(pw->pw_name) == 1;
 }
 
 static void stop_saver(void) {
@@ -167,8 +183,13 @@ void wm_idle_poll(int active) {
     if (active) {
         uint64_t quiet = first ? UINT64_MAX / 2 : sys_ticks() - g_last_input;
         g_last_input = sys_ticks();
+        int was_away = g_saver_pid || g_screen_off;
         stop_saver();
         screen_wake(quiet);
+        // LOCKED ON RESUME (users D2c, Windows' "On resume, display logon
+        // screen"): in the same frame the saver goes, so nothing of the
+        // session shows between.
+        if (was_away && lock_on_resume()) wm_login_show(WM_LOGIN_LOCK);
         return;
     }
 

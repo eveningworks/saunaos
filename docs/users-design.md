@@ -1,6 +1,6 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 planned 2026-11-25 (D2a, D2b, D2c below) and being built.** The maintainer
+**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 (D2a, D2b, D2c below) BUILT 2026-11-25.** The maintainer
 picked the shape on 2026-11-23: four stages, stage A first, a ROOT
 BROKER for elevation (no setuid bits), ONE user account before several.
 Roadmap: "Multi-user & file permissions".
@@ -551,10 +551,9 @@ telnetd runs `login(1)` as root, which drops to the account.
   `autologin` action -- switching it off is the seat's right, switching it
   on asks (for the password once there is one), and only for the asker's
   own account -- so no program running as the person can turn automatic
-  sign-in back on behind a password. Until D2c's `/bin/login`, a TEXT boot with the
-  login screen chosen has no console shell at all (no greeter there to
-  start a session): the debug console's `sh` and `config set --machine
-  login.autologin user` are the way back.
+  sign-in back on behind a password. A TEXT boot with the login screen
+  chosen has no greeter to start a session; its console asks through
+  `/bin/login` (D2c).
 
 **D2c -- the lock screen and remote logins.**
 
@@ -575,6 +574,29 @@ telnetd runs `login(1)` as root, which drops to the account.
 - **`tools/dev/remote.py`** answers the login prompt from the
   machine's entry in `local_info.txt`, so a laptop with a password
   stays reachable.
+
+As built (2026-11-25), and where it differs from the plan:
+
+- **Lock**: Super+L, and resuming from the saver or a dark screen when
+  `desktop.lock_on_resume` is on and the account has a password (asked
+  of privd only then, never per frame). `wm_login.c`'s LOCK mode, the
+  same overlay as the greeter's. The Start menu's Lock is NOT built yet
+  (the roadmap).
+- **`/bin/login [--seat] [-f ACCOUNT]`** (`docs/commands/login.md`).
+  `-f` signs in at once only while the account has NO password -- so
+  telnetd always starts `login -f <first person>` and needs no "does
+  any account have one" test of its own. The identity and login
+  variables are `base/ulogin.h`'s, which init's `User=` uses too.
+- **The console and VT shells have two forms**: `User=@session` with
+  `NoSessionExec=/bin/login` and `NoSessionArgs=--seat` -- the shell as
+  the session's account while one is on, `login` as root while none is
+  (the login screen up, or a text boot). init stops the one form and
+  starts the other at a session's start and end (`switching`, which
+  is no failure), logind's shape of a getty per VT.
+- **`remote.py`** reads a `login <host> <account> <password>` line from
+  `local_info.txt` (or `SAUNAOS_REMOTE_ACCOUNT` / `_PASSWORD`), answers
+  `login:`, then runs `sudo /bin/tosh` with the password, so its
+  commands still run as root.
 
 **D3 -- several people.**
 

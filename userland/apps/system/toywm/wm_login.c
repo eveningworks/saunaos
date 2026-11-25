@@ -12,6 +12,7 @@
 #include "wm_log.h"
 #include "desktop.h"
 #include "layout_popup.h"
+#include "media/icon_cache.h"
 #include "confirm_dialog.h"
 #include "base/udate.h"
 #include "base/uinitctl.h"
@@ -96,6 +97,11 @@ void wm_login_show(int mode) {
     g_snap_ok = 0;
     wm_overlay_close_others(0);
     wm_login_open = 1;
+    // The text terminals change to their login form while it is up.
+    if (mode == WM_LOGIN_LOCK) {
+        int rc = uinitctl_lock(1);
+        if (rc != INITCTL_OK) wm_logf("login: init did not take the lock (%d)\n", rc);
+    }
     wm_logf("login: the %s screen for %s\n", mode == WM_LOGIN_LOCK ? "lock" : "login", g_account);
     WM_REDRAW();
 }
@@ -140,6 +146,7 @@ static void answered(void) {
         if (g_mode == WM_LOGIN_LOCK) {
             wm_logf("login: unlocked\n");
             wm_login_open = 0;
+            uinitctl_lock(0);
         } else {
             // init stops this compositor and starts the session's.
             wm_logf("login: %s signed in\n", g_account);
@@ -248,19 +255,11 @@ static void layout(void) {
     g_r[C_RESTART] = (struct rect){ g_r[C_SHUTDOWN].x - bw - u(), by, bw, bh };
 }
 
-// Restart's arrow and Shut down's power sign, from circles and bars.
-static void power_glyph(struct ugfx_surface *s, int restart, int cx, int cy, int r, uint32_t c, uint32_t bg) {
-    int t = ugfx_px(2);
-    ugfx_fill_circle(s, cx, cy, r, c);
-    ugfx_fill_circle(s, cx, cy, r - t, bg);
-    if (restart) {
-        ugfx_fill_rect(s, cx + r / 3, cy - r - t, r, r, bg);
-        ugfx_fill_rect(s, cx + r / 3, cy - r - t, r * 2 / 3, t, c);
-        ugfx_fill_rect(s, cx + r / 3 + r * 2 / 3 - t, cy - r - t, t, r * 2 / 3, c);
-    } else {
-        ugfx_fill_rect(s, cx - r / 3, cy - r - t, r * 2 / 3, r, bg);
-        ugfx_fill_rect(s, cx - t / 2, cy - r - t, t, r, c);
-    }
+// Restart's and Shut down's icons -- the Leave page's own (leave_page.c),
+// tinted white.
+static void power_glyph(struct ugfx_surface *s, int restart, int cx, int cy, int size) {
+    const struct uimg *ico = icon_get(restart ? "tb-refresh" : "tb-power", size);
+    if (ico) ugfx_blit_tinted(s, cx - ico->w / 2, cy - ico->h / 2, ico->w, ico->h, ico->px, ico->w, WHITE);
 }
 
 void wm_login_draw(int mx, int my) {
@@ -328,9 +327,7 @@ void wm_login_draw(int mx, int my) {
         struct rect *r = &g_r[k];
         if (g_hot == k)
             for (int y = r->y; y < r->y + r->h; y++) ugfx_blend_hspan(s, r->x, y, r->w, WHITE, 0, 40);
-        int gr = ch / 2 + ugfx_px(2);
-        uint32_t under = s->pixels[(r->y + gr) * s->w + r->x + r->w / 2];
-        power_glyph(s, k == C_RESTART, r->x + r->w / 2, r->y + gr + ugfx_px(4), gr, WHITE, under);
+        power_glyph(s, k == C_RESTART, r->x + r->w / 2, r->y + ch / 2 + ugfx_px(6), ch + ugfx_px(4));
         text_c(s, r->x + r->w / 2, r->y + r->h - ch - ugfx_px(2), k == C_RESTART ? "Restart" : "Shut down", WHITE);
     }
 }
@@ -396,6 +393,11 @@ int wm_login_key(int key, uint8_t mods) {
 }
 
 int wm_login_covers(void) { return wm_login_open; }
+
+int wm_login_text_at(int mx, int my) {
+    const struct rect *f = &g_r[C_FIELD];
+    return wm_login_open && f->w > 0 && mx >= f->x && mx < f->x + f->w && my >= f->y && my < f->y + f->h;
+}
 
 int wm_keys_private(void) { return wm_login_open || confirm_dialog_password() != 0; }
 

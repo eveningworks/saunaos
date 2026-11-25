@@ -10,7 +10,13 @@
 
 ## Description
 
-`/bin/telnetd` — a shell on a pty, for whoever connects.
+`/bin/telnetd` — a sign-in and a shell on a pty, for whoever connects.
+
+It runs as root and starts `/bin/login -f` with the first person's
+account on the pty (`login.md`): while that account has no password the
+connection is its shell at once; once it has one, the client is asked
+`login:` and `Password:`, and the shell runs as the account. Root's work
+then goes through `sudo`, which asks for the password too.
 
 It never accepts anything itself. `inetd` does the listening and hands
 each connection its own process with the socket already on fd 0 and
@@ -66,11 +72,12 @@ Byte-level translations, all required and all invisible:
 
 ## What it is not
 
-**There is no authentication and no encryption.** Telnet has neither,
-and this OS has no users to authenticate anyway — a connection is a
-shell with the run of the machine. That is the standing arrangement for
-lab gear, which is why console servers and network switches still speak
-exactly this protocol, and it is why the service ships **disabled**:
+**There is no encryption**, and with no password set no authentication
+either: a connection is the person's shell. With a password, it crosses
+the network in the clear, as telnet's always has. That is the standing
+arrangement for lab gear, which is why console servers and network
+switches still speak exactly this protocol, and it is why the service
+ships **disabled**:
 
     service enable telnetd      # and it starts on every boot
     service disable telnetd

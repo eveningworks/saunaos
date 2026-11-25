@@ -1554,6 +1554,8 @@ void wm_run(void) {
                 if (cw >= 0 && (uint32_t)cw < wait_ms) wait_ms = (uint32_t)cw;
                 int ew = emoji_picker_wait_ms();
                 if (ew >= 0 && (uint32_t)ew < wait_ms) wait_ms = (uint32_t)ew;
+                int ow = wm_overlay_caret_wait_ms();   // the login screen's, a dialog's
+                if (ow >= 0 && (uint32_t)ow < wait_ms) wait_ms = (uint32_t)ow;
             }
             // Snap layouts opens after a rest on Maximize, and closes after
             // a grace once the pointer has left it.
@@ -2109,6 +2111,13 @@ void wm_run(void) {
                     // overlays, so a second press closes the open picker.
                     emoji_picker_toggle();
                     WM_REDRAW();
+                } else if ((key == 'l' || key == 'L') && (key_mods & KEY_MOD_SUPER) &&
+                           !(key_mods & (KEY_MOD_CTRL | KEY_MOD_ALT)) && !wm_greeter && !wm_login_open) {
+                    // SUPER+L LOCKS (users D2c), Windows' and KDE's key: the
+                    // lock screen over everything, the session's own password
+                    // to come back. Not inhibitable -- a game must not keep
+                    // the machine from being locked.
+                    wm_login_show(WM_LOGIN_LOCK);
                 } else if (wm_overlay_key(key, key_mods)) {
                     // AN OPEN OVERLAY OWNS THE KEYBOARD, which is what lets
                     // the Start menu be typed into -- xdg_popup's grab, and

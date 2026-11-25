@@ -58,8 +58,9 @@ int uinitctl_realtime(int pid, int policy, int prio, int *got_policy, int *got_p
     return (int)reply.result;
 }
 
-int uinitctl_session(const char *account) {
-    if (!account || strlen(account) >= sizeof ((struct initctl_msg *)0)->name) return INITCTL_REFUSED;
+// One request on the session channel, the reply's result or -1.
+static int named_call(uint32_t verb, const char *name) {
+    if (!name || strlen(name) >= sizeof ((struct initctl_msg *)0)->name) return INITCTL_REFUSED;
     if (!g_rt_open) {
         if (uchan_client_open(&g_rt, INITCTL_SERVICE) < 0) return -1;
         g_rt_open = 1;
@@ -67,8 +68,8 @@ int uinitctl_session(const char *account) {
     struct initctl_msg m, reply;
     memset(&m, 0, sizeof m);
     memset(&reply, 0, sizeof reply);
-    m.verb = INITCTL_SESSION;
-    memcpy(m.name, account, strlen(account) + 1);
+    m.verb = verb;
+    memcpy(m.name, name, strlen(name) + 1);
     if (uchan_call(&g_rt, &m, sizeof m, &reply, sizeof reply, REPLY_MS) != 0) {
         uchan_client_close(&g_rt);
         g_rt_open = 0;
@@ -76,6 +77,10 @@ int uinitctl_session(const char *account) {
     }
     return (int)reply.result;
 }
+
+int uinitctl_session(const char *account) { return named_call(INITCTL_SESSION, account); }
+
+int uinitctl_lock(int on) { return named_call(INITCTL_LOCK, on ? "on" : "off"); }
 
 int uinitctl_status(void) {
     struct uchan_client c;

@@ -61,7 +61,7 @@ includes; `docs/conventions/build.md`).
 
 ## Anything drawn
 
-**Follows `docs/gui-guidelines.md`**, which is binding. Ten things bite
+**Follows `docs/gui-guidelines.md`**, which is binding. Eleven things bite
 most often:
 
 1. **`gfx_draw_string()` does not clip** -- use
@@ -111,6 +111,15 @@ most often:
     Add the view to `tools/hostchecks/uitest/scroll_uitest.c` (host, seconds;
     `scroll_test.py` keeps one view end to end); a view with room for all its
     rows has no bar to look at, so the test needs MORE ROWS THAN FIT.
+
+11. **A TEXT FIELD OWES THE TEXT CURSOR, A BLINKING CARET AND ENTER,
+    WHEREVER IT IS DRAWN** -- a dialog names its OK in
+    `uapp_window_desc.default_button` (Enter in a field commits it, greyed
+    does nothing), never an `on_key` testing `'\n'`; a COMPOSITOR overlay
+    with a field fills its `text_at` slot, which gives it the I-beam AND
+    the blink (without it the caret sits solid). Its pictures are the
+    theme's icons (`icon_get()`), not glyphs drawn from shapes
+    (`docs/conventions/gui.md`).
 
 **Interaction states come from `enum ui_state` / `ui_state_bg()`**,
 which derives hover/pressed from the control's own colour: don't

@@ -37,8 +37,7 @@ static void na_on_action(struct uapp_window *w, int code) {
 }
 
 static void na_on_key(struct uapp_window *w, int key, unsigned mods) {
-    (void)mods;
-    if (key == '\n' || key == '\r') { na_ok(w); return; }
+    (void)mods; (void)key;
     if (g_q) g_q->err.text = "";
     uapp_window_redraw(w);
 }
@@ -87,6 +86,6 @@ void uui_nameask_open(struct uui_nameask *q, struct uapp *a, const char *title,
         .title = title, .w = w, .h = h, .flags = UAPP_WIN_MODAL,
         .widgets = q->items, .widget_count = 4, .layout = &q->layout, .focus = &q->focus,
         .on_action = na_on_action, .on_key = na_on_key, .on_close = na_close,
-        .log_prefix = "nameask",
+        .log_prefix = "nameask", .default_button = &q->ok,
     });
 }

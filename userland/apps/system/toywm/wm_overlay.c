@@ -7,6 +7,7 @@
 #include "wm_notify.h"
 #include "wm_quick.h"
 #include "wm_overlay.h"
+#include "ui/uui_caret.h"
 #include "wm_log.h"   // overlay transitions, under damage verification
 #include "wm_shadow.h"   // wm_damage_window_rect: the rect PLUS its shadow
 #include "kapi.h"
@@ -75,78 +76,78 @@ static const struct wm_overlay g_overlays[] = {
     // The shutter flash (wm_flash.h): over everything, PASSIVE, and the
     // whole screen while it fades.
     { "flash",    wm_flash_open, wm_flash_draw,    tooltip_click,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, WM_OVERLAY_REPAINT_WHILE_OPEN },
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, WM_OVERLAY_REPAINT_WHILE_OPEN, 0 },
     // The login and lock screen (wm_login.h): over everything but the
     // passive flash and tooltip, so nothing of the session draws over it
     // or hears a key while it is up.
     { "login",    open_login,    wm_login_draw,    wm_login_click,
       wm_login_hover_at,         wm_login_damage,         0 /* the whole screen */, wm_login_update_press, 0, wm_login_key, 0, 0, 0, 0, 1,
-      WM_OVERLAY_REPAINT_WHILE_OPEN },
+      WM_OVERLAY_REPAINT_WHILE_OPEN, wm_login_text_at },
     { "tooltip",  open_tooltip,  wm_tooltip_draw,  tooltip_click,
-      0, wm_tooltip_damage, wm_tooltip_rect, 0, 0, 0, wm_tooltip_cancel, 0, 0, 0, 0, 0 },
+      0, wm_tooltip_damage, wm_tooltip_rect, 0, 0, 0, wm_tooltip_cancel, 0, 0, 0, 0, 0, 0 },
     // The taskbar's window preview (wm_peek.h): above every menu, since
     // it only opens while none is up, and its click falls through when
     // it lands outside the card.
     { "peek",     open_peek,     wm_peek_draw,     wm_peek_click,
-      wm_peek_hover_at,          wm_peek_damage,          wm_peek_rect, 0, 0, 0, wm_peek_close, 0, 0, 0, 0, 0 },
+      wm_peek_hover_at,          wm_peek_damage,          wm_peek_rect, 0, 0, 0, wm_peek_close, 0, 0, 0, 0, 0, 0 },
     // Alt+Tab (wm_switcher.h): over every menu, since opening it closes
     // them, and its keys (Esc, arrows) before any other overlay's.
     { "switcher", wm_switcher_is_open, wm_switcher_draw, wm_switcher_click,
-      wm_switcher_hover_at,      wm_switcher_damage,      wm_switcher_rect, 0, 0, wm_switcher_key, wm_switcher_close, 0, 0, 0, 0, 0 },
+      wm_switcher_hover_at,      wm_switcher_damage,      wm_switcher_rect, 0, 0, wm_switcher_key, wm_switcher_close, 0, 0, 0, 0, 0, 0 },
     // Snap layouts (wm_snaplayout.h): a card under a Maximize button.
     { "snaplayout", wm_snaplayout_is_open, wm_snaplayout_draw, wm_snaplayout_click,
-      wm_snaplayout_hover_at,    wm_snaplayout_damage,    wm_snaplayout_rect, 0, 0, wm_snaplayout_key, wm_snaplayout_close, 0, 0, 0, 0, 0 },
+      wm_snaplayout_hover_at,    wm_snaplayout_damage,    wm_snaplayout_rect, 0, 0, wm_snaplayout_key, wm_snaplayout_close, 0, 0, 0, 0, 0, 0 },
     // MODAL, so it covers the whole screen for input (confirm_covers)
     // while it damages only its own rect.
     { "confirm",  open_confirm,  draw_confirm,     confirm_dialog_handle_click,
       confirm_dialog_hover_at,   confirm_dialog_damage,   confirm_dialog_rect, confirm_dialog_update_press, 0, confirm_dialog_key, 0, 0,
-      confirm_covers, 0, 1, WM_OVERLAY_REPAINT_ON_CLOSE },
+      confirm_covers, 0, 1, WM_OVERLAY_REPAINT_ON_CLOSE, confirm_dialog_text_at },
     { "context",  open_context,  context_menu_draw, context_menu_handle_click,
       context_menu_hover_at,     context_menu_damage,     0 /* a rect per submenu level */, 0, 0, context_menu_key, context_menu_close, 0,
-      context_menu_contains, 0, 0, WM_OVERLAY_REPAINT_ON_CLOSE },
+      context_menu_contains, 0, 0, WM_OVERLAY_REPAINT_ON_CLOSE, 0 },
     // The Leave page (leave_page.h): full-screen and modal (no `close`,
     // so a menu opening cannot shut it), BELOW "context" so its "Restart
     // into" menu draws over it and is clicked first, and below "confirm"
     // so a Force Quit raised while apps close lands on top.
     { "leave",    open_leave,    leave_page_draw,  leave_page_handle_click,
       leave_page_hover_at,       leave_page_damage,       0 /* the whole screen */, leave_page_update_press, 0, leave_page_key, 0, 0, 0, 0, 1,
-      WM_OVERLAY_REPAINT_WHILE_OPEN },
+      WM_OVERLAY_REPAINT_WHILE_OPEN, 0 },
     { "start",    open_start,    start_menu_draw,  start_menu_handle_click,
-      start_menu_hover_at,       start_menu_damage,       start_menu_rect, start_menu_update_press, start_menu_wheel, start_menu_key, start_menu_close, 0, 0, 0, 0, 0 },
+      start_menu_hover_at,       start_menu_damage,       start_menu_rect, start_menu_update_press, start_menu_wheel, start_menu_key, start_menu_close, 0, 0, 0, 0, 0, start_menu_text_at },
     { "calendar", open_calendar, calendar_draw,    calendar_handle_click,
-      calendar_hover_at,         calendar_damage,         calendar_rect, 0, 0, 0, calendar_close, 0, 0, 0, 0, 0 },
+      calendar_hover_at,         calendar_damage,         calendar_rect, 0, 0, 0, calendar_close, 0, 0, 0, 0, 0, 0 },
     // Quick Settings (wm_quick.h): AHEAD OF its members' rows, so the
     // group button's click is its own, and it draws Back over their card.
     { "quick",    wm_quick_is_open, wm_quick_draw, wm_quick_click,
-      wm_quick_hover_at,         wm_quick_damage,         wm_quick_rect, wm_quick_update_press, 0, wm_quick_key, wm_quick_close, 0, 0, 0, 0, 0 },
+      wm_quick_hover_at,         wm_quick_damage,         wm_quick_rect, wm_quick_update_press, 0, wm_quick_key, wm_quick_close, 0, 0, 0, 0, 0, 0 },
     { "volume",   open_volume,   volume_draw,      volume_handle_click,
-      volume_hover_at,           volume_damage,           volume_rect, volume_update_press, 0, 0, volume_close, volume_opened, 0, 0, 0, 0 },
+      volume_hover_at,           volume_damage,           volume_rect, volume_update_press, 0, 0, volume_close, volume_opened, 0, 0, 0, 0, 0 },
     { "brightness", open_brightness, brightness_draw, brightness_handle_click,
-      brightness_hover_at,       brightness_damage,       brightness_rect, brightness_update_press, 0, 0, brightness_close, 0, 0, 0, 0, 0 },
+      brightness_hover_at,       brightness_damage,       brightness_rect, brightness_update_press, 0, 0, brightness_close, 0, 0, 0, 0, 0, 0 },
     { "network",  open_network,  network_draw,     network_handle_click,
-      network_hover_at,          network_damage,          network_rect, 0, 0, 0, network_close, 0, 0, 0, 0, 0 },
+      network_hover_at,          network_damage,          network_rect, 0, 0, 0, network_close, 0, 0, 0, 0, 0, 0 },
     { "remote",   open_remote,   remote_draw,      remote_handle_click,
-      remote_hover_at,           remote_damage,           remote_rect, 0, 0, 0, remote_close, 0, 0, 0, 0, 0 },
+      remote_hover_at,           remote_damage,           remote_rect, 0, 0, 0, remote_close, 0, 0, 0, 0, 0, 0 },
     { "drives",   open_drives,   drives_draw,      drives_handle_click,
-      drives_hover_at,           drives_damage,           drives_rect, 0, 0, 0, drives_close, 0, 0, 0, 0, 0 },
+      drives_hover_at,           drives_damage,           drives_rect, 0, 0, 0, drives_close, 0, 0, 0, 0, 0, 0 },
     { "notify",   open_notify,   wm_notify_draw,   wm_notify_click,
-      wm_notify_hover_at,        wm_notify_damage,        wm_notify_rect, 0, 0, wm_notify_key, wm_notify_close, 0, 0, 0, 0, 0 },
+      wm_notify_hover_at,        wm_notify_damage,        wm_notify_rect, 0, 0, wm_notify_key, wm_notify_close, 0, 0, 0, 0, 0, 0 },
     { "layout",   open_layout,   layout_draw,      layout_handle_click,
-      layout_hover_at,           layout_damage,           layout_rect, 0, 0, layout_key, layout_close, 0, 0, 0, 0, 0 },
+      layout_hover_at,           layout_damage,           layout_rect, 0, 0, layout_key, layout_close, 0, 0, 0, 0, 0, 0 },
     // The emoji picker (emoji_picker.h): a light-dismiss card at the caret,
     // above the on-screen keyboard it may be opened over.
     { "emoji",    open_emoji,    emoji_picker_draw, emoji_picker_handle_click,
       emoji_picker_hover_at,     emoji_picker_damage,     emoji_picker_rect, emoji_picker_update_press,
-      emoji_picker_wheel, emoji_picker_key, emoji_picker_close, 0, 0, 0, 0, 0 },
+      emoji_picker_wheel, emoji_picker_key, emoji_picker_close, 0, 0, 0, 0, 0, 0 },
     // Under every menu (drawn before them), above the windows: a crash
     // notice in the corner. Passive -- see wm_overlay.h.
     { "notice",   open_notice,   crash_notice_draw, crash_notice_handle_click,
-      crash_notice_hover_at,     crash_notice_damage,     crash_notice_rect, 0, 0, 0, 0, 0, 0, 1, 0, 0 },
+      crash_notice_hover_at,     crash_notice_damage,     crash_notice_rect, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0 },
     // LAST, so it is the least modal: a menu overlapping the keyboard
     // takes the click and paints on top. No `close` op -- a keyboard
     // must survive the click that puts the caret where it is typing.
     { "osk",      open_osk,      osk_draw,         osk_handle_click,
-      osk_hover_at,              osk_damage,              osk_rect, osk_update_press, 0, 0, 0, 0, 0, 0, 0, 0 },
+      osk_hover_at,              osk_damage,              osk_rect, osk_update_press, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 #define OVERLAY_COUNT ((int)(sizeof g_overlays / sizeof g_overlays[0]))
 
@@ -158,6 +159,27 @@ static int g_hover[OVERLAY_COUNT];
 static const char *g_parent;   // see wm_overlay_set_parent()
 
 void wm_overlay_set_parent(const char *name) { g_parent = name; }
+
+int wm_overlay_text_at(int mx, int my) {
+    for (int i = 0; i < OVERLAY_COUNT; i++)
+        if (g_overlays[i].is_open() && g_overlays[i].text_at) return g_overlays[i].text_at(mx, my);
+    return 0;
+}
+
+int wm_overlay_caret_wait_ms(void) {
+    int any = 0;
+    for (int i = 0; i < OVERLAY_COUNT; i++)
+        if (g_overlays[i].text_at && g_overlays[i].is_open()) any = 1;
+    if (!any) return -1;
+    int w = uui_caret_wait_ms();
+    if (w == 0) {
+        for (int i = 0; i < OVERLAY_COUNT; i++)
+            if (g_overlays[i].text_at && g_overlays[i].is_open() && g_overlays[i].damage)
+                g_overlays[i].damage();
+        WM_REDRAW();
+    }
+    return w;
+}
 
 int wm_overlay_modal_open(void) {
     for (int i = 0; i < OVERLAY_COUNT; i++)

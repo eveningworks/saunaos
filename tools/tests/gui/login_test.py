@@ -18,7 +18,10 @@ WHAT IT CHECKS (users D2b, docs/users-design.md)
   * a wrong password there is refused ("Wrong password"), the field
     emptied, and the greeter stays;
   * the right one starts the session again: a desktop that is not the
-    greeter, its compositor running as `user`.
+    greeter, its compositor running as `user`;
+  * (users D2c) behind the login screen the console runs /bin/login, not
+    a shell; Super+L locks the session, a wrong password keeps it locked
+    and the right one unlocks it.
 
 What a broken version would still pass, and what stops it: a greeter
 that let any password in passes the sign-in, so a wrong one must be
@@ -55,6 +58,7 @@ from PIL import Image                           # noqa: E402
 PW = "sauna-lo1"
 SETTINGS = "System Settings"
 ACCENT = (70, 110, 160)
+WM_CURSOR_NORMAL, WM_CURSOR_TEXT = 0, 4   # enum wm_cursor_kind
 
 _res = Results()
 check = _res.check
@@ -136,9 +140,9 @@ def set_password(dbg):
           dbg.window("Set password") is not None and "user NP" in st, st.strip()[-60:])
     click_in_dialog(dbg, d, "newpw_confirm")
     type_text(dbg, PW[-1])
-    click_in_dialog(dbg, d, "users_ok")
+    dbg.key("0x0a")   # Enter in the field is Set, as in any such dialog
     gone = dbg.wait_gone("Set password", timeout=40)
-    check("Set closes the dialog once privd has the password", gone)
+    check("Enter (Set) closes the dialog once privd has the password", gone)
     st = dbg.send("sh passwd -S user") or ""
     check("passwd -S says user has a password", "user P" in st, st.strip()[-60:])
     al = dbg.send("sh config get login.autologin") or ""
@@ -167,6 +171,8 @@ def sign_out(dbg):
     shells = [ln for ln in ps.splitlines() if re.search(r"\btosh\b", ln) and re.search(r"\buser\b", ln)]
     check("...and no shell runs as user behind it (no Ctrl+Alt+F2 past the password)", not shells,
           " | ".join(shells)[:160])
+    logins = [ln for ln in ps.splitlines() if re.search(r"\blogin\b", ln) and re.search(r"\broot\b", ln)]
+    check("...the console asks instead: /bin/login runs, as root (users D2c)", bool(logins), ps[-200:])
     return bool(st)
 
 
@@ -200,6 +206,28 @@ def main():
                       str(gp))
             check("it is for the account `user`", st.get("account") == "user", str(st)[:120])
 
+            lf = {c["name"]: c for c in (st or {}).get("controls", [])}.get("field")
+            if lf:
+                # THE TEXT CURSOR over the field, the arrow beside it (the
+                # Authentication Required dialog shares the overlay path).
+                dbg.warp_cursor(qmp, lf["x"] + lf["w"] // 2, lf["y"] + lf["h"] // 2, settle=False)
+                on = poll(lambda: dbg.cursor_shape() == WM_CURSOR_TEXT or None, 5, 0.2)
+                check("the pointer is the text cursor over the password field", bool(on),
+                      f"shape {dbg.cursor_shape()}")
+                dbg.warp_cursor(qmp, 5, scr["h"] // 2, settle=False)
+                off = poll(lambda: dbg.cursor_shape() == WM_CURSOR_NORMAL or None, 5, 0.2)
+                check("...and the arrow off it", bool(off), f"shape {dbg.cursor_shape()}")
+                # THE CARET BLINKS: the field differs between frames half a
+                # blink apart. A caret drawn solid (nothing woke the WM)
+                # gives identical crops in every pair.
+                box = (lf["x"], lf["y"], lf["x"] + lf["w"], lf["y"] + lf["h"])
+                crops = []
+                for i in range(4):
+                    pth = os.path.join(args.tmp, f"lock-caret-{i}.png")
+                    qmp.screenshot(pth)
+                    crops.append(Image.open(pth).convert("RGB").crop(box).tobytes())
+                    time.sleep(0.3)  # sleep-ok: sampling a 500 ms blink, the thing asserted
+                check("the caret blinks in the field", len(set(crops)) > 1, f"{len(set(crops))} distinct of 4")
             type_text(dbg, "not-it")
             dbg.key("0x0a")
             st = poll(lambda: (lambda s: s if "Wrong password" in s.get("message", "") and not s.get("busy")
@@ -221,6 +249,35 @@ def main():
             sh = poll(lambda: [ln for ln in (dbg.send("sh ps --user") or "").splitlines()
                                if re.search(r"\btosh\b", ln) and re.search(r"\buser\b", ln)], 20, 0.5)
             check("...and the console shell is back, as user", bool(sh), str(sh)[:120])
+
+            # --- the lock screen (users D2c): Super+L, then the password ---
+            dbg.key("0x6c", mods="super")
+            st = poll(lambda: (lambda s: s if s.get("open") and s.get("mode") == "lock" else None)(
+                login_state(dbg)), 10, 0.3)
+            check("Super+L locks: the lock screen, in the session (not the greeter)",
+                  bool(st) and not st.get("greeter"), str(login_state(dbg))[:160])
+            # LOCKED, NO SHELL A VT SWITCH AWAY: the console's and the VTs'
+            # shells take their login form while the lock screen is up.
+            def locked_ps():
+                p = dbg.send("sh ps --user") or ""
+                sh = [ln for ln in p.splitlines() if re.search(r"\btosh\b", ln) and re.search(r"\buser\b", ln)]
+                lg = [ln for ln in p.splitlines() if re.search(r"\blogin\b", ln) and re.search(r"\broot\b", ln)]
+                return (sh, lg) if not sh and lg else None
+            got = poll(locked_ps, 15, 0.5)
+            check("...and while locked no shell runs as user: the console asks (/bin/login)", bool(got),
+                  (dbg.send("sh ps --user") or "")[-240:])
+            type_text(dbg, "not-it")
+            dbg.key("0x0a")
+            st = poll(lambda: (lambda s: s if "Wrong password" in s.get("message", "") and not s.get("busy")
+                               else None)(login_state(dbg)), 20, 0.5)
+            check("a wrong password keeps it locked", bool(st) and st.get("open"), str(login_state(dbg))[:160])
+            type_text(dbg, PW)
+            dbg.key("0x0a")
+            st = poll(lambda: (lambda s: s if not s.get("open") else None)(login_state(dbg)), 20, 0.5)
+            check("the right one unlocks", bool(st), str(login_state(dbg))[:160])
+            sh = poll(lambda: [ln for ln in (dbg.send("sh ps --user") or "").splitlines()
+                               if re.search(r"\btosh\b", ln) and re.search(r"\buser\b", ln)] or None, 20, 0.5)
+            check("...and the console shell is user's again once unlocked", bool(sh), str(sh)[:120])
     finally:
         dbg.send("sh passwd -d user")
         dbg.send("sh config set --machine login.autologin user")

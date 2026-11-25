@@ -25,6 +25,8 @@ void wm_login_update_press(int mx, int my, uint8_t buttons);
 int  wm_login_hover_at(int mx, int my);
 void wm_login_damage(void);
 int  wm_login_key(int key, uint8_t mods);
+// Over the password field: the pointer is the text cursor there.
+int  wm_login_text_at(int mx, int my);
 // It hides the whole scene: windows, desktop and taskbar are not drawn.
 int  wm_login_covers(void);
 

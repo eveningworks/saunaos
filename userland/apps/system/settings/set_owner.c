@@ -305,6 +305,6 @@ void open_options_dialog(struct uapp *a) {
         .on_widget = dlg_on_widget, .on_action = dlg_on_action, .on_close = dlg_on_close,
         // A window a test cannot ask about is one a test has to guess
         // pixels at (ui/uapp.h).
-        .log_prefix = "settings.options",
+        .log_prefix = "settings.options", .default_button = &g_opts_ok,
     });
 }

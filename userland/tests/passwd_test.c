@@ -25,6 +25,7 @@
 #include "rt/sys.h"
 #include "syscall_abi.h"
 #include "base/upriv.h"
+#include "base/usetting.h"
 #include "base/utest.h"
 
 #define SELF   "/tests/passwd_test"
@@ -123,6 +124,9 @@ int main(int argc, char **argv) {
     size_t saved_n = 0;
     char *saved = slurp(SHADOW, &saved_n);
     utest_check(saved != 0, "/etc/shadow is there to save");
+    // A password set turns automatic sign-in off (privd): put it back too.
+    char autologin[64] = "";
+    usetting_get("login.autologin", autologin, sizeof autologin);
 
     int rc = upriv_passwd("user", 0, "pw-one");
     utest_checkf(rc == 0, "root sets user's password without the current one (%d)", rc ? errno : 0);
@@ -181,5 +185,6 @@ int main(int argc, char **argv) {
 
     restore(saved, saved_n);
     free(saved);
+    utest_check(usetting_set("login.autologin", autologin) == SETTING_SAVED, "automatic sign-in is put back");
     return utest_end();
 }

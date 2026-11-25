@@ -422,7 +422,7 @@ void clock_open_dialog(struct uapp *a) {
         .title = "Change date and time", .w = w, .h = h, .flags = UAPP_WIN_MODAL,
         .widgets = CD, .widget_count = 4, .layout = &CD_LAYOUT, .focus = &g_cd_focus,
         .on_widget = cd_on_widget, .on_action = cd_on_action, .on_close = cd_close,
-        .log_prefix = "settings.clock",
+        .log_prefix = "settings.clock", .default_button = &g_cd_set,
     });
     ulogf("settings: clock dialog %s\n", g_cd_win ? "open" : "FAILED");
 }

@@ -127,9 +127,13 @@ struct later {
 };
 static struct later *g_later;
 
-static int penalized(uint32_t uid) {
+// Per uid -- but ROOT's askers are every /bin/login at once (each VT, each
+// telnet connection), so root's is per asking PROCESS, as Linux's
+// pam_faildelay delays only the login that was wrong: one telnet guesser
+// must not lock the console out.
+static int penalized(uint32_t uid, int pid) {
     for (struct later *l = g_later; l; l = l->next)
-        if (l->uid == uid) return 1;
+        if (l->uid == uid && (uid != 0 || l->pid == pid)) return 1;
     return 0;
 }
 
@@ -405,7 +409,7 @@ static void handle_auth(const struct ubulk_msg *m, uint32_t flags, struct req *r
     const char *acct = r->strs[0], *pw = r->strs[1];
     if (w->euid != 0 && !own(acct, w)) { answer(m->pid, m->id, -EPERM); return; }
     if (flags & UPRIV_PROBE) { answer(m->pid, m->id, pass_has(acct) ? -EACCES : 0); return; }
-    if (penalized(w->uid)) { answer(m->pid, m->id, -EAGAIN); return; }
+    if (penalized(w->uid, m->pid)) { answer(m->pid, m->id, -EAGAIN); return; }
     if (pass_check(acct, pw)) answer(m->pid, m->id, 0);
     else wrong(m->pid, m->id, w->uid, acct);
 }
@@ -417,7 +421,7 @@ static void handle_passwd(const struct ubulk_msg *m, struct req *r, const struct
     if (!getpwnam(acct)) { answer(m->pid, m->id, -ENOENT); return; }
     if (w->euid != 0) {
         if (!own(acct, w)) { answer(m->pid, m->id, -EPERM); return; }
-        if (penalized(w->uid)) { answer(m->pid, m->id, -EAGAIN); return; }
+        if (penalized(w->uid, m->pid)) { answer(m->pid, m->id, -EAGAIN); return; }
         if (!pass_check(acct, cur)) { wrong(m->pid, m->id, w->uid, acct); return; }
     }
     int32_t rc = pass_set(acct, pw);
@@ -449,7 +453,7 @@ static void handle_login(const struct ubulk_msg *m, struct req *r, const struct 
     }
     struct passwd *who = getpwnam(acct);
     if (!who || who->pw_uid < 1000) { answer(m->pid, m->id, -EPERM); return; }
-    if (penalized(w->uid)) { answer(m->pid, m->id, -EAGAIN); return; }
+    if (penalized(w->uid, m->pid)) { answer(m->pid, m->id, -EAGAIN); return; }
     if (!pass_check(acct, pw)) { wrong(m->pid, m->id, w->uid, acct); return; }
     int rc = uinitctl_session(acct);
     logf1(rc == INITCTL_OK ? "privd: %s signed in (pid %d)\n" : "privd: init started no session for %s (pid %d)\n",
@@ -505,7 +509,7 @@ static void handle_request(const struct ubulk_msg *m) {
     // the asking, at the machine or not.
     if (typed && needs_pw) {
         if (!in_wheel(w.uid)) answer(r->pid, r->id, -EPERM);
-        else if (penalized(w.uid)) answer(r->pid, r->id, -EAGAIN);
+        else if (penalized(w.uid, r->pid)) answer(r->pid, r->id, -EAGAIN);
         else if (pass_check(me, typed)) carry_out(r);
         else wrong(r->pid, r->id, w.uid, me);
         free(me);
@@ -573,7 +577,7 @@ static void handle_verdict(const struct ubulk_msg *m) {
         uint32_t n = m->len - (uint32_t)sizeof allow;
         if (allow && r->tries && (n == 0 || pw[n - 1] != '\0')) allow = 0;
         if (allow && r->tries) {
-            if (penalized(r->uid) || !pass_check(r->name, pw)) {
+            if (penalized(r->uid, g_agent) || !pass_check(r->name, pw)) {
                 logf1("privd: a wrong password for %s (pid %d)\n", r->name, r->pid);
                 if (--r->tries > 0) {
                     send_later(g_agent, UPRIV_T_RETRY, r->prompt, (int32_t)r->tries, r->uid);

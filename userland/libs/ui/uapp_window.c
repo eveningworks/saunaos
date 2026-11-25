@@ -311,6 +311,13 @@ static void win_tell(struct uapp_top *t, int id, int reason, int committed) {
 }
 static void win_key(struct uapp_top *t, int key, unsigned mods) {
     struct uapp_window *w = window_of(t);
+    const struct uui_button *def = w->desc.default_button;
+    // NOT AN ENTER A FOCUSED CONTROL USED: a drop-down's Enter opens its
+    // list, and must not also answer the dialog.
+    if (def && !t->key_taken && (key == '\n' || key == '\r') && !(mods & (KEY_MOD_CTRL | KEY_MOD_ALT))) {
+        if (!def->disabled && w->desc.on_action) w->desc.on_action(w, def->code);
+        return;
+    }
     if (w->desc.on_key) w->desc.on_key(w, key, mods);
 }
 const struct uapp_top_ops APP_OPS = { app_tell, app_key };
@@ -483,8 +490,10 @@ void top_key(struct uapp_top *t, const struct win_event *ev) {
         if (changed) t->dirty = 1;
         if (id) { t->ops->tell(t, id, UUI_REASON_KEY, 0); return; }
     }
+    t->key_taken = 0;
     if (t->focus && uui_focus_key(t->focus, ev->a, ev->mods)) {
         t->dirty = 1;
+        t->key_taken = 1;
         // AND THE APP IS TOLD, by the same id a click on that widget
         // reports: a value the keyboard changed is as much a change as a
         // clicked one. Not Tab, which moved focus and changed no value.

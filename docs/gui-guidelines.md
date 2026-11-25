@@ -861,7 +861,7 @@ isn't a button group.
 
 ## What every app owes a person: greyed commands, selectable text, a font put back
 
-Three things a new app is checked for, each learned from a bug (the
+Four things a new app is checked for, each learned from a bug (the
 reasoning and the worked example are in `docs/conventions/gui.md`):
 
 - **A control that cannot act is greyed, not offered.** A magnifier at its
@@ -881,6 +881,14 @@ reasoning and the worked example are in `docs/conventions/gui.md`):
 - **The selected font is the process's, so put back the one you found.**
   A widget that leaves its zoomed face selected zooms every widget drawn
   after it.
+- **A text field shows the text cursor, blinks its caret, and its Enter
+  answers the dialog** -- in a window and on a surface the compositor
+  draws alike (the login screen, the Authentication Required dialog).
+  A dialog names its default button (`uapp_window_desc.default_button`);
+  a compositor overlay with a field fills `text_at`, which gives it both
+  the pointer and the blink. Every real system does all three; a field
+  missing one reads as broken. Pictures on those surfaces are the theme's
+  icons, never glyphs drawn from shapes.
 
 `tools/checks/check_control_states.py` and `tools/checks/check_font_state.py` enforce
 the parts a script can see; the rest is the person writing the app.

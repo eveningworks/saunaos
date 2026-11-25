@@ -27,9 +27,10 @@ POSIX requires.
 
 **`tosh` IS STILL THE DEFAULT, and dash is a second shell rather than a
 replacement.** Nothing starts it by default: the `tosh` service unit
-names `/bin/tosh`, and the GUI Terminal, `telnetd` and libc's
-`system()` start what the `system.shell` setting says, `/bin/tosh`
-unless it is changed. Run it by name, or set `system.shell` to
+names `/bin/tosh`, and the GUI Terminal and libc's `system()` start
+what the `system.shell` setting says, `/bin/tosh` unless it is changed;
+a telnet session's `login` starts the account's shell from
+`/etc/passwd` (`login.md`). Run it by name, or set `system.shell` to
 `/bin/dash`.
 
 **`/bin/sh` IS dash**, a hard link of `/bin/dash` in every image: the

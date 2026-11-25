@@ -85,6 +85,8 @@ const char *confirm_dialog_password(void);
 // The password was wrong: out of BUSY, the field emptied, `why` shown
 // under it ("Wrong password. 2 tries left.").
 void confirm_dialog_password_wrong(const char *why);
+// Over the password field (the pointer's text cursor there).
+int confirm_dialog_text_at(int mx, int my);
 // Keys while open: the field's, Enter for the affirmative. 1 when used.
 int confirm_dialog_key(int key, uint8_t mods);
 // The field as the debug console reports it: 1 with its label, the

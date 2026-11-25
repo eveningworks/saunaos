@@ -575,6 +575,13 @@ struct uapp_window_desc {
     // content has no on_draw of its own. Runs inside the gate, so it
     // costs nothing when the log is off.
     void (*on_log_layout)(struct uapp_window *w);
+
+    // THE DEFAULT BUTTON (OK, Set, Save -- the dialog's answer): an Enter
+    // the focus ring did not take commits it, as a click would, unless it is
+    // disabled -- so Enter in a field answers the dialog, Windows' DM_GETDEFID
+    // and Qt's QPushButton::setDefault. A focused button keeps its own Enter.
+    // One of `widgets`; NULL for a window with no single answer.
+    const struct uui_button *default_button;
 };
 
 // Opens it. `desc` is COPIED, so it may be a compound literal; the

@@ -250,7 +250,9 @@ only expensive part of it.
 - [x] ~~Stage D1c of `docs/users-design.md`: the apps' own files and state move to `~/.config` and the XDG folders~~ DONE 2026-11-25
 - [x] ~~Stage D2a of `docs/users-design.md`: passwords, kept by privd in `/etc/shadow`~~ DONE 2026-11-25 -- `passwd`, yescrypt
 - [x] ~~Stage D2b of `docs/users-design.md`: the login screen, a greeter session, Sign out~~ DONE 2026-11-25 -- Settings > Users
+- [x] ~~Stage D2c of `docs/users-design.md`: the lock screen and /bin/login~~ DONE 2026-11-25 -- Super+L, lock on resume, VT + telnet login
 - [ ] The login screen says when Caps Lock is on -- ring 3 cannot read the lock state yet
+- [ ] Lock in the Start menu's power row -- Super+L and lock-on-resume are built (users D2c)
 - [ ] Sign out ends the session's processes too -- today only its windows close (logind's KillUserProcesses)
 - [ ] Root windows on the person's desktop draw in the person's look -- First-boot setup, screen trial, elevated tools see the machine's
 - [ ] `open()`'s and `mkdir()`'s mode reach the kernel -- once every tool that writes a program sets its exec bit (stage C)
@@ -261,7 +263,7 @@ only expensive part of it.
 - [x] ~~Per-file owner + permission bits~~ DONE 2026-11-24 -- TFS3's inode at 100/104, ramfs per node, a mount's for FAT
 - [x] ~~Permission checks on file access~~ DONE 2026-11-24 -- at the syscall boundary (`kernel/fsperm.h`)
 - [x] ~~A login prompt (even single-user-by-default)~~ DONE 2026-11-25 -- the greeter (D2b), opt-in with a password
-- [ ] Lock on resume: waking from the screensaver asks for the password, Windows' "On resume, display logon screen"
+- [x] ~~Lock on resume: waking from the screensaver asks for the password~~ DONE 2026-11-25 (users D2c)
 - [x] ~~Password hashing + an `/etc/passwd`-shaped file~~ DONE 2026-11-25 -- `/etc/shadow`, yescrypt, privd (D2a)
 - [ ] `su`-style user switching
 - [ ] Meltdown/Spectre mitigations (KPTI, retpolines), or a written decision -- the ASUS's Broadwell lets ring 3 read the kernel
@@ -456,7 +458,7 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [x] ~~Our own `mksignames`~~ DONE 2026-09-13 -- `tools/gen/gen_signames.py`; no GPL reaches the binary
 - [x] ~~Toykit's `klineedit` wired into dash's read-a-line seam~~ DONE 2026-09-13 -- a libedit shim; `set -o emacs`
 - [x] ~~Sessions, so a nested shell can take job control of its terminal~~ DONE 2026-09-13 -- `setsid`/`getsid`, `SPAWN_SETSID`
-- [x] ~~A `system.shell` setting~~ DONE 2026-09-13 -- Terminal, telnetd and `system()` ask it; the console shell stays `tosh`
+- [x] ~~A `system.shell` setting~~ DONE 2026-09-13 -- Terminal and `system()` ask it; console and telnet run the passwd shell
 
 ## Tracks -- no dependency on the phases above
 

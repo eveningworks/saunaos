@@ -123,6 +123,7 @@
 // control file at startup for that reason.
 #include "base/uchan.h"
 #include "base/uinitctl.h"
+#include "base/ulogin.h"
 #include "base/ugrow.h"
 #include "base/uconf.h"
 #include "base/ulistdir.h"
@@ -270,6 +271,14 @@ struct service {
     int  user_session;
     // Session=none: runs only while NO session is on -- the greeter.
     int  no_session;
+    // NoSessionExec= / NoSessionArgs= (users D2c): what a User=@session
+    // service runs, AS ROOT, while no session is on -- /bin/login on the
+    // console and the VTs, so a text terminal asks instead of staying dark.
+    char nosess_exec[SVC_EXEC_MAX];
+    char nosess_args[SVC_ARGS_MAX];
+    // Stopped to change between its two forms at a session's start or end:
+    // the exit is no failure, and it starts again at once.
+    int  switching;
     // Seat=yes: with User=, the service is the person AT the machine
     // (CRED_SEAT, abi/cred_abi.h) -- the desktop and the console shells,
     // never a network service. logind's active local session.
@@ -516,6 +525,10 @@ static void load_service(const char *file) {
     s->user_session = !s->user_bad && strcmp(s->user, "@session") == 0;
     char sess[8];
     s->no_session = etc_config_buf_get(&g_cfg, "Session", sess, sizeof sess) && strcmp(sess, "none") == 0;
+    if (!etc_config_buf_get(&g_cfg, "NoSessionExec", s->nosess_exec, sizeof s->nosess_exec))
+        s->nosess_exec[0] = '\0';
+    if (!etc_config_buf_get(&g_cfg, "NoSessionArgs", s->nosess_args, sizeof s->nosess_args))
+        s->nosess_args[0] = '\0';
 
     // Absent means unconstrained, which is the common case and must
     // stay the terse one. Cleared rather than left alone, so removing
@@ -921,94 +934,41 @@ static const char *expand_specifiers(const char *in, char *out, unsigned cap) {
 // so it can never be steered by a file a person wrote.
 // An account that does not exist starts NOTHING, as systemd refuses the
 // unit: running it as root instead would turn a typo into privilege.
-#define NLOGIN_VARS 8   // HOME USER LOGNAME SHELL + XDG_{CONFIG,DATA,STATE,CACHE}_HOME
 struct svc_creds {
-    gid_t *groups;
-    char **env;       // environ with the login variables replaced; NULL for root
-    char  *strs[NLOGIN_VARS];
+    struct ulogin_creds lc;   // the account's identity (base/ulogin.h); empty for root
     // Where a SEAT service starts: its account's home, as login(1)
     // chdir()s to pw_dir -- so what the desktop and the console shells
     // start saves a bare name into their home, not into root's `/`. NULL: `/`.
     const char *dir;
 };
 
-// An old /etc/environment still names the XDG folders under /home; they
-// are replaced too, not inherited beside the account's own.
-static int is_login_var(const char *e) {
-    static const char *const V[] = { "HOME=", "USER=", "LOGNAME=", "SHELL=", "XDG_CONFIG_HOME=",
-                                     "XDG_DATA_HOME=", "XDG_STATE_HOME=", "XDG_CACHE_HOME=" };
-    for (unsigned i = 0; i < sizeof V / sizeof V[0]; i++)
-        if (strncmp(e, V[i], strlen(V[i])) == 0) return 1;
-    return 0;
-}
-
-static char *env_pair(const char *k, const char *v) {
-    size_t n = strlen(k) + strlen(v) + 2;
-    char *p = malloc(n);
-    if (p) snprintf(p, n, "%s=%s", k, v);
-    return p;
-}
-
-static void creds_release(struct svc_creds *c) {
-    free(c->groups);
-    free(c->env);
-    for (int i = 0; i < NLOGIN_VARS; i++) free(c->strs[i]);
-}
-
 // 0 with `o` and `c` filled (nothing to do for root), -1 when the
 // account is unknown or memory ran out -- the service is not started.
+// The identity and the login variables are base/ulogin.h's, as /bin/login's.
+static void creds_release(struct svc_creds *c) {
+    ulogin_creds_release(&c->lc);
+}
+
+// THE FORM IT RUNS IN NOW: a User=@session service with a NoSessionExec=
+// runs that, as root, while no session is on.
+static int g_locked;   // INITCTL_LOCK: the session's desktop is locked
+
+static int no_session_form(const struct service *s) {
+    return s->user_session && (!g_session[0] || g_locked) && s->nosess_exec[0];
+}
+
 static int creds_for(const struct service *s, struct sys_spawn_opts *o, struct svc_creds *c) {
     memset(c, 0, sizeof *c);
     if (s->user_bad) return -1;   // said when read
+    if (no_session_form(s)) return 0;   // root's: /bin/login drops to the account itself
     const char *who = s->user_session ? g_session : s->user;
     if (s->user_session && !who[0]) return -1;   // no session: start_due() never asks
     if (!who[0]) return 0;
-    struct passwd *pw = getpwnam(who);
-    if (!pw) {
-        logf1("init: User=%s is not in /etc/passwd -- not starting it\n", who);
+    if (ulogin_creds(who, s->seat ? CRED_SEAT : 0, o, &c->lc) < 0) {
+        logf1("init: User=%s is not in /etc/passwd, or its identity could not be built -- not starting it\n", who);
         return -1;
     }
-    // Copied before getgrouplist(): pw is static storage.
-    uid_t uid = pw->pw_uid;
-    gid_t gid = pw->pw_gid;
-    c->strs[0] = env_pair("HOME", pw->pw_dir);
-    c->strs[1] = env_pair("USER", pw->pw_name);
-    c->strs[2] = env_pair("LOGNAME", pw->pw_name);
-    c->strs[3] = env_pair("SHELL", pw->pw_shell);
-    static const char *const XDG[][2] = { { "XDG_CONFIG_HOME", ".config" }, { "XDG_DATA_HOME", ".local/share" },
-                                          { "XDG_STATE_HOME", ".local/state" }, { "XDG_CACHE_HOME", ".cache" } };
-    // A home of "/" would make "//.config", which a path compare misses.
-    const char *base = strcmp(pw->pw_dir, "/") ? pw->pw_dir : "";
-    for (int i = 0; i < 4; i++) {
-        size_t n = strlen(XDG[i][0]) + strlen(base) + strlen(XDG[i][1]) + 3;
-        if ((c->strs[4 + i] = malloc(n))) snprintf(c->strs[4 + i], n, "%s=%s/%s", XDG[i][0], base, XDG[i][1]);
-    }
-    int ng = 0;
-    getgrouplist(who, gid, NULL, &ng);
-    c->groups = malloc((size_t)(ng > 0 ? ng : 1) * sizeof *c->groups);
-    int ne = 0;
-    while (environ && environ[ne]) ne++;
-    c->env = malloc((size_t)(ne + NLOGIN_VARS + 1) * sizeof *c->env);
-    int strs_ok = 1;
-    for (int i = 0; i < NLOGIN_VARS; i++) strs_ok &= c->strs[i] != NULL;
-    if (!c->groups || !c->env || !strs_ok || getgrouplist(who, gid, c->groups, &ng) < 0) {
-        logf1("init: could not build %s's identity -- not starting it\n", s->name);
-        creds_release(c);
-        return -1;
-    }
-    int k = 0;
-    for (int i = 0; i < ne; i++)
-        if (!is_login_var(environ[i])) c->env[k++] = environ[i];
-    for (int i = 0; i < NLOGIN_VARS; i++) c->env[k++] = c->strs[i];
-    c->env[k] = NULL;
-    o->flags |= SPAWN_CREDS;
-    o->uid = uid;
-    o->gid = gid;
-    o->groups = (const uint32_t *)c->groups;
-    o->ngroups = (unsigned)ng;
-    o->cred_flags = s->seat ? CRED_SEAT : 0;
-    o->env = c->env;
-    if (s->seat) c->dir = c->strs[0] + 5;   // past "HOME="
+    if (s->seat) c->dir = c->lc.home;
     return 0;
 }
 
@@ -1066,6 +1026,7 @@ static int session_begin(const char *name) {
     if (g_session[0]) { logf1("init: a session for %s is already on\n", g_session); return INITCTL_REFUSED; }
     if (!session_account_ok(name)) { logf1("init: no session for %s: not a person's account\n", name); return INITCTL_REFUSED; }
     snprintf(g_session, sizeof g_session, "%s", name);
+    g_locked = 0;
     logf1("init: session for %s begins\n", g_session);
     vt_reset_all();   // a VT shown before it gets its shell now
     for (int i = 0; i < g_svc_count; i++) {
@@ -1078,8 +1039,15 @@ static int session_begin(const char *name) {
             s->stopped = s->gave_up = s->fast_failures = s->admin_stopped = 0;
             s->due_ms = 0;
             s->started_once = 0;
+            // Its login form (a text terminal's /bin/login) gives way to
+            // the account's shell.
+            if (s->pid && s->nosess_exec[0]) {
+                s->switching = 1;
+                sys_kill(s->pid, SIGTERM);
+            }
         }
     }
+    vt_hangup_all();
     return INITCTL_OK;
 }
 
@@ -1087,14 +1055,18 @@ static int session_begin(const char *name) {
 static void session_end(void) {
     logf1("init: session for %s ends\n", g_session);
     g_session[0] = '\0';
+    g_locked = 0;
     // THE SESSION'S SHELLS GO WITH IT: the console's and each VT's run as
     // the account, and left up they would be a shell behind the login
     // screen. Stopped as `service stop` stops one; session_begin() clears it.
     for (int i = 0; i < g_svc_count; i++) {
         struct service *s = &g_svc[i];
         if (!s->user_session) continue;
-        s->admin_stopped = 1;
-        if (s->pid) sys_kill(s->pid, SIGTERM);
+        if (!s->nosess_exec[0]) s->admin_stopped = 1;   // the desktop: until the next session
+        if (s->pid) {
+            if (s->nosess_exec[0]) s->switching = 1;      // back to its login form
+            sys_kill(s->pid, SIGTERM);
+        }
     }
     vt_hangup_all();
     for (int i = 0; i < g_svc_count; i++) {
@@ -1104,6 +1076,33 @@ static void session_end(void) {
         s->due_ms = 0;
         s->started_once = 0;
     }
+}
+
+// THE DESKTOP LOCKED OR UNLOCKED: each text terminal changes form, so a
+// locked session has no shell a VT switch away (the VT switch is the
+// kernel's and cannot be refused).
+static int session_lock(int from, const char *how) {
+    int on = !strcmp(how, "on");
+    if (!on && strcmp(how, "off")) return INITCTL_REFUSED;
+    if (!g_session[0]) return INITCTL_REFUSED;
+    struct passwd *pw = getpwnam(g_session);
+    struct proc_info pi;
+    int ok = 0;
+    for (int slot = 0; sys_proc_info(slot, &pi) == 0; slot++)
+        if (pi.pid == from && pi.tgid == from) { ok = pi.euid == 0 || (pw && pi.euid == pw->pw_uid); break; }
+    if (!ok) return INITCTL_REFUSED;
+    if (g_locked == on) return INITCTL_OK;
+    g_locked = on;
+    logf1("init: the session is %s\n", on ? "locked" : "unlocked");
+    for (int i = 0; i < g_svc_count; i++) {
+        struct service *s = &g_svc[i];
+        if (s->user_session && s->nosess_exec[0] && s->pid) {
+            s->switching = 1;
+            sys_kill(s->pid, SIGTERM);
+        }
+    }
+    vt_hangup_all();
+    return INITCTL_OK;
 }
 
 // At boot: `login.autologin` (/etc/login.conf, the machine's) naming a
@@ -1145,7 +1144,10 @@ static void start_service(struct service *s) {
     // -- the mount would be in one place and every caller looking in
     // another.
     char args[SVC_ARGS_MAX];
-    const char *use = s->args[0] ? expand_specifiers(s->args, args, sizeof args) : 0;
+    int nsf = no_session_form(s);
+    const char *argsrc = nsf ? s->nosess_args : s->args;
+    const char *exec = nsf ? s->nosess_exec : s->exec;
+    const char *use = argsrc[0] ? expand_specifiers(argsrc, args, sizeof args) : 0;
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
     o.args = use;
@@ -1156,7 +1158,7 @@ static void start_service(struct service *s) {
     if (s->stderr_as_stdout) o.stderr_fd = s->stdout_log ? SPAWN_FD_LOG : 1;
     else o.stderr_fd = SPAWN_FD_KMSG;
     struct svc_creds cr;
-    int pid = creds_for(s, &o, &cr) < 0 ? -1 : spawn_in(cr.dir, s->exec, &o, s->name);
+    int pid = creds_for(s, &o, &cr) < 0 ? -1 : spawn_in(cr.dir, exec, &o, s->name);
     creds_release(&cr);
     if (pid > 0) {
         // Before it has run a slice, since the spawn only made it READY.
@@ -1190,7 +1192,7 @@ static void start_service(struct service *s) {
     s->fast_failures++;
     s->last_exit = -1;
     snprintf(g_msg, sizeof g_msg, "init: %s failed to start (%s)\n",
-             s->name, s->exec);
+             s->name, no_session_form(s) ? s->nosess_exec : s->exec);
     sys_eprint(g_msg);
     service_failed(s);
 }
@@ -1212,6 +1214,13 @@ static int service_exited(int pid, int code) {
         s->last_exit = code;
 
         if (g_shutdown >= 0 && s->admin_stopped) return 1;
+        if (s->switching) {   // a session began or ended: its other form, now
+            s->switching = 0;
+            s->due_ms = 0;
+            s->started_once = 0;
+            logf1("init: %s changes form with the session\n", s->name);
+            return 1;
+        }
         snprintf(g_msg, sizeof g_msg,
                  "init: %s (pid %d) exited with code %d after %u ms\n",
                  s->name, pid, code, (unsigned)ran);
@@ -1272,6 +1281,7 @@ static int service_exited(int pid, int code) {
 struct vt_shell {
     int wanted;              // VT shown at least once: keep a shell on it
     int pid;
+    int switching;           // stopped to change form (login <-> shell): no failure
     int fast_failures, gave_up;
     unsigned long long started_ms, due_ms;
 };
@@ -1280,7 +1290,10 @@ static struct vt_shell g_vts[VT_LAST + 1];
 // Every VT's shell, ended: it comes back with the next session.
 static void vt_hangup_all(void) {
     for (int n = VT_FIRST; n <= VT_LAST; n++)
-        if (g_vts[n].pid) sys_kill(g_vts[n].pid, SIGTERM);
+        if (g_vts[n].pid) {
+            g_vts[n].switching = 1;
+            sys_kill(g_vts[n].pid, SIGTERM);
+        }
 }
 
 static void vt_reset_all(void) {
@@ -1353,7 +1366,9 @@ static void vt_start(int n, struct service *t) {
     char args[SVC_ARGS_MAX];
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
-    o.args = t->args[0] ? expand_specifiers(t->args, args, sizeof args) : 0;
+    int nsf = no_session_form(t);
+    const char *argsrc = nsf ? t->nosess_args : t->args;
+    o.args = argsrc[0] ? expand_specifiers(argsrc, args, sizeof args) : 0;
     o.env = environ;
     o.pgid = PGID_NEW;
     o.flags = SPAWN_SETSID;
@@ -1364,7 +1379,7 @@ static void vt_start(int n, struct service *t) {
     dup2(fd, 0);
     dup2(fd, 1);
     dup2(fd, 2);
-    int pid = ok ? spawn_in(cr.dir, t->exec, &o, t->name) : -1;
+    int pid = ok ? spawn_in(cr.dir, nsf ? t->nosess_exec : t->exec, &o, t->name) : -1;
     creds_release(&cr);
     if (in0 >= 0)  { dup2(in0, 0);  close(in0); }
     if (out1 >= 0) { dup2(out1, 1); close(out1); }
@@ -1378,7 +1393,8 @@ static void vt_start(int n, struct service *t) {
         sys_eprint(g_msg);
         return;
     }
-    snprintf(g_msg, sizeof g_msg, "init: %s@tty%d failed to start (%s)\n", t->name, n, t->exec);
+    snprintf(g_msg, sizeof g_msg, "init: %s@tty%d failed to start (%s)\n", t->name, n,
+             no_session_form(t) ? t->nosess_exec : t->exec);
     sys_eprint(g_msg);
     vt_failed(n);
 }
@@ -1387,7 +1403,7 @@ static void vt_start(int n, struct service *t) {
 static int vt_start_due(void) {
     struct service *t = vt_template();
     if (!t || g_shutdown >= 0) return 0;
-    if (t->user_session && !g_session[0]) return 0;   // the login screen first
+    if (t->user_session && !g_session[0] && !t->nosess_exec[0]) return 0;   // the login screen first
     int pending = 0;
     unsigned long long now = now_ms();
     for (int n = VT_FIRST; n <= VT_LAST; n++) {
@@ -1411,6 +1427,11 @@ static int vt_exited(int pid, int code) {
         snprintf(g_msg, sizeof g_msg, "init: shell on tty%d (pid %d) exited with code %d after %u ms\n",
                  n, pid, code, (unsigned)ran);
         sys_eprint(g_msg);
+        if (v->switching) {   // a session began or ended: its other form, now
+            v->switching = 0;
+            v->due_ms = 0;
+            return 1;
+        }
         if (ran < SVC_FAST_MS) vt_failed(n);
         else {
             v->fast_failures = 0;
@@ -1985,6 +2006,7 @@ static int serve_channel(void) {
         else if (m.verb == INITCTL_STOP)  r = control_stop(m.name);
         else if (m.verb == INITCTL_STATUS) { r = INITCTL_OK; g_hup = 1; }   // a reader: publish now
         else if (m.verb == INITCTL_SESSION) r = sender_is_root(from) ? session_begin(m.name) : INITCTL_REFUSED;
+        else if (m.verb == INITCTL_LOCK) r = session_lock(from, m.name);
         else if (m.verb == INITCTL_REBOOT || m.verb == INITCTL_POWEROFF) {
             // ANSWERED FIRST, acted on by the loop: the caller is waiting
             // for this reply, and it is among what the shutdown stops.
@@ -2185,7 +2207,8 @@ static int start_due(void) {
         if (s->stopped) continue;       // it asked to stay down
         if (s->admin_stopped) continue; // somebody else asked it to
         if (s->no_session && g_session[0]) continue;   // the greeter, during a session
-        if (s->user_session && (!g_session[0] || greeter_up())) continue;
+        if (s->user_session && !g_session[0] && !s->nosess_exec[0]) continue;
+        if (s->user_session && g_session[0] && !s->nosess_exec[0] && greeter_up()) continue;
         if (now < s->due_ms) { pending++; continue; }
         // THE BARRIER, and the one place launch order stops being the
         // whole story. Counted as pending rather than skipped, so the

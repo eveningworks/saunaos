@@ -765,8 +765,11 @@ static void draw_cursor(int x, int y, enum wm_cursor_kind kind) {
 // window until the pointer crosses a boundary".
 static enum wm_cursor_kind client_cursor_at(int mx, int my) {
     g_client_img = 0;
-    // The Start menu's search field is text: the I-beam, as over any field.
-    if (start_menu_open) return start_menu_text_at(mx, my) ? WM_CURSOR_TEXT : WM_CURSOR_NORMAL;
+    // AN OVERLAY'S OWN FIELD IS TEXT -- the Start menu's search, the login
+    // screen's and the Authentication Required dialog's password: the
+    // I-beam, as over any field in a window (wm_overlay.h's `text_at`).
+    if (wm_overlay_text_at(mx, my)) return WM_CURSOR_TEXT;
+    if (start_menu_open || wm_login_open) return WM_CURSOR_NORMAL;
     if (context_menu_open || calendar_open || wm_overlay_modal_open()) return WM_CURSOR_NORMAL;
     if (my >= screen_h - taskbar_h) return WM_CURSOR_NORMAL;
 

@@ -56,6 +56,11 @@ extern "C" {
 // a session runs, or for an account that is root, a system one (uid
 // under 1000) or unknown.
 #define INITCTL_SESSION  7
+// THE SESSION IS LOCKED, or unlocked (users D2c): `name` "on" or "off".
+// The text terminals take their login form while it is locked -- the lock
+// screen must not be a Ctrl+Alt+F2 away from the session's shell -- and
+// their shells again once unlocked. From root or the session's account.
+#define INITCTL_LOCK     8
 
 // The desktop's exit code for SIGN OUT: init ends the session and starts
 // the greeter again. (0 stays "Exit to shell": the desktop stops and the
@@ -93,6 +98,10 @@ int uinitctl_shutdown(int reboot);
 // INITCTL_SESSION for `account` (root only; privd after a sign-in): the
 // reply's INITCTL_* result, or -1 when init could not be asked.
 int uinitctl_session(const char *account);
+
+// INITCTL_LOCK: the reply's INITCTL_* result, or -1 when init could not be
+// asked. The compositor calls it as its lock screen opens and closes.
+int uinitctl_lock(int on);
 
 // INITCTL_REALTIME for `pid` (0 = the caller). Returns an INITCTL_*
 // result, or -1 when init could not be asked; on INITCTL_OK the granted

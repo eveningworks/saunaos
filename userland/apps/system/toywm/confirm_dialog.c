@@ -311,6 +311,11 @@ void confirm_dialog_password_wrong(const char *why) {
     set_busy(0);
 }
 
+int confirm_dialog_text_at(int mx, int my) {
+    return confirm_dialog_open && g_d.pw_on && mx >= g_pw.x && mx < g_pw.x + g_pw.w &&
+           my >= g_pw.y && my < g_pw.y + g_pw.h;
+}
+
 int confirm_dialog_password_state(const char **label, const char **err, int *busy, int *typed,
                                   int *x, int *y, int *w, int *h) {
     if (!confirm_dialog_open || !g_d.pw_on) return 0;

@@ -148,6 +148,9 @@ struct uapp_top {
     int hears;                  // the app has an on_widget: a focused key is reported
     // The caret last reported (WIN_REQ_CARET_RECT): a frame that moves it sends.
     int caret_sent, caret[4];
+    // The key being handed to ops->key was used by the focused widget
+    // first (top_key()): the default button leaves such an Enter alone.
+    int key_taken;
     const struct uapp_top_ops *ops;
 };
 extern const struct uapp_top_ops APP_OPS, WIN_OPS;   // uapp_window.c

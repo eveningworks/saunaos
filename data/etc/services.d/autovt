@@ -15,9 +15,12 @@
 Name=autovt
 Description=A shell on each text virtual terminal
 Exec=/bin/tosh
-# Runs as the account whose SESSION is on (users D2b), and only while one
-# is: the login screen must not be a Ctrl+Alt+F2 away from a shell.
+# Runs as the account whose SESSION is on (users D2b); with NO session
+# (the login screen is up, or a text boot with it chosen) it is a LOGIN
+# PROMPT instead, run as root (users D2c) -- logind's shape.
 User=@session
+NoSessionExec=/bin/login
+NoSessionArgs=--seat
 Seat=yes
 TTY=vt
 Restart=always

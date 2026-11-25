@@ -25,9 +25,10 @@
 // Terminal does (userland/apps/apps/terminal/terminal.c) -- so the shell cannot
 // tell the difference, which is the property worth having.
 #include <stdint.h>
-#include "base/usetting.h"  // system.shell
+#include <pwd.h>   // the first person's account
 #include <pthread.h>
 #include "rt/sys.h"
+#include "sandbox_abi.h"
 #include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
@@ -35,18 +36,6 @@
 #include <unistd.h>
 
 #define USAGE "telnetd  (run by inetd: inetd -p 23 /bin/telnetd)"
-
-#define SHELL_FALLBACK "/bin/tosh"
-
-// WHICH SHELL, from the registry rather than baked in (`system.shell`,
-// kernel/lib/shell_config.c). Read per session rather than once at
-// startup, so changing the setting affects the NEXT window or login
-// instead of needing a restart -- and the fallback keeps a session
-// possible when the registry cannot answer.
-static const char *shell_path(char *buf, size_t cap) {
-    if (usetting_get("system.shell", buf, cap) && buf[0]) return buf;
-    return SHELL_FALLBACK;
-}
 
 // RFC 854. Only the commands a client actually sends are named; an
 // option this does not implement is REFUSED rather than ignored, which
@@ -221,6 +210,19 @@ static uint32_t client_to_shell(struct in_state *s, const uint8_t *in,
 
 // --- the session -------------------------------------------------------
 
+// The account a connection signs into without asking (login -f): the
+// first person's in /etc/passwd -- one until users D3. NULL when there is
+// none: plain `login`, which asks.
+static char *first_person(void) {
+    char *name = 0;
+    struct passwd *pw;
+    setpwent();
+    while ((pw = getpwent()) && pw->pw_uid < 1000) { }
+    if (pw) name = strdup(pw->pw_name);
+    endpwent();
+    return name;
+}
+
 static int start_shell(void) {
     int slave = -1;
     if (sys_openpty(&g_master, &slave) < 0) return -1;
@@ -239,11 +241,16 @@ static int start_shell(void) {
     // second shell run inside this one (`dash`) is exactly that case,
     // and it fails with "Cannot set tty process group" if every process
     // is in init's one session. See abi/syscall_abi.h's SPAWN_SETSID.
-    char shbuf[SETTING_ABI_VALUE_MAX];
+    // /bin/login, not a shell (users D2c): it signs the first person in at
+    // once when that account has no password, and asks when it has one.
     // init's environment (/etc/environment), passed on: a NULL one is
     // EMPTY, not inherited, and a session with no PATH cannot run `cc`.
-    int pid = sys_spawn_flags(shell_path(shbuf, sizeof shbuf), 0, -1, environ,
-                              PGID_NEW, SPAWN_SETSID);
+    char *who = first_person();
+    char *args = 0;
+    if (who && asprintf(&args, "-f %s", who) < 0) args = 0;
+    int pid = sys_spawn_flags("/bin/login", args, -1, environ, PGID_NEW, SPAWN_SETSID);
+    free(args);
+    free(who);
     if (in0  >= 0) { dup2(in0, 0);  close(in0); }
     if (out1 >= 0) { dup2(out1, 1); close(out1); }
     if (err2 >= 0) { dup2(err2, 2); close(err2); }
@@ -275,6 +282,16 @@ int main(int argc, char **argv) {
     if (g_child < 0) {
         static const char msg[] = "telnetd: cannot start a shell\r\n";
         sock_write(msg, sizeof msg - 1);
+        return 1;
+    }
+
+    // PLEDGED BEFORE THE FIRST BYTE FROM THE NETWORK: telnetd runs as root
+    // (login(1) must), and the option parser below reads a stranger's
+    // bytes. What is left is relaying them (stdio), the window size on the
+    // pty (tty) and the hangup to the session's group (proc) -- no path,
+    // no settings, no socket of its own.
+    if (sys_pledge(PROMISE_STDIO | PROMISE_PROC | PROMISE_TTY) < 0) {
+        sys_kill(-g_child, SIGKILL);
         return 1;
     }
 

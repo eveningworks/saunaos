@@ -1,0 +1,12 @@
+Type=enum
+File=/etc/desktop.conf
+Scope=user
+Label=Lock after the screen saver
+Category=System
+Group=Users
+Default=on
+Choices=off,on
+Description=Ask for the password when the screen saver ends or the screen comes back on -- once the account has a password
+Order=30
+Choice.off=Off
+Choice.on=On

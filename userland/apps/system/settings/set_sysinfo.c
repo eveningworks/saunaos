@@ -269,8 +269,7 @@ static void rn_on_action(struct uapp_window *w, int code) {
 }
 
 static void rn_on_key(struct uapp_window *w, int key, unsigned mods) {
-    (void)mods;
-    if (key == '\n' || key == '\r') { rn_ok(w); return; }
+    (void)mods; (void)key;
     if (uhostname_valid(uui_textbox_text(&g_rn_field))) g_rn_err.text = "";
     uapp_window_redraw(w);
 }
@@ -312,7 +311,7 @@ void sysinfo_rename_open(struct uapp *a) {
         .title = "Rename this computer", .w = w, .h = h, .flags = UAPP_WIN_MODAL,
         .widgets = RN, .widget_count = 5, .layout = &RN_LAYOUT, .focus = &g_rn_focus,
         .on_action = rn_on_action, .on_key = rn_on_key, .on_close = rn_close,
-        .log_prefix = "settings.rename",
+        .log_prefix = "settings.rename", .default_button = &g_rn_ok,
     });
 }
 

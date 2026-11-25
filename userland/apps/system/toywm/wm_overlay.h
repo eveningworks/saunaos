@@ -194,7 +194,21 @@ struct wm_overlay {
     // being the whole screen, and one after. Read through
     // wm_overlay_frame_begin().
     int repaint;
+
+    // TEXT UNDER THE POINTER: 1 when (mx, my) is over a field of its own
+    // -- the pointer is the text cursor there, as over any field in a
+    // window. NULL for an overlay with nothing to type into. Last, for the
+    // positional table's sake (see `on_open`).
+    int (*text_at)(int mx, int my);
 };
+
+// The pointer is over an open overlay's text field (`text_at`), the most
+// modal first.
+int wm_overlay_text_at(int mx, int my);
+// THE CARET BLINKS in every open overlay with a field (`text_at` set):
+// milliseconds to the next flip, -1 when none blinks; at a flip it damages
+// them. The WM's wait asks once per loop, as a uapp's does for a window.
+int wm_overlay_caret_wait_ms(void);
 
 #define WM_OVERLAY_REPAINT_ON_CLOSE  1
 #define WM_OVERLAY_REPAINT_WHILE_OPEN 2
