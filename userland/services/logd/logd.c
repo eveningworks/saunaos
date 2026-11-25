@@ -51,7 +51,6 @@
 #include "applog.h"
 
 #define LOG_PATH   "/var/log/saunaos.log"
-#define LOG_PREV   "/var/log/saunaos.log.1"   // what this used to be; removed once
 #define BOOT_DIR   "/var/log/boot"
 #define SEQ_PATH   "/var/lib/logd.seq"
 #define TAG_W      6                  // "kernel", "toywm ", "netd  "
@@ -453,14 +452,10 @@ int main(void) {
     unsigned long long last = seq_read();
     char path[64];
 
-    // THE FIRST BOOT UNDER THIS SCHEME still has a log to file. A machine
-    // upgrading from the two-file logd comes up with a saunaos.log from the
-    // boot before the upgrade, and that boot may be exactly the one
-    // somebody is trying to read -- opening O_TRUNC over it would throw
-    // it away. Its saunaos.log.1 is older and is dropped.
+    // A LOG WITH NO COUNTER (logd.seq lost) is still a boot somebody may
+    // be trying to read: filed as boot 1, never opened O_TRUNC.
     struct stat st;
     if (!last && stat(LOG_PATH, &st) == 0) last = 1;
-    unlink(LOG_PREV);
     if (last) {
         boot_path(path, sizeof path, last);
         rename(LOG_PATH, path);
