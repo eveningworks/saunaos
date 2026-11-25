@@ -46,11 +46,6 @@ int udir_of(const char *path);
 void udir_create_all(void);
 // Makes one folder and its parents (mkdir -p); 0, or -1 if it is not there after.
 int udir_make(enum udir d);
-// THE MOVE FROM THE LOWER-CASE LAYOUT (<home>/desktop, <home>/screenshots),
-// once, before anything lists them: each old folder is renamed to its
-// new place, or -- when an update has already seeded the new one --
-// emptied into it entry by entry and removed. How many moved.
-int udir_migrate(void);
 
 #ifdef __cplusplus
 }

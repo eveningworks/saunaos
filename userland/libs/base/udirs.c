@@ -2,7 +2,6 @@
 #include "base/udirs.h"
 #include "base/uusername.h"
 #include <pwd.h>
-#include "ulistdir.h"
 #include "base/uconf.h"
 #include "etc_config.h"
 #include "rt/sys.h"
@@ -103,60 +102,4 @@ void udir_create_all(void) {
 int udir_make(enum udir d) {
     mkdirs(udir_path(d));
     return exists(udir_path(d)) ? 0 : -1;
-}
-
-int udir_migrate(void) {
-    // In the home, where a disk from before the home move keeps them.
-    static const struct { const char *rel; enum udir to; } OLD[] = {
-        { "desktop",     UDIR_DESKTOP },
-        { "screenshots", UDIR_SCREENSHOTS },
-    };
-    int moved = 0;
-    for (unsigned i = 0; i < sizeof OLD / sizeof OLD[0]; i++) {
-        const char *to = udir_path(OLD[i].to);
-        char from[256];
-        in_home(from, sizeof from, OLD[i].rel);
-        if (!exists(from)) continue;
-        if (!exists(to)) {
-            char parent[256];
-            snprintf(parent, sizeof parent, "%s", to);
-            char *slash = strrchr(parent, '/');
-            if (slash && slash != parent) { *slash = '\0'; mkdirs(parent); }
-            if (sys_rename(from, to) == 0) moved++;
-            continue;
-        }
-        // BOTH ALREADY THERE: the update that brought this code seeded the
-        // new folder (the desktop's launchers) before this first boot. The
-        // OLD one is the person's: its entries win a clash, and a seeded
-        // launcher it lacks is one they had deleted, so it goes again.
-        // Each listing is read WHOLE before anything in it moves, so a
-        // rename or an unlink cannot shift a page still to be read.
-        struct ulist_entry *ents = 0;
-        char a[320], b[320];
-        int n = ulistdir(to, &ents);
-        for (int k = 0; k < n; k++) {
-            snprintf(a, sizeof a, "%s/%s", from, ents[k].name);
-            snprintf(b, sizeof b, "%s/%s", to, ents[k].name);
-            size_t l = strlen(ents[k].name);
-            int launcher = !ents[k].is_dir && l > 8 && !strcmp(ents[k].name + l - 8, ".desktop");
-            if (!ents[k].is_dir && (exists(a) || launcher)) sys_unlink(b);
-        }
-        free(ents);
-        ents = 0;
-        n = ulistdir(from, &ents);
-        for (int k = 0; k < n; k++) {
-            snprintf(a, sizeof a, "%s/%s", from, ents[k].name);
-            snprintf(b, sizeof b, "%s/%s", to, ents[k].name);
-            if (!exists(b) && sys_rename(a, b) == 0) moved++;
-        }
-        free(ents);
-        sys_unlink(from);   // refused while anything is left in it
-    }
-    // Screenshot's Options may name the old folder outright
-    // (userland/apps/apps/screenshot/screenshot.h's SHOT_CONF).
-    char v[256], old[256];
-    in_home(old, sizeof old, "screenshots");
-    if (uconf_get("/etc/screenshot.conf", "folder", v, sizeof v) && !strcmp(v, old))
-        uconf_set("/etc/screenshot.conf", "folder", udir_path(UDIR_SCREENSHOTS));
-    return moved;
 }

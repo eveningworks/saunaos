@@ -60,10 +60,7 @@ static void refresh_run(struct uworker_job *j) {
 
 void wm_watch_init(void) {
     uconf_count_thread();   // `gui frameio` counts this thread's reads: the frame's
-    // The personal folders before anything lists them (base/udirs.h):
-    // the old lower-case layout moved across once, then any missing made.
-    int moved = udir_migrate();
-    if (moved) wm_logf("wm: moved %d item(s) to the personal folders\n", moved);
+    // The personal folders before anything lists them (base/udirs.h).
     udir_create_all();
     PATH[WM_TOPIC_DESKTOP] = udir_path(UDIR_DESKTOP);
     // The bin and the thumbnail cache are made on first use, and a watch

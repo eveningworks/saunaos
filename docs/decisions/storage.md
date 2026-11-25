@@ -3915,11 +3915,9 @@ where the players and the wallpaper picker already list it. Apps ask
   `XDG_MUSIC_DIR="$HOME/Music"` lines as well as plain `MUSIC=/path`.
 - **Capitalised**, as XDG, Windows and macOS all spell them -- and
   `/home/desktop` moved with them rather than stay the one lower-case
-  folder. `udir_migrate()` moves the old `/home/desktop` and
-  `/home/screenshots` across ONCE at the compositor's start; when an
-  update has already seeded the new Desktop (its launchers), the OLD
-  folder is the person's: its entries win, and a seeded launcher it
-  lacks is one they deleted, so it is removed again.
+  folder. (`udir_migrate()` moved the old `/home/desktop` and
+  `/home/screenshots` across once at the compositor's start; it was
+  dropped on 2026-11-25, when no machine had them.)
 - **Shipped content is not copied in** (the option that makes the
   folders look less empty): it would cost the disk twice and blur whose
   files are whose. Windows 7's Libraries -- a place showing a personal
