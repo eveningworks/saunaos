@@ -14,6 +14,10 @@
   bare `config` print the same.
 - `-r`, `--recursive` -- with `get`: everything under a namespace rather
   than one level (`config get -r desktop`).
+- `--machine` -- the machine's values in `/etc`, not this person's: a
+  `Scope=user` setting is read and written in `/etc`, the default every
+  person without a value of their own follows. What a root service sees
+  anyway, having no `XDG_CONFIG_HOME`.
 
 ## Description
 
@@ -29,7 +33,7 @@ directory of text cannot provide about itself. See
 | `config list` | Every registered setting, its value, and **the file it lives in**. Flags any whose file no longer matches what is live. |
 | `config get [<name>]` | One value -- or, for a BRANCH, every name under it: `config get desktop.transparency` prints the switch's own value and then every transparency setting. A bare namespace (`config get desktop`) prints ONE level, each child with its value and how many names sit under it; `-r` prints all of them; no name at all lists every namespace. Kernel facts are in the same tree (`config get mem`), marked `(fact)`. A leaf falls back to the FACT registry when no setting has that name, so `config get mem.frame.free` answers — **labelled as read-only kernel state**, since a setting survives a reboot and a fact does not exist between them. A list-shaped fact says so and names a tool that can show it. |
 | `config set <name> <value>` | Validate, apply and persist. `name=value` works too. A refusal says what WOULD be accepted — the named choices for an enum, the range and step for a number (`try 25..300 % (in steps of 25)`); a value that applied but did **not** save says so rather than reporting success. |
-| `config unset <name>` | Removes the key, so the built-in default applies at the next boot. |
+| `config unset <name>` | Removes the key, so the built-in default applies at the next boot. For a person's setting, removes it from their file only, so the machine's value applies again. |
 | `config where <name>` | Just the owning file's path — scriptable. |
 | `config diff` | Settings whose file differs from what is in effect, i.e. exactly what a hand edit changed and what `reload` would apply. |
 | `config reload` | Re-read every file after editing by hand. Reports how many values were **refused**. |

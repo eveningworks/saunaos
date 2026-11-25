@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/saunaos.conf
+Scope=user
 Label=Delete items for good after
 Category=Storage
 Group=Recycle Bin

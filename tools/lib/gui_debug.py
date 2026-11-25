@@ -97,11 +97,33 @@ SH_TIMEOUT_S = 60.0     # send(): `sh PROGRAM` runs a guest program, which under
 DBG_LINE_MAX = 128
 # The account the desktop and its apps run as (data/etc/services.d/toywm's User=); as_user()'s default.
 DESKTOP_ACCOUNT = "user"
+# Its XDG_CONFIG_HOME: the person's half of a Scope=user setting's /etc file (base/uconf.h).
+USER_CONFIG = f"/home/{DESKTOP_ACCOUNT}/.config"
 RETRIES_ON_SPLICED_JSON = 3  # see json() -- a klog line can land mid-object
 FIRST_PRESENT_S = 0.4  # grace after a client's window appears -- see spawn()
 # The debug console is a tty, so replies carry terminal control sequences
 # (`ls` colours its names). Dropped as vm.py's strip_terminal_codes() does.
 _CSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _as_desktop_config(command):
+    """`sh config ...` run as the desktop's account (`as user config ...`).
+
+    A `Scope=user` setting is the PERSON's (users stage D1b,
+    docs/users-design.md): read from ~/.config/<file> over /etc/<file>, and
+    root -- `sh` -- has no ~/.config, so its `config set` would write the
+    machine's default under a value the desktop may already shadow. A test
+    means the desktop's setting, as `adb shell settings` means the current
+    user's. `sh config --machine ...` stays root's, the machine's layer."""
+    if not command.startswith("sh config ") or command.startswith("sh config --machine"):
+        return command
+    # `as` hands its line to dash; `sh` split on spaces and nothing else, so
+    # each word is quoted to keep a `#`, `*` or `;` in a value literal.
+    words = [w for w in command[len("sh config "):].split(" ") if w]
+    out = f"as {DESKTOP_ACCOUNT} config " + " ".join(shlex.quote(w) for w in words)
+    if len(out.encode()) >= DBG_LINE_MAX:
+        raise ValueError(f"{out[:40]!r}...: over the debug console's {DBG_LINE_MAX - 1}-byte line")
+    return out
 
 
 def _first_int(text):
@@ -300,6 +322,7 @@ class DebugConsole:
         """
         if self._stale:
             self._resync()
+        command = _as_desktop_config(command)
         with self._lock:
             self._prev_mark, self._mark = self._mark, len(self._all_log)
         self._s.sendall((command + "\n").encode())

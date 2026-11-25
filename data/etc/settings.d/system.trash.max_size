@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/saunaos.conf
+Scope=user
 Label=Largest size
 Category=Storage
 Group=Recycle Bin

@@ -38,7 +38,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
-from gui_debug import DebugConsole, enter_gui          # noqa: E402
+from gui_debug import DebugConsole, enter_gui, USER_CONFIG  # noqa: E402
 from qmp_test import QMPSession             # noqa: E402
 import port_guard  # noqa: E402
 
@@ -341,8 +341,9 @@ def main():
           f'theme="{theme}" loaded={n}, was "{before_theme}"/{before_n}')
     # ...and the value on disk is still the working one, read through a
     # path the compositor is not on.
-    out = dbg.send("sh cat /etc/saunaos.conf") or ""
-    check("...and /etc still names a theme that exists",
+    out = (dbg.send(f"sh cat {USER_CONFIG}/saunaos.conf") or "") + \
+        (dbg.send("sh cat /etc/saunaos.conf") or "")
+    check("...and neither layer stored the refused theme",
           "cursor.theme=broken" not in out, out[-200:])
 
     DebugConsole.warp_cursor(dbg, qmp, PARK_X + 40, PARK_Y + 40)
@@ -364,10 +365,10 @@ def main():
     # no edit to either.
     dbg.send("gui spawn /bin/config list")
     time.sleep(0.8)
-    dbg.send("sh cat /etc/saunaos.conf")
+    dbg.send(f"sh cat {USER_CONFIG}/saunaos.conf")
     time.sleep(0.5)
     conf = "\n".join(dbg.logs())
-    check("the settings persisted to /etc/saunaos.conf",
+    check("the settings persisted to the person's saunaos.conf",
           "cursor.theme" in conf and "cursor.size" in conf,
           "both keys present" if "cursor.theme" in conf else "missing")
 

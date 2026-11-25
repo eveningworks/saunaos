@@ -77,7 +77,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
-from gui_debug import DebugConsole, enter_gui        # noqa: E402
+from gui_debug import DebugConsole, enter_gui, USER_CONFIG  # noqa: E402
 from qmp_test import QMPSession                      # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
@@ -507,7 +507,7 @@ def run(dbg, qmp, tmp, res, inst):
     conf = ""
     deadline = time.time() + 10
     while time.time() < deadline:
-        conf = dbg.send("sh cat /etc/desktop.conf") or ""
+        conf = dbg.send(f"sh cat {USER_CONFIG}/desktop.conf") or ""
         if "dusk" in conf:
             break
         time.sleep(0.5)

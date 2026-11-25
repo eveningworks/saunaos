@@ -309,6 +309,8 @@ static struct tree_ent {
 } *g_tree;
 static int g_tree_n, g_tree_cap;
 static int g_recursive;
+// --machine: the machine's layer alone (main()).
+static int g_machine;
 
 static void tree_add(const char *name, const char *value, int fact) {
     if (g_tree_n == g_tree_cap) {
@@ -955,6 +957,7 @@ static const struct uargs_cmd CMDS[] = {
 
 static const struct uargs_opt OPTS[] = {
     { "recursive", 'r', 0, "with get: everything under a namespace, not one level", &g_recursive, 0 },
+    { "machine", 0, 0, "the machine's values in /etc, not this person's", &g_machine, 0 },
     { 0 },
 };
 
@@ -965,7 +968,8 @@ static const struct uargs_prog PROG = {
     .summary = "Read, change and find this machine's configuration.",
     .cmds = CMDS,
     .notes = "Settings are ordinary text under /etc -- `edit` them freely, then\n"
-             "`config reload`. `config diff` shows what an edit has not applied yet.",
+             "`config reload`. `config diff` shows what an edit has not applied yet.\n"
+             "A person's settings are in ~/.config over /etc's; --machine edits /etc's.",
 };
 
 int main(int argc, char **argv) {
@@ -975,6 +979,10 @@ int main(int argc, char **argv) {
     char **v = a.argv;
     int n = a.argc;
     if (n == 0 || !strcmp(v[0], "help")) { uargs_help(&PROG); return 0; }
+    // NO XDG_CONFIG_HOME IS NO PERSON'S LAYER (base/uconf.h): a user key
+    // then reads and writes /etc, the default every person starts from --
+    // what a root service already sees.
+    if (g_machine) unsetenv("XDG_CONFIG_HOME");
     const char *cmd = v[0];
     if (!strcmp(cmd, "list"))   return cmd_list();
     if (!strcmp(cmd, "diff"))   return cmd_diff();

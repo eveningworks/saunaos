@@ -99,6 +99,10 @@ TESTS = [
     # that the generation MOVES when ring 3 writes /etc, which is the
     # only thing making the desktop notice a change.
     ("usetting_test", 0, None, None),
+    # A user-scoped setting layers $XDG_CONFIG_HOME/<file> over /etc's
+    # (users stage D1b): routed writes and unsets, a machine key never
+    # read from the person's file, no layer without XDG_CONFIG_HOME.
+    ("usetting_scope_test", 0, None, None),
     # What one setting costs, in syscalls (strace -c), against ceilings:
     # `config set` once walked the whole registry per name. SPAWNED: it
     # waits for its children.

@@ -1,5 +1,6 @@
 Type=string
 File=/etc/desktop.conf
+Scope=user
 Label=Recently used emoji
 Category=Input
 Group=Emoji

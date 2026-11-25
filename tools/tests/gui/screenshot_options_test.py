@@ -37,13 +37,13 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
-from gui_debug import DebugConsole, enter_gui          # noqa: E402
+from gui_debug import DebugConsole, enter_gui, USER_CONFIG  # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
 
 CONF = "/etc/screenshot.conf"
-SHORTCUTS = "/etc/shortcuts.conf"
+SHORTCUTS = f"{USER_CONFIG}/shortcuts.conf"   # shortcuts.* is Scope=user
 DIR = "/home/user/shot-opt"
 PRTSC = "0xf888"
 CALC = "/bin/wm/apps/calculator"

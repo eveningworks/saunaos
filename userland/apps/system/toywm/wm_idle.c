@@ -2,6 +2,7 @@
 #include "wm_internal.h"
 #include "wm_idle.h"
 #include "apps/system/toywm/wm_conf.h"
+#include "base/uconf.h"
 #include "wm_log.h"
 #include "wm_rawin.h"
 #include "rt/sys.h"
@@ -35,14 +36,14 @@ static int g_off_refused;       // the hardware cannot: not asked again until th
 
 static void adopt_settings(void) {
     char v[64];
-    if (wm_conf_get(DESKTOP_CONF, "screensaver", v, sizeof v) && v[0])
+    if (uconf_get_layered(DESKTOP_CONF, "screensaver", v, sizeof v) && v[0])
         strlcpy(g_saver, v, sizeof g_saver);
-    if (wm_conf_get(DESKTOP_CONF, "screensaver.idle", v, sizeof v) && v[0]) {
+    if (uconf_get_layered(DESKTOP_CONF, "screensaver.idle", v, sizeof v) && v[0]) {
         int n = 0;
         for (const char *p = v; *p >= '0' && *p <= '9'; p++) n = n * 10 + (*p - '0');
         if (n >= 0 && n <= SCREENSAVER_IDLE_MAX) g_idle_minutes = n;
     }
-    if (wm_conf_get(DESKTOP_CONF, "screen_off", v, sizeof v) && v[0]) {
+    if (uconf_get_layered(DESKTOP_CONF, "screen_off", v, sizeof v) && v[0]) {
         int n = 0;
         for (const char *p = v; *p >= '0' && *p <= '9'; p++) n = n * 10 + (*p - '0');
         if (n >= 0 && n <= SCREENSAVER_IDLE_MAX) g_off_minutes = n;

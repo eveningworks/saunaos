@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/desktop.conf
+Scope=user
 Label=See-through windows
 Category=Appearance
 Group=Transparency

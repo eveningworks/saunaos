@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/desktop.conf
+Scope=user
 Label=Taskbar glass
 Category=Appearance
 Group=Transparency

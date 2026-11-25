@@ -14,7 +14,7 @@ saved but never read, each fail their own check.
 Also: a thumb drag mid-list moves the grid on the FIRST frame after the
 motion (a drag never glides -- docs/gui-guidelines.md's scrollbar rule
 2), and the setting is left ON afterwards, since it is written to
-/etc/desktop.conf and would otherwise change the machine for every
+the desktop's desktop.conf and would otherwise change the machine for every
 later tool (CLAUDE.md).
 
     python3 tools/lib/vm.py start

@@ -1,5 +1,6 @@
 Type=keycombo
 File=/etc/shortcuts.conf
+Scope=user
 Label=Screenshot: choose what to capture
 Category=Shortcuts
 Group=Applications

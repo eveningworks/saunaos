@@ -97,6 +97,53 @@ int uconf_set_in(const char *path, const char *section,
 // and only one of them is what a NULL means here.
 int uconf_unset(const char *path, const char *key);
 
+// ---- the person's layer over /etc (users stage D1b) --------------------
+//
+// A settings file has two layers: `/etc/<file>`, the machine's, and
+// `$XDG_CONFIG_HOME/<file>`, the person's -- the same basename, XDG's
+// ~/.config over /etc/xdg and HKCU over HKLM. A read asks the person's
+// file first, KEY BY KEY, and falls back to the machine's; it never
+// consults a schema (base/usetting_schema.h routes the WRITES by
+// `Scope=`, so a machine key does not land in the person's file).
+//
+// NO PERSON'S LAYER FOR ROOT, OR WITHOUT XDG_CONFIG_HOME: a root
+// service has no such variable (init sets it only for a `User=` one), and
+// a root process that inherited one -- `sudo`, a tool privd elevated --
+// is refused it by euid, so nothing a person writes can steer a root
+// process and no root write lands in a home. Only a file directly in
+// /etc has a person's half.
+
+// The person's half of `etc_path` ("/etc/desktop.conf" ->
+// "/home/user/.config/desktop.conf"). 1 with `out` filled; 0 when there
+// is no person's layer (above) or `etc_path` is not a file in /etc; -1
+// when the path does not fit `out` -- never a truncated path. At
+// UCONF_USER_PATH_MAX (PATH_MAX, past which no path opens) -1 means the
+// person's layer CANNOT be reached: a read uses the machine's alone and
+// says so once, a write is refused.
+#define UCONF_USER_PATH_MAX 4096
+int uconf_user_path(const char *etc_path, char *out, uint32_t cap);
+
+// uconf_get() through both layers: the person's value if their file has
+// the key, else the machine's.
+int uconf_get_layered(const char *etc_path, const char *key, char *out, uint32_t out_size);
+
+// Both documents, for a reader asking several keys (one load each). The
+// person's is invalid when there is no such layer or file. Free with
+// uconf_layers_free() on every path.
+struct uconf_layers {
+    struct etc_config_buf user, machine;
+};
+// 1 when either document was read.
+int uconf_load_layered(const char *etc_path, struct uconf_layers *l);
+int uconf_layers_get(const struct uconf_layers *l, const char *key, char *out,
+                     uint32_t out_size);
+void uconf_layers_free(struct uconf_layers *l);
+
+// Makes the person's config directory ($XDG_CONFIG_HOME) when it is
+// missing, 0700 as the XDG spec asks of a writer -- a fresh home has
+// none until the first setting is changed. 1 when it exists afterwards.
+int uconf_user_dir_ensure(void);
+
 #ifdef __cplusplus
 }
 #endif

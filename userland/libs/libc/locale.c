@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <unistd.h>
 
 #define LOCALES_DB   "/etc/locales"
 #define LOCALE_CONF  "/etc/locale.conf"
@@ -131,6 +132,17 @@ static int conf_get(const char *path, const char *key, char *out, size_t cap) {
 // else the declaration's Default= -- read from the declaration itself,
 // so the default has one home.
 static void setting_value(const char *name, char *out, size_t cap) {
+    // The person's file over the machine's -- locale.* is Scope=user --
+    // by base/uconf.h's rules, which libc cannot link: none for root, an
+    // empty value is no value.
+    const char *xdg = geteuid() != 0 ? getenv("XDG_CONFIG_HOME") : 0;
+    if (xdg && xdg[0] == '/') {
+        char *user = malloc(PATH_MAX);
+        int hit = user && snprintf(user, PATH_MAX, "%s/locale.conf", xdg) < PATH_MAX &&
+                  conf_get(user, name, out, cap) && out[0];
+        free(user);
+        if (hit) return;
+    }
     if (conf_get(LOCALE_CONF, name, out, cap)) return;
     char decl[64];
     snprintf(decl, sizeof decl, SETTINGS_DIR "/locale.%s", name);

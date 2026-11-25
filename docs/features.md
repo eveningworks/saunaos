@@ -419,8 +419,9 @@ A signal reaches only its sender's own processes.
 system volume carries an owner, a group and Unix permission bits, and
 every path a program names is checked against them -- owner, group,
 other; search on each folder above; the sticky bit on `/tmp`; root reads
-anything and runs only what is executable. The desktop owns its home, `/home/user`, and
-its own settings in `/etc`; the accounts, the services, `/bin` and
+anything and runs only what is executable. The desktop owns its home, `/home/user`, where
+its look, region and shortcuts live (`~/.config`, over the machine's in
+`/etc`, which `config --machine` sets); the accounts, the services, `/bin` and
 `/lib` are root's, so changing them takes `sudo` or an elevated tool.
 `chown`, `chmod`, `umask` and `stat` show and change them; a USB stick or
 a network share belongs to the person at the machine. For now the

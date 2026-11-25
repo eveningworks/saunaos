@@ -3,6 +3,7 @@
 # Read at each navigation, so a change applies to the next page loaded.
 Type=enum
 File=/etc/browser.conf
+Scope=user
 Label=Identify as
 Category=Network
 Group=Web Browser

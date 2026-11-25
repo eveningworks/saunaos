@@ -13,7 +13,7 @@ own numbers and from pixels:
   - with `desktop.animations` off, `anims` never leaves 0 and the first
     frame after the change already equals the settled one
 
-The setting is written to /etc/desktop.conf and put back to `on` in a
+The setting is written to the desktop's desktop.conf and put back to `on` in a
 `finally`, since a setting left behind changes the machine for every
 later tool (CLAUDE.md).
 

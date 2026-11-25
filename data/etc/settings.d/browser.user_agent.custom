@@ -2,6 +2,7 @@
 # browser.user_agent is Custom.
 Type=string
 File=/etc/browser.conf
+Scope=user
 Label=Custom identity
 Category=Network
 Group=Web Browser

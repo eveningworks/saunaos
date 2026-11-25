@@ -246,6 +246,9 @@ only expensive part of it.
 - [x] ~~Stage B of `docs/users-design.md`: the euid gate, and `privd` asks consent~~ DONE 2026-11-24 -- `sudo`, the prompt
 - [x] ~~Stage C of `docs/users-design.md`: files carry an owner, and the syscalls check it~~ DONE 2026-11-24 -- `chown`
 - [ ] **NEXT** Enforce file permissions by default -- the suite passes enforced (2026-11-25); flip after days of ASUS use
+- [x] ~~Stage D1b of `docs/users-design.md`: a setting's `Scope=`, `~/.config` over `/etc`~~ DONE 2026-11-25 -- `config --machine`
+- [ ] Stage D1c of `docs/users-design.md`: the apps' own `/etc/<app>.conf` files move to `$XDG_CONFIG_HOME`
+- [ ] Root windows on the person's desktop draw in the person's look -- First-boot setup, screen trial, elevated tools see the machine's
 - [ ] `open()`'s and `mkdir()`'s mode reach the kernel -- once every tool that writes a program sets its exec bit (stage C)
 - [ ] `ls -l` shows the mode and the owner, and File Manager's Properties the owner -- today `stat` does
 - [ ] A setgid folder gives a new file its group (BSD's rule; Linux's with `g+s`)

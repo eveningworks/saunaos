@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/desktop.conf
+Scope=user
 Label=Window preview
 Category=Desktop
 Group=Taskbar

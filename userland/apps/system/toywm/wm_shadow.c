@@ -3,6 +3,7 @@
 #include "wm_prof.h"
 #include "wm_shadow.h"
 #include "apps/system/toywm/wm_conf.h"
+#include "base/uconf.h"
 #include "ui/ugfx.h"
 #include <stdlib.h>
 #include <string.h>
@@ -314,7 +315,7 @@ int wm_shadow_enabled(void) { return g_enabled; }
 static void adopt(void) {
     char v[16];
     int on = 1;
-    if (wm_conf_get(DESKTOP_CONF, "shadows", v, sizeof v) && v[0])
+    if (uconf_get_layered(DESKTOP_CONF, "shadows", v, sizeof v) && v[0])
         on = !(v[0] == 'o' && v[1] == 'f' && v[2] == 'f');
     if (on != g_enabled) {
         g_enabled = on;

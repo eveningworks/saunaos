@@ -39,7 +39,12 @@ static void fill_from_schema(const struct uschema *s, struct setting_msg *m) {
     strlcpy(m->name, s->name, sizeof m->name);
     strlcpy(m->ns, s->ns, sizeof m->ns);
     strlcpy(m->label, s->label, sizeof m->label);
-    strlcpy(m->file, s->file, sizeof m->file);
+    // The file a write goes to here: the person's for a user key, as
+    // "~/.config/<file>" when the full path outgrows the ABI's field.
+    if (uschema_target(s, m->file, sizeof m->file) < 0) {
+        const char *base = strrchr(s->file, '/');
+        snprintf(m->file, sizeof m->file, "~/.config/%s", base ? base + 1 : s->file);
+    }
     strlcpy(m->category, s->category, sizeof m->category);
     strlcpy(m->group, s->group, sizeof m->group);
     m->type = s->type;

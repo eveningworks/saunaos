@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/locale.conf
+Scope=user
 Label=Week numbers
 Category=Time & Locale
 Group=Region & formats

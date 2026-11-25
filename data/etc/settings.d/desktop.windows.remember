@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/desktop.conf
+Scope=user
 Label=Remember window size and position
 Category=Appearance
 Group=Windows

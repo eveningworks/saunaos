@@ -99,6 +99,7 @@ existing ones without renumbering.
 |---|---|
 | `Type` | `enum`, `int`, `string` or `keycombo`. **Its presence is what makes the file a declaration.** An unrecognised word reads as `string`, so a client that has never heard of a newer type still shows a text box. |
 | `File` | The `/etc` file the value persists to. Its registered name (`config files`) is the setting's NAMESPACE, so this must agree with the file name here. A declaration with no `File` is refused: there would be nowhere to put the value. |
+| `Scope` | `user` or `machine` (the default). A **user** value is the person's: read from `$XDG_CONFIG_HOME/<File's name>` (`~/.config/desktop.conf`) first and `File` second -- the machine's value is the default -- and written and unset in the person's file only. A **machine** value reads and writes `File` alone. A process with no `XDG_CONFIG_HOME` (`config --machine`), and every root process, sees the machine's value of every key. `docs/users-design.md`, stage D1. |
 | `Label` | What a UI calls it. Defaults to the key. |
 | `Category` / `Group` | Where it lands in System Settings: the sidebar section, then the page. `General` when no category is named. |
 | `Default` | What it reads as when the key is absent from `File`. |

@@ -51,8 +51,10 @@ def pixel(qmp, path, x, y):
         return im.convert("RGB").getpixel((x, y))
 
 
-def setting(dbg, name, value):
-    dbg.send(f"sh config set {name} {value}")
+def setting(dbg, name, value, machine=False):
+    # A root app (First-boot setup, started by `sh`) has no person's layer
+    # and follows the MACHINE's value (base/uconf.h): --machine writes /etc.
+    dbg.send(f"sh config {'--machine ' if machine else ''}set {name} {value}")
     time.sleep(1.5)
     dbg.settle()
 
@@ -106,12 +108,12 @@ def main():
     bx = lb["screen"]["x"] + lb["w"] - 4
     by = lb["screen"]["y"] + lb["h"] - 6     # low in the bar, below the thumb at the top
     dbg.move(10, 10)
-    setting(dbg, "desktop.scrollbars", "always")
+    setting(dbg, "desktop.scrollbars", "always", machine=True)
     al = pixel(qmp, shot, bx, by)
     edge = pixel(qmp, shot, lb["screen"]["x"] + lb["w"] - 1, by)
-    setting(dbg, "desktop.scrollbars", "auto")
+    setting(dbg, "desktop.scrollbars", "auto", machine=True)
     au = pixel(qmp, shot, bx, by)
-    setting(dbg, "desktop.scrollbars", "always")
+    setting(dbg, "desktop.scrollbars", "always", machine=True)
     check("Always draws the groove at rest; When pointed at leaves the field white there",
           luminance(au) - luminance(al) > 4 and luminance(au) > 245, f"always {al} auto {au}")
     check("the bar is flush with the list's far edge -- no column of field between",

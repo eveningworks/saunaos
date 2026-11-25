@@ -36,14 +36,14 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
-from gui_debug import DebugConsole, enter_gui          # noqa: E402
+from gui_debug import DebugConsole, enter_gui, USER_CONFIG  # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
 
 ROOT = toolpath.REPO
 SETTINGS_EXEC = "/bin/wm/system/settings"
-CONF = "/etc/shortcuts.conf"
+CONF = f"{USER_CONFIG}/shortcuts.conf"   # shortcuts.* is Scope=user
 
 # What the defaults should launch. Kept here as the OTHER copy on
 # purpose: this file and kernel/lib/shortcut_actions.c disagreeing is
@@ -135,7 +135,8 @@ def check_commands_exist(dbg, res):
 
 
 def run(dbg, qmp, res):
-    dbg.send(f"sh rm {CONF}")          # start from the compiled-in defaults
+    dbg.send(f"sh rm {CONF}")          # start from the compiled-in defaults: the person's
+    dbg.send("sh rm /etc/shortcuts.conf")  # ...and the machine's layer
     check_commands_exist(dbg, res)
 
     # --- 1. each default binding launches its own program -------------
@@ -267,7 +268,7 @@ def run_rebinding(dbg, qmp, res):
         return
     time.sleep(3)
     conf = dbg.send(f"sh cat {CONF}") or ""
-    res.check("Apply writes the new binding to /etc/shortcuts.conf",
+    res.check("Apply writes the new binding to the person's shortcuts.conf",
               "task_manager=Ctrl+Alt+M" in conf.replace(" ", ""),
               f"{CONF}: {conf.strip()[:120]}")
 

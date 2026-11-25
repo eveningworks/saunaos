@@ -5,6 +5,7 @@
 #include "rt/ulock.h"
 #include <string.h>
 #include <stdio.h>   // snprintf, for the said-once lines
+#include <unistd.h>  // geteuid: root has no person's layer
 
 static void *mem_alloc(unsigned long n) { return malloc(n); }
 static void mem_free(void *p) { free(p); }
@@ -370,4 +371,84 @@ int uconf_set(const char *path, const char *key, const char *value) {
 
 int uconf_unset(const char *path, const char *key) {
     return uconf_set_in(path, 0, key, 0);
+}
+
+// ---- the person's layer --------------------------------------------------
+
+static int g_long_said;
+static volatile int g_path_lock;
+static void path_lock(void)   { ulock_take(&g_path_lock); }
+static void path_unlock(void) { ulock_drop(&g_path_lock); }
+
+static const char *config_home(void) {
+    if (geteuid() == 0) return 0;               // root: the machine's values only
+    const char *home = getenv("XDG_CONFIG_HOME");
+    return home && home[0] == '/' ? home : 0;       // XDG: a relative value is ignored
+}
+
+int uconf_user_path(const char *etc_path, char *out, uint32_t cap) {
+    if (out && cap) out[0] = '\0';
+    if (!etc_path || !out || !cap || strncmp(etc_path, "/etc/", 5) != 0) return 0;
+    const char *base = etc_path + 5;
+    if (!base[0] || strchr(base, '/')) return 0;   // a file directly in /etc only
+    const char *home = config_home();
+    if (!home) return 0;
+    int n = snprintf(out, cap, "%s/%s", home, base);
+    if (n <= 0 || (uint32_t)n >= cap) { out[0] = '\0'; return -1; }
+    return 1;
+}
+
+// 1 with the person's path in `out`; 0 for no layer. A path too long to
+// open is said once and read as no layer.
+static int user_path_for_read(const char *etc_path, char *out, uint32_t cap) {
+    int r = uconf_user_path(etc_path, out, cap);
+    if (r < 0) say_once(&g_long_said, "uconf: the person's half of %s is past %llu bytes "
+                        "-- its settings are not read (said once a process)\n",
+                        etc_path, (unsigned long long)cap, 0);
+    return r == 1;
+}
+
+int uconf_load_layered(const char *etc_path, struct uconf_layers *l) {
+    if (!l) return 0;
+    memset(l, 0, sizeof *l);
+    static char user[UCONF_USER_PATH_MAX];   // under g_path_lock: 4 KiB is too much stack
+    path_lock();
+    if (user_path_for_read(etc_path, user, sizeof user)) uconf_load(user, &l->user);
+    path_unlock();
+    uconf_load(etc_path, &l->machine);
+    return l->user.valid || l->machine.valid;
+}
+
+// AN EMPTY VALUE IN THE PERSON'S FILE IS NO VALUE: it falls through to the
+// machine's, as every caller's `&& v[0]` would otherwise skip both.
+int uconf_layers_get(const struct uconf_layers *l, const char *key, char *out,
+                     uint32_t out_size) {
+    if (!l) return 0;
+    if (etc_config_buf_get(&l->user, key, out, out_size) && out[0]) return 1;
+    return etc_config_buf_get(&l->machine, key, out, out_size);
+}
+
+void uconf_layers_free(struct uconf_layers *l) {
+    if (!l) return;
+    etc_config_buf_free(&l->user);
+    etc_config_buf_free(&l->machine);
+}
+
+int uconf_get_layered(const char *etc_path, const char *key, char *out, uint32_t out_size) {
+    struct uconf_layers l;
+    uconf_load_layered(etc_path, &l);
+    int rc = uconf_layers_get(&l, key, out, out_size);
+    if (!rc && out && out_size) out[0] = '\0';
+    uconf_layers_free(&l);
+    return rc;
+}
+
+int uconf_user_dir_ensure(void) {
+    const char *home = config_home();
+    if (!home) return 0;
+    struct sys_stat st;
+    if (sys_stat(home, &st) == 0) return 1;
+    if (sys_mkdir(home) != 0) return sys_stat(home, &st) == 0;   // lost a race: fine
+    sys_chmod(home, 0700);
+    return 1;
 }

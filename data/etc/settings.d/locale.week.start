@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/locale.conf
+Scope=user
 Label=First day of week
 Category=Time & Locale
 Group=Region & formats

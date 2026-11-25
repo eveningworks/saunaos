@@ -246,6 +246,19 @@ this the obvious way), not from how much history it accumulated.
   about. ONE counter for the machine, deliberately -- a second, ring-3
   one would have to be polled beside this one, and a consumer reading
   only the old one would silently stop noticing half the settings.
+- **A `Scope=user` SETTING IS THE PERSON'S, AND A PROCESS WITH NO
+  `XDG_CONFIG_HOME` NEVER SEES IT.** Its value is read from
+  `$XDG_CONFIG_HOME/<File's name>` first and `/etc/<file>` second, and
+  written there alone (`base/usetting_schema.h`); a reader of the raw file
+  asks `uconf_get_layered()` or `uconf_load_layered()`, never
+  `uconf_get("/etc/...")`, or the person's choice is invisible to it. A
+  root process -- a service, the debug console's `sh`, an app `sh`
+  started, and one `sudo` or privd started WITH the person's environment
+  (the rule is the euid, not the variable) -- sees the MACHINE's value, so
+  First-boot setup started by `sh fbs now` follows `config --machine`'s
+  values, not the desktop's. The GUI harness runs `sh config ...` as the
+  desktop's account for this reason (`gui_debug.py`'s
+  `_as_desktop_config()`); `sh config --machine ...` stays root's.
 - **A RING-3 PROGRAM READS AND WRITES ONE SETTING THROUGH
   `userland/libs/base/usetting.h`, AND `usetting_set()` RETURNS THE REGISTRY'S
   THREE-WAY ANSWER.** `usetting_get()`/`_get_int()`, `usetting_set()`/

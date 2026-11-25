@@ -1,5 +1,6 @@
 Type=keycombo
 File=/etc/shortcuts.conf
+Scope=user
 Label=Screenshot of the screen
 Category=Shortcuts
 Group=Applications

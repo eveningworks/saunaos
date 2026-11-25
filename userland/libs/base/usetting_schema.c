@@ -156,6 +156,8 @@ static int find_exact(const char *qualified, struct uschema *out) {
     }
 
     char mode[16];
+    str_key(buf, USCHEMA_KEY_SCOPE, mode, sizeof mode);
+    out->scope = !strcmp(mode, "user") ? USCHEMA_SCOPE_USER : USCHEMA_SCOPE_MACHINE;
     str_key(buf, USCHEMA_KEY_DIR_MODE, mode, sizeof mode);
     out->dir_mode = !strcmp(mode, "stem")   ? USCHEMA_DIR_STEM
                   : !strcmp(mode, "subdir") ? USCHEMA_DIR_SUBDIR
@@ -312,9 +314,21 @@ int uschema_choice_count(const struct uschema *s) {
 
 // --- values ----------------------------------------------------------
 
+int uschema_target(const struct uschema *s, char *out, uint32_t cap) {
+    if (out && cap) out[0] = '\0';
+    if (!s || !out || !cap) return 0;
+    if (s->scope == USCHEMA_SCOPE_USER) {
+        int r = uconf_user_path(s->file, out, cap);
+        if (r != 0) return r;   // 1, or -1 with "" -- never /etc in its place
+    }
+    strlcpy(out, s->file, cap);
+    return 0;
+}
+
 int uschema_stored(const struct uschema *s, char *out, uint32_t cap) {
     if (out && cap) out[0] = '\0';
     if (!s || !s->file[0]) return 0;
+    if (s->scope == USCHEMA_SCOPE_USER) return uconf_get_layered(s->file, s->name, out, cap);
     return uconf_get(s->file, s->name, out, cap);
 }
 
@@ -399,11 +413,20 @@ int uschema_write(const struct uschema *s, const char *value, int *changed) {
     // file. A UI that applies on pointer motion then freezes the
     // machine, which is what happened before the kernel's setting_set()
     // grew the same check.
+    // For a user key "already" means through both layers: the person
+    // choosing what the machine says writes nothing, and keeps following
+    // the machine's value.
     char cur[SETTING_ABI_VALUE_MAX];
     if (uschema_stored(s, cur, sizeof cur) && !strcmp(cur, value))
         return SETTING_SAVED;
 
-    if (!uconf_set(s->file, s->name, value)) return SETTING_UNSAVED;
+    char *path = malloc(USCHEMA_PATH_MAX);
+    if (!path) return SETTING_UNSAVED;
+    int t = uschema_target(s, path, USCHEMA_PATH_MAX);
+    if (t == 1) uconf_user_dir_ensure();
+    int ok = t >= 0 && uconf_set(path, s->name, value);
+    free(path);
+    if (!ok) return SETTING_UNSAVED;
     if (changed) *changed = 1;
     return SETTING_SAVED;
 }
@@ -411,11 +434,19 @@ int uschema_write(const struct uschema *s, const char *value, int *changed) {
 int uschema_unset(const struct uschema *s) {
     if (!s || !s->file[0]) return SETTING_INVALID;
     char cur[SETTING_ABI_VALUE_MAX];
+    char *path = malloc(USCHEMA_PATH_MAX);
+    if (!path) return SETTING_UNSAVED;
+    int rc;
     // Absent already: INVALID, matching the kernel's UNSET, which
     // reports "there was nothing to remove" rather than a success that
-    // changed nothing.
-    if (!uschema_stored(s, cur, sizeof cur) || !cur[0]) return SETTING_INVALID;
-    return uconf_unset(s->file, s->name) ? SETTING_SAVED : SETTING_UNSAVED;
+    // changed nothing. Asked of the TARGET file alone -- a person's
+    // unset never removes the machine's value -- and an EMPTY key there
+    // is still a key to remove.
+    if (uschema_target(s, path, USCHEMA_PATH_MAX) < 0) rc = SETTING_UNSAVED;
+    else if (!uconf_get(path, s->name, cur, sizeof cur)) rc = SETTING_INVALID;
+    else rc = uconf_unset(path, s->name) ? SETTING_SAVED : SETTING_UNSAVED;
+    free(path);
+    return rc;
 }
 
 // --- presentation ----------------------------------------------------

@@ -79,13 +79,13 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
-from gui_debug import DebugConsole, enter_gui        # noqa: E402
+from gui_debug import DebugConsole, enter_gui, USER_CONFIG  # noqa: E402
 from qmp_test import QMPSession                      # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results, poll  # noqa: E402
 
 KEY = "system.cursor.theme"
-CONF = "/etc/saunaos.conf"
+CONF = f"{USER_CONFIG}/saunaos.conf"   # system.cursor.theme is Scope=user
 WANT = {"Classic", "Classic bold", "Graphite", "Accent", "Amber", "Aurora"}
 CARD_RE = re.compile(r"settings: gallery \d+ " + re.escape(KEY) +
                      r" card (\d+) (-?\d+) (-?\d+) (\d+) (\d+) tile (\d) shown (.+)")

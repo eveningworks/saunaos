@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/saunaos.conf
+Scope=user
 Label=Cursor size
 Category=Input
 Group=Mouse

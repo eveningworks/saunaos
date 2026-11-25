@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/locale.conf
+Scope=user
 Label=Date
 Category=Time & Locale
 Group=Region & formats

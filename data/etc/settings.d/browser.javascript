@@ -3,6 +3,7 @@
 # own Allow or Block, kept by the Web Browser, wins over it).
 Type=enum
 File=/etc/browser.conf
+Scope=user
 Label=JavaScript
 Category=Network
 Group=Web Browser

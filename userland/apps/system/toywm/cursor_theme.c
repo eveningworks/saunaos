@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include "apps/system/toywm/wm_log.h"
 #include "apps/system/toywm/wm_conf.h"
+#include "base/uconf.h"
 
 // The shared file every setting here lives in, per CLAUDE.md's rule
 // that a setting joins /etc/saunaos.conf unless it has enough keys of its
@@ -192,11 +193,11 @@ static void adopt_settings(void) {
     // per call, and this runs on every settings generation bump -- which
     // moves for any setting anywhere, so the common case is two whole-file
     // reads to discover that nothing about the cursor changed.
-    struct etc_config_buf conf;
-    int have = wm_conf_load(CURSOR_CONFIG_FILE, &conf);
+    struct uconf_layers conf;   // the person's over the machine's (base/uconf.h)
+    int have = uconf_load_layered(CURSOR_CONFIG_FILE, &conf);
 
     int size = 1;
-    if (have && etc_config_buf_get(&conf, "cursor.size", val, sizeof val)) {
+    if (have && uconf_layers_get(&conf, "cursor.size", val, sizeof val)) {
         if (k_strcmp(val, "large") == 0) size = 2;
         else if (k_strcmp(val, "huge") == 0) size = 3;
     }
@@ -208,9 +209,9 @@ static void adopt_settings(void) {
     int rescaled = pct != g_pct;
     g_pct = pct;
 
-    if (!have || !etc_config_buf_get(&conf, "cursor.theme", val, sizeof val) || !val[0])
+    if (!have || !uconf_layers_get(&conf, "cursor.theme", val, sizeof val) || !val[0])
         k_strlcpy(val, CURSOR_THEME_DEFAULT, sizeof val);
-    etc_config_buf_free(&conf);
+    uconf_layers_free(&conf);
     // A new SIZE reloads too: an image theme's rendering for 2x is a
     // different file from its 1x one.
     if (k_strcmp(val, g_theme) != 0 || !g_shapes[0].loaded || rescaled) {

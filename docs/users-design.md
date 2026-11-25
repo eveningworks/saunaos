@@ -329,7 +329,7 @@ speed, the keyboard layout) at logon from HKCU.
   a prompt for the seat's own account.
 - No reader exists before D2's login screen, so D1 builds none of it.
 
-**D1 -- a home each, and the settings split.** D1a, the home, BUILT 2026-11-25; D1b (`Scope=`) and D1c (the apps' own files) next:
+**D1 -- a home each, and the settings split.** D1a, the home, and D1b, `Scope=`, BUILT 2026-11-25; D1c (the apps' own files) next:
 
 - **`/home/<name>`.** The account's home is `/home/user`, not `/home`;
   `/home` itself becomes root's 0755, Linux's shape. `XDG_CONFIG_HOME`,
@@ -350,6 +350,29 @@ speed, the keyboard layout) at logon from HKCU.
   -- a root service -- the person's layer is skipped, so `fontd`
   and `privd` see the machine's values and nothing a person writes can
   steer a root service.
+- **As built (D1b):** a raw reader asks `uconf_get_layered()` or
+  `uconf_load_layered()` -- key by key, the person's file then the
+  machine's, no schema consulted (XDG's whole-file overlay); the schema
+  routes writes and unsets by scope, and reads a MACHINE key from `/etc`
+  alone. User keys: the look and behaviour (`desktop.*` but
+  `display.scale` and the two debugging keys), `locale.*`,
+  `shortcuts.*`, `browser.*`, `system.cursor.*`, `system.double_click`,
+  `system.trash.*`; the machine keeps the computer's name, time sync,
+  network recovery, updates and `software.show_gpl`. **`config
+  --machine`** reads and writes the machine's layer -- the default a
+  person without a value of their own follows (GNOME's admin-edited dconf
+  system database, Windows' Default User hive). Setting a user key to
+  the value the layers already give writes nothing, so it keeps
+  following the machine's. The person's directory is made 0700 by the
+  first write. A disk from before D1b needs nothing moved: its `/etc`
+  values became the machine's defaults. A root GUI app (First-boot setup
+  started from `sh`) follows the machine's values. **Root never has a
+  person's layer**, whatever its environment says: `sudo` and privd's
+  elevated tools inherit `XDG_CONFIG_HOME`, and a root write there would
+  leave a root-owned file in a home -- so `uconf_user_path()` answers
+  none for euid 0, as Linux's `sudo` drops the variable by `env_reset`.
+  A person's path too long to open refuses the write rather than
+  falling back to `/etc`.
 - **The apps' own files are the person's.** Notepad's, Task Manager's,
   the File Manager's, the Terminal's, the Start menu's pins and the
   window positions (`windows.conf`) -- every `/etc/<app>.conf` an app

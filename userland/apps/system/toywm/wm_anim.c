@@ -6,6 +6,7 @@
 #include "wm_taskbar.h"
 #include "wm_log.h"   // the anim-end gap says so when it fires
 #include "apps/system/toywm/wm_conf.h"
+#include "base/uconf.h"
 #include "base/utween.h"
 #include "base/ueffect.h" // the shatter effect's own options
 #include "rt/sys.h"
@@ -643,14 +644,14 @@ static int speed_of(const char *v) {
 static void adopt(void) {
     char v[16];
     int on = 1;
-    if (wm_conf_get(DESKTOP_CONF, "animations", v, sizeof v) && v[0])
+    if (uconf_get_layered(DESKTOP_CONF, "animations", v, sizeof v) && v[0])
         on = !(v[0] == 'o' && v[1] == 'f' && v[2] == 'f');
     g_enabled = on;
-    if (wm_conf_get(DESKTOP_CONF, "animation_speed", v, sizeof v) && v[0])
+    if (uconf_get_layered(DESKTOP_CONF, "animation_speed", v, sizeof v) && v[0])
         g_speed = speed_of(v);
     else
         g_speed = SPEED_NORMAL;
-    if (wm_conf_get(DESKTOP_CONF, "minimize_effect", v, sizeof v) && v[0])
+    if (uconf_get_layered(DESKTOP_CONF, "minimize_effect", v, sizeof v) && v[0])
         g_effect = effect_of(v);
     else
         g_effect = EFFECT_SCALE;

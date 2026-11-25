@@ -158,7 +158,10 @@ desktop's account by default): `sh` and `tsh` run as ROOT, so a fixture
 they make in `/tmp` is root's, and under `fileperm=enforce` an app -- which
 runs as `user` -- cannot rewrite or delete it. **A file an app changes is
 made with `as`**; a place that account cannot write then fails the test as
-it would the app. `sh tosh -c <words>` runs SaunaOS's
+it would the app. **`sh config ...` is sent as `as user config ...`**
+(`DebugConsole.send()`): a `Scope=user` setting is the person's, in
+`~/.config` over `/etc`, and root has no `~/.config`; `sh config
+--machine ...` stays root's, the machine's value. `sh tosh -c <words>` runs SaunaOS's
 interactive shell, which has no `;` or `||`, on words already split.
 **And the reply carries terminal control sequences** (`ls` colours its
 names on a tty): `vm.py` and `DebugConsole` strip them, `readfile`'s

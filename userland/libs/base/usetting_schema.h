@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "setting_abi.h"
 #include "base/usetting_text.h"
+#include "base/uconf.h"   // UCONF_USER_PATH_MAX
 
 #ifdef __cplusplus
 extern "C" {
@@ -77,6 +78,7 @@ struct uschema {
     char choice_dir[SETTING_ABI_FILE_MAX * 3];
     uint32_t type;      // SETTING_ABI_TYPE_*
     uint8_t  dir_mode;  // USCHEMA_DIR_*
+    uint8_t  scope;     // USCHEMA_SCOPE_*
     int32_t  min, max, step;
     // Requires=<qualified name>=<value>: this setting only applies while
     // that other DECLARED setting has that value -- see uschema_unmet().
@@ -111,6 +113,25 @@ void uschema_effective(const struct uschema *s, char *out, uint32_t cap);
 #define USCHEMA_DIR_STEM   1
 #define USCHEMA_DIR_SUBDIR 2
 
+// WHOSE VALUE IT IS -- `Scope=user` or `Scope=machine`, the default
+// (users stage D1b, docs/users-design.md). A USER key is read from the
+// person's half of `File=` first (base/uconf.h's uconf_user_path():
+// $XDG_CONFIG_HOME/<basename>), the machine's value its default, and is
+// written and unset there only; a MACHINE key reads and writes `File=`
+// alone. A process with no XDG_CONFIG_HOME -- a root service, or
+// `config --machine` -- has no person's layer, so for it every key is a
+// machine key: that is how the machine's default of a user key is set.
+#define USCHEMA_SCOPE_MACHINE 0
+#define USCHEMA_SCOPE_USER    1
+
+// The file a write of `s` goes to in THIS process: the person's half
+// for a user key when there is one, else `File=`. 1 when it is the
+// person's, 0 the machine's, -1 (and "") when the person's does not fit
+// `cap` -- at USCHEMA_PATH_MAX that is a path no open() takes, and a write
+// is refused; the ABI's SETTING_ABI_FILE_MAX `file` holds less.
+#define USCHEMA_PATH_MAX UCONF_USER_PATH_MAX
+int uschema_target(const struct uschema *s, char *out, uint32_t cap);
+
 // The keys a declaring file adds to the ones in api/setting_text.h.
 #define USCHEMA_KEY_TYPE        "Type"
 #define USCHEMA_KEY_FILE        "File"
@@ -128,6 +149,7 @@ void uschema_effective(const struct uschema *s, char *out, uint32_t cap);
 #define USCHEMA_KEY_REQUIRES    "Requires"
 #define USCHEMA_KEY_REQUIRES_REASON "RequiresReason"
 #define USCHEMA_KEY_OTHERWISE   "Otherwise"
+#define USCHEMA_KEY_SCOPE       "Scope"
 
 // Parses the declaration for `qualified` ("desktop.icon_size"). Returns
 // 1, or 0 when there is no such file, when it carries no `Type=` (it is
@@ -181,7 +203,8 @@ int uschema_choice_count(const struct uschema *s);
 void uschema_get(const struct uschema *s, char *out, uint32_t cap);
 
 // What the FILE says, or "" when the key is absent. `stored` in the
-// ABI: the same question `config diff` asks.
+// ABI: the same question `config diff` asks. For a user key, the
+// person's file and then the machine's (USCHEMA_SCOPE_USER above).
 int uschema_stored(const struct uschema *s, char *out, uint32_t cap);
 
 // 1 if `value` is one this setting may take. The rules are the kernel
@@ -246,7 +269,9 @@ int uschema_group_text(const char *category, const char *group,
                        struct setting_msg *m);
 
 // Removes the key, so the setting falls back to `Default=` at the next
-// read. SETTING_OP_UNSET's half.
+// read -- or, for a user key, to the MACHINE's value: only the person's
+// file is touched, and a key absent there is INVALID (nothing to
+// remove), whatever /etc says. SETTING_OP_UNSET's half.
 int uschema_unset(const struct uschema *s);
 
 #ifdef __cplusplus

@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/desktop.conf
+Scope=user
 Label=Size
 Category=Desktop
 Group=Icons

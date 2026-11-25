@@ -1,5 +1,6 @@
 Type=int
 File=/etc/desktop.conf
+Scope=user
 Label=Start after
 Category=Desktop
 Group=Screensaver

@@ -27,6 +27,7 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include "base/uconf.h"
 #include "base/ufontfallback.h"
 #include "utils/errors.h"
 #include "utils/webcontent/ns_bitmap.h"
@@ -178,8 +179,14 @@ static int sandbox(void) {
     // /etc/browser.conf (base/usetting_schema.c). Settings, nothing more.
     static const char *const etc[] = { "/etc/locale.conf", "/etc/locales", "/etc/settings.d",
                                        "/etc/browser.conf" };
-    for (unsigned i = 0; i < sizeof etc / sizeof etc[0]; i++)
+    static char user[UCONF_USER_PATH_MAX];
+    for (unsigned i = 0; i < sizeof etc / sizeof etc[0]; i++) {
         if (unveil(etc[i], "r") != 0) return 0;
+        // And the person's half of a settings file (base/uconf.h).
+        if (strstr(etc[i], ".conf") && uconf_user_path(etc[i], user, sizeof user) == 1 &&
+            unveil(user, "r") != 0)
+            return 0;
+    }
     snprintf(shm, sizeof shm, "shm:%s", f_app);
     if (unveil(shm, "r") != 0) return 0;
     if (f_net) {
