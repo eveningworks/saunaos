@@ -270,6 +270,15 @@ void uui_control_frame(struct ugfx_surface *s, int x, int y, int w, int h,
 { (void)s; (void)x; (void)y; (void)w; (void)h; (void)fill; (void)border; }
 int uui_hit(int x, int y, int w, int h, int cx, int cy)
 { return cx >= x && cx < x + w && cy >= y && cy < y + h; }
+// The show-password eye: drawn only on a masked field, which no case here is.
+int ugfx_px(int n) { return n; }   // display.scale 1
+void uui_fill_round_rect(struct ugfx_surface *s, int x, int y, int w, int h, int radius, uint32_t c)
+{ (void)s; (void)x; (void)y; (void)w; (void)h; (void)radius; (void)c; }
+struct uimg;
+const struct uimg *icon_get(const char *name, int size) { (void)name; (void)size; return 0; }
+void ugfx_blit_tinted(struct ugfx_surface *s, int x, int y, int w, int h,
+                      const uint32_t *src, int src_pitch_px, uint32_t color)
+{ (void)s; (void)x; (void)y; (void)w; (void)h; (void)src; (void)src_pitch_px; (void)color; }
 
 // The theme, stubbed: a colour is not what this harness is about, but
 // uui_textbox.c resolves them at draw time now and so must link.
