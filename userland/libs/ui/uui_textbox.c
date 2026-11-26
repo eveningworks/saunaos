@@ -591,6 +591,10 @@ static void textbox_bounds_op(const void *w, int *x, int *y, int *ow, int *oh) {
     *x = c->x; *y = c->y; *ow = c->w; *oh = c->h;
 }
 
+int uui_textbox_text_at(const struct uui_textbox *f, int cx, int cy) {
+    return uui_textbox_hit(f, cx, cy) && !eye_hit(f, cx, cy);
+}
+
 // A place text goes, but for the eye, which is a button.
 static int tb_ops_cursor(const void *w, int cx, int cy) {
     return eye_hit((const struct uui_textbox *)w, cx, cy) ? WIN_CURSOR_DEFAULT : WIN_CURSOR_TEXT;

@@ -169,6 +169,10 @@ uint32_t uui_textbox_c_fg(const struct uui_textbox *f);
 uint32_t uui_textbox_c_border(const struct uui_textbox *f);
 
 int uui_textbox_hit(const struct uui_textbox *f, int cx, int cy);
+// Over its TEXT -- the I-beam's place -- rather than its show-password eye,
+// which is a button and takes the arrow. For a field drawn outside a uapp
+// (a compositor overlay's text_at).
+int uui_textbox_text_at(const struct uui_textbox *f, int cx, int cy);
 
 // The character index a click at `cx` lands on -- the inverse of the
 // placement draw() uses, including its horizontal scrolling, so the

@@ -95,6 +95,23 @@ def keyboard_round(dbg, qmp, tmp):
     if not st:
         return
     kb = st["keyboard"]
+    scr = dbg.json("gui state --json")["screen"]
+    dbg.warp_cursor(qmp, scr["w"] - 5, 5, settle=False)
+    dbg.settle()
+    before_p = os.path.join(tmp, "login-layout-closed.png")
+    qmp.screenshot(before_p)
+    before = Image.open(before_p).convert("RGB")
+    # THE BUTTON'S TEXT ON THE HOSTNAME'S LINE: the topmost row of light
+    # text pixels in each, the button's (white) and the hostname's beside it.
+    def text_top(x0, x1, y0, y1, floor):
+        for y in range(y0, y1):
+            if any(min(before.getpixel((x, y))) > floor for x in range(x0, x1)):
+                return y
+        return None
+    bt = text_top(kb["x"] + 6, kb["x"] + kb["w"] // 2, kb["y"] + 2, kb["y"] + kb["h"] - 2, 240)
+    ht = text_top(kb["x"] + kb["w"] + 8, min(kb["x"] + kb["w"] + 160, scr["w"]), kb["y"] - 4, kb["y"] + kb["h"] + 4, 200)
+    check("the Keyboard button's text and the computer's name sit on one line",
+          bt is not None and ht is not None and abs(bt - ht) <= 1, f"button text top {bt}, name top {ht}")
     dbg.click(kb["cx"], kb["cy"])
     lay = poll(lambda: (lambda j: j if j.get("open") else None)(dbg.json("gui layout --json") or {}), 5, 0.2)
     check("a click on it opens the layout list", bool(lay), str(dbg.json("gui layout --json"))[:200])
@@ -105,11 +122,17 @@ def keyboard_round(dbg, qmp, tmp):
     shot = os.path.join(tmp, "login-layout.png")
     qmp.screenshot(shot)
     img = Image.open(shot).convert("RGB")
-    # The card is light; the login screen's background behind it is dark.
+    # The login screen's own dark glass (mockup D1): the corner above the
+    # button changes when it opens, and the active row is tinted the accent.
     row = lay["rows"][0]
-    px = img.getpixel((kb["x"] + 6, row["cy"]))
-    check("...and the list draws over the login screen, above the button", min(px) > 200 and row["cy"] < kb["y"],
-          f"pixel {px} at the first row, row y {row['cy']} vs button y {kb['y']}")
+    changed = sum(1 for x in range(kb["x"], kb["x"] + kb["w"]) for y in range(row["cy"] - 8, row["cy"] + 8)
+                  if img.getpixel((x, y)) != before.getpixel((x, y)))
+    check("...and the list draws over the login screen, above the button", changed > 200 and row["cy"] < kb["y"],
+          f"{changed} pixels changed at the first row, row y {row['cy']} vs button y {kb['y']}")
+    act = lay.get("active", 0)
+    ar = lay["rows"][act]
+    px = img.getpixel((kb["x"] + kb["w"] - 12, ar["cy"]))
+    check("...its active layout's row tinted the accent", px[2] > px[0] + 30, f"pixel {px} on row {act}")
     us = lay.get("codes", []).index("us") if "us" in lay.get("codes", []) else -1
     if us >= 0:
         r = lay["rows"][us]
@@ -138,6 +161,14 @@ def reveal_round(dbg, qmp, tmp):
         qmp.screenshot(p)
         return Image.open(p).convert("RGB")
 
+    # THE POINTER: the arrow over the eye, which is a button, the text
+    # cursor over the letters.
+    dbg.warp_cursor(qmp, eye_x, eye_y, settle=False)
+    on_eye = poll(lambda: dbg.cursor_shape() == WM_CURSOR_NORMAL or None, 5, 0.2)
+    check("the pointer is the arrow over the eye", bool(on_eye), f"shape {dbg.cursor_shape()}")
+    dbg.warp_cursor(qmp, f["x"] + 12, eye_y, settle=False)
+    on_text = poll(lambda: dbg.cursor_shape() == WM_CURSOR_TEXT or None, 5, 0.2)
+    check("...and the text cursor over the letters", bool(on_text), f"shape {dbg.cursor_shape()}")
     img = shot("hidden")
     eye_box = (f["x"] + f["w"] - f["h"] + 4, f["y"] + 4, f["x"] + f["w"] - 4, f["y"] + f["h"] - 4)
     ink = sum(1 for x in range(eye_box[0], eye_box[2]) for y in range(eye_box[1], eye_box[3])

@@ -22,6 +22,7 @@
 #include "ui/uui_caret.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_widget.h"
+#include "ui/uui_primitives.h"   // the capsule button
 #include "ui/utheme.h"
 #include <errno.h>
 #include <pthread.h>
@@ -251,6 +252,16 @@ static void picture(struct ugfx_surface *s, int cx, int cy, int r) {
     ugfx_clip_restore(s, &was);
 }
 
+// "Keyboard: FI" -- the active layout's code upper-cased, as a keycap
+// would be. ONE builder: the button is measured on what is drawn.
+static void keyboard_label(char *out, size_t cap) {
+    const char *code = layout_count() > 0 ? layout_code(layout_active()) : 0;
+    out[0] = '\0';
+    if (!code || !code[0]) return;
+    snprintf(out, cap, "Keyboard: %s", code);
+    for (char *p = out + 10; *p; p++) if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
+}
+
 static void layout(void) {
     int ch = ugfx_char_h();
     int cx = screen_w / 2;
@@ -270,8 +281,11 @@ static void layout(void) {
     g_r[C_KEYBOARD] = (struct rect){ 0, 0, 0, 0 };
     if (layout_count() > 1) {
         char kb[48];
-        snprintf(kb, sizeof kb, "Keyboard: %s", layout_code(layout_active()));
-        int kw = ugfx_text_width(kb) + ch + u() * 2, kh = ch + u();
+        keyboard_label(kb, sizeof kb);
+        // A capsule (mockup D1): the text, a gap, the chevron -- and each end
+        // as deep as its curve, half the height, or the chevron rides it.
+        int kh = ch + u(), end = kh / 2;
+        int kw = end + ugfx_text_width(kb) + u() + ch / 2 + end;
         g_r[C_KEYBOARD] = (struct rect){ u() * 3, screen_h - kh - u() * 2, kw, kh };
     }
 }
@@ -342,28 +356,29 @@ void wm_login_draw(int mx, int my) {
     if (line[0]) text_c(s, cx, f->y + f->h + u(), line, g_err[0] && !g_busy ? ugfx_rgb(250, 214, 165) : SOFT);
 
     // Bottom left: the keyboard layout -- a button when there is a choice
-    // (mockup K1) -- and the computer's name.
+    // (mockups K1, D1) -- and the computer's name.
     char host[64] = "";
     if (!usetting_get("system.hostname", host, sizeof host)) host[0] = '\0';
     char kb[48] = "";
-    const char *code = layout_count() > 0 ? layout_code(layout_active()) : 0;
-    if (code && code[0]) snprintf(kb, sizeof kb, "Keyboard: %s", code);
-    for (char *p = kb + 10; *p; p++) if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
-    int hx = u() * 3;
+    keyboard_label(kb, sizeof kb);
+    int hx = u() * 3, hy = screen_h - ch - u() * 3;
     const struct rect *k = &g_r[C_KEYBOARD];
     if (k->w > 0) {
-        int a = g_hot == C_KEYBOARD || layout_open ? 90 : 56;
-        for (int y = k->y; y < k->y + k->h; y++) ugfx_blend_hspan(s, k->x, y, k->w, WHITE, 0, a);
-        ugfx_draw_string_clipped(s, k->x + u(), k->y + (k->h - ch) / 2, k->w - ch - u(), kb, WHITE, UGFX_TRANSPARENT);
-        // The chevron points the way the list opens: up.
-        int ax = k->x + k->w - u() - ch / 2, ay = k->y + k->h / 2 + ch / 8, al = ch / 4;
-        for (int i = 0; i < al; i++) ugfx_fill_rect(s, ax - i, ay - al + i, 2 * i + 1, 1, WHITE);
+        uui_glass_round_rect(s, k->x, k->y, k->w, k->h, UUI_CAPSULE, WHITE,
+                             g_hot == C_KEYBOARD || layout_open ? 80 : 50, 100);
+        int ty = k->y + (k->h - ch) / 2, end = k->h / 2;
+        ugfx_draw_string_clipped(s, k->x + end, ty, k->w - 2 * end, kb, WHITE, UGFX_TRANSPARENT);
+        // The chevron, a gap after the text, points the way the list opens.
+        int cx = k->x + end + ugfx_text_width(kb) + u() + ch / 4, cy = k->y + k->h / 2;
+        ugfx_draw_line(s, cx - ch / 4, cy + ch / 8, cx, cy - ch / 8, WHITE, GEOM_AA);
+        ugfx_draw_line(s, cx, cy - ch / 8, cx + ch / 4, cy + ch / 8, WHITE, GEOM_AA);
         hx = k->x + k->w + u() * 2;
+        hy = ty;   // the hostname on the button's line
         kb[0] = '\0';
     }
     char bl[128];
     snprintf(bl, sizeof bl, "%s%s%s", kb, kb[0] && host[0] ? "    " : "", host);
-    ugfx_draw_string_clipped(s, hx, screen_h - ch - u() * 3, screen_w / 2, bl, SOFT, UGFX_TRANSPARENT);
+    ugfx_draw_string_clipped(s, hx, hy, screen_w / 2, bl, SOFT, UGFX_TRANSPARENT);
 
     // Bottom right: Restart and Shut down.
     for (int k = C_RESTART; k <= C_SHUTDOWN; k++) {
@@ -448,8 +463,7 @@ int wm_login_key(int key, uint8_t mods) {
 int wm_login_covers(void) { return wm_login_open; }
 
 int wm_login_text_at(int mx, int my) {
-    const struct rect *f = &g_r[C_FIELD];
-    return wm_login_open && f->w > 0 && mx >= f->x && mx < f->x + f->w && my >= f->y && my < f->y + f->h;
+    return wm_login_open && g_r[C_FIELD].w > 0 && uui_textbox_text_at(&g_pw, mx, my);
 }
 
 int wm_keys_private(void) { return wm_login_open || confirm_dialog_password() != 0; }

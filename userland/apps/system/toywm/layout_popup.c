@@ -7,6 +7,8 @@
 #include "wm_log.h"
 #include "wm_login.h"
 #include "ui/uui.h"
+#include "ui/uui_primitives.h"
+#include "media/icon_cache.h"
 #include "ui/utheme.h"
 #include "kapi.h"
 #include "rt/sys.h"
@@ -138,14 +140,25 @@ static void geometry(struct layout_geom *g) {
     g->hero_h = m.hero_h;
     // ON THE LOGIN SCREEN the list opens above its Keyboard button and has
     // no "Keyboard settings..." footer: no Settings behind a login or lock.
+    // It is the LOGIN SCREEN'S OWN MENU there, dark glass with no header
+    // (mockup D1, Windows 11's sign-in input list): login_draw() below.
     int kx, ky, kw, kh;
     if (wm_login_keyboard_rect(&kx, &ky, &kw, &kh)) {
-        int lh = m.hero_h + 1 + m.vpad + g_n * m.row_h + m.vpad;
+        int pad = ugfx_px(6), code_w = 0, name_w = 0;
+        for (int i = 0; i < g_n; i++) {
+            int nw = ugfx_text_width(g_names[i]), cw = ugfx_text_width(g_codes[i]);
+            if (nw > name_w) name_w = nw;
+            if (cw > code_w) code_w = cw;
+        }
+        int lw = pad * 2 + m.row_h + name_w + ugfx_char_w() * 4 + code_w + pad;
+        if (lw < kw) lw = kw;
+        int lh = pad * 2 + g_n * m.row_h;
         int x, y;
-        wm_popup_place(kx, ky - ugfx_px(6) - lh, w, lh, &x, &y);
-        g->x = x; g->y = y; g->w = w; g->h = lh;
+        wm_popup_place(kx, ky - ugfx_px(8) - lh, lw, lh, &x, &y);
+        g->x = x; g->y = y; g->w = lw; g->h = lh;
+        g->hero_h = 0;
         g->tray_x = kx; g->tray_y = ky; g->tray_w = kw; g->tray_h = kh;
-        g->rows_y = y + m.hero_h + 1 + m.vpad;
+        g->rows_y = y + pad;
         return;   // no footer: foot_h and btn_* stay 0, which nothing hits
     }
     g->foot_h = m.foot_h;
@@ -336,10 +349,42 @@ int layout_key(int key, uint8_t mods) {
 
 // --- drawing ----------------------------------------------------------------
 
+// The login screen's menu: dark glass, the active layout checked in the
+// accent, the hovered one lit -- the login screen's own white-on-dark.
+static void login_draw(const struct layout_geom *g) {
+    struct ugfx_surface *s = wm_surface();
+    int pad = ugfx_px(6), r = ugfx_px(8), ch = ugfx_char_h();
+    uui_glass_round_rect(s, g->x, g->y, g->w, g->h, r, ugfx_rgb(30, 34, 46), 235, 0);
+    uui_glass_round_rect(s, g->x, g->y, g->w, g->h, r, ugfx_rgb(255, 255, 255), 0, 46);
+    for (int i = 0; i < g_n; i++) {
+        int sel = g_switching ? i == g_pick : i == g_active;
+        int hot = !g_switching && i == g_hover;
+        int rx = g->x + pad, ry = g->rows_y + i * g->row_h, rw = g->w - 2 * pad, rh = g->row_h;
+        if (sel) uui_glass_round_rect(s, rx, ry, rw, rh, ugfx_px(5), UTHEME_ACCENT, 150, 0);
+        else if (hot) uui_glass_round_rect(s, rx, ry, rw, rh, ugfx_px(5), ugfx_rgb(255, 255, 255), 26, 0);
+        int ty = ry + (rh - ch) / 2;
+        if (sel) {
+            const struct uimg *ok = icon_get("tb-check", ch);
+            if (ok) ugfx_blit_tinted(s, rx + (rh - ok->w) / 2, ry + (rh - ok->h) / 2, ok->w, ok->h, ok->px, ok->w,
+                                     ugfx_rgb(255, 255, 255));
+        }
+        char code[16];
+        unsigned k = 0;
+        for (; g_codes[i][k] && k + 1 < sizeof code; k++)
+            code[k] = (char)(g_codes[i][k] >= 'a' && g_codes[i][k] <= 'z' ? g_codes[i][k] - 32 : g_codes[i][k]);
+        code[k] = 0;
+        int cw = ugfx_text_width(code);
+        ugfx_draw_string_clipped(s, rx + rh, ty, rw - rh - cw - pad * 2, g_names[i], ugfx_rgb(255, 255, 255),
+                                 UGFX_TRANSPARENT);
+        ugfx_draw_string_clipped(s, rx + rw - pad - cw, ty, cw, code, ugfx_rgb(200, 210, 222), UGFX_TRANSPARENT);
+    }
+}
+
 void layout_draw(int mx, int my) {
     (void)mx; (void)my;
     struct layout_geom g;
     geometry(&g);
+    if (wm_login_open) { login_draw(&g); return; }
     wm_flyout_card(g.x, g.y, g.w, g.h, g.foot_h);
     struct wm_flyout_metrics m;
     wm_flyout_metrics(&m);
