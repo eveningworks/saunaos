@@ -2,6 +2,7 @@
 #include "wm_internal.h"
 #include "wm_idle.h"
 #include "wm_login.h"
+#include "wm_priv.h"
 #include "base/upriv.h"
 #include <pwd.h>
 #include <unistd.h>
@@ -186,6 +187,7 @@ void wm_idle_poll(int active) {
         int was_away = g_saver_pid || g_screen_off;
         stop_saver();
         screen_wake(quiet);
+        if (was_away) wm_priv_forget();
         // LOCKED ON RESUME (users D2c, Windows' "On resume, display logon
         // screen"): in the same frame the saver goes, so nothing of the
         // session shows between.

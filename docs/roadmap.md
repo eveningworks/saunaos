@@ -1873,6 +1873,8 @@ Things this OS does not do yet, or does in a way worth improving --
 `docs/bugs.md`; the test is "is something broken?", not "would I like
 this to be better?".
 
+- [ ] A process has one channel per service: a second client replaces the first (`base/uchan.h`)
+- [ ] A release's upstream GPL source kept once, in one shared source Release, not re-uploaded per release
 - [ ] The legacy ATA driver probes the PRIMARY channel only -- a disk QEMU places on `ide.1` (an `ide-hd` with no `bus=`) is not found
 - [ ] The kernel console's squeezed baked cell clips a capital's accent -- A-acute and A-diaeresis look alike there
 - [ ] The image cache keeps an exited program's text until reboot -- reclaiming it wants a per-frame map count

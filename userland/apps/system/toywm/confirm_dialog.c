@@ -462,3 +462,7 @@ int confirm_dialog_button_rect(int index, int *x, int *y, int *w, int *h,
 const char *confirm_dialog_message(void) {
     return confirm_dialog_open ? g_message : 0;
 }
+
+const char *confirm_dialog_body(void) {
+    return confirm_dialog_open ? (g_d.on ? g_d.body : "") : 0;
+}

@@ -105,6 +105,8 @@ void confirm_dialog_close(void);
 int confirm_dialog_button_rect(int index, int *x, int *y, int *w, int *h,
                                 const char **label);
 const char *confirm_dialog_message(void);
+// The detailed form's body text, "" for the plain form; 0 if nothing is open.
+const char *confirm_dialog_body(void);
 
 // Draws the dialog at its centered position -- a no-op if
 // confirm_dialog_open is 0 (same "caller still checks, this just

@@ -10,6 +10,11 @@
 //
 // **EVERY CALL BLOCKS UNTIL THE PERSON ANSWERS** (UPRIV_TIMEOUT_MS at
 // most): a GUI program asks through ui/uapp.h's uapp_run_then(), off its frame.
+//
+// **A PROCESS HAS ONE CHANNEL TO privd** (base/uchan.h names a ring by
+// pid): a call below opens one and closes it, and in the AGENT's process
+// that replaces the agent's ring -- privd then has no agent. The agent
+// registers again after its own calls (toywm's wm_priv_reopen()).
 #include <stdint.h>
 #include "rt/sys.h"
 #ifdef __cplusplus
@@ -32,6 +37,7 @@ extern "C" {
 #define UPRIV_T_AUTH    8   // client: u32 flags, account\0 password\0 -- is it right?
 #define UPRIV_T_RETRY   9   // privd -> agent: prompt `id`'s password was wrong; u32 tries left
 #define UPRIV_T_LOGIN  10   // the greeter: u32 flags, account\0 password\0 -- sign in (D2b)
+#define UPRIV_T_FORGET 11   // agent: forget every remembered password (no payload)
 
 // The request's flags. SELF_CONSENT: the asker already asked the
 // person on its own terminal -- `sudo` on a TEXT boot, where no desktop
@@ -68,6 +74,12 @@ extern "C" {
 // the machine ask for more; naming an account is ASKED (with its
 // password once it has one), and only for the asker's own account.
 #define UPRIV_ACT_AUTOLOGIN "autologin"
+// What the prompt asks of an administrator at the machine: one of
+// `login.admin_prompt`'s choices -- "password", "remember5",
+// "remember15" or "consent". A choice that asks LESS than the current one
+// is asked, with the password even under "consent"; one that asks more is
+// the seat's without asking. sudo and remote sessions are not changed.
+#define UPRIV_ACT_ADMINPROMPT "adminprompt"
 // The SEAT's, granted to the person at the machine WITHOUT asking --
 // logind's set-reboot-to-boot-loader-entry is allow_active: which entry
 // the next boot takes, and the screen size it tries.
@@ -141,6 +153,9 @@ int  upriv_agent_next(struct ubulk_client *a, struct upriv_prompt *p);
 void upriv_agent_answer(struct ubulk_client *a, uint32_t id, int allow);
 // Allow, with the password the prompt asked for.
 void upriv_agent_answer_password(struct ubulk_client *a, uint32_t id, const char *password);
+// The screen locked, or came back from the saver: privd forgets every
+// password a `remember` choice of login.admin_prompt was keeping.
+void upriv_agent_forget(struct ubulk_client *a);
 void upriv_agent_close(struct ubulk_client *a);
 
 #ifdef __cplusplus

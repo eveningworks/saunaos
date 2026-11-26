@@ -433,7 +433,9 @@ A signal reaches only its sender's own processes.
 password the computer starts straight to the desktop. Set one (Settings >
 Users, first-boot setup, or `passwd`; kept by `privd` in `/etc/shadow`,
 yescrypt) and it starts at a login screen drawn by a `greeter` account,
-`sudo` and the Authentication Required dialog ask for it, Win+L locks the
+`sudo` and the Authentication Required dialog ask for it -- or, if you
+choose so on Settings > Users, the dialog asks just Allow, always or for
+a few minutes after the password -- Win+L locks the
 desktop and the screen saver locks it when it ends, and Sign out on the
 Leave page goes back to the login screen. The text terminals and telnet
 ask too -- `/bin/login` -- whenever no session is on or it is locked

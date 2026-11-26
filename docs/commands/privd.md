@@ -32,9 +32,23 @@ A request is ONE of:
 Its policy, in order: a root caller is granted; an account in `wheel`
 (read from `/etc/group`, as polkit reads `unix-group:`) whose process
 holds the seat (`Seat=yes` in its service, inherited by everything it
-starts) is ASKED -- for its PASSWORD once it has one; a `wheel` account
-that sends its right password with the request (`sudo` on a terminal)
-is granted, at the machine or not; anyone else is refused.
+starts) is ASKED -- for its PASSWORD once it has one, unless
+`login.admin_prompt` lets Allow alone answer; a `wheel` account that
+sends its right password with the request (`sudo` on a terminal) is
+granted, at the machine or not; anyone else is refused.
+
+**`login.admin_prompt`** (in root's `/etc/login.conf`; Settings > Users'
+"When an app needs administrator rights") is what the desktop's prompt
+asks of that account: `password` (the default) every time;
+`remember5` / `remember15`, the password, then Allow alone for 5 or 15
+minutes after the last right one; `consent`, Allow alone, as Windows
+asks an administrator. Only the desktop's own prompt is affected --
+`sudo` and remote sessions always need the password. A remembered
+password is kept in privd's memory, per account, and forgotten when the
+screen locks or comes back from the saver, at a sign-out, and at boot.
+The `adminprompt` action changes the setting: to a choice that asks
+LESS it is asked, with the password even under `consent`; to one that
+asks more it is the seat's without asking.
 
 **privd is the only program that reads `/etc/shadow` or links a
 password hash** (yescrypt; `docs/users-design.md`, D2a) -- LSASS's

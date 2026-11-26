@@ -1,9 +1,10 @@
 // System Settings: System > Users (users D2b, mockup U1) -- the account,
-// its password and whether it signs in automatically. The page is the
-// registry's Users group, `login.autologin` its one setting; this draws
-// it as three cards in place of that setting's text row, and each change
-// is saved at once (the Remote Desktop page's rule): a password is
-// privd's to keep (base/upriv.h), not a value Apply could stage.
+// its password, what administrator prompts ask, and whether it signs in
+// automatically. The page is the registry's Users group; this draws its
+// cards in place of `login.autologin`'s text row, `login.admin_prompt`'s
+// row among them, and each change is saved at once (the Remote Desktop
+// page's rule): both live in root's /etc/login.conf and a password is
+// privd's to keep (base/upriv.h), none a value Apply could stage.
 //
 // One account until users D3, which lists the others here.
 #include "apps/system/settings/settings_internal.h"
@@ -19,6 +20,7 @@
 #include <unistd.h>
 
 #define SET_AUTOLOGIN "login.autologin"
+#define SET_ADMIN_PROMPT "login.admin_prompt"
 
 enum { U_SET = 1, U_CHANGE, U_REMOVE };   // what the buttons open
 // The dialog's ids: its buttons' codes and its fields', unique in the window.
@@ -29,7 +31,9 @@ static char g_acct_desc[512], g_pw_desc[96];
 static int g_names_owned;
 static int g_has_pw = -1;
 
-static struct uui_setting_row g_acct_row, g_pw_row, g_auto_row;
+static struct uui_setting_row g_acct_row, g_pw_row, g_auto_row, g_ap_row;
+static struct uui_dropdown g_ap_dd;
+static int g_ap_slot = -1, g_ap_cur = -1;   // the registry's slot for it; its value's index
 static struct uui_button g_set_b, g_change_b, g_remove_b;
 static struct uui_item g_pw_btns[2];
 static struct uui_layout g_pw_btn_row;
@@ -40,6 +44,7 @@ static struct uui_switch g_auto_sw;
 #define ID_US_CHANGE 901
 #define ID_US_REMOVE 902
 #define ID_US_AUTO   903
+#define ID_US_ADMIN  904
 
 static int in_wheel(const char *name) {
     struct group *g = getgrnam("wheel");
@@ -57,6 +62,10 @@ void users_init(void) {
     uui_setting_row_init(&g_pw_row, "Password", g_pw_desc,
                          (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_pw_btn_row,
                                             .name = "users_pw_buttons" });
+    uui_dropdown_init(&g_ap_dd, 0, 0, 0, 0, 0, 0);
+    uui_setting_row_init(&g_ap_row, "When an app needs administrator rights", "",
+                         (struct uui_item){ .ops = &uui_dropdown_ops, .widget = &g_ap_dd, .id = ID_US_ADMIN,
+                                            .name = "users_admin_prompt" });
     uui_switch_init(&g_auto_sw, 0);
     uui_setting_row_init(&g_auto_row, "Sign in automatically",
                          "Start the desktop at boot without the login screen",
@@ -100,12 +109,33 @@ void users_load(void) {
     char who[64] = "";
     if (!usetting_get(SET_AUTOLOGIN, who, sizeof who)) snprintf(who, sizeof who, "user");
     g_auto_sw.on = !strcmp(who, g_acct);
-    ulogf("settings: users %s password %d autologin %d\n", g_acct, g_has_pw, g_auto_sw.on);
+    // The choices are the registry's (its slot's), the value read afresh:
+    // the slot's own baseline is what the page opened with.
+    g_ap_slot = slot_named(SET_ADMIN_PROMPT);
+    g_ap_cur = -1;
+    if (g_ap_slot >= 0) {
+        struct slot *sl = &g_slot[g_ap_slot];
+        char v[SETTING_ABI_VALUE_MAX] = "";
+        usetting_get(SET_ADMIN_PROMPT, v, sizeof v);
+        for (int c = 0; c < sl->choice_count; c++)
+            if (!strcmp(sl->choice_raw[c], v)) g_ap_cur = c;
+        uui_dropdown_set_items(&g_ap_dd, sl->choice_ptr, sl->choice_count);
+        uui_dropdown_set_selected(&g_ap_dd, g_ap_cur < 0 ? 0 : g_ap_cur);
+    }
+    // Without a password there is nothing to ask but Allow.
+    g_ap_dd.disabled = g_ap_row.disabled = g_has_pw != 1;
+    g_ap_row.desc = g_has_pw == 1 ? "What the prompt asks of you at this machine; sudo always asks for the password"
+                                  : "Needs a password -- without one, the prompt asks only Allow or Cancel";
+    ulogf("settings: users %s password %d autologin %d admin_prompt %d\n", g_acct, g_has_pw, g_auto_sw.on,
+          g_ap_cur);
 }
 
 // In place of login.autologin's own row; -1 for every other slot.
 int users_emit_slot(struct uui_item *out, int n, int i, struct uui_focusable *focus, int *nfocus) {
-    if (g_slot[i].setting < 0 || strcmp(g_name[g_slot[i].setting], SET_AUTOLOGIN)) return -1;
+    if (g_slot[i].setting < 0) return -1;
+    // Its row is drawn among the cards below, not where the registry puts it.
+    if (!strcmp(g_name[g_slot[i].setting], SET_ADMIN_PROMPT)) return n;
+    if (strcmp(g_name[g_slot[i].setting], SET_AUTOLOGIN)) return -1;
     if (g_has_pw < 0) users_load();
     out[n++] = (struct uui_item){ .ops = &uui_setting_row_ops, .widget = &g_acct_row,
                                   .flags = UUI_FILL_W, .name = "users_account" };
@@ -113,6 +143,11 @@ int users_emit_slot(struct uui_item *out, int n, int i, struct uui_focusable *fo
                                   .flags = UUI_FILL_W, .name = "users_password" };
     for (int k = 0; k < g_pw_btn_row.count; k++)
         focus[(*nfocus)++] = (struct uui_focusable){ g_pw_btns[k].widget, &uui_button_ops };
+    if (g_ap_slot >= 0) {
+        out[n++] = (struct uui_item){ .ops = &uui_setting_row_ops, .widget = &g_ap_row,
+                                      .flags = UUI_FILL_W, .name = "users_admin" };
+        focus[(*nfocus)++] = (struct uui_focusable){ &g_ap_dd, &uui_dropdown_ops };
+    }
     out[n++] = (struct uui_item){ .ops = &uui_setting_row_ops, .widget = &g_auto_row,
                                   .flags = UUI_FILL_W, .name = "users_auto" };
     focus[(*nfocus)++] = (struct uui_focusable){ &g_auto_sw, &uui_switch_ops };
@@ -124,6 +159,7 @@ int users_fit(void) {
     if (uui_setting_row_fit(&g_acct_row)) changed = 1;
     if (uui_setting_row_fit(&g_pw_row)) changed = 1;
     if (uui_setting_row_fit(&g_auto_row)) changed = 1;
+    if (g_ap_slot >= 0 && uui_setting_row_fit(&g_ap_row)) changed = 1;
     return changed;
 }
 
@@ -317,7 +353,40 @@ static void autologin_done(struct uapp *a, int rc, int err, void *arg) {
     uapp_redraw(a);
 }
 
+// login.admin_prompt, also root's: privd asks first -- with the password --
+// when the choice asks LESS than the one in force, and not when it asks more.
+// Copied when asked: the page may change, and g_slot with it, while
+// the prompt waits.
+static char g_ap_want[SETTING_ABI_VALUE_MAX], g_ap_want_label[SETTING_ABI_VALUE_MAX];
+
+static int admin_prompt_work(void *arg) {
+    (void)arg;
+    const char *args[] = { g_ap_want, 0 };
+    return upriv_action(UPRIV_ACT_ADMINPROMPT, args, 0) < 0 ? -errno : 0;
+}
+
+static void admin_prompt_done(struct uapp *a, int rc, int err, void *arg) {
+    (void)arg; (void)err;
+    snprintf(g_status, sizeof g_status, rc ? "What administrator prompts ask was not changed."
+             : "Administrator prompts: %s.", g_ap_want_label);
+    ulogf("settings: users admin_prompt %s result %d\n", g_ap_want, rc);
+    users_load();
+    relayout_page();
+    uapp_redraw(a);
+}
+
 int users_on_widget(int id) {
+    if (id == ID_US_ADMIN) {
+        // The choice is made when the list CLOSES: each arrow while it is
+        // open is a change too, and each would ask privd -- and the person.
+        if (g_ap_dd.open) return 1;
+        int sel = uui_dropdown_selected(&g_ap_dd);
+        if (g_ap_slot < 0 || sel < 0 || sel >= g_slot[g_ap_slot].choice_count || sel == g_ap_cur) return 1;
+        snprintf(g_ap_want, sizeof g_ap_want, "%s", g_slot[g_ap_slot].choice_raw[sel]);
+        snprintf(g_ap_want_label, sizeof g_ap_want_label, "%s", g_slot[g_ap_slot].choice[sel]);
+        if (uapp_run_then(g_app, admin_prompt_work, 0, admin_prompt_done) != 0) users_load();
+        return 1;
+    }
     if (id != ID_US_AUTO) return 0;
     g_auto_want = g_auto_sw.on;
     if (uapp_run_then(g_app, autologin_work, 0, autologin_done) != 0) users_load();

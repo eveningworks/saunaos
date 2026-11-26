@@ -7,6 +7,7 @@
 // seconds later, so the call runs on its own thread and the screen goes
 // BUSY until wm_login_poll() sees the answer.
 #include "wm_login.h"
+#include "wm_priv.h"
 #include "wm_internal.h"
 #include "wm_overlay.h"
 #include "wm_log.h"
@@ -86,6 +87,7 @@ static void pick_account(void) {
 
 void wm_login_show(int mode) {
     g_mode = mode;
+    if (mode == WM_LOGIN_LOCK) wm_priv_forget();
     pick_account();
     uui_textbox_init(&g_pw, "");
     g_pw.masked = 1;
@@ -136,6 +138,10 @@ static void submit(void) {
 
 static void answered(void) {
     pthread_join(g_thr, 0);
+    // That check was a second privd channel from this process, and a
+    // process has ONE ring per service: it replaced the agent's, so privd
+    // forgot its agent. Register again, or no prompt shows after an unlock.
+    wm_priv_reopen();
     memset(g_try, 0, strlen(g_try));
     free(g_try);
     g_try = 0;

@@ -807,7 +807,9 @@ static void cmd_dialog(struct dbg_out *o, int json) {
                          i ? "," : "", label ? label : "", x, y, w, h,
                          x + w / 2, y + h / 2);
         }
-        dbg_out_write(o, "]");
+        dbg_out_write(o, "],\"body\":\"");
+        dbg_out_jstr(o, msg ? confirm_dialog_body() : "");   // privd's words: quoted names in it
+        dbg_out_write(o, "\"");
         const char *pl, *pe; int busy, typed, px, py, pw, ph;
         if (confirm_dialog_password_state(&pl, &pe, &busy, &typed, &px, &py, &pw, &ph)) {
             dbg_out_write(o, ",\"password\":{\"label\":\"");

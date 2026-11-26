@@ -22,4 +22,12 @@ unsigned wm_priv_questions(void);   // questions received this boot
 // elevated (root) one privd's kill action, which takes the desktop's word
 // without asking -- the person chose Force Quit here. 0, or -1.
 int wm_priv_kill(int pid, int sig);
+
+// The screen locked, or came back from the saver or from off: privd
+// forgets the passwords `login.admin_prompt`'s remember choices keep.
+void wm_priv_forget(void);
+
+// After any OTHER privd call this process made (base/upriv.h's one
+// channel per process): registers as the agent again at the next poll.
+void wm_priv_reopen(void);
 #endif

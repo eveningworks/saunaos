@@ -1,0 +1,19 @@
+# /etc/settings.d/login.admin_prompt -- what privd's prompt asks of an
+# administrator at the machine (userland/services/privd/privd.c reads it
+# at each request). The machine's, in root's /etc/login.conf: Settings >
+# Users changes it through privd's `adminprompt` action, which asks for
+# the password before it makes the prompt ask for less. sudo and remote
+# sessions ask for the password whatever this says.
+Type=enum
+File=/etc/login.conf
+Label=When an app needs administrator rights
+Category=System
+Group=Users
+Default=password
+Choices=password,remember5,remember15,consent
+Choice.password=Ask for my password every time
+Choice.remember5=Password, then Allow for 5 minutes
+Choice.remember15=Password, then Allow for 15 minutes
+Choice.consent=Ask Allow or Cancel only
+Description=What the prompt asks of you at this machine once your account has a password; sudo always asks for the password
+Order=22

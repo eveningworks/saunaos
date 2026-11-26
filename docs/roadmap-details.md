@@ -9389,3 +9389,34 @@ picked).
   edits a value and reads it back through `config get` (an independent
   path), and the scroll checks for both panes (more rows than fit).
 
+## A process has one channel per service: a second client replaces the first (`base/uchan.h`)
+
+A uchan client's ring is named `<service>.<pid>`, and opening one unlinks
+any ring of that name first ("a previous holder of this pid"). So a
+process that opens a second client to a service it already talks to --
+toywm's lock screen calling `upriv_auth()` beside its privd agent --
+replaces the first, and the server's next scan drops that client as gone.
+Found 2026-11-26: privd had no agent after every unlock, and each prompt
+answered ENXIO until toywm restarted. Worked around in toywm
+(`wm_priv_reopen()`: the agent registers again after its own calls).
+The shape that removes it is D-Bus's: a channel per CONNECTION, named by
+a counter beside the pid, the server keeping the pid as the identity --
+`ubulk`'s peer table and every server's `m.pid` would then name a
+process with several rings.
+
+## A release's upstream GPL source kept once, in one shared source Release, not re-uploaded per release
+
+Maintainer's pick, 2026-11-26. v0.6.0 carries its GPL-3 binaries' upstream
+tarballs -- GCC, binutils, GMP/MPFR/MPC, GNU make, ScummVM and its libraries,
+about 357 MB, ScummVM 213 MB and GCC 103 MB of it -- as a dozen assets beside
+its images (`tools/build/release_sources.py`), and every release would upload
+the same files again. Picked: Debian's pool -- ONE long-lived GitHub Release
+(a tag such as `third-party-source`) holds each tarball once per upstream
+version; each SaunaOS release's notes list the files its images need and link
+there, and `release_assets.sh` uploads only the ones missing. The tag's own
+Source code archive keeps carrying the patches and build scripts. v0.6.0 is
+left as it is. Declined: one bundle per release (one row, but the full size
+again every time) and a sources git repository (GitHub refuses files over
+100 MB in plain git, and ScummVM's and GCC's are both). Creating the Release
+is outward-facing: confirm its tag name with the maintainer first.
+

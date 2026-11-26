@@ -104,15 +104,19 @@ int main(void) {
     say("user\n");
     expect("Password:", 10000);
     say(PW "\n");
-    sys_sleep_ms(1500);
+    // THE SHELL'S PROMPT, not a pause: the password is a yescrypt hash in
+    // privd, slow on a busy TCG host, and a line typed before the shell
+    // starts can be lost (1 run in 5 under preflight, 2026-11-26: `id`
+    // never answered after a fixed 1.5 s pause).
+    expect("$ ", 30000);
     say("id\n");
-    utest_checkf(expect("uid=1000", 15000), "the right one starts the shell as user, not root");
+    utest_checkf(expect("uid=1000", 15000), "the right one starts the shell as user, not root (%.120s)", g_out);
     // ROOT FROM THERE, as tools/dev/remote.py makes its session: sudo's
     // password, then a root shell that takes this terminal's keys.
     say("sudo /bin/tosh\n");
     utest_check(expect("password for user", 10000), "sudo /bin/tosh asks for user's password");
     say(PW "\n");
-    sys_sleep_ms(1500);
+    expect("$ ", 30000);   // the root shell's prompt
     say("id\n");
     utest_checkf(expect("uid=0", 15000), "...and the root shell answers on this terminal (%.200s)", g_out);
     stop();

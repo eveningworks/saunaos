@@ -20,6 +20,14 @@ person through the desktop (toywm's wm_priv.c). So:
     typed and Entered comes back as "Wrong password" with the field
     emptied, its dots drawn and then gone; the right one and Allow
     bring Disks, as root.
+  * WHAT THE PROMPT ASKS (login.admin_prompt, 2026-11-26), from Settings >
+    Users' drop-down: choosing "Password, then Allow for 5 minutes" asks
+    for the password first; after it the next Disks prompt has no
+    password field and says when it was given; a key ending the screen
+    saver forgets it, and so do Super+L and the unlock, so the one after
+    asks again; under "consent" no password
+    is asked and nothing says one was given; going back to "password"
+    from Settings asks nothing.
 
 What a broken version would still pass: an agent that answered Allow by
 itself passes the Allow half, so Cancel must keep Disks away; a privd
@@ -31,10 +39,16 @@ window, so its owner must be root; a field that took no keys passes the
 POSITIVE CONTROL: make wm_priv_poll() answer every question with 1
 before showing it -- "the prompt opens" and "Cancel keeps Disks away"
 go red. Make privd's pass_check() always 1 -- "a wrong password comes
-back" goes red.
+back" goes red. Drop wm_idle.c's wm_priv_forget() -- "coming back from
+the saver forgets it" goes red. "The lock forgets it" has two causes, both
+needed: wm_login_show()'s wm_priv_forget(), and the unlock's privd call
+replacing the agent's channel (privd's gone() forgets too); drop
+wm_login.c's wm_priv_reopen() and no prompt comes at all after the
+unlock. Make the adminprompt rule's `want <= admin_prompt()` always true
+-- "choosing less asks for the password" goes red.
 """
 
-RUNNER = {"covers": "privd's consent prompt, Cancel and Allow, by pixel and by owner"}
+RUNNER = {"covers": "privd's consent prompt, Cancel and Allow, by pixel and by owner; login.admin_prompt's remember and consent"}
 
 import argparse
 import os
@@ -52,6 +66,8 @@ from harness import Results  # noqa: E402
 from PIL import Image  # noqa: E402
 
 DISKS = "/bin/wm/apps/disks"
+SETTINGS = "System Settings"
+DOWN, UP = "0xf781", "0xf780"
 ACCENT = (70, 110, 160)
 PW = "pw-gui1"
 
@@ -91,13 +107,129 @@ def disks_procs(dbg):
     return rows
 
 
-def wait_prompt(dbg, timeout=15):
+def wait_prompt(dbg, timeout=15, words="wants to run as administrator"):
     deadline = time.time() + timeout
     info = dialog(dbg)
-    while "wants to run as administrator" not in info.get("message", "") and time.time() < deadline:
+    while words not in info.get("message", "") and time.time() < deadline:
         time.sleep(0.1)  # sleep-ok: polls the guest's own dialog state
         info = dialog(dbg)
     return info
+
+
+def admin_prompt(dbg):
+    return (dbg.send("sh config get login.admin_prompt") or "").strip()
+
+
+def choose_admin_prompt(dbg, steps):
+    """Settings > Users' drop-down, opened by a click and moved `steps`
+    rows (down when positive), then Enter -- as a person would."""
+    # Through the desktop, as a launch from the Start menu is: `as user`
+    # runs it without the seat mark, and privd asks only the seat.
+    dbg.send("gui spawn /bin/wm/system/settings login.autologin")
+    if not dbg.wait_window(SETTINGS) or not dbg.wait_widget(SETTINGS, "users_admin_prompt"):
+        return False
+    x, y = dbg.widget_center("users_admin_prompt", SETTINGS)
+    dbg.click(x, y)
+    for _ in range(abs(steps)):
+        dbg.key(DOWN if steps > 0 else UP)
+    dbg.key("0x0a")
+    return True
+
+
+def open_disks_prompt(dbg):
+    dbg.send(f"gui spawn {DISKS}")
+    return wait_prompt(dbg)
+
+
+def lock_and_unlock(dbg):
+    def login():
+        try:
+            return dbg.json("gui login") or {}
+        except (ValueError, OSError):
+            return {}
+    dbg.key("0x6c", mods="super")
+    locked = lambda s: bool(s.get("open")) and s.get("mode") == "lock"
+    if not locked(_res.check_eventually("Super+L locks the screen", login, ok=locked, timeout=10)):
+        return False
+    type_text(dbg, PW)
+    dbg.key("0x0a")
+    unlocked = lambda s: bool(s) and not s.get("open")
+    return unlocked(_res.check_eventually("...and the password unlocks it", login, ok=unlocked, timeout=20))
+
+
+def remembered_round(dbg):
+    # Lowering: the drop-down's second row (from "password") asks LESS, so
+    # privd asks -- for the password.
+    ok = choose_admin_prompt(dbg, 1)
+    check("Settings > Users shows the administrator prompt drop-down", ok)
+    if not ok:
+        return
+    info = wait_prompt(dbg, words="wants to change what administrator prompts ask")
+    check("choosing less asks for the password first",
+          (info.get("password") or {}).get("label") == "Password for User", str(info)[:200])
+    type_text(dbg, PW)
+    pick(dbg, "Allow")
+    _res.check_eventually("...and the right one saves remember5", lambda: admin_prompt(dbg),
+                          ok=lambda v: v == "remember5", timeout=15)
+    dbg.close_window(SETTINGS)
+
+    info = open_disks_prompt(dbg)
+    check("inside the remembered minutes the prompt asks Allow alone",
+          bool(info.get("message")) and not info.get("password"), str(info)[:200])
+    check("...saying when the password was given", "You gave your password" in info.get("body", ""),
+          info.get("body", "")[-120:])
+    pick(dbg, "Allow")
+    wins = _res.check_eventually("...and Allow brings Disks", lambda: disks_windows(dbg), timeout=20)
+    if wins:
+        dbg.close_window("Disks")
+
+    # The screen saver, with lock_on_resume off so no unlock is in the way:
+    # a key ends it, and that alone must forget the password.
+    dbg.send("sh config set desktop.lock_on_resume off")
+    dbg.send("sh config set desktop.screensaver.idle 10")   # the harness boots with none
+    _res.check_eventually("...a saver is configured", lambda: dbg.json("gui idle") or {},
+                          ok=lambda s: s.get("minutes", 0) > 0, timeout=8)
+    dbg.send("gui idle start")
+    _res.check_eventually("the screen saver starts", lambda: dbg.json("gui idle") or {},
+                          ok=lambda s: s.get("pid", 0) > 0, timeout=8)
+    dbg.key(ord("a"))
+    _res.check_eventually("...and a key ends it", lambda: dbg.json("gui idle") or {},
+                          ok=lambda s: s.get("pid", 1) == 0, timeout=8)
+    info = open_disks_prompt(dbg)
+    check("coming back from the saver forgets it: the prompt asks for the password",
+          (info.get("password") or {}).get("label") == "Password for User", str(info)[:200])
+    type_text(dbg, PW)
+    pick(dbg, "Allow")
+    wins = _res.check_eventually("...and the right one brings Disks", lambda: disks_windows(dbg), timeout=20)
+    if wins:
+        dbg.close_window("Disks")
+    info = open_disks_prompt(dbg)
+    check("...and starts the minutes again: the next asks Allow alone",
+          bool(info.get("message")) and not info.get("password"), str(info)[:200])
+    pick(dbg, "Cancel")
+
+    if lock_and_unlock(dbg):
+        info = open_disks_prompt(dbg)
+        check("the lock forgets it: the next prompt asks for the password again",
+              (info.get("password") or {}).get("label") == "Password for User", str(info)[:200])
+        pick(dbg, "Cancel")
+
+    dbg.send("sh config --machine set login.admin_prompt consent")
+    check("root sets consent", admin_prompt(dbg) == "consent", admin_prompt(dbg))
+    info = open_disks_prompt(dbg)
+    check("consent: Allow alone, and nothing says a password was given",
+          bool(info.get("message")) and not info.get("password")
+          and "You gave" not in info.get("body", ""), str(info)[:200])
+    pick(dbg, "Cancel")
+
+    # Raising: back to the first row from the last asks nothing.
+    choose_admin_prompt(dbg, -3)
+    seen = []
+    v = _res.check_eventually("going back to the password from Settings saves it",
+                              lambda: (seen.append(dialog(dbg).get("message", "")), admin_prompt(dbg))[1],
+                              ok=lambda v: v == "password", timeout=15)
+    check("...without a prompt", v == "password" and not any(seen), str([s for s in seen if s])[:160])
+    dbg.close_window(SETTINGS)
 
 
 def type_text(dbg, text):
@@ -224,7 +356,11 @@ def main():
     # --- with a password ---
     try:
         password_round(dbg, qmp, args.tmp)
+        remembered_round(dbg)
     finally:
+        dbg.send("sh config --machine set login.admin_prompt password")
+        dbg.send("sh config set desktop.lock_on_resume on")
+        dbg.send("sh config unset desktop.screensaver.idle")
         dbg.send("sh passwd -d user")   # root: no current password asked
     st = dbg.send("sh passwd -S user") or ""
     check("passwd -d removes it again", "user NP" in st, st.strip()[-80:])

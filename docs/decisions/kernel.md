@@ -11097,6 +11097,41 @@ watch without writing anything (`fswatch_watching()`) and takes the lock
 for the note alone (`fs_note_watchers()`), as a last put takes it for a
 release.
 
+## An administrator at the machine may choose Allow alone, and a remembered password still shows the prompt
+
+Maintainer's picks, 2026-11-26. With a password set, every elevation
+(Disks, Software, the clock) asked for it, and the person asked for UAC's
+consent prompt as an option. Real systems split three ways: Windows asks
+an administrator Yes/No by default and a standard user for credentials
+(the UAC slider); macOS always asks for the password; sudo and polkit
+ask for it and then keep it for about five minutes, after which nothing
+is asked at all. SaunaOS takes both of the first and third shapes as one
+machine setting, `login.admin_prompt`: the password every time (the
+default), the password then 5 or 15 minutes of Allow alone, or Allow
+alone.
+
+**Consent is safe only because no program can press the prompt**: the
+compositor draws it, and the kernel lets one program inject input
+(`SYS_INPUT_INJECT` checks for `remoted`), as UAC's secure desktop keeps
+a program off its own prompt. So it covers the desktop's prompt alone:
+`sudo` reads a terminal any program in the session can write to, and a
+remote session is not the person at the machine -- both still need the
+password.
+
+**Inside the remembered minutes the prompt is still shown**, saying when
+the password was given. sudo's timestamp and polkit's `auth_admin_keep`
+grant silently, which would give root to any program run in those
+minutes without anyone seeing it ask. The remembered password lives in
+privd's memory only, per account, and is forgotten on a lock, a return
+from the saver or a dark screen, a sign-out and a boot.
+
+**Asking less is asked; asking more is free.** Changing the setting is a
+privd action (the file is root's): to a choice that asks less it needs
+the password even under `consent` -- otherwise one click would turn the
+password off for good, which is why changing the UAC slider asks too --
+and to one that asks more it is the seat's, like turning automatic
+sign-in off.
+
 ## File permissions are asked at the syscall boundary, and `/etc` stays the desktop's behind a sticky group bit until stage D
 
 Picked 2026-11-24 (`docs/users-design.md`, stage C; `kernel/fs/fsperm.c`,

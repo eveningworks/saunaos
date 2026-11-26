@@ -575,6 +575,25 @@ telnetd runs `login(1)` as root, which drops to the account.
 - **`tools/dev/remote.py`** answers the login prompt from the
   machine's entry in `local_info.txt`, so a laptop with a password
   stays reachable.
+- **What the prompt asks (2026-11-26): `login.admin_prompt`**, a machine
+  key in root's `/etc/login.conf`, one drop-down on Settings > Users --
+  the password every time (the default), the password then Allow alone
+  for 5 or 15 minutes, or Allow alone (UAC's consent prompt, Windows'
+  default for an administrator). Safe only because the desktop draws the
+  prompt and no program can press it (only `remoted` injects input).
+  Inside the remembered minutes the prompt is still SHOWN, saying when
+  the password was given -- never silent, as sudo's timestamp and
+  polkit's `auth_admin_keep` are. Remembered per account in privd's
+  memory; forgotten on a lock, a return from the saver or a dark screen
+  (`UPRIV_T_FORGET` from the agent), a sign-out (the agent goes) and a
+  boot. `sudo` and remote sessions always ask. Asking LESS is asked, with
+  the password even under consent; asking more is the seat's.
+- **One privd channel per process** (`base/uchan.h` names a ring by
+  pid): the lock screen's password check, made from toywm, replaced the
+  agent's ring, and privd had no agent after every unlock -- each prompt
+  answered ENXIO until toywm restarted (found 2026-11-26). The agent
+  registers again after its own calls (`wm_priv_reopen()`); a channel
+  per connection is on the roadmap.
 
 As built (2026-11-25), and where it differs from the plan:
 

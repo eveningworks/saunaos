@@ -231,6 +231,10 @@ void upriv_agent_answer_password(struct ubulk_client *a, uint32_t id, const char
     free(rec);
 }
 
+void upriv_agent_forget(struct ubulk_client *a) {
+    if (a) ubulk_send(a, UPRIV_T_FORGET, 0, "", 0, 1000);
+}
+
 void upriv_agent_close(struct ubulk_client *a) {
     if (!a) return;
     ubulk_client_close(a);

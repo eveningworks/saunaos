@@ -7,8 +7,10 @@
 //
 // Policy, in order: euid 0 is granted; an account in `wheel` that holds
 // the seat (CRED_SEAT) is ASKED -- for its password once it has one
-// (users D2a); a wheel account that sends its right password with the
-// request (`sudo` on a terminal) is granted; anyone else is refused.
+// (users D2a), unless `login.admin_prompt` says Allow alone, always or for
+// a few minutes after the last right one (UAC's consent prompt); a wheel
+// account that sends its right password with the request (`sudo` on a
+// terminal) is granted; anyone else is refused.
 // Also the one password checker (pass.h).
 #include "rt/sys.h"
 #include "proc_info.h"
@@ -37,6 +39,7 @@
 #define AGENT_PATH "/bin/wm/system/toywm"
 #define GREETER_ACCOUNT "greeter"
 #define SET_AUTOLOGIN "login.autologin"   // /etc/login.conf, the machine's
+#define SET_ADMIN_PROMPT "login.admin_prompt"   // the same file
 
 struct who {
     int      pid;
@@ -60,6 +63,7 @@ struct req {
     uint32_t    bloblen;
     int         tries;        // passwords the prompt may still take; 0 asks none
     char       *name;         // whose password the prompt asks for (owned)
+    uint64_t    given_at;     // Allow alone: when the remembered password was given; 0 if not
 };
 
 static struct ubulk_server g_srv;
@@ -177,6 +181,71 @@ static int run_later(int cap) {
     return ms < (uint64_t)cap ? (int)ms : cap;
 }
 
+// --- what the prompt asks: login.admin_prompt -------------------------------
+
+// Its choices, from the most asked to the least; `keep` the minutes a
+// right password lets the next prompts ask Allow alone.
+static const struct { const char *name; int keep_min; } ADMIN_PROMPT[] = {
+    { "password", 0 }, { "remember5", 5 }, { "remember15", 15 }, { "consent", -1 },
+};
+#define N_ADMIN_PROMPT ((int)(sizeof ADMIN_PROMPT / sizeof ADMIN_PROMPT[0]))
+
+// Its index in ADMIN_PROMPT, -1 for no choice of it.
+static int admin_prompt_index(const char *v) {
+    for (int i = 0; i < N_ADMIN_PROMPT; i++)
+        if (!strcmp(v, ADMIN_PROMPT[i].name)) return i;
+    return -1;
+}
+
+// The machine's choice, read at each request; unreadable or unknown asks
+// for the password, as if the setting were not there.
+static int admin_prompt(void) {
+    char v[32];
+    int i = usetting_get(SET_ADMIN_PROMPT, v, sizeof v) ? admin_prompt_index(v) : -1;
+    return i < 0 ? 0 : i;
+}
+
+// A right password, per account, while a `remember` choice keeps it. In
+// memory only: forgotten when the screen locks or comes back from the
+// saver (UPRIV_T_FORGET), when the agent goes (a sign-out), and at boot.
+struct kept {
+    struct kept *next;
+    uint32_t uid;
+    uint64_t at;            // sys_monotonic_ns() of the right password
+};
+static struct kept *g_kept;
+
+static void kept_forget(void) {
+    while (g_kept) {
+        struct kept *k = g_kept;
+        g_kept = k->next;
+        free(k);
+    }
+}
+
+static void kept_remember(uint32_t uid) {
+    struct kept *k = g_kept;
+    while (k && k->uid != uid) k = k->next;
+    if (!k) {
+        if (!(k = malloc(sizeof *k))) return;   // not remembered: the next prompt asks again
+        k->uid = uid;
+        k->next = g_kept;
+        g_kept = k;
+    }
+    k->at = sys_monotonic_ns();
+}
+
+// When `uid` gave its right password, if the choice NOW in force still
+// keeps it (a shorter choice applies at once); 0 when it asks again.
+static uint64_t kept_since(uint32_t uid) {
+    int keep = ADMIN_PROMPT[admin_prompt()].keep_min;
+    if (keep <= 0) return 0;
+    for (struct kept *k = g_kept; k; k = k->next)
+        if (k->uid == uid && sys_monotonic_ns() - k->at < (uint64_t)keep * 60ull * 1000000000ull)
+            return k->at;
+    return 0;
+}
+
 static void req_free(struct req *r) {
     free(r->name);
     free(r->strs);
@@ -248,6 +317,12 @@ static int32_t do_action(const struct req *r) {
     } else if (!strcmp(a, UPRIV_ACT_BOOTCFG) && x && y) return boot_cfg(x, y);
     else if (!strcmp(a, UPRIV_ACT_AUTOLOGIN) && x)
         return usetting_set(SET_AUTOLOGIN, x) == SETTING_SAVED ? 0 : -EIO;
+    else if (!strcmp(a, UPRIV_ACT_ADMINPROMPT) && x) {
+        if (admin_prompt_index(x) < 0) return -EINVAL;
+        if (usetting_set(SET_ADMIN_PROMPT, x) != SETTING_SAVED) return -EIO;
+        if (ADMIN_PROMPT[admin_prompt_index(x)].keep_min <= 0) kept_forget();
+        return 0;
+    }
     else if (!strcmp(a, UPRIV_ACT_NETLINK) && r->nstrs >= 7) {
         struct net_linkcfg req;
         memset(&req, 0, sizeof req);
@@ -331,6 +406,16 @@ static uint32_t words(const struct req *r, const struct who *w, char *out, uint3
         snprintf(body, sizeof body, "The file %s is rewritten; the old one is kept as .bak.",
                  r->nstrs > 1 ? r->strs[1] : "");
         snprintf(act, sizeof act, "Change the boot menu");
+    } else if (!strcmp(a, UPRIV_ACT_ADMINPROMPT) && r->nstrs > 1 && admin_prompt_index(r->strs[1]) >= 0) {
+        int keep = ADMIN_PROMPT[admin_prompt_index(r->strs[1])].keep_min;
+        snprintf(head, sizeof head, "%s wants to change what administrator prompts ask", name);
+        if (keep < 0)
+            snprintf(body, sizeof body, "From now on an app that needs administrator rights asks only "
+                     "Allow or Cancel, without the password. sudo still asks for it.");
+        else
+            snprintf(body, sizeof body, "From now on, after the right password, the next %d minutes of "
+                     "administrator prompts ask only Allow or Cancel. sudo still asks for the password.", keep);
+        snprintf(act, sizeof act, "Change the administrator prompt");
     } else if (!strcmp(a, UPRIV_ACT_AUTOLOGIN) && r->nstrs > 1) {
         snprintf(head, sizeof head, "%s wants to sign %s in automatically", name, r->strs[1]);
         snprintf(body, sizeof body, "At boot the desktop starts without the login screen, and without "
@@ -345,6 +430,17 @@ static uint32_t words(const struct req *r, const struct who *w, char *out, uint3
         snprintf(act, sizeof act, "End a process");
     } else {
         return 0;
+    }
+    // Allow alone because a password is remembered: say so, when it fits --
+    // the person approves the request, which is all said above.
+    if (r->given_at) {
+        uint64_t min = (sys_monotonic_ns() - r->given_at) / (60ull * 1000000000ull);
+        size_t n = strlen(body);
+        char ago[48];
+        if (min == 0) snprintf(ago, sizeof ago, "less than a minute ago");
+        else snprintf(ago, sizeof ago, "%llu minute%s ago", (unsigned long long)min, min == 1 ? "" : "s");
+        int k = snprintf(body + n, sizeof body - n, " You gave your password %s, so this asks only Allow.", ago);
+        if (k < 0 || (size_t)k >= sizeof body - n) body[n] = '\0';
     }
     snprintf(prog, sizeof prog, "%s (pid %d)", w->path[0] ? w->path : "?", w->pid);
     const char *f[6] = { head, body, act, prog, w->user, r->tries && r->name ? r->name : "" };
@@ -500,6 +596,16 @@ static void handle_request(const struct ubulk_msg *m) {
         if (r->strs[1][0] && !own(r->strs[1], &w)) { answer(r->pid, r->id, -EPERM); req_free(r); return; }
         if (!r->strs[1][0] && w.seat) { carry_out(r); req_free(r); return; }
     }
+    // WHAT THE PROMPT ASKS is the seat's to make stricter; asking LESS is
+    // asked, with the password even under "consent" -- UAC's slider asks
+    // too -- or one click would turn the password off for good.
+    int force_pw = 0;
+    if (r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], UPRIV_ACT_ADMINPROMPT) && w.euid != 0) {
+        int want = r->nstrs > 1 ? admin_prompt_index(r->strs[1]) : -1;
+        if (want < 0) { answer(r->pid, r->id, -EINVAL); req_free(r); return; }
+        if (want <= admin_prompt() && w.seat) { carry_out(r); req_free(r); return; }
+        force_pw = 1;
+    }
     if (w.euid == 0 || (w.seat && seat_action(r))) { carry_out(r); req_free(r); return; }
     char *me = name_of(w.uid);
     int needs_pw = me && pass_has(me);
@@ -532,6 +638,14 @@ static void handle_request(const struct ubulk_msg *m) {
         free(me);
         req_free(r);
         return;
+    }
+    // At the machine, through the desktop's own prompt -- which no other
+    // program can press (only remoted injects input) -- login.admin_prompt
+    // may let Allow alone answer.
+    if (needs_pw && !force_pw) {
+        int choice = admin_prompt();
+        if (ADMIN_PROMPT[choice].keep_min < 0) needs_pw = 0;
+        else if ((r->given_at = kept_since(w.uid)) != 0) needs_pw = 0;
     }
     if (needs_pw) {
         r->tries = UPRIV_AUTH_TRIES;
@@ -589,8 +703,10 @@ static void handle_verdict(const struct ubulk_msg *m) {
                 req_free(r);
                 return;
             }
-            // Right: the agent's dialog, waiting BUSY, closes.
+            // Right: the agent's dialog, waiting BUSY, closes -- and a
+            // `remember` choice keeps it for the next prompts.
             ubulk_server_send(&g_srv, g_agent, UPRIV_T_CANCEL, r->prompt, "", 0, 1000);
+            kept_remember(r->uid);
         }
         req_unlink(r);
         struct who now;
@@ -608,6 +724,7 @@ static void gone(int pid) {
     purge_later(pid);
     if (pid == g_agent) {
         g_agent = 0;
+        kept_forget();   // a sign-out, or the desktop gone
         // Whatever it was showing has no one to answer it.
         for (struct req *r = g_reqs; r; ) {
             struct req *n = r->next;
@@ -646,6 +763,7 @@ int main(void) {
                 handle_request(&m);
             else if (m.type == UPRIV_T_AGENT) handle_agent(m.pid);
             else if (m.type == UPRIV_T_VERDICT) handle_verdict(&m);
+            else if (m.type == UPRIV_T_FORGET && m.pid == g_agent && g_agent) kept_forget();
             memset(buf, 0, m.len);   // a record may have carried a password
         }
         ubulk_server_wait_change(&g_srv, run_later(1000));
