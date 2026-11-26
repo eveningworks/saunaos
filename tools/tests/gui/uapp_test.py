@@ -56,7 +56,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui
 from qmp_test import QMPSession
 import port_guard  # noqa: E402
-from harness import Results  # noqa: E402
+from harness import Results, poll  # noqa: E402
 
 DEFAULT_SOCK = ".vm.serial"
 TITLE = "Ring 3 Client"
@@ -442,6 +442,30 @@ def check_default_tick(dbg, qmp, tmp, res):  # noqa: ARG001 -- qmp/tmp unused
         dbg.settle(0.5)
 
 
+def check_many_windows(dbg, qmp, tmp, res):  # noqa: ARG001 -- qmp/tmp unused
+    """A process opens more windows than uapp's first eight slots.
+
+    /tests/manywin opens twelve dialog windows over its own. uapp kept a
+    fixed table of eight (WIN_CLIENT_MAX) and refused the eighth silently;
+    now the first eight slots are static and each one past them is its
+    own block. The app says how many it got and whether every handle
+    still names its window after the table grew; the compositor must list
+    all twelve -- a client that thought it had them, and a compositor
+    that showed fewer, would pass the first half alone.
+    """
+    dbg.logs("manywin:", clear=True)
+    dbg.send("gui spawn /tests/manywin")
+    line = poll(lambda: next(iter(dbg.logs("manywin:", clear=False)), None), 20)
+    res.check("8a. a process opens twelve dialog windows, every handle kept",
+              bool(line) and "opened 12 of 12, handles kept" in line, str(line))
+    titles = poll(lambda: (lambda t: t if len(t) >= 12 else None)(
+        [w["title"] for w in dbg.windows() if w["title"].startswith("Many ") and w["title"] != "Many Windows"]), 20)
+    res.check("8b. the compositor lists all twelve", bool(titles) and len(titles) == 12,
+              str(titles))
+    dbg.close_window("Many Windows")   # its dialogs go with the process
+    dbg.settle()
+
+
 def check_focus_caret(dbg, qmp, tmp, res):
     """A caret must not be drawn while its window is unfocused.
 
@@ -566,6 +590,7 @@ def main():
         # BEFORE check_focus_caret, which quits winclient with 'q'.
         check_worker_post(dbg, qmp, args.tmp, res)
         check_default_tick(dbg, qmp, args.tmp, res)
+        check_many_windows(dbg, qmp, args.tmp, res)
         check_focus_caret(dbg, qmp, args.tmp, res)
 
     n_ok, n_bad = len(res.passes), len(res.fails)

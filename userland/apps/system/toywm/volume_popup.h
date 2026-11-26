@@ -89,7 +89,6 @@ int volume_handle_wheel(int mx, int my, int notches);
 // The panel's live geometry, for the debug console (`gui volume`) and
 // therefore for tests -- the SAME numbers drawing and hit-testing use.
 // Valid whether or not the popup is open.
-#define VOLUME_MAX_DEVICES 6
 
 struct volume_geom {
     int x, y, w, h;                  // the panel

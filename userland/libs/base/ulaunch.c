@@ -28,6 +28,7 @@ static int is_app(const char *path, struct ulaunch_info *out) {
     struct uappentry e;
     if (uappentry_find_exec(path, &e)) {
         snprintf(out->app, sizeof out->app, "%s", e.name);
+        uappentry_free(&e);
         return 1;
     }
     return strncmp(path, "/bin/wm/", 8) == 0;

@@ -324,7 +324,7 @@ static int heat_of(void *ctx, int row, int col) {
 static const struct uimg *icon_of(void *ctx, int row, int px) {
     (void)ctx;
     const struct tm_proc *p = row_proc(row);
-    return icon_get(p->app >= 0 && g_apps[p->app].icon[0] ? g_apps[p->app].icon : "file-app", px);
+    return icon_get(p->app >= 0 && g_apps[p->app].e.icon[0] ? g_apps[p->app].e.icon : "file-app", px);
 }
 
 static void apply_view(void) {

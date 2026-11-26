@@ -1,6 +1,8 @@
 // uapp's toplevels: what the main window and a dialog window share --
 // input routing and painting -- and dialog windows. See ui/uapp_internal.h.
 #include "ui/uapp_internal.h"
+#include "base/ugrow.h"
+#include <stdlib.h>
 #include "ui/uui_caret.h"
 
 // The caret this frame drew, told to the compositor when it moved
@@ -56,11 +58,28 @@ void top_paint(struct uapp_top *t, struct ugfx_surface *s, struct uui_layout *la
 // router and its own focus ring, because it is a different window --
 // a second view of the first one's widgets would be a split view, not
 // a dialog.
-struct uapp_window g_dlg[WIN_CLIENT_MAX];
+static struct uapp_window g_dlg0[UAPP_SLOTS_FIXED];
+static struct uapp_window **g_dlg_more;   // as uapp_surface.c's: each its own block
+static int g_dlg_n = UAPP_SLOTS_FIXED, g_dlg_cap;
+
+struct uapp_window *uapp_dlg_at(int i) {
+    return i < UAPP_SLOTS_FIXED ? &g_dlg0[i] : g_dlg_more[i - UAPP_SLOTS_FIXED];
+}
+
+int uapp_dlg_grow(int n) {
+    while (g_dlg_n < n) {
+        int k = g_dlg_n - UAPP_SLOTS_FIXED;
+        struct uapp_window *w = calloc(1, sizeof *w);
+        if (!w || !UGROW(g_dlg_more, g_dlg_cap, k + 1)) { free(w); return 0; }
+        g_dlg_more[k] = w;
+        g_dlg_n++;
+    }
+    return 1;
+}
 
 struct uapp_window *dlg_for(uint32_t slot) {
-    if (slot == 0 || slot >= WIN_CLIENT_MAX) return 0;
-    return g_dlg[slot].top.slot ? &g_dlg[slot] : 0;
+    if (slot == 0 || slot >= (uint32_t)g_nslots) return 0;
+    return DLG(slot).top.slot ? &DLG(slot) : 0;
 }
 
 // Places the content and paints it. The same order flush() uses for the
@@ -68,7 +87,7 @@ struct uapp_window *dlg_for(uint32_t slot) {
 void dlg_flush(struct uapp_window *w) {
     if (!w->top.slot || !w->top.dirty) return;
     w->top.dirty = 0;
-    struct uapp_surf *s = &g_surf[w->top.slot];
+    struct uapp_surf *s = &SURF(w->top.slot);
     if (!surf_back(s)) { w->top.dirty = 1; return; }   // drawn once a buffer is back
     if (w->desc.layout) uui_layout_run(w->desc.layout, 0, 0, s->w, s->h);
     if (w->desc.log_prefix && layout_log_enabled()) {
@@ -92,14 +111,12 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
     if (!a || !desc || desc->w <= 0 || desc->h <= 0 || comp_pid() <= 0) return 0;
     int w = desc->w, h = desc->h;
     clamp_to_screen(&w, &h);
-    struct uapp_surf *s = 0;
-    for (int i = 1; i < WIN_CLIENT_MAX; i++)
-        if (!g_surf[i].used) { s = &g_surf[i]; break; }
+    int slot = uapp_slot_free();
+    struct uapp_surf *s = slot > 0 ? &SURF(slot) : 0;
     if (!s) return 0;
     if (!bufs_create(s, w, h)) return 0;
-    int slot = slot_of(s);
 
-    struct uapp_window *d = &g_dlg[slot];
+    struct uapp_window *d = &DLG(slot);
     memset(d, 0, sizeof *d);
     d->desc = *desc;
 
@@ -181,7 +198,7 @@ void uapp_window_close(struct uapp_window *w) {
     if (!w || !w->top.slot) return;
     int slot = w->top.slot;
     wmchan_send(WIN_REQ_DESTROY, (uint32_t)slot, 0, 0, 0, 0);
-    bufs_release(&g_surf[slot]);
+    bufs_release(&SURF(slot));
     w->top.slot = 0;
     if (w->app) w->app->top.dirty = 1;   // the owner repaints, now unblocked
 }
@@ -190,8 +207,8 @@ int   uapp_window_is_open(const struct uapp_window *w) { return w && w->top.slot
 void  uapp_window_redraw(struct uapp_window *w)  { if (w && w->top.slot) w->top.dirty = 1; }
 void *uapp_window_state(struct uapp_window *w)   { return w ? w->desc.state : 0; }
 struct uapp *uapp_window_app(struct uapp_window *w) { return w ? w->app : 0; }
-int uapp_window_width(const struct uapp_window *w)  { return w && w->top.slot ? g_surf[w->top.slot].w : 0; }
-int uapp_window_height(const struct uapp_window *w) { return w && w->top.slot ? g_surf[w->top.slot].h : 0; }
+int uapp_window_width(const struct uapp_window *w)  { return w && w->top.slot ? SURF(w->top.slot).w : 0; }
+int uapp_window_height(const struct uapp_window *w) { return w && w->top.slot ? SURF(w->top.slot).h : 0; }
 
 void uapp_window_set_title(struct uapp_window *w, const char *title) {
     if (!w || !w->top.slot || !title) return;
@@ -231,7 +248,7 @@ void uapp_window_set_fullscreen(struct uapp_window *w, int on) {
     // give it back after: it declines every other resize, the compositor's
     // restore included, so it keeps its own size here and goes back to it.
     if (w->desc.flags & UAPP_WIN_RESIZABLE) return;
-    struct uapp_surf *s = &g_surf[w->top.slot];
+    struct uapp_surf *s = &SURF(w->top.slot);
     if (on) {
         w->windowed_w = s->w;
         w->windowed_h = s->h;
@@ -244,7 +261,7 @@ void uapp_window_set_fullscreen(struct uapp_window *w, int on) {
 int uapp_window_resize(struct uapp_window *w, int rw, int rh) {
     if (!w || !w->top.slot || rw <= 0 || rh <= 0) return 0;
     clamp_to_screen(&rw, &rh);
-    struct uapp_surf *s = &g_surf[w->top.slot];
+    struct uapp_surf *s = &SURF(w->top.slot);
     if (s->back >= 0 && !buf_make(s, s->back, rw, rh)) return 0;
     s->w = rw;
     s->h = rh;
@@ -340,8 +357,8 @@ static int menu_id(int id) { return id == UUI_EDITMENU_ID || id == UUI_CTXMENU_I
 
 static void top_size(const struct uapp_top *t, int *w, int *h) {
     if (t == &g_app.top) { *w = g_app.w; *h = g_app.h; return; }
-    *w = g_surf[t->slot].w;
-    *h = g_surf[t->slot].h;
+    *w = SURF(t->slot).w;
+    *h = SURF(t->slot).h;
 }
 
 static void menu_open(struct uapp_top *t, const struct uui_edit_target *tg, int id, int x, int y) {
@@ -630,8 +647,8 @@ int uapp_inwindow_question_open(struct uapp *a) {
 }
 
 int uapp_question_open(struct uapp *a) {
-    for (int i = 1; i < WIN_CLIENT_MAX; i++)
-        if (g_dlg[i].top.slot && (g_dlg[i].desc.flags & UAPP_WIN_MODAL)) return 1;
+    for (int i = 1; i < g_nslots; i++)
+        if (DLG(i).top.slot && (DLG(i).desc.flags & UAPP_WIN_MODAL)) return 1;
     return uapp_inwindow_question_open(a);
 }
 
@@ -720,7 +737,7 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         // presenting at its own size, which the compositor adopts.
         w->top.dirty = 1;
         if (!(d->flags & UAPP_WIN_RESIZABLE) && !w->fullscreen) return;
-        struct uapp_surf *s = &g_surf[w->top.slot];
+        struct uapp_surf *s = &SURF(w->top.slot);
         int mw = d->min_w > 0 ? d->min_w : d->w, mh = d->min_h > 0 ? d->min_h : d->h;
         if (w->fullscreen) mw = mh = 1;          // the screen's size, whatever it opened at
         int rw = ev->a < mw ? mw : ev->a, rh = ev->b < mh ? mh : ev->b;

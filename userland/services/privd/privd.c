@@ -395,7 +395,7 @@ static void carry_out(struct req *r) {
 
 static void display_name(const char *path, char *out, size_t cap) {
     struct uappentry e;
-    if (path[0] && uappentry_find_exec(path, &e)) { snprintf(out, cap, "%s", e.name); return; }
+    if (path[0] && uappentry_find_exec(path, &e)) { snprintf(out, cap, "%s", e.name); uappentry_free(&e); return; }
     const char *b = strrchr(path, '/');
     snprintf(out, cap, "%s", b ? b + 1 : (path[0] ? path : "A program"));
 }

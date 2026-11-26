@@ -477,7 +477,7 @@ struct win_event {
                            // `text`: this window's APP ID, or "" for
                            // none (see WIN_REQ_ACTIVATE).
                            // `window` IN is the SLOT the client
-                           // picked (0..WIN_CLIENT_MAX-1), whose buffer
+                           // picked (0 up, any number), whose buffer
                            // objects it has already created and granted;
                            // OUT it is the window's id, which is that
                            // slot. Refused if the slot is taken.                           //
@@ -1810,10 +1810,9 @@ struct win_request_msg {
                                  ((uint32_t)(h) & 0xFFFFu))
 #define WIN_PRESENT_W(m)       ((int)(((uint32_t)(m) >> 16) & 0xFFFFu))
 #define WIN_PRESENT_H(m)       ((int)((uint32_t)(m) & 0xFFFFu))
-#define WIN_CLIENT_MAX    8 // surfaces one client may hold at once: a
-                            // toplevel plus its popups. Sizes the client's
-                            // own table (ui/uapp.c); the compositor grows
-                            // its list on demand and does not enforce it
+// A client holds as many surfaces as it opens -- a toplevel plus its
+// dialogs and popups: the compositor grows its list on demand, and uapp's
+// own table grows too (ui/uapp_internal.h, UAPP_SLOTS_FIXED).
 
 // A PRESENT EVENT'S `b`: which buffer is now the front one, and that
 // buffer's GENERATION -- the number that goes up each time the client

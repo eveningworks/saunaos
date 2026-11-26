@@ -5,6 +5,7 @@
 #include "wm_internal.h"
 #include "wm_overlay.h"
 #include "volume_popup.h"
+#include <stdlib.h>
 #include "tray_slider_popup.h"
 #include "wm_shadow.h"   // the damage a shadowed panel actually needs
 #include "wm_flyout.h"
@@ -35,8 +36,9 @@ static int g_premute_level = 100;      // what unmuting goes back to
 // The device list, adopted from the setting's CHOICE list. Copied
 // rather than re-read per frame: drawing runs on every mouse move over
 // an open panel, and each row would otherwise be a syscall.
-static char g_dev_value[VOLUME_MAX_DEVICES][SETTING_ABI_VALUE_MAX];
-static char g_dev_label[VOLUME_MAX_DEVICES][SETTING_ABI_LABEL_MAX];
+// The output choices, sized to them (usetting_choices()).
+static char (*g_dev_value)[SETTING_ABI_VALUE_MAX];
+static char (*g_dev_label)[SETTING_ABI_LABEL_MAX];
 static int  g_dev_count;
 static int  g_dev_selected;            // which row carries the tick
 
@@ -44,9 +46,10 @@ static int  g_dev_selected;            // which row carries the tick
 // per-app rows, then a device row. Compared by the core, read by the
 // draw -- see wm_overlay.h.
 #define HOVER_APP(i) (TRAY_SLIDER_HOVER_OWNER + (i))
-#define HOVER_DEV(i) (TRAY_SLIDER_HOVER_OWNER + SND_ROSTER_MAX + (i))
-#define HOVER_MUTEALL (TRAY_SLIDER_HOVER_OWNER + SND_ROSTER_MAX + VOLUME_MAX_DEVICES)
+// The device rows last, as there may be any number of them.
+#define HOVER_MUTEALL (TRAY_SLIDER_HOVER_OWNER + SND_ROSTER_MAX)
 #define HOVER_GEAR    (HOVER_MUTEALL + 1)
+#define HOVER_DEV(i)  (HOVER_GEAR + 1 + (i))
 static int g_hover;
 
 // --- the per-application sliders ---------------------------------------
@@ -180,31 +183,13 @@ static void commit_app(int i) {
 // `sound_register`/`sound_unregister` call `setting_choices_changed()`
 // now (api/setting.h).
 static void reload_devices(void) {
-    struct setting_msg m;
-    int index = usetting_find(DEVICE_SETTING, &m);
-    g_dev_count = 0;
-    if (index < 0) return;
-
-    char current[SETTING_ABI_VALUE_MAX];
-    if (!usetting_get(DEVICE_SETTING, current, sizeof current))
-        k_strlcpy(current, "auto", sizeof current);
-
-    for (int c = 0; c < VOLUME_MAX_DEVICES; c++) {
-        k_memset(&m, 0, sizeof m);
-        m.op = SETTING_OP_CHOICE;
-        m.index = index;
-        m.choice = c;
-        // **THE INDEX CAME FROM usetting_find(), SO THE CHOICE MUST
-        // GO BACK THROUGH THE SAME REGISTRY.** They agree today only
-        // because the merged list puts the kernel's settings first and
-        // this is one of them; a declared setting's index means nothing
-        // to the syscall.
-        if (usetting_dispatch(&m) != 0) break;
-        k_strlcpy(g_dev_value[g_dev_count], m.value, SETTING_ABI_VALUE_MAX);
-        k_strlcpy(g_dev_label[g_dev_count], m.label, SETTING_ABI_LABEL_MAX);
-        if (k_strcmp(m.value, current) == 0) g_dev_selected = g_dev_count;
-        g_dev_count++;
-    }
+    free(g_dev_value);
+    free(g_dev_label);
+    int cur;
+    // Through the merged registry, as usetting_find() names it.
+    g_dev_count = usetting_choices(DEVICE_SETTING, &g_dev_value, &g_dev_label, &cur);
+    if (g_dev_count < 0) g_dev_count = 0;
+    if (cur >= 0) g_dev_selected = cur;
     if (g_dev_selected >= g_dev_count) g_dev_selected = 0;
 }
 

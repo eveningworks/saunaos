@@ -25,6 +25,7 @@
 // shows what they hold.
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <time.h>
 #include <locale.h>
 
@@ -89,19 +90,28 @@ enum { ASK_BACK = 1, ASK_SKIP };
 
 // --- one enum setting's choices -------------------------------------------
 
-#define CHOICES_MAX 96
+// Sized to the setting's choices (usetting_choices()), loaded once a run.
 struct choices {
     const char *setting;
-    char value[CHOICES_MAX][SETTING_ABI_VALUE_MAX];
-    char label[CHOICES_MAX][SETTING_ABI_LABEL_MAX];
-    const char *ptr[CHOICES_MAX];
+    char (*value)[SETTING_ABI_VALUE_MAX];
+    char (*label)[SETTING_ABI_LABEL_MAX];
+    const char **ptr;
     int count, current;
 };
 
 static void choices_load(struct choices *c, const char *setting) {
     c->setting = setting;
-    c->count = usetting_choices(setting, c->value, c->label, CHOICES_MAX, &c->current);
-    if (c->count < 0) c->count = 0;
+    c->count = usetting_choices(setting, &c->value, &c->label, &c->current);
+    c->ptr = c->count > 0 ? malloc(sizeof *c->ptr * (size_t)c->count) : 0;
+    if (!c->ptr) {
+        if (c->count > 0) ulogf("firstboot: out of memory for %s's choices\n", setting);
+        free(c->value);
+        free(c->label);
+        c->value = 0;
+        c->label = 0;
+        c->count = 0;
+        c->current = -1;
+    }
     for (int i = 0; i < c->count; i++) c->ptr[i] = c->label[i];
 }
 

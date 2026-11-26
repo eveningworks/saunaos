@@ -221,7 +221,7 @@ void load_slot(struct slot *sl, int idx) {
     }
 
     const struct usaver_opt *o = opt_of(idx);
-    for (int c = 0; c < MAX_CHOICES; c++) {
+    for (int c = 0; ; c++) {
         // THE RAW VALUE IS WHAT GETS STORED; the label is what is shown.
         char raw[SETTING_ABI_VALUE_MAX], disp[SETTING_ABI_LABEL_MAX];
         if (o) {
@@ -238,15 +238,20 @@ void load_slot(struct slot *sl, int idx) {
             strlcpy(raw, m.value, sizeof raw);
             strlcpy(disp, m.label, sizeof disp);
         }
+        if (!UGROW(sl->choice, sl->choice_cap, c + 1) || !UGROW(sl->choice_raw, sl->raw_cap, c + 1) ||
+            !UGROW(sl->choice_ptr, sl->ptr_cap, c + 1)) {
+            ulogf("settings: out of memory at %s's choice %d\n", g_name[idx], c);
+            break;
+        }
         strlcpy(sl->choice_raw[c], raw, sizeof sl->choice_raw[c]);
         strlcpy(sl->choice[c], disp, sizeof sl->choice[c]);
         if (strcmp(raw, g_value[idx]) == 0) {
             sl->baseline = c;
             sl->staged = c;
         }
-        sl->choice_ptr[c] = sl->choice[c];
         sl->choice_count = c + 1;
     }
+    for (int c = 0; c < sl->choice_count; c++) sl->choice_ptr[c] = sl->choice[c];
     sl->kind = pick_kind(sl, idx);
 
     sl->radio.options = sl->choice_ptr;

@@ -151,7 +151,7 @@ static const char *const SIDE_TABS[] = { "Bookmarks", "History" };
 static struct uui_segmented g_side_tabs;
 static struct uui_textbox g_side_search;
 static struct uui_entrylist g_side_list;
-static struct uui_entry g_side_rows[NS_MARKS_MAX];
+
 static int g_side_open;
 
 // The ☰ menu: a menu with no bar strip, opened under its button (KDE's
@@ -496,8 +496,10 @@ static struct uui_layout ROW_L, ROOT_L, SIDE_L, PAGE_L;
 static void side_refresh(void) {
     if (!g_side_open) return;
     int which = g_side_tabs.selected;
-    g_side_list.rows = g_side_rows;
-    g_side_list.count = ns_marks_rows(which, uui_textbox_text(&g_side_search), g_side_rows, NS_MARKS_MAX);
+    struct uui_entry *rows;
+    int n = ns_marks_rows(which, uui_textbox_text(&g_side_search), &rows);
+    g_side_list.rows = rows;
+    g_side_list.count = n > 0 ? n : 0;
     g_side_list.removable = 1;
     g_side_list.empty = which == NS_MARKS_BOOKMARKS ? "No bookmarks yet: Ctrl+D keeps the page you are on"
                                                     : "Nothing browsed to yet";

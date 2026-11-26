@@ -67,6 +67,7 @@ extern "C" {
 // name -- one number, three uses, nothing to keep in step.
 struct uapp_surf {
     int used;
+    int id;   // its slot, for one past UAPP_SLOTS_FIXED (slot_of())
     void *px[UAPP_BUFS];
     uint64_t px_bytes[UAPP_BUFS];
     // WHAT EACH BUFFER IS CURRENTLY SIZED FOR. **NOT derivable from
@@ -239,8 +240,23 @@ static inline int cursor_valid(int cursor) {
 }
 
 // --- uapp_surface.c ----------------------------------------------------------
-UAPP_HIDDEN extern struct uapp_surf g_surf[WIN_CLIENT_MAX];
-#define TOPLEVEL (&g_surf[0])
+// A CLIENT'S SURFACES -- the toplevel (slot 0), its dialogs and popups --
+// as many as it opens: the compositor grows its own list and the wire's
+// window id is 32 bits. **A SLOT NEVER MOVES**: an app holds a dialog's
+// struct uapp_window and a widget its popup's surface, so the first
+// UAPP_SLOTS_FIXED are static and each past them is allocated once and
+// kept. SURF(i)/DLG(i) reach slot i; g_nslots is how many exist.
+#define UAPP_SLOTS_FIXED 8
+UAPP_HIDDEN extern int g_nslots;
+UAPP_HIDDEN struct uapp_surf *uapp_surf_at(int i);
+UAPP_HIDDEN struct uapp_window *uapp_dlg_at(int i);
+#define SURF(i) (*uapp_surf_at((int)(i)))
+#define DLG(i)  (*uapp_dlg_at((int)(i)))
+// A free slot past the toplevel, growing both tables when none is; -1
+// out of memory.
+UAPP_HIDDEN int uapp_slot_free(void);
+UAPP_HIDDEN int uapp_dlg_grow(int n);   // uapp_window.c: DLG() holds `n`
+#define TOPLEVEL (&SURF(0))
 UAPP_HIDDEN extern uint32_t g_popup_parent;
 UAPP_HIDDEN extern uint32_t g_press_slot;
 UAPP_HIDDEN extern struct win_event g_press_up;
@@ -262,7 +278,6 @@ UAPP_HIDDEN void popup_close(void *ctx, int id);
 UAPP_HIDDEN void popup_dismissed(int id);
 
 // --- uapp_window.c -----------------------------------------------------------
-UAPP_HIDDEN extern struct uapp_window g_dlg[WIN_CLIENT_MAX];
 UAPP_HIDDEN struct uapp_window *dlg_for(uint32_t slot);
 UAPP_HIDDEN void dlg_flush(struct uapp_window *w);
 UAPP_HIDDEN void dlg_dispatch(struct uapp_window *w, const struct win_event *ev);

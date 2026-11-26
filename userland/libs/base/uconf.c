@@ -308,6 +308,31 @@ int uconf_cache_refresh(void) {
 }
 
 // A per-key read: a load, one parse, a free.
+struct dup_ask { const char *key; char *out; int found; };
+
+static int dup_one(const char *key, uint32_t klen, const char *val, uint32_t vlen, void *ctx) {
+    struct dup_ask *a = ctx;
+    if (strlen(a->key) != klen || memcmp(a->key, key, klen)) return 0;
+    a->found = 1;
+    a->out = malloc(vlen + 1);
+    if (a->out) { memcpy(a->out, val, vlen); a->out[vlen] = '\0'; }
+    return 1;   // the first, as a lookup answers
+}
+
+char *uconf_buf_dup(const struct etc_config_buf *buf, const char *section, const char *key) {
+    struct dup_ask a = { key, 0, 0 };
+    etc_config_buf_each_in(buf, section, dup_one, &a);
+    return a.out;
+}
+
+char *uconf_buf_dup_in_or_top(const struct etc_config_buf *buf, const char *section,
+                              const char *key) {
+    struct dup_ask a = { key, 0, 0 };
+    etc_config_buf_each_in(buf, section, dup_one, &a);
+    if (!a.found) etc_config_buf_each_in(buf, 0, dup_one, &a);
+    return a.out;
+}
+
 int uconf_get_in(const char *path, const char *section, const char *key,
                  char *out, uint32_t out_size) {
     struct etc_config_buf buf;

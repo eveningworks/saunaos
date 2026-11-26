@@ -2271,6 +2271,7 @@ void open_path(const char *path) {
             urecent_add(path, app);
         }
     }
+    uopen_decision_free(&d);
 }
 
 // `ctx` is the pane index: the callback is the widget's, so which pane

@@ -76,7 +76,7 @@ static int g_dialog;             // 1 = the one-report face
 // (the desktop's crash notice draws the same line, crash_notice.c).
 static int friendly_name(const char *exec, char *out, int cap) {
     struct uappentry e;
-    if (uappentry_find_exec(exec, &e)) { strlcpy(out, e.name, (size_t)cap); return 1; }
+    if (uappentry_find_exec(exec, &e)) { strlcpy(out, e.name, (size_t)cap); uappentry_free(&e); return 1; }
     const char *base = strrchr(exec, '/');
     strlcpy(out, base ? base + 1 : exec, (size_t)cap);
     return 0;

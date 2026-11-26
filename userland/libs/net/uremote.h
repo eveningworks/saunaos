@@ -81,8 +81,10 @@ int uremote_trusted(const struct uremote_conf *c, uint32_t ip);
 // Is `ip` on a network one of this machine's cards is on?
 int uremote_local(uint32_t ip);
 
-// The sessions open now (QUERY_REMOTESESS), at most `max`; returns how many.
-int uremote_sessions(struct query_remotesess *out, int max);
+// The sessions open now (QUERY_REMOTESESS), into `*out` (grown to them,
+// kept by the caller and reused: free() it when done). Returns how many;
+// out of memory, the ones that fit.
+int uremote_sessions(struct query_remotesess **out, int *cap);
 // A remote DESKTOP session, as opposed to a telnet shell.
 int uremote_is_desktop(const struct query_remotesess *s);
 // What a session's row says: "VNC, full control" / "Telnet shell".

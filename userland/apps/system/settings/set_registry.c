@@ -125,7 +125,7 @@ static int setting_matches(int i) {
 static char *read_choices(int i) {
     char *out = 0;
     size_t len = 0;
-    for (int c = 0; c < MAX_CHOICES; c++) {
+    for (int c = 0; ; c++) {
         struct setting_msg m;
         memset(&m, 0, sizeof m);
         m.op = SETTING_OP_CHOICE;

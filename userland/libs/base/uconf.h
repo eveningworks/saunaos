@@ -81,6 +81,15 @@ int uconf_get(const char *path, const char *key, char *out, uint32_t out_size);
 int uconf_get_in(const char *path, const char *section, const char *key,
                  char *out, uint32_t out_size);
 
+// One key's value ALLOCATED at its length (the caller frees it), or NULL
+// when the key is absent or memory is out -- what a value with no bound
+// of its own (an Exec=, an Args=) is read with: etc_config_buf_get()
+// cuts a value to the buffer it is handed. `_in_or_top` asks `[section]`
+// first, then the top level, as etc_config_buf_get_in_or_top() does.
+char *uconf_buf_dup(const struct etc_config_buf *buf, const char *section, const char *key);
+char *uconf_buf_dup_in_or_top(const struct etc_config_buf *buf, const char *section,
+                              const char *key);
+
 // Writes one key, rewriting the document around it. Creates the file if
 // it is missing. 0 if the write failed -- including a SHORT write,
 // which is a failure and not a partial success: a config file half

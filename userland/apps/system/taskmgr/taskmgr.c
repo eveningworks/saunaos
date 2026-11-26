@@ -119,10 +119,11 @@ static int add_app(const struct uappentry *e, void *ctx) {
         ulogf("taskmgr: out of memory at %d desktop entries\n", g_napps);
         return 1;   // stop the walk: the rest show under their process names
     }
-    struct tm_app *a = &g_apps[g_napps++];
-    strlcpy(a->exec, e->exec, sizeof a->exec);
-    strlcpy(a->name, e->name, sizeof a->name);
-    strlcpy(a->icon, e->icon, sizeof a->icon);
+    if (!uappentry_copy(&g_apps[g_napps].e, e)) {
+        ulogf("taskmgr: out of memory at %d desktop entries\n", g_napps);
+        return 1;
+    }
+    g_napps++;
     return 0;
 }
 
@@ -135,7 +136,7 @@ static void load_apps(void) {
 static int app_for_path(const char *path) {
     if (!path[0]) return -1;
     for (int i = 0; i < g_napps; i++)
-        if (strcmp(g_apps[i].exec, path) == 0) return i;
+        if (strcmp(g_apps[i].e.exec, path) == 0) return i;
     return -1;
 }
 
@@ -152,7 +153,7 @@ static void classify(void) {
     for (int i = 0; i < g_nproc; i++) {
         struct tm_proc *p = &g_proc[i];
         p->app = app_for_path(p->path);
-        strlcpy(p->title, p->app >= 0 ? g_apps[p->app].name : p->name, sizeof p->title);
+        strlcpy(p->title, p->app >= 0 ? g_apps[p->app].e.name : p->name, sizeof p->title);
     }
     for (int i = 0; i < g_nproc; i++) {
         struct tm_proc *p = &g_proc[i];

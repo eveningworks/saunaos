@@ -1,14 +1,37 @@
 // uapp's surfaces: a window's buffers, presenting them, and popups --
 // see ui/uapp_internal.h for where the rest of uapp is.
 #include "ui/uapp_internal.h"
+#include "base/ugrow.h"
+#include <stdlib.h>
 
 // The window a popup opened right now should hang off: whichever one is
 // dispatching, or the toplevel. A widget cannot say -- it does not know
 // it is in a dialog -- so uapp tracks it around the one call that can
 // re-enter a widget from a non-toplevel window.
 uint32_t g_popup_parent;
-struct uapp_surf g_surf[WIN_CLIENT_MAX];
-#define TOPLEVEL (&g_surf[0])
+static struct uapp_surf g_surf0[UAPP_SLOTS_FIXED];
+static struct uapp_surf **g_surf_more;   // slot UAPP_SLOTS_FIXED + k, each its own block
+static int g_more_cap;
+int g_nslots = UAPP_SLOTS_FIXED;
+
+struct uapp_surf *uapp_surf_at(int i) {
+    return i < UAPP_SLOTS_FIXED ? &g_surf0[i] : g_surf_more[i - UAPP_SLOTS_FIXED];
+}
+
+int uapp_slot_free(void) {
+    for (int i = 1; i < g_nslots; i++)
+        if (!SURF(i).used) return i;
+    int k = g_nslots - UAPP_SLOTS_FIXED;
+    struct uapp_surf *s = calloc(1, sizeof *s);
+    if (!s || !UGROW(g_surf_more, g_more_cap, k + 1) || !uapp_dlg_grow(g_nslots + 1)) {
+        free(s);
+        ulogf("uapp: out of memory for window %d\n", g_nslots);
+        return -1;
+    }
+    s->id = g_nslots;
+    g_surf_more[k] = s;
+    return g_nslots++;
+}
 
 // A PRIMARY PRESS IN FLIGHT ON A POPUP, so a popup closed under it can
 // end it. The compositor sends no release to a surface that is gone (nor
@@ -28,7 +51,9 @@ void popup_press_closed(int id) {
     }
 }
 
-int slot_of(const struct uapp_surf *s) { return (int)(s - g_surf); }
+int slot_of(const struct uapp_surf *s) {
+    return s >= g_surf0 && s < g_surf0 + UAPP_SLOTS_FIXED ? (int)(s - g_surf0) : s->id;
+}
 
 static void buf_name(char *out, unsigned cap, int slot, int buf) {
     snprintf(out, cap, WIN_BUF_NAME_FMT, sys_getpid(), slot, buf);
@@ -274,9 +299,9 @@ int surf_present(struct uapp_surf *s) {
 // frame calls this for its own: a dialog's dropdown sent only on the
 // MAIN window's frame never appeared over an idle app.
 void present_popups(uint32_t parent) {
-    for (int i = 1; i < WIN_CLIENT_MAX; i++)
-        if (g_surf[i].used && g_surf[i].dirty && g_surf[i].parent == parent)
-            surf_present(&g_surf[i]);
+    for (int i = 1; i < g_nslots; i++)
+        if (SURF(i).used && SURF(i).dirty && SURF(i).parent == parent)
+            surf_present(&SURF(i));
 }
 
 // --- popup surfaces: the provider ui/uui_popup.h asks through --------
@@ -293,9 +318,8 @@ static int popup_open(void *ctx, int ax, int ay, int aw, int ah, int w, int h,
     (void)ctx;
     if (w <= 0 || h <= 0 || comp_pid() <= 0) return 0;
     clamp_to_screen(&w, &h);
-    struct uapp_surf *s = 0;
-    for (int i = 1; i < WIN_CLIENT_MAX; i++)
-        if (!g_surf[i].used) { s = &g_surf[i]; break; }
+    int slot = uapp_slot_free();
+    struct uapp_surf *s = slot > 0 ? &SURF(slot) : 0;
     if (!s) return 0;
     if (!bufs_create(s, w, h)) return 0;
 
@@ -332,17 +356,17 @@ static int popup_open(void *ctx, int ax, int ay, int aw, int ah, int w, int h,
 
 void popup_close(void *ctx, int id) {
     (void)ctx;
-    if (id <= 0 || id >= WIN_CLIENT_MAX || !g_surf[id].used) return;
+    if (id <= 0 || id >= g_nslots || !SURF(id).used) return;
     popup_press_closed(id);
     wmchan_send(WIN_REQ_DESTROY, (uint32_t)id, 0, 0, 0, 0);
-    bufs_release(&g_surf[id]);
+    bufs_release(&SURF(id));
     g_app.top.dirty = 1;   // the widget that owned it repaints its own state
 }
 
 static struct ugfx_surface *popup_surface(void *ctx, int id) {
     (void)ctx;
-    if (id <= 0 || id >= WIN_CLIENT_MAX || !g_surf[id].used) return 0;
-    struct uapp_surf *s = &g_surf[id];
+    if (id <= 0 || id >= g_nslots || !SURF(id).used) return 0;
+    struct uapp_surf *s = &SURF(id);
     struct ugfx_surface *sf = surf_back(s);
     if (!sf) { g_app.top.dirty = 1; return 0; }   // drawn once a buffer is back
     s->dirty = 1;   // present() sends it after the toplevel
@@ -360,8 +384,8 @@ const struct uui_popup_ops g_popup_ops = {
 // gone, so no DESTROY goes back; the widget is told and the buffers
 // released.
 void popup_dismissed(int id) {
-    if (id <= 0 || id >= WIN_CLIENT_MAX || !g_surf[id].used) return;
-    struct uapp_surf *s = &g_surf[id];
+    if (id <= 0 || id >= g_nslots || !SURF(id).used) return;
+    struct uapp_surf *s = &SURF(id);
     void (*done)(void *) = s->done;
     void *owner = s->owner;
     popup_press_closed(id);

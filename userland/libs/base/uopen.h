@@ -51,12 +51,12 @@ extern "C" {
 // copy would be a second answer to "is this extension in this list".
 int uopen_ext_matches(const char *list, const char *ext);
 
-// The program that opens `path`, written into `exec`. Returns 1, or 0
-// when nothing claims the extension (or there is none). An override
+// The program that opens `path`, allocated (the caller frees it), or
+// NULL when nothing claims the extension (or there is none). An override
 // naming an entry that no longer exists falls through to the
 // declarations rather than failing -- a stale choice must not make a
 // type unopenable.
-int uopen_resolve(const char *path, char *exec, int cap);
+char *uopen_resolve(const char *path);
 
 // --- the decision a double-click makes -----------------------------------
 //
@@ -79,12 +79,13 @@ enum uopen_how {
 struct uopen_decision {
     int how;                   // enum uopen_how
     int act;                   // UOPEN_RUN's ULAUNCH_* act
-    char exec[256];            // UOPEN_WITH's program
+    char *exec;                // UOPEN_WITH's program, heap: uopen_decision_free()
     struct ulaunch_info info;  // UOPEN_RUN / UOPEN_ASK: what it is
 };
 
 // Fills `d` and returns d->how. Reads the file's first bytes.
 int uopen_decide(const char *path, struct uopen_decision *d);
+void uopen_decision_free(struct uopen_decision *d);
 
 // The argv that carries `d` out for `path`, into `argv` (5 slots); an ASK
 // becomes /bin/wm/system/runask's. 0 for UOPEN_NOTHING.
@@ -139,17 +140,21 @@ int uopen_url(const char *url);
 
 // --- choosing what opens a type (Properties' "Opens with") ---------------
 
+// Each app's three strings are one allocation, `entry` its start.
 struct uopen_app {
-    char entry[48];   // the desktop entry's stem: "imgview"
-    char name[48];    // its Name=: "Image Viewer"
-    char exec[64];
+    char *entry;   // the desktop entry's stem: "imgview"
+    char *name;    // its Name=: "Image Viewer"
+    char *exec;
 };
 
 // The apps whose Handles= claims `path`'s extension, in entry order, then
 // every other app that opens files of some kind (any Handles=), plus
-// whatever opens it now when that is none of them. `*current` is the
-// index of the one that opens it now, -1 for none. Returns the count.
-int uopen_apps_for(const char *path, struct uopen_app *out, int max, int *current);
+// whatever opens it now when that is none of them, in an array sized to
+// them (`*out`, released with uopen_apps_free()). `*current` is the index
+// of the one that opens it now, -1 for none. Returns the count (0 with
+// `*out` NULL for none, or out of memory).
+int uopen_apps_for(const char *path, struct uopen_app **out, int *current);
+void uopen_apps_free(struct uopen_app *apps, int n);
 
 // Make `entry` open every file with `path`'s extension -- the override
 // `open -s` writes. 0, or -1 when the path has no extension or the file

@@ -36,6 +36,7 @@ static int saw_doom(const struct uappentry *e, void *ctx) {
 static void gpl_switch(void) {
     struct uappentry e;
     if (!uappentry_find_exec("/bin/wm/apps/doom", &e)) return;
+    uappentry_free(&e);
     char was[8] = "";
     usetting_get(UCOMPONENT_GPL_SETTING, was, sizeof was);
     int shown = 0, hidden = 0;
@@ -44,6 +45,7 @@ static void gpl_switch(void) {
     usetting_set(UCOMPONENT_GPL_SETTING, "off");
     uappentry_each(saw_doom, &hidden);
     int found = uappentry_find_exec("/bin/wm/apps/doom", &e);
+    if (found) uappentry_free(&e);
     usetting_set(UCOMPONENT_GPL_SETTING, was[0] ? was : "on");
     utest_check(shown, "with software.show_gpl on, the walk lists DOOM");
     utest_check(!hidden, "...and with it off, the walk leaves DOOM out");
@@ -57,7 +59,8 @@ int main(void) {
     int hit = uappentry_find_exec("/bin/wm/apps/notepad", &e);
     utest_check(hit, "Notepad's entry is found by its Exec=");
     utest_checkf(hit && !strcmp(e.name, "Notepad") && !strcmp(e.stem, "notepad"),
-                 "it reads Name= and the stem (name '%s', stem '%s')", e.name, e.stem);
+                 "it reads Name= and the stem (name '%s', stem '%s')", hit ? e.name : "", hit ? e.stem : "");
+    if (hit) uappentry_free(&e);
     utest_check(!uappentry_find_exec("/bin/no/such/program", &e), "an unknown program has no entry");
 
     int good = 0;
@@ -70,11 +73,29 @@ int main(void) {
     hit = uappentry_read("/tmp/ae_section.desktop", &e);
     utest_checkf(hit && !strcmp(e.exec, "/bin/x") && !strcmp(e.name, "Sectioned") &&
                  !strcmp(e.icon, "xicon"),
-                 "a sectioned entry reads, and Exec= keeps only its program (exec '%s')", e.exec);
+                 "a sectioned entry reads, and Exec= keeps only its program (exec '%s')", hit ? e.exec : "");
+    if (hit) uappentry_free(&e);
 
     write_file("/tmp/ae_noname.desktop", "Exec=/bin/y\n");
     hit = uappentry_read("/tmp/ae_noname.desktop", &e);
-    utest_checkf(hit && !strcmp(e.name, "ae_noname"), "no Name= falls back to the stem ('%s')", e.name);
+    utest_checkf(hit && !strcmp(e.name, "ae_noname"), "no Name= falls back to the stem ('%s')", hit ? e.name : "");
+    if (hit) uappentry_free(&e);
+
+    // Exec= and the file name past the entry's old 96 and 32 bytes: whole.
+    char longexec[200], longfile[300], body[300];
+    memset(longexec, 'x', 150);
+    memcpy(longexec, "/bin/", 5);
+    longexec[150] = '\0';
+    // On the disk: /tmp's ramfs holds a 47-byte name at most.
+    snprintf(longfile, sizeof longfile, "/home/user/ae_%s.desktop", "a_rather_long_entry_name_past_thirty_two");
+    snprintf(body, sizeof body, "Exec=%s %%f\n", longexec);
+    utest_check(write_file(longfile, body), "an entry with a long Exec= is written");
+    hit = uappentry_read(longfile, &e);
+    utest_checkf(hit && !strcmp(e.exec, longexec) && !strcmp(e.stem, "ae_a_rather_long_entry_name_past_thirty_two"),
+                 "a 150-byte Exec= and a 43-byte stem read whole (exec %d, stem '%s')",
+                 hit ? (int)strlen(e.exec) : -1, hit ? e.stem : "");
+    if (hit) uappentry_free(&e);
+    remove(longfile);
 
     write_file("/tmp/ae_noexec.desktop", "Name=Nothing\n");
     utest_check(!uappentry_read("/tmp/ae_noexec.desktop", &e), "an entry with no Exec= is refused");

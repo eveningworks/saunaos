@@ -1,4 +1,5 @@
 // See net/uremote.h.
+#include "base/ugrow.h"
 #include "base/upriv.h"   // a remote session from an account that is not root
 #include "net/uremote.h"
 #include "base/uconf.h"
@@ -196,12 +197,12 @@ int uremote_local(uint32_t ip) {
 
 // --- sessions --------------------------------------------------------------
 
-int uremote_sessions(struct query_remotesess *out, int max) {
+int uremote_sessions(struct query_remotesess **out, int *cap) {
     int n = 0;
     struct query_remotesess q;
     QUERY_FOREACH(QUERY_REMOTESESS, q, i) {
-        if (n >= max) break;
-        out[n++] = q;
+        if (!UGROW(*out, *cap, n + 1)) break;
+        (*out)[n++] = q;
     }
     return n;
 }

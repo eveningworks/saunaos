@@ -432,7 +432,9 @@ static int desktop_files_reload(void) {
             struct uappentry e;
             char *path = !fresh[i].is_dir && is_desktop_file(fresh[i].name)
                        ? upath_join(DESKTOP_DIR, fresh[i].name) : 0;
-            int hides = path && uappentry_read(path, &e) && ucomponent_view_hides(&view, e.exec);
+            int got = path && uappentry_read(path, &e);
+            int hides = got && ucomponent_view_hides(&view, e.exec);
+            if (got) uappentry_free(&e);
             free(path);
             if (hides) continue;
             fresh[kept++] = fresh[i];

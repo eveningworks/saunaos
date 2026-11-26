@@ -5,13 +5,16 @@
 // restored to it; and more items than any old cap (512) are all listed,
 // counted by utrash_usage() and found by utrash_any(). Each of these
 // failed before: a deep path was ENAMETOOLONG, a name past 63 bytes too,
-// and a listing stopped at 256 or 512 items.
+// and a listing stopped at 256 or 512 items. Then a config key as long as
+// a desktop icon's name round-trips through uconf, and a desktop entry
+// reads a long Exec= whole (appentry_test has its own).
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "rt/sys.h"
 #include "base/utest.h"
 #include "base/utrash.h"
+#include "base/uconf.h"
 
 #define DIR   "/home/user/listcaps-test"
 #define PART  "deep_0123456789abcdefghijklmnopqrstuvw"   // 38 + "_N"
@@ -132,6 +135,23 @@ static void many(void) {
     utest_check(utrash_any(), "the bin is not empty");
 }
 
+// A config key as long as a desktop icon's name (the desktop keys its
+// saved cells by file name, /etc/desktop.conf): set, read back, rewritten.
+static void long_key(void) {
+    char key[256];
+    memset(key, 'k', 245);
+    key[245] = '\0';
+    const char *f = DIR "/long.conf";
+    int set = uconf_set(f, "before", "1") && uconf_set(f, key, "3,4") && uconf_set(f, "after", "2");
+    char v[16] = "", b[4] = "", a[4] = "";
+    int got = uconf_get(f, key, v, sizeof v);
+    utest_checkf(set && got && !strcmp(v, "3,4"), "a 245-byte config key round-trips (set %d, got %d, '%s')",
+                 set, got, v);
+    int moved = uconf_set(f, key, "5,6") && uconf_get(f, key, v, sizeof v) && !strcmp(v, "5,6");
+    utest_check(moved && uconf_get(f, "before", b, sizeof b) && uconf_get(f, "after", a, sizeof a) &&
+                !strcmp(b, "1") && !strcmp(a, "2"), "...is rewritten in place, its neighbours kept");
+}
+
 int main(void) {
     utest_begin("listcaps_test", "the Recycle Bin past its old fixed tables", UTEST_VERDICT_FILE);
     char *rm[] = { "/bin/rm", "-r", DIR, 0 };
@@ -143,6 +163,7 @@ int main(void) {
     deep_path();
     long_name();
     many();
+    long_key();
 
     clear_ours();
     rp = sys_spawn_argv("/bin/rm", rm);

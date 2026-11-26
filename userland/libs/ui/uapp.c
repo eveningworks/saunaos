@@ -628,13 +628,14 @@ int uapp_scanout(const struct uapp *a)    { return a ? a->lease_on : 0; }
 
 void uapp_display_name(const struct uapp *a, char *out, int cap) {
     struct uappentry e;
-    char path[96];
+    char *path = 0;
     const char *id = a ? a->desc->app_id : 0;
-    if (id && snprintf(path, sizeof path, "/usr/wm/applications/%s.desktop", id) < (int)sizeof path &&
-        uappentry_read(path, &e) && e.name[0])
-        strlcpy(out, e.name, (size_t)cap);
-    else
-        strlcpy(out, a && a->desc->title ? a->desc->title : "", (size_t)cap);
+    if (id && asprintf(&path, "/usr/wm/applications/%s.desktop", id) < 0) path = 0;
+    int got = path && uappentry_read(path, &e);
+    free(path);
+    if (got && e.name[0]) strlcpy(out, e.name, (size_t)cap);
+    else strlcpy(out, a && a->desc->title ? a->desc->title : "", (size_t)cap);
+    if (got) uappentry_free(&e);
 }
 
 static int g_tab_icon[WIN_TABS_MAX];
@@ -882,7 +883,7 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
     // dispatched (owed_release()), and this one is dropped below.
     if ((in->type == WIN_EV_MOUSE_DOWN || in->type == WIN_EV_MOUSE_UP) &&
         (in->window == a->window || dlg_for(in->window) ||
-         (in->window < WIN_CLIENT_MAX && g_surf[in->window].used)))
+         (in->window < (uint32_t)g_nslots && SURF(in->window).used)))
         note_buttons(in);
 
     if (in->type == WIN_EV_MOUSE_DOWN && (WIN_MOUSE_BUTTONS(in->mods) & 0x1)) {
@@ -891,9 +892,9 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         // slot too: its press owes nothing, and recording it made
         // dlg_dispatch() skip the click's focus move -- a dialog's text
         // field could not be clicked into.
-        if (in->window != a->window && in->window < WIN_CLIENT_MAX && g_surf[in->window].used &&
+        if (in->window != a->window && in->window < (uint32_t)g_nslots && SURF(in->window).used &&
             !dlg_for(in->window)) {
-            const struct uapp_surf *ps = &g_surf[in->window];
+            const struct uapp_surf *ps = &SURF(in->window);
             g_press_slot = in->window;
             g_press_up = *in;
             g_press_up.type = WIN_EV_MOUSE_UP;
@@ -919,11 +920,11 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
     // it. A stale one -- a generation since replaced, or an earlier
     // present of a buffer shown again since -- is ignored.
     if (in->type == WIN_EV_BUF_RELEASE) {
-        if (in->window < WIN_CLIENT_MAX && g_surf[in->window].used &&
+        if (in->window < (uint32_t)g_nslots && SURF(in->window).used &&
             in->a >= 0 && in->a < UAPP_BUFS &&
-            g_surf[in->window].px_gen[in->a] == (uint32_t)in->b &&
-            (!in->mods || in->mods == (uint32_t)g_surf[in->window].busy_seq[in->a]))
-            g_surf[in->window].busy[in->a] = 0;
+            SURF(in->window).px_gen[in->a] == (uint32_t)in->b &&
+            (!in->mods || in->mods == (uint32_t)SURF(in->window).busy_seq[in->a]))
+            SURF(in->window).busy[in->a] = 0;
         return;
     }
 
@@ -947,8 +948,8 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         // a press was in flight). Read as the toplevel's, its raw
         // coordinates would land on whatever sits at that point in the
         // window -- which was the menu bar.
-        if (in->window >= WIN_CLIENT_MAX || !g_surf[in->window].used) return;
-        struct uapp_surf *s = &g_surf[in->window];
+        if (in->window >= (uint32_t)g_nslots || !SURF(in->window).used) return;
+        struct uapp_surf *s = &SURF(in->window);
         switch (in->type) {
         case WIN_EV_MOUSE_MOVE:
             // A LEAVE CARRIES NO POSITION. The compositor says "the
@@ -974,8 +975,8 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
             // still holds the window and waits for it to go, so it is
             // destroyed here -- or it stays up with nobody drawing it and
             // the compositor calls it hung.
-            if ((int)in->window > 0 && (int)in->window < WIN_CLIENT_MAX &&
-                g_surf[in->window].used)
+            if (in->window > 0 && in->window < (uint32_t)g_nslots &&
+                SURF(in->window).used)
                 wmchan_send(WIN_REQ_DESTROY, in->window, 0, 0, 0, 0);
             popup_dismissed((int)in->window);
             return;
@@ -1127,8 +1128,8 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         // AND EVERY DIALOG WINDOW. The event names the toplevel's slot,
         // so marking only `a` would leave a chooser laid out for the
         // font that just went away until something else touched it.
-        for (int i = 1; i < WIN_CLIENT_MAX; i++)
-            if (g_dlg[i].top.slot) g_dlg[i].top.dirty = 1;
+        for (int i = 1; i < g_nslots; i++)
+            if (DLG(i).top.slot) DLG(i).top.dirty = 1;
         break;
 
     case WIN_EV_SETTING:
@@ -1142,8 +1143,8 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         utheme_settings_reload();   // corners, the scrollbar's look
         if (d->on_setting) d->on_setting(a);
         a->top.dirty = 1;
-        for (int i = 1; i < WIN_CLIENT_MAX; i++)
-            if (g_dlg[i].top.slot) g_dlg[i].top.dirty = 1;
+        for (int i = 1; i < g_nslots; i++)
+            if (DLG(i).top.slot) DLG(i).top.dirty = 1;
         break;
 
     case WIN_EV_CLOSE:
@@ -1640,8 +1641,8 @@ int uapp_pump(struct uapp *a, int timeout_ms) {
                 // Which surface drew the caret is not recorded, so all
                 // of them repaint -- two frames a second, for ten seconds.
                 a->top.dirty = 1;
-                for (int i = 0; i < WIN_CLIENT_MAX; i++)
-                    if (g_dlg[i].top.slot) g_dlg[i].top.dirty = 1;
+                for (int i = 0; i < g_nslots; i++)
+                    if (DLG(i).top.slot) DLG(i).top.dirty = 1;
                 break;
             }
             if (caret > 0 && caret < wait) wait = caret;
@@ -1695,8 +1696,8 @@ int uapp_pump(struct uapp *a, int timeout_ms) {
     // something moves, so the over-paint is bounded by the motion.
     if (uui_anim_take()) {
         a->top.dirty = 1;
-        for (int i = 0; i < WIN_CLIENT_MAX; i++)
-            if (g_dlg[i].top.slot) g_dlg[i].top.dirty = 1;
+        for (int i = 0; i < g_nslots; i++)
+            if (DLG(i).top.slot) DLG(i).top.dirty = 1;
     }
 
     // Input the inbox could not hold went missing, and that is worth
@@ -1712,16 +1713,16 @@ int uapp_pump(struct uapp *a, int timeout_ms) {
     // pass inside present(): a popup is drawn by the widget that owns it
     // during the toplevel's own frame, while a dialog has its own
     // content and paints itself.
-    for (int i = 1; i < WIN_CLIENT_MAX; i++)
-        if (g_dlg[i].top.slot) dlg_flush(&g_dlg[i]);
+    for (int i = 1; i < g_nslots; i++)
+        if (DLG(i).top.slot) dlg_flush(&DLG(i));
     // A sync is answered once nothing is left to draw: a frame held for a
     // free buffer, or a fullscreen's first, keeps it owed until it goes out
     // -- and once the program is IDLE (uapp_work_begin()): a worker's
     // result still to post is a frame still to come.
     if (g_sync_owed && !a->top.dirty && !a->part && idle()) {
         int clean = 1;
-        for (int i = 1; i < WIN_CLIENT_MAX; i++)
-            if (g_dlg[i].top.slot && g_dlg[i].top.dirty) clean = 0;
+        for (int i = 1; i < g_nslots; i++)
+            if (DLG(i).top.slot && DLG(i).top.dirty) clean = 0;
         if (clean) {
             wmchan_send(WIN_REQ_SYNC_DONE, a->window, (int)g_sync_owed, 0, 0, 0);
             g_sync_owed = 0;
@@ -1731,8 +1732,8 @@ int uapp_pump(struct uapp *a, int timeout_ms) {
 }
 
 int uapp_close(struct uapp *a) {
-    for (int i = 1; i < WIN_CLIENT_MAX; i++)
-        if (g_surf[i].used) popup_close(0, i);
+    for (int i = 1; i < g_nslots; i++)
+        if (SURF(i).used) popup_close(0, i);
     if (a->has_top) wmchan_send(WIN_REQ_DESTROY, a->window, 0, 0, 0, 0);
     return a->status;
 }

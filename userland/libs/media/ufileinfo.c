@@ -144,10 +144,11 @@ int ufileinfo_load(struct ufileinfo *fi, const char *path, unsigned what) {
     if (!fi->ok) return 0;
     if (!is_dir) {
         if (what & UFI_OPENS) {
-            struct uopen_app apps[8];
+            struct uopen_app *apps;
             int cur;
-            int n = uopen_apps_for(path, apps, 8, &cur);
+            int n = uopen_apps_for(path, &apps, &cur);
             if (n > 0 && cur >= 0) strlcpy(fi->opens, apps[cur].name, sizeof fi->opens);
+            uopen_apps_free(apps, n);
         }
         // Only what the extension calls a picture or a sound is read: the
         // details pane asks on every selection, and a binary's 64 KiB and

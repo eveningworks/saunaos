@@ -24,7 +24,6 @@
 // its comma take at least two bytes, which bounds the codes a value can
 // hold. Whether the next one FITS is list_fits(), asked before an add.
 #define KB_MAX        (SETTING_ABI_VALUE_MAX / 2)
-#define KB_ALL        MAX_CHOICES   // the active-layout setting's choices
 
 int g_kbd_page;
 static int s_list = -1, s_active = -1, s_dead = -1;
@@ -244,8 +243,8 @@ static struct uui_item KP[3], KP_BTNS[3];
 static struct uui_layout g_kp_layout, g_kp_btn_row;
 static struct uui_focusable KP_FOCUS[4];
 static struct uui_focus g_kp_focus;
-static const char *g_kp_codes[KB_ALL], *g_kp_rows[KB_ALL];
-static int g_kp_n;
+static const char **g_kp_codes, **g_kp_rows;   // grown to the layouts (base/ugrow.h)
+static int g_kp_n, g_kp_codes_cap, g_kp_rows_cap;
 
 static int has_word(const char *hay, const char *needle) {
     size_t n = strlen(needle);
@@ -263,10 +262,14 @@ static void kp_filter(void) {
     g_kp_n = 0;
     const char *q = uui_textbox_text(&g_kp_find);
     const struct slot *a = &g_slot[s_active];
-    for (int i = 0; i < a->choice_count && g_kp_n < KB_ALL; i++) {
+    for (int i = 0; i < a->choice_count; i++) {
         int listed = 0;
         for (int j = 0; j < g_ncodes; j++) if (!strcmp(g_codes[j], a->choice_raw[i])) listed = 1;
         if (listed || !(has_word(a->choice[i], q) || has_word(a->choice_raw[i], q))) continue;
+        if (!UGROW(g_kp_codes, g_kp_codes_cap, g_kp_n + 1) || !UGROW(g_kp_rows, g_kp_rows_cap, g_kp_n + 1)) {
+            ulogf("settings: out of memory listing keyboard layouts at %d\n", g_kp_n);
+            break;
+        }
         g_kp_codes[g_kp_n] = a->choice_raw[i];
         g_kp_rows[g_kp_n] = a->choice[i];
         g_kp_n++;

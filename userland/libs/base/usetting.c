@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <unistd.h>   // geteuid
 #include <stdlib.h>
+#include "base/ugrow.h"
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>   // strcasecmp
@@ -661,25 +662,37 @@ int usetting_set_int(const char *name, int value) {
     return usetting_set(name, v);
 }
 
-int usetting_choices(const char *name, char (*value)[SETTING_ABI_VALUE_MAX],
-                     char (*label)[SETTING_ABI_LABEL_MAX], int max, int *current) {
+int usetting_choices(const char *name, char (**value)[SETTING_ABI_VALUE_MAX],
+                     char (**label)[SETTING_ABI_LABEL_MAX], int *current) {
     struct setting_msg m;
     int index = usetting_find(name, &m);
     *current = -1;
+    *value = 0;
+    *label = 0;
     if (index < 0) return -1;
     char now[SETTING_ABI_VALUE_MAX] = "";
     usetting_get(name, now, sizeof now);
-    int n = 0;
-    for (; n < max; n++) {
+    char (*v)[SETTING_ABI_VALUE_MAX] = 0;
+    char (*l)[SETTING_ABI_LABEL_MAX] = 0;
+    int n = 0, vcap = 0, lcap = 0;
+    for (;; n++) {
         memset(&m, 0, sizeof m);
         m.op = SETTING_OP_CHOICE;
         m.index = (uint32_t)index;
         m.choice = (uint32_t)n;
         if (usetting_dispatch(&m) != 0) break;
-        strlcpy(value[n], m.value, sizeof value[0]);
-        strlcpy(label[n], m.label[0] ? m.label : m.value, sizeof label[0]);
+        if (!UGROW(v, vcap, n + 1) || !UGROW(l, lcap, n + 1)) {
+            free(v);
+            free(l);
+            *current = -1;
+            return -1;
+        }
+        strlcpy(v[n], m.value, sizeof v[0]);
+        strlcpy(l[n], m.label[0] ? m.label : m.value, sizeof l[0]);
         if (!strcmp(m.value, now)) *current = n;
     }
+    *value = v;
+    *label = l;
     return n;
 }
 

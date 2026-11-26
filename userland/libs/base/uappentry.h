@@ -16,13 +16,21 @@ extern "C" {
 
 #define UAPPENTRY_DIR "/usr/wm/applications"
 
+// The five strings are ONE allocation at the entry's own sizes: an entry
+// read or found is the caller's to uappentry_free(); one handed to a
+// walk's `fn` is the walk's, freed when `fn` returns. A copy by value
+// SHARES it.
 struct uappentry {
-    char stem[32];       // the file name without ".desktop": what mimeapps.conf names
-    char name[48];       // Name=, else the stem
-    char exec[96];       // Exec='s first word; never empty in a returned entry
-    char icon[32];       // Icon=, or ""
-    char category[24];   // Category=, or ""
+    char *stem;       // the file name without ".desktop": what mimeapps.conf names
+    char *name;       // Name=, else the stem
+    char *exec;       // Exec='s first word; never empty in a returned entry
+    char *icon;       // Icon=, or ""
+    char *category;   // Category=, or ""
 };
+void uappentry_free(struct uappentry *e);
+// A copy with its own allocation, for a walk's `fn` that keeps one.
+// 1, or 0 out of memory (`dst` then empty).
+int uappentry_copy(struct uappentry *dst, const struct uappentry *src);
 
 // One entry file. 1 when it parsed and names a program, else 0 -- an
 // entry with no Exec= launches nothing, so it is not an application.

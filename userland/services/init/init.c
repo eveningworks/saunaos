@@ -159,8 +159,6 @@ static int g_arrived;  // a scan added a fresh descriptor
 #define STATUS_PATH    TMP_RUNDIR "/init.status"
 
 #define SVC_NAME_MAX   24
-#define SVC_EXEC_MAX   64
-#define SVC_ARGS_MAX   64
 // After= and Before= are stored as the raw space-separated text and
 // resolved to indices only once the WHOLE directory has been scanned --
 // a descriptor may name a service whose file has not been read yet, so
@@ -254,12 +252,14 @@ static const int SVC_BACKOFF_MS[] = { 0, 250, 500, 1000, 2000 };
 
 struct service {
     char name[SVC_NAME_MAX];
-    char exec[SVC_EXEC_MAX];
+    // exec, args and the NoSession pair are HEAP strings sized to the
+    // descriptor's values, never NULL: g_none when absent (svc_str()).
+    char *exec;
     // Whitespace-separated arguments, as SYS_SPAWN has always taken --
     // the descriptor format simply had no way to say them, so a service
     // that needed one had to be a program with the arguments baked in.
     // `inetd -p 23 /bin/telnetd` is the first that genuinely does.
-    char args[SVC_ARGS_MAX];
+    char *args;
     // User=: the account the service runs as (/etc/passwd), empty for
     // root. Resolved at every start, so an edited passwd is seen. Linux's
     // LOGIN_NAME_MAX; a value that FILLS it may have been cut, so it is
@@ -274,8 +274,8 @@ struct service {
     // NoSessionExec= / NoSessionArgs= (users D2c): what a User=@session
     // service runs, AS ROOT, while no session is on -- /bin/login on the
     // console and the VTs, so a text terminal asks instead of staying dark.
-    char nosess_exec[SVC_EXEC_MAX];
-    char nosess_args[SVC_ARGS_MAX];
+    char *nosess_exec;
+    char *nosess_args;
     // Stopped to change between its two forms at a session's start or end:
     // the exit is no failure, and it starts again at once.
     int  switching;
@@ -340,9 +340,19 @@ struct service {
 // the edges below, so rows are only ever appended. THE ARRAY MAY MOVE
 // in load_service(): nothing keeps a `struct service *` across a scan.
 static struct service *g_svc;
+
 static int g_svc_count, g_svc_cap;
 static char g_target[SETTING_ABI_VALUE_MAX];
 static struct etc_config_buf g_cfg;
+// What an absent (or unallocatable) string field holds: "" that is never freed.
+static char g_none[1];
+
+// A descriptor key into `*field`, at its length; g_none when absent.
+static void svc_str(char **field, const char *key) {
+    char *v = uconf_buf_dup(&g_cfg, 0, key);
+    if (*field && *field != g_none) free(*field);
+    *field = v ? v : g_none;
+}
 static char g_msg[128];
 static unsigned long long g_fs_gen;
 // THE SESSION'S ACCOUNT (users D2b), "" while the greeter is up -- the
@@ -439,13 +449,12 @@ static void parse_sched_keys(const char *who, int *policy, int *prio) {
 }
 
 static void load_service(const char *file) {
-    char path[96];
-    snprintf(path, sizeof path, SERVICES_DIR "/%s", file);
-
-    if (!read_file(path, &g_cfg)) {
-        logf1("init: could not read %s\n", path);
-        return;
-    }
+    char *path = 0;
+    if (asprintf(&path, SERVICES_DIR "/%s", file) < 0) path = 0;
+    int read = path && read_file(path, &g_cfg);
+    if (!read) logf1("init: could not read %s\n", path ? path : file);
+    free(path);
+    if (!read) return;
 
     char want[SVC_NAME_MAX];
     // No Target= means EVERY target. That is the useful default: a
@@ -476,6 +485,7 @@ static void load_service(const char *file) {
         s = &g_svc[g_svc_count++];
         k_memset(s, 0, sizeof *s);
         k_strlcpy(s->name, name, sizeof s->name);
+        s->exec = s->args = s->nosess_exec = s->nosess_args = g_none;
         if (g_booted) s->fresh = g_arrived = 1;
     }
     s->seen = 1;
@@ -493,8 +503,8 @@ static void load_service(const char *file) {
     // It is deliberately NOT the `disabled` flag, which is sticky
     // across rescans -- a descriptor that gains an Exec= later is
     // re-read here and starts, with no separate un-disable step.
-    if (!etc_config_buf_get(&g_cfg, "Exec", s->exec, sizeof s->exec)) {
-        s->exec[0] = '\0';
+    svc_str(&s->exec, "Exec");
+    if (!s->exec[0]) {
         logf1("init: %s has no Exec=, will not start it\n", file);
         return;
     }
@@ -510,8 +520,7 @@ static void load_service(const char *file) {
 
     // Absent is an empty argument string, not a missing one: a service
     // with no arguments is the common case and says nothing.
-    if (!etc_config_buf_get(&g_cfg, "Args", s->args, sizeof s->args))
-        s->args[0] = '\0';
+    svc_str(&s->args, "Args");
     if (!etc_config_buf_get(&g_cfg, "User", s->user, sizeof s->user))
         s->user[0] = '\0';
     s->user_bad = strlen(s->user) >= sizeof s->user - 1;
@@ -525,10 +534,8 @@ static void load_service(const char *file) {
     s->user_session = !s->user_bad && strcmp(s->user, "@session") == 0;
     char sess[8];
     s->no_session = etc_config_buf_get(&g_cfg, "Session", sess, sizeof sess) && strcmp(sess, "none") == 0;
-    if (!etc_config_buf_get(&g_cfg, "NoSessionExec", s->nosess_exec, sizeof s->nosess_exec))
-        s->nosess_exec[0] = '\0';
-    if (!etc_config_buf_get(&g_cfg, "NoSessionArgs", s->nosess_args, sizeof s->nosess_args))
-        s->nosess_args[0] = '\0';
+    svc_str(&s->nosess_exec, "NoSessionExec");
+    svc_str(&s->nosess_args, "NoSessionArgs");
 
     // Absent means unconstrained, which is the common case and must
     // stay the terse one. Cleared rather than left alone, so removing
@@ -903,21 +910,29 @@ static void service_failed(struct service *s) {
 // the rest of the line rather than half-written -- the same rule every
 // formatter here follows -- and the caller then spawns with the raw
 // text, which fails visibly instead of silently naming the wrong path.
-static const char *expand_specifiers(const char *in, char *out, unsigned cap) {
-    unsigned o = 0;
-    for (unsigned i = 0; in[i]; i++) {
+// `in` with %T and %V expanded, allocated (the caller frees it), or NULL
+// when memory is out.
+static char *expand_specifiers(const char *in) {
+    size_t need = 1;
+    for (size_t i = 0; in[i]; i++) {
         if (in[i] == '%' && (in[i + 1] == 'T' || in[i + 1] == 'V')) {
-            const char *dir = tmpdir_for(in[i + 1] == 'V' ? TMP_PERSISTENT
-                                                          : TMP_VOLATILE);
-            for (unsigned k = 0; dir[k]; k++) {
-                if (o + 1 >= cap) return in;
-                out[o++] = dir[k];
-            }
+            need += strlen(tmpdir_for(in[i + 1] == 'V' ? TMP_PERSISTENT : TMP_VOLATILE));
             i++;
-            continue;
+        } else {
+            need++;
         }
-        if (o + 1 >= cap) return in;
-        out[o++] = in[i];
+    }
+    char *out = malloc(need);
+    if (!out) return 0;
+    size_t o = 0;
+    for (size_t i = 0; in[i]; i++) {
+        if (in[i] == '%' && (in[i + 1] == 'T' || in[i + 1] == 'V')) {
+            const char *dir = tmpdir_for(in[i + 1] == 'V' ? TMP_PERSISTENT : TMP_VOLATILE);
+            for (size_t k = 0; dir[k]; k++) out[o++] = dir[k];
+            i++;
+        } else {
+            out[o++] = in[i];
+        }
     }
     out[o] = '\0';
     return out;
@@ -1143,11 +1158,11 @@ static void start_service(struct service *s) {
     // stop agreeing with `storage.tmpdir` the moment anyone changed it
     // -- the mount would be in one place and every caller looking in
     // another.
-    char args[SVC_ARGS_MAX];
     int nsf = no_session_form(s);
     const char *argsrc = nsf ? s->nosess_args : s->args;
     const char *exec = nsf ? s->nosess_exec : s->exec;
-    const char *use = argsrc[0] ? expand_specifiers(argsrc, args, sizeof args) : 0;
+    char *use = argsrc[0] ? expand_specifiers(argsrc) : 0;
+    if (argsrc[0] && !use) logf1("init: out of memory for %s's arguments\n", s->name);
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
     o.args = use;
@@ -1158,8 +1173,10 @@ static void start_service(struct service *s) {
     if (s->stderr_as_stdout) o.stderr_fd = s->stdout_log ? SPAWN_FD_LOG : 1;
     else o.stderr_fd = SPAWN_FD_KMSG;
     struct svc_creds cr;
-    int pid = creds_for(s, &o, &cr) < 0 ? -1 : spawn_in(cr.dir, exec, &o, s->name);
+    memset(&cr, 0, sizeof cr);
+    int pid = (argsrc[0] && !use) || creds_for(s, &o, &cr) < 0 ? -1 : spawn_in(cr.dir, exec, &o, s->name);
     creds_release(&cr);
+    free(use);
     if (pid > 0) {
         // Before it has run a slice, since the spawn only made it READY.
         // A failure is said and the service runs as an ordinary process.
@@ -1363,24 +1380,26 @@ static void vt_start(int n, struct service *t) {
     // The VT is the child's 0/1/2: dup2 around the spawn, as uvterm does
     // for a pty -- SYS_SPAWN inherits the descriptor table. Its own
     // SESSION, so it claims the VT and Ctrl-C there reaches its jobs.
-    char args[SVC_ARGS_MAX];
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
     int nsf = no_session_form(t);
     const char *argsrc = nsf ? t->nosess_args : t->args;
-    o.args = argsrc[0] ? expand_specifiers(argsrc, args, sizeof args) : 0;
+    char *args = argsrc[0] ? expand_specifiers(argsrc) : 0;
+    o.args = args;
     o.env = environ;
     o.pgid = PGID_NEW;
     o.flags = SPAWN_SETSID;
     // The identity BEFORE the dup2s below: its errors go to init's fd 2.
     struct svc_creds cr;
-    int ok = creds_for(t, &o, &cr) == 0;
+    memset(&cr, 0, sizeof cr);
+    int ok = (!argsrc[0] || args) && creds_for(t, &o, &cr) == 0;
     int in0 = dup(0), out1 = dup(1), err2 = dup(2);
     dup2(fd, 0);
     dup2(fd, 1);
     dup2(fd, 2);
     int pid = ok ? spawn_in(cr.dir, nsf ? t->nosess_exec : t->exec, &o, t->name) : -1;
     creds_release(&cr);
+    free(args);
     if (in0 >= 0)  { dup2(in0, 0);  close(in0); }
     if (out1 >= 0) { dup2(out1, 1); close(out1); }
     if (err2 >= 0) { dup2(err2, 2); close(err2); }

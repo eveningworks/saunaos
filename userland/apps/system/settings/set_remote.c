@@ -58,10 +58,9 @@ static struct uui_setting_row g_add_row;
 
 // Connected.
 static struct uui_label g_conn_h;
-#define SESS_MAX 8
-static struct query_remotesess g_sess[SESS_MAX];
-static int g_nsess;
-static struct uui_actionlist_row g_sess_rows[SESS_MAX];
+static struct query_remotesess *g_sess;   // grown to the sessions open
+static int g_nsess, g_sess_cap, g_rows_cap;
+static struct uui_actionlist_row *g_sess_rows;
 static struct uui_actionlist g_conn;
 static uint64_t g_checked_ms;
 
@@ -97,10 +96,11 @@ static void build_trusted(void) {
 
 // Rebuilds the Connected rows; 1 if what they say changed.
 static int build_sessions(void) {
-    static char was[SESS_MAX * 160];
-    char now[SESS_MAX * 160];
-    now[0] = 0;
-    g_nsess = uremote_sessions(g_sess, SESS_MAX);
+    static char *was;
+    char *now = strdup("");
+    g_nsess = uremote_sessions(&g_sess, &g_sess_cap);
+    if (!UGROW(g_sess_rows, g_rows_cap, g_nsess > 0 ? g_nsess : 1)) g_nsess = 0;
+    g_conn.rows = g_sess_rows;
     for (int i = 0; i < g_nsess; i++) {
         struct uui_actionlist_row *r = &g_sess_rows[i];
         memset(r, 0, sizeof *r);
@@ -113,12 +113,15 @@ static int build_sessions(void) {
             r->btn[0] = strstr(what, "view only") ? "Full control" : "View only";
         r->btn[1] = "Disconnect";
         r->primary = -1;
-        strlcat(now, r->title, sizeof now);
-        strlcat(now, r->sub, sizeof now);
+        char *more = 0;
+        if (now && asprintf(&more, "%s%s\t%s\n", now, r->title, r->sub) < 0) more = 0;
+        free(now);
+        now = more;
     }
     g_conn.count = g_nsess;
-    int changed = strcmp(now, was) != 0;
-    strlcpy(was, now, sizeof was);
+    int changed = !now || !was || strcmp(now, was) != 0;
+    free(was);
+    was = now;
     return changed;
 }
 

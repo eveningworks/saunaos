@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include "base/ulog.h"
+#include "base/ugrow.h"
 #include <stdarg.h>
 #include "rt/sys.h"
 #include <string.h>
@@ -61,8 +62,6 @@ _Static_assert(UUI_TEXTBOX_MAX >= SETTING_ABI_VALUE_MAX,
 // page are both keyed off settings, so neither can outnumber them.
 extern int g_cap;
 #define MAX_SETTINGS   g_cap
-// Room for every timezone the kernel ships plus hand-added rows.
-#define MAX_CHOICES    128
 #define MAX_CATEGORIES g_cap
 #define MAX_GROUPS     g_cap
 // Controls on one page. A group larger than this would be a page nobody
@@ -180,10 +179,12 @@ struct slot {
     // the field differs from this -- which leaves every `staged !=
     // baseline` test on this page reading exactly as it did.
     char baseline_buf[SETTING_ABI_VALUE_MAX];
-    int choice_count;
-    char choice[MAX_CHOICES][SETTING_ABI_VALUE_MAX];      // display names
-    char choice_raw[MAX_CHOICES][SETTING_ABI_VALUE_MAX];  // what gets stored
-    const char *choice_ptr[MAX_CHOICES];
+    // The choices, GROWN to the setting's (load_slot(), base/ugrow.h);
+    // choice_ptr is re-aimed after every fill, as a grow moves `choice`.
+    int choice_count, choice_cap, raw_cap, ptr_cap;
+    char (*choice)[SETTING_ABI_VALUE_MAX];      // display names
+    char (*choice_raw)[SETTING_ABI_VALUE_MAX];  // what gets stored
+    const char **choice_ptr;
 };
 
 

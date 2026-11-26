@@ -16,6 +16,7 @@
 // Manager's own rename does; there is no OK/Apply to forget.
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include "rt/sys.h"
 #include "kpath.h"
@@ -62,8 +63,8 @@ static struct uui_custom g_labels;
 static char g_title[UFI_PATH + 16];
 static char g_status[120];
 
-static struct uopen_app g_apps[8];
-static const char *g_app_names[8];
+static struct uopen_app *g_apps;       // uopen_apps_for()'s, replaced per file
+static const char **g_app_names;
 static int g_napps, g_app_cur;
 
 // The checksum, read a slice per tick so the window keeps answering.
@@ -268,7 +269,12 @@ static void sync_controls(void) {
     unsigned m = g_fi.st.mode;
     static const unsigned bit[9] = { 0400, 0200, 0100, 040, 020, 010, 04, 02, 01 };
     for (int i = 0; i < 9; i++) g_perm[i].checked = (m & bit[i]) != 0;
-    g_napps = is_file() ? uopen_apps_for(g_fi.path, g_apps, 8, &g_app_cur) : 0;
+    uopen_apps_free(g_apps, g_napps);
+    free(g_app_names);
+    g_app_cur = -1;
+    g_napps = is_file() ? uopen_apps_for(g_fi.path, &g_apps, &g_app_cur) : 0;
+    g_app_names = g_napps ? malloc(sizeof *g_app_names * (size_t)g_napps) : 0;
+    if (!g_app_names) { uopen_apps_free(g_apps, g_napps); g_apps = 0; g_napps = 0; g_app_cur = -1; }
     for (int i = 0; i < g_napps; i++) g_app_names[i] = g_apps[i].name;
     uui_dropdown_set_items(&g_opens, g_app_names, g_napps);
     if (g_app_cur >= 0) uui_dropdown_set_selected(&g_opens, g_app_cur);

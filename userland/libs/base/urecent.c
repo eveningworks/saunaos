@@ -186,7 +186,7 @@ int urecent_clear(void) {
 
 void urecent_app_of_exec(const char *exec, char *out, int cap) {
     struct uappentry e;
-    if (uappentry_find_exec(exec, &e)) strlcpy(out, e.name, (size_t)cap);
+    if (uappentry_find_exec(exec, &e)) { strlcpy(out, e.name, (size_t)cap); uappentry_free(&e); }
     else strlcpy(out, k_path_basename(exec), (size_t)cap);
 }
 

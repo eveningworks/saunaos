@@ -48,9 +48,10 @@ enum { TM_GROUP_APPS, TM_GROUP_BACKGROUND, TM_GROUP_SYSTEM, TM_GROUPS };
 // A process's path as the kernel reports it (QUERY_PROCPATH): its record
 // is the bound, and a longer path comes back "" rather than cut.
 #define TM_PATH_MAX QUERY_PROCPATH_MAX
-// A shown name: a desktop entry's Name= or the process's own, whichever
-// field is the larger, so neither is cut here.
-#define TM_ENTRY_NAME_MAX sizeof(((struct uappentry *)0)->name)
+// A shown name: a desktop entry's Name= (heap, any length) or the
+// process's own. A Name= past 255 bytes is cut for DISPLAY only --
+// nothing is looked up or run by this copy.
+#define TM_ENTRY_NAME_MAX 256
 #define TM_NAME_MAX (TM_ENTRY_NAME_MAX > PROC_NAME_MAX ? TM_ENTRY_NAME_MAX : PROC_NAME_MAX)
 
 struct tm_proc {
@@ -102,10 +103,8 @@ int tm_proc_row(int pid);          // g_proc index of `pid`, or -1
 const char *tm_status_text(const struct tm_proc *p);
 
 // A desktop entry: what an Exec= path is called and drawn as.
-struct tm_app {   // the entry's own fields, at their own sizes
-    char exec[sizeof(((struct uappentry *)0)->exec)];
-    char name[sizeof(((struct uappentry *)0)->name)];
-    char icon[sizeof(((struct uappentry *)0)->icon)];
+struct tm_app {   // the entry, its own copy (uappentry_copy)
+    struct uappentry e;
 };
 extern struct tm_app *g_apps;   // g_napps of them, grown
 extern int g_napps;

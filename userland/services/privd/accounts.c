@@ -335,24 +335,27 @@ int acct_del(const char *name, int delete_home) {
     if (pw->pw_uid < ID_MIN) return -EPERM;
     uid_t uid = pw->pw_uid;
     gid_t gid = pw->pw_gid;
-    char home[256];
-    snprintf(home, sizeof home, "%s", pw->pw_dir ? pw->pw_dir : "");
-    if (has_processes(uid)) return -EBUSY;
-    int rc = not_last_admin(name);
-    if (rc) return rc;
+    // Copied whole (getpwnam's next call reuses its record): a cut home
+    // would remove some other folder.
+    char *home = strdup(pw->pw_dir ? pw->pw_dir : "");
+    if (!home) return -ENOMEM;
+    int rc = has_processes(uid) ? -EBUSY : not_last_admin(name);
+    if (rc) { free(home); return rc; }
     // Its own group goes only when it IS its own: the same name and id.
     struct group *g = getgrgid(gid);
     int own_group = g && !strcmp(g->gr_name, name);
     // passwd, group, then shadow: the order's invariant (top of file).
-    if ((rc = rewrite_passwd(name, NULL))) return rc;
-    if ((rc = rewrite_group("", name, 0, own_group ? name : NULL, NULL))) return rc;
-    if ((rc = pass_drop(name))) return rc;
-    char who[256] = "";
-    if (usetting_get(SET_AUTOLOGIN, who, sizeof who) && !strcmp(who, name)) usetting_set(SET_AUTOLOGIN, "");
-    if (delete_home && home_ok(home) && stat(home, &(struct stat){ 0 }) == 0 &&
-        ufileop_remove(home, 1, &g_op, 0) != UFILEOP_OK)
-        return -EIO;
-    return 0;
+    if (!(rc = rewrite_passwd(name, NULL)) &&
+        !(rc = rewrite_group("", name, 0, own_group ? name : NULL, NULL)) &&
+        !(rc = pass_drop(name))) {
+        char who[SETTING_ABI_VALUE_MAX] = "";
+        if (usetting_get(SET_AUTOLOGIN, who, sizeof who) && !strcmp(who, name)) usetting_set(SET_AUTOLOGIN, "");
+        if (delete_home && home_ok(home) && stat(home, &(struct stat){ 0 }) == 0 &&
+            ufileop_remove(home, 1, &g_op, 0) != UFILEOP_OK)
+            rc = -EIO;
+    }
+    free(home);
+    return rc;
 }
 
 int acct_mod(const char *name, const char *field, const char *value) {

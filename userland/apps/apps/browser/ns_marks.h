@@ -8,7 +8,6 @@
 #include "ui/uui_entrylist.h"
 
 enum { NS_MARKS_BOOKMARKS, NS_MARKS_HISTORY };
-#define NS_MARKS_MAX 256
 
 // Loads both lists from `dir` (~/.local/share/browser), taking NetSurf's old
 // files the first time. 1, or 0 when the bookmarks could not be read.
@@ -25,8 +24,10 @@ int ns_bookmark_toggle(const char *url, const char *title);
 
 // The rows for one list, filtered by `filter` (in a title or an
 // address, any case): bookmarks as kept, history newest first under a
-// heading per day. Returns the count; ns_marks_url(i) is row i's address.
-int ns_marks_rows(int which, const char *filter, struct uui_entry *rows, int cap);
+// heading per day, into `*rows` -- this file's, sized to the list and
+// kept until the next call. Returns the count (-1 out of memory);
+// ns_marks_url(i) is row i's address, whole.
+int ns_marks_rows(int which, const char *filter, struct uui_entry **rows);
 const char *ns_marks_url(int row);
 // Takes row i out of its list: a bookmark deleted, a page forgotten.
 void ns_marks_remove(int which, int row);

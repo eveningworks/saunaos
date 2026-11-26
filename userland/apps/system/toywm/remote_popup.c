@@ -1,4 +1,5 @@
 // See remote_popup.h. A read-only tray flyout over QUERY_REMOTELOG.
+#include "base/ugrow.h"
 #include "wm_internal.h"
 #include "remote_popup.h"
 #include "wm_shadow.h"
@@ -22,10 +23,9 @@ static uint32_t g_seen_generation;
 
 // The sessions open now, as action rows: the person at the screen can
 // end one, and make a remote desktop view only.
-#define LIVE_MAX 8
-static struct query_remotesess g_live[LIVE_MAX];
-static int g_nlive, g_desktop;
-static struct uui_actionlist_row g_live_rows[LIVE_MAX];
+static struct query_remotesess *g_live;   // grown to the sessions open
+static int g_nlive, g_desktop, g_live_cap, g_rows_cap;
+static struct uui_actionlist_row *g_live_rows;
 static struct uui_actionlist g_list;
 
 // What the last poll saw. Kept rather than re-read per draw so the
@@ -79,7 +79,8 @@ static void read_records(void) {
     }
     g_last_seq = g_row_count ? g_rows[g_row_count - 1].seq : 0;
 
-    g_nlive = uremote_sessions(g_live, LIVE_MAX);
+    g_nlive = uremote_sessions(&g_live, &g_live_cap);
+    if (!UGROW(g_live_rows, g_rows_cap, g_nlive > 0 ? g_nlive : 1)) g_nlive = 0;
     g_desktop = 0;
     for (int i = 0; i < g_nlive; i++) {
         struct uui_actionlist_row *r = &g_live_rows[i];
@@ -96,6 +97,7 @@ static void read_records(void) {
         r->primary = 1;
     }
     if (!g_list.rows) uui_actionlist_init(&g_list, g_live_rows, 0, 0);
+    g_list.rows = g_live_rows;   // a grow may move them
     g_list.count = g_nlive;
 }
 
