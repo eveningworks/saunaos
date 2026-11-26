@@ -304,6 +304,20 @@ them has its own checks:
   (`uapp_window_desc.default_button`; an overlay fills `text_at`) --
   maintainer, 2026-11-25, after the login screen shipped without all
   three (`docs/conventions/gui.md`, "A text field owes...").
+- **LOOK AT WHAT YOU DREW, ENLARGED, BEFORE THE HAND-OVER** (maintainer,
+  2026-11-26, after the login screen's keyboard button and menu shipped
+  with every test green): crop each new or changed control from a
+  screenshot of the real thing, scale it 2-3x, and look at it next to
+  what is beside it. The four that got past the tests: an icon or arrow
+  too close to an edge (a capsule's rounded end curves in, so it needs
+  its radius of room, not a fixed pad); text on a different line from
+  its neighbour (centre both on one line); a component lifted from
+  another context that does not match its new surroundings (the desktop's
+  light flyout on the dark login screen); and the pointer over a control
+  inside another (the text cursor over a field's eye button). A mockup
+  approved is not the build approved -- compare the two. Measure what can
+  be measured (text tops, gaps, `cursor_shape()`) and add it to the test;
+  the rest is a look, every time.
 - Adding a syscall means: the number and its contract in
   `abi/syscall_abi.h`, a handler, a typed wrapper in `sys.h`/`sys.c`,
   a `strace.c` table entry, and a KTEST. Missing the strace entry is
