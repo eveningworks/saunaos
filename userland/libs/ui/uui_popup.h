@@ -67,6 +67,9 @@ struct uui_popup_ops {
     // The buffer to draw THIS FRAME into, sized w x h; marks it for
     // presenting. NULL if the popup is gone.
     struct ugfx_surface *(*surface)(void *ctx, int id);
+    // The tallest popup it can show -- the screen's height -- or 0 for no
+    // answer. Optional: a menu taller than this scrolls (uui_menubar.h).
+    int (*max_h)(void *ctx);
 };
 
 void uui_popup_set_provider(const struct uui_popup_ops *ops, void *ctx);
@@ -77,6 +80,7 @@ int uui_popup_open(int ax, int ay, int aw, int ah, int w, int h, int gravity,
                    int *out_x, int *out_y);
 void uui_popup_close(int id);
 struct ugfx_surface *uui_popup_surface(int id);
+int uui_popup_max_h(void);   // the provider's answer, 0 for none
 
 // --- the popup's SHAPE, one answer for every popup ----------------------
 //

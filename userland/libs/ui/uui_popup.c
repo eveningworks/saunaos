@@ -23,6 +23,10 @@ int uui_popup_open(int ax, int ay, int aw, int ah, int w, int h, int gravity,
                        out_x, out_y);
 }
 
+int uui_popup_max_h(void) {
+    return g_ops && g_ops->max_h ? g_ops->max_h(g_ctx) : 0;
+}
+
 void uui_popup_close(int id) {
     if (id > 0 && g_ops && g_ops->close) g_ops->close(g_ctx, id);
 }

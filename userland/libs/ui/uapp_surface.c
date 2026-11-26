@@ -373,10 +373,18 @@ static struct ugfx_surface *popup_surface(void *ctx, int id) {
     return sf;
 }
 
+static int popup_max_h(void *ctx) {
+    (void)ctx;
+    int w = 1, h = 1 << 30;
+    clamp_to_screen(&w, &h);
+    return h;
+}
+
 const struct uui_popup_ops g_popup_ops = {
     .open = popup_open,
     .close = popup_close,
     .surface = popup_surface,
+    .max_h = popup_max_h,
 };
 
 // The compositor dismissed popup `id` (WIN_EV_POPUP_DONE) -- or asked it

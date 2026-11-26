@@ -248,6 +248,12 @@ CONTROLS = [
      "    int n = seg_count(path_of(p));\n    int avail",
      "    int n = seg_count(path_of(p));\n    if (n > UUI_PATHBAR_SEGS - 1) n = UUI_PATHBAR_SEGS - 1;\n    int avail",
      ["deeppath"]),
+    # A menu that never scrolls: taller than its bounds, it runs off them,
+    # and a window list stops at the rows that fit.
+    ("userland/libs/ui/uui_menubar.c",
+     "    int scroll = cap > 0 && h > cap && cap >= 4 * row_height();\n",
+     "    int scroll = 0;\n",
+     ["menuscroll"]),
     # The rename box at the default 128 bytes: a long name opens cut, and
     # Enter renames the file to the cut name.
     ("userland/libs/ui/uui_fileview.c",

@@ -104,6 +104,9 @@ void context_menu_damage(void);
 int context_menu_handle_click(int mx, int my);
 // The overlay's key op: arrows, Enter, Esc and letters, as uui_menubar_key().
 int context_menu_key(int key, uint8_t mods);
+// The wheel over an open level: a menu taller than the screen scrolls
+// (ui/uui_menubar.h). 1 when it was over the menu.
+int context_menu_wheel(int mx, int my, int notches);
 
 // The open menu's geometry, for the debug console (`gui ctxmenu`) and
 // therefore for tests. Returns the row count, or 0 when nothing is

@@ -53,7 +53,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui  # noqa: E402
 from qmp_test import QMPSession                # noqa: E402
-from harness import Results                    # noqa: E402
+from harness import Results, poll                    # noqa: E402
 import port_guard                              # noqa: E402
 
 STRIP_ROWS = ["Task Manager", "-", "Combine buttons", "Button position", "Buttons",
@@ -241,6 +241,75 @@ def run(dbg, res):
         close_window(dbg, note)
 
 
+GROUP = 30   # windows of one program: more rows than a 720-line screen holds
+
+
+def check_group_scroll(dbg, qmp, res):
+    """A window group taller than the screen scrolls (round 4 B).
+
+    The group popup stopped at 12 rows and said nothing of the rest; now
+    every window is a row and the menu (ui/uui_menubar.c) caps itself at
+    the screen and scrolls. Thirty /tests/winclient windows -- a client
+    that blocks, so thirty cost nothing -- make one group: its popup holds
+    all of them plus the pin and Close all, shows the first rows with the
+    last out of view, and the wheel (at the REAL pointer) and End bring
+    the rest in. Close all, reached by End, then closes the thirty.
+    """
+    before = len(dbg.windows())
+    for _ in range(GROUP):
+        dbg.send("gui spawn /tests/winclient")
+    got = poll(lambda: (lambda n: n if n >= GROUP else None)(
+        sum(1 for w in dbg.windows() if w["title"] == "Ring 3 Client")), 180)
+    res.check(f"{GROUP} windows of one program", bool(got), f"{got}")
+    tb = dbg.taskbar()
+    btn = next((b for b in tb.get("buttons", []) if b.get("count", 0) >= GROUP), None)
+    res.check("...on one group button", btn is not None, str([b.get("label") for b in tb.get("buttons", [])]))
+    if not btn:
+        return
+    dbg.click(btn["cx"], btn["cy"])
+    dbg.settle()
+    m = dbg.ctxmenu()
+    rows = m.get("rows", [])
+    shown = [r for r in rows if r.get("shown")]
+    res.check(f"the group popup lists every window ({GROUP}) and its own rows",
+              sum(1 for r in rows if r["label"] == "Ring 3 Client") == GROUP and
+              any(r["label"].startswith("Close all") for r in rows), f"{len(rows)} rows")
+    res.check("...taller than the screen, it scrolls: the first row shows, Close all does not",
+              bool(rows) and rows[0].get("shown") and not rows[-1].get("shown") and 4 <= len(shown) < len(rows),
+              f"{len(shown)} of {len(rows)} shown")
+    if not shown:
+        close_menu(dbg)
+        return
+    dbg.warp_cursor(qmp, shown[len(shown) // 2]["cx"], shown[len(shown) // 2]["cy"])
+    dbg.wheel(-1)
+    after = dbg.ctxmenu().get("rows", [])
+    res.check("the wheel scrolls it: the first row leaves the view",
+              len(after) == len(rows) and not after[0].get("shown") and after[3].get("shown"),
+              str([r.get("shown") for r in after[:5]]))
+    dbg.key("0xf787")   # KEY_END (api/keyboard.h)
+    dbg.settle()
+    last = dbg.ctxmenu().get("rows", [])
+    res.check("End brings Close all into view", bool(last) and last[-1].get("shown"),
+              str(last[-1] if last else None))
+    dbg.logs("closeall:", clear=True)
+    dbg.key("0x0d")
+    dbg.settle()
+    asked = poll(lambda: next(iter(dbg.logs("closeall: asking", clear=False)), None), 20)
+    res.check(f"...and Enter on it asks all {GROUP} to close", bool(asked) and f"asking {GROUP}" in asked,
+              str(asked))
+    close_menu(dbg)
+    # winclient refuses two closes and takes the third (its on_close veto):
+    # Close all twice more, through the same scrolled menu.
+    for _ in range(2):
+        dbg.click(btn["cx"], btn["cy"])
+        dbg.settle()
+        dbg.key("0xf787")
+        dbg.key("0x0d")
+        dbg.settle()
+    poll(lambda: True if len(dbg.windows()) <= before else None, 60)
+    close_menu(dbg)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
@@ -256,6 +325,7 @@ def main():
     print("taskbar_menu_test: checks")
     try:
         run(dbg, res)
+        check_group_scroll(dbg, qmp, res)
     finally:
         dbg.close()
     print(f"\ntaskbar_menu_test: {len(res.passes)} passed, {len(res.fails)} failed")

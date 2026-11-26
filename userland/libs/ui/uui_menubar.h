@@ -137,6 +137,10 @@ struct uui_menu_level {
     int hot;      // highlighted row, or -1
     int parent;   // index in the level above that opened this one
     int surf;     // its popup surface (ui/uui_popup.h), or 0 = in-window
+    // A LEVEL TALLER THAN IT MAY BE SCROLLS (Win32's and GTK's menus):
+    // `scroll` set, an arrow strip at the top and bottom, and the rows
+    // from `top` (an index past the strip) shown between them.
+    int scroll, top;
 };
 
 struct uui_menubar {
@@ -156,6 +160,8 @@ struct uui_menubar {
     // Where an IN-WINDOW popup is allowed to be -- the fallback when no
     // popup surface is granted. See the header comment.
     int bx, by, bw, bh;
+    int bounds_set;    // set_bounds() called: an in-window level is capped at bh
+    int px, py;        // the pointer's last motion, which level a wheel turns
 
     // Asked per item; NULL means every item is enabled and unticked.
     unsigned (*item_flags)(int code);
@@ -234,8 +240,9 @@ int uui_menubar_release(struct uui_menubar *m, int cx, int cy);
 
 // Keyboard navigation: F10 opens the bar, arrows walk it (Left/Right
 // across titles and out of/into submenus, Up/Down over items, skipping
-// separators and disabled rows), Enter or Space commits, Esc closes one
-// level, and a letter jumps to the next item starting with it --
+// separators and disabled rows; Home/End to the first and last), Enter
+// or Space commits, Esc closes one level, and a letter jumps to the next
+// item starting with it -- a scrolling level brings the highlight into view --
 // activating immediately if it is the only match, which is what Windows
 // does.
 //
@@ -253,6 +260,10 @@ int uui_menubar_release(struct uui_menubar *m, int cx, int cy);
 // indistinguishable from the Esc that has to close the menu. F10 is
 // Windows' own second binding for the same job and has no such ambiguity.
 int uui_menubar_key(struct uui_menubar *m, int key, int *out_code);
+
+// The wheel over an open level that scrolls (see struct uui_menu_level):
+// three rows a notch, at the last motion's position. 1 if it moved.
+int uui_menubar_wheel(struct uui_menubar *m, int notches);
 
 // Closes everything. For an app that opens a dialog and wants the menu
 // out of the way.

@@ -161,15 +161,74 @@ static void level_size(const struct uui_menu_item *items, int count,
     *out_h = h;
 }
 
-// y offset of row `index` from the popup's top edge; a strip item's is
-// the strip's own top.
-static int row_offset(const struct uui_menu_item *items, int count, int index) {
-    int ns = strip_count(items, count);
-    int y = 1 + air();
-    if (index < ns) return y;
-    if (ns) y += strip_height();
-    for (int i = ns; i < index; i++) y += item_height(&items[i]);
-    return y;
+// A scrolling level's arrow strips, each this tall.
+static int arrow_h(void) { return row_height() * 2 / 3; }
+
+// Where a level's rows start and stop, from its top edge: inside the
+// border, the air, the strip, and a scrolling level's arrows.
+static int rows_top(const struct uui_menu_level *lv) {
+    int ns = strip_count(lv->items, lv->count);
+    return 1 + air() + (ns ? strip_height() : 0) + (lv->scroll ? arrow_h() : 0);
+}
+static int rows_bottom(const struct uui_menu_level *lv) {
+    return lv->h - 1 - air() - (lv->scroll ? arrow_h() : 0);
+}
+
+// The first row shown past the strip.
+static int first_row(const struct uui_menu_level *lv) {
+    int ns = strip_count(lv->items, lv->count);
+    return lv->scroll && lv->top > ns ? lv->top : ns;
+}
+
+// y offset of row `index` from the popup's top edge, or -1 when a
+// scrolling level has it out of view; a strip item's is the strip's own
+// top.
+static int row_offset(const struct uui_menu_level *lv, int index) {
+    int ns = strip_count(lv->items, lv->count);
+    if (index < ns) return 1 + air();
+    int first = first_row(lv);
+    if (index < first) return -1;
+    int y = rows_top(lv);
+    for (int i = first; i < index; i++) y += item_height(&lv->items[i]);
+    return y + item_height(&lv->items[index]) <= rows_bottom(lv) ? y : -1;
+}
+
+// The `top` that shows every row it can with the last one at the
+// bottom: how far a level scrolls.
+static int max_top(const struct uui_menu_level *lv) {
+    int ns = strip_count(lv->items, lv->count);
+    int room = rows_bottom(lv) - rows_top(lv), t = lv->count;
+    while (t > ns && room - item_height(&lv->items[t - 1]) >= 0) room -= item_height(&lv->items[--t]);
+    return t;
+}
+
+// Scrolls by `rows`; 1 if it moved.
+static int scroll_by(struct uui_menu_level *lv, int rows) {
+    if (!lv->scroll) return 0;
+    int ns = strip_count(lv->items, lv->count), t = first_row(lv) + rows, mt = max_top(lv);
+    if (t > mt) t = mt;
+    if (t < ns) t = ns;
+    if (t == first_row(lv)) return 0;
+    lv->top = t;
+    return 1;
+}
+
+// Brings row `index` into view.
+static void show_row(struct uui_menu_level *lv, int index) {
+    int ns = strip_count(lv->items, lv->count);
+    if (!lv->scroll || index < ns) return;
+    if (index < first_row(lv)) { lv->top = index; return; }
+    while (row_offset(lv, index) < 0 && first_row(lv) < max_top(lv)) lv->top = first_row(lv) + 1;
+}
+
+// -1 on the top arrow, +1 on the bottom one, 0 elsewhere. Each takes the
+// card's air beside it too: it is drawn as one strip.
+static int arrow_at(const struct uui_menu_level *lv, int dy) {
+    if (!lv->scroll) return 0;
+    int t = rows_top(lv), b = rows_bottom(lv);
+    if (dy >= t - arrow_h() - air() && dy < t) return -1;
+    if (dy >= b && dy < lv->h) return +1;
+    return 0;
 }
 
 // Strip button `i`'s rect relative to the popup's top-left.
@@ -190,9 +249,10 @@ static int row_at(const struct uui_menu_level *lv, int dx, int dy) {
         strip_rect(i, &x, &y, &w, &h);
         if (uui_hit(x, y, w, h, dx, dy)) return i;
     }
-    int y = 1 + air() + (ns ? strip_height() : 0);
-    for (int i = ns; i < lv->count; i++) {
+    int y = rows_top(lv), bottom = rows_bottom(lv);
+    for (int i = first_row(lv); i < lv->count; i++) {
         int h = item_height(&lv->items[i]);
+        if (y + h > bottom) break;
         if (dy >= y && dy < y + h) return is_sep(&lv->items[i]) ? -1 : i;
         y += h;
     }
@@ -275,6 +335,13 @@ static void open_level(struct uui_menubar *m, int l,
 
     int w, h;
     level_size(items, count, &w, &h);
+    // Taller than it may be: capped, and its rows scroll. The bound is
+    // the screen for a popup surface, the bounds for one drawn in-window
+    // (when set: they default to the bar's own rect).
+    int cap = uui_popup_max_h();
+    if (!cap && m->bounds_set) cap = m->bh;
+    int scroll = cap > 0 && h > cap && cap >= 4 * row_height();
+    if (scroll) h = cap;
 
     int px, py;
     // A MENU GRABS: a press outside must dismiss it and be swallowed,
@@ -292,6 +359,8 @@ static void open_level(struct uui_menubar *m, int l,
     lv->hot = -1;
     lv->parent = parent;
     lv->surf = surf;
+    lv->scroll = scroll;
+    lv->top = strip_count(items, count);
     m->depth = l + 1;
 }
 
@@ -371,6 +440,8 @@ void uui_menubar_init(struct uui_menubar *m, const struct uui_menu_item *items,
     for (int l = 0; l < UUI_MENU_MAX_DEPTH; l++) m->level[l].surf = 0;
     m->bx = m->by = 0;
     m->bw = m->bh = 0;
+    m->bounds_set = 0;
+    m->px = m->py = -1;
     m->item_flags = 0;
     m->committed = -1;
 
@@ -408,6 +479,7 @@ void uui_menubar_set_geometry(struct uui_menubar *m, int x, int y, int w, int h)
 
 void uui_menubar_set_bounds(struct uui_menubar *m, int x, int y, int w, int h) {
     m->bx = x; m->by = y; m->bw = w; m->bh = h;
+    m->bounds_set = 1;
 }
 
 void uui_menubar_natural_size(const struct uui_menubar *m, int *out_w, int *out_h) {
@@ -464,8 +536,10 @@ int uui_menubar_item_rect(const struct uui_menubar *m, int level, int index,
         if (h) *h = sh;
         return 1;
     }
+    int off = row_offset(lv, index);
+    if (off < 0) return 0;   // scrolled out of view
     if (x) *x = lv->x;
-    if (y) *y = lv->y + row_offset(lv->items, lv->count, index);
+    if (y) *y = lv->y + off;
     if (w) *w = lv->w;
     if (h) *h = item_height(&lv->items[index]);
     return 1;
@@ -512,6 +586,17 @@ static void draw_chevron(struct ugfx_surface *s, int cx, int cy, uint32_t c) {
     for (int d = 0; d < 2; d++) {
         ugfx_draw_line(s, cx - r / 2 + d, cy - r, cx + r / 2 + d, cy, c, GEOM_AA);
         ugfx_draw_line(s, cx + r / 2 + d, cy, cx - r / 2 + d, cy + r, c, GEOM_AA);
+    }
+}
+
+// A scrolling level's arrow: up (dir < 0) or down, its point at cy's side.
+static void draw_vchevron(struct ugfx_surface *s, int cx, int cy, int dir, uint32_t c) {
+    int r = ugfx_char_h() / 3;
+    if (r < 3) r = 3;
+    int tip = cy + dir * r / 2, base = cy - dir * r / 2;
+    for (int d = 0; d < 2; d++) {
+        ugfx_draw_line(s, cx - r, base + d, cx, tip + d, c, GEOM_AA);
+        ugfx_draw_line(s, cx, tip + d, cx + r, base + d, c, GEOM_AA);
     }
 }
 
@@ -622,11 +707,18 @@ static void draw_level_at(struct ugfx_surface *s, const struct uui_menubar *m,
         draw_item_icon(s, m, it, bx + (bw - icon_px()) / 2, by + (bh - icon_px()) / 2, off);
     }
 
-    int y = ly + 1 + air() + (ns ? strip_height() : 0);
+    int y = ly + rows_top(lv), bottom = ly + rows_bottom(lv);
     int px = lx + 1 + air(), pw = lv->w - 2 - 2 * air();
-    for (int i = ns; i < lv->count; i++) {
+    if (lv->scroll) {   // greyed at the end it cannot scroll past
+        uint32_t on = m_fg(m), off = m_disabled_fg(m);
+        draw_vchevron(s, lx + lv->w / 2, y - arrow_h() / 2, -1, first_row(lv) > ns ? on : off);
+        draw_vchevron(s, lx + lv->w / 2, bottom + arrow_h() / 2, +1,
+                      first_row(lv) < max_top(lv) ? on : off);
+    }
+    for (int i = first_row(lv); i < lv->count; i++) {
         const struct uui_menu_item *it = &lv->items[i];
         int h = item_height(it);
+        if (y + h > bottom) break;
 
         if (is_sep(it)) {
             ugfx_fill_rect(s, lx + 1, y + h / 2, lv->w - 2, 1, ugfx_blend(edge, bg, 96));
@@ -706,7 +798,9 @@ int uui_menubar_press(struct uui_menubar *m, int cx, int cy) {
         for (int l = 0; l < m->depth; l++) {
             const struct uui_menu_level *lv = &m->level[l];
             if (uui_hit(lv->x, lv->y, lv->w, lv->h, cx, cy)) {
-                uui_menubar_motion(m, cx, cy);
+                int a = arrow_at(lv, cy - lv->y);
+                if (a) scroll_by(&m->level[l], a);   // a row a click
+                else uui_menubar_motion(m, cx, cy);
                 return 1;
             }
         }
@@ -720,6 +814,8 @@ int uui_menubar_press(struct uui_menubar *m, int cx, int cy) {
 
 int uui_menubar_motion(struct uui_menubar *m, int cx, int cy) {
     int changed = 0;
+    m->px = cx;
+    m->py = cy;
 
     int t = title_at(m, cx, cy);
     if (t != m->hot_root) { m->hot_root = t; changed = 1; }
@@ -761,6 +857,20 @@ int uui_menubar_motion(struct uui_menubar *m, int cx, int cy) {
     return changed;
 }
 
+int uui_menubar_wheel(struct uui_menubar *m, int notches) {
+    for (int l = m->depth - 1; l >= 0; l--) {
+        struct uui_menu_level *lv = &m->level[l];
+        if (!uui_hit(lv->x, lv->y, lv->w, lv->h, m->px, m->py)) continue;
+        if (!scroll_by(lv, -notches * 3)) return 0;   // up is positive, as uui_listbox's
+        // The rows moved under a still pointer: what it is on now is hot,
+        // and a submenu of a row that left closes.
+        lv->hot = row_at(lv, m->px - lv->x, m->py - lv->y);
+        if (m->depth > l + 1) set_depth(m, l + 1);
+        return 1;
+    }
+    return 0;
+}
+
 int uui_menubar_release(struct uui_menubar *m, int cx, int cy) {
     if (m->depth <= 0) return -1;
 
@@ -788,6 +898,7 @@ static void hot_to_first(struct uui_menubar *m) {
     if (m->depth <= 0) return;
     struct uui_menu_level *lv = &m->level[m->depth - 1];
     lv->hot = step_sel(m, lv->items, lv->count, -1, +1);
+    show_row(lv, lv->hot);
 }
 
 static void move_root(struct uui_menubar *m, int dir) {
@@ -842,7 +953,7 @@ static int letter_jump(struct uui_menubar *m, int key, int *out_code) {
         int i = (lv->hot + n + lv->count) % lv->count;
         if (lv->hot < 0) i = (n - 1) % lv->count;
         if (!enabled(m, &lv->items[i])) continue;
-        if (lower(lv->items[i].label[0]) == want) { lv->hot = i; return 1; }
+        if (lower(lv->items[i].label[0]) == want) { lv->hot = i; show_row(lv, i); return 1; }
     }
     return 1;
 }
@@ -878,6 +989,16 @@ int uui_menubar_key(struct uui_menubar *m, int key, int *out_code) {
         int from = (key == KEY_ARROW_DOWN && lv->hot >= 0 && lv->hot < ns) ? ns - 1 : lv->hot;
         lv->hot = step_sel(m, lv->items, lv->count, from,
                             key == KEY_ARROW_DOWN ? +1 : -1);
+        show_row(lv, lv->hot);
+        return 1;
+    }
+
+    case KEY_HOME:
+    case KEY_END: {
+        struct uui_menu_level *lv = &m->level[m->depth - 1];
+        lv->hot = step_sel(m, lv->items, lv->count, key == KEY_HOME ? -1 : lv->count,
+                            key == KEY_HOME ? +1 : -1);
+        show_row(lv, lv->hot);
         return 1;
     }
 
@@ -986,6 +1107,10 @@ static int ops_release(void *w, int cx, int cy) {
     return 1;
 }
 
+static int ops_wheel(void *w, int notches) {
+    return uui_menubar_wheel((struct uui_menubar *)w, notches);
+}
+
 // title i, popup l, item l i -- the rects tests click, in one vocabulary
 // for every app (ui/uui_describe.h). `open` says whether a popup is up.
 static void ops_describe(const void *w, const struct uui_describe *d) {
@@ -997,8 +1122,10 @@ static void ops_describe(const void *w, const struct uui_describe *d) {
     for (int l = 0; l < m->depth; l++) {
         if (uui_menubar_popup_rect(m, l, &x, &y, &wd, &h))
             uui_describe_rect_i(d, "popup", l, x, y, wd, h);
-        for (int i = 0; uui_menubar_item_rect(m, l, i, &x, &y, &wd, &h); i++)
-            uui_describe_rect_ij(d, "item", l, i, x, y, wd, h);
+        // A scrolling level's rows out of view have no rect: left out.
+        for (int i = 0; i < m->level[l].count; i++)
+            if (uui_menubar_item_rect(m, l, i, &x, &y, &wd, &h))
+                uui_describe_rect_ij(d, "item", l, i, x, y, wd, h);
     }
     uui_describe_int(d, "open", m->depth > 0);
 }
@@ -1013,6 +1140,7 @@ const struct uui_widget_ops uui_menubar_ops = {
     .press          = ops_press,
     .motion         = ops_motion,
     .release        = ops_release,
+    .wheel          = ops_wheel,
     .overlay_active = ops_overlay_active,
     .describe       = ops_describe,
 };

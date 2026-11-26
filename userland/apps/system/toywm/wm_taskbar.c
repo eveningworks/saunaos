@@ -1042,27 +1042,34 @@ void taskbar_update_hover(int mx, int my, uint8_t buttons) {
 
 // ---- clicks ----------------------------------------------------------
 
-// The group popup's rows. Static because context_menu_open_at() keeps
-// the caller's array for as long as the menu is open (context_menu.h),
-// so a stack local would be a dangling read the moment this returns.
-// Its windows, then a rule and "Close all N windows".
-#define TB_GROUP_ROWS 12
-static struct context_menu_item g_rows[TB_GROUP_ROWS + 4];
-static uint32_t g_row_target[TB_GROUP_ROWS];   // open_seq: see row_raise()
-static char g_row_label[TB_GROUP_ROWS][WIN_LABEL_MAX_CHARS * 3];
+// A window list's rows: every window, then the list's own rows. Kept
+// past the call because context_menu_open_at() keeps the caller's array
+// for as long as the menu is open (context_menu.h), and GROWN only before
+// an open, never under one. A list taller than the screen scrolls
+// (ui/uui_menubar.h).
+struct tb_rows {
+    struct context_menu_item *rows;
+    uint32_t *target;                              // open_seq: see row_raise()
+    char (*label)[WIN_LABEL_MAX_CHARS * 3];
+    int rows_cap, target_cap, label_cap;
+};
+
+// Room for `windows` windows and `extra` more rows; 0 out of memory.
+static int tb_rows_fit(struct tb_rows *r, int windows, int extra) {
+    return UGROW(r->rows, r->rows_cap, windows + extra) && UGROW(r->target, r->target_cap, windows) &&
+           UGROW(r->label, r->label_cap, windows);
+}
+
+// The group popup's: its windows, then the pin and "Close all N windows".
+static struct tb_rows g_group;
 static uint32_t g_group_seq;                   // the group, for its Close all
 static char g_close_all_label[32];
 
-// The overflow button's list: as many as a menu holds, then a greyed
-// count of the rest.
-#define TB_OVF_ROWS 16
-static struct context_menu_item g_ovf_rows[TB_OVF_ROWS + 1];
-static uint32_t g_ovf_target[TB_OVF_ROWS];
-static char g_ovf_label[TB_OVF_ROWS][WIN_LABEL_MAX_CHARS * 3];
-static char g_ovf_more[32];
+// The overflow button's: the windows behind it.
+static struct tb_rows g_ovf;
 static int g_ovf_armed;   // pressed on the overflow button; it opens on the release
 
-int taskbar_overflow_menu_open(void) { return context_menu_showing(g_ovf_rows); }
+int taskbar_overflow_menu_open(void) { return g_ovf.rows && context_menu_showing(g_ovf.rows); }
 
 int taskbar_app_windows(int idx) {
     if (idx < 0 || idx >= window_count || unlisted(idx)) return 0;
@@ -1105,20 +1112,25 @@ static void row_raise(void *ctx) {
 static void open_group_menu(const struct taskbar_button *b) {
     int n = 0;
     uint32_t seq = 0;
-    for (int i; n < TB_GROUP_ROWS && (i = next_in_order(&seq)) >= 0; ) {
+    if (!tb_rows_fit(&g_group, taskbar_app_windows(b->first), 4)) {
+        wm_logf("taskbar: out of memory listing a group\n");
+        return;
+    }
+    struct context_menu_item *rows = g_group.rows;
+    for (int i; (i = next_in_order(&seq)) >= 0; ) {
         if (unlisted(i) || !same_app(b->first, i)) continue;
-        k_strlcpy(g_row_label[n], windows[i].title, sizeof g_row_label[n]);
-        g_row_target[n] = windows[i].open_seq;
-        g_rows[n] = (struct context_menu_item){ .label = g_row_label[n], .on_select = row_raise,
-                                                .ctx = &g_row_target[n],
+        k_strlcpy(g_group.label[n], windows[i].title, sizeof g_group.label[n]);
+        g_group.target[n] = windows[i].open_seq;
+        rows[n] = (struct context_menu_item){ .label = g_group.label[n], .on_select = row_raise,
+                                                .ctx = &g_group.target[n],
                                                 .icon = wm_window_icon_name(i) };
         n++;
     }
     if (n == 0) return;
     const struct gui_app *app = wm_window_entry(b->first);
     if (app && app->app_id) {
-        g_rows[n++] = (struct context_menu_item){ .separator = 1 };
-        g_rows[n++] = (struct context_menu_item){ .label = taskbar_pin_label(app),
+        rows[n++] = (struct context_menu_item){ .separator = 1 };
+        rows[n++] = (struct context_menu_item){ .label = taskbar_pin_label(app),
                                                   .on_select = taskbar_pin_toggle,
                                                   .ctx = (void *)app, .icon = "tb-pin" };
     }
@@ -1126,34 +1138,34 @@ static void open_group_menu(const struct taskbar_button *b) {
     if (all > 1) {
         g_group_seq = windows[b->first].open_seq;
         k_snprintf(g_close_all_label, sizeof g_close_all_label, "Close all %d windows", all);
-        g_rows[n++] = (struct context_menu_item){ .separator = 1 };
-        g_rows[n++] = (struct context_menu_item){ .label = g_close_all_label,
+        rows[n++] = (struct context_menu_item){ .separator = 1 };
+        rows[n++] = (struct context_menu_item){ .label = g_close_all_label,
                                                   .on_select = group_close_all,
                                                   .ctx = &g_group_seq, .icon = "tb-close-all",
                                                   .tint = UTHEME_ACT_DANGER };
     }
-    context_menu_open_at(b->x, screen_h - taskbar_h, g_rows, n);
+    context_menu_open_at(b->x, screen_h - taskbar_h, rows, n);
 }
 
 // The windows behind the overflow button, in strip order.
 static void open_overflow_menu(void) {
     int ox, ow, n = 0;
     if (!taskbar_overflow(&ox, &ow)) return;
-    for (int k = 0; k < g_hidden_n && n < TB_OVF_ROWS; k++) {
+    if (!tb_rows_fit(&g_ovf, g_hidden_n, 0)) {
+        wm_logf("taskbar: out of memory listing %d hidden windows\n", g_hidden_n);
+        return;
+    }
+    for (int k = 0; k < g_hidden_n; k++) {
         int i = wm_window_by_seq(g_hidden_seq[k]);
         if (i < 0) continue;
-        k_strlcpy(g_ovf_label[n], windows[i].title, sizeof g_ovf_label[n]);
-        g_ovf_target[n] = g_hidden_seq[k];
-        g_ovf_rows[n] = (struct context_menu_item){ .label = g_ovf_label[n], .on_select = row_raise,
-                                                    .ctx = &g_ovf_target[n],
+        k_strlcpy(g_ovf.label[n], windows[i].title, sizeof g_ovf.label[n]);
+        g_ovf.target[n] = g_hidden_seq[k];
+        g_ovf.rows[n] = (struct context_menu_item){ .label = g_ovf.label[n], .on_select = row_raise,
+                                                    .ctx = &g_ovf.target[n],
                                                     .icon = wm_window_icon_name(i) };
         n++;
     }
-    if (g_hidden_n > n) {
-        k_snprintf(g_ovf_more, sizeof g_ovf_more, "and %d more", g_hidden_n - n);
-        g_ovf_rows[n++] = (struct context_menu_item){ .label = g_ovf_more, .disabled = 1 };
-    }
-    if (n) context_menu_open_at(ox, screen_h - taskbar_h, g_ovf_rows, n);
+    if (n) context_menu_open_at(ox, screen_h - taskbar_h, g_ovf.rows, n);
 }
 
 // Acting on one window: raise it, recover it, or minimize it. Unchanged

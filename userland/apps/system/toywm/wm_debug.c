@@ -716,11 +716,13 @@ static void cmd_ctxmenu(struct dbg_out *o, int json) {
                      rows ? "true" : "false", x, y, w, ih);
         for (int i = 0; i < rows; i++) {
             int rx = x, ry = context_menu_row_top(i), rw = w, rh = ih;
-            context_menu_row_rect(0, i, &rx, &ry, &rw, &rh);
-            dbg_out_printf(o, "%s{\"label\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"cx\":%d,\"cy\":%d,\"disabled\":%s,\"checked\":%s}",
+            // A menu taller than the screen scrolls: a row out of view
+            // has no rect, and says so rather than lending a stale one.
+            int shown = context_menu_row_rect(0, i, &rx, &ry, &rw, &rh);
+            dbg_out_printf(o, "%s{\"label\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"cx\":%d,\"cy\":%d,\"disabled\":%s,\"checked\":%s,\"shown\":%s}",
                          i ? "," : "", context_menu_row_label(i), rx, ry, rw, rx + rw / 2,
                          ry + ih / 2, context_menu_row_disabled(0, i) ? "true" : "false",
-                         context_menu_row_checked(0, i) ? "true" : "false");
+                         context_menu_row_checked(0, i) ? "true" : "false", shown ? "true" : "false");
         }
         dbg_out_write(o, "]");
         // The open SUBMENU, if any, in the same shape.

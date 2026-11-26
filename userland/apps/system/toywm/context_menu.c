@@ -100,7 +100,7 @@ static int level_item_h(int level) {
     const struct uui_menu_level *lv = &g_menu.level[level];
     for (int i = 0; i < lv->count; i++) {
         int x, y, w, h;
-        if (!uui_menubar_item_rect(&g_menu, level, i, &x, &y, &w, &h)) break;
+        if (!uui_menubar_item_rect(&g_menu, level, i, &x, &y, &w, &h)) continue;   // scrolled out
         if (lv->items[i].label) return h;
     }
     return ugfx_char_h();
@@ -302,6 +302,17 @@ int context_menu_handle_click(int mx, int my) {
     if (!context_menu_open) wm_overlay_set_parent(0);
     context_menu_damage();   // a submenu the press opened
     WM_REDRAW();
+    return 1;
+}
+
+int context_menu_wheel(int mx, int my, int notches) {
+    if (!context_menu_open || !context_menu_contains(mx, my)) return 0;
+    g_menu.px = mx;
+    g_menu.py = my;
+    if (uui_menubar_wheel(&g_menu, notches)) {
+        context_menu_damage();
+        WM_REDRAW();
+    }
     return 1;
 }
 
