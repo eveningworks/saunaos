@@ -392,8 +392,12 @@ class Session:
         # Drop what the shell echoed back at us -- the two command
         # lines we typed, each with a prompt in front of it -- and
         # any blank lines those left at the ends.
-        lines = [ln for ln in lines
-                 if not ln.endswith(cmd) and not ln.endswith(f"echo {marker}")]
+        # ONLY a prompt's line: output that merely ENDS with the command's
+        # text is output (`user` lists a home of /home/user).
+        def echoed(ln, typed):
+            head = ln[:-len(typed)] if ln.endswith(typed) else None
+            return head is not None and (not head.strip() or head.rstrip().endswith(("$", "#", ">")))
+        lines = [ln for ln in lines if not echoed(ln, cmd) and not echoed(ln, f"echo {marker}")]
         while lines and not lines[0].strip():
             lines.pop(0)
         while lines and not lines[-1].strip():
