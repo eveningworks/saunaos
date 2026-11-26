@@ -1241,6 +1241,10 @@ from the default (a sound card, a USB mouse, `--reboot`).
   the Leave page dry and Esc backing out. Positive controls: the strip
   handler returning early reddens every menu check and leaves the two
   controls green; a choice that writes nothing reddens checks 2 and 3.
+  Then thirty `/tests/winclient` windows make one group: its popup
+  lists every window (it stopped at 12) and, taller than the screen,
+  scrolls -- the last row out of view, the wheel and End bringing it in,
+  Enter on Close all asking all thirty (`gui ctxmenu --json`'s `shown`).
   In `gui_regress.py`.
 - **`mines_test.py`** -- Minesweeper END TO END (its rules -- the
   clock, the first click's safe 3x3, flags, a press dragged off a cell --
@@ -2416,7 +2420,10 @@ from the default (a sound card, a USB mouse, `--reboot`).
   -- the old polling loop gave about 15,000. Its focus check is a ROUND TRIP:
   capture a Terminal's content focused, take focus away and require it
   to CHANGE, give focus back and require it to match the first capture
-  EXACTLY -- "it changed" alone is satisfied by almost anything.
+  EXACTLY -- "it changed" alone is satisfied by almost anything. Check
+  8: `/tests/manywin` opens twelve dialog windows from one process --
+  past uapp's eight static slots -- and every handle still names its
+  window; the compositor lists all twelve.
 - **`scummvm_data_test.py`** -- ScummVM's front (`userland/apps/apps/scummvm/`,
   `docs/sdl-design.md` stage 4): with no game, the free-games card
   (`ui/uui_datacard.h`, several at once: a click ticks and unticks); a

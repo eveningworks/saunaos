@@ -7245,6 +7245,9 @@ it declined:
 Two consequences worth stating. **`WIN_CLIENT_MAX` is 8 now and it sizes
 the CLIENT's table only** -- the compositor grows its list on demand and
 never enforced it; a toplevel plus a five-deep menu is six surfaces.
+(Since 2026-11-26, fixed tables round 4 B, the client's table grows too
+and the constant is gone: the first eight slots static, each past them
+its own block, as a slot must never move under a handle.)
 And **three widgets use the surface now** -- `uui_menubar`'s levels,
 `uui_dropdown`'s list and `uui_toolbar`'s tooltip. Each keeps its
 in-window fallback for a refusal. The tooltip is what made the grab a

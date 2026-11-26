@@ -1290,6 +1290,7 @@ step.
 - **Multiple windows per process.** The protocol carries window ids and
   `win_server.c` already tracks `WIN_CLIENT_MAX` per client, but nothing
   opens more than one, so the path is untested rather than missing.
+  (Done 2026-09-09; since 2026-11-26 a client holds as many as it opens.)
 - **A shared library for Toykit.** Every client statically links it
   today. Milestone 35.
 - **Anything about how the desktop looks.** This is a plumbing change;

@@ -343,7 +343,8 @@ those objects anonymous.
 **THE CLIENT PROPOSES ITS OWN SLOT, and the buffer is `win.<pid>.<slot>`.**
 `struct win_request_msg`'s `window` field is an OUTPUT on
 `WIN_REQ_CREATE` and free as an input, so the client picks a slot in
-0..WIN_CLIENT_MAX-1 and the kernel accepts it or refuses it as taken.
+0 upward and the kernel accepts it or refuses it as taken (the client's
+table grows: `WIN_CLIENT_MAX`, its old bound, went with fixed tables round 4 B).
 That leaves `text` carrying `app_id`, which must keep riding CREATE so a
 window is never briefly nameless (`WIN_REQ_ACTIVATE` matches on it), and
 it means no field has to be added to the hot-path message.

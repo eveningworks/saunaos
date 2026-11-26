@@ -518,6 +518,12 @@ identically:
 - **Esc closes ONE level**, not the whole chain.
 - **Separators and disabled rows are skipped by the arrows** and commit
   nothing when released on.
+- **A menu taller than its room SCROLLS** (Win32's and GTK's): an arrow
+  strip at the top and bottom, a click on one moving a row and greyed at
+  its end, the wheel three rows a notch, Home/End, and the highlight kept
+  in view. Its room is the screen for a popup surface, the bounds for one
+  drawn in-window -- so a list of windows or choices is never cut where
+  the screen ends (`tools/hostchecks/uitest/menuscroll_uitest.c`).
 
 **A CONTEXT MENU IS THE SAME WIDGET AND OPENS ON THE SECONDARY
 RELEASE.** `uui_menubar_open_at()` puts a free-floating popup at a

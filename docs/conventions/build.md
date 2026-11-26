@@ -1298,6 +1298,17 @@ tree passes it too**. The live image deliberately does not, and
 exists for. The marker is not in the seed tree because the live image is
 made from the same tree.
 
+## A FIXTURE WITH A LONG NAME GOES ON THE DISK, NOT IN /tmp
+
+`/tmp` is ramfs, and ramfs holds a name of 47 bytes at most
+(`RAMFS_NAME_MAX`, `kernel/fs/ramfs.c`; on the roadmap, fixed tables
+round 4 C) where tfs3 and FAT32 take 255. A test of something that must
+handle a long name writes its fixture under `/home/user` (or the test's
+own folder there) and removes it after: in `/tmp` the CREATE fails, and
+the test reads as the code under test refusing the name. Check the
+write's own result -- `appentry_test`'s long entry was a failed `fopen`
+before it was anything else.
+
 ## A FIXTURE AN APP CHANGES IS MADE AS THE DESKTOP'S ACCOUNT
 
 The debug console's `sh` and `tsh` run as ROOT, and the desktop's apps as

@@ -743,8 +743,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~The fixed tables still left: Notepad, soundd, the tray, init, ld.so and a dozen more~~ DONE 2026-10-28
 - [ ] The ring-3 tables kept for now: GRUB's entries, Places and pins, Paint's layers, remote desktop's trusted viewers
 - [ ] Paths sized to fit in Notepad, Paint, Image Viewer, Music Player and Video Player -- fixed tables round 4, A2
-- [ ] App lists that stop without saying so: rename boxes, bookmarks, the bin, pins, recents, taskbar groups, sessions -- round 4, B
-- [ ] IPC and kernel caps: uchan peers, listen backlog, datagram queue, unveil entries, mount points, completion -- round 4, C
+- [x] ~~App lists that stop without saying so -- round 4, B~~ DONE 2026-11-26 -- and a menu taller than the screen scrolls
+- [ ] IPC and kernel caps: uchan peers, backlog, datagrams, unveil, mount points, completion, ramfs names, sessions -- round 4, C
 - [ ] The clipboard past one 64 KiB page, data handed over as Wayland does -- round 4, D (design doc first)
 - [x] ~~The kernel's resource tables, grown to a ceiling sized from RAM~~ DONE 2026-10-28
 - [x] ~~Config files read at their own size, past 4 KiB~~ DONE 2026-10-29
@@ -1200,7 +1200,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: Clock's Always on Top~~ DONE 2026-10-21 -- a program's own system-menu items, HWND_TOPMOST as toywm's Always on Top
 - [ ] w16: a pie's or chord's straight edge a pixel off 3.11's where an arc ends between two outline pixels
 - [ ] w16: a dialog of the program's own class that is not its main window -- an owned one, or a second
-- [ ] w16: more than seven windows beside the main one -- uapp's surface table is `WIN_CLIENT_MAX` and an eighth fails silently
+- [x] ~~w16: more than seven windows beside the main one~~ DONE 2026-11-26 -- uapp's slots grow (round 4 B)
 - [x] ~~w16: a menu bar wider than its window wraps to a second line, as 3.1's did~~ DONE 2026-11-16 -- `menuwrap.exe`
 - [x] ~~w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)~~ DONE 2026-11-16 -- to page 47
 - [ ] w16: a dialog's font at its template's size -- every dialog font is drawn at 8 points, and WM_GETFONT on a dialog answers none
