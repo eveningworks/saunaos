@@ -27,6 +27,9 @@ void wm_login_damage(void);
 int  wm_login_key(int key, uint8_t mods);
 // Over the password field: the pointer is the text cursor there.
 int  wm_login_text_at(int mx, int my);
+// The keyboard-layout button's screen rect, where the layout list opens
+// above; 0 when the screen is closed or there is one layout.
+int  wm_login_keyboard_rect(int *x, int *y, int *w, int *h);
 // It hides the whole scene: windows, desktop and taskbar are not drawn.
 int  wm_login_covers(void);
 

@@ -124,6 +124,7 @@ static void perform(void) {
         leave_page_cancel();
         wm_exit_code = INITCTL_EXIT_SIGN_OUT;
         wm_exit_requested = 1;
+        wm_compositor_handover(1);   // the login screen follows: no console between
         break;
     default:
         leave_page_cancel();

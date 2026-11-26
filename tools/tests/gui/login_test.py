@@ -22,6 +22,13 @@ WHAT IT CHECKS (users D2b, docs/users-design.md)
   * (users D2c) behind the login screen the console runs /bin/login, not
     a shell; Super+L locks the session, a wrong password keeps it locked
     and the right one unlocks it.
+  * (2026-11-26) with two keyboard layouts the login screen's bottom-left
+    Keyboard button opens the layout list over it, drawn (the card's light
+    pixels above the button), and a row switches the layout; and a
+    sign-out and a sign-in HAND OVER the screen -- the kernel holds the
+    last frame ("handed over") and never gives it to the console between;
+    the password field's eye is drawn once something is typed, and a click
+    shows the letters and a second the stars again.
 
 What a broken version would still pass, and what stops it: a greeter
 that let any password in passes the sign-in, so a wrong one must be
@@ -33,7 +40,9 @@ desktop is back", so the login screen must be seen in between, with
 It puts the machine back: no password, automatic sign-in on.
 
 POSITIVE CONTROL: make privd's pass_check() always 1 -- "a wrong password
-is refused" goes red.
+is refused" goes red. Drop leave_page.c's wm_compositor_handover(1) --
+"a sign-out hands the screen over" goes red; drop the "loginlayout" row
+from wm_overlay.c -- "the list draws over the login screen" goes red.
 """
 
 RUNNER = {
@@ -70,6 +79,86 @@ def login_state(dbg):
         return dbg.json("gui login") or {}
     except (ValueError, OSError):
         return {}
+
+
+def compositor_log(dbg):
+    """(handed over, console restored) counts in the kernel log."""
+    out = dbg.send("sh dash -c \"dmesg | grep 'win: compositor'\"") or ""
+    return out.count("handed over"), out.count("console restored")
+
+
+def keyboard_round(dbg, qmp, tmp):
+    """The login screen's Keyboard button and its list (mockup K1)."""
+    st = poll(lambda: (lambda c: c if c.get("keyboard", {}).get("w") else None)(
+        {c["name"]: c for c in login_state(dbg).get("controls", [])}), 10, 0.3)
+    check("with two layouts the login screen has a Keyboard button", bool(st), str(login_state(dbg))[:200])
+    if not st:
+        return
+    kb = st["keyboard"]
+    dbg.click(kb["cx"], kb["cy"])
+    lay = poll(lambda: (lambda j: j if j.get("open") else None)(dbg.json("gui layout --json") or {}), 5, 0.2)
+    check("a click on it opens the layout list", bool(lay), str(dbg.json("gui layout --json"))[:200])
+    if not lay:
+        return
+    scr = dbg.json("gui state --json")["screen"]
+    dbg.warp_cursor(qmp, scr["w"] - 5, 5, settle=False)
+    shot = os.path.join(tmp, "login-layout.png")
+    qmp.screenshot(shot)
+    img = Image.open(shot).convert("RGB")
+    # The card is light; the login screen's background behind it is dark.
+    row = lay["rows"][0]
+    px = img.getpixel((kb["x"] + 6, row["cy"]))
+    check("...and the list draws over the login screen, above the button", min(px) > 200 and row["cy"] < kb["y"],
+          f"pixel {px} at the first row, row y {row['cy']} vs button y {kb['y']}")
+    us = lay.get("codes", []).index("us") if "us" in lay.get("codes", []) else -1
+    if us >= 0:
+        r = lay["rows"][us]
+        dbg.click(r["cx"], r["cy"])
+        v = _res.check_eventually("a row switches the layout", lambda: (dbg.send("sh config get system.keyboard.layout") or "").strip(),
+                                  ok=lambda v: v == "us", timeout=5)
+        j = dbg.json("gui layout --json") or {}
+        check("...and closes the list", not j.get("open"), str(j)[:120])
+
+
+def reveal_round(dbg, qmp, tmp):
+    """The field's eye (uui_textbox `revealed`): drawn once something is
+    typed, and a click shows the letters, a second the stars again."""
+    f = {c["name"]: c for c in login_state(dbg).get("controls", [])}.get("field")
+    if not f:
+        check("the login field is there for its eye", False, str(login_state(dbg))[:160])
+        return
+    scr = dbg.json("gui state --json")["screen"]
+    eye_x, eye_y = f["x"] + f["w"] - f["h"] // 2, f["y"] + f["h"] // 2
+    text_box = (f["x"] + 4, f["y"] + 4, f["x"] + f["w"] - f["h"] - 2, f["y"] + f["h"] - 4)
+
+    def shot(tag):
+        dbg.warp_cursor(qmp, scr["w"] - 5, 5, settle=False)
+        dbg.settle()
+        p = os.path.join(tmp, f"login-eye-{tag}.png")
+        qmp.screenshot(p)
+        return Image.open(p).convert("RGB")
+
+    img = shot("hidden")
+    eye_box = (f["x"] + f["w"] - f["h"] + 4, f["y"] + 4, f["x"] + f["w"] - 4, f["y"] + f["h"] - 4)
+    ink = sum(1 for x in range(eye_box[0], eye_box[2]) for y in range(eye_box[1], eye_box[3])
+              if sum(img.getpixel((x, y))) < 3 * 200)
+    check("with a password typed, the field draws its eye", ink > 8, f"{ink} dark pixels in the eye's square")
+    # Pixels that differ between two crops of the text. THE CARET BLINKS in
+    # it (2 px wide, a row tall): a few dozen pixels it may explain, the
+    # letters against the stars it cannot.
+    def differ(a, b):
+        return sum(1 for pa, pb in zip(a.getdata(), b.getdata()) if pa != pb)
+    caret_px = 3 * f["h"]
+    hidden = img.crop(text_box)
+    dbg.click(eye_x, eye_y)
+    shown = shot("shown").crop(text_box)
+    d = differ(hidden, shown)
+    check("a click on the eye shows the password: the field's text changes", d > caret_px,
+          f"{d} pixels differ (the caret alone could be {caret_px})")
+    dbg.click(eye_x, eye_y)
+    again = shot("again").crop(text_box)
+    d = differ(hidden, again)
+    check("...and a second hides it again, as it was", d <= caret_px, f"{d} pixels differ from the first")
 
 
 def type_text(dbg, text):
@@ -188,8 +277,13 @@ def main():
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
     dbg.settle()
+    layouts = (dbg.send("sh config get system.keyboard.layouts") or "").strip()
+    active = (dbg.send("sh config get system.keyboard.layout") or "").strip()
     try:
         if set_password(dbg) and sign_out(dbg):
+            ho, cr = compositor_log(dbg)
+            check("a sign-out hands the screen over: the frame held, no console between", ho >= 1 and cr == 0,
+                  f"handed over {ho}, console restored {cr}")
             st = login_state(dbg)
             ctl = {c["name"]: c for c in st.get("controls", [])}
             scr = dbg.json("gui state --json")["screen"]
@@ -228,7 +322,11 @@ def main():
                     crops.append(Image.open(pth).convert("RGB").crop(box).tobytes())
                     time.sleep(0.3)  # sleep-ok: sampling a 500 ms blink, the thing asserted
                 check("the caret blinks in the field", len(set(crops)) > 1, f"{len(set(crops))} distinct of 4")
+            dbg.send("sh config --machine set system.keyboard.layouts fi,us")
+            dbg.send("sh config --machine set system.keyboard.layout fi")
+            keyboard_round(dbg, qmp, args.tmp)
             type_text(dbg, "not-it")
+            reveal_round(dbg, qmp, args.tmp)
             dbg.key("0x0a")
             st = poll(lambda: (lambda s: s if "Wrong password" in s.get("message", "") and not s.get("busy")
                                else None)(login_state(dbg)), 20, 0.5)
@@ -242,6 +340,9 @@ def main():
                 login_state(dbg)), 60, 0.5)
             check("the right password starts the session: a desktop, not the greeter", bool(back),
                   str(login_state(dbg))[:160])
+            ho, cr = compositor_log(dbg)
+            check("...handed over too: the login screen held until the desktop drew", ho >= 2 and cr == 0,
+                  f"handed over {ho}, console restored {cr}")
             ps = dbg.send("sh ps --user") or ""
             row = [ln for ln in ps.splitlines() if re.search(r"\btoywm\b", ln)]
             check("...its compositor running as user", bool(row) and all(re.search(r"\buser\b", r) for r in row),
@@ -281,6 +382,10 @@ def main():
     finally:
         dbg.send("sh passwd -d user")
         dbg.send("sh config set --machine login.autologin user")
+        if layouts:
+            dbg.send(f"sh config --machine set system.keyboard.layouts {layouts}")
+        if active:
+            dbg.send(f"sh config --machine set system.keyboard.layout {active}")
     st = dbg.send("sh passwd -S user") or ""
     check("the machine is put back: no password", "user NP" in st, st.strip()[-60:])
     return _res.finish("login_test")

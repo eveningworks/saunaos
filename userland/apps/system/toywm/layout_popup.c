@@ -5,6 +5,7 @@
 #include "wm_tray.h"
 #include "wm_overlay.h"
 #include "wm_log.h"
+#include "wm_login.h"
 #include "ui/uui.h"
 #include "ui/utheme.h"
 #include "kapi.h"
@@ -40,6 +41,7 @@ static char g_tray_text[16];
 static int g_switching;
 static int g_pick = -1;
 static int g_hover = -1;          // a row, LAYOUT_MAX for the footer button
+static int g_dismissed;           // a login-screen click outside closed it (layout_take_dismissed)
 
 // --- reading ------------------------------------------------------------
 
@@ -103,6 +105,7 @@ int layout_tray_id(void) { return g_tray_id; }
 void layout_open_page(void) { open_now(0); }
 void layout_next(void) { if (g_n > 1) { int a = g_active < 0 ? 0 : g_active; switch_to((a + 1) % g_n); } }
 int layout_count(void) { return g_n; }
+int layout_take_dismissed(void) { int d = g_dismissed; g_dismissed = 0; return d; }
 int layout_active(void) { return g_active; }
 int layout_pick(void) { return g_switching ? g_pick : -1; }
 const char *layout_code(int i) { return i >= 0 && i < g_n ? g_codes[i] : ""; }
@@ -130,10 +133,22 @@ static void geometry(struct layout_geom *g) {
     if (w < min_w) w = min_w;
     if (w < ugfx_char_w() * 22) w = ugfx_char_w() * 22;
     g->row_h = m.row_h;
-    g->foot_h = m.foot_h;
     // The header every flyout has (and the one Quick Settings puts Back
     // over, on the badge), then the list.
     g->hero_h = m.hero_h;
+    // ON THE LOGIN SCREEN the list opens above its Keyboard button and has
+    // no "Keyboard settings..." footer: no Settings behind a login or lock.
+    int kx, ky, kw, kh;
+    if (wm_login_keyboard_rect(&kx, &ky, &kw, &kh)) {
+        int lh = m.hero_h + 1 + m.vpad + g_n * m.row_h + m.vpad;
+        int x, y;
+        wm_popup_place(kx, ky - ugfx_px(6) - lh, w, lh, &x, &y);
+        g->x = x; g->y = y; g->w = w; g->h = lh;
+        g->tray_x = kx; g->tray_y = ky; g->tray_w = kw; g->tray_h = kh;
+        g->rows_y = y + m.hero_h + 1 + m.vpad;
+        return;   // no footer: foot_h and btn_* stay 0, which nothing hits
+    }
+    g->foot_h = m.foot_h;
     int h = m.hero_h + 1 + m.vpad + g_n * m.row_h + m.vpad + m.foot_h;
 
     int tx = 0, ty = 0, tw = 0, th = 0;
@@ -158,7 +173,7 @@ int layout_rect(int *x, int *y, int *w, int *h) {
     return 1;
 }
 
-void layout_damage(void) { wm_overlay_damage("layout"); }
+void layout_damage(void) { wm_overlay_damage(wm_login_open ? "loginlayout" : "layout"); }
 
 int layout_tray_center(int *x, int *y) {
     struct layout_geom g;
@@ -248,6 +263,16 @@ static int row_at(const struct layout_geom *g, int mx, int my) {
 int layout_handle_click(int mx, int my) {
     struct layout_geom g;
     geometry(&g);
+    // The login screen's: its Keyboard button is the login screen's own
+    // control (it toggles the list at release), and a click elsewhere only
+    // closes the list -- wm_login.c drops that press's release.
+    if (wm_login_open) {
+        if (!layout_open || uui_hit(g.tray_x, g.tray_y, g.tray_w, g.tray_h, mx, my)) return 0;
+        int r = row_at(&g, mx, my);
+        if (!uui_hit(g.x, g.y, g.w, g.h, mx, my)) { layout_close(); g_dismissed = 1; return 1; }
+        if (r >= 0) { layout_close(); switch_to(r); }
+        return 1;
+    }
     if (!layout_open) {
         if (tray_is_hidden(g_tray_id)) return 0;
         if (uui_hit(g.tray_x, g.tray_y, g.tray_w, g.tray_h, mx, my)) {
@@ -283,7 +308,7 @@ int layout_hover_at(int mx, int my) {
     struct layout_geom g;
     geometry(&g);
     int h = row_at(&g, mx, my);
-    if (h < 0 && uui_hit(g.btn_x, g.btn_y, g.btn_w, g.btn_h, mx, my)) h = LAYOUT_MAX;
+    if (h < 0 && g.btn_w && uui_hit(g.btn_x, g.btn_y, g.btn_w, g.btn_h, mx, my)) h = LAYOUT_MAX;
     if (h != g_hover) { g_hover = h; layout_damage(); }
     return uui_hit(g.x, g.y, g.w, g.h, mx, my);
 }
@@ -335,5 +360,5 @@ void layout_draw(int mx, int my) {
         wm_flyout_radio_row(g.x + m.pad / 2, g.rows_y + i * g.row_h, g.w - m.pad, g.row_h,
                             sel, hot, g_names[i], code);
     }
-    wm_flyout_button(g.btn_x, g.btn_y, FOOT_LABEL, 0, 0, g_hover == LAYOUT_MAX, 0);
+    if (g.btn_w) wm_flyout_button(g.btn_x, g.btn_y, FOOT_LABEL, 0, 0, g_hover == LAYOUT_MAX, 0);
 }

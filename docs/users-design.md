@@ -597,6 +597,18 @@ telnetd runs `login(1)` as root, which drops to the account.
 
 As built (2026-11-25), and where it differs from the plan:
 
+- **The login screen (2026-11-26)**: with more than one keyboard layout,
+  the bottom-left "Keyboard: FI" is a button opening the tray's own layout
+  list above it (no "Keyboard settings..." footer there), and Super+Space
+  switches as on the desktop. Every password field -- the login and lock
+  screens, the administrator prompt, Settings' and first-boot setup's --
+  has an EYE inside its right edge once it holds text: a click shows the
+  letters, a second the stars, and new text starts hidden (`uui_textbox`'s
+  `revealed`; KDE's login field and GTK's peek icon). A sign-in and a
+  sign-out HAND OVER the screen: the compositor arms `WIN_ROLE_HANDOVER`
+  first, and the kernel holds its last frame, as it is, until the next
+  compositor claims the screen (15 s, then the console) -- where the
+  console had shown for half a second.
 - **Lock**: Super+L, and resuming from the saver or a dark screen when
   `desktop.lock_on_resume` is on and the account has a password (asked
   of privd only then, never per frame). `wm_login.c`'s LOCK mode, the

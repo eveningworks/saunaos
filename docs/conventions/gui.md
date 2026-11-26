@@ -3521,6 +3521,12 @@ real scanout hardware does. Do not write a pixel assertion for one.
   since it was written. And **nothing re-hovers while the primary
   button is down**, stated once in the core rather than guarded per
   overlay, so a dragged slider or an armed button keeps its highlight.
+  **A ROW'S `handle_click` AND `hover_at` RUN WHETHER OR NOT IT IS OPEN**
+  -- a closed tray popup opens from its own click op -- so a second row
+  for one popup (the layout list's `loginlayout`, above `login`) gates
+  both on its own condition, or the plain code runs high in the table
+  and takes clicks meant for rows below it (it took Quick Settings'
+  Back, 2026-11-26).
   **AN OPEN OVERLAY OWNS THE KEYBOARD, THROUGH THE TABLE'S `key` OP**,
   offered in the same modality order as a click -- an xdg_popup's grab,
   and Windows' menu loop. **It consumes only what it acts on**: a key

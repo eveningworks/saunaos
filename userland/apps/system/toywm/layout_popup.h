@@ -38,6 +38,9 @@ void layout_switch_commit(void);
 
 // For `gui layout --json` (wm_debug.c).
 int  layout_count(void);
+// On the login screen: 1 once when a click outside the list closed it --
+// that press's release must not also act on what it landed on.
+int  layout_take_dismissed(void);
 int  layout_active(void);
 int  layout_pick(void);
 const char *layout_code(int i);

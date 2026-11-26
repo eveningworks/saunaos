@@ -125,6 +125,34 @@ KTEST("winshare", "only the holder may release the compositor role") {
     scheduler_preempt_enable();
 }
 
+KTEST("winshare", "only the holder may arm a hand over, and arming is not a claim") {
+    struct win_request_msg req = {0};
+    int cpid, other;
+    SKIP_IF_ROLE_HELD;
+    if (!spare_pids(&cpid, &other)) KTEST_SKIP("no unused pids");
+    req.type = WIN_REQ_SET_COMPOSITOR;
+    scheduler_preempt_disable();   // the role is one global: see the test above
+
+    // With no holder, HANDOVER must not read as "a != 0, claim".
+    req.a = WIN_ROLE_HANDOVER;
+    KTEST_ASSERT_EQ(win_server_request(cpid, &req), 0);
+    KTEST_ASSERT_EQ(win_server_compositor_pid(), 0);
+
+    req.a = 1;
+    KTEST_ASSERT_EQ(win_server_request(cpid, &req), 1);
+    req.a = WIN_ROLE_HANDOVER;
+    KTEST_ASSERT_EQ(win_server_request(other, &req), 0);   // not the holder's
+    KTEST_ASSERT_EQ(win_server_request(cpid, &req), 1);
+    KTEST_ASSERT_EQ(win_server_compositor_pid(), cpid);    // still held
+    req.a = WIN_ROLE_STAY;
+    KTEST_ASSERT_EQ(win_server_request(cpid, &req), 1);
+
+    req.a = 0;
+    KTEST_ASSERT_EQ(win_server_request(cpid, &req), 1);
+    KTEST_ASSERT_EQ(win_server_compositor_pid(), 0);
+    scheduler_preempt_enable();
+}
+
 KTEST("winshare", "claiming the role needs no window server") {
     // Every other request is refused outright when no compositor holds
     // the role; SET_COMPOSITOR must not be, or nothing could ever claim

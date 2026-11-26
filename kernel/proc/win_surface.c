@@ -283,14 +283,15 @@ int win_surface_grant(int pid, uint64_t pml4, uint32_t *out_w, uint32_t *out_h,
     return ok;
 }
 
-int win_surface_hold_frame(int pid) {
+int win_surface_hold_frame(int pid, int handover) {
     if (!g_holder || g_holder != pid) return 0;
     if (g_hidden) return 0;   // a text VT has the screen: nothing to hold
     struct display_surface surf;
     display_scanout_at(g_front, &surf);
-    // 45% darker: the frame reads as "not live" and the card stands out.
-    if (!gfx_load_frame(surf.addr, surf.pitch, surf.width, surf.height, surf.bpp, 115)) return 0;
-    return vga_hold_begin();
+    // A dead desktop's is 45% darker: the frame reads as "not live" and the
+    // card stands out. A hand over's is the frame as it was.
+    if (!gfx_load_frame(surf.addr, surf.pitch, surf.width, surf.height, surf.bpp, handover ? 0 : 115)) return 0;
+    return vga_hold_begin(!handover);
 }
 
 // Under wlock(). The lessee and an ex-lessee go onto the scratch frame and

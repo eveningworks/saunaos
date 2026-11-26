@@ -50,8 +50,8 @@ static int g_snap_w, g_snap_h, g_snap_ok;
 static uint32_t g_snap_gen;
 static int g_minute = -1;
 
-enum { C_FIELD, C_GO, C_RESTART, C_SHUTDOWN, CTLS };
-static const char *const CTL_NAME[CTLS] = { "field", "go", "restart", "shutdown" };
+enum { C_FIELD, C_GO, C_RESTART, C_SHUTDOWN, C_KEYBOARD, CTLS };
+static const char *const CTL_NAME[CTLS] = { "field", "go", "restart", "shutdown", "keyboard" };
 struct rect { int x, y, w, h; };
 static struct rect g_r[CTLS];
 static int g_hot = -1, g_pressed = -1;
@@ -126,12 +126,17 @@ static void submit(void) {
     g_busy = 1;
     g_err[0] = '\0';
     g_pw.ed.flags |= UUI_EDIT_READONLY;
+    // A right password and init stops this greeter AT ONCE (SIGTERM) and
+    // starts the session's desktop: armed before asking, so the screen
+    // keeps this frame instead of showing the console between.
+    if (g_mode != WM_LOGIN_LOCK) wm_compositor_handover(1);
     if (pthread_create(&g_thr, 0, check, 0) != 0) {
         g_busy = 0;
         g_pw.ed.flags &= ~UUI_EDIT_READONLY;
         snprintf(g_err, sizeof g_err, "Could not check the password.");
         free(g_try);
         g_try = 0;
+        if (g_mode != WM_LOGIN_LOCK) wm_compositor_handover(0);
     }
     WM_REDRAW();
 }
@@ -168,6 +173,7 @@ static void answered(void) {
              : g_errno == ENOENT ? "The sign-in service is not running."
              : "Could not sign in.");
     wm_logf("login: refused (%s)\n", g_err);
+    if (g_mode != WM_LOGIN_LOCK) wm_compositor_handover(0);
     uui_textbox_set_text(&g_pw, "");
     uui_caret_reset();
     WM_REDRAW();
@@ -259,6 +265,23 @@ static void layout(void) {
     int by = screen_h - bh - u() * 2;
     g_r[C_SHUTDOWN] = (struct rect){ screen_w - bw - u() * 3, by, bw, bh };
     g_r[C_RESTART] = (struct rect){ g_r[C_SHUTDOWN].x - bw - u(), by, bw, bh };
+    // The keyboard layout, bottom left: a button opening the tray's list
+    // when there is a choice (layout_popup.h), none when there is not.
+    g_r[C_KEYBOARD] = (struct rect){ 0, 0, 0, 0 };
+    if (layout_count() > 1) {
+        char kb[48];
+        snprintf(kb, sizeof kb, "Keyboard: %s", layout_code(layout_active()));
+        int kw = ugfx_text_width(kb) + ch + u() * 2, kh = ch + u();
+        g_r[C_KEYBOARD] = (struct rect){ u() * 3, screen_h - kh - u() * 2, kw, kh };
+    }
+}
+
+int wm_login_keyboard_rect(int *x, int *y, int *w, int *h) {
+    if (!wm_login_open) return 0;
+    layout();
+    const struct rect *r = &g_r[C_KEYBOARD];
+    *x = r->x; *y = r->y; *w = r->w; *h = r->h;
+    return r->w > 0;
 }
 
 // Restart's and Shut down's icons -- the Leave page's own (leave_page.c),
@@ -318,15 +341,29 @@ void wm_login_draw(int mx, int my) {
     const char *line = g_signed_in ? "Signing in..." : g_busy ? "Checking..." : g_err;
     if (line[0]) text_c(s, cx, f->y + f->h + u(), line, g_err[0] && !g_busy ? ugfx_rgb(250, 214, 165) : SOFT);
 
-    // Bottom left: the keyboard layout and the computer's name.
+    // Bottom left: the keyboard layout -- a button when there is a choice
+    // (mockup K1) -- and the computer's name.
     char host[64] = "";
     if (!usetting_get("system.hostname", host, sizeof host)) host[0] = '\0';
     char kb[48] = "";
     const char *code = layout_count() > 0 ? layout_code(layout_active()) : 0;
     if (code && code[0]) snprintf(kb, sizeof kb, "Keyboard: %s", code);
+    for (char *p = kb + 10; *p; p++) if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
+    int hx = u() * 3;
+    const struct rect *k = &g_r[C_KEYBOARD];
+    if (k->w > 0) {
+        int a = g_hot == C_KEYBOARD || layout_open ? 90 : 56;
+        for (int y = k->y; y < k->y + k->h; y++) ugfx_blend_hspan(s, k->x, y, k->w, WHITE, 0, a);
+        ugfx_draw_string_clipped(s, k->x + u(), k->y + (k->h - ch) / 2, k->w - ch - u(), kb, WHITE, UGFX_TRANSPARENT);
+        // The chevron points the way the list opens: up.
+        int ax = k->x + k->w - u() - ch / 2, ay = k->y + k->h / 2 + ch / 8, al = ch / 4;
+        for (int i = 0; i < al; i++) ugfx_fill_rect(s, ax - i, ay - al + i, 2 * i + 1, 1, WHITE);
+        hx = k->x + k->w + u() * 2;
+        kb[0] = '\0';
+    }
     char bl[128];
     snprintf(bl, sizeof bl, "%s%s%s", kb, kb[0] && host[0] ? "    " : "", host);
-    ugfx_draw_string_clipped(s, u() * 3, screen_h - ch - u() * 3, screen_w / 2, bl, SOFT, UGFX_TRANSPARENT);
+    ugfx_draw_string_clipped(s, hx, screen_h - ch - u() * 3, screen_w / 2, bl, SOFT, UGFX_TRANSPARENT);
 
     // Bottom right: Restart and Shut down.
     for (int k = C_RESTART; k <= C_SHUTDOWN; k++) {
@@ -351,6 +388,11 @@ static int ctl_at(int x, int y) {
 static void activate(int id) {
     switch (id) {
     case C_GO: submit(); break;
+    case C_KEYBOARD:
+        if (layout_open) layout_close();
+        else layout_open_page();
+        WM_REDRAW();
+        break;
     case C_RESTART:
     case C_SHUTDOWN:
         wm_logf("login: %s\n", id == C_RESTART ? "restart" : "shut down");
@@ -369,12 +411,17 @@ void wm_login_update_press(int mx, int my, uint8_t buttons) {
     if (!wm_login_open) return;
     int at = ctl_at(mx, my);
     if (buttons & 1) {
-        if (g_pressed < 0) g_pressed = at < 0 ? -2 : at;
-        if (g_pressed == C_FIELD) uui_textbox_ops.press(&g_pw, mx, my, 0);
+        // The field hears the press EDGE once: its eye toggles on a press,
+        // and this runs every tick the button is held.
+        if (g_pressed < 0) {
+            g_pressed = at < 0 ? -2 : at;
+            if (g_pressed == C_FIELD) { uui_textbox_ops.press(&g_pw, mx, my, 0); WM_REDRAW(); }
+        }
         return;
     }
     int was = g_pressed;
     g_pressed = -1;
+    if (layout_take_dismissed()) return;   // the press only closed the layout list
     if (was >= 0 && was == at && was != C_FIELD) activate(was);
 }
 

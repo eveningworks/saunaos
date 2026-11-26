@@ -541,6 +541,14 @@ struct win_event {
                            // by application code.
 #define WIN_REQ_SET_COMPOSITOR 9 // a: 1 = claim the compositor role,
                            // 0 = release it. No other fields.
+                           // 2 = HAND OVER: the holder will go soon and
+                           // another compositor follows (a sign-in, a
+                           // sign-out), so whenever the role is next
+                           // cleared -- a release, a SIGTERM -- the
+                           // screen keeps this one's last frame, as it
+                           // is, until the next claims it (or
+                           // VGA_HOLD_S passes); 3 = not after all.
+                           // The holder's alone; answers 1.
                            //
                            // The way IN to win_server.h's compositor
                            // registration, which existed with nothing
@@ -570,6 +578,8 @@ struct win_event {
                            // last claimant wins, the same way
                            // display_register() lets the last driver
                            // claim the screen.
+#define WIN_ROLE_HANDOVER 2   // WIN_REQ_SET_COMPOSITOR's a: hand over (above)
+#define WIN_ROLE_STAY     3   // ...and taken back
 #define WIN_REQ_FONT    5 // `window` IN: the weight wanted, 0 = regular,
                            // 1 = bold (WIN_FONT_REGULAR/WIN_FONT_BOLD).
                            // Maps that weight of the desktop's ACTIVE

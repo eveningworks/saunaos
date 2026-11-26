@@ -2173,6 +2173,14 @@ int wm_claim_compositor(void) {
     return sys_win_request(&req) == 1;
 }
 
+void wm_compositor_handover(int on) {
+    struct win_request_msg req;
+    for (unsigned i = 0; i < sizeof req; i++) ((uint8_t *)&req)[i] = 0;
+    req.type = WIN_REQ_SET_COMPOSITOR;
+    req.a = on ? WIN_ROLE_HANDOVER : WIN_ROLE_STAY;
+    sys_win_request(&req);
+}
+
 void wm_client_init(void) {
     // WM_SERVER_OPS is not registered any more -- see wm_claim_compositor()
     // above. The callbacks it named become events the WM receives; the

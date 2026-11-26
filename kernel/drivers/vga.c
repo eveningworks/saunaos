@@ -1067,8 +1067,14 @@ static void fill_round(int x, int y, int w, int h, int r, uint32_t c) {
     gfx_fill_circle(x + w - r - 1, y + h - r - 1, r, c);
 }
 
-int vga_hold_begin(void) {
+int vga_hold_begin(int card) {
     if (!fb_mode) return 0;
+    if (!card) {
+        present_now();
+        g_held = 1;
+        g_held_until = coarse_ticks() + (uint64_t)VGA_HOLD_S * COARSE_HZ;
+        return 1;
+    }
     static const char title[] = "Restarting the desktop";
     static const char sub[] = "It stopped unexpectedly. Your windows will close.";
     int ch = gfx_char_h(), pad = ch;

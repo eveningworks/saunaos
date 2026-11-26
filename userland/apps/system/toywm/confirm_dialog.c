@@ -5,6 +5,7 @@
 #include "ui/uui.h"
 #include "ui/uui_caret.h"
 #include "ui/uui_textbox.h"
+#include "ui/uui_widget.h"   // uui_textbox_ops: the field's press
 #include "ui/utheme.h"
 #include "kapi.h"
 #include <stdio.h>
@@ -354,12 +355,21 @@ int confirm_dialog_handle_click(int mx, int my) {
 void confirm_dialog_update_press(int mx, int my, uint8_t buttons) {
     if (!confirm_dialog_open) return;
 
+    static int down;
     if (buttons & 0x1) {
+        // The password field hears the press EDGE: a click places its
+        // caret, or toggles its eye (uui_textbox's `revealed`).
+        if (!down && g_d.on && g_d.pw_on && !g_d.busy && uui_textbox_hit(&g_pw, mx, my)) {
+            uui_textbox_ops.press(&g_pw, mx, my, 0);
+            confirm_dialog_damage();
+        }
+        down = 1;
         // Re-hit-tested every tick, so dragging off a button visibly
         // un-presses it and dragging back re-presses.
         if (uui_button_group_press(&g_group, mx, my)) confirm_dialog_damage();
         return;
     }
+    down = 0;
 
     // Button released. -1 means either nothing was armed or the press
     // had been dragged off -- both mean "do nothing", which is the whole

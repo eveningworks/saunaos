@@ -153,7 +153,8 @@ void vga_resume(void);
 // THE HELD FRAME: when the desktop DIES (a crash or a kill, not a clean
 // exit), the screen keeps its last frame, dimmed, with a "Restarting the
 // desktop" card -- rather than the console flashing up for the moment
-// init takes to restart it. The frame must already be in the back buffer
+// init takes to restart it; `card` 0 is a HAND OVER's (a sign-in or a
+// sign-out), the frame alone. The frame must already be in the back buffer
 // (gfx_load_frame()); begin draws the card and presents, and the console
 // stops presenting until the hold ends.
 //
@@ -162,7 +163,7 @@ void vga_resume(void);
 // init has given up on still leaves a usable screen. Returns 1 when
 // holding.
 #define VGA_HOLD_S 15
-int  vga_hold_begin(void);
+int  vga_hold_begin(int card);
 void vga_hold_end(int resume);
 int  vga_held(void);
 // Asked from the console's idle loop: 1 once, when the hold has just run

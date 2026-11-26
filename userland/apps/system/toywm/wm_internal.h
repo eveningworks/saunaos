@@ -855,6 +855,10 @@ int wm_cursor_shape_changed(int mx, int my);
 // input delivery. Returns 1 on success, 0 if refused -- another process
 // may already hold it. See wm_client.c.
 int wm_claim_compositor(void);
+// A HAND OVER (`on` 1) -- a sign-in or a sign-out: when this desktop goes,
+// the screen keeps its last frame until the next one draws, rather than the
+// console; 0 takes it back. WIN_ROLE_HANDOVER.
+void wm_compositor_handover(int on);
 
 // One client-request event, turned back into the callback the ring-0
 // kernel used to make. Returns 1 if it was a client request, 0 if the

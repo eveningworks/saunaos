@@ -103,6 +103,12 @@ struct uui_textbox {
     // Latin-1, which has no bullet), and clicks place the caret by those.
     // The text itself is unchanged in `buf`.
     int masked;
+    // OWNED: a masked field's text is SHOWN, toggled by the eye drawn inside
+    // its right edge while it holds text (KDE's login field, GTK's peek
+    // icon). Hidden again by new text (uui_textbox_set_text: an Enter that
+    // empties it, a wrong password) and by emptying it; copying stays
+    // refused either way (UUI_EDIT_MASKED).
+    int revealed;
     // 1 = no ":name:" emoji completion here (ui/uui_emojicomplete.h) --
     // a field whose text is a path, a command or code. A masked field never
     // completes either way.

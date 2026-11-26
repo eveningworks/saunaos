@@ -11097,6 +11097,27 @@ watch without writing anything (`fswatch_watching()`) and takes the lock
 for the note alone (`fs_note_watchers()`), as a last put takes it for a
 release.
 
+## A sign-in and a sign-out hold the last frame, armed by the compositor that is leaving
+
+2026-11-26. Between the greeter's compositor going and the session's
+arriving (and back at a sign-out) the kernel gave the screen to the text
+console, which showed for about half a second. Windows keeps its Welcome
+screen up until the desktop is ready, and GDM keeps the greeter on screen
+until the session's compositor has painted. SaunaOS already held a
+crashed desktop's frame (dimmed, with a card) until the next one claimed
+the screen; a hand over reuses that hold, undimmed and with no card.
+
+**The leaving compositor says so; the kernel does not guess.** The
+greeter is killed by init's SIGTERM and a session's desktop exits with
+`INITCTL_EXIT_SIGN_OUT`, and neither tells the kernel "another follows";
+inferring it from the signal or the exit code would also hold the frame
+for a shutdown from the login screen, hiding the shutdown screen. So the
+compositor arms `WIN_REQ_SET_COMPOSITOR`'s `WIN_ROLE_HANDOVER` just
+before it goes -- the greeter as it asks privd to sign in, disarming on a
+refusal; the desktop at Sign out -- and whichever way the role is next
+cleared, the frame is held. A new claim clears the arm, and the 15-second
+hold timeout still hands a screen no desktop came back to to the console.
+
 ## An administrator at the machine may choose Allow alone, and a remembered password still shows the prompt
 
 Maintainer's picks, 2026-11-26. With a password set, every elevation

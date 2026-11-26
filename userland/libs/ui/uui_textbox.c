@@ -9,6 +9,7 @@
 #include "keyboard.h" // KEY_* codes, as delivered by WIN_EV_KEY
 #include "base/uutf8.h"   // a masked field's stars, and cutting on a boundary
 #include "base/udclick.h"
+#include "media/icon_cache.h"   // the eye: the theme's tb-show / tb-hide
 
 // Caret width in pixels -- a bar, not a block, so it sits between
 // characters rather than covering one.
@@ -102,6 +103,7 @@ void uui_textbox_init(struct uui_textbox *f, const char *initial) {
     f->ed.undo = &f->undo;
     f->active = 0;
     f->disabled = 0;
+    f->revealed = 0;
     f->placeholder = 0;
     f->bare = 0;
     f->no_complete = 0;
@@ -133,6 +135,7 @@ void uui_textbox_select(struct uui_textbox *f, int start, int end) {
 }
 
 void uui_textbox_set_text(struct uui_textbox *f, const char *text) {
+    f->revealed = 0;   // new text is never shown unasked
     int i = 0, cap = CAP(f);
     char *b = T(f);
     if (text) {
@@ -178,11 +181,35 @@ void uui_textbox_natural_size(const struct uui_textbox *f, int *out_w, int *out_
     if (out_h) *out_h = ugfx_char_h() + 2 * UUI_TEXTBOX_PAD; // and this one is real
 }
 
+// THE EYE (`revealed`): a square button inside a masked field's right
+// edge, there while the field holds text -- nothing to show otherwise.
+static int eye_on(const struct uui_textbox *f) { return f->masked && f->len > 0 && !f->disabled; }
+
+static void eye_rect(const struct uui_textbox *f, int *x, int *y, int *s) {
+    int in = ugfx_px(3);
+    *s = f->h - 2 * in;
+    if (*s < 0) *s = 0;
+    *x = f->x + f->w - in - *s;
+    *y = f->y + in;
+}
+
+static int eye_hit(const struct uui_textbox *f, int cx, int cy) {
+    int x, y, s;
+    eye_rect(f, &x, &y, &s);
+    return eye_on(f) && s > 0 && uui_hit(x, y, s, s, cx, cy);
+}
+
 // The pixels the text gets: the box less its padding, and less the
 // caret when there is one -- a caret at the very end of a full value
-// has to land inside the field rather than on its border.
+// has to land inside the field rather than on its border -- and less
+// the eye.
 static int field_avail(const struct uui_textbox *f) {
     int avail = f->w - 2 * UUI_TEXTBOX_PAD - (f->active ? CARET_W : 0);
+    if (eye_on(f)) {
+        int x, y, s;
+        eye_rect(f, &x, &y, &s);
+        avail -= s + ugfx_px(3);
+    }
     return avail > 0 ? avail : 0;
 }
 
@@ -238,7 +265,7 @@ static int byte_of_char(const char *s, int len, int k) {
 }
 
 static const struct uui_textbox *shown_field(const struct uui_textbox *f, struct uui_textbox *tmp) {
-    if (!f->masked) return f;
+    if (!f->masked || f->revealed) return f;
     *tmp = *f;
     tmp->big = 0;   // set_max() refuses a masked field; the copy writes its own
     int n = chars_before(f->buf, f->len);
@@ -295,6 +322,7 @@ int uui_textbox_key_mods(struct uui_textbox *f, int key, unsigned mods) {
     tb_sync(f);
     int took = uui_edit_key(&f->ed, &TB_EDIT_OPS, f, key, mods);
     if (took) uui_emojicomplete_update(f);
+    if (!f->len) f->revealed = 0;   // emptied: the next password starts hidden
     return took;
 }
 
@@ -392,6 +420,16 @@ void uui_textbox_draw(struct ugfx_surface *s, const struct uui_textbox *f0) {
         ugfx_draw_string_clipped(s, x + pad + CARET_W + 1, ty, w - 2 * pad, f->placeholder,
                                  uui_state_bg(fg, UUI_STATE_DISABLED), bg);
 
+    if (eye_on(f0)) {
+        int ex, ey, es;
+        eye_rect(f0, &ex, &ey, &es);
+        // Shown: lit, and the struck eye -- what a click does next.
+        if (f0->revealed) uui_fill_round_rect(s, ex, ey, es, es, ugfx_px(3), UUI_COLOR(f->sel_bg, UTHEME_SELECTION));
+        const struct uimg *eye = icon_get(f0->revealed ? "tb-hide" : "tb-show", es - ugfx_px(4));
+        if (eye) ugfx_blit_tinted(s, ex + (es - eye->w) / 2, ey + (es - eye->h) / 2, eye->w, eye->h, eye->px, eye->w,
+                                  f0->revealed ? UTHEME_ACCENT : uui_state_bg(fg, UUI_STATE_DISABLED));
+    }
+
     if (f->active) {
         int cx = x + pad + ugfx_text_width_n(shown, f->ed.cursor - start);
         uui_caret_at(s, cx, ty, CARET_W, ugfx_char_h());
@@ -472,6 +510,11 @@ static int tb_ops_press(void *w, int cx, int cy, unsigned mods) {
     (void)cy;
     struct uui_textbox *f = (struct uui_textbox *)w;
     if (f->disabled) return 0;
+    // THE EYE toggles and leaves the caret where it was.
+    if (eye_hit(f, cx, cy)) {
+        f->revealed = !f->revealed;
+        return 1;
+    }
     // The :name: list is an overlay, offered every press first: a row
     // inserts; anywhere else dismisses it, and the press is the field's only
     // if it landed on the field.
@@ -548,10 +591,9 @@ static void textbox_bounds_op(const void *w, int *x, int *y, int *ow, int *oh) {
     *x = c->x; *y = c->y; *ow = c->w; *oh = c->h;
 }
 
-// No coordinates consulted: a field is uniformly a place text goes.
+// A place text goes, but for the eye, which is a button.
 static int tb_ops_cursor(const void *w, int cx, int cy) {
-    (void)w; (void)cx; (void)cy;
-    return WIN_CURSOR_TEXT;
+    return eye_hit((const struct uui_textbox *)w, cx, cy) ? WIN_CURSOR_DEFAULT : WIN_CURSOR_TEXT;
 }
 
 const struct uui_widget_ops uui_textbox_ops = {

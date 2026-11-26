@@ -42,7 +42,16 @@ static int open_brightness(void) { return brightness_open; }
 static int open_network(void) { return network_open; }
 static int open_remote(void)  { return remote_open; }
 static int open_drives(void)  { return drives_open; }
-static int open_layout(void)  { return layout_open; }
+static int open_layout(void)  { return layout_open && !wm_login_open; }
+// THE SAME LIST OVER THE LOGIN SCREEN (its Keyboard button, Super+Space),
+// in a row above "login" so it draws over it and hears its keys first.
+static int open_login_layout(void) { return layout_open && wm_login_open; }
+// ITS CLICK AND HOVER ONLY WHILE THE LOGIN SCREEN IS UP: every row's click
+// op is called open or not (a closed tray popup opens from its own), and
+// this row sits above "quick" -- the plain layout code here took Quick
+// Settings' Back on the layout page.
+static int login_layout_click(int mx, int my) { return wm_login_open && layout_handle_click(mx, my); }
+static int login_layout_hover(int mx, int my) { return wm_login_open && layout_hover_at(mx, my); }
 static int open_notify(void)  { return wm_notify_open; }
 static int open_confirm(void) { return confirm_dialog_open; }
 static int open_leave(void) { return leave_page_open; }
@@ -77,6 +86,9 @@ static const struct wm_overlay g_overlays[] = {
     // whole screen while it fades.
     { "flash",    wm_flash_open, wm_flash_draw,    tooltip_click,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, WM_OVERLAY_REPAINT_WHILE_OPEN, 0 },
+    // The keyboard-layout list over the login screen (open_login_layout).
+    { "loginlayout", open_login_layout, layout_draw, login_layout_click,
+      login_layout_hover,        layout_damage,           layout_rect, 0, 0, layout_key, layout_close, 0, 0, 0, 0, 0, 0 },
     // The login and lock screen (wm_login.h): over everything but the
     // passive flash and tooltip, so nothing of the session draws over it
     // or hears a key while it is up.

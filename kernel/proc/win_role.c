@@ -49,6 +49,7 @@
 // The registered compositor: the one process raw input is delivered to,
 // and the one the framebuffer is granted to.
 static int g_comp_pid = 0;
+static int g_handover;   // WIN_ROLE_HANDOVER, armed by the holder; cleared with the role
 static uint64_t g_comp_pml4 = 0;
 
 // See win_proto.h's WIN_REQ_FB_CURSOR. Belongs to the ROLE, like the
@@ -216,6 +217,11 @@ int win_server_request(int pid, struct win_request_msg *req) {
     // role is what a window server does before it is one, so gating it
     // on the role would make it unreachable. See WIN_REQ_SET_COMPOSITOR.
     if (req->type == WIN_REQ_SET_COMPOSITOR) {
+        if (req->a == WIN_ROLE_HANDOVER || req->a == WIN_ROLE_STAY) {
+            if (pid != g_comp_pid || !g_comp_pid) return 0;
+            g_handover = req->a == WIN_ROLE_HANDOVER;
+            return 1;
+        }
         if (req->a) return win_server_set_compositor(pid, vmm_current_pml4());
         // Releasing is only yours to do. Without this any process could
         // evict the compositor and silently take the input stream and
@@ -489,7 +495,9 @@ static void compositor_gone(int held) {
     // a clean exit) hands the screen straight back: the console repaints
     // rather than inheriting whatever the compositor left.
     if (held) {
-        klog_write("win: compositor died -- holding its last frame until a desktop is back\n");
+        klog_write(died_of_crash(g_dying_code)
+                       ? "win: compositor died -- holding its last frame until a desktop is back\n"
+                       : "win: compositor handed over -- holding its last frame for the next\n");
         return;
     }
     // Shutting down: the shutdown screen, not the console's log and prompt.
@@ -508,7 +516,11 @@ int win_server_set_compositor(int pid, uint64_t pml4) {
     if (g_comp_pid && g_comp_pml4) {
         // BEFORE the revoke, which flips to buffer 0: the frame to hold is
         // the one on screen now.
-        if (pid == 0 && died_of_crash(g_dying_code)) held = win_surface_hold_frame(g_comp_pid);
+        if (pid == 0 && died_of_crash(g_dying_code)) held = win_surface_hold_frame(g_comp_pid, 0);
+        // A HAND OVER (a sign-in, a sign-out): the frame as it is, no card
+        // -- the next desktop draws over it, as GDM's greeter stays up
+        // until the session has painted.
+        else if (pid == 0 && g_handover) held = win_surface_hold_frame(g_comp_pid, 1);
         // The framebuffer grant goes the same way and for the same
         // reason: it belongs to the ROLE, not to the process. This is
         // the one place the role is cleared -- deregistration, a kill
@@ -535,6 +547,7 @@ int win_server_set_compositor(int pid, uint64_t pml4) {
 
     g_comp_pid = pid;
     g_comp_pml4 = pid ? pml4 : 0;
+    g_handover = 0;   // the role's, and the role just changed hands
     // The queue belongs to the ROLE: a successor must not inherit a
     // predecessor's keystrokes, or a `gui` command meant for it -- nor
     // the keyboard's own queued edges and owed releases.
