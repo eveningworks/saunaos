@@ -1,11 +1,12 @@
 Type=enum
 File=/etc/saunaos.conf
-Label=Reboot if the network never comes up
+Label=Restart if the network never comes up
 Category=Network
 Group=Recovery
 # Off by default: a machine that reboots itself unasked is alarming on a
 # desktop. This is for a headless test machine whose only fault symptom
-# is being unreachable. Read by /bin/netheal.
+# is being unreachable. Read by /bin/netheal, which never restarts over
+# a person at the machine: it asks them with a notification instead.
 Default=off
 Choices=on,off
 Order=10

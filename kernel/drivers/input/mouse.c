@@ -1,4 +1,5 @@
 #include "mouse.h"
+#include "input.h"   // input_note_activity()
 #include "irqflags.h"   // irq_save(): a device report may land between the read and the reset
 #include "io.h"
 #include "klog.h"
@@ -242,6 +243,7 @@ void mouse_feed_byte(uint8_t data) {
 // above is now just one caller among several.
 
 void mouse_feed_rel(int dx, int dy) {
+    if (dx || dy) input_note_activity();   // a person is here (QUERY_INPUT)
     // SPEED, then ACCELERATION -- both applied here, at the one place
     // raw device deltas become screen motion, so nothing downstream
     // needs to know either exists.
@@ -299,9 +301,11 @@ void mouse_feed_abs(int x, int y, int max_x, int max_y) {
     // 64-bit intermediates: a tablet's range is commonly 0..32767 and
     // the screen can be 1920 wide, which overflows a 32-bit multiply
     // only just -- but "only just" is how this class of bug ships.
+    int was_x = mouse_x, was_y = mouse_y;
     mouse_x = (int)(((int64_t)x * (bound_w - 1)) / max_x);
     mouse_y = (int)(((int64_t)y * (bound_h - 1)) / max_y);
     clamp_to_bounds();
+    if (mouse_x != was_x || mouse_y != was_y) input_note_activity();   // a tablet repeats itself
 }
 
 // **EVERY CHANGE IS ALSO QUEUED, BECAUSE THE LEVEL ALONE LOSES CLICKS.**
@@ -356,11 +360,13 @@ static void set_buttons(uint8_t mask) {
 }
 
 void mouse_feed_buttons(uint8_t mask) {
+    if ((mask & 0x1F) != g_dev_buttons) input_note_activity();
     g_dev_buttons = mask & 0x1F;
     set_buttons(g_dev_buttons | g_inj_buttons);
 }
 
 void mouse_inject_buttons(uint8_t mask) {
+    if (mask & ~g_inj_buttons) input_note_activity();   // a press, as a device's
     g_inj_buttons = mask & 0x1F;
     set_buttons(g_dev_buttons | g_inj_buttons);
 }
@@ -387,7 +393,10 @@ int mouse_try_get_button_transition(uint8_t *out_mask) {
     return mouse_try_get_button_edge(out_mask, 0, 0);
 }
 
-void mouse_feed_wheel(int notches) { wheel_delta += notches; }
+void mouse_feed_wheel(int notches) {
+    if (notches) input_note_activity();
+    wheel_delta += notches;
+}
 
 // See api/mouse.h: applied at the CONSUMING read, the one point every
 // wheel source and consumer share -- transforming at feed time would

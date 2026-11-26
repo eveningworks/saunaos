@@ -19,6 +19,9 @@
 #include <string.h>   // memcpy: a long title's pieces
 #include "wm_internal.h"
 #include "wm_login.h"
+#include "leave_page.h"   // WIN_REQ_LEAVE
+#include "proc_info.h"
+#include <errno.h>
 #include "wm_prof.h"
 #include "crash_notice.h"
 #include "wm_thumb.h"
@@ -1593,6 +1596,23 @@ static void req_launch(int from, struct wmchan_msg *m) {
     uchan_server_reply(&g_chan, from, &r, sizeof r);
 }
 
+// WIN_REQ_LEAVE: a root program's Restart, run through the Leave page so
+// every app is asked first. Anyone else is refused -- an app that could
+// restart the machine would not need the person.
+static void req_leave(int from, struct wmchan_msg *m) {
+    struct proc_info pi;
+    int root = 0;
+    for (int i = 0; sys_proc_info(i, &pi) == 0; i++)   // any thread of the sender
+        if (pi.pid == from) { root = pi.euid == 0; break; }
+    struct wmchan_msg r;
+    k_memset(&r, 0, sizeof r);
+    r.type = WIN_REQ_LEAVE;
+    r.a = !root ? -EPERM : m->a != WIN_LEAVE_RESTART ? -EINVAL : 0;
+    if (!r.a && leave_page_run(LEAVE_RESTART) < 0) r.a = -EBUSY;
+    else wm_logf("leave: refused a request from pid %d (%d)\n", from, r.a);
+    uchan_server_reply(&g_chan, from, &r, sizeof r);
+}
+
 static void req_notify_close(int from, struct wmchan_msg *m) {
     wm_notify_close_request(from, (uint32_t)m->a);
 }
@@ -1877,6 +1897,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_NOTIFY] = req_notify,
     [WIN_REQ_NOTIFY_CLOSE] = req_notify_close,
     [WIN_REQ_LAUNCH] = req_launch,
+    [WIN_REQ_LEAVE] = req_leave,
     [WIN_REQ_TABS] = req_tabs,
     [WIN_REQ_TAB] = req_tab,
     [WIN_REQ_HINTS] = req_hints,

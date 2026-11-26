@@ -1453,6 +1453,14 @@ struct win_popup_pos {
                            // batch sent. The pending map replaces the
                            // window's only when it holds exactly that
                            // many -- a batch that lost one is dropped.
+// THE LEAVE PAGE'S RESTART, asked by a ROOT program for the person at the
+// desktop -- logind's Reboot() going through the session, never past it:
+// the compositor runs its own Restart, which asks every app to close (and
+// stops if one says no) before init restarts the machine. a:
+// WIN_LEAVE_RESTART. ANSWERED: a = 0 begun, -EPERM a sender not root,
+// -EINVAL an unknown a, -EBUSY the person already leaving (apps closing).
+#define WIN_REQ_LEAVE         57
+#define WIN_LEAVE_RESTART     1
 #define WIN_WIDGET_WH(w, h) (int32_t)(((w) << 16) | ((h) & 0xffff))
 #define WIN_WIDGET_W(c)     (int)(((uint32_t)(c) >> 16) & 0xffff)
 #define WIN_WIDGET_H(c)     (int)((uint32_t)(c) & 0xffff)

@@ -502,6 +502,7 @@ static void key_event(uint16_t keycode, int down, uint16_t wire, int extended) {
     // the PS/2 wire and every keycode driver meet: PS/2 never passes
     // through input_report_key().
     splash_key(keycode, down);
+    if (down) input_note_activity();   // a person is here (QUERY_INPUT)
     uint64_t f = irq_save();
     key_event_body(keycode, down, wire, extended);
     irq_restore(f);

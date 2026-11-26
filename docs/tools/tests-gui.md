@@ -1040,6 +1040,18 @@ from the default (a sound card, a USB mouse, `--reboot`).
   settled frame: keys typed in the same moment were lost (`docs/bugs.md`).
   Positive control: make privd's `pass_check()` always 1 -- the wrong
   password's two checks go red.
+- **`netheal_session_test.py`** -- netheal with a person at the machine
+  (the test's own clicks count: `input.events` above 0): with the card
+  down and its address taken away and `system.net.recover` on (5 s),
+  netheal puts up "No network" with Restart and Not now, counts no
+  attempt and leaves this boot's `/tmp` in place; Not now leaves it; the
+  network coming back withdraws the question;
+  Restart runs the Leave page's own Restart (dry run); run as the
+  desktop's account its Restart is refused by the compositor
+  (WIN_REQ_LEAVE is root's); signed out, it takes its old path (at the
+  ceiling, "giving up"). The untouched, headless path is the sweep's
+  `netheal_test.py`. Positive controls: netheal never asking restarts
+  the guest; dropping `req_leave()`'s root check reddens the refusal.
 - **`users_page_test.py`** -- users D3a end to end: `user add` (as root)
   makes an account the Users page lists under Other accounts by name;
   Add account... (the desktop's own `gui spawn`, so privd sees the seat)

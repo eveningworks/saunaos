@@ -39,6 +39,10 @@ int unotify_close(uint32_t id);
 // own -- a GUI app hears WIN_EV_NOTIFY through uapp_desc.on_notify.
 int unotify_wait(uint32_t id, int timeout_ms, int *action);
 
+// Whether the desktop a notification went to is still there -- what
+// tells unotify_wait()'s timeout from a sign-out.
+int unotify_desktop_alive(void);
+
 #ifdef __cplusplus
 }
 #endif

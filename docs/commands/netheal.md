@@ -42,6 +42,34 @@ pretend to be**: the bug entry stays open, and if the next occurrence
 is cured by this, what that proves is that a reboot cures it -- which
 was already known, and is not true every time.
 
+## Never over a person at the machine
+
+**Once the machine has been touched since boot -- a key, the pointer
+(`config get input.events`, the kernel's count; Windows'
+`GetLastInputInfo`) -- and a session is open (the desktop, or a
+terminal's shell), it does not restart.** It puts up a notification
+instead:
+
+> **No network** -- The network adapter did not start. Restarting
+> usually brings it back. **[Restart]** **[Not now]**
+
+and counts no attempt. **Restart** goes through the desktop's own Leave
+page (`WIN_REQ_LEAVE`, `ui/uleave.h`, asked by root alone): every app is
+asked to close first, as when the person picks Restart themselves, and
+the restart stops if one says no. **Not now** leaves it. The network
+coming back while it waits withdraws the question and clears the
+count. With only a terminal session there is no desktop to ask, and it
+says so and does nothing.
+
+**Untouched, it restarts as before** -- a headless boot, automatic
+sign-in or not, or a login screen nobody signed in at -- at most twice.
+Linux's and Windows' network tools never restart a session to fix the
+network; on 2026-11-26 this one's reboot landed seconds after a person
+signed in on the test laptop.
+
+    netheal: no address 45s after boot -- someone is here, so asking instead of rebooting
+    netheal: restarting through the Leave page, as asked
+
 ## What it deliberately does NOT do
 
 - **It does not loop.** Attempts are counted in `/var/lib/netheal`, the
@@ -63,5 +91,5 @@ was already known, and is not true every time.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `system.net.recover` | `off` | Whether to reboot at all |
+| `system.net.recover` | `off` | Whether to reboot at all (a person at the machine is asked instead) |
 | `system.net.recover.wait` | `45` (s) | How long to wait for an address first |

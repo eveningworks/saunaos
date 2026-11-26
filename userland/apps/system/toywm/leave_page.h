@@ -22,6 +22,10 @@ enum leave_action { LEAVE_RESTART, LEAVE_SHUTDOWN, LEAVE_EXIT, LEAVE_SIGNOUT, LE
 extern int leave_page_open;
 
 void leave_page_show(enum leave_action focus);
+// Shows the page AND begins `action` at once, as if it were chosen there:
+// a root program's request (WIN_REQ_LEAVE). The apps are still asked. -1,
+// changing nothing, while the person is already leaving (apps closing).
+int leave_page_run(enum leave_action action);
 void leave_page_cancel(void);
 // Each frame: which asked apps have gone, and acting once they all have.
 void leave_page_poll(void);

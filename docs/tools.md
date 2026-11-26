@@ -215,6 +215,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `modeset_test.py` -- A runtime resolution change under a live desktop
 - `mouse_buttons_test.py` -- a pointer button is an EDGE, not a level
 - `netadapter_test.py` -- Drives a network card's ADAPTER SETTINGS end to end on QEMU's e1000
+- `netheal_session_test.py` -- netheal asks a signed-in person instead of restarting
 - `network_tray_test.py` -- The taskbar's network item: the icon's state, the panel, and the
 - `notepad_client_test.py` -- Drive the RING-3 Notepad (userland/apps/apps/notepad/notepad.c) and assert on it
 - `notepad_options_test.py` -- Notepad Options: saved, applied, remembered

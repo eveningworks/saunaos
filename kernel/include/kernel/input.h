@@ -119,6 +119,9 @@ void input_poll_sources(void);
 // path does and do no more than it does there.
 
 // A key went down (1) or up (0), by evdev keycode.
+// A person's input happened (QUERY_INPUT): keyboard_key_event() for a
+// press, mouse_feed_*() for a movement, a button change or the wheel.
+void input_note_activity(void);
 void input_report_key(uint16_t keycode, int down);
 
 // **THERE IS NO KEYCODE-TO-SCANCODE TRANSLATION ANY MORE.** There was,

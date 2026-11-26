@@ -13,6 +13,9 @@
 #include "klog.h"
 #include "kfmt.h"
 #include "driver.h" // driver_bound() -- `lsdrv`
+#include "query.h"
+#include "initcall.h"
+#include "string.h"
 
 // driver-none: the input class registry itself
 
@@ -121,6 +124,47 @@ void input_poll_sources(void) {
 // -> keycode inside the PS/2 driver -- which is where Linux keeps it
 // (`atkbd`), and where a hole would break the LEGACY path rather than
 // the modern one. See docs/decisions.md.
+// --- a person's input, counted (QUERY_INPUT) ------------------------------
+// Bumped by keyboard_key_event() and mouse_feed_*(), where every source
+// ends. Racy updates are harmless: a count, and a "when" read as a hint.
+
+static volatile uint64_t g_input_events, g_input_last_ms;
+
+void input_note_activity(void) {
+    __atomic_fetch_add(&g_input_events, 1, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_input_last_ms, clocksource_now_ns() / 1000000ull, __ATOMIC_RELAXED);
+}
+
+static int input_query_count(void) { return 1; }
+
+static int input_query_fill(int index, void *out) {
+    if (index != 0) return 0;
+    struct query_input *q = out;
+    k_memset(q, 0, sizeof *q);
+    q->events = __atomic_load_n(&g_input_events, __ATOMIC_RELAXED);
+    q->last_ms = __atomic_load_n(&g_input_last_ms, __ATOMIC_RELAXED);
+    return 1;
+}
+
+static const struct query_field input_query_fields[] = {
+    QUERY_FIELD(struct query_input, events, QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_input, last_ms, QUERY_TYPE_U64),
+};
+
+static const struct query_provider input_query_provider = {
+    .cls = QUERY_INPUT,
+    .name = "input",
+    .record_size = sizeof(struct query_input),
+    .flags = 0, // scalar
+    .count = input_query_count,
+    .fill = input_query_fill,
+    .fields = input_query_fields,
+    .field_count = sizeof input_query_fields / sizeof input_query_fields[0],
+};
+
+static void input_query_init(void) { query_register(&input_query_provider); }
+INITCALL(input_query_init, INIT_QUERY);
+
 void input_report_key(uint16_t keycode, int down) {
     if (!keycode) return;
     keyboard_key_event(keycode, down);

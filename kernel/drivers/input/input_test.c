@@ -37,6 +37,7 @@
     } while (0)
 #include "scheduler.h"
 #include "ktest.h"
+#include "query.h"   // QUERY_INPUT
 #include "driver.h"
 #include "string.h"
 
@@ -1052,4 +1053,29 @@ KTEST("input", "a keyboard with a real Pause release can hold Pause") {
     window_events(script_pause_usb);
     KTEST_ASSERT_EQ(g_ev.n, 1);           // down, and held: no invented release
     KTEST_ASSERT(g_ev.code[0] == KEY_PAUSE && g_ev.down[0] == 1);
+}
+
+// QUERY_INPUT: "has a person touched this machine?" (netheal asks it).
+// What a broken version would still pass: a counter bumped on every call
+// passes "a press counts", so a RELEASE and a ZERO move must not count;
+// a fact that never reached the registry passes nothing at all.
+KTEST("input", "a key press and a pointer move count as a person's input; a release and a zero move do not") {
+    struct query_input a, b;
+    KTEST_ASSERT_EQ(query_read(QUERY_INPUT, 0, &a, sizeof a), (int)sizeof a);   // the provider is registered
+    scheduler_preempt_disable();
+    uint8_t mods = 0;
+    input_report_key(EVDEV_A, 1);
+    query_read(QUERY_INPUT, 0, &b, sizeof b);
+    KTEST_ASSERT_EQ(b.events, a.events + 1);   // a press counts
+    KTEST_ASSERT(b.last_ms > 0);
+    input_report_key(EVDEV_A, 0);
+    mouse_feed_rel(0, 0);
+    query_read(QUERY_INPUT, 0, &a, sizeof a);
+    KTEST_ASSERT_EQ(a.events, b.events);       // a release and no movement do not
+    mouse_feed_rel(1, 0);
+    mouse_feed_rel(-1, 0);
+    query_read(QUERY_INPUT, 0, &b, sizeof b);
+    while (keyboard_try_getchar_mods(&mods) != -1) { }
+    scheduler_preempt_enable();
+    KTEST_ASSERT_EQ(b.events, a.events + 2);   // each real move does
 }

@@ -741,6 +741,18 @@ struct query_firmware {
 // report, oldest first. A kernel without lockdep registers no provider,
 // so the query fails. LIST (struct query_lockdep); `lockstat order`.
 #define QUERY_LOCKDEP 68
+// A PERSON'S INPUT since boot -- key presses and pointer movement,
+// buttons and wheel, from every source (PS/2, USB, virtio, injected:
+// the debug console's and a remote desktop's count, as a person at
+// another machine is one). Windows' GetLastInputInfo, logind's idle
+// hint: "has anyone touched this machine?" -- netheal asks it before
+// restarting. SCALAR (struct query_input); `config get input.events`.
+#define QUERY_INPUT 69
+
+struct query_input {
+    uint64_t events;    // key presses, moves, button changes, wheel notches
+    uint64_t last_ms;   // sys_monotonic ms of the last one; 0 for none
+};
 
 struct query_imgcache {
     char     path[QUERY_IMGCACHE_PATH_MAX];

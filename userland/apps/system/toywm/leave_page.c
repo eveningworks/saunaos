@@ -210,6 +210,14 @@ void leave_page_show(enum leave_action focus) {
     WM_REDRAW();
 }
 
+int leave_page_run(enum leave_action action) {
+    if (leave_page_open && g_phase != PH_CHOOSE) return -1;   // their choice is under way
+    leave_page_show(action);
+    wm_logf("leave: %s asked by a system program\n", NAME[action]);
+    begin(action);
+    return 0;
+}
+
 void leave_page_cancel(void) {
     if (!leave_page_open) return;
     leave_page_open = 0;

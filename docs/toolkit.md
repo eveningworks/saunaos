@@ -204,6 +204,7 @@ Private seams of a split module, not for apps: `ttf_internal.h`, `uimg_jpeg_int.
 | `ugfx_pix.h` | ugfx_pix -- the pixel loops under ugfx's glass and blending, one table per CPU tier (C, SSE2), chosen ONCE (pixman's implementation chain). |
 | `ugfx_tex.h` | ugfx_tex.h -- a perspective-correct textured triangle. |
 | `uglyph.h` | ANY character of a font file, drawn at any size -- what the session font cannot do: it carries ASCII and Latin-1 only (font_ttf.h's 191 slots), and a character map needs the arrow, the Greek and th... |
+| `uleave.h` | The desktop's Leave page, asked for by a ROOT program: its Restart run for the person at the desktop, every app asked to close first and the restart stopped if one says no (WIN_REQ_LEAVE) -- logind... |
 | `ulivewall.h` | LIVE WALLPAPERS: the effects, their options, and a wallpaper program's whole main(). |
 | `umonofont.h` | umonofont -- the desktop's MONOSPACE face at a size an app chooses, or the session's own when it chooses none: what a terminal grid or a text document draws in. |
 | `unotify.h` | Notifications: one call for any program, a window or none -- the compositor draws the toast, keeps the history behind the tray's bell, and applies Do Not Disturb and each app's own setting (WIN_REQ... |

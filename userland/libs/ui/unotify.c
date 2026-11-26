@@ -62,3 +62,7 @@ int unotify_wait(uint32_t id, int timeout_ms, int *action) {
         uchan_client_wait(&g_wmchan, ms > 1000 ? 1000 : ms);
     }
 }
+
+int unotify_desktop_alive(void) {
+    return wmchan() && uchan_client_server_alive(&g_wmchan);
+}
