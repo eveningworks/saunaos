@@ -25,6 +25,7 @@
 #include "base/utrace.h"
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 #define RING_BYTES (64 * 1024)   // header + 511 records
 #define MAX_ARGV   64
@@ -140,9 +141,13 @@ int main(int argc, char **argv) {
     if (a.argc < 1) return uargs_error(&PROG, "a PROGRAM to run");
     if (g_filter && parse_filter(g_filter)) return UARGS_USAGE;
 
-    char path[UPATH_MAX];
-    int found = upath_find_program(a.argv[0], path, sizeof path);
-    if (found <= 0) {
+    char *path;   // lives until this program exits
+    int found = upath_find_program(a.argv[0], &path);
+    if (found < 0) {
+        fprintf(stderr, "strace: %s: cannot search PATH: %s\n", a.argv[0], strerror(errno));
+        return 1;
+    }
+    if (found == 0) {
         fprintf(stderr, "strace: %s: no such program\n", a.argv[0]);
         return 1;
     }

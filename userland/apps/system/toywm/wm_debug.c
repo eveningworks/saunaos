@@ -227,21 +227,27 @@ void dbg_out_reserve(struct dbg_out *o, int bytes) {
     o->reserve = bytes;
 }
 
-void dbg_out_printf(struct dbg_out *o, const char *fmt, ...) {
-    // Formats into a line buffer first, then appends -- k_vsnprintf()
-    // needs somewhere contiguous, and the sink's remaining space is not
-    // guaranteed to be big enough to format into directly.
-    char line[KFMT_LINE_MAX];
-    va_list ap;
-    va_start(ap, fmt);
-    k_vsnprintf(line, sizeof line, fmt, ap);
-    va_end(ap);
-    dbg_out_write(o, line);
+static void dbg_out_sink(void *ctx, const char *s, size_t n) {
+    struct dbg_out *o = ctx;
+    int limit = o->cap - o->reserve;
+    for (size_t i = 0; i < n; i++) {
+        if (o->len + 1 >= limit) { o->overflow = 1; break; }
+        o->buf[o->len++] = s[i];
+    }
+    o->buf[o->len] = '\0';
 }
 
-// A JSON string's body, any length: a window's title or tab label may be
-// past what one dbg_out_printf() line holds, and a line that does not
-// fit is written as NOTHING (kfmt.h), which would drop the whole window.
+// Straight into the reply, with no line buffer between: a fixed line
+// cut a long name, and the JSON with it, mid-object.
+void dbg_out_printf(struct dbg_out *o, const char *fmt, ...) {
+    if (!o || !o->buf) return;
+    va_list ap;
+    va_start(ap, fmt);
+    k_vcbprintf(dbg_out_sink, o, fmt, ap);
+    va_end(ap);
+}
+
+// A JSON string's body, escaped.
 static void dbg_out_jstr(struct dbg_out *o, const char *s) {
     char buf[64];
     int n = 0;
@@ -2675,8 +2681,10 @@ static void cmd_icons(struct dbg_out *o, int json) {
             const char *name, *kind; int x, y, w, h, lines, peeks = 0;
             if (!desktop_icon_geometry(i, &name, &x, &y, &w, &h, &lines, &kind)) continue;
             int thumb = desktop_icon_preview(i, &peeks);   // before the printf reads `peeks`
-            dbg_out_printf(o, "%s{\"name\":\"%s\",\"kind\":\"%s\",\"art\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"lines\":%d,\"selected\":%s,\"hovered\":%s,\"renaming\":%s,\"target\":%s,\"thumb\":%s,\"peeks\":%d}",
-                           first ? "" : ",", name, kind, desktop_icon_art(i), x, y, w, h, lines,
+            dbg_out_printf(o, "%s{\"name\":\"", first ? "" : ",");
+            dbg_out_jstr(o, name);
+            dbg_out_printf(o, "\",\"kind\":\"%s\",\"art\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"lines\":%d,\"selected\":%s,\"hovered\":%s,\"renaming\":%s,\"target\":%s,\"thumb\":%s,\"peeks\":%d}",
+                           kind, desktop_icon_art(i), x, y, w, h, lines,
                            desktop_icon_selected(i) ? "true" : "false",
                            desktop_hovered_icon() == i ? "true" : "false",
                            desktop_renaming() == i ? "true" : "false",

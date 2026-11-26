@@ -409,6 +409,10 @@ TESTS = [
     # failure, `$?` expanded by quoting rule, every line setting it.
     # Spawned: it spawns echo and grep through the shell.
     ("toshstatus_test", None, None, None),
+    # A folder path past 255 bytes: /bin/tosh on a pty inside it (prompt,
+    # title, pwd, a bare ls, a program by a long path), ls -R, getcwd(NULL,
+    # 0). Spawned: it spawns tosh, ls and rm.
+    ("deeppath_test", None, None, None),
     # base/ugrow.h, the growable-array macro every ring-3 list uses: it
     # grows, and a request it cannot meet leaves the array as it was.
     ("ugrow_test", 0, None, None),

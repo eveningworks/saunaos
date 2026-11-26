@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <stddef.h>
+#include <stdlib.h>   // getcwd(NULL, 0) allocates
 #include "rt/sys.h"
 #include "syscall_abi.h"   // SYS_GETCRED
 
@@ -33,7 +34,21 @@ int   ftruncate(int fd, off_t size) {
 }
 // sys_getcwd() returns the LENGTH, not 0 -- so this tests for the
 // failure value rather than for success.
-char *getcwd(char *b, size_t n)     { return sys_getcwd(b, n) < 0 ? 0 : b; }
+char *getcwd(char *b, size_t n) {
+    if (b) {
+        if (n == 0) { errno = EINVAL; return 0; }
+        return sys_getcwd(b, n) < 0 ? 0 : b;
+    }
+    // glibc's extension, which POSIX leaves open: a NULL buffer is
+    // allocated -- `n` bytes when given, else grown until the path fits.
+    for (size_t cap = n ? n : 256;; cap *= 2) {
+        char *p = malloc(cap);
+        if (!p) { errno = ENOMEM; return 0; }
+        if (sys_getcwd(p, cap) >= 0) return p;
+        free(p);
+        if (n || errno != ERANGE) return 0;
+    }
+}
 
 // A terminal is a FLAG of SYS_FSTAT rather than a call of its own. 1 or
 // 0, as POSIX says, and 0 for a bad fd (sys_fstat set errno).

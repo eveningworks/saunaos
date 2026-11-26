@@ -11,6 +11,9 @@
 #include <stdint.h>
 #include "rt/sys.h"
 #include "base/umemcomp.h"
+#include "base/uappentry.h"   // struct uappentry: what an entry's fields hold
+#include "query_abi.h"         // QUERY_PROCPATH_MAX
+#include "proc_info.h"         // PROC_NAME_MAX
 
 struct uapp;
 struct uui_item;
@@ -42,8 +45,13 @@ enum { TM_GROUP_APPS, TM_GROUP_BACKGROUND, TM_GROUP_SYSTEM, TM_GROUPS };
 // Task Manager's own options: the Processes columns (docs/filesystem-layout.md).
 #define TM_CONF "taskmgr.conf"
 
-#define TM_PATH_MAX 96
-#define TM_NAME_MAX 32
+// A process's path as the kernel reports it (QUERY_PROCPATH): its record
+// is the bound, and a longer path comes back "" rather than cut.
+#define TM_PATH_MAX QUERY_PROCPATH_MAX
+// A shown name: a desktop entry's Name= or the process's own, whichever
+// field is the larger, so neither is cut here.
+#define TM_ENTRY_NAME_MAX sizeof(((struct uappentry *)0)->name)
+#define TM_NAME_MAX (TM_ENTRY_NAME_MAX > PROC_NAME_MAX ? TM_ENTRY_NAME_MAX : PROC_NAME_MAX)
 
 struct tm_proc {
     int pid, ppid, pgid;
@@ -94,7 +102,11 @@ int tm_proc_row(int pid);          // g_proc index of `pid`, or -1
 const char *tm_status_text(const struct tm_proc *p);
 
 // A desktop entry: what an Exec= path is called and drawn as.
-struct tm_app { char exec[TM_PATH_MAX]; char name[TM_NAME_MAX]; char icon[24]; };
+struct tm_app {   // the entry's own fields, at their own sizes
+    char exec[sizeof(((struct uappentry *)0)->exec)];
+    char name[sizeof(((struct uappentry *)0)->name)];
+    char icon[sizeof(((struct uappentry *)0)->icon)];
+};
 extern struct tm_app *g_apps;   // g_napps of them, grown
 extern int g_napps;
 

@@ -51,6 +51,7 @@
 #include "base/udate.h"
 #include "base/unum.h"
 #include "base/uargs.h"
+#include "base/upath.h"  // upath_join -- the -R queue
 #include <locale.h>
 #include "kpath.h"    // k_path_basename, for a path that names a file
 #include <unistd.h>
@@ -146,25 +147,23 @@ static void put_timestamp(const struct rtc_time *t) {
 // ---- one directory ---------------------------------------------------
 
 // -R's work list. Breadth-first, so one directory's listing is freed
-// before the next is read rather than one held per level. The bound is stated rather than assumed: a tree deeper or
-// wider than this reports that it stopped.
-#define QUEUE_MAX 64
-// 64 is FS_PATH_MAX, the kernel's own limit -- a path longer than this
-// cannot name a file here, so nothing is lost by bounding at it. Named
-// rather than repeated: it is the queue row width, the snprintf bound
-// and the cwd buffer, and those three must agree.
-#define LS_PATH_MAX 64
-
-static char g_queue[QUEUE_MAX][LS_PATH_MAX];
-static int g_qhead, g_qtail, g_qdropped;
+// before the next is read rather than one held per level. Each entry is
+// a heap path and the list grows to the tree: neither a deep path nor a
+// wide tree is cut. A push that cannot get memory is counted and said.
+static char **g_queue;
+static int g_qhead, g_qtail, g_qcap, g_qdropped;
 
 static void queue_push(const char *dir, const char *name) {
-    if (g_qtail >= QUEUE_MAX) { g_qdropped++; return; }
-    char *dst = g_queue[g_qtail];
-    // "/" + name, avoiding the double slash at the root.
-    if (dir[1] == '\0' && dir[0] == '/') snprintf(dst, LS_PATH_MAX, "/%s", name);
-    else snprintf(dst, LS_PATH_MAX, "%s/%s", dir, name);
-    g_qtail++;
+    if (g_qtail == g_qcap) {
+        int cap = g_qcap ? g_qcap * 2 : 64;
+        char **q = realloc(g_queue, (size_t)cap * sizeof *q);
+        if (!q) { g_qdropped++; return; }
+        g_queue = q;
+        g_qcap = cap;
+    }
+    char *path = upath_join(dir, name);
+    if (!path) { g_qdropped++; return; }
+    g_queue[g_qtail++] = path;
 }
 
 // Lists one directory. Returns 0 on success, 1 if the path could not be
@@ -278,9 +277,8 @@ int main(int argc, char **argv) {
     // process, and the legacy `run` loader is not one (see its ABI
     // comment), so a bare `ls` under `run` still lists something rather
     // than failing.
-    char cwd[LS_PATH_MAX];
-    const char *path = "/";
-    if (getcwd(cwd, sizeof cwd) && cwd[0]) path = cwd;
+    char *cwd = getcwd(0, 0);   // sized to fit; lives until exit
+    const char *path = cwd && cwd[0] ? cwd : "/";
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) sys_exit(a.status);
     if (a.argc > 1) sys_exit(uargs_error(&PROG, "only one directory at a time"));
@@ -302,13 +300,15 @@ int main(int argc, char **argv) {
     int rc = list_one(&o, path, 0);
 
     // -R, iteratively. Each directory found is appended and processed in
-    // turn, so the walk costs one static buffer however deep the tree is.
+    // turn, and freed once listed.
     while (o.recurse && g_qhead < g_qtail) {
-        const char *next = g_queue[g_qhead++];
+        char *next = g_queue[g_qhead];
+        g_queue[g_qhead++] = 0;
         if (list_one(&o, next, 1)) rc = 1;
+        free(next);
     }
     if (g_qdropped) {
-        put("ls: too many subdirectories -- some were not listed\n");
+        put("ls: out of memory -- some subdirectories were not listed\n");
         rc = 1;
     }
 

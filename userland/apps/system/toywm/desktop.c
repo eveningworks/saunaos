@@ -8,6 +8,7 @@
 #include "ui/uui.h"
 #include "ui/utheme.h"
 #include "base/rubberband.h"
+#include "base/upath.h"     // upath_join -- every path here is sized to fit
 #include "build_date.h" // GENERATED, and included ONLY here -- see gen_version.sh
 #include "kapi.h"
 #include "rt/sys.h"
@@ -43,6 +44,7 @@
 #include "kpath.h"
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>   // strdup -- heap paths
 #include <errno.h>
 #include "base/ulistdir.h"   // the desktop folder, however many files
 #include "base/uargbatch.h"  // a long path list split across spawns
@@ -106,11 +108,13 @@ static int g_file_count, g_item_cap;
 // (a shrinking band deselects, Ctrl adds, a plain click on empty space
 // clears) are KTESTed with no desktop involved at all.
 static struct rubberband sel;
-#define PATH_BUF 80
-typedef char desk_path[PATH_BUF];   // a list of these is sized to what it holds
+// A path here is a HEAP string sized to it (base/upath.h): a desktop
+// item's name runs to 255 bytes, so a fixed budget would act on a cut
+// path. A list of them is freed with paths_free().
+typedef char *desk_path;
 static void item_activate(int i);
 static void reflow_overflow(void);
-static int selected_paths(char paths[][PATH_BUF], int cap);
+static int selected_paths(desk_path *paths, int cap);
 static int add_selection(struct uclip *c, int icon, void (*begin)(struct uclip *));
 
 // The band's rect as it was last DRAWN, so a motion can damage the union
@@ -357,12 +361,21 @@ static const char *item_label(int i) {
 // The saved-position key is the FILENAME, so a launcher keeps its cell
 // whatever its Name= says (the "file:" prefix is what older configs
 // keyed files by, kept so their cells survive).
-static const char *item_key(int i, char *buf, int cap) {
-    k_snprintf(buf, (size_t)cap, "file:%s", g_files[i].name);
-    return buf;
+// A heap string to free(); NULL with no memory (a NULL key reads and
+// writes nothing).
+static char *item_key(int i) {
+    char *key = 0;
+    return asprintf(&key, "file:%s", g_files[i].name) < 0 ? 0 : key;
 }
-static void item_path(int i, char *out, int cap) {
-    k_snprintf(out, (size_t)cap, "%s/%s", DESKTOP_DIR, g_files[i].name);
+// Item `i`'s path, to free(); NULL (logged) with no memory for it.
+static char *item_path(int i) {
+    char *p = upath_join(DESKTOP_DIR, g_files[i].name);
+    if (!p) wm_logf("desktop: no memory for the path of %s", g_files[i].name);
+    return p;
+}
+static void paths_free(desk_path *p, int n) {
+    for (int i = 0; p && i < n; i++) free(p[i]);
+    free(p);
 }
 static int is_desktop_file(const char *name) {
     size_t n = k_strlen(name);
@@ -376,9 +389,10 @@ static void desktop_files_parse(void) {
     for (int i = 0; i < g_item_cap; i++) gui_app_entry_free(&g_launch[i]);
     for (int i = 0; i < g_file_count; i++) {
         if (item_is_dir(i) || !is_desktop_file(g_files[i].name)) continue;
-        char path[PATH_BUF];
-        item_path(i, path, sizeof path);
+        char *path = item_path(i);
+        if (!path) continue;
         gui_app_read_entry(path, &g_launch[i]);
+        free(path);
     }
 }
 
@@ -415,11 +429,12 @@ static int desktop_files_reload(void) {
     if (view.hiding) {
         int kept = 0;
         for (int i = 0; i < n; i++) {
-            char path[PATH_BUF];
             struct uappentry e;
-            k_snprintf(path, sizeof path, "%s/%s", DESKTOP_DIR, fresh[i].name);
-            if (!fresh[i].is_dir && is_desktop_file(fresh[i].name) && uappentry_read(path, &e) &&
-                ucomponent_view_hides(&view, e.exec)) continue;
+            char *path = !fresh[i].is_dir && is_desktop_file(fresh[i].name)
+                       ? upath_join(DESKTOP_DIR, fresh[i].name) : 0;
+            int hides = path && uappentry_read(path, &e) && ucomponent_view_hides(&view, e.exec);
+            free(path);
+            if (hides) continue;
             fresh[kept++] = fresh[i];
         }
         n = kept;
@@ -482,9 +497,10 @@ static int desktop_files_reload(void) {
 static void save_position(int i) {
     home_col[i] = home_row[i] = -1;   // shown where it is saved from now on
     if (g_auto_arrange) return;   // nothing stays where it was put
-    char value[16], keybuf[80];
+    char value[16], *key = item_key(i);
     format_pos(value, icon_col[i], icon_row[i]);
-    wm_conf_set(DESKTOP_CONF_PATH, item_key(i, keybuf, sizeof keybuf), value);
+    if (key) wm_conf_set(DESKTOP_CONF_PATH, key, value);
+    free(key);
 }
 
 // Loads every icon's position from DESKTOP_CONF_PATH, defaulting to
@@ -553,9 +569,12 @@ static void desktop_load_positions(void) {
         home_col[i] = home_row[i] = -1;
         if (!item_visible(i)) continue;
 
-        char value[16], keybuf[80];
+        char value[16];
         if (g_auto_arrange) continue;   // packed in sort order, nothing kept where it was put
-        if (!wm_conf_get(DESKTOP_CONF_PATH, item_key(i, keybuf, sizeof keybuf), value, sizeof(value))) continue;
+        char *key = item_key(i);
+        int saved = key && wm_conf_get(DESKTOP_CONF_PATH, key, value, sizeof(value));
+        free(key);
+        if (!saved) continue;
 
         // "<col>,<row>" -- split on the comma, then let knum.h's bounded
         // parser handle each half. Stricter than the digit loops this
@@ -859,9 +878,9 @@ static void resort(void);
 static void bin_entry_restore(void) {
     for (int i = 0; i < item_count(); i++) if (item_is_bin(i)) return;
     static const char text[] = "Name=Recycle Bin\nExec=/bin/wm/apps/files\nIcon=trash-empty\nAppId=trash\n";
-    char path[160];
-    k_snprintf(path, sizeof path, "%s/trash.desktop", DESKTOP_DIR);
-    int fd = sys_open(path, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
+    char *path = upath_join(DESKTOP_DIR, "trash.desktop");
+    int fd = path ? sys_open(path, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC) : -1;
+    free(path);
     if (fd < 0) { wm_logf("desktop: could not bring the Recycle Bin back"); return; }
     if (sys_write(fd, text, sizeof text - 1) != (int)sizeof text - 1) wm_logf("desktop: short write to trash.desktop");
     sys_close(fd);
@@ -1227,22 +1246,24 @@ static void thumbs_reset(void) {
 
 // The paths to ask /bin/thumb about at one size, grown as they are found.
 struct thumb_asks {
-    char (*path)[PATH_BUF];
+    char **path;
     int n, cap;
 };
 
 static void ask_add(struct thumb_asks *a, const char *path) {
+    char *copy = 0;
     if (a->n == a->cap) {
         int cap = a->cap ? a->cap * 2 : 16;
-        char (*p)[PATH_BUF] = realloc(a->path, (size_t)cap * sizeof *p);
-        if (!p) {   // its item stays without a thumbnail until the list changes
-            wm_logf("desktop: no memory to ask for the thumbnail of %s", path);
-            return;
-        }
+        char **p = realloc(a->path, (size_t)cap * sizeof *p);
+        if (!p) goto none;
         a->path = p;
         a->cap = cap;
     }
-    k_strlcpy(a->path[a->n++], path, PATH_BUF);
+    if (!(copy = strdup(path))) goto none;
+    a->path[a->n++] = copy;
+    return;
+none:   // its item stays without a thumbnail until the list changes
+    wm_logf("desktop: no memory to ask for the thumbnail of %s", path);
 }
 
 static void spawn_batch(char *const *argv, void *ctx) { (void)ctx; spawn_argv(argv); }
@@ -1265,10 +1286,10 @@ static void thumbs_refresh(void) {
                       (item_is_dir(i) || !too_fresh(&g_files[i].modified));
         if (!settled && !g_thumb_asked[i]) g_thumb_due = now + THUMB_SETTLE_TICKS;
         int ask = settled && !g_thumb_asked[i];
-        char path[PATH_BUF];
-        item_path(i, path, sizeof path);
+        char *path = item_path(i);
+        if (!path) continue;
         if (!item_is_dir(i)) {
-            if (g_thumb[i].px || !wants_thumb(&g_files[i])) continue;
+            if (g_thumb[i].px || !wants_thumb(&g_files[i])) goto next;
             if (uthumb_load_cached(path, &g_files[i].modified, px, &g_thumb[i]) == 0) {
                 damage_icon_hl(i);
                 WM_REDRAW();
@@ -1276,17 +1297,17 @@ static void thumbs_refresh(void) {
                 ask_add(&want[0], path);
             }
             if (ask) g_thumb_asked[i] = 1;
-            continue;
+            goto next;
         }
         // A folder: its first pictures, by name, from one short listing.
-        if (g_peek[i][DESKTOP_PEEKS - 1].px) continue;
+        if (g_peek[i][DESKTOP_PEEKS - 1].px) goto next;
         static struct ulist_entry kids[32];
         int m = ulistdir_first(path, kids, 32), got = 0, waiting = 0;
         for (int k = 0; k < m && got < DESKTOP_PEEKS; k++) {
             if (kids[k].is_dir || !wants_thumb(&kids[k])) continue;
             if (!g_fo.hidden && kids[k].name[0] == '.') continue;
-            char kid[PATH_BUF];
-            if (!k_path_join(path, kids[k].name, kid, sizeof kid)) continue;
+            char *kid = upath_join(path, kids[k].name);
+            if (!kid) continue;
             if (g_peek[i][got].px || uthumb_load_cached(kid, &kids[k].modified, peek_px, &g_peek[i][got]) == 0) {
                 damage_icon_hl(i);
                 WM_REDRAW();
@@ -1295,12 +1316,15 @@ static void thumbs_refresh(void) {
             } else if (ask) {
                 ask_add(&want[1], kid);
             }
+            free(kid);
             got++;
         }
         // A folder's contents have no watch here: a picture still too new
         // to ask about is looked at again shortly.
         if (waiting) g_thumb_due = now + THUMB_SETTLE_TICKS;
         else if (ask) g_thumb_asked[i] = 1;
+    next:
+        free(path);
     }
     // The item thumbnails, then the peeks: as many runs each as a
     // spawn's argument block needs (base/uargbatch.h).
@@ -1315,7 +1339,7 @@ static void thumbs_refresh(void) {
                     a->n, size[s], runs);
         }
         free(items);
-        free(a->path);
+        paths_free(a->path, a->n);
     }
 }
 
@@ -2071,15 +2095,17 @@ static void launch_entry(const struct gui_app_entry *e) {
 // fields rather than copied, since the registry keeps no source
 // filename; the folder poll picks it up like any new file.
 void desktop_add_launcher(const struct gui_app *a) {
-    char path[PATH_BUF], text[256], glyph[2] = { a->icon, '\0' };
-    k_snprintf(path, sizeof path, "%s/%s.desktop", DESKTOP_DIR, a->app_id);
-    int n = k_snprintf(text, sizeof text, "Name=%s\nExec=%s\nIcon=%s\nAppId=%s\n",
-                       a->name, a->exec_path, a->icon_name[0] ? a->icon_name : glyph, a->app_id);
-    if (n <= 0 || n >= (int)sizeof text) return;
+    char *path, *text, glyph[2] = { a->icon, '\0' };
+    if (asprintf(&path, "%s/%s.desktop", DESKTOP_DIR, a->app_id) < 0) return;
+    int n = asprintf(&text, "Name=%s\nExec=%s\nIcon=%s\nAppId=%s\n",
+                     a->name, a->exec_path, a->icon_name[0] ? a->icon_name : glyph, a->app_id);
+    if (n < 0) { free(path); return; }
     int fd = sys_open(path, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
-    if (fd < 0) { wm_logf("desktop: cannot write %s", path); return; }
-    if (sys_write(fd, text, (size_t)n) != n) wm_logf("desktop: short write to %s", path);
-    sys_close(fd);
+    if (fd < 0) wm_logf("desktop: cannot write %s", path);
+    else if (sys_write(fd, text, (size_t)n) != n) wm_logf("desktop: short write to %s", path);
+    if (fd >= 0) sys_close(fd);
+    free(text);
+    free(path);
 }
 
 static void item_activate(int i) {
@@ -2091,8 +2117,8 @@ static void item_activate(int i) {
         return;
     }
     if (item_is_launcher(i)) { launch_entry(&g_launch[i]); return; }
-    static char path[PATH_BUF];
-    item_path(i, path, sizeof path);
+    char *path = item_path(i);
+    if (!path) return;
     if (item_is_dir(i)) {
         // A folder opens in the File Manager, both panes there.
         char *const argv[] = { "/bin/wm/apps/files", path, path, 0 };
@@ -2102,14 +2128,16 @@ static void item_activate(int i) {
         char *const argv[] = { "/bin/open", path, 0 };
         spawn_argv(argv);
     }
+    free(path);
 }
 
 // The selection's paths, for the clipboard and the verbs. A launcher is
 // a file here like any other: cut, copied and deleted as one.
-static int selected_paths(char paths[][PATH_BUF], int cap) {
+// Heap strings: free each (paths_free() for a malloc'd list).
+static int selected_paths(desk_path *paths, int cap) {
     int n = 0;
     for (int i = 0; i < item_count() && n < cap; i++)
-        if (rb_is_selected(&sel, i)) item_path(i, paths[n++], PATH_BUF);
+        if (rb_is_selected(&sel, i) && (paths[n] = item_path(i))) n++;
     return n;
 }
 
@@ -2135,13 +2163,20 @@ static void clip_begin_cut(struct uclip *c)  { uclip_begin(c, UCLIP_CUT); }
 // is empty, or `icon` (>= 0) is not in it, that one icon's. Returns how
 // many went in.
 static int add_selection(struct uclip *c, int icon, void (*begin)(struct uclip *)) {
-    char path[PATH_BUF];
     int n = 0;
     begin(c);
     if (icon < 0 || rb_is_selected(&sel, icon))
-        for (int i = 0; i < item_count(); i++)
-            if (rb_is_selected(&sel, i)) { item_path(i, path, sizeof path); uclip_add(c, path); n++; }
-    if (n == 0 && icon >= 0) { item_path(icon, path, sizeof path); uclip_add(c, path); n = 1; }
+        for (int i = 0; i < item_count(); i++) {
+            if (!rb_is_selected(&sel, i)) continue;
+            char *path = item_path(i);
+            if (path) { uclip_add(c, path); n++; }
+            free(path);
+        }
+    if (n == 0 && icon >= 0) {
+        char *path = item_path(icon);
+        if (path) { uclip_add(c, path); n = 1; }
+        free(path);
+    }
     return n;
 }
 
@@ -2171,7 +2206,7 @@ static void menu_paste(void *ctx) {
 
 // A drop from ANOTHER window onto the desktop background: the files in
 // the drag slot move here, or copy with Ctrl (the toolkit's rule).
-static int drop_onto_target(char paths[][PATH_BUF], int n);
+static int drop_onto_target(desk_path *paths, int n);
 
 int desktop_drop_here(int mx, int my) {
     (void)mx; (void)my;
@@ -2186,9 +2221,9 @@ int desktop_drop_here(int mx, int my) {
         }
         int n = 0;
         for (int i = 0; i < uclip_count(&c); i++)
-            if (uclip_path(&c, i)) k_strlcpy(paths[n++], uclip_path(&c, i), PATH_BUF);
+            if (uclip_path(&c, i) && (paths[n] = strdup(uclip_path(&c, i)))) n++;
         int r = drop_onto_target(paths, n);
-        free(paths);
+        paths_free(paths, n);
         return r;
     }
     int copy = (wm_rawin_pointer_mods() & KEY_MOD_CTRL) != 0;
@@ -2209,26 +2244,39 @@ enum { UNDO_NONE, UNDO_MOVE, UNDO_COPY, UNDO_TRASH, UNDO_RENAME, UNDO_CREATE };
 #define UNDO_MAX 32
 static struct {
     int kind, n;
-    char from[UNDO_MAX][PATH_BUF];   // where each was ("" for a CREATE)
-    char to[UNDO_MAX][PATH_BUF];     // where each is now
+    char *from[UNDO_MAX];            // where each was ("" for a CREATE); heap
+    char *to[UNDO_MAX];              // where each is now; heap
     char label[96];                  // "Moved 3 items to Box"
     uint32_t seq;                    // moves with every operation kept
 } g_undo;
 static uint32_t g_undo_card_seq;     // the operation the Undo card announced
 
-static void undo_begin(int kind) { g_undo.kind = kind; g_undo.n = 0; g_undo.label[0] = '\0'; }
+static void undo_begin(int kind) {
+    for (int i = 0; i < g_undo.n; i++) { free(g_undo.from[i]); free(g_undo.to[i]); }
+    g_undo.kind = kind;
+    g_undo.n = 0;
+    g_undo.label[0] = '\0';
+}
 
 static void undo_add(const char *from, const char *to) {
     if (g_undo.n >= UNDO_MAX) return;
-    k_strlcpy(g_undo.from[g_undo.n], from ? from : "", PATH_BUF);
-    k_strlcpy(g_undo.to[g_undo.n], to ? to : "", PATH_BUF);
+    char *f = strdup(from ? from : ""), *t = strdup(to ? to : "");
+    if (!f || !t) {
+        free(f);
+        free(t);
+        wm_logf("desktop: no memory to keep an undo step");
+        return;
+    }
+    g_undo.from[g_undo.n] = f;
+    g_undo.to[g_undo.n] = t;
     g_undo.n++;
 }
 
 // Where `src` lands in folder `dir`: what a move or copy into it makes.
 static void undo_add_into(const char *src, const char *dir) {
-    char to[PATH_BUF];
-    if (k_path_join(dir, k_path_basename(src), to, sizeof to)) undo_add(src, to);
+    char *to = upath_join(dir, k_path_basename(src));
+    if (to) undo_add(src, to);
+    free(to);
 }
 
 static void undo_run(void);
@@ -2289,18 +2337,21 @@ static void undo_commit(const char *verb, const char *where, int card) {
 
 static void menu_undo(void *ctx) { (void)ctx; undo_run(); }
 
+// Is `path` directly inside folder `dir`?
+static int path_in_dir(const char *path, const char *dir) {
+    const char *base = k_path_basename(path);
+    size_t dl = k_strlen(dir);
+    return base > path && (size_t)(base - path - 1) == dl && k_strncmp(path, dir, dl) == 0;
+}
+
 static void paste_from(const struct uclip *c, int op) {
-    static char src[PATH_BUF];
     undo_begin(op == UCLIP_CUT ? UNDO_MOVE : UNDO_COPY);
     for (int i = 0; i < uclip_count(c); i++) {
-        const char *p = uclip_path(c, i);
-        if (!p) break;
-        k_strlcpy(src, p, sizeof src);
+        char *src = (char *)uclip_path(c, i);   // argv takes char *; nothing writes it
+        if (!src) break;
         // Already on the desktop: nothing to do, and `cp` onto itself
         // would be an error said in a log nobody reads.
-        char dir[PATH_BUF];
-        k_path_dirname(src, dir, sizeof dir);
-        if (k_strcmp(dir, DESKTOP_DIR) == 0) continue;
+        if (path_in_dir(src, DESKTOP_DIR)) continue;
         if (op == UCLIP_CUT) {
             char *const argv[] = { "/bin/mv", src, (char *)DESKTOP_DIR, 0 };
             spawn_argv(argv);
@@ -2340,17 +2391,18 @@ static int being_dragged(int i) {
 
 // The paths a drag carries: the desktop's own (the selection, or the one
 // icon), else the drag slot a window filled.
-static int drag_paths(char paths[][PATH_BUF], int cap) {
+// Heap strings, as selected_paths()'s.
+static int drag_paths(desk_path *paths, int cap) {
     if (drag.active) {
         int n = rb_is_selected(&sel, drag.index) ? selected_paths(paths, cap) : 0;
-        if (n == 0 && cap > 0) { item_path(drag.index, paths[0], PATH_BUF); n = 1; }
+        if (n == 0 && cap > 0 && (paths[0] = item_path(drag.index))) n = 1;
         return n;
     }
     static struct uclip c;
     uclip_drag_load(&c);
     int n = 0;
     for (int i = 0; i < uclip_count(&c) && n < cap; i++)
-        if (uclip_path(&c, i)) k_strlcpy(paths[n++], uclip_path(&c, i), PATH_BUF);
+        if (uclip_path(&c, i) && (paths[n] = strdup(uclip_path(&c, i)))) n++;
     return n;
 }
 
@@ -2372,16 +2424,16 @@ static int verb_for(int t, const char *first) {
 }
 
 void desktop_drop_hover(int mx, int my) {
-    static char first[PATH_BUF];
+    static char *first;
     int t = mx < 0 ? -1 : icon_hit_test(mx, my);
     if (t >= 0 && being_dragged(t)) t = -1;
     // The payload's first path is read once per icon entered, not per move.
     if (t >= 0 && t != g_drop_on) {
-        static char one[1][PATH_BUF];
-        if (drag_paths(one, 1) == 1) k_strlcpy(first, one[0], sizeof first);
-        else first[0] = '\0';
+        desk_path one[1];
+        free(first);
+        first = drag_paths(one, 1) == 1 ? one[0] : 0;
     }
-    int verb = t >= 0 ? verb_for(t, first) : DROP_NONE;
+    int verb = t >= 0 ? verb_for(t, first ? first : "") : DROP_NONE;
     if (verb == DROP_NONE) t = -1;
     if (t == g_drop_on && verb == g_drop_verb) return;
     damage_icon_hl(g_drop_on);
@@ -2389,7 +2441,7 @@ void desktop_drop_hover(int mx, int my) {
     g_drop_on = t;
     g_drop_verb = verb;
     const char *name = t >= 0 ? item_name(t) : "";
-    const char *ext = ext_of(first);
+    const char *ext = ext_of(first ? first : "");
     switch (verb) {
     case DROP_MOVE: k_snprintf(g_drop_label, sizeof g_drop_label, "Move to %s", name); break;
     case DROP_COPY: k_snprintf(g_drop_label, sizeof g_drop_label, "Copy to %s", name); break;
@@ -2409,16 +2461,16 @@ const char *desktop_drop_label(void) { return g_drop_on >= 0 ? g_drop_label : 0;
 // A release over the target: do what its label said, then forget it.
 // Returns 1 when the drop was the target's -- a refusal (CANT) included,
 // so the icons go back to their cells rather than being rearranged.
-static int drop_onto_target(char paths[][PATH_BUF], int n) {
+static int drop_onto_target(desk_path *paths, int n) {
     int t = g_drop_on, verb = g_drop_verb;
     if (t < 0 || verb == DROP_NONE) return 0;
     damage_icon_hl(t);
     g_drop_on = -1;
     g_drop_verb = DROP_NONE;
     WM_REDRAW();
-    static char dest[PATH_BUF];
     if (verb == DROP_MOVE || verb == DROP_COPY) {
-        item_path(t, dest, sizeof dest);
+        char *dest = item_path(t);
+        if (!dest) return 1;
         size_t dl = k_strlen(dest);
         undo_begin(verb == DROP_MOVE ? UNDO_MOVE : UNDO_COPY);
         for (int i = 0; i < n; i++) {
@@ -2433,6 +2485,7 @@ static int drop_onto_target(char paths[][PATH_BUF], int n) {
         }
         wm_logf("desktop: %s %d item(s) to %s", verb == DROP_MOVE ? "moved" : "copied", n, dest);
         undo_commit(verb == DROP_MOVE ? "Moved" : "Copied", item_name(t), 1);
+        free(dest);
     } else if (verb == DROP_OPEN) {
         const struct gui_app *a = launcher_app(t);
         int opened = 0;
@@ -2470,7 +2523,7 @@ static int drop_desktop_drag(void) {
     }
     n = drag_paths(paths, n);
     int r = drop_onto_target(paths, n);
-    free(paths);
+    paths_free(paths, n);
     return r;
 }
 
@@ -2480,7 +2533,7 @@ static int drop_desktop_drag(void) {
 static desk_path *g_del_paths;   // selection_paths()'s
 static int g_del_count;
 static int g_del_forever;
-static char g_del_msg[PATH_BUF + 40];
+static char *g_del_msg;           // the dialog borrows it until the next opens
 static void delete_confirmed(void) {
     if (g_del_forever) spawn_paths("/bin/rm", "-r", g_del_paths, g_del_count);
     else spawn_paths("/bin/trash", "put", g_del_paths, g_del_count);
@@ -2489,28 +2542,34 @@ static void delete_confirmed(void) {
         for (int i = 0; i < g_del_count; i++) undo_add(g_del_paths[i], 0);
         undo_commit("Moved", "the Recycle Bin", 1);
     }
-    free(g_del_paths);
+    paths_free(g_del_paths, g_del_count);
     g_del_paths = 0;
     g_del_count = 0;
 }
 static void delete_selected(int forever) {
     g_del_forever = forever;
-    free(g_del_paths);   // a dialog cancelled earlier left its snapshot
+    paths_free(g_del_paths, g_del_count);   // a dialog cancelled earlier left its snapshot
     g_del_paths = selection_paths(&g_del_count);
     if (g_del_count == 0) return;
     // Folder Options' "Ask before moving to the Recycle Bin"; a delete for
     // good always asks, as in Explorer -- Undo cannot take it back.
     if (!forever && !g_fo.confirm_delete) { delete_confirmed(); return; }
+    // Built aside and swapped in: an open dialog still reads the old one.
+    char *msg = 0;
+    int made;
     if (g_del_count == 1) {
         const char *shown = k_path_basename(g_del_paths[0]);
         for (int i = 0; i < item_count(); i++) if (rb_is_selected(&sel, i)) { shown = item_label(i); break; }
-        k_snprintf(g_del_msg, sizeof g_del_msg, forever ? "Permanently delete %s?"
-                                                         : "Move %s to the Recycle Bin?", shown);
+        made = asprintf(&msg, forever ? "Permanently delete %s?"
+                                      : "Move %s to the Recycle Bin?", shown);
     }
     else
-        k_snprintf(g_del_msg, sizeof g_del_msg, forever ? "Permanently delete %d items?"
-                                                         : "Move %d items to the Recycle Bin?",
-                   g_del_count);
+        made = asprintf(&msg, forever ? "Permanently delete %d items?"
+                                      : "Move %d items to the Recycle Bin?",
+                        g_del_count);
+    if (made < 0) { wm_logf("desktop: no memory to ask about a delete"); return; }
+    free(g_del_msg);
+    g_del_msg = msg;
     confirm_dialog_open_labelled(g_del_msg, forever ? "Delete" : "Move", "Cancel",
                                  delete_confirmed, 0);
 }
@@ -2527,12 +2586,13 @@ static void menu_delete(void *ctx) {
 static void make_new(int folder) {
     const char *stem = folder ? "New folder" : "New text document";
     const char *ext = folder ? "" : ".txt";
-    char path[PATH_BUF];
     for (int n = 1; n < 100; n++) {
-        if (n == 1) k_snprintf(path, sizeof path, "%s/%s%s", DESKTOP_DIR, stem, ext);
-        else        k_snprintf(path, sizeof path, "%s/%s %d%s", DESKTOP_DIR, stem, n, ext);
+        char *path;
+        int made = n == 1 ? asprintf(&path, "%s/%s%s", DESKTOP_DIR, stem, ext)
+                          : asprintf(&path, "%s/%s %d%s", DESKTOP_DIR, stem, n, ext);
+        if (made < 0) { wm_logf("desktop: no memory to make a new item"); return; }
         struct sys_stat st;
-        if (sys_stat(path, &st) == 0) continue;
+        if (sys_stat(path, &st) == 0) { free(path); continue; }
         int ok;
         if (folder) {
             ok = sys_mkdir(path) >= 0;
@@ -2541,11 +2601,15 @@ static void make_new(int folder) {
             ok = fd >= 0;
             if (ok) sys_close(fd);
         }
-        if (!ok) { wm_logf("desktop: could not make %s", path); return; }
-        k_strlcpy(g_rename_pending, k_path_basename(path), sizeof g_rename_pending);
-        undo_begin(UNDO_CREATE);
-        undo_add(0, path);
-        undo_commit("Created", 0, 0);
+        if (ok) {
+            k_strlcpy(g_rename_pending, k_path_basename(path), sizeof g_rename_pending);
+            undo_begin(UNDO_CREATE);
+            undo_add(0, path);
+            undo_commit("Created", 0, 0);
+        } else {
+            wm_logf("desktop: could not make %s", path);
+        }
+        free(path);
         return;
     }
 }
@@ -2580,7 +2644,7 @@ static void menu_empty_bin(void *ctx) {
 // LAUNCHER's caption is its Name= key, so that is what changes and the
 // file keeps its name, its saved position and its AppId -- KDE's rule
 // for a .desktop file on the desktop.
-static char g_rename_path[PATH_BUF];    // its path when the edit began
+static char *g_rename_path;    // its path when the edit began (heap)
 static struct uui_textbox g_rename_box;
 
 static int rename_rect(int *x, int *y, int *w, int *h) {
@@ -2603,8 +2667,11 @@ static void damage_rename(void) {
 static void begin_rename(int i) {
     if (i < 0 || !item_visible(i)) return;
     if (g_rename >= 0) damage_rename();
+    char *path = item_path(i);   // built first: a failure leaves any rename as it was
+    if (!path) return;
+    free(g_rename_path);
+    g_rename_path = path;
     g_rename = i;
-    item_path(i, g_rename_path, sizeof g_rename_path);
     const char *text = item_is_launcher(i) ? g_launch[i].name : k_path_basename(g_rename_path);
     uui_textbox_init(&g_rename_box, text);
     uui_textbox_set_active(&g_rename_box, 1);
@@ -2662,9 +2729,9 @@ static void end_rename(int commit) {
         if (k_strcmp(to, g_launch[i].name) == 0) return;
         rename_launcher(g_rename_path, to);
     } else {
-        char dst[PATH_BUF];
         if (k_strcmp(to, k_path_basename(g_rename_path)) == 0) return;
-        if (!k_path_join(DESKTOP_DIR, to, dst, sizeof dst)) return;
+        char *dst = upath_join(DESKTOP_DIR, to);
+        if (!dst) return;
         if (sys_rename(g_rename_path, dst) < 0) {
             wm_logf("desktop: rename to %s refused", to);
         } else {
@@ -2672,6 +2739,7 @@ static void end_rename(int commit) {
             undo_add(g_rename_path, dst);
             undo_commit("Renamed", to, 0);
         }
+        free(dst);
     }
     desktop_entries_changed();
     wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
@@ -2715,11 +2783,12 @@ static void menu_rename(void *ctx) {
 #define DESKTOP_PROPERTIES_MAX 4
 static void menu_properties(void *ctx) {
     (void)ctx;
-    static char paths[DESKTOP_PROPERTIES_MAX][PATH_BUF];
+    desk_path paths[DESKTOP_PROPERTIES_MAX];
     int n = selected_paths(paths, DESKTOP_PROPERTIES_MAX);
     for (int i = 0; i < n; i++) {
         char *const argv[] = { "/bin/wm/apps/properties", paths[i], 0 };
         spawn_argv(argv);
+        free(paths[i]);
     }
 }
 
@@ -2803,9 +2872,11 @@ static void menu_sort(void *ctx) {
 }
 
 static void resort(void) {
-    char keybuf[80];
-    for (int i = 0; i < item_count(); i++)
-        wm_conf_set(DESKTOP_CONF_PATH, item_key(i, keybuf, sizeof keybuf), "");
+    for (int i = 0; i < item_count(); i++) {
+        char *key = item_key(i);
+        if (key) wm_conf_set(DESKTOP_CONF_PATH, key, "");
+        free(key);
+    }
     positions_loaded = 0;
     desktop_load_positions();
     for (int i = 0; i < item_count(); i++)

@@ -37,6 +37,7 @@
 #include "rt/sys.h"
 #include <string.h>   // strcmp -- the script-shell fallback
 #include <stdlib.h>   // strtol -- `exit N`
+#include <unistd.h>   // getcwd(NULL, 0) -- `pwd`
 #include <ksignal.h> // signal_name() -- one table, shared with the kernel
 #include "base/tosh_jobs.h"
 #include "knum.h"     // k_itoa() -- $?
@@ -929,10 +930,16 @@ static int run_simple(struct tosh *sh, const char **argv, int argc,
     if (seq(cmd, "fg"))   { return bi_fg(sh, arg1); }
     if (seq(cmd, "bg"))   { return bi_bg(sh, arg1); }
     if (seq(cmd, "pwd"))  {
-        char here[TOSH_PATH_MAX];
-        if (sys_getcwd(here, sizeof here) < 0) scopy(here, "?", sizeof here);
+        char *here = getcwd(0, 0);
+        if (!here) {
+            emit(sh, "pwd: ");
+            emit(sh, sys_strerror(sys_errno()));
+            emit(sh, "\n");
+            return 1;
+        }
         emit(sh, here);
         emit(sh, "\n");
+        free(here);
         return 0;
     }
     if (seq(cmd, "help")) {
@@ -967,8 +974,8 @@ static int run_simple(struct tosh *sh, const char **argv, int argc,
         return 0;
     }
 
-    char path[TOSH_PATH_MAX];
-    int found = upath_find_program(cmd, path, TOSH_PATH_MAX);
+    char *path;
+    int found = upath_find_program(cmd, &path);
     if (found <= 0) {
         emit(sh, cmd);
         if (found < 0) {
@@ -986,7 +993,9 @@ static int run_simple(struct tosh *sh, const char **argv, int argc,
 
     // A failure prints nothing of its own: the program said what went
     // wrong, and the status waits in `$?` (bash's and dash's shape).
-    return run_external(sh, path, argv, label, background);
+    int rc = run_external(sh, path, argv, label, background);
+    free(path);
+    return rc;
 }
 
 // --- pipelines ---------------------------------------------------------
@@ -1049,10 +1058,17 @@ static int run_pipeline(struct tosh *sh, struct tosh_stage *st, int n,
         int argc = stage_argv(sh, &st[i], argv, TOSH_WORD_MAX + 1);
         if (argc == 0 || stage_is_builtin(argv[0])) continue;
 
-        char path[TOSH_PATH_MAX];
-        if (upath_find_program(argv[0], path, TOSH_PATH_MAX) <= 0) {
+        char *path;
+        int found = upath_find_program(argv[0], &path);
+        if (found <= 0) {
             emit(sh, argv[0]);
-            emit(sh, ": not found\n");
+            if (found < 0) {
+                emit(sh, ": cannot search PATH: ");
+                emit(sh, sys_strerror(sys_errno()));
+                emit(sh, "\n");
+            } else {
+                emit(sh, ": not found\n");
+            }
             if (i == n - 1) last_code = TOSH_ST_NOTFOUND;
             continue; // its stage simply produces nothing
         }
@@ -1084,6 +1100,7 @@ static int run_pipeline(struct tosh *sh, struct tosh_stage *st, int n,
         if (st[i].pid > 0 && job_pgid <= 0)
             job_pgid = sys_getpgid(st[i].pid);
 
+        free(path);
         if (saved_in  >= 0) { sys_dup2(saved_in, 0);  sys_close(saved_in); }
         if (saved_out >= 0) { sys_dup2(saved_out, 1); sys_close(saved_out); }
     }

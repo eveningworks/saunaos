@@ -102,7 +102,7 @@
 | `unum.h` | A number written the way the LC_NUMERIC locale writes it: format it the C way ("1234567.89", "12.5%", "1.2 MiB") and pass the string through unum_localize(), which swaps in the decimal mark and, wi... |
 | `uopen.h` | uopen -- which program opens this file? |
 | `upager.h` | The pager: show a block of text one screenful at a time, on whichever of fd 0 and fd 1 is a terminal. |
-| `upath.h` | PATH lookup for a ring-3 program that has to RUN another one. |
+| `upath.h` | Paths for a ring-3 program, SIZED TO FIT: joining a directory and a name, and the PATH lookup for a program that has to RUN another one. |
 | `upins.h` | PLACES: the list down the top of a file window's side pane, in the person's order -- Explorer's Quick access and Dolphin's Places panel, ONE list: Recent, Home, the personal folders and the Recycle... |
 | `upixscale.h` | A 32-bit PICTURE SCALED SHARP: nearest-neighbour up to the next whole factor, then bilinear to the size asked -- the "sharp bilinear" retro emulators default to. |
 | `uprefs.h` | uprefs -- an app's options file described as a TABLE: one row per key names the field it fills, its type, its range or words and its default, and load, save and Defaults all walk that one table --... |

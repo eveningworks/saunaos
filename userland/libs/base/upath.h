@@ -5,35 +5,35 @@
 extern "C" {
 #endif
 
-// PATH lookup for a ring-3 program that has to RUN another one.
+// Paths for a ring-3 program, SIZED TO FIT: joining a directory and a
+// name, and the PATH lookup for a program that has to RUN another one.
 //
-// **EXTRACTED WHEN IT GOT ITS SECOND REAL CALLER**, which is the bar
-// this project sets for anything shared: `/bin/tosh` had it as a static
-// function for as long as it was the only thing resolving a command
-// name, and `/bin/strace` -- which takes a command name exactly as the
-// shell does, and must find the same program the shell would -- is what
-// made a third hand-rolled copy the alternative. There is already a
-// fourth-in-waiting: `kernel/shell/shell_path.c` is the KERNEL shell's version
-// of the same search, and it cannot use this one (ring 0, and it reads
-// PATH out of `/etc/saunaos.conf`). That divergence is real and is why
-// the search ORDER is stated in both places rather than derived.
+// Every answer here is a heap string the caller free()s -- glibc's
+// getcwd(NULL, 0) and GIO's g_build_filename() shape. A fixed budget
+// below FS_PATH_MAX is a deep folder that silently names a different
+// one (the 64-byte tosh/ls budgets did exactly that).
 //
-// The list is fixed here rather than read from the environment: a
-// program that inherits a mangled PATH and silently runs the wrong
-// binary is worse than one that always looks in the same three places.
-// When ring 3 grows a real PATH, this is the one function that changes.
-#define UPATH_MAX 64 // FS_PATH_MAX -- every caller-side path budget here
+// `kernel/shell/shell_path.c` is the KERNEL shell's version of the
+// search and cannot use this one (ring 0, PATH from /etc/saunaos.conf),
+// which is why the search ORDER is stated in both places. The list is
+// fixed here rather than read from the environment: an inherited,
+// mangled PATH silently running the wrong binary is worse.
 
-// Finds the program `name` names, writing the path into `out` (`cap`
-// bytes). A name containing '/' is a path and is used as given.
+// `dir` + "/" + `name`, with no doubled slash at the root ("/" + "x" is
+// "/x") and `name` alone when `dir` is "" or NULL. NULL only when out of
+// memory (errno ENOMEM).
+char *upath_join(const char *dir, const char *name);
+
+// Finds the program `name` names and stores a heap copy of its path in
+// `*out` (free() it); `*out` is NULL unless the answer is 1. A name
+// containing '/' is a path and is used as given.
 //
-// **THREE ANSWERS, NOT TWO**: 1 if `out` names a program, 0 if no PATH
-// entry had it, and -1 if the search could not be COMPLETED. The third
-// is not a shade of "no" -- until open() could say why it refused, a
-// machine with a full fd table reported "not found" for a command that
-// was sitting right there, because every probe failed for a reason that
-// had nothing to do with the candidate. See docs/errno-design.md.
-int upath_find_program(const char *name, char *out, int cap);
+// **THREE ANSWERS, NOT TWO**: 1 if `*out` names a program, 0 if no PATH
+// entry had it, and -1 if the search could not be COMPLETED (errno says
+// why: ENOMEM, or EMFILE from a probe). The third is not a shade of "no"
+// -- a machine with a full fd table once reported "not found" for a
+// command sitting right there. See docs/errno-design.md.
+int upath_find_program(const char *name, char **out);
 
 // The search list, by index, for anything that has to ENUMERATE what a
 // bare name could be rather than resolve one -- Tab completion's first

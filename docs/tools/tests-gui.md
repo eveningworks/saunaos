@@ -772,6 +772,15 @@ from the default (a sound card, a USB mouse, `--reboot`).
   name is built inside the guest by dash, since the debug console
   refuses a line that long; `touch`, not `echo >`, because
   `write_lines()` adds its own redirection.
+- **`deeppath_gui_test.py`** -- a path past 255 bytes on the desktop and
+  in the File Manager (fixed tables round 4, A; the shell and `ls` half
+  is `userland/tests/deeppath_test.c` under `usertest_run.py`). A file
+  whose desktop path is 264 bytes is deleted by Shift+Delete (the icon
+  goes); the File Manager walks down eight levels from a short folder
+  and opens a file by a 340-byte path (its `files: open` line). Shift+,
+  not plain Delete: the Recycle Bin keeps a 256-byte path of its own
+  (roadmap, round 4 B). `--only desktop|files`. Seen red on the old
+  80-byte desktop and 256-byte File Manager.
 
 - **`screen_off_test.py`** -- the screen-off timer (`wm_idle.c`,
   `SYS_DISPLAY_POWER`) as far as QEMU can show it: the 10-minute

@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <sched.h>
 #include "rt/sys.h"
 #include "syscall_abi.h"
@@ -95,8 +96,13 @@ static int ask(int pid, int prio, const char *what) {
 }
 
 static int launch(int prio, int argc, char **argv) {
-    char path[UPATH_MAX];
-    if (upath_find_program(argv[0], path, sizeof path) <= 0) {
+    char *path;   // lives until this program exits
+    int found = upath_find_program(argv[0], &path);
+    if (found < 0) {
+        fprintf(stderr, "chrt: %s: cannot search PATH: %s\n", argv[0], strerror(errno));
+        return 1;
+    }
+    if (found == 0) {
         fprintf(stderr, "chrt: %s: no such program\n", argv[0]);
         return 1;
     }

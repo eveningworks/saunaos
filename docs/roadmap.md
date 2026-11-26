@@ -742,6 +742,10 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Fixed tables grown on demand: ttys/ptys, shm, modules, config files, tosh's jobs, seven apps' lists, three finds~~ DONE 2026-10-23
 - [x] ~~The fixed tables still left: Notepad, soundd, the tray, init, ld.so and a dozen more~~ DONE 2026-10-28
 - [ ] The ring-3 tables kept for now: GRUB's entries, Places and pins, Paint's layers, remote desktop's trusted viewers
+- [ ] Paths sized to fit in Notepad, Paint, Image Viewer, Music Player and Video Player -- fixed tables round 4, A2
+- [ ] App lists that stop without saying so: rename boxes, bookmarks, the bin, taskbar groups, choices, sessions -- round 4, B
+- [ ] IPC and kernel caps: uchan peers, listen backlog, datagram queue, unveil entries, mount points, completion -- round 4, C
+- [ ] The clipboard past one 64 KiB page, data handed over as Wayland does -- round 4, D (design doc first)
 - [x] ~~The kernel's resource tables, grown to a ceiling sized from RAM~~ DONE 2026-10-28
 - [x] ~~Config files read at their own size, past 4 KiB~~ DONE 2026-10-29
 - [ ] mmap regions in a tree, so the fixed 1024 can move

@@ -77,6 +77,9 @@ int ftruncate(int fd, off_t size);
 // for the failure value rather than for success. Getting that backwards
 // made getcwd() report failure on every call that worked, which is the
 // shape of mistake a one-line wrapper is most prone to.
+// A NULL `b` is ALLOCATED (glibc's extension): `n` bytes, or with `n`
+// 0, exactly as long as the path -- free() it. Linux's shape for a
+// path with no fixed budget.
 char *getcwd(char *b, size_t n);
 // A terminal is a FLAG of SYS_FSTAT rather than a call of its own --
 // see abi/syscall_abi.h. Returns 1 or 0, as POSIX does, and 0 for a bad

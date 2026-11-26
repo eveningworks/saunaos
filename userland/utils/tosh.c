@@ -89,21 +89,25 @@ static void put(const char *s) { write(1, s, (size_t)strlen(s)); }
 // and would show as a prompt naming a directory this shell is not in.
 // Cheap: one syscall per prompt, and a prompt is drawn when a human has
 // just pressed a key.
-//
-// Static buffer because redraw() calls this several times per repaint
-// and compares its LENGTH against what is on screen -- a fresh buffer
-// per call would be a dangling pointer the moment it returned.
-static char g_prompt[TOSH_PATH_MAX + 4];
+static char *g_prompt;
 
 static const char *prompt(void) {
-    char here[TOSH_PATH_MAX];
-    if (!getcwd(here, sizeof here)) { here[0] = '/'; here[1] = '\0'; }
-    int n = 0;
-    for (const char *p = here; *p && n < (int)sizeof g_prompt - 3; p++) g_prompt[n++] = *p;
-    g_prompt[n++] = '$';
-    g_prompt[n++] = ' ';
-    g_prompt[n] = '\0';
-    return g_prompt;
+    // Sized to the directory, however deep (getcwd(NULL, 0)). Rebuilt
+    // each call; uline keeps no pointer to the last one. "?" when the
+    // cwd cannot be had: a "/" here once claimed a deep folder was the
+    // root.
+    char *here = getcwd(0, 0);
+    const char *dir = here ? here : "?";
+    size_t n = strlen(dir);
+    char *p = malloc(n + 3);
+    if (p) {
+        memcpy(p, dir, n);
+        memcpy(p + n, "$ ", 3);
+        free(g_prompt);
+        g_prompt = p;
+    }
+    free(here);
+    return g_prompt ? g_prompt : "$ ";
 }
 
 // The terminal's width in columns, asked of the kernel rather than
@@ -343,13 +347,14 @@ static void end_line(void) { uline_end(prompt(), &g_ed, &g_row_shown); }
 // per repaint, and a title emitted from there would put an escape
 // sequence between every keystroke and its echo. The cwd is what the
 // title says, so the cwd is what decides whether to say it again.
-static char g_titled[TOSH_PATH_MAX];
+static char *g_titled;
 
 static void announce_title(void) {
-    char here[TOSH_PATH_MAX];
-    if (!getcwd(here, sizeof here)) return;
-    if (strcmp(here, g_titled) == 0) return;
-    strlcpy(g_titled, here, sizeof g_titled);
+    char *here = getcwd(0, 0);
+    if (!here) return;
+    if (g_titled && strcmp(here, g_titled) == 0) { free(here); return; }
+    free(g_titled);
+    g_titled = here;
 
     put("\033]0;");
     put(here);

@@ -23,14 +23,10 @@ extern "C" {
 // so a terminal can put it in a window and a standalone shell can write
 // it to fd 1, with no difference in the shell itself.
 
-#define TOSH_PATH_MAX 64 // FS_PATH_MAX
-
-// THE WHOLE COMMAND LINE, which is not a path and was sized as one.
-// tosh_run_line() staged the line in a TOSH_PATH_MAX buffer, so a
-// command over 63 characters was silently cut -- measured: `echo x >
-// /probe_a.txt` ran and a 70-character line did not. A command line is
-// as long as a person types plus what completion inserts, and paths in
-// it are bounded separately by TOSH_PATH_MAX.
+// THE WHOLE COMMAND LINE. It was once staged in a 64-byte PATH buffer,
+// which silently cut any command over 63 characters. A command line is
+// as long as a person types plus what completion inserts; a path in it
+// has no budget of its own (base/upath.h, getcwd(NULL, 0)).
 #define TOSH_CMD_MAX 1024
 
 // The most words (arguments plus operators) one line may lex into. A

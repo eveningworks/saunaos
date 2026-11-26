@@ -156,6 +156,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `crt_test.py` -- The Terminal's screen effect (userland/libs/ui/ucrt.c): off, toggled, set
 - `cursor_shapes_test.py` -- The three gesture shapes: hand over a link, move, and not-allowed
 - `cursor_theme_test.py` -- Cursor themes: loading, switching, sizing and the malformed-file floor
+- `deeppath_gui_test.py` -- A path past 255 bytes on the desktop and in the File Manager
 - `desktop_drop_test.py` -- dropping onto desktop icons, and their art
 - `desktop_entries_test.py` -- Drive the .desktop entry system: the ShowIn= key, and live reload
 - `desktop_many_test.py` -- a desktop with more icons than its old table
