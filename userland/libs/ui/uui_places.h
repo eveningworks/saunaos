@@ -26,13 +26,12 @@ extern "C" {
 // for uui_places_take(), and the app goes there.
 
 #define UUI_PLACES_MAX       48   // the Places list (UPINS_MAX) and the mounts
-#define UUI_PLACES_PATH_MAX  256
 #define UUI_PLACES_LABEL_MAX 24
 
 struct uui_place {
     char label[UUI_PLACES_LABEL_MAX];
     const char *icon;             // icon_get() name
-    char path[UUI_PLACES_PATH_MAX];
+    char *path;                   // OWNED, sized to fit; never NULL in a row
     int device;                   // 1 for a mount, with the fields below
     uint64_t total, used;
     int readonly, persistent;
@@ -61,8 +60,7 @@ struct uui_places {
     int pinned;                   // the LAST this many places are the Places list (base/upins.h)
     int selected;                 // row, or -1: the one whose path is where you are
     int hot, armed;               // OWNED
-    char taken[UUI_PLACES_PATH_MAX];
-    int has_taken;
+    char *taken;                  // OWNED: a navigation, until taken
     int focused;                  // OWNED -- the focus ring's set_focused
     int scroll;                   // PIXELS scrolled off the top, when it overflows; OWNED
     struct uui_sbar sb;           // OWNED: the scrollbar
@@ -70,6 +68,8 @@ struct uui_places {
 };
 
 void uui_places_init(struct uui_places *p);
+// Gives back the rows' paths; init again to rebuild the list.
+void uui_places_free(struct uui_places *p);
 // The Places list (base/upins.h), in the person's order -- the defaults
 // and the pins are one list. `virtual_ok` 0 leaves out Recent and the
 // Recycle Bin, which only the File Manager can list. Call before
@@ -86,9 +86,9 @@ void uui_places_refresh(struct uui_places *p);
 // Highlights the row that IS this directory, or none -- a folder under
 // Home is not Home, which is why this is an exact match.
 void uui_places_select_path(struct uui_places *p, const char *dir);
-// The path a click (or Enter) asked for: 1, or 0 when none since the
-// last call.
-int  uui_places_take(struct uui_places *p, char *out, int cap);
+// The path a click (or Enter) asked for, allocated (free() it), or NULL
+// when none since the last call.
+char *uui_places_take(struct uui_places *p);
 // Row `i`'s rect, for tests and layout logs; 0 past the end.
 int  uui_places_row_rect(const struct uui_places *p, int i, int *x, int *y, int *w, int *h);
 // A device's usage colour (its state, through the theme's action roles)

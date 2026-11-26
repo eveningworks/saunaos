@@ -1,14 +1,15 @@
 // The picture rows of a file chooser -- see ui/uui_imagetypes.h.
 #include "ui/uui_imagetypes.h"
 #include "media/uimg.h"
-#include "kpath.h"
+#include "base/upath.h"
+#include <stdlib.h>
 #include <string.h>
 
 // `ctx` is the codec name the row lists, or NULL for every picture.
 static int keep(void *ctx, const char *dir, const struct ulist_entry *e) {
-    char path[UUI_FILEDIALOG_PATH_MAX];
-    if (!k_path_join(dir, e->name, path, sizeof path)) return 0;
-    const char *f = uimg_format_guess(path);
+    char *path = upath_join(dir, e->name);
+    const char *f = path ? uimg_format_guess(path) : 0;
+    free(path);
     return f && (!ctx || !strcmp(f, (const char *)ctx));
 }
 

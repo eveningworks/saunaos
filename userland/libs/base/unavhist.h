@@ -16,22 +16,27 @@ extern "C" {
 // It only remembers. Moving the view, and not recording the move a step
 // itself caused, is the caller's -- each caller's view is its own.
 
-#define UNAVHIST_MAX  32
-#define UNAVHIST_PATH 256
+#define UNAVHIST_MAX  32   // places remembered, a browser's bounded Back
 
 struct unavhist {
-    char dir[UNAVHIST_MAX][UNAVHIST_PATH];
+    char *dir[UNAVHIST_MAX];   // OWNED heap paths, sized to fit
     int count;   // entries in use
     int at;      // where we are, 0..count-1; -1 before the first record
 };
 
+// Empties it, giving back what it held: a struct starts zeroed (file
+// scope) or init'd before.
 void unavhist_init(struct unavhist *h);
 void unavhist_record(struct unavhist *h, const char *dir);
+// `dst` (emptied first, as init does) becomes a copy of `src`, strings
+// and all. 0 out of memory, `dst` then empty.
+int  unavhist_copy(struct unavhist *dst, const struct unavhist *src);
 // Is there anywhere that way? `delta` is -1 (back) or +1 (forward).
 int  unavhist_can(const struct unavhist *h, int delta);
 
 // One step `delta`, to the nearest entry `ok` accepts (NULL accepts all),
-// which becomes the current one: its path, or NULL when there is none.
+// which becomes the current one: its path (valid until the next record
+// or init), or NULL when there is none.
 // An entry `ok` refuses -- a folder that has gone away -- is STEPPED OVER
 // and kept, since it may exist again by the time Back comes past; the
 // first one refused goes to `*skipped` (NULL when none was).

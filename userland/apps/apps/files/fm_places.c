@@ -32,6 +32,7 @@
 // PLACES IS ONE LIST (base/upins.h): the defaults and the pins in the
 // person's order, then every mounted volume.
 void places_build(void) {
+    uui_places_free(&g_places);
     uui_places_init(&g_places);
     uui_places_add_pins(&g_places, 1);
     uui_places_refresh(&g_places);
@@ -51,22 +52,25 @@ unsigned places_signature(void) {
 // The rebuild drops it from Places (base/upins.h keeps the entry for when
 // the folder is back).
 void tree_goto(const char *path) {
-    char was[PATH_MAX_LEN], gone[PATH_MAX_LEN];
-    strlcpy(was, uui_fileview_dir(active()), sizeof was);
-    strlcpy(gone, path, sizeof gone);   // `path` is a tree slot the rebuild rewrites
-    if (fm_goto(g_active, gone)) {
+    char *was = strdup(uui_fileview_dir(active()));
+    char *gone = strdup(path);   // `path` is a tree slot the rebuild frees
+    if (!was || !gone) {
+        ulogf("files: out of memory going to %s\n", path);
+    } else if (fm_goto(g_active, gone)) {
         // A volume or share entered from here is described AS ONE by the
         // details pane (fm_details.c), which needs the folder itself in
         // view rather than its first row.
         struct uvolinfo v;
         if (g_dpane && uvolinfo_load(gone, &v)) uui_fileview_select_none(active());
-        return;
+    } else {
+        uui_fileview_set_dir(active(), was);
+        snprintf(g_stat_note, sizeof g_stat_note, "%s is not there any more -- moved or deleted",
+                 k_path_basename(gone));
+        places_build();
+        tree_rebuild();
     }
-    uui_fileview_set_dir(active(), was);
-    snprintf(g_stat_note, sizeof g_stat_note, "%s is not there any more -- moved or deleted",
-             k_path_basename(gone));
-    places_build();
-    tree_rebuild();
+    free(was);
+    free(gone);
 }
 
 // --- the menus --------------------------------------------------------------
@@ -78,7 +82,15 @@ static const char *const KIND_NAME[] = { "none", "pane", "recent", "bin", "place
 // What the open menu is about, until its command runs: copied, because
 // a tree rebuild rewrites the slots it came from.
 static enum kind g_kind;
-static char g_aim[PATH_MAX_LEN];
+static char g_noaim[1];
+static char *g_aim = g_noaim;   // heap, or g_noaim ("") -- never NULL
+
+static void set_aim(const char *path) {
+    if (g_aim != g_noaim) free(g_aim);
+    g_aim = path ? strdup(path) : 0;
+    if (path && !g_aim) ulogf("files: out of memory aiming a menu at %s\n", path);
+    if (!g_aim) g_aim = g_noaim;
+}
 static struct uvolinfo g_vol;
 
 #define ADD(...) do { if (n < cap) out[n++] = (struct uui_menu_item)__VA_ARGS__; } while (0)
@@ -155,8 +167,7 @@ int places_ctx_items(struct uui_menu_item *out, int cap, int nid) {
         static struct urecent_item one;
         g_recent_has = urecent_list(&one, 1) > 0;
     }
-    g_aim[0] = '\0';
-    if (g_kind != K_PANE) strlcpy(g_aim, g_tree_path[nid], sizeof g_aim);
+    set_aim(g_kind != K_PANE ? g_tree_path[nid] : 0);
     switch (g_kind) {
     case K_PANE:
         if (upins_missing_defaults() > 0)
@@ -262,11 +273,11 @@ static int spawn_argv(const char *exec, char *const *argv, const char *what) {
 // The Terminal starts in the folder: a spawned process takes this one's
 // working directory, so this one stands there for the spawn.
 void fm_open_terminal(struct uapp *a, const char *dir) {
-    char was[PATH_MAX_LEN];
-    if (!getcwd(was, sizeof was)) strlcpy(was, "/", sizeof was);
-    if (chdir(dir) != 0) { set_note("cannot open a Terminal there"); return; }
-    if (uapp_spawn(a, ULAUNCH_TERMINAL_EXEC, 0) < 0) set_note("could not start the Terminal");
-    chdir(was);
+    char *was = getcwd(0, 0);
+    if (chdir(dir) != 0) set_note("cannot open a Terminal there");
+    else if (uapp_spawn(a, ULAUNCH_TERMINAL_EXEC, 0) < 0) set_note("could not start the Terminal");
+    chdir(was ? was : "/");
+    free(was);
 }
 
 // Leave a volume about to go: a pane standing in it would keep it busy.
@@ -523,30 +534,28 @@ static void mounts_reorder(int g, int from, int after, int before) {
 int places_drop(struct uui_fileview *src) {
     int from, after, before;
     if (!uui_tree_drop_insert(&g_tree, &from, &after, &before)) return 0;
-    char before_path[PATH_MAX_LEN] = "";
-    if (before >= 0 && before < g_tree_count && group_of(before) == G_LIST)
-        strlcpy(before_path, g_tree_path[before], sizeof before_path);
-    const char *at = before_path[0] ? before_path : 0;
+    // The tree's own strings: nothing below rebuilds it before rebuild().
+    const char *at = before >= 0 && before < g_tree_count && group_of(before) == G_LIST &&
+                     g_tree_path[before][0] ? g_tree_path[before] : 0;
     if (from >= 0 && from < g_tree_count && group_of(from) != G_LIST) {
         mounts_reorder(group_of(from), from, after, before);
     } else if (from >= 0 && from < g_tree_count) {
-        char moved[PATH_MAX_LEN];
-        strlcpy(moved, g_tree_path[from], sizeof moved);
+        const char *moved = g_tree_path[from];
         int e = upins_move_before(moved, at);
         ulogf("files: placedrop move %s before %s rc %d\n", moved, at ? at : "-", e);
     } else if (src) {
         // The marked folders, or the selected one; files are not places.
         int marks = uui_fileview_mark_count(src), pinned = 0, full = 0;
-        for (int m = 0; m < (marks ? marks : 1); m++) {
-            char path[PATH_MAX_LEN];
-            int ok = marks ? uui_fileview_marked_path(src, m, path, sizeof path) && uui_fileview_marked_is_dir(src, m)
-                           : uui_fileview_selected_path(src, path, sizeof path) && uui_fileview_selected_is_dir(src);
-            if (!ok) continue;
+        for (int m = 0; m < (marks ? marks : 1) && !full; m++) {
+            int is_dir = marks ? uui_fileview_marked_is_dir(src, m) : uui_fileview_selected_is_dir(src);
+            char *path = !is_dir ? 0 : marks ? uui_fileview_marked_path(src, m) : uui_fileview_selected_path(src);
+            if (!path) continue;
             int e = upins_add_before(path, at);
             if (e == -EEXIST) e = upins_move_before(path, at);   // there already: moved instead
-            if (e == -ENOSPC) { full = 1; break; }
+            if (e == -ENOSPC) full = 1;
             if (!e) pinned++;
-            ulogf("files: placedrop pin %s before %s rc %d\n", path, at ? at : "-", e);
+            if (!full) ulogf("files: placedrop pin %s before %s rc %d\n", path, at ? at : "-", e);
+            free(path);
         }
         if (full) set_note("Places is full -- unpin one first");
         else if (!pinned) set_note("only folders go in Places");

@@ -16,17 +16,19 @@
 #include "kpath.h"
 #include "base/uutf8.h"
 #include "base/ulog.h"
+#include "base/unavhist.h"
+#include "base/udirs.h"
 
-#define HIST_BYTES (32 * PATH_MAX_LEN + 16)   // >= fm_history_size(), checked at init
-
+// A tab OWNS its folders and histories: copies, freed by tab_free(). A
+// slot past g_ntabs is all zero.
 struct tab {
-    char dir[2][PATH_MAX_LEN];
+    char *dir[2];
     int active;
-    unsigned char hist[2][HIST_BYTES];
+    struct unavhist hist[2];
     char label[WIN_TEXT_MAX];
 };
 
-static struct tab g_tabs[WIN_TABS_MAX];   // static: tens of KB each
+static struct tab g_tabs[WIN_TABS_MAX];
 static int g_ntabs, g_cur;
 static char g_sent[WIN_TABS_MAX][WIN_TEXT_MAX];   // what the compositor last got
 static int g_sent_n = -1, g_sent_cur = -1;
@@ -49,11 +51,24 @@ static void label_of(const char *dir, char *out, int cap) {
     uutf8_lcpy(out, l ? l : "", cap);
 }
 
+// `*field` becomes a copy of `s`; out of memory it keeps what it had.
+static void keep_dir(char **field, const char *s) {
+    if (!upath_set(field, s)) ulogf("files: out of memory keeping a tab's folder %s\n", s);
+}
+
+static void tab_free(struct tab *t) {
+    for (int p = 0; p < 2; p++) {
+        free(t->dir[p]);
+        unavhist_init(&t->hist[p]);
+    }
+    memset(t, 0, sizeof *t);
+}
+
 static void save(int i) {
     struct tab *t = &g_tabs[i];
     for (int p = 0; p < 2; p++) {
-        strlcpy(t->dir[p], real_dir(p), sizeof t->dir[p]);
-        fm_history_save(p, t->hist[p]);
+        keep_dir(&t->dir[p], real_dir(p));
+        fm_history_save(p, &t->hist[p]);
     }
     t->active = g_active;
 }
@@ -61,8 +76,8 @@ static void save(int i) {
 static void load(int i) {
     struct tab *t = &g_tabs[i];
     for (int p = 0; p < 2; p++) {
-        fm_history_load(p, t->hist[p]);
-        fm_history_replay(p, t->dir[p]);
+        fm_history_load(p, &t->hist[p]);
+        fm_history_replay(p, t->dir[p] ? t->dir[p] : udir_home());
     }
     g_active = t->active;
 }
@@ -86,10 +101,6 @@ void tabs_sync(struct uapp *a) {
 }
 
 void tabs_init(struct uapp *a) {
-    if (fm_history_size() > HIST_BYTES) {   // a history grew past the tab's room
-        ulogf("files: tabs off -- history needs %d bytes\n", fm_history_size());
-        return;
-    }
     g_ntabs = 1;
     g_cur = 0;
     save(0);
@@ -113,13 +124,19 @@ void tab_select(struct uapp *a, int i) {
 void tab_new(struct uapp *a, const char *dir) {
     if (g_ntabs == 0) return;
     if (g_ntabs >= WIN_TABS_MAX) { set_note("no room for another tab"); return; }
+    char *want = strdup(dir);   // `dir` may be a pane's, which save() and load() move
+    if (!want) { set_note("not enough memory for another tab"); return; }
     save(g_cur);
-    struct tab *t = &g_tabs[g_ntabs];
-    *t = g_tabs[g_cur];
-    strlcpy(t->dir[t->active], dir, sizeof t->dir[0]);
+    const struct tab *cur = &g_tabs[g_cur];
+    struct tab *t = &g_tabs[g_ntabs];   // zero: past g_ntabs
+    t->active = cur->active;
     // A fresh history for the pane that moved; the other keeps its own.
-    fm_history_load(t->active, 0);
-    fm_history_save(t->active, t->hist[t->active]);
+    for (int p = 0; p < 2; p++) {
+        if (p == t->active) { t->dir[p] = want; continue; }
+        keep_dir(&t->dir[p], cur->dir[p] ? cur->dir[p] : udir_home());
+        unavhist_copy(&t->hist[p], &cur->hist[p]);
+    }
+    unavhist_init(&t->hist[t->active]);
     g_cur = g_ntabs++;
     load(g_cur);
     fm_history_record(g_active, uui_fileview_dir(active()));
@@ -134,8 +151,10 @@ void tab_close(struct uapp *a, int i) {
     if (i < 0 || i >= g_ntabs) return;
     if (g_ntabs == 1) { fm_request_quit(a); return; }
     if (i != g_cur) save(g_cur);
+    tab_free(&g_tabs[i]);
     memmove(&g_tabs[i], &g_tabs[i + 1], sizeof g_tabs[0] * (size_t)(g_ntabs - i - 1));
     g_ntabs--;
+    memset(&g_tabs[g_ntabs], 0, sizeof g_tabs[0]);   // its strings moved down a slot
     int was = g_cur;
     if (i < g_cur) g_cur--;
     else if (i == g_cur) {

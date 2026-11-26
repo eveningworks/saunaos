@@ -7,30 +7,44 @@
 #include <errno.h>
 #include "rt/sys.h"
 
+// A slot's step strings go; its array stays for the next operation.
+static void op_clear(struct ufu_op *op) {
+    for (int i = 0; i < op->count; i++) {
+        free(op->step[i].a);
+        free(op->step[i].b);
+        free(op->step[i].bin);
+    }
+    op->count = 0;
+}
+
+// The oldest operation falls off; the last slot starts EMPTY, since its
+// steps moved down with it.
+static void drop_oldest(struct ufileundo *u) {
+    op_clear(&u->op[0]);
+    free(u->op[0].step);
+    memmove(&u->op[0], &u->op[1], sizeof u->op[0] * (UFU_DEPTH - 1));
+    u->op[UFU_DEPTH - 1].step = NULL;
+    u->op[UFU_DEPTH - 1].cap = 0;
+    u->op[UFU_DEPTH - 1].count = 0;
+    u->count--;
+    u->at--;
+}
+
 struct ufu_op *ufileundo_begin(struct ufileundo *u, int kind, const char *label) {
     u->count = u->at;              // what could have been redone is gone
-    if (u->count == UFU_DEPTH) {   // full: the oldest falls off
-        free(u->op[0].step);
-        memmove(&u->op[0], &u->op[1], sizeof u->op[0] * (UFU_DEPTH - 1));
-        // The last slot's steps moved down with it: it starts empty.
-        u->op[UFU_DEPTH - 1].step = NULL;
-        u->op[UFU_DEPTH - 1].cap = 0;
-        u->count--;
-        u->at--;
-    }
+    if (u->count == UFU_DEPTH) drop_oldest(u);
     struct ufu_op *op = &u->op[u->count];
+    op_clear(op);
     op->kind = kind;
-    op->count = 0;
     strlcpy(op->label, label ? label : "", sizeof op->label);
     return op;
 }
 
 int ufileundo_add(struct ufu_op *op, const char *a, const char *b, const char *bin) {
     if (!UGROW(op->step, op->cap, op->count + 1)) return 0;
-    struct ufu_step *s = &op->step[op->count++];
-    strlcpy(s->a, a ? a : "", sizeof s->a);
-    strlcpy(s->b, b ? b : "", sizeof s->b);
-    strlcpy(s->bin, bin ? bin : "", sizeof s->bin);
+    struct ufu_step s = { strdup(a ? a : ""), strdup(b ? b : ""), strdup(bin ? bin : "") };
+    if (!s.a || !s.b || !s.bin) { free(s.a); free(s.b); free(s.bin); return 0; }
+    op->step[op->count++] = s;
     return 1;
 }
 
@@ -65,12 +79,7 @@ int ufileundo_done_part(struct ufileundo *u, int redo, int ran) {
     int k = (int)(cur - u->op);
     if (u->count == UFU_DEPTH) {   // full: drop the oldest, or the last redo
         if (k > 0) {
-            free(u->op[0].step);
-            memmove(&u->op[0], &u->op[1], sizeof u->op[0] * (UFU_DEPTH - 1));
-            u->op[UFU_DEPTH - 1].step = NULL;
-            u->op[UFU_DEPTH - 1].cap = 0;
-            u->count--;
-            u->at--;
+            drop_oldest(u);
             k--;
         } else {
             u->count--;            // k == 0 < count - 1: a redoable one
@@ -80,13 +89,14 @@ int ufileundo_done_part(struct ufileundo *u, int redo, int ran) {
     int cut = redo ? ran : op->count - ran, rest = op->count - cut;
     struct ufu_step *moved = malloc(sizeof *moved * (size_t)rest);
     if (!moved) { ufileundo_done(u, redo); return -1; }
-    free(u->op[u->count].step);    // the spare slot the shift overwrites
+    op_clear(&u->op[u->count]);    // the spare slot the shift overwrites
+    free(u->op[u->count].step);
     memmove(&u->op[k + 2], &u->op[k + 1], sizeof u->op[0] * (size_t)(u->count - k - 1));
     struct ufu_op *nw = &u->op[k + 1];
     nw->kind = op->kind;
     strlcpy(nw->label, op->label, sizeof nw->label);
     nw->step = moved;
-    memcpy(moved, &op->step[cut], sizeof *moved * (size_t)rest);
+    memcpy(moved, &op->step[cut], sizeof *moved * (size_t)rest);   // the strings move too
     nw->count = nw->cap = rest;
     op->count = cut;
     u->count++;
@@ -109,9 +119,14 @@ static int move_to(const char *from, const char *to,
 // take it back out.
 static int to_bin(struct ufu_step *st, const char *path) {
     struct utrash_item it;
+    char where[UTRASH_PATH];   // the bin's own bound (base/utrash.h)
     int e = utrash_put(path, &it);
     if (e) return e;
-    if (!utrash_item_path(&it, st->bin, sizeof st->bin)) return -ENAMETOOLONG;
+    if (!utrash_item_path(&it, where, sizeof where)) return -ENAMETOOLONG;
+    char *keep = strdup(where);
+    if (!keep) return -ENOMEM;
+    free(st->bin);
+    st->bin = keep;
     return 0;
 }
 

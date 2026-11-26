@@ -272,9 +272,10 @@ Stated so they are limitations rather than discoveries:
 - ~~**No trash.** Delete is delete, as `rm` is.~~ Reversed 2026-10-06:
   Delete moves to a Recycle Bin (`base/utrash.h`); `rm` stays permanent.
 - **No progress bar for a copy**, per above.
-- **The virtual folders are still capped at 256**: Trash, Recent, search
-  results, ZIP contents and the folder-size cache each hold `PANE_FILES`
-  (256) -- a real folder is not (`docs/roadmap.md`).
+- ~~**The virtual folders are still capped at 256**~~ Grown to fit
+  2026-11-04 (675c4d3f); Recent lists its store's own `URECENT_MAX`.
+  Every path the app and its widgets hold is a heap string sized to
+  fit since 2026-11-26 (fixed tables round 4, A).
 - **No file properties dialog, no permissions.** There are no
   permissions in TFS3 to show.
 

@@ -27,7 +27,7 @@
 // APPLYING is ufileundo_apply(), one step at a time, so a caller with a
 // worker thread (the File Manager) can run a long cross-volume move
 // there with a ufileop for progress; the journal itself is plain data
-// and the caller's to own -- hundreds of KB, so static.
+// and the caller's to own, at file scope.
 
 #include "base/ufileop.h"
 
@@ -35,17 +35,18 @@
 extern "C" {
 #endif
 
-#define UFU_PATH  256    // the File Manager's PATH_MAX_LEN, mirrored
 #define UFU_DEPTH 8      // operations kept -- how far back Undo reaches
 // Two names and the words around them: "Moved <name> to <folder>".
-#define UFU_LABEL (2 * UFU_PATH + 64)
+#define UFU_LABEL (2 * ULIST_NAME_MAX + 64)
 
 enum ufu_kind { UFU_MOVE = 1, UFU_RENAME, UFU_COPY, UFU_CREATE, UFU_TRASH };
 
+// Each path is the journal's own heap copy, sized to fit, and "" (never
+// NULL) when the kind has none.
 struct ufu_step {
-    char a[UFU_PATH];    // where it came from ("" for CREATE)
-    char b[UFU_PATH];    // where it is after the operation
-    char bin[UFU_PATH];  // where it is in the bin, while it is there
+    char *a;     // where it came from ("" for CREATE)
+    char *b;     // where it is after the operation
+    char *bin;   // where it is in the bin, while it is there
 };
 
 // AN OPERATION'S STEPS GROW WITH IT (base/ugrow.h): one per item the

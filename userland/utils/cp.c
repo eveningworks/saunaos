@@ -12,6 +12,7 @@
 #include "rt/sys.h"
 #include "base/cmd.h"
 #include "base/ufileop.h"
+#include <stdlib.h>
 #include <string.h>
 
 // ~30 KB of working state, at file scope because a ring-3 frame holds
@@ -55,16 +56,13 @@ int main(int argc, char **argv) {
     // "you are copying a directory into itself" is a worse message than
     // the one this program had. The check is policy; the backstop is
     // the engine's.
-    char dest[UFILEOP_PATH_MAX];
-    if (ufileop_resolve_dest(src, dst, dest, sizeof dest)) {
-        if (strcmp(src, dest) == 0) {
-            fail_msg(src, "source and destination are the same file");
-            return 1;
-        }
-        if (st.is_dir && ufileop_inside(src, dest)) {
-            fail_msg(dest, "cannot copy a directory into itself");
-            return 1;
-        }
+    char *dest = ufileop_resolve_dest(src, dst);
+    if (dest) {
+        int same = strcmp(src, dest) == 0, inside = !same && st.is_dir && ufileop_inside(src, dest);
+        if (same) fail_msg(src, "source and destination are the same file");
+        if (inside) fail_msg(dest, "cannot copy a directory into itself");
+        free(dest);
+        if (same || inside) return 1;
     }
 
     // No on_conflict: NULL means overwrite, which is what cp does.

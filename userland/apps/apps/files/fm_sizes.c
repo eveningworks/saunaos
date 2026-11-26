@@ -17,7 +17,7 @@
 #include "base/ugrow.h"
 
 struct counted {
-    char path[PATH_MAX_LEN];
+    char *path;                 // heap; freed by drop_dirs()
     long long bytes;            // -1 until counted
     int logged;                 // the main thread has reported it
 };
@@ -25,7 +25,7 @@ struct counted {
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct counted *g_dirs;            // grown by the worker, under g_lock
 static int g_ndirs, g_dirs_cap;
-static char g_dir[PATH_MAX_LEN];          // the folder whose folders these are
+static char *g_dir;                       // the folder whose folders these are (heap)
 static volatile int g_running, g_cancel;
 static pthread_t g_thread;
 static struct uwalk g_walk;               // static: several KB
@@ -52,7 +52,7 @@ static void *worker(void *arg) {
         for (int pos = 0; ulistdir_next(g_page, n, &pos, &e); ) {
             if (!e.is_dir) continue;
             if (!UGROW(g_dirs, g_dirs_cap, g_ndirs + 1)) break;   // out of memory: the rest stay "..."
-            if (k_path_join(g_dir, e.name, g_dirs[g_ndirs].path, PATH_MAX_LEN)) {
+            if ((g_dirs[g_ndirs].path = upath_join(g_dir, e.name))) {
                 g_dirs[g_ndirs].bytes = -1;
                 g_dirs[g_ndirs].logged = 0;
                 g_ndirs++;
@@ -97,15 +97,25 @@ static long long dirsize(void *ctx, const char *path) {
     return b;
 }
 
+// The worker stopped: its folders go.
+static void drop_dirs(void) {
+    pthread_mutex_lock(&g_lock);
+    for (int i = 0; i < g_ndirs; i++) free(g_dirs[i].path);
+    g_ndirs = 0;
+    free(g_dir);
+    g_dir = 0;
+    pthread_mutex_unlock(&g_lock);
+}
+
 // Count the folders of `dir`, from scratch -- unless they already are.
 void sizes_follow(const char *dir, int again) {
     if (!g_sizes_on || dir[0] != '/') return;
-    if (!again && !strcmp(dir, g_dir)) return;
+    if (!again && g_dir && !strcmp(dir, g_dir)) return;
     stop();
-    pthread_mutex_lock(&g_lock);
-    g_ndirs = 0;
-    strlcpy(g_dir, dir, sizeof g_dir);
-    pthread_mutex_unlock(&g_lock);
+    char *copy = strdup(dir);   // before the old goes: `dir` may be it
+    drop_dirs();
+    if (!copy) { ulogf("files: out of memory counting %s\n", dir); return; }
+    g_dir = copy;
     g_cancel = 0;
     g_running = 1;
     if (pthread_create(&g_thread, 0, worker, 0) != 0) g_running = 0;
@@ -119,7 +129,7 @@ void sizes_set(int on) {
         uui_fileview_set_dirsize(&g_pane[i], on ? dirsize : 0, 0);
     if (!on) {
         stop();
-        g_dir[0] = '\0';
+        drop_dirs();
     } else {
         sizes_follow(uui_fileview_dir(active()), 1);
     }

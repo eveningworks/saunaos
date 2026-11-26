@@ -20,6 +20,8 @@
 #include "ui/uui_segmented.h"
 #include "media/uimg.h"
 #include "base/ufind.h"
+#include "base/upath.h"   // upath_join() and friends: every path here is a heap string
+#include <stdlib.h>
 #include "ui/uui_transfers.h"
 
 // The File Manager's own header, shared by the files it is split across
@@ -55,11 +57,11 @@
 //   fm_network.c network places (SMB) in the left pane
 //   fm_disc.c    a disc image opened here, mounted as a CD drive
 
-#define PATH_MAX_LEN 256         // NOT FS_PATH_MAX -- this app's own
-                                 // buffers; the shared widgets it uses
-                                 // (uui_fileview, uui_places, ufileop,
-                                 // uopen) carry the same bound.
-#define PANE_FILES  256   // the marked paths fm_recent.c gathers at once
+// EVERY PATH HERE IS A HEAP STRING SIZED TO FIT (upath_join() and the
+// widgets' allocating accessors), freed by whoever asked for it; a path
+// that cannot be had is logged and the act refused, never cut. What is
+// sized is a LINE a person reads, naming one file:
+#define FM_LINE_MAX (ULIST_NAME_MAX + 128)
 
 // The Properties window is a PROCESS, not a dialog in this one. See
 // userland/apps/apps/properties/properties.c.
@@ -199,9 +201,9 @@ void fm_history_record(int pane, const char *dir);
 // sites complete.
 void fm_history_sync(void);
 int  fm_history_back(int pane);      // 1 moved, 0 nowhere to go, -1 all gone
-int  fm_history_size(void);           // one pane's history, in bytes (a tab keeps two)
-void fm_history_save(int pane, void *out);
-void fm_history_load(int pane, const void *in);   // NULL: empty
+struct unavhist;
+void fm_history_save(int pane, struct unavhist *out);       // a copy, which `out` owns
+void fm_history_load(int pane, const struct unavhist *in);  // copied; NULL: empty
 void fm_history_replay(int pane, const char *dir); // set_dir without a record
 int  fm_history_forward(int pane);
 int  fm_history_can_back(int pane);
@@ -288,9 +290,9 @@ void details_layout(int x, int y, int w, int h);
 void details_draw(struct ugfx_surface *s);
 int  details_button(struct uapp *a, int id);   // ID_DP_*: 1 when a volume card took it
 
-extern char g_stat_dir[PATH_MAX_LEN + 8];
+extern char g_stat_dir[80];   // "118 items", or a search's progress
 extern char g_stat_items[48];
-extern char g_stat_note[PATH_MAX_LEN + 128];
+extern char g_stat_note[FM_LINE_MAX];
 
 // WHAT HAS CHANGED, PER FOLDER (on_tick). The volume-wide
 // SYS_FS_GENERATION is only the cheap first gate; each pane and the
@@ -319,6 +321,8 @@ struct uui_item *widget_by_id(int id);
 struct uui_fileview *active(void);
 struct uui_fileview *other(void);
 void set_note(const char *s);
+// A Folder cell: the folder `path` is in, cut to the cell -- read, never acted on.
+void fm_cell_dirname(const char *path, char *out, int cap);
 void refresh_dim(void);
 void refresh_status(void);
 
@@ -340,7 +344,7 @@ void save_split(const char *key, const struct uui_splitter *sp);
 // --- the folder tree (fm_tree.c) -------------------------------------
 
 extern struct uui_tree g_tree;
-extern char (*g_tree_path)[PATH_MAX_LEN];   // g_tree_count rows
+extern char **g_tree_path;   // g_tree_count rows, each a heap path ("" for a caption)
 extern int g_tree_count;
 
 void tree_init(void);
@@ -382,8 +386,8 @@ void fm_leave_volume(const char *point);
 // --- disc images (fm_disc.c) -----------------------------------------
 struct udrive_msg;
 int  disc_is_image_name(const char *path);   // an .iso, by its name
-// The one selected item, when it is an .iso: 1 with its path.
-int  disc_selected(char *path, int cap);
+// The one selected item, when it is an .iso: its path (free() it), else NULL.
+char *disc_selected(void);
 // Mount the image at `path` as a CD drive (asked of automountd) and open
 // it in `pane` when mounted; one mounted already just opens.
 void disc_open(int pane, const char *path);
@@ -435,8 +439,9 @@ void do_empty_bin(void);  // asks, then purges every bin
 // --- Undo and Redo (fm_undo.c) -----------------------------------------------
 struct ufu_op;
 extern struct uui_toast g_toast;
-void undo_record_job(int op, const char *what, char (*paths)[PATH_MAX_LEN],
-                     char (*results)[PATH_MAX_LEN], int n, const char *dest);
+// `results[i]` NULL or "" for an item that did not land.
+void undo_record_job(int op, const char *what, char **paths, char **results, int n,
+                     const char *dest);
 void undo_record(int kind, const char *a, const char *b);   // UFU_RENAME / UFU_CREATE
 void undo_record_renames(const char *dir, char (*olds)[64], char (*news)[64], int n);
 void rename_many_open(struct uapp *a);   // fm_modal.c: the marked set, in a uui_renamer
@@ -485,13 +490,16 @@ extern struct uui_toolbar g_filter_bar;          // files.c: the strip's filter 
 const struct uui_fileview_source *arc_source(int pane);   // each pane lists its own
 int  in_archive(const struct uui_fileview *fv);
 int  is_archive_name(const char *path);
-int  arc_split(const char *dir, char *archive, int acap, const char **inner);
+// "zip:/a/b.zip/in/side" -> the archive's path (free() it) with `*inner`
+// at "in/side"; NULL when `dir` is no archive view (or memory is out).
+char *arc_split(const char *dir, const char **inner);
 int  arc_item_flags(int code, unsigned *out);
-int  arc_default_dest(const char *archive, char *out, int cap);
+// The folder Extract here makes beside `archive` (free() it), or NULL.
+char *arc_default_dest(const char *archive);
 // Extract here / Extract to... (fm_archive.c), and whether the selected
-// row is an archive file outside one (filling its path).
+// row is an archive file outside one.
 void extract_command(int code);
-int  selected_archive(char *out, int cap);
+char *selected_archive(void);   // fm_archive.c: free() it
 // Extract: the selection (or everything, `all`) into `dest`, a job;
 // `then` 1 goes there when it is done, 2 opens the one file extracted.
 void do_extract(int all, const char *dest, int then);
@@ -532,7 +540,9 @@ int  bin_count(void);
 int  bin_item_flags(int code, unsigned *out);  // 1 when the bin decides `code`
 unsigned long long bin_bytes(void);
 void bin_restore(int all);
-int  bin_paths(char (*out)[PATH_MAX_LEN], int cap);
+// Every item in every bin, as heap paths in `*out` (free each and the
+// array); how many, or -1 out of memory.
+int  bin_paths(char ***out);
 const char *fm_watch_path(const char *dir);  // what a pane on `dir` polls
 void commit_mkdir(const char *name);
 void commit_newfile(const char *name);

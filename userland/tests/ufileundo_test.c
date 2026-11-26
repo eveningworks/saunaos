@@ -107,7 +107,7 @@ int main(void) {
     // TRASH: undone out of the bin, redone back in.
     make(DIR "/t.txt");
     struct utrash_item it;
-    char binp[UFU_PATH] = "";
+    char binp[UTRASH_PATH] = "";
     if (utrash_put(DIR "/t.txt", &it) == 0) utrash_item_path(&it, binp, sizeof binp);
     record(UFU_TRASH, DIR "/t.txt", 0, binp);
     e = run(0);
@@ -202,6 +202,22 @@ int main(void) {
     ufileundo_done(&j, 0);
     ufileundo_done_part(&j, 0, 0);
     utest_checkf(j.at == 1, "a stop before any step changes nothing (%d)", j.at);
+
+    // A PATH IS JOURNALLED WHOLE, however long. More operations than
+    // slots: the oldest fall off, their strings with them.
+    static char deep[400];
+    memset(deep, 'd', sizeof deep - 1);
+    deep[0] = '/';
+    for (int i = 0; i < UFU_DEPTH + 2; i++) {
+        op = ufileundo_begin(&j, UFU_MOVE, "deep");
+        ufileundo_add(op, deep, "/y/deep", 0);
+        ufileundo_commit(&j, op);
+    }
+    u = ufileundo_next_undo(&j);
+    utest_checkf(u && j.count == UFU_DEPTH && u->count == 1 && strlen(u->step[0].a) == sizeof deep - 1 &&
+                 !strcmp(u->step[0].bin, ""),
+                 "a %d-byte path is journalled whole (%d)", (int)sizeof deep - 1,
+                 u && u->count ? (int)strlen(u->step[0].a) : -1);
 
     ufileop_remove(rm, 1, &g_s, 0);
     return utest_end();

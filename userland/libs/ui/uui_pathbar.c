@@ -8,6 +8,9 @@
 #include "media/icon_cache.h"
 #include "keyboard.h"
 #include "win_proto.h"   // WIN_CURSOR_*
+#include "base/ulistdir.h"   // ULIST_NAME_MAX
+#include "base/ulog.h"
+#include <stdlib.h>
 #include <string.h>
 
 #define PAD      10  // inside a segment, each side -- clear of the chip's round ends
@@ -44,26 +47,26 @@ static int seg_count(const char *path) {
     return n;   // the root plus each component
 }
 
-// Segment `k`'s path: "/" for the root, else the path up to its end.
-static void seg_path(const char *path, int k, char *out, int cap) {
+// Segment `k`'s path, allocated: "/" (or "scheme:/") for the root, else
+// the path up to its end. NULL out of memory.
+static char *seg_path(const char *path, int k) {
     int s, l;
     if (k <= 0 || !component(path, k, &s, &l)) {
         int sl = scheme_len(path);
-        if (sl) snprintf(out, (size_t)cap, "%.*s", sl, path);
-        else strlcpy(out, "/", (size_t)cap);
-        return;
+        return sl ? strndup(path, (size_t)sl) : strdup("/");
     }
-    int n = s + l < cap - 1 ? s + l : cap - 1;
-    memcpy(out, path, (size_t)n);
-    out[n] = '\0';
+    return strndup(path, (size_t)(s + l));
 }
+
+// Never NULL: "/" when the path could not be had.
+static const char *path_of(const struct uui_pathbar *p) { return p->path ? p->path : "/"; }
 
 // The root chip's label and icon: a registered scheme's, else the
 // filesystem root's.
 static int root_scheme(const struct uui_pathbar *p) {
-    int sl = scheme_len(p->path);
+    int sl = scheme_len(path_of(p));
     for (int i = 0; sl && i < p->nscheme; i++)
-        if (!strncmp(p->path, p->scheme[i].prefix, (size_t)sl) && !p->scheme[i].prefix[sl])
+        if (!strncmp(path_of(p), p->scheme[i].prefix, (size_t)sl) && !p->scheme[i].prefix[sl])
             return i;
     return -1;
 }
@@ -76,16 +79,16 @@ static const char *root_icon(const struct uui_pathbar *p) {
 static void seg_label(const struct uui_pathbar *p, int k, char *out, int cap) {
     int s, l;
     if (k == 0) {
-        int i = root_scheme(p), sl = scheme_len(p->path);
+        int i = root_scheme(p), sl = scheme_len(path_of(p));
         if (i >= 0) strlcpy(out, p->scheme[i].label, (size_t)cap);
-        else if (sl) snprintf(out, (size_t)cap, "%.*s", sl, p->path);
+        else if (sl) snprintf(out, (size_t)cap, "%.*s", sl, path_of(p));
         else strlcpy(out, p->root_label ? p->root_label : "/", (size_t)cap);
         return;
     }
     if (k == UUI_PATHBAR_ELIDED) { strlcpy(out, "...", (size_t)cap); return; }
-    if (!component(p->path, k, &s, &l)) { out[0] = '\0'; return; }
+    if (!component(path_of(p), k, &s, &l)) { out[0] = '\0'; return; }
     if (l > cap - 1) l = cap - 1;
-    memcpy(out, p->path + s, (size_t)l);
+    memcpy(out, path_of(p) + s, (size_t)l);
     out[l] = '\0';
 }
 
@@ -106,9 +109,12 @@ static int text_w(const char *s, int bold) {
     return w;
 }
 
+// A segment's label: one component, so a NAME's bound. Drawn clipped.
+#define LABEL_MAX ULIST_NAME_MAX
+
 // The LAST segment is bold -- where you are -- so it is measured bold.
 static int seg_w(const struct uui_pathbar *p, int k, int last) {
-    char label[UUI_PATHBAR_MAX];
+    char label[LABEL_MAX];
     seg_label(p, k, label, sizeof label);
     int w = 2 * PAD + text_w(label, last);
     if (k == 0 && root_icon(p)) w += icon_px() + 4;
@@ -116,20 +122,21 @@ static int seg_w(const struct uui_pathbar *p, int k, int last) {
 }
 
 static void layout(const struct uui_pathbar *p, struct lay *l) {
-    int n = seg_count(p->path);
-    if (n > UUI_PATHBAR_SEGS - 1) n = UUI_PATHBAR_SEGS - 1;
+    int n = seg_count(path_of(p));
     int avail = p->w - 4 - EDIT_GAP;
     int total = 0;
     for (int k = 0; k < n; k++) total += seg_w(p, k, k == n - 1) + (k ? SEP_W : 0);
 
     // Every segment, or the root, "...", and as many of the last as fit
-    // -- always at least the last one, which is where you are.
+    // -- always at least the last one, which is where you are. The table
+    // holds UUI_PATHBAR_SEGS: a deeper path folds even when it would fit.
     int first = 1;
-    if (total > avail && n > 2) {
+    if ((total > avail || n > UUI_PATHBAR_SEGS) && n > 2) {
         int used = seg_w(p, 0, 0) + SEP_W + seg_w(p, UUI_PATHBAR_ELIDED, 0);
         first = n - 1;
         used += SEP_W + seg_w(p, first, 1);
-        while (first > 1 && used + SEP_W + seg_w(p, first - 1, 0) <= avail) {
+        while (first > 1 && n - first < UUI_PATHBAR_SEGS - 2 &&
+               used + SEP_W + seg_w(p, first - 1, 0) <= avail) {
             first--;
             used += SEP_W + seg_w(p, first, 0);
         }
@@ -160,17 +167,23 @@ static int hit_seg(const struct uui_pathbar *p, int cx, int cy) {
     return -1;
 }
 
-// Where a segment (or the "...") takes you.
-static void target_of(const struct uui_pathbar *p, int seg, char *out, int cap) {
+// Where a segment (or the "...") takes you, allocated.
+static char *target_of(const struct uui_pathbar *p, int seg) {
     if (seg == UUI_PATHBAR_ELIDED) {
         struct lay l;
         layout(p, &l);
         // The parent of the first segment shown after the "...".
         int after = l.n > 2 ? l.seg[2] : 1;
-        seg_path(p->path, after - 1, out, cap);
-        return;
+        return seg_path(path_of(p), after - 1);
     }
-    seg_path(p->path, seg, out, cap);
+    return seg_path(path_of(p), seg);
+}
+
+// A navigation parked for uui_pathbar_take(); NULL is logged and dropped.
+static void park(struct uui_pathbar *p, char *to) {
+    if (!to) { ulogf("pathbar: out of memory taking a path\n"); return; }
+    free(p->taken);
+    p->taken = to;
 }
 
 // --- the API ------------------------------------------------------------
@@ -180,9 +193,17 @@ void uui_pathbar_init(struct uui_pathbar *p, const char *root_label, const char 
     p->root_label = root_label;
     p->root_icon = root_icon;
     p->hot = p->armed = -1;
-    strlcpy(p->path, "/", sizeof p->path);
+    p->path = strdup("/");
     uui_textbox_init(&p->edit, "");
 }
+
+void uui_pathbar_free(struct uui_pathbar *p) {
+    free(p->path);
+    free(p->taken);
+    p->path = p->taken = 0;
+}
+
+const char *uui_pathbar_path(const struct uui_pathbar *p) { return path_of(p); }
 
 void uui_pathbar_set_scheme(struct uui_pathbar *p, const char *prefix,
                             const char *label, const char *icon) {
@@ -194,14 +215,17 @@ void uui_pathbar_set_scheme(struct uui_pathbar *p, const char *prefix,
 }
 
 void uui_pathbar_set_path(struct uui_pathbar *p, const char *path) {
-    strlcpy(p->path, path && path[0] ? path : "/", sizeof p->path);
+    char *was = p->path;
+    p->path = strdup(path && path[0] ? path : "/");
+    if (!p->path) ulogf("pathbar: out of memory showing a path\n");   // shown as "/"
+    free(was);
     p->editing = 0;
     uui_textbox_set_active(&p->edit, 0);
     p->hot = p->armed = -1;
 }
 
 void uui_pathbar_begin_edit(struct uui_pathbar *p) {
-    uui_textbox_init(&p->edit, p->path);
+    uui_textbox_init(&p->edit, path_of(p));
     uui_textbox_set_geometry(&p->edit, p->x, p->y, p->w, p->h);
     uui_textbox_set_active(&p->edit, 1);
     uui_textbox_key(&p->edit, 0x01);   // Ctrl-A: typing replaces the path
@@ -216,11 +240,10 @@ void uui_pathbar_end_edit(struct uui_pathbar *p) {
 
 int uui_pathbar_is_editing(const struct uui_pathbar *p) { return p->editing; }
 
-int uui_pathbar_take(struct uui_pathbar *p, char *out, int cap) {
-    if (!p->has_taken) return 0;
-    strlcpy(out, p->taken, (size_t)cap);
-    p->has_taken = 0;
-    return 1;
+char *uui_pathbar_take(struct uui_pathbar *p) {
+    char *t = p->taken;
+    p->taken = 0;
+    return t;
 }
 
 int uui_pathbar_segment_count(const struct uui_pathbar *p) {
@@ -266,7 +289,7 @@ static void op_draw(struct ugfx_surface *s, const void *w) {
 
     struct lay l;
     layout(p, &l);
-    int n = seg_count(p->path);
+    int n = seg_count(path_of(p));
     uint32_t dim = uui_state_bg(fg, UUI_STATE_DISABLED);
     ugfx_set_clip_rect(s, p->x + 1, p->y + 1, p->w - 2, p->h - 2);
     for (int i = 0; i < l.n; i++) {
@@ -290,7 +313,7 @@ static void op_draw(struct ugfx_surface *s, const void *w) {
                                      ico->w, ico->h, ico->px, ico->w);
             tx += icon_px() + 4;
         }
-        char label[UUI_PATHBAR_MAX];
+        char label[LABEL_MAX];
         seg_label(p, k, label, sizeof label);
         const struct ugfx_font *was = last ? ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD)) : 0;
         ugfx_draw_string_clipped(s, tx, p->y + (p->h - ugfx_char_h()) / 2,
@@ -332,10 +355,7 @@ static int op_release(void *w, int cx, int cy) {
     }
     int k = p->armed;
     p->armed = -1;
-    if (k != -1 && hit_seg(p, cx, cy) == k) {
-        target_of(p, k, p->taken, sizeof p->taken);
-        p->has_taken = 1;
-    }
+    if (k != -1 && hit_seg(p, cx, cy) == k) park(p, target_of(p, k));
     return 1;
 }
 
@@ -343,8 +363,7 @@ static int op_key(void *w, int key, unsigned mods) {
     struct uui_pathbar *p = w;
     if (!p->editing) return 0;
     if (key == '\n' || key == '\r') {
-        strlcpy(p->taken, uui_textbox_text(&p->edit), sizeof p->taken);
-        p->has_taken = 1;
+        park(p, strdup(uui_textbox_text(&p->edit)));
         return 1;
     }
     if (key == 0x1B) { uui_pathbar_end_edit(p); return 1; }

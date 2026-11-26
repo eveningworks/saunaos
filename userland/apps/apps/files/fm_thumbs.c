@@ -30,18 +30,20 @@ static void init_once(void) {
 const struct uimg *pane_thumb(void *ctx, const char *dir,
                               const struct ulist_entry *e, int px) {
     (void)ctx;
-    char path[PATH_MAX_LEN];
     if (!ufolderopts_thumb_ok(&g_opt.folder, e->size)) return 0;   // too big: its type's icon
-    if (!k_path_join(dir, e->name, path, sizeof path)) return 0;
+    char *path = upath_join(dir, e->name);
+    if (!path) return 0;
     init_once();
-    return uthumb_get(path, &e->modified, e->size, px);
+    const struct uimg *t = uthumb_get(path, &e->modified, e->size, px);
+    free(path);
+    return t;
 }
 
 int pane_badge(void *ctx, const char *dir, const struct ulist_entry *e, int px, char *out, int cap) {
     (void)ctx;
-    char path[PATH_MAX_LEN];
-    if (!k_path_join(dir, e->name, path, sizeof path)) return 0;
-    const char *n = uthumb_note(path, px);
+    char *path = upath_join(dir, e->name);
+    const char *n = path ? uthumb_note(path, px) : 0;
+    free(path);
     if (!n) return 0;
     strlcpy(out, n, (size_t)cap);
     return 1;

@@ -25,21 +25,31 @@ static struct uui_textbox g_field;
 static struct uui_item g_field_item = { .ops = &uui_textbox_ops, .widget = &g_field,
                                         .name = "prompt" };
 static int g_modal_cmd;          // what to do when it commits
-static char g_modal_row[UUI_FILEVIEW_PATH_MAX + 24];
+static char g_modal_row[FM_LINE_MAX];
 static const char *const g_modal_rows[] = { g_modal_row };
 // WHAT THE QUESTION WAS ASKED ABOUT, kept from when it opened: a reload
 // behind it can move the selection (the row went away) and the answer
-// must not rename whichever row took its place.
-static char g_modal_dir[UUI_FILEVIEW_PATH_MAX], g_modal_from[UUI_FILEVIEW_PATH_MAX];
+// must not rename whichever row took its place. Heap, replaced per prompt.
+static char *g_modal_dir, *g_modal_from;
 static int g_modal_pane;
 
 void open_prompt(int cmd, const char *title, const char *initial) {
+    char *dir = strdup(uui_fileview_dir(active())), *from = strdup(initial ? initial : "");
+    if (!dir || !from) {
+        free(dir);
+        free(from);
+        ulogf("files: out of memory asking for a name\n");
+        set_note("not enough memory");
+        return;
+    }
+    free(g_modal_dir);
+    free(g_modal_from);
+    g_modal_dir = dir;
+    g_modal_from = from;
     g_modal = MODAL_PROMPT;
     g_modal_cmd = cmd;
     g_dialog_kind = DIALOG_PROMPT;
     g_modal_pane = g_active;
-    strlcpy(g_modal_dir, uui_fileview_dir(active()), sizeof g_modal_dir);
-    strlcpy(g_modal_from, initial ? initial : "", sizeof g_modal_from);
 
     uui_textbox_init(&g_field, initial ? initial : "");
     uui_textbox_set_active(&g_field, 1);
@@ -106,6 +116,15 @@ void answer_prompt(int code) {
     else if (cmd == CMD_PL_RENAME) places_rename_pin(text);
 }
 
+// `dir`/`from` renamed to `dir`/`to`: 0, or -1 (out of memory too).
+static int rename_in(const char *dir, const char *from, const char *to) {
+    char *a = upath_join(dir, from), *b = upath_join(dir, to);
+    int rc = a && b && sys_rename(a, b) == 0 ? 0 : -1;
+    free(a);
+    free(b);
+    return rc;
+}
+
 // --- rename many (ui/uui_renamer.h) ----------------------------------------
 //
 // THROUGH TEMPORARY NAMES, in two passes: every item first to a name of
@@ -118,18 +137,14 @@ static void rename_many_done(void *ctx, const char *dir, char (*olds)[URENAME_NA
     if (fm_undo_busy()) return;   // its record would rewrite the journal the Undo reads
     char (*tmp)[URENAME_NAME] = malloc(sizeof *tmp * (size_t)(n > 0 ? n : 1));
     if (!tmp) { set_note("out of memory -- nothing was changed"); return; }
-    char a[PATH_MAX_LEN], b[PATH_MAX_LEN];
     int moved = 0, failed = 0;
     for (int i = 0; i < n; i++) {
         snprintf(tmp[i], URENAME_NAME, ".rename-%d-%s", i, olds[i]);
-        if (!k_path_join(dir, olds[i], a, sizeof a) || !k_path_join(dir, tmp[i], b, sizeof b) ||
-            sys_rename(a, b) != 0) { failed = 1; break; }
+        if (rename_in(dir, olds[i], tmp[i]) != 0) { failed = 1; break; }
         moved++;
     }
     if (failed) {   // put back what moved, and touch nothing more
-        for (int i = 0; i < moved; i++)
-            if (k_path_join(dir, tmp[i], a, sizeof a) && k_path_join(dir, olds[i], b, sizeof b))
-                sys_rename(a, b);
+        for (int i = 0; i < moved; i++) rename_in(dir, tmp[i], olds[i]);
         set_note("could not rename them -- nothing was changed");
         reload_panes();
         free(tmp);
@@ -137,11 +152,10 @@ static void rename_many_done(void *ctx, const char *dir, char (*olds)[URENAME_NA
     }
     int done = 0, stuck = 0;
     for (int i = 0; i < n; i++) {
-        if (k_path_join(dir, tmp[i], a, sizeof a) && k_path_join(dir, news[i], b, sizeof b) &&
-            sys_rename(a, b) == 0) { done += strcmp(olds[i], news[i]) != 0; continue; }
+        if (rename_in(dir, tmp[i], news[i]) == 0) { done += strcmp(olds[i], news[i]) != 0; continue; }
         // The new name went wrong: back to the old one -- and if even
         // that fails the file keeps its temporary name, which is said.
-        if (!k_path_join(dir, olds[i], b, sizeof b) || sys_rename(a, b) != 0) {
+        if (rename_in(dir, tmp[i], olds[i]) != 0) {
             ulogf("files: %s left as %s\n", olds[i], tmp[i]);
             stuck++;
         }
@@ -161,13 +175,14 @@ static void rename_many_done(void *ctx, const char *dir, char (*olds)[URENAME_NA
 
 void rename_many_open(struct uapp *a) {
     struct uui_fileview *fv = active();
-    char path[PATH_MAX_LEN];
     int marks = uui_fileview_mark_count(fv), n = 0;
     char (*names)[URENAME_NAME] = malloc(sizeof *names * (size_t)(marks > 0 ? marks : 1));
     if (!names) { set_note("out of memory"); return; }
-    for (int i = 0; i < marks; i++)
-        if (uui_fileview_marked_path(fv, i, path, sizeof path))
-            strlcpy(names[n++], k_path_basename(path), URENAME_NAME);
+    for (int i = 0; i < marks; i++) {
+        char *path = uui_fileview_marked_path(fv, i);
+        if (path) strlcpy(names[n++], k_path_basename(path), URENAME_NAME);
+        free(path);
+    }
     if (n < 2) set_note("mark two or more to rename them together");
     else uui_renamer_open(a, uui_fileview_dir(fv), names, n, rename_many_done, 0);   // copies them
     free(names);

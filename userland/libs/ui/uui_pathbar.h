@@ -23,13 +23,15 @@ extern "C" {
 //
 // Too narrow for every segment, the first ones fold into "..." after
 // the root, and that button goes to the parent of the first one shown.
+//
+// The path is the widget's heap copy, sized to fit: uui_pathbar_free()
+// gives it back.
 
-#define UUI_PATHBAR_MAX   256
-#define UUI_PATHBAR_SEGS  24
+#define UUI_PATHBAR_SEGS  24   // shown at once; a deeper path folds into "..."
 
 struct uui_pathbar {
     int x, y, w, h;
-    char path[UUI_PATHBAR_MAX];
+    char *path;               // OWNED; read it with uui_pathbar_path()
     const char *root_label;   // what "/" is called ("System"); NULL = "/"
     const char *root_icon;    // icon_get() name beside it; NULL = none
     // A VIRTUAL FOLDER'S ROOT: a path beginning "trash:/" shows its
@@ -40,8 +42,7 @@ struct uui_pathbar {
 
     int hot;      // hovered segment, UUI_PATHBAR_ELIDED, or -1; OWNED
     int armed;    // pressed segment awaiting its release, or -1; OWNED
-    char taken[UUI_PATHBAR_MAX]; // a navigation, until taken
-    int has_taken;
+    char *taken;              // OWNED: a navigation, until taken
 
     int editing;               // 1 while it is a text field
     struct uui_textbox edit;
@@ -51,6 +52,10 @@ struct uui_pathbar {
 #define UUI_PATHBAR_ELIDED (-2)   // the "..." button
 
 void uui_pathbar_init(struct uui_pathbar *p, const char *root_label, const char *root_icon);
+// Gives back the path; init again to reuse it.
+void uui_pathbar_free(struct uui_pathbar *p);
+// The path shown ("/" when none could be had).
+const char *uui_pathbar_path(const struct uui_pathbar *p);
 // Name a virtual folder's root: `prefix` ("trash:/") shows as `label`
 // with `icon`. The strings are NOT copied.
 void uui_pathbar_set_scheme(struct uui_pathbar *p, const char *prefix,
@@ -63,10 +68,10 @@ void uui_pathbar_set_path(struct uui_pathbar *p, const char *path);
 void uui_pathbar_begin_edit(struct uui_pathbar *p);
 void uui_pathbar_end_edit(struct uui_pathbar *p);
 int  uui_pathbar_is_editing(const struct uui_pathbar *p);
-// The path a click or an Enter asked for, copied to `out`: 1, or 0 when
-// nothing was asked since the last call. An Enter's is the typed text,
-// unresolved -- relative paths are the app's to resolve.
-int  uui_pathbar_take(struct uui_pathbar *p, char *out, int cap);
+// The path a click or an Enter asked for, allocated (free() it), or NULL
+// when nothing was asked since the last call. An Enter's is the typed
+// text, unresolved -- relative paths are the app's to resolve.
+char *uui_pathbar_take(struct uui_pathbar *p);
 
 // Segment `i`'s rect (0 is the root) as currently laid out, and its
 // path. For tests and layout logs; 0 when that segment is not shown.

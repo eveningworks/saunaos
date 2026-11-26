@@ -236,6 +236,18 @@ CONTROLS = [
      "        draw_flag(s, x, y + dy, c);",
      "        (void)dy;",
      ["mines_app"]),
+    # The file view's paths cut at the 256 bytes it once held: a folder
+    # past that descends to, and hands out, a path that names another.
+    ("userland/libs/ui/uui_fileview.c",
+     "    return upath_join(fv_dir(fv), e->name);\n",
+     "    char *p = upath_join(fv_dir(fv), e->name);\n    if (p && strlen(p) > 255) p[255] = '\\0';\n    return p;\n",
+     ["deeppath"]),
+    # The path bar's old cap on the segments it lays out: a folder deeper
+    # than its slots showed a folder ABOVE the one you are in, as the last.
+    ("userland/libs/ui/uui_pathbar.c",
+     "    int n = seg_count(path_of(p));\n    int avail",
+     "    int n = seg_count(path_of(p));\n    if (n > UUI_PATHBAR_SEGS - 1) n = UUI_PATHBAR_SEGS - 1;\n    int avail",
+     ["deeppath"]),
 ]
 
 

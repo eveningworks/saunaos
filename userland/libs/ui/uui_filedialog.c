@@ -14,6 +14,7 @@
 #include "ui/uui_route.h"   // UUI_REASON_*
 #include "base/urecent.h"   // a file chosen is Recent's
 #include "base/ufileop.h"
+#include "base/upath.h"
 #include "base/ulog.h"
 #include "ui/uui_verbs.h"
 #include <errno.h>
@@ -76,6 +77,7 @@ static void add_place(struct uui_filedialog *fd, const char *label, const char *
 }
 
 static void build_places(struct uui_filedialog *fd) {
+    uui_places_free(&fd->places);
     uui_places_init(&fd->places);
     // The File Manager's list, in its order -- one idea of where
     // Documents is -- then Scratch, which a chooser saves into and a
@@ -131,30 +133,38 @@ static void apply_filter(struct uui_filedialog *fd) {
 static void retype_name(struct uui_filedialog *fd) {
     const struct uui_filedialog_filter *f = chosen_filter(fd);
     if (!f || !f->ext) return;
-    char name[UUI_FILEDIALOG_PATH_MAX];
-    snprintf(name, sizeof name, "%s", uui_textbox_text(&fd->name));
-    if (!name[0]) return;
+    const char *typed = uui_textbox_text(&fd->name);
+    if (!typed[0]) return;
+    size_t cap = strlen(typed) + strlen(f->ext) + 1;
+    char *name = malloc(cap);
+    if (!name) return;
+    strlcpy(name, typed, cap);
     char *slash = strrchr(name, '/');
     char *dot = strrchr(slash ? slash + 1 : name, '.');
     if (dot && dot != (slash ? slash + 1 : name)) *dot = '\0';
-    strlcat(name, f->ext, sizeof name);
+    strlcat(name, f->ext, cap);
     uui_textbox_set_text(&fd->name, name);
+    free(name);
 }
+
+// A share's mount point (net/unetmount.h): /net/NAME.
+#define POINT_MAX (sizeof UNETMOUNT_ROOT + 1 + UNETMOUNT_NAME_MAX)
 
 // --- committing --------------------------------------------------------
 
 static void finish(struct uui_filedialog *fd, const char *path) {
     void (*done)(void *, const char *) = fd->on_done;
     void *ctx = fd->ctx;
-    char copy[UUI_FILEDIALOG_PATH_MAX];
-    copy[0] = '\0';
-    if (path) strlcpy(copy, path, sizeof copy);
+    // Copied: `path` may be the view's, which closing frees.
+    char *copy = path ? strdup(path) : 0;
+    if (path && !copy) ulogf("filedialog: out of memory -- %s not chosen\n", path);
     // CLOSED FIRST, so the callback may open another chooser -- and so
     // the owner is unblocked before it is asked to do anything.
     uui_filedialog_close_window(fd);
     // A file opened or saved is Recent's, as Windows' common dialog does.
-    if (path && fd->mode != UUI_FILEDIALOG_FOLDER) urecent_add(copy, fd->app);
-    if (done) done(ctx, path ? copy : 0);
+    if (copy && fd->mode != UUI_FILEDIALOG_FOLDER) urecent_add(copy, fd->app);
+    if (done) done(ctx, copy);
+    free(copy);
 }
 
 // What the OK button means, which is different in all three modes.
@@ -168,18 +178,14 @@ static int commit(struct uui_filedialog *fd) {
         // the directory being shown is, which is GTK's SELECT_FOLDER
         // behaviour and what makes "choose this folder" reachable
         // without selecting anything.
-        char sel[UUI_FILEDIALOG_PATH_MAX];
-        if (uui_fileview_selected_is_dir(&fd->view) &&
-            uui_fileview_selected_path(&fd->view, sel, sizeof sel)) {
-            finish(fd, sel);
-            return 1;
-        }
-        finish(fd, dir);
+        char *sel = uui_fileview_selected_is_dir(&fd->view) ? uui_fileview_selected_path(&fd->view) : 0;
+        finish(fd, sel ? sel : dir);
+        free(sel);
         return 1;
     }
 
     const char *typed = uui_textbox_text(&fd->name);
-    char full[UUI_FILEDIALOG_PATH_MAX];
+    char *full;
 
     if (typed && typed[0]) {
         // AN ABSOLUTE PATH TYPED INTO THE FIELD IS TAKEN AS ONE, which
@@ -188,27 +194,32 @@ static int commit(struct uui_filedialog *fd) {
         // A share address (smb://nas/media) opens the share, mounted for
         // the session if nothing has it yet (net/unetmount.h).
         if (unetmount_is_address(typed)) {
-            if ((fd->no_mount ? unetmount_find_address : unetmount_open_address)(typed, full, sizeof full)) return 0;
+            char point[POINT_MAX];
+            if ((fd->no_mount ? unetmount_find_address : unetmount_open_address)(typed, point, sizeof point)) return 0;
             build_places(fd);
-        } else if (typed[0] == '/') strlcpy(full, typed, sizeof full);
-        else if (!k_path_join(dir, typed, full, sizeof full)) return 0;
-    } else if (!uui_fileview_selected_path(&fd->view, full, sizeof full)) {
-        return 0;   // nothing named and nothing selected
+            full = strdup(point);
+        } else {
+            full = typed[0] == '/' ? strdup(typed) : upath_join(dir, typed);
+        }
+    } else {
+        full = uui_fileview_selected_path(&fd->view);   // NULL: nothing named and nothing selected
     }
+    if (!full) return 0;
 
     struct sys_stat st;
-    int exists = sys_stat(full, &st) == 0;
+    int exists = sys_stat(full, &st) == 0, done = 0;
     if (exists && st.is_dir) {
         // OK ON A FOLDER ENTERS IT and keeps the dialog up, as in
         // Explorer and every GTK chooser.
         uui_fileview_set_dir(&fd->view, full);
         uui_textbox_set_text(&fd->name, "");
         sync_places(fd);
-        return 0;
+    } else if (fd->mode != UUI_FILEDIALOG_OPEN || exists) {
+        finish(fd, full);
+        done = 1;
     }
-    if (fd->mode == UUI_FILEDIALOG_OPEN && !exists) return 0;
-    finish(fd, full);
-    return 1;
+    free(full);
+    return done;
 }
 
 // --- managing files ------------------------------------------------------
@@ -225,7 +236,7 @@ static void drop_undo(struct uui_filedialog *fd) {
 }
 
 static void set_note(struct uui_filedialog *fd, const char *text, int can_undo) {
-    if (text != fd->note_text) snprintf(fd->note_text, sizeof fd->note_text, "%s", text ? text : "");
+    if (text != fd->note_text) snprintf(fd->note_text, sizeof fd->note_text, "%s", text ? text : "");   // a line: cut is fine
     if (!can_undo) drop_undo(fd);
     fd->can_undo = can_undo;
     fd->root_items[2].hidden = !fd->note_text[0];
@@ -248,7 +259,7 @@ static void relist_at(struct uui_filedialog *fd, int view_row) {
     if (view_row >= n) view_row = n - 1;
     if (view_row < 0) return;
     t->selected = uui_table_source_row(t, view_row);
-    char name[UUI_FILEDIALOG_PATH_MAX];
+    char name[ULIST_NAME_MAX];
     const char *sel = uui_fileview_selected_name(&fd->view);
     if (sel) {
         snprintf(name, sizeof name, "%s", sel);
@@ -263,16 +274,21 @@ static int selected_view_row(const struct uui_filedialog *fd) {
 
 static void new_folder(struct uui_filedialog *fd) {
     const char *dir = uui_fileview_dir(&fd->view);
-    char name[UUI_FILEDIALOG_PATH_MAX], path[UUI_FILEDIALOG_PATH_MAX];
+    char name[ULIST_NAME_MAX];
     struct sys_stat st;
     strlcpy(name, "New folder", sizeof name);
-    if (!k_path_join(dir, name, path, sizeof path) ||
-        (sys_stat(path, &st) == 0 && (!ufileop_unique_name(dir, "New folder", name, sizeof name) ||
-                                      !k_path_join(dir, name, path, sizeof path)))) {
+    char *path = upath_join(dir, name);
+    if (path && sys_stat(path, &st) == 0) {
+        free(path);
+        path = ufileop_unique_name(dir, "New folder", name, sizeof name) ? upath_join(dir, name) : 0;
+    }
+    if (!path) {
         set_note(fd, "There is no free name for a new folder here.", 0);
         return;
     }
-    if (sys_mkdir(path) < 0) {
+    int made = sys_mkdir(path) >= 0;
+    free(path);
+    if (!made) {
         set_note(fd, "A folder can't be made here.", 0);
         return;
     }
@@ -289,32 +305,30 @@ static void new_folder(struct uui_filedialog *fd) {
 
 // A rename the listing finished (Enter, or a click elsewhere): do it.
 static void rename_poll(struct uui_filedialog *fd) {
-    char from[UUI_FILEDIALOG_PATH_MAX], to[UUI_FILEDIALOG_PATH_MAX];
-    if (!uui_fileview_take_rename(&fd->view, from, to, sizeof from)) return;
+    char *from, *to;
+    if (!uui_fileview_take_rename(&fd->view, &from, &to)) return;
     const char *dir = uui_fileview_dir(&fd->view);
-    char src[UUI_FILEDIALOG_PATH_MAX], dst[UUI_FILEDIALOG_PATH_MAX];
+    char *src = upath_join(dir, from), *dst = upath_join(dir, to);
     struct sys_stat st;
     if (strchr(to, '/') || !strcmp(to, ".") || !strcmp(to, "..")) {
         set_note(fd, "A name can't contain / or be . or ..", 0);
-        return;
-    }
-    if (!k_path_join(dir, from, src, sizeof src) || !k_path_join(dir, to, dst, sizeof dst)) {
-        set_note(fd, "That name is too long.", 0);
-        return;
-    }
-    // A RENAME NEVER REPLACES: rename(2) would, silently, and Explorer
-    // refuses instead.
-    if (sys_stat(dst, &st) == 0) {
+    } else if (!src || !dst) {
+        set_note(fd, "There is not enough memory to rename it.", 0);
+    } else if (sys_stat(dst, &st) == 0) {
+        // A RENAME NEVER REPLACES: rename(2) would, silently, and
+        // Explorer refuses instead.
         snprintf(fd->note_text, sizeof fd->note_text, "There is already something called %s here.", to);
         set_note(fd, fd->note_text, 0);
-        return;
-    }
-    if (sys_rename(src, dst) < 0) {
+    } else if (sys_rename(src, dst) < 0) {
         set_note(fd, "That can't be renamed here.", 0);
-        return;
+    } else {
+        set_note(fd, "", 0);
+        relist(fd, to);
     }
-    set_note(fd, "", 0);
-    relist(fd, to);
+    free(src);
+    free(dst);
+    free(from);
+    free(to);
 }
 
 // The permanent delete, of a file or a whole tree. The walk's state is
@@ -333,19 +347,29 @@ static int delete_for_good(const char *path) {
     return ok;
 }
 
-// The operands: the marked set, else the selected row -- the File
-// Manager's rule. Into fd->ops; returns how many.
-static int gather(struct uui_filedialog *fd) {
+static void free_ops(struct uui_filedialog *fd) {
+    for (int i = 0; i < fd->op_n; i++) free(fd->ops[i]);
     free(fd->ops);
     fd->ops = 0;
     fd->op_n = 0;
+}
+
+// The operands: the marked set, else the selected row -- the File
+// Manager's rule. Into fd->ops; returns how many, or 0 (logged) when one
+// could not be had: acting on part of what was chosen would surprise.
+static int gather(struct uui_filedialog *fd) {
+    free_ops(fd);
     int marks = uui_fileview_mark_count(&fd->view);
     int n = marks > 0 ? marks : uui_fileview_selected_name(&fd->view) ? 1 : 0;
     if (!n || !(fd->ops = malloc((size_t)n * sizeof fd->ops[0]))) return 0;
     for (int i = 0; i < n; i++) {
-        int ok = marks > 0 ? uui_fileview_marked_path(&fd->view, i, fd->ops[fd->op_n], UUI_FILEDIALOG_PATH_MAX)
-                           : uui_fileview_selected_path(&fd->view, fd->ops[fd->op_n], UUI_FILEDIALOG_PATH_MAX);
-        if (ok) fd->op_n++;
+        char *p = marks > 0 ? uui_fileview_marked_path(&fd->view, i) : uui_fileview_selected_path(&fd->view);
+        if (!p) {
+            ulogf("filedialog: out of memory gathering %d items\n", n);
+            free_ops(fd);
+            return 0;
+        }
+        fd->ops[fd->op_n++] = p;
     }
     return fd->op_n;
 }
@@ -381,7 +405,7 @@ static void clear_name_if_gone(struct uui_filedialog *fd) {
 
 static void delete_selected(struct uui_filedialog *fd, int for_good) {
     if (!gather(fd)) return;
-    char bin[UUI_FILEDIALOG_PATH_MAX];
+    char bin[UTRASH_PATH];   // the bin's own bound (base/utrash.h)
     // ONE BIN PER VOLUME, and a listing is one folder: the first item's
     // answer is every item's.
     if (for_good || !utrash_bin_for(fd->ops[0], bin, sizeof bin)) {
@@ -428,7 +452,7 @@ static void ask_answer(struct uui_filedialog *fd, int code) {
 static void undo_delete(struct uui_filedialog *fd) {
     if (!fd->can_undo || !fd->undone_n) return;
     int back = 0;
-    char first[UUI_FILEDIALOG_PATH_MAX] = "";
+    char first[ULIST_NAME_MAX] = "";
     for (int i = 0; i < fd->undone_n; i++)
         if (utrash_restore(&fd->undone[i]) == 0 && !back++)
             snprintf(first, sizeof first, "%s", k_path_basename(fd->undone[i].orig));
@@ -484,10 +508,8 @@ static void go(struct uui_filedialog *fd, int delta) {
     const char *skipped;
     const char *to = unavhist_step(&fd->hist, delta, still_a_dir, 0, &skipped);
     if (!to) return;
-    char dir[UUI_FILEDIALOG_PATH_MAX];
-    snprintf(dir, sizeof dir, "%s", to);
     fd->replaying = 1;
-    uui_fileview_set_dir(&fd->view, dir);
+    uui_fileview_set_dir(&fd->view, to);   // copies it; nothing is recorded meanwhile
     fd->replaying = 0;
     if (fd->mode != UUI_FILEDIALOG_SAVE) uui_textbox_set_text(&fd->name, "");
     if (skipped) {
@@ -549,16 +571,17 @@ static void on_widget(struct uapp_window *w, int id, int reason) {
         // (motion goes to every widget), and only a click or Enter parks
         // a path -- so a pointer resting over the list cannot re-list
         // the directory and wipe the typed name.
-        char to[UUI_FILEDIALOG_PATH_MAX];
-        if (uui_places_take(&fd->places, to, sizeof to)) {
+        char *to = uui_places_take(&fd->places);
+        if (to) {
             // A pinned folder deleted since the list was built: the
             // listing stays where it was and the list loses the row.
-            char was[UUI_FILEDIALOG_PATH_MAX];
-            snprintf(was, sizeof was, "%s", uui_fileview_dir(&fd->view));
+            char *was = strdup(uui_fileview_dir(&fd->view));
             if (!uui_fileview_set_dir(&fd->view, to)) {
-                uui_fileview_set_dir(&fd->view, was);
+                if (was) uui_fileview_set_dir(&fd->view, was);
                 build_places(fd);
             }
+            free(was);
+            free(to);
             uui_textbox_set_text(&fd->name, "");
             sync_places(fd);
             uui_focus_set(&fd->focus, FOCUS_PLACES);
@@ -568,26 +591,27 @@ static void on_widget(struct uapp_window *w, int id, int reason) {
     case ID_PATH: {
         // A segment, or a typed path (relative to the listing). One that
         // is not a folder leaves the field up, holding what was typed.
-        char to[UUI_FILEDIALOG_PATH_MAX], full[UUI_FILEDIALOG_PATH_MAX];
         if (reason == UUI_REASON_KEY) fd->swallow_key = 1;
         if (reason == UUI_REASON_PRESS && uui_pathbar_is_editing(&fd->path))
             uui_focus_set(&fd->focus, FOCUS_PATH);
-        if (!uui_pathbar_take(&fd->path, to, sizeof to)) break;
-        static char scratch[KPATH_SCRATCH_FOR(UUI_FILEDIALOG_PATH_MAX)];
-        struct kpath_scratch sc = { scratch, sizeof scratch };
+        char *to = uui_pathbar_take(&fd->path);
+        if (!to) break;
         struct sys_stat st;
-        if (unetmount_is_address(to)) {
-            if ((fd->no_mount ? unetmount_find_address : unetmount_open_address)(to, full, sizeof full)) break;
-            build_places(fd);
-            snprintf(to, sizeof to, "%s", full);
+        char point[POINT_MAX];
+        int addr = unetmount_is_address(to), refused = 0;
+        if (addr) {
+            refused = (fd->no_mount ? unetmount_find_address : unetmount_open_address)(to, point, sizeof point) != 0;
+            if (!refused) build_places(fd);
         }
-        if (k_path_resolve(uui_fileview_dir(&fd->view), to, full, sizeof full, &sc) &&
-            sys_stat(full, &st) == 0 && st.is_dir) {
+        char *full = refused ? 0 : upath_resolve(uui_fileview_dir(&fd->view), addr ? point : to);
+        if (full && sys_stat(full, &st) == 0 && st.is_dir) {
             uui_fileview_set_dir(&fd->view, full);
             uui_pathbar_set_path(&fd->path, uui_fileview_dir(&fd->view));
             sync_places(fd);
             uui_focus_set(&fd->focus, FOCUS_VIEW);
         }
+        free(full);
+        free(to);
         break;
     }
     case ID_VIEW:
@@ -815,9 +839,10 @@ void uui_filedialog_close_window(struct uui_filedialog *fd) {
     fd->win = 0;
     drop_undo(fd);
     uui_fileview_free(&fd->view);       // its listing is the view's own, grown to the folder
-    free(fd->ops);
-    fd->ops = 0;
-    fd->op_n = 0;
+    uui_pathbar_free(&fd->path);
+    uui_places_free(&fd->places);
+    unavhist_init(&fd->hist);           // frees the Back/Forward paths
+    free_ops(fd);
     if (g_open == fd) g_open = 0;
     uapp_window_close(w);
 }

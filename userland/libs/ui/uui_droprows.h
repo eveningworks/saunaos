@@ -21,7 +21,7 @@ extern "C" {
 
 #define UUI_DROPROWS_FIXED 8
 #define UUI_DROPROWS_OWN   4
-#define UUI_DROPROWS_LABEL 256   // a path: UUI_FILEVIEW_PATH_MAX
+#define UUI_DROPROWS_LABEL 256   // a row the caller adds (a path); a longer one is refused
 
 enum uui_droprow_kind {
     UUI_DROPROW_NONE = -1,

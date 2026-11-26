@@ -12,13 +12,22 @@
 #include "etc_config.h"
 #include "rt/sys.h"
 #include "kpath.h"
+#include "base/upath.h"
 #include <string.h>
 #include <strings.h> // strncasecmp -- an extension is not case-sensitive
 #include <stdio.h>
 #include <ctype.h>
 
-#define UOPEN_PATH_MAX 256 // NOT FS_PATH_MAX (4096): this file's own bound
 #define DESKTOP_ENTRY_DIR "/usr/wm/applications"
+// A value read from an entry or the override file (an Exec=, a stem, a
+// literal program path): what struct uopen_decision's `exec` holds.
+#define UOPEN_VALUE_MAX sizeof ((struct uopen_decision *)0)->exec
+
+// The desktop entry file of stem `name`, allocated; NULL out of memory.
+static char *entry_file(const char *name) {
+    char *p = 0;
+    return asprintf(&p, DESKTOP_ENTRY_DIR "/%s.desktop", name) < 0 ? 0 : p;
+}
 
 // A space/comma-separated list, matched whole -- ".md" must not match
 // ".mdx", which a substring search would. See uopen.h.
@@ -36,15 +45,14 @@ int uopen_ext_matches(const char *list, const char *ext) {
 
 // One entry's Exec, by its name (the filename stem). 1 = found.
 static int entry_exec(const char *name, char *out, int cap) {
-    char entry[UOPEN_PATH_MAX];
-    if (snprintf(entry, sizeof entry, DESKTOP_ENTRY_DIR "/%s.desktop", name)
-        >= (int)sizeof entry)
-        return 0;
+    char *entry = entry_file(name);
+    if (!entry) return 0;
     struct etc_config_buf cfg;
     int rc = uconf_load(entry, &cfg)
              && etc_config_buf_get_in_or_top(&cfg, UOPEN_ENTRY_SECTION, "Exec",
                                              out, (uint32_t)cap);
     etc_config_buf_free(&cfg);
+    free(entry);
     return rc ? 1 : 0;
 }
 
@@ -54,9 +62,8 @@ static int declared_exec(const char *ext, char *out, int cap) {
     int n = ulistdir(DESKTOP_ENTRY_DIR, &entries);
     for (int i = 0; i < n; i++) {
         if (entries[i].is_dir) continue;
-        char entry[UOPEN_PATH_MAX];
-        if (!k_path_join(DESKTOP_ENTRY_DIR, entries[i].name, entry, sizeof entry))
-            continue;
+        char *entry = upath_join(DESKTOP_ENTRY_DIR, entries[i].name);
+        if (!entry) continue;
         // Loaded ONCE and asked twice: etc_config_get() re-reads the
         // whole file per key (CLAUDE.md's 54-reads lesson).
         struct etc_config_buf cfg;
@@ -68,6 +75,7 @@ static int declared_exec(const char *ext, char *out, int cap) {
                   && etc_config_buf_get_in_or_top(&cfg, UOPEN_ENTRY_SECTION,
                                                   "Exec", out, (uint32_t)cap);
         etc_config_buf_free(&cfg);
+        free(entry);
         if (hit) { free(entries); return 1; }
     }
     free(entries);
@@ -92,7 +100,7 @@ int uopen_resolve(const char *path, char *exec, int cap) {
     // only the section would stop resolving every override already on
     // disk. Loaded once rather than asked twice, since each ask is a
     // whole-file read.
-    char val[UOPEN_PATH_MAX];
+    char val[UOPEN_VALUE_MAX];
     val[0] = '\0';
     struct etc_config_buf conf;
     if (uconf_load(UOPEN_CONF, &conf))
@@ -193,7 +201,7 @@ static int ext_of(const char *path, char *ext, int cap) {
 
 int uopen_apps_for(const char *path, struct uopen_app *out, int max, int *current) {
     struct ulist_entry *entries = 0;
-    char ext[16], now[UOPEN_PATH_MAX] = "";
+    char ext[16], now[UOPEN_VALUE_MAX] = "";
     int count = 0;
     *current = -1;
     if (!ext_of(path, ext, sizeof ext)) return 0;
@@ -207,10 +215,13 @@ int uopen_apps_for(const char *path, struct uopen_app *out, int max, int *curren
         const char *nm = entries[i].name;
         size_t len = strlen(nm);
         if (entries[i].is_dir || len < 9 || strcmp(nm + len - 8, ".desktop")) continue;
-        char entry[UOPEN_PATH_MAX], list[128];
+        char list[128];
         struct uopen_app *a = &out[count];
         etc_config_buf_free(cfg);
-        if (!k_path_join(DESKTOP_ENTRY_DIR, nm, entry, sizeof entry) || !uconf_load(entry, cfg)) continue;
+        char *entry = upath_join(DESKTOP_ENTRY_DIR, nm);
+        int loaded = entry && uconf_load(entry, cfg);
+        free(entry);
+        if (!loaded) continue;
         if (!etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "Handles", list, sizeof list) ||
             !list[0] || uopen_ext_matches(list, ext) != (pass == 0) ||
             !etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "Exec", a->exec, sizeof a->exec))
@@ -244,43 +255,47 @@ int uopen_set_default(const char *path, const char *entry) {
 
 // --- what the opening app offers besides opening ---------------------------
 
-// The desktop entry (its file) that opens `path`, by uopen_resolve()'s
-// two layers; 0 for none, or for an override naming a literal program.
-static int opening_entry(const char *path, char *entry, int cap) {
-    char ext[16], val[UOPEN_PATH_MAX] = "", list[128];
+// The desktop entry (its file, allocated) that opens `path`, by
+// uopen_resolve()'s two layers; NULL for none, for an override naming a
+// literal program, or out of memory.
+static char *opening_entry(const char *path) {
+    char ext[16], val[UOPEN_VALUE_MAX] = "", list[128];
     if (!ext_of(path, ext, sizeof ext)) return 0;
     struct etc_config_buf doc, *cfg = &doc;
     if (uconf_load(UOPEN_CONF, cfg)) etc_config_buf_get_in_or_top(cfg, UOPEN_CONF_SECTION, ext, val, sizeof val);
     etc_config_buf_free(cfg);   // reused below, one entry at a time
     struct sys_stat st;
-    int hit = 0;
+    char *entry = 0;
     if (val[0] == '/') return 0;
-    if (val[0] && strcmp(val, "-") && snprintf(entry, (size_t)cap, DESKTOP_ENTRY_DIR "/%s.desktop", val) < cap &&
-        sys_stat(entry, &st) == 0)
-        hit = 1;
+    if (val[0] && strcmp(val, "-") && (entry = entry_file(val)) && sys_stat(entry, &st) != 0) {
+        free(entry);
+        entry = 0;
+    }
     struct ulist_entry *ents = 0;
-    int n = hit ? 0 : ulistdir(DESKTOP_ENTRY_DIR, &ents);
-    for (int i = 0; i < n && !hit; i++) {
-        hit = !ents[i].is_dir && k_path_join(DESKTOP_ENTRY_DIR, ents[i].name, entry, (size_t)cap) &&
-              uconf_load(entry, cfg) &&
-              etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "Handles", list, sizeof list) &&
-              uopen_ext_matches(list, ext);
+    int n = entry ? 0 : ulistdir(DESKTOP_ENTRY_DIR, &ents);
+    for (int i = 0; i < n && !entry; i++) {
+        if (ents[i].is_dir || !(entry = upath_join(DESKTOP_ENTRY_DIR, ents[i].name))) continue;
+        int hit = uconf_load(entry, cfg) &&
+                  etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "Handles", list, sizeof list) &&
+                  uopen_ext_matches(list, ext);
         etc_config_buf_free(cfg);
+        if (!hit) { free(entry); entry = 0; }
     }
     free(ents);
-    return hit;
+    return entry;
 }
 
 int uopen_actions(const char *path, struct uopen_action **out) {
     *out = 0;
-    char entry[UOPEN_PATH_MAX], list[256];
-    if (!opening_entry(path, entry, sizeof entry)) return 0;
+    char list[256];
+    char *entry = opening_entry(path);
+    if (!entry) return 0;
     struct etc_config_buf doc, *cfg = &doc;
     int n = 0;
     if (uconf_load(entry, cfg) && etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "Actions", list, sizeof list)) {
         char *save = 0;
         for (char *id = strtok_r(list, ";", &save); id; id = strtok_r(0, ";", &save)) {
-            char sec[96], name[96], exec[UOPEN_PATH_MAX];
+            char sec[96], name[96], exec[UOPEN_VALUE_MAX];
             snprintf(sec, sizeof sec, "Desktop Action %s", id);
             if (!etc_config_buf_get_in(cfg, sec, "Name", name, sizeof name) ||
                 !etc_config_buf_get_in(cfg, sec, "Exec", exec, sizeof exec))
@@ -295,6 +310,7 @@ int uopen_actions(const char *path, struct uopen_action **out) {
         }
     }
     etc_config_buf_free(cfg);
+    free(entry);
     return n;
 }
 
@@ -339,15 +355,17 @@ static struct { char ext[16]; char *line; } *g_xd;
 static int g_nxd;
 
 static const char *details_line(const char *path) {
-    char ext[16], entry[UOPEN_PATH_MAX], line[UOPEN_PATH_MAX] = "";
+    char ext[16], line[UOPEN_VALUE_MAX] = "";
     if (!ext_of(path, ext, sizeof ext)) return 0;
     for (int i = 0; i < g_nxd; i++)
         if (!strcmp(g_xd[i].ext, ext)) return g_xd[i].line[0] ? g_xd[i].line : 0;
-    if (opening_entry(path, entry, sizeof entry)) {
+    char *entry = opening_entry(path);
+    if (entry) {
         struct etc_config_buf cfg;
         if (uconf_load(entry, &cfg))
             etc_config_buf_get_in_or_top(&cfg, UOPEN_ENTRY_SECTION, "X-Details", line, sizeof line);
         etc_config_buf_free(&cfg);
+        free(entry);
     }
     char *copy = strdup(line);
     void *g = copy ? realloc(g_xd, sizeof *g_xd * (size_t)(g_nxd + 1)) : 0;

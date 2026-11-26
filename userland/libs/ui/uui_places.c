@@ -14,6 +14,8 @@
 #include "net/uvolinfo.h"
 #include "kpath.h"
 #include "keyboard.h"
+#include "base/ulog.h"
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -101,14 +103,38 @@ void uui_places_init(struct uui_places *p) {
     uui_sbar_init(&p->sb);
 }
 
-void uui_places_add(struct uui_places *p, const char *label, const char *icon,
-                    const char *path) {
-    if (p->count >= UUI_PLACES_MAX || p->count != p->places) return;
+// Rows [from, count) go, their paths with them.
+static void drop_rows(struct uui_places *p, int from) {
+    for (int i = from; i < p->count; i++) { free(p->row[i].path); p->row[i].path = 0; }
+    if (p->count > from) p->count = from;
+}
+
+void uui_places_free(struct uui_places *p) {
+    drop_rows(p, 0);
+    free(p->taken);
+    p->taken = 0;
+    p->places = 0;
+}
+
+// A new row with its own copy of `path`, or NULL (logged) when the list
+// is full or memory is out.
+static struct uui_place *new_row(struct uui_places *p, const char *path) {
+    if (p->count >= UUI_PLACES_MAX) return 0;
+    char *copy = strdup(path);
+    if (!copy) { ulogf("places: out of memory listing %s\n", path); return 0; }
     struct uui_place *r = &p->row[p->count++];
     memset(r, 0, sizeof *r);
+    r->path = copy;
+    return r;
+}
+
+void uui_places_add(struct uui_places *p, const char *label, const char *icon,
+                    const char *path) {
+    if (p->count != p->places) return;
+    struct uui_place *r = new_row(p, path);
+    if (!r) return;
     strlcpy(r->label, label, sizeof r->label);
     r->icon = icon;
-    strlcpy(r->path, path, sizeof r->path);
     p->places = p->count;
 }
 
@@ -127,9 +153,8 @@ void uui_places_add_pins(struct uui_places *p, int virtual_ok) {
 }
 
 void uui_places_refresh(struct uui_places *p) {
-    char keep[UUI_PLACES_PATH_MAX] = "";
-    if (p->selected >= 0) strlcpy(keep, p->row[p->selected].path, sizeof keep);
-    p->count = p->places;
+    char *keep = p->selected >= 0 ? strdup(p->row[p->selected].path) : 0;
+    drop_rows(p, p->places);
     struct query_fsinfo fs;
     // Three passes over the mounts: the local disks, the removable ones
     // (USB sticks), then the shares, each then put in the order the
@@ -150,10 +175,9 @@ void uui_places_refresh(struct uui_places *p) {
             // A pulled stick's mount is going: automountd unmounts it.
             if (removable && (fs.flags & QUERY_FS_GONE)) continue;
             if ((remote ? 2 : removable ? 1 : 0) != pass) continue;
-            struct uui_place *r = &p->row[p->count++];
-            memset(r, 0, sizeof *r);
+            struct uui_place *r = new_row(p, fs.point);
+            if (!r) continue;
             uvolinfo_name(fs.point, r->label, sizeof r->label);
-            strlcpy(r->path, fs.point, sizeof r->path);
             r->device = 1;
             r->persistent = (fs.flags & QUERY_FS_PERSISTENT) != 0;
             r->readonly = (fs.flags & QUERY_FS_RDONLY) != 0;
@@ -186,7 +210,8 @@ void uui_places_refresh(struct uui_places *p) {
         }
     }
     if (p->hot >= p->count) p->hot = -1;
-    uui_places_select_path(p, keep[0] ? keep : "");
+    uui_places_select_path(p, keep ? keep : "");
+    free(keep);
 }
 
 void uui_places_select_path(struct uui_places *p, const char *dir) {
@@ -195,11 +220,10 @@ void uui_places_select_path(struct uui_places *p, const char *dir) {
         if (!strcmp(p->row[i].path, dir)) { p->selected = i; return; }
 }
 
-int uui_places_take(struct uui_places *p, char *out, int cap) {
-    if (!p->has_taken) return 0;
-    strlcpy(out, p->taken, (size_t)cap);
-    p->has_taken = 0;
-    return 1;
+char *uui_places_take(struct uui_places *p) {
+    char *t = p->taken;
+    p->taken = 0;
+    return t;
 }
 
 // --- drawing ------------------------------------------------------------
@@ -338,8 +362,10 @@ static void op_draw(struct ugfx_surface *s, const void *w) {
 // --- input ----------------------------------------------------------------
 
 static void take_row(struct uui_places *p, int i) {
-    strlcpy(p->taken, p->row[i].path, sizeof p->taken);
-    p->has_taken = 1;
+    char *t = strdup(p->row[i].path);
+    if (!t) { ulogf("places: out of memory taking %s\n", p->row[i].path); return; }
+    free(p->taken);
+    p->taken = t;
 }
 
 static void set_scroll(struct uui_places *p, int px) {

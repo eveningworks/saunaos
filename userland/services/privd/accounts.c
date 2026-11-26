@@ -19,6 +19,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <limits.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -210,7 +211,7 @@ static uid_t next_id(void) {
     // too, or the next person would be given its files.
     DIR *d = opendir("/home");
     struct dirent *e;
-    char p[UFILEOP_PATH_MAX];
+    char p[sizeof HOMES + NAME_MAX];   // HOMES and a d_name
     struct stat st;
     while (d && (e = readdir(d))) {
         if (e->d_name[0] == '.' || (size_t)snprintf(p, sizeof p, "/home/%s", e->d_name) >= sizeof p) continue;
@@ -267,7 +268,7 @@ static int fill_from_skel(const char *home) {
     if (!d) return 0;   // no skeleton: an empty home, as useradd -M leaves
     struct dirent *e;
     int rc = 0;
-    char src[UFILEOP_PATH_MAX];
+    char src[sizeof SKEL + 1 + NAME_MAX];   // SKEL, "/" and a d_name
     while ((e = readdir(d))) {
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
         if ((size_t)snprintf(src, sizeof src, "%s/%s", SKEL, e->d_name) >= sizeof src) continue;

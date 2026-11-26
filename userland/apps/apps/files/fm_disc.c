@@ -25,22 +25,24 @@
 
 // An ask not yet answered: the image (a mount) or the point (an eject),
 // and the pane a mount opens in.
-struct ask { int verb, pane; char path[PATH_MAX_LEN]; };
+struct ask { int verb, pane; char *path; };   // `path` heap, the taker's once taken
 static struct ask *g_ask;
 static int g_nask, g_cap;
 
 static void remember(int verb, int pane, const char *path) {
+    char *copy = strdup(path);
+    if (!copy) return;   // the answer then comes back unnamed: said plainly below
     if (g_nask == g_cap) {
         int cap = g_cap ? g_cap * 2 : 4;
         struct ask *a = realloc(g_ask, (size_t)cap * sizeof *a);
-        if (!a) return;   // the answer then comes back unnamed: said plainly below
+        if (!a) { free(copy); return; }
         g_ask = a;
         g_cap = cap;
     }
     struct ask *a = &g_ask[g_nask++];
     a->verb = verb;
     a->pane = pane;
-    strlcpy(a->path, path, sizeof a->path);
+    a->path = copy;
 }
 
 // The oldest ask of `verb`, taken off the list: 1, or 0 when none waits.
@@ -60,12 +62,15 @@ int disc_is_image_name(const char *path) {
     return dot && dot != path && dot[-1] != '/' && !strcasecmp(dot, ".iso");
 }
 
-int disc_selected(char *path, int cap) {
+char *disc_selected(void) {
     struct uui_fileview *fv = active();
     if (uui_fileview_mark_count(fv) > 1 || uui_fileview_selected_is_dir(fv) ||
-        in_bin(fv) || in_archive(fv) || !uui_fileview_selected_path(fv, path, cap))
+        in_bin(fv) || in_archive(fv))
         return 0;
-    return disc_is_image_name(path);
+    char *path = uui_fileview_selected_path(fv);
+    if (path && disc_is_image_name(path)) return path;
+    free(path);
+    return 0;
 }
 
 static void go(int pane, const char *point) {
@@ -120,6 +125,7 @@ int disc_reply(const struct udrive_msg *m) {
         ulogf("files: eject image %s rc %d\n", a.path, (int)m->result);
         places_build();
         tree_rebuild();
+        free(a.path);
         return 1;
     }
     char point[UVOL_POINT] = "";
@@ -138,5 +144,6 @@ int disc_reply(const struct udrive_msg *m) {
         snprintf(g_stat_note, sizeof g_stat_note, "could not mount %s: %s", name, strerror(-m->result));
     }
     ulogf("files: disc %s mount rc %d at %s\n", a.path, (int)m->result, point[0] ? point : "-");
+    free(a.path);
     return 1;
 }

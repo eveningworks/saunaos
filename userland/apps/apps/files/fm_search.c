@@ -29,7 +29,7 @@
 #include <time.h>
 
 struct hit {
-    char path[PATH_MAX_LEN];
+    char *path;               // heap: g_hits' own, and g_shown's own copy
     struct ulist_entry e;
     int line;                 // the matching line, from 1; 0 = matched by name
     char match[80];           // that line, trimmed to what a column shows
@@ -41,9 +41,8 @@ static struct hit *g_hits;                // grown as the walk finds them
 static int g_nhits, g_hits_cap;
 static int g_full;                        // memory ran out: there were more
 static unsigned long long g_seen;         // entries looked at
-static char g_where[PATH_MAX_LEN];        // the directory being read, for the strip
 
-static char g_root[PATH_MAX_LEN], g_query[UUI_TEXTBOX_MAX];
+static char *g_root, g_query[UUI_TEXTBOX_MAX];   // g_root heap, set while no worker runs
 static struct ufind_filter g_filter = UFIND_FILTER_ANY;
 static int g_contents;                    // "Inside text files"
 static long long g_now;                   // the date filter's today, asked once
@@ -76,13 +75,15 @@ static int visit(void *ctx, const char *path, const struct ulist_entry *e) {
         (g_contents && !e->is_dir && g_query[0] &&
          ufind_contains(path, g_query, &line, text, sizeof text, &g_cancel))) {
         pthread_mutex_lock(&g_lock);
-        if (!g_full && UGROW(g_hits, g_hits_cap, g_nhits + 1)) {
-            strlcpy(g_hits[g_nhits].path, path, PATH_MAX_LEN);
+        char *copy = g_full ? 0 : strdup(path);
+        if (copy && UGROW(g_hits, g_hits_cap, g_nhits + 1)) {
+            g_hits[g_nhits].path = copy;
             g_hits[g_nhits].e = *e;
             g_hits[g_nhits].line = line;
             strlcpy(g_hits[g_nhits].match, text, sizeof g_hits[0].match);
             g_nhits++;
         } else if (!g_full) {
+            free(copy);
             g_full = 1;
             ulogf("files: out of memory at %d search results\n", g_nhits);
         }
@@ -97,7 +98,6 @@ static void *worker(void *arg) {
         while (!g_cancel && uwalk_step(&g_walk, visit, 0)) {
             pthread_mutex_lock(&g_lock);
             g_seen = g_walk.entries;
-            if (g_walk.depth > 0) strlcpy(g_where, g_walk.path, sizeof g_where);
             pthread_mutex_unlock(&g_lock);
             // Posted at most every ~150 ms: a post per directory would
             // be thousands of events for one search.
@@ -140,12 +140,19 @@ void search_set_filter(const struct ufind_filter *f, int contents) {
 
 void search_start(const char *root, const char *query) {
     search_stop();
+    char *copy = strdup(root);   // before the old goes: `root` may be it
     pthread_mutex_lock(&g_lock);
+    for (int i = 0; i < g_nhits; i++) free(g_hits[i].path);
     g_nhits = g_full = 0;
     g_seen = 0;
-    g_where[0] = '\0';
     pthread_mutex_unlock(&g_lock);
-    strlcpy(g_root, root, sizeof g_root);
+    free(g_root);
+    g_root = copy;
+    if (!g_root) {
+        ulogf("files: out of memory starting a search under %s\n", root);
+        set_note("not enough memory to search");
+        return;
+    }
     strlcpy(g_query, query, sizeof g_query);
     g_now = (long long)time(0);
     g_cancel = 0;
@@ -216,18 +223,26 @@ static int fact(void *ctx, int col) {
 
 static int s_list(void *ctx, const char *dir, struct ulist_entry *out, int cap) {
     (void)ctx; (void)dir;
+    for (int i = 0; i < g_nshown; i++) free(g_shown[i].path);
     pthread_mutex_lock(&g_lock);
-    g_nshown = g_nhits < cap ? g_nhits : cap;
-    if (!UGROW(g_shown, g_shown_cap, g_nshown)) g_nshown = g_shown_cap;
-    if (g_nshown) memcpy(g_shown, g_hits, sizeof g_shown[0] * (size_t)g_nshown);
+    int want = g_nhits < cap ? g_nhits : cap;
+    if (!UGROW(g_shown, g_shown_cap, want)) want = g_shown_cap;
+    // Copies: a new search frees the hits while a pane still shows these.
+    for (g_nshown = 0; g_nshown < want; g_nshown++) {
+        g_shown[g_nshown] = g_hits[g_nshown];
+        if (!(g_shown[g_nshown].path = strdup(g_hits[g_nshown].path))) {
+            ulogf("files: out of memory showing %d search results\n", want);
+            break;
+        }
+    }
     pthread_mutex_unlock(&g_lock);
     for (int i = 0; i < g_nshown; i++) out[i] = g_shown[i].e;
     return g_nshown;
 }
 
-static int s_path(void *ctx, int i, char *out, int cap) {
+static char *s_path(void *ctx, int i) {
     (void)ctx;
-    return i >= 0 && i < g_nshown && (int)strlcpy(out, g_shown[i].path, (size_t)cap) < cap;
+    return i >= 0 && i < g_nshown ? strdup(g_shown[i].path) : 0;
 }
 
 static void s_cell(void *ctx, int i, int col, char *out, int cap) {
@@ -237,7 +252,7 @@ static void s_cell(void *ctx, int i, int col, char *out, int cap) {
     const struct ulist_entry *e = &g_shown[i].e;
     if (col == C_SIZE && !e->is_dir) human_size(out, (unsigned long)cap, e->size);
     else if (col == C_MODIFIED) udate_format(out, (unsigned long)cap, &e->modified, UDATE_DATE | UDATE_TIME);
-    else if (col == C_FOLDER) k_path_dirname(g_shown[i].path, out, (size_t)cap);
+    else if (col == C_FOLDER) fm_cell_dirname(g_shown[i].path, out, cap);
     else if (col == C_MATCH && g_shown[i].line)
         snprintf(out, (size_t)cap, "line %d: %s", g_shown[i].line, g_shown[i].match);
 }

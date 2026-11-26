@@ -36,7 +36,6 @@ extern "C" {
 // `struct ufileop` is tens of KB, so it belongs at file scope or on a heap,
 // never on a ring-3 frame (those are capped at 2 KiB).
 
-#define UFILEOP_PATH_MAX 256   // NOT FS_PATH_MAX (4096): the walk's own bound
 // 64 KiB per read: each read() is a call, and on a network share a call
 // is a round trip, so 4 KiB ran a copy at a few MB/s (2026-10-11).
 #define UFILEOP_BUF (64 * 1024)
@@ -65,8 +64,9 @@ struct ufileop_policy {
     // `cp` has always done and what makes the /bin front ends one line.
     //
     // For UFILEOP_RENAME, write a basename (not a path) into
-    // `rename_out`; ufileop_unique_name() produces the "file (1).txt"
-    // form if that is what you want.
+    // `rename_out` (`cap` is ULIST_NAME_MAX, a name's own bound);
+    // ufileop_unique_name() produces the "file (1).txt" form if that is
+    // what you want.
     int (*on_conflict)(void *ctx, const char *src, const char *dst,
                         char *rename_out, int cap);
 
@@ -110,8 +110,9 @@ struct ufileop {
     // GROWN ON DEMAND and freed when the walk ends: the queue holds every
     // directory the walk has seen (a removal unlinks them deepest-first
     // from it), so its length is the tree's folder count, not a depth.
-    char (*qsrc)[UFILEOP_PATH_MAX];
-    char (*qdst)[UFILEOP_PATH_MAX];
+    // Each entry is a heap path sized to fit (a removal's `qdst` is NULL).
+    char **qsrc;
+    char **qdst;
     int qhead, qtail, qcap_src, qcap_dst;
 
     // Set when a policy callback asked to stop, so the walk unwinds
@@ -164,8 +165,9 @@ int ufileop_unique_name(const char *dir, const char *name, char *out, int cap);
 int ufileop_name_ok(const char *name);
 
 // Where `src` lands when copied "to" `dst` -- into it if it is a
-// directory, otherwise dst itself.
-int ufileop_resolve_dest(const char *src, const char *dst, char *out, int cap);
+// directory, otherwise dst itself. Allocated (free() it); NULL only when
+// out of memory.
+char *ufileop_resolve_dest(const char *src, const char *dst);
 
 // Is `dst` inside `src`? Copying a directory into itself never
 // terminates; coreutils refuses it too, and finding out by filling the

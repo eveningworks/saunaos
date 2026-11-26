@@ -44,7 +44,10 @@ extern "C" {
 // that a JPEG named .dat is listed and a text file named photo.jpg is
 // not. A widget that filtered by extension would take that away.
 
-#define UUI_FILEVIEW_PATH_MAX 256 // NOT FS_PATH_MAX (4096): a widget's own bound
+// **EVERY PATH IS SIZED TO FIT** -- the directory and each path handed
+// out are heap strings (GIO's g_file_get_path() shape): an accessor that
+// answers `char *` is the caller's to free(), and uui_fileview_dir() is
+// valid until the next set_dir(), up() or activate() of this view.
 
 enum uui_fileview_mode {
     // Names only, no header -- a narrow sidebar or a picker's list.
@@ -102,9 +105,10 @@ struct uui_table_column;
 struct uui_fileview_source {
     // Fill `out` (at most `cap`) for `dir`; the count, or -errno.
     int (*list)(void *ctx, const char *dir, struct ulist_entry *out, int cap);
-    // Entry `index`'s REAL path -- what opening, copying and thumbnails
-    // use. Required: a virtual folder has no directory to join.
-    int (*path)(void *ctx, int index, char *out, int cap);
+    // Entry `index`'s REAL path, allocated (the view frees it) -- what
+    // opening, copying and thumbnails use; NULL for none. Required: a
+    // virtual folder has no directory to join.
+    char *(*path)(void *ctx, int index);
     // The details view's columns, the NAME FIRST (the widget draws that
     // one), and each other cell's text; `compare` sorts by a column
     // (NULL: by its text).
@@ -116,9 +120,9 @@ struct uui_fileview_source {
     // 1: a folder row OPENS -- set_dir() to its `path`, itself a name
     // the resolver answers (the inside of an archive). 0: on_open.
     int descends;
-    // Where Up (Backspace) goes from `dir`: 1 with it in `out`, 0 for
-    // nowhere. NULL: Up does nothing in this folder.
-    int (*up)(void *ctx, const char *dir, char *out, int cap);
+    // Where Up (Backspace) goes from `dir`, allocated (the view frees
+    // it), or NULL for nowhere. NULL: Up does nothing in this folder.
+    char *(*up)(void *ctx, const char *dir);
     // Rows in bands under captions, numbered by the source (0..
     // UUI_TABLE_MAX_GROUPS-1, shown in that order) -- Recent's Today and
     // Yesterday. Details view only. NULL: no groups.
@@ -152,7 +156,7 @@ struct uui_fileview {
     int failed;     // the directory could not be read AT ALL, which is
                      // not the same as it being empty (wm_fs.h's rule)
 
-    char dir[UUI_FILEVIEW_PATH_MAX];
+    char *dir;      // OWNED; read it with uui_fileview_dir()
 
     enum uui_fileview_mode mode;
 
@@ -254,8 +258,9 @@ struct uui_fileview {
     // -2 nothing hovering; -1 the directory itself; a source row that
     // is a directory. Drawn as an accent outline.
     int drop_row;
-    char drop_target[UUI_FILEVIEW_PATH_MAX]; // resolved at the drop
-    char drag_label[UUI_FILEVIEW_PATH_MAX];  // what the ghost says
+    char *drop_target;   // OWNED: resolved at the drop
+    char *drag_label;    // OWNED: what the ghost says
+    char *drag_dir;      // OWNED: the dragged items' folder, for the drag's life
 
     // --- icons mode only (see enum uui_fileview_mode) ---------------
     int icon_scroll;         // PIXELS scrolled off the grid's top; OWNED
@@ -294,10 +299,10 @@ struct uui_fileview {
     // file; Esc drops it. The row is found by NAME on every frame, so a
     // reload under the edit keeps it on the right file.
     int renaming;
-    char rename_from[UUI_FILEVIEW_PATH_MAX];
+    char *rename_from;   // OWNED: the name being edited
     struct uui_textbox rename_box;
     int rename_parked;
-    char rename_to[UUI_FILEVIEW_PATH_MAX];
+    char *rename_to;     // OWNED: the name typed, once parked
 
     // --- what the app hears about. All optional. --------------------
     //
@@ -399,11 +404,11 @@ int  uui_fileview_up(struct uui_fileview *fv);
 
 const char *uui_fileview_dir(const struct uui_fileview *fv);
 
-// The selected row's full path, written into `out`. Returns 1, or 0
-// when nothing is selected or the ".." row is -- ".." is a navigation
+// The selected row's full path, allocated (free() it), or NULL when
+// nothing is selected or the ".." row is -- ".." is a navigation
 // control, not a file, and handing back its path is how a delete key
-// ends up pointed at the parent directory.
-int  uui_fileview_selected_path(const struct uui_fileview *fv, char *out, int cap);
+// ends up pointed at the parent directory -- or memory is out.
+char *uui_fileview_selected_path(const struct uui_fileview *fv);
 int  uui_fileview_selected_is_dir(const struct uui_fileview *fv);
 const char *uui_fileview_selected_name(const struct uui_fileview *fv);
 // The selected row's listing entry (size, time, is_dir), or NULL for
@@ -426,10 +431,11 @@ int  uui_fileview_is_marked(const struct uui_fileview *fv, int row);
 int  uui_fileview_mark_count(const struct uui_fileview *fv);
 void uui_fileview_clear_marks(struct uui_fileview *fv);
 
-// The nth marked row's full path (n counts from 0 in ROW order), or 0
-// when there is no such mark. This is what a caller snapshots before
-// acting -- see the struct's note on why marks do not survive a reload.
-int  uui_fileview_marked_path(const struct uui_fileview *fv, int n, char *out, int cap);
+// The nth marked row's full path (n counts from 0 in ROW order),
+// allocated, or NULL when there is no such mark (or no memory). This is
+// what a caller snapshots before acting -- see the struct's note on why
+// marks do not survive a reload.
+char *uui_fileview_marked_path(const struct uui_fileview *fv, int n);
 int  uui_fileview_marked_is_dir(const struct uui_fileview *fv, int n);
 
 // --- dimmed rows; see the struct ------------------------------------
@@ -464,8 +470,9 @@ int  uui_fileview_renaming(struct uui_fileview *fv);
 void uui_fileview_cancel_rename(struct uui_fileview *fv);
 // Ends the edit KEEPING what was typed (a click elsewhere in the window).
 void uui_fileview_finish_rename(struct uui_fileview *fv);
-// A committed rename, once: 1 with the old and new NAMES (not paths).
-int  uui_fileview_take_rename(struct uui_fileview *fv, char *from, char *to, int cap);
+// A committed rename, once: 1 with the old and new NAMES (not paths),
+// each the caller's to free().
+int  uui_fileview_take_rename(struct uui_fileview *fv, char **from, char **to);
 
 // Rows currently shown, INCLUDING ".." -- the table's row count.
 int  uui_fileview_row_count(const struct uui_fileview *fv);

@@ -66,9 +66,9 @@ static int recent_list(void *ctx, const char *dir, struct ulist_entry *out, int 
     return g_count;
 }
 
-static int recent_path(void *ctx, int i, char *out, int cap) {
+static char *recent_path(void *ctx, int i) {
     (void)ctx;
-    return i >= 0 && i < g_count && strlcpy(out, g_items[i].path, (size_t)cap) < (size_t)cap;
+    return i >= 0 && i < g_count ? strdup(g_items[i].path) : 0;
 }
 
 static void recent_cell(void *ctx, int i, int col, char *out, int cap) {
@@ -82,7 +82,7 @@ static void recent_cell(void *ctx, int i, int col, char *out, int cap) {
         cal_epoch_to_rtc((uint64_t)it->when, &t);
         int g = day_group(it->when);   // the band already says which day
         udate_format(out, (unsigned long)cap, &t, g <= G_YESTERDAY ? UDATE_TIME : UDATE_DATE | UDATE_TIME);
-    } else if (col == 3) k_path_dirname(it->path, out, (size_t)cap);
+    } else if (col == 3) fm_cell_dirname(it->path, out, cap);
 }
 
 static int recent_compare(void *ctx, int a, int b, int col) {
@@ -141,16 +141,17 @@ int recent_item_flags(int code, unsigned *out) {
     }
 }
 
-// Remove from list: every marked row, or the one selected.
+// Remove from list: every marked row, or the one selected. The view is
+// re-read only after, so its marks stand while the list is walked.
 void recent_forget(void) {
-    static char paths[PANE_FILES][PATH_MAX_LEN];
     struct uui_fileview *fv = active();
     int marks = uui_fileview_mark_count(fv), n = 0, done = 0;
-    for (int i = 0; i < marks && n < PANE_FILES; i++)
-        if (uui_fileview_marked_path(fv, i, paths[n], PATH_MAX_LEN)) n++;
-    if (!marks && uui_fileview_selected_path(fv, paths[0], PATH_MAX_LEN)) n = 1;
-    for (int i = 0; i < n; i++)
-        if (urecent_forget(paths[i]) == 0) done++;
+    for (int i = 0; i < (marks ? marks : 1); i++) {
+        char *path = marks ? uui_fileview_marked_path(fv, i) : uui_fileview_selected_path(fv);
+        if (path) n++;
+        if (path && urecent_forget(path) == 0) done++;
+        free(path);
+    }
     snprintf(g_stat_note, sizeof g_stat_note, "removed %d from Recent", done);
     ulogf("files: recent forget %d of %d\n", done, n);
     reload_panes();
@@ -165,8 +166,9 @@ void recent_clear(void) {
 
 // Open folder: the folder the selected file is in, with it selected.
 void recent_open_folder(void) {
-    char path[PATH_MAX_LEN], dir[PATH_MAX_LEN];
-    if (!uui_fileview_selected_path(active(), path, sizeof path) ||
-        !k_path_dirname(path, dir, sizeof dir)) { set_note("select a file"); return; }
-    if (fm_goto(g_active, dir)) uui_fileview_select_name(active(), k_path_basename(path));
+    char *path = uui_fileview_selected_path(active()), *dir = path ? upath_dirname(path) : 0;
+    if (!dir) set_note("select a file");
+    else if (fm_goto(g_active, dir)) uui_fileview_select_name(active(), k_path_basename(path));
+    free(dir);
+    free(path);
 }

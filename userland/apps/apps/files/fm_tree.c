@@ -22,18 +22,31 @@
 // open set, rebuilt on every toggle. The app owns which PATHS are open
 // -- paths, not node indices, because a rebuild renumbers every slot.
 // All grown on demand, and only inside tree_rebuild() and the open set's
-// setter: a folder row's label points INTO g_tree_path, and is set after
-// the last grow of a rebuild.
+// setter: a folder row's label points INTO its g_tree_path string, which
+// lives until the next rebuild frees the rows -- so a caller keeping a
+// row's path across one (tree_goto, a menu's aim) copies it.
 struct uui_tree g_tree;
 static struct uui_tree_node *g_tree_nodes;
-char (*g_tree_path)[PATH_MAX_LEN];
+char **g_tree_path;   // heap strings, "" for a caption row
 int g_tree_count;
 static int g_nodes_cap, g_path_cap, g_place_cap;
 // Each row's g_places row (or TREE_FOLDER/_HEADER/_ADD_ROW), moved with
 // the rows as folders are inserted -- what a right-click asks.
 static int *g_tree_place;
-static char (*g_tree_open)[PATH_MAX_LEN];
+static char **g_tree_open;   // heap paths
 static int g_tree_open_count, g_tree_open_cap;
+
+// Row `n`'s path, a copy of `s`: 0 (logged) out of memory.
+static int set_row_path(int n, const char *s) {
+    if ((g_tree_path[n] = strdup(s))) return 1;
+    ulogf("files: out of memory building the tree at row %d\n", n);
+    return 0;
+}
+
+static void tree_rows_free(void) {
+    for (int i = 0; i < g_tree_count; i++) free(g_tree_path[i]);
+    g_tree_count = 0;
+}
 
 // Room for `n` rows in all three row arrays; 0 when memory is out.
 static int tree_reserve(int n) {
@@ -85,11 +98,13 @@ static int mount_of(const char *path) {
 static void tree_set_open(const char *path, int open) {
     if (open) {
         if (tree_is_open(path)) return;
-        if (!UGROW(g_tree_open, g_tree_open_cap, g_tree_open_count + 1)) {
+        char *copy = strdup(path);
+        if (!copy || !UGROW(g_tree_open, g_tree_open_cap, g_tree_open_count + 1)) {
             ulogf("files: out of memory opening %s in the tree\n", path);
+            free(copy);
             return;
         }
-        strlcpy(g_tree_open[g_tree_open_count++], path, PATH_MAX_LEN);
+        g_tree_open[g_tree_open_count++] = copy;
         return;
     }
     int len = (int)strlen(path);
@@ -101,9 +116,8 @@ static void tree_set_open(const char *path, int open) {
                      (at_root || q[len] == '/' || q[len] == '\0');
         // ...on the SAME volume: collapsing System must not close Boot.
         if (under && strcmp(q, path) != 0 && mount_of(q) != mount_of(path)) under = 0;
-        if (under) continue;
-        if (kept != i) strlcpy(g_tree_open[kept], q, PATH_MAX_LEN);
-        kept++;
+        if (under) { free(g_tree_open[i]); continue; }
+        g_tree_open[kept++] = g_tree_open[i];
     }
     g_tree_open_count = kept;
 }
@@ -151,25 +165,25 @@ static int tree_build_head(void) {
     for (int i = 0; i < g_places.count; i++) {
         const struct uui_place *r = &g_places.row[i];
         if (i == g_places.places) {
-            g_tree_path[n][0] = '\0';
+            if (!set_row_path(n, "")) return n;
             g_tree_place[n] = TREE_HEADER;
             g_tree_nodes[n] = (struct uui_tree_node){ .label = "This computer",
                                                        .kind = UUI_TREE_HEADER };
             n++;
         }
         if (i == g_places.removable && i < g_places.network) {
-            g_tree_path[n][0] = '\0';
+            if (!set_row_path(n, "")) return n;
             g_tree_place[n] = TREE_HEADER;
             g_tree_nodes[n] = (struct uui_tree_node){ .label = "Removable", .kind = UUI_TREE_HEADER };
             n++;
         }
         if (i == g_places.network) {
-            g_tree_path[n][0] = '\0';
+            if (!set_row_path(n, "")) return n;
             g_tree_place[n] = TREE_HEADER;
             g_tree_nodes[n] = (struct uui_tree_node){ .label = "Network", .kind = UUI_TREE_HEADER };
             n++;
         }
-        strlcpy(g_tree_path[n], r->path, PATH_MAX_LEN);
+        if (!set_row_path(n, r->path)) return n;
         g_tree_place[n] = i;
         struct uui_tree_node *nd = &g_tree_nodes[n];
         *nd = (struct uui_tree_node){ .label = r->label, .icon = r->icon };
@@ -184,12 +198,12 @@ static int tree_build_head(void) {
     // THE NETWORK GROUP IS ALWAYS THERE, with its Add row last, so a
     // machine with no shares yet still shows where they go.
     if (g_places.network >= g_places.count) {
-        g_tree_path[n][0] = '\0';
+        if (!set_row_path(n, "")) return n;
         g_tree_place[n] = TREE_HEADER;
         g_tree_nodes[n] = (struct uui_tree_node){ .label = "Network", .kind = UUI_TREE_HEADER };
         n++;
     }
-    strlcpy(g_tree_path[n], FM_NET_ADD, PATH_MAX_LEN);
+    if (!set_row_path(n, FM_NET_ADD)) return n;
     g_tree_place[n] = TREE_ADD_ROW;
     g_tree_nodes[n] = (struct uui_tree_node){ .label = "Add network share...", .icon = "tb-new" };
     n++;
@@ -210,14 +224,16 @@ void tree_reveal_path(const char *path) {
         tree_select_path(path);
         return;
     }
-    char prefix[PATH_MAX_LEN];
+    char *prefix = strdup(path);
+    if (!prefix) { ulogf("files: out of memory revealing %s\n", path); return; }
     int len = (int)strlen(path);
-    for (int i = 1; i < len && i < PATH_MAX_LEN; i++) {
+    for (int i = 1; i < len; i++) {
         if (path[i] != '/') continue;
-        memcpy(prefix, path, (size_t)i);
         prefix[i] = '\0';
         tree_set_open(prefix, 1);
+        prefix[i] = '/';
     }
+    free(prefix);
     // ...and the VOLUME it is on, unless it IS that volume's root.
     int vol = mount_of(path);
     if (vol >= 0 && strcmp(g_places.row[vol].path, path) != 0)
@@ -265,11 +281,10 @@ void tree_refresh_meters(void) {
 // level, which the 2 KiB ring-3 frame budget cannot hold.
 void tree_rebuild(void) {
     // The selection survives by PATH: ids are slots and slots move.
-    char sel[PATH_MAX_LEN];
-    sel[0] = '\0';
     int id = uui_tree_selected_id(&g_tree);
-    if (id >= 0 && id < g_tree_count) strlcpy(sel, g_tree_path[id], sizeof sel);
+    char *sel = id >= 0 && id < g_tree_count ? strdup(g_tree_path[id]) : 0;
 
+    tree_rows_free();
     g_tree_count = tree_build_head();   // the places, the heading, the volumes
 
     for (int i = 0; i < g_tree_count; i++) {
@@ -279,28 +294,33 @@ void tree_rebuild(void) {
         int n = ulistdir(g_tree_path[i], &g_tree_scratch);
         if (n < 0) continue;
 
-        // Directories only, joinable only (a path past FS_PATH_MAX is
-        // skipped, not truncated), in name order.
+        // Directories only, in name order.
         int nd = 0;
-        char probe[PATH_MAX_LEN];
         for (int j = 0; j < n; j++) {
             if (!g_tree_scratch[j].is_dir) continue;
             // Options' "hidden files", as the panes obey it -- or a bin
             // (<home>/.Trash) shows up in the tree.
             if (!g_opt.folder.hidden && g_tree_scratch[j].name[0] == '.') continue;
-            if (!k_path_join(g_tree_path[i], g_tree_scratch[j].name, probe,
-                              sizeof probe)) continue;
-            if (is_other_mount(probe)) continue;
+            char *probe = upath_join(g_tree_path[i], g_tree_scratch[j].name);
+            int other = !probe || is_other_mount(probe);
+            free(probe);
+            if (other) continue;
             if (nd != j) g_tree_scratch[nd] = g_tree_scratch[j];
             nd++;
         }
         dirsort(g_tree_scratch, nd, DIRSORT_NAME, 0);
-        if (nd > 0 && !tree_reserve(g_tree_count + nd)) {
+        // Every child's path first, so a failure leaves the rows whole.
+        char **kids = nd > 0 ? calloc((size_t)nd, sizeof *kids) : 0;
+        int joined = 0;
+        while (kids && joined < nd && (kids[joined] = upath_join(g_tree_path[i], g_tree_scratch[joined].name)))
+            joined++;
+        if (nd > 0 && (joined < nd || !tree_reserve(g_tree_count + nd))) {
             ulogf("files: out of memory showing %s's %d folders in the tree\n", g_tree_path[i], nd);
+            for (int j = 0; j < joined; j++) free(kids[j]);
             nd = 0;
         }
 
-        if (nd <= 0) continue;
+        if (nd <= 0) { free(kids); continue; }
         memmove(&g_tree_nodes[i + 1 + nd], &g_tree_nodes[i + 1],
                 (size_t)(g_tree_count - i - 1) * sizeof g_tree_nodes[0]);
         memmove(&g_tree_path[i + 1 + nd], &g_tree_path[i + 1],
@@ -308,19 +328,19 @@ void tree_rebuild(void) {
         memmove(&g_tree_place[i + 1 + nd], &g_tree_place[i + 1],
                 (size_t)(g_tree_count - i - 1) * sizeof g_tree_place[0]);
         for (int j = 0; j < nd; j++) {
-            char *dst = g_tree_path[i + 1 + j];
+            char *dst = g_tree_path[i + 1 + j] = kids[j];
             g_tree_place[i + 1 + j] = TREE_FOLDER;
-            k_path_join(g_tree_path[i], g_tree_scratch[j].name, dst, PATH_MAX_LEN);
             g_tree_nodes[i + 1 + j] = (struct uui_tree_node){
                 .depth = g_tree_nodes[i].depth + 1,
                 .kind = tree_is_open(dst) ? UUI_TREE_OPEN : UUI_TREE_CLOSED,
             };
         }
+        free(kids);
         g_tree_count += nd;
     }
 
-    // Labels point INTO g_tree_path, which does not move again until
-    // the next rebuild; ids are slots, valid until then too.
+    // Labels point INTO g_tree_path's strings, which live until the next
+    // rebuild; ids are slots, valid until then too.
     for (int i = 0; i < g_tree_count; i++) {
         g_tree_nodes[i].id = i;
         // The head's rows already have labels; a volume's folders are
@@ -330,7 +350,8 @@ void tree_rebuild(void) {
         g_tree_nodes[i].icon = ufiletype_icon(g_tree_nodes[i].label, 1);
     }
     uui_tree_set_nodes_keep(&g_tree, g_tree_nodes, g_tree_count);
-    if (sel[0]) tree_select_path(sel);
+    if (sel && sel[0]) tree_select_path(sel);
+    free(sel);
     g_tree_gen = tree_generation();
 }
 

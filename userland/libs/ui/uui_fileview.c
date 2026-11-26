@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include "base/ulistdir.h" // a whole listing, paged
 #include "base/ugrow.h"
+#include "base/upath.h"
 #include "base/ulog.h"
 #include "keyboard.h"   // KEY_* codes, as delivered by WIN_EV_KEY
 #include "ui/uui_label.h" // uui_label_wrap_next -- the icon caption
@@ -85,12 +86,21 @@ static int fv_is_up_row(const struct uui_fileview *fv, int row) {
     return fv->has_up && row == 0;
 }
 
-// An entry's real path: the source's answer in a virtual folder, else
-// the directory joined with its name.
-static int fv_entry_path(const struct uui_fileview *fv, const struct ulist_entry *e,
-                         char *out, int cap) {
-    if (fv->src) return fv->src->path(fv->src->ctx, (int)(e - fv->entries), out, cap);
-    return k_path_join(fv->dir, e->name, out, (size_t)cap);
+// Never NULL: "/" when the directory could not be had.
+static const char *fv_dir(const struct uui_fileview *fv) { return fv->dir ? fv->dir : "/"; }
+
+// An entry's real path, allocated: the source's answer in a virtual
+// folder, else the directory joined with its name. NULL out of memory.
+static char *fv_entry_path(const struct uui_fileview *fv, const struct ulist_entry *e) {
+    if (fv->src) return fv->src->path(fv->src->ctx, (int)(e - fv->entries));
+    return upath_join(fv_dir(fv), e->name);
+}
+
+// `*field` becomes `s`'s copy, or stays as it was (0) out of memory.
+static int fv_set_str(char **field, const char *s) {
+    if (upath_set(field, s)) return 1;
+    ulogf("uui_fileview: out of memory keeping a path\n");
+    return 0;
 }
 
 static void ic_reveal(struct uui_fileview *fv); // icons mode, below
@@ -103,7 +113,7 @@ int uui_fileview_row_count(const struct uui_fileview *fv) {
 }
 
 int uui_fileview_count(const struct uui_fileview *fv) { return fv->count; }
-const char *uui_fileview_dir(const struct uui_fileview *fv) { return fv->dir; }
+const char *uui_fileview_dir(const struct uui_fileview *fv) { return fv_dir(fv); }
 
 unsigned long long uui_fileview_total_bytes(const struct uui_fileview *fv) {
     unsigned long long n = 0;
@@ -128,9 +138,10 @@ unsigned long long uui_fileview_total_bytes(const struct uui_fileview *fv) {
 // a second ordering beside the one base/dirsort.h exists to keep single.
 // A folder's counted size, or -1 (not counted, or nobody counts them).
 static long long fv_dir_bytes(const struct uui_fileview *fv, const struct ulist_entry *e) {
-    char p[UUI_FILEVIEW_PATH_MAX];
-    if (!fv->dirsize || !fv_entry_path(fv, e, p, sizeof p)) return -1;
-    return fv->dirsize(fv->dirsize_ctx, p);
+    char *p = fv->dirsize ? fv_entry_path(fv, e) : 0;
+    long long n = p ? fv->dirsize(fv->dirsize_ctx, p) : -1;
+    free(p);
+    return n;
 }
 
 static int fv_group(const struct uui_fileview *fv, int row) {
@@ -332,10 +343,9 @@ static int fv_marked_row(const struct uui_fileview *cfv, int n) {
     return -1;
 }
 
-int uui_fileview_marked_path(const struct uui_fileview *fv, int n, char *out, int cap) {
+char *uui_fileview_marked_path(const struct uui_fileview *fv, int n) {
     const struct ulist_entry *e = fv_entry(fv, fv_marked_row(fv, n));
-    if (!e) return 0;
-    return fv_entry_path(fv, e, out, cap);
+    return e ? fv_entry_path(fv, e) : 0;
 }
 
 int uui_fileview_marked_is_dir(const struct uui_fileview *fv, int n) {
@@ -395,6 +405,10 @@ void uui_fileview_free(struct uui_fileview *fv) {
     fv->entries = 0; fv->marks = fv->dimmed = 0;
     fv->cap = fv->count = fv->mark_words = fv->dim_words = fv->mark_count = fv->dim_count = 0;
     rb_free(&fv->band);
+    char **owned[] = { &fv->dir, &fv->drop_target, &fv->drag_label, &fv->drag_dir,
+                       &fv->rename_from, &fv->rename_to };
+    for (size_t i = 0; i < sizeof owned / sizeof owned[0]; i++) { free(*owned[i]); *owned[i] = 0; }
+    fv->renaming = fv->rename_parked = 0;
 }
 
 // Room for `n` listing entries; 0 when there is no memory (the caller then keeps what it has).
@@ -437,8 +451,7 @@ void uui_fileview_init(struct uui_fileview *fv, int x, int y, int w, int h) {
     fv->drop_row = -2;
     fv->last_click_row = -1;
     fv->navigable = 1;
-    fv->dir[0] = '/';
-    fv->dir[1] = '\0';
+    fv->dir = strdup("/");
     fv->mode = UUI_FILEVIEW_DETAILS;
 
     uui_table_init(&fv->table, x, y, w, h,
@@ -741,23 +754,27 @@ int uui_fileview_take_columns_changed(struct uui_fileview *fv) {
 }
 
 static int fv_at_root(const struct uui_fileview *fv) {
-    return fv->dir[0] == '/' && fv->dir[1] == '\0';
+    return !strcmp(fv_dir(fv), "/");
 }
 
 // Defined below, beside the public wrapper -- see its comment on why
 // `reveal` is an argument at all.
 static int fv_select_name(struct uui_fileview *fv, const char *name, int reveal);
 
-static int fv_path_cmp(const void *a, const void *b) { return strcmp((const char *)a, (const char *)b); }
+static int fv_path_cmp(const void *a, const void *b) {
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
 
 // The row whose entry's real path is `path` becomes the selection. A
 // directory's rows are its names, unique in it, so the name is enough there.
 static int fv_select_path(struct uui_fileview *fv, const char *path) {
     if (!fv->src) return fv_select_name(fv, k_path_basename(path), 0);
-    char p[UUI_FILEVIEW_PATH_MAX];
     for (int r = 0; r < uui_fileview_row_count(fv); r++) {
         const struct ulist_entry *e = fv_entry(fv, r);
-        if (e && fv_entry_path(fv, e, p, sizeof p) && !strcmp(p, path)) {
+        char *p = e ? fv_entry_path(fv, e) : 0;
+        int hit = p && !strcmp(p, path);
+        free(p);
+        if (hit) {
             fv->table.selected = r;
             return 1;
         }
@@ -771,9 +788,7 @@ int uui_fileview_reload(struct uui_fileview *fv) {
     // different file with nothing to say it moved. Not the NAME either:
     // a search's results and Recent hold rows of one name from several
     // folders, and the name would snap the selection to the first.
-    char keep[UUI_FILEVIEW_PATH_MAX];
-    keep[0] = '\0';
-    if (!uui_fileview_selected_path(fv, keep, sizeof keep)) keep[0] = '\0';
+    char *keep = uui_fileview_selected_path(fv);
     // NOTHING selected stays nothing: an empty-space click deselects,
     // and a refresh half a second later must not undo it.
     int had_none = fv->table.selected < 0;
@@ -786,14 +801,15 @@ int uui_fileview_reload(struct uui_fileview *fv) {
     // silently unmark everything -- which is what made "Insert marks
     // files" flaky for weeks. EVERY mark, grown to fit: an operation on
     // 300 marked files must not run on the 64 a reload kept. STATIC
-    // scratch, sorted to be searched; reload is not re-entrant.
-    static char (*kept)[UUI_FILEVIEW_PATH_MAX];
+    // scratch (heap paths, freed below), sorted to be searched; reload is
+    // not re-entrant.
+    static char **kept;
     static int kept_cap;
     int nkept = 0;
     if (fv->mark_count > 0 && !UGROW(kept, kept_cap, fv->mark_count))
         ulogf("uui_fileview: out of memory keeping %d marks\n", fv->mark_count);
     for (int n = 0; n < fv->mark_count && nkept < kept_cap; n++)
-        if (uui_fileview_marked_path(fv, n, kept[nkept], UUI_FILEVIEW_PATH_MAX)) nkept++;
+        if ((kept[nkept] = uui_fileview_marked_path(fv, n))) nkept++;
     if (nkept > 1) qsort(kept, (size_t)nkept, sizeof kept[0], fv_path_cmp);
 
     fv->count = 0;
@@ -806,7 +822,7 @@ int uui_fileview_reload(struct uui_fileview *fv) {
     // A virtual folder, or a directory again: the columns follow, and a
     // sort on a column the new set lacks falls back to the name.
     const struct uui_fileview_source *was = fv->src;
-    fv->src = fv->resolve ? fv->resolve(fv->resolve_ctx, fv->dir) : 0;
+    fv->src = fv->resolve ? fv->resolve(fv->resolve_ctx, fv_dir(fv)) : 0;
     if (fv->src != was) {
         if (fv->mode == UUI_FILEVIEW_DETAILS) fv_details_cols(fv);
         int ncols = fv->src ? fv->src->ncols : 4;
@@ -824,13 +840,13 @@ int uui_fileview_reload(struct uui_fileview *fv) {
         // no longer fills it.
         fv_grow(fv, 256);
         for (;;) {
-            n = fv->src->list(fv->src->ctx, fv->dir, fv->entries, fv->cap);
+            n = fv->src->list(fv->src->ctx, fv_dir(fv), fv->entries, fv->cap);
             if (n < fv->cap) break;
             if (!fv_grow(fv, fv->cap * 2)) { fv->failed = 1; break; }   // out of memory: not "empty"
         }
     } else {
         struct ulist_entry *list = 0;
-        n = ulistdir(fv->dir, &list);
+        n = ulistdir(fv_dir(fv), &list);
         if (n >= 0) {
             free(fv->entries);
             fv->entries = list;
@@ -847,7 +863,7 @@ int uui_fileview_reload(struct uui_fileview *fv) {
     if (fv->filter && !fv->src) {
         int kept = 0;
         for (int i = 0; i < n; i++) {
-            if (!fv->filter(fv->filter_ctx, fv->dir, &fv->entries[i])) continue;
+            if (!fv->filter(fv->filter_ctx, fv_dir(fv), &fv->entries[i])) continue;
             if (kept != i) fv->entries[kept] = fv->entries[i];
             kept++;
         }
@@ -868,7 +884,7 @@ int uui_fileview_reload(struct uui_fileview *fv) {
 
     // NO REVEAL: this is a refresh, and the scroll offset is the
     // user's -- see fv_select_name().
-    if (keep[0] && fv_select_path(fv, keep)) {
+    if (keep && fv_select_path(fv, keep)) {
         /* kept */
     } else if (had_none) {
         fv->table.selected = -1;
@@ -876,14 +892,16 @@ int uui_fileview_reload(struct uui_fileview *fv) {
         fv->table.selected = uui_fileview_row_count(fv) > 0
                               ? uui_table_source_row(&fv->table, 0) : -1;
     }
+    free(keep);
     if (nkept) {
-        char p[UUI_FILEVIEW_PATH_MAX];
         for (int r = 0; r < uui_fileview_row_count(fv); r++) {
             const struct ulist_entry *e = fv_entry(fv, r);
-            if (e && fv_entry_path(fv, e, p, sizeof p) &&
-                bsearch(p, kept, (size_t)nkept, sizeof kept[0], fv_path_cmp))
+            char *p = e ? fv_entry_path(fv, e) : 0;
+            if (p && bsearch(&p, kept, (size_t)nkept, sizeof kept[0], fv_path_cmp))
                 uui_fileview_toggle_mark(fv, r);
+            free(p);
         }
+        for (int i = 0; i < nkept; i++) free(kept[i]);
     }
     fv->last_click_row = -1;
     // **CLAMP, NOT REVEAL.** The grid may have shrunk under the offset,
@@ -900,8 +918,9 @@ int uui_fileview_reload(struct uui_fileview *fv) {
 
 int uui_fileview_set_dir(struct uui_fileview *fv, const char *dir) {
     if (!dir || !dir[0]) return 0;
+    // `dir` may BE fv->dir (or inside it): copied before the old goes.
+    if (!fv_set_str(&fv->dir, dir)) return 0;
     fv->renaming = 0;
-    snprintf(fv->dir, sizeof fv->dir, "%s", dir);
     // Nothing to keep across a directory CHANGE -- reload()'s
     // preserve-by-name is for a refresh of the same directory.
     fv->table.selected = -1;
@@ -914,7 +933,7 @@ int uui_fileview_set_dir(struct uui_fileview *fv, const char *dir) {
     // caller asked for Explorer's empty selection.
     if (!fv->enter_unselected && fv->table.selected < 0 && uui_fileview_row_count(fv) > 0)
         fv->table.selected = uui_table_source_row(&fv->table, 0);
-    if (fv->on_dir_changed) fv->on_dir_changed(fv->ctx, fv->dir);
+    if (fv->on_dir_changed) fv->on_dir_changed(fv->ctx, fv_dir(fv));
     return ok;
 }
 
@@ -924,19 +943,17 @@ int uui_fileview_up(struct uui_fileview *fv) {
     // The directory being left, so it can be selected on arrival --
     // Backspace then Enter returns where you were, which is what every
     // file manager does and what makes Backspace safe to press.
-    const char *leaving = k_path_basename(fv->dir);
-    char was[UUI_FILEVIEW_PATH_MAX];
-    snprintf(was, sizeof was, "%s", leaving ? leaving : "");
-
-    char parent[UUI_FILEVIEW_PATH_MAX];
-    if (fv->src) {   // a virtual folder says where its Up goes, if anywhere
-        if (!fv->src->up || !fv->src->up(fv->src->ctx, fv->dir, parent, sizeof parent)) return 0;
-    } else if (!k_path_dirname(fv->dir, parent, sizeof parent)) {
-        return 0;
-    }
-    if (!uui_fileview_set_dir(fv, parent)) return 0;
-    if (was[0]) uui_fileview_select_name(fv, was);
-    return 1;
+    char *was = strdup(k_path_basename(fv_dir(fv)));
+    char *parent = 0;
+    if (fv->src)   // a virtual folder says where its Up goes, if anywhere
+        parent = fv->src->up ? fv->src->up(fv->src->ctx, fv_dir(fv)) : 0;
+    else
+        parent = upath_dirname(fv_dir(fv));
+    int ok = parent && was && uui_fileview_set_dir(fv, parent);
+    if (ok && was[0]) uui_fileview_select_name(fv, was);
+    free(parent);
+    free(was);
+    return ok;
 }
 
 // --- the selection ----------------------------------------------------
@@ -956,10 +973,10 @@ int uui_fileview_selected_is_dir(const struct uui_fileview *fv) {
     return e ? (int)e->is_dir : 0;
 }
 
-int uui_fileview_selected_path(const struct uui_fileview *fv, char *out, int cap) {
+char *uui_fileview_selected_path(const struct uui_fileview *fv) {
     const struct ulist_entry *e = fv_entry(fv, fv->table.selected);
     if (!e) return 0; // nothing selected, or the ".." row -- see the header
-    return fv_entry_path(fv, e, out, cap);
+    return fv_entry_path(fv, e);
 }
 
 // **A REFRESH MUST NOT MOVE THE VIEW, AND THAT IS WHY `reveal` IS AN
@@ -1003,9 +1020,9 @@ void uui_fileview_select_none(struct uui_fileview *fv) { fv->table.selected = -1
 
 static void fv_report_select(struct uui_fileview *fv) {
     if (!fv->on_select) return;
-    char p[UUI_FILEVIEW_PATH_MAX];
-    if (uui_fileview_selected_path(fv, p, sizeof p))
-        fv->on_select(fv->ctx, p, uui_fileview_selected_is_dir(fv));
+    char *p = uui_fileview_selected_path(fv);
+    if (p) fv->on_select(fv->ctx, p, uui_fileview_selected_is_dir(fv));
+    free(p);
 }
 
 int uui_fileview_activate(struct uui_fileview *fv) {
@@ -1017,21 +1034,18 @@ int uui_fileview_activate(struct uui_fileview *fv) {
     const struct ulist_entry *e = fv_entry(fv, row);
     if (!e) return 0;
 
-    if (e->is_dir && fv->src && fv->src->descends) {
-        char next[UUI_FILEVIEW_PATH_MAX];
-        if (!fv_entry_path(fv, e, next, sizeof next)) return 0;
-        return uui_fileview_set_dir(fv, next);
+    if (e->is_dir && (fv->src ? fv->src->descends : fv->navigable)) {
+        char *next = fv_entry_path(fv, e);
+        int ok = next && uui_fileview_set_dir(fv, next);
+        free(next);
+        return ok;
     }
-    if (e->is_dir && !fv->src) {
-        if (!fv->navigable) return 0;
-        char next[UUI_FILEVIEW_PATH_MAX];
-        if (!k_path_join(fv->dir, e->name, next, sizeof next)) return 0;
-        return uui_fileview_set_dir(fv, next);
-    }
+    if (e->is_dir && !fv->src) return 0;
 
     if (fv->on_open) {
-        char p[UUI_FILEVIEW_PATH_MAX];
-        if (fv_entry_path(fv, e, p, sizeof p)) fv->on_open(fv->ctx, p);
+        char *p = fv_entry_path(fv, e);
+        if (p) fv->on_open(fv->ctx, p);
+        free(p);
     }
     return 1;
 }
@@ -1341,7 +1355,7 @@ static void ic_draw(struct ugfx_surface *s, const struct uui_fileview *fv) {
 
         int is_up = fv_is_up_row(fv, src);
         const struct ulist_entry *e = fv_entry(fv, src);
-        char shown[UUI_FILEVIEW_PATH_MAX];
+        char shown[ULIST_NAME_MAX];
         if (e && !is_up) fv_display_name(fv, e, shown, sizeof shown);
         const char *name = is_up ? ".." : (e ? shown : "");
         int is_dir = is_up || (e && e->is_dir);
@@ -1351,12 +1365,14 @@ static void ic_draw(struct ugfx_surface *s, const struct uui_fileview *fv) {
         const struct uimg *thumb = 0;
         if (!is_dir && e && fv->thumb) {
             // A virtual folder's file lives somewhere real: its folder.
-            char real[UUI_FILEVIEW_PATH_MAX], parent[UUI_FILEVIEW_PATH_MAX];
-            if (!fv->src)
-                thumb = fv->thumb(fv->thumb_ctx, fv->dir, e, px);
-            else if (fv_entry_path(fv, e, real, sizeof real) &&
-                     k_path_dirname(real, parent, sizeof parent))
-                thumb = fv->thumb(fv->thumb_ctx, parent, e, px);
+            if (!fv->src) {
+                thumb = fv->thumb(fv->thumb_ctx, fv_dir(fv), e, px);
+            } else {
+                char *real = fv_entry_path(fv, e), *parent = real ? upath_dirname(real) : 0;
+                if (parent) thumb = fv->thumb(fv->thumb_ctx, parent, e, px);
+                free(parent);
+                free(real);
+            }
         }
         int ax = x, ay = y + 2, aw = cw, ah = px; // the artwork, for ic_wash
         if (thumb) {
@@ -1372,7 +1388,7 @@ static void ic_draw(struct ugfx_surface *s, const struct uui_fileview *fv) {
             ugfx_draw_rect(s, tx2 - 1, ty2 - 1, thumb->w + 2, thumb->h + 2,
                             uui_table_c_grid(t));
             char badge[16];
-            if (fv->badge && !fv->src && fv->badge(fv->thumb_ctx, fv->dir, e, px, badge, sizeof badge)) {
+            if (fv->badge && !fv->src && fv->badge(fv->thumb_ctx, fv_dir(fv), e, px, badge, sizeof badge)) {
                 const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
                 int bw = ugfx_text_width(badge) + 8, bh = ugfx_char_h();
                 if (bw < thumb->w && bh < thumb->h) {
@@ -1645,7 +1661,7 @@ static int fv_rename_rect(const struct uui_fileview *fv, int *x, int *y, int *w,
 int uui_fileview_begin_rename(struct uui_fileview *fv) {
     const struct ulist_entry *e = uui_fileview_selected_entry(fv);
     if (!e) return 0;
-    snprintf(fv->rename_from, sizeof fv->rename_from, "%s", e->name);
+    if (!fv_set_str(&fv->rename_from, e->name)) return 0;
     uui_textbox_init(&fv->rename_box, e->name);
     uui_textbox_set_active(&fv->rename_box, 1);
     // The NAME selected, not the extension: typing replaces "dusk" and
@@ -1676,10 +1692,8 @@ void uui_fileview_cancel_rename(struct uui_fileview *fv) {
 // simply the edit ending.
 static void fv_rename_commit(struct uui_fileview *fv) {
     const char *to = uui_textbox_text(&fv->rename_box);
-    if (to[0] && strcmp(to, fv->rename_from) != 0) {
-        snprintf(fv->rename_to, sizeof fv->rename_to, "%s", to);
+    if (to[0] && strcmp(to, fv->rename_from) != 0 && fv_set_str(&fv->rename_to, to))
         fv->rename_parked = 1;
-    }
     uui_fileview_cancel_rename(fv);
 }
 
@@ -1687,11 +1701,12 @@ void uui_fileview_finish_rename(struct uui_fileview *fv) {
     if (fv->renaming) fv_rename_commit(fv);
 }
 
-int uui_fileview_take_rename(struct uui_fileview *fv, char *from, char *to, int cap) {
+int uui_fileview_take_rename(struct uui_fileview *fv, char **from, char **to) {
     if (!fv->rename_parked) return 0;
     fv->rename_parked = 0;
-    snprintf(from, (size_t)cap, "%s", fv->rename_from);
-    snprintf(to, (size_t)cap, "%s", fv->rename_to);
+    *from = fv->rename_from;
+    *to = fv->rename_to;
+    fv->rename_from = fv->rename_to = 0;
     return 1;
 }
 
@@ -2082,18 +2097,16 @@ static int fv_ops_drag_start(void *w, int cx, int cy, struct uui_drag *d) {
         fv->table.selected = row;
     }
     int n = fv->mark_count > 0 ? fv->mark_count : 1;
-    if (n == 1) {
-        char one[UUI_FILEVIEW_PATH_MAX];
-        const struct ulist_entry *e = fv_entry(fv, row);
-        if (fv->mark_count && uui_fileview_marked_path(fv, 0, one, sizeof one))
-            snprintf(fv->drag_label, sizeof fv->drag_label, "%s", k_path_basename(one));
-        else
-            snprintf(fv->drag_label, sizeof fv->drag_label, "%s", e ? e->name : "?");
-    } else {
-        snprintf(fv->drag_label, sizeof fv->drag_label, "%d items", n);
-    }
+    char *one = n == 1 && fv->mark_count ? uui_fileview_marked_path(fv, 0) : 0;
+    const struct ulist_entry *e = fv_entry(fv, row);
+    char count[24];
+    snprintf(count, sizeof count, "%d items", n);
+    int ok = fv_set_str(&fv->drag_label, n > 1 ? count : one ? k_path_basename(one) : e ? e->name : "?") &&
+             fv_set_str(&fv->drag_dir, fv_dir(fv));   // the drag outlives a set_dir() of this view
+    free(one);
+    if (!ok) return 0;
     d->kind = UUI_DRAG_FILES;
-    d->dir = fv->dir;
+    d->dir = fv->drag_dir;
     d->count = n;
     d->label = fv->drag_label;
 
@@ -2101,12 +2114,10 @@ static int fv_ops_drag_start(void *w, int cx, int cy, struct uui_drag *d) {
     // clipboard would carry them. Local targets never read it.
     static struct uclip c;   // 64 KiB, media/uclip.h says why static
     uclip_drag_begin(&c);
-    char path[UUI_FILEVIEW_PATH_MAX];
-    if (fv->mark_count) {
-        for (int i = 0; i < fv->mark_count; i++)
-            if (uui_fileview_marked_path(fv, i, path, sizeof path)) uclip_add(&c, path);
-    } else if (uui_fileview_selected_path(fv, path, sizeof path)) {
-        uclip_add(&c, path);
+    for (int i = 0; i < (fv->mark_count ? fv->mark_count : 1); i++) {
+        char *path = fv->mark_count ? uui_fileview_marked_path(fv, i) : uui_fileview_selected_path(fv);
+        if (path) uclip_add(&c, path);
+        free(path);
     }
     (void)uclip_drag_commit(&c);
     return 1;
@@ -2124,26 +2135,29 @@ static int fv_ops_drag_over(void *w, int cx, int cy, const struct uui_drag *d) {
 
     int row = uui_fileview_hit(fv, cx, cy);
     int trow = -1;
-    char target[UUI_FILEVIEW_PATH_MAX];
+    char *target;
     if (row >= 0 && fv_is_up_row(fv, row)) {
         trow = row;
-        if (!k_path_dirname(fv->dir, target, sizeof target)) return 0;
+        target = upath_dirname(fv_dir(fv));
     } else if (row >= 0 && fv_entry(fv, row) && fv_entry(fv, row)->is_dir) {
         trow = row;
-        if (!k_path_join(fv->dir, fv_entry(fv, row)->name, target, sizeof target))
-            return 0;
+        target = upath_join(fv_dir(fv), fv_entry(fv, row)->name);
     } else {
-        snprintf(target, sizeof target, "%s", fv->dir);
+        target = strdup(fv_dir(fv));
     }
     // Their own directory is a no-op, and one of the dragged items is
     // not a place to put them.
-    if (strcmp(target, d->dir) == 0) return 0;
-    if (d->source == fv && trow >= 0 &&
-        (uui_fileview_is_marked(fv, trow) || trow == fv->table.selected))
-        return 0;
-    fv->drop_row = trow;
-    snprintf(fv->drop_target, sizeof fv->drop_target, "%s", target);
-    return 1;
+    int ok = target && strcmp(target, d->dir) != 0 &&
+             !(d->source == fv && trow >= 0 &&
+               (uui_fileview_is_marked(fv, trow) || trow == fv->table.selected));
+    if (ok) {
+        fv->drop_row = trow;
+        free(fv->drop_target);
+        fv->drop_target = target;
+    } else {
+        free(target);
+    }
+    return ok;
 }
 
 static int fv_ops_drop(void *w, int cx, int cy, const struct uui_drag *d) {
@@ -2155,13 +2169,13 @@ static int fv_ops_drop(void *w, int cx, int cy, const struct uui_drag *d) {
 }
 
 const char *uui_fileview_drop_target(const struct uui_fileview *fv) {
-    return fv->drop_target;
+    return fv->drop_target ? fv->drop_target : "";
 }
 
 static const char *fv_ops_drop_name(const void *w) {
-    const struct uui_fileview *fv = (const struct uui_fileview *)w;
-    const char *b = k_path_basename(fv->drop_target);
-    return b && b[0] ? b : fv->drop_target;   // "/" names itself
+    const char *t = uui_fileview_drop_target((const struct uui_fileview *)w);
+    const char *b = k_path_basename(t);
+    return b && b[0] ? b : t;   // "/" names itself
 }
 
 // The ghost: icon and label beside the pointer, a "+" when Ctrl says

@@ -24,6 +24,19 @@ extern "C" {
 // memory (errno ENOMEM).
 char *upath_join(const char *dir, const char *name);
 
+// Everything before the last component, as k_path_dirname() answers it
+// ("/a/b" -> "/a", "x" -> "/"). NULL only when out of memory.
+char *upath_dirname(const char *path);
+
+// Replaces the heap string `*field` with a copy of `s` (NULL clears it).
+// 0 out of memory (errno ENOMEM), and `*field` is then left as it was.
+int upath_set(char **field, const char *s);
+
+// `input` against `base` (when relative), "." and ".." collapsed --
+// k_path_resolve() with the scratch and the answer sized to the two.
+// NULL out of memory (ENOMEM) or past KPATH_MAX_DEPTH (ENAMETOOLONG).
+char *upath_resolve(const char *base, const char *input);
+
 // Finds the program `name` names and stores a heap copy of its path in
 // `*out` (free() it); `*out` is NULL unless the answer is 1. A name
 // containing '/' is a path and is used as given.

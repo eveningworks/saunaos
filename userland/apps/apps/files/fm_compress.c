@@ -30,7 +30,7 @@ static struct uui_form g_form;
 static struct uui_item g_form_item = { .ops = &uui_form_ops, .widget = &g_form, .name = "compress" };
 static int g_row_name, g_row_format, g_row_level, g_row_note;
 static int g_seen_edits = -1;
-static char g_note[UUI_FILEVIEW_PATH_MAX + 64];
+static char g_note[FM_LINE_MAX];
 static char g_title[48];
 
 // The items a compress takes: the marked ones, or the selected one.
@@ -47,15 +47,16 @@ static void stem_of(const char *name, int is_dir, char *out, int cap) {
     if (!is_dir && dot && dot != out) *dot = '\0';
 }
 
-// `dir`/`stem``suffix`, or "stem (2)" and on when that is taken.
-static int free_path(const char *dir, const char *stem, const char *suffix, char *out, int cap) {
-    char want[UUI_FILEVIEW_PATH_MAX], got[UUI_FILEVIEW_PATH_MAX];
-    snprintf(want, sizeof want, "%s%s", stem, suffix);
+// `dir`/`stem``suffix`, or "stem (2)" and on when that is taken; heap,
+// NULL when no name can be had.
+static char *free_path(const char *dir, const char *stem, const char *suffix) {
+    char want[ULIST_NAME_MAX], got[ULIST_NAME_MAX];
+    if (snprintf(want, sizeof want, "%s%s", stem, suffix) >= (int)sizeof want) return 0;
     struct sys_stat st;
-    if (!k_path_join(dir, want, out, (size_t)cap)) return 0;
-    if (sys_stat(out, &st) != 0) return 1;
-    if (!ufileop_unique_name(dir, want, got, sizeof got)) return 0;
-    return k_path_join(dir, got, out, (size_t)cap);
+    char *out = upath_join(dir, want);
+    if (!out || sys_stat(out, &st) != 0) return out;
+    free(out);
+    return ufileop_unique_name(dir, want, got, sizeof got) ? upath_join(dir, got) : 0;
 }
 
 // Somewhere a new file can go: not inside an archive, the bin or a
@@ -73,46 +74,53 @@ static int can_compress_here(void) {
 static void compress_quick(void) {
     if (!can_compress_here()) return;
     const char *name = uui_fileview_selected_name(active());
+    char *first = 0;
     if (!name) {   // marked but nothing under the cursor: the first marked
-        char p[PATH_MAX_LEN];
-        if (!uui_fileview_marked_path(active(), 0, p, sizeof p)) return;
-        name = k_path_basename(p);
+        if (!(first = uui_fileview_marked_path(active(), 0))) return;
+        name = k_path_basename(first);
     }
-    char stem[UUI_FILEVIEW_PATH_MAX], out[PATH_MAX_LEN];
+    char stem[ULIST_NAME_MAX];
     stem_of(name, uui_fileview_selected_is_dir(active()), stem, sizeof stem);
-    if (!free_path(uui_fileview_dir(active()), stem, ".zip", out, sizeof out)) {
+    free(first);
+    char *out = free_path(uui_fileview_dir(active()), stem, ".zip");
+    if (!out) {
         set_note("no free name for the archive");
         return;
     }
     ulogf("files: compress to zip -> %s\n", out);
     do_compress(UARC_ZIP, UDEFLATE_NORMAL, out, 1);
+    free(out);
 }
 
 // The note under the choices: where it will go, and of how much.
 static void note_update(void) {
-    char out[PATH_MAX_LEN];
     int f = uui_form_choice(&g_form, g_row_format);
     const char *stem = uui_form_text(&g_form, g_row_name);
     int n = item_count();
-    if (!stem[0] || !free_path(uui_fileview_dir(active()), stem, FORMATS[f < 0 ? 0 : f], out, sizeof out))
+    char *out = stem[0] ? free_path(uui_fileview_dir(active()), stem, FORMATS[f < 0 ? 0 : f]) : 0;
+    if (!out)
         snprintf(g_note, sizeof g_note, "Give the archive a name.");
     else
         snprintf(g_note, sizeof g_note, "Saved as %s -- %d item%s", out, n, n == 1 ? "" : "s");
+    free(out);
     uui_form_set_note(&g_form, g_row_note, g_note);
 }
 
 // What the dialog was opened on, checked when it is answered.
-static char g_ask_dir[UUI_FILEVIEW_PATH_MAX];
+static char *g_ask_dir;
 static int g_ask_n, g_ask_pane;
 
 static void compress_ask(void) {
     if (!can_compress_here()) return;
     int n = item_count();
-    strlcpy(g_ask_dir, uui_fileview_dir(active()), sizeof g_ask_dir);
+    char *dir_now = strdup(uui_fileview_dir(active()));
+    if (!dir_now) { set_note("not enough memory"); return; }
+    free(g_ask_dir);
+    g_ask_dir = dir_now;
     g_ask_n = n;
     g_ask_pane = g_active;
     // One item names it; several take their folder's name, as Ark does.
-    char stem[UUI_FILEVIEW_PATH_MAX];
+    char stem[ULIST_NAME_MAX];
     const char *one = uui_fileview_selected_name(active());
     if (n == 1 && one) stem_of(one, uui_fileview_selected_is_dir(active()), stem, sizeof stem);
     else {
@@ -161,7 +169,7 @@ void compress_answer(int code) {
     g_modal = MODAL_NONE;
     uui_dialog_set_body(&g_dialog, NULL, 0, 0);
     if (code != DLG_OK) { set_note("cancelled"); return; }
-    if (g_active != g_ask_pane || strcmp(uui_fileview_dir(active()), g_ask_dir) ||
+    if (g_active != g_ask_pane || !g_ask_dir || strcmp(uui_fileview_dir(active()), g_ask_dir) ||
         item_count() != g_ask_n) {
         set_note("the selection changed -- nothing was compressed");
         return;
@@ -169,9 +177,8 @@ void compress_answer(int code) {
     int f = uui_form_choice(&g_form, g_row_format);
     int l = uui_form_choice(&g_form, g_row_level);
     const char *stem = uui_form_text(&g_form, g_row_name);
-    char out[PATH_MAX_LEN];
-    if (!stem[0] || strchr(stem, '/') ||
-        !free_path(uui_fileview_dir(active()), stem, FORMATS[f < 0 ? 0 : f], out, sizeof out)) {
+    char *out = stem[0] && !strchr(stem, '/') ? free_path(uui_fileview_dir(active()), stem, FORMATS[f < 0 ? 0 : f]) : 0;
+    if (!out) {
         set_note("not a name an archive can have");
         return;
     }
@@ -180,6 +187,7 @@ void compress_answer(int code) {
     if (kind == UARC_TGZ && level == 0) level = UDEFLATE_FAST;
     ulogf("files: compress %s level %d -> %s\n", FORMATS[f < 0 ? 0 : f], level, out);
     do_compress(kind, level, out, 0);
+    free(out);
 }
 
 void compress_command(int code) {

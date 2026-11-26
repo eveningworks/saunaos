@@ -41,33 +41,45 @@
 //
 // THE RUNNING JOB'S ARRAYS GROW TO ITS ITEMS (job_reserve(), base/ugrow.h)
 // -- they held 64 -- and only while no job runs: the worker reads them.
+// Its strings are heap and the job's own, freed when the NEXT job begins
+// (job_begin()): the finished job's are read after g_job_count drops.
 static char g_job_what[32];
-static char (*g_job_path)[PATH_MAX_LEN];
+static char **g_job_path;
 static int *g_job_isdir;
 static int g_job_path_cap, g_job_isdir_cap;
+static int g_job_owned;   // the path and result slots holding strings
 int g_job_count, g_job_at;
 static int g_job_op;
-static char g_job_dest[PATH_MAX_LEN];
+static char *g_job_dest;
 static int g_job_failures;
 // How many items the worker got through -- all of them unless it was
 // cancelled. A cancelled job's undo covers these and no more.
 static int g_job_ran;
 // WHERE EACH ITEM ENDED UP, written by the worker: the final path of a
-// move or copy, an item's place in the bin, "" when nothing was done or
+// move or copy, an item's place in the bin, NULL when nothing was done or
 // the step could not be safely undone. What the undo journal records.
-static char (*g_job_result)[PATH_MAX_LEN];
+static char **g_job_result;
 static int g_job_result_cap;
 // What to do once an extraction is done: 1 go to the folder, 2 open the
 // one file (opening a member of an archive extracts it to /tmp first,
 // Explorer's way).
 static int g_extract_then;
-static char g_extract_open[PATH_MAX_LEN];
+static char *g_extract_open;
 // An Undo or Redo running as a job: the journal entry and the direction.
 static struct ufu_op *g_job_undo;
 // A compress's own facts: what to make, and whether to rename it after.
 static int g_cmp_kind, g_cmp_level, g_cmp_rename;
-static char g_cmp_out[PATH_MAX_LEN];
+static char *g_cmp_out;
 static int g_job_redo;
+
+static const char *job_dest(void) { return g_job_dest ? g_job_dest : ""; }
+
+// `*field` becomes a copy of `s` (NULL for none); 0 (logged) out of memory.
+static int keep_str(char **field, const char *s) {
+    if (upath_set(field, s)) return 1;
+    ulogf("files: out of memory keeping %s\n", s);
+    return 0;
+}
 
 // --- jobs -------------------------------------------------------------
 //
@@ -89,9 +101,10 @@ static int g_job_redo;
 // it or drops it.
 struct pending {
     int op;
-    char what[32], dest[PATH_MAX_LEN];
+    char what[32];
+    char *dest;                   // heap; NULL when it could not be had
     int count, cap;
-    char (*path)[PATH_MAX_LEN];   // grown to fit
+    char **path;                  // heap paths, grown to fit
     int *isdir;
 };
 static struct pending g_stage;
@@ -100,8 +113,10 @@ static struct pending *g_queue;   // waiting, oldest first; main thread only
 static int g_nqueue, g_queue_cap;
 
 static void stage_free(struct pending *p) {
+    for (int i = 0; i < p->count; i++) free(p->path[i]);   // NULL once a job took it
     free(p->path);
     free(p->isdir);
+    free(p->dest);
     memset(p, 0, sizeof *p);
 }
 
@@ -109,30 +124,24 @@ static void stage_begin(int op, const char *what, const char *dest) {
     stage_free(&g_stage);
     g_stage.op = op;
     strlcpy(g_stage.what, what, sizeof g_stage.what);
-    strlcpy(g_stage.dest, dest, sizeof g_stage.dest);
+    g_stage.dest = strdup(dest);   // NULL: stage_take() drops it
 }
 
 static int stage_add(const char *path, int isdir) {
     struct pending *p = &g_stage;
-    // REFUSED, NOT CUT: a path from the clipboard or another window's
-    // drag may be longer than a job slot, and cut short it can name a
-    // folder ABOVE the one meant -- a Cut and paste would move that.
-    if (strlen(path) >= PATH_MAX_LEN) {
-        ulogf("files: refused a path of %u bytes (the limit is %d)\n", (unsigned)strlen(path), PATH_MAX_LEN - 1);
-        set_note("a path was too long and was left out");
-        return 1;
-    }
+    char *copy = strdup(path);
+    if (!copy) { ulogf("files: out of memory at %d items\n", p->count); return 0; }
     if (p->count == p->cap) {
         int cap = p->cap ? p->cap * 2 : 16;
         void *np = realloc(p->path, sizeof p->path[0] * (size_t)cap);
-        if (!np) { ulogf("files: out of memory at %d items\n", p->count); return 0; }
+        if (!np) { ulogf("files: out of memory at %d items\n", p->count); free(copy); return 0; }
         p->path = np;
         void *ni = realloc(p->isdir, sizeof p->isdir[0] * (size_t)cap);
-        if (!ni) { ulogf("files: out of memory at %d items\n", p->count); return 0; }
+        if (!ni) { ulogf("files: out of memory at %d items\n", p->count); free(copy); return 0; }
         p->isdir = ni;
         p->cap = cap;
     }
-    strlcpy(p->path[p->count], path, PATH_MAX_LEN);
+    p->path[p->count] = copy;
     p->isdir[p->count++] = isdir;
     return 1;
 }
@@ -156,17 +165,48 @@ static int into_itself(const struct pending *p) {
 
 static int job_reserve(int n);
 
-// The running job, from a staged or a queued one. Out of memory runs the
-// items that fit and logs the rest.
-static void install(const struct pending *p) {
+// The last job's strings go; the arrays stay for the next. Never while
+// one runs: the worker reads them.
+static void job_clear(void) {
+    for (int i = 0; i < g_job_owned; i++) {
+        free(g_job_path[i]);
+        free(g_job_result[i]);
+        g_job_path[i] = g_job_result[i] = 0;
+    }
+    g_job_owned = 0;
+    free(g_job_dest);
+    g_job_dest = 0;
+}
+
+// A new running job's head, the last one's strings gone and `dest`
+// copied. 0 (said) out of memory, and then there is no job.
+static int job_begin(int op, const char *what, const char *dest) {
+    job_clear();
     g_job_count = g_job_at = g_job_failures = 0;
-    g_job_op = p->op;
-    strlcpy(g_job_what, p->what, sizeof g_job_what);
-    strlcpy(g_job_dest, p->dest, sizeof g_job_dest);
+    g_job_op = op;
+    strlcpy(g_job_what, what, sizeof g_job_what);
+    if ((g_job_dest = strdup(dest))) return 1;
+    ulogf("files: out of memory starting %s\n", what);
+    set_note("not enough memory");
+    return 0;
+}
+
+// `path` (heap, the job's from now on) as the next item; reserved first.
+static void job_take(char *path, int isdir) {
+    g_job_path[g_job_count] = path;
+    g_job_result[g_job_count] = 0;
+    g_job_isdir[g_job_count++] = isdir;
+    g_job_owned = g_job_count;
+}
+
+// The running job, from a staged or a queued one, whose paths it takes.
+// Out of memory runs the items that fit and logs the rest.
+static void install(struct pending *p) {
+    if (!job_begin(p->op, p->what, p->dest ? p->dest : "")) return;
     int fit = job_reserve(p->count);
     for (int i = 0; i < p->count && g_job_count < fit; i++) {
-        strlcpy(g_job_path[g_job_count], p->path[i], PATH_MAX_LEN);
-        g_job_isdir[g_job_count++] = p->isdir[i];
+        job_take(p->path[i], p->isdir[i]);
+        p->path[i] = 0;
     }
     if (p->count > fit) ulogf("files: out of memory, %d of %d items run\n", fit, p->count);
 }
@@ -177,6 +217,12 @@ enum { STAGE_DROPPED, STAGE_RUN, STAGE_QUEUED };
 // behind it, or dropped with a note.
 static int stage_take(void) {
     if (g_stage.count == 0) { stage_free(&g_stage); return STAGE_DROPPED; }
+    if (!g_stage.dest) {
+        ulogf("files: out of memory staging %s\n", g_stage.what);
+        set_note("not enough memory");
+        stage_free(&g_stage);
+        return STAGE_DROPPED;
+    }
     // A VIEW IS NOT A FOLDER: "recent:/", "quick:/" or a search's results
     // as a destination would reach the engine as a RELATIVE path and make
     // a file called "recent:" in the working directory.
@@ -206,7 +252,7 @@ static int stage_take(void) {
     }
     install(&g_stage);
     stage_free(&g_stage);
-    return STAGE_RUN;
+    return g_job_count > 0 ? STAGE_RUN : STAGE_DROPPED;
 }
 
 // 1 when `fv`'s operands are the running job and the caller should start
@@ -214,14 +260,13 @@ static int stage_take(void) {
 // `fv`'s operands -- the marks, else the selection -- into g_stage.
 static void stage_operands(int op, const char *what, struct uui_fileview *fv, const char *dest) {
     stage_begin(op, what, dest);
-    char path[PATH_MAX_LEN];
     int marks = uui_fileview_mark_count(fv);
-    if (marks > 0) {
-        for (int i = 0; i < marks; i++)
-            if (uui_fileview_marked_path(fv, i, path, sizeof path) &&
-                !stage_add(path, uui_fileview_marked_is_dir(fv, i))) break;
-    } else if (uui_fileview_selected_path(fv, path, sizeof path)) {
-        stage_add(path, uui_fileview_selected_is_dir(fv));
+    for (int i = 0; i < (marks ? marks : 1); i++) {
+        char *path = marks ? uui_fileview_marked_path(fv, i) : uui_fileview_selected_path(fv);
+        int isdir = marks ? uui_fileview_marked_is_dir(fv, i) : uui_fileview_selected_is_dir(fv);
+        int ok = !path || stage_add(path, isdir);
+        free(path);
+        if (!ok) break;
     }
 }
 
@@ -267,8 +312,8 @@ void do_drop_extern(const char *dest, int copy) {
         return;
     for (int i = 0; i < g_job_count; i++) {
         size_t n = strlen(g_job_path[i]);
-        if (strncmp(g_job_dest, g_job_path[i], n) == 0 &&
-            (g_job_dest[n] == '\0' || g_job_dest[n] == '/')) {
+        const char *jd = job_dest();
+        if (strncmp(jd, g_job_path[i], n) == 0 && (jd[n] == '\0' || jd[n] == '/')) {
             g_job_count = 0;
             set_note("cannot move a folder into itself");
             return;
@@ -316,16 +361,12 @@ static int clip_put(int op, const char *what) {
     uclip_begin(&c, op);
 
     int marks = uui_fileview_mark_count(fv);
-    char path[PATH_MAX_LEN];
     int n = 0, refused = 0;
-    if (marks > 0) {
-        for (int i = 0; i < marks; i++) {
-            if (!uui_fileview_marked_path(fv, i, path, sizeof path)) continue;
-            if (!uclip_add(&c, path)) { refused = 1; break; }
-            n++;
-        }
-    } else if (uui_fileview_selected_path(fv, path, sizeof path)) {
-        if (uclip_add(&c, path)) n = 1; else refused = 1;
+    for (int i = 0; i < (marks ? marks : 1) && !refused; i++) {
+        char *path = marks ? uui_fileview_marked_path(fv, i) : uui_fileview_selected_path(fv);
+        if (path && uclip_add(&c, path)) n++;
+        else if (path) refused = 1;
+        free(path);
     }
 
     if (n == 0) { set_note("nothing selected"); return 0; }
@@ -363,9 +404,16 @@ void clip_paste(void) {
         // /bin/cp to copy a file onto itself. Skipped rather than
         // refused: pasting a mixed set where one happens to be here
         // should still move the rest.
-        char dir[PATH_MAX_LEN];
-        k_path_dirname(src, dir, sizeof dir);
-        if (strcmp(dir, g_stage.dest) == 0) continue;
+        char *dir = upath_dirname(src);
+        if (!dir) {
+            ulogf("files: out of memory staging %s\n", src);
+            set_note("not enough memory");
+            stage_free(&g_stage);
+            return;
+        }
+        int here = g_stage.dest && strcmp(dir, g_stage.dest) == 0;
+        free(dir);
+        if (here) continue;
         if (!stage_add(src, 0)) break;   // the engine asks a path what it is
     }
 
@@ -409,7 +457,7 @@ static volatile int g_cancel;       // the main thread asked it to stop
 // thread ON ITS TICK -- NOT posted per chunk, which at 4 KB a post
 // would be thousands of events for one file. A status line does not
 // need finer than the tick it is already drawn on.
-static char g_cur_name[PATH_MAX_LEN];
+static char g_cur_name[ULIST_NAME_MAX];   // a basename
 static unsigned long long g_cur_done, g_cur_size;
 static int g_cur_index;
 // THE WHOLE OPERATION IN BYTES, for a copy or a move: counted before the
@@ -440,7 +488,7 @@ static int job_reserve(int n) {
 static unsigned long long g_item_base;    // bytes of the items before this one
 static unsigned long long g_file_base;    // ...and of this item's files before this file
 static unsigned long long g_file_size;
-static char g_file_path[PATH_MAX_LEN];
+static char *g_file_path;   // the worker's alone, heap
 // PAUSED by the person: the worker waits between chunks, holding no lock.
 // Written by the main thread, a single int, read without the lock.
 static volatile int g_paused;
@@ -450,8 +498,8 @@ static volatile int g_paused;
 static volatile int g_conflict_pending;
 static volatile int g_conflict_answer = -1;
 static int g_item_first;   // the FIRST conflict answer this item drew, -1 for none
-static char g_conflict_src[PATH_MAX_LEN], g_conflict_dst[PATH_MAX_LEN];
-static char g_conflict_rename[PATH_MAX_LEN];
+static char *g_conflict_src, *g_conflict_dst;   // heap, replaced under g_lock per question
+static char g_conflict_rename[ULIST_NAME_MAX];  // a basename
 
 // --- the policy the worker supplies to the engine ---------------------
 
@@ -481,10 +529,11 @@ static int worker_progress(void *ctx, const char *path,
     g_cur_size = total;
     // A NEW FILE: the one before it is whole. The engine reports per
     // chunk and by path, and a file of no bytes is never reported at all.
-    if (strcmp(path, g_file_path) != 0) {
+    if (!g_file_path || strcmp(path, g_file_path) != 0) {
         g_file_base += g_file_size;
         g_file_size = total;
-        strlcpy(g_file_path, path, sizeof g_file_path);
+        free(g_file_path);
+        g_file_path = strdup(path);   // NULL out of memory: the next chunk counts as a new file
     }
     if (g_by_bytes) {
         unsigned long long at = g_item_base + g_file_base + done;
@@ -565,9 +614,18 @@ static void worker_error(void *ctx, const char *path, int err) {
 static int worker_conflict(void *ctx, const char *src, const char *dst,
                             char *rename_out, int cap) {
     (void)ctx;
+    char *s = strdup(src), *d0 = strdup(dst);
+    if (!s || !d0) {   // a card that cannot name the files asks nothing
+        free(s);
+        free(d0);
+        worker_error(0, dst, ENOMEM);
+        return UFILEOP_SKIP;
+    }
     pthread_mutex_lock(&g_lock);
-    strlcpy(g_conflict_src, src, sizeof g_conflict_src);
-    strlcpy(g_conflict_dst, dst, sizeof g_conflict_dst);
+    free(g_conflict_src);
+    free(g_conflict_dst);
+    g_conflict_src = s;
+    g_conflict_dst = d0;
     g_conflict_rename[0] = '\0';
     g_conflict_answer = -1;
     g_conflict_pending = 1;
@@ -609,19 +667,21 @@ static int worker_conflict(void *ctx, const char *src, const char *dst,
 
 // Every folder of `path` that is not there yet. 0, or -errno.
 static int mkdirs(const char *path) {
-    char p[PATH_MAX_LEN];
-    strlcpy(p, path, sizeof p);
-    for (char *s = p + 1; ; s++) {
+    char *p = strdup(path);
+    if (!p) return -ENOMEM;
+    int rc = 0;
+    for (char *s = p + 1; !rc; s++) {
         if (*s == '/' || !*s) {
             char c = *s;
             *s = '\0';
             struct sys_stat st;
-            if (sys_stat(p, &st) != 0 && sys_mkdir(p) != 0) return -sys_errno();
+            if (sys_stat(p, &st) != 0 && sys_mkdir(p) != 0) rc = -sys_errno();
             *s = c;
             if (!c) break;
         }
     }
-    return 0;
+    free(p);
+    return rc;
 }
 
 struct xjob { const char *archive, *prefix, *dest; size_t plen, cut; };
@@ -654,29 +714,37 @@ static int x_route(void *ctx, const struct uarchive_entry *e, char *out, int cap
         if (mkdirs(out)) worker_error(0, out, EIO);
         return 0;
     }
-    char parent[PATH_MAX_LEN];
-    if (k_path_dirname(out, parent, sizeof parent)) mkdirs(parent);
+    char *parent = upath_dirname(out);
+    if (!parent) { worker_error(0, out, ENOMEM); return 0; }
+    mkdirs(parent);
     // SOMETHING IS THERE ALREADY: the same Replace-or-skip card a copy
     // gets, never a silent overwrite -- the archive's writer replaces
     // the target once the member is verified (uzip.c, utar.c). Opening a
     // member (then == 2) writes a scratch copy, which is replaced unasked.
     struct sys_stat st;
+    int take = 1;
     if (g_extract_then != 2 && sys_stat(out, &st) == 0) {
-        char src[PATH_MAX_LEN], rn[PATH_MAX_LEN];
-        snprintf(src, sizeof src, "%s%s/%s", FM_ARC, x->archive, name);
-        int d = worker_conflict(0, src, out, rn, sizeof rn);
-        if (d == UFILEOP_CANCEL) { g_cancel = 1; return 0; }
-        if (d == UFILEOP_SKIP) return 0;
-        if (d == UFILEOP_RENAME &&
-            (!ufileop_name_ok(rn) || !k_path_join(parent, rn, out, (size_t)cap))) {
-            worker_error(0, out, EINVAL);
-            return 0;
-        }
-        if (d == UFILEOP_OVERWRITE && st.is_dir) {   // a member cannot replace a folder
+        char rn[ULIST_NAME_MAX], *src = 0;
+        int d = asprintf(&src, "%s%s/%s", FM_ARC, x->archive, name) < 0 ? UFILEOP_SKIP
+              : worker_conflict(0, src, out, rn, sizeof rn);
+        free(src);
+        char *to = d == UFILEOP_RENAME && ufileop_name_ok(rn) ? upath_join(parent, rn) : 0;
+        if (d == UFILEOP_CANCEL) {
+            g_cancel = 1;
+            take = 0;
+        } else if (d == UFILEOP_SKIP) {
+            take = 0;
+        } else if (d == UFILEOP_RENAME && (!to || strlcpy(out, to, (size_t)cap) >= (size_t)cap)) {
+            worker_error(0, out, EINVAL);   // cut, it would name another file
+            take = 0;
+        } else if (d == UFILEOP_OVERWRITE && st.is_dir) {   // a member cannot replace a folder
             worker_error(0, out, EISDIR);
-            return 0;
+            take = 0;
         }
+        free(to);
     }
+    free(parent);
+    if (!take) return 0;
     pthread_mutex_lock(&g_lock);
     strlcpy(g_cur_name, k_path_basename(out), sizeof g_cur_name);
     g_cur_size = (unsigned long)e->size;
@@ -685,9 +753,10 @@ static int x_route(void *ctx, const struct uarchive_entry *e, char *out, int cap
 }
 
 static void extract_one(const char *item, const char *dest) {
-    char archive[PATH_MAX_LEN], err[96];
+    char err[96];
     const char *inner;
-    if (!arc_split(item, archive, sizeof archive, &inner)) { worker_error(0, item, EINVAL); return; }
+    char *archive = arc_split(item, &inner);
+    if (!archive) { worker_error(0, item, EINVAL); return; }
     struct xjob x = { archive, inner, dest, strlen(inner), 0 };
     const char *slash = strrchr(inner, '/');
     x.cut = slash ? (size_t)(slash - inner) + 1 : 0;   // the item's parent, cut off
@@ -697,6 +766,7 @@ static void extract_one(const char *item, const char *dest) {
         worker_error(0, archive, -rc);
         ulogf("files: extract %s: %s\n", archive, err);
     }
+    free(archive);
 }
 
 static int c_progress(void *ctx, unsigned long long done, unsigned long long total) {
@@ -719,7 +789,7 @@ static void compress_all(void) {
     strlcpy(g_cur_name, k_path_basename(g_cmp_out), sizeof g_cur_name);
     pthread_mutex_unlock(&g_lock);
     char err[128];
-    int rc = uarchive_create(g_cmp_out, g_cmp_kind, g_cmp_level, g_job_dest, names, g_job_count,
+    int rc = uarchive_create(g_cmp_out, g_cmp_kind, g_cmp_level, job_dest(), names, g_job_count,
                              c_progress, 0, err, sizeof err);
     free(names);
     if (rc < 0) {
@@ -727,7 +797,7 @@ static void compress_all(void) {
         ulogf("files: compress %s: %s\n", g_cmp_out, err);
         return;
     }
-    strlcpy(g_job_result[0], g_cmp_out, PATH_MAX_LEN);
+    g_job_result[0] = strdup(g_cmp_out);   // NULL: made, but not undoable
 }
 
 static void *worker_main(void *arg) {
@@ -739,11 +809,10 @@ static void *worker_main(void *arg) {
     };
 
     count_job();
-    // EVERY RESULT STARTS EMPTY: the array is reused from job to job, and
-    // an item the loop never reaches -- a Compress makes one archive in
-    // its first pass, a cancel stops early -- must not hand the undo
-    // journal the PREVIOUS job's paths to put in the bin.
-    for (int i = 0; i < g_job_count; i++) g_job_result[i][0] = '\0';
+    // EVERY RESULT STARTS EMPTY (job_take()): an item the loop never
+    // reaches -- a Compress makes one archive in its first pass, a cancel
+    // stops early -- must not hand the undo journal anything to put in
+    // the bin.
     unsigned long long base = 0;
     for (int i = 0; i < g_job_count && pause_point(); i++) {
         pthread_mutex_lock(&g_lock);
@@ -753,7 +822,8 @@ static void *worker_main(void *arg) {
         g_cur_done = g_cur_size = 0;
         g_item_base = base;
         g_file_base = g_file_size = 0;
-        g_file_path[0] = '\0';
+        free(g_file_path);
+        g_file_path = 0;
         if (g_by_bytes) g_bytes_done = base;
         pthread_mutex_unlock(&g_lock);
         base += g_by_bytes ? g_item_bytes[i] : 0;
@@ -766,21 +836,21 @@ static void *worker_main(void *arg) {
             // overwrite, and undoing one would recycle what was there
             // before -- so it is not recorded unless the first answer
             // renamed this item to a fresh name.
-            char dest[PATH_MAX_LEN];
             struct sys_stat st;
-            int ok = ufileop_resolve_dest(g_job_path[i], g_job_dest, dest, sizeof dest);
-            int existed = ok && sys_stat(dest, &st) == 0;
+            char *dest = ufileop_resolve_dest(g_job_path[i], job_dest());
+            int existed = dest && sys_stat(dest, &st) == 0;
             int r = g_job_op == CMD_COPY
-                  ? ufileop_copy(g_job_path[i], g_job_dest, &g_engine, &policy)
-                  : ufileop_move(g_job_path[i], g_job_dest, &g_engine, &policy);
-            if (r != UFILEOP_OK || !ok) break;
-            if (!existed) {
-                strlcpy(g_job_result[i], dest, PATH_MAX_LEN);
-            } else if (g_item_first == UFILEOP_RENAME) {
-                char dir[PATH_MAX_LEN];
-                if (k_path_dirname(dest, dir, sizeof dir))
-                    k_path_join(dir, g_conflict_rename, g_job_result[i], PATH_MAX_LEN);
+                  ? ufileop_copy(g_job_path[i], job_dest(), &g_engine, &policy)
+                  : ufileop_move(g_job_path[i], job_dest(), &g_engine, &policy);
+            if (r == UFILEOP_OK && dest && !existed) {
+                g_job_result[i] = dest;
+                dest = 0;
+            } else if (r == UFILEOP_OK && dest && g_item_first == UFILEOP_RENAME) {
+                char *dir = upath_dirname(dest);
+                g_job_result[i] = dir ? upath_join(dir, g_conflict_rename) : 0;
+                free(dir);
             }
+            free(dest);
             break;
         }
         case CMD_DELETE:
@@ -788,13 +858,14 @@ static void *worker_main(void *arg) {
             break;
         case CMD_TRASH: {
             struct utrash_item it;
+            char where[UTRASH_PATH];   // the bin's own bound (base/utrash.h)
             int e = utrash_put(g_job_path[i], &it);
             if (e) worker_error(0, g_job_path[i], -e);
-            else utrash_item_path(&it, g_job_result[i], PATH_MAX_LEN);
+            else if (utrash_item_path(&it, where, sizeof where)) g_job_result[i] = strdup(where);
             break;
         }
         case CMD_EXTRACT:
-            extract_one(g_job_path[i], g_job_dest);
+            extract_one(g_job_path[i], job_dest());
             break;
         case CMD_COMPRESS:
             compress_all();
@@ -831,8 +902,8 @@ static void *worker_main(void *arg) {
 int fm_job_running(void) { return g_running; }
 
 int fm_conflict_pending(void) { return g_conflict_pending; }
-const char *fm_conflict_src(void) { return g_conflict_src; }
-const char *fm_conflict_dst(void) { return g_conflict_dst; }
+const char *fm_conflict_src(void) { return g_conflict_src ? g_conflict_src : ""; }
+const char *fm_conflict_dst(void) { return g_conflict_dst ? g_conflict_dst : ""; }
 
 // The main thread's answer. `rename` is a basename and only read for
 // UFILEOP_RENAME.
@@ -894,9 +965,10 @@ static const char *icon_for(int op) {
 // "Copying 12 items to Photos", "Copying dusk.bmp to Photos".
 static void title(char *out, int cap, int op, const char *what, int count,
                   const char *first, const char *dest) {
-    char items[PATH_MAX_LEN];
+    char items[ULIST_NAME_MAX];
     if (count == 1) strlcpy(items, k_path_basename(first), sizeof items);
     else snprintf(items, sizeof items, "%d items", count);
+    if (!dest) dest = "";
     const char *where = dest[0] && (op == CMD_COPY || op == CMD_MOVE || op == CMD_EXTRACT)
                       ? k_path_basename(dest) : 0;
     if (where && !where[0]) where = "System";
@@ -944,7 +1016,7 @@ int fm_job_rows(struct uui_xfer *out, int cap) {
         unsigned long long cdone = g_cur_done, csize = g_cur_size;
         strlcpy(note, g_cur_name, sizeof note);
         pthread_mutex_unlock(&g_lock);
-        title(x->name, sizeof x->name, g_job_op, g_job_what, g_job_count, g_job_path[0], g_job_dest);
+        title(x->name, sizeof x->name, g_job_op, g_job_what, g_job_count, g_job_path[0], job_dest());
         x->state = g_paused ? UUI_XFER_PAUSED : UUI_XFER_RUNNING;
         // An archive is made or unpacked in one library call that never
         // waits (base/uarchive.h), so it offers no Pause it could not keep.
@@ -1019,7 +1091,7 @@ void fm_job_status(char *out, int cap) {
     char tail[48] = "";
     if (g_nqueue) snprintf(tail, sizeof tail, " \xb7 %d waiting", g_nqueue);
     // One item is named; several are counted, "5 of 12".
-    char which[PATH_MAX_LEN];
+    char which[ULIST_NAME_MAX];
     if (g_job_count == 1) strlcpy(which, k_path_basename(g_job_path[0]), sizeof which);
     else snprintf(which, sizeof which, "%d of %d", g_cur_index + 1, g_job_count);
     if (x.state == UUI_XFER_PAUSED)
@@ -1082,24 +1154,22 @@ int poll_job(void) {
 
 // The post arrived: the operation is over.
 void fm_job_finished(void) {
-    char select_after[PATH_MAX_LEN] = "";
+    char select_after[ULIST_NAME_MAX] = "";
     snprintf(g_stat_note, sizeof g_stat_note, "%s %s", g_job_what,
               g_cancel ? "cancelled" : (g_job_failures ? "FAILED" : "done"));
     if (g_job_op == CMD_EXTRACT && !g_cancel && !g_job_failures) {
         int then = g_extract_then;
         g_extract_then = 0;
         if (then == 1) {
-            char dest[PATH_MAX_LEN];
-            strlcpy(dest, g_job_dest, sizeof dest);
             g_job_count = g_job_at = 0;
-            fm_goto(g_active, dest);
+            fm_goto(g_active, job_dest());   // fm_goto() copies it
         } else if (then == 2) {
             g_job_count = g_job_at = 0;
-            open_path(g_extract_open);
+            if (g_extract_open) open_path(g_extract_open);
         } else if (then == 3) {
             // Extract here: stay, and show the folder it made selected --
             // after the reload below, which would otherwise drop it.
-            strlcpy(select_after, k_path_basename(g_job_dest), sizeof select_after);
+            strlcpy(select_after, k_path_basename(job_dest()), sizeof select_after);
         }
     }
     // A CANCELLED job still did its first items: the journal records
@@ -1107,8 +1177,9 @@ void fm_job_finished(void) {
     // would reach past them to an older operation.
     int ran = g_cancel ? g_job_ran : g_job_count;
     if (g_job_op == CMD_UNDO) undo_applied(g_job_redo, g_job_failures, ran);
-    else undo_record_job(g_job_op, g_job_what, g_job_path, g_job_result, ran, g_job_dest);
-    int compressed = g_job_op == CMD_COMPRESS && !g_cancel && !g_job_failures && g_job_result[0][0];
+    else undo_record_job(g_job_op, g_job_what, g_job_path, g_job_result, ran, job_dest());
+    int compressed = g_job_op == CMD_COMPRESS && !g_cancel && !g_job_failures &&
+                     g_job_owned > 0 && g_job_result[0];
     g_job_count = g_job_at = 0;
     reload_panes();
     // THE NEW ARCHIVE, selected -- and for Compress to ZIP named in place,
@@ -1138,9 +1209,25 @@ void do_compress(int kind, int level, const char *out, int rename_after) {
     g_cmp_kind = kind;
     g_cmp_level = level;
     g_cmp_rename = rename_after;
-    strlcpy(g_cmp_out, out, sizeof g_cmp_out);
-    g_job_result[0][0] = '\0';
+    if (!keep_str(&g_cmp_out, out)) {
+        g_job_count = 0;
+        set_note("not enough memory");
+        return;
+    }
     start_job();
+}
+
+// The running job: the whole of `archive` into `dest`. 0 (said) when it
+// cannot be had.
+static int extract_whole(const char *archive, const char *dest) {
+    char *item = 0;
+    if (!job_begin(CMD_EXTRACT, "Extract", dest)) return 0;
+    if (!job_reserve(1) || asprintf(&item, "%s%s", FM_ARC, archive) < 0) {
+        set_note("out of memory");
+        return 0;
+    }
+    job_take(item, 1);
+    return 1;
 }
 
 // A WHOLE ARCHIVE named by its path, from outside it -- Extract here and
@@ -1149,14 +1236,7 @@ void do_extract_archive(const char *archive, const char *dest, int then) {
     if (g_job_count > 0) { set_note("busy"); return; }
     if (dest[0] != '/') { set_note("cannot extract into that view"); return; }
     if (mkdirs(dest)) { set_note("could not make the folder to extract into"); return; }
-    g_job_at = g_job_failures = 0;
-    g_job_op = CMD_EXTRACT;
-    strlcpy(g_job_what, "Extract", sizeof g_job_what);
-    strlcpy(g_job_dest, dest, sizeof g_job_dest);
-    if (!job_reserve(1)) { set_note("out of memory"); return; }
-    snprintf(g_job_path[0], PATH_MAX_LEN, "%s%s", FM_ARC, archive);
-    g_job_isdir[0] = 1;
-    g_job_count = 1;
+    if (!extract_whole(archive, dest)) return;
     g_extract_then = then;
     start_job();
 }
@@ -1167,23 +1247,18 @@ void do_extract(int all, const char *dest, int then) {
     if (dest[0] != '/') { set_note("cannot extract into that view"); return; }
     if (mkdirs(dest)) { set_note("could not make the folder to extract into"); return; }
     if (all) {
-        char archive[PATH_MAX_LEN];
         const char *inner;
         if (g_job_count > 0) { set_note("busy"); return; }
-        if (!arc_split(uui_fileview_dir(fv), archive, sizeof archive, &inner)) return;
-        g_job_at = g_job_failures = 0;
-        g_job_op = CMD_EXTRACT;
-        strlcpy(g_job_what, "Extract", sizeof g_job_what);
-        strlcpy(g_job_dest, dest, sizeof g_job_dest);
-        if (!job_reserve(1)) { set_note("out of memory"); return; }
-        snprintf(g_job_path[0], PATH_MAX_LEN, "%s%s", FM_ARC, archive);
-        g_job_isdir[0] = 1;
-        g_job_count = 1;
+        char *archive = arc_split(uui_fileview_dir(fv), &inner);
+        int ok = archive && extract_whole(archive, dest);
+        free(archive);
+        if (!ok) return;
     } else if (!queue_from(CMD_EXTRACT, "Extract", fv, dest)) {
         return;
     }
     g_extract_then = then;
-    if (then == 2) k_path_join(dest, k_path_basename(g_job_path[0]), g_extract_open, sizeof g_extract_open);
+    free(g_extract_open);
+    g_extract_open = then == 2 ? upath_join(dest, k_path_basename(g_job_path[0])) : 0;
     start_job();
 }
 
@@ -1191,20 +1266,18 @@ void do_extract(int all, const char *dest, int then) {
 // progress like any other.
 void fm_job_undo(struct ufu_op *op, int redo) {
     if (g_job_count > 0) { set_note("busy"); return; }
-    g_job_at = g_job_failures = 0;
-    g_job_op = CMD_UNDO;
+    if (!job_begin(CMD_UNDO, redo ? "Redo" : "Undo", "")) return;
     g_job_undo = op;
     g_job_redo = redo;
-    strlcpy(g_job_what, redo ? "Redo" : "Undo", sizeof g_job_what);
-    g_job_dest[0] = '\0';
-    g_job_count = job_reserve(op->count);
-    if (g_job_count > op->count) g_job_count = op->count;
-    if (g_job_count < op->count) ulogf("files: out of memory, %d of %d steps run\n", g_job_count, op->count);
-    for (int i = 0; i < g_job_count; i++) {
+    int fit = job_reserve(op->count);
+    if (fit > op->count) fit = op->count;
+    for (int i = 0; i < fit; i++) {
         const struct ufu_step *s = &op->step[ufileundo_step_at(op, i, redo)];   // the worker's order
-        strlcpy(g_job_path[i], s->b[0] ? s->b : s->a, PATH_MAX_LEN);
-        g_job_isdir[i] = 0;
+        char *p = strdup(s->b[0] ? s->b : s->a);
+        if (!p) break;
+        job_take(p, 0);
     }
+    if (g_job_count < op->count) ulogf("files: out of memory, %d of %d steps run\n", g_job_count, op->count);
     start_job();
 }
 
@@ -1227,11 +1300,11 @@ void do_move(void) {
 // (ui/uui_dialog.h), so they live here rather than on the stack.
 // The delete card's words, and its picture. File-scope because the dialog
 // keeps pointers (ui/uui_dialog.h).
-static char g_del_title[PATH_MAX_LEN + 24];
+static char g_del_title[ULIST_NAME_MAX + 48];   // a name and the words around it
 static char g_del_facts[96];
-static char g_del_where[PATH_MAX_LEN + 8];
+static char g_del_where[FM_LINE_MAX];            // "in <folder>", cut to a line
 static const char *const g_del_rows[] = { g_del_facts, g_del_where };
-static char g_del_path[PATH_MAX_LEN];   // the one file shown, for its thumbnail
+static char *g_del_path;   // the one file shown, for its thumbnail (heap); NULL for several
 
 // The picture on the card: the file's own thumbnail when one is ready,
 // else its type's icon. Asked again when a thumbnail lands (files.c's
@@ -1240,7 +1313,7 @@ void delete_picture(void) {
     if (g_dialog_kind != DIALOG_DELETE || !uui_dialog_is_open(&g_dialog)) return;
     int px = ugfx_char_h() * 4;
     const struct uimg *pic = 0;
-    if (g_del_path[0]) {
+    if (g_del_path) {
         struct sys_stat st;
         if (sys_stat(g_del_path, &st) == 0) {
             if (!st.is_dir && g_opt.folder.thumbs) {
@@ -1249,9 +1322,9 @@ void delete_picture(void) {
                 strlcpy(e.name, k_path_basename(g_del_path), sizeof e.name);
                 e.size = (uint32_t)st.size;
                 e.modified = st.modified;
-                char dir[PATH_MAX_LEN];
-                k_path_dirname(g_del_path, dir, sizeof dir);
-                pic = pane_thumb(0, dir, &e, px);
+                char *dir = upath_dirname(g_del_path);
+                if (dir) pic = pane_thumb(0, dir, &e, px);
+                free(dir);
             }
             if (!pic) pic = icon_get(ufiletype_icon(k_path_basename(g_del_path), st.is_dir), px);
         }
@@ -1272,24 +1345,24 @@ static char g_del_note[96];
 // /boot is read-only -- makes the whole delete a permanent one, said
 // on the card, rather than splitting one request into two behaviours.
 static int all_binnable(struct uui_fileview *fv, char *volume, int cap) {
-    char path[PATH_MAX_LEN], bin[PATH_MAX_LEN];
-    int marks = uui_fileview_mark_count(fv);
-    for (int i = 0; i < (marks ? marks : 1); i++) {
-        int ok = marks ? uui_fileview_marked_path(fv, i, path, sizeof path)
-                       : uui_fileview_selected_path(fv, path, sizeof path);
-        if (ok && !utrash_bin_for(path, bin, sizeof bin)) {
-            k_path_dirname(path, volume, (size_t)cap);
-            return 0;
+    char bin[UTRASH_PATH];   // the bin's own bound (base/utrash.h)
+    int marks = uui_fileview_mark_count(fv), all = 1;
+    for (int i = 0; i < (marks ? marks : 1) && all; i++) {
+        char *path = marks ? uui_fileview_marked_path(fv, i) : uui_fileview_selected_path(fv);
+        if (path && !utrash_bin_for(path, bin, sizeof bin)) {
+            fm_cell_dirname(path, volume, cap);   // said on the card: a line
+            all = 0;
         }
+        free(path);
     }
-    return 1;
+    return all;
 }
 
 void do_delete(int forever) {
     int n = operand_count();
     if (n == 0) { set_note("nothing selected"); return; }
     struct uui_fileview *fv = active();
-    char where[PATH_MAX_LEN] = "";
+    char where[FM_LINE_MAX] = "";
     g_del_mode = in_bin(fv) ? DEL_PURGE
                : forever ? DEL_FOREVER
                : all_binnable(fv, where, sizeof where) ? DEL_TRASH : DEL_FOREVER;
@@ -1305,17 +1378,18 @@ void do_delete(int forever) {
     int marks = uui_fileview_mark_count(fv);
     const char *verb = g_del_mode == DEL_TRASH ? "Move" : "Permanently delete";
     const char *tail = g_del_mode == DEL_TRASH ? " to the Recycle Bin?" : "?";
-    g_del_path[0] = '\0';
+    free(g_del_path);
+    g_del_path = 0;
     if (n == 1) {
-        if (marks == 1) uui_fileview_marked_path(fv, 0, g_del_path, sizeof g_del_path);
-        else uui_fileview_selected_path(fv, g_del_path, sizeof g_del_path);
+        g_del_path = marks == 1 ? uui_fileview_marked_path(fv, 0) : uui_fileview_selected_path(fv);
+        const char *one = g_del_path ? g_del_path : "";
         const char *name = g_del_mode == DEL_PURGE ? uui_fileview_selected_name(fv)
-                                                    : k_path_basename(g_del_path);
-        if (!name) name = k_path_basename(g_del_path);
+                                                    : k_path_basename(one);
+        if (!name) name = k_path_basename(one);
         snprintf(g_del_title, sizeof g_del_title, "%s %s%s", verb, name, tail);
         struct sys_stat st;
         char h[24], when[48];
-        if (sys_stat(g_del_path, &st) == 0) {
+        if (sys_stat(one, &st) == 0) {
             udate_format(when, sizeof when, &st.modified, UDATE_DATE | UDATE_TIME);
             if (st.is_dir) {
                 snprintf(g_del_facts, sizeof g_del_facts, "Folder, modified %s -- and everything in it", when);
@@ -1330,12 +1404,13 @@ void do_delete(int forever) {
     } else {
         unsigned long long bytes = 0;
         int dirs = 0;
-        char path[PATH_MAX_LEN], h[24];
+        char h[24];
         for (int i = 0; i < marks; i++) {
             struct sys_stat st;
-            if (!uui_fileview_marked_path(fv, i, path, sizeof path)) continue;
-            if (uui_fileview_marked_is_dir(fv, i)) dirs++;
-            else if (sys_stat(path, &st) == 0) bytes += st.size;
+            if (uui_fileview_marked_is_dir(fv, i)) { dirs++; continue; }
+            char *path = uui_fileview_marked_path(fv, i);
+            if (path && sys_stat(path, &st) == 0) bytes += st.size;
+            free(path);
         }
         human_size(h, sizeof h, bytes);
         snprintf(g_del_title, sizeof g_del_title, "%s %d items%s", verb, n, tail);
@@ -1378,7 +1453,8 @@ void do_empty_bin(void) {
     char h[24];
     human_size(h, sizeof h, bin_bytes());
     g_del_mode = DEL_EMPTY;
-    g_del_path[0] = '\0';
+    free(g_del_path);
+    g_del_path = 0;
     snprintf(g_del_title, sizeof g_del_title, "Empty the Recycle Bin?");
     snprintf(g_del_facts, sizeof g_del_facts, "%d item%s, %s in all", bin_count(),
              bin_count() == 1 ? "" : "s", h);
@@ -1409,16 +1485,26 @@ void commit_delete(void) {
         if (g_stage.count == 0) { set_note("nothing selected"); stage_free(&g_stage); return; }
         if (stage_take() == STAGE_RUN) start_job();
         break;
-    case DEL_EMPTY:
+    case DEL_EMPTY: {
         if (g_job_count > 0) { set_note("busy"); return; }
-        g_job_at = g_job_failures = 0;
-        g_job_op = CMD_PURGE;
-        strlcpy(g_job_what, "Empty", sizeof g_job_what);
-        g_job_dest[0] = '\0';
-        g_job_count = bin_paths(g_job_path, job_reserve(bin_count()));
-        for (int i = 0; i < g_job_count; i++) g_job_isdir[i] = 0;
+        char **paths;
+        int n = bin_paths(&paths);
+        if (n < 0 || !job_begin(CMD_PURGE, "Empty", "")) {
+            if (n < 0) { ulogf("files: out of memory listing the bins\n"); set_note("not enough memory"); }
+            for (int i = 0; i < n; i++) free(paths[i]);
+            free(n > 0 ? paths : 0);
+            return;
+        }
+        int fit = job_reserve(n);
+        for (int i = 0; i < n; i++) {
+            if (i < fit) job_take(paths[i], 0);
+            else free(paths[i]);
+        }
+        if (n > fit) ulogf("files: out of memory, %d of %d items run\n", fit, n);
+        free(paths);
         start_job();
         break;
+    }
     }
 }
 
@@ -1440,12 +1526,12 @@ static int name_ok(const char *name) {
 }
 
 void commit_mkdir(const char *name) {
-    char path[PATH_MAX_LEN];
     ulogf("files: mkdir %s in %s\n", name, uui_fileview_dir(active()));
     if (!name[0]) return;
     if (!name_ok(name)) return;
-    if (!k_path_join(uui_fileview_dir(active()), name, path, sizeof path)) {
-        set_note("path too long");
+    char *path = upath_join(uui_fileview_dir(active()), name);
+    if (!path) {
+        set_note("not enough memory");
         return;
     }
     // Straight to the syscall: mkdir is one call that cannot block, so
@@ -1459,48 +1545,46 @@ void commit_mkdir(const char *name) {
         reload_pane(active());
         uui_fileview_select_name(active(), name);
     }
+    free(path);
     refresh_status();
 }
 
 // An empty file, named by the prompt. Refused, not overwritten, when
 // the name is taken: "New" never destroys anything.
 void commit_newfile(const char *name) {
-    char path[PATH_MAX_LEN];
     if (!name[0]) return;
     if (!name_ok(name)) return;
-    if (!k_path_join(uui_fileview_dir(active()), name, path, sizeof path)) {
-        set_note("path too long");
+    char *path = upath_join(uui_fileview_dir(active()), name);
+    if (!path) {
+        set_note("not enough memory");
         return;
     }
     struct sys_stat st;
+    FILE *f = 0;
     if (sys_stat(path, &st) == 0) {
         snprintf(g_stat_note, sizeof g_stat_note, "%s already exists", name);
-        return;
-    }
-    FILE *f = fopen(path, "w");
-    if (!f) {
+    } else if (!(f = fopen(path, "w"))) {
         snprintf(g_stat_note, sizeof g_stat_note, "could not create %s", name);
-        return;
+    } else {
+        fclose(f);
+        set_note("created");
+        undo_record(UFU_CREATE, 0, path);
+        reload_pane(active());
+        uui_fileview_select_name(active(), name);
+        refresh_status();
     }
-    fclose(f);
-    set_note("created");
-    undo_record(UFU_CREATE, 0, path);
-    reload_pane(active());
-    uui_fileview_select_name(active(), name);
-    refresh_status();
+    free(path);
 }
 
 void commit_rename_named(const char *from_name, const char *name) {
-    char from[PATH_MAX_LEN], to[PATH_MAX_LEN];
     ulogf("files: rename %s to %s in %s\n", from_name, name, uui_fileview_dir(active()));
     if (!name[0]) return;
     if (!name_ok(name)) return;
-    if (!k_path_join(uui_fileview_dir(active()), from_name, from, sizeof from)) return;
-    if (!k_path_join(uui_fileview_dir(active()), name, to, sizeof to)) {
-        set_note("path too long");
-        return;
-    }
-    if (sys_rename(from, to) < 0) {
+    char *from = upath_join(uui_fileview_dir(active()), from_name);
+    char *to = upath_join(uui_fileview_dir(active()), name);
+    if (!from || !to) {
+        set_note("not enough memory");
+    } else if (sys_rename(from, to) < 0) {
         snprintf(g_stat_note, sizeof g_stat_note, "could not rename to %s", name);
     } else {
         set_note("renamed");
@@ -1508,5 +1592,7 @@ void commit_rename_named(const char *from_name, const char *name) {
         reload_pane(active());
         uui_fileview_select_name(active(), name);
     }
+    free(from);
+    free(to);
     refresh_status();
 }

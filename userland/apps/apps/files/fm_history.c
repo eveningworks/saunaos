@@ -14,6 +14,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "base/udirs.h"
+#include "base/ulog.h"
 
 static struct unavhist g_hist[2];
 
@@ -26,10 +27,9 @@ static int g_replaying;
 // A TAB OWNS ITS PANES' HISTORIES (fm_tabs.c): saved when it is left,
 // put back when it is chosen -- Back in a tab never goes to another
 // tab's folders, as in Explorer and every browser.
-int fm_history_size(void) { return (int)sizeof g_hist[0]; }
-void fm_history_save(int pane, void *out) { memcpy(out, &g_hist[pane], sizeof g_hist[pane]); }
-void fm_history_load(int pane, const void *in) {
-    if (in) memcpy(&g_hist[pane], in, sizeof g_hist[pane]);
+void fm_history_save(int pane, struct unavhist *out) { unavhist_copy(out, &g_hist[pane]); }
+void fm_history_load(int pane, const struct unavhist *in) {
+    if (in) unavhist_copy(&g_hist[pane], in);
     else unavhist_init(&g_hist[pane]);
 }
 // Put a pane where a restored history says it is, without recording it.
@@ -63,11 +63,14 @@ int fm_history_can_forward(int pane) { return pane >= 0 && pane <= 1 && unavhist
 static int still_there(void *ctx, const char *dir) {
     (void)ctx;
     struct sys_stat st;
-    char archive[PATH_MAX_LEN];
     const char *inner;
     if (search_scope(dir)) return 0;
-    if (arc_split(dir, archive, sizeof archive, &inner))
-        return sys_stat(archive, &st) == 0 && !st.is_dir;
+    char *archive = arc_split(dir, &inner);
+    if (archive) {
+        int ok = sys_stat(archive, &st) == 0 && !st.is_dir;
+        free(archive);
+        return ok;
+    }
     if (dir[0] != '/') return 1;
     return sys_stat(dir, &st) == 0 && st.is_dir;
 }
@@ -133,12 +136,15 @@ int fm_goto(int pane, const char *dir) {
     // A network share that needs a password asks for it instead of
     // listing empty, and the Add row opens a dialog (fm_network.c).
     if (net_intercept(pane, dir)) return 1;
-    char want[PATH_MAX_LEN];
-    strlcpy(want, dir, sizeof want);       // `dir` may be a buffer the listing rewrites
-    if (!uui_fileview_set_dir(&g_pane[pane], want)) return 0;
-    fm_history_record(pane, uui_fileview_dir(&g_pane[pane]));
-    net_after_goto(pane, want);
-    return 1;
+    char *want = strdup(dir);   // `dir` may be a string the listing frees
+    if (!want) { ulogf("files: out of memory going to %s\n", dir); return 0; }
+    int ok = uui_fileview_set_dir(&g_pane[pane], want);
+    if (ok) {
+        fm_history_record(pane, uui_fileview_dir(&g_pane[pane]));
+        net_after_goto(pane, want);
+    }
+    free(want);
+    return ok;
 }
 
 // The same, for the two moves the fileview makes on its own -- it

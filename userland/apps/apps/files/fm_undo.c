@@ -10,7 +10,7 @@
 #include "ui/uui_anim.h"
 #include "base/ulog.h"
 
-static struct ufileundo g_undo;   // static: hundreds of KB (ufileundo.h)
+static struct ufileundo g_undo;   // the journal; its steps are heap (ufileundo.h)
 struct uui_toast g_toast;
 static unsigned long long g_toast_at;   // when it was shown, for its timeout
 static int g_toast_redo;                // its button redoes rather than undoes
@@ -49,27 +49,28 @@ static const char *folder_name(const char *dir) {
 }
 
 // A finished job, as the journal's entry and the toast's sentence.
-void undo_record_job(int op, const char *what, char (*paths)[PATH_MAX_LEN],
-                     char (*results)[PATH_MAX_LEN], int n, const char *dest) {
+void undo_record_job(int op, const char *what, char **paths, char **results, int n,
+                     const char *dest) {
     (void)what;
     // A COMPRESS is undone like a copy: what it made goes to the bin.
     int kind = op == CMD_MOVE ? UFU_MOVE : op == CMD_COPY || op == CMD_COMPRESS ? UFU_COPY
              : op == CMD_TRASH ? UFU_TRASH : 0;
     if (!kind) return;
+#define LANDED(i) (results[i] && results[i][0])
     int done = 0;
-    for (int i = 0; i < n; i++) if (results[i][0]) done++;
+    for (int i = 0; i < n; i++) if (LANDED(i)) done++;
     if (!done) return;
 
-    char label[UFU_LABEL], one[PATH_MAX_LEN];
+    char label[UFU_LABEL], one[ULIST_NAME_MAX];
     if (done == 1) {
         for (int i = 0; i < n; i++)
-            if (results[i][0]) { snprintf(one, sizeof one, "%s", k_path_basename(paths[i])); break; }
+            if (LANDED(i)) { snprintf(one, sizeof one, "%s", k_path_basename(paths[i])); break; }
     } else {
         snprintf(one, sizeof one, "%d items", done);
     }
     if (op == CMD_COMPRESS) {
         for (int i = 0; i < n; i++)
-            if (results[i][0]) { snprintf(one, sizeof one, "%s", k_path_basename(results[i])); break; }
+            if (LANDED(i)) { snprintf(one, sizeof one, "%s", k_path_basename(results[i])); break; }
         snprintf(label, sizeof label, "Compressed %d item%s into %s", n, n == 1 ? "" : "s", one);
     } else if (kind == UFU_TRASH) snprintf(label, sizeof label, "Moved %s to the Recycle Bin", one);
     else snprintf(label, sizeof label, "%s %s to %s", kind == UFU_MOVE ? "Moved" : "Copied",
@@ -77,7 +78,7 @@ void undo_record_job(int op, const char *what, char (*paths)[PATH_MAX_LEN],
 
     struct ufu_op *rec = ufileundo_begin(&g_undo, kind, label);
     for (int i = 0; i < n; i++) {
-        if (!results[i][0]) continue;
+        if (!LANDED(i)) continue;
         int ok = kind == UFU_TRASH ? ufileundo_add(rec, paths[i], 0, results[i])
                                    : ufileundo_add(rec, paths[i], results[i], 0);
         if (!ok) { ulogf("files: out of memory recording undo at item %d of %d\n", i + 1, n); break; }
@@ -87,6 +88,7 @@ void undo_record_job(int op, const char *what, char (*paths)[PATH_MAX_LEN],
     toast(op == CMD_COMPRESS ? "tb-archive" : kind == UFU_TRASH ? "place-trash"
           : kind == UFU_MOVE ? "tb-move" : "tb-copy",
           label, "Undo", 0);
+#undef LANDED
 }
 
 // A rename or a new item, which the app does itself rather than as a job.
@@ -108,7 +110,7 @@ void undo_record(int kind, const char *a, const char *b) {
 // would land on a name that is taken. A pair whose name did not change
 // is no step: undoing it would rename a file onto itself.
 void undo_record_renames(const char *dir, char (*olds)[64], char (*news)[64], int n) {
-    char label[UFU_LABEL], a[PATH_MAX_LEN], b[PATH_MAX_LEN], t[PATH_MAX_LEN], tmp[64];
+    char label[UFU_LABEL], tmp[64];
     int changed = 0;
     for (int i = 0; i < n; i++) changed += strcmp(olds[i], news[i]) != 0;
     if (!changed) return;
@@ -118,11 +120,12 @@ void undo_record_renames(const char *dir, char (*olds)[64], char (*news)[64], in
         for (int i = 0; i < n; i++) {
             if (!strcmp(olds[i], news[i])) continue;
             snprintf(tmp, sizeof tmp, ".rename-%d-%s", i, olds[i]);
-            if (!k_path_join(dir, olds[i], a, sizeof a) || !k_path_join(dir, news[i], b, sizeof b) ||
-                !k_path_join(dir, tmp, t, sizeof t))
-                continue;
-            if (pass == 0) ufileundo_add(rec, a, t, 0);
-            else ufileundo_add(rec, t, b, 0);
+            char *a = upath_join(dir, olds[i]), *b = upath_join(dir, news[i]), *t = upath_join(dir, tmp);
+            int ok = a && b && t && (pass == 0 ? ufileundo_add(rec, a, t, 0) : ufileundo_add(rec, t, b, 0));
+            if (!ok) ulogf("files: out of memory recording rename %d of %d\n", i + 1, n);
+            free(a);
+            free(b);
+            free(t);
         }
     ufileundo_commit(&g_undo, rec);
     ulogf("files: undo recorded \"%s\" (%d steps)\n", label, rec->count);

@@ -43,7 +43,6 @@ extern "C" {
 // the rebuild-and-reveal logic one needs -- and a second copy here would
 // be exactly the duplication uui_fileview exists to have ended.
 
-#define UUI_FILEDIALOG_PATH_MAX UUI_FILEVIEW_PATH_MAX
 #define UUI_FILEDIALOG_PLACES 8
 #define UUI_FILEDIALOG_FILTERS 8
 
@@ -140,14 +139,14 @@ struct uui_filedialog {
     int menu_armed;
     struct uui_dialog ask;             // "Delete for good?"
     const char *ask_rows[2];
-    char ask_line[UUI_FILEDIALOG_PATH_MAX + 32];
+    char ask_line[ULIST_NAME_MAX + 32];   // a name, or "N items", and the words
     // What a delete acts on: the marked set, else the selected row.
-    char (*ops)[UUI_FILEDIALOG_PATH_MAX];
+    char **ops;                        // op_n heap paths
     int op_n;
     int was_renaming;                  // before this key: Enter and Esc were the field's
     struct uui_label note;
     struct uui_button undo;
-    char note_text[UUI_FILEDIALOG_PATH_MAX + 48];
+    char note_text[ULIST_NAME_MAX + 64];   // a line naming one name
     struct utrash_item *undone;        // what Undo puts back
     int undone_n;
     int can_undo;

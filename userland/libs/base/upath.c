@@ -1,6 +1,7 @@
 // See upath.h.
 #include "base/upath.h"
 #include "rt/sys.h"
+#include "kpath.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +19,34 @@ char *upath_join(const char *dir, const char *name) {
     if (dn) memcpy(p, dir, dn);
     if (slash) p[dn] = '/';
     memcpy(p + dn + slash, name, nn + 1);
+    return p;
+}
+
+char *upath_dirname(const char *path) {
+    size_t cap = strlen(path) + 2;   // "/" for a bare name
+    char *p = malloc(cap);
+    if (!p) { errno = ENOMEM; return 0; }
+    k_path_dirname(path, p, cap);
+    return p;
+}
+
+int upath_set(char **field, const char *s) {
+    char *c = s ? strdup(s) : 0;
+    if (s && !c) { errno = ENOMEM; return 0; }
+    free(*field);
+    *field = c;
+    return 1;
+}
+
+char *upath_resolve(const char *base, const char *input) {
+    size_t bn = base ? strlen(base) : 0, in = input ? strlen(input) : 0;
+    size_t n = bn > in ? bn : in;
+    struct kpath_scratch sc = { malloc(KPATH_SCRATCH_FOR(n)), KPATH_SCRATCH_FOR(n) };
+    char *p = sc.buf ? malloc(bn + in + 3) : 0;
+    if (!p) { free(sc.buf); errno = ENOMEM; return 0; }
+    int ok = k_path_resolve(base, input, p, bn + in + 3, &sc);
+    free(sc.buf);
+    if (!ok) { free(p); errno = ENAMETOOLONG; return 0; }
     return p;
 }
 

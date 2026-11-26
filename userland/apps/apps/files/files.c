@@ -46,6 +46,7 @@
 #include "base/ufiletype.h"
 #include "media/icon_cache.h"
 #include <errno.h>
+#include <limits.h>   // PATH_MAX -- the most a saved folder can be
 #include "ui/uui.h"
 #include "ui/utheme.h"
 #include "ui/uui_dialog.h"
@@ -107,7 +108,7 @@ struct uui_toolbar g_nav;
 struct uui_pathbar g_path;
 struct uui_textbox g_search;
 int g_search_on;
-static char g_search_hint[PATH_MAX_LEN + 16];   // "Search " + a folder's name
+static char g_search_hint[ULIST_NAME_MAX + 16];   // "Search " + a folder's name
 
 // THE SEARCH FILTERS, per pane like its query: type, date and size narrow
 // the listing as you type and the search below it; "Inside text files"
@@ -155,9 +156,9 @@ static int g_ctx_x, g_ctx_y;
 static int g_ctx_on_tree;       // the menu was asked for in the left pane...
 static int g_ctx_tree = -1;     // ...on this row of it, or -1 for the pane itself
 
-char g_stat_dir[PATH_MAX_LEN + 8];
+char g_stat_dir[80];
 char g_stat_items[48];
-char g_stat_note[PATH_MAX_LEN + 128];   // a sentence naming a file
+char g_stat_note[FM_LINE_MAX];   // a sentence naming a file
 static char g_stat_free[48];
 
 // --- live refresh -------------------------------------------------------
@@ -182,9 +183,9 @@ static int g_clip_op = UCLIP_NONE;
 // point at these buffers, which is why they are file-scope and not on a
 // frame: uui_dialog does not own its text (ui/uui_dialog.h).
 struct uui_dialog g_dialog;
-static char g_dlg_rows[3][PATH_MAX_LEN + 40];
+static char g_dlg_rows[3][2 * ULIST_NAME_MAX + 40];   // a line naming a folder and a file
 static const char *g_dlg_row_ptr[3] = { g_dlg_rows[0], g_dlg_rows[1], g_dlg_rows[2] };
-static char g_dlg_rename[PATH_MAX_LEN];
+static char g_dlg_rename[ULIST_NAME_MAX];
 
 // APPLY-TO-ALL. Without it a paste of two hundred files asks two
 // hundred times, which is the difference between a dialog and an
@@ -312,7 +313,7 @@ static const struct uui_toolbar_item nav_items[] = {
 // and a ticked menu row cannot disagree.
 static char g_sel_label[24];   // "2 selected"
 static char g_pin_label[24];   // "Pin to Places" / "Unpin"
-static char g_pin_for[PATH_MAX_LEN];   // the folder g_pin_label is about
+static char *g_pin_for;   // the folder g_pin_label is about (heap); NULL: ask again
 static const struct uui_toolbar_item toolbar_items[] = {
     { "tb-new",      "Create a folder or a file", CMD_MENU_NEW, "New", UUI_TB_MENU, 0, TINT_GREEN },
     UUI_TOOLBAR_SEP,
@@ -462,15 +463,20 @@ static const struct uui_menu_item bin_ctx_items[] = {
     UUI_MENU_VERB("Properties",         CMD_PROPERTIES,     0,        PROPERTIES),
 };
 
+static void pin_label_stale(void) {
+    free(g_pin_for);
+    g_pin_for = 0;
+}
+
 static void pin_selected(int pin) {
-    char path[PATH_MAX_LEN];
-    if (!uui_fileview_selected_is_dir(active()) ||
-        !uui_fileview_selected_path(active(), path, sizeof path)) { set_note("select a folder"); return; }
+    char *path = uui_fileview_selected_is_dir(active()) ? uui_fileview_selected_path(active()) : 0;
+    if (!path) { set_note("select a folder"); return; }
     int e = pin ? upins_add(path) : upins_remove(path);
     if (e == -ENOSPC) set_note("Places is full -- unpin one first");
     else if (e && e != -EEXIST && e != -ENOENT) set_note(pin ? "could not pin it" : "could not unpin it");
     else snprintf(g_stat_note, sizeof g_stat_note, pin ? "pinned %s" : "unpinned %s", k_path_basename(path));
-    g_pin_for[0] = '\0';
+    free(path);
+    pin_label_stale();
     places_build();
     tree_rebuild();
 }
@@ -520,42 +526,38 @@ static int looks_like_text(const char *path) {
 // is asked on a menu's opening and a command, never per frame.
 static int selected_launch(struct ulaunch_info *out) {
     struct ulaunch_info li;
-    char path[PATH_MAX_LEN];
     if (!out) out = &li;
     memset(out, 0, sizeof *out);
-    if (uui_fileview_selected_is_dir(active()) ||
-        !uui_fileview_selected_path(active(), path, sizeof path) ||
-        in_bin(active()) || in_archive(active()))
+    if (uui_fileview_selected_is_dir(active()) || in_bin(active()) || in_archive(active()))
         return ULAUNCH_NONE;
+    char *path = uui_fileview_selected_path(active());
+    if (!path) return ULAUNCH_NONE;
     ulaunch_classify(path, out);
+    free(path);
     return out->kind;
 }
 
 static int build_ctx_items(void) {
-    int can_edit = 0;
-    char path[PATH_MAX_LEN];
-    if (uui_fileview_selected_path(active(), path, sizeof path) &&
-        !uui_fileview_selected_is_dir(active()))
-        can_edit = looks_like_text(path);
+    int is_dir = uui_fileview_selected_is_dir(active());
+    char *path = uui_fileview_selected_path(active());
+    int can_edit = path && !is_dir && looks_like_text(path);
     // A PICTURE IS EDITED IN PAINT and opened in the Image Viewer --
     // Explorer's "Edit" verb beside its default, rather than a second
     // app claiming the same extensions (data/wm/applications/README.md).
     int can_paint = 0;
-    if (uui_fileview_selected_path(active(), path, sizeof path) &&
-        !uui_fileview_selected_is_dir(active())) {
+    if (path && !is_dir) {
         uint8_t head[16];
         size_t got = ufile_read_head(path, head, sizeof head);
         can_paint = got >= 4 && uimg_probe(head, got) != 0;
     }
-    int is_dir = uui_fileview_selected_is_dir(active());
-    int pinned = is_dir && uui_fileview_selected_path(active(), path, sizeof path) && upins_has(path);
+    int pinned = is_dir && path && upins_has(path);
     int n = 0;
     uopen_actions_free(g_acts, g_nacts);
     g_acts = 0;
     g_nacts = 0;
-    if (!is_dir && !in_bin(active()) && !in_recent(active()) && !in_archive(active()) &&
-        uui_fileview_selected_path(active(), path, sizeof path))
+    if (!is_dir && !in_bin(active()) && !in_recent(active()) && !in_archive(active()) && path)
         g_nacts = uopen_actions(path, &g_acts);
+    free(path);
     if (!ctx_room(CTX_BASE + g_nacts)) return 0;
     if (in_bin(active())) {
         for (int i = 0; i < (int)(sizeof bin_ctx_items / sizeof bin_ctx_items[0]); i++)
@@ -569,8 +571,11 @@ static int build_ctx_items(void) {
     }
     int runs = !is_dir && selected_launch(0) != ULAUNCH_NONE && selected_launch(0) != ULAUNCH_APP;
     int share = net_in_share(uui_fileview_dir(active()));
-    int arc_file = selected_archive(path, sizeof path);   // Extract here / to...
-    int disc = disc_selected(path, sizeof path);          // Mount as a CD drive
+    char *arc_path = selected_archive(), *disc_path = disc_selected();
+    int arc_file = arc_path != 0;   // Extract here / to...
+    int disc = disc_path != 0;      // Mount as a CD drive
+    free(arc_path);
+    free(disc_path);
     // The opening app's own actions follow the rows that open it.
     int acts_after = disc ? CMD_MOUNT_IMAGE : CMD_OPEN;
     for (int i = 0; i < (int)(sizeof ctx_items / sizeof ctx_items[0]); i++) {
@@ -669,8 +674,9 @@ static unsigned menu_item_flags(int code) {
         return uui_fileview_selected_name(&g_pane[g_active]) ? 0 : UUI_MI_DISABLED;
     // One disc image, and nothing else, can be mounted (a name test: no I/O here).
     case CMD_MOUNT_IMAGE: {
-        char p[PATH_MAX_LEN];
-        return disc_selected(p, sizeof p) ? 0 : UUI_MI_DISABLED;
+        char *p = disc_selected();
+        free(p);
+        return p ? 0 : UUI_MI_DISABLED;
     }
     // Several marked is Rename many, with or without a row under the cursor.
     case CMD_RENAME:
@@ -775,6 +781,12 @@ struct uui_item *widget_by_id(int id) {
 
 void set_note(const char *s) { strlcpy(g_stat_note, s, sizeof g_stat_note); }
 
+void fm_cell_dirname(const char *path, char *out, int cap) {
+    char *d = upath_dirname(path);
+    strlcpy(out, d ? d : "", (size_t)cap);
+    free(d);
+}
+
 // --- the address bars ---------------------------------------------------
 
 void addr_begin_edit(int pane) {
@@ -796,19 +808,12 @@ void addr_end_edit(int commit) {
     if (pane < 0) return;
     if (commit && net_goto_address(pane, uui_textbox_text(&g_addr[pane]))) commit = 0;
     if (commit) {
-        char path[PATH_MAX_LEN], was[PATH_MAX_LEN];
-        strlcpy(was, uui_fileview_dir(&g_pane[pane]), sizeof was);
-        const char *typed = uui_textbox_text(&g_addr[pane]);
-        // The scratch is the caller's now (kpath.h) and is twice a
-        // path; static rather than a local because a GUI client's
-        // event loop is one thread and this does not recurse.
-        static char scratch[KPATH_SCRATCH_FOR(PATH_MAX_LEN)];
-        struct kpath_scratch sc = { scratch, sizeof scratch };
-        if (!k_path_resolve(was, typed, path, sizeof path, &sc)) {
-            set_note("path too long");
-            return;
-        }
-        if (!fm_goto(pane, path)) {
+        char *was = strdup(uui_fileview_dir(&g_pane[pane]));
+        char *path = was ? upath_resolve(was, uui_textbox_text(&g_addr[pane])) : 0;
+        int went = path && fm_goto(pane, path);
+        if (!path) {
+            set_note(errno == ENAMETOOLONG ? "too many folders deep" : "not enough memory");
+        } else if (!went) {
             // The failed listing left the pane EMPTY (ui/uui_fileview.h);
             // put the directory it had back rather than show a hole.
             // DELIBERATELY NOT fm_goto(): this is undoing a navigation
@@ -818,8 +823,10 @@ void addr_end_edit(int commit) {
             uui_fileview_set_dir(&g_pane[pane], was);
             snprintf(g_stat_note, sizeof g_stat_note, "no such directory: %s",
                       k_path_basename(path));
-            return;
         }
+        free(was);
+        free(path);
+        if (!went) return;
     }
     g_addr_edit = -1;
     uui_textbox_set_active(&g_addr[pane], 0);
@@ -874,13 +881,14 @@ void refresh_status(void) {
     // Asked when the folder changes and at most every few seconds besides:
     // this runs on every filesystem change, and a volume's usage is a
     // query per mount.
-    static char free_for[PATH_MAX_LEN];
+    static char *free_for;
     static time_t free_at;
     struct uvolinfo v;
     const char *dir = uui_fileview_dir(fv);
     time_t now = time(0);
-    if (!strcmp(free_for, dir) && now - free_at < 3) return;
-    strlcpy(free_for, dir, sizeof free_for);
+    if (free_for && !strcmp(free_for, dir) && now - free_at < 3) return;
+    free(free_for);
+    free_for = strdup(dir);   // NULL: asked again next time
     free_at = now;
     g_stat_free[0] = '\0';
     if (dir[0] == '/' && uvolinfo_of(dir, &v) && uvolinfo_free(&v)) {
@@ -903,7 +911,14 @@ static char g_query[2][UUI_TEXTBOX_MAX];
 struct uui_segmented g_scope_seg;
 struct uui_button g_search_stop;
 static const char *const g_scope_names[] = { "This folder", "Subfolders too", "Whole computer" };
-static char g_scope[2][PATH_MAX_LEN];   // the real folder a pane's search is about
+static char *g_scope[2];   // the real folder a pane's search is about (heap), NULL for none
+
+static const char *scope_of(int pane) { return g_scope[pane] ? g_scope[pane] : ""; }
+static void set_scope(int pane, const char *s) {
+    char *c = s && s[0] ? strdup(s) : 0;
+    free(g_scope[pane]);
+    g_scope[pane] = c;
+}
 static int g_keep_query;                // the next navigation keeps the query (a scope switch)
 
 int search_strip_shown(void) {
@@ -946,12 +961,12 @@ unsigned long long fm_marked_bytes(struct uui_fileview *fv) {
         return bytes;
     k_fv = fv; k_entries = fv->entries; k_count = fv->count; k_marks = marks; k_hash = h;
     bytes = 0;
-    char path[PATH_MAX_LEN];
     for (int i = 0; i < marks; i++) {
         struct sys_stat st;
-        if (uui_fileview_marked_path(fv, i, path, sizeof path) &&
-            !uui_fileview_marked_is_dir(fv, i) && sys_stat(path, &st) == 0)
-            bytes += st.size;
+        if (uui_fileview_marked_is_dir(fv, i)) continue;
+        char *path = uui_fileview_marked_path(fv, i);
+        if (path && sys_stat(path, &st) == 0) bytes += st.size;
+        free(path);
     }
     return bytes;
 }
@@ -977,10 +992,8 @@ static void search_begin(int i, const char *scope, const char *query) {
     int was = g_search_pane;
     g_search_pane = i;
     if (was >= 0 && was != i && in_search(&g_pane[was])) {
-        char back[PATH_MAX_LEN];
-        strlcpy(back, g_scope[was][0] ? g_scope[was] : search_scope(uui_fileview_dir(&g_pane[was])),
-                sizeof back);
-        fm_goto(was, back);
+        // fm_goto() copies it before the pane's own name goes.
+        fm_goto(was, scope_of(was)[0] ? scope_of(was) : search_scope(uui_fileview_dir(&g_pane[was])));
         set_note("one search at a time -- the other pane went back to its folder");
     }
     search_start(scope, query);
@@ -1005,24 +1018,29 @@ static void search_into(const char *scope) {
     }
     search_set_filter(&g_filt[g_active], g_inside[g_active]);
     g_stat_note[0] = '\0';   // "press Enter to look inside" is answered now
-    char dir[PATH_MAX_LEN + 8];
-    snprintf(dir, sizeof dir, "%s%s", FM_SEARCH, scope);
-    strlcpy(g_scope[g_active], scope, sizeof g_scope[g_active]);
+    char *dir = 0;
+    if (asprintf(&dir, "%s%s", FM_SEARCH, scope) < 0) { set_note("not enough memory"); return; }
+    char *root = strdup(scope);   // `scope` may be the pane's own name, or g_scope's
+    if (!root) { free(dir); set_note("not enough memory"); return; }
+    set_scope(g_active, root);
     g_keep_query = 1;
     if (!strcmp(uui_fileview_dir(active()), dir)) {   // already there: search again
-        search_begin(g_active, scope, g_query[g_active]);
+        search_begin(g_active, root, g_query[g_active]);
         reload_pane(active());
     } else {
         fm_goto(g_active, dir);
     }
     g_keep_query = 0;
+    free(root);
+    free(dir);
 }
 
 // The strip's switch, chosen: back to filtering the folder, or into its
 // subfolders, or everything from the root.
 static void scope_chosen(int sel) {
     const char *real = search_scope(uui_fileview_dir(active()));
-    const char *scope = g_scope[g_active][0] ? g_scope[g_active] : (real ? real : uui_fileview_dir(active()));
+    char *scope = strdup(scope_of(g_active)[0] ? scope_of(g_active) : (real ? real : uui_fileview_dir(active())));
+    if (!scope) { set_note("not enough memory"); return; }
     if (sel == 0) {
         search_end(g_active);
         g_keep_query = 1;
@@ -1031,8 +1049,9 @@ static void scope_chosen(int sel) {
         reload_pane(active());   // the filter applies again
     } else {
         search_into(sel == 2 ? "/" : scope);
-        if (sel == 2) strlcpy(g_scope[g_active], scope, sizeof g_scope[g_active]);
+        if (sel == 2) set_scope(g_active, scope);
     }
+    free(scope);
 }
 
 // The breadcrumb and the places follow the ACTIVE pane; the search box's
@@ -1045,8 +1064,9 @@ void path_sync(void) {
     snprintf(g_sel_label, sizeof g_sel_label, "%d selected", picked);
     // Asked when the folder changes, not per refresh: upins_has() reads a
     // file. A pin made elsewhere shows on the next visit.
-    if (strcmp(g_pin_for, dir) != 0) {
-        strlcpy(g_pin_for, dir, sizeof g_pin_for);
+    if (!g_pin_for || strcmp(g_pin_for, dir) != 0) {
+        free(g_pin_for);
+        g_pin_for = strdup(dir);   // NULL: asked again next time
         strlcpy(g_pin_label, dir[0] == '/' && upins_has(dir) ? "Unpin" : "Pin to Places",
                 sizeof g_pin_label);
     }
@@ -1067,7 +1087,7 @@ void path_sync(void) {
                         : (int)(sizeof toolbar_items / sizeof toolbar_items[0]);
         g_toolbar.hot = g_toolbar.armed = -1;
     }
-    if (!uui_pathbar_is_editing(&g_path) && strcmp(g_path.path, dir) != 0)
+    if (!uui_pathbar_is_editing(&g_path) && strcmp(uui_pathbar_path(&g_path), dir) != 0)
         uui_pathbar_set_path(&g_path, dir);
     uui_places_select_path(&g_places, dir);
     // With the folder tree off the pane is flat, so a place or a volume
@@ -1079,10 +1099,11 @@ void path_sync(void) {
     // change -- logd writes once a second -- and re-selecting there set a
     // folder that is no place to -1 between a row's PRESS and its RELEASE,
     // so the click navigated nowhere (pins_gui_test, ~1 in 15).
-    static char synced[PATH_MAX_LEN];
-    if (!g_tree_on && strcmp(synced, dir) != 0) {
+    static char *synced;
+    if (!g_tree_on && (!synced || strcmp(synced, dir) != 0)) {
         tree_select_path(dir);
-        strlcpy(synced, dir, sizeof synced);
+        free(synced);
+        synced = strdup(dir);   // NULL: selected again next time
     }
     if (!g_search_on && strcmp(uui_textbox_text(&g_search), g_query[g_active]) != 0)
         uui_textbox_set_text(&g_search, g_query[g_active]);
@@ -1146,19 +1167,20 @@ static void path_navigate(const char *typed) {
         uui_pathbar_set_path(&g_path, uui_fileview_dir(active()));
         return;
     }
-    char path[PATH_MAX_LEN], was[PATH_MAX_LEN];
-    strlcpy(was, uui_fileview_dir(active()), sizeof was);
-    static char scratch[KPATH_SCRATCH_FOR(PATH_MAX_LEN)];
-    struct kpath_scratch sc = { scratch, sizeof scratch };
-    if (!strcmp(typed, FM_BIN) || !strcmp(typed, FM_RECENT))
-        strlcpy(path, typed, sizeof path);   // not a relative path
-    else if (!k_path_resolve(was, typed, path, sizeof path, &sc)) { set_note("path too long"); return; }
-    if (!fm_goto(g_active, path)) {
+    char *was = strdup(uui_fileview_dir(active()));
+    char *path = !was ? 0
+               : !strcmp(typed, FM_BIN) || !strcmp(typed, FM_RECENT) ? strdup(typed)   // not a relative path
+               : upath_resolve(was, typed);
+    if (!path) {
+        set_note(was && errno == ENAMETOOLONG ? "too many folders deep" : "not enough memory");
+    } else if (!fm_goto(g_active, path)) {
         uui_fileview_set_dir(active(), was);   // see addr_end_edit on why not fm_goto
         snprintf(g_stat_note, sizeof g_stat_note, "no such folder: %s", k_path_basename(path));
-        return;
+    } else {
+        uui_pathbar_set_path(&g_path, uui_fileview_dir(active()));
     }
-    uui_pathbar_set_path(&g_path, uui_fileview_dir(active()));
+    free(was);
+    free(path);
 }
 
 // A drop-down, under the command-bar button that asked for it.
@@ -1186,14 +1208,15 @@ static void open_dropdown(int code) {
 // NEW, IN PLACE: the item is created under a free name and its name is
 // then edited where it stands -- Explorer's New folder, Dolphin's too.
 static void create_and_rename(int cmd) {
-    char name[PATH_MAX_LEN], path[PATH_MAX_LEN];
+    char name[ULIST_NAME_MAX];
     const char *base = cmd == CMD_MKDIR ? "New folder" : "New text file.txt";
     struct sys_stat st;
     strlcpy(name, base, sizeof name);
-    if (k_path_join(uui_fileview_dir(active()), base, path, sizeof path) &&
-        sys_stat(path, &st) == 0 &&
-        !ufileop_unique_name(uui_fileview_dir(active()), base, name, sizeof name)) {
-        set_note("no free name");
+    char *path = upath_join(uui_fileview_dir(active()), base);
+    int taken = path && sys_stat(path, &st) == 0;
+    free(path);
+    if (!path || (taken && !ufileop_unique_name(uui_fileview_dir(active()), base, name, sizeof name))) {
+        set_note(path ? "no free name" : "not enough memory");
         return;
     }
     if (cmd == CMD_MKDIR) commit_mkdir(name);
@@ -1203,13 +1226,15 @@ static void create_and_rename(int cmd) {
 
 // A rename the pane finished (Enter, or a click elsewhere): do it.
 static void rename_poll(void) {
-    char from[PATH_MAX_LEN], to[PATH_MAX_LEN];
+    char *from, *to;
     for (int i = 0; i < 2; i++)
-        if (uui_fileview_take_rename(&g_pane[i], from, to, sizeof from)) {
+        if (uui_fileview_take_rename(&g_pane[i], &from, &to)) {
             int was = g_active;
             g_active = i;
             commit_rename_named(from, to);
             g_active = was;
+            free(from);
+            free(to);
         }
 }
 
@@ -1234,12 +1259,10 @@ static int filter_command(int code) {
     else return 0;
     filter_labels();
     const char *sc = search_scope(uui_fileview_dir(active()));
-    char root[PATH_MAX_LEN];
     if (sc && !g_query[g_active][0] && !ufind_filter_active(f)) {
         scope_chosen(0);   // nothing left to search for: back to the folder
     } else if (sc) {
-        strlcpy(root, sc, sizeof root);
-        search_into(root);
+        search_into(sc);   // copies it before the pane moves
     } else if (code != CMD_FILTER_INSIDE) {
         reload_pane(active());
     } else if (g_inside[g_active]) {
@@ -1253,11 +1276,12 @@ static int filter_command(int code) {
 void do_command(struct uapp *a, int code) {
     if (code >= CMD_PL_FIRST && code <= CMD_PL_LAST) { places_command(a, code); return; }
     if (code >= CMD_ACTION_FIRST && code < CMD_ACTION_FIRST + g_nacts) {
-        char path[PATH_MAX_LEN];
-        if (uui_fileview_selected_path(active(), path, sizeof path)) {
+        char *path = uui_fileview_selected_path(active());
+        if (path) {
             int pid = uopen_action_run(&g_acts[code - CMD_ACTION_FIRST], path);
             if (pid > 0) uapp_track_child(a, pid);
         }
+        free(path);
         return;
     }
     if (g_single && (code == CMD_COPY || code == CMD_MOVE || code == CMD_SWAP)) {
@@ -1320,27 +1344,29 @@ void do_command(struct uapp *a, int code) {
     case CMD_EXTRACT_HERE:
     case CMD_EXTRACT_TO:     extract_command(code); break;
     case CMD_MOUNT_IMAGE: {
-        char path[PATH_MAX_LEN];
-        if (disc_selected(path, sizeof path)) disc_open(g_active, path);
+        char *path = disc_selected();
+        if (path) disc_open(g_active, path);
         else set_note("select one disc image (.iso)");
+        free(path);
         break;
     }
     case CMD_EXTRACT_ALL:
     case CMD_EXTRACT_SEL: {
-        char archive[PATH_MAX_LEN], dest[PATH_MAX_LEN];
         const char *inner;
-        if (arc_split(uui_fileview_dir(active()), archive, sizeof archive, &inner) &&
-            arc_default_dest(archive, dest, sizeof dest))
-            do_extract(code == CMD_EXTRACT_ALL, dest, 1);
+        char *archive = arc_split(uui_fileview_dir(active()), &inner);
+        char *dest = archive ? arc_default_dest(archive) : 0;
+        if (dest) do_extract(code == CMD_EXTRACT_ALL, dest, 1);
+        free(dest);
+        free(archive);
         break;
     }
     case CMD_UNPIN:          pin_selected(0); break;
     case CMD_NEW_TAB:        tab_new(a, uui_fileview_dir(active())[0] == '/' ? uui_fileview_dir(active()) : udir_home()); break;
     case CMD_CLOSE_TAB:      tab_close(a, tab_current()); break;
     case CMD_OPEN_TAB: {
-        char path[PATH_MAX_LEN];
-        if (uui_fileview_selected_is_dir(active()) &&
-            uui_fileview_selected_path(active(), path, sizeof path)) tab_new(a, path);
+        char *path = uui_fileview_selected_is_dir(active()) ? uui_fileview_selected_path(active()) : 0;
+        if (path) tab_new(a, path);
+        free(path);
         break;
     }
     case CMD_REDO:           do_undo(1); break;
@@ -1383,10 +1409,9 @@ void do_command(struct uapp *a, int code) {
         break;
     case CMD_RUN_TERMINAL:
     case CMD_RUN: {
-        char path[PATH_MAX_LEN];
         struct ulaunch_info li;
-        if (selected_launch(&li) == ULAUNCH_NONE ||
-            !uui_fileview_selected_path(active(), path, sizeof path)) {
+        char *path = selected_launch(&li) == ULAUNCH_NONE ? 0 : uui_fileview_selected_path(active());
+        if (!path) {
             set_note("not a program");
             break;
         }
@@ -1394,13 +1419,14 @@ void do_command(struct uapp *a, int code) {
         // it is, and then the card says why.
         if (!li.runnable || !li.interp_found) launch_ask(path, &li);
         else launch_start(path, li.kind, code == CMD_RUN ? ULAUNCH_RUN : ULAUNCH_TERMINAL);
+        free(path);
         break;
     }
     case CMD_EDIT:
     case CMD_EDIT_PAINT: {
         // A launch, like on_pane_open(): not waited for.
-        char path[PATH_MAX_LEN];
-        if (!uui_fileview_selected_path(active(), path, sizeof path)) {
+        char *path = uui_fileview_selected_path(active());
+        if (!path) {
             set_note("nothing selected");
             break;
         }
@@ -1411,11 +1437,12 @@ void do_command(struct uapp *a, int code) {
         } else {
             snprintf(g_stat_note, sizeof g_stat_note, "editing %s", k_path_basename(path));
         }
+        free(path);
         break;
     }
     case CMD_PROPERTIES: {
-        char path[PATH_MAX_LEN];
-        if (!uui_fileview_selected_path(active(), path, sizeof path)) {
+        char *path = uui_fileview_selected_path(active());
+        if (!path) {
             set_note("nothing selected");
             break;
         }
@@ -1427,6 +1454,7 @@ void do_command(struct uapp *a, int code) {
             set_note("could not open Properties");
             ulogf("files: spawn %s FAILED\n", PROPERTIES_EXEC);
         }
+        free(path);
         break;
     }
     case CMD_REFRESH:
@@ -1494,7 +1522,7 @@ void do_command(struct uapp *a, int code) {
         int e = upins_has(dir) ? upins_remove(dir) : upins_add(dir);
         if (e == -ENOSPC) set_note("Places is full -- unpin one first");
         else if (e) set_note("could not change Places");
-        g_pin_for[0] = '\0';
+        pin_label_stale();
         places_build();
         tree_rebuild();
         break;
@@ -1538,7 +1566,6 @@ static void on_widget(struct uapp *a, int id, int reason) {
     // The modal owns the window: a routed widget can still be clicked
     // under it, and acting on that could open a second modal over the
     // first. The menu's parked code is TAKEN so it cannot replay later.
-    char taken[PATH_MAX_LEN];
     // The dialog IS the modal when it asks for a name, so it answers
     // before the gate below -- behind it, Esc and both buttons were
     // parked and never taken, and the window stayed modal for good.
@@ -1555,8 +1582,8 @@ static void on_widget(struct uapp *a, int id, int reason) {
         if (id == ID_VIEWBAR) (void)uui_toolbar_take_code(&g_viewbar);
         if (id == ID_FILTERS) (void)uui_toolbar_take_code(&g_filter_bar);
         if (id == ID_OPS) (void)uui_transfers_take(&g_ops, 0);
-        if (id == ID_PATH) (void)uui_pathbar_take(&g_path, taken, sizeof taken);
-        if (id == ID_PLACES) (void)uui_places_take(&g_places, taken, sizeof taken);
+        if (id == ID_PATH) free(uui_pathbar_take(&g_path));
+        if (id == ID_PLACES) free(uui_places_take(&g_places));
         return;
     }
     if (id == ID_TOOLBAR || id == ID_NAV || id == ID_VIEWBAR || id == ID_FILTERS) {
@@ -1577,7 +1604,9 @@ static void on_widget(struct uapp *a, int id, int reason) {
         return;
     }
     if (id == ID_PATH) {
-        if (uui_pathbar_take(&g_path, taken, sizeof taken)) path_navigate(taken);
+        char *taken = uui_pathbar_take(&g_path);
+        if (taken) path_navigate(taken);
+        free(taken);
         refresh_status();
         uapp_redraw(a);
         return;
@@ -1589,9 +1618,10 @@ static void on_widget(struct uapp *a, int id, int reason) {
         return;
     }
     if (id == ID_PLACES) {
-        if (uui_places_take(&g_places, taken, sizeof taken) &&
-            strcmp(taken, uui_fileview_dir(active())) != 0 && !fm_goto(g_active, taken))
+        char *taken = uui_places_take(&g_places);
+        if (taken && strcmp(taken, uui_fileview_dir(active())) != 0 && !fm_goto(g_active, taken))
             snprintf(g_stat_note, sizeof g_stat_note, "cannot open %s", taken);
+        free(taken);
         refresh_status();
         uapp_redraw(a);
         return;
@@ -1900,9 +1930,10 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     }
     // THE BREADCRUMB AS TEXT: Enter goes there, Esc puts it back.
     if (uui_pathbar_is_editing(&g_path)) {
-        char typed[PATH_MAX_LEN];
         uui_pathbar_ops.key(&g_path, key, mods);
-        if (uui_pathbar_take(&g_path, typed, sizeof typed)) path_navigate(typed);
+        char *typed = uui_pathbar_take(&g_path);
+        if (typed) path_navigate(typed);
+        free(typed);
         refresh_status();
         uapp_redraw(a);
         return;
@@ -2076,14 +2107,14 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     // directory the pane was already showing and appeared to do
     // nothing. Comparing here catches every navigation the widget does
     // on its own, including any it grows later.
-    char before[PATH_MAX_LEN];
-    snprintf(before, sizeof before, "%s", uui_fileview_dir(active()));
+    char *before = strdup(uui_fileview_dir(active()));   // the key may free the pane's own
     if (!uui_key_is_shortcut(key, mods) && uui_fileview_key(active(), key)) {
         const char *now = uui_fileview_dir(active());
-        if (strcmp(before, now) != 0) fm_history_record(g_active, now);
+        if (!before || strcmp(before, now) != 0) fm_history_record(g_active, now);
         refresh_status();
         uapp_redraw(a);
     }
+    free(before);
 }
 
 static int on_tick(struct uapp *a) {
@@ -2165,9 +2196,10 @@ static void on_pane_open(void *ctx, const char *path) {
     }
     // AN ARCHIVE OPENS AS A FOLDER, Explorer's compressed folders.
     if (is_archive_name(path)) {
-        char dir[PATH_MAX_LEN + 8];
-        snprintf(dir, sizeof dir, "%s%s", FM_ARC, path);
+        char *dir = 0;
+        if (asprintf(&dir, "%s%s", FM_ARC, path) < 0) { set_note("not enough memory"); return; }
         fm_goto((int)(intptr_t)ctx, dir);
+        free(dir);
         return;
     }
     open_path(path);
@@ -2265,7 +2297,7 @@ static void on_pane_dir(void *ctx, const char *dir) {
         /* the strip's "This folder": the filter stays */
     } else {
         search_end(i);
-        g_scope[i][0] = '\0';
+        set_scope(i, 0);
         if (i == g_active) g_strip_open = 0;
     }
     // ...and its filters with it: they were about that folder too.
@@ -2284,7 +2316,7 @@ static void on_pane_dir(void *ctx, const char *dir) {
     // rewritten twice per navigation -- 512 bytes, and the alternative
     // is a dirty flag that has to be right.
     // A search is not a place to come back to: the folder it searched is.
-    uconf_set(FILES_CONF, i ? "right" : "left", sc ? (g_scope[i][0] ? g_scope[i] : sc) : dir);
+    uconf_set(FILES_CONF, i ? "right" : "left", sc ? (scope_of(i)[0] ? scope_of(i) : sc) : dir);
     // AFTER that write: a pane showing /etc would otherwise read it as a
     // change and repaint a second time on every navigation there.
     pane_listed(i);
@@ -2309,9 +2341,9 @@ static const struct uimg *picture_of(const char *path, int px) {
         strlcpy(e.name, k_path_basename(path), sizeof e.name);
         e.size = (uint32_t)st.size;
         e.modified = st.modified;
-        char dir[PATH_MAX_LEN];
-        k_path_dirname(path, dir, sizeof dir);
-        const struct uimg *t = pane_thumb(0, dir, &e, px);
+        char *dir = upath_dirname(path);
+        const struct uimg *t = dir ? pane_thumb(0, dir, &e, px) : 0;
+        free(dir);
         if (t) return t;
     }
     return icon_get(ufiletype_icon(k_path_basename(path), st.is_dir), px);
@@ -2351,12 +2383,12 @@ static void answer_conflict(int code) {
     case DLG_SKIP:          fm_conflict_answer(UFILEOP_SKIP, 0); break;
     case DLG_RENAME_ALL:    g_apply_all = DLG_RENAME; /* fall through */
     case DLG_RENAME: {
-        char dir[PATH_MAX_LEN];
-        k_path_dirname(dst, dir, sizeof dir);
+        char *dir = upath_dirname(dst);
         // "notes.txt" -> "notes (1).txt", the number before the
         // extension so the copy still opens with the same app.
-        int ok = ufileop_unique_name(dir, k_path_basename(src), g_dlg_rename,
-                                      sizeof g_dlg_rename);
+        int ok = dir && ufileop_unique_name(dir, k_path_basename(src), g_dlg_rename,
+                                             sizeof g_dlg_rename);
+        free(dir);
         if (ok)
             fm_conflict_answer(UFILEOP_RENAME, g_dlg_rename);
         else
@@ -2462,16 +2494,19 @@ static void raise_conflict(struct uapp *a) {
     // coming in and what is there, each with its picture, size and date
     // and a badge on the newer and the larger -- Windows' Replace or Skip
     // card -- so the answer is read off the screen rather than recalled.
-    char sdir[PATH_MAX_LEN], ddir[PATH_MAX_LEN], cap[64];
-    k_path_dirname(src, sdir, sizeof sdir);
-    k_path_dirname(dst, ddir, sizeof ddir);
-    snprintf(g_dlg_rows[0], sizeof g_dlg_rows[0], "%s already has \"%s\".",
-             ddir[1] ? k_path_basename(ddir) : "System", k_path_basename(dst));
+    char cap[64];
+    char *sdir = upath_dirname(src), *ddir = upath_dirname(dst);
+    // A folder by its name; "/" (or none to be had) is the System.
+    const char *sname = sdir && sdir[1] ? k_path_basename(sdir) : "System";
+    const char *dname = ddir && ddir[1] ? k_path_basename(ddir) : "System";
+    snprintf(g_dlg_rows[0], sizeof g_dlg_rows[0], "%s already has \"%s\".", dname, k_path_basename(dst));
     uui_compare_init(&g_cmp, fm_job_has_rest() ? "Do the same for the rest" : 0);
-    snprintf(cap, sizeof cap, "Coming in, from %s", sdir[1] ? k_path_basename(sdir) : "System");
+    snprintf(cap, sizeof cap, "Coming in, from %s", sname);
     uui_compare_set(&g_cmp, 0, cap, src, 0);
-    snprintf(cap, sizeof cap, "Already in %s", ddir[1] ? k_path_basename(ddir) : "System");
+    snprintf(cap, sizeof cap, "Already in %s", dname);
     uui_compare_set(&g_cmp, 1, cap, dst, 0);
+    free(sdir);
+    free(ddir);
 
     static const struct uui_dialog_button btns[] = {
         { "Replace",    DLG_OVERWRITE, 0 },
@@ -2554,13 +2589,13 @@ void refresh_dim(void) {
     for (int n = 0; n < uclip_count(&c); n++) {
         const char *path = uclip_path(&c, n);
         if (!path) break;
-        char dir[PATH_MAX_LEN];
-        k_path_dirname(path, dir, sizeof dir);
-        for (int i = 0; i < 2; i++) {
+        char *dir = upath_dirname(path);
+        for (int i = 0; dir && i < 2; i++) {
             if (strcmp(uui_fileview_dir(&g_pane[i]), dir) != 0) continue;
             int row = uui_fileview_row_of(&g_pane[i], k_path_basename(path));
             if (row >= 0) uui_fileview_set_dimmed(&g_pane[i], row, 1);
         }
+        free(dir);
     }
 }
 
@@ -2621,14 +2656,17 @@ int main(int argc, char **argv) {
     if (!options_ui_load()) return options_ui_error();
     fm_history_load(0, 0);   // empty, not zeroed: a zeroed one held "" as its first place
     fm_history_load(1, 0);
-    char saved_left[PATH_MAX_LEN], saved_right[PATH_MAX_LEN];
-    if (!uconf_get(FILES_CONF, "left", saved_left, sizeof saved_left)) saved_left[0] = '\0';
-    if (!uconf_get(FILES_CONF, "right", saved_right, sizeof saved_right)) saved_right[0] = '\0';
+    // FS_PATH_MAX each, the most a saved folder can be (limits.h's
+    // PATH_MAX): read cut, a deep folder would come back as another.
+    char *saved_left = calloc(1, PATH_MAX), *saved_right = calloc(1, PATH_MAX);
+    if (!saved_left || !saved_right) { ulogf("files: out of memory at start\n"); return 1; }
+    if (!uconf_get(FILES_CONF, "left", saved_left, PATH_MAX)) saved_left[0] = '\0';
+    if (!uconf_get(FILES_CONF, "right", saved_right, PATH_MAX)) saved_right[0] = '\0';
 
     // Options' "Open in": where the last run left off, Home, or the root.
     if (g_opt.start != FM_START_LAST) {
-        strlcpy(saved_left, g_opt.start == FM_START_HOME ? udir_home() : "/", sizeof saved_left);
-        strlcpy(saved_right, saved_left, sizeof saved_right);
+        strlcpy(saved_left, g_opt.start == FM_START_HOME ? udir_home() : "/", PATH_MAX);
+        strlcpy(saved_right, saved_left, PATH_MAX);
     }
     const char *left = (argc > 1 && argv[1][0]) ? argv[1]
                         : (saved_left[0] ? saved_left : "/");
@@ -2760,11 +2798,10 @@ int main(int argc, char **argv) {
     // "Open file location" means. Opened as a folder, a file listed as
     // an error. The selection goes after the goto (docs/conventions/gui.md,
     // "AN APP HANDED A FILE MUST SELECT IT").
-    static char start_dir[PATH_MAX_LEN];
+    char *start_dir = 0;   // select_name points into argv, not into this
     const char *select_name = 0;
     struct sys_stat st;
-    if (argc > 1 && sys_stat(left, &st) == 0 && !st.is_dir &&
-        k_path_dirname(left, start_dir, sizeof start_dir)) {
+    if (argc > 1 && sys_stat(left, &st) == 0 && !st.is_dir && (start_dir = upath_dirname(left))) {
         select_name = k_path_basename(left);
         left = start_dir;
     }
@@ -2798,6 +2835,9 @@ int main(int argc, char **argv) {
     // place" from a guess into a diagnosis in one run.
     ulogf("files: start left=%s right=%s (saved %s|%s)\n", left, right,
           saved_left, saved_right);
+    free(start_dir);   // the panes keep their own copies; `left` may point here
+    free(saved_left);
+    free(saved_right);
 
     struct uapp_desc desc = {
         .title        = "File Manager",

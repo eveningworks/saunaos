@@ -33,7 +33,7 @@ static int g_dx, g_dy, g_dw, g_dh;   // the pane's rect, from layout_all()
 // single-file view can say.
 static struct ufileinfo g_fi;
 static struct uui_fileinfo g_info;
-static char g_fi_key[UUI_FILEVIEW_PATH_MAX + 32];   // path + mtime it was read for
+static char *g_fi_key;   // path + mtime it was read for (heap); NULL: no item shown
 
 // A VOLUME'S ROOT WITH NOTHING SELECTED is described as the volume -- its
 // card, shared with Properties (ui/uui_volinfo.h) -- not as a folder:
@@ -60,8 +60,8 @@ int details_width(int cw) {
 
 static int line_h(void)    { return ugfx_char_h() + 4; }
 
-// The path the pane describes, or 0 with several marked.
-static int described(char *path, int cap, const struct ulist_entry **ent) {
+// The path the pane describes (free() it), or NULL with several marked.
+static char *described(const struct ulist_entry **ent) {
     struct uui_fileview *fv = active();
     const struct ulist_entry *e = uui_fileview_selected_entry(fv);
     const char *dir = uui_fileview_dir(fv);
@@ -70,10 +70,14 @@ static int described(char *path, int cap, const struct ulist_entry **ent) {
     // The selection's REAL path -- in the Recycle Bin, where it lies in
     // the bin, not "trash:/" joined with its name.
     if (e && in_archive(fv)) return 0;   // a member has no path to read facts from
-    if (e) return uui_fileview_selected_path(fv, path, cap);
+    if (e) return uui_fileview_selected_path(fv);
     if (in_bin(fv) || in_search(fv) || in_archive(fv) || in_recent(fv) || in_quick(fv)) return 0;   // a virtual folder is nothing to describe
-    strlcpy(path, dir, (size_t)cap);
-    return 1;
+    return strdup(dir);
+}
+
+static void forget(void) {
+    free(g_fi_key);
+    g_fi_key = 0;
 }
 
 // Re-read the facts only when the item (or its mtime) changed: the
@@ -81,10 +85,10 @@ static int described(char *path, int cap, const struct ulist_entry **ent) {
 static void refresh(void) {
     static int inited;
     if (!inited) { uui_fileinfo_init(&g_info); g_info.compact = 1; uui_volinfo_init(&g_vcard, &g_vol, 1); inited = 1; }
-    char path[UUI_FILEVIEW_PATH_MAX];
     const struct ulist_entry *e;
     g_vol_on = 0;
-    if (!described(path, sizeof path, &e)) { g_fi_key[0] = 0; return; }
+    char *path = described(&e);
+    if (!path) { forget(); return; }
     if (!e) {
         unsigned long long now = sys_monotonic_ns();
         if (strcmp(g_vol.point, path) || now - g_vol_ns >= 1000000000ull) {
@@ -92,28 +96,36 @@ static void refresh(void) {
             if (!uvolinfo_load(path, &g_vol)) g_vol.point[0] = '\0';
             else if (strcmp(g_vol.point, path)) g_vol.point[0] = '\0';
         }
-        if (!strcmp(g_vol.point, path)) { g_vol_on = 1; g_fi_key[0] = 0; return; }
+        if (!strcmp(g_vol.point, path)) { g_vol_on = 1; forget(); free(path); return; }
     }
-    char key[sizeof g_fi_key];
+    char *key = 0;
     // The mounts' signature too: a disc image's facts say whether it is mounted.
-    snprintf(key, sizeof key, "%s|%u|%x", path, e ? (unsigned)e->modified.second + 60u * e->modified.minute : 0u,
-             places_signature());
-    if (strcmp(key, g_fi_key)) {
-        strlcpy(g_fi_key, key, sizeof g_fi_key);
+    if (asprintf(&key, "%s|%u|%x", path, e ? (unsigned)e->modified.second + 60u * e->modified.minute : 0u,
+                 places_signature()) < 0) {
+        forget();
+        free(path);
+        return;
+    }
+    if (!g_fi_key || strcmp(key, g_fi_key)) {
+        free(g_fi_key);
+        g_fi_key = key;
+        key = 0;
         ufileinfo_load(&g_fi, path, UFI_HEADERS | UFI_DETAILS);
         if (!e) g_fi.files = uui_fileview_count(active());   // the folder itself: its items
         uui_fileinfo_set(&g_info, &g_fi);
     }
+    free(key);
     g_info.preview = 0;
-    char parent[UUI_FILEVIEW_PATH_MAX];
-    if (e && !e->is_dir && g_opt.folder.thumbs && k_path_dirname(path, parent, sizeof parent))
-        g_info.preview = pane_thumb(0, parent, e, uui_fileinfo_preview_px(&g_info, g_dw));
+    char *parent = e && !e->is_dir && g_opt.folder.thumbs ? upath_dirname(path) : 0;
+    if (parent) g_info.preview = pane_thumb(0, parent, e, uui_fileinfo_preview_px(&g_info, g_dw));
+    free(parent);
+    free(path);
 }
 
 // Where the buttons go: under whatever the pane drew.
 static int buttons_y(void) {
     if (g_vol_on) return g_dy + uui_volinfo_height(&g_vcard, g_dw) + 4;
-    if (g_fi_key[0]) return g_dy + uui_fileinfo_height(&g_info, g_dw) + 4;
+    if (g_fi_key) return g_dy + uui_fileinfo_height(&g_info, g_dw) + 4;
     return g_dy + PAD + (g_dw - 2 * PAD) * 3 / 5 + 10 + 3 * line_h() + 8 + 2 * line_h() + 10;
 }
 
@@ -125,10 +137,10 @@ void details_layout(int x, int y, int w, int h) {
     static const char *const VERB[] = { "Open", "Disconnect", "Sign in...", "Open in Disks", "Eject" };
     // A disc image not mounted: its first verb mounts it (Open then goes there).
     g_dp_open.label = g_vol_on ? VERB[vol_act()]
-                    : g_fi_key[0] && g_fi.disc && !g_fi.disc_point[0] ? "Mount" : "Open";
+                    : g_fi_key && g_fi.disc && !g_fi.disc_point[0] ? "Mount" : "Open";
     static char logged[UFI_PATH + 16];   // what a test reads, once per change
     char now[sizeof logged];
-    int disc = !g_vol_on && g_fi_key[0] && g_fi.disc;
+    int disc = !g_vol_on && g_fi_key && g_fi.disc;
     snprintf(now, sizeof now, "%s|%d|%s", g_vol_on ? g_vol.point : disc ? g_fi.path : "",
              g_vol_on ? vol_act() : 0, g_dp_open.label);
     if (strcmp(now, logged)) {
@@ -185,7 +197,7 @@ static void draw_marked(struct ugfx_surface *s, uint32_t bg) {
     int bx = g_dx + PAD, by = g_dy + PAD, bw = g_dw - 2 * PAD, bh = (g_dw - 2 * PAD) * 3 / 5;
     const struct uimg *ico = icon_get("file", bh * 2 / 3);
     if (ico) ugfx_blit_alpha(s, bx + (bw - ico->w) / 2, by + (bh - ico->h) / 2, ico->w, ico->h, ico->px, ico->w);
-    char title[UUI_FILEVIEW_PATH_MAX], h[24];
+    char title[ULIST_NAME_MAX + 32], h[24];
     const char *one = uui_fileview_selected_name(fv);
     if (marks) snprintf(title, sizeof title, "%d items selected", marks);
     else if (in_archive(fv) && one) snprintf(title, sizeof title, "%s", one);   // a member: its name
@@ -209,13 +221,13 @@ static void draw_marked(struct ugfx_surface *s, uint32_t bg) {
     }
     ugfx_draw_string_clipped(s, bx, y, kw, "Location", dim, bg);
     // A virtual folder by its name, not its "trash:/" spelling.
-    char archive[UUI_FILEVIEW_PATH_MAX];
     const char *inner;
+    char *archive = arc_split(uui_fileview_dir(fv), &inner);
     const char *where = in_bin(fv) ? "Recycle Bin" : in_search(fv) ? "Search results"
                       : in_recent(fv) ? "Recent" : in_quick(fv) ? "Quick access"
-                      : arc_split(uui_fileview_dir(fv), archive, sizeof archive, &inner)
-                        ? k_path_basename(archive) : uui_fileview_dir(fv);
+                      : archive ? k_path_basename(archive) : uui_fileview_dir(fv);
     ugfx_draw_string_elided(s, bx + kw, y, bw - kw, where, UTHEME_TEXT, bg);
+    free(archive);
 }
 
 void details_draw(struct ugfx_surface *s) {
@@ -224,7 +236,7 @@ void details_draw(struct ugfx_surface *s) {
     ugfx_fill_rect(s, g_dx, g_dy, 1, g_dh, UTHEME_BORDER);
     ugfx_set_clip_rect(s, g_dx, g_dy, g_dw, g_dh);
     if (g_vol_on) uui_volinfo_draw(s, &g_vcard);
-    else if (g_fi_key[0]) uui_fileinfo_draw(s, &g_info);
+    else if (g_fi_key) uui_fileinfo_draw(s, &g_info);
     else draw_marked(s, bg);
     ugfx_clear_clip_rect(s);
 }

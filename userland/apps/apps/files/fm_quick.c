@@ -28,8 +28,8 @@ enum { Q_PIN, Q_RECENT, Q_DRIVE };
 
 struct qrow {
     int kind;
-    char path[PATH_MAX_LEN];
-    char where[PATH_MAX_LEN];   // the Where column
+    char *path;                 // heap, as every string here
+    char *where;                // the Where column
     char what[48];              // the Kind column
     const char *icon;           // a drive's, else NULL (by the name)
     long long when;             // a recent file's opening, else 0
@@ -46,12 +46,26 @@ static const struct uui_table_column quick_cols[] = {
     { "Kind",   16, UUI_TALIGN_LEFT, "kind",   0 },
 };
 
+// The row's Where, as its own copy; a row keeps "" when memory is out.
+static void set_where(struct qrow *r, char *where) {
+    if (!where) return;
+    free(r->where);
+    r->where = where;
+}
+
 static int add(int kind, const char *path, const char *name, struct ulist_entry *out, int cap) {
     if (g_n >= cap || g_n >= (int)(sizeof g_rows / sizeof g_rows[0])) return 0;
     struct qrow *r = &g_rows[g_n];
     memset(r, 0, sizeof *r);
     r->kind = kind;
-    strlcpy(r->path, path, sizeof r->path);
+    r->path = strdup(path);
+    r->where = strdup("");
+    if (!r->path || !r->where) {
+        ulogf("files: out of memory listing Quick access\n");
+        free(r->path);
+        free(r->where);
+        return 0;
+    }
     struct ulist_entry *e = &out[g_n];
     memset(e, 0, sizeof *e);
     strlcpy(e->name, name, sizeof e->name);
@@ -67,6 +81,7 @@ static int add(int kind, const char *path, const char *name, struct ulist_entry 
 
 static int quick_list(void *ctx, const char *dir, struct ulist_entry *out, int cap) {
     (void)ctx; (void)dir;
+    for (int i = 0; i < g_n; i++) { free(g_rows[i].path); free(g_rows[i].where); }
     g_n = 0;
 
     // The pinned FOLDERS: Recent and the bin are places, not folders, and
@@ -74,10 +89,10 @@ static int quick_list(void *ctx, const char *dir, struct ulist_entry *out, int c
     static char pins[UPINS_MAX][UPINS_PATH];
     int np = upins_load(pins, UPINS_MAX);
     for (int i = 0; i < np; i++) {
-        char path[PATH_MAX_LEN], label[64];
+        char path[UPINS_PATH], label[64];   // a pin's own bound (base/upins.h)
         if (upins_resolve(pins[i], path, sizeof path, label, sizeof label, 0)) continue;
         if (!add(Q_PIN, path, label, out, cap)) break;
-        strlcpy(g_rows[g_n - 1].where, path, sizeof g_rows[0].where);
+        set_where(&g_rows[g_n - 1], strdup(path));
         strlcpy(g_rows[g_n - 1].what, "Pinned folder", sizeof g_rows[0].what);
     }
 
@@ -86,7 +101,7 @@ static int quick_list(void *ctx, const char *dir, struct ulist_entry *out, int c
     for (int i = 0; i < nr; i++) {
         if (!add(Q_RECENT, items[i].path, k_path_basename(items[i].path), out, cap)) break;
         struct qrow *r = &g_rows[g_n - 1];
-        k_path_dirname(items[i].path, r->where, sizeof r->where);
+        set_where(r, upath_dirname(items[i].path));
         strlcpy(r->what, items[i].app, sizeof r->what);
         r->when = items[i].when;
     }
@@ -98,7 +113,9 @@ static int quick_list(void *ctx, const char *dir, struct ulist_entry *out, int c
         if (!add(Q_DRIVE, p->path, p->label, out, cap)) break;
         struct qrow *r = &g_rows[g_n - 1];
         out[g_n - 1].is_dir = 1;
-        uui_places_short_note(p, r->where, sizeof r->where);
+        char note[64];
+        uui_places_short_note(p, note, sizeof note);
+        set_where(r, strdup(note));
         strlcpy(r->what, p->remote ? "Network share" : p->removable ? "Removable drive"
                          : p->persistent ? "Drive" : "In memory", sizeof r->what);
         r->icon = p->icon;
@@ -106,9 +123,9 @@ static int quick_list(void *ctx, const char *dir, struct ulist_entry *out, int c
     return g_n;
 }
 
-static int quick_path(void *ctx, int i, char *out, int cap) {
+static char *quick_path(void *ctx, int i) {
     (void)ctx;
-    return i >= 0 && i < g_n && strlcpy(out, g_rows[i].path, (size_t)cap) < (size_t)cap;
+    return i >= 0 && i < g_n ? strdup(g_rows[i].path) : 0;
 }
 
 static void quick_cell(void *ctx, int i, int col, char *out, int cap) {

@@ -780,7 +780,9 @@ from the default (a sound card, a USB mouse, `--reboot`).
   and opens a file by a 340-byte path (its `files: open` line). Shift+,
   not plain Delete: the Recycle Bin keeps a 256-byte path of its own
   (roadmap, round 4 B). `--only desktop|files`. Seen red on the old
-  80-byte desktop and 256-byte File Manager.
+  80-byte desktop and 256-byte File Manager. The widgets' own half --
+  the file view's paths, Up, the path bar's segments, a place -- is
+  `tools/hostchecks/uitest/deeppath_uitest.c`, on the host.
 
 - **`screen_off_test.py`** -- the screen-off timer (`wm_idle.c`,
   `SYS_DISPLAY_POWER`) as far as QEMU can show it: the 10-minute

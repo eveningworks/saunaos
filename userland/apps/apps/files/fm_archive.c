@@ -30,16 +30,27 @@
 struct arc_list {
     struct ulist_entry *ent; int ent_cap;            // the rows, our own copy
     unsigned long long *packed; int packed_cap;
-    char (*zpath)[PATH_MAX_LEN]; int zpath_cap;     // each row's own "archive:..." name
+    char **zpath; int zpath_cap;                    // each row's own "archive:..." name, heap
     int has_packed;                                 // 0: a tar's members, packed as one stream
     int n;
 };
 static struct arc_list g_arc[2];
 
 // "archive:/home/x.tar.gz/a/b" -> archive "/home/x.tar.gz", inner "a/b".
-int arc_split(const char *dir, char *archive, int acap, const char **inner) {
+char *arc_split(const char *dir, const char **inner) {
     if (strncmp(dir, FM_ARC, sizeof FM_ARC - 1)) return 0;
-    return uarchive_split(dir + sizeof FM_ARC - 1, archive, acap, inner);
+    const char *path = dir + sizeof FM_ARC - 1;
+    int cap = (int)strlen(path) + 1;   // the archive is a prefix of it
+    char *archive = malloc((size_t)cap);
+    if (archive && uarchive_split(path, archive, cap, inner)) return archive;
+    free(archive);
+    return 0;
+}
+
+// Rows [0, n) of `a` lose their names.
+static void zpath_clear(struct arc_list *a) {
+    for (int i = 0; i < a->n; i++) { free(a->zpath[i]); a->zpath[i] = 0; }
+    a->n = 0;
 }
 
 int is_archive_name(const char *path) {
@@ -54,6 +65,7 @@ struct fill {
     struct ulist_entry *out;
     int cap;
     int refused;           // members whose names would leave the folder
+    int oom;               // a row's path could not be had: the listing failed
 };
 
 static int add(void *ctx, const struct uarchive_entry *ae) {
@@ -87,7 +99,12 @@ static int add(void *ctx, const struct uarchive_entry *ae) {
     e->size = e->is_dir ? 0 : (uint32_t)size;
     e->modified = ae->modified;
     a->packed[a->n] = packed;
-    if (snprintf(a->zpath[a->n], PATH_MAX_LEN, "%s/%s", f->dir, e->name) >= PATH_MAX_LEN) return 0;
+    a->zpath[a->n] = 0;
+    if (asprintf(&a->zpath[a->n], "%s/%s", f->dir, e->name) < 0) {
+        a->zpath[a->n] = 0;
+        f->oom = 1;
+        return 1;   // stop: a row with no path cannot be opened
+    }
     a->ent[a->n] = *e;
     a->n++;
     return 0;
@@ -95,40 +112,47 @@ static int add(void *ctx, const struct uarchive_entry *ae) {
 
 static int z_list(void *ctx, const char *dir, struct ulist_entry *out, int cap) {
     struct arc_list *a = ctx;
-    char archive[PATH_MAX_LEN], err[96];
+    char err[96];
     const char *inner;
-    a->n = 0;
-    if (!arc_split(dir, archive, sizeof archive, &inner)) return -EINVAL;
-    if (!UGROW(a->ent, a->ent_cap, cap) || !UGROW(a->packed, a->packed_cap, cap) ||
+    zpath_clear(a);
+    char *archive = arc_split(dir, &inner);
+    if (!archive) return -EINVAL;
+    // The view's name without a trailing '/', so rows join cleanly.
+    char *base = strdup(dir);
+    if (!base || !UGROW(a->ent, a->ent_cap, cap) || !UGROW(a->packed, a->packed_cap, cap) ||
         !UGROW(a->zpath, a->zpath_cap, cap)) {
         ulogf("files: archive %s: out of memory at %d rows\n", archive, cap);
+        free(base);
+        free(archive);
         return -ENOMEM;
     }
-    // The view's name without a trailing '/', so rows join cleanly.
-    char base[PATH_MAX_LEN];
-    strlcpy(base, dir, sizeof base);
     size_t bl = strlen(base);
     if (bl && base[bl - 1] == '/') base[bl - 1] = '\0';
-    struct fill f = { a, inner, strlen(inner), base, out, cap, 0 };
+    struct fill f = { a, inner, strlen(inner), base, out, cap, 0, 0 };
     if (f.ilen && inner[f.ilen - 1] == '/') f.ilen--;
     a->has_packed = 1;
     int rc = uarchive_list(archive, add, &f, err, sizeof err);
-    if (rc < 0) {
-        snprintf(g_stat_note, sizeof g_stat_note, "%s", err);
-        ulogf("files: archive %s: %s\n", archive, err);
-        return rc;
+    if (rc >= 0 && f.oom) {
+        ulogf("files: archive %s: out of memory naming row %d\n", archive, a->n);
+        rc = -ENOMEM;
     }
-    if (f.refused) {
+    if (rc < 0) {
+        if (!f.oom) snprintf(g_stat_note, sizeof g_stat_note, "%s", err);
+        if (!f.oom) ulogf("files: archive %s: %s\n", archive, err);
+        zpath_clear(a);
+    } else if (f.refused) {
         snprintf(g_stat_note, sizeof g_stat_note, "%d member%s with unsafe names not shown",
                  f.refused, f.refused == 1 ? "" : "s");
         ulogf("files: archive %s: %d members name a place outside it\n", archive, f.refused);
     }
-    return a->n;
+    free(base);
+    free(archive);
+    return rc < 0 ? rc : a->n;
 }
 
-static int z_path(void *ctx, int i, char *out, int cap) {
+static char *z_path(void *ctx, int i) {
     const struct arc_list *a = ctx;
-    return i >= 0 && i < a->n && (int)strlcpy(out, a->zpath[i], (size_t)cap) < cap;
+    return i >= 0 && i < a->n ? strdup(a->zpath[i]) : 0;
 }
 
 static const struct uui_table_column zip_cols[] = {
@@ -163,17 +187,24 @@ static int z_compare(void *ctx, int a, int b, int col) {
 
 // Up inside an archive: the folder above in it, and from its top the
 // folder the archive is in -- "zip:/home" names nothing.
-static int z_up(void *ctx, const char *dir, char *out, int cap) {
+static char *z_up(void *ctx, const char *dir) {
     (void)ctx;
-    char archive[PATH_MAX_LEN];
     const char *inner;
-    if (!arc_split(dir, archive, sizeof archive, &inner)) return 0;
-    if (!inner[0]) return k_path_dirname(archive, out, (size_t)cap);
-    if (snprintf(out, (size_t)cap, "%s", dir) >= cap) return 0;
-    char *s = strrchr(out, '/');
-    if (!s || s < out + sizeof FM_ARC - 1 + strlen(archive)) return 0;
-    *s = '\0';
-    return 1;
+    char *archive = arc_split(dir, &inner), *out = 0;
+    if (!archive) return 0;
+    if (!inner[0]) {
+        out = upath_dirname(archive);
+    } else if ((out = strdup(dir))) {
+        char *s = strrchr(out, '/');
+        if (s && s >= out + sizeof FM_ARC - 1 + strlen(archive)) {
+            *s = '\0';
+        } else {
+            free(out);
+            out = 0;
+        }
+    }
+    free(archive);
+    return out;
 }
 
 #define ARC_SRC(p) { .ctx = &g_arc[p], .list = z_list, .path = z_path, \
@@ -212,18 +243,19 @@ int arc_item_flags(int code, unsigned *out) {
 // Where Extract puts things by default: beside the archive, in a folder
 // named for it -- "x.tar.gz" -> "x", then "x (2)" if that is taken.
 // Explorer's and Ark's default.
-int arc_default_dest(const char *archive, char *out, int cap) {
-    char dir[PATH_MAX_LEN], stem[64];
-    if (!k_path_dirname(archive, dir, sizeof dir)) return 0;
-    if (!uarchive_stem(archive, stem, sizeof stem)) return 0;
+char *arc_default_dest(const char *archive) {
+    char stem[ULIST_NAME_MAX];
+    char *dir = uarchive_stem(archive, stem, sizeof stem) ? upath_dirname(archive) : 0;
     struct sys_stat st;
-    for (int n = 1; n < 100; n++) {
-        char name[80];
+    for (int n = 1; dir && n < 100; n++) {
+        char name[ULIST_NAME_MAX + 8];
         if (n == 1) snprintf(name, sizeof name, "%s", stem);
         else snprintf(name, sizeof name, "%s (%d)", stem, n);
-        if (!k_path_join(dir, name, out, (size_t)cap)) return 0;
-        if (sys_stat(out, &st) != 0) return 1;
+        char *out = upath_join(dir, name);
+        if (!out || sys_stat(out, &st) != 0) { free(dir); return out; }
+        free(out);
     }
+    free(dir);
     return 0;
 }
 
@@ -236,27 +268,28 @@ int arc_default_dest(const char *archive, char *out, int cap) {
 // everything, with nothing selected -- to the folder asked for.
 
 static struct uui_filedialog g_xfd;   // ~20 KB: never a local
-static char g_x_archive[PATH_MAX_LEN];   // outside: the archive; "" inside one
+static char *g_x_archive;   // outside: the archive; NULL inside one
 // INSIDE one, what the chooser was opened on: it is a window of its own,
 // so the panes stay live behind it, and the answer must not extract
 // whatever came to be selected meanwhile.
-static char g_x_dir[PATH_MAX_LEN];
+static char *g_x_dir;
 static int g_x_pane, g_x_operands;
 
-// The archive the selected row is, outside one -- 0 when it is not.
-int selected_archive(char *out, int cap) {
+// The archive the selected row is, outside one (free() it) -- NULL when
+// it is not.
+char *selected_archive(void) {
     struct uui_fileview *fv = active();
     if (in_archive(fv) || in_bin(fv) || uui_fileview_selected_is_dir(fv)) return 0;
     const char *name = uui_fileview_selected_name(fv);
     if (!name || !is_archive_name(name)) return 0;
-    return uui_fileview_selected_path(fv, out, cap);
+    return uui_fileview_selected_path(fv);
 }
 
 static void extract_to_chosen(void *ctx, const char *path) {
     (void)ctx;
     if (!path) { set_note("cancelled"); return; }
-    if (g_x_archive[0]) { do_extract_archive(g_x_archive, path, 1); return; }
-    if (g_active != g_x_pane || strcmp(uui_fileview_dir(active()), g_x_dir) ||
+    if (g_x_archive) { do_extract_archive(g_x_archive, path, 1); return; }
+    if (g_active != g_x_pane || !g_x_dir || strcmp(uui_fileview_dir(active()), g_x_dir) ||
         operand_count() != g_x_operands) {
         set_note("the selection changed -- nothing was extracted");
         return;
@@ -265,33 +298,46 @@ static void extract_to_chosen(void *ctx, const char *path) {
 }
 
 void extract_command(int code) {
-    char archive[PATH_MAX_LEN], dest[PATH_MAX_LEN], dir[PATH_MAX_LEN];
     const char *inner;
+    char *archive = selected_archive();
     if (code == CMD_EXTRACT_HERE) {
-        if (!selected_archive(archive, sizeof archive)) { set_note("not an archive"); return; }
-        if (!arc_default_dest(archive, dest, sizeof dest)) { set_note("no free name to extract into"); return; }
-        do_extract_archive(archive, dest, 3);
+        char *dest = archive ? arc_default_dest(archive) : 0;
+        if (!archive) set_note("not an archive");
+        else if (!dest) set_note("no free name to extract into");
+        else do_extract_archive(archive, dest, 3);
+        free(dest);
+        free(archive);
         return;
     }
+    if (uui_filedialog_is_open(&g_xfd)) { free(archive); return; }
     // Extract to...: from an archive file, or from inside one.
-    if (selected_archive(archive, sizeof archive)) {
-        strlcpy(g_x_archive, archive, sizeof g_x_archive);
-    } else if (arc_split(uui_fileview_dir(active()), archive, sizeof archive, &inner)) {
-        g_x_archive[0] = '\0';
+    free(g_x_archive);
+    free(g_x_dir);
+    g_x_archive = g_x_dir = 0;
+    if (archive) {
+        g_x_archive = strdup(archive);
+    } else if ((archive = arc_split(uui_fileview_dir(active()), &inner))) {
         g_x_pane = g_active;
-        strlcpy(g_x_dir, uui_fileview_dir(active()), sizeof g_x_dir);
+        g_x_dir = strdup(uui_fileview_dir(active()));
         g_x_operands = operand_count();
     } else {
         set_note("not an archive");
         return;
     }
-    if (!k_path_dirname(archive, dir, sizeof dir)) strlcpy(dir, udir_home(), sizeof dir);
+    char *dir = upath_dirname(archive);
+    free(archive);
+    if (!dir || !(g_x_archive || g_x_dir)) {
+        ulogf("files: out of memory opening Extract to\n");
+        set_note("not enough memory");
+        free(dir);
+        return;
+    }
     struct uui_filedialog_opts o = {
         .mode = UUI_FILEDIALOG_FOLDER,
         .title = "Extract to",
         .start_dir = dir,
     };
-    if (uui_filedialog_is_open(&g_xfd)) return;
     if (!uui_filedialog_open(g_app, &g_xfd, &o, extract_to_chosen, 0))
         set_note("could not open the folder chooser");
+    free(dir);
 }

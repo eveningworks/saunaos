@@ -32,10 +32,12 @@ struct uui_infobar g_netbar;
 static int g_netbar_ready;
 // Where to go once a sign-in succeeds: the folder that asked.
 static int g_pend_pane = -1;
-static char g_pend_dir[PATH_MAX_LEN];
+static char *g_pend_dir;   // heap
+// A mount point, as the kernel's mount table spells it.
+#define POINT_MAX sizeof ((struct query_fsinfo *)0)->point
 // The "not answering" dialog: which share, and its two lines.
 static int g_offline_up;
-static char g_offline_point[UUI_PLACES_PATH_MAX];
+static char g_offline_point[POINT_MAX];
 static char g_offline_rows[2][160];
 static const char *g_offline_ptrs[2] = { g_offline_rows[0], g_offline_rows[1] };
 static char g_offline_title[96];
@@ -70,7 +72,9 @@ static void open_signin(int pane, const char *dir, const struct query_fsinfo *fs
     struct unetmount m;
     if (unetmount_load(k_path_basename(fs->point), &m)) snprintf(user, sizeof user, "%s", m.user);
     g_pend_pane = pane;
-    strlcpy(g_pend_dir, dir, sizeof g_pend_dir);
+    char *pend = strdup(dir);
+    free(g_pend_dir);
+    g_pend_dir = pend;   // NULL out of memory: the share's own top, then
     g_dialog_kind = DIALOG_NETSHARE;
     uui_netshare_signin(&g_ns, &g_dialog, fs->point, server, user);
     ulogf("files: netshare signin %s\n", fs->point);
@@ -140,16 +144,25 @@ int net_in_share(const char *dir) {
 
 // Where the share menu points: a tree row's share, or (empty) the one
 // the active pane is in.
-static char g_target[UUI_PLACES_PATH_MAX];
+static char *g_target;   // heap, taken by the next net_command()
 
-void net_aim(const char *point) { strlcpy(g_target, point, sizeof g_target); }
+void net_aim(const char *point) {
+    free(g_target);
+    g_target = strdup(point);
+}
+
+static void command_on(int code, const char *dir);
 
 void net_command(int code) {
+    char *aimed = g_target;
+    g_target = 0;
+    command_on(code, aimed ? aimed : uui_fileview_dir(active()));
+    free(aimed);
+}
+
+static void command_on(int code, const char *dir) {
     struct query_fsinfo fs;
-    const char *dir = g_target[0] ? g_target : uui_fileview_dir(active());
-    int found = share_of(dir, &fs);
-    g_target[0] = '\0';
-    if (!found) return;
+    if (!share_of(dir, &fs)) return;
     const char *name = k_path_basename(fs.point);
     if (code == CMD_NET_OPEN) {
         fm_goto(g_active, fs.point);
@@ -161,7 +174,7 @@ void net_command(int code) {
         uvolinfo_disconnect(fs.point);
         snprintf(g_stat_note, sizeof g_stat_note, "disconnected from %s", fs.source);
     } else if (code == CMD_NET_FORGET) {
-        char point[UUI_PLACES_PATH_MAX];
+        char point[POINT_MAX];
         strlcpy(point, fs.point, sizeof point);
         // Leave the share first: a pane in it would keep it in use.
         for (int p = 0; p < 2; p++) {
@@ -198,18 +211,20 @@ static unsigned signature(void) {
 }
 
 int net_tick(void) {
-    char point[UUI_PLACES_PATH_MAX];
+    char point[POINT_MAX];
     int changed = 0;
     switch (uui_netshare_poll(&g_ns, point, sizeof point)) {
     case UUI_NETSHARE_OPEN: {
         int pane = g_pend_pane >= 0 ? g_pend_pane : g_active;
-        char dest[PATH_MAX_LEN];
-        strlcpy(dest, g_pend_pane >= 0 ? g_pend_dir : point, sizeof dest);
+        // A COPY: fm_goto() may sign in again, which replaces g_pend_dir.
+        char *dest = strdup(g_pend_pane >= 0 && g_pend_dir ? g_pend_dir : point);
         g_pend_pane = -1;
         uui_places_refresh(&g_places);
         tree_rebuild();
+        if (!dest) { ulogf("files: out of memory opening a share\n"); changed = 1; break; }
         fm_goto(pane, dest);
         ulogf("files: netshare open %s items %d\n", dest, uui_fileview_count(&g_pane[pane]));
+        free(dest);
         changed = 1;
         break;
     }
@@ -243,7 +258,7 @@ int net_tick(void) {
 
 int net_goto_address(int pane, const char *typed) {
     if (!unetmount_is_address(typed)) return 0;
-    char path[PATH_MAX_LEN];
+    char path[POINT_MAX];
     int rc = unetmount_open_address(typed, path, sizeof path);
     if (rc) {
         snprintf(g_stat_note, sizeof g_stat_note, rc == -EINVAL ? "not a share address: %s"

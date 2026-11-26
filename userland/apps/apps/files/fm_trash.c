@@ -52,9 +52,10 @@ static int bin_list(void *ctx, const char *dir, struct ulist_entry *out, int cap
     return g_count;
 }
 
-static int bin_path(void *ctx, int i, char *out, int cap) {
+static char *bin_path(void *ctx, int i) {
     (void)ctx;
-    return i >= 0 && i < g_count && utrash_item_path(&g_items[i], out, cap);
+    char p[UTRASH_PATH];   // the bin's own bound (base/utrash.h)
+    return i >= 0 && i < g_count && utrash_item_path(&g_items[i], p, sizeof p) ? strdup(p) : 0;
 }
 
 static void bin_cell(void *ctx, int i, int col, char *out, int cap) {
@@ -64,7 +65,7 @@ static void bin_cell(void *ctx, int i, int col, char *out, int cap) {
     const struct utrash_item *it = &g_items[i];
     if (col == 1 && !it->is_dir) human_size(out, (unsigned long)cap, it->size);
     else if (col == 2) udate_format(out, (unsigned long)cap, &it->deleted, UDATE_DATE | UDATE_TIME);
-    else if (col == 3) k_path_dirname(it->orig, out, (size_t)cap);
+    else if (col == 3) fm_cell_dirname(it->orig, out, cap);
 }
 
 // By the value, not the text: a date written the region's way does not
@@ -125,16 +126,18 @@ const char *fm_watch_path(const char *dir) {
     }
     if (strcmp(dir, FM_RECENT) == 0) return urecent_dir();   // urecent renames its file in
     if (strcmp(dir, FM_QUICK) == 0) return urecent_dir();    // ...and Quick access shows it
-    // An archive's view changes when the archive does.
-    static char archive[PATH_MAX_LEN];
+    // An archive's view changes when the archive does. Kept until the
+    // next call, as `info` is.
+    static char *archive;
     const char *inner;
-    if (arc_split(dir, archive, sizeof archive, &inner)) return archive;
-    return dir;
+    free(archive);
+    archive = arc_split(dir, &inner);
+    return archive ? archive : dir;
 }
 
 // The item a path inside a bin names; -1 for none.
 static int item_of(const char *path) {
-    char p[PATH_MAX_LEN];
+    char p[UTRASH_PATH];
     for (int i = 0; i < g_count; i++)
         if (utrash_item_path(&g_items[i], p, sizeof p) && !strcmp(p, path)) return i;
     return -1;
@@ -156,18 +159,17 @@ static int restore_one(int i, char *why, int cap) {
 void bin_restore(int all) {
     struct uui_fileview *fv = active();
     if (!in_bin(fv)) return;
-    char why[PATH_MAX_LEN + 64] = "";
+    char why[FM_LINE_MAX] = "";
     int done = 0, failed = 0;
     if (all) {
         for (int i = 0; i < g_count; i++)
             if (restore_one(i, why, sizeof why)) done++; else failed++;
     } else {
-        char path[PATH_MAX_LEN];
         int marks = uui_fileview_mark_count(fv);
         for (int m = 0; m < (marks ? marks : 1); m++) {
-            int ok = marks ? uui_fileview_marked_path(fv, m, path, sizeof path)
-                           : uui_fileview_selected_path(fv, path, sizeof path);
-            int i = ok ? item_of(path) : -1;
+            char *path = marks ? uui_fileview_marked_path(fv, m) : uui_fileview_selected_path(fv);
+            int i = path ? item_of(path) : -1;
+            free(path);
             if (i < 0) continue;
             if (restore_one(i, why, sizeof why)) done++; else failed++;
         }
@@ -181,10 +183,21 @@ void bin_restore(int all) {
 }
 
 // Every item's path inside its bin, for Empty's job.
-int bin_paths(char (*out)[PATH_MAX_LEN], int cap) {
+int bin_paths(char ***out) {
+    *out = g_count ? calloc((size_t)g_count, sizeof **out) : 0;
+    if (g_count && !*out) return -1;
     int n = 0;
-    for (int i = 0; i < g_count && n < cap; i++)
-        if (utrash_item_path(&g_items[i], out[n], PATH_MAX_LEN)) n++;
+    for (int i = 0; i < g_count; i++) {
+        char p[UTRASH_PATH];
+        if (!utrash_item_path(&g_items[i], p, sizeof p)) continue;
+        if (!((*out)[n] = strdup(p))) {
+            for (int k = 0; k < n; k++) free((*out)[k]);
+            free(*out);
+            *out = 0;
+            return -1;
+        }
+        n++;
+    }
     return n;
 }
 
