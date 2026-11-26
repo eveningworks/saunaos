@@ -335,13 +335,13 @@ static void open_level(struct uui_menubar *m, int l,
     set_depth(m, l);
     if (l == 0) read_spacing();   // once per menu, never under an open one
 
-    int w, h;
-    level_size(items, count, &w, &h);
-    // Taller than it may be: capped, and its rows scroll. The bound is
-    // the screen for a popup surface, the bounds for one drawn in-window
-    // (when set: they default to the bar's own rect).
-    int cap = uui_popup_max_h();
-    if (!cap && m->bounds_set) cap = m->bh;
+    int w, full_h;
+    level_size(items, count, &w, &full_h);
+    // Taller than it may be: capped, and its rows scroll. The room is the
+    // work area for a popup surface (the provider's max_h), the bounds
+    // for one drawn in-window (when set: they default to the bar's own
+    // rect).
+    int cap = uui_popup_max_h(), h = full_h;
     int scroll = cap > 0 && h > cap && cap >= 4 * row_height();
     if (scroll) h = cap;
 
@@ -351,7 +351,13 @@ static void open_level(struct uui_menubar *m, int l,
     int surf = uui_popup_open(ax, side ? ay - 1 - air() : ay, aw, ah, w, h,
                               side ? UUI_POPUP_RIGHT : UUI_POPUP_BELOW,
                               UUI_POPUP_GRAB | UUI_POPUP_GLASS, level_done, m, &px, &py);
-    if (!surf) place(m, ax, ay, aw, ah, w, h, side, &px, &py);
+    if (!surf) {   // in-window after all: its room is the bounds
+        cap = m->bounds_set ? m->bh : 0;
+        h = full_h;
+        scroll = cap > 0 && h > cap && cap >= 4 * row_height();
+        if (scroll) h = cap;
+        place(m, ax, ay, aw, ah, w, h, side, &px, &py);
+    }
 
     struct uui_menu_level *lv = &m->level[l];
     lv->items = items;

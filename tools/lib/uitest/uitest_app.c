@@ -164,6 +164,7 @@ static void handle(int pid, const struct wmchan_msg *m) {
     // (a popup drawn in the window, no dialog, no notice).
     case WIN_REQ_POPUP: case WIN_REQ_DIALOG: case WIN_REQ_NOTICE: case WIN_REQ_NOTIFY:
     case WIN_REQ_CURSOR_IMAGE: case WIN_REQ_LAUNCH: case WIN_REQ_ACTIVATE:
+    case WIN_REQ_WORK_AREA:   // no answer: uapp falls back to the screen
         reply(pid, -1, 0, 0);
         break;
     default:
