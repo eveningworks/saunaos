@@ -24,7 +24,6 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] Enforce file permissions by default -- the suite passes enforced (2026-11-25); flip after days of ASUS use  *(Multi-user & file permissions)*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 <!-- END next-up -->
 
@@ -245,7 +244,7 @@ only expensive part of it.
 - [x] ~~Stage A of `docs/users-design.md`: uids in the process, the desktop as `user`~~ DONE 2026-11-24 -- `SYS_GETCRED`, `User=`, `id`
 - [x] ~~Stage B of `docs/users-design.md`: the euid gate, and `privd` asks consent~~ DONE 2026-11-24 -- `sudo`, the prompt
 - [x] ~~Stage C of `docs/users-design.md`: files carry an owner, and the syscalls check it~~ DONE 2026-11-24 -- `chown`
-- [ ] **NEXT** Enforce file permissions by default -- the suite passes enforced (2026-11-25); flip after days of ASUS use
+- [x] ~~Enforce file permissions by default~~ DONE 2026-11-26 -- `fileperm=permissive` opts out
 - [x] ~~Stage D1b of `docs/users-design.md`: a setting's `Scope=`, `~/.config` over `/etc`~~ DONE 2026-11-25 -- `config --machine`
 - [x] ~~Stage D1c of `docs/users-design.md`: the apps' own files and state move to `~/.config` and the XDG folders~~ DONE 2026-11-25
 - [x] ~~Stage D2a of `docs/users-design.md`: passwords, kept by privd in `/etc/shadow`~~ DONE 2026-11-25 -- `passwd`, yescrypt

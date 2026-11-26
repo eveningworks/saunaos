@@ -11170,5 +11170,6 @@ one of several hundred `sh` calls into root and not. Chowning a root-made
 fixture afterwards is the smallest, but it can put a file where the
 account could not have made it, hiding exactly the refusal enforcement
 exists to show. With that, the GUI suite and the usertests pass under
-`fileperm=enforce`; the default flips after the ASUS has run with the
-word for a few days.
+`fileperm=enforce`, and the default flipped on 2026-11-26 after sixteen
+boots of daily use on the ASUS with the word, whose only refusals were
+correct ones.

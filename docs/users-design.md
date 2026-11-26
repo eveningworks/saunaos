@@ -272,26 +272,28 @@ is right and this is what it does:
   GNOME's do (`uui_filedialog`; Notepad's untitled Save As with it).
 - **The Software app restarts elevated**, as System Update does: it
   writes /bin, /usr and /var/lib/update; `component` is `sudo component`.
-- **PERMISSIVE BY DEFAULT, for now.** The first run of the whole GUI
+- **It shipped PERMISSIVE.** The first run of the whole GUI
   suite under enforcement failed 48 tools, nearly all on fixtures the
   harness made as ROOT (the debug console's `sh`) for an app run as
   `user` to change; the rest -- /var/lib and /var/cache, the folders'
   inheritance, the home folder, Software -- are fixed above. So
-  `fileperm=` defaults to `permissive`: every check is asked and each
+  `fileperm=` defaulted to `permissive`: every check asked and each
   distinct refusal logged once (`fsperm: pid N (name) uid U refused ...
-  -- allowed, permissive`), nothing refused. `fileperm=enforce` turns
-  them on, and `CRED_PERM_ENFORCE` on a cred enforces one process tree
-  whatever the boot says -- `fileperm_test` runs that way. The flip is
-  on the roadmap, as `syscall_irq` was flipped: the harness's fixtures
-  first, then a soak.
+  -- allowed, permissive`), nothing refused. `CRED_PERM_ENFORCE` on a
+  cred enforces one process tree whatever the boot says --
+  `fileperm_test` runs that way -- and the flip came as `syscall_irq`'s
+  did: the harness's fixtures first, then a soak.
 - **The tests' fixtures are the desktop's (2026-11-25).** A file a test
   makes for an app to change is MADE as `user` -- the debug console's
   `as <account> <line>` (`/bin/runuser -u`, util-linux's, root only),
   `DebugConsole.as_user()`, and `write_lines()` by default -- as Android's
   `run-as` makes an app's files as its uid; a scaffold folder at `/` is
   made `/home`-shaped (`user_dir()`: the account's, 4755). With that, the
-  whole GUI suite and the usertests pass under `fileperm=enforce`; the
-  default flips after daily use on the ASUS with the word on.
+  whole GUI suite and the usertests pass under `fileperm=enforce`.
+- **ENFORCED BY DEFAULT since 2026-11-26**, after sixteen boots of
+  daily use on the ASUS with the word on: three refusals, all correct
+  (a home folder not made yet, `/etc/shadow` opened in Files and
+  Notepad). `fileperm=permissive` is the way back.
 - **Downloaded game data is the person's** (the same day): DOOM's and
   ScummVM's cards write `$XDG_DATA_HOME/doom` and `.../games`, with their
   licences in `.../licenses`, and find a copy in `/usr/share` after it
@@ -494,9 +496,8 @@ telnetd runs `login(1)` as root, which drops to the account.
   (EAGAIN), so requests in flight cannot be hashed back to back. An
   agent's Allow with no password reads as Cancel, so the debug console's
   `gui priv allow` never answers a password question. Under
-  `fileperm=permissive` -- still the default -- the file's mode is
-  logged, not enforced: the hashes are only as private as enforcing
-  makes them.
+  `fileperm=permissive` the file's mode is logged, not enforced: the
+  hashes are only as private as enforcing makes them.
 
 **D2b -- the greeter.**
 

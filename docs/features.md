@@ -448,9 +448,9 @@ its look, region and shortcuts live (`~/.config`, over the machine's in
 `/etc`, which `config --machine` sets); the accounts, the services, `/bin` and
 `/lib` are root's, so changing them takes `sudo` or an elevated tool.
 `chown`, `chmod`, `umask` and `stat` show and change them; a USB stick or
-a network share belongs to the person at the machine. For now the
-checks LOG what they would refuse rather than refuse it; `fileperm=enforce`
-turns them on (`docs/users-design.md`, stage C).
+a network share belongs to the person at the machine. The checks are
+enforced; `fileperm=permissive` makes them LOG what they would refuse
+instead (`docs/users-design.md`, stage C).
 
 **Four virtual terminals, Ctrl+Alt+F1..F4**: the desktop on F1 and a
 text console with a shell of its own on each of F2-F4 -- a `login:`

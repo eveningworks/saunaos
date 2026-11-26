@@ -13,12 +13,10 @@
 #include "multiboot.h"
 #include "scheduler.h"
 
-// What a kernel with no `fileperm=` word does: PERMISSIVE until the GUI
-// suite's fixtures belong to the desktop's account -- its first run under
-// enforcement failed 48 tools, nearly all on files the harness (root) had
-// made for an app run as `user` to change (docs/users-design.md, stage C).
+// What a kernel with no `fileperm=` word does; `fileperm=permissive` is
+// the way back (docs/boot-flags.md).
 #ifndef FSPERM_DEFAULT
-#define FSPERM_DEFAULT FSPERM_PERMISSIVE
+#define FSPERM_DEFAULT FSPERM_ENFORCE
 #endif
 
 static int g_mode = -1;   // -1 until the command line is read
@@ -37,7 +35,7 @@ int fsperm_mode(void) {
     klog_printf("fsperm: file permissions %s\n",
                 m == FSPERM_OFF ? "off (fileperm=off)"
                 : m == FSPERM_PERMISSIVE ? "logged, not enforced (fileperm=permissive)"
-                : "enforced");
+                : "enforced (fileperm=permissive opts out)");
     return m;
 }
 

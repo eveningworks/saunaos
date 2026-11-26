@@ -29,7 +29,7 @@ struct cred_info {
 // active. Set only through SPAWN_CREDS, so only by root (init's Seat=).
 #define CRED_SEAT 1u
 // CRED_PERM_ENFORCE: this process's file permissions are ENFORCED even
-// while the machine runs `fileperm=permissive` (kernel/fsperm.h) --
+// while the machine boots `fileperm=permissive` (kernel/fsperm.h) --
 // SELinux's per-domain mode, turned round. For moving programs to
 // enforcement one at a time, and for the test that proves it works.
 // Inherited; set only through SPAWN_CREDS, so only by root.

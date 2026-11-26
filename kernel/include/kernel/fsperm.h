@@ -13,10 +13,10 @@
 // Every one also asks for SEARCH (x) on each directory above the path.
 //
 // ROOT (euid 0) passes everything but executing a file with no x bit
-// at all. PERMISSIVE BY DEFAULT for now: what would have been refused is
-// logged and allowed (SELinux's permissive mode); `fileperm=enforce`
-// refuses it, `fileperm=off` asks nothing (docs/boot-flags.md), and a
-// cred with CRED_PERM_ENFORCE is enforced whatever the boot says.
+// at all. ENFORCED BY DEFAULT; `fileperm=permissive` logs what would
+// have been refused and allows it (SELinux's permissive mode),
+// `fileperm=off` asks nothing (docs/boot-flags.md), and a cred with
+// CRED_PERM_ENFORCE is enforced whatever the boot says.
 #include <stdint.h>
 
 #define FSP_X 1u

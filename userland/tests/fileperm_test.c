@@ -14,9 +14,8 @@
 // also remove its own.
 //
 // Its children run with CRED_PERM_ENFORCE, so the checks hold for them
-// whatever the machine's `fileperm=` says (permissive by default for
-// now); a positive control: start them without it on a permissive boot
-// and checks 1-9 go red. SPAWNED by tools/tests/gate/usertest_run.py as
+// whatever the machine's `fileperm=` says; a positive control: start
+// them without it on a `fileperm=permissive` boot and checks 1-9 go red. SPAWNED by tools/tests/gate/usertest_run.py as
 // root.
 #include "cred_abi.h"
 #include <errno.h>
