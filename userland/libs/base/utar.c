@@ -386,12 +386,21 @@ static int gz_file_out(void *ctx, const uint8_t *data, size_t n) {
     return x_data(ctx, data, (unsigned long)n);
 }
 
+static int extract_to(const char *path, const char *name, const char *out_path, const char *part,
+                      utar_progress progress, void *ctx, char *err, int errcap);
+
 int utar_extract(const char *path, const char *name, const char *out_path,
                  utar_progress progress, void *ctx, char *err, int errcap) {
     if (err && errcap > 0) err[0] = 0;
-    char part[512];
-    if (snprintf(part, sizeof part, "%s.part", out_path) >= (int)sizeof part)
-        return failf(err, errcap, -ENAMETOOLONG, "%s: name too long", out_path);
+    char *part;
+    if (asprintf(&part, "%s.part", out_path) < 0) return failf(err, errcap, -ENOMEM, "out of memory");
+    int rc = extract_to(path, name, out_path, part, progress, ctx, err, errcap);
+    free(part);
+    return rc;
+}
+
+static int extract_to(const char *path, const char *name, const char *out_path, const char *part,
+                      utar_progress progress, void *ctx, char *err, int errcap) {
     struct xout x = { .want = name, .progress = progress, .ctx = ctx };
     x.fd = open(part, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (x.fd < 0) return failf(err, errcap, -EACCES, "cannot write %s", part);
@@ -455,7 +464,7 @@ struct many {
     utar_progress progress;
     void *pctx;
     int fd;
-    char out[512], part[512];
+    char *out, *part;   // the member being written: heap
     unsigned long long got, size, done_all;
     char *err;
     int errcap, rc;
@@ -464,9 +473,13 @@ struct many {
 static int m_entry(void *ctx, const char *name, unsigned long long size, int64_t mtime, int is_dir) {
     (void)mtime;
     struct many *m = ctx;
-    if (!m->route(m->ctx, name, size, is_dir, m->out, sizeof m->out) || is_dir) return 0;
-    if (snprintf(m->part, sizeof m->part, "%s.part", m->out) >= (int)sizeof m->part) {
-        m->rc = failf(m->err, m->errcap, -ENAMETOOLONG, "%s: name too long", m->out);
+    free(m->out);
+    free(m->part);
+    m->part = 0;
+    if (!(m->out = m->route(m->ctx, name, size, is_dir)) || is_dir) return 0;
+    if (asprintf(&m->part, "%s.part", m->out) < 0) {
+        m->part = 0;
+        m->rc = failf(m->err, m->errcap, -ENOMEM, "out of memory");
         return -1;
     }
     m->fd = open(m->part, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -515,12 +528,15 @@ int utar_extract_many(const char *path, utar_route route, void *ctx,
                       utar_progress progress, void *pctx, char *err, int errcap) {
     if (err && errcap > 0) err[0] = 0;
     if (utar_kind_of(path) == UTAR_GZ) {           // one member: route it, then extract
-        char member[UTAR_NAME_MAX], out[512];
+        char member[UTAR_NAME_MAX];
         gz_member(path, member, sizeof member);
-        if (!route(ctx, member, 0, 0, out, sizeof out)) return 0;
-        return utar_extract(path, member, out, progress, pctx, err, errcap);
+        char *out = route(ctx, member, 0, 0);
+        if (!out) return 0;
+        int rc = utar_extract(path, member, out, progress, pctx, err, errcap);
+        free(out);
+        return rc;
     }
-    struct many m = { route, ctx, progress, pctx, -1, "", "", 0, 0, 0, err, errcap, 0 };
+    struct many m = { route, ctx, progress, pctx, -1, 0, 0, 0, 0, 0, err, errcap, 0 };
     struct parser *p = calloc(1, sizeof *p);
     if (!p) return failf(err, errcap, -ENOMEM, "out of memory");
     p->on_entry = m_entry;
@@ -532,6 +548,8 @@ int utar_extract_many(const char *path, utar_route route, void *ctx,
     int rc = walk(path, p);
     free(p);
     if (m.fd >= 0) { close(m.fd); unlink(m.part); }   // a walk that ended mid-member
+    free(m.out);
+    free(m.part);
     return m.rc ? m.rc : rc;
 }
 
@@ -576,9 +594,11 @@ int utar_create_begin(struct utar_writer *w, const char *out_path, int gzip, int
                       char *err, int errcap) {
     memset(w, 0, sizeof *w);
     w->fd = -1;
-    if (snprintf(w->out, sizeof w->out, "%s", out_path) >= (int)sizeof w->out ||
-        snprintf(w->part, sizeof w->part, "%s.part", out_path) >= (int)sizeof w->part)
-        return failf(err, errcap, -ENAMETOOLONG, "%s: name too long", out_path);
+    if (!(w->out = strdup(out_path)) || asprintf(&w->part, "%s.part", out_path) < 0) {
+        w->part = 0;
+        utar_create_abort(w);
+        return failf(err, errcap, -ENOMEM, "out of memory");
+    }
     w->gz = gzip;
     w->gzs.level = level ? (enum udeflate_level)level : UDEFLATE_NORMAL;
     w->buf = malloc(CHUNK);
@@ -710,16 +730,23 @@ int utar_create_end(struct utar_writer *w, char *err, int errcap) {
     w->fd = -1;
     free(w->buf); free(w->zbuf);
     w->buf = w->zbuf = 0;
-    if (bad) { unlink(w->part); return failf(err, errcap, -EIO, "finishing %s failed", w->part); }
-    if (rename(w->part, w->out) != 0) {
+    int rc = 0;
+    if (bad) {
         unlink(w->part);
-        return failf(err, errcap, -EIO, "cannot rename %s into place", w->part);
+        rc = failf(err, errcap, -EIO, "finishing %s failed", w->part);
+    } else if (rename(w->part, w->out) != 0) {
+        unlink(w->part);
+        rc = failf(err, errcap, -EIO, "cannot rename %s into place", w->part);
     }
-    return 0;
+    free(w->part); free(w->out);
+    w->part = w->out = 0;
+    return rc;
 }
 
 void utar_create_abort(struct utar_writer *w) {
     if (w->fd >= 0) { close(w->fd); w->fd = -1; unlink(w->part); }
     free(w->buf); free(w->zbuf);
+    free(w->part); free(w->out);
     w->buf = w->zbuf = 0;
+    w->part = w->out = 0;
 }

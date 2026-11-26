@@ -175,9 +175,12 @@ void uui_renamer_open(struct uapp *a, const char *dir, char (*names)[URENAME_NAM
     char base[URENAME_NAME];
     const char *slash = strrchr(dir, '/');
     snprintf(base, sizeof base, "%s-##", slash && slash[1] ? slash + 1 : "file");
-    uui_textbox_init(&g_pattern, base);
-    uui_textbox_init(&g_find, "");
-    uui_textbox_init(&g_repl, "");
+    uui_textbox_release(&g_pattern);
+    uui_textbox_release(&g_find);
+    uui_textbox_release(&g_repl);
+    uui_textbox_init_max(&g_pattern, base, UUI_TEXTBOX_NAME_MAX);
+    uui_textbox_init_max(&g_find, "", UUI_TEXTBOX_NAME_MAX);
+    uui_textbox_init_max(&g_repl, "", UUI_TEXTBOX_NAME_MAX);
     uui_spinbox_init(&g_start, 1, 0, 99999, 1, 0);
     uui_spinbox_init(&g_digits, 0, 0, 6, 1, 0);
     uui_checkbox_init(&g_match, 0, 0, 0, "Match case", bg, fg);

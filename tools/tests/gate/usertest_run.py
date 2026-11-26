@@ -413,6 +413,10 @@ TESTS = [
     # title, pwd, a bare ls, a program by a long path), ls -R, getcwd(NULL,
     # 0). Spawned: it spawns tosh, ls and rm.
     ("deeppath_test", None, None, None),
+    # The Recycle Bin past its old fixed tables, on real files and the home
+    # bin: a path past 255 bytes and a 250-byte name binned and restored
+    # whole, and 520 items all listed and counted. Spawned: it spawns rm.
+    ("listcaps_test", None, None, None),
     # base/ugrow.h, the growable-array macro every ring-3 list uses: it
     # grows, and a request it cannot meet leaves the array as it was.
     ("ugrow_test", 0, None, None),

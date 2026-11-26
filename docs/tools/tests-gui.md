@@ -775,14 +775,17 @@ from the default (a sound card, a USB mouse, `--reboot`).
 - **`deeppath_gui_test.py`** -- a path past 255 bytes on the desktop and
   in the File Manager (fixed tables round 4, A; the shell and `ls` half
   is `userland/tests/deeppath_test.c` under `usertest_run.py`). A file
-  whose desktop path is 264 bytes is deleted by Shift+Delete (the icon
-  goes); the File Manager walks down eight levels from a short folder
-  and opens a file by a 340-byte path (its `files: open` line). Shift+,
-  not plain Delete: the Recycle Bin keeps a 256-byte path of its own
-  (roadmap, round 4 B). `--only desktop|files`. Seen red on the old
-  80-byte desktop and 256-byte File Manager. The widgets' own half --
-  the file view's paths, Up, the path bar's segments, a place -- is
-  `tools/hostchecks/uitest/deeppath_uitest.c`, on the host.
+  whose desktop path is 264 bytes goes to the Recycle Bin on Delete and
+  comes back on `trash restore` (round 4 B), then is deleted by
+  Shift+Delete (the icon goes); the File Manager walks down eight levels
+  from a short folder and opens a file by a 340-byte path (its `files:
+  open` line). `--only desktop|files`. Seen red on the old 80-byte
+  desktop and 256-byte File Manager. The widgets' own half -- the file
+  view's paths, Up, the path bar's segments, a place -- is
+  `tools/hostchecks/uitest/deeppath_uitest.c`, on the host; the bin's own
+  (a deep path, a 250-byte name, 520 items) is
+  `userland/tests/listcaps_test.c` under `usertest_run.py`, and a
+  250-byte name in the rename box `tools/hostchecks/uitest/listcaps_uitest.c`.
 
 - **`screen_off_test.py`** -- the screen-off timer (`wm_idle.c`,
   `SYS_DISPLAY_POWER`) as far as QEMU can show it: the 10-minute

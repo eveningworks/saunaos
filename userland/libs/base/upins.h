@@ -27,21 +27,21 @@ extern "C" {
 // dialog list the same entries.
 
 #define UPINS_FILE  "places.conf"   // the person's, else /etc's (base/uconf.h)
-#define UPINS_MAX   24
-#define UPINS_PATH  256
+#define UPINS_MAX   24   // uui_places' rows hold these and the mounts
 #define UPINS_LABEL 24   // uui_places' label
 
 // The entries to show, in order: folders that exist now, and every
-// virtual one. How many.
-int upins_load(char (*out)[UPINS_PATH], int cap);
-// What an entry IS: the path to go to ("recent:/" stays itself), the
-// name it is shown by (its own when renamed) and its icon. 1 if virtual
-// (recent:/, trash:/), 0 for a folder.
-int upins_resolve(const char *entry, char *path, int pcap, char *label, int lcap,
-                  const char **icon);
+// virtual one, each allocated into `out` (upins_free()). How many.
+int upins_load(char **out, int cap);
+void upins_free(char **entries, int n);
+// What an entry IS: the path to go to ("recent:/" stays itself),
+// allocated into `*path` (NULL when memory is out), the name it is shown
+// by (its own when renamed) and its icon. 1 if virtual (recent:/,
+// trash:/), 0 for a folder.
+int upins_resolve(const char *entry, char **path, char *label, int lcap, const char **icon);
 // The entry a path is listed as (a personal folder's path is its
-// udir:<key> entry), into `out`; 1, or 0 when the path is not in the list.
-int upins_entry_of(const char *path, char *out, int cap);
+// udir:<key> entry), allocated; NULL when the path is not in the list.
+char *upins_entry_of(const char *path);
 int upins_has(const char *path);   // a path or an entry
 // Adds a folder at the end (`before` NULL) or before the entry `before`.
 // 0, -EEXIST (listed already), -ENOSPC (UPINS_MAX), -EINVAL (not an

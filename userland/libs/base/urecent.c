@@ -56,23 +56,38 @@ static void unlock(void) { if (names()) unlink(LOCK_FILE); }
 
 // Every line, oldest first, missing files included. Heap: a full list is
 // ~30 KB, and every caller is some app's ring-3 frame.
+void urecent_list_free(struct urecent_item *items, int n) {
+    for (int i = 0; i < n; i++) { free(items[i].path); items[i].path = 0; }
+}
+
+// The last `cap` lines -- the file keeps URECENT_MAX, a hand-edited one
+// may hold more, and the newest are at the end.
 static int read_all(struct urecent_item *out, int cap) {
     if (!names()) return 0;
     FILE *f = fopen(URECENT_FILE, "r");
     if (!f) return 0;
     int n = 0;
-    char line[32 + URECENT_APP + URECENT_PATH];
-    while (n < cap && fgets(line, sizeof line, f)) {
+    char *line = 0;
+    size_t lcap = 0;
+    while (getline(&line, &lcap, f) > 0) {
         size_t l = strlen(line);
         while (l && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = '\0';
         char *sp = strchr(line, ' '), *tab = sp ? strchr(sp, '\t') : 0;
         if (!sp || !tab || tab[1] != '/') continue;   // not a line this file holds
         *sp = *tab = '\0';
+        char *path = strdup(tab + 1);
+        if (!path) continue;
+        if (n == cap) {   // the oldest goes
+            free(out[0].path);
+            memmove(out, out + 1, (size_t)(cap - 1) * sizeof *out);
+            n--;
+        }
         struct urecent_item *it = &out[n++];
         it->when = strtoll(line, 0, 10);
         strlcpy(it->app, sp + 1, sizeof it->app);
-        strlcpy(it->path, tab + 1, sizeof it->path);
+        it->path = path;
     }
+    free(line);
     fclose(f);
     return n;
 }
@@ -93,7 +108,7 @@ static int write_all(const struct urecent_item *in, int n) {
 static int drop(struct urecent_item *all, int n, const char *path) {
     int k = 0;
     for (int i = 0; i < n; i++) {
-        if (!strcmp(all[i].path, path)) continue;
+        if (!strcmp(all[i].path, path)) { free(all[i].path); continue; }
         if (k != i) all[k] = all[i];
         k++;
     }
@@ -101,13 +116,16 @@ static int drop(struct urecent_item *all, int n, const char *path) {
 }
 
 int urecent_add(const char *path, const char *app) {
-    if (!path || path[0] != '/' || strlen(path) >= URECENT_PATH || strchr(path, '\n')) return -EINVAL;
+    if (!path || path[0] != '/' || strchr(path, '\n')) return -EINVAL;
     struct urecent_item *all = malloc((URECENT_MAX + 1) * sizeof *all);
-    if (!all) return -ENOMEM;
+    char *copy = strdup(path);
+    if (!all || !copy) { free(all); free(copy); return -ENOMEM; }
     lock();
     int n = drop(all, read_all(all, URECENT_MAX), path);
     if (n >= URECENT_MAX) {   // the oldest go
-        memmove(all, all + (n - URECENT_MAX + 1), (URECENT_MAX - 1) * sizeof *all);
+        int over = n - URECENT_MAX + 1;
+        urecent_list_free(all, over);
+        memmove(all, all + over, (URECENT_MAX - 1) * sizeof *all);
         n = URECENT_MAX - 1;
     }
     struct urecent_item *it = &all[n++];
@@ -117,9 +135,10 @@ int urecent_add(const char *path, const char *app) {
     for (const char *s = app && app[0] ? app : "?"; *s && k < URECENT_APP - 1; s++)
         it->app[k++] = (*s == '\t' || *s == '\n') ? ' ' : *s;
     it->app[k] = '\0';
-    strlcpy(it->path, path, sizeof it->path);
+    it->path = copy;
     int e = write_all(all, n);
     unlock();
+    urecent_list_free(all, n);
     free(all);
     return e;
 }
@@ -130,12 +149,20 @@ int urecent_list(struct urecent_item *out, int cap) {
     lock();
     int n = read_all(all, URECENT_MAX), k = 0;
     unlock();
-    for (int i = n - 1; i >= 0 && k < cap; i--) {
+    for (int i = n - 1; i >= 0; i--) {
         struct sys_stat st;
-        if (sys_stat(all[i].path, &st) == 0) out[k++] = all[i];
+        if (k < cap && sys_stat(all[i].path, &st) == 0) { out[k++] = all[i]; all[i].path = 0; }
+        else free(all[i].path);
     }
     free(all);
     return k;
+}
+
+int urecent_any(void) {
+    struct urecent_item one;
+    int n = urecent_list(&one, 1);
+    urecent_list_free(&one, n);
+    return n > 0;
 }
 
 int urecent_forget(const char *path) {
@@ -145,6 +172,7 @@ int urecent_forget(const char *path) {
     int n = read_all(all, URECENT_MAX), k = drop(all, n, path);
     int e = k == n ? -ENOENT : write_all(all, k);
     unlock();
+    urecent_list_free(all, k);
     free(all);
     return e;
 }

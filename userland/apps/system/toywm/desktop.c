@@ -2673,7 +2673,8 @@ static void begin_rename(int i) {
     g_rename_path = path;
     g_rename = i;
     const char *text = item_is_launcher(i) ? g_launch[i].name : k_path_basename(g_rename_path);
-    uui_textbox_init(&g_rename_box, text);
+    uui_textbox_release(&g_rename_box);
+    uui_textbox_init_max(&g_rename_box, text, UUI_TEXTBOX_NAME_MAX);
     uui_textbox_set_active(&g_rename_box, 1);
     g_rename_box.border = UUI_ROLE(accent);
     // The NAME selected, not the extension -- the File Manager's rule.

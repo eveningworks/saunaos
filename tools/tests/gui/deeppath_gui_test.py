@@ -4,9 +4,11 @@
 userland/tests/deeppath_test.c).
 
 1. **The desktop acts on the whole path.** A file whose name makes its
-   desktop path 264 bytes: Shift+Delete -> Delete removes it (it leaves
-   the folder and the icon goes). The desktop's old 80-byte path budget
-   cut it, so `rm` was handed a path that did not exist and it stayed.
+   desktop path 264 bytes: Delete moves it to the Recycle Bin and `trash
+   restore` puts it back (round 4 B: the bin held 256-byte paths), then
+   Shift+Delete -> Delete removes it (it leaves the folder and the icon
+   goes). The desktop's old 80-byte path budget cut it, so `rm` was
+   handed a path that did not exist and it stayed.
 2. **The File Manager walks down to a 340-byte folder and opens a file
    there** by its whole path (`files: open <path>`), from a short folder,
    one level at a time -- as a person would. Its old 256-byte budget
@@ -64,9 +66,30 @@ def check_desktop(dbg, res):
         return
     dbg.click(ic["x"] + ic["w"] // 2, ic["y"] + ic["w"] // 2)
     dbg.settle()
-    # Shift+Delete: `/bin/rm` with the path the desktop built. (Delete's
-    # Recycle Bin keeps a 256-byte path of its own, base/utrash.h --
-    # docs/roadmap.md, fixed tables round 4 B.)
+    # Delete: into the Recycle Bin by its whole path (base/utrash.h held
+    # 256 bytes and refused it), asked first when Folder Options say so.
+    dbg.key(K_DELETE)
+    dbg.settle()
+    btns = (dbg.json("gui dialog --json") or {}).get("buttons", [])
+    if btns:
+        dbg.send(f"gui click {btns[0]['cx']} {btns[0]['cy']}")
+        dbg.settle()
+    binned = poll(lambda: DESK_NAME not in desk_listing(dbg), 30)
+    res.check("Delete moves it to the Recycle Bin", bool(binned), "still in the folder")
+    if not binned:
+        return
+    # ...and `trash restore` puts it back, named by where it was deleted from.
+    dbg.write_lines("/var/tmp/deepdesk.sh", [
+        "b=abcdefghij", "c=$b$b$b$b$b$b",
+        f"trash restore {DESK}/Deep_$c$c$c$c"])
+    out = dbg.as_user("sh /var/tmp/deepdesk.sh") or ""
+    ic = poll(lambda: icon(dbg, DESK_NAME), 30)
+    res.check("`trash restore` brings it back by its whole path", ic is not None, out.strip()[-200:])
+    if not ic:
+        return
+    dbg.click(ic["x"] + ic["w"] // 2, ic["y"] + ic["w"] // 2)
+    dbg.settle()
+    # Shift+Delete: `/bin/rm` with the path the desktop built.
     dbg.key(K_DELETE, mods="shift")
     dbg.settle()
     btns = (dbg.json("gui dialog --json") or {}).get("buttons", [])

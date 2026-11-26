@@ -51,13 +51,15 @@ void open_prompt(int cmd, const char *title, const char *initial) {
     g_dialog_kind = DIALOG_PROMPT;
     g_modal_pane = g_active;
 
-    uui_textbox_init(&g_field, initial ? initial : "");
+    uui_textbox_release(&g_field);
+    uui_textbox_init_max(&g_field, initial ? initial : "", UUI_TEXTBOX_NAME_MAX);
     uui_textbox_set_active(&g_field, 1);
     // The name, not the extension (a rename); everything else starts
     // selected so typing replaces it.
-    int n = (int)strlen(g_field.buf), stem = n;
-    const char *dot = strrchr(g_field.buf, '.');
-    if (cmd != CMD_MKDIR && cmd != CMD_PL_RENAME && dot && dot != g_field.buf) stem = (int)(dot - g_field.buf);
+    const char *t = uui_textbox_text(&g_field);
+    int n = (int)strlen(t), stem = n;
+    const char *dot = strrchr(t, '.');
+    if (cmd != CMD_MKDIR && cmd != CMD_PL_RENAME && dot && dot != t) stem = (int)(dot - t);
     uui_textbox_select(&g_field, 0, stem);
 
     // What it is about, under the title: the file being renamed, or
@@ -100,7 +102,7 @@ void open_prompt(int cmd, const char *title, const char *initial) {
 // button's code; the field is read before it is taken down.
 void answer_prompt(int code) {
     int cmd = g_modal_cmd;
-    char text[UUI_TEXTBOX_MAX];
+    char text[UUI_TEXTBOX_NAME_MAX + 1];
     strlcpy(text, uui_textbox_text(&g_field), sizeof text);
     g_modal = MODAL_NONE;
     uui_dialog_set_body(&g_dialog, NULL, 0, 0);
@@ -139,6 +141,7 @@ static void rename_many_done(void *ctx, const char *dir, char (*olds)[URENAME_NA
     if (!tmp) { set_note("out of memory -- nothing was changed"); return; }
     int moved = 0, failed = 0;
     for (int i = 0; i < n; i++) {
+        // A long name's tail is cut to fit one entry; the index keeps it unique.
         snprintf(tmp[i], URENAME_NAME, ".rename-%d-%s", i, olds[i]);
         if (rename_in(dir, olds[i], tmp[i]) != 0) { failed = 1; break; }
         moved++;

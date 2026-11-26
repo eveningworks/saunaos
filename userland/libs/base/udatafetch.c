@@ -1,4 +1,5 @@
 // Game data fetched on the machine -- see udatafetch.h.
+#include "base/upath.h"
 #include "base/udatafetch.h"
 #include "base/uarchive.h"
 #include "base/uconf.h"
@@ -183,16 +184,17 @@ static int sum_tree(void *ctx, const struct uarchive_entry *e) {
     return 0;
 }
 
-static int route_tree(void *ctx, const struct uarchive_entry *e, char *out, int cap) {
+static char *route_tree(void *ctx, const struct uarchive_entry *e) {
     struct run *r = ctx;
     if (!under(r, e->name)) return 0;
-    if (snprintf(out, (size_t)cap, "%s/%s", r->into, e->name + strlen(r->prefix)) >= cap) return 0;
+    char *out = upath_join(r->into, e->name + strlen(r->prefix));
+    if (!out) return 0;
     make_parents(out);
-    if (e->is_dir) { mkdir(out, 0755); return 0; }
+    if (e->is_dir) { mkdir(out, 0755); free(out); return 0; }
     // This member's bytes are counted from where the last one ended.
     r->base += r->last;
     r->last = (unsigned long)e->size;
-    return 1;
+    return out;
 }
 
 static void remove_tree(const char *path) {

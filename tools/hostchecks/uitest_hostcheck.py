@@ -248,6 +248,12 @@ CONTROLS = [
      "    int n = seg_count(path_of(p));\n    int avail",
      "    int n = seg_count(path_of(p));\n    if (n > UUI_PATHBAR_SEGS - 1) n = UUI_PATHBAR_SEGS - 1;\n    int avail",
      ["deeppath"]),
+    # The rename box at the default 128 bytes: a long name opens cut, and
+    # Enter renames the file to the cut name.
+    ("userland/libs/ui/uui_fileview.c",
+     "    uui_textbox_init_max(&fv->rename_box, e->name, UUI_TEXTBOX_NAME_MAX);\n",
+     "    uui_textbox_init(&fv->rename_box, e->name);\n",
+     ["listcaps"]),
 ]
 
 

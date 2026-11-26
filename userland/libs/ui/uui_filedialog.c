@@ -230,6 +230,7 @@ static int commit(struct uui_filedialog *fd) {
 // What Undo would put back, and the paths a question is about: both
 // sized by the selection, so they are allocated for it rather than kept.
 static void drop_undo(struct uui_filedialog *fd) {
+    for (int i = 0; i < fd->undone_n; i++) utrash_item_free(&fd->undone[i]);
     free(fd->undone);
     fd->undone = 0;
     fd->undone_n = 0;
@@ -405,10 +406,11 @@ static void clear_name_if_gone(struct uui_filedialog *fd) {
 
 static void delete_selected(struct uui_filedialog *fd, int for_good) {
     if (!gather(fd)) return;
-    char bin[UTRASH_PATH];   // the bin's own bound (base/utrash.h)
     // ONE BIN PER VOLUME, and a listing is one folder: the first item's
     // answer is every item's.
-    if (for_good || !utrash_bin_for(fd->ops[0], bin, sizeof bin)) {
+    char *bin = for_good ? 0 : utrash_bin_for(fd->ops[0]);
+    free(bin);
+    if (!bin) {
         ask_for_good(fd, !for_good);
         return;
     }
@@ -420,6 +422,7 @@ static void delete_selected(struct uui_filedialog *fd, int for_good) {
         struct utrash_item it;
         if (utrash_put(fd->ops[i], &it) != 0) continue;
         if (fd->undone) fd->undone[fd->undone_n++] = it;
+        else utrash_item_free(&it);
         moved++;
     }
     char n[32];
@@ -915,7 +918,8 @@ struct uapp_window *uui_filedialog_open(struct uapp *a, struct uui_filedialog *f
 
     uui_label_init(&fd->name_label, opts->mode == UUI_FILEDIALOG_FOLDER ? "Folder:" : "File name:");
     uui_label_init(&fd->type_label, "Files of type:");
-    uui_textbox_init(&fd->name, opts->initial_name ? opts->initial_name : "");
+    // A path may be typed, not only a name.
+    uui_textbox_init_max(&fd->name, opts->initial_name ? opts->initial_name : "", UUI_TEXTBOX_PATH_MAX);
     uui_label_init(&fd->spacer, "");
     uui_label_init(&fd->note, fd->note_text);
     uui_button_init(&fd->undo, 0, 0, 0, 0, "Undo", UUI_ROLE(control_bg), UUI_ROLE(text), ID_UNDO);

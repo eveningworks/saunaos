@@ -6,6 +6,7 @@
 // redone, and a step that cannot be reversed fails alone.
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
@@ -107,9 +108,10 @@ int main(void) {
     // TRASH: undone out of the bin, redone back in.
     make(DIR "/t.txt");
     struct utrash_item it;
-    char binp[UTRASH_PATH] = "";
-    if (utrash_put(DIR "/t.txt", &it) == 0) utrash_item_path(&it, binp, sizeof binp);
-    record(UFU_TRASH, DIR "/t.txt", 0, binp);
+    char *binp = 0;
+    if (utrash_put(DIR "/t.txt", &it) == 0) { binp = utrash_item_path(&it); utrash_item_free(&it); }
+    record(UFU_TRASH, DIR "/t.txt", 0, binp ? binp : "");
+    free(binp);
     e = run(0);
     utest_checkf(!e && exists(DIR "/t.txt"), "undoing a delete restores the file (e=%d)", e);
     e = run(1);

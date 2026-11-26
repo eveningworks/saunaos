@@ -86,18 +86,26 @@ static int quick_list(void *ctx, const char *dir, struct ulist_entry *out, int c
 
     // The pinned FOLDERS: Recent and the bin are places, not folders, and
     // are a click away in the column beside this.
-    static char pins[UPINS_MAX][UPINS_PATH];
+    char *pins[UPINS_MAX];
     int np = upins_load(pins, UPINS_MAX);
     for (int i = 0; i < np; i++) {
-        char path[UPINS_PATH], label[64];   // a pin's own bound (base/upins.h)
-        if (upins_resolve(pins[i], path, sizeof path, label, sizeof label, 0)) continue;
-        if (!add(Q_PIN, path, label, out, cap)) break;
-        set_where(&g_rows[g_n - 1], strdup(path));
-        strlcpy(g_rows[g_n - 1].what, "Pinned folder", sizeof g_rows[0].what);
+        char label[UPINS_LABEL], *path;
+        int virt = upins_resolve(pins[i], &path, label, sizeof label, 0);
+        int added = path && !virt ? add(Q_PIN, path, label, out, cap) : -1;
+        if (added > 0) {
+            set_where(&g_rows[g_n - 1], path);   // keeps it
+            strlcpy(g_rows[g_n - 1].what, "Pinned folder", sizeof g_rows[0].what);
+        } else {
+            free(path);
+        }
+        if (!added) break;
     }
+    upins_free(pins, np);
 
     static struct urecent_item items[QUICK_RECENT];
-    int nr = urecent_list(items, QUICK_RECENT);
+    static int nr;
+    urecent_list_free(items, nr);
+    nr = urecent_list(items, QUICK_RECENT);
     for (int i = 0; i < nr; i++) {
         if (!add(Q_RECENT, items[i].path, k_path_basename(items[i].path), out, cap)) break;
         struct qrow *r = &g_rows[g_n - 1];

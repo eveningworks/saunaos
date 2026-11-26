@@ -20,12 +20,11 @@ extern "C" {
 
 #define URECENT_MAX  100
 #define URECENT_APP  48
-#define URECENT_PATH 256
 
 struct urecent_item {
     long long when;              // seconds since the epoch, UTC
     char app[URECENT_APP];       // "Image Viewer"
-    char path[URECENT_PATH];
+    char *path;                  // heap: urecent_list_free()
 };
 
 // Record that `app` opened `path` (absolute) just now. 0, or -errno.
@@ -34,6 +33,10 @@ int urecent_add(const char *path, const char *app);
 // The list, NEWEST FIRST, at most `cap`; files that no longer exist are
 // left out (and kept in the file -- an unplugged disk comes back).
 int urecent_list(struct urecent_item *out, int cap);
+// Frees the paths of `n` items urecent_list() filled (not the array).
+void urecent_list_free(struct urecent_item *items, int n);
+// 1 when the list holds a file that exists.
+int urecent_any(void);
 
 // Take `path` off the list / empty it. 0, or -errno.
 int urecent_forget(const char *path);

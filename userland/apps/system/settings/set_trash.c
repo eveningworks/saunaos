@@ -10,9 +10,7 @@
 #include "ui/uui_primitives.h"
 #include <stdlib.h>
 
-#define BINS_MAX 8
-
-static struct utrash_usage g_bins[BINS_MAX];
+static struct utrash_usage *g_bins;
 static int g_nbins = -1;   // -1: not read since the page opened
 static struct uui_custom g_table;
 static struct uui_setting_row g_row;
@@ -63,7 +61,7 @@ static void draw_table(struct ugfx_surface *s, const struct uui_custom *c) {
 int trash_emit_after(struct uui_item *out, int n, int i) {
     if (g_slot[i].setting < 0 || strcmp(g_name[g_slot[i].setting], UTRASH_SET_SIZE)) return n;
     if (g_nbins < 0) {
-        g_nbins = utrash_usage(g_bins, BINS_MAX);
+        g_nbins = utrash_usage(&g_bins);
         ulogf("settings: trash usage %d bin(s)\n", g_nbins);
     }
     int rows = g_nbins > 0 ? g_nbins : 1;
@@ -78,4 +76,8 @@ int trash_emit_after(struct uui_item *out, int n, int i) {
     return n;
 }
 
-void trash_page_opened(void) { g_nbins = -1; }
+void trash_page_opened(void) {
+    if (g_nbins > 0) utrash_usage_free(g_bins, g_nbins);
+    g_bins = 0;
+    g_nbins = -1;
+}

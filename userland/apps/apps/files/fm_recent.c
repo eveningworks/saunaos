@@ -52,6 +52,7 @@ static int day_group(long long when) {
 
 static int recent_list(void *ctx, const char *dir, struct ulist_entry *out, int cap) {
     (void)ctx; (void)dir;
+    urecent_list_free(g_items, g_count);
     g_count = urecent_list(g_items, cap < URECENT_MAX ? cap : URECENT_MAX);
     for (int i = 0; i < g_count; i++) {
         memset(&out[i], 0, sizeof out[i]);

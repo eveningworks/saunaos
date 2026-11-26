@@ -164,21 +164,21 @@ static int many_zip(void *ctx, const char *name, unsigned long size, unsigned lo
     size_t n = strlen(name);
     e.is_dir = n && name[n - 1] == '/';
     (void)d; (void)t;
-    char out[512];
     if (!uarchive_name_safe(name)) return 0;
-    if (!m->route(m->ctx, &e, out, sizeof out) || e.is_dir) return 0;
+    char *out = m->route(m->ctx, &e);
+    if (!out || e.is_dir) { free(out); return 0; }
     struct prog p = { m->progress, m->pctx, 0, 0 };
     m->rc = uzip_extract(m->path, name, out, m->progress ? member_prog : 0, &p, m->err, m->errcap);
+    free(out);
     return m->rc != 0;
 }
 
 struct troute { uarchive_route route; void *ctx; };
-static int tar_route(void *ctx, const char *name, unsigned long long size, int is_dir,
-                     char *out, int cap) {
+static char *tar_route(void *ctx, const char *name, unsigned long long size, int is_dir) {
     struct troute *t = ctx;
     struct uarchive_entry e = { name, size, 0, 0, is_dir, { 0 } };
     if (!uarchive_name_safe(name)) return 0;
-    return t->route(t->ctx, &e, out, cap);
+    return t->route(t->ctx, &e);
 }
 
 static int tar_prog(void *ctx, unsigned long done, unsigned long total) {

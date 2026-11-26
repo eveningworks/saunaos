@@ -109,8 +109,8 @@ void undo_record(int kind, const char *a, const char *b) {
 // ones (two files swapped) comes back too; renamed straight, each step
 // would land on a name that is taken. A pair whose name did not change
 // is no step: undoing it would rename a file onto itself.
-void undo_record_renames(const char *dir, char (*olds)[64], char (*news)[64], int n) {
-    char label[UFU_LABEL], tmp[64];
+void undo_record_renames(const char *dir, char (*olds)[URENAME_NAME], char (*news)[URENAME_NAME], int n) {
+    char label[UFU_LABEL], tmp[URENAME_NAME];
     int changed = 0;
     for (int i = 0; i < n; i++) changed += strcmp(olds[i], news[i]) != 0;
     if (!changed) return;

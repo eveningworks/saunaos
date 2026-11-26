@@ -1662,7 +1662,8 @@ int uui_fileview_begin_rename(struct uui_fileview *fv) {
     const struct ulist_entry *e = uui_fileview_selected_entry(fv);
     if (!e) return 0;
     if (!fv_set_str(&fv->rename_from, e->name)) return 0;
-    uui_textbox_init(&fv->rename_box, e->name);
+    uui_textbox_release(&fv->rename_box);
+    uui_textbox_init_max(&fv->rename_box, e->name, UUI_TEXTBOX_NAME_MAX);
     uui_textbox_set_active(&fv->rename_box, 1);
     // The NAME selected, not the extension: typing replaces "dusk" and
     // keeps ".jpg" -- what every desktop does, and what keeps the file

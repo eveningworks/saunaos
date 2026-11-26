@@ -59,11 +59,12 @@ int uarchive_name_safe(const char *name);
 
 // MANY MEMBERS, in one pass where the format needs it (a tar has no
 // index, so one uarchive_extract() per member walks it whole each time).
-// `route` returns 1 with `out` filled to take a member, 0 to pass it by;
-// a folder's record reaches it too, and the caller makes the folder.
+// `route` returns the path to write a member to, allocated (freed here),
+// or NULL to pass it by; a folder's record reaches it too, and the
+// caller makes the folder.
 // A member uarchive_name_safe() refuses NEVER reaches `route`.
 // Stops at the first failure.
-typedef int (*uarchive_route)(void *ctx, const struct uarchive_entry *e, char *out, int cap);
+typedef char *(*uarchive_route)(void *ctx, const struct uarchive_entry *e);
 int uarchive_extract_many(const char *path, uarchive_route route, void *ctx,
                           uarchive_progress progress, void *pctx, char *err, int errcap);
 

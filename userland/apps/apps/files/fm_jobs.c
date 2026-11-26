@@ -698,24 +698,26 @@ static int x_progress(void *ctx, unsigned long long done, unsigned long long tot
 // One member, if it is the item or under it: routed under `dest` by its
 // name from the item's PARENT on, so the item keeps its own name. A
 // folder's record is made here and passed by.
-static int x_route(void *ctx, const struct uarchive_entry *e, char *out, int cap) {
+static char *x_route(void *ctx, const struct uarchive_entry *e) {
     struct xjob *x = ctx;
     const char *name = e->name;
     if (g_cancel) return 0;
     if (x->plen && strcmp(name, x->prefix) &&
         (strncmp(name, x->prefix, x->plen) || name[x->plen] != '/')) return 0;
-    if (snprintf(out, (size_t)cap, "%s/%s", x->dest, name + x->cut) >= cap) {
-        worker_error(0, name, ENAMETOOLONG);
+    char *out;
+    if (asprintf(&out, "%s/%s", x->dest, name + x->cut) < 0) {
+        worker_error(0, name, ENOMEM);
         return 0;
     }
     size_t l = strlen(out);
     if (e->is_dir) {
         if (l && out[l - 1] == '/') out[l - 1] = '\0';
         if (mkdirs(out)) worker_error(0, out, EIO);
+        free(out);
         return 0;
     }
     char *parent = upath_dirname(out);
-    if (!parent) { worker_error(0, out, ENOMEM); return 0; }
+    if (!parent) { worker_error(0, out, ENOMEM); free(out); return 0; }
     mkdirs(parent);
     // SOMETHING IS THERE ALREADY: the same Replace-or-skip card a copy
     // gets, never a silent overwrite -- the archive's writer replaces
@@ -734,9 +736,13 @@ static int x_route(void *ctx, const struct uarchive_entry *e, char *out, int cap
             take = 0;
         } else if (d == UFILEOP_SKIP) {
             take = 0;
-        } else if (d == UFILEOP_RENAME && (!to || strlcpy(out, to, (size_t)cap) >= (size_t)cap)) {
-            worker_error(0, out, EINVAL);   // cut, it would name another file
+        } else if (d == UFILEOP_RENAME && !to) {
+            worker_error(0, out, EINVAL);
             take = 0;
+        } else if (d == UFILEOP_RENAME) {
+            free(out);
+            out = to;
+            to = 0;
         } else if (d == UFILEOP_OVERWRITE && st.is_dir) {   // a member cannot replace a folder
             worker_error(0, out, EISDIR);
             take = 0;
@@ -744,12 +750,12 @@ static int x_route(void *ctx, const struct uarchive_entry *e, char *out, int cap
         free(to);
     }
     free(parent);
-    if (!take) return 0;
+    if (!take) { free(out); return 0; }
     pthread_mutex_lock(&g_lock);
     strlcpy(g_cur_name, k_path_basename(out), sizeof g_cur_name);
     g_cur_size = (unsigned long)e->size;
     pthread_mutex_unlock(&g_lock);
-    return 1;
+    return out;
 }
 
 static void extract_one(const char *item, const char *dest) {
@@ -858,10 +864,10 @@ static void *worker_main(void *arg) {
             break;
         case CMD_TRASH: {
             struct utrash_item it;
-            char where[UTRASH_PATH];   // the bin's own bound (base/utrash.h)
             int e = utrash_put(g_job_path[i], &it);
             if (e) worker_error(0, g_job_path[i], -e);
-            else if (utrash_item_path(&it, where, sizeof where)) g_job_result[i] = strdup(where);
+            else g_job_result[i] = utrash_item_path(&it);
+            if (!e) utrash_item_free(&it);
             break;
         }
         case CMD_EXTRACT:
@@ -1345,14 +1351,15 @@ static char g_del_note[96];
 // /boot is read-only -- makes the whole delete a permanent one, said
 // on the card, rather than splitting one request into two behaviours.
 static int all_binnable(struct uui_fileview *fv, char *volume, int cap) {
-    char bin[UTRASH_PATH];   // the bin's own bound (base/utrash.h)
     int marks = uui_fileview_mark_count(fv), all = 1;
     for (int i = 0; i < (marks ? marks : 1) && all; i++) {
         char *path = marks ? uui_fileview_marked_path(fv, i) : uui_fileview_selected_path(fv);
-        if (path && !utrash_bin_for(path, bin, sizeof bin)) {
+        char *bin = path ? utrash_bin_for(path) : 0;
+        if (path && !bin) {
             fm_cell_dirname(path, volume, cap);   // said on the card: a line
             all = 0;
         }
+        free(bin);
         free(path);
     }
     return all;

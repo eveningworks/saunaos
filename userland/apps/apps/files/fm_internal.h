@@ -23,6 +23,7 @@
 #include "base/upath.h"   // upath_join() and friends: every path here is a heap string
 #include <stdlib.h>
 #include "ui/uui_transfers.h"
+#include "base/urename.h"
 
 // The File Manager's own header, shared by the files it is split across
 // and by nothing else.
@@ -443,7 +444,7 @@ extern struct uui_toast g_toast;
 void undo_record_job(int op, const char *what, char **paths, char **results, int n,
                      const char *dest);
 void undo_record(int kind, const char *a, const char *b);   // UFU_RENAME / UFU_CREATE
-void undo_record_renames(const char *dir, char (*olds)[64], char (*news)[64], int n);
+void undo_record_renames(const char *dir, char (*olds)[URENAME_NAME], char (*news)[URENAME_NAME], int n);
 void rename_many_open(struct uapp *a);   // fm_modal.c: the marked set, in a uui_renamer
 void undo_applied(int redo, int failures, int ran);
 int  undo_can(int redo);
@@ -632,7 +633,7 @@ void net_command(int code);
 // The Save bar: whether the active pane is in a share opened for the
 // session (cheap: one QUERY_FSINFO walk), its widget, and its click.
 #include "ui/uui_infobar.h"
-#include "base/ulistdir.h"   // struct ulist_entry
+#include "base/ulistdir.h"
 extern struct uui_infobar g_netbar;
 int  net_bar_wanted(void);
 void net_save_session(void);

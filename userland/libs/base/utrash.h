@@ -36,36 +36,45 @@
 extern "C" {
 #endif
 
-#define UTRASH_PATH 256
-
+// An item's three strings are ONE allocation, `name` its start: an item
+// a call hands over is the caller's to release with utrash_item_free(),
+// and a copy by value SHARES it.
 struct utrash_item {
-    char name[64];             // its name in the bin's files/
-    char bin[UTRASH_PATH];     // the bin it is in
-    char orig[UTRASH_PATH];    // where it was deleted from
+    char *name;                // its name in the bin's files/
+    char *bin;                 // the bin it is in
+    char *orig;                // where it was deleted from
     struct rtc_time deleted;   // UTC, like every other timestamp
     uint64_t size;             // 0 for a folder
     int is_dir;
 };
 
+void utrash_item_free(struct utrash_item *it);
+
 // The system volume's bin, `<home>/.Trash` (udir_home()); its files and
 // info folders are beneath it.
 const char *utrash_home_bin(void);
 
-// The bin `path` would go to: 1 and the bin's directory in `out`, or 0
-// when its volume has none (RAM, read-only, or the path is a bin).
-int utrash_bin_for(const char *path, char *out, int cap);
+// The bin `path` would go to, allocated (the caller frees it), or NULL
+// when its volume has none (RAM, read-only, or the path is a bin) or
+// memory is out.
+char *utrash_bin_for(const char *path);
 
 // Move `path` into its volume's bin. 0, or -errno (-ENOTSUP: no bin on
 // that volume). `out`, when given, describes where it went -- what an
-// Undo needs to put it back.
+// Undo needs to put it back -- and is the caller's to utrash_item_free().
 int utrash_put(const char *path, struct utrash_item *out);
 
-// Every item in every bin, newest first. Returns how many were written
-// (at most `cap`); a bin that cannot be read is skipped.
-int utrash_list(struct utrash_item *out, int cap);
+// Every item in every bin, newest first, in an array sized to the bins
+// (`*out`, released with utrash_list_free()). How many, or -ENOMEM; a bin
+// that cannot be read is skipped.
+int utrash_list(struct utrash_item **out);
+void utrash_list_free(struct utrash_item *items, int n);
 
-// The item's current path, inside the bin.
-int utrash_item_path(const struct utrash_item *it, char *out, int cap);
+// 1 when any bin holds an item -- the first one found ends the walk.
+int utrash_any(void);
+
+// The item's current path, inside the bin: allocated, or NULL.
+char *utrash_item_path(const struct utrash_item *it);
 
 // Put it back where it was. -EEXIST when something now has that name,
 // -ENOENT when the folder it came from is gone (it is NOT recreated:
@@ -104,15 +113,17 @@ void utrash_limits_get(struct utrash_limits *l);
 
 // One bin in total. Its volume's size is what max_size_pct is a share of.
 struct utrash_usage {
-    char bin[UTRASH_PATH];
-    char point[64];          // the volume's mount point
+    char *bin;               // allocated: utrash_usage_free()
+    char point[64];          // the volume's mount point: query_fsinfo's own bound
     int items;
     uint64_t bytes;          // folders walked
     uint64_t volume_bytes;
 };
 
-// Every bin that exists. How many were written (at most `cap`).
-int utrash_usage(struct utrash_usage *out, int cap);
+// Every bin that holds something, in an array sized to them (`*out`,
+// released with utrash_usage_free()). How many, or -ENOMEM.
+int utrash_usage(struct utrash_usage **out);
+void utrash_usage_free(struct utrash_usage *u, int n);
 
 // Deletes for good what the limits say must go: every item deleted more
 // than max_age_days ago, then, in each bin over max_size_pct of its

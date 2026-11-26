@@ -51,13 +51,12 @@ int utar_extract(const char *path, const char *name, const char *out_path,
 
 // MANY MEMBERS IN ONE PASS -- a tar has no index, so taking members out
 // one utar_extract() at a time walks (and inflates) the whole archive
-// for each. `route` sees every member in order and returns 1 with
-// `out` filled to write it there, 0 to pass it by (a folder's record
-// included: the caller makes the folder). Each file written goes through
+// for each. `route` sees every member in order and returns the path to
+// write it to, allocated (freed here), or NULL to pass it by (a folder's
+// record included: the caller makes the folder). Each file written goes through
 // `<out>.part` and is checked against its size. Stops at the first
 // failure. `progress` sees the bytes written of all the members taken.
-typedef int (*utar_route)(void *ctx, const char *name, unsigned long long size, int is_dir,
-                          char *out, int cap);
+typedef char *(*utar_route)(void *ctx, const char *name, unsigned long long size, int is_dir);
 int utar_extract_many(const char *path, utar_route route, void *ctx,
                       utar_progress progress, void *pctx, char *err, int errcap);
 
@@ -70,7 +69,7 @@ int utar_extract_many(const char *path, utar_route route, void *ctx,
 // udeflate_level, or 0 for UDEFLATE_NORMAL).
 struct utar_writer {
     int fd, gz;
-    char part[512], out[512];
+    char *part, *out;   // heap: utar_create_end() or _abort() frees them
     unsigned char *buf, *zbuf;
     unsigned long fill, zcap;
     struct udeflate_gz gzs;

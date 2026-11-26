@@ -15,6 +15,9 @@
 #include "base/ufileop.h"
 #include "base/uwalk.h"
 #include "base/udirs.h"
+#include "base/ufile.h"
+#include "base/ugrow.h"
+#include "base/upath.h"
 
 #define HOME_BIN utrash_home_bin()
 #define TOP_BIN  ".Trash-0"
@@ -53,20 +56,40 @@ static int volume_of(const char *path, char *point, int cap, uint64_t *flags) {
     return volume_of_sized(path, point, cap, flags, 0);
 }
 
-int utrash_bin_for(const char *path, char *out, int cap) {
+char *utrash_bin_for(const char *path) {
     char point[64];
     uint64_t flags = 0;
     if (!path || path[0] != '/' || !volume_of(path, point, sizeof point, &flags)) return 0;
     if (!(flags & QUERY_FS_PERSISTENT) || (flags & QUERY_FS_RDONLY)) return 0;
-    if (!strcmp(point, "/")) {
-        if (strlcpy(out, HOME_BIN, (size_t)cap) >= (size_t)cap) return 0;
-    } else if (!k_path_join(point, TOP_BIN, out, (size_t)cap)) {
-        return 0;
-    }
+    char *out = !strcmp(point, "/") ? strdup(HOME_BIN) : upath_join(point, TOP_BIN);
+    if (!out) return 0;
     // A bin, or something inside one, is not binned again.
     size_t bl = strlen(out);
-    if (!strncmp(path, out, bl) && (path[bl] == '/' || !path[bl])) return 0;
+    if (!strncmp(path, out, bl) && (path[bl] == '/' || !path[bl])) { free(out); return 0; }
+    return out;
+}
+
+// --- an item's strings ----------------------------------------------------
+
+// name, bin and orig in one block, `name` at its start.
+static int item_set(struct utrash_item *it, const char *name, const char *bin, const char *orig) {
+    size_t a = strlen(name) + 1, b = strlen(bin) + 1, c = strlen(orig) + 1;
+    char *m = malloc(a + b + c);
+    if (!m) return 0;
+    memcpy(m, name, a);
+    memcpy(m + a, bin, b);
+    memcpy(m + a + b, orig, c);
+    free(it->name);
+    it->name = m;
+    it->bin = m + a;
+    it->orig = m + a + b;
     return 1;
+}
+
+void utrash_item_free(struct utrash_item *it) {
+    if (!it) return;
+    free(it->name);
+    it->name = it->bin = it->orig = 0;
 }
 
 // --- the info file ------------------------------------------------------
@@ -107,6 +130,7 @@ static int hexval(char c) {
     return -1;
 }
 
+// `out` holds strlen(in) + 1: decoding never lengthens.
 static int decode(const char *in, char *out, int cap) {
     int n = 0;
     for (const char *p = in; *p; p++) {
@@ -147,23 +171,36 @@ static int date_parse(const char *s, struct rtc_time *utc) {
     return 1;
 }
 
-static int info_path(const char *bin, const char *name, char *out, int cap) {
-    return snprintf(out, (size_t)cap, "%s/info/%s.trashinfo", bin, name) < cap;
+static char *info_path(const char *bin, const char *name) {
+    char *p;
+    return asprintf(&p, "%s/info/%s.trashinfo", bin, name) < 0 ? 0 : p;
 }
 
-int utrash_item_path(const struct utrash_item *it, char *out, int cap) {
-    return snprintf(out, (size_t)cap, "%s/files/%s", it->bin, it->name) < cap;
+static char *files_path(const char *bin, const char *name) {
+    char *p;
+    return asprintf(&p, "%s/files/%s", bin, name) < 0 ? 0 : p;
 }
 
+char *utrash_item_path(const struct utrash_item *it) {
+    return files_path(it->bin, it->name);
+}
+
+// The bound the format sets: a Path= of FS_PATH_MAX (4096) bytes, every
+// one percent-encoded, and the rest of the file.
+#define INFO_MAX (4096 * 3 + 256)
+
+// Fills `it`, whose strings are NULL; 0 leaves them NULL.
 static int read_info(const char *bin, const char *name, struct utrash_item *it) {
-    char p[UTRASH_PATH + 80], buf[UTRASH_PATH * 3 + 128];
-    if (!info_path(bin, name, p, sizeof p)) return 0;
-    int fd = open(p, O_RDONLY);
-    if (fd < 0) return 0;
-    ssize_t n = read(fd, buf, sizeof buf - 1);
-    close(fd);
-    if (n <= 0) return 0;
+    char *p = info_path(bin, name);
+    uint8_t *raw = 0;
+    size_t n = 0;
+    enum ufile_result r = p ? ufile_slurp(p, INFO_MAX, &raw, &n) : UFILE_NOMEM;
+    free(p);
+    if (r != UFILE_OK) return 0;
+    char *buf = realloc(raw, n + 1);
+    if (!buf) { free(raw); return 0; }
     buf[n] = '\0';
+    char *orig = 0;
     int have_path = 0, have_date = 0, header = 0;
     for (char *line = buf, *next; line && *line; line = next) {
         next = strchr(line, '\n');
@@ -171,18 +208,23 @@ static int read_info(const char *bin, const char *name, struct utrash_item *it) 
         size_t l = strlen(line);
         if (l && line[l - 1] == '\r') line[l - 1] = '\0';
         if (!strcmp(line, "[Trash Info]")) header = 1;
-        else if (!strncmp(line, "Path=", 5))
-            have_path = decode(line + 5, it->orig, sizeof it->orig);
-        else if (!strncmp(line, "DeletionDate=", 13))
+        else if (!strncmp(line, "Path=", 5)) {
+            free(orig);
+            int cap = (int)strlen(line + 5) + 1;
+            orig = malloc((size_t)cap);
+            have_path = orig && decode(line + 5, orig, cap);
+        } else if (!strncmp(line, "DeletionDate=", 13))
             have_date = date_parse(line + 13, &it->deleted);
     }
-    if (!header || !have_path) return 0;
+    free(buf);
+    if (!header || !have_path || !item_set(it, name, bin, orig)) { free(orig); return 0; }
+    free(orig);
     if (!have_date) memset(&it->deleted, 0, sizeof it->deleted);
-    strlcpy(it->bin, bin, sizeof it->bin);
-    strlcpy(it->name, name, sizeof it->name);
-    char fp[UTRASH_PATH + 80];
+    char *fp = utrash_item_path(it);
     struct sys_stat st;
-    if (!utrash_item_path(it, fp, sizeof fp) || sys_stat(fp, &st) != 0) return 0;
+    int ok = fp && sys_stat(fp, &st) == 0;
+    free(fp);
+    if (!ok) { utrash_item_free(it); return 0; }
     it->is_dir = (int)st.is_dir;
     it->size = st.is_dir ? 0 : st.size;
     return 1;
@@ -196,46 +238,65 @@ static int ensure_dir(const char *p) {
     return sys_mkdir(p) == 0 ? 0 : -sys_errno();
 }
 
+// A name in the bin leaves room for ".trashinfo" in one FS_NAME_MAX
+// (255) component. Path= keeps the whole original, so only the bin's
+// own name is cut.
+#define BIN_NAME_MAX (255 - 10)
+
+// `len` bytes of `s` or fewer, ending on a UTF-8 character's boundary.
+static int utf8_cut(const char *s, int len) {
+    while (len > 0 && ((unsigned char)s[len] & 0xC0) == 0x80) len--;
+    return len;
+}
+
 // Claim a unique name: "dusk.jpg", then "dusk.2.jpg", "dusk.3.jpg" --
-// the extension kept, so the bin's own listing still knows the type.
-static int claim(const char *bin, const char *base, char *name, int cap, int *fd_out) {
+// the extension kept, so the bin's own listing still knows the type. A
+// long stem is cut to fit, the suffix and extension kept whole. The name
+// (allocated) in `*name_out`.
+static int claim(const char *bin, const char *base, char **name_out, int *fd_out) {
     const char *dot = strrchr(base, '.');
     int stem = (dot && dot != base) ? (int)(dot - base) : (int)strlen(base);
+    const char *ext = base + stem;
+    if ((int)strlen(ext) > 32) { stem = (int)strlen(base); ext = ""; }   // no real extension
     for (int n = 1; n < 1000; n++) {
-        if (n == 1) {
-            if ((int)strlcpy(name, base, (size_t)cap) >= cap) return -ENAMETOOLONG;
-        } else if (snprintf(name, (size_t)cap, "%.*s.%d%s", stem, base, n,
-                            base + stem) >= cap) {
-            return -ENAMETOOLONG;
-        }
-        char ip[UTRASH_PATH + 80], fp[UTRASH_PATH + 80];
+        char sfx[16] = "";
+        if (n > 1) snprintf(sfx, sizeof sfx, ".%d", n);
+        int room = BIN_NAME_MAX - (int)strlen(sfx) - (int)strlen(ext);
+        int keep = utf8_cut(base, stem < room ? stem : room);
+        char *name, *ip = 0, *fp = 0;
+        if (asprintf(&name, "%.*s%s%s", keep, base, sfx, ext) < 0) return -ENOMEM;
+        ip = info_path(bin, name);
+        fp = files_path(bin, name);
+        int rc = 1;
         struct sys_stat st;
-        if (!info_path(bin, name, ip, sizeof ip) ||
-            snprintf(fp, sizeof fp, "%s/files/%s", bin, name) >= (int)sizeof fp)
-            return -ENAMETOOLONG;
-        if (sys_stat(fp, &st) == 0) continue;   // an orphan holds it
-        int fd = open(ip, O_WRONLY | O_CREAT | O_EXCL, 0644);
-        if (fd >= 0) { *fd_out = fd; return 0; }
-        if (errno != EEXIST) return -errno;
+        if (!ip || !fp) {
+            rc = -ENOMEM;
+        } else if (sys_stat(fp, &st) != 0) {   // else an orphan holds it
+            int fd = open(ip, O_WRONLY | O_CREAT | O_EXCL, 0644);
+            if (fd >= 0) { *fd_out = fd; *name_out = name; name = 0; rc = 0; }
+            else if (errno != EEXIST) rc = -errno;
+        }
+        free(name);
+        free(ip);
+        free(fp);
+        if (rc <= 0) return rc;
     }
     return -EEXIST;
 }
 
-int utrash_put(const char *path, struct utrash_item *out) {
-    struct utrash_item local;
-    struct utrash_item *it = out ? out : &local;
-    memset(it, 0, sizeof *it);
-    char bin[UTRASH_PATH];
-    if (!utrash_bin_for(path, bin, sizeof bin)) return -ENOTSUP;
+static int ensure_sub(const char *bin, const char *sub) {
+    char *p = upath_join(bin, sub);
+    int rc = p ? ensure_dir(p) : -ENOMEM;
+    free(p);
+    return rc;
+}
+
+static int put(const char *path, const char *bin, struct utrash_item *it) {
     struct sys_stat st;
     if (sys_stat(path, &st) != 0) return -sys_errno();
-
-    char sub[UTRASH_PATH + 8];
     int rc = ensure_dir(bin);
-    snprintf(sub, sizeof sub, "%s/files", bin);
-    if (!rc) rc = ensure_dir(sub);
-    snprintf(sub, sizeof sub, "%s/info", bin);
-    if (!rc) rc = ensure_dir(sub);
+    if (!rc) rc = ensure_sub(bin, "files");
+    if (!rc) rc = ensure_sub(bin, "info");
     if (rc) return rc;
 
     char date[32];
@@ -243,39 +304,62 @@ int utrash_put(const char *path, struct utrash_item *out) {
     sys_gettime(&now);
     date_local(&now, date, sizeof date);
     int fd = -1;
-    rc = claim(bin, k_path_basename(path), it->name, sizeof it->name, &fd);
+    char *name = 0;
+    rc = claim(bin, k_path_basename(path), &name, &fd);
     if (rc) return rc;
     int wrote = write_info(fd, path, date);
     close(fd);
 
-    char ip[UTRASH_PATH + 80], fp[UTRASH_PATH + 80];
-    info_path(bin, it->name, ip, sizeof ip);
-    strlcpy(it->bin, bin, sizeof it->bin);
-    utrash_item_path(it, fp, sizeof fp);
-    if (!wrote) { unlink(ip); return -EIO; }
-    if (sys_rename(path, fp) != 0) {
-        rc = -sys_errno();
-        unlink(ip);
-        return rc;
+    char *ip = info_path(bin, name), *fp = files_path(bin, name);
+    if (!wrote || !ip || !fp || !item_set(it, name, bin, path)) rc = !wrote ? -EIO : -ENOMEM;
+    else if (sys_rename(path, fp) != 0) rc = -sys_errno();
+    if (rc) {
+        if (ip) unlink(ip);
+        utrash_item_free(it);
+    } else {
+        it->deleted = now;
+        it->is_dir = (int)st.is_dir;
+        it->size = st.is_dir ? 0 : st.size;
     }
-    strlcpy(it->orig, path, sizeof it->orig);
-    it->deleted = now;
-    it->is_dir = (int)st.is_dir;
-    it->size = st.is_dir ? 0 : st.size;
-    return 0;
+    free(name);
+    free(ip);
+    free(fp);
+    return rc;
+}
+
+int utrash_put(const char *path, struct utrash_item *out) {
+    struct utrash_item local;
+    struct utrash_item *it = out ? out : &local;
+    memset(it, 0, sizeof *it);
+    char *bin = utrash_bin_for(path);
+    if (!bin) return -ENOTSUP;
+    int rc = put(path, bin, it);
+    free(bin);
+    if (!out) utrash_item_free(&local);
+    return rc;
 }
 
 // --- list -----------------------------------------------------------------
 
-static int list_bin(const char *bin, struct utrash_item *out, int n, int cap) {
-    char dir[UTRASH_PATH + 8];
-    snprintf(dir, sizeof dir, "%s/info", bin);
+// What a listing gathers into: the items so far, or the first one only.
+struct gather {
+    struct utrash_item *items;
+    int n, cap;
+    int first_only;   // utrash_any(): stop at one
+    int nomem;
+};
+
+static int gathered(const struct gather *g) { return g->nomem || (g->first_only && g->n); }
+
+static void list_bin(const char *bin, struct gather *g) {
+    char *dir = upath_join(bin, "info");
+    if (!dir) { g->nomem = 1; return; }
     char *page = 0;
     uint32_t start = 0, pcap = 0;
     int got;
-    while (n < cap && (got = ulistdir_page(dir, &start, &page, &pcap)) > 0) {
+    while (!gathered(g) && (got = ulistdir_page(dir, &start, &page, &pcap)) > 0) {
         struct ulist_entry e;
-        for (int pos = 0; n < cap && ulistdir_next(page, got, &pos, &e); ) {
+        for (int pos = 0; !gathered(g) && ulistdir_next(page, got, &pos, &e); ) {
             char name[ULIST_NAME_MAX];
             size_t l = strlen(e.name);
             static const char ext[] = ".trashinfo";
@@ -283,11 +367,13 @@ static int list_bin(const char *bin, struct utrash_item *out, int n, int cap) {
                 strcmp(e.name + l - (sizeof ext - 1), ext)) continue;
             strlcpy(name, e.name, sizeof name);
             name[l - (sizeof ext - 1)] = '\0';
-            if (read_info(bin, name, &out[n])) n++;
+            if (!UGROW(g->items, g->cap, g->n + 1)) { g->nomem = 1; break; }
+            memset(&g->items[g->n], 0, sizeof g->items[g->n]);
+            if (read_info(bin, name, &g->items[g->n])) g->n++;
         }
     }
     free(page);
-    return n;
+    free(dir);
 }
 
 static int newest_first(const void *a, const void *b) {
@@ -296,58 +382,92 @@ static int newest_first(const void *a, const void *b) {
     return ta < tb ? 1 : ta > tb ? -1 : 0;
 }
 
-int utrash_list(struct utrash_item *out, int cap) {
-    int n = list_bin(HOME_BIN, out, 0, cap);
+static void gather_all(struct gather *g) {
+    list_bin(HOME_BIN, g);
     struct query_fsinfo fs;
-    for (int i = 0; n < cap; i++) {
+    for (int i = 0; !gathered(g); i++) {
         int r = sys_query_record(QUERY_FSINFO, (unsigned)i, &fs, sizeof fs);
         if (r <= 0) break;
         if ((unsigned)r < sizeof fs || !(fs.flags & QUERY_FS_MOUNTED) ||
             !(fs.flags & QUERY_FS_PERSISTENT) || !strcmp(fs.point, "/")) continue;
-        char bin[UTRASH_PATH];
-        if (k_path_join(fs.point, TOP_BIN, bin, sizeof bin)) n = list_bin(bin, out, n, cap);
+        char *bin = upath_join(fs.point, TOP_BIN);
+        if (!bin) { g->nomem = 1; break; }
+        list_bin(bin, g);
+        free(bin);
     }
-    qsort(out, (size_t)n, sizeof *out, newest_first);
-    return n;
+}
+
+void utrash_list_free(struct utrash_item *items, int n) {
+    for (int i = 0; i < n; i++) utrash_item_free(&items[i]);
+    free(items);
+}
+
+int utrash_list(struct utrash_item **out) {
+    struct gather g = { 0 };
+    gather_all(&g);
+    if (g.nomem) { utrash_list_free(g.items, g.n); *out = 0; return -ENOMEM; }
+    qsort(g.items, (size_t)g.n, sizeof *g.items, newest_first);
+    *out = g.items;
+    return g.n;
+}
+
+int utrash_any(void) {
+    struct gather g = { .first_only = 1 };
+    gather_all(&g);
+    int any = g.n > 0;
+    utrash_list_free(g.items, g.n);
+    return any;
 }
 
 // --- restore and forget ---------------------------------------------------
 
-int utrash_restore(const struct utrash_item *it) {
-    char fp[UTRASH_PATH + 80], parent[UTRASH_PATH];
+// 1 when the folder `path` would be created in exists.
+static int parent_is_dir(const char *path) {
+    char *parent = upath_dirname(path);
     struct sys_stat st;
-    if (!utrash_item_path(it, fp, sizeof fp)) return -ENAMETOOLONG;
+    int ok = parent && sys_stat(parent, &st) == 0 && st.is_dir;
+    free(parent);
+    return ok;
+}
+
+static int forget(const char *bin, const char *name) {
+    char *ip = info_path(bin, name);
+    if (!ip) return -ENOMEM;
+    int rc = sys_unlink(ip) == 0 ? 0 : -sys_errno();
+    free(ip);
+    return rc;
+}
+
+int utrash_restore(const struct utrash_item *it) {
+    struct sys_stat st;
     if (sys_stat(it->orig, &st) == 0) return -EEXIST;
-    if (!k_path_dirname(it->orig, parent, sizeof parent) || sys_stat(parent, &st) != 0 || !st.is_dir)
-        return -ENOENT;
-    if (sys_rename(fp, it->orig) != 0) return -sys_errno();
-    return utrash_forget(it);
+    if (!parent_is_dir(it->orig)) return -ENOENT;
+    char *fp = utrash_item_path(it);
+    if (!fp) return -ENOMEM;
+    int rc = sys_rename(fp, it->orig) == 0 ? 0 : -sys_errno();
+    free(fp);
+    return rc ? rc : utrash_forget(it);
 }
 
 int utrash_forget_path(const char *files_path) {
-    struct utrash_item it;
-    char files[UTRASH_PATH];
-    if (!k_path_dirname(files_path, files, sizeof files) ||
-        strcmp(k_path_basename(files), "files") ||
-        !k_path_dirname(files, it.bin, sizeof it.bin)) return -EINVAL;
-    strlcpy(it.name, k_path_basename(files_path), sizeof it.name);
-    return utrash_forget(&it);
+    char *files = upath_dirname(files_path);
+    char *bin = files && !strcmp(k_path_basename(files), "files") ? upath_dirname(files) : 0;
+    int rc = bin ? forget(bin, k_path_basename(files_path)) : files ? -EINVAL : -ENOMEM;
+    free(files);
+    free(bin);
+    return rc;
 }
 
 int utrash_restore_to(const char *files_path, const char *dest) {
-    char parent[UTRASH_PATH];
     struct sys_stat st;
     if (sys_stat(dest, &st) == 0) return -EEXIST;
-    if (!k_path_dirname(dest, parent, sizeof parent) || sys_stat(parent, &st) != 0 || !st.is_dir)
-        return -ENOENT;
+    if (!parent_is_dir(dest)) return -ENOENT;
     if (sys_rename(files_path, dest) != 0) return -sys_errno();
     return utrash_forget_path(files_path);
 }
 
 int utrash_forget(const struct utrash_item *it) {
-    char ip[UTRASH_PATH + 80];
-    if (!info_path(it->bin, it->name, ip, sizeof ip)) return -ENAMETOOLONG;
-    return sys_unlink(ip) == 0 ? 0 : -sys_errno();
+    return forget(it->bin, it->name);
 }
 
 // --- limits ---------------------------------------------------------------
@@ -372,69 +492,88 @@ static int add_size(void *ctx, const char *path, const struct ulist_entry *e) {
 // An item's bytes: a file's size, a folder's files summed.
 static uint64_t item_bytes(const struct utrash_item *it, struct uwalk *w) {
     if (!it->is_dir) return it->size;
-    char p[UTRASH_PATH + 80];
+    char *p = utrash_item_path(it);
     uint64_t sum = 0;
-    if (utrash_item_path(it, p, sizeof p) && uwalk_begin(w, p))
+    if (p && uwalk_begin(w, p))
         while (uwalk_step(w, add_size, &sum)) {}
     uwalk_end(w);
+    free(p);
     return sum;
 }
 
-#define LIMIT_ITEMS 512
-
-// The bins and their items, oldest first, with each item's bytes; on the
-// heap, as a walk and the list are far past a ring-3 frame.
+// The bins and their items, oldest first, with each item's bytes -- ALL
+// of them: an expiry that saw only some would purge the wrong ones.
 struct census {
-    struct utrash_item items[LIMIT_ITEMS];
-    uint64_t bytes[LIMIT_ITEMS];
-    uint8_t dead[LIMIT_ITEMS];   // utrash_expire(): deleted for good
+    struct utrash_item *items;
+    uint64_t *bytes;
+    uint8_t *dead;   // utrash_expire(): deleted for good
     int n;
     struct uwalk walk;
 };
 
+static void census_free(struct census *c) {
+    if (!c) return;
+    utrash_list_free(c->items, c->n);
+    free(c->bytes);
+    free(c->dead);
+    free(c);
+}
+
 static struct census *census_take(void) {
     struct census *c = calloc(1, sizeof *c);
     if (!c) return 0;
-    struct utrash_item *tmp = c->items;
-    int n = utrash_list(tmp, LIMIT_ITEMS);   // newest first
-    for (int i = 0, j = n - 1; i < j; i++, j--) {
-        struct utrash_item t = tmp[i]; tmp[i] = tmp[j]; tmp[j] = t;
-    }
+    int n = utrash_list(&c->items);   // newest first
+    if (n < 0) { free(c); return 0; }
     c->n = n;
-    for (int i = 0; i < n; i++) c->bytes[i] = item_bytes(&c->items[i], &c->walk);
+    c->bytes = calloc((size_t)n + 1, sizeof *c->bytes);
+    c->dead = calloc((size_t)n + 1, 1);
+    if (!c->bytes || !c->dead) { census_free(c); return 0; }
+    struct utrash_item *it = c->items;
+    for (int i = 0, j = n - 1; i < j; i++, j--) {
+        struct utrash_item t = it[i]; it[i] = it[j]; it[j] = t;
+    }
+    for (int i = 0; i < n; i++) c->bytes[i] = item_bytes(&it[i], &c->walk);
     return c;
 }
 
-int utrash_usage(struct utrash_usage *out, int cap) {
+void utrash_usage_free(struct utrash_usage *u, int n) {
+    for (int i = 0; i < n; i++) free(u[i].bin);
+    free(u);
+}
+
+int utrash_usage(struct utrash_usage **out) {
+    *out = 0;
     struct census *c = census_take();
-    if (!c) return 0;
-    int nb = 0;
-    for (int i = 0; i < c->n; i++) {
+    if (!c) return -ENOMEM;
+    struct utrash_usage *u = 0;
+    int nb = 0, cap = 0, rc = 0;
+    for (int i = 0; i < c->n && !rc; i++) {
         int b = 0;
-        while (b < nb && strcmp(out[b].bin, c->items[i].bin)) b++;
+        while (b < nb && strcmp(u[b].bin, c->items[i].bin)) b++;
         if (b == nb) {
-            if (nb == cap) continue;
-            memset(&out[b], 0, sizeof out[b]);
-            strlcpy(out[b].bin, c->items[i].bin, sizeof out[b].bin);
+            if (!UGROW(u, cap, nb + 1)) { rc = -ENOMEM; break; }
+            memset(&u[b], 0, sizeof u[b]);
+            if (!(u[b].bin = strdup(c->items[i].bin))) { rc = -ENOMEM; break; }
             uint64_t flags = 0;
-            volume_of_sized(out[b].bin, out[b].point, sizeof out[b].point, &flags, &out[b].volume_bytes);
+            volume_of_sized(u[b].bin, u[b].point, sizeof u[b].point, &flags, &u[b].volume_bytes);
             nb++;
         }
-        out[b].items++;
-        out[b].bytes += c->bytes[i];
+        u[b].items++;
+        u[b].bytes += c->bytes[i];
     }
-    free(c);
+    census_free(c);
+    if (rc) { utrash_usage_free(u, nb); return rc; }
+    *out = u;
     return nb;
 }
 
 static int purge(const struct utrash_item *it, struct ufileop *op) {
     static const struct ufileop_policy pol = { 0 };
-    char p[UTRASH_PATH + 80];
-    if (!utrash_item_path(it, p, sizeof p)) return 0;
-    if (ufileop_remove(p, 1, op, &pol) != UFILEOP_OK) return 0;
-    return utrash_forget(it) == 0;
+    char *p = utrash_item_path(it);
+    int ok = p && ufileop_remove(p, 1, op, &pol) == UFILEOP_OK;
+    free(p);
+    return ok && utrash_forget(it) == 0;
 }
-
 int utrash_expire(const struct utrash_limits *l, struct ufileop *op) {
     if (!l->max_age_days && !l->max_size_pct) return 0;
     struct census *c = census_take();
@@ -469,6 +608,6 @@ int utrash_expire(const struct utrash_limits *l, struct ufileop *op) {
             }
         }
     }
-    free(c);
+    census_free(c);
     return gone;
 }

@@ -6,6 +6,7 @@
 // `rm` stays permanent. This is the reversible delete, asked for by name.
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "rt/sys.h"
 #include "base/uargs.h"
 #include "base/utrash.h"
@@ -34,9 +35,15 @@ static const struct uargs_prog PROG = {
              "A file on a RAM or read-only volume has no bin; `rm` deletes it.",
 };
 
-// Static: struct ufileop is tens of KB and the list is bigger still.
+// Static: struct ufileop is tens of KB.
 static struct ufileop g_op;
-static struct utrash_item g_items[256];
+
+// The whole bin, or a message and 0.
+static int take_list(struct utrash_item **items) {
+    int n = utrash_list(items);
+    if (n < 0) fprintf(stderr, "trash: %s\n", sys_strerror(-n));
+    return n;
+}
 
 static void op_error(void *ctx, const char *path, int err) {
     (void)ctx;
@@ -57,46 +64,53 @@ static int put(int argc, char **argv) {
         } else if (strcmp(it.name, k_path_basename(argv[i]))) {
             printf("%s -> %s\n", argv[i], it.name);
         }
+        if (!e) utrash_item_free(&it);
     }
     return rc;
 }
 
 static int list(void) {
-    int n = utrash_list(g_items, 256);
+    struct utrash_item *items;
+    int n = take_list(&items);
+    if (n < 0) return 1;
     for (int i = 0; i < n; i++) {
         char when[48], size[24];
-        udate_format(when, sizeof when, &g_items[i].deleted, UDATE_DATE | UDATE_TIME);
-        if (g_items[i].is_dir) strlcpy(size, "folder", sizeof size);
-        else human_size(size, sizeof size, g_items[i].size);
-        printf("%-24s %9s  %-16s  %s\n", g_items[i].name, size, when, g_items[i].orig);
+        udate_format(when, sizeof when, &items[i].deleted, UDATE_DATE | UDATE_TIME);
+        if (items[i].is_dir) strlcpy(size, "folder", sizeof size);
+        else human_size(size, sizeof size, items[i].size);
+        printf("%-24s %9s  %-16s  %s\n", items[i].name, size, when, items[i].orig);
     }
     if (!n) printf("the Recycle Bin is empty\n");
+    utrash_list_free(items, n);
     return 0;
 }
 
 static int restore(int argc, char **argv) {
-    int n = utrash_list(g_items, 256), rc = 0;
+    struct utrash_item *items;
+    int n = take_list(&items), rc = 0;
+    if (n < 0) return 1;
     for (int a = 0; a < argc; a++) {
         int found = 0;
         // A NAME is the bin's; a /PATH is where it was deleted from, and
         // the list is newest first, so that names the latest delete of it
         // -- the one an Undo means.
         for (int i = 0; i < n && !found; i++) {
-            if (strcmp(argv[a][0] == '/' ? g_items[i].orig : g_items[i].name, argv[a])) continue;
+            if (strcmp(argv[a][0] == '/' ? items[i].orig : items[i].name, argv[a])) continue;
             found = 1;
-            int e = utrash_restore(&g_items[i]);
+            int e = utrash_restore(&items[i]);
             if (e == -EEXIST)
-                fprintf(stderr, "trash: %s: something named that is in the way\n", g_items[i].orig);
+                fprintf(stderr, "trash: %s: something named that is in the way\n", items[i].orig);
             else if (e == -ENOENT)
-                fprintf(stderr, "trash: %s: the folder it came from is gone\n", g_items[i].orig);
+                fprintf(stderr, "trash: %s: the folder it came from is gone\n", items[i].orig);
             else if (e)
                 fprintf(stderr, "trash: %s: %s\n", argv[a], sys_strerror(-e));
             else
-                printf("%s\n", g_items[i].orig);
+                printf("%s\n", items[i].orig);
             if (e) rc = 1;
         }
         if (!found) { fprintf(stderr, "trash: %s: not in the bin\n", argv[a]); rc = 1; }
     }
+    utrash_list_free(items, n);
     return rc;
 }
 
@@ -117,14 +131,17 @@ static int expire(void) {
 
 static int empty(void) {
     struct ufileop_policy pol = { .on_error = op_error };
-    int n = utrash_list(g_items, 256), rc = 0;
+    struct utrash_item *items;
+    int n = take_list(&items), rc = 0;
+    if (n < 0) return 1;
     for (int i = 0; i < n; i++) {
-        char p[UTRASH_PATH + 80];
-        if (!utrash_item_path(&g_items[i], p, sizeof p)) continue;
-        if (ufileop_remove(p, 1, &g_op, &pol) != UFILEOP_OK) { rc = 1; continue; }
-        if (utrash_forget(&g_items[i])) rc = 1;
+        char *p = utrash_item_path(&items[i]);
+        int gone = p && ufileop_remove(p, 1, &g_op, &pol) == UFILEOP_OK;
+        free(p);
+        if (!gone || utrash_forget(&items[i])) rc = 1;
     }
     printf("%d item%s deleted\n", n, n == 1 ? "" : "s");
+    utrash_list_free(items, n);
     return rc;
 }
 

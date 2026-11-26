@@ -27,7 +27,7 @@ extern "C" {
 // reads the directory, to find a new name that something else already
 // has.
 
-#define URENAME_NAME 64          // a component, as struct ulist_entry's
+#define URENAME_NAME ULIST_NAME_MAX   // a component: FS_NAME_MAX and its NUL
 
 enum { URENAME_NUMBER, URENAME_REPLACE, URENAME_CASE };
 enum { URENAME_LOWER, URENAME_UPPER, URENAME_TITLE };

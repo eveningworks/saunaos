@@ -119,11 +119,10 @@ static int move_to(const char *from, const char *to,
 // take it back out.
 static int to_bin(struct ufu_step *st, const char *path) {
     struct utrash_item it;
-    char where[UTRASH_PATH];   // the bin's own bound (base/utrash.h)
     int e = utrash_put(path, &it);
     if (e) return e;
-    if (!utrash_item_path(&it, where, sizeof where)) return -ENAMETOOLONG;
-    char *keep = strdup(where);
+    char *keep = utrash_item_path(&it);
+    utrash_item_free(&it);
     if (!keep) return -ENOMEM;
     free(st->bin);
     st->bin = keep;

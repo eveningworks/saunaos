@@ -17,14 +17,14 @@
 #include "base/udate.h"
 #include "ui/uui_table.h"
 #include "base/ulog.h"
-#include "base/ugrow.h"
+#include "base/upath.h"
 
 // ONE LISTING FOR BOTH PANES: a pane showing the bin lists into it, and
 // two panes showing it list the same thing in the same order, so either
-// may have written it last. Grown to the view's capacity, which doubles
-// until the whole bin fits -- Empty and Restore all act on this list.
+// may have written it last. The whole bin, whatever the view's capacity
+// -- Empty and Restore all act on this list.
 static struct utrash_item *g_items;
-static int g_items_cap, g_count;
+static int g_count;
 
 // The order is the details view's sort keys: Size and Modified land on
 // Size and Date deleted, and the fourth column is where it came from.
@@ -37,25 +37,28 @@ static const struct uui_table_column bin_cols[] = {
 
 static int bin_list(void *ctx, const char *dir, struct ulist_entry *out, int cap) {
     (void)ctx; (void)dir;
-    if (!UGROW(g_items, g_items_cap, cap)) {
-        ulogf("files: Recycle Bin: out of memory at %d items\n", cap);
+    utrash_list_free(g_items, g_count);
+    g_count = utrash_list(&g_items);
+    if (g_count < 0) {
+        ulogf("files: Recycle Bin: out of memory listing it\n");
+        g_count = 0;
         return -ENOMEM;
     }
-    g_count = utrash_list(g_items, cap);
-    for (int i = 0; i < g_count; i++) {
+    // More than the view holds: it grows and asks again (cap is not "all").
+    int n = g_count < cap ? g_count : cap;
+    for (int i = 0; i < n; i++) {
         memset(&out[i], 0, sizeof out[i]);
         strlcpy(out[i].name, g_items[i].name, sizeof out[i].name);
         out[i].size = g_items[i].size > 0xffffffffull ? 0xffffffffu : (uint32_t)g_items[i].size;
         out[i].is_dir = (uint32_t)g_items[i].is_dir;
         out[i].modified = g_items[i].deleted;
     }
-    return g_count;
+    return n;
 }
 
 static char *bin_path(void *ctx, int i) {
     (void)ctx;
-    char p[UTRASH_PATH];   // the bin's own bound (base/utrash.h)
-    return i >= 0 && i < g_count && utrash_item_path(&g_items[i], p, sizeof p) ? strdup(p) : 0;
+    return i >= 0 && i < g_count ? utrash_item_path(&g_items[i]) : 0;
 }
 
 static void bin_cell(void *ctx, int i, int col, char *out, int cap) {
@@ -119,10 +122,10 @@ int bin_item_flags(int code, unsigned *out) {
 // the system volume's bin's info folder, which every put, restore and
 // empty there touches.
 const char *fm_watch_path(const char *dir) {
-    static char info[288];
+    static char *info;
     if (strcmp(dir, FM_BIN) == 0) {
-        snprintf(info, sizeof info, "%s/info", utrash_home_bin());
-        return info;
+        if (!info) info = upath_join(utrash_home_bin(), "info");
+        return info ? info : utrash_home_bin();
     }
     if (strcmp(dir, FM_RECENT) == 0) return urecent_dir();   // urecent renames its file in
     if (strcmp(dir, FM_QUICK) == 0) return urecent_dir();    // ...and Quick access shows it
@@ -137,9 +140,12 @@ const char *fm_watch_path(const char *dir) {
 
 // The item a path inside a bin names; -1 for none.
 static int item_of(const char *path) {
-    char p[UTRASH_PATH];
-    for (int i = 0; i < g_count; i++)
-        if (utrash_item_path(&g_items[i], p, sizeof p) && !strcmp(p, path)) return i;
+    for (int i = 0; i < g_count; i++) {
+        char *p = utrash_item_path(&g_items[i]);
+        int same = p && !strcmp(p, path);
+        free(p);
+        if (same) return i;
+    }
     return -1;
 }
 
@@ -188,9 +194,7 @@ int bin_paths(char ***out) {
     if (g_count && !*out) return -1;
     int n = 0;
     for (int i = 0; i < g_count; i++) {
-        char p[UTRASH_PATH];
-        if (!utrash_item_path(&g_items[i], p, sizeof p)) continue;
-        if (!((*out)[n] = strdup(p))) {
+        if (!((*out)[n] = utrash_item_path(&g_items[i]))) {
             for (int k = 0; k < n; k++) free((*out)[k]);
             free(*out);
             *out = 0;

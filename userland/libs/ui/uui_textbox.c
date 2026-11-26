@@ -164,6 +164,22 @@ int uui_textbox_set_max(struct uui_textbox *f, int max) {
     return 0;
 }
 
+int uui_textbox_init_max(struct uui_textbox *f, const char *text, int max) {
+    uui_textbox_init(f, "");
+    int rc = uui_textbox_set_max(f, max);
+    uui_textbox_set_text(f, text);
+    return rc;
+}
+
+void uui_textbox_release(struct uui_textbox *f) {
+    free(f->big);
+    f->big = 0;
+    f->max = 0;
+    f->buf[0] = '\0';
+    f->len = 0;
+    uui_edit_init(&f->ed);
+}
+
 int uui_textbox_has_selection(const struct uui_textbox *f) {
     return uui_edit_has_selection(&f->ed);
 }

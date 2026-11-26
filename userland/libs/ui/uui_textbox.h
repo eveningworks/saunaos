@@ -150,6 +150,18 @@ const char *uui_textbox_text(const struct uui_textbox *f);
 // moving its text to the heap; after init. 0, or -1 out of memory or for
 // a masked field, which is left as it was.
 int uui_textbox_set_max(struct uui_textbox *f, int max);
+// A field for a file NAME or a PATH: init() with room for `max` bytes,
+// so the text is not cut on the way in -- a rename box at the default
+// size cut a long name, and Enter renamed the file to the cut one.
+// -1 out of memory, and the field is then the default size, text cut.
+#define UUI_TEXTBOX_NAME_MAX 255    // FS_NAME_MAX: one folder entry
+#define UUI_TEXTBOX_PATH_MAX 4095   // FS_PATH_MAX and its NUL
+int uui_textbox_init_max(struct uui_textbox *f, const char *text, int max);
+// Frees what set_max() gave the field and empties it. init() frees
+// nothing, as it may be handed an uninitialised struct, so a field
+// re-initialised in place (a rename box) calls this first; on a zeroed
+// or initialised field only.
+void uui_textbox_release(struct uui_textbox *f);
 int uui_textbox_has_selection(const struct uui_textbox *f);
 
 // Height only: one row plus insets. **Width is 0 -- no preference**

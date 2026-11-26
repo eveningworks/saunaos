@@ -161,11 +161,9 @@ int places_ctx_items(struct uui_menu_item *out, int cap, int nid) {
     int n = 0;
     g_kind = kind_of(nid);
     if (g_kind == K_BIN) {
-        static struct utrash_item one;   // static: two paths
-        g_bin_has = utrash_list(&one, 1) > 0;
+        g_bin_has = utrash_any();
     } else if (g_kind == K_RECENT) {
-        static struct urecent_item one;
-        g_recent_has = urecent_list(&one, 1) > 0;
+        g_recent_has = urecent_any();
     }
     set_aim(g_kind != K_PANE ? g_tree_path[nid] : 0);
     switch (g_kind) {
