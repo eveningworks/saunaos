@@ -121,6 +121,12 @@ ABI_UNSAFE = {
     # so the HOST's own files would answer (or be unlinked).
     "open", "open64", "openat", "creat", "access", "unlink", "unlinkat", "rename", "renameat",
     "remove", "rmdir", "mkdir", "truncate",
+    # The account databases: glibc's read the HOST's /etc/passwd through
+    # NSS, never the case's own (uitest_file()) -- tolibc's pwd.c and grp.c
+    # read it with the wrapped fopen.
+    "getpwnam", "getpwuid", "getpwent", "setpwent", "endpwent", "getpwnam_r", "getpwuid_r",
+    "getgrnam", "getgrgid", "getgrent", "setgrent", "endgrent", "getgrnam_r", "getgrgid_r",
+    "getgrouplist",
 }
 
 # tolibc's OWN implementation of a call in ABI_UNSAFE, compiled into the
@@ -131,7 +137,8 @@ ABI_UNSAFE = {
 # something reaches it, and then wins over glibc's symbol of that name.
 LIBC_OWN = ["userland/libs/libc/stat.c", "userland/libs/libc/time.c", "userland/libs/libc/tz.c",
             "userland/libs/libc/locale.c", "userland/libs/libc/printf_float.c",
-            "userland/libs/libc/access.c", "userland/libs/libc/pthread.c"]
+            "userland/libs/libc/access.c", "userland/libs/libc/pthread.c",
+            "userland/libs/libc/pwd.c", "userland/libs/libc/grp.c", "userland/libs/libc/etcdb.c"]
 
 # Each control: (source, before, after, cases that must go red). The edit
 # is applied to a COPY; the checked-in file is never touched.

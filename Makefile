@@ -2832,11 +2832,13 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# /etc/environment: what init puts in every process's environment
 	# (userland/services/init/init.c, seed_environment()).
 	cp data/etc/environment $(SEED_DIR)/sync/etc/environment
-	# /etc/passwd and /etc/group: root and `user`, read by <pwd.h>/<grp.h> and
-	# by init's User= (docs/users-design.md). Shipped data while nothing on
-	# the machine adds an account; stage D's accounts make them the machine's.
-	cp data/etc/passwd $(SEED_DIR)/sync/etc/passwd
-	cp data/etc/group $(SEED_DIR)/sync/etc/group
+	# /etc/passwd and /etc/group: root, `user` and `greeter`, read by
+	# <pwd.h>/<grp.h> and by init's User= (docs/users-design.md) -- ONCE,
+	# never synced, since the machine adds accounts (users D3a): a `make iso`
+	# must not take away the people added on it.
+	mkdir -p $(SEED_DIR)/once/etc
+	cp data/etc/passwd $(SEED_DIR)/once/etc/passwd
+	cp data/etc/group $(SEED_DIR)/once/etc/group
 	# /etc/shadow: the password hashes (users D2a) -- ONCE, never synced: a
 	# password set on the machine must survive the next `make iso`, and
 	# owners.conf makes it root's and 0600. Absent (a disk from before), it
@@ -2872,6 +2874,14 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	@for a in about files notepad settings terminal; do \
 	    cp data/wm/applications/$$a.desktop $(SEED_DIR)/once/home/user/Desktop/; done
 	cp data/wm/desktop/trash.desktop $(SEED_DIR)/once/home/user/Desktop/
+	# /etc/skel (users D3a): what privd copies into a NEW account's home --
+	# the same XDG folders and desktop launchers /home/user is seeded with.
+	mkdir -p $(SEED_DIR)/sync/etc/skel/.config $(SEED_DIR)/sync/etc/skel/.local/share \
+	    $(SEED_DIR)/sync/etc/skel/.local/state $(SEED_DIR)/sync/etc/skel/.cache \
+	    $(SEED_DIR)/sync/etc/skel/Desktop
+	@for a in about files notepad settings terminal; do \
+	    cp data/wm/applications/$$a.desktop $(SEED_DIR)/sync/etc/skel/Desktop/; done
+	cp data/wm/desktop/trash.desktop $(SEED_DIR)/sync/etc/skel/Desktop/
 	@for f in data/etc/ssl/certs/*; do \
 	    if [ -f "$$f" ] && [ "$$(basename $$f)" != "README.md" ]; then \
 	        cp "$$f" $(SEED_DIR)/sync/etc/ssl/certs/; fi; \

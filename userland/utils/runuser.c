@@ -27,7 +27,7 @@ static const struct uargs_prog PROG = {
     OPTS, 0,
     "Root only, and asks for nothing -- an account runs a command as\n"
     "administrator with sudo instead.",
-    0, 1, 0,
+    0, 1, 0, 0,
 };
 
 static int runnable(const char *p) {

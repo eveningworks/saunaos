@@ -88,6 +88,10 @@ extern "C" {
 // ...and who is on this machine remotely: end a remote session, or make it
 // view-only (SIGTERM, SIGUSR1, SIGUSR2 to a QUERY_REMOTESESS leader only).
 #define UPRIV_ACT_REMOTE    "remote"      // pid, signal number
+// The people's accounts (users D3a, base/uusers.h), an administrator's:
+#define UPRIV_ACT_USERADD   "useradd"     // name, full name, admin 0/1, password or ""
+#define UPRIV_ACT_USERDEL   "userdel"     // name, "keep" or "delete" (its home)
+#define UPRIV_ACT_USERMOD   "usermod"     // name, field (admin/real/password), value
 
 // Runs `path` with `argv` (argv[0] included, NULL-terminated) as root,
 // as a child of this process -- `o` gives its streams and the rest, as
@@ -101,6 +105,23 @@ int upriv_spawn(const char *path, char *const *argv, const struct sys_spawn_opts
 // Runs one action. `args` is NULL-terminated. 0, or -1 with errno as
 // above, or what the action itself failed with.
 int upriv_action(const char *action, const char *const *args, unsigned flags);
+
+// upriv_action() with the asker's own password (UPRIV_WITH_PASSWORD):
+// sudo's shape for an action. EACCES: the password was wrong.
+int upriv_action_password(const char *action, const char *const *args, const char *password);
+
+// AN ACTION ASKED FROM A TERMINAL -- what `sudo` does for a command,
+// for a command-line tool's one action (`user add`): root runs it
+// straight; an account with a password is asked for it on the terminal
+// (`[what] password for NAME: `, UPRIV_AUTH_TRIES times); one without
+// is asked through the desktop's prompt, or y/N here when no desktop
+// runs. 0, or -1 with errno as upriv_action(), or EINTR when the person
+// ended the password prompt (Ctrl+D), ENOTTY when there is no terminal.
+int upriv_action_tty(const char *what, const char *action, const char *const *args);
+
+// What a failed upriv_*() call's errno means, in a person's words --
+// "the password was wrong", "not allowed" -- for a tool's message.
+const char *upriv_strerror(int err);
 
 // upriv_spawn() with the asker's own password, read on its terminal
 // (UPRIV_WITH_PASSWORD). EACCES: the password was wrong.

@@ -1,6 +1,6 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 (D2a, D2b, D2c below) BUILT 2026-11-25.** The maintainer
+**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 (D2a, D2b, D2c below) BUILT 2026-11-25, D3a (several people, the login screen's list) BUILT 2026-11-26; D3b and D3c next.** The maintainer
 picked the shape on 2026-11-23: four stages, stage A first, a ROOT
 BROKER for elevation (no setuid bits), ONE user account before several.
 Roadmap: "Multi-user & file permissions".
@@ -96,9 +96,10 @@ from anyone but euid 0 is `-EPERM`, never `-EINVAL`, which libsys reads
 as an old kernel. `proc_info` grew `uid`/`euid`/`gid`/`egid`. libc reads
 `/etc/passwd` and `/etc/group` on every call (glibc's files backend);
 when the file cannot be opened -- a sandbox that did not unveil it --
-root alone is still found. Both files ship as SYNCED data, like
-`/etc/timezones`, while nothing on the machine adds an account; stage D
-makes them the machine's. `User=` starts nothing for an unknown account
+root alone is still found. Both files shipped as SYNCED data, like
+`/etc/timezones`, while nothing on the machine added an account; since
+D3a they are seeded ONCE and the machine's (an account a later build
+needs would arrive as systemd-sysusers adds one, not by a sync). `User=` starts nothing for an unknown account
 (systemd's rule) and sets `HOME`, `USER`, `LOGNAME` and `SHELL` from the
 passwd line, so the desktop's `HOME` is `/home` while services keep `/`.
 Task Manager's User column is HIDDEN by default -- shown, it opened the
@@ -303,8 +304,9 @@ is right and this is what it does:
 
 Picked 2026-11-25, in three parts, each shippable alone: **D1** a home
 per account and the settings split, built with the one person there is;
-**D2** passwords and a login screen; **D3** a second person, switching,
-and the settings the kernel keeps applied per session.
+**D2** passwords and a login screen; **D3** a second person (D3a), the
+machine's settings an administrator's (D3b), and the settings the kernel
+keeps applied per session (D3c); switching between sessions later.
 
 **What real systems do.** Linux keeps the account in `/etc/passwd` and
 the hash in `/etc/shadow`, and a display manager's greeter (GDM) reads
@@ -413,9 +415,9 @@ speed, the keyboard layout) at logon from HKCU.
   the machine's defaults, and the ASUS's were moved by hand.
 - **What stays machine-scoped in D1, though a person's elsewhere:**
   `display.scale` (`fontd`, root, renders for the screen; GNOME and
-  Windows keep it per person, and D3 moves it with fontd into the
+  Windows keep it per person, and D3c moves it with fontd into the
   session) and the kernel registry's own settings -- pointer, keyboard,
-  font, scaling -- which with one person need no split. D3 applies the
+  font, scaling -- which with one person need no split. D3c applies the
   person's at login.
 - **No migration.** Nobody runs SaunaOS on a disk that cannot be
   reimaged (`docs/decisions/build.md`, "No migration code for a machine
@@ -424,7 +426,7 @@ speed, the keyboard layout) at logon from HKCU.
   entries into `/home/user`, the stored `/home/...` paths in its
   settings rewritten, `owners --all`.
 - **Machine keys stay writable by the desktop** (`/etc` is 3775
-  root:user) until D3, when a second person makes "change the machine"
+  root:user) until D3b, when a second person makes "change the machine"
   a privilege; then it goes through privd, as hostname1 and timedate1
   do under polkit.
 
@@ -522,7 +524,7 @@ telnetd runs `login(1)` as root, which drops to the account.
   computer's name bottom-left, Restart and Shut down bottom-right. It is
   one overlay in the compositor, `wm_login.c`, so the lock screen (D2c)
   is the same drawing over the person's own desktop.
-- **Settings > Users** (one account until D3): the name, Change
+- **Settings > Users** (D3a adds Other accounts under it): the name, Change
   password, Remove password, and "Sign in automatically". **First-boot
   setup gains an optional Password step**; skipped, the machine is as
   before.
@@ -635,17 +637,72 @@ As built (2026-11-25), and where it differs from the plan:
   a ROOT console shell behind the login screen. The ASUS was migrated
   by hand on 2026-11-25 (there are no migrations; nobody else runs it).
 
-**D3 -- several people.**
+**D3 -- several people.** Picked 2026-11-26, in three parts as D1 and
+D2 were: **D3a** adding and removing people and the login screen listing
+them (BUILT 2026-11-26); **D3b** the machine's settings an
+administrator's right; **D3c** the kernel registry's per-person settings
+applied at sign-in, and `fontd` per session.
 
-- More than one account: a Users page in Settings, `useradd`-shaped
-  CLI through privd.
-- Switching users (a session per seat, the logind shape).
-- The kernel registry's per-person settings applied by the session at
-  login, and `fontd` (with `display.scale`) run per session.
-- Machine-scoped writes need the admin right (privd), as above -- which
-  is also when the Configuration Editor's machine-wide values become
-  editable (read-only there until then), and when its kernel-registered
-  ones, editable now, split into the person's and the machine's.
+**What real systems do.** Windows keeps every signed-in session running
+and switches between them (Fast User Switching); GNOME and KDE under
+logind run a session per VT, and the hidden one's compositor gives up
+DRM master (logind's PauseDevice). Accounts are made by a root service
+the settings panel asks through polkit (`accounts-daemon`'s CreateUser,
+`org.freedesktop.accounts.user-administration`), or by `useradd` as
+root; a new home is copied from `/etc/skel`. GDM lists the people
+(AccountsService's ListCachedUsers) and preselects the last one;
+Windows 11 puts the last one in the middle and the others bottom-left.
+
+- **ONE SESSION AT A TIME, for now.** Another person signs in after the
+  first signs out; the login screen lists everyone. Concurrent sessions
+  -- the compositor role handed between paused compositors, init keeping
+  a list of sessions -- are their own later stage (roadmap), and "Switch
+  user" waits for them: with one session it would only be Sign out.
+- **D3a: privd adds, removes and changes accounts** (`accounts.c`, the
+  `useradd`/`userdel`/`usermod` actions; `base/uusers.h` the client half),
+  an administrator's right, asked as any other. `/etc/passwd` and
+  `/etc/group` are replaced whole beside themselves, as `/etc/shadow`
+  is; an add writes group, passwd, then shadow, a removal the reverse,
+  so a power cut between them leaves an unused group or a hash with no
+  account, never an account with no group. A new uid is one above every
+  person's uid and gid (useradd's max+1), so a removed account's files
+  never fall to a newcomer -- except that an account added again over a
+  home that was KEPT takes that home's old owner back, when nobody has
+  it. The home is made `04700` and the account's, and `/etc/skel` is
+  copied into it: the setuid folder gives each copied file to the
+  account (`fs_new_attrs()`), so nothing is chowned after. Removing is
+  refused while the account has a process (signed in, or a program left
+  running: `userdel`'s rule) and for the last administrator. An
+  administrator is a member of `wheel`; Standard is not.
+- **D3a: the front ends.** Settings > System > Users keeps the signed-in
+  person's own rows and adds **Other accounts** under them (mockup S1,
+  GNOME's and Windows' shape): a row per person with a Standard /
+  Administrator drop-down and Remove... (keep or delete the files), and
+  Add account... with `uui_newaccount` -- full name, the account name
+  made from it until edited, the type, an optional password -- which
+  First-boot setup and the installer can use for the first account.
+  `user` is the command line, one command with verbs (as `component`
+  and `part` are), asking as `sudo` does.
+- **D3a: the login screen** (mockup LA, Windows 11's shape): the person
+  who signed in last in the middle, every person in a list bottom-left
+  when there is more than one; a click puts another in the middle.
+  privd writes who signed in, `/var/lib/greeter/last`, at the sign-in:
+  init stops the greeter the moment the session begins, before the
+  greeter would hear the answer.
+- **Homes are private from D3a on**: a new one is `04700`. `/home/user`
+  stays `4755` as stage C made it (roadmap).
+- **D3b: machine-scoped writes need the admin right** (privd), as above
+  -- `/etc` becomes root's and 755, `config --machine` and Settings'
+  machine pages ask, as hostname1 and timedate1 do under polkit. Until
+  then a second person, not in group `user`, cannot change a machine
+  setting at all. It is also when the Configuration Editor's
+  machine-wide values become editable (read-only there until then), and
+  when its kernel-registered ones, editable now, split into the person's
+  and the machine's.
+- **D3c: the kernel registry's per-person settings** (pointer,
+  keyboard, font, scaling) applied by the session at sign-in, as Windows
+  applies HKCU's at logon, and `fontd` (with `display.scale`) run per
+  session.
 
 ## Why plain files, not a user database
 

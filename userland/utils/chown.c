@@ -27,7 +27,7 @@ static const struct uargs_prog PROG = {
     "chown", "[OPTION]... OWNER[:[GROUP]] FILE...\n:GROUP FILE...",
     "Change the owner and/or group of each FILE to OWNER and/or GROUP.\n"
     "OWNER: alone sets the owner's own group. Only root may give a file away.",
-    OPTS, 0, 0, 0, 0, 0,
+    OPTS, 0, 0, 0, 0, 0, 0,
 };
 
 // A name, or a number when nothing has that name. Refuses an empty or

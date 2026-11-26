@@ -24,7 +24,7 @@ static const struct uargs_prog PROG = {
     0, 0,
     "Not setuid: there is no sudoers file. Only an account in the wheel\n"
     "group may ask -- at the machine itself, unless it gives its password.",
-    0, 1, 0,
+    0, 1, 0, 0,
 };
 
 static int runnable(const char *p) {

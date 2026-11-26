@@ -182,7 +182,7 @@ int uargs_parse(struct uargs *a, const struct uargs_prog *p, int argc, char **ar
     a->status = 0;
     for (int i = 1; i < argc; i++) {
         char *s = argv[i];
-        int shorts_ok = !opts_done && !(p->cmds && npos > 0);
+        int shorts_ok = !opts_done && !(p->cmds && npos > 0 && !p->shorts_after_command);
         if (!opts_done && !strcmp(s, "--")) { opts_done = 1; continue; }
         if (!opts_done && s[0] == '-' && s[1] == '-') {
             const char *name = s + 2, *eq = strchr(name, '=');

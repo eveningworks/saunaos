@@ -9372,7 +9372,7 @@ picked).
   answer shown honestly: saved, applied but not saved, refused with what
   would be accepted). A user key writes the person's `~/.config` file;
   Reset unsets the person's override. Machine values are READ-ONLY here
-  until D3 puts machine writes behind privd (the maintainer's pick); a
+  until D3b puts machine writes behind privd (the maintainer's pick); a
   fact never edits. Still to ask: whether a kernel-registered setting
   (no person's layer yet, `system.mouse.speed`) counts as machine here.
 - **Where a value came from** needs one small `libbase` call beside

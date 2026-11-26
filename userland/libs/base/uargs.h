@@ -57,6 +57,10 @@ struct uargs_prog {
     // and --verbose three times all give 3 (ssh's and rsync's -v). The
     // caller zeroes the flag before parsing.
     const char *counted;
+    // WITH `cmds`, short options are read AFTER the command too -- `user
+    // add -c NAME anna`, git's and apt's shape -- for a program none of
+    // whose commands takes an argument starting with '-' (bootcfg's do).
+    int shorts_after_command;
 };
 
 struct uargs {
@@ -72,7 +76,8 @@ struct uargs {
 //
 // `--` ends the options. -h is --help unless an option claims 'h'.
 // WITH `cmds`, SHORT OPTIONS STOP AT THE COMMAND: a command's arguments
-// may begin with '-' (bootcfg's "-nokaslr"); long ones are read anywhere.
+// may begin with '-' (bootcfg's "-nokaslr"); long ones are read anywhere
+// (and short ones too with `shorts_after_command`).
 // A first positional that names no command is refused, with a "did you
 // mean" when one is close.
 int uargs_parse(struct uargs *a, const struct uargs_prog *p, int argc, char **argv);

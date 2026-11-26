@@ -115,13 +115,9 @@ static int write_all(int fd, const char *s, size_t n) {
     return 0;
 }
 
-int pass_set(const char *user, const char *pw) {
-    if (!user[0] || strchr(user, ':') || strchr(user, '\n')) return -EINVAL;
-    char hash[256] = "";
-    if (pw && pw[0]) {
-        int rc = hash_new(pw, hash, sizeof hash);
-        if (rc) return rc;
-    }
+// The account's line replaced by one with `hash`, or added -- or, when
+// `drop`, taken out.
+static int shadow_write(const char *user, const char *hash, int drop) {
     char *cur = read_current();
     if (!cur) return -EIO;
     long day = (long)(time(NULL) / 86400);
@@ -133,7 +129,9 @@ int pass_set(const char *user, const char *pw) {
     for (char *line = cur; *line; ) {
         char *nl = strchr(line, '\n');
         size_t len = nl ? (size_t)(nl - line) : strlen(line);
-        if (len > un && !strncmp(line, user, un) && line[un] == ':' && !done) {
+        if (len > un && !strncmp(line, user, un) && line[un] == ':' && drop) {
+            // taken out
+        } else if (len > un && !strncmp(line, user, un) && line[un] == ':' && !done) {
             // name:hash:lastchg:REST -- the rest kept as it was.
             const char *rest = line + un + 1;
             int skip = 0;
@@ -151,7 +149,7 @@ int pass_set(const char *user, const char *pw) {
         }
         line += len + (nl != NULL);
     }
-    if (!done) o += (size_t)snprintf(out + o, cap - o, "%s:%s:%ld:0:99999:7:::\n", user, hash, day);
+    if (!done && !drop) o += (size_t)snprintf(out + o, cap - o, "%s:%s:%ld:0:99999:7:::\n", user, hash, day);
     free(cur);
     // O_EXCL after the unlink: a file the desktop made at that name (it
     // may add files to /etc) is never the one written.
@@ -166,4 +164,19 @@ int pass_set(const char *user, const char *pw) {
     memset(out, 0, o);
     free(out);
     return rc;
+}
+
+int pass_set(const char *user, const char *pw) {
+    if (!user[0] || strchr(user, ':') || strchr(user, '\n')) return -EINVAL;
+    char hash[256] = "";
+    if (pw && pw[0]) {
+        int rc = hash_new(pw, hash, sizeof hash);
+        if (rc) return rc;
+    }
+    return shadow_write(user, hash, 0);
+}
+
+int pass_drop(const char *user) {
+    if (!user[0] || strchr(user, ':') || strchr(user, '\n')) return -EINVAL;
+    return shadow_write(user, "", 1);
 }

@@ -3,6 +3,12 @@
 // the windows -- a lock screen shows nothing of the session), then the
 // controls on it, the whole screen repainted while it is up.
 //
+// SEVERAL PEOPLE (users D3a, mockup LA -- Windows 11's shape): the one
+// who signed in last is in the middle, the others a list bottom-left; a
+// click on one puts them in the middle. Who was last is
+// /var/lib/greeter/last, which privd writes at a sign-in (GDM's is
+// AccountsService's).
+//
 // THE PASSWORD IS CHECKED OFF THE FRAME: privd answers a wrong one two
 // seconds later, so the call runs on its own thread and the screen goes
 // BUSY until wm_login_poll() sees the answer.
@@ -19,12 +25,14 @@
 #include "base/uinitctl.h"
 #include "base/upriv.h"
 #include "base/usetting.h"
+#include "base/uusers.h"
 #include "ui/uui_caret.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_widget.h"
 #include "ui/uui_primitives.h"   // the capsule button
 #include "ui/utheme.h"
 #include <errno.h>
+#include <stdio.h>
 #include <pthread.h>
 #include <pwd.h>
 #include <stdlib.h>
@@ -67,23 +75,77 @@ static char *dup_or_empty(const char *s) {
     return d ? d : (char *)"";
 }
 
-// The account the screen is for: in the greeter, the first PERSON's in
-// /etc/passwd (users D3 lists them all); when locking, our own.
-static void pick_account(void) {
-    struct passwd *pw = 0;
-    if (g_mode == WM_LOGIN_LOCK) {
-        pw = getpwuid(getuid());
-    } else {
-        setpwent();
-        while ((pw = getpwent()) && pw->pw_uid < 1000) { }
-        endpwent();
-    }
+#define LAST_FILE "/var/lib/greeter/last"
+
+// The people the greeter lists; none while locked (the lock is its
+// session's own account's).
+static struct uuser *g_people;
+static int g_npeople;
+static struct rect *g_pr;   // each one's row bottom-left; w 0 when not shown
+static char **g_pr_name;    // "person.<name>", for wm_login_control()
+static int g_hot_person = -1, g_pressed_person = -1;
+
+static void people_free(void) {
+    for (int i = 0; g_pr_name && i < g_npeople; i++) free(g_pr_name[i]);
+    free(g_pr_name);
+    free(g_pr);
+    uusers_free(g_people, g_npeople);
+    g_people = 0;
+    g_pr = 0;
+    g_pr_name = 0;
+    g_npeople = 0;
+}
+
+static void set_account(const char *name, const char *real) {
     free(g_account);
     free(g_real);
-    g_account = dup_or_empty(pw ? pw->pw_name : "");
-    g_real = dup_or_empty(pw && pw->pw_gecos && pw->pw_gecos[0] ? pw->pw_gecos : g_account);
+    g_account = dup_or_empty(name);
+    g_real = dup_or_empty(real && real[0] ? real : name);
     char *comma = strchr(g_real, ',');
     if (comma) *comma = '\0';
+}
+
+// The account the screen is for: when locking, our own; in the greeter,
+// the person who signed in last, else the first in /etc/passwd.
+static void pick_account(void) {
+    people_free();
+    if (g_mode == WM_LOGIN_LOCK) {
+        struct passwd *pw = getpwuid(getuid());
+        set_account(pw ? pw->pw_name : "", pw ? pw->pw_gecos : "");
+        return;
+    }
+    int n = uusers_list(&g_people);
+    g_npeople = n < 0 ? 0 : n;
+    g_pr = calloc((size_t)(g_npeople ? g_npeople : 1), sizeof *g_pr);
+    g_pr_name = calloc((size_t)(g_npeople ? g_npeople : 1), sizeof *g_pr_name);
+    for (int i = 0; g_pr_name && i < g_npeople; i++) {
+        size_t k = strlen(g_people[i].name) + 8;
+        if ((g_pr_name[i] = malloc(k))) snprintf(g_pr_name[i], k, "person.%s", g_people[i].name);
+    }
+    char last[64] = "";
+    FILE *f = fopen(LAST_FILE, "r");
+    if (f) {
+        if (fgets(last, sizeof last, f)) last[strcspn(last, "\r\n")] = '\0';
+        fclose(f);
+    }
+    int pick = 0;
+    for (int i = 0; i < g_npeople; i++)
+        if (!strcmp(g_people[i].name, last)) pick = i;
+    if (g_npeople) set_account(g_people[pick].name, g_people[pick].real);
+    else set_account("", "");
+}
+
+// Another person chosen from the list: their name in the middle, an
+// empty field, no old error.
+static void choose_person(int i) {
+    if (i < 0 || i >= g_npeople || g_busy || g_signed_in) return;
+    if (!strcmp(g_people[i].name, g_account)) return;
+    set_account(g_people[i].name, g_people[i].real);
+    uui_textbox_set_text(&g_pw, "");
+    uui_caret_reset();
+    g_err[0] = '\0';
+    wm_logf("login: %s chosen\n", g_account);
+    WM_REDRAW();
 }
 
 void wm_login_show(int mode) {
@@ -234,13 +296,17 @@ static void text_c(struct ugfx_surface *s, int cx, int y, const char *t, uint32_
     ugfx_draw_string_clipped(s, cx - w / 2, y, w + 1, t, c, UGFX_TRANSPARENT);
 }
 
+// The picture's white ring and strokes: thinner on a list row's small one.
+static int pic_line(int r) { return r >= ugfx_char_h() * 2 ? ugfx_px(3) : ugfx_px(2); }
+
 // The picture: a light disc with a head and shoulders in the accent.
 static void picture(struct ugfx_surface *s, int cx, int cy, int r) {
-    ugfx_fill_circle(s, cx, cy, r + ugfx_px(3), WHITE);
+    int t = pic_line(r);
+    ugfx_fill_circle(s, cx, cy, r + t, WHITE);
     ugfx_fill_circle(s, cx, cy, r, ugfx_rgb(220, 220, 226));
     uint32_t a = UTHEME_ACCENT;
     ugfx_fill_circle(s, cx, cy - r / 4, r * 3 / 10, a);
-    ugfx_fill_circle(s, cx, cy - r / 4, r * 3 / 10 - ugfx_px(3), ugfx_rgb(220, 220, 226));
+    ugfx_fill_circle(s, cx, cy - r / 4, r * 3 / 10 - t, ugfx_rgb(220, 220, 226));
     // The shoulders, clipped at the disc's middle -- NESTED in the frame's
     // own damage clip, which is put back after rather than cleared.
     int sr = r * 6 / 10, sy = cy + r * 6 / 10;
@@ -248,7 +314,7 @@ static void picture(struct ugfx_surface *s, int cx, int cy, int r) {
     ugfx_clip_save(s, &was);
     ugfx_clip_intersect(s, cx - r, cy, 2 * r, r * 6 / 10 + 1);
     ugfx_fill_circle(s, cx, sy, sr, a);
-    ugfx_fill_circle(s, cx, sy, sr - ugfx_px(3), ugfx_rgb(220, 220, 226));
+    ugfx_fill_circle(s, cx, sy, sr - t, ugfx_rgb(220, 220, 226));
     ugfx_clip_restore(s, &was);
 }
 
@@ -287,6 +353,20 @@ static void layout(void) {
         int kh = ch + u(), end = kh / 2;
         int kw = end + ugfx_text_width(kb) + u() + ch / 2 + end;
         g_r[C_KEYBOARD] = (struct rect){ u() * 3, screen_h - kh - u() * 2, kw, kh };
+    }
+    // The people, bottom-left above the keyboard row, the last nearest it
+    // -- only when there is more than one to choose from. Rows that do
+    // not fit below the middle's picture are not drawn.
+    int rh = ch * 2 + u() / 2, rw = ch * 12;
+    for (int i = 0; i < g_npeople; i++) {
+        int w = rh + u() * 2 + ugfx_text_width(g_people[i].real);
+        if (w > rw) rw = w;
+    }
+    if (rw > screen_w / 3) rw = screen_w / 3;
+    int bottom = screen_h - (ch + u()) - u() * 5, ceiling = top + pic_r * 2;
+    for (int i = 0; g_pr && i < g_npeople; i++) {
+        int y = bottom - (g_npeople - i) * (rh + ugfx_px(2));
+        g_pr[i] = g_npeople > 1 && y >= ceiling ? (struct rect){ u() * 3, y, rw, rh } : (struct rect){ 0, 0, 0, 0 };
     }
 }
 
@@ -380,6 +460,22 @@ void wm_login_draw(int mx, int my) {
     snprintf(bl, sizeof bl, "%s%s%s", kb, kb[0] && host[0] ? "    " : "", host);
     ugfx_draw_string_clipped(s, hx, hy, screen_w / 2, bl, SOFT, UGFX_TRANSPARENT);
 
+    // Bottom left, above the keyboard: everyone who may sign in, the one
+    // in the middle marked.
+    for (int i = 0; g_pr && i < g_npeople; i++) {
+        const struct rect *r = &g_pr[i];
+        if (r->w <= 0) continue;
+        int on = !strcmp(g_people[i].name, g_account), hot = i == g_hot_person;
+        if (on || hot)
+            uui_glass_round_rect(s, r->x, r->y, r->w, r->h, u(), WHITE, on ? 70 : 40, on ? 90 : 60);
+        // The picture a row's height less a margin, its ring inside it.
+        int pr = r->h / 2 - u() / 2 - pic_line(0), pcx = r->x + u() / 2 + pic_line(0) + pr;
+        picture(s, pcx, r->y + r->h / 2, pr);
+        int tx = pcx + pr + pic_line(0) + u();
+        ugfx_draw_string_clipped(s, tx, r->y + (r->h - ch) / 2, r->x + r->w - u() - tx,
+                                 g_people[i].real, WHITE, UGFX_TRANSPARENT);
+    }
+
     // Bottom right: Restart and Shut down.
     for (int k = C_RESTART; k <= C_SHUTDOWN; k++) {
         struct rect *r = &g_r[k];
@@ -391,6 +487,14 @@ void wm_login_draw(int mx, int my) {
 }
 
 // --- input -----------------------------------------------------------------
+
+static int person_at(int x, int y) {
+    for (int i = 0; g_pr && i < g_npeople; i++) {
+        const struct rect *r = &g_pr[i];
+        if (r->w > 0 && x >= r->x && x < r->x + r->w && y >= r->y && y < r->y + r->h) return i;
+    }
+    return -1;
+}
 
 static int ctl_at(int x, int y) {
     for (int i = 0; i < CTLS; i++) {
@@ -424,27 +528,30 @@ int wm_login_click(int mx, int my) {
 
 void wm_login_update_press(int mx, int my, uint8_t buttons) {
     if (!wm_login_open) return;
-    int at = ctl_at(mx, my);
+    int at = ctl_at(mx, my), person = person_at(mx, my);
     if (buttons & 1) {
         // The field hears the press EDGE once: its eye toggles on a press,
         // and this runs every tick the button is held.
         if (g_pressed < 0) {
             g_pressed = at < 0 ? -2 : at;
+            g_pressed_person = person;
             if (g_pressed == C_FIELD) { uui_textbox_ops.press(&g_pw, mx, my, 0); WM_REDRAW(); }
         }
         return;
     }
-    int was = g_pressed;
-    g_pressed = -1;
+    int was = g_pressed, was_person = g_pressed_person;
+    g_pressed = g_pressed_person = -1;
     if (layout_take_dismissed()) return;   // the press only closed the layout list
+    if (was_person >= 0 && was_person == person) { choose_person(person); return; }
     if (was >= 0 && was == at && was != C_FIELD) activate(was);
 }
 
 int wm_login_hover_at(int mx, int my) {
     if (!wm_login_open) return 0;
-    int at = ctl_at(mx, my);
+    int at = ctl_at(mx, my), person = person_at(mx, my);
     g_hot = at == C_FIELD ? -1 : at;
-    return g_hot + 1;
+    if (person != g_hot_person) { g_hot_person = person; WM_REDRAW(); }
+    return person >= 0 ? CTLS + 1 + person : g_hot + 1;
 }
 
 void wm_login_damage(void) { if (wm_login_open) WM_REDRAW(); }
@@ -478,8 +585,15 @@ int wm_login_state(int *mode, const char **account, const char **err, int *busy,
     return 1;
 }
 
+// The screen's controls, then each person's row ("person.<name>").
 int wm_login_control(int i, const char **name, int *x, int *y, int *w, int *h) {
-    if (!wm_login_open || i < 0 || i >= CTLS) return 0;
+    if (!wm_login_open || i < 0 || i >= CTLS + (g_pr ? g_npeople : 0)) return 0;
+    if (i >= CTLS) {
+        const struct rect *r = &g_pr[i - CTLS];
+        *name = g_pr_name[i - CTLS] ? g_pr_name[i - CTLS] : "person";
+        *x = r->x; *y = r->y; *w = r->w; *h = r->h;
+        return 1;
+    }
     *name = CTL_NAME[i];
     *x = g_r[i].x; *y = g_r[i].y; *w = g_r[i].w; *h = g_r[i].h;
     return 1;

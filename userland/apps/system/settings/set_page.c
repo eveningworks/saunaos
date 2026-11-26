@@ -757,6 +757,7 @@ void relayout_page(void) {
         n = snd_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = mouse_emit_after(PAGE, n, i);
         n = trash_emit_after(PAGE, n, i);
+        n = users_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = notify_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = theme_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = emit_page_previews(PAGE, n, i);

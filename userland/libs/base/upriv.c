@@ -2,8 +2,11 @@
 #include "base/upriv.h"
 #include "base/ubulk.h"
 #include "base/uself.h"
+#include "base/uaskpass.h"
 #include "query_abi.h"   // QUERY_PROCPATH_MAX
 #include <errno.h>
+#include <pwd.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>   // environ
@@ -145,6 +148,72 @@ int upriv_action(const char *action, const char *const *args, unsigned flags) {
     uint32_t len;
     char *rec = pack(flags, action, args, &len);
     return rec ? ask(UPRIV_T_ACTION, rec, len) : -1;
+}
+
+int upriv_action_password(const char *action, const char *const *args, const char *password) {
+    if (!action || !password) { errno = EINVAL; return -1; }
+    int n = 0;
+    while (args && args[n]) n++;
+    // password, action, args... -- privd takes the first string off.
+    const char **rest = calloc((size_t)n + 2, sizeof *rest);
+    if (!rest) { errno = ENOMEM; return -1; }
+    rest[0] = action;
+    for (int i = 0; i < n; i++) rest[i + 1] = args[i];
+    uint32_t len;
+    char *rec = pack(UPRIV_WITH_PASSWORD, password, rest, &len);
+    free(rest);
+    return rec ? ask(UPRIV_T_ACTION, rec, len) : -1;
+}
+
+static int ask_here(const char *what) {
+    if (!isatty(0)) return 0;
+    fprintf(stderr, "%s as administrator? [y/N] ", what);
+    fflush(stderr);
+    char line[16];
+    if (!fgets(line, sizeof line, stdin)) return 0;
+    return line[0] == 'y' || line[0] == 'Y';
+}
+
+int upriv_action_tty(const char *what, const char *action, const char *const *args) {
+    if (geteuid() == 0) return upriv_action(action, args, 0);
+    struct passwd *pw = getpwuid(getuid());
+    char me[64] = "";
+    if (pw) snprintf(me, sizeof me, "%s", pw->pw_name);
+    int has = me[0] ? upriv_has_password(me) : 0;
+    if (has != 1) {
+        int rc = upriv_action(action, args, 0);
+        if (rc < 0 && errno == ENXIO && ask_here(what)) rc = upriv_action(action, args, UPRIV_SELF_CONSENT);
+        return rc;
+    }
+    if (!isatty(0)) { errno = ENOTTY; return -1; }
+    char prompt[96];
+    char *typed = malloc(256);
+    if (!typed) { errno = ENOMEM; return -1; }
+    snprintf(prompt, sizeof prompt, "[%s] password for %s: ", what, me);
+    int rc = -1;
+    for (int i = 0; i < UPRIV_AUTH_TRIES; i++) {
+        if (uaskpass(prompt, typed, 256) < 0) { errno = EINTR; break; }
+        rc = upriv_action_password(action, args, typed);
+        memset(typed, 0, 256);
+        if (rc == 0 || errno != EACCES) break;
+        if (i + 1 < UPRIV_AUTH_TRIES) fprintf(stderr, "Sorry, try again.\n");
+    }
+    int e = errno;
+    free(typed);
+    errno = e;
+    return rc;
+}
+
+const char *upriv_strerror(int e) {
+    return e == EACCES    ? "the password was wrong"
+         : e == EPERM     ? "this account may not do that as administrator"
+         : e == ECANCELED ? "not allowed"
+         : e == EINTR     ? "cancelled"
+         : e == ENXIO     ? "no one to ask: the desktop is not running"
+         : e == ENOENT    ? "privd is not running"
+         : e == ETIMEDOUT ? "no answer"
+         : e == ENOTTY    ? "a password is needed, and there is no terminal to ask on"
+         : strerror(e);
 }
 
 int upriv_elevate_self(char **argv) {

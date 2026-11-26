@@ -215,7 +215,10 @@ this the obvious way), not from how much history it accumulated.
   the page. `-h` is `--help` unless the program claims it (`ls -h` is
   human sizes, as in GNU). With commands, SHORT options stop at the
   command word, because a command's arguments may start with `-`
-  (`bootcfg words 0 -nokaslr`). New and edited commands use it;
+  (`bootcfg words 0 -nokaslr`) -- unless the program sets
+  `.shorts_after_command`, as `user` does (`user add -c NAME anna`, git's
+  and apt's shape), when none of its commands takes such an argument.
+  New and edited commands use it;
   `cmd_usage()` one-liners convert as their program is touched. A
   repeatable `-v` is a COUNT (`.counted = "v"`), as in ssh and rsync.
 

@@ -36,7 +36,7 @@ static const struct uargs_prog PROG = {
     OPTS, 0,
     "Run as root -- by init on a text terminal with no session, and by\n"
     "telnetd for each connection. privd checks the password.",
-    0, 0, 0,
+    0, 0, 0, 0,
 };
 
 // The account's shell on this terminal, as the account; its exit code.

@@ -37,6 +37,9 @@ struct uui_newpassword {
     struct uui_textbox field, confirm;   // OWNED, masked
     struct uui_item kids[2];             // OWNED: the fields as children
     int label_w;                         // set by set_geometry; OWNED
+    // The label column's least width, so the fields line up with an
+    // enclosing form's (uui_newaccount); 0 is the labels' own.
+    int label_min;
 };
 
 void uui_newpassword_init(struct uui_newpassword *p, const char *label, const char *confirm_label);

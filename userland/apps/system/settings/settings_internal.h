@@ -452,6 +452,7 @@ void users_init(void);
 void users_forget(void);
 void users_load(void);
 int  users_emit_slot(struct uui_item *out, int n, int i, struct uui_focusable *focus, int *nfocus);
+int  users_emit_after(struct uui_item *out, int n, int i, struct uui_focusable *focus, int *nfocus);
 int  users_fit(void);
 int  users_on_widget(int id);
 int  users_on_action(int code);

@@ -17,4 +17,8 @@ int pass_has(const char *user);
 // power cut leaves the old file or the new one. 0, or -errno.
 int pass_set(const char *user, const char *pw);
 
+// The account's line taken out of /etc/shadow (a removed account), the
+// file replaced as pass_set() does. 0, or -errno.
+int pass_drop(const char *user);
+
 #endif

@@ -42,7 +42,7 @@ static const struct uargs_opt OPTS[] = {
 static const struct uargs_prog PROG = {
     "owners", "[OPTION]...",
     "Give the system volume's files the owners and modes /etc/owners.conf says.",
-    OPTS, 0, 0, 0, 0, 0,
+    OPTS, 0, 0, 0, 0, 0, 0,
 };
 
 enum { SC_SELF = 1, SC_BELOW = 2 };

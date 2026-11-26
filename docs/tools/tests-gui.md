@@ -1040,6 +1040,18 @@ from the default (a sound card, a USB mouse, `--reboot`).
   settled frame: keys typed in the same moment were lost (`docs/bugs.md`).
   Positive control: make privd's `pass_check()` always 1 -- the wrong
   password's two checks go red.
+- **`users_page_test.py`** -- users D3a end to end: `user add` (as root)
+  makes an account the Users page lists under Other accounts by name;
+  Add account... (the desktop's own `gui spawn`, so privd sees the seat)
+  makes a second from a typed full name -- `user` lists it, its home has
+  the skeleton's Desktop -- and Remove..., keeping the files, takes it
+  away and leaves the home; then Sign out shows the login screen with
+  every person bottom-left, each row's picture drawn, a click on Anna
+  and Enter starts a desktop running AS anna, with nothing she started
+  refused a file (`fsperm` lines for her uid), and after her sign-out
+  she is in the middle. Puts the machine back (`user` signed in, the
+  accounts and `/var/lib/greeter/last` removed). Positive control: give
+  `wm_login.c`'s person rows w 0 -- the list's checks go red.
 - **`forcequit_test.py`** -- not-responding detection and force quit
   (TWP's ping/pong, `scheduler_kill()`, the dialog, and the slot
   reaping). 15 checks. The design point it encodes: a client that

@@ -52,18 +52,23 @@ int uui_newpassword_focusables(struct uui_newpassword *p, struct uui_focusable *
     return 2;
 }
 
+// The label column: the wider label and a gap, or label_min.
+static int label_col(const struct uui_newpassword *p) {
+    int lw = ugfx_text_width(lab(p, 0)), cw = ugfx_text_width(lab(p, 1));
+    int c = (lw > cw ? lw : cw) + gap();
+    return c > p->label_min ? c : p->label_min;
+}
+
 static void natural(const void *w, int *ow, int *oh) {
     const struct uui_newpassword *p = w;
-    int lw = ugfx_text_width(lab(p, 0)), cw = ugfx_text_width(lab(p, 1));
-    *ow = (lw > cw ? lw : cw) + gap() + ugfx_char_w() * 24;
+    *ow = label_col(p) + ugfx_char_w() * 24;
     *oh = row_h() * 2 + gap() / 2 + msg_h();
 }
 
 static void geometry(void *w, int x, int y, int width, int height) {
     struct uui_newpassword *p = w;
     p->x = x; p->y = y; p->w = width; p->h = height;
-    int lw = ugfx_text_width(lab(p, 0)), cw = ugfx_text_width(lab(p, 1));
-    p->label_w = (lw > cw ? lw : cw) + gap();
+    p->label_w = label_col(p);
     int fx = x + p->label_w, fw = width - p->label_w;
     if (fw < ugfx_char_w() * 8) fw = ugfx_char_w() * 8;
     uui_textbox_set_geometry(&p->field, fx, y, fw, row_h());

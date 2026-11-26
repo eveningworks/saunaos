@@ -250,6 +250,12 @@ only expensive part of it.
 - [x] ~~Stage D2a of `docs/users-design.md`: passwords, kept by privd in `/etc/shadow`~~ DONE 2026-11-25 -- `passwd`, yescrypt
 - [x] ~~Stage D2b of `docs/users-design.md`: the login screen, a greeter session, Sign out~~ DONE 2026-11-25 -- Settings > Users
 - [x] ~~Stage D2c of `docs/users-design.md`: the lock screen and /bin/login~~ DONE 2026-11-25 -- Super+L, lock on resume, VT + telnet login
+- [x] ~~Stage D3a of `docs/users-design.md`: several people -- Other accounts in Settings, `user`, the login screen's list~~ DONE 2026-11-26
+- [ ] Stage D3b of `docs/users-design.md`: the machine's settings an administrator's -- `/etc` root's, machine writes through privd
+- [ ] Stage D3c of `docs/users-design.md`: the kernel's per-person settings applied at sign-in, and `fontd` per session
+- [ ] Several sessions at once, and Switch user -- the compositor role handed between paused compositors (logind's PauseDevice)
+- [ ] `/home/user` private like the homes D3a makes (0700, not 4755)
+- [ ] An account's picture and language on the login screen -- `/var/lib/accounts/<name>`, decided in stage D
 - [ ] The login screen says when Caps Lock is on -- ring 3 cannot read the lock state yet
 - [ ] Lock in the Start menu's power row -- Super+L and lock-on-resume are built (users D2c)
 - [ ] Sign out ends the session's processes too -- today only its windows close (logind's KillUserProcesses)

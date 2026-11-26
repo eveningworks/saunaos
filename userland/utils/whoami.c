@@ -7,7 +7,7 @@
 static const struct uargs_prog PROG = {
     "whoami", "",
     "Print the name of the user this process runs as.",
-    0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0,
 };
 
 int main(int argc, char **argv) {

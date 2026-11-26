@@ -55,8 +55,9 @@ the rest in the sweep. Each stays a standalone script with its own
   differently (`stat`, `readdir`, `struct tm`, locale) is handed the wrong
   layout: a binary IMPORTING one of `ABI_UNSAFE` from glibc is refused, and
   the fix is tolibc's own source in `LIBC_OWN` (stat, time, tz, locale,
-  access) or a stub in tolibc's layout (opendir). The list also names the
-  path calls (`open`, `access`, `unlink`, `rename`, ...): tolibc's `O_*`
+  access, and pwd/grp, whose glibc versions read the HOST's `/etc/passwd`
+  through NSS, never the case's own fixture) or a stub in tolibc's layout
+  (opendir). The list also names the path calls (`open`, `access`, `unlink`, `rename`, ...): tolibc's `O_*`
   are `SYS_O_*`'s numbers, not Linux's, and glibc never puts a path under
   the root, so the host's own files would answer. A raw `syscall` instruction in the
   binary would run a LINUX syscall by SaunaOS's number, so the linked text

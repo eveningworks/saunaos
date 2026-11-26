@@ -444,6 +444,15 @@ layout from its bottom-left Keyboard button, every password field has an
 eye that shows what was typed, and signing in or out goes straight from
 one screen to the next without the text console flashing between.
 
+**Several people, one at a time.** An administrator adds and removes
+the people who use the computer -- Settings > Users' Other accounts, or
+`user add` / `user remove` -- each with a full name, an account name made
+from it, Standard or Administrator, an optional password and a home of
+their own made from `/etc/skel`. The login screen lists everyone
+bottom-left with the person who signed in last in the middle, as
+Windows 11's does; one session runs at a time (`docs/users-design.md`,
+stage D3a).
+
 **Files have owners, and the kernel checks them.** Each file on the
 system volume carries an owner, a group and Unix permission bits, and
 every path a program names is checked against them -- owner, group,

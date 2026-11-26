@@ -25,7 +25,7 @@ static const struct uargs_prog PROG = {
     OPTS, 0,
     "Only root may name another account, and root is not asked for its\n"
     "current password. Setting a password turns automatic sign-in off.",
-    0, 0, 0,
+    0, 0, 0, 0,
 };
 
 #define PW_MAX 256

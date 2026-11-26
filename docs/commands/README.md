@@ -292,6 +292,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`modload`](modload.md)
 - [`modunload`](modunload.md)
 - [`update`](update.md)
+- [`user`](user.md)
 
 ### System configuration
 

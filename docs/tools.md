@@ -281,6 +281,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `uiclient_test.py` -- Drive the text-rendering ring-3 client (userland/tests/uiclient.c)
 - `uidemo_test.py` -- drive UI Demo's widgets and assert on its log
 - `undo_gui_test.py` -- Undo and Redo in the File Manager (base/ufileundo.h), each checked
+- `users_page_test.py` -- several people: Settings > Users and the login screen
 - `uterm_test.py` -- Drive the RING-3 Terminal (userland/apps/apps/terminal/terminal.c) and assert on it
 - `video_test.py` -- the Video Player, on a machine with NO SOUND
 - `volume_test.py` -- The taskbar's volume flyout: the slider, mute, the wheel and the

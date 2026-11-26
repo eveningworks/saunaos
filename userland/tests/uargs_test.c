@@ -31,6 +31,8 @@ static const struct uargs_cmd CMDS[] = {
     { "words", "ENTRY WORD...", "w" }, { "list", 0, "l" }, { 0 },
 };
 static const struct uargs_prog WITHCMDS = { .name = "t", .usage = "[CMD]", .opts = OPTS, .cmds = CMDS };
+static const struct uargs_prog SHORTSAFTER = { .name = "t", .usage = "[CMD]", .opts = OPTS, .cmds = CMDS,
+                                               .shorts_after_command = 1 };
 
 static struct uargs a;
 
@@ -80,6 +82,9 @@ int main(void) {
                 !strcmp(a.argv[2], "-nokaslr"), "after the command a -word is an argument, not options");
     utest_check(RUN(&WITHCMDS, "-f", "words", "0", "--force") == 0 && f_force && a.argc == 2,
                 "short options before the command, long ones anywhere");
+    utest_check(RUN(&SHORTSAFTER, "words", "-f", "-p", "80", "x") == 0 && f_force && v_port && !strcmp(v_port, "80") &&
+                a.argc == 2 && !strcmp(a.argv[1], "x"),
+                "with shorts_after_command, short options after the command too (`user add -c NAME x`)");
     utest_check(RUN(&WITHCMDS, "wrods", "0") == 1 && a.status == UARGS_USAGE, "an unknown command is a usage error");
     utest_check(RUN(&WITHCMDS) == 0 && a.argc == 0, "no command is the program's to default");
     return utest_end();

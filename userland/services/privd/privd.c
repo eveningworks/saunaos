@@ -26,9 +26,12 @@
 #include "base/ubootmenu.h"
 #include "base/ubootmode.h"
 #include "pass.h"
+#include "accounts.h"
 #include "base/usetting.h"
 #include "base/uinitctl.h"
 #include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <grp.h>
 #include <pwd.h>
 #include <stdio.h>
@@ -38,6 +41,7 @@
 
 #define AGENT_PATH "/bin/wm/system/toywm"
 #define GREETER_ACCOUNT "greeter"
+#define LAST_SIGNIN "/var/lib/greeter/last"   // root's, 0644, in the greeter's home (wm_login.c reads it)
 #define SET_AUTOLOGIN "login.autologin"   // /etc/login.conf, the machine's
 #define SET_ADMIN_PROMPT "login.admin_prompt"   // the same file
 
@@ -323,6 +327,12 @@ static int32_t do_action(const struct req *r) {
         if (ADMIN_PROMPT[admin_prompt_index(x)].keep_min <= 0) kept_forget();
         return 0;
     }
+    else if (!strcmp(a, UPRIV_ACT_USERADD) && r->nstrs >= 5)
+        return acct_add(x, y, !strcmp(r->strs[3], "1"), r->strs[4]);
+    else if (!strcmp(a, UPRIV_ACT_USERDEL) && x && y) {
+        if (strcmp(y, "keep") && strcmp(y, "delete")) return -EINVAL;
+        return acct_del(x, !strcmp(y, "delete"));
+    } else if (!strcmp(a, UPRIV_ACT_USERMOD) && r->nstrs >= 4) return acct_mod(x, y, r->strs[3]);
     else if (!strcmp(a, UPRIV_ACT_NETLINK) && r->nstrs >= 7) {
         struct net_linkcfg req;
         memset(&req, 0, sizeof req);
@@ -421,6 +431,45 @@ static uint32_t words(const struct req *r, const struct who *w, char *out, uint3
         snprintf(body, sizeof body, "At boot the desktop starts without the login screen, and without "
                  "asking for a password.");
         snprintf(act, sizeof act, "Sign in automatically");
+    } else if (!strcmp(a, UPRIV_ACT_USERADD) && r->nstrs >= 5) {
+        // The password is never in the words: the prompt names the account.
+        int admin = !strcmp(r->strs[3], "1");
+        snprintf(head, sizeof head, "%s wants to add an account", name);
+        // A full name too long to show whole is refused, never shown cut.
+        if ((size_t)snprintf(body, sizeof body, "A new %s account%s%s%s named %s, with its home in /home/%s.%s",
+                 admin ? "administrator" : "standard", r->strs[2][0] ? " for " : "", r->strs[2],
+                 r->strs[2][0] ? "," : "", r->strs[1], r->strs[1],
+                 admin ? " An administrator can add people and change the machine." : "") >= sizeof body)
+            return 0;
+        snprintf(act, sizeof act, "Add an account");
+    } else if (!strcmp(a, UPRIV_ACT_USERDEL) && r->nstrs >= 3) {
+        struct passwd *pw = getpwnam(r->strs[1]);
+        snprintf(head, sizeof head, "%s wants to remove the account %s", name, r->strs[1]);
+        snprintf(body, sizeof body, "%s can no longer sign in. Its files in %s are %s.",
+                 r->strs[1], pw && pw->pw_dir ? pw->pw_dir : "its home",
+                 !strcmp(r->strs[2], "delete") ? "DELETED" : "kept");
+        snprintf(act, sizeof act, "Remove an account");
+    } else if (!strcmp(a, UPRIV_ACT_USERMOD) && r->nstrs >= 4) {
+        const char *who = r->strs[1], *field = r->strs[2], *v = r->strs[3];
+        if (!strcmp(field, "admin")) {
+            int on = !strcmp(v, "1");
+            snprintf(head, sizeof head, "%s wants to make %s %s", name, who,
+                     on ? "an administrator" : "a standard account");
+            snprintf(body, sizeof body, on ? "%s can then add people and change the machine."
+                                           : "%s can then no longer add people or change the machine.", who);
+            snprintf(act, sizeof act, "Change an account's type");
+        } else if (!strcmp(field, "real")) {
+            snprintf(head, sizeof head, "%s wants to rename the account %s", name, who);
+            if ((size_t)snprintf(body, sizeof body, "Its full name becomes \"%s\".", v) >= sizeof body) return 0;
+            snprintf(act, sizeof act, "Rename an account");
+        } else if (!strcmp(field, "password")) {
+            snprintf(head, sizeof head, "%s wants to %s %s's password", name, v[0] ? "change" : "remove", who);
+            snprintf(body, sizeof body, v[0] ? "The new password is set without asking for the old one."
+                                             : "%s then signs in without a password.", who);
+            snprintf(act, sizeof act, "Change a password");
+        } else {
+            return 0;
+        }
     } else if (!strcmp(a, UPRIV_ACT_KILL) && r->nstrs > 2) {
         char victim[64];
         int vpid = atoi(r->strs[1]);
@@ -554,6 +603,20 @@ static void handle_login(const struct ubulk_msg *m, struct req *r, const struct 
     int rc = uinitctl_session(acct);
     logf1(rc == INITCTL_OK ? "privd: %s signed in (pid %d)\n" : "privd: init started no session for %s (pid %d)\n",
           acct, m->pid);
+    // WHO SIGNED IN LAST, for the login screen to put in the middle next
+    // time (AccountsService keeps it for GDM). Written here: init stops
+    // the greeter the moment the session begins, before it hears this.
+    // THE FOLDER IS THE GREETER'S, so the greeter could leave a hard link
+    // to /etc/shadow at the name: a new file, made O_EXCL, renamed over it.
+    if (rc == INITCTL_OK) {
+        unlink(LAST_SIGNIN ".new");
+        int fd = open(LAST_SIGNIN ".new", O_WRONLY | O_CREAT | O_EXCL, 0644);
+        if (fd >= 0) {
+            int ok = write(fd, acct, strlen(acct)) == (ssize_t)strlen(acct) && write(fd, "\n", 1) == 1;
+            close(fd);
+            if (!ok || rename(LAST_SIGNIN ".new", LAST_SIGNIN) < 0) unlink(LAST_SIGNIN ".new");
+        }
+    }
     answer(m->pid, m->id, rc == INITCTL_OK ? 0 : rc < 0 ? -EIO : -EBUSY);
 }
 

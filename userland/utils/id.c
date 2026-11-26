@@ -25,7 +25,7 @@ static const struct uargs_opt OPTS[] = {
 static const struct uargs_prog PROG = {
     "id", "[OPTION]... [USER]",
     "Print the user and group ids of USER, or of this process.",
-    OPTS, 0, 0, 0, 0, 0,
+    OPTS, 0, 0, 0, 0, 0, 0,
 };
 
 static void put_user(uid_t u) {

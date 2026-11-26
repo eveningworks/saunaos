@@ -132,6 +132,7 @@
 | `utween.h` | An integer that moves from one value to another over a fixed time, eased -- the one interpolator the desktop has, shared by the toolkit (a scroll that glides) and the window manager (an effect that... |
 | `uunicode.h` | The Unicode NAMES and BLOCKS of the characters this system's fonts can draw ("LATIN SMALL LETTER E WITH ACUTE", "Latin-1 Supplement"), and the UTF-8 encoding of a code point. |
 | `uusername.h` | A user id's NAME for a listing -- `ps --user`'s and Task Manager's User column: getpwuid() once per uid, then from a cache, since <pwd.h> reads /etc/passwd on every call and a listing has a few uid... |
+| `uusers.h` | THE PEOPLE'S ACCOUNTS (users D3a): who may sign in, what an account name may be, and the privd actions that add, remove and change one -- what the login screen, Settings > Users, `user` and uui_new... |
 | `uutf8.h` | UTF-8 stepping with the TRANSITION RULE: a byte that does not start a valid sequence is ONE character whose value is the byte -- its Latin-1 letter -- so decoding never fails and text written befor... |
 | `uwalk.h` | A DIRECTORY TREE WALK, one directory at a time, for a caller that has to stop, report progress or share a thread: the File Manager's search into subfolders and its folder sizes. |
 | `uwallpaper.h` | A WALLPAPER'S SIZE FOR A SCREEN: a picture may come drawn at several sizes, `<dir>/<stem>/<W>x<H>.<ext>` beside its `<dir>/<stem>.<ext>` -- KDE Plasma's wallpaper package (images/ beside a screensh... |
@@ -283,6 +284,7 @@ Private seams of a split module, not for apps: `ttf_internal.h`, `uimg_jpeg_int.
 | `uui_nametpl.h` | uui_nametpl -- a FILE-NAME TEMPLATE FIELD: a text field, a row of chips that each type a <token> at the caret, and the name the template gives today under them ("Next file: shot-20261007-...qoi"),... |
 | `uui_netadapter.h` | uui_netadapter -- one network card's ADAPTER SETTINGS as a panel: Link speed, Energy Efficient Ethernet, Flow control and Interrupt moderation, each a setting row shown only when the card's driver... |
 | `uui_netshare.h` | THE TWO NETWORK-SHARE DIALOGS, for any app with a uui_dialog: "Add network share" (an address, a name, open it now) and "Sign in to <server>" (a user, a password, Remember). |
+| `uui_newaccount.h` | uui_newaccount -- the form a NEW ACCOUNT is made from (users D3a): the full name, the account name (made from the full name until the person edits it), Standard or Administrator, and an optional pa... |
 | `uui_newpassword.h` | uui_newpassword -- a NEW password asked twice: two masked fields, each with its label to its left, and a line under them saying what is wrong ("The two passwords differ."). |
 | `uui_optlist.h` | A scrolling list of OPTIONS, one per row: a checkbox, the option's name, an optional value field edited in place, and a one-line description. |
 | `uui_paintcanvas.h` | uui_paintcanvas -- A PICTURE TO PAINT ON, ZOOMED AND SCROLLED: the view half of a paint program. |

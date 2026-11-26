@@ -317,6 +317,12 @@ TESTS = [
     # password is a shell at once, with one it asks, refuses a wrong one
     # and starts the shell AS the account. SPAWNED; removes its password.
     ("ttylogin_test", None, None, None),
+    # People's accounts through privd (users D3a): added with a home from
+    # /etc/skel and owned by the account, made an administrator and back,
+    # renamed, a taken or bad name refused, one signed in not removed, the
+    # files byte for byte as they were after the removal, a kept home given
+    # back. SPAWNED: it waits for its child; restores passwd, group, shadow.
+    ("accounts_test", None, None, None),
     # A futex parking and waking ACROSS two processes, through a shared
     # page. The KTESTs beside sys_futex_wait() cover key derivation and
     # every refusal and cannot cover this -- they run on the kernel

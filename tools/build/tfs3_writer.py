@@ -310,8 +310,11 @@ def load_owner_policy(etc_dir):
     if not os.path.exists(conf):
         _OWNER_RULES = []
         return
-    users = _ids(os.path.join(etc_dir, "passwd"), "uid")
-    groups = _ids(os.path.join(etc_dir, "group"), "gid")
+    # The account databases are seeded ONCE (users D3a: the machine adds
+    # accounts), so they sit in the seed tree's once/etc beside this sync/etc.
+    once = os.path.join(os.path.dirname(os.path.dirname(etc_dir)), "once", "etc")
+    users = {**_ids(os.path.join(once, "passwd"), "uid"), **_ids(os.path.join(etc_dir, "passwd"), "uid")}
+    groups = {**_ids(os.path.join(once, "group"), "gid"), **_ids(os.path.join(etc_dir, "group"), "gid")}
 
     def num(word, table, lineno):
         if word in table:
