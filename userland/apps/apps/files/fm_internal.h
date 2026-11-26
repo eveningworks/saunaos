@@ -445,6 +445,10 @@ void undo_record_job(int op, const char *what, char **paths, char **results, int
                      const char *dest);
 void undo_record(int kind, const char *a, const char *b);   // UFU_RENAME / UFU_CREATE
 void undo_record_renames(const char *dir, char (*olds)[URENAME_NAME], char (*news)[URENAME_NAME], int n);
+// fm_undo.c: rename-many's temporary name for item `i`, ".rename-<i>-<old>",
+// the old name's tail cut on a CHARACTER boundary to fit one entry --
+// the move and its undo record must build the same one.
+void rename_tmp_name(char *out, int cap, int i, const char *old);
 void rename_many_open(struct uapp *a);   // fm_modal.c: the marked set, in a uui_renamer
 void undo_applied(int redo, int failures, int ran);
 int  undo_can(int redo);

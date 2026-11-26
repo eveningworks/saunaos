@@ -243,7 +243,9 @@ static struct uui_item KP[3], KP_BTNS[3];
 static struct uui_layout g_kp_layout, g_kp_btn_row;
 static struct uui_focusable KP_FOCUS[4];
 static struct uui_focus g_kp_focus;
-static const char **g_kp_codes, **g_kp_rows;   // grown to the layouts (base/ugrow.h)
+// The picker's OWN copies (heap), grown to the layouts (base/ugrow.h):
+// a slot reload regrows the slot's arrays under an open picker.
+static const char **g_kp_codes, **g_kp_rows;
 static int g_kp_n, g_kp_codes_cap, g_kp_rows_cap;
 
 static int has_word(const char *hay, const char *needle) {
@@ -259,6 +261,7 @@ static int has_word(const char *hay, const char *needle) {
 
 // The layouts NOT in the list, whose name or code holds what is typed.
 static void kp_filter(void) {
+    for (int i = 0; i < g_kp_n; i++) { free((char *)g_kp_codes[i]); free((char *)g_kp_rows[i]); }
     g_kp_n = 0;
     const char *q = uui_textbox_text(&g_kp_find);
     const struct slot *a = &g_slot[s_active];
@@ -270,8 +273,10 @@ static void kp_filter(void) {
             ulogf("settings: out of memory listing keyboard layouts at %d\n", g_kp_n);
             break;
         }
-        g_kp_codes[g_kp_n] = a->choice_raw[i];
-        g_kp_rows[g_kp_n] = a->choice[i];
+        char *code = strdup(a->choice_raw[i]), *shown = strdup(a->choice[i]);
+        if (!code || !shown) { free(code); free(shown); break; }
+        g_kp_codes[g_kp_n] = code;
+        g_kp_rows[g_kp_n] = shown;
         g_kp_n++;
     }
     uui_listbox_set_items(&g_kp_list, g_kp_rows, g_kp_n);

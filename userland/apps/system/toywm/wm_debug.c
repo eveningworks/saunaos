@@ -732,11 +732,12 @@ static void cmd_ctxmenu(struct dbg_out *o, int json) {
             dbg_out_printf(o, ",\"sub\":{\"x\":%d,\"y\":%d,\"w\":%d,\"item_h\":%d,\"rows\":[",
                            sx, sy, sw, sih);
             for (int i = 0; i < srows; i++) {
-                int ry = context_menu_sub_row_top(i);
-                dbg_out_printf(o, "%s{\"label\":\"%s\",\"y\":%d,\"cy\":%d,\"disabled\":%s,\"checked\":%s}",
+                int ry = context_menu_sub_row_top(i), qx, qy, qw, qh;
+                int shown = context_menu_row_rect(1, i, &qx, &qy, &qw, &qh);
+                dbg_out_printf(o, "%s{\"label\":\"%s\",\"y\":%d,\"cy\":%d,\"disabled\":%s,\"checked\":%s,\"shown\":%s}",
                                i ? "," : "", context_menu_sub_row_label(i), ry, ry + ih / 2,
                                context_menu_row_disabled(1, i) ? "true" : "false",
-                               context_menu_row_checked(1, i) ? "true" : "false");
+                               context_menu_row_checked(1, i) ? "true" : "false", shown ? "true" : "false");
             }
             dbg_out_write(o, "]}");
         }
@@ -747,9 +748,10 @@ static void cmd_ctxmenu(struct dbg_out *o, int json) {
             dbg_out_printf(o, ",\"sub2\":{\"x\":%d,\"y\":%d,\"w\":%d,\"rows\":[", tx, ty, tw);
             for (int i = 0; i < trows; i++) {
                 int rx = 0, ry = 0, rw = 0, rh = 0;
-                context_menu_row_rect(2, i, &rx, &ry, &rw, &rh);
-                dbg_out_printf(o, "%s{\"label\":\"%s\",\"y\":%d,\"cy\":%d}",
-                               i ? "," : "", context_menu_level_label(2, i), ry, ry + rh / 2);
+                int shown = context_menu_row_rect(2, i, &rx, &ry, &rw, &rh);
+                dbg_out_printf(o, "%s{\"label\":\"%s\",\"y\":%d,\"cy\":%d,\"shown\":%s}",
+                               i ? "," : "", context_menu_level_label(2, i), ry, ry + rh / 2,
+                               shown ? "true" : "false");
             }
             dbg_out_write(o, "]}");
         }
@@ -762,7 +764,12 @@ static void cmd_ctxmenu(struct dbg_out *o, int json) {
                  x, y, w, ih, rows);
     for (int i = 0; i < rows; i++) {
         dbg_out_write(o, "  row "); col_int(o, i, 3);
-        dbg_out_write(o, "centre="); col_int(o, context_menu_row_top(i) + ih / 2, 6);
+        int rx, ry, rw, rh;
+        if (context_menu_row_rect(0, i, &rx, &ry, &rw, &rh)) {
+            dbg_out_write(o, "centre="); col_int(o, ry + rh / 2, 6);
+        } else {
+            dbg_out_write(o, "(scrolled out) ");   // no rect to click
+        }
         dbg_out_write(o, context_menu_row_label(i));
         dbg_out_write(o, "\r\n");
     }

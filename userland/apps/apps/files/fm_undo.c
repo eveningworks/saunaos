@@ -1,6 +1,7 @@
 // Undo and Redo for the File Manager's operations: lib/ufileundo's
 // journal, what each finished operation records into it, and the toast
 // that offers to take the latest back (Ctrl+Z / Ctrl+Y do the same).
+#include "base/uutf8.h"
 #include "fm_internal.h"
 #include <string.h>
 #include <stdio.h>
@@ -109,6 +110,11 @@ void undo_record(int kind, const char *a, const char *b) {
 // ones (two files swapped) comes back too; renamed straight, each step
 // would land on a name that is taken. A pair whose name did not change
 // is no step: undoing it would rename a file onto itself.
+void rename_tmp_name(char *out, int cap, int i, const char *old) {
+    int p = snprintf(out, (size_t)cap, ".rename-%d-", i);
+    if (p >= 0 && p < cap) uutf8_lcpy(out + p, old, cap - p);
+}
+
 void undo_record_renames(const char *dir, char (*olds)[URENAME_NAME], char (*news)[URENAME_NAME], int n) {
     char label[UFU_LABEL], tmp[URENAME_NAME];
     int changed = 0;
@@ -119,7 +125,7 @@ void undo_record_renames(const char *dir, char (*olds)[URENAME_NAME], char (*new
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < n; i++) {
             if (!strcmp(olds[i], news[i])) continue;
-            snprintf(tmp, sizeof tmp, ".rename-%d-%s", i, olds[i]);
+            rename_tmp_name(tmp, sizeof tmp, i, olds[i]);
             char *a = upath_join(dir, olds[i]), *b = upath_join(dir, news[i]), *t = upath_join(dir, tmp);
             int ok = a && b && t && (pass == 0 ? ufileundo_add(rec, a, t, 0) : ufileundo_add(rec, t, b, 0));
             if (!ok) ulogf("files: out of memory recording rename %d of %d\n", i + 1, n);

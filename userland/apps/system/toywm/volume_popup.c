@@ -189,8 +189,11 @@ static void reload_devices(void) {
     // Through the merged registry, as usetting_find() names it.
     g_dev_count = usetting_choices(DEVICE_SETTING, &g_dev_value, &g_dev_label, &cur);
     if (g_dev_count < 0) g_dev_count = 0;
-    if (cur >= 0) g_dev_selected = cur;
-    if (g_dev_selected >= g_dev_count) g_dev_selected = 0;
+    if (cur < 0) {   // unread or none of them: "auto", as an unset value means
+        cur = 0;
+        for (int i = 0; i < g_dev_count; i++) if (!k_strcmp(g_dev_value[i], "auto")) cur = i;
+    }
+    g_dev_selected = cur < g_dev_count ? cur : 0;
 }
 
 // --- the tray item ----------------------------------------------------

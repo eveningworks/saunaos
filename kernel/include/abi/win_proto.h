@@ -1461,6 +1461,12 @@ struct win_popup_pos {
 // -EINVAL an unknown a, -EBUSY the person already leaving (apps closing).
 #define WIN_REQ_LEAVE         57
 #define WIN_LEAVE_RESTART     1
+
+// THE TALLEST POPUP THE COMPOSITOR WILL PLACE whole: the work area's
+// height, the screen less the taskbar's band and the margin it keeps --
+// what a menu taller than that scrolls within (ui/uui_menubar.h).
+// ANSWERED: a = that height in pixels.
+#define WIN_REQ_WORK_AREA     58
 #define WIN_WIDGET_WH(w, h) (int32_t)(((w) << 16) | ((h) & 0xffff))
 #define WIN_WIDGET_W(c)     (int)(((uint32_t)(c) >> 16) & 0xffff)
 #define WIN_WIDGET_H(c)     (int)((uint32_t)(c) & 0xffff)

@@ -409,8 +409,9 @@ static void delete_selected(struct uui_filedialog *fd, int for_good) {
     // ONE BIN PER VOLUME, and a listing is one folder: the first item's
     // answer is every item's.
     char *bin = for_good ? 0 : utrash_bin_for(fd->ops[0]);
+    int has_bin = bin != 0;
     free(bin);
-    if (!bin) {
+    if (!has_bin) {
         ask_for_good(fd, !for_good);
         return;
     }
@@ -848,6 +849,7 @@ void uui_filedialog_close_window(struct uui_filedialog *fd) {
     free_ops(fd);
     if (g_open == fd) g_open = 0;
     uapp_window_close(w);
+    uui_textbox_release(&fd->name);   // its path-sized text: init frees nothing
 }
 
 int uui_filedialog_by_ext(void *ctx, const char *dir, const struct ulist_entry *e) {

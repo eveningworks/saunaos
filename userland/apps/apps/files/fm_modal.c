@@ -141,8 +141,7 @@ static void rename_many_done(void *ctx, const char *dir, char (*olds)[URENAME_NA
     if (!tmp) { set_note("out of memory -- nothing was changed"); return; }
     int moved = 0, failed = 0;
     for (int i = 0; i < n; i++) {
-        // A long name's tail is cut to fit one entry; the index keeps it unique.
-        snprintf(tmp[i], URENAME_NAME, ".rename-%d-%s", i, olds[i]);
+        rename_tmp_name(tmp[i], URENAME_NAME, i, olds[i]);   // the index keeps it unique
         if (rename_in(dir, olds[i], tmp[i]) != 0) { failed = 1; break; }
         moved++;
     }

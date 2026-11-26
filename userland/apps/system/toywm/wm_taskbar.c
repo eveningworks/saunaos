@@ -1110,14 +1110,16 @@ static void row_raise(void *ctx) {
 // jump list, KDE's grouped-task popup. Anchored at the button's top-left
 // on the taskbar; context_menu_open_at() lifts it clear of the strip.
 static void open_group_menu(const struct taskbar_button *b) {
-    int n = 0;
+    int n = 0, want = 0;
     uint32_t seq = 0;
-    if (!tb_rows_fit(&g_group, taskbar_app_windows(b->first), 4)) {
+    // Counted by the loop's own test, so the rows fit what it writes.
+    for (int j = 0; j < window_count; j++) want += !unlisted(j) && same_app(b->first, j);
+    if (!tb_rows_fit(&g_group, want, 4)) {
         wm_logf("taskbar: out of memory listing a group\n");
         return;
     }
     struct context_menu_item *rows = g_group.rows;
-    for (int i; (i = next_in_order(&seq)) >= 0; ) {
+    for (int i; n < want && (i = next_in_order(&seq)) >= 0; ) {
         if (unlisted(i) || !same_app(b->first, i)) continue;
         k_strlcpy(g_group.label[n], windows[i].title, sizeof g_group.label[n]);
         g_group.target[n] = windows[i].open_seq;

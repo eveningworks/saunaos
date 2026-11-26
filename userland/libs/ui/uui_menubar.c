@@ -222,11 +222,13 @@ static void show_row(struct uui_menu_level *lv, int index) {
 }
 
 // -1 on the top arrow, +1 on the bottom one, 0 elsewhere. Each takes the
-// card's air beside it too: it is drawn as one strip.
+// card's air beside it too (it is drawn as one strip) -- but never a
+// strip button's.
 static int arrow_at(const struct uui_menu_level *lv, int dy) {
     if (!lv->scroll) return 0;
     int t = rows_top(lv), b = rows_bottom(lv);
-    if (dy >= t - arrow_h() - air() && dy < t) return -1;
+    int above = strip_count(lv->items, lv->count) ? 0 : air();
+    if (dy >= t - arrow_h() - above && dy < t) return -1;
     if (dy >= b && dy < lv->h) return +1;
     return 0;
 }
@@ -421,7 +423,8 @@ static void open_sub(struct uui_menubar *m, int lvl, int index) {
     if (!is_sub(it)) return;
 
     int ax, ay, aw, ah;
-    uui_menubar_item_rect(m, lvl, index, &ax, &ay, &aw, &ah);
+    show_row(parent, index);   // a scrolled-off parent row is brought back first
+    if (!uui_menubar_item_rect(m, lvl, index, &ax, &ay, &aw, &ah)) return;
     open_level(m, lvl + 1, it->sub, it->sub_count, ax, ay, aw, ah, 1, index);
 }
 
@@ -780,6 +783,8 @@ void uui_menubar_draw_popup(struct ugfx_surface *s, const struct uui_menubar *m)
 // mouse
 // ---------------------------------------------------------------------
 
+static void after_scroll(struct uui_menubar *m, int l, int px, int py);   // below
+
 int uui_menubar_press(struct uui_menubar *m, int cx, int cy) {
     int t = title_at(m, cx, cy);
     if (t >= 0) {
@@ -799,8 +804,8 @@ int uui_menubar_press(struct uui_menubar *m, int cx, int cy) {
             const struct uui_menu_level *lv = &m->level[l];
             if (uui_hit(lv->x, lv->y, lv->w, lv->h, cx, cy)) {
                 int a = arrow_at(lv, cy - lv->y);
-                if (a) scroll_by(&m->level[l], a);   // a row a click
-                else uui_menubar_motion(m, cx, cy);
+                if (a && scroll_by(&m->level[l], a)) after_scroll(m, l, cx, cy);   // a row a click
+                else if (!a) uui_menubar_motion(m, cx, cy);
                 return 1;
             }
         }
@@ -857,15 +862,20 @@ int uui_menubar_motion(struct uui_menubar *m, int cx, int cy) {
     return changed;
 }
 
+// Level `l` scrolled under a still pointer at (px, py): what it is on now
+// is hot, and a submenu whose row may have left closes.
+static void after_scroll(struct uui_menubar *m, int l, int px, int py) {
+    struct uui_menu_level *lv = &m->level[l];
+    lv->hot = row_at(lv, px - lv->x, py - lv->y);
+    if (m->depth > l + 1) set_depth(m, l + 1);
+}
+
 int uui_menubar_wheel(struct uui_menubar *m, int notches) {
     for (int l = m->depth - 1; l >= 0; l--) {
         struct uui_menu_level *lv = &m->level[l];
         if (!uui_hit(lv->x, lv->y, lv->w, lv->h, m->px, m->py)) continue;
         if (!scroll_by(lv, -notches * 3)) return 0;   // up is positive, as uui_listbox's
-        // The rows moved under a still pointer: what it is on now is hot,
-        // and a submenu of a row that left closes.
-        lv->hot = row_at(lv, m->px - lv->x, m->py - lv->y);
-        if (m->depth > l + 1) set_depth(m, l + 1);
+        after_scroll(m, l, m->px, m->py);
         return 1;
     }
     return 0;

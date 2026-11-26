@@ -1777,6 +1777,16 @@ static void req_popup(int from, struct wmchan_msg *m) {
     uchan_server_reply(&g_chan, from, &r, sizeof r);
 }
 
+// The bound place_popup() fits a popup into, as a height from the top.
+static void req_work_area(int from, struct wmchan_msg *m) {
+    (void)m;
+    struct wmchan_msg r;
+    k_memset(&r, 0, sizeof r);
+    r.type = WIN_REQ_WORK_AREA;
+    r.a = screen_h - taskbar_h - WM_POPUP_MARGIN;
+    uchan_server_reply(&g_chan, from, &r, sizeof r);
+}
+
 static void req_dialog(int from, struct wmchan_msg *m) {
     // Answers, as CREATE and POPUP do: the client has already
     // made this slot's buffers and needs to know whether to
@@ -1915,6 +1925,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_CREATE] = req_create,
     [WIN_REQ_PRESENT] = req_present,
     [WIN_REQ_POPUP] = req_popup,
+    [WIN_REQ_WORK_AREA] = req_work_area,
     [WIN_REQ_DIALOG] = req_dialog,
     [WIN_REQ_DIALOG_PLACE] = req_dialog_place,
     [WIN_REQ_DESTROY] = req_destroy,

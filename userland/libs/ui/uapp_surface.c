@@ -373,10 +373,19 @@ static struct ugfx_surface *popup_surface(void *ctx, int id) {
     return sf;
 }
 
+// The compositor's work area (WIN_REQ_WORK_AREA): it places a popup
+// inside it, so a menu taller would run under the taskbar. The screen
+// when it cannot be asked.
 static int popup_max_h(void *ctx) {
     (void)ctx;
     int w = 1, h = 1 << 30;
     clamp_to_screen(&w, &h);
+    struct wmchan_msg m, r;
+    memset(&m, 0, sizeof m);
+    m.type = WIN_REQ_WORK_AREA;
+    if (wmchan() && uchan_call(&g_wmchan, &m, sizeof m, &r, sizeof r, UAPP_CALL_TIMEOUT_MS) >= 0 &&
+        r.a > 0 && r.a < h)
+        h = r.a;
     return h;
 }
 
