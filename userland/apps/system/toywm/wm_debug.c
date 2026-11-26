@@ -810,6 +810,16 @@ static void cmd_dialog(struct dbg_out *o, int json) {
         dbg_out_write(o, "],\"body\":\"");
         dbg_out_jstr(o, msg ? confirm_dialog_body() : "");   // privd's words: quoted names in it
         dbg_out_write(o, "\"");
+        dbg_out_write(o, ",\"rows\":[");
+        const char *rk, *rv;
+        for (int i = 0; msg && confirm_dialog_row(i, &rk, &rv); i++) {
+            dbg_out_write(o, i ? ",[\"" : "[\"");
+            dbg_out_jstr(o, rk);
+            dbg_out_write(o, "\",\"");
+            dbg_out_jstr(o, rv);
+            dbg_out_write(o, "\"]");
+        }
+        dbg_out_write(o, "]");
         const char *pl, *pe; int busy, typed, px, py, pw, ph;
         if (confirm_dialog_password_state(&pl, &pe, &busy, &typed, &px, &py, &pw, &ph)) {
             dbg_out_write(o, ",\"password\":{\"label\":\"");

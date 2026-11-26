@@ -308,6 +308,12 @@ TESTS = [
     # rule, and an elevated spawn only on privd's grant, once and for one
     # exact command line. SPAWNED: it waits for its children.
     ("priv_test", None, None, None),
+    # Who may change a setting (users D3b): the machine's root's alone --
+    # the kernel's at SYS_SETTING, a declared one in libbase -- a person's
+    # anyone's, a seat's the person at the machine's, asked of children
+    # started as 1000 with and without the seat; privd's `settings` action
+    # as root. SPAWNED: it waits for its children; changes nothing.
+    ("machinesetting_test", None, None, None),
     # Passwords through privd (users D2a): set, check, change and remove,
     # who may ask about whose, a right password as sudo's consent, the
     # fail delay, /etc/shadow's owner and mode, and a libxcrypt hash

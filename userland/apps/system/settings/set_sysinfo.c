@@ -4,6 +4,7 @@
 // them. One custom-drawn item in the page's scroll view, so it scrolls
 // like any other page; the two buttons are real widgets.
 #include "apps/system/settings/settings_internal.h"
+#include <errno.h>
 #include "base/unum.h"
 #include "media/icon_cache.h"
 #include "base/udevice.h"
@@ -248,11 +249,40 @@ static void rn_close(struct uapp_window *w) {
     g_rn_win = 0;
 }
 
+// The computer's name is the machine's (users D3b): asked through privd,
+// off the frame, when this account may not set it itself.
+static char g_rn_name[64];
+static int rn_work(void *arg) {
+    (void)arg;
+    struct usetting_change c = { UHOSTNAME_SETTING, g_rn_name };
+    return usetting_apply_admin(&c, 1) < 0 ? -errno : 0;
+}
+
+static void rn_done(struct uapp *a, int rc, int err, void *arg) {
+    (void)err; (void)arg;
+    if (rc == 0) snprintf(g_status, sizeof g_status, "This computer is now called %s", g_rn_name);
+    else if (rc == -ECANCELED) snprintf(g_status, sizeof g_status, "Not renamed -- administrator rights were not given");
+    else snprintf(g_status, sizeof g_status, "Could not rename this computer to %s", g_rn_name);
+    ulogf("settings: hostname %s result %d\n", g_rn_name, rc);
+    sysinfo_name_refresh();
+    uapp_redraw(a);
+}
+
 static void rn_ok(struct uapp_window *w) {
     const char *name = uui_textbox_text(&g_rn_field);
     if (!uhostname_valid(name)) {
         g_rn_err.text = "Use 1 to 63 letters, digits and hyphens, not starting or ending with a hyphen.";
         uapp_window_redraw(w);
+        return;
+    }
+    struct setting_msg info;
+    if (g_app && usetting_info(UHOSTNAME_SETTING, &info) == 0 && usetting_needs_admin(&info)) {
+        snprintf(g_rn_name, sizeof g_rn_name, "%s", name);
+        if (uapp_run_then(g_app, rn_work, 0, rn_done) == 0)
+            snprintf(g_status, sizeof g_status, "Asking for administrator rights...");
+        else
+            snprintf(g_status, sizeof g_status, "Could not rename this computer to %s", name);
+        rn_close(w);
         return;
     }
     int r = usetting_set(UHOSTNAME_SETTING, name);

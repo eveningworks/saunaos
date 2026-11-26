@@ -104,6 +104,32 @@ int usetting_choices(const char *name, char (*value)[SETTING_ABI_VALUE_MAX],
 // which is the contract the kernel's own index already carried.
 int usetting_dispatch(struct setting_msg *m);
 
+// --- the machine's settings (users D3b, docs/users-design.md) ----------
+//
+// A setting that is neither a person's (SETTING_ABI_SF_PERSON) nor the
+// seat's for a process at the machine is root's to change: a SET or UNSET
+// of it from anyone else fails with EACCES, here and in the kernel alike,
+// and goes to privd instead. 1 if the CALLER must ask for `info`'s.
+int usetting_needs_admin(const struct setting_msg *info);
+// The same from an INFO record's `sflags` alone.
+int usetting_needs_admin_flags(uint32_t sflags);
+
+// `value` as a person reads it: an enum's choice name, an int with its
+// unit, else the value itself. Into `out`, always terminated.
+void usetting_value_label(const char *name, const char *value, char *out, size_t cap);
+
+// One change for usetting_apply_admin(): `value` NULL puts back the default.
+struct usetting_change {
+    const char *name;
+    const char *value;
+};
+// Asks privd to make all `n` changes as root, after an administrator
+// prompt that lists them (UPRIV_ACT_SETTINGS) -- one per UPRIV_PROMPT_ROWS
+// changes. 0, or -1 with errno as upriv_action() sets it (ECANCELED: the
+// person said no; EINVAL: privd refused a value -- the ones before it are
+// applied). Blocks until the person answers.
+int usetting_apply_admin(const struct usetting_change *c, int n);
+
 // WHERE A CATEGORY AND A PAGE SIT IN A SETTINGS SIDEBAR -- the `Order=`
 // of `/etc/settings.d/category.<Category>` and of
 // `group.<Category>.<Group>`. Lower first; 0 when no file says.

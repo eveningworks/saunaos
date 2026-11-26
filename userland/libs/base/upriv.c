@@ -276,6 +276,13 @@ int upriv_agent_next(struct ubulk_client *a, struct upriv_prompt *p) {
         p->program = field(&at, end);
         p->asker = field(&at, end);
         p->password_for = field(&at, end);
+        p->admins = field(&at, end);
+        p->nrows = 0;
+        while (at < end && p->nrows < UPRIV_PROMPT_ROWS) {
+            p->row_key[p->nrows] = field(&at, end);
+            p->row_val[p->nrows] = field(&at, end);
+            p->nrows++;
+        }
         p->tries_left = UPRIV_AUTH_TRIES;
         return 1;
     }

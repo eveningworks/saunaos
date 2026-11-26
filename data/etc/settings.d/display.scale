@@ -1,5 +1,6 @@
 Type=enum
 File=/etc/desktop.conf
+Scope=seat
 Label=Scale
 Category=Display
 Group=Screen

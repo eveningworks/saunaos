@@ -86,7 +86,7 @@ void rebuild_owner_options(const char *kind, const char *saver) {
         g_cat_of[k][0] = '\0';
         g_group_of[k][0] = '\0';
         g_unavail[k][0] = '\0';
-        g_sflags[k] = 0;
+        g_sflags[k] = SETTING_ABI_SF_PERSON;   // the person's own file
         g_order[k] = 0;
         g_type[k] = o->type == USAVER_INT ? SETTING_ABI_TYPE_INT
                                           : SETTING_ABI_TYPE_ENUM;

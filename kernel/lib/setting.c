@@ -590,7 +590,8 @@ int setting_dispatch(struct setting_msg *msg) {
         // registry rather than /etc: it describes the MACHINE.
         k_strlcpy(msg->unavailable, setting_unavailable(s) ? setting_unavailable(s) : "",
                   sizeof msg->unavailable);
-        msg->sflags = 0;
+        msg->sflags = s->who == SETTING_WHO_PERSON ? SETTING_ABI_SF_PERSON
+                    : s->who == SETTING_WHO_SEAT   ? SETTING_ABI_SF_SEAT : 0;
         msg->order  = 0;
         // ANYTHING UNRECOGNISED FALLS THROUGH TO STRING, which is not
         // laziness: every type here is carried as text, so a client

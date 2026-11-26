@@ -43,6 +43,7 @@ struct uui_setting_row {
     int changed;                // mark the card: edited, not yet applied
     int disabled;               // dims the text; the control has its own
     int flat;                   // no card of its own: a row inside a uui_card
+    int shield;                 // the machine's: a shield before the title (users D3b)
 };
 
 void uui_setting_row_init(struct uui_setting_row *r, const char *title,

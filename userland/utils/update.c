@@ -7,6 +7,7 @@
 // installs, and -y answers for a run with no terminal.
 // docs/commands/update.md has the usage, docs/update-design.md the why.
 #include <stdio.h>
+#include <errno.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -170,7 +171,8 @@ static int server_cmd(const char *url) {
         return 0;
     }
     if (upd_server_set(url) != 0) {
-        printf("update: refused %s -- an http:// address, under 64 characters\n", url);
+        if (errno == EACCES) printf("update: the server is this computer's setting -- sudo update server %s\n", url);
+        else printf("update: refused %s -- an http:// address, under 64 characters\n", url);
         return 1;
     }
     printf("update: server is now %s\n", url);
@@ -218,7 +220,11 @@ static int channel_cmd(const char *name) {
             return 1;
         }
     }
-    if (upd_channel_set(name) != 0) { printf("update: refused channel %s\n", name); return 1; }
+    if (upd_channel_set(name) != 0) {
+        if (errno == EACCES) printf("update: the channel is this computer's setting -- sudo update channel %s\n", name);
+        else printf("update: refused channel %s\n", name);
+        return 1;
+    }
     printf("update: channel is now %s\n", name[0] ? name : "the server's default");
     return 0;
 }

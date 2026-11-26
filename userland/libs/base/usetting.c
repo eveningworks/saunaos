@@ -5,7 +5,12 @@
 #include "knum.h"
 #include "base/uconf.h"
 #include "base/usetting_text.h"
+#include "base/upriv.h"
+#include "cred_abi.h"
+#include "syscall_abi.h"   // SYS_GETCRED
 #include <dirent.h>
+#include <errno.h>
+#include <unistd.h>   // geteuid
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -73,6 +78,8 @@ static void fill_from_schema(const struct uschema *s, struct setting_msg *m) {
     // two knobs /etc already owns and reaches nothing of the kernel's.
     if (uschema_unmet(s, m->unavailable, sizeof m->unavailable) && s->otherwise[0])
         strlcpy(m->value, s->otherwise, sizeof m->value);
+    m->sflags = s->scope == USCHEMA_SCOPE_USER ? SETTING_ABI_SF_PERSON
+              : s->scope == USCHEMA_SCOPE_SEAT ? SETTING_ABI_SF_SEAT : 0;
     uschema_text(s, m);
 }
 
@@ -289,6 +296,24 @@ static int resolve(const char *name, struct uschema *out, uint32_t *generation) 
     return uschema_find(qualified, out) ? OWNER_SCHEMA : OWNER_NONE;
 }
 
+// The caller holds the seat (CRED_SEAT). Through sys_call(): a runtime
+// wrapper newer than the programs that load this library is not theirs.
+static int at_seat(void) {
+    static int seat = -1;   // a process's seat mark never changes
+    if (seat < 0) {
+        struct cred_info ci;
+        seat = sys_call(SYS_GETCRED, (uint64_t)(uintptr_t)&ci, 0, 0) == 0 && (ci.flags & CRED_SEAT);
+    }
+    return seat;
+}
+
+// The kernel's priv_setting_check() for a DECLARED setting: the library
+// writes its file itself, so the same rule is asked here (users D3b).
+static int may_write(const struct uschema *s) {
+    if (s->scope == USCHEMA_SCOPE_USER || geteuid() == 0) return 1;
+    return s->scope == USCHEMA_SCOPE_SEAT && at_seat();
+}
+
 int usetting_dispatch(struct setting_msg *m) {
     if (!m) return -1;
 
@@ -354,6 +379,7 @@ int usetting_dispatch(struct setting_msg *m) {
         switch (resolve(m->name, &s, &gen)) {
         case OWNER_KERNEL: return sys_setting(m);
         case OWNER_SCHEMA: {
+            if (!may_write(&s)) { errno = EACCES; return -1; }
             // ANNOUNCED ONLY IF SOMETHING CHANGED. A refused value
             // changed nothing, and so did setting a value to what it
             // already was -- and the kernel's setting_set() skips the
@@ -383,6 +409,7 @@ int usetting_dispatch(struct setting_msg *m) {
         switch (resolve(m->name, &s, &gen)) {
         case OWNER_KERNEL: return sys_setting(m);
         case OWNER_SCHEMA:
+            if (!may_write(&s)) { errno = EACCES; return -1; }
             m->result = (uint32_t)uschema_unset(&s);
             if (m->result != SETTING_INVALID) touch(&m->generation);
             else kernel_count(&m->generation);
@@ -654,4 +681,73 @@ int usetting_choices(const char *name, char (*value)[SETTING_ABI_VALUE_MAX],
         if (!strcmp(m.value, now)) *current = n;
     }
     return n;
+}
+
+// --- the machine's settings (users D3b) -------------------------------
+
+int usetting_needs_admin_flags(uint32_t sflags) {
+    if ((sflags & SETTING_ABI_SF_PERSON) || geteuid() == 0) return 0;
+    return !((sflags & SETTING_ABI_SF_SEAT) && at_seat());
+}
+
+int usetting_needs_admin(const struct setting_msg *info) {
+    return info && usetting_needs_admin_flags(info->sflags);
+}
+
+void usetting_value_label(const char *name, const char *value, char *out, size_t cap) {
+    if (!out || !cap) return;
+    snprintf(out, cap, "%s", value ? value : "");
+    struct setting_msg m;
+    int index = usetting_find(name, &m);
+    if (index < 0 || m.type != SETTING_ABI_TYPE_ENUM || !value) {
+        if (index >= 0 && m.type == SETTING_ABI_TYPE_INT && m.unit[0] && value && value[0])
+            snprintf(out, cap, "%s %s", value, m.unit);
+        return;
+    }
+    for (uint32_t n = 0; ; n++) {
+        memset(&m, 0, sizeof m);
+        m.op = SETTING_OP_CHOICE;
+        m.index = (uint32_t)index;
+        m.choice = n;
+        if (usetting_dispatch(&m) != 0) return;
+        if (!strcmp(m.value, value)) {
+            if (m.label[0]) snprintf(out, cap, "%s", m.label);
+            return;
+        }
+    }
+}
+
+static int apply_batch(const struct usetting_change *c, int n);
+
+int usetting_apply_admin(const struct usetting_change *c, int n) {
+    if (!c || n <= 0) { errno = EINVAL; return -1; }
+    // A prompt each UPRIV_PROMPT_ROWS changes: what one dialog shows whole.
+    for (int at = 0; at < n; at += UPRIV_PROMPT_ROWS)
+        if (apply_batch(c + at, n - at < UPRIV_PROMPT_ROWS ? n - at : UPRIV_PROMPT_ROWS) < 0) return -1;
+    return 0;
+}
+
+static int apply_batch(const struct usetting_change *c, int n) {
+    // name, "=value" or "-", per change -- UPRIV_ACT_SETTINGS.
+    const char **args = calloc((size_t)n * 2 + 1, sizeof *args);
+    char **vals = calloc((size_t)n, sizeof *vals);
+    int rc = -1;
+    if (!args || !vals) { errno = ENOMEM; goto out; }
+    for (int i = 0; i < n; i++) {
+        if (!c[i].name) { errno = EINVAL; goto out; }
+        size_t k = c[i].value ? strlen(c[i].value) + 2 : 2;
+        if (!(vals[i] = malloc(k))) { errno = ENOMEM; goto out; }
+        if (c[i].value) snprintf(vals[i], k, "=%s", c[i].value);
+        else snprintf(vals[i], k, "-");
+        args[i * 2] = c[i].name;
+        args[i * 2 + 1] = vals[i];
+    }
+    rc = upriv_action(UPRIV_ACT_SETTINGS, args, 0);
+out:;
+    int e = errno;
+    if (vals) for (int i = 0; i < n; i++) free(vals[i]);
+    free(vals);
+    free(args);
+    errno = e;
+    return rc;
 }

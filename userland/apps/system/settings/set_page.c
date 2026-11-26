@@ -5,8 +5,10 @@
 // text when the control is a list. Which control a setting gets is
 // decided here from what its values ARE -- see pick_kind().
 #include "apps/system/settings/settings_internal.h"
+#include "base/upriv.h"       // upriv_strerror
 #include "base/usetting_schema.h" // WhenUnmet= and Requires=, read from the declaration
 #include "query_abi.h"
+#include <errno.h>
 #include <stdlib.h>
 
 char g_status[160];
@@ -176,6 +178,7 @@ void load_slot(struct slot *sl, int idx) {
     sl->row.desc_rows = 1;
     sl->row.stacked_auto = 0;
     sl->row.changed = 0;
+    sl->row.shield = !opt_of(idx) && usetting_needs_admin_flags(g_sflags[idx]);
 
     if (g_type[idx] == SETTING_ABI_TYPE_INT) {
         // A NUMBER GETS A SPINBOX bounded by the REGISTRY's range, so it
@@ -283,6 +286,15 @@ int page_changes(void) {
     return n;
 }
 int page_dirty(void) { return page_changes() > 0; }
+// Of those, how many are the machine's -- Apply asks for administrator rights.
+int page_admin_changes(void) {
+    int n = 0;
+    for (int i = 0; i < g_slot_count; i++)
+        if (g_slot[i].setting >= 0 && g_slot[i].staged != g_slot[i].baseline &&
+            !opt_of(g_slot[i].setting) && usetting_needs_admin_flags(g_sflags[g_slot[i].setting]))
+            n++;
+    return n;
+}
 
 int g_page_captions;
 
@@ -400,11 +412,67 @@ void open_group(int g) {
           g_page_captions, off);
 }
 
+// THE MACHINE'S CHANGES ON A PAGE (users D3b): collected by apply_page()
+// and made by privd after ONE administrator prompt, off the frame.
+static struct usetting_change *g_adm;
+static char (*g_adm_name)[SETTING_ABI_QUALIFIED_MAX], (*g_adm_val)[SETTING_ABI_VALUE_MAX];
+static int g_adm_n, g_adm_busy, g_adm_group, g_adm_reboot;
+static char g_adm_note[96];   // the person's own changes' outcome, said after
+
+int page_admin_pending(void) { return g_adm_busy; }
+
+static void adm_free(void) {
+    free(g_adm); free(g_adm_name); free(g_adm_val);
+    g_adm = 0; g_adm_name = 0; g_adm_val = 0;
+    g_adm_n = 0;
+}
+
+static int adm_work(void *arg) {
+    (void)arg;
+    return usetting_apply_admin(g_adm, g_adm_n) < 0 ? -errno : 0;
+}
+
+static void reload_page(void) {
+    char keep[sizeof g_status];
+    strlcpy(keep, g_status, sizeof keep);
+    int keep_node = uui_sidebar_selected_id(&g_tree);
+    reload_settings();
+    uui_sidebar_select_id(&g_tree, keep_node);
+    if (g_page_group >= 0 && g_page_group < g_group_count) open_group(g_page_group);
+    strlcpy(g_status, keep, sizeof g_status);   // open_group() titled it
+}
+
+static void adm_done(struct uapp *a, int rc, int err, void *arg) {
+    (void)arg; (void)err;
+    int n = g_adm_n;
+    g_adm_busy = 0;
+    if (rc == 0 && g_adm_reboot)
+        snprintf(g_status, sizeof g_status, "Saved for everyone -- %d take effect at the next boot%s", g_adm_reboot, g_adm_note);
+    else if (rc == 0) snprintf(g_status, sizeof g_status, "Saved %d change(s) for everyone on this computer%s", n, g_adm_note);
+    else if (rc == -ECANCELED) snprintf(g_status, sizeof g_status, "Not applied -- administrator rights were not given%s", g_adm_note);
+    else if (rc == -EINVAL) snprintf(g_status, sizeof g_status, "A value was refused -- the page shows what applied%s", g_adm_note);
+    else snprintf(g_status, sizeof g_status, "Not applied -- %s%s", upriv_strerror(-rc), g_adm_note);
+    ulogf("settings: machine changes %d result %d\n", n, rc);
+    adm_free();
+    // What is in effect, the person's changes made before the prompt too --
+    // on the page that asked; another one, opened meanwhile, keeps its edits.
+    if (g_page_group == g_adm_group) reload_page();
+    uapp_redraw(a);
+}
+
 // Applies every staged change on the page, and reports the OUTCOME:
 // SETTING_UNSAVED is live but will not survive a reboot, which a settings
-// UI must never report as plain success.
+// UI must never report as plain success. A machine-wide change goes to
+// privd instead (adm_work()), and the page answers 0 -- not applied YET.
 int apply_page(void) {
     int changed = 0, failed = 0, unsaved = 0, needs_reboot = 0;
+    if (g_adm_busy) return 0;
+    adm_free();
+    g_adm_reboot = 0;
+    g_adm = calloc((size_t)g_slot_count + 1, sizeof *g_adm);
+    g_adm_name = calloc((size_t)g_slot_count + 1, sizeof *g_adm_name);
+    g_adm_val = calloc((size_t)g_slot_count + 1, sizeof *g_adm_val);
+    if (!g_adm || !g_adm_name || !g_adm_val) { adm_free(); strlcpy(g_status, "Out of memory", sizeof g_status); return 0; }
 
     for (int i = 0; i < g_slot_count; i++) {
         struct slot *sl = &g_slot[i];
@@ -423,6 +491,16 @@ int apply_page(void) {
 
         // A THEME carries settings of its own (set_theme.c).
         if (theme_apply_slot(sl, &changed)) continue;
+
+        if (usetting_needs_admin_flags(g_sflags[sl->setting])) {
+            strlcpy(g_adm_name[g_adm_n], g_name[sl->setting], sizeof g_adm_name[0]);
+            strlcpy(g_adm_val[g_adm_n], staged_value(sl), sizeof g_adm_val[0]);
+            g_adm[g_adm_n].name = g_adm_name[g_adm_n];
+            g_adm[g_adm_n].value = g_adm_val[g_adm_n];
+            g_adm_n++;
+            if (g_sflags[sl->setting] & SETTING_ABI_SF_REBOOT) g_adm_reboot++;
+            continue;
+        }
 
         struct setting_msg m;
         memset(&m, 0, sizeof m);
@@ -452,17 +530,26 @@ int apply_page(void) {
     else
         strlcpy(g_status, "Nothing to apply", sizeof g_status);
 
+    if (g_adm_n) {
+        // The person's own changes are made already; the page reloads once
+        // privd has answered for the rest.
+        if (!g_app || uapp_run_then(g_app, adm_work, 0, adm_done) != 0) {
+            adm_free();
+            strlcpy(g_status, "Could not ask for administrator rights", sizeof g_status);
+            return 0;
+        }
+        g_adm_busy = 1;
+        g_adm_group = g_page_group;
+        g_adm_note[0] = '\0';
+        if (failed) snprintf(g_adm_note, sizeof g_adm_note, "; %d of yours refused", failed);
+        else if (unsaved) snprintf(g_adm_note, sizeof g_adm_note, "; %d of yours did not save", unsaved);
+        strlcpy(g_status, "Asking for administrator rights...", sizeof g_status);
+        return 0;
+    }
+    adm_free();
     // Re-read: what is in effect is what the registry now says, not what
     // was asked for.
-    if (changed) {
-        char keep[sizeof g_status];
-        strlcpy(keep, g_status, sizeof keep);
-        int keep_node = uui_sidebar_selected_id(&g_tree);
-        reload_settings();
-        uui_sidebar_select_id(&g_tree, keep_node);
-        if (g_page_group >= 0 && g_page_group < g_group_count) open_group(g_page_group);
-        strlcpy(g_status, keep, sizeof g_status);   // open_group() titled it
-    }
+    if (changed) reload_page();
     return failed == 0;
 }
 

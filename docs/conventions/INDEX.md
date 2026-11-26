@@ -1099,6 +1099,8 @@ whenever a headline here tells you something you did not already know.
   `SETTING_OP_TOUCH`.
 - **A `Scope=user` SETTING IS THE PERSON'S, AND A PROCESS WITH NO
   `XDG_CONFIG_HOME` NEVER SEES IT.**
+- **A MACHINE SETTING IS ROOT'S TO CHANGE, AND A FRONT END ASKS PRIVD FOR
+  IT** (users D3b) -- `storage.md`
 - **A RING-3 PROGRAM READS AND WRITES ONE SETTING THROUGH
   `userland/libs/base/usetting.h`, AND `usetting_set()` RETURNS THE REGISTRY'S
   THREE-WAY ANSWER.**

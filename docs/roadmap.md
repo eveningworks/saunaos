@@ -251,7 +251,8 @@ only expensive part of it.
 - [x] ~~Stage D2b of `docs/users-design.md`: the login screen, a greeter session, Sign out~~ DONE 2026-11-25 -- Settings > Users
 - [x] ~~Stage D2c of `docs/users-design.md`: the lock screen and /bin/login~~ DONE 2026-11-25 -- Super+L, lock on resume, VT + telnet login
 - [x] ~~Stage D3a of `docs/users-design.md`: several people -- Other accounts in Settings, `user`, the login screen's list~~ DONE 2026-11-26
-- [ ] Stage D3b of `docs/users-design.md`: the machine's settings an administrator's -- `/etc` root's, machine writes through privd
+- [x] ~~Stage D3b1 of `docs/users-design.md`: the machine's settings root's, asked through privd~~ DONE 2026-11-26
+- [ ] Stage D3b2 of `docs/users-design.md`: `/etc` root's 755, named privd actions, an administrator signs
 - [ ] Stage D3c of `docs/users-design.md`: the kernel's per-person settings applied at sign-in, and `fontd` per session
 - [ ] Several sessions at once, and Switch user -- the compositor role handed between paused compositors (logind's PauseDevice)
 - [ ] `/home/user` private like the homes D3a makes (0700, not 4755)

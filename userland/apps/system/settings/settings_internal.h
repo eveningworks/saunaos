@@ -298,6 +298,9 @@ const char *staged_value(struct slot *sl);
 // The slot showing setting `name` on this page, or NULL.
 struct slot *slot_find(const char *name);
 int apply_page(void);
+// A machine-wide Apply is waiting on privd's prompt (users D3b).
+int page_admin_pending(void);
+int page_admin_changes(void);   // staged changes that are the machine's
 extern struct uui_item PAGE[PAGE_ITEMS];
 extern int PAGE_COUNT;
 extern struct uui_layout PAGE_LAYOUT;

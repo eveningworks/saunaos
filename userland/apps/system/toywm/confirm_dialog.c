@@ -49,7 +49,7 @@ static struct uui_button_group g_group;
 static struct {
     int on;
     char title[64], headline[200], body[400];
-    char key[CONFIRM_DETAIL_ROWS][32], val[CONFIRM_DETAIL_ROWS][160];
+    char key[CONFIRM_DETAIL_ROWS][48], val[CONFIRM_DETAIL_ROWS][200];
     int nrows;
     int head_at[WRAP_MAX], head_len[WRAP_MAX], nhead;
     int body_at[WRAP_MAX], body_len[WRAP_MAX], nbody;
@@ -470,6 +470,15 @@ int confirm_dialog_button_rect(int index, int *x, int *y, int *w, int *h,
 
 const char *confirm_dialog_message(void) {
     return confirm_dialog_open ? g_message : 0;
+}
+
+// The detailed form's row `i` -- key and value -- for the debug console's
+// `gui dialog`; 0 past the last.
+int confirm_dialog_row(int i, const char **key, const char **val) {
+    if (!confirm_dialog_open || !g_d.on || i < 0 || i >= g_d.nrows) return 0;
+    *key = g_d.key[i];
+    *val = g_d.val[i];
+    return 1;
 }
 
 const char *confirm_dialog_body(void) {

@@ -123,6 +123,10 @@ void uschema_effective(const struct uschema *s, char *out, uint32_t cap);
 // machine key: that is how the machine's default of a user key is set.
 #define USCHEMA_SCOPE_MACHINE 0
 #define USCHEMA_SCOPE_USER    1
+// Stored as the machine's, changed by the person at the machine without
+// asking (CRED_SEAT): what fontd renders for the screen, as the kernel's
+// SETTING_WHO_SEAT keys.
+#define USCHEMA_SCOPE_SEAT    2
 
 // The file a write of `s` goes to in THIS process: the person's half
 // for a user key when there is one, else `File=`. 1 when it is the

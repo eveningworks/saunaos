@@ -65,7 +65,8 @@ void confirm_dialog_open_labelled(const char *message, const char *yes, const ch
 // polkit dialog; docs/users-design.md, stage B): a title strip, a lock,
 // a headline, a wrapped body and a grid of `nrows` key/value rows, with
 // the affirmative button in the accent. The strings ARE copied.
-#define CONFIRM_DETAIL_ROWS 4
+// privd's change rows (UPRIV_PROMPT_ROWS) and its three of its own.
+#define CONFIRM_DETAIL_ROWS 11
 struct confirm_detail {
     const char *title, *headline, *body;
     const char *key[CONFIRM_DETAIL_ROWS], *val[CONFIRM_DETAIL_ROWS];
@@ -142,5 +143,8 @@ void confirm_dialog_damage(void);
 // Where it is while open -- the registry's `rect` op, which is what lets
 // it damage its own rect instead of the whole screen.
 int confirm_dialog_rect(int *x, int *y, int *w, int *h);
+
+// The detailed form's row `i`, for `gui dialog`; 0 past the last.
+int confirm_dialog_row(int i, const char **key, const char **val);
 
 #endif

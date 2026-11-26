@@ -58,10 +58,15 @@ static void show_next(void) {
     d.title = "Authentication Required";
     d.headline = q->p.headline;
     d.body = q->p.body;
-    d.key[0] = "Action";   d.val[0] = q->p.action;
-    d.key[1] = "Program";  d.val[1] = q->p.program;
-    d.key[2] = "Asked by"; d.val[2] = q->p.asker;
-    d.nrows = 3;
+    // What changes first (users D3b), then who asks.
+    for (int i = 0; i < q->p.nrows && d.nrows < CONFIRM_DETAIL_ROWS - 3; i++) {
+        d.key[d.nrows] = q->p.row_key[i];
+        d.val[d.nrows] = q->p.row_val[i];
+        d.nrows++;
+    }
+    d.key[d.nrows] = "Action";   d.val[d.nrows++] = q->p.action;
+    d.key[d.nrows] = "Program";  d.val[d.nrows++] = q->p.program;
+    d.key[d.nrows] = "Asked by"; d.val[d.nrows++] = q->p.asker;
     // "Password for User": the account's real name (GECOS), else its name.
     char label[96];
     g_showing_pw = q->p.password_for[0] != '\0';
@@ -137,7 +142,7 @@ void wm_priv_poll(void) {
         g_agent = upriv_agent_open();
         if (!g_agent) return;
     }
-    struct upriv_prompt p;
+    static struct upriv_prompt p;   // 4 KiB; the main thread's alone
     int r;
     while ((r = upriv_agent_next(g_agent, &p)) != 0) {
         if (r < 0) { drop(p.id); continue; }
@@ -168,6 +173,11 @@ void wm_priv_poll(void) {
         q->p.program  = q->p.buf + (p.program - p.buf);
         q->p.asker    = q->p.buf + (p.asker - p.buf);
         q->p.password_for = q->p.buf + (p.password_for - p.buf);
+        q->p.admins = q->p.buf + (p.admins - p.buf);
+        for (int i = 0; i < p.nrows; i++) {
+            q->p.row_key[i] = q->p.buf + (p.row_key[i] - p.buf);
+            q->p.row_val[i] = q->p.buf + (p.row_val[i] - p.buf);
+        }
         struct queued **tail = &g_queue;
         while (*tail) tail = &(*tail)->next;
         *tail = q;

@@ -53,6 +53,7 @@ static int cursor_apply(const char *value) {
 }
 
 static const struct setting g_cursor_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = CURSOR_CONFIG_KEY,
     .label  = "Cursor",
     .type   = SETTING_TYPE_ENUM,

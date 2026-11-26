@@ -241,6 +241,7 @@ static int scroll_dir_apply(const char *value) {
 // is the whole point of groups: one page carrying every knob that is
 // about the pointer, rather than four pages a user has to find.
 static const struct setting g_speed_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = MOUSE_SPEED_KEY,
     .label  = "Pointer speed",
     .type   = SETTING_TYPE_INT,
@@ -256,6 +257,7 @@ static const struct setting g_speed_setting = {
 };
 
 static const struct setting g_accel_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = MOUSE_ACCEL_KEY,
     .label  = "Pointer acceleration",
     .type   = SETTING_TYPE_ENUM,
@@ -268,6 +270,7 @@ static const struct setting g_accel_setting = {
 };
 
 static const struct setting g_scroll_step_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = SCROLL_STEP_KEY,
     .label  = "Scroll speed",
     .type   = SETTING_TYPE_INT,
@@ -283,6 +286,7 @@ static const struct setting g_scroll_step_setting = {
 };
 
 static const struct setting g_scroll_dir_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = SCROLL_DIR_KEY,
     .label  = "Scroll direction",
     .type   = SETTING_TYPE_ENUM,

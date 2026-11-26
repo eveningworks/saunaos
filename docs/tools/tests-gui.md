@@ -1029,6 +1029,16 @@ from the default (a sound card, a USB mouse, `--reboot`).
   the prompt asks for user's password, a wrong one comes back as "Wrong
   password" with its dots gone, the right one and Allow bring Disks as
   root; red with privd's `pass_check()` always 1.
+- **`machine_settings_test.py`** -- a machine setting asks (users D3b,
+  `docs/users-design.md`): `config set system.ntp.interval` from a process
+  at the machine (`gui spawn`) opens privd's prompt, which names the
+  change as a row ("Sync every", "60 min -> 61 min"); Cancel leaves the
+  value, Allow sets it as root. Then System Settings on that page: the
+  spinbox's up arrow stages a change, Apply opens ONE prompt listing it,
+  Allow saves it and the app logs `machine changes 1 result 0`. A person's
+  setting (`system.mouse.speed`) set by `as user config` asks nothing.
+  Positive control: skip `apply_page()`'s `usetting_needs_admin_flags()`
+  branch -- "Apply opens the prompt" goes red. In `gui_regress.py`.
 - **`login_test.py`** -- users D2b end to end: System Settings > Users
   (as the desktop's account) sets a password -- Set greyed while the two
   fields differ, `passwd -S` saying P after, automatic sign-in turned

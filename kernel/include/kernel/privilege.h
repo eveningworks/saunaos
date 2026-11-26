@@ -22,6 +22,12 @@ int priv_admin_check(uint64_t nr);
 int priv_seat_mount(const struct block_device *dev, const char *point);
 int priv_seat_point(const char *point);
 
+// May the caller SET or UNSET the registered setting `name` (users D3b)?
+// A person's setting is anyone's, a seat's the person at the machine's,
+// the machine's root's alone. 0 or -EACCES; an unknown name passes, for
+// the registry to answer INVALID as it always has.
+int priv_setting_check(const char *name);
+
 // May the caller signal the process `tgid`? Linux's rule: root, or the
 // caller's real or effective uid is the target's real uid.
 int priv_may_signal(int tgid);

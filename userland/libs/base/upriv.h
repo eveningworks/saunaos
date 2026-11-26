@@ -32,6 +32,8 @@ extern "C" {
 #define UPRIV_T_AGENT   4   // agent: "I draw the prompt" (no payload)
 #define UPRIV_T_PROMPT  5   // privd -> agent: headline\0 body\0 action\0 program\0 asker\0
                             //   password_for\0 -- the account whose password to ask, "" for none
+                            //   admins\0 -- reserved, "" (users D3b's Standard asker)
+                            //   then key\0 value\0 per detail row (what changes: users D3b)
 #define UPRIV_T_VERDICT 6   // agent: u32 1 allow, 0 cancel; then the password\0 if one was asked
 #define UPRIV_T_CANCEL  7   // privd -> agent: close prompt `id`, its asker is gone
 #define UPRIV_T_AUTH    8   // client: u32 flags, account\0 password\0 -- is it right?
@@ -92,6 +94,13 @@ extern "C" {
 #define UPRIV_ACT_USERADD   "useradd"     // name, full name, admin 0/1, password or ""
 #define UPRIV_ACT_USERDEL   "userdel"     // name, "keep" or "delete" (its home)
 #define UPRIV_ACT_USERMOD   "usermod"     // name, field (admin/real/password), value
+// The machine's settings (users D3b, base/usetting.h): name, then "=value"
+// to set it or "-" to put back its default, per setting, applied in order.
+#define UPRIV_ACT_SETTINGS  "settings"
+// The most rows one prompt lists: what the dialog shows whole on an 800x600
+// screen. A request with more is refused (E2BIG), as any prompt that cannot
+// be shown whole is; usetting_apply_admin() asks in batches of it.
+#define UPRIV_PROMPT_ROWS   8
 
 // Runs `path` with `argv` (argv[0] included, NULL-terminated) as root,
 // as a child of this process -- `o` gives its streams and the rest, as
@@ -159,8 +168,12 @@ struct upriv_prompt {
     uint32_t id;
     const char *headline, *body, *action, *program, *asker;   // into `buf`
     const char *password_for;   // "" when Allow alone answers
+    const char *admins;         // reserved: ""
+    // What the request changes, a row each ("Time zone", "Helsinki -> Stockholm").
+    int nrows;
+    const char *row_key[UPRIV_PROMPT_ROWS], *row_val[UPRIV_PROMPT_ROWS];
     uint32_t tries_left;        // a RETRY's
-    char buf[1024];
+    char buf[4096];
 };
 
 struct ubulk_client;

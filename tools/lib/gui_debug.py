@@ -114,13 +114,18 @@ def _as_desktop_config(command):
     root -- `sh` -- has no ~/.config, so its `config set` would write the
     machine's default under a value the desktop may already shadow. A test
     means the desktop's setting, as `adb shell settings` means the current
-    user's. `sh config --machine ...` stays root's, the machine's layer."""
+    user's. `sh config --machine ...` stays root's, the machine's layer, and
+    so does a machine setting, refused to the person (users D3b): send()
+    runs it again as `sh config --machine`."""
     if not command.startswith("sh config ") or command.startswith("sh config --machine"):
         return command
     # `as` hands its line to dash; `sh` split on spaces and nothing else, so
     # each word is quoted to keep a `#`, `*` or `;` in a value literal.
     words = [w for w in command[len("sh config "):].split(" ") if w]
-    out = f"as {DESKTOP_ACCOUNT} config " + " ".join(shlex.quote(w) for w in words)
+    # -n: a machine setting is refused at once rather than asked for (users
+    # D3b) -- a password prompt on the console would wait for nobody; send()
+    # then writes it as root.
+    out = f"as {DESKTOP_ACCOUNT} config -n " + " ".join(shlex.quote(w) for w in words)
     if len(out.encode()) >= DBG_LINE_MAX:
         raise ValueError(f"{out[:40]!r}...: over the debug console's {DBG_LINE_MAX - 1}-byte line")
     return out
@@ -322,7 +327,20 @@ class DebugConsole:
         """
         if self._stale:
             self._resync()
-        command = _as_desktop_config(command)
+        rewritten = _as_desktop_config(command)
+        if rewritten != command:
+            out = self._send(rewritten, timeout)
+            # THE MACHINE'S SETTING IS ROOT'S (users D3b): the desktop's
+            # account is refused it, so the test's write goes to the
+            # machine's layer as root, as `config --machine` writes.
+            if "is this computer's setting" in out:
+                out = self._send("sh config --machine " + command[len("sh config "):], timeout)
+            return out
+        return self._send(command, timeout)
+
+    def _send(self, command, timeout=None):
+        if self._stale:
+            self._resync()
         with self._lock:
             self._prev_mark, self._mark = self._mark, len(self._all_log)
         self._s.sendall((command + "\n").encode())

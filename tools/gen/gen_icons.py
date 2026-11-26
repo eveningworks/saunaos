@@ -259,6 +259,16 @@ def icon_tb_strike():
     return p.done()
 
 
+def icon_tb_shield():
+    # A shield: administrator rights asked (Windows' UAC shield, outlined).
+    p = _Pen()
+    p.line((12, 3.5), (19, 6), (19, 11.5))
+    p.arc(12, 11.5, 7, 0, 90, 12)
+    p.line((12, 3.5), (5, 6), (5, 11.5))
+    p.arc(12, 11.5, 7, 90, 180, 12)
+    return p.done()
+
+
 def icon_tb_plus():
     p = _Pen(); p.line((12, 5), (12, 19)); p.line((5, 12), (19, 12)); return p.done()
 
@@ -1895,6 +1905,7 @@ ICONS = {
     "tb-gradient": icon_tb_gradient, "grad-linear": icon_grad_linear, "grad-reflected": icon_grad_reflected,
     "grad-radial": icon_grad_radial, "grad-diamond": icon_grad_diamond, "grad-conical": icon_grad_conical,
     "tb-plus": icon_tb_plus,
+    "tb-shield": icon_tb_shield,
     "tb-merge-down": icon_tb_merge_down,
     "tb-bold": icon_tb_bold,
     "tb-italic": icon_tb_italic,

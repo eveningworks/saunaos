@@ -122,11 +122,20 @@ enum setting_type {
     SETTING_TYPE_KEYCOMBO = 3,
 };
 
+// Who may change a setting (SETTING_ABI_SF_PERSON/_SEAT). The zero
+// value is the machine's, so a setting that says nothing needs root.
+enum setting_who {
+    SETTING_WHO_MACHINE = 0,
+    SETTING_WHO_PERSON  = 1,
+    SETTING_WHO_SEAT    = 2,
+};
+
 struct setting {
     const char *name;  // the key in `file`; also how ring 3 names it
     const char *label; // human-facing; a UI shows this, never `name`
     enum setting_type type;
     const char *file;  // which /etc file it persists to
+    enum setting_who who;
 
     // Which section of a settings UI this belongs under -- "Appearance",
     // "Input", "System". NULL means SETTING_CATEGORY_DEFAULT, so an

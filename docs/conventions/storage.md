@@ -258,7 +258,17 @@ this the obvious way), not from how much history it accumulated.
   First-boot setup started by `sh fbs now` follows `config --machine`'s
   values, not the desktop's. The GUI harness runs `sh config ...` as the
   desktop's account for this reason (`gui_debug.py`'s
-  `_as_desktop_config()`); `sh config --machine ...` stays root's.
+  `_as_desktop_config()`); `sh config --machine ...` stays root's, and so
+  does a machine setting, which the desktop's account is refused.
+- **A MACHINE SETTING IS ROOT'S TO CHANGE, AND A FRONT END ASKS PRIVD FOR
+  IT** (users D3b). A SET or UNSET of a setting that is neither a person's
+  nor the seat's fails with EACCES for any other account -- in the kernel
+  at `SYS_SETTING`, in `libbase` for a declared one. A program that offers
+  one asks `usetting_needs_admin()` (or `_flags()` on an INFO's `sflags`)
+  to mark it, and makes it with `usetting_apply_admin()` OFF THE FRAME
+  (`uapp_run_then()`): it blocks until the person answers the prompt. A
+  new setting a person or the seat should change freely says so -- the
+  kernel's `.who`, a schema's `Scope=user` or `Scope=seat` -- or it asks.
 - **A RING-3 PROGRAM READS AND WRITES ONE SETTING THROUGH
   `userland/libs/base/usetting.h`, AND `usetting_set()` RETURNS THE REGISTRY'S
   THREE-WAY ANSWER.** `usetting_get()`/`_get_int()`, `usetting_set()`/

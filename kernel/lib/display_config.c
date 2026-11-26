@@ -82,6 +82,7 @@ static const char *brightness_unavailable(void) {
 }
 
 static const struct setting g_brightness_setting = {
+    .who = SETTING_WHO_SEAT,
     .name   = BRIGHTNESS_KEY,
     .label  = "Brightness",
     .type   = SETTING_TYPE_INT,
@@ -153,6 +154,7 @@ static const char *resolution_unavailable(void) {
 }
 
 static const struct setting g_resolution_setting = {
+    .who = SETTING_WHO_SEAT,
     .name   = RESOLUTION_KEY,
     .label  = "Resolution",
     .type   = SETTING_TYPE_ENUM,
@@ -215,6 +217,7 @@ static const char *scaling_unavailable(void) {
 }
 
 static const struct setting g_scaling_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = SCALING_KEY,
     .label  = "Scaling",
     .type   = SETTING_TYPE_ENUM,

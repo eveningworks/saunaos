@@ -157,7 +157,8 @@ static int find_exact(const char *qualified, struct uschema *out) {
 
     char mode[16];
     str_key(buf, USCHEMA_KEY_SCOPE, mode, sizeof mode);
-    out->scope = !strcmp(mode, "user") ? USCHEMA_SCOPE_USER : USCHEMA_SCOPE_MACHINE;
+    out->scope = !strcmp(mode, "user") ? USCHEMA_SCOPE_USER
+               : !strcmp(mode, "seat") ? USCHEMA_SCOPE_SEAT : USCHEMA_SCOPE_MACHINE;
     str_key(buf, USCHEMA_KEY_DIR_MODE, mode, sizeof mode);
     out->dir_mode = !strcmp(mode, "stem")   ? USCHEMA_DIR_STEM
                   : !strcmp(mode, "subdir") ? USCHEMA_DIR_SUBDIR
@@ -541,7 +542,8 @@ void uschema_text_for(const char *ns, const char *name, struct setting_msg *m) {
     if (!m) return;
     m->description[0] = '\0';
     m->widget = SETTING_ABI_WIDGET_AUTO;
-    m->sflags = 0;
+    // Who may change it is the registry's answer, not presentation: kept.
+    m->sflags &= SETTING_ABI_SF_PERSON | SETTING_ABI_SF_SEAT;
     m->order  = 0;
     if (!ns || !name) return;
 

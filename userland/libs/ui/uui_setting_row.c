@@ -3,6 +3,7 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_label.h"   // uui_label_wrap_next()
 #include "ui/utheme.h"
+#include "media/icon_cache.h"
 
 #define ROW_DESC_MAX 4
 
@@ -127,9 +128,19 @@ static void paint(struct ugfx_surface *s, void *w) {
     int tx = r->x + pad_x(), tw = text_w(r);
     int ty = is_stacked(r) ? r->y + pad_y() : r->y + (r->h - text_h(r)) / 2;
     if (tw <= 0) return;
+    // CHANGING IT ASKS FOR ADMINISTRATOR RIGHTS: Windows' shield, before
+    // the name, so the title moves over and the description does not.
+    int sx = 0;
+    // A third over the text height: the outline set draws inside a margin.
+    const struct uimg *sh = r->shield ? icon_get("tb-shield", ugfx_char_h() * 4 / 3) : 0;
+    if (sh && sh->w + 2 < tw) {
+        ugfx_blit_tinted(s, tx - sh->w / 6, ty + (ugfx_char_h() - sh->h) / 2, sh->w, sh->h, sh->px, sh->w,
+                         r->disabled ? dim : UTHEME_ACCENT);
+        sx = sh->w * 5 / 6 + ugfx_px(4);
+    }
     const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
-    int title_w = ugfx_text_width(r->title ? r->title : "");
-    ugfx_draw_string_clipped(s, tx, ty, tw, r->title ? r->title : "",
+    int title_w = ugfx_text_width(r->title ? r->title : "") + sx;
+    ugfx_draw_string_clipped(s, tx + sx, ty, tw - sx, r->title ? r->title : "",
                              r->disabled ? dim : fg, card);
     ugfx_set_font(was);
     // EDITED, NOT APPLIED: an accent dot after the name.

@@ -19,6 +19,7 @@
 //
 // Every value is put back before returning: /etc/desktop.conf's
 // clock_seconds as it was, the scratch directory removed.
+#include <errno.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <stdlib.h>
@@ -87,6 +88,7 @@ int main(int argc, char **argv) {
     sys_unlink(XDG "/desktop.conf");
     sys_unlink(XDG "/update.conf");
     rmdir(XDG);
+    utest_check(usetting_set(MACH_KEY, "on") == SETTING_SAVED, "root sets a machine key");
 
     int code = run_as_desktop();
     utest_checkf(code == 0, "as the desktop's account the layers behave (%d failed; its lines above)", code);
@@ -190,11 +192,13 @@ static int child_main(void) {
     utest_check(usetting_dispatch(&m) == 0 && m.result == SETTING_INVALID,
                 "a second unset has nothing of the person's to remove");
 
-    // A machine key ignores the person's layer both ways.
-    utest_check(usetting_set(MACH_KEY, "on") == SETTING_SAVED, "a machine key is set by the person");
+    // A machine key ignores the person's layer both ways -- and is root's
+    // to set (users D3b): the parent made it "on" before starting this.
+    errno = 0;
+    utest_check(usetting_set(MACH_KEY, "off") < 0 && errno == EACCES, "a machine key is refused to the person");
     utest_check(file_says(MACH_FILE, "show_internal", f, sizeof f) && !strcmp(f, "on") &&
                 !file_says(XDG "/update.conf", "show_internal", f, sizeof f),
-                "...in /etc, never the person's file");
+                "...written to neither file");
     uconf_user_dir_ensure();
     uconf_set(XDG "/update.conf", "show_internal", "off");
     usetting_get(MACH_KEY, v, sizeof v);

@@ -480,11 +480,15 @@ static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
 // The footer says what is pending, or what last happened; Reset and Apply
 // are live only while something is staged.
 static void update_footer(void) {
-    int n = page_changes();
-    if (n) snprintf(g_footer_text, sizeof g_footer_text, "%d change%s not applied",
-                    n, n == 1 ? "" : "s");
+    int n = page_changes(), adm = page_admin_changes();
+    if (page_admin_pending()) strlcpy(g_footer_text, g_status, sizeof g_footer_text);
+    else if (n) snprintf(g_footer_text, sizeof g_footer_text, "%d change%s not applied%s",
+                         n, n == 1 ? "" : "s", adm ? " -- for everyone on this computer" : "");
     else strlcpy(g_footer_text, g_status, sizeof g_footer_text);
-    g_reset.disabled = g_apply.disabled = !n;
+    g_reset.disabled = g_apply.disabled = !n || page_admin_pending();
+    // "Apply..." when it asks for administrator rights first (Windows' shield
+    // buttons say so with the shield; the ellipsis is a further step).
+    g_apply.label = adm ? "Apply..." : "Apply";
 }
 
 static void on_draw(struct uapp *a, struct uapp_draw *d) {

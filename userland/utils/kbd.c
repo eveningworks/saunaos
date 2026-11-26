@@ -370,7 +370,8 @@ static int live(int timeout_s) {
     int was_on = tap_is_on();
     if (was_on < 0) { cmd_fail("kbd", TAP_SETTING); return 1; }
     if (!was_on && !tap_set(1)) {
-        sys_print("kbd: could not turn the keyboard tap on.\n");
+        sys_print(sys_errno() == EACCES ? "kbd: the keyboard tap is root's -- sudo kbd\n"
+                                         : "kbd: could not turn the keyboard tap on.\n");
         return 1;
     }
     char intro[128];

@@ -234,6 +234,7 @@ static int mono_apply(const char *value) {
 }
 
 static const struct setting g_mono_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = MONO_CONFIG_KEY,
     .label  = "Monospace",
     .type   = SETTING_TYPE_ENUM,
@@ -246,6 +247,7 @@ static const struct setting g_mono_setting = {
 };
 
 static const struct setting g_face_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = FACE_CONFIG_KEY,
     // "Interface face", not "Font face": with a monospace face beside
     // it the unqualified name says nothing about which of the two it
@@ -261,6 +263,7 @@ static const struct setting g_face_setting = {
 };
 
 static const struct setting g_font_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = FONT_CONFIG_KEY,
     .label  = "Size",
     .type   = SETTING_TYPE_INT,

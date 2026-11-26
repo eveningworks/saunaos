@@ -190,6 +190,7 @@ static int kb_apply(const char *value) {
 }
 
 static const struct setting g_kb_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = KEYBOARD_CONFIG_KEY,
     .label  = "Active layout",
     .type   = SETTING_TYPE_ENUM,
@@ -247,6 +248,7 @@ static int kbl_apply(const char *value) {
 }
 
 static const struct setting g_kbl_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = KEYBOARD_LAYOUTS_KEY,
     .label  = "Layouts",
     .type   = SETTING_TYPE_STRING,
@@ -277,6 +279,7 @@ static int dk_apply(const char *value) {
 }
 
 static const struct setting g_dk_setting = {
+    .who = SETTING_WHO_PERSON,
     .name   = KEYBOARD_DEADKEYS_KEY,
     .label  = "Dead keys",
     .type   = SETTING_TYPE_ENUM,

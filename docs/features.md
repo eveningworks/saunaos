@@ -376,7 +376,8 @@ saved. Edit value... (Enter, or a double-click) is checked as `config
 set` is, and a refused value keeps the dialog open with what would be
 accepted. A person's own value is saved in `~/.config` and Reset to
 machine's removes it; a kernel setting edits as System Settings does;
-machine-wide settings and facts are read-only. Find (Ctrl+F) lists
+a machine-wide value edits after the administrator prompt; facts are
+read-only. Find (Ctrl+F) lists
 every name or value holding the text. A right-click on a value or a
 branch selects it and opens its menu; a double-click on a branch opens
 or closes it, as in every tree on the desktop.
@@ -427,7 +428,12 @@ without asking. Everything else goes through `privd`, a root broker
 Manager and Crash Test restart elevated, Date & Time, Device Manager and
 Task Manager ask for one action, and `sudo` runs one command -- after
 an Authentication Required dialog the desktop draws and no app can.
-A signal reaches only its sender's own processes.
+A signal reaches only its sender's own processes. **The computer's own
+settings are an administrator's**: System Settings marks each with a
+shield, and Apply asks once, the prompt listing every change ("Time
+zone: Helsinki -> Stockholm"); the Configuration Editor and `config set`
+ask the same way. A person's own settings, and the volume, brightness,
+screen mode and scale for the person at the machine, never ask.
 
 **A password, a login screen and a lock -- when you want them.** With no
 password the computer starts straight to the desktop. Set one (Settings >

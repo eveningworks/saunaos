@@ -304,6 +304,37 @@ static int32_t remote_signal(const char *pid_s, const char *sig_s) {
     return -EPERM;
 }
 
+// UPRIV_ACT_SETTINGS: name, then "=value" or "-", per setting. Each is
+// checked to exist before the prompt (settings_ok()), and made here as
+// root in order; the first the registry refuses stops the rest.
+static int settings_ok(const struct req *r) {
+    if (r->nstrs < 3 || (r->nstrs - 1) % 2) return 0;
+    if ((r->nstrs - 1) / 2 > UPRIV_PROMPT_ROWS) return 0;
+    for (int i = 1; i + 1 < r->nstrs; i += 2) {
+        static struct setting_msg m;   // a kilobyte; privd is one thread
+        const char *v = r->strs[i + 1];
+        if ((v[0] != '=' && strcmp(v, "-")) || usetting_info(r->strs[i], &m) != 0) return 0;
+    }
+    return 1;
+}
+
+static int32_t apply_settings(const struct req *r) {
+    if (!settings_ok(r)) return -EINVAL;
+    for (int i = 1; i + 1 < r->nstrs; i += 2) {
+        const char *name = r->strs[i], *v = r->strs[i + 1];
+        static struct setting_msg m;
+        memset(&m, 0, sizeof m);
+        m.op = v[0] == '=' ? SETTING_OP_SET : SETTING_OP_UNSET;
+        snprintf(m.name, sizeof m.name, "%s", name);
+        if (v[0] == '=') snprintf(m.value, sizeof m.value, "%s", v + 1);
+        if (usetting_dispatch(&m) != 0) return -EINVAL;
+        // UNSET of a value that was never written changed nothing: not an error.
+        if (m.op == SETTING_OP_SET && m.result != SETTING_SAVED)
+            return m.result == SETTING_UNSAVED ? -EIO : -EINVAL;
+    }
+    return 0;
+}
+
 static int32_t do_action(const struct req *r) {
     const char *a = r->strs[0];
     const char *x = r->nstrs > 1 ? r->strs[1] : 0;
@@ -327,6 +358,7 @@ static int32_t do_action(const struct req *r) {
         if (ADMIN_PROMPT[admin_prompt_index(x)].keep_min <= 0) kept_forget();
         return 0;
     }
+    else if (!strcmp(a, UPRIV_ACT_SETTINGS)) return apply_settings(r);
     else if (!strcmp(a, UPRIV_ACT_USERADD) && r->nstrs >= 5)
         return acct_add(x, y, !strcmp(r->strs[3], "1"), r->strs[4]);
     else if (!strcmp(a, UPRIV_ACT_USERDEL) && x && y) {
@@ -377,6 +409,9 @@ static void proc_name(int pid, char *out, size_t cap) {
 // headline\0 body\0 action\0 program\0 asker\0 into `out`; its length.
 static uint32_t words(const struct req *r, const struct who *w, char *out, uint32_t cap) {
     char head[160], body[256], act[64], prog[320], name[64];
+    // What changes, a row each (UPRIV_T_PROMPT's tail); the settings action's.
+    static struct { char key[SETTING_ABI_LABEL_MAX], val[200]; } rows[UPRIV_PROMPT_ROWS];
+    int nrows = 0;
     display_name(w->path, name, sizeof name);
     const char *a = r->strs[0];
     if (r->type == UPRIV_T_SPAWN) {
@@ -470,6 +505,23 @@ static uint32_t words(const struct req *r, const struct who *w, char *out, uint3
         } else {
             return 0;
         }
+    } else if (!strcmp(a, UPRIV_ACT_SETTINGS)) {
+        if (!settings_ok(r)) return 0;
+        snprintf(head, sizeof head, "%s wants to change this computer's settings", name);
+        snprintf(body, sizeof body, "They apply to everyone who signs in on this computer.");
+        snprintf(act, sizeof act, "Change this computer's settings");
+        for (int i = 1; i + 1 < r->nstrs; i += 2) {
+            static struct setting_msg m;
+            char now[SETTING_ABI_VALUE_MAX], was[96], will[96];
+            usetting_info(r->strs[i], &m);
+            if (!usetting_get(r->strs[i], now, sizeof now)) now[0] = '\0';
+            usetting_value_label(r->strs[i], now, was, sizeof was);
+            if (r->strs[i + 1][0] == '=') usetting_value_label(r->strs[i], r->strs[i + 1] + 1, will, sizeof will);
+            else snprintf(will, sizeof will, "its default");
+            snprintf(rows[nrows].key, sizeof rows[nrows].key, "%s", m.label[0] ? m.label : r->strs[i]);
+            snprintf(rows[nrows].val, sizeof rows[nrows].val, "%s -> %s", was[0] ? was : "(empty)", will);
+            nrows++;
+        }
     } else if (!strcmp(a, UPRIV_ACT_KILL) && r->nstrs > 2) {
         char victim[64];
         int vpid = atoi(r->strs[1]);
@@ -492,11 +544,17 @@ static uint32_t words(const struct req *r, const struct who *w, char *out, uint3
         if (k < 0 || (size_t)k >= sizeof body - n) body[n] = '\0';
     }
     snprintf(prog, sizeof prog, "%s (pid %d)", w->path[0] ? w->path : "?", w->pid);
-    const char *f[6] = { head, body, act, prog, w->user, r->tries && r->name ? r->name : "" };
+    const char *f[7 + 2 * UPRIV_PROMPT_ROWS] = { head, body, act, prog, w->user,
+                                                 r->tries && r->name ? r->name : "", "" };
+    int nf = 7;
+    for (int i = 0; i < nrows; i++) {
+        f[nf++] = rows[i].key;
+        f[nf++] = rows[i].val;
+    }
     uint32_t n = 0;
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < nf; i++) {
         size_t k = strlen(f[i]) + 1;
-        if (n + k > cap) return 0;
+        if (n + k >= cap) return 0;   // the agent's copy keeps one byte for its NUL
         memcpy(out + n, f[i], k);
         n += (uint32_t)k;
     }
@@ -640,6 +698,12 @@ static void handle_request(const struct ubulk_msg *m) {
     if (!identify(r->pid, &w)) { req_free(r); return; }   // gone already
     if (r->type == UPRIV_T_AUTH) { handle_auth(m, flags, r, &w); req_free(r); return; }
     if (r->type == UPRIV_T_LOGIN) { handle_login(m, r, &w); req_free(r); return; }
+    // A change the registry does not know is refused before anyone is asked.
+    if (r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], UPRIV_ACT_SETTINGS) && !settings_ok(r)) {
+        answer(r->pid, r->id, (r->nstrs - 1) / 2 > UPRIV_PROMPT_ROWS ? -E2BIG : -EINVAL);
+        req_free(r);
+        return;
+    }
     if (r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], UPRIV_ACT_PASSWD)) {
         handle_passwd(m, r, &w);
         req_free(r);
@@ -716,7 +780,7 @@ static void handle_request(const struct ubulk_msg *m) {
         me = 0;
     }
     free(me);
-    static char rec[1024];   // privd is one thread
+    static char rec[4096];   // privd is one thread; upriv_prompt's buf
     uint32_t n = words(r, &w, rec, sizeof rec);
     if (!n) { answer(r->pid, r->id, -E2BIG); req_free(r); return; }   // cannot be shown whole
     r->prompt = g_next_prompt++;

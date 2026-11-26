@@ -21,6 +21,7 @@
 #include "krandom.h"
 #include "errno.h"
 #include "setting.h"
+#include "privilege.h"
 #include "query.h"     // SYS_QUERY -- the fact registry
 #include "power.h"     // SYS_POWEROFF -- the desktop's shut down/restart
 #include "splash.h"    // SYS_SHUTDOWN_STATUS -- the shutdown screen's lines
@@ -183,6 +184,19 @@ int sys_setting(struct syscall_ctx *c) {
          msg.op == SETTING_OP_TOUCH) &&
         sandbox_require(PROMISE_SETTINGS_WRITE, "setting write", c->regs))
         return 0;
+    // The kernel writes /etc itself, so a file's mode never reaches this
+    // write: the machine's settings are gated here (users D3b).
+    if (msg.op == SETTING_OP_SET || msg.op == SETTING_OP_UNSET) {
+        msg.name[sizeof msg.name - 1] = '\0';
+        int rc = priv_setting_check(msg.name);
+        if (rc < 0) { c->regs[14] = (uint64_t)(int64_t)rc; return 0; }
+    }
+    // A reload applies whatever /etc now says, the machine's keys too: root's,
+    // as `sysctl -p` is.
+    if (msg.op == SETTING_OP_RELOAD && !priv_is_root()) {
+        c->regs[14] = (uint64_t)(int64_t)-EACCES;
+        return 0;
+    }
     setting_on(c->regs, c->pml4, c->a0, &msg);
     return 0;
 }

@@ -222,7 +222,7 @@ int main(void) {
     uitest_app_key(KEY_HOME, 0);
     utest_checkf(num("table", "top") == 0, "Home scrolls it back (top %d)", num("table", "top"));
 
-    // --- machine keys are read-only; kernel keys edit; facts never -----------------
+    // --- machine keys edit (privd asks); kernel keys edit; facts never -------------
     // The tree: Tab back to it, End to its last branch (update).
     uitest_app_key('\t', KEY_MOD_SHIFT);
     uitest_app_key(KEY_END, 0);
@@ -230,8 +230,8 @@ int main(void) {
     utest_checkf(!strcmp(v, "update"), "End in the tree reaches the last branch (%s)", v);
     utest_check(num("tree", "top") > 0, "...scrolling the tree, taller than its pane");
     field("branch", "from", v, sizeof v);
-    utest_checkf(!strcmp(v, "Machine") && num("branch", "edit") == 0,
-                 "a machine-wide setting shows From Machine and is read-only here (%s)", v);
+    utest_checkf(!strcmp(v, "Machine") && num("branch", "edit") == 1,
+                 "a machine-wide setting shows From Machine and edits, through privd (%s)", v);
     uitest_app_key(KEY_ARROW_UP, 0);
     field("branch", "branch", v, sizeof v);
     utest_checkf(!strcmp(v, "system"), "Up reaches system (%s)", v);

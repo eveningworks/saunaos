@@ -16,6 +16,7 @@
 // machine-wide declared setting is READ-ONLY here until users stage D3
 // puts machine writes behind privd; a fact never edits. Reset removes
 // the person's value, so the machine's shows again.
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +29,7 @@
 #include "ui/utheme.h"
 #include "base/ulog.h"
 #include "base/usetting.h"
+#include "base/upriv.h"       // upriv_strerror
 #include "base/usetting_schema.h"
 #include "media/uclip.h"
 #include "ui/uui_menubar.h"
@@ -156,8 +158,8 @@ static const char *why_not_edit(void) {
     const struct ce_info *in = ce_model_info(i);
     if (g_m.e[i].fact) return "A kernel fact is read-only";
     if (g_sel_entry == i && g_sel.unavailable[0]) return g_sel.unavailable;
-    if (in->declared && !(in->scope == USCHEMA_SCOPE_USER && in->person))
-        return "A machine-wide setting is read-only here";
+    if (in->declared && in->scope == USCHEMA_SCOPE_USER && !in->person)
+        return "A person's setting, and this process has no person's layer";
     return 0;
 }
 
@@ -318,10 +320,13 @@ static void update_details(void) {
         uui_props_row(&g_details, "Scope", "Yours -- saved to %s", g_sel.file);
     else if (in->declared && in->scope == USCHEMA_SCOPE_USER)
         uui_props_row(&g_details, "Scope", "A person's setting -- this process has no person's layer");
-    else if (in->declared)
-        uui_props_row(&g_details, "Scope", "Machine-wide -- read-only here");
+    else if (g_sel.sflags & SETTING_ABI_SF_PERSON)
+        uui_props_row(&g_details, "Scope", "Anyone's, the kernel's -- saved to %s", g_sel.file);
+    else if (g_sel.sflags & SETTING_ABI_SF_SEAT)
+        uui_props_row(&g_details, "Scope", "The person at the machine's -- saved to %s", g_sel.file);
     else
-        uui_props_row(&g_details, "Scope", "Machine-wide, the kernel's -- saved to %s", g_sel.file);
+        uui_props_row(&g_details, "Scope", "Machine-wide -- changing it asks for administrator rights (%s)",
+                      g_sel.file);
     if (g_sel.sflags & SETTING_ABI_SF_REBOOT) uui_props_row(&g_details, "Takes effect", "At the next restart");
     if (g_sel.unavailable[0]) uui_props_row(&g_details, "Not in effect", "%s", g_sel.unavailable);
 }
@@ -455,6 +460,45 @@ static void edit(void) {
     open_edit(0, sel()->value);
 }
 
+static struct uapp *g_app;
+
+// A MACHINE-WIDE VALUE IS PRIVD'S TO WRITE (users D3b): one administrator
+// prompt, off the frame, and the row re-read once it has answered.
+static struct usetting_change g_adm;
+static char g_adm_name[SETTING_ABI_QUALIFIED_MAX], g_adm_val[SETTING_ABI_VALUE_MAX];
+static int g_adm_busy;
+
+static int adm_work(void *arg) {
+    (void)arg;
+    return usetting_apply_admin(&g_adm, 1) < 0 ? -errno : 0;
+}
+
+static void adm_done(struct uapp *a, int rc, int err, void *arg) {
+    (void)err; (void)arg;
+    g_adm_busy = 0;
+    if (rc == 0) snprintf(g_st_note, sizeof g_st_note, "Saved %s for everyone on this computer", g_adm_name);
+    else if (rc == -ECANCELED) snprintf(g_st_note, sizeof g_st_note, "Not saved -- administrator rights were not given");
+    else if (rc == -EINVAL) snprintf(g_st_note, sizeof g_st_note, "Not accepted: %s", g_adm_val);
+    else snprintf(g_st_note, sizeof g_st_note, "Not saved -- %s", upriv_strerror(-rc));
+    ulogf("confedit: machine set %s = \"%s\" -> %d\n", g_adm_name, g_adm_val, rc);
+    ce_model_refresh(sel_entry());
+    update_details();
+    update_status();
+    uapp_redraw(a);
+}
+
+static int ask_admin(const char *name, const char *value) {
+    if (g_adm_busy || !g_app) return -1;
+    strlcpy(g_adm_name, name, sizeof g_adm_name);
+    g_adm.name = g_adm_name;
+    if (value) { strlcpy(g_adm_val, value, sizeof g_adm_val); g_adm.value = g_adm_val; }
+    else { g_adm_val[0] = '\0'; g_adm.value = 0; }
+    if (uapp_run_then(g_app, adm_work, 0, adm_done) != 0) return -1;
+    g_adm_busy = 1;
+    snprintf(g_st_note, sizeof g_st_note, "Asking for administrator rights...");
+    return 0;
+}
+
 // THE REGISTRY DECIDES, as for `config set`: a refusal keeps the dialog
 // open with what would be accepted; "applied but not saved" is said as
 // such, never as success.
@@ -465,6 +509,11 @@ static void answer_edit(int code) {
     if (code != DLG_SAVE) return;
     if (!sel() || strcmp(sel()->name, g_edit_name)) {
         snprintf(g_st_note, sizeof g_st_note, "The list changed -- nothing was saved");
+        return;
+    }
+    if (usetting_needs_admin_flags(g_sel.sflags)) {
+        if (ask_admin(g_edit_name, text) != 0)
+            snprintf(g_st_note, sizeof g_st_note, "%s could not be changed", g_edit_name);
         return;
     }
     static struct setting_msg m;
@@ -524,8 +573,6 @@ static void copy(int value) {
 // THE CLICK SELECTS WHAT IT LANDS ON, then its menu opens on the release --
 // Explorer's and regedit's order, through the widgets' own context-menu op
 // -- and the rows are the command bar's, greyed by the same item_flags().
-
-static struct uapp *g_app;
 
 static const struct uui_menu_item ROW_MENU[] = {
     UUI_MENU("Edit value...", CMD_EDIT, "Enter"),

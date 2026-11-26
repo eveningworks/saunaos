@@ -661,6 +661,9 @@ int sys_setting(struct setting_msg *m) {
         m->imin = k->min;
         m->imax = k->max;
         m->istep = 1;
+        // Anyone's, as the kernel's pointer settings are (users D3b): a
+        // machine one would go to privd, which the harness has none of.
+        m->sflags = SETTING_ABI_SF_PERSON;
         return 0;
     }
     case SETTING_OP_TOUCH:

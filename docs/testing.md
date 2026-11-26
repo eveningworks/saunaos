@@ -161,7 +161,10 @@ made with `as`**; a place that account cannot write then fails the test as
 it would the app. **`sh config ...` is sent as `as user config ...`**
 (`DebugConsole.send()`): a `Scope=user` setting is the person's, in
 `~/.config` over `/etc`, and root has no `~/.config`; `sh config
---machine ...` stays root's, the machine's value. `sh tosh -c <words>` runs SaunaOS's
+--machine ...` stays root's, the machine's value. It is sent with `config
+-n`, and a MACHINE setting that account is refused (users D3b) is sent
+again as `sh config --machine` -- a password prompt on the console would
+wait for nobody. `sh tosh -c <words>` runs SaunaOS's
 interactive shell, which has no `;` or `||`, on words already split.
 **And the reply carries terminal control sequences** (`ls` colours its
 names on a tty): `vm.py` and `DebugConsole` strip them, `readfile`'s

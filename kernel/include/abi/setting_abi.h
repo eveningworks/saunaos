@@ -87,6 +87,14 @@ enum setting_result {
 // unordered set. Ring 3 sets it and ORDERS SETTING_OP_CHOICE by it
 // (base/usetting.c), so every front end lists the same order.
 #define SETTING_ABI_SF_SORTED   (1u << 2)
+// WHO MAY CHANGE IT (users D3b, docs/users-design.md). Neither bit: the
+// MACHINE's, root's alone -- a SET or UNSET from anyone else is refused
+// with EACCES, and a UI asks privd. PERSON: any account's (a schema key
+// with Scope=user, and the kernel's pointer/keyboard/font keys until D3c
+// gives them a person's layer). SEAT: the person at the machine's
+// (logind's shape: the volume, the brightness, the screen mode).
+#define SETTING_ABI_SF_PERSON   (1u << 3)
+#define SETTING_ABI_SF_SEAT     (1u << 4)
 // THERE IS NO CAP ON THE MERGED LIST. A client sizes its tables from
 // SETTING_OP_COUNT at every read (System Settings, base/usetting_schema.c):
 // a fixed SETTING_ABI_MAX ran out three times, each time dropping the last

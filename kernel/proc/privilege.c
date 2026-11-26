@@ -17,6 +17,7 @@
 #include "string.h"
 #include "errno.h"
 #include "vmm.h"
+#include "setting.h"
 
 int priv_is_root(void) { return cred_euid(cred_current()) == 0; }
 
@@ -46,6 +47,13 @@ int priv_admin_check(uint64_t nr) {
     if (listed(ANY_ROWS, sizeof ANY_ROWS / sizeof ANY_ROWS[0], nr)) return 0;
     if (priv_has_seat() && listed(SEAT_ROWS, sizeof SEAT_ROWS / sizeof SEAT_ROWS[0], nr)) return 0;
     return -EPERM;
+}
+
+int priv_setting_check(const char *name) {
+    const struct setting *s = setting_find(name);
+    if (!s || priv_is_root() || s->who == SETTING_WHO_PERSON) return 0;
+    if (s->who == SETTING_WHO_SEAT && priv_has_seat()) return 0;
+    return -EACCES;
 }
 
 // --- the seat's mounts ------------------------------------------------------

@@ -30,10 +30,12 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <errno.h>
 #include "setting_abi.h" // enum setting_result, struct setting_msg
 #include <fcntl.h>
 #include <unistd.h>
 #include "base/usetting.h" // the MERGED registry -- see the header
+#include "base/upriv.h"    // the machine's settings: asked as sudo asks
 #include "base/usetting_tree.h"
 #include "base/uargs.h"
 #include "query_abi.h"     // walking the facts for a branch
@@ -472,6 +474,35 @@ static int cmd_get_one(const char *name) {
     return 0;
 }
 
+// THE MACHINE'S SETTING, from an account that is not root (users D3b): the
+// registry said EACCES, so privd makes the change after asking -- on this
+// terminal with a password, or through the desktop's prompt, as `sudo`.
+static int g_noask;   // -n: never ask (sudo -n)
+
+static int ask_admin(const char *name, const char *value) {
+    if (g_noask) {
+        char why[200];
+        snprintf(why, sizeof why, "config: %s is this computer's setting -- administrator rights needed", name);
+        putline(why);
+        return 1;
+    }
+    char v[SETTING_ABI_VALUE_MAX + 2];
+    if (value) snprintf(v, sizeof v, "=%s", value);
+    else snprintf(v, sizeof v, "-");
+    const char *args[] = { name, v, 0 };
+    char line[200];
+    if (upriv_action_tty("config", UPRIV_ACT_SETTINGS, args) < 0) {
+        snprintf(line, sizeof line, "config: %s is this computer's setting -- %s", name,
+                 errno == EINVAL ? "not accepted" : upriv_strerror(errno));
+        putline(line);
+        return 1;
+    }
+    if (value) snprintf(line, sizeof line, "%s = %s for everyone on this computer", name, value);
+    else snprintf(line, sizeof line, "%s removed from its file", name);
+    putline(line);
+    return 0;
+}
+
 static int cmd_set(const char *name, const char *value) {
     // A WRITE refuses an ambiguous name outright. Reading the wrong
     // setting shows you a wrong answer; writing the wrong one changes
@@ -493,6 +524,7 @@ static int cmd_set(const char *name, const char *value) {
     else           strlcpy(m.name, name, sizeof m.name);
     strlcpy(m.value, value, sizeof m.value);
     if (usetting_dispatch(&m) != 0) {
+        if (errno == EACCES) return ask_admin(m.name, value);
         // The registry refuses a name it does not have the same way it
         // reports being down; which one it was is known here.
         if (hits == 0) {
@@ -584,7 +616,11 @@ static int cmd_unset(const char *name) {
     m.op = SETTING_OP_UNSET;
     if (hits == 1) qualified(&found, m.name, sizeof m.name);
     else           strlcpy(m.name, name, sizeof m.name);
-    if (usetting_dispatch(&m) != 0) { putline("config: registry unavailable"); return 1; }
+    if (usetting_dispatch(&m) != 0) {
+        if (errno == EACCES) return ask_admin(m.name, 0);
+        putline("config: registry unavailable");
+        return 1;
+    }
 
     char line[160];
     if (m.result != SETTING_SAVED) {
@@ -648,7 +684,11 @@ static int cmd_diff(void) {
 
 static int cmd_reload(void) {
     struct setting_msg m;
-    if (!op(&m, SETTING_OP_RELOAD)) { putline("config: reload failed"); return 1; }
+    if (!op(&m, SETTING_OP_RELOAD)) {
+        putline(errno == EACCES ? "config: reloading /etc is root's -- sudo config reload"
+                                : "config: reload failed");
+        return 1;
+    }
 
     // The rejected count is the load-bearing part: a typo in a file
     // someone just edited must not look like the setting simply not
@@ -906,6 +946,7 @@ static const struct uargs_cmd CMDS[] = {
 static const struct uargs_opt OPTS[] = {
     { "recursive", 'r', 0, "with get: everything under a namespace, not one level", &g_recursive, 0 },
     { "machine", 0, 0, "the machine's values in /etc, not this person's", &g_machine, 0 },
+    { "non-interactive", 'n', 0, "never ask for administrator rights: a machine setting is refused", &g_noask, 0 },
     { 0 },
 };
 

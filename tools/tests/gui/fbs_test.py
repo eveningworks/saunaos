@@ -127,14 +127,17 @@ def main():
 
     st = sh(dbg, "fbs")
     check("a test image is pre-marked: fbs says done", "done" in st, st.strip()[-160:])
-    dbg.send(f"gui spawn {WIZARD} --boot")
+    # AS ROOT, as init's firstboot service starts it at a first boot: the
+    # name and the clock it saves are the machine's (users D3b), which the
+    # desktop's account -- `gui spawn` -- is refused.
+    dbg.send(f"sh spawn {WIZARD} --boot")
     time.sleep(3)
     check("--boot on a marked machine opens no window", window(dbg) is None)
 
     st = sh(dbg, "fbs again") + sh(dbg, "fbs")
     check("fbs again removes the marker", "not done" in st, st.strip()[-200:])
     dbg.logs("firstboot:", clear=True)
-    dbg.send(f"gui spawn {WIZARD} --boot")
+    dbg.send(f"sh spawn {WIZARD} --boot")
     if not check("...and then --boot opens the wizard", wait_window(dbg, True)):
         return finish()
     w = wait_ready(dbg)
@@ -218,7 +221,7 @@ def main():
     dbg.settle()
     try:
         sh(dbg, "fbs again")
-        dbg.send(f"gui spawn {WIZARD} --boot")
+        dbg.send(f"sh spawn {WIZARD} --boot")
         if check("at 1920x1080 the wizard opens again", wait_window(dbg, True)):
             wait_ready(dbg)
             got = poll(lambda: setting(dbg, "display.scale") == "125" or None, 15)

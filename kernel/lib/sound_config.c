@@ -77,6 +77,7 @@ static int volume_apply(const char *value) {
 }
 
 static const struct setting g_volume_setting = {
+    .who = SETTING_WHO_SEAT,
     .name   = VOLUME_KEY,
     .label  = "Volume",
     .type   = SETTING_TYPE_INT,
@@ -148,6 +149,7 @@ static const char *device_unavailable(void) {
 }
 
 static const struct setting g_device_setting = {
+    .who = SETTING_WHO_SEAT,
     .name   = DEVICE_KEY,
     .label  = "Output device",
     .type   = SETTING_TYPE_ENUM,

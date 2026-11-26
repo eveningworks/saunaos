@@ -18,6 +18,16 @@
   `Scope=user` setting is read and written in `/etc`, the default every
   person without a value of their own follows. What a root service sees
   anyway, having no `XDG_CONFIG_HOME`.
+- `-n`, `--non-interactive` -- never ask for administrator rights: a
+  machine setting set by an account that is not root is refused at once
+  (`sudo -n`'s rule), never asked for on the terminal.
+
+**The machine's settings are root's** (users D3b): `config set` or `unset`
+of one from any other account asks for administrator rights as `sudo`
+does -- the password on the terminal, or the desktop's prompt -- and privd
+makes the change, listed in the prompt. A person's setting, and the seat's
+(the brightness, the volume, the screen mode, `display.scale`) for the
+person at the machine, never ask.
 
 ## Description
 

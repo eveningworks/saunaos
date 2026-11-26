@@ -326,7 +326,11 @@ static int run_profile(int profile, const char *path, uint64_t total, int first)
     // A READ PASS STARTS FROM AN EMPTY DISK CACHE: the file was just
     // written, so without this the pass times memory, not the disk --
     // what fio's invalidate=1 and CrystalDiskMark's unbuffered I/O avoid.
-    if (!writing) usetting_set("kernel.drop_caches", "drop");
+    // Root's, as Linux's drop_caches is: said once, so a figure from memory is labelled.
+    static int warned;
+    if (!writing && usetting_set("kernel.drop_caches", "drop") < 0 && !warned++)
+        fprintf(stderr, "diskbench: could not empty the disk cache (root's) -- the read pass may time "
+                        "memory; run it with sudo\n");
     int fd = open(path, flags);
     if (fd < 0) { fail("could-not-open-the-test-file"); return 0; }
 

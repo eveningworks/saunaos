@@ -9371,10 +9371,10 @@ picked).
 - **Editing:** validated as `config set` is (the registry's three-way
   answer shown honestly: saved, applied but not saved, refused with what
   would be accepted). A user key writes the person's `~/.config` file;
-  Reset unsets the person's override. Machine values are READ-ONLY here
-  until D3b puts machine writes behind privd (the maintainer's pick); a
-  fact never edits. Still to ask: whether a kernel-registered setting
-  (no person's layer yet, `system.mouse.speed`) counts as machine here.
+  Reset unsets the person's override. A machine value edits through
+  privd's prompt (users D3b1, BUILT 2026-11-26); a fact never edits. A
+  kernel-registered setting is a person's, the seat's or the machine's
+  by its `who` (`SETTING_ABI_SF_PERSON`/`_SEAT`).
 - **Where a value came from** needs one small `libbase` call beside
   `uschema_stored()` (the person's file, `/etc`, or the schema's
   `Default=`); kernel settings report Kernel.

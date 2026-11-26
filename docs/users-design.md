@@ -1,6 +1,6 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 (D2a, D2b, D2c below) BUILT 2026-11-25, D3a (several people, the login screen's list) BUILT 2026-11-26; D3b and D3c next.** The maintainer
+**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 (D2a, D2b, D2c below) BUILT 2026-11-25, D3a (several people, the login screen's list) BUILT 2026-11-26, D3b1 (the machine's settings root's, asked through privd) BUILT 2026-11-26; D3b2 and D3c next.** The maintainer
 picked the shape on 2026-11-23: four stages, stage A first, a ROOT
 BROKER for elevation (no setuid bits), ONE user account before several.
 Roadmap: "Multi-user & file permissions".
@@ -341,8 +341,9 @@ speed, the keyboard layout) at logon from HKCU.
   set by init from the passwd line beside `HOME`, so a root service has
   none and a `User=` service gets its own.
 - **A setting has a SCOPE.** A schema in `/etc/settings.d` says
-  `Scope=user` or `Scope=machine` (the default, so a schema that says
-  nothing keeps today's behaviour). A user key is READ from
+  `Scope=user`, `Scope=seat` (stored as the machine's, changed by the
+  person at the machine without asking; users D3b) or `Scope=machine`
+  (the default, so a schema that says nothing keeps today's behaviour). A user key is READ from
   `$XDG_CONFIG_HOME/<file>` and then `/etc/<file>` -- the machine's
   value is the default -- and WRITTEN to the person's file only; a
   machine key reads and writes `/etc` alone. The file keeps its
@@ -691,14 +692,32 @@ Windows 11 puts the last one in the middle and the others bottom-left.
   greeter would hear the answer.
 - **Homes are private from D3a on**: a new one is `04700`. `/home/user`
   stays `4755` as stage C made it (roadmap).
-- **D3b: machine-scoped writes need the admin right** (privd), as above
-  -- `/etc` becomes root's and 755, `config --machine` and Settings'
-  machine pages ask, as hostname1 and timedate1 do under polkit. Until
-  then a second person, not in group `user`, cannot change a machine
-  setting at all. It is also when the Configuration Editor's
-  machine-wide values become editable (read-only there until then), and
-  when its kernel-registered ones, editable now, split into the person's
-  and the machine's.
+- **D3b: machine-scoped writes need the admin right** (privd), as
+  hostname1 and timedate1 do under polkit. Picked 2026-11-26 (mockup
+  canvas M1): a shield on each machine row in System Settings, and ONE
+  prompt per Apply listing every machine change (Windows 11's shield,
+  KDE's KAuth); a Standard account's change signed by an administrator in
+  the prompt (polkit's auth_admin, UAC's credential prompt); the kernel's
+  per-person settings free until D3c; the desktop's own `/etc` files
+  through NAMED privd actions per domain, so a prompt says what a change
+  means, not which file. In two parts:
+  - **D3b1, the settings (BUILT 2026-11-26).** Who may change a setting
+    is the registry's answer (`SETTING_ABI_SF_PERSON`/`_SEAT`, a
+    kernel setting's `who`, a schema's `Scope=`): a person's is anyone's,
+    a seat's the person at the machine's (the volume, the brightness, the
+    screen mode, `display.scale`), the rest root's. The kernel refuses a
+    SET or UNSET of a machine setting at `SYS_SETTING` with EACCES --
+    the kernel writes `/etc` itself, so no file mode would -- and
+    `libbase` the same for a declared one. privd's `settings` action
+    makes the changes as root after one prompt whose rows name each
+    (`Time zone: Helsinki -> Stockholm`); System Settings' Apply,
+    the Configuration Editor's machine values and `config` (asking on
+    its terminal, as `sudo`; `-n` never asks) go through it.
+  - **D3b2, the files (next).** `/etc` and `/var/lib` root's 755; the
+    named actions for network shares, remote desktop, the network card,
+    the display mode and the sound formats; themes to
+    `~/.local/share/themes`; `config register` and `service enable`
+    `sudo`-only; and the Standard account's administrator-signed prompt.
 - **D3c: the kernel registry's per-person settings** (pointer,
   keyboard, font, scaling) applied by the session at sign-in, as Windows
   applies HKCU's at logon, and `fontd` (with `display.scale`) run per
