@@ -229,6 +229,7 @@ int scheduler_proc_info(int index, struct proc_info *out) {
     out->cred_flags = 0;
     out->delay_disk_ns = out->delay_lock_ns = out->delay_runq_ns = 0;
     out->uid = out->euid = out->gid = out->egid = 0;
+    out->session = out->reserved_session = 0;
 
     if (p->state == SCHED_UNUSED) return 1; // a real answer: slot empty
 
@@ -251,6 +252,7 @@ int scheduler_proc_info(int index, struct proc_info *out) {
         out->uid = cred_ruid(cr); out->euid = cred_euid(cr);
         out->gid = cred_rgid(cr); out->egid = cred_egid(cr);
         out->cred_flags = cred_flags(cr);
+        out->session = cred_session(cr);
     }
 
     // A zombie's address space is already gone, so asking for its memory

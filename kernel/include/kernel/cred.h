@@ -25,6 +25,7 @@ uint32_t cred_ruid(const struct cred *c);
 uint32_t cred_egid(const struct cred *c);
 uint32_t cred_rgid(const struct cred *c);
 uint32_t cred_flags(const struct cred *c);   // CRED_* (abi/cred_abi.h); 0 for root
+uint32_t cred_session(const struct cred *c);   // the login session, 0 none
 // The effective group or one of the supplementary ones -- a file's
 // group class (kernel/fsperm.h). NULL (root) is in group 0 alone.
 int cred_in_group(const struct cred *c, uint32_t gid);
@@ -37,8 +38,9 @@ struct cred *cred_current(void);
 // own spawn. -ENOMEM, or -EBUSY when every arm is taken -- the caller
 // then starts no child.
 int  cred_arm_spawn(uint32_t uid, uint32_t gid, const uint32_t *groups, uint32_t ngroups,
-                    uint32_t flags);
-// SPAWN_ELEVATED's arm: the next spawn by this thread starts as root.
+                    uint32_t flags, uint32_t session);
+// SPAWN_ELEVATED's arm: the next spawn by this thread starts as root, in
+// the caller's login session.
 int  cred_arm_root(void);
 void cred_disarm(void);
 // The same for a thread that is GONE (slot_free()): pids cycle, so an arm

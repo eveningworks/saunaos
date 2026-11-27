@@ -1318,6 +1318,7 @@ void sys_spawn_opts_init(struct sys_spawn_opts *o) {
     o->groups = 0;
     o->ngroups = 0;
     o->cred_flags = 0;
+    o->session = 0;
 }
 
 int sys_cred_grant(int pid, const char *path, char *const *argv, char **env) {
@@ -1380,6 +1381,7 @@ int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
     msg.groups = o->groups;
     msg.ngroups = o->ngroups;
     msg.cred_flags = o->cred_flags;
+    msg.session = o->session;
     msg.flags = flags;
     int64_t rc = syscall1(SYS_SPAWN, (uint64_t)(uintptr_t)&msg);
 

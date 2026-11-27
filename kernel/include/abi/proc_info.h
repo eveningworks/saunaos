@@ -172,6 +172,10 @@ struct proc_info {
     // everything they start without SPAWN_CREDS. `ps` prints the user.
     uint32_t uid, euid;
     uint32_t gid, egid;
+    // The leader's LOGIN SESSION (abi/cred_abi.h), 0 for none: what Sign
+    // out ends. Grows the struct one aligned step.
+    uint32_t session;
+    uint32_t reserved_session;
 };
 
 // SYS_PROC_INFO's index for "the calling thread" -- /proc/thread-self.
@@ -182,7 +186,7 @@ struct proc_info {
 // reshuffle, because every offset here is a contract with a ring-3
 // binary. The assert is the thing that notices, so update it
 // deliberately when a field is added and never to make a build pass.
-_Static_assert(sizeof(struct proc_info) == 128,
+_Static_assert(sizeof(struct proc_info) == 136,
                "struct proc_info must grow append-only -- existing fields never move");
 _Static_assert(__builtin_offsetof(struct proc_info, name) == 36,
                "struct proc_info's name must stay where ring-3 binaries expect it");

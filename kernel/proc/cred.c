@@ -18,6 +18,7 @@ struct cred {
     uint32_t rgid, egid, sgid;
     uint32_t ngroups;
     uint32_t flags;   // CRED_*
+    uint32_t session; // the login session (abi/cred_abi.h), 0 none
     uint32_t groups[];
 };
 
@@ -35,6 +36,7 @@ uint32_t cred_ruid(const struct cred *c) { return c ? c->ruid : 0; }
 uint32_t cred_egid(const struct cred *c) { return c ? c->egid : 0; }
 uint32_t cred_rgid(const struct cred *c) { return c ? c->rgid : 0; }
 uint32_t cred_flags(const struct cred *c) { return c ? c->flags : 0; }
+uint32_t cred_session(const struct cred *c) { return c ? c->session : 0; }
 
 void cred_describe(const struct cred *c, struct cred_info *out, uint32_t *groups, uint32_t cap) {
     k_memset(out, 0, sizeof *out);
@@ -68,18 +70,9 @@ struct cred *cred_current(void) {
 #define ARMS 8
 static struct { int tid; struct cred *c; } g_arm[ARMS];
 
-int cred_arm_spawn(uint32_t uid, uint32_t gid, const uint32_t *groups, uint32_t ngroups,
-                   uint32_t flags) {
-    if (ngroups > CRED_GROUPS_MAX || (flags & ~CRED_FLAGS_ALL)) return -EINVAL;
-    struct cred *c = kmalloc(sizeof *c + (size_t)ngroups * sizeof c->groups[0]);
-    if (!c) return -ENOMEM;
-    c->refs = 1;
-    c->ruid = c->euid = c->suid = uid;
-    c->rgid = c->egid = c->sgid = gid;
-    c->ngroups = ngroups;
-    c->flags = flags;
-    for (uint32_t i = 0; i < ngroups; i++) c->groups[i] = groups[i];
-
+// Arms `c` (NULL: root with no session) for this thread's next spawn,
+// or frees it and answers -EBUSY.
+static int arm(struct cred *c) {
     int tid = scheduler_current_pid();
     int rc = -EBUSY;
     scheduler_preempt_disable();
@@ -98,19 +91,35 @@ int cred_arm_spawn(uint32_t uid, uint32_t gid, const uint32_t *groups, uint32_t 
     return rc;
 }
 
-// A tid with a NULL cred: cred_for_child() hands the child NULL, root.
+int cred_arm_spawn(uint32_t uid, uint32_t gid, const uint32_t *groups, uint32_t ngroups,
+                   uint32_t flags, uint32_t session) {
+    if (ngroups > CRED_GROUPS_MAX || (flags & ~CRED_FLAGS_ALL)) return -EINVAL;
+    struct cred *c = kmalloc(sizeof *c + (size_t)ngroups * sizeof c->groups[0]);
+    if (!c) return -ENOMEM;
+    c->refs = 1;
+    c->ruid = c->euid = c->suid = uid;
+    c->rgid = c->egid = c->sgid = gid;
+    c->ngroups = ngroups;
+    c->flags = flags;
+    c->session = session;
+    for (uint32_t i = 0; i < ngroups; i++) c->groups[i] = groups[i];
+    return arm(c);
+}
+
+// Root, IN THE ASKER'S SESSION: an elevated tool started from a desktop
+// ends with it, as a sudo'd process stays in logind's session scope.
+// No session: NULL, root as the kernel starts it.
 int cred_arm_root(void) {
-    int tid = scheduler_current_pid(), rc = -EBUSY;
-    scheduler_preempt_disable();
-    for (int i = 0; i < ARMS; i++) {
-        if (g_arm[i].tid) continue;
-        g_arm[i].tid = tid;
-        g_arm[i].c = 0;
-        rc = 0;
-        break;
+    uint32_t session = cred_session(cred_current());
+    struct cred *c = 0;
+    if (session) {
+        c = kmalloc(sizeof *c);
+        if (!c) return -ENOMEM;
+        k_memset(c, 0, sizeof *c);
+        c->refs = 1;
+        c->session = session;
     }
-    scheduler_preempt_enable();
-    return rc;
+    return arm(c);
 }
 
 void cred_disarm(void) { cred_disarm_tid(scheduler_current_pid()); }

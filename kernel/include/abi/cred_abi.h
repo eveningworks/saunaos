@@ -36,6 +36,13 @@ struct cred_info {
 #define CRED_PERM_ENFORCE 2u
 #define CRED_FLAGS_ALL (CRED_SEAT | CRED_PERM_ENFORCE)
 
+// THE LOGIN SESSION: a number init gives each sign-in, carried in the
+// cred, inherited by every child and changed only by SPAWN_CREDS (root's)
+// -- Linux's audit sessionid, logind's session scope. An elevated child
+// keeps its asker's. Sign out ends every process in it (init); 0 is no
+// session: services, the login screen, a telnet or VT /bin/login's shell.
+// proc_info's `session` reports it.
+
 // SYS_CRED_GRANT's request (abi/syscall_abi.h): process `pid` may spawn
 // `path` as root ONCE, with exactly the `args_len` bytes of `args` as
 // its argument vector (SPAWN_ARGV's form, argv[0] included), within 30

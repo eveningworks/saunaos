@@ -13,6 +13,8 @@ WHAT IT CHECKS (users D3a, docs/users-design.md)
     its home is there and the page shows a second row;
   * Remove... on that row, keeping the files, removes the account and
     leaves its home;
+  * Sign out ends a windowless program the desktop started (its login
+    session's), and leaves one the kernel's shell started (no session);
   * Sign out brings up the login screen with EVERY person bottom-left,
     drawn (a picture's light disc in each row), the one in the middle
     marked; a click on another person puts them in the middle;
@@ -38,7 +40,8 @@ It puts the machine back: the accounts it made removed with their files,
 POSITIVE CONTROL: make wm_login.c's layout() give every person's row
 w 0 -- "every person is listed bottom-left" goes red; make privd's
 acct_add() return 0 without writing -- "Add makes the account" goes red;
-drop wm_overlay.c's `i > owner` and its grab -- "the person is not lit"
+drop init's signal_session() call in session_end() -- "Sign out ends
+the session's processes" goes red; drop wm_overlay.c's `i > owner` and its grab -- "the person is not lit"
 and "picks nobody" go red.
 """
 
@@ -173,6 +176,35 @@ def settings_round(dbg):
     return True
 
 
+def spawned_pid(out):
+    m = re.search(r"as pid (\d+)", out or "")
+    return int(m.group(1)) if m else 0
+
+
+def alive(dbg, pid):
+    return any(p["pid"] == pid and p["state"] != "zombie" for p in dbg.processes())
+
+
+def session_processes_round(dbg):
+    """Before Sign out: a windowless program the desktop started (its login
+    session's) and one the kernel's shell started (no session). Returns
+    their pids, for after_sign_out()."""
+    mine = spawned_pid(dbg.send("gui spawn /bin/sleep 900"))
+    other = spawned_pid(dbg.send("sh spawn /bin/sleep 901"))
+    check("the session starts a windowless program, and the kernel's shell another",
+          mine and other and alive(dbg, mine) and alive(dbg, other), f"session {mine}, kernel {other}")
+    return mine, other
+
+
+def after_sign_out(dbg, mine, other):
+    if not mine or not other:
+        return
+    gone = poll(lambda: (not alive(dbg, mine)) or None, 15, 0.5)
+    check("Sign out ends the session's processes, not only its windows", bool(gone), f"pid {mine} still there")
+    check("...and only the session's: the kernel's shell's program stays", alive(dbg, other), f"pid {other}")
+    dbg.send(f"sh kill {other}")
+
+
 def sign_out(dbg):
     dbg.send("gui leave show signout")
     j = dbg.json("gui leave --json") or {}
@@ -290,9 +322,14 @@ def main():
     out = dbg.send("sh dash -c 'user add -c \"Anna Virtanen\" anna'") or ""
     check("root adds an account with `user add`", "added anna" in out, out.strip()[-80:])
     try:
-        if not settings_round(dbg) or not sign_out(dbg):
+        if not settings_round(dbg):
             check("Sign out brings up the login screen", False)
             return _res.finish("users_page_test")
+        mine, other = session_processes_round(dbg)
+        if not sign_out(dbg):
+            check("Sign out brings up the login screen", False)
+            return _res.finish("users_page_test")
+        after_sign_out(dbg, mine, other)
         ctl = poll(lambda: (lambda c: c if c.get("person.anna", {}).get("w") else None)(controls(dbg)), 20, 0.3) or {}
         rows = {n: c for n, c in ctl.items() if n.startswith("person.")}
         check("the login screen lists every person bottom-left", set(rows) >= {"person.user", "person.anna"} and

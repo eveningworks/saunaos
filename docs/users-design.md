@@ -838,6 +838,27 @@ Windows 11 puts the last one in the middle and the others bottom-left.
     waits for the new fontd rather than mapping the old one's beacon as
     it dies. No shipped setting is `Scope=seat` now; `etcfiles_test`
     declares its own to keep privd's seat write tested.
+- **The wrap-up after D3 (2026-11-27)**, the maintainer's picks:
+  - **A LOGIN SESSION ID** (Linux's audit sessionid, logind's session
+    scope) rather than Sign out killing by uid, which would end a telnet
+    login of the same account and could not survive two sessions. init
+    numbers each session (`g_session_id`) and stamps it through
+    SPAWN_CREDS into the cred of everything the session starts; a child
+    inherits it, an ELEVATED child keeps its asker's (`cred_arm_root()`
+    arms a root cred carrying it, as a sudo'd process stays in its
+    session scope), and only root's SPAWN_CREDS changes it. `proc_info`
+    reports it. Sign out SIGTERMs every process in the session and
+    SIGKILLs what is left 5 s later (logind's `KillUserProcesses=yes`,
+    Windows' logoff); a VT or telnet `/bin/login`'s shell is session 0
+    and stays.
+  - **A UCHAN RING PER CONNECTION** (D-Bus's unique name beside its
+    credentials), which ends the desktop's privd agent being dropped by
+    its own lock screen's privd call: a process's first ring keeps
+    `<service>.<pid>` and its pid as the connection id, a further one is
+    `<service>.<pid>.<n>` with an id past every pid, and a server checks
+    identity through `uchan_server_peer_pid()` (`base/uchan.h`).
+  - `/home/user` 04700 like every other home, and `ls -l` GNU's long
+    form less the link count.
 
 ## Why plain files, not a user database
 

@@ -362,6 +362,23 @@ static unsigned long long g_fs_gen;
 // THE SESSION'S ACCOUNT (users D2b), "" while the greeter is up -- the
 // one thing logind keeps here: which account the desktop runs as.
 static char g_session[256];
+// ITS NUMBER, stamped into the cred of everything the session starts
+// (abi/cred_abi.h) -- logind's session id -- so Sign out can find every
+// process of it, its children included. 0 while the greeter is up.
+static uint32_t g_session_id;
+// A session that ended: its processes were asked to stop, and those left
+// at `g_ending_kill_ms` are killed (session_kill_due()).
+static uint32_t g_ending_id;
+static unsigned long long g_ending_kill_ms;
+// SIGTERM to SIGKILL for a signed-out session's processes: systemd's
+// stop timeout is 90 s, but nothing here waits on a session's apps to save.
+#define SESSION_KILL_MS 5000
+
+static uint32_t new_session_id(void) {
+    static uint32_t last;
+    if (++last == 0) last = 1;
+    return last;
+}
 
 static unsigned long long now_ms(void) {
     return sys_monotonic_ns() / 1000000ull;
@@ -1029,6 +1046,7 @@ static int creds_for(const struct service *s, struct sys_spawn_opts *o, struct s
         logf1("init: User=%s is not in /etc/passwd, or its identity could not be built -- not starting it\n", who);
         return -1;
     }
+    if (s->user_session) o->session = g_session_id;   // its login form returned above
     if (s->seat) c->dir = c->lc.home;
     return 0;
 }
@@ -1087,6 +1105,7 @@ static int session_begin(const char *name) {
     if (g_session[0]) { logf1("init: a session for %s is already on\n", g_session); return INITCTL_REFUSED; }
     if (!session_account_ok(name)) { logf1("init: no session for %s: not a person's account\n", name); return INITCTL_REFUSED; }
     snprintf(g_session, sizeof g_session, "%s", name);
+    g_session_id = new_session_id();
     g_locked = 0;
     logf1("init: session for %s begins\n", g_session);
     settings_revert();
@@ -1110,6 +1129,33 @@ static int session_begin(const char *name) {
     return INITCTL_OK;
 }
 
+// Signals every process (a thread group's leader) in login session `id`;
+// how many it reached.
+static int signal_session(uint32_t id, int sig) {
+    struct proc_info pi;
+    int n = 0;
+    for (int slot = 0; sys_proc_info(slot, &pi) == 0; slot++)
+        if (pi.pid > 1 && pi.pid == pi.tgid && pi.session == id && pi.state != PROC_STATE_ZOMBIE &&
+            sys_kill(pi.pid, sig) == 0)
+            n++;
+    return n;
+}
+
+// SIGN OUT ENDS THE SESSION'S PROCESSES, not only its windows -- logind's
+// KillUserProcesses=yes, Windows' logoff: SIGTERM now, SIGKILL to what is
+// left SESSION_KILL_MS later. A telnet or VT login is a session of its own
+// (0 here) and stays.
+static void session_kill_due(void) {
+    if (!g_ending_id || now_ms() < g_ending_kill_ms) return;
+    int n = signal_session(g_ending_id, SIGKILL);
+    if (n) {
+        char nb[16];
+        snprintf(nb, sizeof nb, "%d", n);
+        logf1("init: %s of the ended session's processes killed\n", nb);
+    }
+    g_ending_id = 0;
+}
+
 // THE SESSION ENDS (the desktop signed out): the greeter comes back.
 static void session_end(void) {
     logf1("init: session for %s ends\n", g_session);
@@ -1129,6 +1175,18 @@ static void session_end(void) {
         }
     }
     vt_hangup_all();
+    // Everything else it started: the apps, what a terminal ran, an
+    // elevated tool. A session still being killed is finished first.
+    if (g_ending_id) { g_ending_kill_ms = 0; session_kill_due(); }
+    if (g_session_id) {
+        int n = signal_session(g_session_id, SIGTERM);
+        char nb[16];
+        snprintf(nb, sizeof nb, "%d", n);
+        logf1("init: %s of the session's processes asked to end\n", nb);
+        g_ending_id = g_session_id;
+        g_ending_kill_ms = now_ms() + SESSION_KILL_MS;
+    }
+    g_session_id = 0;
     for (int i = 0; i < g_svc_count; i++) {
         struct service *s = &g_svc[i];
         if (!s->no_session) continue;
@@ -1175,6 +1233,7 @@ static void session_boot(void) {
     }
     if (who[0] && session_account_ok(who)) {
         snprintf(g_session, sizeof g_session, "%s", who);
+        g_session_id = new_session_id();
         logf1("init: signing %s in automatically\n", g_session);
     } else {
         logf1("init: the login screen, then a session\n", "");
@@ -1924,6 +1983,8 @@ static int next_due_ms(void) {
         if (!g_vts[n].wanted || !d || d <= now) continue;
         if (!best || d < best) best = d;
     }
+    if (g_ending_id && g_ending_kill_ms > now && (!best || g_ending_kill_ms < best)) best = g_ending_kill_ms;
+    if (g_ending_id && g_ending_kill_ms <= now) return 0;
     if (!best) return CHAN_WAIT_MS;
     unsigned long long in = best - now;
     return in < CHAN_WAIT_MS ? (int)in : CHAN_WAIT_MS;
@@ -2425,6 +2486,7 @@ int main(void) {
             g_vt_rescan = 0;
             vt_scan();
         }
+        session_kill_due();
         int pending = start_due() + count_awaiting_ready() + vt_start_due();
 
         // AFTER the pass, not before: what an operator wants to read is

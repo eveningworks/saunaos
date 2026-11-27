@@ -984,6 +984,9 @@ struct spawn_msg {
     const uint32_t *groups;
     uint32_t ngroups;
     uint32_t cred_flags;   // CRED_* (abi/cred_abi.h); an unknown bit is -EPERM, never -EINVAL
+    // With SPAWN_CREDS: the LOGIN SESSION the child is in (abi/cred_abi.h),
+    // 0 for none. Without it the child is in its spawner's.
+    uint32_t session;
 };
 
 // The child is TRACED: every syscall it makes is written as records into

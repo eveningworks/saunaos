@@ -905,7 +905,8 @@ int sys_spawn(struct syscall_ctx *c) {
         int cr_arm = (arm < 0 || sb_arm < 0) ? 0
                    : (msg.flags & SPAWN_ELEVATED) ? cred_arm_root()
                    : !(msg.flags & SPAWN_CREDS) ? 0
-                   : cred_arm_spawn(msg.uid, msg.gid, cr_groups, msg.ngroups, msg.cred_flags);
+                   : cred_arm_spawn(msg.uid, msg.gid, cr_groups, msg.ngroups, msg.cred_flags,
+                                    msg.session);
         kfree(cr_groups);
         cr_groups = 0;
         // THE CHILD IS HELD UNTIL ITS SESSION, TERMINAL AND FOREGROUND
