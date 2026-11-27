@@ -19,8 +19,8 @@ extern const struct fs_ops ramfs_ops;
 // The KTESTs run inside a LIVE kernel with a real root mounted, so
 // they must not mount ramfs through vfs.c and swap the active backend
 // out from under the rest of the suite. They mount this instance
-// directly and put it back, the same discipline partition_test.c
-// applies to the block device.
+// directly and put it back; partition_test.c keeps off the machine's
+// block device the same way, with one of its own.
 //
 // `budget_bytes` overrides the half-of-free-memory default so a test
 // can reach the full-filesystem path without allocating a gigabyte;

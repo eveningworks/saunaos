@@ -1,13 +1,13 @@
 // Tests for the swap area (kernel/mm/swap.c).
 //
 // They run in a LIVE kernel with a real root mounted, so they must not
-// point swap at the machine's own disk. Each one registers a scratch
-// RAM block device, does its work, and PUTS THE REAL ONE BACK BEFORE
+// point swap at the machine's own disk. Each one uses this file's own
+// RAM block device, never registered, and turns swap OFF again BEFORE
 // ANY ASSERTION -- a failing KTEST_ASSERT returns from the test
-// function, so an assert before the restore would leave the machine
-// running on a 512 KiB RAM disk with no filesystem, taking every later
-// test and the boot with it. Same discipline as partition_test.c, and
-// preemption stays off across the swap.
+// function, and would leave swap on, pointed at freed memory.
+// Preemption stays off while the scratch is the machine's swap area,
+// so nothing under the guard may take a kmutex -- which registering a
+// device does.
 #include "ktest.h"
 #include "swap.h"
 #include "block.h"
@@ -38,30 +38,47 @@ static int pattern_ok(const uint8_t *p, uint32_t len, uint32_t salt) {
     return 1;
 }
 
-// Everything each test needs to borrow the block device and give it
-// back. `begin` returns 0 if the scratch could not be set up, in which
-// case `end` is still safe to call.
-struct scratch {
-    void *mem;
-    const struct block_device *saved;
-    int registered;
+static uint8_t *g_disk;   // the running test's scratch, SCRATCH_BYTES of it
+#define SCRATCH_SECTORS (SCRATCH_BYTES / 512)
+
+static uint64_t sw_sectors(const struct block_device *self) { (void)self; return SCRATCH_SECTORS; }
+static int sw_ok(uint64_t lba, int n) {
+    return g_disk && n > 0 && lba < SCRATCH_SECTORS && (uint64_t)n <= SCRATCH_SECTORS - lba;
+}
+static int sw_read(const struct block_device *self, uint64_t lba, int n, void *buf) {
+    (void)self;
+    if (!sw_ok(lba, n)) return 0;
+    k_memcpy(buf, g_disk + lba * 512, (size_t)n * 512);
+    return 1;
+}
+static int sw_write(const struct block_device *self, uint64_t lba, int n, const void *buf) {
+    (void)self;
+    if (!sw_ok(lba, n)) return 0;
+    k_memcpy(g_disk + lba * 512, buf, (size_t)n * 512);
+    return 1;
+}
+static int sw_max(const struct block_device *self) { (void)self; return 256; }
+static const struct block_device SW_DEV = {
+    .name = "swaptest",
+    .sector_count = sw_sectors,
+    .read_sectors = sw_read,
+    .write_sectors = sw_write,
+    .max_sectors_per_xfer = sw_max,
 };
 
+// The scratch each test works on. `begin` returns 0 if it could not be
+// set up, in which case `end` is still safe to call.
+struct scratch { void *mem; };
+
 static int scratch_begin(struct scratch *s) {
-    s->mem = kmalloc(SCRATCH_BYTES);
-    s->saved = 0;
-    s->registered = 0;
+    // A REAL swap area is not this file's to turn off: scratch_end()
+    // frees every slot of whatever is active.
+    s->mem = swap_active() ? 0 : kmalloc(SCRATCH_BYTES);
     if (!s->mem) return 0;
     k_memset(s->mem, 0, SCRATCH_BYTES);
     scheduler_preempt_disable();
-    s->saved = blk_root();
-    // NOTHING TO PUT BACK IS A REASON NOT TO BORROW. On a diskless boot
-    // there is no active device, and registering the scratch would make
-    // it the machine's disk with no way to undo that -- one skipped
-    // test against a kernel left running on a 64 KiB RAM disk.
-    if (!s->saved) { scheduler_preempt_enable(); kfree(s->mem); s->mem = 0; return 0; }
-    s->registered = blk_ram_register((uint64_t)(uintptr_t)s->mem, SCRATCH_BYTES);
-    return s->registered;
+    g_disk = s->mem;
+    return 1;
 }
 
 static void scratch_end(struct scratch *s) {
@@ -80,7 +97,7 @@ static void scratch_end(struct scratch *s) {
             const char *why = "";
             swap_off(&why);
         }
-        if (s->saved) blk_register(s->saved);
+        g_disk = 0;
         scheduler_preempt_enable();
         kfree(s->mem);
         s->mem = 0;
@@ -95,7 +112,7 @@ KTEST("swap", "swapon REFUSES a device that is not a swap area") {
     // safety property of the whole file: `swapon` on the wrong name
     // must refuse, not format.
     const char *why = "";
-    int accepted = swap_on(blk_root(), &why);
+    int accepted = swap_on(&SW_DEV, &why);
     int said_something = why && why[0];
 
     // ...and it must not have WRITTEN anything while refusing. Checked
@@ -128,7 +145,7 @@ KTEST("swap", "a header that is plausible but not OURS is refused") {
     h->page_size = SWAP_PAGE_SIZE;
 
     const char *why = "";
-    int accepted = swap_on(blk_root(), &why);
+    int accepted = swap_on(&SW_DEV, &why);
 
     scratch_end(&s);
     KTEST_ASSERT(!accepted);
@@ -139,8 +156,8 @@ KTEST("swap", "mkswap then swapon reports the device's own page count") {
     if (!scratch_begin(&s)) { scratch_end(&s); KTEST_SKIP("no scratch disk"); }
 
     const char *why = "";
-    int formatted = swap_format(blk_root(), &why);
-    int on = formatted ? swap_on(blk_root(), &why) : 0;
+    int formatted = swap_format(&SW_DEV, &why);
+    int on = formatted ? swap_on(&SW_DEV, &why) : 0;
     uint32_t total = 0, used = 0;
     if (on) swap_stats(&total, &used);
 
@@ -160,8 +177,8 @@ KTEST("swap", "a page round-trips through a slot byte for byte") {
     uint8_t *out = kmalloc(SWAP_PAGE_SIZE);
     uint8_t *in  = kmalloc(SWAP_PAGE_SIZE);
     const char *why = "";
-    int ready = out && in && swap_format(blk_root(), &why)
-                         && swap_on(blk_root(), &why);
+    int ready = out && in && swap_format(&SW_DEV, &why)
+                         && swap_on(&SW_DEV, &why);
 
     uint32_t slot = 0;
     int wrote = 0, read_back = 0, matched = 0, in_was_different = 0;
@@ -199,7 +216,7 @@ KTEST("swap", "two slots hold two different pages") {
 
     uint8_t *buf = kmalloc(SWAP_PAGE_SIZE);
     const char *why = "";
-    int ready = buf && swap_format(blk_root(), &why) && swap_on(blk_root(), &why);
+    int ready = buf && swap_format(&SW_DEV, &why) && swap_on(&SW_DEV, &why);
 
     uint32_t a = 0, b = 0;
     int distinct = 0, a_ok = 0, b_ok = 0;
@@ -241,7 +258,7 @@ KTEST("swap", "slots run out at the device's capacity, and slot 0 is never one")
     if (!scratch_begin(&s)) { scratch_end(&s); KTEST_SKIP("no scratch disk"); }
 
     const char *why = "";
-    int ready = swap_format(blk_root(), &why) && swap_on(blk_root(), &why);
+    int ready = swap_format(&SW_DEV, &why) && swap_on(&SW_DEV, &why);
 
     uint32_t handed_out = 0;
     int saw_zero = 0, exhausted = 0;
@@ -272,7 +289,7 @@ KTEST("swap", "swapoff REFUSES while a page is still out, and a double free is a
     if (!scratch_begin(&s)) { scratch_end(&s); KTEST_SKIP("no scratch disk"); }
 
     const char *why = "";
-    int ready = swap_format(blk_root(), &why) && swap_on(blk_root(), &why);
+    int ready = swap_format(&SW_DEV, &why) && swap_on(&SW_DEV, &why);
 
     uint32_t slot = 0;
     int refused = 0, said_something = 0, allowed_after = 0;
@@ -309,7 +326,7 @@ KTEST("swap", "a header claiming more slots than the device has is refused") {
     if (!scratch_begin(&s)) { scratch_end(&s); KTEST_SKIP("no scratch disk"); }
 
     const char *why = "";
-    int formatted = swap_format(blk_root(), &why);
+    int formatted = swap_format(&SW_DEV, &why);
 
     // Forge a bigger slot count straight into the image. The header is
     // DATA the device carries, so it can legitimately disagree with the
@@ -320,7 +337,7 @@ KTEST("swap", "a header claiming more slots than the device has is refused") {
         struct swap_header *h = (struct swap_header *)s.mem;
         h->slots = SCRATCH_SLOTS * 4;
         why = "";
-        accepted = swap_on(blk_root(), &why);
+        accepted = swap_on(&SW_DEV, &why);
     }
 
     scratch_end(&s);
@@ -341,7 +358,7 @@ static int swap_and_space(struct scratch *s, uint64_t *out_as) {
     *out_as = 0;
     if (!scratch_begin(s)) return 0;
     const char *why = "";
-    if (!swap_format(blk_root(), &why) || !swap_on(blk_root(), &why)) return 0;
+    if (!swap_format(&SW_DEV, &why) || !swap_on(&SW_DEV, &why)) return 0;
     *out_as = vmm_create_address_space();
     return *out_as != 0;
 }
@@ -473,7 +490,7 @@ KTEST("swap", "fork refuses an address space with a swapped page") {
     struct scratch s;
     if (!scratch_begin(&s)) { scratch_end(&s); KTEST_SKIP("no scratch disk"); }
     const char *why = "";
-    int on = swap_format(blk_root(), &why) && swap_on(blk_root(), &why);
+    int on = swap_format(&SW_DEV, &why) && swap_on(&SW_DEV, &why);
     uint64_t parent = on ? vmm_create_address_space() : 0;
     uint64_t f = parent ? pmm_alloc_frame(PMM_ZONE_ANY) : 0;
     int mapped = f && vmm_map_user_page(parent, UADDR_IMAGE_BASE, f);

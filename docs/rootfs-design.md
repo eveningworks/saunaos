@@ -262,9 +262,11 @@ chunked data, the budget, the 22 ops. KTESTs against the node layer.
 **The KTEST trap, stated in advance:** the suite runs in a LIVE kernel
 with a real root mounted, so a test must not simply mount ramfs and
 swap the active backend out from under the rest of the suite.
-`kernel/drivers/partition_test.c` already solves the same problem for
-the block device — swap, hold preemption, restore — and is the pattern
-to copy rather than reinvent.
+`kernel/drivers/partition_test.c` solves the same problem for the
+block device with a RAM disk of its own, never registered, driven
+through the per-device calls — the pattern to copy. It does not swap
+the root device: registering one takes a sleeping lock, which the
+preemption guard a swap would need forbids.
 
 ### Stage 3 — ramfs becomes the fallback
 
