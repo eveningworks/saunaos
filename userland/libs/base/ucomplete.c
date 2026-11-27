@@ -67,6 +67,8 @@ static enum completion_domain uc_arg_domain(struct completion_collector *c,
     return COMPLETION_PATHS;
 }
 
+static void *uc_alloc(uint32_t bytes) { return malloc(bytes); }
+
 static const struct completion_env UC_ENV = {
     .commands   = TOSH_BUILTINS,
     .path_count = upath_dir_count,
@@ -75,6 +77,8 @@ static const struct completion_env UC_ENV = {
     .list_dir   = uc_list_dir,
     .resolve    = uc_resolve,
     .arg_domain = uc_arg_domain,
+    .alloc      = uc_alloc,
+    .release    = free,
 };
 
 const struct completion_env *ucomplete_env(void) { return &UC_ENV; }

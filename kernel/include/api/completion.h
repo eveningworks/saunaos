@@ -34,28 +34,31 @@
 extern "C" {
 #endif
 
-#define COMPLETION_MAX_CANDIDATES 48
-#define COMPLETION_MAX_LEN        64
-// Matches FS_PATH_MAX. Stated here rather than included, because this
-// header must stay freestanding -- see docs/filesystem-layout.md on the
-// 64-byte caller-side path budget.
-#define COMPLETION_PATH_MAX       64
+// The folder a path word names is resolved into this many bytes:
+// FS_PATH_MAX, stated rather than included because this header must stay
+// freestanding. Nothing else here has a size: candidates and their count
+// are allocated to fit, through the env's `alloc`.
+#define COMPLETION_PATH_MAX 4096
 
+// **A RESULT OWNS HEAP MEMORY.** It starts zeroed (a static, or `= {0}`)
+// and every completion_run_env() into it first releases what the last
+// one left, so a caller reusing one static result never leaks; one that
+// is done with it calls completion_result_free().
 struct completion_result {
-    // Candidates whose prefix matched the word under the cursor. `count`
-    // is how many were actually stored; `truncated` is 1 if there were
-    // more than COMPLETION_MAX_CANDIDATES and the rest were dropped (a
-    // caller listing them should say so rather than implying the list is
+    // Candidates whose prefix matched the word under the cursor, sorted.
+    // `truncated` is 1 when memory ran out and some were dropped (a
+    // caller listing them says so rather than implying the list is
     // complete).
     int count;
     int truncated;
-    char candidates[COMPLETION_MAX_CANDIDATES][COMPLETION_MAX_LEN];
+    char **candidates;   // `count` strings
+    int cap;             // entries candidates[] has room for
 
     // What the caller should insert at the cursor: the part of the
-    // common prefix that isn't typed yet. Empty when there's nothing to
-    // add (no candidates, or the word is already the common prefix --
-    // the case where the caller should list instead).
-    char insert[COMPLETION_MAX_LEN];
+    // common prefix that isn't typed yet. Empty, never NULL after a run,
+    // when there's nothing to add (no candidates, or the word is already
+    // the common prefix -- the case where the caller should list instead).
+    char *insert;
 
     // 1 when exactly one candidate matched and it's now complete, so the
     // caller should also append a space. Never set for a directory
@@ -109,6 +112,11 @@ struct completion_env {
     // Optional; absent means every argument is a path.
     enum completion_domain (*arg_domain)(struct completion_collector *c,
                                           const char *cmd, int arg_index);
+
+    // The ring's heap -- kmalloc/kfree, malloc/free -- since this file
+    // may name neither. Both REQUIRED.
+    void *(*alloc)(uint32_t bytes);
+    void (*release)(void *p);
 };
 
 // Fills *out for the word under `cursor` in `line` (`cursor` is a byte
@@ -123,6 +131,10 @@ struct completion_env {
 //     filesystem paths resolved against the shell's current directory
 int completion_run_env(const struct completion_env *env, const char *line,
                         int cursor, struct completion_result *out);
+
+// Releases what a run left in *r through `env`, leaving it empty and
+// reusable.
+void completion_result_free(const struct completion_env *env, struct completion_result *r);
 
 #ifdef __cplusplus
 }

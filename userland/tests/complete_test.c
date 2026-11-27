@@ -125,6 +125,45 @@ int main(void) {
     check("an unmatched word offers nothing",
           g_r.count == 0 && g_r.insert[0] == '\0', "");
 
+    // 9. PAST THE OLD BUDGETS: a 200-byte name in a folder whose path is
+    // past 64 bytes, and sixty candidates where 48 were kept.
+    {
+        static char dir[160], file[400], word[400], want[400];
+        snprintf(dir, sizeof dir, "/ct_probe_long_%s",
+                 "0123456789abcdefghij0123456789abcdefghij0123456789abcdefghij");
+        char name[201];
+        for (int i = 0; i < 200; i++) name[i] = (char)('a' + i % 26);
+        name[200] = '\0';
+        snprintf(file, sizeof file, "%s/%s", dir, name);
+        sys_mkdir(dir);
+        int fd = sys_open(file, SYS_O_CREAT | SYS_O_WRITE | SYS_O_TRUNC);
+        if (fd >= 0) sys_close(fd);
+        snprintf(word, sizeof word, "cat %s/abc", dir);
+        run(word);
+        snprintf(want, sizeof want, "%s/%s", dir, name);
+        snprintf(detail, sizeof detail, "count %d", g_r.count);
+        check("a 200-byte name in a deep folder completes whole", g_r.count == 1 && has(want), detail);
+        sys_unlink(file);
+        sys_unlink(dir);
+
+        sys_mkdir("/ct_probe_many");
+        char f[64];
+        for (int i = 0; i < 60; i++) {
+            snprintf(f, sizeof f, "/ct_probe_many/f%02d", i);
+            fd = sys_open(f, SYS_O_CREAT | SYS_O_WRITE | SYS_O_TRUNC);
+            if (fd >= 0) sys_close(fd);
+        }
+        run("cat /ct_probe_many/f");
+        snprintf(detail, sizeof detail, "count %d, truncated %d", g_r.count, g_r.truncated);
+        check("sixty candidates are all offered", g_r.count == 60 && !g_r.truncated &&
+              has("/ct_probe_many/f59"), detail);
+        for (int i = 0; i < 60; i++) {
+            snprintf(f, sizeof f, "/ct_probe_many/f%02d", i);
+            sys_unlink(f);
+        }
+        sys_unlink("/ct_probe_many");
+    }
+
     fixture_remove();
 
     return utest_end();

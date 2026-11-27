@@ -416,8 +416,7 @@ const char *el_gets(EditLine *el, int *count) {
                 break;
 
             case KLINE_COMPLETE: {
-                // ~3 KB, and a ring-3 frame is budgeted at 2 KB, so
-                // static rather than stack -- tosh's has the same note.
+                // Reused: each run releases the last one's candidates.
                 static struct completion_result cr;
                 if (!completion_run_env(ucomplete_env(), el->ed.buf,
                                         el->ed.cursor, &cr))
@@ -429,8 +428,7 @@ const char *el_gets(EditLine *el, int *count) {
                     break;
                 }
                 uline_list_candidates(p, &el->ed, &el->row_shown,
-                                      (const char *)cr.candidates, cr.count,
-                                      COMPLETION_MAX_LEN);
+                                      (const char *const *)cr.candidates, cr.count);
                 break;
             }
 

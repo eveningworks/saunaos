@@ -291,8 +291,7 @@ static void reverse_search(void) {
 }
 
 static void complete_line(void) {
-    // ~3 KB, and a ring-3 frame is budgeted at 2 KB
-    // (-Wframe-larger-than=2048), so static rather than stack.
+    // Reused: each run releases the last one's candidates.
     static struct completion_result r;
     if (completion_run_env(ucomplete_env(), g_ed.buf, g_ed.cursor, &r) == 0) return;
 

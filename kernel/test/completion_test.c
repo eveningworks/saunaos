@@ -29,14 +29,9 @@
 #include "fs.h"
 #include "kfmt.h"
 
-// ONE SHARED RESULT, NOT A LOCAL PER TEST. `struct completion_result`
-// is ~3.1 KB (48 candidates x 64 bytes plus the insert buffer), and the
-// kernel frame budget is 1 KB -- a local blows it, and
-// -Wframe-larger-than said so on the first build. Static is safe here
-// for the reason every static in this tree is: the kernel is
-// single-threaded and KTESTs run one at a time. Each test overwrites it
-// completely via completion_run(), which fills every field, so nothing
-// inherits state from the test before it.
+// ONE SHARED RESULT, NOT A LOCAL PER TEST: each completion_run() into
+// it releases the last one's candidates, so nothing inherits state from
+// the test before it. KTESTs run one at a time.
 static struct completion_result g_r;
 
 // The three properties, checked over whatever the live system produces.

@@ -160,13 +160,13 @@ void uline_insert_last_arg(struct kline_edit *ed, const char *previous) {
 }
 
 void uline_list_candidates(const char *prompt, struct kline_edit *ed, int *row_shown,
-                           const char *candidates, int count, int stride) {
-    if (count <= 0 || stride <= 0 || !candidates) return;
+                           const char *const *candidates, int count) {
+    if (count <= 0 || !candidates) return;
     uline_end(prompt, ed, row_shown);
 
     int widest = 0;
     for (int i = 0; i < count; i++) {
-        int l = uline_width(candidates + (size_t)i * stride);
+        int l = uline_width(candidates[i]);
         if (l > widest) widest = l;
     }
     int colw = widest + 2;
@@ -175,7 +175,7 @@ void uline_list_candidates(const char *prompt, struct kline_edit *ed, int *row_s
 
     int col = 0;
     for (int i = 0; i < count; i++) {
-        const char *c = candidates + (size_t)i * stride;
+        const char *c = candidates[i];
         put(c);
         if (++col == cols || i + 1 == count) { put("\n"); col = 0; continue; }
         for (int pad = uline_width(c); pad < colw; pad++) put(" ");

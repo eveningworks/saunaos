@@ -4,7 +4,8 @@
 //
 // COMPILED TWICE, into the kernel image and into libbase, the same
 // as klineedit.c and ansi.c. It must therefore stay freestanding: the
-// only includes here are the toolkit's.
+// only includes here are the toolkit's, and memory comes from the env's
+// `alloc`/`release` (kmalloc in ring 0, malloc in ring 3).
 //
 // Structure: split the line into words, decide which "domain" the word
 // under the cursor belongs to (commands, a command's argument set, or
@@ -14,117 +15,150 @@
 #include "completion.h"
 #include "string.h"
 
+// What `insert` points at when there is nothing to type: never freed.
+static char g_none[1];
+
 // ---- candidate collection ----
 
 struct completion_collector {
+    const struct completion_env *env;
     struct completion_result *out;
     const char *prefix;
     uint32_t prefix_len;
+    uint32_t common;   // bytes of candidates[0] that every candidate shares
 };
 
-static void collector_init(struct completion_collector *c,
-                            struct completion_result *out, const char *prefix) {
+void completion_result_free(const struct completion_env *env, struct completion_result *r) {
+    if (!r) return;
+    for (int i = 0; i < r->count; i++) env->release(r->candidates[i]);
+    if (r->candidates) env->release(r->candidates);
+    if (r->insert && r->insert != g_none) env->release(r->insert);
+    r->candidates = 0;
+    r->count = r->cap = r->truncated = r->add_space = 0;
+    r->insert = g_none;
+}
+
+static void collector_init(struct completion_collector *c, const struct completion_env *env,
+                           struct completion_result *out, const char *prefix) {
+    completion_result_free(env, out);
+    c->env = env;
     c->out = out;
     c->prefix = prefix;
     c->prefix_len = (uint32_t)k_strlen(prefix);
-    out->count = 0;
-    out->truncated = 0;
-    out->insert[0] = '\0';
-    out->add_space = 0;
+    c->common = 0;
 }
 
-// Adds a candidate if `match` starts with the collector's prefix, and
-// stores `text` if it does.
+// Is `cand` exactly head + tail + suffix?
+static int is_parts(const char *cand, const char *head, const char *tail, const char *suffix) {
+    size_t hl = k_strlen(head), tl = k_strlen(tail);
+    return !k_strncmp(cand, head, (int)hl) && !k_strncmp(cand + hl, tail, (int)tl) &&
+           !k_strcmp(cand + hl + tl, suffix);
+}
+
+// Adds head + tail + suffix as a candidate if `match` starts with the
+// collector's prefix.
 //
-// The two are usually the same string, but not for paths: there the
-// prefix being matched is just the filename part ("ti"), while what the
-// caller has to insert is the whole word ("/etc/timezones"). Comparing
-// the full text against the filename prefix was the bug the first live
-// test caught -- `cat /etc/ti<TAB>` silently found nothing.
+// The two differ for paths: the prefix being matched is just the
+// filename part ("ti"), while what the caller has to insert is the whole
+// word ("/etc/timezones"). Comparing the full text against the filename
+// prefix was the bug the first live test caught -- `cat /etc/ti<TAB>`
+// silently found nothing.
 //
-// Also maintains the common prefix incrementally in out->insert over the
-// STORED text: the first match seeds it, every later match trims it to
-// where they still agree. collector_finish() turns that into what to
-// actually type.
-static void add_candidate_named(struct completion_collector *c,
-                                 const char *match, const char *text) {
-    uint32_t len = (uint32_t)k_strlen(text);
-    if (len >= COMPLETION_MAX_LEN) return; // can't represent it; skip rather than truncate into a wrong completion
+// OUT OF MEMORY DROPS THE CANDIDATE AND SETS `truncated`, which every
+// caller shows as "more matches not shown".
+static void add_candidate_parts(struct completion_collector *c, const char *match,
+                                const char *head, const char *tail, const char *suffix) {
     if (k_strncmp(match, c->prefix, (int)c->prefix_len) != 0) return;
+    struct completion_result *out = c->out;
 
     // A NAME OFFERED TWICE IS OFFERED ONCE. Several domains overlap by
     // design -- a name can be both a builtin and a program in PATH --
     // and without this each is listed twice.
-    for (int i = 0; i < c->out->count; i++)
-        if (k_strcmp(c->out->candidates[i], text) == 0) return;
+    for (int i = 0; i < out->count; i++)
+        if (is_parts(out->candidates[i], head, tail, suffix)) return;
 
-    if (c->out->count >= COMPLETION_MAX_CANDIDATES) {
-        c->out->truncated = 1;
-        return;
+    if (out->count == out->cap) {
+        int cap = out->cap ? out->cap * 2 : 16;
+        char **grown = cap > out->cap ? c->env->alloc((uint32_t)cap * (uint32_t)sizeof *grown) : 0;
+        if (!grown) { out->truncated = 1; return; }
+        for (int i = 0; i < out->count; i++) grown[i] = out->candidates[i];
+        if (out->candidates) c->env->release(out->candidates);
+        out->candidates = grown;
+        out->cap = cap;
     }
+    size_t hl = k_strlen(head), tl = k_strlen(tail), sl = k_strlen(suffix);
+    char *s = c->env->alloc((uint32_t)(hl + tl + sl + 1));
+    if (!s) { out->truncated = 1; return; }
+    k_memcpy(s, head, hl);
+    k_memcpy(s + hl, tail, tl);
+    k_memcpy(s + hl + tl, suffix, sl + 1);
 
-    char *slot = c->out->candidates[c->out->count];
-    for (uint32_t i = 0; i <= len; i++) slot[i] = text[i];
-
-    if (c->out->count == 0) {
-        for (uint32_t i = 0; i <= len; i++) c->out->insert[i] = text[i];
+    if (out->count == 0) {
+        c->common = (uint32_t)(hl + tl + sl);
     } else {
         uint32_t i = 0;
-        while (c->out->insert[i] && text[i] && c->out->insert[i] == text[i]) i++;
-        c->out->insert[i] = '\0';
+        while (i < c->common && out->candidates[0][i] == s[i]) i++;
+        c->common = i;
     }
-    c->out->count++;
+    out->candidates[out->count++] = s;
 }
 
 static void add_candidate(struct completion_collector *c, const char *name) {
-    add_candidate_named(c, name, name);
+    add_candidate_parts(c, name, "", name, "");
 }
 
 void completion_add(struct completion_collector *c, const char *name) {
     add_candidate(c, name);
 }
 
-// Insertion sort: the list is at most COMPLETION_MAX_CANDIDATES long and
-// a sort that is obviously correct is worth more here than one that is
-// fast on a list this size.
+// Insertion sort of the pointers: obviously correct beats fast on a list
+// one person reads.
 static void sort_candidates(struct completion_result *out) {
     for (int i = 1; i < out->count; i++) {
-        char key[COMPLETION_MAX_LEN];
-        for (int k = 0; k < COMPLETION_MAX_LEN; k++) key[k] = out->candidates[i][k];
+        char *key = out->candidates[i];
         int j = i - 1;
         while (j >= 0 && k_strcmp(out->candidates[j], key) > 0) {
-            for (int k = 0; k < COMPLETION_MAX_LEN; k++)
-                out->candidates[j + 1][k] = out->candidates[j][k];
+            out->candidates[j + 1] = out->candidates[j];
             j--;
         }
-        for (int k = 0; k < COMPLETION_MAX_LEN; k++) out->candidates[j + 1][k] = key[k];
+        out->candidates[j + 1] = key;
     }
 }
 
-// Turns the accumulated common prefix into what to actually TYPE: the
-// part of it the user has not typed already.
+// Turns the common prefix into what to actually TYPE: the part of it the
+// user has not typed already. Every candidate shares it, so it is read
+// off any one of them.
 static void collector_finish(struct completion_collector *c) {
     struct completion_result *out = c->out;
-    if (out->count == 0) { out->insert[0] = '\0'; return; }
+    out->insert = g_none;
+    if (out->count == 0) return;
 
+    // Fewer agreed bytes than are typed can only happen when the prefix
+    // being matched is not the prefix being replaced (the path case).
+    if (c->common > c->prefix_len) {
+        uint32_t extra = c->common - c->prefix_len;
+        char *ins = c->env->alloc(extra + 1);
+        if (ins) {
+            k_memcpy(ins, out->candidates[0] + c->prefix_len, extra);
+            ins[extra] = '\0';
+            out->insert = ins;
+        }
+    }
     sort_candidates(out);
 
-    uint32_t common = (uint32_t)k_strlen(out->insert);
-    if (common < c->prefix_len) {
-        // The candidates agree on LESS than what is typed, which can only
-        // happen when the prefix being matched is not the prefix being
-        // replaced (the path case). Nothing to add.
-        out->insert[0] = '\0';
-    } else {
-        uint32_t extra = common - c->prefix_len;
-        for (uint32_t i = 0; i < extra; i++) out->insert[i] = out->insert[c->prefix_len + i];
-        out->insert[extra] = '\0';
-    }
-
     if (out->count == 1 && !out->truncated) {
-        uint32_t clen = (uint32_t)k_strlen(out->candidates[0]);
+        size_t clen = k_strlen(out->candidates[0]);
         out->add_space = (clen > 0 && out->candidates[0][clen - 1] == '/') ? 0 : 1;
     }
+}
+
+// Copies `n` bytes of `s` into a fresh string from the env, or NULL.
+static char *dup_n(const struct completion_env *env, const char *s, size_t n) {
+    char *d = env->alloc((uint32_t)n + 1);
+    if (!d) return 0;
+    k_memcpy(d, s, n);
+    d[n] = '\0';
+    return d;
 }
 
 // ---- filesystem candidates ----
@@ -150,23 +184,11 @@ static void list_cb(const char *name, uint32_t size, int is_dir) {
     // /bin/wm as the candidate `wm/`, which cannot be a first word.
     if (g_skip_dirs && is_dir) return;
     if (g_only_dirs && !is_dir) return;
-
-    // `named` (with the trailing '/' for a directory) is what the
-    // filename prefix is matched against; `full` prepends the directory
-    // part the user already typed, and is what gets inserted.
-    char named[COMPLETION_MAX_LEN];
-    char full[COMPLETION_MAX_LEN];
-    uint32_t n = 0;
-    for (const char *p = name; *p && n < COMPLETION_MAX_LEN - 2; p++) named[n++] = *p;
-    if (is_dir && n < COMPLETION_MAX_LEN - 2) named[n++] = '/'; // so the next Tab descends
-    named[n] = '\0';
-
-    uint32_t pos = 0;
-    for (const char *p = g_dir_prefix; *p && pos < COMPLETION_MAX_LEN - 2; p++) full[pos++] = *p;
-    for (const char *p = named; *p && pos < COMPLETION_MAX_LEN - 1; p++) full[pos++] = *p;
-    full[pos] = '\0';
-
-    add_candidate_named(g_active, named, full);
+    // The filename prefix has no '/' (the word was split at its last
+    // one), so matching the bare name is matching "name/" too. What is
+    // stored is the directory part typed, the name, and a '/' for a
+    // directory so the next Tab descends.
+    add_candidate_parts(g_active, name, g_dir_prefix, name, is_dir ? "/" : "");
 }
 
 // Completes `word` as a path. The word is split at its last '/': the
@@ -177,28 +199,20 @@ static void list_cb(const char *name, uint32_t size, int is_dir) {
 static void complete_path(const struct completion_env *env,
                            struct completion_collector *c, const char *word,
                            int dirs_only) {
-    char dir_part[COMPLETION_PATH_MAX];
-    char resolved[COMPLETION_PATH_MAX];
-    static char dir_prefix[COMPLETION_MAX_LEN];
-
     int last_slash = -1;
     for (int i = 0; word[i]; i++) if (word[i] == '/') last_slash = i;
 
-    if (last_slash < 0) {
-        dir_part[0] = '\0';       // no '/' at all -- list the cwd
-        dir_prefix[0] = '\0';
-    } else {
-        int dlen = last_slash == 0 ? 1 : last_slash; // keep the leading '/' for a root-relative word
-        if (dlen >= (int)sizeof(dir_part)) return;
-        k_memcpy(dir_part, word, (uint32_t)dlen);
-        dir_part[dlen] = '\0';
-        if (last_slash + 1 >= (int)sizeof(dir_prefix)) return;
-        k_memcpy(dir_prefix, word, (uint32_t)last_slash + 1);
-        dir_prefix[last_slash + 1] = '\0';
+    // dlen keeps the leading '/' for a root-relative word.
+    int dlen = last_slash < 0 ? 0 : last_slash == 0 ? 1 : last_slash;
+    char *dir_part = dup_n(env, word, (size_t)dlen);
+    char *dir_prefix = dup_n(env, word, (size_t)(last_slash + 1));
+    char *resolved = env->alloc(COMPLETION_PATH_MAX);
+    if (!dir_part || !dir_prefix || !resolved) {
+        c->out->truncated = 1;
+        goto out;
     }
-
-    if (!env->resolve(dir_part[0] ? dir_part : 0, resolved, (int)sizeof resolved)) return;
-    if (!env->is_dir(resolved)) return;
+    if (!env->resolve(dir_part[0] ? dir_part : 0, resolved, COMPLETION_PATH_MAX)) goto out;
+    if (!env->is_dir(resolved)) goto out;
 
     // Re-point the collector's prefix at the filename part only; the
     // callback prepends dir_prefix so candidates stay whole words.
@@ -220,13 +234,17 @@ static void complete_path(const struct completion_env *env,
     *c = inner;
     c->prefix = word;
     c->prefix_len = (uint32_t)k_strlen(word);
+out:
+    if (dir_part) env->release(dir_part);
+    if (dir_prefix) env->release(dir_prefix);
+    if (resolved) env->release(resolved);
 }
 
 // Everything a bare name can resolve to: whatever the env declares as
 // non-file names, then every executable in every PATH directory.
 //
 // A name appearing in more than one PATH directory is offered once --
-// add_candidate_named() dedupes. That is not the same as PATH order
+// add_candidate_parts() dedupes. That is not the same as PATH order
 // becoming irrelevant: the FIRST match still wins at run time, and
 // completion is only saying the name exists.
 static void complete_executables(const struct completion_env *env,
@@ -237,10 +255,9 @@ static void complete_executables(const struct completion_env *env,
 
     if (!env->path_count || !env->path_dir) return;
 
-    static char empty[1] = "";
     struct completion_collector inner = *c;
     g_active = &inner;
-    g_dir_prefix = empty;
+    g_dir_prefix = g_none;
     g_skip_dirs = 1;
     for (int i = 0, n = env->path_count(); i < n; i++) {
         const char *dir = env->path_dir(i);
@@ -262,20 +279,11 @@ int completion_run_env(const struct completion_env *env, const char *line,
     int start = cursor;
     while (start > 0 && line[start - 1] != ' ') start--;
 
-    static char word[COMPLETION_MAX_LEN];
-    int wlen = cursor - start;
-    if (wlen >= COMPLETION_MAX_LEN) { // absurdly long word -- nothing sensible to offer
-        collector_init(&c, out, "");
-        out->count = 0;
-        return 0;
-    }
-    k_memcpy(word, line + start, (uint32_t)wlen);
-    word[wlen] = '\0';
+    char *word = dup_n(env, line + start, (size_t)(cursor - start));
 
     // Which argument is this? Count the words before it, skipping runs
     // of spaces so "cat   /et<TAB>" behaves like "cat /et<TAB>".
-    static char cmd[COMPLETION_MAX_LEN];
-    cmd[0] = '\0';
+    char *cmd = 0;
     int arg_index = 0;
     {
         int i = 0, words = 0;
@@ -284,21 +292,16 @@ int completion_run_env(const struct completion_env *env, const char *line,
             if (i >= start) break;
             int wstart = i;
             while (i < start && line[i] != ' ') i++;
-            if (words == 0) {
-                int len = i - wstart;
-                if (len < COMPLETION_MAX_LEN) {
-                    k_memcpy(cmd, line + wstart, (uint32_t)len);
-                    cmd[len] = '\0';
-                }
-            }
+            if (words == 0) cmd = dup_n(env, line + wstart, (size_t)(i - wstart));
             words++;
         }
         arg_index = words; // 0 = the command itself, 1 = first argument, ...
     }
 
-    collector_init(&c, out, word);
-
-    if (arg_index == 0) {
+    collector_init(&c, env, out, word ? word : "");
+    if (!word || (arg_index > 0 && !cmd)) {
+        out->truncated = 1;   // out of memory: nothing offered, and said so
+    } else if (arg_index == 0) {
         if (env->commands)
             for (int i = 0; env->commands[i]; i++) add_candidate(&c, env->commands[i]);
         complete_executables(env, &c);
@@ -311,5 +314,7 @@ int completion_run_env(const struct completion_env *env, const char *line,
     }
 
     collector_finish(&c);
+    if (word) env->release(word);
+    if (cmd) env->release(cmd);
     return out->count;
 }

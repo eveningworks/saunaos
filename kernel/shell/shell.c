@@ -477,7 +477,7 @@ static void park_at_end(void) {
 // word UNDER the cursor rather than at the end of the line needed no
 // change -- it simply never got a cursor that wasn't at the end before.
 static void shell_complete_line(void) {
-    static struct completion_result r; // ~3KB -- static, not stack: this runs on the shell's own modest stack
+    static struct completion_result r; // reused: each run releases the last one's candidates
     if (completion_run(g_ed.buf, g_ed.cursor, &r) == 0) return;
 
     if (r.insert[0]) kline_insert_str(&g_ed, r.insert);

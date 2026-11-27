@@ -81,14 +81,10 @@ void uline_insert_last_arg(struct kline_edit *ed, const char *previous);
 // they were with more information. Only the LISTING -- running the
 // completion engine and inserting its result is the caller's, because
 // the engine is reached through a per-ring `completion_env`.
-// `candidates` is `count` fixed-width rows of `stride` bytes each, which
-// is how `struct completion_result` stores them -- a FLAT char array,
-// not an array of pointers. Taking a stride keeps this file independent
-// of completion.h; casting the 2-D array to `char **` instead reads the
-// first candidate's TEXT as a pointer, which faults with the characters
-// visible in CR2 (that is how this signature was arrived at).
+// `candidates` is `count` strings, as `struct completion_result` holds
+// them.
 void uline_list_candidates(const char *prompt, struct kline_edit *ed, int *row_shown,
-                           const char *candidates, int count, int stride);
+                           const char *const *candidates, int count);
 
 #ifdef __cplusplus
 }

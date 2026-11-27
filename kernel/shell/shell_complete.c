@@ -141,8 +141,9 @@ static void shell_list_dir(const char *path, engine_list_cb cb) {
 
 static int shell_is_dir(const char *path) { return fs_is_dir(path); }
 
+_Static_assert(COMPLETION_PATH_MAX >= FS_PATH_MAX, "the engine's buffer must hold what shell_resolve_path() writes");
 static int shell_resolve(const char *in, char *out, int cap) {
-    (void)cap; // shell_resolve_path() writes at most FS_PATH_MAX, which is the caller's buffer
+    (void)cap; // shell_resolve_path() writes at most FS_PATH_MAX, the engine's buffer
     return shell_resolve_path(in, out);
 }
 
@@ -155,6 +156,8 @@ static const char *shell_extra_name(int i) {
                                    : app_registry[i - SHELL_BUILTIN_COUNT].name;
 }
 
+static void *shell_alloc(uint32_t bytes) { return kmalloc(bytes); }
+
 static const struct completion_env SHELL_ENV = {
     .extra_count = shell_extra_count,
     .extra_name  = shell_extra_name,
@@ -164,6 +167,8 @@ static const struct completion_env SHELL_ENV = {
     .list_dir    = shell_list_dir,
     .resolve     = shell_resolve,
     .arg_domain  = shell_arg_domain,
+    .alloc       = shell_alloc,
+    .release     = kfree,
 };
 
 int completion_run(const char *line, int cursor, struct completion_result *out) {
