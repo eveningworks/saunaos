@@ -764,8 +764,8 @@ int sys_connect(int fd, uint32_t ip, uint16_t port, unsigned timeout_ms) {
     return (int)err(r);
 }
 
-int sys_listen(int fd) {
-    return (int)err(syscall1(SYS_LISTEN, (uint64_t)fd));
+int sys_listen(int fd, int backlog) {
+    return (int)err(syscall2(SYS_LISTEN, (uint64_t)fd, (uint64_t)(int64_t)backlog));
 }
 
 int sys_accept(int fd, uint32_t *out_ip, uint16_t *out_port, unsigned timeout_ms) {

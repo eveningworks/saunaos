@@ -36,6 +36,7 @@
 #define REQ_MAX      1024
 #define CHUNK        1024
 #define ACCEPT_LOG   1
+#define HTTPD_BACKLOG 8   // clients waiting while one is served (a browser opens several)
 
 static const char *content_type(const char *path) {
     const char *dot = strrchr(path, '.');
@@ -205,7 +206,7 @@ int main(int argc, char **argv) {
     int lis = sys_socket(NET_ABI_AF_INET, NET_ABI_SOCK_STREAM, NET_ABI_IPPROTO_TCP);
     if (lis < 0) { cmd_fail("httpd", "socket"); return 1; }
     if (sys_bind(lis, 0, (uint16_t)port, 0) < 0) { cmd_fail("httpd", "bind"); return 1; }
-    if (sys_listen(lis) < 0) { cmd_fail("httpd", "listen"); return 1; }
+    if (sys_listen(lis, HTTPD_BACKLOG) < 0) { cmd_fail("httpd", "listen"); return 1; }
 
     printf("httpd: serving %s on port %d -- Ctrl-C to stop\n", root, port);
 

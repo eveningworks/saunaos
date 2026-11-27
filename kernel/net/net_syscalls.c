@@ -370,7 +370,7 @@ int sys_connect(struct syscall_ctx *c) {
 int sys_listen(struct syscall_ctx *c) {
     int sock = sock_of_fd(c, (int)c->a0);
     if (sock < 0) { c->regs[14] = (uint64_t)(int64_t)-EBADF; return 0; }
-    c->regs[14] = (uint64_t)(int64_t)net_sock_listen(sock);
+    c->regs[14] = (uint64_t)(int64_t)net_sock_listen(sock, (int)c->a1);
     return 0;
 }
 

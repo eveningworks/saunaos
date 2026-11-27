@@ -41,7 +41,7 @@ KTEST("tcp", "a half-open connection that is reset gives its block back") {
 
     scheduler_preempt_disable();
     int lis = tcp_open(PORT);
-    int ok = lis >= 0 && tcp_listen(lis) == 0;
+    int ok = lis >= 0 && tcp_listen(lis, 2) == 0;
     int before = ok ? live_blocks() : -1;
 
     uint8_t pkt[20];

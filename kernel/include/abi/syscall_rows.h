@@ -200,7 +200,7 @@ SYSCALL_ROW(SYS_NET_ARP_PROBE, "net_arp_probe", sys_net_arp_probe, A_HEX, A_END,
 SYSCALL_ROW(SYS_NET_RESOLVED, "net_resolved", sys_net_resolved, A_HEX, A_END, A_END, R_DEC, PROMISE_INET)
 SYSCALL_ROW(SYS_BIND, "bind", sys_bind, A_FD, A_HEX, A_END, R_DEC, PROMISE_INET)
 SYSCALL_ROW(SYS_CONNECT, "connect", sys_connect, A_FD, A_HEX, A_END, R_DEC, PROMISE_INET)
-SYSCALL_ROW(SYS_LISTEN, "listen", sys_listen, A_FD, A_END, A_END, R_DEC, PROMISE_INET)
+SYSCALL_ROW(SYS_LISTEN, "listen", sys_listen, A_FD, A_INT, A_END, R_DEC, PROMISE_INET)
 SYSCALL_ROW(SYS_ACCEPT, "accept", sys_accept, A_FD, A_HEX, A_END, R_DEC, PROMISE_INET)
 SYSCALL_ROW(SYS_WAIT_READY, "wait_ready", sys_wait_ready, A_INT, A_END, A_END, R_DEC, PROMISE_INET)
 SYSCALL_ROW(SYS_FS_WATCH, "fs_watch", sys_fs_watch, A_PATH, A_END, A_END, R_DEC, PROMISE_RPATH)

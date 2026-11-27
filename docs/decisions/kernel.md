@@ -6719,8 +6719,9 @@ saturated server waits out its connect timeout instead of being told,
 which is the trade every stack makes the same way.
 
 **The backlog is not a queue of its own.** A connection whose handshake
-finished needs a full connection block regardless, so `TCP_BACKLOG`
-counts blocks that are finished and unaccepted. Adding a separate queue
+finished needs a full connection block regardless, so the listener's
+backlog (`listen()`'s argument, clamped to [1, 128] as Linux clamps to
+SOMAXCONN) counts blocks that are finished and unaccepted. Adding a separate queue
 would mean holding half-open connections more cheaply — which is what
 SYN cookies are for, and which matters when somebody is attacking you.
 

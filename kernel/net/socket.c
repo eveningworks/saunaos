@@ -243,7 +243,7 @@ int net_sock_connect_state(int sock) {
     return tcp_state(s->tcp) == TCP_STATE_ESTABLISHED ? 0 : -EAGAIN;
 }
 
-int net_sock_listen(int sock) {
+int net_sock_listen(int sock, int backlog) {
     struct socket *s = sock_at(sock);
     if (!s) return -EBADF;
     if (s->proto != IP_PROTO_TCP) return -EINVAL;
@@ -254,7 +254,7 @@ int net_sock_listen(int sock) {
 
     int idx = tcp_open(s->local_port);
     if (idx < 0) return idx;
-    int rc = tcp_listen(idx);
+    int rc = tcp_listen(idx, backlog);
     if (rc < 0) { tcp_release(idx); return rc; }
     s->tcp = idx;
     return 0;

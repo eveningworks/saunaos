@@ -424,13 +424,13 @@ struct listdir_request {
                        // the clock. Interruptible: a signal rewinds
                        // the call. SYS_SET_NONBLOCK makes it a poll:
                        // -EAGAIN when nothing is queued.
-#define SYS_LISTEN 87  // RDI = fd. Makes a BOUND stream socket a
-                       // listener. Returns 0, or -EINVAL if it was
-                       // never bound -- a port the kernel picked is one
-                       // no client could know to connect to. There is
-                       // no backlog argument: the depth is the stack's
-                       // (kernel/net/tcp.c), because each queued
-                       // connection costs a whole connection block.
+#define SYS_LISTEN 87  // RDI = fd, RSI = backlog. Makes a BOUND stream
+                       // socket a listener holding up to `backlog`
+                       // handshaken, unaccepted connections, clamped
+                       // to [1, 128] (Linux's SOMAXCONN); past that a
+                       // SYN is dropped. Returns 0, or -EINVAL if it
+                       // was never bound -- a port the kernel picked is
+                       // one no client could know to connect to.
 #define SYS_ACCEPT 88  // RDI = fd (a listener), RSI = a
                        // `struct net_msg *` or 0. BLOCKS until a
                        // client completes its handshake; `timeout_ms`

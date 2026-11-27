@@ -28,10 +28,9 @@
 
 #define USAGE "inetd -p <port> [-c <children>] <program> [args...]"
 
-// The ceiling is the STACK's, not a policy: SOCK_MAX and TCP_MAX_CONNS
-// are 8 apiece and a listener costs one of each, with TCP_BACKLOG (2)
-// more held by connections that have handshaked and not been accepted.
-// Above six, accept() starts failing for reasons an operator cannot see.
+// How many handlers run at once. The listener's backlog is the same
+// number: while `cap` children run, as many more clients may wait
+// handshaken for the next accept().
 #define CHILDREN_MAX     6
 #define CHILDREN_DEFAULT 4
 
@@ -77,7 +76,7 @@ int main(int argc, char **argv) {
     int lis = sys_socket(NET_ABI_AF_INET, NET_ABI_SOCK_STREAM, NET_ABI_IPPROTO_TCP);
     if (lis < 0) { cmd_fail("inetd", "socket"); return 1; }
     if (sys_bind(lis, 0, (uint16_t)port, 0) < 0) { cmd_fail("inetd", "bind"); return 1; }
-    if (sys_listen(lis) < 0) { cmd_fail("inetd", "listen"); return 1; }
+    if (sys_listen(lis, cap) < 0) { cmd_fail("inetd", "listen"); return 1; }
 
     printf("inetd: port %d -> %s (up to %d at once) -- Ctrl-C to stop\n",
            port, prog, cap);

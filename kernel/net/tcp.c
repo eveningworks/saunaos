@@ -78,7 +78,7 @@ _Static_assert((TCP_RCV_BUF & (TCP_RCV_BUF - 1)) == 0, "the ring wraps with a ma
 // long before it protected anything.
 #define TCP_LINGER_MS 2000
 
-// TCP_BACKLOG is in net.h: it is a property a caller can observe.
+// TCP_BACKLOG_MAX is in net.h: it is a property a caller can observe.
 
 // Flags, in the order the wire has them.
 #define TH_FIN 0x01
@@ -109,6 +109,7 @@ struct tcp_conn {
     // happens if the listener closes before accepting it.
     uint8_t pending;
     int parent;            // the listener's idx + 1 while pending, else 0
+    int backlog;           // a listener's: unaccepted connections it may hold
     uint32_t remote_ip;
     uint16_t remote_port, local_port;
 
@@ -586,11 +587,12 @@ static int tcp_connect_locked(int idx, uint32_t ip, uint16_t port) {
     return 0;
 }
 
-static int tcp_listen_locked(int idx) {
+static int tcp_listen_locked(int idx, int backlog) {
     if (!conn_at(idx)) return -EBADF;
     struct tcp_conn *c = conn_at(idx);
     if (c->state != TCP_STATE_CLOSED) return -EBUSY;
     if (!c->local_port) return -EINVAL;      // nothing to listen ON
+    c->backlog = backlog < 1 ? 1 : backlog > TCP_BACKLOG_MAX ? TCP_BACKLOG_MAX : backlog;
     c->state = TCP_STATE_LISTEN;
     return 0;
 }
@@ -821,7 +823,7 @@ static struct tcp_conn *find_listener(uint16_t dst_port) {
 // A PENDING CONNECTION THAT DIES BEFORE accept() IS RELEASED WHERE IT
 // DIES -- the give-up in tcp_tick() and the RST above. Nobody owns it,
 // accept() only takes a live one, and backlog_depth() counts it whatever
-// its state: left in place, TCP_BACKLOG dead handshakes silenced a
+// its state: left in place, a backlog of dead handshakes silenced a
 // listener until reboot (telnetd, 2026-09-27). Linux frees a half-open
 // request the same way, from its own SYN-queue timer.
 //
@@ -843,7 +845,7 @@ static int backlog_depth(const struct tcp_conn *lis) {
 static void passive_open(struct tcp_conn *lis, uint32_t src_ip, uint16_t src_port,
                          uint32_t seq, uint16_t window,
                          const uint8_t *opt, uint32_t optlen) {
-    if (backlog_depth(lis) >= TCP_BACKLOG) {
+    if (backlog_depth(lis) >= lis->backlog) {
         // FULL: say nothing. The client's own SYN retransmission brings
         // it back when a slot frees, so a brief burst succeeds slightly
         // later instead of failing -- Linux's default, and the reason
@@ -1171,9 +1173,9 @@ int tcp_connect(int idx, uint32_t ip, uint16_t port) {
     return r;
 }
 
-int tcp_listen(int idx) {
+int tcp_listen(int idx, int backlog) {
     scheduler_preempt_disable();
-    int r = tcp_listen_locked(idx);
+    int r = tcp_listen_locked(idx, backlog);
     scheduler_preempt_enable();
     return r;
 }

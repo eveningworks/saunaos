@@ -43,10 +43,9 @@ kernel log, so a handler's diagnostics reach `dmesg` and never reach the
 client.
 
 **At the cap it stops accepting**, so the connection waits in the TCP
-backlog and, past that, the client's own SYN retransmission covers it —
-which is what the stack already does for a full backlog. The maximum of
-six is not a policy: `SOCK_MAX` and `TCP_MAX_CONNS` are 8 apiece and a
-listener costs one of each.
+backlog -- the listener's is the cap too -- and, past that, the client's
+own SYN retransmission covers it, which is what the stack already does
+for a full backlog.
 
 Ctrl-C stops it. Handlers already running are not killed.
 

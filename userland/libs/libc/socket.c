@@ -57,10 +57,9 @@ int bind(int fd, const struct sockaddr *sa, socklen_t len) {
     return sys_bind(fd, ip, port, 0) < 0 ? -1 : 0;
 }
 
-// The backlog is the stack's own (sys_listen()); any value is accepted.
+// The kernel clamps `backlog` to [1, 128], as Linux clamps to SOMAXCONN.
 int listen(int fd, int backlog) {
-    (void)backlog;
-    return sys_listen(fd);
+    return sys_listen(fd, backlog);
 }
 
 int accept(int fd, struct sockaddr *sa, socklen_t *len) {

@@ -1767,16 +1767,16 @@ static void abort_from_peer(struct net_device *dev, uint16_t client_port,
 
 KTEST("tcp", "listen refuses an unbound socket, and accepts a bound one") {
     int s = net_sock_open(NET_AF_INET, NET_SOCK_DGRAM, IP_PROTO_UDP);
-    KTEST_ASSERT(net_sock_listen(s) < 0);          // not a stream
+    KTEST_ASSERT(net_sock_listen(s, 2) < 0);          // not a stream
     net_sock_close(s);
 
     s = net_sock_open(NET_AF_INET, NET_SOCK_STREAM, IP_PROTO_TCP);
     KTEST_ASSERT(s >= 0);
     // A port the kernel picked is one no client could know to connect
     // to, so an unbound listener is refused rather than given one.
-    KTEST_ASSERT(net_sock_listen(s) < 0);
+    KTEST_ASSERT(net_sock_listen(s, 2) < 0);
     KTEST_ASSERT_EQ(net_sock_bind(s, 0, 8081, 0), 8081);
-    KTEST_ASSERT_EQ(net_sock_listen(s), 0);
+    KTEST_ASSERT_EQ(net_sock_listen(s, 2), 0);
     KTEST_ASSERT_EQ(net_sock_accept(s), -EAGAIN);  // nobody has connected
     net_sock_close(s);
 }
@@ -1789,7 +1789,7 @@ KTEST("tcp", "a half-open connection is not offered to accept") {
 
     int lis = net_sock_open(NET_AF_INET, NET_SOCK_STREAM, IP_PROTO_TCP);
     KTEST_ASSERT_EQ(net_sock_bind(lis, 0, 8081, 0), 8081);
-    KTEST_ASSERT_EQ(net_sock_listen(lis), 0);
+    KTEST_ASSERT_EQ(net_sock_listen(lis, 2), 0);
 
     // A SYN, answered with SYN+ACK, and NOTHING MORE. The handshake is
     // two thirds done; handing this to accept() would hand over a
@@ -1816,7 +1816,7 @@ KTEST("tcp", "a passive open completes, and the listener keeps listening") {
 
     int lis = net_sock_open(NET_AF_INET, NET_SOCK_STREAM, IP_PROTO_TCP);
     KTEST_ASSERT_EQ(net_sock_bind(lis, 0, 8081, 0), 8081);
-    KTEST_ASSERT_EQ(net_sock_listen(lis), 0);
+    KTEST_ASSERT_EQ(net_sock_listen(lis, 2), 0);
 
     uint32_t client_seq = 0;
     if (!handshake_from_outside(dev, ctx, 40001, &client_seq)) { net_sock_close(lis); return; }
@@ -1855,6 +1855,10 @@ KTEST("tcp", "a passive open completes, and the listener keeps listening") {
     tcp_tick();
 }
 
+// listen()'s backlog is the depth: five here, past the two the stack
+// once fixed for every listener.
+#define TEST_BACKLOG 5
+
 KTEST("tcp", "a full backlog drops the SYN rather than refusing it") {
     struct net_device *dev = addressed_device();
     if (!dev) KTEST_SKIP("no network device with an address");
@@ -1863,11 +1867,11 @@ KTEST("tcp", "a full backlog drops the SYN rather than refusing it") {
 
     int lis = net_sock_open(NET_AF_INET, NET_SOCK_STREAM, IP_PROTO_TCP);
     KTEST_ASSERT_EQ(net_sock_bind(lis, 0, 8081, 0), 8081);
-    KTEST_ASSERT_EQ(net_sock_listen(lis), 0);
+    KTEST_ASSERT_EQ(net_sock_listen(lis, TEST_BACKLOG), 0);
 
     // Fill it: handshakes completed and left UNACCEPTED, which is what
     // a backlog holds.
-    for (uint16_t i = 0; i < TCP_BACKLOG; i++) {
+    for (uint16_t i = 0; i < TEST_BACKLOG; i++) {
         uint32_t seq = 0;
         if (!handshake_from_outside(dev, ctx, (uint16_t)(41000 + i), &seq)) {
             net_sock_close(lis);
@@ -1883,10 +1887,9 @@ KTEST("tcp", "a full backlog drops the SYN rather than refusing it") {
     eth_input(dev, g_frame, len);
     int answered = g_sent_count;
     capture_end(dev);
-    KTEST_ASSERT_EQ(answered, 0);
 
     // Drain what the backlog held, so the pool is not left full.
-    for (uint16_t i = 0; i < TCP_BACKLOG; i++) {
+    for (uint16_t i = 0; i < TEST_BACKLOG; i++) {
         int c2 = net_sock_accept(lis);
         if (c2 >= 0) net_sock_close(c2);
         abort_from_peer(dev, (uint16_t)(41000 + i), 8081,
@@ -1894,6 +1897,7 @@ KTEST("tcp", "a full backlog drops the SYN rather than refusing it") {
     }
     net_sock_close(lis);
     tcp_tick();
+    KTEST_ASSERT_EQ(answered, 0);
 }
 
 // The socket table and the TCP block table were eight each, machine-
@@ -2037,7 +2041,7 @@ KTEST("tcp", "a third leg with the wrong ACK delivers nothing") {
     eth_input(dev, g_frame, len);
     int lis = net_sock_open(NET_AF_INET, NET_SOCK_STREAM, IP_PROTO_TCP);
     KTEST_ASSERT_EQ(net_sock_bind(lis, 0, 8081, 0), 8081);
-    KTEST_ASSERT_EQ(net_sock_listen(lis), 0);
+    KTEST_ASSERT_EQ(net_sock_listen(lis, 2), 0);
 
     const uint32_t cseq = 0x62000000u;
     capture_begin(dev);
@@ -2070,7 +2074,7 @@ KTEST("tcp", "closing a listener resets and frees what it never handed out") {
 
     int lis = net_sock_open(NET_AF_INET, NET_SOCK_STREAM, IP_PROTO_TCP);
     KTEST_ASSERT_EQ(net_sock_bind(lis, 0, 8081, 0), 8081);
-    KTEST_ASSERT_EQ(net_sock_listen(lis), 0);
+    KTEST_ASSERT_EQ(net_sock_listen(lis, 2), 0);
     uint32_t cseq = 0;
     if (!handshake_from_outside(dev, ctx, 40012, &cseq)) { net_sock_close(lis); return; }
     int during = tcp_blocks_in_use();
@@ -2084,7 +2088,7 @@ KTEST("tcp", "closing a listener resets and frees what it never handed out") {
     // And a new listener on the same port inherits nothing.
     int lis2 = net_sock_open(NET_AF_INET, NET_SOCK_STREAM, IP_PROTO_TCP);
     KTEST_ASSERT_EQ(net_sock_bind(lis2, 0, 8081, 0), 8081);
-    KTEST_ASSERT_EQ(net_sock_listen(lis2), 0);
+    KTEST_ASSERT_EQ(net_sock_listen(lis2, 2), 0);
     int inherited = net_sock_accept(lis2);
     net_sock_close(lis2);
 
@@ -2105,7 +2109,7 @@ KTEST("net", "more than eight sockets and eight TCP blocks, and ports stay exclu
         tcp[i] = net_sock_open(NET_AF_INET, NET_SOCK_STREAM, IP_PROTO_TCP);
         KTEST_ASSERT(tcp[i] >= 0);
         KTEST_ASSERT_EQ(net_sock_bind(tcp[i], 0, (uint16_t)(7900 + i), 0), 7900 + i);
-        KTEST_ASSERT_EQ(net_sock_listen(tcp[i]), 0);   // one TCP block each
+        KTEST_ASSERT_EQ(net_sock_listen(tcp[i], 2), 0);   // one TCP block each
     }
     int dup = net_sock_open(NET_AF_INET, NET_SOCK_DGRAM, IP_PROTO_UDP);
     KTEST_ASSERT(dup >= 0);

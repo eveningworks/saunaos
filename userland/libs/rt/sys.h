@@ -428,10 +428,10 @@ int64_t sys_recvfrom(int fd, void *buf, size_t cap, uint32_t *out_src,
 // write() work on the fd, as POSIX guarantees -- so code taking a
 // descriptor can be handed one.
 int sys_connect(int fd, uint32_t ip, uint16_t port, unsigned timeout_ms);
-// Make a BOUND stream socket a listener. There is no backlog argument:
-// the depth is the stack's, because each queued connection costs a
-// whole connection block.
-int sys_listen(int fd);
+// Make a BOUND stream socket a listener holding up to `backlog`
+// handshaken, unaccepted connections (clamped to [1, 128], Linux's
+// SOMAXCONN); past that a client's SYN is dropped and retried.
+int sys_listen(int fd, int backlog);
 // Wait for a client and return a NEW fd for its connection, with the
 // peer's address written back. Blocks; `timeout_ms` of 0 waits forever.
 int sys_accept(int fd, uint32_t *out_ip, uint16_t *out_port, unsigned timeout_ms);

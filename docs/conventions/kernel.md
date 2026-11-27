@@ -4045,7 +4045,8 @@ an orderly close — what a client needs and no more.
   SYN retransmission brings it back when a slot frees, so a momentary
   burst succeeds slightly later instead of failing (Linux's default).
   The backlog is not a separate queue -- a finished connection needs a
-  whole block anyway, so `TCP_BACKLOG` counts unaccepted ones.
+  whole block anyway, so the listener's backlog (`listen()`'s argument,
+  clamped to `TCP_BACKLOG_MAX`, Linux's SOMAXCONN) counts unaccepted ones.
 - **A RST IS VALIDATED BEFORE IT IS BELIEVED.** In SYN_SENT it must
   acknowledge our SYN; afterwards its sequence must be exactly where the
   next byte was expected. Accepting any reset that names the right ports

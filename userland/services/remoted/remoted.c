@@ -30,6 +30,7 @@
 
 #define SELF "/bin/remoted"
 #define SLICE_MS 1000
+#define REMOTED_BACKLOG 2   // a viewer reconnecting while its old session closes
 // Two viewers at once at most: a session holds a socket and a TCP
 // connection of the stack's eight, and a frame buffer of the screen's
 // size twice over.
@@ -79,7 +80,7 @@ static void reconcile(struct listener *l, int want, const char *proto) {
     if (!want) return;
     int fd = sys_socket(NET_ABI_AF_INET, NET_ABI_SOCK_STREAM, NET_ABI_IPPROTO_TCP);
     if (fd < 0) return;
-    if (sys_bind(fd, 0, (uint16_t)want, 0) < 0 || sys_listen(fd) < 0) {
+    if (sys_bind(fd, 0, (uint16_t)want, 0) < 0 || sys_listen(fd, REMOTED_BACKLOG) < 0) {
         rd_log("remoted: %s: cannot listen on port %d\n", proto, want);
         close(fd);
         return;

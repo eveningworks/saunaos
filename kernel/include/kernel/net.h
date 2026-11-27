@@ -197,17 +197,17 @@ int  tcp_connect(int idx, uint32_t ip, uint16_t port);   // starts the handshake
 // The passive open. tcp_listen() turns a block into a listener; an
 // arriving SYN gets a block of its own, and tcp_accept() hands over the
 // first one that finished its handshake (or -EAGAIN while none has).
-// How many finished-but-unaccepted connections a listener may hold.
-// Exposed because it is a property a caller (and a test) can observe:
-// the next client is dropped, not refused.
-#define TCP_BACKLOG 2
+// How many finished-but-unaccepted connections a listener may hold is
+// listen()'s backlog, clamped to [1, TCP_BACKLOG_MAX] -- Linux's
+// SOMAXCONN default. Past it the next client is dropped, not refused.
+#define TCP_BACKLOG_MAX 128
 
 // Disjoint ranges a connection holds ahead of rcv_nxt. A segment that
 // would need one more is dropped and re-acked -- legal, the peer still
 // has it. Public because a test fills the list to prove that.
 #define TCP_OFO_MAX 16
 
-int  tcp_listen(int idx);
+int  tcp_listen(int idx, int backlog);
 int  tcp_accept(int idx);
 void tcp_peer(int idx, uint32_t *out_ip, uint16_t *out_port);
 // Bytes accepted into the send buffer, or -errno (-EAGAIN when it is
@@ -259,7 +259,7 @@ int net_sock_bind(int sock, uint32_t addr, uint16_t port, const char *dev);
 int net_sock_is_stream(int sock);
 int net_sock_connect(int sock, uint32_t ip, uint16_t port);
 int net_sock_connect_state(int sock);   // 0, -EAGAIN, or the failure
-int net_sock_listen(int sock);          // the socket must be bound first
+int net_sock_listen(int sock, int backlog);   // the socket must be bound first
 int net_sock_accept(int sock);          // a NEW socket index, or -EAGAIN
 void net_sock_peer(int sock, uint32_t *out_ip, uint16_t *out_port);
 int net_sock_stream_send(int sock, const void *buf, uint32_t len);
