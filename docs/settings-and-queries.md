@@ -346,6 +346,12 @@ An enum's options may also be computed: `ChoiceDir=` reads a directory
 (`ChoiceDirMode=stem` for the wallpapers, `subdir` for the cursor
 themes) and `ChoiceFile=` reads a file's lines, so dropping a
 screensaver into `/bin/wm/savers` gives it a row with no edit anywhere.
+`ChoiceDir=` takes several folders, comma-separated, listed in order; one
+written `$XDG_DATA_HOME/<rel>` is in the PERSON's data folder
+(`~/.local/share/<rel>`, `base/udatadir.h`) and is skipped for root,
+which reads no person's files -- `desktop.theme` lists the shipped
+themes, the machine's and `$XDG_DATA_HOME/themes`, where Save as writes
+(users D3b2a).
 
 **Do not add a persist-only `struct setting`** — one whose `apply` is 0.
 That is what a declaration replaced, and twelve files of them were

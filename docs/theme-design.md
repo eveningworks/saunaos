@@ -29,9 +29,13 @@ styles" on the roadmap.
 ## The file
 
 `/usr/share/themes/<stem>.theme` ships (tracked at `data/usr/share/themes/`);
-`/etc/themes/<stem>.theme` is made on this machine and WINS over a
-shipped one of the same stem -- `/etc` over `/usr`, as everywhere. The
-`desktop.theme` setting names a stem.
+`/etc/themes/<stem>.theme` is the machine's, put there by an
+administrator, and WINS over a shipped one of the same stem -- `/etc` over
+`/usr`, as everywhere; and a theme a PERSON makes is their own
+`~/.local/share/themes/<stem>.theme` (users D3b2a: `/etc` is root's),
+which wins over both, XDG's data-dir order. The `desktop.theme` setting
+names a stem; its `ChoiceDir=` lists all three folders, the person's as
+`$XDG_DATA_HOME/themes`.
 
     # SaunaOS theme
     Name=Dark
@@ -85,7 +89,8 @@ is the trap, so the preview pushes and pops in one function.
   Apply goes through `utheme_apply()`, so the theme's `[apply]` settings
   come with it. Under the cards: Customize... (the Theme Editor on the
   theme picked), Save as new theme..., Import a theme file... (parsed,
-  then written fresh into `/etc/themes`) and Delete (local themes only;
+  then written fresh into the person's `~/.local/share/themes`) and
+  Delete (the person's own themes only;
   the theme in use falls back to Light).
 - **The Theme Editor** (`/bin/wm/apps/themeedit [stem]`): every role in
   its group with a swatch, the window frame's style and the desktop's

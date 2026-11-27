@@ -1101,6 +1101,9 @@ whenever a headline here tells you something you did not already know.
   `XDG_CONFIG_HOME` NEVER SEES IT.**
 - **A MACHINE SETTING IS ROOT'S TO CHANGE, AND A FRONT END ASKS PRIVD FOR
   IT** (users D3b) -- `storage.md`
+- **NOTHING THE DESKTOP'S ACCOUNT RUNS WRITES `/etc` OR `/var/lib`** --
+  the person's home, a seat action, or a named admin action; a root
+  service never writes into a home (users D3b2a) -- `storage.md`
 - **A RING-3 PROGRAM READS AND WRITES ONE SETTING THROUGH
   `userland/libs/base/usetting.h`, AND `usetting_set()` RETURNS THE REGISTRY'S
   THREE-WAY ANSWER.**

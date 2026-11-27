@@ -1,6 +1,6 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 (D2a, D2b, D2c below) BUILT 2026-11-25, D3a (several people, the login screen's list) BUILT 2026-11-26, D3b1 (the machine's settings root's, asked through privd) BUILT 2026-11-26; D3b2 and D3c next.** The maintainer
+**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 (D2a, D2b, D2c below) BUILT 2026-11-25, D3a (several people, the login screen's list) BUILT 2026-11-26, D3b1 (the machine's settings root's, asked through privd) BUILT 2026-11-26, D3b2a (`/etc` and `/var/lib` root's, the desktop's writes there routed) BUILT 2026-11-27; D3b2b (the administrator-signed prompt) and D3c next.** The maintainer
 picked the shape on 2026-11-23: four stages, stage A first, a ROOT
 BROKER for elevation (no setuid bits), ONE user account before several.
 Roadmap: "Multi-user & file permissions".
@@ -255,17 +255,16 @@ is right and this is what it does:
 - **WHO OWNS WHAT is a file, `/etc/owners.conf`**, applied at every boot
   by the `owners` service (before the desktop) and by the image seeder.
   An old disk is root's throughout, so the first boot after the update
-  walks `/home` once and gives it to `user`. `/etc` stays the desktop's
-  to write until stage D splits the settings: root's, group `user`, mode
-  3775 -- the desktop adds a file and rewrites its own, and cannot remove
-  or replace root's (the accounts, the services, the shipped data).
+  walks `/home` once and gives it to `user`. `/etc` stayed the desktop's
+  to write until stage D split the settings -- root's, group `user`, mode
+  3775 -- and is root's alone, 0755, since D3b2a (below).
 - **A folder hands down** (`fs_new_attrs()`): a SETGID folder gives a
   new file its group, and when its group may write, group read and write
-  too -- a POSIX default ACL's effect -- so a setting ROOT saves in /etc
-  stays the desktop's to change; a SETUID folder owned by an account
+  too -- a POSIX default ACL's effect; a SETUID folder owned by an account
   gives that account the file, FreeBSD's SUIDDIR, so what root (or the
-  test harness) puts in /home is the person's. `/etc`, `/var` and
-  `/var/lib` are 3775 root:user; `/home` 4755 user, its folders too.
+  test harness) puts in /home is the person's. `/home` is 0755 root, each
+  home 4755 its account's, its folders too; `/etc`, `/var` and `/var/lib`
+  were 3775 root:user until D3b2a made them root's 0755.
 - **A seat session starts in its account's home** -- init `chdir()`s to
   it for a `User=` service with `Seat=yes`, as login(1) does -- so what
   the desktop starts saves a bare name into /home, not root's `/`; and
@@ -385,8 +384,9 @@ speed, the keyboard layout) at logon from HKCU.
   same layered call; the shell's history moves to
   `$XDG_STATE_HOME/tosh_history` (bash's `~/.bash_history`, XDG's state
   dir). What describes the MACHINE stays in `/etc`: `net.conf`,
-  `resolv.conf`, `remote.conf`, `mounts.d`, `display.conf`,
-  `devices.conf`, the services and the shipped data.
+  `resolv.conf`, `remote.conf`, `display.conf`, `devices.conf`, the
+  services and the shipped data (`mounts.d` stayed too, until D3b2a made
+  the saved shares the person's).
 - **As built (D1c):** an app names its own file by its BARE NAME --
   `"notepad.conf"`, `"savers/starfield.conf"` -- and `uconf_load()`,
   `uconf_get*()` and `uconf_set*()` take it where they take a path,
@@ -426,10 +426,10 @@ speed, the keyboard layout) at logon from HKCU.
   machines get a fresh image and the ASUS was moved by hand -- its
   entries into `/home/user`, the stored `/home/...` paths in its
   settings rewritten, `owners --all`.
-- **Machine keys stay writable by the desktop** (`/etc` is 3775
-  root:user) until D3b, when a second person makes "change the machine"
-  a privilege; then it goes through privd, as hostname1 and timedate1
-  do under polkit.
+- **Machine keys stayed writable by the desktop** (`/etc` was 3775
+  root:user) until D3b, when a second person made "change the machine"
+  a privilege; it goes through privd since, as hostname1 and timedate1
+  do under polkit (D3b1 the settings, D3b2a the files).
 
 **D2 -- passwords and the login screen.** Picked 2026-11-25: the
 centred login screen (L1 on the mockup canvas), a greeter SESSION rather
@@ -713,11 +713,59 @@ Windows 11 puts the last one in the middle and the others bottom-left.
     (`Time zone: Helsinki -> Stockholm`); System Settings' Apply,
     the Configuration Editor's machine values and `config` (asking on
     its terminal, as `sudo`; `-n` never asks) go through it.
-  - **D3b2, the files (next).** `/etc` and `/var/lib` root's 755; the
-    named actions for network shares, remote desktop, the network card,
-    the display mode and the sound formats; themes to
-    `~/.local/share/themes`; `config register` and `service enable`
-    `sudo`-only; and the Standard account's administrator-signed prompt.
+  - **D3b2a, the files (BUILT 2026-11-27).** `/etc`, `/var` and
+    `/var/lib` are root's, 0755 (`/etc/owners.conf`), and their `below`
+    rules give back to root, at the next boot, whatever the desktop's
+    account wrote there before -- so a synced image needs nothing moved.
+    Everything the desktop wrote there went one of three ways (picked
+    2026-11-27, polkit's shape: `allow_active=yes` for the seat's,
+    `auth_admin` for the machine's):
+    - **The person's own things went home.** The desktop's icon positions
+      and the undo card's note are the bare name `desktop.conf` (the
+      person's over `/etc`'s); a theme made by Save as, Import or the
+      Theme Editor is `~/.local/share/themes/<stem>.theme`, looked up
+      before the machine's `/etc/themes` (now an administrator's) and the
+      shipped `/usr/share/themes` -- `desktop.theme`'s `ChoiceDir=` names
+      the person's with `$XDG_DATA_HOME/themes`, read for anyone but root;
+      a saved network share is the person's `~/.config/mounts.d/<name>`
+      (the folder 0700, each file 0600, the NT hash in it), and smbfsd
+      serves the shares of the account whose session holds the seat,
+      stopping every one of the last session's when it changes hands --
+      the account read from the seat's processes, logind's active session
+      (`uusername_session()`). A root worker writes no one's file:
+      Remember password is saved by the asking program, from the hash the
+      worker hands back only to an asker of the share's own account
+      (USERFS_CTL now carries the asker's uid to the server and the
+      server's answer back); a session share's worker, the person's own
+      process, writes its file itself on Save to Network.
+    - **The seat's things are privd's, granted without asking**: a
+      program's volume (`appvolume`, sent by the compositor on the
+      agent's own channel, so the frame never waits and the agent keeps
+      its ring), a sound card's format (`soundformat`), and a
+      `settings` request whose every setting is the seat's
+      (`display.scale`) -- libbase routes a seat holder's SET or UNSET of
+      a `Scope=seat` schema setting there.
+    - **The machine's things ask an administrator**: remote desktop
+      (`remotedesktop`: key and value pairs over a fixed key set, a row
+      per change in the prompt, a password's value never shown; the VNC
+      password moved to root's 0600 `/etc/remote.secret`, `remote.conf`
+      keeping only `password_set`; Settings' Remote Desktop page stages
+      every edit behind D3b1's shield and Apply, its Connected rows still
+      the seat's `remote`); a network card's link settings (`netlink`
+      now applies AND saves `/etc/net.conf`, one request); Device
+      Manager's disable and enable (`device`, off the frame, the prompt
+      naming the device). `config register`/`unregister`, `service
+      enable`/`disable` and `bootcfg resolution forget` refuse a
+      non-root caller up front -- "needs administrator rights -- run it
+      with sudo".
+    - privd checks every argument of these actions itself before anyone
+      is asked: a volume's program name and 0..100, a card name and the
+      format's three words strictly, the remote keys and their values,
+      the device by its id in a fresh list, the card by its name.
+  - **D3b2b, the administrator-signed prompt (next).** A Standard
+    account's machine change signed by an administrator's name and
+    password in the prompt (polkit's `auth_admin`, UAC's credential
+    prompt), with its own mockup round.
 - **D3c: the kernel registry's per-person settings** (pointer,
   keyboard, font, scaling) applied by the session at sign-in, as Windows
   applies HKCU's at logon, and `fontd` (with `display.scale`) run per

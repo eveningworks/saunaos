@@ -434,6 +434,13 @@ shield, and Apply asks once, the prompt listing every change ("Time
 zone: Helsinki -> Stockholm"); the Configuration Editor and `config set`
 ask the same way. A person's own settings, and the volume, brightness,
 screen mode and scale for the person at the machine, never ask.
+`/etc` and `/var/lib` are root's alone: the desktop's icon positions, the
+themes you make and your saved network shares (`~/.config/mounts.d`,
+yours alone) are kept in your own home; a program's volume and a sound
+card's format go through `privd` without asking; remote desktop -- its
+password in a root-only file -- a network card's saved settings and
+Device Manager's Disable ask an administrator, Remote Desktop's page
+once per Apply with a row per change.
 
 **A password, a login screen and a lock -- when you want them.** With no
 password the computer starts straight to the desktop. Set one (Settings >

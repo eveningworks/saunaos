@@ -269,6 +269,22 @@ this the obvious way), not from how much history it accumulated.
   (`uapp_run_then()`): it blocks until the person answers the prompt. A
   new setting a person or the seat should change freely says so -- the
   kernel's `.who`, a schema's `Scope=user` or `Scope=seat` -- or it asks.
+- **NOTHING THE DESKTOP'S ACCOUNT RUNS WRITES `/etc` OR `/var/lib`** (users
+  D3b2a: both root's, 0755). A new file a GUI app or a person's command
+  keeps goes one of three ways: the PERSON's own -- a bare name for
+  `uconf` (`~/.config/<name>`), `base/udatadir.h` for data and state --
+  the SEAT's, through a privd action `seat_action()` grants without a
+  prompt, or the MACHINE's, through a NAMED privd action that asks and
+  says in its rows what changes. privd checks every argument itself
+  before anyone is asked. A ROOT service never writes into a home on a
+  person's behalf: it hands what the person keeps back to the person's
+  own program (smbfsd's hash, through USERFS_CTL's answer) -- a root
+  write there leaves a root-owned file in the home. A command-line tool
+  whose job is root's refuses up front, "needs administrator rights --
+  run it with sudo", before touching anything; a GUI tool asks through
+  privd off the frame. The compositor, privd's agent, sends a seat
+  action on its agent channel (`wm_priv_seat_action()`), never through a
+  second `upriv_*()` channel that would replace the agent's.
 - **A RING-3 PROGRAM READS AND WRITES ONE SETTING THROUGH
   `userland/libs/base/usetting.h`, AND `usetting_set()` RETURNS THE REGISTRY'S
   THREE-WAY ANSWER.** `usetting_get()`/`_get_int()`, `usetting_set()`/

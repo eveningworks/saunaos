@@ -3835,7 +3835,7 @@ archive mounted as a folder or an SFTP share is a second daemon, not a
 second kernel backend.
 
 **One process per share, as FUSE runs one per filesystem**, under a
-supervisor that reads `/etc/mounts.d`. A server that hangs stalls only
+supervisor that reads the saved shares (`/etc/mounts.d` then, the person's `~/.config/mounts.d` since D3b2a). A server that hangs stalls only
 its own share; a worker that crashes is restarted, and adopts its mount
 (USERFS_MOUNT on a point whose server has exited) rather than leaving a
 dead one behind. A worker serves one mount, so it needs no threads.
@@ -3890,10 +3890,25 @@ the File Manager's address bar, a file chooser or `open` mounts the
 share for the session (`net/unetmount.h`'s `unetmount_open_address()`,
 one worker at `/net/<share>`), as Windows opens `\\server\share` with no
 drive mapped and Nautilus opens `smb://` -- a look at a share must not
-leave a file in `/etc/mounts.d`. Saving is the worker writing its own
+leave a saved share's file. Saving is the worker writing its own
 file (`USERFS_CTL_SAVE`), so the connection and its sign-in carry over;
 the supervisor finds the point served and takes over only when that
 worker exits.
+
+**Since users D3b2a (2026-11-27) the saved shares are each PERSON's, in
+`~/.config/mounts.d`, not the machine's.** A share file carries an NT
+hash -- a login to that server as that user -- so a machine-wide folder
+(even a root-owned one written through privd for the seat, which was
+smaller and was ruled out) would hand every account at the machine every
+saved login. Windows keeps a mapped drive in the user's HKCU\Network and
+GNOME's gvfs mounts per session for the same reason. `smbfsd` stays one
+root service and serves the account whose session holds the seat
+(logind's active session, udisks2's shape), stopping every share of the
+last session when it changes hands. A ROOT worker writes no one's file:
+the hash Remember saves is handed back through USERFS_CTL -- which now
+tells the server the asker's uid and carries its answer back -- only to
+an asker of the share's own account, which writes its own file; a root
+write into a home is the trap D1 already closed for settings.
 
 **Not built, each on the roadmap:** encryption, a share list in Add
 network share (srvsvc over a named pipe), finding servers on the LAN,
