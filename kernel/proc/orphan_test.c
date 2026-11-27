@@ -23,9 +23,12 @@
 // starting point every case here changes one thing from.
 struct pair { int c, p; uint64_t ctf[SCHED_TF_SLOTS], ptf[SCHED_TF_SLOTS]; };
 
+// The guard is scheduler_test_park()'s rule 1, held from the first park
+// to the last release; rule 2 is why each test frees before it asserts.
 static int pair_make(struct pair *x) {
     static const char chan;
     k_memset(x, 0, sizeof *x);
+    scheduler_preempt_disable();
     x->c = scheduler_test_park(x->ctf, &chan, SCHED_WAIT_KEY);
     x->p = scheduler_test_park(x->ptf, &chan, SCHED_WAIT_KEY);
     return x->c >= 0 && x->p >= 0;
@@ -33,6 +36,7 @@ static int pair_make(struct pair *x) {
 static void pair_free(struct pair *x) {
     if (x->c >= 0) scheduler_test_release(x->c);
     if (x->p >= 0) scheduler_test_release(x->p);
+    scheduler_preempt_enable();
 }
 
 KTEST("orphan", "a group whose only parent is inside it is orphaned") {
@@ -40,11 +44,15 @@ KTEST("orphan", "a group whose only parent is inside it is orphaned") {
     if (!pair_make(&x)) { pair_free(&x); KTEST_SKIP("no free process slots"); }
     int cpid = scheduler_slot_pid(x.c), ppid = scheduler_slot_pid(x.p);
     // Both in ONE group: the parent cannot rescue a group it is in.
-    KTEST_ASSERT(scheduler_setpgid(ppid, ppid));
-    KTEST_ASSERT(scheduler_setpgid(cpid, ppid));
-    KTEST_ASSERT(scheduler_reparent(cpid, ppid));
-    KTEST_ASSERT(scheduler_pgid_orphaned(ppid));
+    int pg_p = scheduler_setpgid(ppid, ppid);
+    int pg_c = scheduler_setpgid(cpid, ppid);
+    int rep = scheduler_reparent(cpid, ppid);
+    int orphaned = scheduler_pgid_orphaned(ppid);
     pair_free(&x);
+    KTEST_ASSERT(pg_p);
+    KTEST_ASSERT(pg_c);
+    KTEST_ASSERT(rep);
+    KTEST_ASSERT(orphaned);
 }
 
 // AND THE SESSION CLAUSE IS NOT DECORATION. The same shape with the
@@ -56,11 +64,15 @@ KTEST("orphan", "a parent in another session does not rescue it") {
     struct pair x;
     if (!pair_make(&x)) { pair_free(&x); KTEST_SKIP("no free process slots"); }
     int cpid = scheduler_slot_pid(x.c), ppid = scheduler_slot_pid(x.p);
-    KTEST_ASSERT(scheduler_setpgid(cpid, cpid));
-    KTEST_ASSERT(scheduler_reparent(cpid, ppid));
-    KTEST_ASSERT(scheduler_sid(cpid) != scheduler_sid(ppid));
-    KTEST_ASSERT(scheduler_pgid_orphaned(cpid));
+    int pg_c = scheduler_setpgid(cpid, cpid);
+    int rep = scheduler_reparent(cpid, ppid);
+    int other_sid = scheduler_sid(cpid) != scheduler_sid(ppid);
+    int orphaned = scheduler_pgid_orphaned(cpid);
     pair_free(&x);
+    KTEST_ASSERT(pg_c);
+    KTEST_ASSERT(rep);
+    KTEST_ASSERT(other_sid);
+    KTEST_ASSERT(orphaned);
 }
 
 KTEST("orphan", "a group nobody is in is not orphaned -- it does not exist") {

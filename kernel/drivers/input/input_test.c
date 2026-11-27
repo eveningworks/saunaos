@@ -1060,22 +1060,32 @@ KTEST("input", "a keyboard with a real Pause release can hold Pause") {
 // passes "a press counts", so a RELEASE and a ZERO move must not count;
 // a fact that never reached the registry passes nothing at all.
 KTEST("input", "a key press and a pointer move count as a person's input; a release and a zero move do not") {
-    struct query_input a, b;
-    KTEST_ASSERT_EQ(query_read(QUERY_INPUT, 0, &a, sizeof a), (int)sizeof a);   // the provider is registered
+    struct query_input q;
+    KTEST_ASSERT_EQ(query_read(QUERY_INPUT, 0, &q, sizeof q), (int)sizeof q);   // the provider is registered
+    // The guard keeps a reader in ring 3 from taking the key, so nothing
+    // under it may take a kmutex -- and query_read() takes the registry's.
+    uint64_t e0, e1, e2, e3, ms0, ms1, ms;
     scheduler_preempt_disable();
     uint8_t mods = 0;
+    input_activity_read(&e0, &ms0);
     input_report_key(EVDEV_A, 1);
-    query_read(QUERY_INPUT, 0, &b, sizeof b);
-    KTEST_ASSERT_EQ(b.events, a.events + 1);   // a press counts
-    KTEST_ASSERT(b.last_ms > 0);
+    input_activity_read(&e1, &ms1);
     input_report_key(EVDEV_A, 0);
     mouse_feed_rel(0, 0);
-    query_read(QUERY_INPUT, 0, &a, sizeof a);
-    KTEST_ASSERT_EQ(a.events, b.events);       // a release and no movement do not
+    input_activity_read(&e2, &ms);
     mouse_feed_rel(1, 0);
     mouse_feed_rel(-1, 0);
-    query_read(QUERY_INPUT, 0, &b, sizeof b);
+    input_activity_read(&e3, &ms);
     while (keyboard_try_getchar_mods(&mods) != -1) { }
     scheduler_preempt_enable();
-    KTEST_ASSERT_EQ(b.events, a.events + 2);   // each real move does
+    query_read(QUERY_INPUT, 0, &q, sizeof q);
+    uint64_t e4, ms4;
+    input_activity_read(&e4, &ms4);
+    KTEST_ASSERT_EQ(e1, e0 + 1);       // a press counts
+    KTEST_ASSERT(ms1 > 0);
+    KTEST_ASSERT_EQ(e2, e1);           // a release and no movement do not
+    KTEST_ASSERT_EQ(e3, e2 + 2);       // each real move does
+    // ...and the registry answers from the same count and the same clock.
+    KTEST_ASSERT(q.events >= e3 && q.events <= e4);
+    KTEST_ASSERT(q.last_ms >= ms && q.last_ms <= ms4);
 }

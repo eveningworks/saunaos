@@ -122,6 +122,9 @@ void input_poll_sources(void);
 // A person's input happened (QUERY_INPUT): keyboard_key_event() for a
 // press, mouse_feed_*() for a movement, a button change or the wheel.
 void input_note_activity(void);
+// The count and the time of the last one, takes no lock: what QUERY_INPUT
+// answers, for a caller that may not take the registry's kmutex.
+void input_activity_read(uint64_t *events, uint64_t *last_ms);
 void input_report_key(uint16_t keycode, int down);
 
 // **THERE IS NO KEYCODE-TO-SCANCODE TRANSLATION ANY MORE.** There was,

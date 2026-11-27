@@ -654,8 +654,9 @@ KTEST("tty", "a pty carries a line, and INTR through it, from ring 3") {
 
 KTEST("tty", "a fabricated slot leads its own session") {
     uint64_t tf[SCHED_TF_SLOTS] = {0};
+    scheduler_preempt_disable();   // a fabricated slot's whole window
     int idx = scheduler_test_park(tf, tf, SCHED_WAIT_EVENT);
-    if (idx < 0) KTEST_SKIP("no free slot");
+    if (idx < 0) { scheduler_preempt_enable(); KTEST_SKIP("no free slot"); }
     int pid = scheduler_slot_pid(idx);
 
     // Non-zero for every live slot, exactly as pgid is: a process the
@@ -671,6 +672,7 @@ KTEST("tty", "a fabricated slot leads its own session") {
     int refused = scheduler_setsid(pid);
 
     scheduler_test_release(idx);
+    scheduler_preempt_enable();
 
     KTEST_ASSERT_EQ(sid, pid);
     KTEST_ASSERT_EQ(has, 1);
@@ -686,8 +688,9 @@ KTEST("tty", "a hang-up ends the session but keeps the input typed ahead") {
     struct tty *t = scratch(TTY_ICANON);
     if (!t) KTEST_SKIP("no free terminal slot");
     uint64_t tf[SCHED_TF_SLOTS] = {0};
+    scheduler_preempt_disable();   // a fabricated slot's whole window
     int idx = scheduler_test_park(tf, tf, SCHED_WAIT_EVENT);
-    if (idx < 0) { tty_destroy(t); KTEST_SKIP("no free slot"); }
+    if (idx < 0) { scheduler_preempt_enable(); tty_destroy(t); KTEST_SKIP("no free slot"); }
     int pid = scheduler_slot_pid(idx);
 
     tty_attach_kernel_session(t, pid);
@@ -701,6 +704,8 @@ KTEST("tty", "a hang-up ends the session but keeps the input typed ahead") {
     unsigned n = tty_read(t, buf, sizeof buf);
 
     scheduler_test_release(idx);
+    (void)scheduler_test_take_resched();   // the signal's wake asked for one
+    scheduler_preempt_enable();
     tty_destroy(t);
 
     KTEST_ASSERT_EQ(owner, pid);
@@ -721,11 +726,16 @@ KTEST("tty", "INTR reaches the owner's own group only in a kernel-led session") 
     // as a byte. The debug console's session has no shell process: the
     // owner IS the command, and INTR must be taken as a signal. The
     // control is the same process as an ordinary owner.
+    //
+    // THE SIGNAL MAKES THE FABRICATED SLOT READY, so the guard below is
+    // what keeps core 0's next tick from switching to it and returning
+    // through `tf` (scheduler.h, scheduler_test_park()'s rule 1).
     struct tty *t = scratch(TTY_ISIG);
     if (!t) KTEST_SKIP("no free terminal slot");
     uint64_t tf[SCHED_TF_SLOTS] = {0};
+    scheduler_preempt_disable();   // a fabricated slot's whole window
     int idx = scheduler_test_park(tf, tf, SCHED_WAIT_EVENT);
-    if (idx < 0) { tty_destroy(t); KTEST_SKIP("no free slot"); }
+    if (idx < 0) { scheduler_preempt_enable(); tty_destroy(t); KTEST_SKIP("no free slot"); }
     int pid = scheduler_slot_pid(idx);
 
     tty_set_owner(t, pid);
@@ -739,6 +749,8 @@ KTEST("tty", "INTR reaches the owner's own group only in a kernel-led session") 
     uint32_t pending = scheduler_signal_pending(pid);
 
     scheduler_test_release(idx);
+    (void)scheduler_test_take_resched();   // the signal's wake asked for one
+    scheduler_preempt_enable();
     tty_destroy(t);
 
     KTEST_ASSERT_EQ((int)as_byte, 1);     // control: an ordinary owner keeps it

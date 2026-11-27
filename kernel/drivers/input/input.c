@@ -135,14 +135,18 @@ void input_note_activity(void) {
     __atomic_store_n(&g_input_last_ms, clocksource_now_ns() / 1000000ull, __ATOMIC_RELAXED);
 }
 
+void input_activity_read(uint64_t *events, uint64_t *last_ms) {
+    *events = __atomic_load_n(&g_input_events, __ATOMIC_RELAXED);
+    *last_ms = __atomic_load_n(&g_input_last_ms, __ATOMIC_RELAXED);
+}
+
 static int input_query_count(void) { return 1; }
 
 static int input_query_fill(int index, void *out) {
     if (index != 0) return 0;
     struct query_input *q = out;
     k_memset(q, 0, sizeof *q);
-    q->events = __atomic_load_n(&g_input_events, __ATOMIC_RELAXED);
-    q->last_ms = __atomic_load_n(&g_input_last_ms, __ATOMIC_RELAXED);
+    input_activity_read(&q->events, &q->last_ms);
     return 1;
 }
 
