@@ -545,6 +545,7 @@ Full entries: [`docs/tools/lib.md`](tools/lib.md).
 - `harness.py` -- What every test tool here had written for itself: a results table, a
 - `hostcheck.py` -- The build half every `*_hostcheck.py` had written for itself
 - `iso_guard.py` -- Refuse to boot a stale saunaos.iso
+- `ls_long.py` -- read `/bin/ls -l`'s long form (userland/utils/ls.c)
 - `mkpart_test.py` -- writes a synthetic legacy MBR or GPT
 - `otl.py` -- read a TrueType face's cmap, kern table, glyph names and
 - `panic_resolve.py` -- Resolve a pasted panic into function names and source lines

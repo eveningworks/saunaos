@@ -690,8 +690,8 @@ Windows 11 puts the last one in the middle and the others bottom-left.
   privd writes who signed in, `/var/lib/greeter/last`, at the sign-in:
   init stops the greeter the moment the session begins, before the
   greeter would hear the answer.
-- **Homes are private from D3a on**: a new one is `04700`. `/home/user`
-  stays `4755` as stage C made it (roadmap).
+- **Homes are private from D3a on**: a new one is `04700`, and `/home/user`
+  too since 2026-11-27 (`owners.conf`, applied at every boot).
 - **D3b: machine-scoped writes need the admin right** (privd), as
   hostname1 and timedate1 do under polkit. Picked 2026-11-26 (mockup
   canvas M1): a shield on each machine row in System Settings, and ONE

@@ -10,7 +10,11 @@
 
 ## Options
 
-- `-l` -- long form: type, size and modification time before each name.
+- `-l` -- long form: mode, owner, group, size and modification time before
+  each name -- GNU's columns less the link count, which no folder here
+  needs: `-rw-r--r-- user user        312 27.11.2026 17:02:00  notes.txt`.
+  A folder's size is left blank; an account with no name shows its number;
+  setuid, setgid and sticky are `s`/`S` and `t`/`T` in the x places.
 - `-C` -- multi-column; ignored when `-l` is given.
 - `-1` -- one entry per line, which is the default.
 - `-h` -- human-readable sizes, in the long form.

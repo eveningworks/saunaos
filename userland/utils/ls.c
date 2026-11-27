@@ -35,12 +35,12 @@
 // nobody has to remember a flag -- which is the whole reason real ls
 // defaults to auto. `never` and `always` override it.
 //
-// WHAT IS NOT COLOURED, and why: executables. Real ls colours them from
-// the mode bits, and this filesystem has none -- struct ulist_entry carries a
-// name, a size, is_dir and a timestamp. Colouring /bin's contents by
-// their DIRECTORY would be a rule about where a file sits rather than
-// what it is, so directories are coloured and everything else is left
-// alone until file permissions exist (docs/roadmap.md).
+// WHAT IS NOT COLOURED: executables. Real ls colours them from the mode
+// bits, which a listing does not carry (struct ulist_entry: a name, a
+// size, is_dir and a timestamp) -- only -l stats each entry for them.
+//
+// -l IS GNU's LONG FORM LESS THE LINK COUNT: mode, owner, group, size,
+// time, name. Tests read it through tools/lib/ls_long.py, one parser.
 #include <stdint.h>
 #include "rt/sys.h"
 #include <string.h>
@@ -55,6 +55,8 @@
 #include <locale.h>
 #include "kpath.h"    // k_path_basename, for a path that names a file
 #include <unistd.h>
+#include <pwd.h>
+#include <grp.h>
 
 // The output flags, gathered so the recursion below can pass one thing.
 struct opts {
@@ -136,6 +138,71 @@ static void put_timestamp(const struct rtc_time *t) {
     for (int i = (int)strlen(buf); i < width; i++) put(" ");
 }
 
+// ---- the long form's mode and owner ---------------------------------
+
+// What -l prints before the size, from one SYS_STATX per entry.
+struct lmeta {
+    int ok;
+    uint32_t mode, uid, gid;
+};
+
+// `drwsr-xr-x`: the type, then rwx thrice, with setuid/setgid/sticky in
+// the x places (s/S, t/T: upper case when the x under it is not set).
+static void mode_str(char out[11], int is_dir, uint32_t m) {
+    static const char rwx[] = "rwxrwxrwx";
+    out[0] = is_dir ? 'd' : '-';
+    for (int i = 0; i < 9; i++) out[1 + i] = (m & (0400u >> i)) ? rwx[i] : '-';
+    if (m & 04000) out[3] = (m & 0100) ? 's' : 'S';
+    if (m & 02000) out[6] = (m & 0010) ? 's' : 'S';
+    if (m & 01000) out[9] = (m & 0001) ? 't' : 'T';
+    out[10] = '\0';
+}
+
+// An account's name, or its number when it has none. The last answer is
+// kept: a folder's entries are mostly one owner's, and getpwuid() reads
+// /etc/passwd each time.
+static const char *owner_name(uint32_t uid, int group) {
+    static uint32_t last[2] = { (uint32_t)-1, (uint32_t)-1 };
+    static char name[2][64];
+    if (last[group] == uid) return name[group];
+    const char *n = 0;
+    if (group) { struct group *g = getgrgid(uid); n = g ? g->gr_name : 0; }
+    else { struct passwd *pw = getpwuid(uid); n = pw ? pw->pw_name : 0; }
+    if (n && strlen(n) < sizeof name[0]) strlcpy(name[group], n, sizeof name[group]);
+    else snprintf(name[group], sizeof name[group], "%u", (unsigned)uid);
+    last[group] = uid;
+    return name[group];
+}
+
+static void put_padded(const char *s, int width) {
+    put(s);
+    for (int i = (int)strlen(s); i < width; i++) put(" ");
+}
+
+// Each entry's mode and owner, and the owner and group columns' widths.
+// NULL when it cannot be allocated: the long form then prints without them.
+static struct lmeta *long_meta(const char *path, const struct ulist_entry *ents, int count,
+                               int one, int *ow, int *gw) {
+    struct lmeta *m = calloc(count ? (size_t)count : 1, sizeof *m);
+    *ow = *gw = 1;
+    if (!m) return 0;
+    for (int i = 0; i < count; i++) {
+        char *full = one ? 0 : upath_join(path, ents[i].name);
+        struct sys_statx sx;
+        if ((one || full) && sys_statx(one ? path : full, &sx) == 0) {
+            m[i].ok = 1;
+            m[i].mode = sx.st.mode & 07777;
+            m[i].uid = sx.uid;
+            m[i].gid = sx.gid;
+            int a = (int)strlen(owner_name(sx.uid, 0)), b = (int)strlen(owner_name(sx.gid, 1));
+            if (a > *ow) *ow = a;
+            if (b > *gw) *gw = b;
+        }
+        free(full);
+    }
+    return m;
+}
+
 // ---- ordering --------------------------------------------------------
 //
 // Sorting lives in userland/libs/base/dirsort.c, NOT here, because Notepad's
@@ -213,13 +280,27 @@ static int list_one(const struct opts *o, const char *path, int with_header) {
             o->sort == 'S' ? DIRSORT_SIZE : o->sort == 't' ? DIRSORT_TIME : DIRSORT_NAME,
             o->reverse);
 
+    // After the sort, so each entry's mode stays beside it.
+    int ow = 1, gw = 1;
+    struct lmeta *meta = o->long_form ? long_meta(path, ents, count, ents == &one, &ow, &gw) : 0;
+
     for (int i = 0; i < count; i++) {
         struct ulist_entry *e = &ents[i];
 
         if (o->recurse && e->is_dir) queue_push(path, e->name);
 
         if (o->long_form) {
-            put(e->is_dir ? "d " : "- ");
+            char ms[11];
+            if (meta && meta[i].ok) {
+                mode_str(ms, e->is_dir, meta[i].mode);
+                put(ms); put(" ");
+                put_padded(owner_name(meta[i].uid, 0), ow); put(" ");
+                put_padded(owner_name(meta[i].gid, 1), gw); put(" ");
+            } else {
+                put(e->is_dir ? "d?????????" : "-?????????"); put(" ");
+                put_padded("?", ow); put(" ");
+                put_padded("?", gw); put(" ");
+            }
             if (e->is_dir) put(o->human ? "      " : "          ");
             else put_size(o, e->size);
             put(" ");
@@ -237,6 +318,7 @@ static int list_one(const struct opts *o, const char *path, int with_header) {
         put(o->columns && !o->long_form ? "  " : "\n");
     }
     if (o->columns && !o->long_form && count > 0) put("\n");
+    free(meta);
     if (ents != &one) free(ents);
     return 0;
 }
@@ -247,7 +329,7 @@ static const char *f_color;
 static const struct uargs_opt OPTS[] = {
     { 0, '1', 0, "one name per line (the default)", &f_one, 0 },
     { 0, 'C', 0, "names in columns; ignored with -l", &f_cols, 0 },
-    { 0, 'l', 0, "long form: type, size and modification time", &f_long, 0 },
+    { 0, 'l', 0, "long form: mode, owner, group, size and modification time", &f_long, 0 },
     { 0, 'h', 0, "sizes as 4.0K, 12M rather than bytes", &f_human, 0 },
     { 0, 't', 0, "newest first", &f_time, 0 },
     { 0, 'S', 0, "largest first", &f_size, 0 },

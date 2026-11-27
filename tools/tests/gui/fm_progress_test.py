@@ -34,6 +34,7 @@ import time
 import os  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
+import ls_long  # noqa: E402 -- /bin/ls -l's columns
 import filemanager_test as fm
 from gui_debug import enter_gui, DebugConsole          # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
@@ -53,9 +54,8 @@ EV_PAUSE, EV_RESUME = 4, 5          # UUI_XFER_EV_*
 
 def size_of(dbg, path):
     """`ls -l`'s size column, or None."""
-    out = dbg.send(f"sh ls -l {path}") or ""
-    m = re.search(r"^-\s+(\d+)\s", out, re.M)
-    return int(m.group(1)) if m else None
+    files = [e for e in ls_long.entries(dbg.send(f"sh ls -l {path}") or "") if e["type"] == "-"]
+    return files[0]["size"] if files else None
 
 
 def setup(dbg):

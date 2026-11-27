@@ -256,14 +256,15 @@ only expensive part of it.
 - [x] ~~Stage D3b2b of `docs/users-design.md`: a Standard account's change signed by an administrator~~ DONE 2026-11-27
 - [x] ~~Stage D3c of `docs/users-design.md`: the kernel's per-person settings at sign-in, `fontd` per session~~ DONE 2026-11-27
 - [ ] Several sessions at once, and Switch user -- the compositor role handed between paused compositors (logind's PauseDevice)
-- [ ] `/home/user` private like the homes D3a makes (0700, not 4755)
+- [x] ~~`/home/user` private like the homes D3a makes (0700, not 4755)~~ DONE 2026-11-27 -- 04700, `owners.conf`
 - [ ] An account's picture and language on the login screen -- `/var/lib/accounts/<name>`, decided in stage D
 - [ ] The login screen says when Caps Lock is on -- ring 3 cannot read the lock state yet
 - [ ] Lock in the Start menu's power row -- Super+L and lock-on-resume are built (users D2c)
 - [ ] Sign out ends the session's processes too -- today only its windows close (logind's KillUserProcesses)
 - [ ] Root windows on the person's desktop draw in the person's look -- First-boot setup, screen trial, elevated tools see the machine's
 - [ ] `open()`'s and `mkdir()`'s mode reach the kernel -- once every tool that writes a program sets its exec bit (stage C)
-- [ ] `ls -l` shows the mode and the owner, and File Manager's Properties the owner -- today `stat` does
+- [x] ~~`ls -l` shows the mode and the owner~~ DONE 2026-11-27 -- GNU's columns less the link count
+- [ ] File Manager's Properties shows the owner -- `ls -l` and `stat` do
 - [ ] A setgid folder gives a new file its group (BSD's rule; Linux's with `g+s`)
 - [ ] `service start`/`stop` and Task Manager's Services page reach init as any account -- gate them through privd
 - [x] ~~A minimal user/group model~~ DONE 2026-11-24 -- root and `user` in `/etc/passwd`, `wheel` in `/etc/group`

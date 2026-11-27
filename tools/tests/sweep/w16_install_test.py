@@ -42,6 +42,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
+import ls_long  # noqa: E402 -- /bin/ls -l's columns
 import gen_win3_disks  # noqa: E402
 import port_guard  # noqa: E402
 
@@ -121,9 +122,9 @@ def cli(g, tmp):
         if line.startswith("--- ls -l "):
             where = "WINDOWS/SYSTEM" if line.rstrip(" -").endswith("SYSTEM") else "WINDOWS"
             continue
-        p = line.split()
-        if len(p) >= 5 and p[0] == "-":
-            sizes["%s/%s" % (where, p[-1])] = int(p[1])
+        e = ls_long.parse(line)
+        if e and e["type"] == "-":
+            sizes["%s/%s" % (where, ls_long.name_of(e))] = e["size"]
     # NOT FROM THE DISKS: Program Manager's groups, which the install makes after the copy
     # (grp16.c) -- PROGMAN.INI and an RLn.GRP for each of Retro Launcher's folders.
     groups = sorted(p for p in sizes if re.fullmatch(r"WINDOWS/RL\d+\.GRP", p))

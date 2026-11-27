@@ -180,8 +180,15 @@ int main(int argc, char **argv) {
     unlink(D "/su/sub/f"); rmdir(D "/su/sub"); rmdir(D "/su");
 
     // A mount point's mode is its mount's: the tmpfs service's 1777.
-    utest_checkf(stat("/tmp", &st) == 0 && (st.st_mode & 07777) == 01777,
+    // Each stat BEFORE its check: an argument's order is unspecified, so a
+    // stat inside the condition printed the previous mode.
+    int got = stat("/tmp", &st);
+    utest_checkf(got == 0 && (st.st_mode & 07777) == 01777,
                  "/tmp is 1777 (%o)", (unsigned)(st.st_mode & 07777));
+    // A home is private (owners.conf): /home/user 04700, as privd makes one.
+    got = stat("/home/user", &st);
+    utest_checkf(got == 0 && st.st_uid == 1000 && (st.st_mode & 07777) == 04700,
+                 "/home/user is user's, 4700 (%o)", (unsigned)(st.st_mode & 07777));
 
     unlink(D "/secret"); unlink(D "/public"); unlink(D "/noexec");
     unlink(D "/closed/inner"); rmdir(D "/closed");

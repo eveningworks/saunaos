@@ -618,6 +618,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   lowest free slot" in the same instant get the same answer, so it
   narrows the window and `assert_ports_free()` at the launch catches the
   residue. `SAUNAOS_ALLOW_PORT_CLASH=1` bypasses it deliberately.
+- **`ls_long.py`** -- reads `/bin/ls -l`'s long form: `parse(line)`
+  gives the type, mode, owner, group and size (None for a folder),
+  `entries(text)` every entry, `size(text, name)` one file's size or -1.
+  One parser because five tests read a size out of `ls -l` by column, and
+  the owner and group columns (2026-11-27) moved it under every one.
 - **`pixel_probe.py`** -- reads exact pixel values out of screenshots,
   and tabulates the same points across several (`--compare a.png b.png
   --at 85,100 --at 215,100`), flagging which moved and which didn't.

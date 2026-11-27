@@ -52,6 +52,7 @@ import subprocess
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
+import ls_long  # noqa: E402 -- /bin/ls -l's columns
 from harness import Results  # noqa: E402
 
 HERE = toolpath.TOOLS
@@ -114,11 +115,7 @@ def main():
     def size(directory, name):
         # `ls -l` LISTS A DIRECTORY -- pointing it at a file does not
         # describe that file -- so the row is found by name.
-        for line in sh(f"ls -l {directory}"):
-            parts = line.split()
-            if len(parts) >= 5 and parts[0] == "-" and parts[-1] == name:
-                return int(parts[1])
-        return -1
+        return ls_long.size(sh(f"ls -l {directory}"), name)
 
     before = size(f"{ROOT}/b", "one.txt")
     sh(f"cp /etc/resolv.conf {ROOT}/b/one.txt")

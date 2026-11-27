@@ -61,6 +61,7 @@ import json
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
+import ls_long  # noqa: E402 -- /bin/ls -l's columns
 from gui_debug import DebugConsole, enter_gui          # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
@@ -717,11 +718,7 @@ def wait_listing(dbg, path, pred, timeout=25.0):
 def size_of(dbg, directory, name):
     """One file's size, from `ls -l` on its DIRECTORY -- pointing ls at a
     file does not describe that file."""
-    for line in (dbg.send(f"sh ls -l {directory}") or "").splitlines():
-        parts = line.split()
-        if len(parts) >= 5 and parts[0] == "-" and parts[-1] == name:
-            return int(parts[1])
-    return -1
+    return ls_long.size(dbg.send(f"sh ls -l {directory}") or "", name)
 
 
 def sure_click(dbg, qmp, x, y):
