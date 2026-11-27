@@ -11193,6 +11193,13 @@ the desktop creates and rewrites its own files, and cannot remove or
 replace root's -- `/etc/passwd`, `group`, `services.d`, `settings.d`,
 the shipped data. A file a root service makes in `/etc` would be stuck
 root's, so the `owners` pass re-applies the list at every boot.
+**Since users D3b2a (2026-11-27) `/etc`, `/var` and `/var/lib` are root's,
+0755**, as the middle ground above always meant to end: stage D split
+the settings (the person's in `~/.config`), D3b1 routed the machine's
+through privd, and D3b2a moved or routed every file the desktop still
+wrote there -- the person's things into their home, the seat's through a
+privd action granted without a prompt, the machine's asked of an
+administrator (`docs/users-design.md`, D3b2a).
 
 **Who owns what is a data file both the image seeder and the boot read**
 (`/etc/owners.conf`, systemd-tmpfiles' `z`/`Z` in shape) rather than a
