@@ -121,6 +121,16 @@ def keyboard_round(dbg, qmp, tmp):
     ht = text_top(kb["x"] + kb["w"] + 8, min(kb["x"] + kb["w"] + 160, scr["w"]), kb["y"] - 4, kb["y"] + kb["h"] + 4, 200)
     check("the Keyboard button's text and the computer's name sit on one line",
           bt is not None and ht is not None and abs(bt - ht) <= 1, f"button text top {bt}, name top {ht}")
+    # FLAT AT REST, as Restart and Shut down are: inside the capsule's left
+    # end (no text there) is the background just left of it, not glass.
+    # A 3x3 mean each side, so a textured background's one pixel cannot decide.
+    def mean(x0, y0):
+        px = [before.getpixel((x, y)) for x in range(x0, x0 + 3) for y in range(y0 - 1, y0 + 2)]
+        return tuple(sum(p[i] for p in px) // len(px) for i in range(3))
+    cy = kb["y"] + kb["h"] // 2
+    inside, outside = mean(kb["x"] + 2, cy), mean(max(kb["x"] - 6, 0), cy)
+    check("...and the button has no background until it is pointed at",
+          max(abs(a - b) for a, b in zip(inside, outside)) <= 12, f"inside {inside}, outside {outside}")
     dbg.click(kb["cx"], kb["cy"])
     lay = poll(lambda: (lambda j: j if j.get("open") else None)(dbg.json("gui layout --json") or {}), 5, 0.2)
     check("a click on it opens the layout list", bool(lay), str(dbg.json("gui layout --json"))[:200])

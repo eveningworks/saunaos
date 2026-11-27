@@ -444,8 +444,10 @@ void wm_login_draw(int mx, int my) {
     int hx = u() * 3, hy = screen_h - ch - u() * 3;
     const struct rect *k = &g_r[C_KEYBOARD];
     if (k->w > 0) {
-        uui_glass_round_rect(s, k->x, k->y, k->w, k->h, UUI_CAPSULE, WHITE,
-                             g_hot == C_KEYBOARD || layout_open ? 80 : 50, 100);
+        // Flat at rest, as Restart and Shut down are: the chevron says it
+        // opens something, and the capsule shows under the pointer or open.
+        if (g_hot == C_KEYBOARD || layout_open)
+            uui_glass_round_rect(s, k->x, k->y, k->w, k->h, UUI_CAPSULE, WHITE, 80, 100);
         int ty = k->y + (k->h - ch) / 2, end = k->h / 2;
         ugfx_draw_string_clipped(s, k->x + end, ty, k->w - 2 * end, kb, WHITE, UGFX_TRANSPARENT);
         // The chevron, a gap after the text, points the way the list opens.
