@@ -464,7 +464,12 @@ from it, Standard or Administrator, an optional password and a home of
 their own made from `/etc/skel`. The login screen lists everyone
 bottom-left with the person who signed in last in the middle, as
 Windows 11's does; one session runs at a time (`docs/users-design.md`,
-stage D3a).
+stage D3a). A Standard account is asked rather than refused: whatever an
+administrator would approve -- a setting with a shield, an admin tool, an
+account change -- opens the same dialog with an Administrator drop-down,
+and one of them types their own password there, every time; with no
+administrator password set, the dialog says so and the change is
+refused (stage D3b2b).
 
 **Files have owners, and the kernel checks them.** Each file on the
 system volume carries an owner, a group and Unix permission bits, and
