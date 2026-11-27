@@ -21,7 +21,7 @@ serial ports"). Six properties, each with a failure the others miss:
    would have nobody to continue it -- Ctrl-C still ends it after), and
    a program that went raw and exited without restoring (tosh) does not
    leave the line raw: a command ended by CR still runs.
-4. **A job left behind is hung up.** `tosh -c "counter_a &"` returns
+4. **A job left behind is hung up.** `tosh -c "counter_a 600 &"` returns
    while its background job keeps printing; from the prompt on, the port
    must carry NONE of it (it goes to the VGA console). The job is
    confirmed still running across the quiet window, so its silence means
@@ -171,7 +171,9 @@ def main():
     # returns: from the prompt on, not one byte of it reaches the port.
     # ANY byte counts, because counter_a writes a bare 'A' with no
     # newline and a leak glues onto whatever comes next.
-    p.send(b"sh tosh -c \"/tests/counter_a &\"\n", 4.0)
+    # 600 rounds, not the default 20: those are done in ~0.6 s on a fast
+    # host, and a job that has EXITED is silent whatever the kernel does.
+    p.send(b"sh tosh -c \"/tests/counter_a 600 &\"\n", 4.0)
     quiet = p.read(2.5)
     ps = p.send(b"sh ps\n", 3.0)
     alive = "counter_a" in ps

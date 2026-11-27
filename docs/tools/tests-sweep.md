@@ -815,7 +815,7 @@ report is ON only after `enter_gui()`").
   port: `sh cat` reads a typed line, Ctrl-D ends it, Ctrl-C stops a
   `spin_test` that is confirmed still running, Ctrl-Z does NOT strand a
   command, a program that went raw does not leave the line raw, a job a
-  command leaves behind (`tosh -c "counter_a &"`) prints NOTHING on the
+  command leaves behind (`tosh -c "counter_a 600 &"`) prints NOTHING on the
   port once the prompt is back (it is confirmed alive across the
   window), `sh spawn`'s job is detached from the start, a spawned
   reader does not take the next command's line, and `tsh` runs one
@@ -920,7 +920,10 @@ report is ON only after `enter_gui()`").
   change VT2 and not VT1, a program writing to tty0 while VT2 is shown
   leaves VT2's frame alone and its line is on VT1 afterwards, and
   Shift+PageUp shows each VT's OWN history -- VT2's few lines, not VT1's
-  boot log.
+  boot log. A THIRD boot is the desktop on VT1: its reference frame is
+  taken only once the tray reports the network connected and the frame
+  has stopped changing (both checked), since the tray's icon changes by
+  itself. Files a VT's shell makes go in `/tmp`: it is the person's shell.
 
 - **`console_shell_test.py`** -- a `text` boot reaches a RING-3 shell
   prompt and the kernel shell is not involved (`docs/init-design.md`'s

@@ -185,13 +185,32 @@ def desktop_phase(sock, port, scratch, w):
     # are compared whole, and its sprite alone makes two differ.
     park = (w - 200, 40)
     q.goto(*park)
+    # THE TRAY'S NETWORK ICON CHANGES BY ITSELF when the link comes up,
+    # seconds after the desktop does: a `d0` taken before that differs
+    # from every frame after the round trip (1 run in 11, 2026-11-27).
+    # So the TRAY's own word that it is connected is waited for, then a
+    # frame that has stopped changing.
+    def tray_connected():
+        try:
+            return dbg.json("gui network --json").get("connected")
+        except ValueError:   # no JSON yet: the WM is still coming up
+            return False
+    up = dbg.wait_network() and poll(tray_connected, 30.0, step=0.5)
+    check("the network is up and the tray says so, before the reference frame", bool(up))
     dbg.settle()
     d0 = scr.grab()
     h = d0.size[1]
     # Everything but the taskbar clock, which may tick during the round trip.
-    def desktop_same(img):
-        return (same(img, d0, (0, 0, w, h - 50)) and
-                same(img, d0, (0, h - 50, w - 160, h)))
+    def desktop_same(img, ref=None):
+        ref = ref or d0
+        return (same(img, ref, (0, 0, w, h - 50)) and
+                same(img, ref, (0, h - 50, w - 160, h)))
+
+    def steady():
+        nonlocal d0
+        prev, d0 = d0, scr.grab()
+        return desktop_same(d0, prev)
+    check("the desktop's frame has stopped changing", bool(poll(steady, 15.0, step=1.0)))
 
     check("Ctrl+Alt+F2 leaves the desktop", switch(q, dbg, 2, seen))
     check("the compositor is told it lost the screen",
@@ -201,11 +220,11 @@ def desktop_phase(sock, port, scratch, w):
     vt2 = scr.grab()
     check("VT2 is on screen, not the desktop",
           not same(vt2, d0) and lit(vt2, (0, 0, w, CELL_H)) > 0 and lit(vt2, prompt) > 0)
-    flow.type_command("touch /vtdesk.txt")
+    flow.type_command("touch /tmp/vtdesk.txt")
     q.send_key("ret")
     check("a command typed on VT2 runs over the desktop",
-          bool(poll(lambda: "vtdesk.txt" in (dbg.send("sh ls /") or ""), 15.0, step=0.5)))
-    dbg.send("sh rm /vtdesk.txt")
+          bool(poll(lambda: "vtdesk.txt" in (dbg.send("sh ls /tmp") or ""), 15.0, step=0.5)))
+    dbg.send("sh rm /tmp/vtdesk.txt")
 
     print("what is done at VT2 is VT2's")
     q.goto(w // 2, h // 3)
@@ -319,11 +338,12 @@ def main():
               lit(vt2, (0, 0, w, CELL_H)) > 0 and lit(vt2, prompt) > 0)
 
         print("a line typed on VT2 runs")
-        flow.type_command("touch /vtprobe.txt")
+        # In /tmp: the VT's shell is the signed-in person's, and / is root's.
+        flow.type_command("touch /tmp/vtprobe.txt")
         q.send_key("ret")
-        made = poll(lambda: "vtprobe.txt" in (dbg.send("sh ls /") or ""), 15.0, step=0.5)
+        made = poll(lambda: "vtprobe.txt" in (dbg.send("sh ls /tmp") or ""), 15.0, step=0.5)
         check("a command typed on VT2 ran", bool(made))
-        dbg.send("sh rm /vtprobe.txt")
+        dbg.send("sh rm /tmp/vtprobe.txt")
 
         print("exit, and a fresh shell on a cleared screen")
         # A JOB LEFT BEHIND: /tests/ansiregion paints, holds ~6 s, then
