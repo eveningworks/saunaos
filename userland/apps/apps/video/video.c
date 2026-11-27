@@ -25,6 +25,7 @@
 #include <pthread.h>
 #include "media/uvid.h"
 #include "base/ulistdir.h"
+#include "base/upath.h"
 #include "media/uvid_play.h"
 #include "media/usnd.h"
 #include "base/uconf.h"
@@ -56,7 +57,6 @@
 #define DEFAULT_DIR "/usr/share/videos"
 #define PROPERTIES  "/bin/wm/apps/properties"
 #define SAVE_DIR    udir_home()
-#define PATH_MAX_V  256
 #define HIDE_MS     2500                // full screen: the bar hides after this still
 #define SEEK_STEP   10000               // Left/Right, ms
 
@@ -72,7 +72,7 @@ enum {
 enum { POST_THUMB = 1, POST_PREVIEW };
 
 struct item {
-    char name[64];
+    char name[ULIST_NAME_MAX];
     uint32_t ms;
     char detail[48];
     struct rtc_time mtime;
@@ -96,7 +96,8 @@ static struct uvid_play *g_play;
 static struct item *g_items; // g_cap of them, grown by scan()
 static int g_cap;
 static int g_count, g_cur = -1;
-static char g_dir[PATH_MAX_V] = DEFAULT_DIR;
+static const char *g_dir = DEFAULT_DIR;   // the folder listed
+static char *g_dir_heap;                  // what it points at once scan() took one
 static int g_have_sound, g_panel = 1, g_loop, g_full;
 static int g_tinted;                  // the stage has taken its colours from this video
 static int g_pending_play;            // a file was named: play it once the window is up
@@ -120,7 +121,7 @@ static int g_bar_shown = 1;
 
 static pthread_t g_pv_thread;
 static pthread_mutex_t g_pv_lock = PTHREAD_MUTEX_INITIALIZER;
-static char g_pv_path[PATH_MAX_V];        // under the lock: the request
+static char *g_pv_path;                   // under the lock: the request, owned
 static int32_t g_pv_want = -1;            // ms, -1 for none
 static struct uimg g_pv_img;              // under the lock: the answer
 static int32_t g_pv_have = -1;
@@ -129,21 +130,26 @@ static int g_pv_x;
 
 static void *preview_main(void *arg) {
     (void)arg;
-    char open_path[PATH_MAX_V] = "";
+    char *open_path = NULL;   // the file `v` is, owned
     struct uvid *v = 0;
     for (;;) {
         pthread_mutex_lock(&g_pv_lock);
         int32_t want = g_pv_want;
-        char path[PATH_MAX_V];
-        strlcpy(path, g_pv_path, sizeof path);
+        char *path = want >= 0 && g_pv_path ? strdup(g_pv_path) : NULL;
         g_pv_want = -1;
         pthread_mutex_unlock(&g_pv_lock);
-        if (want < 0) { sys_sleep_ms(15); continue; }   // parked by sleeping (from when a cond var spun)
-        if (strcmp(path, open_path)) {
+        // Parked by sleeping (from when a cond var spun); a request with
+        // no memory for its path is dropped, and the next hover asks again.
+        if (!path) { sys_sleep_ms(15); continue; }
+        if (open_path && !strcmp(path, open_path)) {
+            free(path);
+        } else {
             uvid_close(v);
             v = 0;
-            if (uvid_open(path, &v) != 0) { v = 0; open_path[0] = '\0'; continue; }
-            strlcpy(open_path, path, sizeof open_path);
+            free(open_path);
+            open_path = NULL;
+            if (uvid_open(path, &v) != 0) { v = 0; free(path); continue; }
+            open_path = path;
         }
         // A KEYFRAME, not the exact frame: fast is what a hover wants.
         const struct uvid_frame *f;
@@ -163,10 +169,14 @@ static void *preview_main(void *arg) {
 
 static void preview_ask(int ms) {
     if (g_cur < 0) return;
+    char *path = upath_join(g_dir, g_items[g_cur].name);
+    if (!path) return;
     pthread_mutex_lock(&g_pv_lock);
-    k_path_join(g_dir, g_items[g_cur].name, g_pv_path, sizeof g_pv_path);
+    char *old = g_pv_path;
+    g_pv_path = path;
     g_pv_want = ms;
     pthread_mutex_unlock(&g_pv_lock);
+    free(old);
 }
 
 // --- menus, the bar, the keys ------------------------------------------------
@@ -275,10 +285,11 @@ static struct uui_item g_widgets[] = {
 static int keep_video(void *ctx, const char *dir, const struct ulist_entry *e) {
     (void)ctx;
     if (e->is_dir) return 0;
-    char path[PATH_MAX_V];
-    if (!k_path_join(dir, e->name, path, sizeof path)) return 0;
+    char *path = upath_join(dir, e->name);
+    if (!path) return 0;
     uint8_t head[16];
     size_t got = ufile_read_head(path, head, sizeof head);
+    free(path);
     return got >= 4 && uvid_probe(head, got);
 }
 
@@ -288,7 +299,12 @@ static int by_name(const void *a, const void *b) {
 
 static void scan(const char *dir) {
     struct ulist_entry *all = 0;
-    if (dir != g_dir) strlcpy(g_dir, dir, sizeof g_dir);
+    if (dir != g_dir) {
+        char *own = strdup(dir);
+        if (!own) { ulogf("video: out of memory listing %s\n", dir); return; }   // the old folder stays
+        free(g_dir_heap);
+        g_dir = g_dir_heap = own;
+    }
     g_count = 0;
     int n = ulistdir(g_dir, &all);
     for (int i = 0; i < n; i++) {
@@ -300,8 +316,11 @@ static void scan(const char *dir) {
         struct item *it = &g_items[g_count];
         memset(it, 0, sizeof *it);
         strlcpy(it->name, all[i].name, sizeof it->name);
-        char path[PATH_MAX_V];
-        k_path_join(g_dir, all[i].name, path, sizeof path);
+        char *path = upath_join(g_dir, all[i].name);
+        if (!path) {
+            ulogf("video: out of memory listing %s at %d\n", g_dir, g_count);
+            break;
+        }
         struct uvid_info in;
         if (uvid_load_info(path, &in) == 0) {
             it->ms = in.ms;
@@ -312,6 +331,7 @@ static void scan(const char *dir) {
         }
         struct sys_stat st;
         if (sys_stat(path, &st) == 0) { it->mtime = st.modified; it->size = (uint32_t)st.size; }
+        free(path);
         g_count++;
     }
     free(all);
@@ -341,9 +361,11 @@ static void list_text(void *ctx, int row, char *title, int tcap, char *detail, i
 static const struct uimg *list_thumb(void *ctx, int row, int px) {
     (void)ctx;
     if (row < 0 || row >= g_count) return 0;
-    char path[PATH_MAX_V];
-    k_path_join(g_dir, g_items[row].name, path, sizeof path);
-    return uthumb_get(path, &g_items[row].mtime, g_items[row].size, px);
+    char *path = upath_join(g_dir, g_items[row].name);
+    if (!path) return 0;
+    const struct uimg *t = uthumb_get(path, &g_items[row].mtime, g_items[row].size, px);
+    free(path);
+    return t;
 }
 
 static int thumb_wake(void *ctx) { (void)ctx; return uapp_post(g_app, POST_THUMB, 0) == 0; }
@@ -389,14 +411,15 @@ static void play_index(int i) {
     stop();
     g_cur = i;
     uui_medialist_select(&g_list, i);
-    char path[PATH_MAX_V];
-    k_path_join(g_dir, g_items[i].name, path, sizeof path);
-    int rc = uvid_play_open(&g_play, path, 0);
+    char *path = upath_join(g_dir, g_items[i].name);
+    int rc = path ? uvid_play_open(&g_play, path, 0) : -1;
     title_of(i, g_stat_name, sizeof g_stat_name);
     if (rc != 0) {
-        snprintf(g_stat_codec, sizeof g_stat_codec, "%s", uvid_last_error());
+        const char *why = path ? uvid_last_error() : "out of memory";
+        snprintf(g_stat_codec, sizeof g_stat_codec, "%s", why);
         g_stat_size[0] = g_stat_fps[0] = '\0';
-        ulogf("video: refused %s -- %s\n", path, uvid_last_error());
+        ulogf("video: refused %s -- %s\n", path ? path : g_items[i].name, why);
+        free(path);
         refresh();
         return;
     }
@@ -417,6 +440,7 @@ static void play_index(int i) {
     // says what it opened -- the machine the GUI tests run on.
     ulogf("video: playing %s -- %s, %dx%d, %u ms, sound %s\n", path, in->detail, in->w, in->h, in->ms,
           in->audio[0] ? in->audio : "none");
+    free(path);
     refresh();
 }
 
@@ -456,17 +480,20 @@ static void save_frame(void) {
     if (!f) return;
     struct uimg im;
     if (uvid_frame_to_uimg(f, 0, 0, &im) != 0) return;
-    char t[64], path[PATH_MAX_V];
+    char t[ULIST_NAME_MAX], *path = NULL;
     title_of(g_cur, t, sizeof t);
     uint32_t s = (uint32_t)(f->pts_ms / 1000);
-    snprintf(path, sizeof path, "%s/%s-%um%02us.png", SAVE_DIR, t, s / 60, s % 60);
-    int rc = uimg_save(path, &im, "png");
+    // The title cut so the NAME with its time fits a file name's 255 bytes.
+    if (asprintf(&path, "%s/%.224s-%um%02us.png", SAVE_DIR, t, s / 60, s % 60) < 0) path = NULL;
+    int rc = path ? uimg_save(path, &im, "png") : -1;
+    const char *why = path ? uimg_last_error() : "out of memory";
     uimg_free(&im);
-    char msg[96];
+    char msg[ULIST_NAME_MAX + 32];
     if (rc == 0) snprintf(msg, sizeof msg, "Saved %s", k_path_basename(path));
-    else snprintf(msg, sizeof msg, "Could not save the frame: %s", uimg_last_error());
+    else snprintf(msg, sizeof msg, "Could not save the frame: %s", why);
     uui_toast_show(&g_toast, msg, uui_anim_ms(200), sys_monotonic_ns());
-    ulogf("video: save frame %s -- %s\n", path, rc == 0 ? "ok" : uimg_last_error());
+    ulogf("video: save frame %s -- %s\n", path ? path : t, rc == 0 ? "ok" : why);
+    free(path);
 }
 
 static void open_folder(const char *dir, const char *select) {
@@ -481,9 +508,10 @@ static void open_folder(const char *dir, const char *select) {
 static void open_chosen(void *ctx, const char *path) {
     (void)ctx;
     if (path) {
-        char dir[PATH_MAX_V];
-        if (!k_path_dirname(path, dir, sizeof dir)) strlcpy(dir, "/", sizeof dir);
-        open_folder(dir, k_path_basename(path));
+        char *dir = upath_dirname(path);
+        if (dir) open_folder(dir, k_path_basename(path));
+        else ulogf("video: no memory to open %s\n", path);
+        free(dir);
     }
     uapp_redraw(g_app);
 }
@@ -729,7 +757,7 @@ static void do_command(struct uapp *a, int code) {
     switch (code) {
     case CMD_OPEN:   open_dialog(a); return;
     case CMD_RELOAD: {
-        char keep[64] = "";
+        char keep[ULIST_NAME_MAX] = "";
         if (g_cur >= 0) strlcpy(keep, g_items[g_cur].name, sizeof keep);
         open_folder(g_dir, keep);
         break;
@@ -751,9 +779,9 @@ static void do_command(struct uapp *a, int code) {
     case CMD_SAVE_FRAME: save_frame(); break;
     case CMD_PROPS:
         if (g_cur >= 0) {
-            char path[PATH_MAX_V];
-            k_path_join(g_dir, g_items[g_cur].name, path, sizeof path);
-            uapp_spawn(a, PROPERTIES, path);
+            char *path = upath_join(g_dir, g_items[g_cur].name);
+            if (path) uapp_spawn(a, PROPERTIES, path);
+            free(path);
         }
         break;
     case CMD_PLAYLIST:
@@ -940,15 +968,18 @@ static void on_size(int *w, int *h) {
 }
 
 int main(int argc, char **argv) {
-    char dir[PATH_MAX_V], want[64] = "";
-    strlcpy(dir, DEFAULT_DIR, sizeof dir);
+    // `dir` is argv's, the default, or a heap string never freed: one per
+    // run, read once by scan().
+    const char *dir = DEFAULT_DIR;
+    char want[ULIST_NAME_MAX] = "";
     if (argc > 1 && argv[1][0]) {
         struct sys_stat st;
         if (sys_stat(argv[1], &st) == 0 && !st.is_dir) {
-            if (!k_path_dirname(argv[1], dir, sizeof dir)) strlcpy(dir, DEFAULT_DIR, sizeof dir);
+            const char *parent = upath_dirname(argv[1]);
+            if (parent) dir = parent;
             strlcpy(want, k_path_basename(argv[1]), sizeof want);
         } else {
-            strlcpy(dir, argv[1], sizeof dir);
+            dir = argv[1];
         }
     }
     g_panel = pref_on("playlist", 1);

@@ -14,10 +14,10 @@
 #include "ui/ugfx.h"
 #include "ui/uambient.h"
 
-#define PL_PATH_MAX 256
+#include "base/ulistdir.h"
 
 struct pl_track {
-    char name[64];           // the file, in the folder
+    char name[ULIST_NAME_MAX];   // the file, in the folder
     char title[64];          // the tag's, or the name without its extension
     char artist[64];         // "" when untagged
     char album[64];
@@ -26,7 +26,7 @@ struct pl_track {
 };
 
 // pl_list.c ---------------------------------------------------------------
-extern char g_dir[PL_PATH_MAX];
+extern const char *g_dir;           // the folder listed; pl_scan() owns it
 extern struct pl_track *g_tracks;   // g_track_count of them, malloc'd to fit
 extern int g_track_count;
 extern int g_shuffle, g_repeat;
@@ -35,7 +35,7 @@ extern int g_shuffle, g_repeat;
 // sorted by name, with their tags. Returns the count.
 int  pl_scan(const char *dir);
 int  pl_index_of(const char *name);
-void pl_path(int i, char *out, size_t cap);
+char *pl_path(int i);   // track i's path, the caller's to free(); NULL when it cannot be had
 // The track after (dir > 0) or before `cur` in PLAY order -- shuffled
 // or not -- or -1 past either end without repeat.
 int  pl_step(int cur, int dir);

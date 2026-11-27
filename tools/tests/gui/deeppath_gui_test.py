@@ -13,15 +13,20 @@ userland/tests/deeppath_test.c).
    there** by its whole path (`files: open <path>`), from a short folder,
    one level at a time -- as a person would. Its old 256-byte budget
    refused the folder.
+3. **Notepad, Paint, Image Viewer, Audio Player and Video Player open a
+   file by a 350-byte path** (track A2), named on the command line as the
+   File Manager names it, and Notepad and Paint SAVE back to it. Each
+   kept a 256-byte path of its own and refused the file.
 
 Paths are built inside the guest by dash from short pieces: the debug
 console refuses a command line that long.
 """
 
-RUNNER = {"name": "deeppath", "covers": "a path past 255 bytes acted on whole by the desktop and the File Manager"}
+RUNNER = {"name": "deeppath", "covers": "a path past 255 bytes acted on whole by the desktop, the File Manager and five apps"}
 
 import argparse
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -39,7 +44,11 @@ ROOT = "/dpg"
 PART = "deep_0123456789abcdefghijklmnopqrstuvw"     # + "_N", 40 bytes a level
 LEVELS = 8
 DEEP = ROOT + "".join(f"/{PART}_{i}" for i in range(LEVELS))
-K_DELETE, K_END, K_ENTER = "0xf788", "0xf787", "0x0d"   # kernel/include/api/keyboard.h
+# The apps' folder is the desktop account's own: Notepad and Paint save there.
+AROOT = "/home/user/dpa"
+ADEEP = AROOT + "".join(f"/{PART}_{i}" for i in range(LEVELS))
+APPS = "/bin/wm/apps"
+K_DELETE, K_END, K_ENTER, K_CTRL_S = "0xf788", "0xf787", "0x0d", "0x13"   # kernel/include/api/keyboard.h
 
 
 def icons(dbg):
@@ -146,12 +155,99 @@ def check_files(dbg, res):
     dbg.send(f"sh rm -r {ROOT}")
 
 
+def run_deep(dbg, command):
+    """`command` run as the desktop's account with $d the deep folder."""
+    lines = [f"p={PART}", f"d={AROOT}"] + [f"d=$d/${{p}}_{i}" for i in range(LEVELS)] + [command]
+    dbg.write_lines("/var/tmp/deepapp.sh", lines)
+    return dbg.as_user("sh /var/tmp/deepapp.sh") or ""
+
+
+def logged(dbg, prog, want, timeout=30):
+    """True once `prog`'s own log holds `want`; else its last lines. AN APP
+    STARTED FROM A SHELL LOGS TO THAT SHELL'S stderr, not the kernel log,
+    so start() sends it to a file."""
+    last = [""]
+
+    def hit():
+        last[0] = dbg.tsh(f"cat /var/tmp/deep_{prog}.log") or ""
+        return want in last[0].replace("\r", "")
+    if poll(hit, timeout):
+        return True, ""
+    lines = [ln for ln in last[0].splitlines() if " layout " not in ln]
+    return False, f"saw {[ln[-160:] for ln in lines[-4:]]}"
+
+
+def check_apps(dbg, res):
+    dbg.as_user(f"rm -r {AROOT}")
+    lines = [f"p={PART}", f"d={AROOT}", "mkdir $d"]
+    for i in range(LEVELS):
+        lines += [f"d=$d/${{p}}_{i}", "mkdir $d"]
+    lines += ["cp /tests/web/photo.jpg $d/photo.jpg", "cp /tests/web/bands.png $d/bands.png",
+              "cp /usr/share/music/first-boot.mp3 $d/song.mp3",
+              "cp /usr/share/videos/orbit.avi $d/clip.avi", "echo hello > $d/note.txt"]
+    dbg.write_lines("/var/tmp/deepapp.sh", lines)
+    dbg.as_user("sh /var/tmp/deepapp.sh")
+    listing = poll(lambda: "note.txt" in run_deep(dbg, "ls $d") and run_deep(dbg, "ls $d"), 20) or ""
+    res.check(f"the {len(ADEEP)}-byte folder holds the five files",
+              all(n in listing for n in ("photo.jpg", "bands.png", "song.mp3", "clip.avi", "note.txt")),
+              listing[-200:])
+    dbg.prompt_policy("allow")
+
+    def start(prog, name, want):
+        run_deep(dbg, f"{APPS}/{prog} $d/{name} 2>/var/tmp/deep_{prog}.log &")
+        ok, why = logged(dbg, prog, want)
+        res.check(f"{prog} opens {len(ADEEP) + 1 + len(name)} bytes of path whole", ok, why)
+        dbg.settle()
+        return ok
+
+    # The folder is listed by its whole path, and the file named is the
+    # one decoded -- a cut path listed nothing.
+    if start("imgview", "photo.jpg", f"imgview: listing {ADEEP} -- 2 image(s)"):
+        ok, why = logged(dbg, "imgview", "imgview: shown photo.jpg")
+        res.check("...and shows the picture named", ok, why)
+    # A file named to the Audio Player is selected, not played: its
+    # folder listed by its whole path, with tracks in it, is the proof.
+    if start("player", "song.mp3", f"player: listing {ADEEP} -- "):
+        log = dbg.tsh("cat /var/tmp/deep_player.log") or ""
+        m = re.search(re.escape(f"listing {ADEEP} -- ") + r"(\d+) track", log)
+        res.check("...and finds the track there", bool(m) and int(m.group(1)) >= 1, log[-200:])
+    start("video", "clip.avi", f"video: playing {ADEEP}/clip.avi")
+
+    # Paint saves BACK by the whole path: Ctrl+S on a picture it opened.
+    if start("paint", "bands.png", f"paint: opened {ADEEP}/bands.png"):
+        dbg.key(K_CTRL_S, mods="ctrl")
+        ok, why = logged(dbg, "paint", f"paint: saved {ADEEP}/bands.png as png")
+        res.check("Paint saves to it by its whole path", ok, why)
+
+    # Notepad logs no open, so the round trip is the proof: the file's
+    # own text with a typed letter in front, read back from the disk.
+    run_deep(dbg, f"{APPS}/notepad $d/note.txt &")
+    win = poll(lambda: next((w for w in dbg.windows() if "note.txt" in w.get("title", "")), None), 30)
+    res.check("Notepad opens the deep file (its title names it)", win is not None,
+              str([w.get("title") for w in dbg.windows()]))
+    if win:
+        dbg.settle()
+        dbg.key("0x5a")                    # Z, at the start of the text
+        dbg.key(K_CTRL_S, mods="ctrl")
+        saved = poll(lambda: "Zhello" in run_deep(dbg, "cat $d/note.txt"), 20)
+        res.check("Notepad saves to it by its whole path", bool(saved),
+                  run_deep(dbg, "cat $d/note.txt")[-120:])
+    for title in ("Image Viewer", "Audio Player", "Video Player", "Paint", "note.txt"):
+        for w in dbg.windows():
+            if title in w.get("title", ""):
+                dbg.close_window(w["title"])
+    dbg.as_user(f"rm -r {AROOT}")
+    dbg.tsh("rm -f /var/tmp/deep_*.log /var/tmp/deepapp.sh")
+    # Notepad remembered the deep file; a later start must not look for it.
+    dbg.as_user("rm -f /home/user/.local/state/notepad/recent /home/user/.local/state/notepad/session")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
     ap.add_argument("--in-gui", action="store_true")
     ap.add_argument("--logs", default=None)
-    ap.add_argument("--only", choices=["desktop", "files"], default=None)
+    ap.add_argument("--only", choices=["desktop", "files", "apps"], default=None)
     args = ap.parse_args()
     port_guard.resolve_instance(args, "deeppath_gui_test")
     res = Results()
@@ -160,10 +256,12 @@ def main():
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
     try:
-        if args.only != "files":
+        if args.only in (None, "desktop"):
             check_desktop(dbg, res)
-        if args.only != "desktop":
+        if args.only in (None, "files"):
             check_files(dbg, res)
+        if args.only in (None, "apps"):
+            check_apps(dbg, res)
     finally:
         dbg.close()
     print(f"\ndeeppath_gui_test: {len(res.passes)} passed, {len(res.fails)} failed")

@@ -22,9 +22,10 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "base/upath.h"
 #include "base/ugrow.h"
 #include "rt/sys.h"
-#include "kpath.h"   // k_path_join/_dirname/_basename -- the kernel's, linked into ring 3
+#include "kpath.h"   // k_path_basename -- the kernel's, linked into ring 3
 #include "ui/ugfx.h"
 #include "ui/uui.h"
 #include "base/urecent.h"
@@ -53,9 +54,6 @@
 // between the bars, flush, as a real editor's edit control does.
 #define TEXT_PAD 3
 
-#define PATH_MAX_LEN 256         // NOT FS_PATH_MAX -- this app's own
-                                 // buffers; a longer path is REFUSED
-                                 // (path_fits), never truncated.
 #define UNDO_BYTES (256 * 1024)  // each document's edit history
 
 // --- widget ids -------------------------------------------------------
@@ -126,7 +124,7 @@ struct doc {
     struct uui_undo undo;
     unsigned char *undo_mem;   // NULL when it could not be had: see doc_dirty()
     unsigned saved_rev;        // the fallback's clean point
-    char path[PATH_MAX_LEN];   // "" until saved or opened
+    char *path;                // owned, never NULL; "" until saved or opened
     char label[40];            // the tab's text
     int preview;               // the Markdown pane is open beside it
     int crlf;                  // the file came with CRLF line endings
@@ -184,9 +182,9 @@ static int g_menu_shown;           // F10 brought a hidden menu bar up
 static struct umonofont g_docfont; // the document's face at the chosen size
 static int g_close_ok;             // "close several tabs" was answered
 
-// The Recent list. The menu items point straight at these buffers, so
-// "update the menu" is "write the string" (ui/uui_menubar.h).
-static char g_recent[NP_RECENT_MAX][PATH_MAX_LEN];
+// The Recent list: owned heap paths, NULL past g_recent_count. The menu
+// items' labels point at them, set by recent_sync_menu().
+static char *g_recent[NP_RECENT_MAX];
 static int g_recent_count;
 
 static struct uui_menubar g_menu;
@@ -215,12 +213,13 @@ static char g_charinfo[160];   // the character at the caret, while invisibles a
 
 // --- the menu tree ----------------------------------------------------
 
-static const struct uui_menu_item recent_items[NP_RECENT_MAX] = {
-    UUI_MENU(g_recent[0], CMD_RECENT_0 + 0, 0), UUI_MENU(g_recent[1], CMD_RECENT_0 + 1, 0),
-    UUI_MENU(g_recent[2], CMD_RECENT_0 + 2, 0), UUI_MENU(g_recent[3], CMD_RECENT_0 + 3, 0),
-    UUI_MENU(g_recent[4], CMD_RECENT_0 + 4, 0), UUI_MENU(g_recent[5], CMD_RECENT_0 + 5, 0),
-    UUI_MENU(g_recent[6], CMD_RECENT_0 + 6, 0), UUI_MENU(g_recent[7], CMD_RECENT_0 + 7, 0),
-    UUI_MENU(g_recent[8], CMD_RECENT_0 + 8, 0), UUI_MENU(g_recent[9], CMD_RECENT_0 + 9, 0),
+// NOT const: recent_sync_menu() points each label at its path.
+static struct uui_menu_item recent_items[NP_RECENT_MAX] = {
+    UUI_MENU("(empty)", CMD_RECENT_0 + 0, 0), UUI_MENU("(empty)", CMD_RECENT_0 + 1, 0),
+    UUI_MENU("(empty)", CMD_RECENT_0 + 2, 0), UUI_MENU("(empty)", CMD_RECENT_0 + 3, 0),
+    UUI_MENU("(empty)", CMD_RECENT_0 + 4, 0), UUI_MENU("(empty)", CMD_RECENT_0 + 5, 0),
+    UUI_MENU("(empty)", CMD_RECENT_0 + 6, 0), UUI_MENU("(empty)", CMD_RECENT_0 + 7, 0),
+    UUI_MENU("(empty)", CMD_RECENT_0 + 8, 0), UUI_MENU("(empty)", CMD_RECENT_0 + 9, 0),
 };
 
 // NOT const: the Recent submenu shows as many rows as there are files.
@@ -372,12 +371,23 @@ static struct uui_item *item_by_id(struct uui_item *items, int n, int id) {
 
 static void set_status(const char *s) { strlcpy(g_status, s, sizeof g_status); }
 
-// A path that does not fit is refused: a truncated one would be saved
-// to as a different file.
-static int path_fits(const char *path) {
-    if (strlen(path) < PATH_MAX_LEN) return 1;
-    set_status("path too long for this editor");
+// A copy of `path` for the document to take, made BEFORE the load or the
+// write it names: a document that showed one file's text under another's
+// path would save over the wrong file. `*own` stays NULL when `path` IS
+// d->path. 0 (and the status says so) when there is no memory.
+static int doc_path_copy(const struct doc *d, const char *path, char **own) {
+    *own = NULL;
+    if (path == d->path) return 1;
+    *own = strdup(path);
+    if (*own) return 1;
+    set_status("out of memory");
     return 0;
+}
+
+static void doc_take_path(struct doc *d, char *own) {
+    if (!own) return;
+    free(d->path);
+    d->path = own;
 }
 
 // **.md OPENS WITH ITS PREVIEW, every other extension as text** -- and
@@ -406,6 +416,15 @@ static void set_title(struct uapp *a) {
 static void recent_save(void);
 static void recent_sync_menu(void);
 
+// Drops the rows past `keep`.
+static void recent_trim(int keep) {
+    if (keep < 0) keep = 0;
+    while (g_recent_count > keep) {
+        free(g_recent[--g_recent_count]);
+        g_recent[g_recent_count] = NULL;
+    }
+}
+
 static void recent_push(const char *path) {
     if (g_conf.recent_max <= 0) return;   // remembering nothing, here or system-wide
     urecent_add(path, "Notepad");          // the system's Recent too (base/urecent.h)
@@ -414,13 +433,18 @@ static void recent_push(const char *path) {
     int at = -1;
     for (int i = 0; i < g_recent_count; i++)
         if (strcmp(g_recent[i], path) == 0) { at = i; break; }
-    if (at < 0) {
-        at = g_recent_count < NP_RECENT_MAX ? g_recent_count : NP_RECENT_MAX - 1;
-        if (g_recent_count < NP_RECENT_MAX) g_recent_count++;
+    char *top;
+    if (at >= 0) {
+        top = g_recent[at];   // the row itself moves, so `path` may be it
+    } else {
+        top = strdup(path);
+        if (!top) return;
+        if (g_recent_count < NP_RECENT_MAX) at = g_recent_count++;
+        else free(g_recent[at = NP_RECENT_MAX - 1]);   // the oldest goes
     }
-    for (int i = at; i > 0; i--) strlcpy(g_recent[i], g_recent[i - 1], PATH_MAX_LEN);
-    strlcpy(g_recent[0], path, PATH_MAX_LEN);
-    if (g_recent_count > g_conf.recent_max) g_recent_count = g_conf.recent_max;
+    for (int i = at; i > 0; i--) g_recent[i] = g_recent[i - 1];
+    g_recent[0] = top;
+    recent_trim(g_conf.recent_max);
     recent_sync_menu();
     recent_save();
 }
@@ -456,7 +480,13 @@ static struct doc *doc_new(void) {
     g_tabs.tabs = g_tablist;
     struct doc *d = (struct doc *)calloc(1, sizeof *d);
     if (!d) { set_status("out of memory"); return NULL; }
-    if (!doc_reserve(d, 0)) { free(d); set_status("out of memory"); return NULL; }
+    d->path = strdup("");
+    if (!d->path || !doc_reserve(d, 0)) {
+        free(d->path);
+        free(d);
+        set_status("out of memory");
+        return NULL;
+    }
     utext_init_buf(&d->text, d->buf, d->cap);
     d->text.animate = 1;   // Toykit redraws per frame while a scroll glides
     d->text.gutter = g_linenums;
@@ -475,6 +505,7 @@ static struct doc *doc_new(void) {
 static void doc_free(struct doc *d) {
     free(d->buf);
     free(d->undo_mem);
+    free(d->path);
     free(d);
 }
 
@@ -537,7 +568,6 @@ static void refresh_tabs(void) {
 // --- file I/O ---------------------------------------------------------
 
 static int load_into(struct uapp *a, struct doc *d, const char *path) {
-    if (!path_fits(path)) return 0;
     struct sys_stat st;
     if (sys_stat(path, &st) < 0) { set_status("open failed"); return 0; }
     if (st.size > (uint64_t)DOC_MAX_BYTES) {
@@ -548,6 +578,8 @@ static int load_into(struct uapp *a, struct doc *d, const char *path) {
         return 0;
     }
     if (!doc_reserve(d, (int)st.size)) { set_status("out of memory"); return 0; }
+    char *own;
+    if (!doc_path_copy(d, path, &own)) return 0;
 
     uapp_busy_begin(a);   // a whole file with the event loop stopped (ui/uapp.h)
     utext_clear(&d->text);
@@ -555,7 +587,7 @@ static int load_into(struct uapp *a, struct doc *d, const char *path) {
     enum ufile_result r = ufile_read_into(path, d->buf, (size_t)d->cap, &got);
     uapp_busy_end(a);
 
-    if (r != UFILE_OK && r != UFILE_SHORT) { set_status("open failed"); return 0; }
+    if (r != UFILE_OK && r != UFILE_SHORT) { free(own); set_status("open failed"); return 0; }
     d->text.count = (int)got;
     d->text.rev++;   // the bytes arrived behind utext's back; see utext.h
     uui_undo_reset(&d->undo);   // a load, not an edit
@@ -569,9 +601,9 @@ static int load_into(struct uapp *a, struct doc *d, const char *path) {
     utext_sel_clear(&d->text);
     utext_scroll_top(&d->text);   // 0 is the BOTTOM (utext.h)
     d->preview = preview_for(path);
-    strlcpy(d->path, path, PATH_MAX_LEN);
+    doc_take_path(d, own);
     doc_mark_clean(d);
-    recent_push(path);
+    recent_push(d->path);
     return 1;
 }
 
@@ -649,23 +681,25 @@ static int write_doc(int fd, const struct doc *d) {
 }
 
 static int save_file(struct uapp *a, struct doc *d, const char *path) {
-    if (!path_fits(path)) return 0;
+    char *own;
+    if (!doc_path_copy(d, path, &own)) return 0;
     tidy_for_save(d);
     int fd = sys_open(path, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
-    if (fd < 0) { set_status("save failed"); return 0; }
+    if (fd < 0) { free(own); set_status("save failed"); return 0; }
     uapp_busy_begin(a);
     if (!write_doc(fd, d)) {
         sys_close(fd);
         uapp_busy_end(a);
+        free(own);
         set_status("write failed");
         return 0;
     }
     sys_close(fd);
     uapp_busy_end(a);
 
-    strlcpy(d->path, path, PATH_MAX_LEN);
+    doc_take_path(d, own);
     doc_mark_clean(d);
-    recent_push(path);
+    recent_push(d->path);
     set_status("saved");
     return 1;
 }
@@ -1315,9 +1349,8 @@ static int file_dialog(int saving) {
     uui_menubar_close(&g_menu);   // a modal owns the input
 
     struct doc *d = cur();
-    char dir[PATH_MAX_LEN];
-    // An untitled document's is "" -- the dialog's own default, $HOME.
-    if (!d->path[0] || !k_path_dirname(d->path, dir, sizeof dir)) dir[0] = '\0';
+    // An untitled document's is NULL -- the dialog's own default, $HOME.
+    char *dir = d->path[0] ? upath_dirname(d->path) : NULL;
 
     static const struct uui_filedialog_filter types[] = {
         { "Text files", keep_text, 0, 0 },
@@ -1331,11 +1364,10 @@ static int file_dialog(int saving) {
         .filters = types,
         .filter_count = (int)(sizeof types / sizeof types[0]),
     };
-    if (!uui_filedialog_open(g_app, &g_fd, &o, dlg_done, g_app)) {
-        set_status("cannot open the chooser");
-        return 0;
-    }
-    return 1;
+    int ok = uui_filedialog_open(g_app, &g_fd, &o, dlg_done, g_app) != NULL;
+    free(dir);   // the dialog keeps its own copy
+    if (!ok) set_status("cannot open the chooser");
+    return ok;
 }
 
 // --- closing: tabs and the window -------------------------------------
@@ -1410,7 +1442,8 @@ static void conf_store(void) {
 static void recent_sync_menu(void) {
     int shown = g_recent_count < 1 ? 1 : g_recent_count;   // one greyed row when empty
     file_items[FILE_RECENT_ROW].sub_count = shown;
-    if (g_recent_count == 0) strlcpy(g_recent[0], "(empty)", PATH_MAX_LEN);
+    for (int i = 0; i < NP_RECENT_MAX; i++)
+        recent_items[i].label = i < g_recent_count ? g_recent[i] : "(empty)";
 }
 
 // A list of paths, one a line: ~/.local/state/notepad/recent and .../session.
@@ -1425,12 +1458,12 @@ static int paths_each(const char *file, int (*fn)(const char *path, void *ctx), 
         size_t e = i;
         while (e < got && buf[e] != '\n') e++;
         size_t len = e - i;
-        if (len > 0 && len < PATH_MAX_LEN) {
-            char p[PATH_MAX_LEN];
-            memcpy(p, buf + i, len);
-            p[len] = '\0';
+        char *p = len > 0 ? strndup((const char *)buf + i, len) : NULL;
+        if (p) {
             n++;
-            if (!fn(p, ctx)) break;
+            int more = fn(p, ctx);
+            free(p);
+            if (!more) break;
         }
         i = e + 1;
     }
@@ -1457,19 +1490,21 @@ static void recent_save(void) {
 
 static int recent_take(const char *path, void *ctx) {
     (void)ctx;
-    strlcpy(g_recent[g_recent_count++], path, PATH_MAX_LEN);
+    char *c = strdup(path);
+    if (!c) return 0;
+    g_recent[g_recent_count++] = c;
     return g_recent_count < NP_RECENT_MAX;
 }
 
 static void recent_load(void) {
-    g_recent_count = 0;
+    recent_trim(0);
     if (g_conf.recent_max > 0) paths_each(NOTEPAD_RECENT, recent_take, NULL);
-    if (g_recent_count > g_conf.recent_max) g_recent_count = g_conf.recent_max;
+    recent_trim(g_conf.recent_max);
     recent_sync_menu();
 }
 
 static void recent_clear(void) {
-    g_recent_count = 0;
+    recent_trim(0);
     recent_sync_menu();
     recent_save();
     set_status("recent files cleared");
@@ -1521,7 +1556,7 @@ static void on_prefs_commit(const struct np_conf *next) {
         if (g_conf.preview != was.preview) d->preview = preview_for(d->path[0] ? d->path : 0);
     }
     if (g_conf.preview_below != was.preview_below) g_split.horizontal = !g_conf.preview_below;
-    if (g_recent_count > g_conf.recent_max) g_recent_count = g_conf.recent_max;
+    recent_trim(g_conf.recent_max);
     recent_sync_menu();
     recent_save();
     ulogf("notepad: options applied tab %d wrap %d font %d\n", g_conf.tab_width, g_conf.wrap,
@@ -1570,9 +1605,9 @@ static void do_command(struct uapp *a, int code) {
         int i = code - CMD_RECENT_0;
         if (i < g_recent_count) {
             // A COPY: opening calls recent_push(), which rewrites the slot.
-            char path[PATH_MAX_LEN];
-            strlcpy(path, g_recent[i], sizeof path);
-            open_requested(a, path);
+            char *path = strdup(g_recent[i]);
+            if (path) open_requested(a, path);
+            free(path);
         }
         return;
     }
@@ -2104,7 +2139,7 @@ static int on_tick(struct uapp *a) {
 
 // A file named on the command line, opened once the window exists --
 // the File Manager spawns this with a path (Handles= in the .desktop).
-static char g_arg_path[PATH_MAX_LEN];
+static const char *g_arg_path;   // argv's, which lasts the process
 
 // Somebody replaced the clipboard -- possibly this app. Paste greys and
 // ungreys with it.
@@ -2120,7 +2155,6 @@ static void on_open_cb(struct uapp *a) {
     g_cur = 0;
     set_status("F10 for the menu -- Ctrl-O open, Ctrl-S save, Ctrl-F find");
 
-    for (int i = 0; i < NP_RECENT_MAX; i++) strlcpy(g_recent[i], "(empty)", PATH_MAX_LEN);
     recent_load();
 
     uui_menubar_init(&g_ctx, 0, 0);   // no bar of its own: open_at() supplies the rows
@@ -2145,7 +2179,7 @@ static void on_open_cb(struct uapp *a) {
 
     // AFTER the widgets exist: opening writes the status and the title.
     if (g_conf.reopen) session_restore(a);
-    if (g_arg_path[0]) open_path(a, g_arg_path);
+    if (g_arg_path) open_path(a, g_arg_path);
     set_title(a);
 }
 
@@ -2190,7 +2224,7 @@ static void default_size(int *w, int *h) {
 }
 
 int main(int argc, char **argv) {
-    if (argc > 1 && argv[1][0]) strlcpy(g_arg_path, argv[1], sizeof g_arg_path);
+    if (argc > 1 && argv[1][0]) g_arg_path = argv[1];
     np_conf_load(&g_conf);
     g_conf_saved = g_conf;
     if (!np_prefs_load()) return np_prefs_load_error();

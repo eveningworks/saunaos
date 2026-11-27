@@ -22,6 +22,8 @@
 #include <string.h>
 #include "rt/sys.h"
 #include "kpath.h"
+#include "base/upath.h"
+#include "base/ulistdir.h"
 #include "keyboard.h"
 #include "syscall_abi.h"
 #include "ui/uapp.h"
@@ -52,7 +54,7 @@
 #include "apps/apps/paint/paint.h"
 #include "base/udirs.h"
 
-#define PATH_MAX_LEN 256
+#define NAME_MAX_LEN ULIST_NAME_MAX   // a file NAME; a path is a heap string
 #define NEW_W 800
 #define NEW_H 600
 #define RECENT_MAX 10
@@ -152,16 +154,16 @@ static struct uui_focus g_focus;
 static struct uui_focusable g_ring[10];
 static int g_ring_font;   // where the text bar's font list sits in the ring; the size follows
 
-static char g_path[PATH_MAX_LEN];        // "" for a picture never saved
+static char *g_path;                     // owned; NULL for a picture never saved
 static unsigned g_saved_state;           // upixundo_state() at the last save or open
 static int g_panel = 1;                  // the right panel shown
 static int g_edit;                       // the colour the picker edits: 0 or 1
 static int g_slot_down = -1;             // the right button's stroke, while held
-static char g_title[PATH_MAX_LEN + 16];
+static char g_title[NAME_MAX_LEN + 16];
 static char g_zoom_text[12], g_st_pos[32], g_st_size[32], g_st_note[128];
 static char g_size_text[24];
 static char g_st_tool[32], g_st_sel[64];
-static char g_ask_line[PATH_MAX_LEN + 48];
+static char g_ask_line[NAME_MAX_LEN + 48];
 static const char *g_ask_rows[3];
 
 // What the unsaved-changes question was asked for: what to do once the
@@ -445,7 +447,16 @@ enum { W_PICK = 3, W_PANEL_FIRST = 3, W_PANEL_LAST = 7, W_TEXTBAR = 9, W_FONTPIC
 
 static int dirty(void) { return upixundo_state(&g_undo) != g_saved_state; }
 
-static const char *doc_name(void) { return g_path[0] ? k_path_basename(g_path) : "Untitled"; }
+static const char *doc_name(void) { return g_path ? k_path_basename(g_path) : "Untitled"; }
+
+// The picture's file is `path` from here on (which may BE g_path). Out of
+// memory leaves it UNNAMED, so a later Save asks where rather than
+// writing over the previous file.
+static void set_path(const char *path) {
+    if (path == g_path || upath_set(&g_path, path)) return;
+    ulogf("paint: no memory for the path %s\n", path ? path : "");
+    upath_set(&g_path, 0);
+}
 
 // SENT ONLY WHEN IT CHANGES: paint_changed() runs on every motion of a
 // stroke, and a title is a message to the compositor and a repaint of
@@ -684,7 +695,7 @@ static int new_picture(int w, int h, uint32_t bg) {
     im.has_alpha = (bg >> 24) != 0xFF;
     if (!layers_reset(&im)) { uimg_free(&im); note("Not enough memory for a picture that big"); return 0; }
     g_saved_state = upixundo_state(&g_undo);
-    g_path[0] = '\0';
+    set_path(0);
     uui_paintcanvas_set_zoom(&g_canvas, 100, -1, -1);
     set_title();
     return 1;
@@ -721,7 +732,7 @@ static int load_picture(const char *path) {
         }
     }
     g_saved_state = upixundo_state(&g_undo);
-    snprintf(g_path, sizeof g_path, "%s", path);
+    set_path(path);
     // Shown whole, never enlarged: a photo opens fitted, an icon at 100%.
     uui_paintcanvas_set_zoom(&g_canvas, uui_paintcanvas_fit_zoom(&g_canvas), -1, -1);
     note("");
@@ -759,7 +770,7 @@ static int save_to(const char *path) {
         ulogf("paint: save %s failed: %d %s\n", path, r, err);
         return 0;
     }
-    snprintf(g_path, sizeof g_path, "%s", path);
+    set_path(path);
     // A FLAT FILE OF A LAYERED PICTURE IS SAVED, Paint.NET's rule, with a
     // note that only .ora keeps the layers: every typed word is a layer,
     // and a PNG that never counted as saved would ask at every close.
@@ -777,11 +788,13 @@ static int save_to(const char *path) {
 static void run_pending(void);
 static void open_new_dialog(void);
 
-static void start_dir(char *out, int cap) {
-    if (g_path[0]) { k_path_dirname(g_path, out, (size_t)cap); return; }
+// Where a chooser opens, the caller's to free(); NULL (out of memory) is
+// the dialog's own default.
+static char *start_dir(void) {
+    if (g_path) return upath_dirname(g_path);
     struct sys_stat st;
     const char *pics = udir_path(UDIR_PICTURES);
-    snprintf(out, (size_t)cap, "%s", sys_stat(pics, &st) == 0 ? pics : udir_home());
+    return strdup(sys_stat(pics, &st) == 0 ? pics : udir_home());
 }
 
 static void open_chosen(void *ctx, const char *path) {
@@ -792,34 +805,35 @@ static void open_chosen(void *ctx, const char *path) {
 
 static void open_dialog(void) {
     if (uui_filedialog_is_open(&g_fd)) return;
-    char dir[PATH_MAX_LEN];
-    start_dir(dir, sizeof dir);
+    char *dir = start_dir();
     struct uui_filedialog_opts o = {
         .mode = UUI_FILEDIALOG_OPEN, .title = "Open Picture", .start_dir = dir,
         .filters = uui_imagetypes_open, .filter_count = uui_imagetypes_open_count,
     };
     uui_filedialog_open(g_app, &g_fd, &o, open_chosen, 0);
+    free(dir);   // the dialog keeps its own copy
 }
 
 static void save_chosen(void *ctx, const char *path) {
     (void)ctx;
     if (!path) { g_pending = PEND_NONE; return; }
-    char full[PATH_MAX_LEN];
     // A name with no extension this build writes is a PNG -- MS Paint's
     // default, and the lossless one.
-    if (write_format(path)) snprintf(full, sizeof full, "%s", path);
-    else snprintf(full, sizeof full, "%s.png", path);
-    if (save_to(full)) run_pending();
+    char *full = NULL;
+    if (asprintf(&full, "%s%s", path, write_format(path) ? "" : ".png") < 0) full = NULL;
+    if (full && save_to(full)) run_pending();
     else g_pending = PEND_NONE;
+    if (!full) note("Not enough memory to save");
+    free(full);
     if (g_app) uapp_redraw(g_app);
 }
 
 static void save_as_dialog(void) {
     if (uui_filedialog_is_open(&g_fd)) return;
-    char dir[PATH_MAX_LEN], name[PATH_MAX_LEN];
-    start_dir(dir, sizeof dir);
-    snprintf(name, sizeof name, "%s", g_path[0] ? k_path_basename(g_path) : "Untitled.png");
-    if (g_path[0] && !write_format(g_path)) {
+    char name[NAME_MAX_LEN + 4];   // a name, and the ".png" it may gain
+    char *dir = start_dir();
+    snprintf(name, sizeof name, "%s", g_path ? k_path_basename(g_path) : "Untitled.png");
+    if (g_path && !write_format(g_path)) {
         // A .bmp or .gif opened here is saved as a PNG beside it.
         char *dot = strrchr(name, '.');
         if (dot) *dot = '\0';
@@ -834,10 +848,11 @@ static void save_as_dialog(void) {
         .filter_index = uui_imagetypes_save_index(write_format(name)),
     };
     uui_filedialog_open(g_app, &g_fd, &o, save_chosen, 0);
+    free(dir);
 }
 
 static void do_save(void) {
-    if (g_path[0] && write_format(g_path)) { if (save_to(g_path)) run_pending(); else g_pending = PEND_NONE; }
+    if (g_path && write_format(g_path)) { if (save_to(g_path)) run_pending(); else g_pending = PEND_NONE; }
     else save_as_dialog();
 }
 
@@ -1019,13 +1034,13 @@ static void paste_file_chosen(void *ctx, const char *path) {
 
 static void paste_file_dialog(void) {
     if (uui_filedialog_is_open(&g_fd)) return;
-    char dir[PATH_MAX_LEN];
-    start_dir(dir, sizeof dir);
+    char *dir = start_dir();
     struct uui_filedialog_opts o = {
         .mode = UUI_FILEDIALOG_OPEN, .title = "Paste from file", .start_dir = dir,
         .filters = uui_imagetypes_open, .filter_count = uui_imagetypes_open_count,
     };
     uui_filedialog_open(g_app, &g_fd, &o, paste_file_chosen, 0);
+    free(dir);
 }
 
 static void zoom_to(int z) {
@@ -1448,7 +1463,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     uapp_logf_layout("paint: layout brushset hardness %d density %d eraser %d %d\n", g_soft_hard,
                      g_spray_density, g_erase_size, g_erase_hard);
     uapp_logf_layout("paint: layout image %d %d dirty %d path %s\n", g_layer->w, g_layer->h, dirty(),
-                     g_path[0] ? g_path : "-");
+                     g_path ? g_path : "-");
     text_log_layout();
     shapes_log_layout(&g_canvas);
     paste_log_layout(&g_canvas);

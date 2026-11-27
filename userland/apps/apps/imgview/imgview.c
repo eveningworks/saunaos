@@ -31,13 +31,14 @@
 #include "rt/sys.h"
 #include "media/uimg.h"
 #include "base/ulistdir.h"
+#include "base/upath.h"
 #include "base/ufile.h"
 #include "base/usetting.h"
 #include "media/uthumb.h"
 #include "base/dirsort.h"
 #include "base/udate.h"
 #include "base/unum.h"
-#include "kpath.h"   // k_path_join/_dirname -- the KERNEL's, linked into ring 3
+#include "kpath.h"   // k_path_basename -- the KERNEL's, linked into ring 3
 #include "ui/ugfx.h"
 #include "ui/uui_builder.h"
 #include "ui/uui.h"
@@ -53,9 +54,9 @@
 #include "keyboard.h"
 #include "media/uclip.h"
 
-#define PATH_MAX_LEN 256         // NOT FS_PATH_MAX -- this app's own
-                                 // buffers; the shared widgets it uses
-                                 // (uui_fileview, uopen) carry the same bound.
+// A PATH IS A HEAP STRING SIZED TO FIT (base/upath.h); what stays sized
+// is a NAME, which the listing bounds.
+#define NAME_MAX_LEN ULIST_NAME_MAX
 #define WALLPAPER_DIR "/usr/share/wallpapers"
 #define DEFAULT_DIR WALLPAPER_DIR
 
@@ -73,8 +74,8 @@ enum {
 enum { USER_DECODED = 1, USER_THUMB, USER_SHARP };
 
 static struct uapp *g_app;
-static char g_dir[PATH_MAX_LEN] = DEFAULT_DIR;
-static char g_want[PATH_MAX_LEN];   // the file named on the command line
+static char *g_dir;                 // owned; never NULL once main() has set it
+static char g_want[NAME_MAX_LEN];   // the file named on the command line
 
 // The folder's pictures, sorted as /bin/ls sorts (base/dirsort.h).
 static struct ulist_entry *g_entries; // the folder's images, malloc'd to fit
@@ -110,7 +111,7 @@ static struct uui_layout *g_root;
 // What a slideshow hides, and the panel whose width the program sets.
 static struct uui_item *g_menu_item, *g_tb_item, *g_strip_item, *g_panel_item, *g_status_item, *g_slide_item;
 
-static char g_stat_name[PATH_MAX_LEN];
+static char g_stat_name[NAME_MAX_LEN];
 static char g_stat_dims[48];
 static char g_stat_size[80];    // the dimensions and the file size, one pane
 static char g_stat_file[24];
@@ -207,19 +208,22 @@ static void zoom_step(int dir, int ax, int ay) {
 static int keep_images(void *ctx, const char *dir, const struct ulist_entry *e) {
     (void)ctx;
     if (e->is_dir) return 0;
-    char path[PATH_MAX_LEN];
-    if (!k_path_join(dir, e->name, path, sizeof path)) return 0;
+    char *path = upath_join(dir, e->name);
+    if (!path) return 0;
     uint8_t head[16];
     size_t got = ufile_read_head(path, head, sizeof head);
+    free(path);
     return got >= 4 && uimg_probe(head, got);
 }
 
 static const struct uimg *strip_thumb(void *ctx, int i, int px) {
     (void)ctx;
     if (i < 0 || i >= g_count) return 0;
-    char path[PATH_MAX_LEN];
-    if (!k_path_join(g_dir, g_entries[i].name, path, sizeof path)) return 0;
-    return uthumb_get(path, &g_entries[i].modified, g_entries[i].size, px);
+    char *path = upath_join(g_dir, g_entries[i].name);
+    if (!path) return 0;
+    const struct uimg *t = uthumb_get(path, &g_entries[i].modified, g_entries[i].size, px);
+    free(path);
+    return t;
 }
 
 static void load_dir(void) {
@@ -251,8 +255,8 @@ static int index_of(const char *name) {
 // beside it -- the last one asked for is the one shown.
 struct decode_job {
     struct uapp *app;
-    char path[PATH_MAX_LEN];
-    char name[PATH_MAX_LEN];
+    char *path;                 // owned, freed with the job
+    char name[NAME_MAX_LEN];
     struct uimg img;            // the animation's canvas when `animated`
     struct uimg_anim anim;
     int animated, delay;
@@ -264,7 +268,7 @@ struct decode_job {
 };
 
 static struct decode_job *g_active;
-static char g_pending_path[PATH_MAX_LEN], g_pending_name[PATH_MAX_LEN];
+static char *g_pending_path, g_pending_name[NAME_MAX_LEN];   // the path owned
 static int g_pending;
 // Frames painted while a decode ran: the evidence the window kept
 // painting (tools/tests/gui/imgview_test.py reads it from the "shown" line).
@@ -322,7 +326,12 @@ static void start_decode(struct uapp *a, const char *path, const char *name) {
     struct decode_job *j = calloc(1, sizeof *j);
     if (!j) { strlcpy(g_stat_note, "not enough memory to decode", sizeof g_stat_note); return; }
     j->app = a;
-    strlcpy(j->path, path, sizeof j->path);
+    j->path = strdup(path);
+    if (!j->path) {
+        free(j);
+        strlcpy(g_stat_note, "not enough memory to decode", sizeof g_stat_note);
+        return;
+    }
     strlcpy(j->name, name, sizeof j->name);
     // THE HEADER HERE, not on the worker: a few hundred bytes, and it is
     // what lets the status bar say what is loading instead of going blank.
@@ -447,16 +456,18 @@ static void show_index(struct uapp *a, int i) {
     g_cur = i;
     uui_thumbstrip_select(g_strip, i);
     fmt_size(g_stat_file, sizeof g_stat_file, g_entries[i].size);
-    char path[PATH_MAX_LEN];
-    if (!k_path_join(g_dir, g_entries[i].name, path, sizeof path)) return;
+    char *path = upath_join(g_dir, g_entries[i].name);
+    if (!path) { ulogf("imgview: no memory for the path of %s\n", g_entries[i].name); return; }
     if (g_active) {
-        strlcpy(g_pending_path, path, sizeof g_pending_path);
+        free(g_pending_path);
+        g_pending_path = path;
         strlcpy(g_pending_name, g_entries[i].name, sizeof g_pending_name);
         g_pending = 1;
         strlcpy(g_stat_name, g_entries[i].name, sizeof g_stat_name);
         return;
     }
     start_decode(a, path, g_entries[i].name);
+    free(path);
 }
 
 static void free_picture(struct uapp *a) {
@@ -577,6 +588,7 @@ static void finish_decode(struct uapp *a) {
         ulogf("imgview: refused %s -- %s\n", j->name, j->err);
     }
     strlcpy(g_stat_name, j->name, sizeof g_stat_name);
+    free(j->path);
     free(j);
 
     if (g_pending) {
@@ -595,9 +607,10 @@ static void open_chosen(void *ctx, const char *path) {
     if (!path) { uapp_redraw(a); return; }
     // THE FILE'S DIRECTORY BECOMES THE FILMSTRIP, that file selected --
     // the same state a path on the command line produces.
-    char dir[PATH_MAX_LEN];
-    if (!k_path_dirname(path, dir, sizeof dir)) strlcpy(dir, "/", sizeof dir);
-    strlcpy(g_dir, dir, sizeof g_dir);
+    char *dir = upath_dirname(path);
+    if (!dir) { ulogf("imgview: no memory to open %s\n", path); uapp_redraw(a); return; }
+    free(g_dir);
+    g_dir = dir;
     load_dir();
     int i = index_of(k_path_basename(path));
     show_index(a, i >= 0 ? i : 0);
@@ -648,7 +661,7 @@ static void set_wallpaper(struct uapp *a, const char *mode) {
         uapp_redraw(a);
         return;
     }
-    char stem[PATH_MAX_LEN];
+    char stem[NAME_MAX_LEN];
     strlcpy(stem, g_entries[g_cur].name, sizeof stem);
     char *dot = strrchr(stem, '.');
     if (dot) *dot = '\0';
@@ -912,7 +925,7 @@ static void do_command(struct uapp *a, int code) {
     switch (code) {
     case CMD_OPEN:     open_dialog(a); return;
     case CMD_RELOAD: {
-        char keep[PATH_MAX_LEN] = "";
+        char keep[NAME_MAX_LEN] = "";
         if (g_cur >= 0) strlcpy(keep, g_entries[g_cur].name, sizeof keep);
         load_dir();
         int i = keep[0] ? index_of(keep) : -1;
@@ -1161,13 +1174,14 @@ int main(int argc, char **argv) {
     if (argc > 1 && argv[1][0]) {
         struct sys_stat st;
         if (sys_stat(argv[1], &st) == 0 && !st.is_dir) {
-            if (!k_path_dirname(argv[1], g_dir, sizeof g_dir))
-                strlcpy(g_dir, DEFAULT_DIR, sizeof g_dir);
+            g_dir = upath_dirname(argv[1]);
             strlcpy(g_want, k_path_basename(argv[1]), sizeof g_want);
         } else {
-            strlcpy(g_dir, argv[1], sizeof g_dir);
+            g_dir = strdup(argv[1]);
         }
     }
+    if (!g_dir) g_dir = strdup(DEFAULT_DIR);
+    if (!g_dir) return 1;
 
     g_ui = uui_builder_load("imgview", MENU_NAMES, (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
     g_menu = uui_builder_widget(g_ui, "main", "menu", "menubar");

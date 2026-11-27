@@ -19,6 +19,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "base/upath.h"
 #include "apps/apps/player/player_internal.h"
 #include "media/usnd.h"
 #include "base/uconf.h"
@@ -64,7 +65,7 @@ static int g_cur = -1;            // the track on the stage
 static int g_have_sound;
 static int g_panel = 1, g_viz = 1, g_full;
 static int g_was_playing, g_user_stopped;
-static char g_want[64];           // the file named on the command line
+static char g_want[ULIST_NAME_MAX];         // the file named on the command line
 
 static char g_stat_sink[32], g_stat_fmt[64], g_stat_pos[24], g_stat_note[80];
 
@@ -182,14 +183,7 @@ static void refresh_transport(void) {
     else g_stat_pos[0] = '\0';
 }
 
-static void play_index(int i) {
-    if (i < 0 || i >= g_track_count) return;
-    g_cur = i;
-    show_selection(i);
-    stage_set_track(i);
-    char path[PL_PATH_MAX];
-    pl_path(i, path, sizeof path);
-
+static void play_path(int i, const char *path) {
     struct usnd_info in;
     if (usnd_load_info(path, &in) != 0) {
         snprintf(g_stat_fmt, sizeof g_stat_fmt, "%s", usnd_last_error());
@@ -224,6 +218,17 @@ static void play_index(int i) {
     ulogf("player: playing %s -- %s, %u frames\n", path, in.detail, (unsigned)usnd_duration());
 }
 
+static void play_index(int i) {
+    if (i < 0 || i >= g_track_count) return;
+    g_cur = i;
+    show_selection(i);
+    stage_set_track(i);
+    char *path = pl_path(i);
+    if (path) play_path(i, path);
+    else strlcpy(g_stat_note, "not enough memory to play", sizeof g_stat_note);
+    free(path);
+}
+
 static void toggle_play(void) {
     if (!usnd_playing()) { play_index(g_cur >= 0 ? g_cur : pl_step(-1, +1)); return; }
     usnd_set_paused(!usnd_paused());
@@ -251,10 +256,11 @@ static void load_folder(const char *dir, const char *select) {
 static int keep_audio(void *ctx, const char *dir, const struct ulist_entry *e) {
     (void)ctx;
     if (e->is_dir) return 0;
-    char path[PL_PATH_MAX];
-    if (!k_path_join(dir, e->name, path, sizeof path)) return 0;
+    char *path = upath_join(dir, e->name);
+    if (!path) return 0;
     uint8_t head[16];
     size_t got = ufile_read_head(path, head, sizeof head);
+    free(path);
     return got >= 12 && usnd_probe(head, got);
 }
 
@@ -262,10 +268,14 @@ static int keep_audio(void *ctx, const char *dir, const struct ulist_entry *e) {
 static void open_chosen(void *ctx, const char *path) {
     struct uapp *a = ctx;
     if (path) {
-        char dir[PL_PATH_MAX];
-        if (!k_path_dirname(path, dir, sizeof dir)) strlcpy(dir, "/", sizeof dir);
-        load_folder(dir, k_path_basename(path));
-        play_index(pl_index_of(k_path_basename(path)));
+        char *dir = upath_dirname(path);
+        if (dir) {
+            load_folder(dir, k_path_basename(path));
+            play_index(pl_index_of(k_path_basename(path)));
+        } else {
+            ulogf("player: no memory to open %s\n", path);
+        }
+        free(dir);
     }
     uapp_redraw(a);
 }
@@ -403,8 +413,7 @@ static void draw_panel(struct ugfx_surface *s, int cw) {
     int x = g_list.x, lh = ugfx_char_h(), pad = ugfx_char_w();
     ugfx_fill_rect(s, x, g_sy, cw - x, g_list.y - g_sy, g_amb.panel);
     ugfx_fill_rect(s, x, g_sy, 1, g_sh, g_amb.chrome_line);
-    char head[PL_PATH_MAX + 16];
-    snprintf(head, sizeof head, "%s", g_dir);
+    const char *head = g_dir;
     char count[16];
     snprintf(count, sizeof count, "%d", g_track_count);
     int cwid = ugfx_text_width(count);
@@ -458,7 +467,7 @@ static void do_command(struct uapp *a, int code) {
     switch (code) {
     case CMD_OPEN:   open_dialog(a); return;
     case CMD_RELOAD: {
-        char keep[64] = "";
+        char keep[ULIST_NAME_MAX] = "";
         if (g_cur >= 0) strlcpy(keep, g_tracks[g_cur].name, sizeof keep);
         load_folder(g_dir, keep);
         break;
@@ -608,15 +617,17 @@ static void on_size(int *w, int *h) {
 }
 
 int main(int argc, char **argv) {
-    char dir[PL_PATH_MAX];
-    strlcpy(dir, g_dir, sizeof dir);
+    // `dir` is argv's, the default's, or a heap string never freed: one
+    // per run, read once by the first load_folder().
+    const char *dir = g_dir;
     if (argc > 1 && argv[1][0]) {
         struct sys_stat st;
         if (sys_stat(argv[1], &st) == 0 && !st.is_dir) {
-            if (!k_path_dirname(argv[1], dir, sizeof dir)) strlcpy(dir, g_dir, sizeof dir);
+            const char *parent = upath_dirname(argv[1]);
+            if (parent) dir = parent;
             strlcpy(g_want, k_path_basename(argv[1]), sizeof g_want);
         } else {
-            strlcpy(dir, argv[1], sizeof dir);
+            dir = argv[1];
         }
     }
     g_shuffle = pref_on("shuffle", 0);

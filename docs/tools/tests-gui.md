@@ -784,15 +784,20 @@ from the default (a sound card, a USB mouse, `--reboot`).
   name is built inside the guest by dash, since the debug console
   refuses a line that long; `touch`, not `echo >`, because
   `write_lines()` adds its own redirection.
-- **`deeppath_gui_test.py`** -- a path past 255 bytes on the desktop and
-  in the File Manager (fixed tables round 4, A; the shell and `ls` half
+- **`deeppath_gui_test.py`** -- a path past 255 bytes on the desktop, in
+  the File Manager and in five apps (fixed tables round 4, A and A2; the shell and `ls` half
   is `userland/tests/deeppath_test.c` under `usertest_run.py`). A file
   whose desktop path is 264 bytes goes to the Recycle Bin on Delete and
   comes back on `trash restore` (round 4 B), then is deleted by
   Shift+Delete (the icon goes); the File Manager walks down eight levels
   from a short folder and opens a file by a 340-byte path (its `files:
-  open` line). `--only desktop|files`. Seen red on the old 80-byte
-  desktop and 256-byte File Manager. The widgets' own half -- the file
+  open` line); and Notepad, Paint, Image Viewer, Audio Player and Video
+  Player each open a file by a 350-byte path named on the command line
+  (A2), Notepad and Paint saving back to it -- read from each app's own
+  log, sent to a file, since an app started from a shell logs to that
+  shell's stderr and not the kernel log. `--only desktop|files|apps`.
+  Seen red on the old 80-byte desktop, the 256-byte File Manager and the
+  five apps' 256-byte buffers. The widgets' own half -- the file
   view's paths, Up, the path bar's segments, a place -- is
   `tools/hostchecks/uitest/deeppath_uitest.c`, on the host; the bin's own
   (a deep path, a 250-byte name, 520 items) is

@@ -97,13 +97,13 @@ void stage_set_track(int i) {
     uimg_free(&g_scaled);
     g_scaled_size = 0;
     if (i < 0 || i >= g_track_count) { uambient_default(&g_amb); return; }
-    char path[PL_PATH_MAX];
-    pl_path(i, path, sizeof path);
+    char *path = pl_path(i);
     struct utags t;
     int have = 0;
-    if (utags_read(path, &t, 1) & UTAGS_ART)
+    if (utags_read(path ? path : "", &t, 1) & UTAGS_ART)
         have = uimg_decode(t.art, t.art_len, &g_cover) == 0;
     utags_free(&t);
+    free(path);
     if (!have) generate(g_tracks[i].title);
     uambient_from(&g_amb, &g_cover);
 }
