@@ -552,7 +552,7 @@ static void *churner(void *arg) {
     memset(&req, 0, sizeof req);
     // An empty source: ramfs has no volume (mount's `none`).
     strcpy(req.fstype, "ramfs");
-    strcpy(req.point, CHURN_POINT);
+    req.point = CHURN_POINT;
     while (!g_churn_stop) {
         if (sys_mount(&req) < 0 || sys_umount(CHURN_POINT) < 0) g_churn_fail++;
         g_churns++;

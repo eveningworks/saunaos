@@ -1396,7 +1396,8 @@ int fs_check_at(const char *path, int repair, struct fs_check_result *out) {
     if (rc < 0) return rc;   // -ECANCELED: stopped on request
     if (!rc) return -EIO;
     k_strlcpy(out->fstype, r.m->fs->name, sizeof out->fstype);
-    k_strlcpy(out->point, r.m->point, sizeof out->point);
+    // An answer field: a point too long for it is left empty, not cut.
+    if (k_strlen(r.m->point) < sizeof out->point) k_strlcpy(out->point, r.m->point, sizeof out->point);
     return 0;
 }
 

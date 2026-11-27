@@ -414,8 +414,10 @@ static void do_mount(void) {
     } else {
         struct mount_request m;
         memset(&m, 0, sizeof m);
+        char point[sizeof p->dev + 8];
+        snprintf(point, sizeof point, "/mnt/%s", p->dev);
         snprintf(m.source, sizeof m.source, "%s", p->dev);
-        snprintf(m.point, sizeof m.point, "/mnt/%s", p->dev);
+        m.point = point;
         sys_mkdir(m.point);
         rc = sys_mount(&m) < 0 ? -errno : 0;
         if (rc < 0) {

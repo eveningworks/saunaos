@@ -514,7 +514,7 @@ static int mount_one(struct run *r, const char *part, const char *point) {
     struct mount_request req;
     memset(&req, 0, sizeof req);
     snprintf(req.source, sizeof req.source, "%s", part);
-    snprintf(req.point, sizeof req.point, "%s", point);
+    req.point = point;
     if (sys_mount(&req) < 0) return fail(r, point, sys_errno());
     return 1;
 }

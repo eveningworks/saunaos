@@ -60,7 +60,7 @@ static int remount(const char *point, const char *device, int rdonly) {
     struct mount_request req;
     memset(&req, 0, sizeof req);
     snprintf(req.source, sizeof req.source, "%s", device);
-    snprintf(req.point, sizeof req.point, "%s", point);
+    req.point = point;
     if (rdonly) req.flags |= SYS_MNT_RDONLY;
     sys_umount(point);
     if (sys_mount(&req) == 0) return 0;

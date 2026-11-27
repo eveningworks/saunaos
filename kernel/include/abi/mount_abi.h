@@ -39,12 +39,18 @@
 
 #define MOUNT_SOURCE_MAX 16 // "2", "ramfs" -- a partition number or a backend name
 #define MOUNT_FSTYPE_MAX 16 // "fat32", "tfs3", or empty to probe
-#define MOUNT_POINT_MAX  64 // FS_PATH_MAX, spelled out since abi/ has no fs.h
+// What SYS_FS_CHECK names the mount it checked by. An ANSWER field: a
+// point that does not fit is left empty, never cut.
+#define FS_CHECK_POINT_MAX 64
 
 struct mount_request {
     char source[MOUNT_SOURCE_MAX];
     char fstype[MOUNT_FSTYPE_MAX];  // empty = probe every backend that could claim it
-    char point[MOUNT_POINT_MAX];    // a normalized absolute path that already exists
+    // A normalized absolute path that already exists, as a POINTER, as
+    // mount(2)'s target is: any length up to the path limit, copied in by
+    // the kernel and refused (-ENAMETOOLONG) past it, never cut. To the
+    // kernel it is a user address, never dereferenced.
+    const char *point;
     uint32_t flags;                 // SYS_MNT_*
     // A SIZE LIMIT FOR THIS MOUNT, in MiB; 0 means the backend decides.
     //
@@ -53,11 +59,6 @@ struct mount_request {
     // options no backend had, and ramfs is the first backend that has
     // one. A number needs no parser and cannot be mistyped into
     // something that silently means nothing.
-    //
-    // It fits in what used to be `reserved`, so the struct is the same
-    // size it always was and a caller built before this still compiles
-    // to a zero here, which is the default. That is why the field was
-    // reserved in the first place.
     uint32_t size_mib;
 };
 
@@ -115,7 +116,7 @@ struct fs_check_result {
     // WHICH VOLUME the path named -- filled by SYS_FS_CHECK after the
     // pass, so a caller need not resolve the path a second time.
     char fstype[MOUNT_FSTYPE_MAX];  // "tfs3"
-    char point[MOUNT_POINT_MAX];    // "/" -- the mount the path resolved to
+    char point[FS_CHECK_POINT_MAX]; // "/" -- the mount the path resolved to; "" if longer
     // Not blocks. Each was only a kernel log line, so a pass that found
     // them still printed "clean".
     uint32_t counts_wrong;        // groups whose stored free counts disagree with the bitmaps

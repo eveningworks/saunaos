@@ -194,7 +194,7 @@ int main(int argc, char **argv) {
     struct sys_stat st;
     if (!strcmp(req.fstype, "iso9660") ||
         (strcmp(argv[i], "none") && sys_stat(argv[i], &st) == 0 && !st.is_dir)) {
-        snprintf(req.point, sizeof req.point, "%s", argv[i + 1]);
+        req.point = argv[i + 1];
         req.fstype[0] = 0;
         if (sys_mount_image(&req, argv[i]) < 0) {
             cmd_fail("mount", argv[i]);
@@ -209,7 +209,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "none") != 0) {
         snprintf(req.source, sizeof req.source, "%s", argv[i]);
     }
-    snprintf(req.point, sizeof req.point, "%s", argv[i + 1]);
+    req.point = argv[i + 1];
 
     if (sys_mount(&req) < 0) {
         cmd_fail("mount", argv[i + 1]);

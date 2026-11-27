@@ -202,9 +202,30 @@ int sys_fs_resize(struct syscall_ctx *c) {
     return 0;
 }
 
+// A mount point from user address `uaddr` into a kpath_get() buffer in
+// *out (kpath_put() it). 0, -EFAULT, -ENOMEM, or -ENAMETOOLONG for one
+// past FS_PATH_MAX: REFUSED, since a cut point names another folder.
+static int point_from_user(uint64_t pml4, uint64_t uaddr, char **out) {
+    char *p = kpath_get();
+    *out = 0;
+    if (!p) return -ENOMEM;
+    if (!vmm_copy_string_from_user(pml4, p, uaddr, FS_PATH_MAX)) { kpath_put(p); return -EFAULT; }
+    if (k_strlen(p) == FS_PATH_MAX - 1) {   // full: is there more after it?
+        char more[2];
+        if (!vmm_copy_string_from_user(pml4, more, uaddr + FS_PATH_MAX - 1, sizeof more)) {
+            kpath_put(p);
+            return -EFAULT;
+        }
+        if (more[0]) { kpath_put(p); return -ENAMETOOLONG; }
+    }
+    *out = p;
+    return 0;
+}
+
 // SYS_MNT_IMAGE: the image's path is the second argument, read through
 // the caller's unveil list like any file it opens.
-static int mount_image(struct syscall_ctx *c, const struct mount_request *req) {
+static int mount_image(struct syscall_ctx *c, const struct mount_request *req,
+                       const char *point) {
     if (req->source[0] || (req->fstype[0] && k_strcmp(req->fstype, "iso9660") != 0) ||
         (req->flags & ~(uint32_t)(SYS_MNT_IMAGE | SYS_MNT_RDONLY)))
         return -EINVAL;
@@ -214,14 +235,17 @@ static int mount_image(struct syscall_ctx *c, const struct mount_request *req) {
     if (!rc && !fs_exists(image)) rc = -ENOENT;
     if (!rc) {
         const char *why = "";
-        if (!iso9660_mount_image(image, req->point, &why)) {
-            klog_printf("mount: %s on %s -- %s\n", image, req->point, why);
+        if (!iso9660_mount_image(image, point, &why)) {
+            klog_printf("mount: %s on %s -- %s\n", image, point, why);
             rc = why_to_errno(why);
         }
     }
     kpath_put(image);
     return rc;
 }
+
+static int mount_point(struct syscall_ctx *c, const struct mount_request *reqp,
+                       const char *point);
 
 int sys_mount(struct syscall_ctx *c) {
     struct mount_request req;
@@ -234,18 +258,25 @@ int sys_mount(struct syscall_ctx *c) {
     // below run off the end of the copy.
     req.source[MOUNT_SOURCE_MAX - 1] = '\0';
     req.fstype[MOUNT_FSTYPE_MAX - 1] = '\0';
-    req.point[MOUNT_POINT_MAX - 1] = '\0';
+    char *point;
+    int prc = point_from_user(c->pml4, (uint64_t)(uintptr_t)req.point, &point);
+    if (prc < 0) {
+        c->regs[14] = (uint64_t)(int64_t)prc;
+        return 0;
+    }
+    c->regs[14] = (uint64_t)(int64_t)mount_point(c, &req, point);
+    kpath_put(point);
+    return 0;
+}
 
+// sys_mount() with the point copied in: what goes in RAX.
+static int mount_point(struct syscall_ctx *c, const struct mount_request *reqp,
+                       const char *point) {
+    const struct mount_request req = *reqp;
     // NOT ROOT: the seat's mount -- a point under /media/ or /net/, and a
     // removable disk or an image (kernel/privilege.h).
-    if ((req.flags & SYS_MNT_IMAGE) && priv_seat_point(req.point)) {
-        c->regs[14] = (uint64_t)(int64_t)-EPERM;
-        return 0;
-    }
-    if (req.flags & SYS_MNT_IMAGE) {
-        c->regs[14] = (uint64_t)(int64_t)mount_image(c, &req);
-        return 0;
-    }
+    if ((req.flags & SYS_MNT_IMAGE) && priv_seat_point(point)) return -EPERM;
+    if (req.flags & SYS_MNT_IMAGE) return mount_image(c, &req, point);
 
     const struct block_device *dev = NULL;
     // A named type that needs no volume (ramfs) legitimately has an
@@ -253,13 +284,9 @@ int sys_mount(struct syscall_ctx *c) {
     // error whatever the type.
     if (!source_device(req.source, &dev)) {
         klog_printf("mount: no partition named \"%s\"\n", req.source);
-        c->regs[14] = (uint64_t)(int64_t)-EINVAL;
-        return 0;
+        return -EINVAL;
     }
-    if (priv_seat_mount(dev, req.point)) {
-        c->regs[14] = (uint64_t)(int64_t)-EPERM;
-        return 0;
-    }
+    if (priv_seat_mount(dev, point)) return -EPERM;
 
     unsigned flags = 0;
     if (req.flags & SYS_MNT_RDONLY) flags |= MNT_RDONLY;
@@ -268,33 +295,25 @@ int sys_mount(struct syscall_ctx *c) {
     // MiB in the ABI, bytes below: the unit hop happens once, here,
     // rather than at each of mount_add()'s callers.
     uint64_t size_bytes = (uint64_t)req.size_mib * 1024 * 1024;
-    if (!mount_add(dev, req.fstype[0] ? req.fstype : NULL, req.point, flags,
+    if (!mount_add(dev, req.fstype[0] ? req.fstype : NULL, point, flags,
                    size_bytes, &why)) {
-        klog_printf("mount: %s -- %s\n", req.point, why);
-        c->regs[14] = (uint64_t)(int64_t)why_to_errno(why);
-        return 0;
+        klog_printf("mount: %s -- %s\n", point, why);
+        return why_to_errno(why);
     }
-    c->regs[14] = 0;
     return 0;
 }
 
 int sys_umount(struct syscall_ctx *c) {
-    char point[MOUNT_POINT_MAX];
-    if (!vmm_copy_string_from_user(c->pml4, point, c->a0, sizeof(point))) {
-        c->regs[14] = (uint64_t)(int64_t)-EFAULT;
-        return 0;
-    }
-    if (priv_seat_point(point)) {   // not root: only what the seat may mount
-        c->regs[14] = (uint64_t)(int64_t)-EPERM;
-        return 0;
-    }
+    char *point;
+    int rc = point_from_user(c->pml4, c->a0, &point);
+    if (!rc && priv_seat_point(point)) rc = -EPERM;   // not root: only what the seat may mount
     const char *why = "";
-    if (!mount_remove(point, &why)) {
+    if (!rc && !mount_remove(point, &why)) {
         klog_printf("umount: %s -- %s\n", point, why);
-        c->regs[14] = (uint64_t)(int64_t)why_to_errno(why);
-        return 0;
+        rc = why_to_errno(why);
     }
-    c->regs[14] = 0;
+    if (point) kpath_put(point);
+    c->regs[14] = (uint64_t)(int64_t)rc;
     return 0;
 }
 

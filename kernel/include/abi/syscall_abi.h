@@ -2010,7 +2010,8 @@ struct sys_statx {
                      // not an absolute path, an unknown filesystem
                      // type, a source that names no partition),
                      // -ENOTDIR when the mount point does not exist or
-                     // is not a directory, -EBUSY when something is
+                     // is not a directory, -ENAMETOOLONG for a point
+                     // past the path limit (refused, never cut), -EBUSY when something is
                      // already mounted there or that volume is already
                      // mounted somewhere, -ENOSPC when the mount table
                      // is full, -ENODEV when nothing recognises the
@@ -2023,7 +2024,7 @@ struct sys_statx {
                      // one exists.
 
 #define SYS_UMOUNT 71 // RDI = pointer to a NUL-terminated mount point
-                      // (at most MOUNT_POINT_MAX bytes). Detaches what
+                      // (up to the path limit; -ENAMETOOLONG past it). Detaches what
                       // is mounted there. Returns 0, or a negative
                       // errno: -EINVAL for the root (which cannot be
                       // unmounted) or a path nothing is mounted at,

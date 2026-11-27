@@ -160,7 +160,7 @@ int main(int argc, char **argv) {
     }
 
     printf("fsck: %s %s on %s\n", g_repair ? "checked and repaired" : "checked (read-only)",
-           g_r.fstype, g_r.point);
+           g_r.fstype, g_r.point[0] ? g_r.point : path);
     printf("  records in use:        %u\n", g_r.records_used);
     printf("  blocks referenced:     %u\n", g_r.blocks_referenced);
     printf("  leaked (unreferenced): %u\n", g_r.leaked);

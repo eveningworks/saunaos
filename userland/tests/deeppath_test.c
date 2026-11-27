@@ -12,8 +12,11 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
+#include <stdio.h>
 #include "rt/sys.h"
 #include "tty_abi.h"
+#include "mount_abi.h"
 #include "signal_abi.h"   // SIGKILL
 #include "base/utest.h"
 
@@ -155,6 +158,39 @@ static void shell_checks(void) {
     sys_close(slave);
 }
 
+// A MOUNT POINT PAST 64 BYTES, which SYS_MOUNT once cut there: a ramfs
+// mounts at a folder in the deep one, a file made on it goes with the
+// unmount, and a point past the path limit is refused, not cut.
+static void mount_checks(void) {
+    char *mnt = join(g_deep, "mnt_deeppath");
+    char *file = mnt ? join(mnt, "on_ramfs") : 0;
+    if (!file) { utest_check(0, "memory for the mount point"); return; }
+    sys_mkdir(mnt);
+    struct mount_request mr;
+    memset(&mr, 0, sizeof mr);
+    snprintf(mr.fstype, sizeof mr.fstype, "ramfs");
+    mr.point = mnt;
+    int mounted = sys_mount(&mr) == 0;
+    utest_checkf(mounted, "a ramfs mounts at a %d-byte point (errno %d)", (int)strlen(mnt),
+                 mounted ? 0 : errno);
+    int fd = mounted ? sys_open(file, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC) : -1;
+    if (fd >= 0) sys_close(fd);
+    int unmounted = mounted && sys_umount(mnt) == 0;
+    struct sys_stat st;
+    utest_check(fd >= 0 && unmounted && sys_stat(file, &st) < 0,
+                "...a file made on it goes with the unmount");
+
+    static char over[5000];
+    for (int i = 0; i + 2 < (int)sizeof over; i += 2) { over[i] = '/'; over[i + 1] = 'x'; }
+    over[sizeof over - 1] = '\0';
+    mr.point = over;
+    utest_check(sys_mount(&mr) < 0 && errno == ENAMETOOLONG, "a point past the path limit is ENAMETOOLONG");
+    utest_check(sys_umount(over) < 0 && errno == ENAMETOOLONG, "...and so is unmounting one");
+    sys_unlink(mnt);
+    free(file);
+    free(mnt);
+}
+
 int main(void) {
     utest_begin("deeppath_test", "a path past 255 bytes in the shell and ls", UTEST_VERDICT_FILE);
     const char *base = utest_path(TMP_VOLATILE, "deeppath");
@@ -217,5 +253,6 @@ int main(void) {
     free(out);
     free(marker);
     free(prog);
+    mount_checks();
     return utest_end();
 }

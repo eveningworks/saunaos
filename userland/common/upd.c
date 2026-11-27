@@ -143,7 +143,7 @@ static int boot_mount(int writable) {
         struct mount_request req;
         memset(&req, 0, sizeof req);
         snprintf(req.source, sizeof req.source, "%s", fs.device);
-        snprintf(req.point, sizeof req.point, "/boot");
+        req.point = "/boot";
         if (!writable) req.flags = SYS_MNT_RDONLY;
         if (sys_umount("/boot") < 0) return -1;
         if (sys_mount(&req) == 0) return 0;

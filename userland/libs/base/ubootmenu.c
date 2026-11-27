@@ -226,7 +226,7 @@ int uboot_writable(char *dev, int cap) {
     struct mount_request req;
     memset(&req, 0, sizeof req);
     snprintf(req.source, sizeof req.source, "%s", fs.device);
-    snprintf(req.point, sizeof req.point, "/boot");
+    req.point = "/boot";
     if (sys_umount("/boot") < 0) return -1;
     if (sys_mount(&req) < 0) {
         req.flags = SYS_MNT_RDONLY;       // put back what was there
@@ -242,7 +242,7 @@ void uboot_restore(const char *dev) {
     struct mount_request req;
     memset(&req, 0, sizeof req);
     snprintf(req.source, sizeof req.source, "%s", dev);
-    snprintf(req.point, sizeof req.point, "/boot");
+    req.point = "/boot";
     req.flags = SYS_MNT_RDONLY;
     if (sys_umount("/boot") == 0) sys_mount(&req);
 }

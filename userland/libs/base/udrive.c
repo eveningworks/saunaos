@@ -152,7 +152,7 @@ int udrive_mount(const struct udrive *d, char *point_out, size_t cap) {
     struct mount_request req;
     memset(&req, 0, sizeof req);
     snprintf(req.source, sizeof req.source, "%s", d->dev);
-    snprintf(req.point, sizeof req.point, "%s", point);
+    req.point = point;
     if (sys_mount(&req) < 0) {
         int e = errno;
         rmdir(point);
@@ -257,7 +257,7 @@ int udrive_mount_image(const char *path, char *point_out, size_t cap) {
     if (mkdir(point, 0755) < 0 && errno != EEXIST) return -1;
     struct mount_request req;
     memset(&req, 0, sizeof req);
-    snprintf(req.point, sizeof req.point, "%s", point);
+    req.point = point;
     if (sys_mount_image(&req, path) < 0) {
         int e = errno;
         rmdir(point);
