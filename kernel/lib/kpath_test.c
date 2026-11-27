@@ -103,31 +103,45 @@ KTEST("kpath", "a name from a disk is one component, or none") {
     KTEST_ASSERT(eq(e, "plain.txt"));
 }
 
-KTEST("kpath", "a path too deep or too long is rejected, not truncated") {
+KTEST("kpath", "a path 200 folders deep normalizes, with '..' still clamped at the root") {
+    // No depth bound: only the bytes are limited. 200 levels of "/d",
+    // then one ".." too many for the root to absorb, then a leaf.
+    enum { LEVELS = 200 };
+    static char deep[LEVELS * 2 + LEVELS * 3 + 16];
+    static char out[sizeof deep];
+    static char sbuf[KPATH_SCRATCH_FOR(sizeof deep)];
+    struct kpath_scratch sc = { sbuf, sizeof sbuf };
+    size_t at = 0;
+    for (int i = 0; i < LEVELS; i++) { deep[at++] = '/'; deep[at++] = 'd'; }
+    deep[at] = '\0';
+    KTEST_ASSERT(k_path_normalize(deep, out, sizeof out, &sc));
+    KTEST_ASSERT_EQ((int)k_strlen(out), LEVELS * 2);
+    KTEST_ASSERT(eq(out, deep));
+
+    // ".." past the root: LEVELS + 1 of them, then "x" -- the extra one
+    // clamps, so the answer is "/x", never above the root.
+    for (int i = 0; i <= LEVELS; i++) { deep[at++] = '/'; deep[at++] = '.'; deep[at++] = '.'; }
+    deep[at++] = '/'; deep[at++] = 'x'; deep[at] = '\0';
+    KTEST_ASSERT(k_path_normalize(deep, out, sizeof out, &sc));
+    KTEST_ASSERT(eq(out, "/x"));
+
+    // Relative to a 200-deep base, ".." steps back exactly one level.
+    deep[LEVELS * 2] = '\0';
+    KTEST_ASSERT(k_path_resolve(deep, "../y", out, sizeof out, &sc));
+    KTEST_ASSERT_EQ((int)k_strlen(out), LEVELS * 2);
+    KTEST_ASSERT(out[LEVELS * 2 - 1] == 'y');
+}
+
+KTEST("kpath", "a path too long is rejected, not truncated") {
     char b[64];
     char sbuf[KPATH_SCRATCH_FOR(64)];
     struct kpath_scratch sc = { sbuf, sizeof sbuf };
-    // One segment past KPATH_MAX_DEPTH must fail rather than silently
-    // dropping one. Built rather than written out, so the bound and the
-    // test cannot drift apart the way a literal would.
-    char deep[KPATH_MAX_DEPTH * 2 + 4];
-    char deep_out[sizeof deep];
-    char deep_scratch[KPATH_SCRATCH_FOR(sizeof deep)];
-    struct kpath_scratch dsc = { deep_scratch, sizeof deep_scratch };
-    size_t at = 0;
-    for (int i = 0; i <= KPATH_MAX_DEPTH; i++) { deep[at++] = '/'; deep[at++] = 'x'; }
-    deep[at] = '\0';
-    KTEST_ASSERT_EQ(k_path_normalize(deep, deep_out, sizeof deep_out, &dsc), 0);
-
-    // ...and exactly KPATH_MAX_DEPTH is accepted, so the bound is the
-    // one being tested rather than "anything long fails".
-    at = 0;
-    for (int i = 0; i < KPATH_MAX_DEPTH; i++) { deep[at++] = '/'; deep[at++] = 'x'; }
-    deep[at] = '\0';
-    KTEST_ASSERT(k_path_normalize(deep, deep_out, sizeof deep_out, &dsc));
-
     char small[8];
     KTEST_ASSERT_EQ(k_path_normalize("/docs/notes.txt", small, sizeof small, &sc), 0);
+    // The answer is checked, not the working string: this collapses to
+    // "/a" and fits.
+    KTEST_ASSERT(k_path_normalize("/aaaaaaaaaaaa/../a", small, sizeof small, &sc));
+    KTEST_ASSERT(eq(small, "/a"));
 
     // A scratch too small is refused, not worked around.
     char tiny[4];

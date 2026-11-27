@@ -68,8 +68,8 @@ struct kpath_scratch {
 // (see k_path_resolve() for the relative case). ".." at the root is
 // clamped to the root rather than escaping it -- the same rule real
 // kernels apply to a chroot, and the behavior shell.c's resolve_path()
-// already had. Returns 0 if the result wouldn't fit in `cap`, the
-// scratch is too small, or the path nests deeper than KPATH_MAX_DEPTH.
+// already had. Returns 0 if the result wouldn't fit in `cap` or the
+// scratch is too small. Depth has no bound of its own: only bytes.
 int k_path_normalize(const char *path, char *out, size_t cap,
                      const struct kpath_scratch *scratch);
 
@@ -98,13 +98,6 @@ int k_path_component_from_disk(char *name);
 // A path with no '/' at all, or one directly under the root, yields
 // "/". Returns 1 on success, 0 if it wouldn't fit in `cap`.
 int k_path_dirname(const char *path, char *out, size_t cap);
-
-// How deep a path may nest before k_path_normalize() gives up. It was
-// 16, which a 64-byte path could not reach; a 4096-byte one reaches it
-// easily, so the bound became a real refusal rather than a formality.
-// 64 costs 512 bytes of segment stack and is past anything this
-// filesystem's layout produces.
-#define KPATH_MAX_DEPTH 64
 
 #ifdef __cplusplus
 }

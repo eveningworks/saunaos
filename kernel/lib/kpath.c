@@ -1,12 +1,10 @@
 // See kpath.h for the API and for why three different path resolvers
 // existed before it.
 //
-// The normalizer is a direct descendant of shell.c's resolve_path():
-// same segment-stack approach, same ".."-clamps-at-root rule, same
-// depth bound. What changed is that it works on a caller-supplied
-// buffer with an explicit capacity instead of assuming FS_PATH_MAX, so
-// the Terminal and the shell can share it, and that it's covered by
-// tests (kernel/lib/kpath_test.c) -- the original had none.
+// The normalizer keeps shell.c's resolve_path() rule that ".." clamps at
+// the root, and works on a caller-supplied buffer with an explicit
+// capacity, so the Terminal and the shell share it
+// (kernel/lib/kpath_test.c covers it).
 #include "kpath.h"
 #include "string.h"
 
@@ -43,52 +41,38 @@ int k_path_join(const char *dir, const char *name, char *out, size_t cap) {
     return 1;
 }
 
-// `scratch` is mutated in place: each separator becomes a '\0' so every
-// stack entry is its own C string pointing into it. Same trick
-// shell.c's resolve_path() used.
+// `scratch` is compacted in place into the answer without its leading
+// '/': each kept segment is moved down to `w`, and ".." backs `w` up
+// over the last one. The write never passes the read -- every kept
+// segment had at least one '/' before it in the input, which pays for
+// the one written -- so no segment stack is needed and depth has no
+// bound; only the answer's bytes are checked against `cap`.
 static int normalize_in_place(char *scratch, char *out, size_t cap) {
-    char *stack[KPATH_MAX_DEPTH];
-    int depth = 0;
+    size_t r = 0, w = 0;
+    while (scratch[r]) {
+        while (scratch[r] == '/') r++;
+        if (!scratch[r]) break;
+        size_t start = r;
+        while (scratch[r] && scratch[r] != '/') r++;
+        size_t seglen = r - start;
 
-    char *p = scratch;
-    while (*p) {
-        while (*p == '/') p++;
-        if (!*p) break;
-        char *start = p;
-        while (*p && *p != '/') p++;
-        size_t seglen = (size_t)(p - start);
-        int had_slash = (*p == '/');
-        if (had_slash) *p = '\0';
-
-        if (seglen == 1 && start[0] == '.') {
-            // "." -- nothing to do
-        } else if (seglen == 2 && start[0] == '.' && start[1] == '.') {
+        if (seglen == 1 && scratch[start] == '.') continue;
+        if (seglen == 2 && scratch[start] == '.' && scratch[start + 1] == '.') {
             // ".." at the root stays at the root rather than escaping
             // above it (see kpath.h).
-            if (depth > 0) depth--;
-        } else {
-            if (depth >= KPATH_MAX_DEPTH) return 0;
-            stack[depth++] = start;
+            while (w > 0 && scratch[w - 1] != '/') w--;
+            if (w > 0) w--;   // the separator before it
+            continue;
         }
-
-        if (had_slash) p++;
+        if (w > 0) scratch[w++] = '/';
+        k_memmove(scratch + w, scratch + start, seglen);
+        w += seglen;
     }
 
-    if (cap < 2) return 0;
+    if (w + 2 > cap) return 0;   // '/' + the segments + NUL
     out[0] = '/';
-    out[1] = '\0';
-    size_t pos = 1;
-    for (int i = 0; i < depth; i++) {
-        size_t seglen = k_strlen(stack[i]);
-        if (i > 0) {
-            if (pos + 1 + 1 > cap) return 0;
-            out[pos++] = '/';
-        }
-        if (pos + seglen + 1 > cap) return 0;
-        k_memcpy(out + pos, stack[i], seglen);
-        pos += seglen;
-        out[pos] = '\0';
-    }
+    k_memcpy(out + 1, scratch, w);
+    out[w + 1] = '\0';
     return 1;
 }
 

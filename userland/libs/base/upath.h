@@ -34,7 +34,7 @@ int upath_set(char **field, const char *s);
 
 // `input` against `base` (when relative), "." and ".." collapsed --
 // k_path_resolve() with the scratch and the answer sized to the two.
-// NULL out of memory (ENOMEM) or past KPATH_MAX_DEPTH (ENAMETOOLONG).
+// NULL only out of memory (ENOMEM).
 char *upath_resolve(const char *base, const char *input);
 
 // Finds the program `name` names and stores a heap copy of its path in
