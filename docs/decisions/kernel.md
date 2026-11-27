@@ -9749,7 +9749,7 @@ local files, and only for a navigation the user made.
   need a broker for every file the engine reads -- its fonts on every
   page; Capsicum's because NetSurf opens by name and SaunaOS has no
   `openat` family.
-- **An unveil list of up to 16 paths, checked in
+- **An unveil list, grown as paths are added, checked in
   `resolve_user_path()`**, which every path-taking syscall already
   called -- so a new one cannot skip it. On the resolved STRING: sound
   while no symlink is followed (`tfs3.c` follows none); one that is

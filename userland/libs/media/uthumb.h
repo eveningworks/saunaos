@@ -89,9 +89,9 @@ int uthumb_make(const char *path, int px);
 
 // For /bin/thumb, before the first decode: makes the cache, then narrows
 // this process to READING the `n` files' folders and keeping the cache,
-// and to nothing but files (abi/sandbox_abi.h). Too many folders to name
-// one by one (UNVEIL_MAX) reads everything instead -- still with no
-// network, no spawn and no writes outside the cache. 0, or -1.
+// and to nothing but files (abi/sandbox_abi.h): each folder is named,
+// however many. 0, or -1 -- out of memory included, which never widens
+// the sandbox instead.
 int uthumb_sandbox(char *const *files, int n);
 
 // The cache entry for `path` at `px`, when it is newer than `mtime` (the

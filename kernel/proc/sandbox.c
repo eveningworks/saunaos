@@ -37,8 +37,11 @@ struct sandbox {
     uint8_t  unveiled;   // anything unveiled: what is not, is hidden
     uint8_t  locked;     // SYS_UNVEIL(NULL): the list is final
     uint16_t logged;     // unveil refusals logged so far, for the cap below
-    int      n;
-    struct unveil_entry v[UNVEIL_MAX];
+    // GROWN ON DEMAND, doubling. Read by check() and grown by sys_unveil()
+    // only under the kernel lock -- no path syscall is MPSAFE -- so a
+    // check never walks an array being replaced.
+    int      n, cap;
+    struct unveil_entry *v;
 };
 
 // The first few refusals of each sandbox are logged and the rest are not:
@@ -55,6 +58,7 @@ struct sandbox *sandbox_get(struct sandbox *sb) {
 void sandbox_put(struct sandbox *sb) {
     if (!sb || --sb->refs > 0) return;
     for (int i = 0; i < sb->n; i++) kfree(sb->v[i].path);
+    kfree(sb->v);
     kfree(sb);
 }
 
@@ -68,6 +72,23 @@ static struct sandbox *current(void) {
 }
 
 int sandbox_active(void) { return current() != 0; }
+
+// `from`'s unveil list copied into the fresh `to`. 0 out of memory, and
+// `to` then holds what was copied, for sandbox_put() to free.
+static int copy_unveils(struct sandbox *to, const struct sandbox *from) {
+    if (!from->n) return 1;
+    to->v = kmalloc((size_t)from->n * sizeof *to->v);
+    if (!to->v) return 0;
+    to->cap = from->n;
+    for (int i = 0; i < from->n; i++) {
+        to->v[i] = from->v[i];
+        to->v[i].path = kmalloc((size_t)from->v[i].len + 1);
+        if (!to->v[i].path) { to->n = i; return 0; }
+        k_memcpy(to->v[i].path, from->v[i].path, (size_t)from->v[i].len + 1);
+    }
+    to->n = from->n;
+    return 1;
+}
 
 // The current process's sandbox, made private to it so it can be
 // changed: created unrestricted if there is none, copied if a child
@@ -86,13 +107,7 @@ static struct sandbox *writable(void) {
         c->promises = sb->promises;
         c->unveiled = sb->unveiled;
         c->locked = sb->locked;
-        for (int i = 0; i < sb->n; i++) {
-            c->v[i] = sb->v[i];
-            c->v[i].path = kmalloc((size_t)sb->v[i].len + 1);
-            if (!c->v[i].path) { c->n = i; sandbox_put(c); return 0; }
-            k_memcpy(c->v[i].path, sb->v[i].path, (size_t)sb->v[i].len + 1);
-        }
-        c->n = sb->n;
+        if (!copy_unveils(c, sb)) { sandbox_put(c); return 0; }
         sandbox_put(sb);
     }
     *slot = c;
@@ -153,13 +168,7 @@ int sandbox_for_child(struct sandbox **out) {
     if (parent) {
         c->unveiled = parent->unveiled;
         c->locked = parent->locked;
-        for (int i = 0; i < parent->n; i++) {
-            c->v[i] = parent->v[i];
-            c->v[i].path = kmalloc((size_t)parent->v[i].len + 1);
-            if (!c->v[i].path) { c->n = i; sandbox_put(c); return -ENOMEM; }
-            k_memcpy(c->v[i].path, parent->v[i].path, (size_t)parent->v[i].len + 1);
-        }
-        c->n = parent->n;
+        if (!copy_unveils(c, parent)) { sandbox_put(c); return -ENOMEM; }
     }
     *out = c;
     return 0;
@@ -335,7 +344,15 @@ int sys_unveil(struct syscall_ctx *c) {
             goto out;
         }
     }
-    if (sb->n >= UNVEIL_MAX) { rc = -E2BIG; goto out; }
+    if (sb->n == sb->cap) {
+        int cap = sb->cap ? sb->cap * 2 : 8;
+        struct unveil_entry *v = kmalloc((size_t)cap * sizeof *v);
+        if (!v) { rc = -ENOMEM; goto out; }
+        if (sb->n) k_memcpy(v, sb->v, (size_t)sb->n * sizeof *v);
+        kfree(sb->v);
+        sb->v = v;
+        sb->cap = cap;
+    }
     char *copy = kmalloc(len + 1);
     if (!copy) { rc = -ENOMEM; goto out; }
     k_memcpy(copy, path, len + 1);

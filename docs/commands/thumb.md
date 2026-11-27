@@ -42,9 +42,9 @@ handlers and GNOME's sandboxed thumbnailers make the same split.
 **IT DECODES SANDBOXED** (`pledge`/`unveil`, `abi/sandbox_abi.h`): before
 the first decode it can read only the folders of the FILEs it was given
 and write only `~/.cache/thumbnails`, and it keeps no promise but
-files -- no network, no spawn. Given files in more folders than the
-unveil list holds, it reads everything instead, still writing only the
-cache. `ps --sandbox` shows it while it runs.
+files -- no network, no spawn. Every folder is named, however many
+there are; one it has no memory to name stops it (exit `2`) rather than
+widening the sandbox. `ps --sandbox` shows it while it runs.
 
 ## Exit status
 

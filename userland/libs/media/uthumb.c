@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include "sandbox_abi.h"
 #include "base/ufile.h"
+#include "base/ugrow.h"
+#include "base/upath.h"
 #include "media/uvid.h"
 #include "base/uduration.h"
 #include "kpath.h"
@@ -474,27 +476,27 @@ int uthumb_load_cached(const char *path, const struct rtc_time *mtime, int px, s
 
 int uthumb_sandbox(char *const *files, int n) {
     thumb_dir_make();
-    static char dirs[UNVEIL_MAX - 2][256];
-    int nd = 0, all = 0;
-    for (int i = 0; i < n && !all; i++) {
-        char d[256];
-        if (snprintf(d, sizeof d, "%s", files[i]) >= (int)sizeof d) { all = 1; break; }
-        char *slash = strrchr(d, '/');
-        if (!slash) snprintf(d, sizeof d, ".");
-        else if (slash == d) d[1] = '\0';
-        else *slash = '\0';
+    // Each distinct folder once, heap copies sized to fit: the kernel's
+    // list has no bound but memory, so there is no "too many" to widen to
+    // the root for. Out of memory fails the call -- never a wider unveil.
+    char **dirs = 0;
+    int nd = 0, cap = 0, rc = -1;
+    for (int i = 0; i < n; i++) {
+        char *d = upath_dirname(files[i]);
+        if (!d) goto out;
+        if (!strchr(files[i], '/')) { free(d); d = strdup("."); if (!d) goto out; }
         int seen = 0;
         for (int k = 0; k < nd && !seen; k++) seen = !strcmp(dirs[k], d);
-        if (seen) continue;
-        if (nd == UNVEIL_MAX - 2) { all = 1; break; }
-        snprintf(dirs[nd++], sizeof dirs[0], "%s", d);
+        if (seen) { free(d); continue; }
+        if (!UGROW(dirs, cap, nd + 1)) { free(d); goto out; }
+        dirs[nd++] = d;
     }
-    if (unveil(THUMB_CACHE_DIR, "rwc") != 0) return -1;
-    if (all) {
-        if (unveil("/", "r") != 0) return -1;
-    } else {
-        for (int k = 0; k < nd; k++)
-            if (unveil(dirs[k], "r") != 0) return -1;
-    }
-    return unveil(NULL, NULL) == 0 && pledge("stdio rpath wpath cpath", NULL) == 0 ? 0 : -1;
+    if (unveil(THUMB_CACHE_DIR, "rwc") != 0) goto out;
+    for (int k = 0; k < nd; k++)
+        if (unveil(dirs[k], "r") != 0) goto out;
+    rc = unveil(NULL, NULL) == 0 && pledge("stdio rpath wpath cpath", NULL) == 0 ? 0 : -1;
+out:
+    for (int k = 0; k < nd; k++) free(dirs[k]);
+    free(dirs);
+    return rc;
 }

@@ -64,10 +64,6 @@
 #define UNVEIL_C 0x4   // create or remove beneath it
 #define UNVEIL_X 0x8   // spawn or exec what is there
 
-// How many paths one process may unveil. pledge's callers name a
-// handful; past this SYS_UNVEIL answers -E2BIG.
-#define UNVEIL_MAX 16
-
 // **AN SHM NAME IS UNVEILED WITH THIS PREFIX**, "shm:<name>" -- an
 // object name never starts with '/', so it cannot collide with a path.
 // Once a process has unveiled anything, it may open a PUBLIC object only

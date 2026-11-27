@@ -19,6 +19,8 @@
 #include <stdint.h>
 #include <fcntl.h>
 #include <string.h>
+#include <stdio.h>
+#include <sys/stat.h>
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
@@ -150,6 +152,40 @@ static int unveil_rights(void) {
     if (unveil("/tmp", "r") != 0 || unveil("/tests", "r") != 0) return 1;
     int fd = open("/tmp/sandbox_test.w", O_WRONLY | O_CREAT, 0644);
     if (fd != -1 || errno != EACCES) return 2;   // there, without the right
+    return 0;
+}
+
+// PAST THE SIXTEEN the list once held (-E2BIG): the kernel's list grows,
+// and the last path unveiled is as good as the first.
+#define MANY_DIRS 24
+static void many_dir(char *out, size_t cap, int i) {
+    snprintf(out, cap, "/tmp/sandbox_test.many%02d", i);
+}
+
+static void many_cleanup(void) {
+    char d[64], f[80];
+    for (int i = 0; i < MANY_DIRS; i++) {
+        many_dir(d, sizeof d, i);
+        snprintf(f, sizeof f, "%s/f", d);
+        unlink(f);
+        rmdir(d);
+    }
+}
+
+static int unveil_many(void) {
+    char d[64], f[80];
+    for (int i = 0; i < MANY_DIRS; i++) {
+        many_dir(d, sizeof d, i);
+        if (unveil(d, "r") != 0) return 10 + i;
+    }
+    if (unveil(NULL, NULL) != 0) return 2;
+    many_dir(d, sizeof d, MANY_DIRS - 1);
+    snprintf(f, sizeof f, "%s/f", d);
+    int fd = open(f, O_RDONLY);
+    if (fd < 0) return 3;
+    close(fd);
+    struct sys_stat st;
+    if (sys_stat("/etc", &st) != -1 || errno != ENOENT) return 4;   // the rest still hidden
     return 0;
 }
 
@@ -330,6 +366,22 @@ int main(int argc, char **argv) {
     utest_checkf(code == 0, "unveil hides the rest (ENOENT), only narrows, and locks (%d)", code);
     code = in_child(unveil_rights);
     utest_checkf(code == 0, "an unveiled path without the right is EACCES (%d)", code);
+
+    many_cleanup();
+    int made = 1;
+    for (int i = 0; i < MANY_DIRS && made; i++) {
+        char d[64], f[80];
+        many_dir(d, sizeof d, i);
+        snprintf(f, sizeof f, "%s/f", d);
+        made = mkdir(d, 0755) == 0;
+        int fd = made ? open(f, O_WRONLY | O_CREAT, 0644) : -1;
+        if (fd >= 0) close(fd);
+        made = made && fd >= 0;
+    }
+    utest_check(made, "made the folders for the long unveil list");
+    code = in_child(unveil_many);
+    utest_checkf(code == 0, "24 paths unveil, and the last one opens (%d)", code);
+    many_cleanup();
 
     code = in_child(shm_publish);
     utest_checkf(code == KILLED_BY_SIGSYS, "shm makes private objects; a beacon needs publish (%d)", code);

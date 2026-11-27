@@ -2971,8 +2971,8 @@ struct usb_control_msg {
                          // rights. The first call hides everything not
                          // unveiled; later ones add paths or change a
                          // path's rights until RDI = 0 LOCKS the list.
-                         // -EPERM once locked, -E2BIG past UNVEIL_MAX,
-                         // -ENAMETOOLONG, -EFAULT.
+                         // -EPERM once locked, -ENOMEM (the list has
+                         // no bound but memory), -ENAMETOOLONG, -EFAULT.
 
 // RESOURCE LIMITS: getrlimit(2)/setrlimit(2), on the caller alone.
 // SYS_RLIMIT_DATA is the one enforced, Linux's RLIMIT_DATA since 4.7:
