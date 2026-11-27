@@ -38,7 +38,6 @@ extern "C" {
 
 #define UBULK_RING_BYTES (256u * 1024u)   // each way; a power of two
 #define UBULK_REC_MAX    (64u * 1024u)    // the largest payload
-#define UBULK_PEERS      64
 
 struct ubulk_ring {
     volatile uint32_t head;    // bytes ever written -- ONLY the writer writes it
@@ -114,8 +113,10 @@ struct ubulk_peer {
 
 struct ubulk_server {
     struct uchan_server ch;
-    struct ubulk_peer   peer[UBULK_PEERS];
-    int                 npeers;
+    // Every client's page, GROWN under the lock as clients arrive: no
+    // limit but memory (out of memory leaves a client for the next poll).
+    struct ubulk_peer  *peer;
+    int                 npeers, peer_cap;
     uint32_t            seen;   // the beacon word, for ubulk_server_wait_change()
     void               *lock;   // a pthread mutex, made at open
 };
@@ -124,8 +125,10 @@ int  ubulk_server_open(struct ubulk_server *s, const char *service);
 void ubulk_server_close(struct ubulk_server *s);
 
 // Adopts new clients and drops departed ones, writing up to `gone_cap`
-// departed connections into `gone`; returns how many departed. Then the caller
-// drains with ubulk_server_recv() until it returns 0.
+// departed connections into `gone`; returns how many departed. A death
+// that did not fit is reported by the next call, so a caller polls again
+// while the answer is `gone_cap`. Then the caller drains with
+// ubulk_server_recv() until it returns 0.
 int  ubulk_server_poll(struct ubulk_server *s, int *gone, int gone_cap);
 int  ubulk_server_recv(struct ubulk_server *s, struct ubulk_msg *m, void *buf, uint32_t cap);
 

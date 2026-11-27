@@ -1109,13 +1109,14 @@ int main(int argc, char **argv) {
     unsigned long long last_save = sys_monotonic_ns(), started = last_save;
     for (;;) {
         ubulk_server_wait_change(&g_srv, 1000);
-        int gone[UBULK_PEERS];
-        int ng = ubulk_server_poll(&g_srv, gone, UBULK_PEERS);
-        int app_gone = 0;
-        for (int i = 0; i < ng && i < UBULK_PEERS; i++) {
-            client_gone(gone[i]);
-            app_gone |= gone[i] == g_app_pid;
-        }
+        int gone[16], ng, app_gone = 0;
+        do {   // a death past `gone` comes back from the next poll
+            ng = ubulk_server_poll(&g_srv, gone, 16);
+            for (int i = 0; i < ng && i < 16; i++) {
+                client_gone(gone[i]);
+                app_gone |= gone[i] == g_app_pid;
+            }
+        } while (ng == 16);
         struct ubulk_msg m;
         while (ubulk_server_recv(&g_srv, &m, buf, sizeof buf)) handle(&m);
         pthread_mutex_lock(&g_mu);

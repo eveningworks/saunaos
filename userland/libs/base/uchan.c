@@ -5,8 +5,11 @@
 #include "rt/sys.h"
 #include "syscall_abi.h"
 #include "query_abi.h"
+#include "base/ugrow.h"
+#include "base/ulog.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define RING_BYTES ((uint64_t)sizeof(struct uchan_ring))
 
@@ -77,7 +80,7 @@ int uchan_server_open(struct uchan_server *s, const char *name) {
 }
 
 static int ring_index(const struct uchan_server *s, int conn) {
-    for (int i = 0; i < s->count; i++) if (s->conn[i] == conn) return i;
+    for (int i = 0; i < s->count; i++) if (s->c[i].conn == conn) return i;
     return -1;
 }
 
@@ -88,19 +91,19 @@ static void ring_name(char *out, unsigned long cap, const char *svc, int pid, ui
 }
 
 static int ring_held(const struct uchan_server *s, int pid, uint32_t sub) {
-    for (int i = 0; i < s->count; i++) if (s->pid[i] == pid && s->sub[i] == sub) return i;
+    for (int i = 0; i < s->count; i++) if (s->c[i].pid == pid && s->c[i].sub == sub) return i;
     return -1;
 }
 
 int uchan_server_peer_pid(const struct uchan_server *s, int conn) {
     int i = ring_index(s, conn);
-    return i < 0 ? 0 : s->pid[i];
+    return i < 0 ? 0 : s->c[i].pid;
 }
 
 int uchan_server_ring_name(const struct uchan_server *s, int conn, char *out, unsigned long cap) {
     int i = ring_index(s, conn);
     if (i < 0) return 0;
-    ring_name(out, cap, s->name, s->pid[i], s->sub[i]);
+    ring_name(out, cap, s->name, s->c[i].pid, s->c[i].sub);
     return 1;
 }
 
@@ -114,7 +117,7 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
     // again before this scan ran, so the name never stopped resolving.
     // Its old ring is a dead client's, dropped below as one; the new one
     // is adopted next scan. Pid alone could not tell them apart.
-    int replaced[64] = {0};
+    for (int i = 0; i < s->count; i++) s->c[i].replaced = 0;
     char prefix[UCHAN_NAME_MAX + 2];
     snprintf(prefix, sizeof prefix, "%s.", s->name);
     size_t plen = strlen(prefix);
@@ -139,10 +142,9 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
         }
         if (*p) continue;
         int held = pid > 0 ? ring_held(s, pid, sub) : -1;
-        if (held >= 0 && rec.serial && s->serial[held] && rec.serial != s->serial[held])
-            replaced[held] = 1;
+        if (held >= 0 && rec.serial && s->c[held].serial && rec.serial != s->c[held].serial)
+            s->c[held].replaced = 1;
         if (pid <= 0 || held >= 0) continue;
-        if ((int)(sizeof s->ring / sizeof s->ring[0]) <= s->count) continue;
         // **A RING SPEAKS FOR THE PID IN ITS NAME ONLY IF THAT PID MADE
         // IT.** Otherwise one client could post as another -- a page's
         // engine as the Browser itself, to /bin/webnet.
@@ -159,6 +161,13 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
             unmap(r, RING_BYTES);
             continue;
         }
+        if (!UGROW(s->c, s->cap, s->count + 1)) {
+            // Out of memory: the ring stays unadopted, and the next scan
+            // tries again.
+            if (!s->warned++) ulogf("uchan: %s: no memory for client %d's ring -- it waits\n", s->name, pid);
+            unmap(r, RING_BYTES);
+            continue;
+        }
         // A further ring's id is past every pid; wrapping back to the
         // first is safe while 2^30 connections have not come and gone.
         int conn = pid;
@@ -166,12 +175,13 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
             conn = UCHAN_CONN_EXTRA + s->next_extra;
             s->next_extra = (s->next_extra + 1) & (UCHAN_CONN_EXTRA - 1);
         }
-        s->ring[s->count] = r;
-        s->conn[s->count] = conn;
-        s->pid[s->count] = pid;
-        s->sub[s->count] = sub;
-        s->serial[s->count] = rec.serial;
-        s->count++;
+        struct uchan_conn *nc = &s->c[s->count++];
+        nc->ring = r;
+        nc->conn = conn;
+        nc->pid = pid;
+        nc->sub = sub;
+        nc->serial = rec.serial;
+        nc->replaced = 0;
     }
 
     // A CLIENT THAT DIED TAKES ITS NAME WITH IT (the kernel unlinks a
@@ -180,8 +190,8 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
     // drop has to happen rather than being left to the allocator.
     for (int k = 0; k < s->count; ) {
         char nm[SHM_NAME_MAX];
-        ring_name(nm, sizeof nm, s->name, s->pid[k], s->sub[k]);
-        int fd = replaced[k] ? -1 : sys_shm_open(nm, 0, 0);
+        ring_name(nm, sizeof nm, s->name, s->c[k].pid, s->c[k].sub);
+        int fd = s->c[k].replaced ? -1 : sys_shm_open(nm, 0, 0);
         if (fd >= 0) { sys_close(fd); k++; continue; }
         // **WHICH CLIENT WENT IS REPORTED, NOT JUST RECLAIMED.** A
         // server usually holds state per client -- the compositor holds
@@ -191,16 +201,10 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
         // the ring unreported lost the death for good, and its windows
         // with it.
         if (gone && ngone >= gone_cap) { k++; continue; }
-        if (gone) gone[ngone] = s->conn[k];
+        if (gone) gone[ngone] = s->c[k].conn;
         ngone++;
-        unmap(s->ring[k], RING_BYTES);
-        s->ring[k] = s->ring[s->count - 1];
-        s->conn[k] = s->conn[s->count - 1];
-        s->pid[k] = s->pid[s->count - 1];
-        s->sub[k] = s->sub[s->count - 1];
-        s->serial[k] = s->serial[s->count - 1];
-        replaced[k] = replaced[s->count - 1];
-        s->count--;
+        unmap(s->c[k].ring, RING_BYTES);
+        s->c[k] = s->c[--s->count];
     }
     return ngone;
 }
@@ -217,7 +221,7 @@ int uchan_server_recv(struct uchan_server *s, void *out, unsigned long cap) {
     // continuously cannot hold the others off forever.
     for (int n = 0; n < s->count; n++) {
         int i = (int)((s->next + (unsigned)n) % (unsigned)s->count);
-        struct uchan_ring *r = s->ring[i];
+        struct uchan_ring *r = s->c[i].ring;
         if (r->head == r->tail) continue;
         uint32_t slot = r->tail % UCHAN_SLOTS;
         memcpy(out, r->slot[slot], clamp_len(cap));
@@ -226,7 +230,7 @@ int uchan_server_recv(struct uchan_server *s, void *out, unsigned long cap) {
         // message read half from the old sender and half from the new.
         r->tail++;
         s->next = (unsigned)(i + 1);
-        return s->conn[i];
+        return s->c[i].conn;
     }
     return 0;
 }
@@ -235,7 +239,7 @@ void uchan_server_reply(struct uchan_server *s, int conn, const void *msg,
                         unsigned long len) {
     int i = ring_index(s, conn);
     if (i < 0) return;
-    struct uchan_ring *r = s->ring[i];
+    struct uchan_ring *r = s->c[i].ring;
     len = clamp_len(len);
     memcpy((void *)r->reply, msg, len);
     // The tail of the slot is ZEROED, not left as it was: a reader
@@ -257,14 +261,14 @@ void uchan_server_wait(struct uchan_server *s, int timeout_ms) {
     // the word, so a message arriving between the two moves it and the
     // wait below returns at once instead of sleeping through it.
     for (int i = 0; i < s->count; i++)
-        if (s->ring[i]->head != s->ring[i]->tail) return;
+        if (s->c[i].ring->head != s->c[i].ring->tail) return;
     sys_futex_wait(&s->beacon->wake, seen, timeout_ms);
 }
 
 int uchan_server_room(struct uchan_server *s, int conn) {
     int i = ring_index(s, conn);
     if (i < 0) return 0;
-    struct uchan_ring *r = s->ring[i];
+    struct uchan_ring *r = s->c[i].ring;
     return (int)(UCHAN_IN_SLOTS - (r->in_head - r->in_tail));
 }
 
@@ -272,7 +276,7 @@ int uchan_server_send(struct uchan_server *s, int conn, const void *msg,
                       unsigned long len) {
     int i = ring_index(s, conn);
     if (i < 0) return -1;
-    struct uchan_ring *r = s->ring[i];
+    struct uchan_ring *r = s->c[i].ring;
     if (r->in_head - r->in_tail >= UCHAN_IN_SLOTS) {
         r->in_dropped++;
         return -1;
@@ -293,7 +297,8 @@ int uchan_server_send(struct uchan_server *s, int conn, const void *msg,
 void uchan_server_close(struct uchan_server *s) {
     if (!s->beacon) return;
     sys_wakeword(0);
-    for (int i = 0; i < s->count; i++) unmap(s->ring[i], RING_BYTES);
+    for (int i = 0; i < s->count; i++) unmap(s->c[i].ring, RING_BYTES);
+    free(s->c);
     sys_shm_unlink(s->name);
     unmap(s->beacon, sizeof(struct uchan_beacon));
     memset(s, 0, sizeof *s);

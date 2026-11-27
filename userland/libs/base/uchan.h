@@ -36,17 +36,24 @@ extern "C" {
 // beside its credentials.
 #define UCHAN_CONN_EXTRA 0x40000000
 
+// One adopted client ring.
+struct uchan_conn {
+    struct uchan_ring *ring;
+    int                conn;      // its connection id
+    int                pid;       // the pid that made it
+    uint32_t           sub;       // its number under that pid (0: "<name>.<pid>")
+    uint32_t           serial;    // the ring OBJECT's (QUERY_SHM); 0 unknown
+    int                replaced;  // scratch for one scan
+};
+
 struct uchan_server {
     struct uchan_beacon *beacon;
-    // One mapped ring per connection: its id, the pid that made it and the
-    // ring's number under that pid (0: "<name>.<pid>"). 64, the old process
-    // table's size; a ring past it waits for a slot.
-    struct uchan_ring *ring[64];
-    int                conn[64];
-    int                pid[64];
-    uint32_t           sub[64];
-    uint32_t           serial[64];   // the ring OBJECT's (QUERY_SHM); 0 unknown
-    int                count;
+    // Every adopted ring, GROWN as clients arrive (base/ugrow.h): there is
+    // no client limit but memory, and out of memory leaves a new ring for
+    // the next scan and logs once.
+    struct uchan_conn *c;
+    int                count, cap;
+    int                warned;       // the out-of-memory line, once
     int                next_extra;   // the next UCHAN_CONN_EXTRA id
     char               name[UCHAN_NAME_MAX];
     unsigned           next;   // round-robin, so one busy client cannot

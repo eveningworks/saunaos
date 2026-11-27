@@ -1159,9 +1159,11 @@ int main(void) {
     char *buf = malloc(UBULK_REC_MAX);
     if (!buf) return 1;
     for (;;) {
-        int left[16];
-        int n = ubulk_server_poll(&g_srv, left, 16);
-        for (int i = 0; i < n && i < 16; i++) gone(left[i]);
+        int left[16], n;
+        do {   // a death past `left` comes back from the next poll
+            n = ubulk_server_poll(&g_srv, left, 16);
+            for (int i = 0; i < n && i < 16; i++) gone(left[i]);
+        } while (n == 16);
         struct ubulk_msg m;
         while (ubulk_server_recv(&g_srv, &m, buf, UBULK_REC_MAX) == 1) {
             if (m.type == UPRIV_T_SPAWN || m.type == UPRIV_T_ACTION || m.type == UPRIV_T_AUTH ||

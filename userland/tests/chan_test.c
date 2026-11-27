@@ -232,6 +232,36 @@ int main(int argc, char **argv) {
     utest_check(two > 0 && sys_waitpid(two, &code) == two && code == 0,
                 "...each answered on its own ring, the first heard after the second closed");
 
+    // SEVENTY CLIENTS OF ONE SERVER, past the 64 the table held: every
+    // ring is adopted, and the last one's message is heard. One process's
+    // further rings are clients like any other, so no spawns are needed.
+    enum { MANY = 70 };
+    static struct uchan_client many[MANY];
+    int opened = 0;
+    for (int i = 0; i < MANY; i++) opened += uchan_client_open(&many[i], SERVICE) == 0;
+    for (int t = 0; t < 200 && s.count < MANY; t++) {
+        uchan_server_scan(&s, 0, 0);
+        if (s.count < MANY) sys_sleep_ms(10);
+    }
+    utest_checkf(opened == MANY && s.count == MANY, "seventy clients connect (%d opened, %d adopted)",
+                 opened, s.count);
+    memset(&m, 0, sizeof m);
+    m.kind = KIND_NOTE;
+    m.value = 70;
+    int heard = 0;
+    if (opened == MANY && uchan_send(&many[MANY - 1], &m, sizeof m) == 0) {
+        int from;
+        while ((from = uchan_server_recv(&s, &m, sizeof m)) != 0)
+            if (m.value == 70 && uchan_server_peer_pid(&s, from) == sys_getpid()) heard = 1;
+    }
+    utest_check(heard, "...and the seventieth client's message arrives");
+    for (int i = 0; i < MANY; i++) uchan_client_close(&many[i]);
+    for (int t = 0; t < 200 && s.count; t++) {
+        uchan_server_scan(&s, 0, 0);
+        if (s.count) sys_sleep_ms(10);
+    }
+    utest_checkf(s.count == 0, "...and all seventy rings are dropped when closed (%d left)", s.count);
+
     uchan_server_close(&s);
     return utest_end();
 }

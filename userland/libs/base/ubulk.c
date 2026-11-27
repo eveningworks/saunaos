@@ -1,5 +1,6 @@
 // ubulk -- see base/ubulk.h.
 #include "base/ubulk.h"
+#include "base/ugrow.h"
 #include "rt/sys.h"
 #include "syscall_abi.h"
 #include <pthread.h>
@@ -212,6 +213,7 @@ int ubulk_server_open(struct ubulk_server *s, const char *service) {
 void ubulk_server_close(struct ubulk_server *s) {
     if (!s->lock) return;
     for (int i = 0; i < s->npeers; i++) sys_munmap(s->peer[i].pg, PAGE_BYTES);
+    free(s->peer);
     uchan_server_close(&s->ch);
     pthread_mutex_destroy(s->lock);
     free(s->lock);
@@ -233,8 +235,8 @@ int ubulk_server_poll(struct ubulk_server *s, int *gone, int gone_cap) {
     // Every uchan client is a ubulk client: adopt the ones not yet
     // mapped, and drop the ones uchan no longer has.
     for (int k = 0; k < s->ch.count; k++) {
-        int conn = s->ch.conn[k], pid = s->ch.pid[k];
-        if (peer_index(s, conn) >= 0 || s->npeers >= UBULK_PEERS) continue;
+        int conn = s->ch.c[k].conn, pid = s->ch.c[k].pid;
+        if (peer_index(s, conn) >= 0) continue;
         char nm[SHM_NAME_MAX];
         if (!uchan_server_ring_name(&s->ch, conn, nm, sizeof nm - 1)) continue;
         strcat(nm, "b");
@@ -251,6 +253,10 @@ int ubulk_server_poll(struct ubulk_server *s, int *gone, int gone_cap) {
             sys_munmap(pg, PAGE_BYTES);
             continue;
         }
+        if (!UGROW(s->peer, s->peer_cap, s->npeers + 1)) {
+            sys_munmap(pg, PAGE_BYTES);
+            continue;   // out of memory: the next poll tries again
+        }
         struct ubulk_peer *np = &s->peer[s->npeers++];
         np->conn = conn;
         np->pid = pid;
@@ -259,7 +265,7 @@ int ubulk_server_poll(struct ubulk_server *s, int *gone, int gone_cap) {
     }
     for (int i = 0; i < s->npeers;) {
         int live = 0;
-        for (int k = 0; k < s->ch.count; k++) live |= s->ch.conn[k] == s->peer[i].conn;
+        for (int k = 0; k < s->ch.count; k++) live |= s->ch.c[k].conn == s->peer[i].conn;
         if (live) { i++; continue; }
         sys_munmap(s->peer[i].pg, PAGE_BYTES);
         s->peer[i] = s->peer[--s->npeers];

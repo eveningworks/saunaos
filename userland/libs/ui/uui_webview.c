@@ -939,8 +939,8 @@ int uui_webview_on_post(struct uapp *a, int a0, int a1) {
     (void)a1;
     if (!g_open || a0 != g_post_id) return 0;
     g_posted = 0;
-    int gone[UBULK_PEERS];
-    ubulk_server_poll(&g_srv, gone, UBULK_PEERS);
+    int gone[16];   // unread: a page's death arrives through g_death_mu below
+    while (ubulk_server_poll(&g_srv, gone, 16) == 16) {}
     static char buf[UBULK_REC_MAX];
     struct ubulk_msg m;
     while (ubulk_server_recv(&g_srv, &m, buf, sizeof buf)) handle(&m);
