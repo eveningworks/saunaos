@@ -48,13 +48,6 @@ static void collector_init(struct completion_collector *c, const struct completi
     c->common = 0;
 }
 
-// Is `cand` exactly head + tail + suffix?
-static int is_parts(const char *cand, const char *head, const char *tail, const char *suffix) {
-    size_t hl = k_strlen(head), tl = k_strlen(tail);
-    return !k_strncmp(cand, head, (int)hl) && !k_strncmp(cand + hl, tail, (int)tl) &&
-           !k_strcmp(cand + hl + tl, suffix);
-}
-
 // Adds head + tail + suffix as a candidate if `match` starts with the
 // collector's prefix.
 //
@@ -71,12 +64,8 @@ static void add_candidate_parts(struct completion_collector *c, const char *matc
     if (k_strncmp(match, c->prefix, (int)c->prefix_len) != 0) return;
     struct completion_result *out = c->out;
 
-    // A NAME OFFERED TWICE IS OFFERED ONCE. Several domains overlap by
-    // design -- a name can be both a builtin and a program in PATH --
-    // and without this each is listed twice.
-    for (int i = 0; i < out->count; i++)
-        if (is_parts(out->candidates[i], head, tail, suffix)) return;
-
+    // A duplicate is stored and dropped after the sort (collector_finish),
+    // so a big folder costs n log n, not n squared.
     if (out->count == out->cap) {
         int cap = out->cap ? out->cap * 2 : 16;
         char **grown = cap > out->cap ? c->env->alloc((uint32_t)cap * (uint32_t)sizeof *grown) : 0;
@@ -111,18 +100,42 @@ void completion_add(struct completion_collector *c, const char *name) {
     add_candidate(c, name);
 }
 
-// Insertion sort of the pointers: obviously correct beats fast on a list
-// one person reads.
-static void sort_candidates(struct completion_result *out) {
-    for (int i = 1; i < out->count; i++) {
-        char *key = out->candidates[i];
-        int j = i - 1;
-        while (j >= 0 && k_strcmp(out->candidates[j], key) > 0) {
-            out->candidates[j + 1] = out->candidates[j];
-            j--;
-        }
-        out->candidates[j + 1] = key;
+// Heapsort of the pointers: in place and n log n, since a folder may
+// hold thousands of matches and the list has no cap.
+static void sift_down(char **a, int root, int n) {
+    for (;;) {
+        int child = 2 * root + 1;
+        if (child >= n) return;
+        if (child + 1 < n && k_strcmp(a[child], a[child + 1]) < 0) child++;
+        if (k_strcmp(a[root], a[child]) >= 0) return;
+        char *t = a[root]; a[root] = a[child]; a[child] = t;
+        root = child;
     }
+}
+
+static void sort_candidates(struct completion_result *out) {
+    char **a = out->candidates;
+    int n = out->count;
+    for (int i = n / 2 - 1; i >= 0; i--) sift_down(a, i, n);
+    for (int end = n - 1; end > 0; end--) {
+        char *t = a[0]; a[0] = a[end]; a[end] = t;
+        sift_down(a, 0, end);
+    }
+}
+
+// A NAME OFFERED TWICE IS OFFERED ONCE. Several domains overlap by
+// design -- a name can be both a builtin and a program in PATH -- and
+// without this each is listed twice. Sorted, a duplicate is a neighbour.
+static void drop_duplicates(const struct completion_env *env, struct completion_result *out) {
+    int w = 0;
+    for (int i = 0; i < out->count; i++) {
+        if (w > 0 && !k_strcmp(out->candidates[w - 1], out->candidates[i])) {
+            env->release(out->candidates[i]);
+            continue;
+        }
+        out->candidates[w++] = out->candidates[i];
+    }
+    out->count = w;
 }
 
 // Turns the common prefix into what to actually TYPE: the part of it the
@@ -142,9 +155,12 @@ static void collector_finish(struct completion_collector *c) {
             k_memcpy(ins, out->candidates[0] + c->prefix_len, extra);
             ins[extra] = '\0';
             out->insert = ins;
+        } else {
+            out->truncated = 1;   // nothing typed, and no space after it either
         }
     }
     sort_candidates(out);
+    drop_duplicates(c->env, out);
 
     if (out->count == 1 && !out->truncated) {
         size_t clen = k_strlen(out->candidates[0]);

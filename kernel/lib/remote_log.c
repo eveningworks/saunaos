@@ -110,7 +110,7 @@ uint32_t remote_log_session_of(int leader_pid) {
 uint32_t remote_log_session_ip(void) {
     for (int i = kslots_cap(&g_sessions) - 1; i >= 0; i--) {
         struct remote_session *r = kslots_at(&g_sessions, i);
-        if (r) return r->ip;
+        if (r && r->leader) return r->ip;
     }
     return 0;
 }

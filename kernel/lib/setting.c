@@ -354,10 +354,12 @@ static int choice_file_load(const char *path) {
     if (size + 1 > cf_cap) {
         char *b = kmalloc((size_t)size + 1);
         if (!b) {
-            static int warned;   // a dropdown asks once per row
-            if (!warned++)
+            static const char *warned;   // a dropdown asks once per row
+            if (warned != path) {
+                warned = path;
                 klog_printf(KLOG_WARN "setting: no memory for the %u-byte choice list %s\n",
                             (unsigned)size, path);
+            }
             return 0;
         }
         kfree(cf_buf);

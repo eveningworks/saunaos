@@ -1397,7 +1397,17 @@ int fs_check_at(const char *path, int repair, struct fs_check_result *out) {
     if (!rc) return -EIO;
     k_strlcpy(out->fstype, r.m->fs->name, sizeof out->fstype);
     // An answer field: a point too long for it is left empty, not cut.
-    if (k_strlen(r.m->point) < sizeof out->point) k_strlcpy(out->point, r.m->point, sizeof out->point);
+    if (k_strlen(r.m->point) < sizeof out->point) {
+        k_strlcpy(out->point, r.m->point, sizeof out->point);
+    } else {
+        static int said;
+        if (!said) {
+            said = 1;
+            klog_printf(KLOG_WARN "fsck: %s is longer than the %u bytes the check's answer "
+                        "names a mount in -- answered without it (said once)\n",
+                        r.m->point, (unsigned)sizeof out->point - 1);
+        }
+    }
     return 0;
 }
 

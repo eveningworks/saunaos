@@ -94,8 +94,8 @@ static uint32_t msg_charge(uint32_t len) { return len + (uint32_t)sizeof(struct 
 //
 // Under the preemption guard, as its reader is: net_poll() pushes while
 // a preempted recvfrom() may be half way through a pop, and the list and
-// `queued` are shared between them. The kmalloc under it is the heap's
-// own discipline (the guard is what kmalloc takes).
+// `queued` are shared between them. kmalloc is safe under it: the heap's
+// lock is a spinlock taken with interrupts off.
 static int queue_push(struct socket *s, uint32_t src, uint16_t port,
                       const uint8_t *data, uint32_t len) {
     if (len > SOCK_MSG_MAX) return 0;

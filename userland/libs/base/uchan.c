@@ -164,7 +164,10 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
         if (!UGROW(s->c, s->cap, s->count + 1)) {
             // Out of memory: the ring stays unadopted, and the next scan
             // tries again.
-            if (!s->warned++) ulogf("uchan: %s: no memory for client %d's ring -- it waits\n", s->name, pid);
+            if (!s->warned) {
+                s->warned = 1;
+                ulogf("uchan: %s: no memory for client %d's ring -- it waits\n", s->name, pid);
+            }
             unmap(r, RING_BYTES);
             continue;
         }
