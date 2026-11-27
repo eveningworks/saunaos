@@ -25,6 +25,7 @@
 #define NETCTL_OK       0
 #define NETCTL_NO_SUCH  1   // no card by that name
 #define NETCTL_REFUSED  2   // known, but not now (renewing a card that is down)
+#define NETCTL_DENIED   3   // not the asker's to do: root's or the seat's (netd.c)
 
 struct netctl_msg {
     uint32_t verb;

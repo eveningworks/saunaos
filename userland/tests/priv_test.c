@@ -1,7 +1,8 @@
 // What an identity may DO, from ring 3 (docs/users-design.md, stage B):
-// the admin rows need euid 0, the seat may mount and unmount only under
+// the admin rows and a device claim need euid 0, the seat may mount and unmount only under
 // /media/ and /net/, a signal needs the target's owner, and an elevated
-// spawn needs privd's grant for exactly that command line, once.
+// spawn needs privd's grant for exactly that command line, once. netd
+// switches a card up or down for root or the seat alone (its own gate).
 //
 // What a broken version would still pass, and what stops it: a gate that
 // let everyone through passes every check made as root, so each refusal
@@ -23,6 +24,8 @@
 #include "signal_abi.h"
 #include "proc_info.h"
 #include "base/utest.h"
+#include "base/uchan.h"
+#include "net/unetctl.h"
 
 #define SELF "/tests/priv_test"
 
@@ -38,8 +41,10 @@ static int wait_code(int pid) {
     return code;
 }
 
+static int g_netd_up;   // root reached netd: a child that cannot is a failure
+
 static int spawn_as(const char *mode, unsigned cred_flags, int extra) {
-    char *argv[] = { SELF, (char *)mode, 0 };
+    char *argv[] = { SELF, (char *)mode, g_netd_up ? "netd" : 0, 0 };
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
     o.argv = argv;
@@ -52,6 +57,20 @@ static int spawn_as(const char *mode, unsigned cred_flags, int extra) {
 }
 
 static int refused(int rc) { return rc < 0 && sys_errno() == EPERM; }
+
+// netd's answer to `down` for a card that does not exist: NO_SUCH once
+// past its seat-or-root gate, DENIED before it. -1: netd is not running.
+static int netd_down_none(void) {
+    struct uchan_client c;
+    if (uchan_client_open(&c, NETCTL_SERVICE) < 0) return -1;
+    struct netctl_msg m, r;
+    memset(&m, 0, sizeof m);
+    m.verb = NETCTL_DOWN;
+    strcpy(m.dev, "privtest0");
+    int ok = uchan_call(&c, &m, sizeof m, &r, sizeof r, 5000) == 0;
+    uchan_client_close(&c);
+    return ok ? (int)r.result : -2;
+}
 
 // Every refusal 1000 meets with or without the seat. A distinct code per
 // check, so a failure names it.
@@ -70,6 +89,10 @@ static int common_refusals(void) {
     o.argv = argv;
     o.flags = SPAWN_ARGV | SPAWN_ELEVATED;
     if (!refused(sys_spawn_opts(SELF, &o))) return 15;
+    // The gate comes before the index is read, so no device is touched:
+    // without it this answers EINVAL.
+    if (!refused(sys_dev_claim(-1))) return 16;
+    if (!refused(sys_usb_claim(-1))) return 17;
     return 0;
 }
 
@@ -77,6 +100,8 @@ static int noseat_main(void) {
     int rc = common_refusals();
     if (rc) return rc;
     if (!refused(sys_umount("/media/priv_test_none"))) return 20;  // the seat's, not ours
+    int nd = netd_down_none();
+    if ((g_netd_up || nd != -1) && nd != NETCTL_DENIED) return 21; // a card is the seat's
     return 0;
 }
 
@@ -85,6 +110,8 @@ static int seat_main(void) {
     if (!refused(sys_umount("/boot"))) return 31;
     if (!refused(sys_umount("/media/../boot"))) return 32;
     if (!refused(sys_umount("/media/"))) return 33;
+    int nd = netd_down_none();
+    if ((g_netd_up || nd != -1) && nd != NETCTL_NO_SUCH) return 34; // past netd's gate
     return common_refusals();
 }
 
@@ -116,6 +143,7 @@ static int row_of(int pid, struct proc_info *out) {
 }
 
 int main(int argc, char **argv) {
+    g_netd_up = argc > 2 && !strcmp(argv[2], "netd");
     if (argc > 1 && !strcmp(argv[1], "--noseat")) return noseat_main();
     if (argc > 1 && !strcmp(argv[1], "--seat")) return seat_main();
     if (argc > 1 && !strcmp(argv[1], "--elevate")) return elevate_main();
@@ -127,15 +155,20 @@ int main(int argc, char **argv) {
     utest_begin("priv_test", "the admin gate, the seat's mounts, the kill rule, elevated spawns",
                 UTEST_VERDICT_FILE);
 
+    int nd = netd_down_none();
+    if (nd == -1) utest_notef("netd is not running: its seat-or-root checks are not made");
+    else utest_checkf(nd == NETCTL_NO_SUCH, "root passes netd's gate: no such card (%d)", nd);
+    g_netd_up = nd != -1;
+
     int pid = spawn_as("--noseat", 0, 0);
     int code = pid > 0 ? wait_code(pid) : -3000;
-    utest_checkf(code == 0, "1000 without the seat: root's calls, root's processes, the seat's "
-                            "unmounts and an ungranted elevated spawn are refused (%d)", code);
+    utest_checkf(code == 0, "1000 without the seat: root's calls, a device claim, root's processes, the seat's "
+                            "unmounts, an ungranted elevated spawn and netd's card switch are refused (%d)", code);
 
     pid = spawn_as("--seat", CRED_SEAT, 0);
     code = pid > 0 ? wait_code(pid) : -3000;
     utest_checkf(code == 0, "1000 with the seat: unmounts under /media/ pass the gate, "
-                            "/boot and /media/../boot do not, root's calls still refused (%d)", code);
+                            "/boot and /media/../boot do not, netd takes its card switch, root's calls still refused (%d)", code);
 
     pid = spawn_as("--elevate", CRED_SEAT, SPAWN_STOPPED);
     struct proc_info pi;

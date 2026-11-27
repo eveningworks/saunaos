@@ -30,6 +30,7 @@
 #include "base/uconf.h"
 #include "net/udhcp.h"
 #include "base/uchan.h"
+#include "base/upeer.h"
 #include "net/unetctl.h"
 #include "net/unetlink.h"
 #include <stdio.h>
@@ -216,8 +217,18 @@ static void restart_lease(struct card *c) {
 
 // Every verb is a syscall or two, so it is applied HERE and answered at
 // once; the lease it starts is the next pass's (net/unetctl.h).
+//
+// WATCH is anyone's; a card up, down or renewed is the SEAT's or root's
+// (NetworkManager's allow_active) -- a remote shell's account asks sudo.
 static int control(int from, const struct netctl_msg *m) {
     if (m->verb == NETCTL_WATCH) { watch(from); return NETCTL_OK; }
+    if (!upeer_root_or_seat(from)) {
+        static unsigned refused;   // the first 8 logged: a loop must not flood the log
+        if (++refused <= 8)
+            printf("netd: refused verb %u from pid %d: not root or the seat%s\n", (unsigned)m->verb, from,
+                   refused == 8 ? " (no more of these logged)" : "");
+        return NETCTL_DENIED;
+    }
     struct card *c = card_named(m->dev);
     if (!c) return NETCTL_NO_SUCH;
     struct query_netdev d;

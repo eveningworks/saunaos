@@ -37,7 +37,8 @@ the kernel (`SYS_DEV_CLAIM`), maps its registers (`SYS_DEV_MAP_BAR`),
 takes a DMA buffer for its command ring (`SYS_DEV_DMA_ALLOC`), brings
 the controller out of reset, drives the CORB and RIRB itself, walks the
 graph, and hands the controller back. `docs/umdf-design.md` stage 3 is
-the plan it implements and why.
+the plan it implements and why. **A claim is root's** (it unbinds the
+kernel's driver), so from a person's shell it runs as `sudo lscodec`.
 
 ```
 /$ spawn /bin/lscodec

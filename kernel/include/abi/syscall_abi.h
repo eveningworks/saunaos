@@ -2697,13 +2697,12 @@ struct mmap_msg {
 // what records who holds it afterwards -- vfio-pci's unbind-then-bind,
 // without the sysfs.
 //
-// **THE ONLY GATE IS THE DRIVER'S `remove()`.** This kernel has no uid
-// to check (abi/partition_abi.h says so at length), so a driver
-// CAPABILITY stands in for a privilege check: a device whose driver
-// cannot let go can never be claimed, and NO STORAGE CONTROLLER has
-// one -- so the root filesystem cannot be taken. The sound card and
-// the NICs can be, and among them it is first come, first served.
-// That is not a permission model and is not described as one.
+// **TWO GATES: ROOT, THEN THE DRIVER'S `remove()`.** A claim is euid
+// 0's alone (-EPERM before the index is read), as sysfs unbind and VFIO
+// are root's on Linux. Root still cannot take a device whose driver
+// cannot let go, and NO STORAGE CONTROLLER has one -- so the root
+// filesystem cannot be taken. The sound card and the NICs can be, and
+// among root's processes it is first come, first served.
 
 #define SYS_DEV_CLAIM 119 // RDI = the PCI device index (as SYS_PCI_INFO
                           // and SYS_DEV_MAP_BAR take). Unbinds the
@@ -2711,8 +2710,8 @@ struct mmap_msg {
                           // caller as the holder. Re-claiming by the
                           // same process is idempotent. Returns 0, or:
                           // -EINVAL no such device, -EPERM the caller
-                          // has no address space (the legacy `run`
-                          // loader -- use `spawn`), -EBUSY another
+                          // is not root or has no address space (the
+                          // legacy `run` loader), -EBUSY another
                           // process holds it, -ENOTSUP a ring-0 driver
                           // is bound and has no remove().
                           //
@@ -2851,8 +2850,8 @@ struct mmap_msg {
                              // class driver holds it and records the
                              // caller. 0, or: -EINVAL no such device,
                              // -EBUSY somebody else holds it, -EPERM
-                             // not claimable (a hub) or no scheduler
-                             // slot.
+                             // not root, not claimable (a hub) or no
+                             // scheduler slot.
                              //
                              // The claim DIES WITH THE PROCESS, and
                              // does NOT rebind then -- a supervised

@@ -54,8 +54,12 @@
   said to be busy, not absent: it still has the request.
 - `-h`, `--help` -- every command and option in one page.
 
-`DEVICE` is a card's name as `netctl` lists it. Exit status: 0 done, 1
-refused or failed, 2 bad usage (`Try 'netctl --help'`).
+`DEVICE` is a card's name as `netctl` lists it. **`renew`, `down` and
+`up` are root's or the person at the machine's** (NetworkManager's
+rule for the active session): a remote shell's account is refused with
+`only root or the person at the machine may do that`, and runs `sudo
+netctl`. `status` is anyone's. Exit status: 0 done, 1 refused or
+failed, 2 bad usage (`Try 'netctl --help'`).
 
 ## Description
 

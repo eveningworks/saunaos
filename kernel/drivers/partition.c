@@ -274,8 +274,8 @@ int partition_read_table_of(const struct block_device *dev,
 //
 // WHY THE KERNEL ENCODES THIS AND RING 3 DOES NOT. The alternative was
 // a raw sector-write syscall with `mkpart` doing the encoding in ring
-// 3, and it was rejected: this kernel has no privilege model at all
-// (SYS_QUERY has no check either), so a general "write any sector"
+// 3, and it was rejected: this kernel had no privilege model then
+// (SYS_QUERY has no check even now), so a general "write any sector"
 // primitive is a way for any process to corrupt any filesystem, for
 // the convenience of one rare command. A syscall that takes a table
 // DESCRIPTION can be checked -- see partition_validate() -- and there

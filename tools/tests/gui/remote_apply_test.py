@@ -18,25 +18,33 @@ ONE request (docs/users-design.md, D3b2a):
   * Cancel changes nothing: the file is read back byte for byte;
   * Apply again and Allow makes all three: remote.conf has the port, the
     address and `password_set = yes` but not the password, which is in
-    the root-only remote.secret.
+    the root-only remote.secret;
+  * then Remove beside the field, and Apply, asks once more with the one
+    row "Password: removed"; Allow takes the password out of
+    remote.secret and remote.conf says `password_set = no`.
 
 What a broken version would still pass: a page that wrote at once (the
 old one) passes "Allow makes them", so the file must be unchanged BEFORE
 Apply and after Cancel; a prompt per change passes "a prompt opens", so
 its rows must list all three; a prompt that showed the password passes
 the rest, so no row may carry it; a password left in remote.conf passes
-"it is set", so remote.conf must not hold it.
+"it is set", so remote.conf must not hold it; a Remove that staged
+nothing passes "Allow" (no prompt to answer), so the prompt's one row
+must say "removed" and the secret must lose the password.
 
 POSITIVE CONTROL: drop the uremote_change_row() loop in privd's words() --
-"...whose rows list every change" goes red (seen 2026-11-27). A page that
+"...whose rows list every change" goes red (seen 2026-11-27); drop the
+`g_pw_remove` line from set_remote.c's staged() -- "Remove, then Apply"
+goes red. A page that
 wrote at once cannot be shown this way any more: as the desktop's account
 its write is refused (EACCES), which is the point of the change.
 """
 
-RUNNER = {"covers": "Settings' Remote Desktop page: staged edits, one privd prompt listing them, Cancel and Allow"}
+RUNNER = {"covers": "Settings' Remote Desktop page: staged edits, one privd prompt listing them, Cancel and Allow, the password's Remove"}
 
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -76,6 +84,11 @@ def wait_prompt(dbg, timeout=15):
         time.sleep(0.1)  # sleep-ok: polls the guest's own dialog state
         info = dialog(dbg)
     return info
+
+
+def password_set(conf):
+    m = re.search(r"^\s*password_set\s*=\s*(\S+)\s*$", conf, re.M)
+    return m.group(1) if m else None
 
 
 def wait_gone(dbg, timeout=10):
@@ -175,7 +188,7 @@ def run(dbg, qmp):
 
     def made():
         c = cat(dbg, CONF)
-        return "5901" in c and ADDR in c and "password_set" in c and "yes" in c.split("password_set")[-1][:8]
+        return "5901" in c and ADDR in c and password_set(c) == "yes"
     _res.check_eventually("Allow makes all three", made, ok=bool, timeout=8)
     now = cat(dbg, CONF)
     check("...remote.conf says a password is set, without it", PASSWORD not in now, now[-200:])
@@ -184,6 +197,25 @@ def run(dbg, qmp):
     _res.check_eventually("...and the page says the three were saved",
                           lambda: said.extend(dbg.logs("settings: remote changes")) or said,
                           ok=lambda v: any(ln.rstrip().endswith("changes 3 result 0") for ln in v), timeout=4)
+    remove_round(dbg, qmp)
+
+
+def remove_round(dbg, qmp):
+    """The password set above, removed: Remove stages `vnc.password -`."""
+    rm = reach(dbg, qmp, "rd_vnc_pw_rm")
+    dbg.click(rm["screen"]["x"] + rm["w"] // 2, rm["screen"]["y"] + rm["h"] // 2)
+    dbg.settle()
+    apply(dbg)
+    info = wait_prompt(dbg)
+    rows = dict((k, v) for k, v in info.get("rows", []) if k not in ("Action", "Program", "Asked by"))
+    check("Remove, then Apply, asks with the one row Password: removed",
+          rows == {"Password": "removed"}, str(info.get("rows")))
+    pick(dbg, "Allow")
+    wait_gone(dbg)
+    _res.check_eventually("...and Allow takes the password out of remote.secret",
+                          lambda: cat(dbg, SECRET), ok=lambda v: PASSWORD not in v, timeout=8)
+    now = cat(dbg, CONF)
+    check("...remote.conf says no password is set", password_set(now) == "no", now[-200:])
 
 
 def main():

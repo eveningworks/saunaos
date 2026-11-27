@@ -20,7 +20,6 @@
 #include "wm_internal.h"
 #include "wm_login.h"
 #include "leave_page.h"   // WIN_REQ_LEAVE
-#include "proc_info.h"
 #include <errno.h>
 #include "wm_prof.h"
 #include "crash_notice.h"
@@ -37,6 +36,7 @@
 #include "wm_dnd.h"
 #include "diag_abi.h"
 #include "base/uchan.h"
+#include "base/upeer.h"
 #include "base/uwmchan.h"
 #include "wm_geometry.h"
 #include "wm_overlay.h" // WM_POPUP_MARGIN -- a client popup keeps the same edge gap
@@ -1600,10 +1600,8 @@ static void req_launch(int from, struct wmchan_msg *m) {
 // every app is asked first. Anyone else is refused -- an app that could
 // restart the machine would not need the person.
 static void req_leave(int from, struct wmchan_msg *m) {
-    struct proc_info pi;
-    int root = 0;
-    for (int i = 0; sys_proc_info(i, &pi) == 0; i++)   // any thread of the sender
-        if (pi.pid == from) { root = pi.euid == 0; break; }
+    struct upeer p;
+    int root = upeer_of(from, &p) && p.euid == 0;
     struct wmchan_msg r;
     k_memset(&r, 0, sizeof r);
     r.type = WIN_REQ_LEAVE;

@@ -27,6 +27,7 @@
 #include "initcall.h"
 #include "string.h"
 #include "devevent.h"
+#include "privilege.h" // priv_is_root -- a claim unbinds the machine's device
 
 static void dev_irq_release(int index);   // defined with the stub below
 
@@ -299,11 +300,15 @@ int dev_claim_irq_ack(int index, uint64_t pml4) {
 
 // --- syscalls ----------------------------------------------------------
 
+// ROOT ONLY, and before the index is looked at: a claim unbinds the
+// device's driver, so it is switching the machine's hardware off (Linux's
+// sysfs unbind and VFIO need root too). Every other device call needs a
+// held claim, so this one gate covers them all.
 int sys_dev_claim(struct syscall_ctx *c) {
     int index = (int)(int64_t)c->a0;
-    int64_t ret = scheduler_current_mm()
-        ? dev_claim_take(index, c->pml4, scheduler_current_pid())
-        : -EPERM; // the legacy `run` loader: no slot, so nothing to key on
+    int64_t ret = !scheduler_current_mm() ? -EPERM // the legacy `run` loader: no slot to key on
+                : !priv_is_root()         ? -EPERM
+                : dev_claim_take(index, c->pml4, scheduler_current_pid());
     c->regs[14] = (uint64_t)ret;
     return 0;
 }

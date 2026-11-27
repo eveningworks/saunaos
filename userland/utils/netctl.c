@@ -290,6 +290,10 @@ static int cmd_control(uint32_t verb, const char *dev) {
         return 0;
     }
     if (r == NETCTL_NO_SUCH) { printf("netctl: netd does not know %s yet\n", dev); return 1; }
+    if (r == NETCTL_DENIED) {
+        printf("netctl: only root or the person at the machine may do that -- sudo netctl\n");
+        return 1;
+    }
     if (r != NETCTL_OK) {
         printf("netctl: netd refused%s\n", verb == NETCTL_RENEW ? " -- the card is down (netctl up)" : "");
         return 1;

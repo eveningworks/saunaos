@@ -390,7 +390,8 @@ int main(int argc, char **argv) {
 
     g_h.dev = index;
     if (sys_dev_claim(index) != 0) {
-        fprintf(stderr, "lscodec: cannot claim pci %d: %s\n", index, strerror(errno));
+        fprintf(stderr, "lscodec: cannot claim pci %d: %s%s\n", index, strerror(errno),
+                errno == EPERM ? " -- it needs root: sudo lscodec" : "");
         return 1;
     }
     g_h.claimed = 1;

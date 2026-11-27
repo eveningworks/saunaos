@@ -19,6 +19,7 @@
 #include "devevent.h"
 #include "barrier.h"
 #include "heap.h"     // krealloc() -- the claim table grows per controller
+#include "privilege.h" // priv_is_root -- sys_dev_claim()'s rule
 
 #define USB_CLASS_HUB 9   // the spec's value for a hub interface
 
@@ -409,10 +410,12 @@ out:
 
 // --- the syscalls ------------------------------------------------------
 
+// ROOT ONLY, before the slot is read -- sys_dev_claim()'s rule: a claim
+// unbinds the device's driver, and every other USB call needs a held one.
 int sys_usb_claim(struct syscall_ctx *c) {
-    int64_t ret = scheduler_current_mm()
-        ? usb_claim_take(c->a0, c->pml4, scheduler_current_pid())
-        : -EPERM;
+    int64_t ret = !scheduler_current_mm() || !priv_is_root()
+        ? -EPERM
+        : usb_claim_take(c->a0, c->pml4, scheduler_current_pid());
     c->regs[14] = (uint64_t)ret;
     return 0;
 }

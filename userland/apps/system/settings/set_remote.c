@@ -21,6 +21,10 @@ static struct uremote_conf g_rc;
 static struct uui_switch g_vnc_sw;
 static struct uui_spinbox g_vnc_port;
 static struct uui_textbox g_vnc_pw;
+static struct uui_button g_vnc_pw_rm;
+static struct uui_item g_vnc_pw_items[2];
+static struct uui_layout g_vnc_pw_l;
+static int g_pw_remove;   // Remove pressed: `vnc.password -` is staged
 static struct uui_setting_row g_vnc_port_row, g_vnc_pw_row;
 static const char *const ENC[] = { "When the viewer offers it", "Required", "Off" };
 static struct uui_dropdown g_enc_dd;
@@ -173,13 +177,20 @@ void remote_init(void) {
     uui_textbox_init(&g_vnc_pw, "");
     g_vnc_pw.masked = 1;
     g_vnc_pw.placeholder = "No password";
+    uui_button_init(&g_vnc_pw_rm, 0, 0, 0, 0, "Remove", UUI_ROLE(control_bg), UUI_ROLE(text), ID_RD_PW_RM);
+    g_vnc_pw_rm.disabled = 1;
+    g_vnc_pw_items[0] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &g_vnc_pw, .id = ID_RD_PW,
+                                           .flags = UUI_FILL_W, .name = "rd_vnc_pw" };
+    g_vnc_pw_items[1] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_vnc_pw_rm,
+                                           .id = ID_RD_PW_RM, .name = "rd_vnc_pw_rm" };
+    g_vnc_pw_l = (struct uui_layout){ .dir = UUI_ROW, .items = g_vnc_pw_items, .count = 2 };
     uui_setting_row_init(&g_vnc_port_row, "Port", "5900 is VNC's own.",
                          (struct uui_item){ .ops = &uui_spinbox_ops, .widget = &g_vnc_port,
                                             .id = ID_RD_PORT, .name = "rd_vnc_port" });
     uui_setting_row_init(&g_vnc_pw_row, "Password", "Required: with none, every viewer is refused. "
                          "Type a new one to change it.",
-                         (struct uui_item){ .ops = &uui_textbox_ops, .widget = &g_vnc_pw, .id = ID_RD_PW,
-                                            .flags = UUI_FILL_W, .name = "rd_vnc_pw" });
+                         (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_vnc_pw_l,
+                                            .flags = UUI_FILL_W, .name = "rd_vnc_pw_line" });
     g_vnc_port_row.flat = g_vnc_pw_row.flat = 1;
     g_vnc_pw_row.stacked = 1;
     uui_dropdown_init(&g_enc_dd, 0, 0, 0, 0, ENC, 3);
@@ -271,6 +282,13 @@ static void shields(void) {
     g_when_row.shield = g_from_row.shield = g_add_row.shield = adm;
 }
 
+// The field's placeholder and Remove's greying, from what is set and staged.
+static void password_state(void) {
+    g_vnc_pw.placeholder = g_pw_remove ? "Removed when you apply"
+                         : g_rc.vnc.password_set ? "A password is set" : "No password";
+    g_vnc_pw_rm.disabled = !g_rc.vnc.password_set || g_pw_remove;
+}
+
 void remote_load(void) {
     uremote_load(&g_rc);
     g_nadd = g_ndel = 0;
@@ -278,7 +296,8 @@ void remote_load(void) {
     g_vnc_sw.on = g_rc.vnc.enabled;
     uui_spinbox_set_value(&g_vnc_port, g_rc.vnc.port);
     uui_textbox_set_text(&g_vnc_pw, "");
-    g_vnc_pw.placeholder = g_rc.vnc.password_set ? "A password is set" : "No password";
+    g_pw_remove = 0;
+    password_state();
     uui_dropdown_set_selected(&g_when_dd, (int)g_rc.when);
     uui_dropdown_set_selected(&g_enc_dd, (int)g_rc.vnc.encryption);
     // The fingerprint a viewer shows when it first meets this machine:
@@ -301,6 +320,7 @@ int remote_emit(struct uui_item *out, int n, struct uui_focusable *focus, int *n
     focus[(*nfocus)++] = (struct uui_focusable){ &g_vnc_sw, &uui_switch_ops };
     focus[(*nfocus)++] = (struct uui_focusable){ &g_vnc_port, &uui_spinbox_ops };
     focus[(*nfocus)++] = (struct uui_focusable){ &g_vnc_pw, &uui_textbox_focus_ops };
+    focus[(*nfocus)++] = (struct uui_focusable){ &g_vnc_pw_rm, &uui_button_ops };
     focus[(*nfocus)++] = (struct uui_focusable){ &g_enc_dd, &uui_dropdown_ops };
     out[n++] = (struct uui_item){ .ops = &uui_setting_row_ops, .widget = &g_when_row,
                                   .flags = UUI_FILL_W, .name = "rd_when_row" };
@@ -375,6 +395,7 @@ static int staged(struct kvset *into) {
     if (e >= 0 && e < 3 && e != (int)g_rc.vnc.encryption) n = add_kv(n, "vnc.encryption", "=%s", ENC_W[e]);
     const char *pw = uui_textbox_text(&g_vnc_pw);
     if (pw[0]) n = add_kv(n, UREMOTE_CHANGE_PASSWORD, "=%s", pw);
+    else if (g_pw_remove) n = add_kv(n, UREMOTE_CHANGE_PASSWORD, "%s", "-");
     if (w >= 0 && w < 3 && w != (int)g_rc.when) n = add_kv(n, "when", "=%s", WHEN_W[w]);
     if (f >= 0 && f < 2 && f != (int)g_rc.from) n = add_kv(n, "from", "=%s", FROM_W[f]);
     for (int i = 0; i < g_ndel; i++) {
@@ -443,7 +464,11 @@ int remote_apply(void) {
 int remote_on_widget(int id) {
     if (!g_show_remote) return 0;
     switch (id) {
-    case ID_RD_VNC: case ID_RD_PORT: case ID_RD_ENC: case ID_RD_WHEN: case ID_RD_FROM: case ID_RD_PW:
+    case ID_RD_PW:
+        // A new password typed over a staged removal replaces it.
+        if (g_pw_remove && uui_textbox_text(&g_vnc_pw)[0]) { g_pw_remove = 0; password_state(); }
+        return 1;
+    case ID_RD_VNC: case ID_RD_PORT: case ID_RD_ENC: case ID_RD_WHEN: case ID_RD_FROM:
         return 1;   // staged in the control itself; the footer counts it
     case ID_RD_TRUSTED: {
         int r = g_trusted.fired_row;
@@ -476,6 +501,14 @@ int remote_on_widget(int id) {
 
 int remote_on_action(int code) {
     if (!g_show_remote) return 0;
+    if (code == ID_RD_PW_RM) {
+        if (g_vnc_pw_rm.disabled) return 1;
+        uui_textbox_set_text(&g_vnc_pw, "");
+        g_pw_remove = 1;
+        password_state();
+        strlcpy(g_status, "The VNC password is removed once you apply", sizeof g_status);
+        return 1;
+    }
     if (code == ID_RD_ADD) {
         struct uremote_net n;
         const char *a = uui_textbox_text(&g_add_addr), *label = uui_textbox_text(&g_add_label);

@@ -11,8 +11,8 @@
 // encoding itself. It was rejected on three counts, and the first is
 // the one that decided it:
 //
-//   1. This kernel has NO PRIVILEGE MODEL. There is no uid, and
-//      SYS_QUERY has no check either -- so a general sector-write
+//   1. This kernel had NO PRIVILEGE MODEL when it was decided, and
+//      SYS_QUERY has no check even now -- so a general sector-write
 //      primitive is a way for any ring-3 process to overwrite any
 //      filesystem, permanently, for the convenience of one rare
 //      command. A syscall that takes a TABLE can be checked; a syscall
@@ -27,10 +27,9 @@
 //
 // Linux's BLKPG ioctl is shaped the same way (a partition description,
 // not sectors), and Windows' IOCTL_DISK_SET_DRIVE_LAYOUT_EX likewise.
-// Both also gate it on privilege, which is the half SaunaOS cannot copy
-// yet -- MKPART_CONFIRM below is the stand-in, and it is a speed bump,
-// not a permission check. Said plainly here so nobody mistakes it for
-// one.
+// Both also gate it on privilege, and so does SaunaOS now: SYS_MKPART is
+// a PROMISE_ADMIN row, euid 0's (docs/users-design.md, stage B).
+// MKPART_CONFIRM below is a speed bump on top, not the permission check.
 
 #define MKPART_KIND_MBR 1
 #define MKPART_KIND_GPT 2
