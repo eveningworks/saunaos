@@ -975,6 +975,9 @@ whenever a headline here tells you something you did not already know.
   AND A CAPTION IS TWO LINES**
 - **A POPUP OPENED FROM ANOTHER OVERLAY NAMES IT AS ITS PARENT, AND
   `close_others()` SPARES BOTH**
+- **ONE OVERLAY HEARS THE POINTER: THE TOPMOST OPEN ONE UNDER IT, AND A
+  PRESS STAYS WITH THE ONE IT BEGAN ON** -- and a new popup over another
+  overlay is tested for it (`gui.md`)
 - **A DEFAULT ICON CELL IS CHOSEN AFTER THE SAVED ONES, NOT BEFORE**
 - **A SELECTION CHANGE MUST DAMAGE THE RECTS IT CHANGED, NOT JUST SET
   `redraw_pending`**

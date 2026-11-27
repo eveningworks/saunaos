@@ -863,7 +863,8 @@ static void cmd_dialog(struct dbg_out *o, int json) {
 }
 
 // The login or lock screen (wm_login.h): open, its mode, the account, the
-// line under the field, BUSY, how much is typed, and each control's rect.
+// line under the field, BUSY, how much is typed, and each control's rect
+// and whether the pointer lights it.
 static void cmd_login(struct dbg_out *o) {
     int mode = 0, busy = 0, typed = 0;
     const char *acct = "", *err = "";
@@ -874,10 +875,10 @@ static void cmd_login(struct dbg_out *o) {
     dbg_out_write(o, "\",\"message\":\"");
     dbg_out_jstr(o, err);
     dbg_out_printf(o, "\",\"busy\":%s,\"typed\":%d,\"controls\":[", busy ? "true" : "false", typed);
-    const char *name; int x, y, w, h;
+    const char *name; int x, y, w, h, hot = wm_login_hot();
     for (int i = 0; wm_login_control(i, &name, &x, &y, &w, &h); i++)
-        dbg_out_printf(o, "%s{\"name\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d}",
-                       i ? "," : "", name, x, y, w, h, x + w / 2, y + h / 2);
+        dbg_out_printf(o, "%s{\"name\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d,\"hot\":%s}",
+                       i ? "," : "", name, x, y, w, h, x + w / 2, y + h / 2, i == hot ? "true" : "false");
     dbg_out_write(o, "]}\r\n");
 }
 

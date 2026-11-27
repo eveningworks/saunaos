@@ -170,6 +170,31 @@ static int g_hover[OVERLAY_COUNT];
 
 static const char *g_parent;   // see wm_overlay_set_parent()
 
+// ONE OVERLAY HEARS THE POINTER: the topmost open one under it -- Wayland's
+// pointer focus. Every overlay's hover_at and update_press is called, so
+// without this a list drawn over another overlay's rows lit and pressed
+// both (the login screen's Keyboard list over its people).
+static int takes_pointer(const struct wm_overlay *o, int mx, int my) {
+    if (!o->is_open() || o->is_open == open_tooltip) return 0;
+    if (o->contains) return o->contains(mx, my);
+    int x, y, w, h;
+    if (o->rect) return o->rect(&x, &y, &w, &h) && uui_hit(x, y, w, h, mx, my);
+    return !o->passive;   // no rect: the whole screen, bar the shutter flash
+}
+
+static int pointer_owner(int mx, int my) {
+    for (int i = 0; i < OVERLAY_COUNT; i++)
+        if (takes_pointer(&g_overlays[i], mx, my)) return i;
+    return -1;
+}
+
+// THE IMPLICIT GRAB: a press that began on an open overlay stays that
+// overlay's until the release; the others see it at (-1,-1). Taken at the
+// click, BEFORE its handler runs -- a list that closes on the press no
+// longer covers the point by the time wm_overlay_press() runs.
+#define GRAB_NONE (-2)
+static int g_grab = GRAB_NONE;
+
 void wm_overlay_set_parent(const char *name) { g_parent = name; }
 
 int wm_overlay_text_at(int mx, int my) {
@@ -296,6 +321,7 @@ int wm_overlay_frame_begin(void) {
 }
 
 void wm_overlay_reset(void) {
+    g_grab = GRAB_NONE;
     for (int i = 0; i < OVERLAY_COUNT; i++) {
         g_was_open[i] = 0;
         g_drawn[i].w = 0;
@@ -370,6 +396,7 @@ int wm_overlay_click(int mx, int my) {
     // neither drawn nor clickable (wm_handle_left_click()'s guard), so
     // that hit is on a control nobody can see.
     int covered = wm_top_covers_screen();
+    g_grab = pointer_owner(mx, my);
     for (int i = 0; i < OVERLAY_COUNT; i++) {
         const struct wm_overlay *o = &g_overlays[i];
         if (covered && !o->is_open()) continue;
@@ -383,7 +410,7 @@ int wm_overlay_hover(int mx, int my, uint8_t buttons) {
     // highlight, so nothing re-hovers under a held button.
     if (buttons & 0x1) return 0;
 
-    int changed = 0;
+    int changed = 0, owner = pointer_owner(mx, my);
     for (int i = 0; i < OVERLAY_COUNT; i++) {
         const struct wm_overlay *o = &g_overlays[i];
         if (!o->hover_at) continue;
@@ -393,8 +420,9 @@ int wm_overlay_hover(int mx, int my, uint8_t buttons) {
         // context menu happens to be covering. Hovered at a point that
         // is on nothing, so it also DROPS the row it was holding
         // (every overlay's rect is on screen, so (-1,-1) is off all of
-        // them) rather than freezing the last one lit.
-        int parent = g_parent && k_strcmp(o->name, g_parent) == 0;
+        // them) rather than freezing the last one lit. So does every open
+        // overlay under the one the pointer is on (pointer_owner()).
+        int parent = (g_parent && k_strcmp(o->name, g_parent) == 0) || (owner >= 0 && i > owner);
         int want = o->is_open() ? o->hover_at(parent ? -1 : mx,
                                               parent ? -1 : my) : 0;
         if (want == g_hover[i]) continue;
@@ -426,9 +454,15 @@ int wm_overlay_key(int key, uint8_t mods) {
 }
 
 void wm_overlay_press(int mx, int my, uint8_t buttons) {
+    // A press on no overlay (the desktop, the Start button) is everyone's,
+    // as before: a menu it opens may track the held button.
+    int grab = g_grab;
+    if (!(buttons & 1)) g_grab = GRAB_NONE;   // this tick is the release
     for (int i = 0; i < OVERLAY_COUNT; i++) {
         const struct wm_overlay *o = &g_overlays[i];
-        if (o->update_press) o->update_press(mx, my, buttons);
+        if (!o->update_press) continue;
+        int mine = grab < 0 || grab == i || !o->is_open();
+        o->update_press(mine ? mx : -1, mine ? my : -1, buttons);
     }
 }
 

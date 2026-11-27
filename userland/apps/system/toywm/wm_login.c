@@ -587,6 +587,12 @@ int wm_login_state(int *mode, const char **account, const char **err, int *busy,
     return 1;
 }
 
+// What the pointer lights, in wm_login_control()'s numbering; -1 none.
+int wm_login_hot(void) {
+    if (!wm_login_open) return -1;
+    return g_hot_person >= 0 ? CTLS + g_hot_person : g_hot;
+}
+
 // The screen's controls, then each person's row ("person.<name>").
 int wm_login_control(int i, const char **name, int *x, int *y, int *w, int *h) {
     if (!wm_login_open || i < 0 || i >= CTLS + (g_pr ? g_npeople : 0)) return 0;

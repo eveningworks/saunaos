@@ -5802,6 +5802,30 @@ another. **And the child MUST clear the parent on BOTH its close paths**
 `context_menu_handle_click()` -- or the next `close_others()` spares an
 overlay nobody meant to keep.
 
+## ONE OVERLAY HEARS THE POINTER: THE TOPMOST OPEN ONE UNDER IT, AND A PRESS STAYS WITH THE ONE IT BEGAN ON
+
+Every row's `hover_at` and `update_press` is called each tick, so an
+overlay drawn over another overlay's controls used to light AND press
+both -- the login screen's Keyboard list, opened over its people, lit
+the person under a row and a click on the row also chose that person.
+`wm_overlay.c` decides it now, not each overlay: `pointer_owner()` is the
+first open row (table order, topmost first) whose `contains`/`rect` holds
+the point (no rect: the whole screen; the tooltip and a passive rect-less
+row never), and every open row UNDER it is hovered at (-1,-1), as a
+parent under its child already was. That is Wayland's pointer focus.
+**The press is the IMPLICIT GRAB**: `wm_overlay_click()` records the
+owner BEFORE the handlers run (a list that closes on the press no longer
+covers the point a tick later), and until the release the other OPEN rows'
+`update_press` sees (-1,-1). A press that began on no overlay stays
+everyone's, so a menu opened by it may still track the held button.
+
+**A NEW POPUP OVER ANOTHER OVERLAY'S CONTROLS IS TESTED FOR IT**: the
+control under it lit with the popup shut (so "not lit" means something),
+not lit with the pointer on the popup, and a click on the popup acting
+on nothing beneath. The worked example is `users_page_test`'s
+`keyboard_over_people()`; an overlay's own lit state goes into its `gui`
+debug JSON (`gui login`'s `hot`) for it.
+
 ## A DEFAULT ICON CELL IS CHOSEN AFTER THE SAVED ONES, NOT BEFORE
 
 `desktop_load_positions()` runs in two passes. Pass 1 places only the

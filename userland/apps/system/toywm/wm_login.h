@@ -43,6 +43,7 @@ int  wm_keys_private(void);
 // For `gui login --json`: the mode, the account shown, the error line,
 // BUSY, the characters typed, and each control's rect by name.
 int  wm_login_state(int *mode, const char **account, const char **err, int *busy, int *typed);
+int  wm_login_hot(void);   // the lit control or person, wm_login_control()'s index; -1 none
 int  wm_login_control(int i, const char **name, int *x, int *y, int *w, int *h);
 
 #endif

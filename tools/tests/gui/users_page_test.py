@@ -16,6 +16,9 @@ WHAT IT CHECKS (users D3a, docs/users-design.md)
   * Sign out brings up the login screen with EVERY person bottom-left,
     drawn (a picture's light disc in each row), the one in the middle
     marked; a click on another person puts them in the middle;
+  * with two keyboard layouts, the Keyboard button's list opens OVER the
+    people rows: the pointer on one of its rows lights no person under it,
+    and a click there switches the layout and picks nobody;
   * that person signs in -- a desktop running as them, with the desktop
     launchers their home got from /etc/skel -- and the login screen
     after their sign-out has them in the middle (the greeter remembered).
@@ -34,7 +37,9 @@ It puts the machine back: the accounts it made removed with their files,
 
 POSITIVE CONTROL: make wm_login.c's layout() give every person's row
 w 0 -- "every person is listed bottom-left" goes red; make privd's
-acct_add() return 0 without writing -- "Add makes the account" goes red.
+acct_add() return 0 without writing -- "Add makes the account" goes red;
+drop wm_overlay.c's `i > owner` and its grab -- "the person is not lit"
+and "picks nobody" go red.
 """
 
 RUNNER = {
@@ -193,6 +198,80 @@ def sign_in(dbg, qmp, name):
     return owner or compositor_owner(dbg)
 
 
+def keyboard_over_people(dbg, qmp):
+    """The Keyboard button's list opens over the people rows: the pointer on
+    one of its rows lights the row alone, and a click there switches the
+    layout and picks nobody (wm_overlay.c's pointer_owner(), the grab)."""
+    def hot(name):
+        return controls(dbg).get(name, {}).get("hot")
+
+    def open_list():
+        kb = poll(lambda: (lambda c: c if c.get("w") else None)(controls(dbg).get("keyboard", {})), 10, 0.3)
+        if not kb:
+            return None
+        dbg.click(kb["cx"], kb["cy"])
+        return poll(lambda: (lambda j: j if j.get("open") else None)(dbg.json("gui layout --json") or {}), 5, 0.2)
+
+    def covered(lay):
+        """(layout row index, person row) pairs: a list row's centre on a person's row."""
+        rows = {n: c for n, c in controls(dbg).items() if n.startswith("person.") and c.get("w")}
+        return [(i, n, c) for i, r in enumerate(lay.get("rows", [])) for n, c in rows.items()
+                if c["x"] <= r["cx"] < c["x"] + c["w"] and c["y"] <= r["cy"] < c["y"] + c["h"]]
+
+    lay = open_list()
+    check("with two layouts the login screen's Keyboard button opens its list", bool(lay),
+          str(controls(dbg).get("keyboard")))
+    if not lay:
+        return
+    pairs = covered(lay)
+    check("...drawn over a person's row (what this round needs)", bool(pairs), str(lay.get("rows")))
+    if not pairs:
+        return
+    acct = login_state(dbg).get("account")
+    # The click below must be able to pick someone NEW: a row over the one in
+    # the middle passes "nobody picked" even when broken.
+    if all(n == f"person.{acct}" for _, n, _ in pairs):
+        scr = dbg.json("gui state --json")["screen"]
+        dbg.click(scr["w"] // 2, 8)   # outside the list: it only closes
+        other = next((c for n, c in controls(dbg).items() if n.startswith("person.") and n != f"person.{acct}"), None)
+        if other:
+            dbg.click(other["cx"], other["cy"])
+            poll(lambda: login_state(dbg).get("account") != acct, 10, 0.2)
+        acct = login_state(dbg).get("account")
+        lay = open_list() or {}
+        pairs = [p for p in covered(lay) if p[1] != f"person.{acct}"]
+    else:
+        pairs = [p for p in pairs if p[1] != f"person.{acct}"]
+    check("...over someone other than the one in the middle", bool(pairs), f"account {acct}")
+    if not pairs:
+        return
+    # A row that is not the active layout's, so the click changes something.
+    pairs.sort(key=lambda p: p[0] == lay.get("active"))
+    i, name, person = pairs[0]
+    r = lay["rows"][i]
+    # The row lit with the list shut first, so "not lit" below cannot pass
+    # on a pointer that never arrived or a `hot` nobody reports.
+    dbg.key(0x1b)
+    poll(lambda: not (dbg.json("gui layout --json") or {}).get("open"), 5, 0.2)
+    dbg.warp_cursor(qmp, person["cx"], person["cy"])
+    check("the pointer on a person's row lights it", bool(poll(lambda: hot(name) or None, 5, 0.2)),
+          str(controls(dbg).get(name)))
+    lay = open_list() or {}
+    r = (lay.get("rows") or [r])[i]
+    dbg.warp_cursor(qmp, r["cx"], r["cy"])
+    dbg.settle()
+    check("...but on the Keyboard list over it, the person is not lit", hot(name) is False,
+          str(controls(dbg).get(name)))
+    before = (dbg.send("sh config get system.keyboard.layout") or "").strip()
+    dbg.click(r["cx"], r["cy"])
+    v = _res.check_eventually("a click on the list's row switches the layout",
+                              lambda: (dbg.send("sh config get system.keyboard.layout") or "").strip(),
+                              ok=lambda v: v and v != before, timeout=5)
+    dbg.settle()
+    check("...and picks nobody: the one in the middle stays", login_state(dbg).get("account") == acct,
+          f"{login_state(dbg).get('account')} (was {acct}, row over {name})")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
@@ -236,6 +315,15 @@ def main():
             drawn += all(abs(a - b) <= 12 for a, b in zip(px, DISC))
         check("...each row drawn: its picture's light disc", len(rows) >= 2 and drawn == len(rows),
               f"{drawn} of {len(rows)}")
+        layouts = (dbg.send("sh config get system.keyboard.layouts") or "").strip()
+        active = (dbg.send("sh config get system.keyboard.layout") or "").strip()
+        try:
+            dbg.send("sh config --machine set system.keyboard.layouts fi,us")
+            dbg.send("sh config --machine set system.keyboard.layout fi")
+            keyboard_over_people(dbg, qmp)
+        finally:
+            dbg.send(f"sh config --machine set system.keyboard.layouts {layouts or 'fi'}")
+            dbg.send(f"sh config --machine set system.keyboard.layout {active or 'fi'}")
         owner = sign_in(dbg, qmp, "anna")
         check("a click on Anna, then Enter: her desktop starts, its compositor running as anna",
               owner == "anna", owner)
