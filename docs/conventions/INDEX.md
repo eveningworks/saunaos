@@ -1449,8 +1449,6 @@ whenever a headline here tells you something you did not already know.
   TOOL MAY NOT GAIN A FIXED SLEEP** (`settle()` waits for idle,
   `check_eventually()`, `run_and_wait()`, `harness.poll()`,
   `check_test_sleeps.py`)
-- **A FIXTURE WITH A LONG NAME GOES ON THE DISK, NOT IN /tmp** -- ramfs
-  holds 47 bytes a name; check the write's own result
 - **A FIXTURE AN APP CHANGES IS MADE AS THE DESKTOP'S ACCOUNT** --
   `as_user()`, `write_lines()` (its default), `user_dir()` for a folder at
   `/`; `sh` and `tsh` are root, and a root-made file in `/tmp` is one the

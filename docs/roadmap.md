@@ -746,7 +746,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] The ring-3 tables kept for now: GRUB's entries, Places and pins, Paint's layers, remote desktop's trusted viewers
 - [x] ~~Paths sized to fit in Notepad, Paint, Image Viewer, Music Player and Video Player -- fixed tables round 4, A2~~ DONE 2026-11-27
 - [x] ~~App lists that stop without saying so -- round 4, B~~ DONE 2026-11-26 -- and a menu taller than the screen scrolls
-- [ ] IPC and kernel caps: uchan peers, backlog, datagrams, unveil, mount points, completion, ramfs names, sessions -- round 4, C
+- [x] ~~Kernel and IPC caps: uchan peers, backlog, datagrams, unveil, mounts, completion, ramfs names -- round 4, C~~ DONE 2026-11-28
 - [ ] The clipboard past one 64 KiB page, data handed over as Wayland does -- round 4, D (designed: `clipboard-design.md`)
 - [x] ~~The kernel's resource tables, grown to a ceiling sized from RAM~~ DONE 2026-10-28
 - [x] ~~Config files read at their own size, past 4 KiB~~ DONE 2026-10-29

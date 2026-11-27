@@ -353,8 +353,8 @@ on `type == 2`):
   kpath or VFS feature.
 - That loop caps total symlink hops per lookup (~8, the classic
   `ELOOP` guard) so `ln -s a b; ln -s b a` terminates. Note this is a
-  *traversal* cap, unrelated to `KPATH_MAX_DEPTH`'s lexical nesting
-  cap.
+  *traversal* cap; lexical nesting has none (`kpath.c` bounds a path
+  by its bytes alone).
 
 ## Block addressing
 
