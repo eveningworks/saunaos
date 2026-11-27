@@ -11,6 +11,10 @@ WHAT IT CHECKS, and what a broken version would still pass:
     the permission boxes get a place);
   - clearing Others > Read changes the file's mode as `stat` -- an
     independent reader -- sees it;
+  - Permissions names the owner and group: "User (you)" on the desktop
+    account's own file, "root" on /etc/passwd -- whose boxes are GREYED
+    (the checked Owner > Read box not filled in the accent, as it is on
+    the account's own file), since chmod would refuse;
   - Compute SHA-256 yields the digest `sum -a sha256` prints for the file;
   - choosing another app under Opens with writes /home/user/.config/mimeapps.conf;
   - typing a new name and Enter renames the file (`ls` sees it) and the
@@ -20,6 +24,21 @@ WHAT IT CHECKS, and what a broken version would still pass:
 Geometry is the app's own report (`properties: layout ...` and
 `properties: section ...`), never re-derived here.
 """
+
+ACCENT_BLUE = lambda px: px[2] > px[0] + 40   # utheme's accent (70,110,160): a live checked box
+
+
+def box_px(qmp, tmp, win, rect):
+    """How many pixels in the accent across a checkbox's box (its first
+    h pixels, at mid-height) -- a live checked box is filled with it."""
+    from PIL import Image
+    shot = os.path.join(tmp, f"props_box_{os.getpid()}.png")
+    qmp.screenshot(shot)
+    c = win["content"]
+    x, y, w, h = rect[:4]
+    im = Image.open(shot).convert("RGB")
+    return sum(ACCENT_BLUE(im.getpixel((c["x"] + x + dx, c["y"] + y + h // 2))) for dx in range(h + 2))
+
 
 RUNNER = {
     "covers": "Properties: hero by pixel, sections, chmod/rename/opens-with/SHA-256 checked outside the app",
@@ -166,6 +185,12 @@ def main():
     lay = wait(dbg, lay, lambda l: "perm6" in l.rect)
     check("a section header opens its section", lay.sec.get("Permissions", (0,) * 5)[4] == 1 and "perm6" in lay.rect,
           f"sec={lay.sec.get('Permissions')} perm6={lay.rect.get('perm6')}")
+    check("Permissions names the owner: the account's own file is 'User (you)', group user",
+          lay.rows.get("Owner") == "User (you)" and lay.rows.get("Group") == "user",
+          f"Owner={lay.rows.get('Owner')} Group={lay.rows.get('Group')}")
+    dbg.warp_cursor(qmp, 5, 5, settle=False)
+    own_px = box_px(qmp, args.tmp, win, lay.rect["perm0"]) if "perm0" in lay.rect else None
+    check("...and its checked Owner > Read box is live, in the accent", bool(own_px), f"{own_px} accent pixels")
 
     before = re.search(r"mode:\s+(\d+)", dbg.send(f"sh stat {PIC}"))
     if "perm6" in lay.rect:
@@ -245,6 +270,26 @@ def main():
     check("...and the window's title follows", f"{NEW} Properties" in titles, f"{titles}")
     close_all(dbg)
     dbg.send(f"sh rm /var/tmp/{NEW}")
+
+    # ROOT'S FILE, opened as the desktop's account: named, and greyed.
+    dbg.logs("properties:", clear=True)
+    win = dbg.spawn(f"{PROPS} /etc/passwd", "passwd Properties")
+    lay = wait(dbg, Layout(), lambda l: "Owner" in l.rows and "General" in l.sec)
+    check("root's /etc/passwd: owner root, group root",
+          lay.rows.get("Owner") == "root" and lay.rows.get("Group") == "root", f"rows={lay.rows}")
+    if win:
+        c = win["content"]
+        if "Permissions" not in lay.sec:
+            dbg.warp_cursor(qmp, c["x"] + c["w"] // 2, c["y"] + c["h"] // 2)
+            qmp.wheel("down", notches=10, delay=0.02)
+            lay = wait(dbg, lay, lambda l: "Permissions" in l.sec)
+        lay = toggle(dbg, win, lay, "Permissions", 1)
+        lay = wait(dbg, lay, lambda l: "perm0" in l.rect)
+        dbg.warp_cursor(qmp, 5, 5, settle=False)
+        root_px = box_px(qmp, args.tmp, win, lay.rect["perm0"]) if "perm0" in lay.rect else None
+        check("...its boxes greyed: the checked Owner > Read box is not in the accent",
+              root_px == 0 and own_px, f"{root_px} accent pixels (own file {own_px})")
+    close_all(dbg)
 
     # A folder settles on its recursive count.
     # Wallpapers, not /etc files: a fresh image is not guaranteed to have

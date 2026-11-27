@@ -43,6 +43,8 @@
 #include "userfs_abi.h"
 #include "base/udate.h"
 #include <fcntl.h>
+#include <grp.h>
+#include <pwd.h>
 #include <unistd.h>
 
 enum {
@@ -139,13 +141,59 @@ static int sum_slot_h(void) {
     return ctl_h() + p + ctl_h() + p + 2 * line_h() + line_h();
 }
 
+// THE OWNER AND GROUP ROWS above the boxes (GNOME Files' and Dolphin's
+// shape), then the boxes, the mode, and -- on a file this account may not
+// chmod -- why the boxes are greyed.
+// Read here, not in media/ufileinfo: SYS_STATX is a runtime symbol a
+// library may not need (check_lib_layers.py). 0 when unknown: the boxes
+// stay live and the kernel decides.
+static uint32_t g_uid, g_gid;
+static int g_owner_known;
+
+static void load_owner(void) {
+    struct sys_statx sx;
+    g_owner_known = sys_statx(g_fi.path, &sx) == 0;
+    g_uid = g_owner_known ? sx.uid : 0;
+    g_gid = g_owner_known ? sx.gid : 0;
+}
+
+static int may_chmod(void) {
+    uid_t e = geteuid();
+    return !g_owner_known || e == 0 || e == g_uid;
+}
+
+static int perm_step(void) { return ctl_h() + utheme_pad() / 2; }
+static int perm_head(void) { return 2 * perm_step(); }
+
+static int perm_slot_h(void) {
+    return perm_head() + 3 * perm_step() + line_h() + (may_chmod() ? 0 : line_h());
+}
+
+// The owner's name as a person reads it -- the account's full name, else
+// its login, else its number -- and "(you)" on this account's own file.
+static void owner_text(char *out, size_t cap) {
+    if (!g_owner_known) { snprintf(out, cap, "?"); return; }
+    struct passwd *pw = getpwuid(g_uid);
+    const char *n = pw ? (pw->pw_gecos && pw->pw_gecos[0] ? pw->pw_gecos : pw->pw_name) : 0;
+    char num[16];
+    if (!n) { snprintf(num, sizeof num, "%u", (unsigned)g_uid); n = num; }
+    snprintf(out, cap, "%s%s", n, g_uid == geteuid() ? " (you)" : "");
+}
+
+static void group_text(char *out, size_t cap) {
+    if (!g_owner_known) { snprintf(out, cap, "?"); return; }
+    struct group *gr = getgrgid(g_gid);
+    if (gr) snprintf(out, cap, "%s", gr->gr_name);
+    else snprintf(out, cap, "%u", (unsigned)g_gid);
+}
+
 static void slots(void) {
     int p = utheme_pad();
     uui_fileinfo_slot(&g_info, "General", UTHEME_ACT_NAV, SLOT_NAME, ctl_h() + p, 1);
     if (is_file() && g_napps > 0)
         uui_fileinfo_slot(&g_info, "Opens with", UTHEME_ACT_EDIT, SLOT_OPENS, ctl_h() + p, 1);
     if (g_fi.ok)
-        uui_fileinfo_slot(&g_info, "Permissions", UTHEME_ACT_ARRANGE, SLOT_PERM, 3 * (ctl_h() + p / 2) + line_h(), 0);
+        uui_fileinfo_slot(&g_info, "Permissions", UTHEME_ACT_ARRANGE, SLOT_PERM, perm_slot_h(), 0);
     if (is_file())
         uui_fileinfo_slot(&g_info, "Checksum", UTHEME_ACT_NONE, SLOT_SUM, sum_slot_h(), 0);
 }
@@ -199,11 +247,13 @@ static void lay_opens(int x, int y, int w, int h) {
 static void lay_perm(int x, int y, int w, int h) {
     (void)w; (void)h;
     g_perm_on = 1;
-    int col = per() * 9, p = utheme_pad();
+    int col = per() * 9, top = y + perm_head(), off = !may_chmod();
     for (int r = 0; r < 3; r++)
-        for (int c = 0; c < 3; c++)
+        for (int c = 0; c < 3; c++) {
             uui_checkbox_set_geometry(&g_perm[r * 3 + c], x + key_w() + c * col,
-                                      y + r * (ctl_h() + p / 2) + (ctl_h() - ugfx_char_h()) / 2);
+                                      top + r * perm_step() + (ctl_h() - ugfx_char_h()) / 2);
+            g_perm[r * 3 + c].disabled = off;   // greyed, not offered: chmod would refuse
+        }
 }
 static void lay_sum(int x, int y, int w, int h) {
     (void)h;
@@ -300,6 +350,11 @@ static void log_rows(void) {
     udate_format(t, sizeof t, &g_fi.st.modified, UDATE_DATE | UDATE_TIME | UDATE_SECONDS);
     ulogf("properties: row Modified=%s\n", t);
     ulogf("properties: row Mode=%04o\n", g_fi.st.mode & 07777);
+    char who[160];
+    owner_text(who, sizeof who);
+    ulogf("properties: row Owner=%s\n", who);
+    group_text(who, sizeof who);
+    ulogf("properties: row Group=%s\n", who);
     ulogf("properties: row Inode=%llu\n", (unsigned long long)g_fi.st.ino);
 }
 
@@ -412,14 +467,27 @@ static void draw_slots(struct ugfx_surface *s) {
         ugfx_draw_string_clipped(s, x, y + (ctl_h() - ugfx_char_h()) / 2, key_w() - p, "App", dim, bg);
     if (uui_fileinfo_slot_rect(&g_info, SLOT_PERM, &x, &y, &w, &h)) {
         static const char *const who[3] = { "Owner", "Group", "Others" };
+        int mid = (ctl_h() - ugfx_char_h()) / 2, top = y + perm_head();
+        char name[160];
+        owner_text(name, sizeof name);
+        ugfx_draw_string_clipped(s, x, y + mid, key_w() - p, "Owner", dim, bg);
+        ugfx_draw_string_clipped(s, x + key_w(), y + mid, w - key_w(), name, t->text, bg);
+        group_text(name, sizeof name);
+        ugfx_draw_string_clipped(s, x, y + perm_step() + mid, key_w() - p, "Group", dim, bg);
+        ugfx_draw_string_clipped(s, x + key_w(), y + perm_step() + mid, w - key_w(), name, t->text, bg);
         for (int r = 0; r < 3; r++)
-            ugfx_draw_string_clipped(s, x, y + r * (ctl_h() + p / 2) + (ctl_h() - ugfx_char_h()) / 2,
-                                     key_w() - p, who[r], dim, bg);
+            ugfx_draw_string_clipped(s, x, top + r * perm_step() + mid, key_w() - p, who[r], dim, bg);
         char m[48];
         snprintf(m, sizeof m, "Mode %04o", g_fi.st.mode & 07777);
         const struct ugfx_font *was = ugfx_set_font(ugfx_font_mono(UGFX_FONT_REGULAR));
-        ugfx_draw_string_clipped(s, x + key_w(), y + 3 * (ctl_h() + p / 2), w - key_w(), m, dim, bg);
+        ugfx_draw_string_clipped(s, x + key_w(), top + 3 * perm_step(), w - key_w(), m, dim, bg);
         ugfx_set_font(was);
+        if (!may_chmod()) {
+            struct passwd *pw = getpwuid(g_uid);
+            char why[96];
+            snprintf(why, sizeof why, "Only %s can change these.", pw ? pw->pw_name : "its owner");
+            ugfx_draw_string_clipped(s, x + key_w(), top + 3 * perm_step() + line_h(), w - key_w(), why, dim, bg);
+        }
     }
     if (is_file() && uui_fileinfo_slot_rect(&g_info, SLOT_SUM, &x, &y, &w, &h)) {
         int dy = y + 2 * (ctl_h() + p);   // under the button and the compare field
@@ -734,6 +802,7 @@ int main(int argc, char **argv) {
     }
     if (uvolinfo_load(argv[1], &g_vol)) return vol_main();
     ufileinfo_load(&g_fi, argv[1], UFI_HEADERS | UFI_WALK | UFI_OPENS | UFI_DETAILS);
+    load_owner();
     snprintf(g_title, sizeof g_title, "%s Properties", g_fi.name);
 
     uui_fileinfo_init(&g_info);

@@ -264,7 +264,7 @@ only expensive part of it.
 - [ ] Root windows on the person's desktop draw in the person's look -- First-boot setup, screen trial, elevated tools see the machine's
 - [ ] `open()`'s and `mkdir()`'s mode reach the kernel -- once every tool that writes a program sets its exec bit (stage C)
 - [x] ~~`ls -l` shows the mode and the owner~~ DONE 2026-11-27 -- GNU's columns less the link count
-- [ ] File Manager's Properties shows the owner -- `ls -l` and `stat` do
+- [x] ~~File Manager's Properties shows the owner~~ DONE 2026-11-27 -- Owner and Group above the boxes, greyed when not yours
 - [ ] A setgid folder gives a new file its group (BSD's rule; Linux's with `g+s`)
 - [ ] `service start`/`stop` and Task Manager's Services page reach init as any account -- gate them through privd
 - [x] ~~A minimal user/group model~~ DONE 2026-11-24 -- root and `user` in `/etc/passwd`, `wheel` in `/etc/group`
