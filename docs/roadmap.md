@@ -254,7 +254,7 @@ only expensive part of it.
 - [x] ~~Stage D3b1 of `docs/users-design.md`: the machine's settings root's, asked through privd~~ DONE 2026-11-26
 - [x] ~~Stage D3b2a of `docs/users-design.md`: `/etc` and `/var/lib` root's, the desktop's writes routed~~ DONE 2026-11-27
 - [x] ~~Stage D3b2b of `docs/users-design.md`: a Standard account's change signed by an administrator~~ DONE 2026-11-27
-- [ ] Stage D3c of `docs/users-design.md`: the kernel's per-person settings applied at sign-in, and `fontd` per session
+- [x] ~~Stage D3c of `docs/users-design.md`: the kernel's per-person settings at sign-in, `fontd` per session~~ DONE 2026-11-27
 - [ ] Several sessions at once, and Switch user -- the compositor role handed between paused compositors (logind's PauseDevice)
 - [ ] `/home/user` private like the homes D3a makes (0700, not 4755)
 - [ ] An account's picture and language on the login screen -- `/var/lib/accounts/<name>`, decided in stage D

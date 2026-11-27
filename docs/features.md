@@ -464,7 +464,10 @@ from it, Standard or Administrator, an optional password and a home of
 their own made from `/etc/skel`. The login screen lists everyone
 bottom-left with the person who signed in last in the middle, as
 Windows 11's does; one session runs at a time (`docs/users-design.md`,
-stage D3a). A Standard account is asked rather than refused: whatever an
+stage D3a). Each person keeps their own pointer speed, scrolling,
+keyboard layouts, fonts and display scale: signing in applies theirs,
+and the login screen and the next person start from the computer's
+(stage D3c). A Standard account is asked rather than refused: whatever an
 administrator would approve -- a setting with a shield, an admin tool, an
 account change -- opens the same dialog with an Administrator drop-down,
 and one of them types their own password there, every time; with no

@@ -11265,3 +11265,48 @@ exists to show. With that, the GUI suite and the usertests pass under
 `fileperm=enforce`, and the default flipped on 2026-11-26 after sixteen
 boots of daily use on the ASUS with the word, whose only refusals were
 correct ones.
+
+## A person's pointer, keyboard and fonts are an APPLY that writes nothing, and init puts the machine's back
+
+**The kernel holds one live value per setting** -- one pointer, one
+keyboard, one console font -- so with several people (users D3) the
+question was where each person's value lives and who puts it live.
+Windows keeps them in HKCU and applies them at logon through
+`SystemParametersInfo`, whose `SPIF_UPDATEINIFILE` flag is the difference
+between "apply" and "apply and persist"; the logon screen runs on
+`.DEFAULT`. GNOME's settings daemons apply the person's dconf values in
+their session; GDM's greeter and the VT console use the machine's
+(localed, vconsole.conf).
+
+**Picked 2026-11-27: `SETTING_OP_APPLY`** -- validated and applied as a
+SET is, written nowhere, the person's copy in their own
+`~/.config/saunaos.conf` that libbase writes and `usetting_session_apply()`
+reads back at sign-in; the registry keeps the machine's value the first
+time, and init's `SETTING_OP_REVERT` puts every one back as a session
+begins and ends. A SET of a person's setting became the machine's
+default, root's.
+
+**Considered and dropped:**
+
+- **The kernel keeps a session overlay and drops it by itself** when the
+  session's processes are gone. Nothing would need to re-apply after a
+  crashed compositor -- but it meant a notion of "session" inside the
+  registry, and the session already has an owner, init, which knows
+  exactly when one begins and ends. The overlay the registry does keep
+  (the machine's value per changed setting) is the smallest one REVERT
+  needs.
+- **The kernel writes the person's file itself.** It would have to know
+  whose session is on and write into a home -- a ring-0 writer of a file
+  the person controls, which no system does.
+- **init applies the person's file at sign-in.** init is root, and root
+  reads no person's file (`base/uconf.h`'s rule: nothing a person writes
+  steers a root process); the session's own compositor, running as the
+  person, does it, and `/bin/login` runs `config session` as the account
+  for a text sign-in.
+
+**The trap the shape has:** each setting's `apply` persists as it
+applies. Rather than rewrite every apply, an APPLY holds back the
+setting's own key in its own file FOR THE CALLING TASK
+(`etc_config_hold_begin()`), so another task's write made while an apply
+sleeps still lands. An `apply` that persisted through anything else would
+leak a person's value into `/etc`.

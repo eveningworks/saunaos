@@ -17,7 +17,9 @@
 - `--machine` -- the machine's values in `/etc`, not this person's: a
   `Scope=user` setting is read and written in `/etc`, the default every
   person without a value of their own follows. What a root service sees
-  anyway, having no `XDG_CONFIG_HOME`.
+  anyway, having no `XDG_CONFIG_HOME`. The kernel's person's settings
+  (pointer, keyboard, fonts) are the machine's to write there, and ask
+  for administrator rights; the live value stays the session's.
 - `-n`, `--non-interactive` -- never ask for administrator rights: a
   machine setting set by an account that is not root is refused at once
   (`sudo -n`'s rule), never asked for on the terminal.
@@ -27,8 +29,11 @@ of one from any other account asks for administrator rights as `sudo`
 does -- the password on the terminal, or the desktop's prompt -- and privd
 makes the change, listed in the prompt; a Standard account is refused
 (its administrator signs in Settings' Apply instead). A person's setting, and the seat's
-(the brightness, the volume, the screen mode, `display.scale`) for the
-person at the machine, never ask.
+(the brightness, the volume, the screen mode) for the person at the
+machine, never ask. A person's KERNEL setting -- pointer speed, keyboard
+layouts, fonts -- is applied for the session and kept in
+`~/.config/saunaos.conf` (users D3c), so it changes nobody else's; it
+needs the seat, so a remote shell is refused it.
 
 ## Description
 
@@ -48,6 +53,7 @@ directory of text cannot provide about itself. See
 | `config where <name>` | Just the owning file's path — scriptable. |
 | `config diff` | Settings whose file differs from what is in effect, i.e. exactly what a hand edit changed and what `reload` would apply. |
 | `config reload` | Re-read every file after editing by hand. Reports how many values were **refused**. |
+| `config session` | Apply your own pointer, keyboard and font settings -- the kernel's person's settings kept in `~/.config/saunaos.conf` -- to this session, as a sign-in does (`/bin/login` runs it at a text terminal). The person at the machine only. |
 | `config files` | Every known config file, its path, its description, and whether it is built in or declared in `/etc/config.d`. |
 | `config show <name\|path>` | Print one config file verbatim. |
 | `config find <text>` | Search key names **and** values across every registered config file, `file:key=value` per hit. Case-insensitive. |

@@ -28,10 +28,17 @@ It reads three settings and republishes whenever one moves:
 | `system.font.mono` | the monospace face (terminals, code), the same way |
 | `system.font.size` | the em size in pixels, shared by both |
 
+**One per session** (users D3c, as Windows runs a `fontdrvhost` per
+session): it runs as the signed-in account, so `display.scale` is that
+person's (`~/.config/desktop.conf` over `/etc/desktop.conf`), and as
+`greeter` on the login screen, with the machine's. init restarts it at
+each sign-in and sign-out (`NoSessionUser=` in `services.d/fontd`), and
+the desktop waits for the new one.
+
 Ask it what it is doing with `diag font` at the serial console:
 
     # diag font
-    size 14px, generation 4
+    size 14px at 100%, generation 4
     ui: liberation-sans
       regular  14x15 cell, line 13, 101 glyphs, proportional
       bold     14x15 cell, line 13, 101 glyphs, proportional

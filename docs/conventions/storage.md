@@ -269,6 +269,10 @@ this the obvious way), not from how much history it accumulated.
   (`uapp_run_then()`): it blocks until the person answers the prompt. A
   new setting a person or the seat should change freely says so -- the
   kernel's `.who`, a schema's `Scope=user` or `Scope=seat` -- or it asks.
+  A kernel `.who = SETTING_WHO_PERSON` setting is APPLIED for the session
+  and kept in `~/.config/<file>` by libbase (users D3c), so its `apply`
+  must persist only through `etc_config_set()` of its OWN key in its own
+  `.file` -- the one write the registry holds back.
 - **NOTHING THE DESKTOP'S ACCOUNT RUNS WRITES `/etc` OR `/var/lib`** (users
   D3b2a: both root's, 0755). A new file a GUI app or a person's command
   keeps goes one of three ways: the PERSON's own -- a bare name for

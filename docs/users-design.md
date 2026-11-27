@@ -1,6 +1,6 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 (D2a, D2b, D2c below) BUILT 2026-11-25, D3a (several people, the login screen's list) BUILT 2026-11-26, D3b1 (the machine's settings root's, asked through privd) BUILT 2026-11-26, D3b2a (`/etc` and `/var/lib` root's, the desktop's writes there routed) and D3b2b (a Standard account's change signed by an administrator in the prompt) BUILT 2026-11-27; D3c next.** The maintainer
+**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 (D2a, D2b, D2c below) BUILT 2026-11-25, D3a (several people, the login screen's list) BUILT 2026-11-26, D3b1 (the machine's settings root's, asked through privd) BUILT 2026-11-26, D3b2a (`/etc` and `/var/lib` root's, the desktop's writes there routed), D3b2b (a Standard account's change signed by an administrator in the prompt) and D3c (the kernel's person's settings applied at sign-in, `fontd` per session) BUILT 2026-11-27.** The maintainer
 picked the shape on 2026-11-23: four stages, stage A first, a ROOT
 BROKER for elevation (no setuid bits), ONE user account before several.
 Roadmap: "Multi-user & file permissions".
@@ -743,7 +743,7 @@ Windows 11 puts the last one in the middle and the others bottom-left.
       agent's own channel, so the frame never waits and the agent keeps
       its ring), a sound card's format (`soundformat`), and a
       `settings` request whose every setting is the seat's
-      (`display.scale`) -- libbase routes a seat holder's SET or UNSET of
+      (`display.scale` until D3c made it a person's) -- libbase routes a seat holder's SET or UNSET of
       a `Scope=seat` schema setting there.
     - **The machine's things ask an administrator**: remote desktop
       (`remotedesktop`: key and value pairs over a fixed key set, a row
@@ -795,6 +795,41 @@ Windows 11 puts the last one in the middle and the others bottom-left.
   keyboard, font, scaling) applied by the session at sign-in, as Windows
   applies HKCU's at logon, and `fontd` (with `display.scale`) run per
   session.
+  - **Picked 2026-11-27:** an APPLY-ONLY op rather than a session
+    overlay the kernel drops by itself -- Windows' SystemParametersInfo
+    without `SPIF_UPDATEINIFILE`; fontd per session as Windows runs a
+    fontdrvhost (UMFD-n) per session; `scaling` (how a smaller mode lands
+    on the panel) the seat's, as the resolution is; the whole stage in
+    one session.
+  - **As built (2026-11-27).** `SETTING_OP_APPLY` validates and applies a
+    PERSON setting and writes nothing: each setting's own `apply`
+    persists as it applies, so its key is held back for the calling task
+    alone (`etc_config_hold_begin()`, `api/etc_config.h`). The registry
+    keeps the machine's value the first time (one list: one session at a
+    time); an empty value puts it back for one setting,
+    `SETTING_OP_REVERT` (root's) for all of them, and a SET while a
+    person's value is live writes the machine's -- the file and the kept
+    value -- and leaves the live one, as editing Windows' Default
+    profile does. A SET of a person's setting is root's now
+    (`priv_setting_check()`); an APPLY is root's or the seat's
+    (`priv_setting_apply_check()`). libbase routes a SET or UNSET of one
+    from a process with a person's layer to APPLY plus
+    `~/.config/saunaos.conf` (bare key names, as `/etc`'s);
+    `usetting_session_apply()` reads that file back at sign-in -- toywm
+    calls it as the session's compositor starts, `/bin/login --seat` runs
+    `config session` as the account (root reads no person's file) and
+    puts the machine's back when the shell exits, unless a session's
+    values were already live (`SETTING_OP_PERSON_COUNT`), so a VT
+    sign-in behind a locked desktop leaves the desktop's alone. init
+    REVERTs as a session begins and ends. The ACTIVE keyboard layout
+    (`keyboard.layout`, written nowhere) became the seat's, the person's
+    half being the LIST, whose first entry a sign-in switches to.
+    `fontd` is `User=@session` with `NoSessionUser=greeter`
+    (`services.d/README.md`), and `display.scale` `Scope=user`; a service
+    stopped to change form is not ready, so the desktop's `After=fontd`
+    waits for the new fontd rather than mapping the old one's beacon as
+    it dies. No shipped setting is `Scope=seat` now; `etcfiles_test`
+    declares its own to keep privd's seat write tested.
 
 ## Why plain files, not a user database
 
