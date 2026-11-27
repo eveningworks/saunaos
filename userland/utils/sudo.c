@@ -7,6 +7,7 @@
 #include "base/uargs.h"
 #include "base/uaskpass.h"
 #include "base/upriv.h"
+#include "base/uusers.h"
 #include <pwd.h>
 #include "rt/sys.h"
 #include <errno.h>
@@ -98,7 +99,14 @@ int main(int argc, char **argv) {
         struct passwd *pw = getpwuid(getuid());
         char me[64] = "";
         if (pw) snprintf(me, sizeof me, "%s", pw->pw_name);
-        int has = me[0] ? upriv_has_password(me) : 0;
+        // A Standard account's administrator signs in the desktop's
+        // prompt, never on a terminal (users D3b2b): refused here, before
+        // anyone is asked.
+        if (!me[0] || !uusers_is_admin(me)) {
+            fprintf(stderr, "sudo: %s is not an administrator\n", me[0] ? me : "this account");
+            return 1;
+        }
+        int has = upriv_has_password(me);
         if (has == 1 && !isatty(0)) {
             fprintf(stderr, "sudo: a password is needed, and there is no terminal to ask on\n");
             return 1;

@@ -11153,6 +11153,35 @@ password off for good, which is why changing the UAC slider asks too --
 and to one that asks more it is the seat's, like turning automatic
 sign-in off.
 
+## A Standard account's change is signed by an administrator, refused when none has a password, and never remembered
+
+Maintainer's picks, 2026-11-27 (users D3b2b), from a mockup canvas of
+three shapes. Until then privd refused a Standard account outright.
+polkit's `auth_admin` has its agent authenticate one of the
+administrator identities (`wheel`), and KDE's agent puts them in a
+drop-down; Windows' UAC credential prompt shows one administrator's tile
+and "More choices"; macOS asks for a typed name. SaunaOS takes KDE's
+drop-down: one extra row in the prompt it already has, and any number of
+administrators. privd sends who may sign in the prompt record's `admins`
+field and checks the one the verdict names: listed, still in `wheel`,
+still with a password.
+
+**An administrator with no password cannot sign.** Allow alone would let
+anyone at a Standard account approve their own change, so the Standard
+type would mean nothing on the default image, whose `user` has no
+password. Such a machine's prompt says why and offers only Close.
+
+**A signature is never remembered.** `login.admin_prompt`'s minutes are
+kept per account for the administrator's OWN prompts. Extending them to
+a Standard account (polkit's `auth_admin_keep`) would let anything that
+account runs in those minutes be allowed with no password at all; UAC
+asks for credentials every time.
+
+**Never on a terminal.** `sudo` and `upriv_action_tty()` refuse a
+Standard account before asking: a terminal is writable by any program in
+the session, and the desktop's prompt is the one surface no program can
+answer for the person.
+
 ## File permissions are asked at the syscall boundary, and `/etc` stays the desktop's behind a sticky group bit until stage D
 
 Picked 2026-11-24 (`docs/users-design.md`, stage C; `kernel/fs/fsperm.c`,

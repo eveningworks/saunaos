@@ -11,6 +11,9 @@ int pass_check(const char *user, const char *pw);
 
 // 1 when the account has a password set.
 int pass_has(const char *user);
+// 1 when the account has a password it can be signed with: set and not
+// locked (an administrator signing a Standard account's request).
+int pass_can_sign(const char *user);
 
 // Sets the account's password, or removes it when `pw` is NULL or "".
 // /etc/shadow is replaced whole (written beside it, then renamed), so a

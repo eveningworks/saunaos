@@ -844,6 +844,11 @@ static void cmd_dialog(struct dbg_out *o, int json) {
             dbg_out_printf(o, "\",\"busy\":%s,\"typed\":%d,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}",
                            busy ? "true" : "false", typed, px, py, pw, ph);
         }
+        int ss, sn, so, sx, sy, sw, sh, rx, ry, rh;
+        if (confirm_dialog_signer_state(&ss, &sn, &so, &sx, &sy, &sw, &sh, &rx, &ry, &rh))
+            dbg_out_printf(o, ",\"signer\":{\"selected\":%d,\"count\":%d,\"open\":%s,\"x\":%d,\"y\":%d,"
+                           "\"w\":%d,\"h\":%d,\"row_x\":%d,\"row_y\":%d,\"row_h\":%d}",
+                           ss, sn, so ? "true" : "false", sx, sy, sw, sh, rx, ry, rh);
         dbg_out_write(o, "}\r\n");
         return;
     }

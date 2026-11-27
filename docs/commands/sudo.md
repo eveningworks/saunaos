@@ -23,7 +23,10 @@ command line elevated, and the command then runs as sudo's own child --
 on its terminal, in its foreground group, with its exit status.
 
 Who may ask: root (which just runs COMMAND), or an account in the
-`wheel` group.
+`wheel` group. A Standard account is refused before anyone is asked --
+`sudo: aino is not an administrator` -- because its administrator signs
+in the desktop's prompt, never on a terminal: a program it starts from
+the desktop is asked there instead (`privd.md`).
 
 **Once the account has a password** (`passwd.md`), sudo asks for it on
 its own terminal -- `[sudo] password for user:`, with echo off -- and

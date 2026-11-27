@@ -77,9 +77,24 @@ struct confirm_detail {
     // caller closes it or calls confirm_dialog_password_wrong(). Enter in
     // the field presses it.
     const char *password_label;
+    // WHO SIGNS (users D3b2b, KDE's polkit agent): `nsigners` choices for an
+    // "Administrator" drop-down above the field, each with the field's own
+    // label ("Password for Mika Laine"); the first is chosen. Needs
+    // `password_label`. Both arrays ARE copied.
+    const char *const *signers, *const *signer_labels;
+    int nsigners;
 };
+// `no` NULL: ONE button, `yes`, which closes it (a prompt that can only
+// say why it cannot be allowed).
 void confirm_dialog_open_detailed(const struct confirm_detail *d, const char *yes, const char *no,
                                   void (*on_yes)(void), void (*on_no)(void));
+// The signer chosen, an index into `signers`; -1 when there is no drop-down.
+int confirm_dialog_signer(void);
+// The drop-down as the debug console reports it: 1 with the chosen
+// index, the count, whether its list is open, the box's rect and the
+// list's first row and row height; 0 when no dialog has one.
+int confirm_dialog_signer_state(int *sel, int *n, int *open, int *x, int *y, int *w, int *h,
+                                int *row_x, int *row_y, int *row_h);
 
 // The typed password, while a detailed dialog with a field is open.
 const char *confirm_dialog_password(void);

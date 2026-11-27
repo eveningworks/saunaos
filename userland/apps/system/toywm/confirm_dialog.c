@@ -4,11 +4,13 @@
 #include "wm_overlay.h"
 #include "ui/uui.h"
 #include "ui/uui_caret.h"
+#include "ui/uui_dropdown.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_widget.h"   // uui_textbox_ops: the field's press
 #include "ui/utheme.h"
 #include "kapi.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 int confirm_dialog_open = 0;
@@ -59,8 +61,19 @@ static struct {
     int pw_on, busy;
     char pw_label[96], pw_err[96];
     int pw_label_y, pw_err_y;
+    int one;                  // one button: `no` was NULL
+    int sg_on, sg_row_y;      // the signer drop-down (users D3b2b), its row's top
 } g_d;
 static struct uui_textbox g_pw;
+// The signer drop-down's choices and the field's label for each, copied
+// at open (the listbox keeps the caller's pointers), freed at the next.
+static struct uui_dropdown g_sg;
+static char **g_sg_items, **g_sg_labels;
+static int g_sg_n;
+static int g_sg_press;        // the press being tracked is the drop-down's
+static int g_sg_shown;        // whose label the field shows: the list's arrows move
+                              // the selection before it closes
+#define SIGNER_LABEL "Administrator"
 
 // Breaks `s` at spaces into lines no wider than `w`; a word wider than
 // `w` stands alone and is clipped when drawn. Past WRAP_MAX lines the
@@ -116,7 +129,8 @@ static void layout_detailed(int yes_w, int no_w, int btn_h) {
     int body_h = g_d.nhead * ch + ugfx_px(8) + g_d.nbody * ch + ugfx_px(10) +
                  g_d.nrows * row_h + ugfx_px(12);
     int field_h = ch + ugfx_px(10);
-    int pw_h = g_d.pw_on ? ugfx_px(10) + ch + ugfx_px(6) + field_h + ugfx_px(4) + ch : 0;
+    int sg_h = g_d.sg_on ? field_h + ugfx_px(8) : 0;
+    int pw_h = g_d.pw_on ? ugfx_px(10) + sg_h + ch + ugfx_px(6) + field_h + ugfx_px(4) + ch : 0;
     body_h += pw_h;
     if (body_h < icon) body_h = icon;
     int foot_h = btn_h + ugfx_px(24);
@@ -126,6 +140,12 @@ static void layout_detailed(int yes_w, int no_w, int btn_h) {
     if (g_d.pw_on) {
         // Under the grid, the last thing in the body.
         int top = g_y + g_d.bar_h + DIALOG_PAD + body_h - pw_h + ugfx_px(10);
+        if (g_d.sg_on) {
+            g_d.sg_row_y = top;
+            int lw = ugfx_text_width(SIGNER_LABEL) + ugfx_px(12);
+            uui_dropdown_set_geometry(&g_sg, g_x + g_d.text_x + lw, top, text_w - lw, field_h);
+            top += sg_h;
+        }
         g_d.pw_label_y = top;
         uui_textbox_set_geometry(&g_pw, g_x + g_d.text_x, top + ch + ugfx_px(6), text_w, field_h);
         g_d.pw_err_y = top + ch + ugfx_px(6) + field_h + ugfx_px(4);
@@ -135,7 +155,8 @@ static void layout_detailed(int yes_w, int no_w, int btn_h) {
     // The affirmative first, as every other dialog here orders them.
     uui_button_init(&g_btns[BTN_NO], right - no_w, btn_y, no_w, btn_h, g_no_label,
                     UTHEME_BUTTON_BG, UTHEME_TEXT, BTN_NO);
-    uui_button_init(&g_btns[BTN_YES], right - no_w - BTN_GAP - yes_w, btn_y, yes_w, btn_h,
+    int yes_x = g_d.one ? right - yes_w : right - no_w - BTN_GAP - yes_w;
+    uui_button_init(&g_btns[BTN_YES], yes_x, btn_y, yes_w, btn_h,
                     g_yes_label, UTHEME_ACCENT, UTHEME_ACCENT_TEXT, BTN_YES);
 }
 
@@ -159,7 +180,7 @@ static void open_common(const char *message, void (*on_yes)(void), void (*on_no)
     int btn_h = ch + BTN_H_EXTRA;
     if (g_d.on) {
         layout_detailed(yes_w, no_w, btn_h);
-        uui_button_group_init(&g_group, g_btns, 2);
+        uui_button_group_init(&g_group, g_btns, g_d.one ? 1 : 2);
         confirm_dialog_open = 1;
         confirm_dialog_damage();
         return;
@@ -188,6 +209,9 @@ static void close_dialog(void) {
         g_btns[BTN_YES].disabled = 0;
         g_d.pw_on = g_d.busy = 0;
     }
+    g_sg.open = 0;
+    g_sg_press = 0;
+    g_d.sg_on = 0;   // the plain forms do not reset g_d
     confirm_dialog_open = 0;   // where it was drawn is damaged by the core (wm_overlay.h)
     WM_REDRAW();
 }
@@ -243,6 +267,11 @@ static void draw_detailed(void) {
                                      UTHEME_PANEL_BG);
         }
     }
+    if (g_d.sg_on) {
+        ugfx_draw_string_clipped(s, tx, g_d.sg_row_y + (g_sg.h - ch) / 2, g_sg.x - tx, SIGNER_LABEL,
+                                 text, UTHEME_WHITE);
+        uui_dropdown_draw(s, &g_sg);
+    }
     if (g_d.pw_on) {
         was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
         ugfx_draw_string_clipped(s, tx, g_d.pw_label_y, tw, g_d.pw_label, text, UTHEME_WHITE);
@@ -257,6 +286,18 @@ static void draw_detailed(void) {
     ugfx_fill_rect(s, g_x, foot_y, g_w, 1, UTHEME_SEPARATOR);
     ugfx_draw_rect(s, g_x, g_y, g_w, g_h, UTHEME_BORDER);
     uui_button_group_draw(&g_group, s);
+    if (g_d.sg_on) uui_dropdown_draw_popup(s, &g_sg);   // last: it lies over the field and buttons
+}
+
+// Another administrator chosen: the field asks for THEIR password, so
+// what was typed for the last one goes.
+static void signer_changed(void) {
+    int i = uui_dropdown_selected(&g_sg);
+    if (i < 0 || i >= g_sg_n || i == g_sg_shown) return;
+    g_sg_shown = i;
+    snprintf(g_d.pw_label, sizeof g_d.pw_label, "%s", g_sg_labels[i]);
+    g_d.pw_err[0] = '\0';
+    uui_textbox_set_text(&g_pw, "");
 }
 
 void confirm_dialog_draw(void) {
@@ -312,8 +353,15 @@ void confirm_dialog_password_wrong(const char *why) {
     set_busy(0);
 }
 
+// Over an open signer list: the list's, not what lies under it.
+static int in_open_list(int mx, int my) {
+    return g_d.on && g_d.sg_on && g_sg.open && mx >= g_sg.list.x && mx < g_sg.list.x + g_sg.list.w &&
+           my >= g_sg.list.y && my < g_sg.list.y + g_sg.list.h;
+}
+
 int confirm_dialog_text_at(int mx, int my) {
-    return confirm_dialog_open && g_d.pw_on && uui_textbox_text_at(&g_pw, mx, my);   // not over its eye
+    return confirm_dialog_open && g_d.pw_on && !in_open_list(mx, my) &&
+           uui_textbox_text_at(&g_pw, mx, my);   // not over its eye
 }
 
 int confirm_dialog_password_state(const char **label, const char **err, int *busy, int *typed,
@@ -329,6 +377,14 @@ int confirm_dialog_password_state(const char **label, const char **err, int *bus
 
 int confirm_dialog_key(int key, uint8_t mods) {
     if (!confirm_dialog_open || !g_d.on || !g_d.pw_on) return 0;
+    // An open list takes every key: Enter chooses there, never Allows.
+    if (g_d.sg_on && g_sg.open) {
+        uui_dropdown_key(&g_sg, key);
+        if (!g_sg.open) signer_changed();
+        confirm_dialog_damage();
+        WM_REDRAW();
+        return 1;
+    }
     if (key == '\n' || key == '\r') { commit(BTN_YES); return 1; }
     if (!g_d.busy && uui_textbox_key_mods(&g_pw, key, mods)) {
         uui_caret_reset();
@@ -355,6 +411,30 @@ void confirm_dialog_update_press(int mx, int my, uint8_t buttons) {
     if (!confirm_dialog_open) return;
 
     static int down;
+    // The drop-down's press: the box, its open list, or a press anywhere
+    // that dismisses the list -- none of which reaches what lies under it.
+    if (g_d.on && g_d.sg_on && !g_d.busy) {
+        if ((buttons & 0x1) && !down && (g_sg.open || uui_dropdown_hit(&g_sg, mx, my))) {
+            g_sg_press = uui_dropdown_click(&g_sg, mx, my);
+            down = 1;
+            confirm_dialog_damage();
+            return;
+        }
+        if (g_sg_press) {
+            if (buttons & 0x1) {
+                if (uui_dropdown_drag(&g_sg, mx, my)) confirm_dialog_damage();
+                return;
+            }
+            down = 0;
+            g_sg_press = 0;
+            uui_dropdown_release(&g_sg, mx, my);
+            uui_dropdown_drag_end(&g_sg);
+            if (!g_sg.open) signer_changed();
+            confirm_dialog_damage();
+            WM_REDRAW();
+            return;
+        }
+    }
     if (buttons & 0x1) {
         // The password field hears the press EDGE: a click places its
         // caret, or toggles its eye (uui_textbox's `revealed`).
@@ -383,6 +463,11 @@ void confirm_dialog_update_press(int mx, int my, uint8_t buttons) {
 // flag -- and returns a token the core compares.
 int confirm_dialog_hover_at(int mx, int my) {
     if (!confirm_dialog_open) return 0;
+    if (in_open_list(mx, my)) {
+        uui_button_group_hover(&g_group, -1, -1);
+        uui_listbox_hover(&g_sg.list, mx, my);
+        return 100 + g_sg.list.hovered;   // a token per row
+    }
     uui_button_group_hover(&g_group, mx, my);
     for (int i = 0; i < g_group.count; i++)
         if (g_group.buttons[i].hovered) return i + 1;
@@ -396,6 +481,9 @@ void confirm_dialog_damage(void) { wm_overlay_damage("confirm"); }
 int confirm_dialog_rect(int *x, int *y, int *w, int *h) {
     if (!confirm_dialog_open) return 0;
     *x = g_x; *y = g_y; *w = g_w; *h = g_h;
+    // An open signer list may hang below the dialog.
+    if (g_d.on && g_d.sg_on && g_sg.open && g_sg.list.y + g_sg.list.h > g_y + g_h)
+        *h = g_sg.list.y + g_sg.list.h - g_y;
     return 1;
 }
 
@@ -431,9 +519,33 @@ void confirm_dialog_open_detailed(const struct confirm_detail *d, const char *ye
         snprintf(g_d.key[i], sizeof g_d.key[i], "%s", d->key[i] ? d->key[i] : "");
         snprintf(g_d.val[i], sizeof g_d.val[i], "%s", d->val[i] ? d->val[i] : "");
     }
+    g_d.one = no == 0;
+    for (int i = 0; i < g_sg_n; i++) { free(g_sg_items[i]); free(g_sg_labels[i]); }
+    free(g_sg_items);
+    free(g_sg_labels);
+    g_sg_items = g_sg_labels = 0;
+    g_sg_n = 0;
+    if (d->password_label && d->nsigners > 0) {
+        g_sg_items = calloc((size_t)d->nsigners, sizeof *g_sg_items);
+        g_sg_labels = calloc((size_t)d->nsigners, sizeof *g_sg_labels);
+        for (int i = 0; g_sg_items && g_sg_labels && i < d->nsigners; i++) {
+            g_sg_items[i] = strdup(d->signers[i] ? d->signers[i] : "");
+            g_sg_labels[i] = strdup(d->signer_labels[i] ? d->signer_labels[i] : "");
+            if (!g_sg_items[i] || !g_sg_labels[i]) {
+                free(g_sg_items[i]);
+                free(g_sg_labels[i]);
+                break;
+            }
+            g_sg_n++;
+        }
+        g_d.sg_on = g_sg_n > 0;
+        g_sg_shown = 0;
+        if (g_d.sg_on) uui_dropdown_init(&g_sg, 0, 0, 0, 0, (const char *const *)g_sg_items, g_sg_n);
+    }
     if (d->password_label) {
         g_d.pw_on = 1;
-        snprintf(g_d.pw_label, sizeof g_d.pw_label, "%s", d->password_label);
+        snprintf(g_d.pw_label, sizeof g_d.pw_label, "%s",
+                 g_d.sg_on ? g_sg_labels[0] : d->password_label);
         uui_textbox_init(&g_pw, "");
         g_pw.masked = 1;
         g_pw.ed.flags |= UUI_EDIT_MASKED;
@@ -459,7 +571,7 @@ void confirm_dialog_close(void) {
 // exactly that change.
 int confirm_dialog_button_rect(int index, int *x, int *y, int *w, int *h,
                                 const char **label) {
-    if (!confirm_dialog_open || index < 0 || index > 1) return 0;
+    if (!confirm_dialog_open || index < 0 || index >= g_group.count) return 0;
     if (x) *x = g_btns[index].x;
     if (y) *y = g_btns[index].y;
     if (w) *w = g_btns[index].w;
@@ -483,4 +595,21 @@ int confirm_dialog_row(int i, const char **key, const char **val) {
 
 const char *confirm_dialog_body(void) {
     return confirm_dialog_open ? (g_d.on ? g_d.body : "") : 0;
+}
+
+int confirm_dialog_signer(void) {
+    return confirm_dialog_open && g_d.on && g_d.sg_on ? uui_dropdown_selected(&g_sg) : -1;
+}
+
+int confirm_dialog_signer_state(int *sel, int *n, int *open, int *x, int *y, int *w, int *h,
+                                int *row_x, int *row_y, int *row_h) {
+    if (!confirm_dialog_open || !g_d.on || !g_d.sg_on) return 0;
+    *sel = uui_dropdown_selected(&g_sg);
+    *n = g_sg_n;
+    *open = g_sg.open;
+    *x = g_sg.x; *y = g_sg.y; *w = g_sg.w; *h = g_sg.h;
+    *row_x = g_sg.list.x;
+    *row_y = g_sg.list.y;
+    *row_h = uui_listbox_row_h(&g_sg.list);
+    return 1;
 }

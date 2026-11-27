@@ -38,7 +38,9 @@ actions (`useradd`, `userdel`, `usermod`; `base/uusers.h`). **Every
 change is an administrator's**, asked as `sudo` asks (`sudo.md`): once
 your account has a password it is asked for here, on the terminal;
 without one, `privd` asks on the desktop's prompt, or `user` asks y/N
-when no desktop runs. Root is not asked.
+when no desktop runs. Root is not asked. A Standard account is refused
+here (`this account may not do that as administrator`): its
+administrator signs on the desktop's prompt, from Settings > Users.
 
 One command with verbs, as `component` and `part` are, rather than
 shadow-utils' `useradd`/`userdel`/`usermod`, whose flags differ

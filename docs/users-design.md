@@ -1,6 +1,6 @@
 # Users and privilege: who a process is, and what that lets it do
 
-**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 (D2a, D2b, D2c below) BUILT 2026-11-25, D3a (several people, the login screen's list) BUILT 2026-11-26, D3b1 (the machine's settings root's, asked through privd) BUILT 2026-11-26, D3b2a (`/etc` and `/var/lib` root's, the desktop's writes there routed) BUILT 2026-11-27; D3b2b (the administrator-signed prompt) and D3c next.** The maintainer
+**Status: stages A, B and C BUILT (2026-11-24); stage D's plan decided 2026-11-25, D1 BUILT 2026-11-25, D2 (D2a, D2b, D2c below) BUILT 2026-11-25, D3a (several people, the login screen's list) BUILT 2026-11-26, D3b1 (the machine's settings root's, asked through privd) BUILT 2026-11-26, D3b2a (`/etc` and `/var/lib` root's, the desktop's writes there routed) and D3b2b (a Standard account's change signed by an administrator in the prompt) BUILT 2026-11-27; D3c next.** The maintainer
 picked the shape on 2026-11-23: four stages, stage A first, a ROOT
 BROKER for elevation (no setuid bits), ONE user account before several.
 Roadmap: "Multi-user & file permissions".
@@ -762,10 +762,35 @@ Windows 11 puts the last one in the middle and the others bottom-left.
       is asked: a volume's program name and 0..100, a card name and the
       format's three words strictly, the remote keys and their values,
       the device by its id in a fresh list, the card by its name.
-  - **D3b2b, the administrator-signed prompt (next).** A Standard
-    account's machine change signed by an administrator's name and
-    password in the prompt (polkit's `auth_admin`, UAC's credential
-    prompt), with its own mockup round.
+  - **D3b2b, the administrator-signed prompt (BUILT 2026-11-27).** A
+    Standard account at the machine is no longer refused: whatever an
+    administrator would be asked -- an action, an elevated tool, a
+    machine setting, an account change -- is ASKED, and an
+    administrator signs it in the prompt (polkit's `auth_admin`, UAC's
+    credential prompt). Picked 2026-11-27 from a mockup round:
+    - **Who signs: an Administrator drop-down** above the field (KDE's
+      polkit agent), listing every account in `wheel` with a password it
+      can sign with (set and not locked), the first chosen; choosing another relabels the field
+      ("Password for Mika Laine") and empties it. privd sends the list in
+      the prompt's `admins` field; the agent's verdict names the signer
+      after the password, and privd checks that one is still listed,
+      still in `wheel` and still has such a password before it checks
+      the password. A wrong one costs the SIGNER's failure delay. A
+      prompt whose body cannot also say "An administrator must approve
+      this." is refused (E2BIG), as any prompt that cannot be shown whole
+      is.
+    - **No administrator with a password: refused, saying why.** The
+      prompt has no field and one button, Close, and the request is
+      refused (EPERM). Allow alone would let anyone at a Standard account
+      approve their own change, and the default image's `user` has no
+      password.
+    - **Never remembered.** `login.admin_prompt`'s minutes are an
+      administrator's own; each Standard request is signed afresh, as
+      UAC's credential prompt asks every time.
+    - **Not on a terminal.** `sudo` and `upriv_action_tty()` (`user`,
+      `config`) refuse a Standard account before asking anyone, and a
+      remote session is refused as before: the signature is the desktop
+      prompt's.
 - **D3c: the kernel registry's per-person settings** (pointer,
   keyboard, font, scaling) applied by the session at sign-in, as Windows
   applies HKCU's at logon, and `fontd` (with `display.scale`) run per

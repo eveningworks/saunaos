@@ -9,7 +9,8 @@
 // Under them, OTHER ACCOUNTS (users D3a, mockup S1 -- GNOME's Users panel
 // and Windows' "Other users"): a row per person, their type and Remove...,
 // and Add account...; each change is a privd action (base/uusers.h),
-// asked of an administrator, so a standard account sees them greyed.
+// asked of an administrator -- a Standard account's signed by one in the
+// prompt (users D3b2b).
 #include "apps/system/settings/settings_internal.h"
 #include "base/upriv.h"
 #include "base/usetting.h"
@@ -116,9 +117,7 @@ static void others_load(const char *me) {
         uui_dropdown_init(&o->type, 0, 0, 0, 0, 0, 0);
         uui_dropdown_set_items(&o->type, TYPE_NAMES, 2);
         uui_dropdown_set_selected(&o->type, o->admin);
-        o->type.disabled = !g_me_admin;
         uui_button_init(&o->remove, 0, 0, 0, 0, "Remove...", UUI_ROLE(control_bg), UUI_ROLE(text), id + 1);
-        o->remove.disabled = !g_me_admin;
         snprintf(o->names[0], sizeof o->names[0], "users_type.%s", o->name);
         snprintf(o->names[1], sizeof o->names[1], "users_remove.%s", o->name);
         o->ctl[0] = (struct uui_item){ .ops = &uui_dropdown_ops, .widget = &o->type, .id = id,
@@ -135,8 +134,7 @@ static void others_load(const char *me) {
     }
     uusers_free(u, n);
     g_oth_col = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_oth_items, .count = g_noth };
-    g_add_b.disabled = !g_me_admin;
-    g_oth_head.desc = !g_me_admin ? "An administrator adds and removes the people who sign in here"
+    g_oth_head.desc = !g_me_admin ? "An administrator approves each change here"
                     : g_noth ? "The people who also sign in on this machine"
                              : "Nobody else signs in on this machine yet";
 }

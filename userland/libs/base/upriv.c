@@ -3,6 +3,7 @@
 #include "base/ubulk.h"
 #include "base/uself.h"
 #include "base/uaskpass.h"
+#include "base/uusers.h"
 #include "query_abi.h"   // QUERY_PROCPATH_MAX
 #include <errno.h>
 #include <pwd.h>
@@ -179,7 +180,10 @@ int upriv_action_tty(const char *what, const char *action, const char *const *ar
     struct passwd *pw = getpwuid(getuid());
     char me[64] = "";
     if (pw) snprintf(me, sizeof me, "%s", pw->pw_name);
-    int has = me[0] ? upriv_has_password(me) : 0;
+    // A Standard account asks nothing from a terminal, as sudo refuses it:
+    // an administrator's signature is the desktop prompt's (users D3b2b).
+    if (!me[0] || !uusers_is_admin(me)) { errno = EPERM; return -1; }
+    int has = upriv_has_password(me);
     if (has != 1) {
         int rc = upriv_action(action, args, 0);
         if (rc < 0 && errno == ENXIO && ask_here(what)) rc = upriv_action(action, args, UPRIV_SELF_CONSENT);
@@ -294,17 +298,23 @@ void upriv_agent_answer(struct ubulk_client *a, uint32_t id, int allow) {
     ubulk_send(a, UPRIV_T_VERDICT, id, &v, sizeof v, 1000);
 }
 
-void upriv_agent_answer_password(struct ubulk_client *a, uint32_t id, const char *password) {
-    size_t n = strlen(password) + 1;
-    if (n > UBULK_REC_MAX - sizeof(uint32_t)) { upriv_agent_answer(a, id, 0); return; }
-    char *rec = malloc(sizeof(uint32_t) + n);
+void upriv_agent_answer_signed(struct ubulk_client *a, uint32_t id, const char *signer,
+                               const char *password) {
+    size_t n = strlen(password) + 1, s = signer ? strlen(signer) + 1 : 0;
+    if (n + s > UBULK_REC_MAX - sizeof(uint32_t)) { upriv_agent_answer(a, id, 0); return; }
+    char *rec = malloc(sizeof(uint32_t) + n + s);
     if (!rec) { upriv_agent_answer(a, id, 0); return; }
     uint32_t v = 1;
     memcpy(rec, &v, sizeof v);
     memcpy(rec + sizeof v, password, n);
-    ubulk_send(a, UPRIV_T_VERDICT, id, rec, (uint32_t)(sizeof v + n), 1000);
-    memset(rec, 0, sizeof v + n);
+    if (s) memcpy(rec + sizeof v + n, signer, s);
+    ubulk_send(a, UPRIV_T_VERDICT, id, rec, (uint32_t)(sizeof v + n + s), 1000);
+    memset(rec, 0, sizeof v + n + s);
     free(rec);
+}
+
+void upriv_agent_answer_password(struct ubulk_client *a, uint32_t id, const char *password) {
+    upriv_agent_answer_signed(a, id, 0, password);
 }
 
 void upriv_agent_forget(struct ubulk_client *a) {

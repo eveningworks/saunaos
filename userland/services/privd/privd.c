@@ -31,6 +31,7 @@
 #include "base/uinitctl.h"
 #include "base/uconf.h"
 #include "base/udevice.h"
+#include "base/uusers.h"
 #include "media/usndfmt.h"
 #include "net/uremote.h"
 #include "net/unetlink.h"
@@ -74,6 +75,11 @@ struct req {
     int         tries;        // passwords the prompt may still take; 0 asks none
     char       *name;         // whose password the prompt asks for (owned)
     uint64_t    given_at;     // Allow alone: when the remembered password was given; 0 if not
+    // A STANDARD account's request (users D3b2b): the administrators who
+    // may sign it, comma-separated, or UPRIV_NO_SIGNER; NULL for anyone
+    // else's. The verdict names one of them, and that one's password is
+    // checked (polkit's auth_admin). Owned.
+    char       *signers;
 };
 
 static struct ubulk_server g_srv;
@@ -118,6 +124,46 @@ static int in_wheel(uint32_t uid) {
     if (gr->gr_gid == primary) return 1;
     for (int i = 0; gr->gr_mem && gr->gr_mem[i]; i++)
         if (!strcmp(gr->gr_mem[i], name)) return 1;
+    return 0;
+}
+
+// Who may sign a Standard account's request: every person's account in
+// wheel with a password it can sign with (set, not locked),
+// comma-separated (account names hold no comma, uusers_name_ok()) -- one
+// with none would make Allow alone an administrator's signature for
+// anyone at the machine. UPRIV_NO_SIGNER when nobody qualifies; NULL
+// when out of memory. Owned by the caller. ONE pass over /etc/shadow's
+// answers: it may be replaced between two.
+static char *signers_list(void) {
+    struct uuser *u = 0;
+    int n = uusers_list(&u);
+    size_t len = sizeof UPRIV_NO_SIGNER;
+    for (int i = 0; i < n; i++) len += strlen(u[i].name) + 1;
+    char *out = malloc(len);
+    if (out) {
+        size_t at = 0;
+        for (int i = 0; i < n; i++) {
+            if (!u[i].admin || !pass_can_sign(u[i].name)) continue;
+            int k = snprintf(out + at, len - at, "%s%s", at ? "," : "", u[i].name);
+            if (k < 0 || (size_t)k >= len - at) break;
+            at += (size_t)k;
+        }
+        if (!at) snprintf(out, len, "%s", UPRIV_NO_SIGNER);
+    }
+    if (n > 0) uusers_free(u, n);
+    return out;
+}
+
+// `name` is one of `list`'s comma-separated names, whole.
+static int listed(const char *list, const char *name) {
+    size_t k = strlen(name);
+    for (const char *p = list; k && *p; ) {
+        const char *e = strchr(p, ',');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        if (len == k && !memcmp(p, name, k)) return 1;
+        if (!e) break;
+        p = e + 1;
+    }
     return 0;
 }
 
@@ -258,6 +304,7 @@ static uint64_t kept_since(uint32_t uid) {
 
 static void req_free(struct req *r) {
     free(r->name);
+    free(r->signers);
     free(r->strs);
     if (r->blob) memset(r->blob, 0, r->bloblen);
     free(r->blob);
@@ -551,7 +598,7 @@ static void proc_name(int pid, char *out, size_t cap) {
 
 // headline\0 body\0 action\0 program\0 asker\0 into `out`; its length.
 static uint32_t words(const struct req *r, const struct who *w, char *out, uint32_t cap) {
-    char head[160], body[256], act[64], prog[320], name[64];
+    char head[160], body[384], act[64], prog[320], name[64];   // body: the agent keeps 400
     // What changes, a row each (UPRIV_T_PROMPT's tail); the settings action's.
     static struct { char key[SETTING_ABI_LABEL_MAX], val[200]; } rows[UPRIV_PROMPT_ROWS];
     int nrows = 0;
@@ -719,9 +766,19 @@ static uint32_t words(const struct req *r, const struct who *w, char *out, uint3
         int k = snprintf(body + n, sizeof body - n, " You gave your password %s, so this asks only Allow.", ago);
         if (k < 0 || (size_t)k >= sizeof body - n) body[n] = '\0';
     }
+    if (r->signers && !strcmp(r->signers, UPRIV_NO_SIGNER)) {
+        snprintf(body, sizeof body, "No administrator on this computer has a password, so none can "
+                 "approve this change. An administrator can set one in Settings > System > Users, "
+                 "or make this change while signed in.");
+    } else if (r->signers) {
+        size_t n = strlen(body);
+        int k = snprintf(body + n, sizeof body - n, "%sAn administrator must approve this.", n ? " " : "");
+        if (k < 0 || (size_t)k >= sizeof body - n) return 0;   // shown whole, or refused (E2BIG)
+    }
     snprintf(prog, sizeof prog, "%s (pid %d)", w->path[0] ? w->path : "?", w->pid);
     const char *f[7 + 2 * UPRIV_PROMPT_ROWS] = { head, body, act, prog, w->user,
-                                                 r->tries && r->name ? r->name : "", "" };
+                                                 r->tries && r->name ? r->name : "",
+                                                 r->signers ? r->signers : "" };
     int nf = 7;
     for (int i = 0; i < nrows; i++) {
         f[nf++] = rows[i].key;
@@ -931,12 +988,26 @@ static void handle_request(const struct ubulk_msg *m) {
         req_free(r);
         return;
     }
-    if (!w.seat || !in_wheel(w.uid)) {
+    // A STANDARD account at the machine asks an administrator to sign
+    // (users D3b2b); one elsewhere, or with no desktop to draw the
+    // prompt, is refused as before.
+    int standard = w.seat && !in_wheel(w.uid);
+    if (!w.seat || (standard && !g_agent)) {
         logf1("privd: refused %s -- not an administrator at the machine (pid %d)\n", w.path, r->pid);
         answer(r->pid, r->id, -EPERM);
         free(me);
         req_free(r);
         return;
+    }
+    if (standard) {
+        free(me);
+        me = 0;
+        needs_pw = 0;
+        r->signers = signers_list();
+        if (!r->signers) { answer(r->pid, r->id, -ENOMEM); req_free(r); return; }
+        r->tries = strcmp(r->signers, UPRIV_NO_SIGNER) ? UPRIV_AUTH_TRIES : 0;
+        size_t k = strlen(w.user);
+        snprintf(w.user + k, sizeof w.user - k, ", Standard account");
     }
     if (!g_agent) {
         // A text boot: sudo asked on its own terminal -- with no password
@@ -951,6 +1022,8 @@ static void handle_request(const struct ubulk_msg *m) {
     // At the machine, through the desktop's own prompt -- which no other
     // program can press (only remoted injects input) -- login.admin_prompt
     // may let Allow alone answer.
+    // A signature is never remembered: the minutes are the
+    // administrator's own (UAC's credential prompt asks every time).
     if (needs_pw && !force_pw) {
         int choice = admin_prompt();
         if (ADMIN_PROMPT[choice].keep_min < 0) needs_pw = 0;
@@ -999,23 +1072,40 @@ static void handle_verdict(const struct ubulk_msg *m) {
         const char *pw = (const char *)m->data + sizeof allow;
         uint32_t n = m->len - (uint32_t)sizeof allow;
         if (allow && r->tries && (n == 0 || pw[n - 1] != '\0')) allow = 0;
+        int no_signer = r->signers && !strcmp(r->signers, UPRIV_NO_SIGNER);
+        if (no_signer) allow = 0;   // the prompt only said why; its one button is Close
+        // WHOSE password: the account's own, or -- a Standard asker's -- the
+        // administrator the verdict names after it, still one privd listed,
+        // still in wheel and still with a password. The failure delay is
+        // that administrator's, as a wrong one typed at their own prompt.
+        const char *whose = r->name;
+        uint32_t key = r->uid;
+        if (allow && r->signers) {
+            size_t pl = strlen(pw);
+            const char *who = pl + 1 < n ? pw + pl + 1 : "";
+            struct passwd *spw = who[0] && listed(r->signers, who) ? getpwnam(who) : 0;
+            whose = spw && in_wheel(spw->pw_uid) && pass_can_sign(who) ? who : 0;
+            key = spw ? spw->pw_uid : r->uid;
+        }
         if (allow && r->tries) {
-            if (penalized(r->uid, g_agent) || !pass_check(r->name, pw)) {
-                logf1("privd: a wrong password for %s (pid %d)\n", r->name, r->pid);
+            if (!whose || penalized(key, g_agent) || !pass_check(whose, pw)) {
+                logf1("privd: a wrong password for %s (pid %d)\n", whose ? whose : "?", r->pid);
                 if (--r->tries > 0) {
-                    send_later(g_agent, UPRIV_T_RETRY, r->prompt, (int32_t)r->tries, r->uid);
+                    send_later(g_agent, UPRIV_T_RETRY, r->prompt, (int32_t)r->tries, key);
                     return;
                 }
                 req_unlink(r);
-                send_later(g_agent, UPRIV_T_CANCEL, r->prompt, 0, r->uid);
-                send_later(r->pid, UPRIV_T_ANSWER, r->id, -EACCES, r->uid);
+                send_later(g_agent, UPRIV_T_CANCEL, r->prompt, 0, key);
+                send_later(r->pid, UPRIV_T_ANSWER, r->id, -EACCES, key);
                 req_free(r);
                 return;
             }
             // Right: the agent's dialog, waiting BUSY, closes -- and a
-            // `remember` choice keeps it for the next prompts.
+            // `remember` choice keeps it for the next prompts, never a
+            // signature.
             ubulk_server_send(&g_srv, g_agent, UPRIV_T_CANCEL, r->prompt, "", 0, 1000);
-            kept_remember(r->uid);
+            if (r->signers) logf1("privd: %s signed for pid %d\n", whose, r->pid);
+            else kept_remember(r->uid);
         }
         req_unlink(r);
         struct who now;
@@ -1023,7 +1113,7 @@ static void handle_verdict(const struct ubulk_msg *m) {
         // pid gone to someone else: grant only the process that asked.
         int same = identify(r->pid, &now) && now.uid == r->uid && !strcmp(now.path, r->path);
         if (allow && same) carry_out(r);
-        else answer(r->pid, r->id, allow ? -ESRCH : -ECANCELED);
+        else answer(r->pid, r->id, allow ? -ESRCH : no_signer ? -EPERM : -ECANCELED);
         req_free(r);
         return;
     }

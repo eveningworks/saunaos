@@ -176,6 +176,18 @@ from the default (a sound card, a USB mouse, `--reboot`).
   `config set` still reaches it (`uapp_desc.on_setting`).
   `--positive-control` serves no per-build route: the install fails and
   its `sum` checks go red.
+- **`standard_signed_test.py`** -- a Standard account's change signed by
+  an administrator (`docs/users-design.md`, D3b2b): Aino (Standard) signs
+  in and starts Disks; the prompt says an administrator must approve and
+  lists User and Mika in its Administrator drop-down, drawn (its text's
+  pixels) and opened by a click; Mika chosen relabels the field, User's
+  password is WRONG for her, hers brings Disks as root; the next prompt
+  asks again (never remembered), Down+Enter in the open list choose Mika
+  without Allowing, Cancel keeps Disks away; `sudo` refuses Aino; with no
+  administrator password the prompt has one button, Close, and Disks
+  does not start. Positive control: make privd check the FIRST listed
+  administrator whatever the verdict names -- "User's password typed for
+  Mika is wrong" goes red.
 - **`video_test.py`** -- the Video Player on a machine with no sound
   device, in `gui_regress.py`: the window lists `/usr/share/videos` by
   probing, plays the file it was handed, and the picture is DRAWN AND

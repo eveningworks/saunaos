@@ -32,9 +32,11 @@ extern "C" {
 #define UPRIV_T_AGENT   4   // agent: "I draw the prompt" (no payload)
 #define UPRIV_T_PROMPT  5   // privd -> agent: headline\0 body\0 action\0 program\0 asker\0
                             //   password_for\0 -- the account whose password to ask, "" for none
-                            //   admins\0 -- reserved, "" (users D3b's Standard asker)
+                            //   admins\0 -- a STANDARD asker's: who may sign, comma-separated,
+                            //     or UPRIV_NO_SIGNER; "" for anyone else's (users D3b2b)
                             //   then key\0 value\0 per detail row (what changes: users D3b)
-#define UPRIV_T_VERDICT 6   // agent: u32 1 allow, 0 cancel; then the password\0 if one was asked
+#define UPRIV_T_VERDICT 6   // agent: u32 1 allow, 0 cancel; then the password\0 if one was asked,
+                            //   then the signer\0 -- one of `admins` -- when the prompt listed them
 #define UPRIV_T_CANCEL  7   // privd -> agent: close prompt `id`, its asker is gone
 #define UPRIV_T_AUTH    8   // client: u32 flags, account\0 password\0 -- is it right?
 #define UPRIV_T_RETRY   9   // privd -> agent: prompt `id`'s password was wrong; u32 tries left
@@ -58,6 +60,13 @@ extern "C" {
 // and the prompt asks this many times before the request is refused.
 #define UPRIV_FAIL_DELAY_MS 2000
 #define UPRIV_AUTH_TRIES    3
+// A STANDARD ACCOUNT's request at the machine is signed by an
+// administrator's name and password in the prompt (users D3b2b; polkit's
+// auth_admin, UAC's credential prompt), never remembered. `admins` is
+// this when no administrator has a password: the prompt only says so and
+// the request is refused (EPERM) -- Allow alone would let anyone at a
+// Standard account approve their own change.
+#define UPRIV_NO_SIGNER "!"
 
 // The actions privd runs itself. Arguments are strings.
 #define UPRIV_ACT_SETTIME   "settime"     // seconds since 1970, UTC
@@ -188,7 +197,11 @@ struct upriv_prompt {
     uint32_t id;
     const char *headline, *body, *action, *program, *asker;   // into `buf`
     const char *password_for;   // "" when Allow alone answers
-    const char *admins;         // reserved: ""
+    // A Standard asker's (users D3b2b): the administrators who may sign,
+    // comma-separated -- the prompt asks for ONE's password and answers
+    // with upriv_agent_answer_signed() -- or UPRIV_NO_SIGNER, when the
+    // prompt only says why it cannot be allowed. "" for anyone else.
+    const char *admins;
     // What the request changes, a row each ("Time zone", "Helsinki -> Stockholm").
     int nrows;
     const char *row_key[UPRIV_PROMPT_ROWS], *row_val[UPRIV_PROMPT_ROWS];
@@ -207,6 +220,9 @@ int  upriv_agent_next(struct ubulk_client *a, struct upriv_prompt *p);
 void upriv_agent_answer(struct ubulk_client *a, uint32_t id, int allow);
 // Allow, with the password the prompt asked for.
 void upriv_agent_answer_password(struct ubulk_client *a, uint32_t id, const char *password);
+// Allow, signed by `signer` (one of the prompt's `admins`) with their password.
+void upriv_agent_answer_signed(struct ubulk_client *a, uint32_t id, const char *signer,
+                               const char *password);
 // The screen locked, or came back from the saver: privd forgets every
 // password a `remember` choice of login.admin_prompt was keeping.
 void upriv_agent_forget(struct ubulk_client *a);

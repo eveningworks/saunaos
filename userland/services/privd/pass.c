@@ -47,6 +47,11 @@ int pass_has(const char *user) {
     return hash_of(user)[0] != '\0';   // a locked account "has" one nobody knows
 }
 
+int pass_can_sign(const char *user) {
+    const char *h = hash_of(user);
+    return h[0] != '\0' && !locked(h);
+}
+
 int pass_check(const char *user, const char *pw) {
     const char *h = hash_of(user);
     // No password: "" alone matches -- except root, which signs in by

@@ -35,7 +35,13 @@ holds the seat (`Seat=yes` in its service, inherited by everything it
 starts) is ASKED -- for its PASSWORD once it has one, unless
 `login.admin_prompt` lets Allow alone answer; a `wheel` account that
 sends its right password with the request (`sudo` on a terminal) is
-granted, at the machine or not; anyone else is refused.
+granted, at the machine or not; a STANDARD account (not in `wheel`) at
+the machine is asked too, and an ADMINISTRATOR SIGNS it in the prompt --
+an Administrator drop-down listing every `wheel` account with a
+password, and the chosen one's password (polkit's `auth_admin`; users
+D3b2b), never remembered; when no administrator has a password the
+prompt only says so, with Close, and the request is refused; anyone
+else -- a Standard account remotely, or with no desktop -- is refused.
 
 **`login.admin_prompt`** (in root's `/etc/login.conf`; Settings > Users'
 "When an app needs administrator rights") is what the desktop's prompt

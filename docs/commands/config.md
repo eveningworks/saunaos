@@ -25,7 +25,8 @@
 **The machine's settings are root's** (users D3b): `config set` or `unset`
 of one from any other account asks for administrator rights as `sudo`
 does -- the password on the terminal, or the desktop's prompt -- and privd
-makes the change, listed in the prompt. A person's setting, and the seat's
+makes the change, listed in the prompt; a Standard account is refused
+(its administrator signs in Settings' Apply instead). A person's setting, and the seat's
 (the brightness, the volume, the screen mode, `display.scale`) for the
 person at the machine, never ask.
 

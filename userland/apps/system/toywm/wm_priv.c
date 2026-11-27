@@ -6,7 +6,10 @@
 // Questions arriving while a dialog is up wait their turn, oldest first.
 // Once the asker's account has a password (users D2a) the dialog asks for
 // it; Allow then waits, BUSY, for privd -- which closes the prompt when the
-// password was right and sends a RETRY when it was not.
+// password was right and sends a RETRY when it was not. A STANDARD
+// account's question (users D3b2b) lists the administrators who may sign
+// it: the dialog asks for the chosen one's password and names them in the
+// answer -- or, when none has a password, only says why, with Close.
 #include "wm_priv.h"
 #include "confirm_dialog.h"
 #include "base/upriv.h"
@@ -28,6 +31,8 @@ static uint64_t g_next_try;          // sys_ticks() of the next registration att
 static struct queued *g_queue;       // oldest first
 static uint32_t g_showing;           // the prompt on screen, 0 for none
 static int g_showing_pw;             // ...and it asks for a password
+static char **g_signers;             // ...and who may sign it, by account name
+static int g_nsigners;
 static int g_policy = WM_PRIV_ASK;
 static unsigned g_questions;
 
@@ -36,16 +41,55 @@ int wm_priv_policy(void) { return g_policy; }
 int wm_priv_registered(void) { return g_agent != 0; }
 unsigned wm_priv_questions(void) { return g_questions; }
 
+static void forget_signers(void) {
+    for (int i = 0; i < g_nsigners; i++) free(g_signers[i]);
+    free(g_signers);
+    g_signers = 0;
+    g_nsigners = 0;
+}
+
 static void answered(int allow) {
     if (g_agent && g_showing) upriv_agent_answer(g_agent, g_showing, allow);
     g_showing = 0;
     g_showing_pw = 0;
+    forget_signers();
 }
 // A password dialog stays up, BUSY, until privd's CANCEL or RETRY.
 static void on_allow(void) {
     if (!g_showing_pw) { answered(1); return; }
     const char *pw = confirm_dialog_password();
-    if (g_agent) upriv_agent_answer_password(g_agent, g_showing, pw ? pw : "");
+    int i = confirm_dialog_signer();
+    if (!g_agent) return;
+    // The dialog could not copy its drop-down: no one chosen, so no one signs.
+    if (g_nsigners && (i < 0 || i >= g_nsigners)) { confirm_dialog_close(); answered(0); return; }
+    if (g_nsigners)
+        upriv_agent_answer_signed(g_agent, g_showing, g_signers[i], pw ? pw : "");
+    else
+        upriv_agent_answer_password(g_agent, g_showing, pw ? pw : "");
+}
+
+// The account's real name (GECOS's first field), else its name.
+static void real_name(const char *acct, char *out, size_t cap) {
+    struct passwd *pw = getpwnam(acct);
+    snprintf(out, cap, "%s", pw && pw->pw_gecos && pw->pw_gecos[0] ? pw->pw_gecos : acct);
+    char *comma = strchr(out, ',');   // GECOS's other fields
+    if (comma) *comma = '\0';
+}
+
+// privd's comma-separated signers into g_signers. The count.
+static int split_signers(const char *list) {
+    int n = 1;
+    for (const char *c = list; *c; c++) n += *c == ',';
+    g_signers = calloc((size_t)n, sizeof *g_signers);
+    if (!g_signers) return 0;
+    for (const char *p = list; *p && g_nsigners < n; ) {
+        const char *e = strchr(p, ',');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        if (len && (g_signers[g_nsigners] = strndup(p, len))) g_nsigners++;
+        if (!e) break;
+        p = e + 1;
+    }
+    return g_nsigners;
 }
 static void on_cancel(void) { answered(0); }
 
@@ -68,20 +112,45 @@ static void show_next(void) {
     d.key[d.nrows] = "Program";  d.val[d.nrows++] = q->p.program;
     d.key[d.nrows] = "Asked by"; d.val[d.nrows++] = q->p.asker;
     // "Password for User": the account's real name (GECOS), else its name.
-    char label[96];
+    char label[96], real[64];
     g_showing_pw = q->p.password_for[0] != '\0';
     if (g_showing_pw) {
-        struct passwd *pw = getpwnam(q->p.password_for);
-        const char *who = pw && pw->pw_gecos && pw->pw_gecos[0] ? pw->pw_gecos : q->p.password_for;
-        char real[64];
-        snprintf(real, sizeof real, "%s", who);
-        char *comma = strchr(real, ',');   // GECOS's other fields
-        if (comma) *comma = '\0';
+        real_name(q->p.password_for, real, sizeof real);
         snprintf(label, sizeof label, "Password for %s", real);
         d.password_label = label;
     }
     g_showing = q->p.id;
+    if (!strcmp(q->p.admins, UPRIV_NO_SIGNER)) {
+        confirm_dialog_open_detailed(&d, "Close", 0, on_cancel, 0);
+        free(q);
+        return;
+    }
+    // A Standard asker's: "User (user)" in the drop-down, "Password for
+    // User" over the field, for each administrator privd listed.
+    char **items = 0, **labels = 0;
+    int made = 0;
+    if (q->p.admins[0] && (made = split_signers(q->p.admins)) > 0) {
+        items = calloc((size_t)g_nsigners, sizeof *items);
+        labels = calloc((size_t)g_nsigners, sizeof *labels);
+        for (int i = 0; items && labels && i < g_nsigners; i++) {
+            real_name(g_signers[i], real, sizeof real);
+            if (asprintf(&items[i], "%s (%s)", real, g_signers[i]) < 0) items[i] = 0;
+            if (asprintf(&labels[i], "Password for %s", real) < 0) labels[i] = 0;
+        }
+        d.signers = (const char *const *)items;
+        d.signer_labels = (const char *const *)labels;
+        d.nsigners = items && labels ? g_nsigners : 0;
+        d.password_label = d.nsigners ? "" : 0;
+        g_showing_pw = d.nsigners > 0;
+        if (!d.nsigners) forget_signers();
+    }
     confirm_dialog_open_detailed(&d, "Allow", "Cancel", on_allow, on_cancel);
+    for (int i = 0; i < made; i++) {
+        if (items) free(items[i]);
+        if (labels) free(labels[i]);
+    }
+    free(items);
+    free(labels);
     free(q);
 }
 
@@ -89,6 +158,7 @@ static void drop(uint32_t id) {
     if (id == g_showing) {
         g_showing = 0;
         g_showing_pw = 0;
+        forget_signers();
         confirm_dialog_close();
         return;
     }
@@ -114,7 +184,7 @@ static void lost(void) {
     upriv_agent_close(g_agent);
     g_agent = 0;
     while (g_queue) { struct queued *q = g_queue; g_queue = q->next; free(q); }
-    if (g_showing) { g_showing = 0; g_showing_pw = 0; confirm_dialog_close(); }
+    if (g_showing) { g_showing = 0; g_showing_pw = 0; forget_signers(); confirm_dialog_close(); }
 }
 
 int wm_priv_seat_action(const char *action, const char *const *args) {
@@ -181,7 +251,8 @@ void wm_priv_poll(void) {
         if (g_policy != WM_PRIV_ASK) {
             // A question that needs a password is never allowed by policy:
             // the policy knows none, and privd reads a bare Allow as Cancel.
-            upriv_agent_answer(g_agent, p.id, g_policy == WM_PRIV_ALLOW && !p.password_for[0]);
+            upriv_agent_answer(g_agent, p.id, g_policy == WM_PRIV_ALLOW && !p.password_for[0] &&
+                                              !p.admins[0]);
             continue;
         }
         struct queued *q = malloc(sizeof *q);
