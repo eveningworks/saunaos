@@ -123,8 +123,9 @@ static void shell_checks(void) {
     free(want);
     if (at > 0) mark = at;
     // THE PROMPT BACK before the next line: until tosh's editor has the
-    // terminal again it is in canonical mode, which drops a line over
-    // TTY_CANON_MAX whole -- and the next line is longer than that.
+    // terminal again it is in canonical mode, where the discipline (not
+    // the editor) echoes the line -- the transcript matched below would
+    // then hold it in the wrong place.
     if ((at = waited(master, prompt, mark)) > 0) mark = at;
 
     put(master, "ls\n");

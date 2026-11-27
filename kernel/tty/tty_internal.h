@@ -13,21 +13,20 @@
 
 #include "tty.h"
 
-#define TTY_INQ_MAX   512 // readable bytes queued. Bounds how far behind
-                          // a reader may fall before keystrokes are
-                          // dropped -- the keyboard ring's job, which
-                          // this took over.
-#define TTY_CANON_MAX 256 // a line being assembled. An over-long line is
-                          // discarded rather than truncated -- ldisc.c.
+#define TTY_CANON_MAX 4096 // a line being assembled: Linux's N_TTY line.
+                           // Past it the rest of the line is discarded
+                           // -- ldisc.c.
+#define TTY_INQ_MAX   (TTY_CANON_MAX + 512) // readable keys queued: a
+                           // whole line plus the keyboard ring's slack,
+                           // which is how far behind a reader may fall
+                           // before keystrokes are dropped. 4 bytes a
+                           // slot, in the heap (struct tty is a kslots
+                           // object, never on a stack).
 
 // **A COMPLETE LINE MUST FIT IN THE QUEUE IT IS DELIVERED INTO**, or
 // the discipline's promise not to truncate is broken one layer further
 // down: a full canonical line plus its newline would be queued, the
 // ring would fill, and the tail would be dropped with nobody the wiser.
-// The queue was the same size as the buffer when this was written, and
-// the "an over-long line is discarded, not truncated" KTEST is what
-// found it -- it asked for 257 bytes back and got 255.
-//
 // A ring holds one fewer than its slot count (head == tail means
 // empty), hence the -1.
 _Static_assert(TTY_INQ_MAX - 1 >= TTY_CANON_MAX + 1,

@@ -16,6 +16,7 @@
 #include "errno.h"   // -EPERM/-ESRCH -- the session rule's refusals
 #include "string.h"
 #include "pty.h"
+#include "tty_internal.h" // TTY_CANON_MAX, which the line tests go past
 #include "fs.h"
 #include "timer.h"
 #include "signal_abi.h" // SIGINT -- what the kernel-led session delivers
@@ -244,20 +245,34 @@ KTEST("tty", "an over-long line is discarded, not truncated") {
     // partial line arriving as if it had ended -- a program handed half
     // a command has no way to know it was half. Linux's N_TTY discards
     // the overflow for the same reason.
-    for (int i = 0; i < 400; i++) tty_input(t, 'x', 0);
+    for (int i = 0; i < TTY_CANON_MAX + 144; i++) tty_input(t, 'x', 0);
     tty_input(t, '\n', 0);
 
-    // static, and cleared with k_memset(): a 512-byte `= {0}` local
-    // makes GCC emit a call to `memset`, which this kernel does not
-    // provide under that name -- and it is a link error rather than a
-    // silent one, which is the good kind.
-    static char buf[512];
+    // static, and cleared with k_memset(): a large `= {0}` local makes
+    // GCC emit a call to `memset`, which this kernel does not provide
+    // under that name.
+    static char buf[TTY_CANON_MAX * 2];
     k_memset(buf, 0, sizeof buf);
     unsigned n = tty_read(t, buf, sizeof buf);
     tty_destroy(t);
 
-    KTEST_ASSERT_EQ((int)n, 257); // the full buffer plus the newline
-    KTEST_ASSERT_EQ(buf[256], '\n');
+    KTEST_ASSERT_EQ((int)n, TTY_CANON_MAX + 1); // the full buffer plus the newline
+    KTEST_ASSERT_EQ(buf[TTY_CANON_MAX], '\n');
+}
+
+KTEST("tty", "a 1000-byte canonical line arrives whole") {
+    struct tty *t = scratch(TTY_ICANON);
+    if (!t) KTEST_SKIP("no free terminal slot");
+    for (int i = 0; i < 1000; i++) tty_input(t, (uint8_t)('a' + i % 26), 0);
+    tty_input(t, '\n', 0);
+    static char buf[2048];
+    k_memset(buf, 0, sizeof buf);
+    unsigned n = tty_read(t, buf, sizeof buf);
+    tty_destroy(t);
+
+    KTEST_ASSERT_EQ((int)n, 1001);
+    KTEST_ASSERT_EQ(buf[999], (char)('a' + 999 % 26));
+    KTEST_ASSERT_EQ(buf[1000], '\n');
 }
 
 KTEST("tty", "INTR with nobody in front is delivered as an ordinary byte") {
