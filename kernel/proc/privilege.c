@@ -51,8 +51,15 @@ int priv_admin_check(uint64_t nr) {
 
 int priv_setting_check(const char *name) {
     const struct setting *s = setting_find(name);
-    if (!s || priv_is_root() || s->who == SETTING_WHO_PERSON) return 0;
+    if (!s || priv_is_root()) return 0;
     if (s->who == SETTING_WHO_SEAT && priv_has_seat()) return 0;
+    return -EACCES;
+}
+
+int priv_setting_apply_check(const char *name) {
+    const struct setting *s = setting_find(name);
+    if (!s || priv_is_root()) return 0;
+    if (s->who == SETTING_WHO_PERSON && priv_has_seat()) return 0;
     return -EACCES;
 }
 

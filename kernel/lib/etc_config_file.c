@@ -16,6 +16,7 @@
 #include "irqflags.h"
 #include "kfmt.h"   // klog_printf
 #include "klog.h"   // KLOG_WARN
+#include "scheduler.h"   // scheduler_current_pid() -- a hold is one task's
 
 const struct etc_config_mem etc_config_kmem = { kmalloc, kfree };
 
@@ -241,10 +242,43 @@ int etc_config_load(const char *path, struct etc_config_buf *buf) {
     return 1;
 }
 
+// --- holds (api/etc_config.h) ------------------------------------------
+//
+// irq_save() is the list's lock, as it is the cache's above.
+static struct etc_config_hold *g_holds;
+
+void etc_config_hold_begin(struct etc_config_hold *h, const char *path, const char *key) {
+    h->pid = scheduler_current_pid();
+    h->path = path;
+    h->key = key;
+    uint64_t f = irq_save();
+    h->next = g_holds;
+    g_holds = h;
+    irq_restore(f);
+}
+
+void etc_config_hold_end(struct etc_config_hold *h) {
+    uint64_t f = irq_save();
+    for (struct etc_config_hold **p = &g_holds; *p; p = &(*p)->next)
+        if (*p == h) { *p = h->next; break; }
+    irq_restore(f);
+}
+
+static int held(const char *path, const char *section, const char *key) {
+    if (section && section[0]) return 0;
+    int pid = scheduler_current_pid(), hit = 0;
+    uint64_t f = irq_save();
+    for (struct etc_config_hold *h = g_holds; h && !hit; h = h->next)
+        hit = h->pid == pid && !k_strcmp(h->path, path) && !k_strcmp(h->key, key);
+    irq_restore(f);
+    return hit;
+}
+
 // Both of these are now read / rewrite / write, with the rewrite shared
 // (etc_config_buf_set). They used to carry a copy of that loop each.
 static int rewrite(const char *path, const char *section,
                    const char *key, const char *value) {
+    if (held(path, section, key)) return 1;
     // A missing file is not an error for a SET -- the key is appended to
     // an empty document and the file created. It is for an unset, which
     // etc_config_buf_set_alloc() refuses as "not there".

@@ -181,7 +181,7 @@ int sys_setting(struct syscall_ctx *c) {
     }
     if (sandbox_active() &&
         (msg.op == SETTING_OP_SET || msg.op == SETTING_OP_UNSET || msg.op == SETTING_OP_RELOAD ||
-         msg.op == SETTING_OP_TOUCH) &&
+         msg.op == SETTING_OP_TOUCH || msg.op == SETTING_OP_APPLY || msg.op == SETTING_OP_REVERT) &&
         sandbox_require(PROMISE_SETTINGS_WRITE, "setting write", c->regs))
         return 0;
     // The kernel writes /etc itself, so a file's mode never reaches this
@@ -191,9 +191,14 @@ int sys_setting(struct syscall_ctx *c) {
         int rc = priv_setting_check(msg.name);
         if (rc < 0) { c->regs[14] = (uint64_t)(int64_t)rc; return 0; }
     }
+    if (msg.op == SETTING_OP_APPLY) {
+        msg.name[sizeof msg.name - 1] = '\0';
+        int rc = priv_setting_apply_check(msg.name);
+        if (rc < 0) { c->regs[14] = (uint64_t)(int64_t)rc; return 0; }
+    }
     // A reload applies whatever /etc now says, the machine's keys too: root's,
     // as `sysctl -p` is.
-    if (msg.op == SETTING_OP_RELOAD && !priv_is_root()) {
+    if ((msg.op == SETTING_OP_RELOAD || msg.op == SETTING_OP_REVERT) && !priv_is_root()) {
         c->regs[14] = (uint64_t)(int64_t)-EACCES;
         return 0;
     }

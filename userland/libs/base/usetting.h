@@ -106,6 +106,20 @@ int usetting_choices(const char *name, char (**value)[SETTING_ABI_VALUE_MAX],
 // which is the contract the kernel's own index already carried.
 int usetting_dispatch(struct setting_msg *m);
 
+// --- a person's kernel settings (users D3c, docs/users-design.md) -------
+//
+// The kernel's pointer, keyboard and font settings are a person's
+// (SETTING_ABI_SF_PERSON): a SET or UNSET of one here, by a process with
+// a person's layer (base/uconf.h), applies it for the session and keeps it
+// in the person's `~/.config/<file>`; /etc keeps the machine's, which the
+// login screen and every other person start from. Root writes /etc.
+
+// Applies every kernel setting the person's files hold -- what a sign-in
+// does (the desktop's compositor, /bin/login). Returns how many; a value
+// the kernel refuses is said on stderr and the machine's kept. init puts
+// the machine's back when the session ends (SETTING_OP_REVERT).
+int usetting_session_apply(void);
+
 // --- the machine's settings (users D3b, docs/users-design.md) ----------
 //
 // A setting that is neither a person's (SETTING_ABI_SF_PERSON) nor the

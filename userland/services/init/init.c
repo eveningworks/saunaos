@@ -276,6 +276,10 @@ struct service {
     // console and the VTs, so a text terminal asks instead of staying dark.
     char *nosess_exec;
     char *nosess_args;
+    // NoSessionUser= (users D3c): the account a User=@session service runs
+    // as, its own Exec=, while no session is on -- fontd, as `greeter`,
+    // so the login screen has the machine's fonts. Not switched by a lock.
+    char *nosess_user;
     // Stopped to change between its two forms at a session's start or end:
     // the exit is no failure, and it starts again at once.
     int  switching;
@@ -485,7 +489,7 @@ static void load_service(const char *file) {
         s = &g_svc[g_svc_count++];
         k_memset(s, 0, sizeof *s);
         k_strlcpy(s->name, name, sizeof s->name);
-        s->exec = s->args = s->nosess_exec = s->nosess_args = g_none;
+        s->exec = s->args = s->nosess_exec = s->nosess_args = s->nosess_user = g_none;
         if (g_booted) s->fresh = g_arrived = 1;
     }
     s->seen = 1;
@@ -536,6 +540,7 @@ static void load_service(const char *file) {
     s->no_session = etc_config_buf_get(&g_cfg, "Session", sess, sizeof sess) && strcmp(sess, "none") == 0;
     svc_str(&s->nosess_exec, "NoSessionExec");
     svc_str(&s->nosess_args, "NoSessionArgs");
+    svc_str(&s->nosess_user, "NoSessionUser");
 
     // Absent means unconstrained, which is the common case and must
     // stay the terse one. Cleared rather than left alone, so removing
@@ -965,18 +970,59 @@ static void creds_release(struct svc_creds *c) {
 }
 
 // THE FORM IT RUNS IN NOW: a User=@session service with a NoSessionExec=
-// runs that, as root, while no session is on.
+// runs that, as root, while no session is on or it is locked; one with a
+// NoSessionUser= runs as that account while no session is on.
 static int g_locked;   // INITCTL_LOCK: the session's desktop is locked
 
+static int has_no_session_form(const struct service *s) {
+    return s->user_session && (s->nosess_exec[0] || s->nosess_user[0]);
+}
+
 static int no_session_form(const struct service *s) {
-    return s->user_session && (!g_session[0] || g_locked) && s->nosess_exec[0];
+    if (!s->user_session) return 0;
+    if (s->nosess_exec[0]) return !g_session[0] || g_locked;
+    return s->nosess_user[0] && !g_session[0];
+}
+
+// The exec and arguments of the form it runs in now.
+static const char *form_exec(const struct service *s) {
+    return no_session_form(s) && s->nosess_exec[0] ? s->nosess_exec : s->exec;
+}
+static const char *form_args(const struct service *s) {
+    return no_session_form(s) && s->nosess_exec[0] ? s->nosess_args : s->args;
+}
+
+// Stopped to come back in its other form. NOT READY from now: a service
+// ordered after it (the desktop After=fontd) waits for the new one, or it
+// maps the old one's objects as it dies.
+static void switch_form(struct service *s) {
+    s->switching = 1;
+    s->ready = 0;
+    sys_kill(s->pid, SIGTERM);
+}
+
+// THE KERNEL'S PERSON SETTINGS BACK TO THE MACHINE'S (users D3c), as a
+// session begins and ends: the login screen, and the next person, start
+// from /etc's. The session's compositor applies the person's own.
+static void settings_revert(void) {
+    struct setting_msg m;
+    memset(&m, 0, sizeof m);
+    m.op = SETTING_OP_REVERT;
+    if (sys_setting(&m) == 0 && m.count) {
+        char n[16];
+        snprintf(n, sizeof n, "%u", (unsigned)m.count);
+        logf1("init: %s settings back to the machine's\n", n);
+    }
 }
 
 static int creds_for(const struct service *s, struct sys_spawn_opts *o, struct svc_creds *c) {
     memset(c, 0, sizeof *c);
     if (s->user_bad) return -1;   // said when read
-    if (no_session_form(s)) return 0;   // root's: /bin/login drops to the account itself
     const char *who = s->user_session ? g_session : s->user;
+    if (no_session_form(s)) {
+        if (!s->nosess_user[0]) return 0;   // root's: /bin/login drops to the account itself
+        who = s->nosess_user;
+    }
     if (s->user_session && !who[0]) return -1;   // no session: start_due() never asks
     if (!who[0]) return 0;
     if (ulogin_creds(who, s->seat ? CRED_SEAT : 0, o, &c->lc) < 0) {
@@ -1043,6 +1089,7 @@ static int session_begin(const char *name) {
     snprintf(g_session, sizeof g_session, "%s", name);
     g_locked = 0;
     logf1("init: session for %s begins\n", g_session);
+    settings_revert();
     vt_reset_all();   // a VT shown before it gets its shell now
     for (int i = 0; i < g_svc_count; i++) {
         struct service *s = &g_svc[i];
@@ -1054,12 +1101,9 @@ static int session_begin(const char *name) {
             s->stopped = s->gave_up = s->fast_failures = s->admin_stopped = 0;
             s->due_ms = 0;
             s->started_once = 0;
-            // Its login form (a text terminal's /bin/login) gives way to
-            // the account's shell.
-            if (s->pid && s->nosess_exec[0]) {
-                s->switching = 1;
-                sys_kill(s->pid, SIGTERM);
-            }
+            // Its login form (a text terminal's /bin/login, the greeter's
+            // fontd) gives way to the account's.
+            if (s->pid && has_no_session_form(s)) switch_form(s);
         }
     }
     vt_hangup_all();
@@ -1071,16 +1115,17 @@ static void session_end(void) {
     logf1("init: session for %s ends\n", g_session);
     g_session[0] = '\0';
     g_locked = 0;
+    settings_revert();
     // THE SESSION'S SHELLS GO WITH IT: the console's and each VT's run as
     // the account, and left up they would be a shell behind the login
     // screen. Stopped as `service stop` stops one; session_begin() clears it.
     for (int i = 0; i < g_svc_count; i++) {
         struct service *s = &g_svc[i];
         if (!s->user_session) continue;
-        if (!s->nosess_exec[0]) s->admin_stopped = 1;   // the desktop: until the next session
+        if (!has_no_session_form(s)) s->admin_stopped = 1;   // the desktop: until the next session
         if (s->pid) {
-            if (s->nosess_exec[0]) s->switching = 1;      // back to its login form
-            sys_kill(s->pid, SIGTERM);
+            if (has_no_session_form(s)) switch_form(s);      // back to its login form
+            else sys_kill(s->pid, SIGTERM);
         }
     }
     vt_hangup_all();
@@ -1111,10 +1156,7 @@ static int session_lock(int from, const char *how) {
     logf1("init: the session is %s\n", on ? "locked" : "unlocked");
     for (int i = 0; i < g_svc_count; i++) {
         struct service *s = &g_svc[i];
-        if (s->user_session && s->nosess_exec[0] && s->pid) {
-            s->switching = 1;
-            sys_kill(s->pid, SIGTERM);
-        }
+        if (s->user_session && s->nosess_exec[0] && s->pid) switch_form(s);
     }
     vt_hangup_all();
     return INITCTL_OK;
@@ -1158,9 +1200,8 @@ static void start_service(struct service *s) {
     // stop agreeing with `storage.tmpdir` the moment anyone changed it
     // -- the mount would be in one place and every caller looking in
     // another.
-    int nsf = no_session_form(s);
-    const char *argsrc = nsf ? s->nosess_args : s->args;
-    const char *exec = nsf ? s->nosess_exec : s->exec;
+    const char *argsrc = form_args(s);
+    const char *exec = form_exec(s);
     char *use = argsrc[0] ? expand_specifiers(argsrc) : 0;
     if (argsrc[0] && !use) logf1("init: out of memory for %s's arguments\n", s->name);
     struct sys_spawn_opts o;
@@ -1209,7 +1250,7 @@ static void start_service(struct service *s) {
     s->fast_failures++;
     s->last_exit = -1;
     snprintf(g_msg, sizeof g_msg, "init: %s failed to start (%s)\n",
-             s->name, no_session_form(s) ? s->nosess_exec : s->exec);
+             s->name, form_exec(s));
     sys_eprint(g_msg);
     service_failed(s);
 }
@@ -1382,8 +1423,7 @@ static void vt_start(int n, struct service *t) {
     // SESSION, so it claims the VT and Ctrl-C there reaches its jobs.
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
-    int nsf = no_session_form(t);
-    const char *argsrc = nsf ? t->nosess_args : t->args;
+    const char *argsrc = form_args(t);
     char *args = argsrc[0] ? expand_specifiers(argsrc) : 0;
     o.args = args;
     o.env = environ;
@@ -1397,7 +1437,7 @@ static void vt_start(int n, struct service *t) {
     dup2(fd, 0);
     dup2(fd, 1);
     dup2(fd, 2);
-    int pid = ok ? spawn_in(cr.dir, nsf ? t->nosess_exec : t->exec, &o, t->name) : -1;
+    int pid = ok ? spawn_in(cr.dir, form_exec(t), &o, t->name) : -1;
     creds_release(&cr);
     free(args);
     if (in0 >= 0)  { dup2(in0, 0);  close(in0); }
@@ -1413,7 +1453,7 @@ static void vt_start(int n, struct service *t) {
         return;
     }
     snprintf(g_msg, sizeof g_msg, "init: %s@tty%d failed to start (%s)\n", t->name, n,
-             no_session_form(t) ? t->nosess_exec : t->exec);
+             form_exec(t));
     sys_eprint(g_msg);
     vt_failed(n);
 }
@@ -1422,7 +1462,7 @@ static void vt_start(int n, struct service *t) {
 static int vt_start_due(void) {
     struct service *t = vt_template();
     if (!t || g_shutdown >= 0) return 0;
-    if (t->user_session && !g_session[0] && !t->nosess_exec[0]) return 0;   // the login screen first
+    if (t->user_session && !g_session[0] && !has_no_session_form(t)) return 0;   // the login screen first
     int pending = 0;
     unsigned long long now = now_ms();
     for (int n = VT_FIRST; n <= VT_LAST; n++) {
@@ -2226,8 +2266,8 @@ static int start_due(void) {
         if (s->stopped) continue;       // it asked to stay down
         if (s->admin_stopped) continue; // somebody else asked it to
         if (s->no_session && g_session[0]) continue;   // the greeter, during a session
-        if (s->user_session && !g_session[0] && !s->nosess_exec[0]) continue;
-        if (s->user_session && g_session[0] && !s->nosess_exec[0] && greeter_up()) continue;
+        if (s->user_session && !g_session[0] && !has_no_session_form(s)) continue;
+        if (s->user_session && g_session[0] && !has_no_session_form(s) && greeter_up()) continue;
         if (now < s->due_ms) { pending++; continue; }
         // THE BARRIER, and the one place launch order stops being the
         // whole story. Counted as pending rather than skipped, so the

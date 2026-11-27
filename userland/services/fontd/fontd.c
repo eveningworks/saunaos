@@ -13,6 +13,11 @@
 // (abi/font_shm.h). Then it watches the settings and republishes when
 // they move.
 //
+// ONE PER SESSION (users D3c), as Windows runs a fontdrvhost per session:
+// the person's account while a session is on, `greeter` on the login
+// screen (services.d/fontd's NoSessionUser=), so `display.scale` is the
+// person's and init restarts it at each sign-in and sign-out.
+//
 // IT RUNS SANDBOXED (sandbox() below): the fonts, its settings, its
 // shared memory and nothing else, as fontdrvhost runs in an AppContainer.
 //
@@ -37,6 +42,7 @@
 #include "syscall_abi.h"   // SHM_*, SYS_PROT_*, SYS_MAP_SHARED
 #include "base/usetting.h"
 #include "base/ufile.h"
+#include "base/uconf.h"   // uconf_user_path() -- the person's display.scale
 
 #define FONT_DIR   "/usr/share/fonts/"
 #define POLL_MS    250
@@ -365,8 +371,13 @@ static void publish_mask(int mask) {
 // the atlases in and the diag name to answer on. A font that takes over
 // the parser gets that and no more -- no network, no spawn, no writing.
 static int sandbox(void) {
+    // display.scale is the PERSON's (users D3c): their ~/.config/desktop.conf
+    // over the machine's. None as `greeter` without a config home.
+    char mine[UCONF_USER_PATH_MAX];
+    int has_mine = uconf_user_path("/etc/desktop.conf", mine, sizeof mine) == 1;
     return unveil("/usr/share/fonts", "r") == 0 && unveil("/etc/settings.d", "r") == 0 &&
            unveil("/etc/desktop.conf", "r") == 0 &&   // display.scale
+           (!has_mine || unveil(mine, "r") == 0) &&
            unveil("shm:" FONT_BEACON_NAME, "r") == 0 && unveil(NULL, NULL) == 0 &&
            pledge("stdio rpath shm publish settings diag", NULL) == 0;
 }

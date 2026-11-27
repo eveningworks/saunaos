@@ -14,9 +14,15 @@
 # tables either way, and refusing to come up would take the session down
 # over a cosmetic problem.
 #
+# ONE PER SESSION (users D3c): the session's account while one is on, so
+# display.scale is the person's, and `greeter` for the login screen --
+# init restarts it at each sign-in and sign-out, and the desktop waits.
+#
 # See docs/commands/fontd.md.
 Name=fontd
 Description=Rasterize the session font for every client
 Exec=/bin/fontd
+User=@session
+NoSessionUser=greeter
 Restart=always
 Ready=notify

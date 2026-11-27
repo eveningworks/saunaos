@@ -89,10 +89,12 @@ enum setting_result {
 #define SETTING_ABI_SF_SORTED   (1u << 2)
 // WHO MAY CHANGE IT (users D3b, docs/users-design.md). Neither bit: the
 // MACHINE's, root's alone -- a SET or UNSET from anyone else is refused
-// with EACCES, and a UI asks privd. PERSON: any account's (a schema key
-// with Scope=user, and the kernel's pointer/keyboard/font keys until D3c
-// gives them a person's layer). SEAT: the person at the machine's
-// (logind's shape: the volume, the brightness, the screen mode).
+// with EACCES, and a UI asks privd. PERSON: any account's -- a schema key
+// with Scope=user in the person's file; a kernel one (pointer, keyboard,
+// fonts) as an APPLY, with libbase keeping the value in the person's
+// `~/.config/<file>` (users D3c), while a SET of it writes the machine's
+// default and is root's. SEAT: the person at the machine's (logind's
+// shape: the volume, the brightness, the screen mode).
 #define SETTING_ABI_SF_PERSON   (1u << 3)
 #define SETTING_ABI_SF_SEAT     (1u << 4)
 // THERE IS NO CAP ON THE MERGED LIST. A client sizes its tables from
@@ -224,6 +226,28 @@ enum setting_op {
     // beside this one, and a consumer that polled only the old one would
     // silently stop noticing half the settings.
     SETTING_OP_TOUCH      = 10,
+
+    // In: `name`, `value`. A PERSON'S value for this session (users
+    // D3c): validated and applied as SET does, and WRITTEN NOWHERE --
+    // the person's half lives in their own `~/.config/<file>`, which
+    // libbase writes (base/usetting.h), as Windows' SystemParametersInfo
+    // applies without SPIF_UPDATEINIFILE. The registry remembers the
+    // machine's value the first time, for REVERT. An EMPTY `value` puts
+    // the machine's back for this one setting. A setting that is not a
+    // person's is SETTING_INVALID in `result`. Root's, or the seat's
+    // (CRED_SEAT): one keyboard and one pointer, the person at them.
+    SETTING_OP_APPLY      = 11,
+
+    // No inputs. Puts the machine's value back on every setting an APPLY
+    // changed; `count` says how many. Root's -- init's, as a session
+    // begins and ends, so the login screen has the machine's pointer,
+    // keyboard and fonts.
+    SETTING_OP_REVERT     = 12,
+
+    // No inputs. `count` = how many settings hold a person's value now --
+    // a session's. /bin/login asks before applying a text sign-in's, so a
+    // VT sign-in behind a locked desktop leaves the desktop's alone.
+    SETTING_OP_PERSON_COUNT = 13,
 };
 
 struct setting_msg {

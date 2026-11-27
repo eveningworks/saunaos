@@ -17,8 +17,8 @@ asks the person through the desktop's prompt, listing every change. So:
     up arrow), Apply opens ONE prompt listing it, and Allow saves it --
     the app says so, and the stored value moved;
   * a person's setting staged with it (none here: the page has one) is not
-    in the prompt -- checked from config's side: the pointer speed, a
-    person's, is set by `as user config` without any prompt.
+    in the prompt -- checked from config's side: the desktop's icon size,
+    a person's, is set by `as user config` without any prompt.
 
 What a broken version would still pass: a privd that set the value
 without asking passes the Allow half, so Cancel must leave it; an agent
@@ -183,8 +183,10 @@ def main():
     try:
         if start is not None:
             # A person's setting asks nothing: the harness's `as user config`.
-            m = re.search(r"\b(\d+)\b", dbg.send("sh config get system.mouse.speed") or "")
-            out = dbg.as_user(f"config set system.mouse.speed {m.group(1) if m else 5}")
+            # A declared one -- the kernel's (pointer speed) needs the seat
+            # since users D3c, which `as` does not carry.
+            icon = (dbg.send("sh config get desktop.icon_size") or "").strip() or "medium"
+            out = dbg.as_user(f"config set desktop.icon_size {icon}")
             check("a person's setting is set by the desktop's account, no prompt",
                   "computer's setting" not in (out or "") and not dialog(dbg).get("message"), (out or "")[:120])
             config_round(dbg, start)

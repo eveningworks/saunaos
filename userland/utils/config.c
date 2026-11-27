@@ -705,6 +705,17 @@ static int cmd_reload(void) {
     return 0;
 }
 
+// What a sign-in does (users D3c): the kernel's person's settings from
+// the caller's ~/.config, applied for the session -- /bin/login runs it
+// as the account at a text terminal.
+static int cmd_session(void) {
+    int n = usetting_session_apply();
+    char line[64];
+    snprintf(line, sizeof line, "%d of your settings applied.", n);
+    putline(line);
+    return 0;
+}
+
 static int cmd_files(void) {
     struct setting_msg m;
     if (!op(&m, SETTING_OP_FILE_COUNT)) return 1;
@@ -945,6 +956,7 @@ static const struct uargs_cmd CMDS[] = {
     { "where",      "NAME",                    "just the file holding it" },
     { "diff",       0,                         "settings whose file differs from what is live" },
     { "reload",     0,                         "re-read the files after editing them by hand" },
+    { "session",    0,                         "apply your own pointer, keyboard and font settings" },
     { 0, 0, "Config files" },
     { "files",      0,                         "every known config file, and where it came from" },
     { "show",       "NAME|PATH",               "print one, verbatim" },
@@ -988,6 +1000,7 @@ int main(int argc, char **argv) {
     if (!strcmp(cmd, "list"))   return cmd_list();
     if (!strcmp(cmd, "diff"))   return cmd_diff();
     if (!strcmp(cmd, "reload")) return cmd_reload();
+    if (!strcmp(cmd, "session")) return cmd_session();
     if (!strcmp(cmd, "files"))  return cmd_files();
 
     if (!strcmp(cmd, "get")) {

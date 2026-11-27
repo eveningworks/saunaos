@@ -26,6 +26,7 @@
 #include "setting_abi.h"
 #include "config_file.h"
 #include "fs.h"
+#include "heap.h"     // a person's values, one entry each
 #include "win_role.h" // win_server_setting_changed() -- the push
 
 // Defined below, beside the three choice sources it asks about.
@@ -47,6 +48,42 @@ static uint32_t bump_generation(void) {
     ++g_generation;
     win_server_setting_changed(g_generation);
     return g_generation;
+}
+
+// --- a person's values (users D3c) --------------------------------------
+//
+// ONE SESSION AT A TIME, so one list: each setting a person's APPLY
+// changed, with the machine's value it replaced. Allocated per entry --
+// a person changes a handful of settings, and nothing bounds which.
+struct person_value {
+    const struct setting *s;
+    char machine[SETTING_VALUE_MAX];
+    struct person_value *next;
+};
+static struct person_value *g_person;
+
+static struct person_value *person_of(const struct setting *s) {
+    for (struct person_value *p = g_person; p; p = p->next)
+        if (p->s == s) return p;
+    return 0;
+}
+
+// Out of the list, and whether it was there. AN APPLY MAY SLEEP and hand
+// the kernel lock on, so an entry is unlinked BEFORE one and freed only by
+// whoever unlinked it -- two REVERTs never free one entry twice.
+static int person_unlink(struct person_value *p) {
+    for (struct person_value **q = &g_person; *q; q = &(*q)->next)
+        if (*q == p) { *q = p->next; return 1; }
+    return 0;
+}
+
+static void person_drop(struct person_value *p) {
+    if (person_unlink(p)) kfree(p);
+}
+
+static void person_link(struct person_value *p) {
+    p->next = g_person;
+    g_person = p;
 }
 
 int setting_register(const struct setting *s) {
@@ -116,6 +153,8 @@ int setting_unregister(const char *name) {
     if (!want) return 0;
     for (int i = 0; i < g_count; i++) {
         if (g_settings[i] != want) continue;
+        struct person_value *p = person_of(want);
+        if (p) person_drop(p);
         // Close the gap rather than leaving a hole: `setting_at()` is
         // indexed by row number, and a NULL in the middle would make a
         // UI's enumeration stop early at it.
@@ -426,8 +465,9 @@ static int choice_count(const struct setting *s) {
     return n;
 }
 
-enum setting_result setting_set(const char *name, const char *value) {
-    const struct setting *s = setting_find(name);
+// Whether `value` may be applied to `s` at all: SETTING_SAVED when it
+// may, SETTING_INVALID when not. Shared by a SET and a person's APPLY.
+static enum setting_result value_ok(const struct setting *s, const char *value) {
     if (!s || !value) return SETTING_INVALID;
     if (k_strlen(value) >= SETTING_VALUE_MAX) return SETTING_INVALID;
     // BEFORE anything is applied or written. The REGISTRY is the gate,
@@ -448,6 +488,100 @@ enum setting_result setting_set(const char *name, const char *value) {
     // worked only for the ones that remembered to.
     if (setting_has_choices(s) && !choice_valid(s, value))
         return SETTING_INVALID;
+    return SETTING_SAVED;
+}
+
+// `apply` without the write it makes: a setting's own apply persists as
+// it applies, so its key is held for this task (api/etc_config.h).
+static enum setting_result apply_unsaved(const struct setting *s, const char *value) {
+    if (!s->apply) return SETTING_INVALID;
+    struct etc_config_hold h;
+    etc_config_hold_begin(&h, s->file, s->name);
+    enum setting_result r = (enum setting_result)s->apply(value);
+    etc_config_hold_end(&h);
+    return r == SETTING_INVALID ? SETTING_INVALID : SETTING_SAVED;
+}
+
+enum setting_result setting_apply_person(const char *name, const char *value) {
+    const struct setting *s = setting_find(name);
+    if (!s || !value || s->who != SETTING_WHO_PERSON || !s->apply) return SETTING_INVALID;
+    struct person_value *p = person_of(s);
+    if (!value[0]) {   // the machine's back
+        if (!p || !person_unlink(p)) return SETTING_SAVED;
+        enum setting_result r = apply_unsaved(s, p->machine);
+        // A machine value its apply now refuses leaves the person's live,
+        // so it stays a person's: still REVERT's to try.
+        if (r == SETTING_INVALID && !person_of(s)) person_link(p);
+        else kfree(p);
+        bump_generation();
+        return r;
+    }
+    if (value_ok(s, value) == SETTING_INVALID) return SETTING_INVALID;
+    int fresh = !p;
+    char now[SETTING_VALUE_MAX];
+    now[0] = '\0';
+    s->get(now, sizeof now);
+    if (fresh) {
+        p = kmalloc(sizeof *p);
+        if (!p) return SETTING_INVALID;
+        p->s = s;
+        k_strlcpy(p->machine, now, sizeof p->machine);
+        person_link(p);
+    }
+    // Already so: kept as the person's, and nothing announced -- every
+    // watcher of the generation does real work when it moves (setting_set).
+    if (now[0] && !k_strcmp(now, value)) return SETTING_SAVED;
+    enum setting_result r = apply_unsaved(s, value);
+    if (r == SETTING_INVALID) {
+        if (fresh) person_drop(p);
+        return r;
+    }
+    bump_generation();
+    return r;
+}
+
+int setting_person_count(void) {
+    int n = 0;
+    for (struct person_value *p = g_person; p; p = p->next) n++;
+    return n;
+}
+
+int setting_revert_all(void) {
+    int n = 0;
+    struct person_value *p;
+    while ((p = g_person) != 0) {
+        g_person = p->next;   // unlinked before the apply sleeps
+        // A machine value its own apply now refuses (a face since
+        // removed) leaves the person's in place: still a working one.
+        apply_unsaved(p->s, p->machine);
+        kfree(p);
+        n++;
+    }
+    if (n) bump_generation();
+    return n;
+}
+
+enum setting_result setting_set(const char *name, const char *value) {
+    const struct setting *s = setting_find(name);
+    if (value_ok(s, value) == SETTING_INVALID) return SETTING_INVALID;
+
+    // A PERSON'S VALUE IS LIVE: this is the machine's default changing
+    // (root, or privd for an administrator), which the person at the
+    // machine does not see until their session ends. Windows' Default
+    // profile, edited while someone is signed in.
+    struct person_value *p = person_of(s);
+    if (p) {
+        if (!setting_persists(s)) return SETTING_INVALID;
+        char on_disk[SETTING_VALUE_MAX];
+        if (!k_strcmp(p->machine, value) &&
+            etc_config_get(s->file, s->name, on_disk, sizeof on_disk) && !k_strcmp(on_disk, value))
+            return SETTING_SAVED;   // already so: nothing written, nothing announced
+        k_strlcpy(p->machine, value, sizeof p->machine);
+        enum setting_result r = etc_config_set(s->file, s->name, value)
+                                    ? SETTING_SAVED : SETTING_UNSAVED;
+        bump_generation();
+        return r;
+    }
 
     // SETTING IT TO WHAT IT ALREADY IS COSTS NOTHING. Without this,
     // re-selecting the current value writes the file and bumps the
@@ -533,6 +667,14 @@ int settings_reload(void) {
         if (setting_unavailable(s)) continue;
         if (!etc_config_get(s->file, s->name, value, sizeof value)) continue;
         if (!value[0]) continue;
+        // A person's value stays live; the file is the machine's, and
+        // what a REVERT puts back.
+        struct person_value *p = person_of(s);
+        if (p) {
+            if (value_ok(s, value) == SETTING_INVALID) rejected++;
+            else k_strlcpy(p->machine, value, sizeof p->machine);
+            continue;
+        }
         if (s->apply(value) == SETTING_INVALID) rejected++;
     }
     // Re-read /etc/config.d too, so `config register` followed by
@@ -743,6 +885,22 @@ int setting_dispatch(struct setting_msg *msg) {
     case SETTING_OP_TOUCH:
         bump_generation();
         msg->generation = g_generation;
+        return 1;
+
+    case SETTING_OP_APPLY:
+        msg->name[sizeof msg->name - 1] = '\0';
+        msg->value[sizeof msg->value - 1] = '\0';
+        msg->result = (uint32_t)setting_apply_person(msg->name, msg->value);
+        msg->generation = g_generation;
+        return 1;
+
+    case SETTING_OP_REVERT:
+        msg->count = setting_revert_all();
+        msg->generation = g_generation;
+        return 1;
+
+    case SETTING_OP_PERSON_COUNT:
+        msg->count = setting_person_count();
         return 1;
 
     default:

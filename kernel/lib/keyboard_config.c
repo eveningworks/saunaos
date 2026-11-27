@@ -189,8 +189,11 @@ static int kb_apply(const char *value) {
     return SETTING_SAVED;
 }
 
+// THE SEAT'S: which layout the keyboard types in now, written nowhere,
+// switched by whoever is at it. The person's half is the LIST
+// (keyboard.layouts), whose first entry a sign-in starts with (users D3c).
 static const struct setting g_kb_setting = {
-    .who = SETTING_WHO_PERSON,
+    .who = SETTING_WHO_SEAT,
     .name   = KEYBOARD_CONFIG_KEY,
     .label  = "Active layout",
     .type   = SETTING_TYPE_ENUM,

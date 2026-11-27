@@ -216,8 +216,10 @@ static const char *scaling_unavailable(void) {
                ? 0 : "This display has no scaler -- every mode is shown at its own size";
 }
 
+// THE SEAT'S, as the resolution is: how the screen shows a mode, which
+// Windows keeps per display in the driver, not per person (users D3c).
 static const struct setting g_scaling_setting = {
-    .who = SETTING_WHO_PERSON,
+    .who = SETTING_WHO_SEAT,
     .name   = SCALING_KEY,
     .label  = "Scaling",
     .type   = SETTING_TYPE_ENUM,

@@ -65,6 +65,10 @@ from harness import Results, poll  # noqa: E402
 DEFAULT_SOCK = ".vm.serial"
 SETTINGS = "/bin/wm/system/settings"
 CONF = "/etc/saunaos.conf"
+# The kernel's PERSON settings (pointer speed): the desktop's account keeps
+# its own value here, applied for the session; /etc keeps the machine's
+# (users D3c).
+PERSON_CONF = "/home/user/.config/saunaos.conf"
 SETTINGS_CONF = "/home/user/.config/settings.conf"
 
 
@@ -1177,8 +1181,9 @@ def main():
     # --- SELECTING STAGES; APPLY WRITES -------------------------------
     #
     # The check that would catch a staged model that quietly still
-    # applied: /etc must be UNCHANGED after the click and CHANGED after
-    # Apply.
+    # applied: the stored value must be UNCHANGED after the click and
+    # CHANGED after Apply -- the person's file, since pointer speed is a
+    # person's (users D3c).
     # ESTABLISH the baseline rather than inherit it. The key may never
     # have been written, in which case stored_value() is None -- and
     # "None -> None" passes the unchanged check vacuously, which is
@@ -1189,7 +1194,7 @@ def main():
     mark = len(drain(dbg))
     open_row(mouse_row)
     page_slots = slots(dbg, mark)
-    before = stored_value(dbg, "mouse.speed")
+    before = stored_value(dbg, "mouse.speed", PERSON_CONF)
     # A NUMBER NOW, not a named level. mouse_speed became
     # SETTING_TYPE_INT -- a percentage with a registry-enforced range --
     # so the baseline is whatever digits are on disk, or None when the
@@ -1251,7 +1256,7 @@ def main():
 
     # THE LOAD-BEARING CHECK. Selecting must STAGE, not write. A staged
     # model that quietly still applied would look identical on screen.
-    mid = stored_value(dbg, "mouse.speed")
+    mid = stored_value(dbg, "mouse.speed", PERSON_CONF)
     check("selecting a choice does NOT write it yet",
           mid == before, f"{before!r} -> {mid!r} (should be unchanged)")
     check("...and the app staged it rather than applying it",
@@ -1262,7 +1267,7 @@ def main():
     press("apply")
     time.sleep(0.5)
     drain(dbg)
-    after = stored_value(dbg, "mouse.speed")
+    after = stored_value(dbg, "mouse.speed", PERSON_CONF)
     check("Apply writes the staged change",
           after is not None and after != before, f"{before!r} -> {after!r}")
     said = last(r"settings: set (\S+) (\S+) result (\d+)")
@@ -1875,7 +1880,7 @@ def main():
     open_row(mouse_row)
     speed_ctl = reveal("system.mouse.speed",
                         controls(dbg, mark).get("system.mouse.speed", speed_ctl))
-    on_disk = stored_value(dbg, "mouse.speed")
+    on_disk = stored_value(dbg, "mouse.speed", PERSON_CONF)
 
     def stage_down():
         """Step the speed DOWN -- a value different from what Apply left,
@@ -1896,7 +1901,7 @@ def main():
     drain(dbg)
     check("Reset discards the staged change and writes nothing",
           bool(_since(mark, r"settings: reset$")) and
-          stored_value(dbg, "mouse.speed") == on_disk,
+          stored_value(dbg, "mouse.speed", PERSON_CONF) == on_disk,
           f"{on_disk!r} still on disk, staged was {staged_down!r}")
 
     # LEAVING A PAGE WITH A CHANGE ASKS, and Discard goes on without
@@ -1920,9 +1925,9 @@ def main():
         click(x + w // 2, y + h // 2)
         went = wait_page(dbg, mark, "Date & time")
         check("Discard goes on to the page asked for, writing nothing",
-              went is not None and stored_value(dbg, "mouse.speed") == on_disk,
+              went is not None and stored_value(dbg, "mouse.speed", PERSON_CONF) == on_disk,
               f"page {went and went['page']!r}, on disk "
-              f"{stored_value(dbg, 'mouse.speed')!r} (was {on_disk!r})")
+              f"{stored_value(dbg, 'mouse.speed', PERSON_CONF)!r} (was {on_disk!r})")
 
     # --- THE SEARCH BOX FILTERS THE SIDEBAR -----------------------------
     #

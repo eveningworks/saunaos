@@ -29,6 +29,12 @@ WHAT IT CHECKS (users D2b, docs/users-design.md)
     last frame ("handed over") and never gives it to the console between;
     the password field's eye is drawn once something is typed, and a click
     shows the letters and a second the stars again.
+  * (users D3c) the person's own font size and pointer speed (in
+    ~/.config/saunaos.conf) and scale (~/.config/desktop.conf): the login
+    screen has the MACHINE's -- the kernel's values, fontd running as
+    `greeter` at the machine's scale -- and signing in applies the
+    person's -- fontd restarted as `user`, at 125%; signing out with them
+    live puts the machine's back.
 
 What a broken version would still pass, and what stops it: a greeter
 that let any password in passes the sign-in, so a wrong one must be
@@ -39,7 +45,10 @@ desktop is back", so the login screen must be seen in between, with
 
 It puts the machine back: no password, automatic sign-in on.
 
-POSITIVE CONTROL: make privd's pass_check() always 1 -- "a wrong password
+POSITIVE CONTROL: drop toywm.c's usetting_session_apply() -- "signing in
+applies the person's" goes red; drop init's settings_revert() from
+session_end() -- "signing out puts the machine's back" goes red.
+make privd's pass_check() always 1 -- "a wrong password
 is refused" goes red. Drop leave_page.c's wm_compositor_handover(1) --
 "a sign-out hands the screen over" goes red; drop the "loginlayout" row
 from wm_overlay.c -- "the list draws over the login screen" goes red.
@@ -276,6 +285,53 @@ def set_password(dbg):
     return True
 
 
+# --- users D3c: the person's settings at sign-in --------------------------
+
+D3C_KEYS = ("system.font.size", "system.mouse.speed")
+
+
+def kernel_values(dbg):
+    return {k: (dbg.send(f"sh config get {k}") or "").strip() for k in D3C_KEYS}
+
+
+def fontd_user(dbg):
+    """The account fontd runs as, from `ps --user`, or None."""
+    for ln in (dbg.send("sh ps --user") or "").splitlines():
+        if re.search(r"\bfontd\b", ln):
+            m = re.search(r"\b(user|greeter|root)\b", ln)
+            return m.group(1) if m else None
+    return None
+
+
+def fontd_scale(dbg):
+    m = re.search(r"at (\d+)%", dbg.send("diag font") or "")
+    return int(m.group(1)) if m else None
+
+
+def person_settings(dbg, machine):
+    """The person's own values, written into their files as the account."""
+    want = {"system.font.size": str(int(machine["system.font.size"] or 16) + 2),
+            "system.mouse.speed": "40" if machine["system.mouse.speed"] != "40" else "60"}
+    dbg.send("as user mkdir -p $HOME/.config")
+    dbg.send("as user printf 'font.size=%s\\nmouse.speed=%s\\n' > $HOME/.config/saunaos.conf"
+             % (want["system.font.size"], want["system.mouse.speed"]))
+    got = dbg.send("as user cat $HOME/.config/saunaos.conf") or ""
+    check("the person's own values are in ~/.config/saunaos.conf",
+          f"font.size={want['system.font.size']}" in got, got[-120:])
+    return want
+
+
+def person_scale(dbg):
+    """The person's display scale -- live the moment it is written in a
+    session (Scope=user), so written while the login screen is up."""
+    dbg.send("as user printf 'scale=125\\n' >> $HOME/.config/desktop.conf")   # a key is its bare name
+
+
+def person_cleanup(dbg):
+    dbg.send("as user rm -f $HOME/.config/saunaos.conf")
+    dbg.send("sh config unset display.scale")   # the person's, as `as user config`
+
+
 def sign_out(dbg):
     dbg.send("gui leave show signout")
     j = dbg.json("gui leave --json") or {}
@@ -310,8 +366,17 @@ def main():
     dbg.settle()
     layouts = (dbg.send("sh config get system.keyboard.layouts") or "").strip()
     active = (dbg.send("sh config get system.keyboard.layout") or "").strip()
+    machine = kernel_values(dbg)
     try:
+        want = person_settings(dbg, machine)
         if set_password(dbg) and sign_out(dbg):
+            got = kernel_values(dbg)
+            check("the login screen has the machine's font size and pointer speed (users D3c)",
+                  got == machine, f"{got} vs the machine's {machine}")
+            fu = poll(lambda: fontd_user(dbg) == "greeter" or None, 20, 0.5)
+            check("...fontd runs as greeter for it", bool(fu), str(fontd_user(dbg)))
+            check("...at the machine's scale", fontd_scale(dbg) == 100, str(fontd_scale(dbg)))
+            person_scale(dbg)
             ho, cr = compositor_log(dbg)
             check("a sign-out hands the screen over: the frame held, no console between", ho >= 1 and cr == 0,
                   f"handed over {ho}, console restored {cr}")
@@ -381,6 +446,13 @@ def main():
             sh = poll(lambda: [ln for ln in (dbg.send("sh ps --user") or "").splitlines()
                                if re.search(r"\btosh\b", ln) and re.search(r"\buser\b", ln)], 20, 0.5)
             check("...and the console shell is back, as user", bool(sh), str(sh)[:120])
+            got = poll(lambda: (lambda v: v if v == want else None)(kernel_values(dbg)), 20, 0.5)
+            check("signing in applies the person's font size and pointer speed (users D3c)", bool(got),
+                  f"{kernel_values(dbg)} vs theirs {want}")
+            fu = poll(lambda: fontd_user(dbg) == "user" or None, 20, 0.5)
+            check("...fontd restarted as user", bool(fu), str(fontd_user(dbg)))
+            sc = poll(lambda: fontd_scale(dbg) == 125 or None, 20, 0.5)
+            check("...at the person's own scale, 125%", bool(sc), str(fontd_scale(dbg)))
 
             # --- the lock screen (users D2c): Super+L, then the password ---
             dbg.key("0x6c", mods="super")
@@ -410,7 +482,30 @@ def main():
             sh = poll(lambda: [ln for ln in (dbg.send("sh ps --user") or "").splitlines()
                                if re.search(r"\btosh\b", ln) and re.search(r"\buser\b", ln)] or None, 20, 0.5)
             check("...and the console shell is user's again once unlocked", bool(sh), str(sh)[:120])
+
+            # --- users D3c: a sign-out with the person's values LIVE --------
+            # The first sign-out above came before anything applied them, so
+            # it showed the machine's whatever init did; this one needs REVERT.
+            if got and sign_out(dbg):
+                back = kernel_values(dbg)
+                check("signing out puts the machine's back for the login screen", back == machine,
+                      f"{back} vs the machine's {machine}")
+                fu = poll(lambda: fontd_user(dbg) == "greeter" or None, 20, 0.5)
+                sc = poll(lambda: fontd_scale(dbg) == 100 or None, 20, 0.5)
+                check("...fontd as greeter again, at the machine's scale", bool(fu) and bool(sc),
+                      f"{fontd_user(dbg)} at {fontd_scale(dbg)}")
+                # Gone BEFORE the sign-in that ends the test, so its session
+                # applies nothing of the person's and leaves the machine's live.
+                person_cleanup(dbg)
+                type_text(dbg, PW)
+                dbg.key("0x0a")
+                poll(lambda: (lambda s: s if s and not s.get("open") and not s.get("greeter") else None)(
+                    login_state(dbg)), 60, 0.5)
+                end = kernel_values(dbg)
+                check("...and a sign-in with no values of the person's keeps the machine's", end == machine,
+                      f"{end} vs the machine's {machine}")
     finally:
+        person_cleanup(dbg)
         dbg.send("sh passwd -d user")
         dbg.send("sh config set --machine login.autologin user")
         if layouts:

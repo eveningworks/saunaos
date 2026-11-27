@@ -14,6 +14,8 @@
 #include "base/usetting.h"
 #include "rt/sys.h"
 #include "cred_abi.h"
+#include "setting_abi.h"
+#include "syscall_abi.h"   // SPAWN_FD_LOG
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,13 +41,58 @@ static const struct uargs_prog PROG = {
     0, 0, 0, 0,
 };
 
+// THE ACCOUNT'S POINTER, KEYBOARD AND FONTS for a text session at the
+// machine (users D3c): `config session` run AS the account, which reads
+// its ~/.config -- this process is root, and root reads no person's file.
+static int settings_held(void) {
+    struct setting_msg m;
+    memset(&m, 0, sizeof m);
+    m.op = SETTING_OP_PERSON_COUNT;
+    return sys_setting(&m) == 0 && m.count > 0;
+}
+
+static void apply_settings(const char *acct) {
+    struct sys_spawn_opts o;
+    sys_spawn_opts_init(&o);
+    struct ulogin_creds c;
+    if (ulogin_creds(acct, CRED_SEAT, &o, &c) < 0) return;
+    char *argv[] = { "/bin/config", "session", 0 };
+    o.argv = argv;
+    o.flags |= SPAWN_ARGV;
+    o.stdout_fd = SPAWN_FD_LOG;
+    int pid = sys_spawn_opts(argv[0], &o);
+    ulogin_creds_release(&c);
+    int code;
+    if (pid > 0) sys_waitpid(pid, &code);
+}
+
+// ...and the machine's back when the shell is gone. ONE KEYBOARD: the
+// first sign-in at the machine sets it, as Linux's console has one keymap.
+static void revert_settings(void) {
+    struct setting_msg m;
+    memset(&m, 0, sizeof m);
+    m.op = SETTING_OP_REVERT;
+    sys_setting(&m);
+}
+
 // The account's shell on this terminal, as the account; its exit code.
+// A session's values already live -- the desktop's, locked, or another
+// text sign-in's -- are left as they are, and not reverted after; this
+// sign-in reverts only what it applied. A desktop with no values of its
+// own looks like none, so a VT sign-in behind its lock applies its own
+// until it signs out (one keyboard, as above).
 static int run_shell(const char *acct) {
+    int mine = 0;
+    if (f_seat && !settings_held()) {
+        apply_settings(acct);
+        mine = settings_held();
+    }
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
     struct ulogin_creds c;
     if (ulogin_creds(acct, f_seat ? CRED_SEAT : 0, &o, &c) < 0) {
         fprintf(stderr, "login: %s cannot sign in here\n", acct);
+        if (mine) revert_settings();
         return 1;
     }
     // Its own group, made the terminal's FOREGROUND one, so Ctrl-C reaches
@@ -60,11 +107,13 @@ static int run_shell(const char *acct) {
     ulogin_creds_release(&c);
     if (pid < 0) {
         fprintf(stderr, "login: cannot start %s's shell\n", acct);
+        if (mine) revert_settings();
         return 1;
     }
     sys_tcsetpgrp(0, pid);
     int code = 1;
     sys_waitpid(pid, &code);
+    if (mine) revert_settings();
     return code;
 }
 

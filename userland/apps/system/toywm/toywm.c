@@ -5,6 +5,7 @@
 #include "rt/sys.h"
 #include "apps/system/toywm/wm.h"
 #include "base/ubootcfg.h"   // ubootcfg_cmdline(), ubootcfg_onoff_in()
+#include "base/usetting.h"   // usetting_session_apply()
 #include "ui/ugfx.h"        // ugfx_simd_set()
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,10 @@ int main(int argc, char **argv) {
         setenv("UGFX_SIMD", "off", 1);
         ugfx_simd_set("off");
     }
+    // THE PERSON'S POINTER, KEYBOARD AND FONTS (users D3c): the kernel holds
+    // the machine's until the session's compositor applies theirs, as
+    // Windows applies HKCU's at logon; init puts the machine's back after.
+    if (!wm_greeter) usetting_session_apply();
     // wm_run() owns the whole desktop lifetime and returns only when the
     // session ends; the kernel restores the console when it sees the
     // compositor deregister (R7).

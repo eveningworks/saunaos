@@ -337,6 +337,18 @@ int setting_get(const char *name, char *out, uint32_t out_size);
 // survive a reboot.
 enum setting_result setting_set(const char *name, const char *value);
 
+// A PERSON's setting for this session (abi/setting_abi.h's
+// SETTING_OP_APPLY): applied, written nowhere, the machine's value kept
+// for setting_revert_all(). An empty `value` puts the machine's back.
+// While a setting holds a person's value, setting_set() writes the
+// MACHINE's -- the file and the kept value -- and leaves the live one.
+enum setting_result setting_apply_person(const char *name, const char *value);
+// The machine's value back on every setting setting_apply_person()
+// changed; returns how many.
+int setting_revert_all(void);
+// How many settings hold a person's value now.
+int setting_person_count(void);
+
 // Bumped on every SET that applied. A process holding cached settings
 // polls this to learn it needs to re-read them -- one integer compare,
 // no I/O, the same trick `fs_generation()` uses for the desktop's live

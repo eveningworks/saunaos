@@ -111,6 +111,7 @@ static void scratch_begin(void) {
     g_scratch_applies = 1;
     g_scratch_apply_calls = 0;
     g_scratch_unavailable = 0;
+    g_scratch.who = SETTING_WHO_MACHINE;
     // BOTH descriptors, here, because two tests register g_scratch2 and
     // a NULL .file makes the registry's duplicate check compare two
     // NULLs equal -- which reads as "the same file" and refuses a
@@ -125,6 +126,7 @@ static void scratch_begin(void) {
 
 static void scratch_end(void) {
     g_scratch_unavailable = 0;
+    setting_apply_person(SCRATCH_NAME, "");   // a person's value it was left with
     setting_unregister(SCRATCH_NAME);
     fs_delete(SCRATCH_FILE);
 }
@@ -807,4 +809,96 @@ KTEST("setting", "an over-long label is refused, not truncated") {
     int before = setting_count();
     setting_register(&too_long);
     KTEST_ASSERT_EQ(setting_count(), before);
+}
+
+// --- a person's values (users D3c) ------------------------------------
+
+static int scratch_is(const char *want) {
+    char v[SETTING_VALUE_MAX];
+    return setting_get(SCRATCH_NAME, v, sizeof v) && !k_strcmp(v, want);
+}
+
+static int scratch_file_is(const char *want) {
+    char v[SETTING_VALUE_MAX];
+    return etc_config_get(SCRATCH_FILE, SCRATCH_NAME, v, sizeof v) && !k_strcmp(v, want);
+}
+
+KTEST("setting", "a person's APPLY takes effect and writes nothing; empty puts the machine's back") {
+    // The scratch's apply persists as it applies, as the real ones do, so
+    // a hold that failed would show in the file.
+    scratch_begin();
+    g_scratch.who = SETTING_WHO_PERSON;
+    KTEST_ASSERT_EQ(setting_set(SCRATCH_NAME, "green"), SETTING_SAVED);
+    KTEST_ASSERT_EQ(setting_apply_person(SCRATCH_NAME, "white"), SETTING_SAVED);
+    KTEST_ASSERT(scratch_is("white"));
+    KTEST_ASSERT(scratch_file_is("green"));
+    // A second APPLY keeps the FIRST machine value, not the person's.
+    KTEST_ASSERT_EQ(setting_apply_person(SCRATCH_NAME, "amber"), SETTING_SAVED);
+    KTEST_ASSERT_EQ(setting_apply_person(SCRATCH_NAME, ""), SETTING_SAVED);
+    KTEST_ASSERT(scratch_is("green"));
+    KTEST_ASSERT(scratch_file_is("green"));
+    scratch_end();
+}
+
+KTEST("setting", "APPLY refuses a setting that is not a person's, and a bad value changes nothing") {
+    scratch_begin();
+    KTEST_ASSERT_EQ(setting_apply_person(SCRATCH_NAME, "white"), SETTING_INVALID);
+    KTEST_ASSERT(scratch_is("amber"));
+    g_scratch.who = SETTING_WHO_PERSON;
+    KTEST_ASSERT_EQ(setting_apply_person(SCRATCH_NAME, "purple"), SETTING_INVALID);
+    KTEST_ASSERT(scratch_is("amber"));
+    // A refused first APPLY leaves no machine value behind to revert to.
+    int before = setting_person_count();
+    g_scratch_applies = 0;
+    KTEST_ASSERT_EQ(setting_apply_person(SCRATCH_NAME, "white"), SETTING_INVALID);
+    KTEST_ASSERT_EQ(setting_person_count(), before);
+    scratch_end();
+}
+
+KTEST("setting", "a SET while a person's value is live writes the machine's and leaves the live one") {
+    scratch_begin();
+    g_scratch.who = SETTING_WHO_PERSON;
+    KTEST_ASSERT_EQ(setting_set(SCRATCH_NAME, "green"), SETTING_SAVED);
+    KTEST_ASSERT_EQ(setting_apply_person(SCRATCH_NAME, "white"), SETTING_SAVED);
+    KTEST_ASSERT_EQ(setting_set(SCRATCH_NAME, "amber"), SETTING_SAVED);
+    KTEST_ASSERT(scratch_is("white"));
+    KTEST_ASSERT(scratch_file_is("amber"));
+    // ...and a reload keeps the person's live too, the file still the machine's.
+    KTEST_ASSERT_EQ(etc_config_set(SCRATCH_FILE, SCRATCH_NAME, "green"), 1);
+    settings_reload();
+    KTEST_ASSERT(scratch_is("white"));
+    KTEST_ASSERT_EQ(setting_apply_person(SCRATCH_NAME, ""), SETTING_SAVED);
+    KTEST_ASSERT(scratch_is("green"));
+    scratch_end();
+}
+
+KTEST("setting", "REVERT puts the machine's value back on every person's setting") {
+    // REVERT is the whole machine's: run only where the scratch is the one
+    // person's value, so a `ktest` typed inside a session reverts nothing real.
+    if (setting_person_count() != 0) return;
+    scratch_begin();
+    g_scratch.who = SETTING_WHO_PERSON;
+    KTEST_ASSERT_EQ(setting_apply_person(SCRATCH_NAME, "white"), SETTING_SAVED);
+    KTEST_ASSERT_EQ(setting_person_count(), 1);
+    KTEST_ASSERT_EQ(setting_revert_all(), 1);
+    KTEST_ASSERT(scratch_is("amber"));
+    KTEST_ASSERT_EQ(setting_person_count(), 0);
+    KTEST_ASSERT_EQ(setting_revert_all(), 0);
+    scratch_end();
+}
+
+KTEST("setting", "a hold keeps back its own key's write alone") {
+    scratch_begin();
+    KTEST_ASSERT_EQ(etc_config_set(SCRATCH_FILE, "other", "1"), 1);
+    struct etc_config_hold h;
+    etc_config_hold_begin(&h, SCRATCH_FILE, SCRATCH_NAME);
+    KTEST_ASSERT_EQ(etc_config_set(SCRATCH_FILE, SCRATCH_NAME, "white"), 1);
+    KTEST_ASSERT_EQ(etc_config_set(SCRATCH_FILE, "other", "2"), 1);
+    etc_config_hold_end(&h);
+    char v[SETTING_VALUE_MAX];
+    KTEST_ASSERT_EQ(etc_config_get(SCRATCH_FILE, SCRATCH_NAME, v, sizeof v), 0);
+    KTEST_ASSERT(etc_config_get(SCRATCH_FILE, "other", v, sizeof v) && !k_strcmp(v, "2"));
+    KTEST_ASSERT_EQ(etc_config_set(SCRATCH_FILE, SCRATCH_NAME, "white"), 1);
+    KTEST_ASSERT(scratch_file_is("white"));
+    scratch_end();
 }

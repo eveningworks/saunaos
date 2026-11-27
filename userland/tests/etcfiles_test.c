@@ -5,8 +5,10 @@
 // administrator -- and this checks each as the account (1000) would:
 //
 //   * a write of its own into /etc or /var/lib is EACCES;
-//   * display.scale (Scope=seat) set at the seat is SAVED, through privd,
-//     with no prompt -- and refused without the seat;
+//   * a Scope=seat setting set at the seat is SAVED, through privd, with no
+//     prompt -- and refused without the seat. No shipped setting is the
+//     seat's since display.scale became a person's (users D3c), so the
+//     test declares its own;
 //   * a program's volume and a sound card's format, through privd's seat
 //     actions, land in root's files -- and a bad argument is refused;
 //   * a theme saved lands in ~/.local/share/themes, the person's;
@@ -50,7 +52,11 @@
 #define CARD   "etcfiles-test-card"
 #define STEM   "etcfiles-test"
 #define SHARE  "etcfiles-test"
-#define SEAT_SETTING "display.scale"
+// A seat's setting of the test's own, declared in /etc/settings.d for the
+// run and stored in a file of its own.
+#define SEAT_SETTING "usertest.seat_probe"
+#define SEAT_DECL    "/etc/settings.d/" SEAT_SETTING
+#define SEAT_FILE    "/etc/usertest_seat.conf"
 
 static const uint32_t GROUPS[] = { 1000, 10 };
 static char *ENV[] = { "HOME=" HOME, "USER=user", "XDG_CONFIG_HOME=" HOME "/.config",
@@ -121,12 +127,10 @@ static int append_refused(const char *path) {
     return errno == EACCES;
 }
 
-// The seat's display.scale, set to what it is: privd's write, SAVED.
+// The seat's setting, set to `b` (its default is `a`): privd's write, SAVED.
 static int seat_set(void) {
-    char now[SETTING_ABI_VALUE_MAX];
-    if (!usetting_get(SEAT_SETTING, now, sizeof now)) return -2;
     errno = 0;
-    return usetting_set(SEAT_SETTING, now);
+    return usetting_set(SEAT_SETTING, "b");
 }
 
 // The person at the machine.
@@ -196,6 +200,13 @@ int main(int argc, char **argv) {
     utest_check(stat("/var/lib", &st) == 0 && st.st_uid == 0 && (st.st_mode & 07777) == 0755,
                 "/var/lib is root's, 0755");
 
+    FILE *f = fopen(SEAT_DECL, "w");
+    if (f) {
+        fputs("Type=string\nFile=" SEAT_FILE "\nScope=seat\nLabel=Seat probe\n"
+              "Category=System\nDefault=a\n", f);
+        fclose(f);
+    }
+    utest_check(f != NULL, "a seat's setting declared for the run");
     int code = self_as("--seat", CRED_SEAT);
     utest_checkf(code == 0, "1000 at the seat: /etc refused, the seat's writes through privd, "
                  "its own things at home (%d)", code);
@@ -203,6 +214,9 @@ int main(int argc, char **argv) {
     utest_checkf(code == 0, "1000 away from the seat: the seat's rights refused (%d)", code);
 
     char v[16];
+    utest_check(uconf_get(SEAT_FILE, "seat_probe", v, sizeof v) && !strcmp(v, "b") &&
+                stat(SEAT_FILE, &st) == 0 && st.st_uid == 0,
+                "privd wrote the seat's setting into its root-owned /etc file");
     utest_check(uconf_get(SND_CONFIG_FILE, APP, v, sizeof v) && !strcmp(v, "37"),
                 "privd wrote the program's volume into /etc/sound.conf");
     utest_check(uconf_get_in(SND_CARDS_FILE, CARD, "rate", v, sizeof v) && !strcmp(v, "44100"),
@@ -237,5 +251,7 @@ int main(int argc, char **argv) {
     unlink(theme);
     unlink(share);
     unlink("/etc/config.d/etcfilestest.conf");
+    unlink(SEAT_DECL);
+    unlink(SEAT_FILE);
     return utest_end();
 }

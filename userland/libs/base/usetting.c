@@ -335,6 +335,61 @@ static int seat_write(struct setting_msg *m, const char *value) {
     return 0;
 }
 
+// --- a person's kernel settings (users D3c) ----------------------------
+//
+// A kernel setting marked a person's, written by a process WITH a person's
+// layer (base/uconf.h: not root, XDG_CONFIG_HOME set), is APPLIED for the
+// session and kept in the person's `~/.config/<file>` -- never /etc, whose
+// value is the machine's and root's (SETTING_OP_APPLY, abi/setting_abi.h).
+
+// 1 with `info` and `path` filled when `name` is one, 0 when it is not (or
+// there is no person's layer), -1 when the person's file is out of reach.
+static int person_kernel(const char *name, struct setting_msg *info, char *path, size_t cap) {
+    // No person's layer at all (root, a service): no INFO walk for it.
+    if (uconf_user_path("/etc/any.conf", path, (uint32_t)cap) == 0) return 0;
+    if (usetting_info(name, info) != 0 || !(info->sflags & SETTING_ABI_SF_PERSON)) return 0;
+    int rc = uconf_user_path(info->file, path, (uint32_t)cap);
+    if (rc < 0) errno = ENAMETOOLONG;
+    return rc;
+}
+
+// Off the stack: a path and two messages pass the 2 KiB frame budget.
+struct person_scratch {
+    struct setting_msg info, a;
+    char path[UCONF_USER_PATH_MAX];
+};
+
+// The person's SET (`value`) or UNSET (NULL) of a kernel setting. 1 when
+// `m` names no such setting -- the kernel answers it -- else the dispatch
+// return, with `result` filled.
+static int person_write(struct setting_msg *m, const char *value) {
+    struct person_scratch *w = malloc(sizeof *w);
+    if (!w) { errno = ENOMEM; return -1; }
+    int rc = person_kernel(m->name, &w->info, w->path, sizeof w->path);
+    if (rc <= 0) { free(w); return rc == 0 ? 1 : -1; }
+    struct setting_msg *a = &w->a;
+    memset(a, 0, sizeof *a);
+    a->op = SETTING_OP_APPLY;
+    strlcpy(a->name, m->name, sizeof a->name);
+    if (value) strlcpy(a->value, value, sizeof a->value);
+    if (sys_setting(a) != 0) { free(w); return -1; }   // EACCES: not at the seat
+    m->generation = a->generation;
+    if (a->result == SETTING_INVALID) {
+        m->result = SETTING_INVALID;
+    } else if (!value) {
+        // As the kernel's UNSET answers: SAVED if the key was there.
+        if (!uconf_get(w->path, w->info.name, a->value, sizeof a->value)) m->result = SETTING_INVALID;
+        else m->result = uconf_unset(w->path, w->info.name) ? SETTING_SAVED : SETTING_UNSAVED;
+    } else if (uconf_get(w->path, w->info.name, a->value, sizeof a->value) && !strcmp(a->value, value)) {
+        m->result = SETTING_SAVED;   // already theirs: no write per slider step
+    } else {
+        uconf_user_dir_ensure();
+        m->result = uconf_set(w->path, w->info.name, value) ? SETTING_SAVED : SETTING_UNSAVED;
+    }
+    free(w);
+    return 0;
+}
+
 int usetting_dispatch(struct setting_msg *m) {
     if (!m) return -1;
 
@@ -398,7 +453,10 @@ int usetting_dispatch(struct setting_msg *m) {
         struct uschema s;
         uint32_t gen = 0;
         switch (resolve(m->name, &s, &gen)) {
-        case OWNER_KERNEL: return sys_setting(m);
+        case OWNER_KERNEL: {
+            int rc = person_write(m, m->value);
+            return rc == 1 ? sys_setting(m) : rc;
+        }
         case OWNER_SCHEMA: {
             if (!may_write(&s)) { errno = EACCES; return -1; }
             // ANNOUNCED ONLY IF SOMETHING CHANGED. A refused value
@@ -438,7 +496,10 @@ int usetting_dispatch(struct setting_msg *m) {
         struct uschema s;
         uint32_t gen = 0;
         switch (resolve(m->name, &s, &gen)) {
-        case OWNER_KERNEL: return sys_setting(m);
+        case OWNER_KERNEL: {
+            int rc = person_write(m, NULL);
+            return rc == 1 ? sys_setting(m) : rc;
+        }
         case OWNER_SCHEMA:
             if (!may_write(&s)) { errno = EACCES; return -1; }
             if (seat_via_privd(&s)) return seat_write(m, NULL);
@@ -794,4 +855,44 @@ out:;
     free(args);
     errno = e;
     return rc;
+}
+
+// --- a sign-in (users D3c) ---------------------------------------------
+
+#define LAYOUTS_NAME "keyboard.layouts"
+#define ACTIVE_LAYOUT "system.keyboard.layout"
+
+int usetting_session_apply(void) {
+    uint32_t gen = 0;
+    int kcount = kernel_count(&gen), n = 0;
+    char first[SETTING_ABI_VALUE_MAX] = "";
+    struct person_scratch *w = malloc(sizeof *w);
+    if (!w) return 0;
+    struct setting_msg *m = &w->info, *a = &w->a;
+    for (int i = 0; i < kcount; i++) {
+        memset(m, 0, sizeof *m);
+        m->op = SETTING_OP_INFO;
+        m->index = (uint32_t)i;
+        if (sys_setting(m) != 0 || !(m->sflags & SETTING_ABI_SF_PERSON)) continue;
+        if (uconf_user_path(m->file, w->path, sizeof w->path) != 1) continue;
+        memset(a, 0, sizeof *a);
+        if (!uconf_get(w->path, m->name, a->value, sizeof a->value) || !a->value[0]) continue;
+        a->op = SETTING_OP_APPLY;
+        snprintf(a->name, sizeof a->name, "%s.%s", m->ns, m->name);
+        if (sys_setting(a) != 0 || a->result == SETTING_INVALID) {
+            fprintf(stderr, "settings: your %s (%s) was refused -- the machine's stays\n",
+                    a->name, a->value);
+            continue;
+        }
+        n++;
+        if (!strcmp(m->ns, "system") && !strcmp(m->name, LAYOUTS_NAME)) {
+            size_t len = strcspn(a->value, ",");
+            if (len < sizeof first) { memcpy(first, a->value, len); first[len] = '\0'; }
+        }
+    }
+    free(w);
+    // A sign-in types in the person's FIRST layout, as Windows starts with
+    // the default input language; the active one is the seat's, unwritten.
+    if (first[0]) usetting_set(ACTIVE_LAYOUT, first);
+    return n;
 }

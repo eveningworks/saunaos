@@ -676,6 +676,11 @@ int sys_setting(struct setting_msg *m) {
         m->type = SETTING_ABI_TYPE_STRING;
         strlcpy(m->value, s->value, sizeof m->value);
         return 0;
+    case SETTING_OP_REVERT:
+    case SETTING_OP_PERSON_COUNT:
+        m->count = 0;   // one value per setting here: nothing to put back
+        return 0;
+    case SETTING_OP_APPLY:   // a person's value (users D3c): as a SET, here
     case SETTING_OP_SET:
         while (s && strcmp(s->name, m->name)) s = s->next;
         if (!s) { g_errno = 2; return -1; }

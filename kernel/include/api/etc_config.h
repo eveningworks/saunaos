@@ -291,6 +291,22 @@ int etc_config_set_in(const char *path, const char *section,
                       const char *key, const char *value);
 int etc_config_unset_in(const char *path, const char *section, const char *key);
 
+// HOLDING BACK ONE KEY'S WRITE, for the calling task alone (users D3c).
+// While a hold is on, a set or unset of `key` at `path` (top level) made
+// BY THE TASK THAT TOOK IT reports success and writes nothing -- how the
+// registry applies a person's value through a setting's own `apply`,
+// which persists as it applies, without the value reaching /etc. Every
+// other task's write goes through: an apply may sleep, and another
+// task's change made meanwhile is a real one. `h` is the caller's, on
+// its stack, linked until _end(); holds nest.
+struct etc_config_hold {
+    int pid;
+    const char *path, *key;
+    struct etc_config_hold *next;
+};
+void etc_config_hold_begin(struct etc_config_hold *h, const char *path, const char *key);
+void etc_config_hold_end(struct etc_config_hold *h);
+
 // `enum setting_result` -- what a "change a setting and persist it"
 // call actually managed to do -- now lives in abi/setting_abi.h, which
 // this header includes, so every existing `#include "etc_config.h"`
