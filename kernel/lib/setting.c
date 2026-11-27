@@ -332,8 +332,12 @@ const char *setting_unavailable(const struct setting *s) {
 // desktop reload cost 54 of them (api/etc_config.h). The cache is keyed
 // on the path AND the filesystem generation, so an edit is picked up
 // without anything having to remember to invalidate.
-#define CHOICE_FILE_MAX 8192
-static char cf_buf[CHOICE_FILE_MAX];
+//
+// THE BUFFER IS SIZED TO THE FILE, and kept for the next file: a list is
+// never too long to read, only too big for the heap. A fixed buffer
+// refused a large file, which left the setting with no choices at all.
+static char *cf_buf;
+static uint32_t cf_cap;            // bytes cf_buf holds, the NUL included
 static uint32_t cf_len;
 static const char *cf_path;       // compared by POINTER: every caller
 static uint64_t cf_gen;           // passes a string literal from a
@@ -345,10 +349,26 @@ static int choice_file_load(const char *path) {
     cf_valid = 0;
     cf_path = path;
     cf_gen = gen;
-    // fs_read_into() REFUSES a file larger than the buffer rather than
-    // truncating it, which is the answer we want: half a city list is a
-    // list that is silently missing cities.
-    uint32_t n = fs_read_into(path, cf_buf, sizeof cf_buf - 1);
+    uint64_t size = fs_size(path);
+    if (!size || size >= 0xFFFFFFFFull) return 0;
+    if (size + 1 > cf_cap) {
+        char *b = kmalloc((size_t)size + 1);
+        if (!b) {
+            static int warned;   // a dropdown asks once per row
+            if (!warned++)
+                klog_printf(KLOG_WARN "setting: no memory for the %u-byte choice list %s\n",
+                            (unsigned)size, path);
+            return 0;
+        }
+        kfree(cf_buf);
+        cf_buf = b;
+        cf_cap = (uint32_t)size + 1;
+    }
+    // fs_read_into() REFUSES a file that grew past the buffer since
+    // fs_size() rather than truncating it: half a city list is a list
+    // that is silently missing cities. The next call sizes it again.
+    // `cf_cap` counts the NUL, as fs_read_into() wants.
+    uint32_t n = fs_read_into(path, cf_buf, cf_cap);
     if (!n) return 0;
     cf_buf[n] = '\0';
     cf_len = n;

@@ -902,3 +902,74 @@ KTEST("setting", "a hold keeps back its own key's write alone") {
     KTEST_ASSERT(scratch_file_is("white"));
     scratch_end();
 }
+
+// --- a choice list that is a FILE, larger than any fixed buffer ------
+
+static const char *cf_file_path(void) {
+    static char p[FS_PATH_MAX];
+    if (!p[0]) tmppath(p, sizeof p, TMP_PERSISTENT, "ktest_choices.txt");
+    return p;
+}
+
+static void cf_get(char *out, uint32_t out_size) { k_strlcpy(out, "c000", out_size); }
+static int cf_apply(const char *value) { (void)value; return SETTING_INVALID; }
+
+static struct setting g_cf = {
+    .name   = "ktest_cf",
+    .label  = "Scratch choice file",
+    .type   = SETTING_TYPE_ENUM,
+    .get    = cf_get,
+    .apply  = cf_apply,
+};
+
+// The list is read whole into a buffer sized to the file: 800 lines is
+// ~13 KB, past the 8 KiB a fixed buffer held, which refused the file and
+// left the setting with no choices at all.
+KTEST("setting", "a choice file larger than 8 KiB lists every line") {
+    enum { LINES = 800 };
+    const char *path = cf_file_path();
+    fs_delete(path);
+    char line[40];
+    int ok = 1;
+    for (int i = 0; i < LINES && ok; i++) {
+        k_snprintf(line, sizeof line, "c%03d,Choice %03d\n", i, i);
+        ok = fs_write(path, line, i > 0);
+    }
+    KTEST_ASSERT(ok);
+    KTEST_ASSERT(fs_size(path) > 8192);
+
+    setting_unregister(g_cf.name);
+    g_cf.who = SETTING_WHO_MACHINE;
+    g_cf.file = SCRATCH_FILE;
+    g_cf.choice_file = path;
+    int reg = setting_register(&g_cf);
+    int row = -1;
+    for (int i = 0; i < setting_count(); i++)
+        if (k_strcmp(setting_at(i)->name, g_cf.name) == 0) { row = i; break; }
+
+    struct setting_msg m;
+    k_memset(&m, 0, sizeof m);
+    m.op = SETTING_OP_INFO;
+    m.index = row;
+    int info = row >= 0 && setting_dispatch(&m) == 1;
+    int count = (int)m.count;
+
+    k_memset(&m, 0, sizeof m);
+    m.op = SETTING_OP_CHOICE;
+    m.index = row;
+    m.choice = LINES - 1;
+    int last = row >= 0 && setting_dispatch(&m) == 1;
+    char value[16], label[32];
+    k_strlcpy(value, m.value, sizeof value);
+    k_strlcpy(label, m.label, sizeof label);
+
+    setting_unregister(g_cf.name);
+    fs_delete(path);
+
+    KTEST_ASSERT(reg);
+    KTEST_ASSERT(info);
+    KTEST_ASSERT_EQ(count, LINES);
+    KTEST_ASSERT(last);
+    KTEST_ASSERT_EQ(k_strcmp(value, "c799"), 0);
+    KTEST_ASSERT_EQ(k_strcmp(label, "Choice 799"), 0);
+}
