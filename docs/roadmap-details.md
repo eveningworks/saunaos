@@ -9397,6 +9397,19 @@ picked).
   edits a value and reads it back through `config get` (an independent
   path), and the scroll checks for both panes (more rows than fit).
 
+## `SYS_PROC_INFO` takes the caller's size -- an older binary's buffer is overrun by an appended field
+
+Found in review, 2026-11-27, when the login session's `session` grew the
+struct to 136 bytes. The call takes no length, so the kernel copies
+`sizeof` of ITS struct into the caller's buffer; each append since `ready`
+has done the same. A program built against the SDK before an append --
+nothing in the tree, which is rebuilt whole -- gets the bytes after its
+struct overwritten on every call. `spawn_msg` has the mirror problem the
+other way and was gated with a flag (`SPAWN_SESSION`). The shape that
+removes it is Linux's `statx`-style: the caller passes its size and the
+kernel copies the smaller (a new call number, since an old binary's RDX
+is not a size).
+
 ## A process has one channel per service (`base/uchan.h`)
 
 A uchan client's ring is named `<service>.<pid>`, and opening one unlinks

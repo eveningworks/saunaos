@@ -211,7 +211,7 @@ a process like any other.
 
 TWO OBJECTS per service, `/bin/soundd`'s shape because the same two
 problems recur: a BEACON (`<service>`) holding the word a client wakes
-the server through, and ONE RING PER CLIENT (`<service>.<pid>`), which
+the server through, and ONE RING PER CONNECTION (`<service>.<pid>`, a process's further ones `<service>.<pid>.<n>`), which
 the server finds by walking `QUERY_SHM`. A ring per client is what makes
 it lock-free -- one writer and one reader each, so `head` and `tail` are
 each written by a single process and neither side needs a

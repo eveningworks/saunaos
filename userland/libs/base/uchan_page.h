@@ -21,7 +21,8 @@
 //                          holding the word a client wakes it through.
 //                          Its existence is also how a client knows
 //                          there is a server at all.
-//   `<service>.<pid>`   -- ONE RING PER CLIENT, created by the client.
+//   `<service>.<pid>[.<n>]` -- ONE RING PER CONNECTION, created by the
+//                          client: a process's first `.<pid>`, a further `.<n>`.
 //                          The server finds them by walking QUERY_SHM
 //                          for the prefix.
 //

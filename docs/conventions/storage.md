@@ -287,8 +287,8 @@ this the obvious way), not from how much history it accumulated.
   whose job is root's refuses up front, "needs administrator rights --
   run it with sudo", before touching anything; a GUI tool asks through
   privd off the frame. The compositor, privd's agent, sends a seat
-  action on its agent channel (`wm_priv_seat_action()`), never through a
-  second `upriv_*()` channel that would replace the agent's.
+  action on its agent channel (`wm_priv_seat_action()`), never through an
+  `upriv_*()` call, which BLOCKS until the person answers.
 - **A RING-3 PROGRAM READS AND WRITES ONE SETTING THROUGH
   `userland/libs/base/usetting.h`, AND `usetting_set()` RETURNS THE REGISTRY'S
   THREE-WAY ANSWER.** `usetting_get()`/`_get_int()`, `usetting_set()`/

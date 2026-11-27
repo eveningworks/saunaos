@@ -847,8 +847,8 @@ int  uapp_maximized(const struct uapp *a);    // as the last proposal said
 int uapp_notice(struct uapp *a, int kind, unsigned flags, const char *path);
 
 // The toolkit's channel to the compositor, for a library that needs one
-// and must not open a second (a process holds one ring per server, named
-// after its pid). NULL when there is no compositor. media/ushot.h.
+// and must not open a second (the compositor serves one connection per
+// process, the one named after its pid). NULL when there is no compositor. media/ushot.h.
 struct uchan_client;
 struct uchan_client *uapp_wmchan(void);
 

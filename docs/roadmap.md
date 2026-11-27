@@ -1887,6 +1887,7 @@ Things this OS does not do yet, or does in a way worth improving --
 this to be better?".
 
 - [x] ~~A process has one channel per service (`base/uchan.h`)~~ DONE 2026-11-27 -- a ring per connection
+- [ ] `SYS_PROC_INFO` takes the caller's size -- an older binary's buffer is overrun by an appended field
 - [ ] A release's upstream GPL source kept once, in one shared source Release, not re-uploaded per release
 - [ ] The legacy ATA driver probes the PRIMARY channel only -- a disk QEMU places on `ide.1` (an `ide-hd` with no `bus=`) is not found
 - [ ] The kernel console's squeezed baked cell clips a capital's accent -- A-acute and A-diaeresis look alike there

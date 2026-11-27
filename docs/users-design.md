@@ -263,7 +263,8 @@ is right and this is what it does:
   too -- a POSIX default ACL's effect; a SETUID folder owned by an account
   gives that account the file, FreeBSD's SUIDDIR, so what root (or the
   test harness) puts in /home is the person's. `/home` is 0755 root, each
-  home 4755 its account's, its folders too; `/etc`, `/var` and `/var/lib`
+  home 04700 its account's (`/home/user` too since 2026-11-27), the
+  folders below it 4755; `/etc`, `/var` and `/var/lib`
   were 3775 root:user until D3b2a made them root's 0755.
 - **A seat session starts in its account's home** -- init `chdir()`s to
   it for a `User=` service with `Seat=yes`, as login(1) does -- so what
@@ -591,12 +592,10 @@ telnetd runs `login(1)` as root, which drops to the account.
   (`UPRIV_T_FORGET` from the agent), a sign-out (the agent goes) and a
   boot. `sudo` and remote sessions always ask. Asking LESS is asked, with
   the password even under consent; asking more is the seat's.
-- **One privd channel per process** (`base/uchan.h` names a ring by
-  pid): the lock screen's password check, made from toywm, replaced the
-  agent's ring, and privd had no agent after every unlock -- each prompt
-  answered ENXIO until toywm restarted (found 2026-11-26). The agent
-  registers again after its own calls (`wm_priv_reopen()`); a channel
-  per connection is on the roadmap.
+- **A privd call is a connection of its own** (`base/uchan.h`, a ring per
+  connection since 2026-11-27): the lock screen's password check, made
+  from toywm, once replaced the agent's ring and left privd with no agent
+  after every unlock; it is a connection beside the agent's now.
 
 As built (2026-11-25), and where it differs from the plan:
 
