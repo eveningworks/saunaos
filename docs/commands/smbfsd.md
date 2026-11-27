@@ -7,7 +7,7 @@
 ## Synopsis
 
     smbfsd
-    smbfsd --serve NAME
+    smbfsd --serve NAME [--for ACCOUNT]
     smbfsd --url URL POINT [--user USER]
 
 ## Description
@@ -21,12 +21,17 @@ run it by hand.
     ls /net/media
     cp /net/media/Photos/beach.jpg /home/user/Pictures/
 
-**Saved shares are one file each in `/etc/mounts.d`**, and the file's
-name is the share's name under `/net`. The File Manager's **Add network
-share…** writes one; deleting the file forgets the share, and smbfsd
-unmounts it within a couple of seconds.
+**Saved shares are each PERSON's: one file each in
+`~/.config/mounts.d`** (the folder `0700`, each file `0600`), and the
+file's name is the share's name under `/net`. The File Manager's **Add
+network share…** writes one; deleting the file forgets the share, and
+smbfsd unmounts it within a couple of seconds. smbfsd serves the shares
+of the account whose session holds the seat -- logind's active session,
+whose devices udisks2 mounts -- and when the session changes hands (a
+sign-out, someone else signing in) it unmounts every share of the last
+one first; at the login screen it serves none.
 
-    # /etc/mounts.d/media
+    # ~/.config/mounts.d/media
     Source=//nas/media
     User=reader
 
@@ -35,10 +40,11 @@ unmounts it within a couple of seconds.
 | `Source` | `//server/share`, optionally with a folder inside it (`//nas/media/Films`). A port goes after the server: `//10.0.2.2:4450/media`. |
 | `User` | Who to sign in as. Absent: anonymous. `guest`: the server's guest account. |
 | `Domain` | The domain or workgroup. Absent: the server's own. |
-| `Hash` | The password's NT hash, written when "Remember password" is ticked (or `smb login -r`). **Never the password itself** -- but still enough to sign in to that share as that user, for anyone who can read the file. |
+| `Hash` | The password's NT hash, written when "Remember password" is ticked (or `smb login -r`) -- by that dialog or `smb`, as you, never by smbfsd. **Never the password itself** -- but still enough to sign in to that share as that user, for whoever can read the file: you, and root. |
 
 **Three roles, one binary.** With no arguments it is the SUPERVISOR: it
-starts one WORKER (`--serve NAME`) per file, restarts one that exits
+starts one WORKER (`--serve NAME --for ACCOUNT`, the account's share
+`NAME`, mounted as the account's) per file, restarts one that exits
 (waiting longer each time, up to 30 seconds), stops and unmounts one
 whose file is deleted, and starts a fresh one when a file's `Source`
 changes. `User`, `Domain` and `Hash` are read again at every connect,
@@ -73,8 +79,9 @@ side is the userfs bridge (`kernel/include/abi/userfs_abi.h`).
 path field or `open` starts a worker (`--url`) at `/net/<share>` with no
 file behind it; the File Manager marks it "this session" and offers
 **Save to Network**, which asks that worker (`USERFS_CTL_SAVE`) to write
-its own `/etc/mounts.d` file -- keeping its connection and its sign-in;
-the password is saved only by Remember. The supervisor then finds the
+its own file in your `~/.config/mounts.d` -- the worker is your own
+process, so the file is yours; a root worker writes none -- keeping its
+connection and its sign-in; the password is saved only by Remember. The supervisor then finds the
 point served, retries every 10 seconds, and takes over only when that
 worker exits.
 
@@ -93,7 +100,7 @@ unmounts.
 
 ## Files
 
-`/etc/mounts.d/<name>` (saved shares), `/net/<name>` (their mount
+`~/.config/mounts.d/<name>` (each person's saved shares), `/net/<name>` (their mount
 points, made by the worker), `/run/smbfsd/<name>.pid` (each worker, so
 a restarted supervisor can stop the old ones).
 

@@ -50,8 +50,8 @@ directory of text cannot provide about itself. See
 | `config files` | Every known config file, its path, its description, and whether it is built in or declared in `/etc/config.d`. |
 | `config show <name\|path>` | Print one config file verbatim. |
 | `config find <text>` | Search key names **and** values across every registered config file, `file:key=value` per hit. Case-insensitive. |
-| `config register <name> <path> [description]` | Declare a new config file by writing a descriptor into `/etc/config.d`. Picked up live. |
-| `config unregister <name>` | Remove that descriptor. A built-in cannot be unregistered. |
+| `config register <name> <path> [description]` | Declare a new config file by writing a descriptor into `/etc/config.d`. Picked up live. Root's: another account is refused up front -- run it with `sudo`. |
+| `config unregister <name>` | Remove that descriptor. A built-in cannot be unregistered. Root's, as `register`. |
 | `config help` | Every command and what it does -- the same page as `-h`. |
 
 **System Settings is GENERATED from the same registry** — it holds no

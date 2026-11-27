@@ -5,8 +5,10 @@
 // its width, kept in SND_CARDS_FILE (abi/sound_abi.h) as one `[<card>]`
 // section per card, keyed by the card's stable name. Read by soundd and
 // the direct device sink, which apply it; written by `sndfmt`, System
-// Settings and Device Manager. PipeWire's `default.clock.rate` and
-// `allowed-rates`, per card as Windows and macOS keep it.
+// Settings and Device Manager -- through privd, which writes root's file
+// for the person at the machine without asking (users D3b2a). PipeWire's
+// `default.clock.rate` and `allowed-rates`, per card as Windows and macOS
+// keep it.
 
 #include <stdint.h>
 
@@ -33,8 +35,19 @@ struct usndfmt {
 // fails: a card with no section is a card left on its defaults.
 void usndfmt_load(const char *card, struct usndfmt *f);
 
-// Writes all four keys of the card's section. 0 when the write failed.
+// Saves the card's format: root writes its section's keys; anyone else
+// asks privd's UPRIV_ACT_SOUNDFORMAT, the seat's without a prompt. 0 when
+// the save failed (or privd refused: errno says).
 int usndfmt_save(const char *card, const struct usndfmt *f);
+// The write itself, root's -- what privd does for usndfmt_save().
+int usndfmt_write(const char *card, const struct usndfmt *f);
+// A card name a section can carry: 1..63 bytes, no control character,
+// '=', '[', ']' or '#'.
+int usndfmt_card_ok(const char *card);
+// The file's three words back into `f`, STRICTLY: a rate the ABI does not
+// know, an empty or malformed list, a width it cannot take is 0 -- privd
+// refuses the request rather than saving less than was asked.
+int usndfmt_from_words(const char *rate, const char *allowed, const char *bits, struct usndfmt *f);
 
 // THE DECISION, in one place: the rate to run a card at, given what it
 // offers (SND_RATE_*; 0 = it does not say, so SND_RATE only) and the

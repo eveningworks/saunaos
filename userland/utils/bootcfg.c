@@ -344,6 +344,11 @@ static int cmd_resolution(int n, char **arg) {
         return 0;
     }
     if (!strcmp(arg[0], "forget")) {
+        // UBOOTMODE_CONF is root's (users D3b2a): said before anything is touched.
+        if (geteuid() != 0) {
+            printf("bootcfg: resolution forget needs administrator rights -- run it with sudo\n");
+            return 1;
+        }
         if (ubootmode_forget(1, 1) < 0) { printf("bootcfg: " UBOOTMODE_CONF " could not be written\n"); return 1; }
         printf("  every size is offered again " C_DIM "-- a refused one is refused again by its next trial" C_OFF "\n");
         return 0;

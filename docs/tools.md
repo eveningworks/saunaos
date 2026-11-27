@@ -170,6 +170,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `emoji_test.py` -- Emoji draw in COLOUR from the fallback list's emoji face, and U+FE0F decides
 - `engineless_test.py` -- Help and System Update with no Web page engine: their pages drawn as Markdown, not a dead web view
 - `exec_window_test.py` -- A program that execs another from a process that already had a window:
+- `fbs_settings_test.py` -- Settings' First-boot setup buttons ask privd (users D3b2a)
 - `fbs_test.py` -- First-boot setup: shown when it should be, saves what is chosen, ends
 - `filedialog_test.py` -- the shared file chooser, as a window
 - `fm_back_test.py` -- Back straight after a double click: the File Manager's history records
@@ -234,6 +235,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `properties_test.py` -- Properties: the facts it shows, the sections it opens, and the edits it makes
 - `quick_test.py` -- Quick Settings (userland/apps/system/toywm/wm_quick.h): the
 - `recent_gui_test.py` -- Recent in the File Manager (base/urecent.h, fm_recent.c), checked
+- `remote_apply_test.py` -- remote desktop is asked for once per Apply (users D3b2a)
 - `rename_gui_test.py` -- Rename many in the File Manager (base/urename.h, ui/uui_renamer.h),
 - `resize_edges_test.py` -- Resize a window from all EIGHT edges and corners, not just the grip
 - `resize_stride_test.py` -- a resized window is composited at the

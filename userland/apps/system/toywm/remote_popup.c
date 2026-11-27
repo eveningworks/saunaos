@@ -14,9 +14,27 @@
 #include "ui/uui_actionlist.h"
 #include "net/uremote.h"   // the live sessions, and the two things done to one
 #include "base/ulog.h"
+#include "base/upriv.h"
+#include "signal_abi.h"
+#include "wm_priv.h"
 
 int remote_open = 0;
 
+
+// A session is root's process, so from the desktop's account the signal
+// is privd's `remote` seat action (net/uremote.h's uremote_disconnect()
+// does the same through a channel of its own) -- sent on the AGENT's
+// channel: a second privd channel from this process would replace the
+// agent's, and every prompt after it would find no one to ask.
+static void session_signal(int pid, int sig) {
+    if (sys_kill(pid, sig) == 0) return;
+    char p[16], g[8];
+    k_snprintf(p, sizeof p, "%d", pid);
+    k_snprintf(g, sizeof g, "%d", sig);
+    const char *args[] = { p, g, 0 };
+    if (wm_priv_seat_action(UPRIV_ACT_REMOTE, args) < 0)
+        ulogf("wm: remote session %d: not signalled -- privd is not running\n", pid);
+}
 static int g_tray_id = -1;
 static int g_hover;
 static uint32_t g_seen_generation;
@@ -289,8 +307,8 @@ int remote_handle_click(int mx, int my) {
             g_list.fired_row = -1;
             if (r >= 0 && r < g_nlive) {
                 int pid = (int)g_live[r].pid;
-                if (b == 1) uremote_disconnect(pid);
-                else uremote_set_view_only(pid, !k_strstr(g_live_rows[r].sub, "view only"));
+                session_signal(pid, b == 1 ? SIGTERM
+                               : !k_strstr(g_live_rows[r].sub, "view only") ? SIGUSR1 : SIGUSR2);
                 ulogf("wm: remote session %d: %s\n", pid, b == 1 ? "disconnect" : "view only toggled");
             }
             read_records();

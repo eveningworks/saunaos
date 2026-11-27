@@ -14,6 +14,8 @@
 #include <dirent.h>
 #include "base/usetting_schema.h"
 #include "base/uconf.h"
+#include "base/udatadir.h"   // ChoiceDir= in the person's data folder
+#include <unistd.h>
 #include "base/ushortcuts.h" // shortcut_value_valid: see uschema_validate
 
 #define SCHEMA_PATH_MAX 192
@@ -270,7 +272,9 @@ static int one_dir_at(const struct uschema *s, const char *dir, int index, char 
     return rc;
 }
 
-// Entry `index` across the comma-separated directories, in order.
+// Entry `index` across the comma-separated directories, in order. One
+// that starts USCHEMA_DIR_DATA_HOME is in the person's data folder
+// (base/udatadir.h) -- skipped for root, which has no person's files.
 static int dir_at(const struct uschema *s, int index, char *out, uint32_t cap) {
     const char *p = s->choice_dir;
     while (*p) {
@@ -279,12 +283,19 @@ static int dir_at(const struct uschema *s, int index, char *out, uint32_t cap) {
         if (n >= sizeof dir) return 0;
         memcpy(dir, p, n);
         dir[n] = '\0';
-        int count;
-        int rc = one_dir_at(s, dir, index, out, cap, &count);
-        if (rc >= 0) return rc;
-        index -= count;
         p += n;
         if (*p == ',') p++;
+        int count = 0, rc = -1;
+        size_t hl = strlen(USCHEMA_DIR_DATA_HOME);
+        if (!strncmp(dir, USCHEMA_DIR_DATA_HOME, hl)) {
+            char *home = geteuid() != 0 ? udatadir_home(dir + hl) : NULL;
+            if (home) rc = one_dir_at(s, home, index, out, cap, &count);
+            free(home);
+        } else {
+            rc = one_dir_at(s, dir, index, out, cap, &count);
+        }
+        if (rc >= 0) return rc;
+        index -= count;
     }
     return 0;
 }

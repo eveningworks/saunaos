@@ -223,6 +223,12 @@ def run_one(name, script, disk_src, timeout, keep_logs, slot, kvm=False):
     # the default -- see launch_qemu_cmd()'s comment on why a gate
     # quietly switched to KVM stops covering the emulated path.
     kvm_args = ["--kvm"] if kvm else []
+    # THE GUEST'S WHOLE KERNEL LOG beside the tool's (`<name>.klog`), from
+    # its first line: the klog ring wraps, and a refusal a tool never
+    # asserted on (an `fsperm:` line, a writer nobody routed) is only seen
+    # by grepping every guest's log after the run.
+    if keep_logs:
+        kvm_args += ["--serial-log", os.path.abspath(os.path.join(keep_logs, f"{name}.klog"))]
 
     started = time.time()
     try:
@@ -607,7 +613,8 @@ def run():
                          "~41s; a guard with no margin fails healthy runs, which "
                          "is worse than no guard.")
     ap.add_argument("--logs", metavar="DIR",
-                    help="write each tool's full output to DIR/<name>.log")
+                    help="write each tool's full output to DIR/<name>.log, and its "
+                         "guest's whole kernel log to DIR/<name>.klog")
     ap.add_argument("--host", metavar="IP",
                     help="run against the BARE-METAL machine at this address "
                          "instead of QEMU guests (serial, one machine; see "

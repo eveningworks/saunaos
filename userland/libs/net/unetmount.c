@@ -1,4 +1,4 @@
-// <net/unetmount.h> -- /etc/mounts.d, one file per saved network share.
+// <net/unetmount.h> -- ~/.config/mounts.d, one file per saved network share.
 #include "net/unetmount.h"
 
 #include <errno.h>
@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <pwd.h>
 
 #include "rt/sys.h"
 #include "base/uconf.h"
@@ -34,8 +35,47 @@ void unetmount_point(const char *name, char *out, size_t cap) {
     snprintf(out, cap, "%s/%s", UNETMOUNT_ROOT, name);
 }
 
-static void path_of(const char *name, char *out, size_t cap) {
-    snprintf(out, cap, "%s/%s", UNETMOUNT_DIR, name);
+static char *g_root_home;   // unetmount_use_home()'s, for root
+
+void unetmount_use_home(const char *home) {
+    free(g_root_home);
+    g_root_home = home ? strdup(home) : NULL;
+}
+
+// The folder, allocated to fit (free() it); NULL when there is none.
+static char *dir_alloc(void) {
+    char *out = NULL;
+    if (geteuid() == 0) {
+        if (g_root_home && asprintf(&out, "%s/.config/%s", g_root_home, UNETMOUNT_SUBDIR) < 0) out = NULL;
+        return out;
+    }
+    // XDG_CONFIG_HOME (base/uconf.h's person's layer), else the account's
+    // own home -- a shell started by `runuser` may carry no XDG variable.
+    char *xdg = malloc(UCONF_USER_PATH_MAX);
+    if (xdg && uconf_user_path("/etc/" UNETMOUNT_SUBDIR, xdg, UCONF_USER_PATH_MAX) == 1) return xdg;
+    free(xdg);
+    struct passwd *pw = getpwuid(geteuid());
+    if (pw && pw->pw_dir && pw->pw_dir[0] == '/' &&
+        asprintf(&out, "%s/.config/%s", pw->pw_dir, UNETMOUNT_SUBDIR) < 0)
+        out = NULL;
+    return out;
+}
+
+int unetmount_dir(char *out, size_t cap) {
+    char *d = dir_alloc();
+    int ok = d && strlen(d) < cap;
+    if (d && !ok) fprintf(stderr, "netmount: %s does not fit %zu bytes\n", d, cap);
+    if (ok) memcpy(out, d, strlen(d) + 1);
+    free(d);
+    return ok;
+}
+
+// The share's file, allocated (free() it); NULL when there is no folder.
+static char *path_alloc(const char *name) {
+    char *d = dir_alloc(), *out = NULL;
+    if (d && asprintf(&out, "%s/%s", d, name) < 0) out = NULL;
+    free(d);
+    return out;
 }
 
 void unetmount_suggest(const char *source, char *out, size_t cap) {
@@ -61,21 +101,22 @@ void unetmount_suggest(const char *source, char *out, size_t cap) {
     if (!n) snprintf(base, sizeof base, "share");
     snprintf(out, cap, "%s", base);
     struct stat st;
-    char path[96];
     for (int i = 2; i < 100; i++) {
-        path_of(out, path, sizeof path);
-        if (stat(path, &st) != 0) return;
+        char *path = path_alloc(out);
+        int taken = path && stat(path, &st) == 0;
+        free(path);
+        if (!taken) return;
         snprintf(out, cap, "%.24s-%d", base, i);
     }
 }
 
 int unetmount_load(const char *name, struct unetmount *out) {
     memset(out, 0, sizeof *out);
-    if (!unetmount_name_ok(name)) return 0;
-    char path[96];
-    path_of(name, path, sizeof path);
+    char *path = unetmount_name_ok(name) ? path_alloc(name) : NULL;
+    if (!path) return 0;
     struct etc_config_buf doc, *buf = &doc;
     int ok = uconf_load(path, buf);
+    free(path);
     if (ok) {
         snprintf(out->name, sizeof out->name, "%s", name);
         ok = etc_config_buf_get(buf, "Source", out->source, sizeof out->source) && out->source[0];
@@ -88,14 +129,32 @@ int unetmount_load(const char *name, struct unetmount *out) {
     return ok;
 }
 
+static int save_in(const struct unetmount *m, char *dir, const char *path, const char *tmp);
+
 int unetmount_save(const struct unetmount *m) {
     if (!unetmount_name_ok(m->name) || !m->source[0]) return 0;
     for (const char *f[] = { m->source, m->user, m->domain, m->hash }, **p = f; p < f + 4; p++)
         if (strchr(*p, '\n')) return 0;     // one line per key, or the file says something else
-    mkdir(UNETMOUNT_DIR, 0755);
-    char path[96], tmp[112];
-    path_of(m->name, path, sizeof path);
-    snprintf(tmp, sizeof tmp, "%s/.%s.new", UNETMOUNT_DIR, m->name);
+    char *dir = dir_alloc(), *path = NULL, *tmp = NULL;
+    int ok = dir && asprintf(&path, "%s/%s", dir, m->name) >= 0 &&
+             asprintf(&tmp, "%s/.%s.new", dir, m->name) >= 0 && save_in(m, dir, path, tmp);
+    free(dir);
+    free(path);
+    free(tmp);
+    return ok;
+}
+
+// unetmount_save()'s work, with its three paths made.
+static int save_in(const struct unetmount *m, char *dir, const char *path, const char *tmp) {
+    // The person's alone: a mode argument never reaches the kernel (the
+    // umask's applies), so each is set after it is made -- the folder
+    // before anything is in it, the file before the hash is written.
+    char *slash = strrchr(dir, '/');
+    if (slash) { *slash = 0; mkdir(dir, 0755); *slash = '/'; }   // ~/.config
+    struct stat st;
+    if (stat(dir, &st) != 0 && mkdir(dir, 0700) != 0) return 0;
+    if (stat(dir, &st) == 0 && st.st_uid == geteuid() && (st.st_mode & 0777) != 0700)
+        chmod(dir, 0700);   // made by `mkdir` at the umask's 0755, perhaps
     char doc[640];
     int n = snprintf(doc, sizeof doc,
                      "# A network share, mounted at %s/%s by smbfsd. See `doc smbfsd`.\n"
@@ -106,7 +165,7 @@ int unetmount_save(const struct unetmount *m) {
     if (n >= (int)sizeof doc) return 0;
     int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd < 0) return 0;
-    int ok = write(fd, doc, (size_t)n) == n;
+    int ok = fchmod(fd, 0600) == 0 && write(fd, doc, (size_t)n) == n;
     close(fd);
     // Published by a rename: smbfsd may be reading the old one.
     if (!ok || rename(tmp, path) != 0) { unlink(tmp); return 0; }
@@ -114,17 +173,19 @@ int unetmount_save(const struct unetmount *m) {
 }
 
 int unetmount_remove(const char *name) {
-    if (!unetmount_name_ok(name)) return 0;
-    char path[96];
-    path_of(name, path, sizeof path);
-    return unlink(path) == 0;
+    char *path = unetmount_name_ok(name) ? path_alloc(name) : NULL;
+    int ok = path && unlink(path) == 0;
+    free(path);
+    return ok;
 }
 
 static int cmp_name(const void *a, const void *b) { return strcmp(a, b); }
 
 int unetmount_list(char (**names)[UNETMOUNT_NAME_MAX], int *cap) {
     struct ulist_entry *ents = NULL;
-    int n = ulistdir(UNETMOUNT_DIR, &ents), out = 0;   // the whole folder, paged
+    char *dir = dir_alloc();
+    int n = dir ? ulistdir(dir, &ents) : 0, out = 0;   // the whole folder, paged
+    free(dir);
     if (n > 0 && !UGROW(*names, *cap, n)) {
         fprintf(stderr, "netmount: out of memory listing %d mounts\n", n);
         n = 0;

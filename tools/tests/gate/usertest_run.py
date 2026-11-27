@@ -314,6 +314,13 @@ TESTS = [
     # started as 1000 with and without the seat; privd's `settings` action
     # as root. SPAWNED: it waits for its children; changes nothing.
     ("machinesetting_test", None, None, None),
+    # /etc and /var/lib root's (users D3b2a): a write of the desktop
+    # account's own refused; display.scale, a program's volume and a sound
+    # card's format through privd's seat rights, no prompt, a bad argument
+    # refused; a theme and a share saved into the person's home (0600 in
+    # 0700); `config register` and `service` refused up front. SPAWNED:
+    # it waits for its children; removes what they made.
+    ("etcfiles_test", None, None, None),
     # Passwords through privd (users D2a): set, check, change and remove,
     # who may ask about whose, a right password as sudo's consent, the
     # fail delay, /etc/shadow's owner and mode, and a libxcrypt hash

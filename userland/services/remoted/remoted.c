@@ -167,7 +167,7 @@ static int serve(void) {
     // Disk page showed it). SYS_FS_GENERATION_OF moves on any write,
     // rename or delete of the file, so a switch in System Settings still
     // applies on the next pass.
-    long long seen_gen = -1;
+    long long seen_gen = -1, seen_secret = -1;
     static char seen_addr[UTLS_NAMES_MAX * 16];
     unsigned long long id_ns = 0;
     for (;;) {
@@ -175,11 +175,14 @@ static int serve(void) {
         while (sys_waitpid_nohang(-1, &code) > 0) if (live > 0) live--;
 
         static struct uremote_conf c;   // static: kilobytes, and one loop
+        // The password lives in its own file: a new one changes only it.
         long long gen = sys_fs_generation_of(UREMOTE_CONF);
-        int reloaded = gen <= 0 || gen != seen_gen;
+        long long secret = sys_fs_generation_of(UREMOTE_SECRET);
+        int reloaded = gen <= 0 || gen != seen_gen || secret != seen_secret;
         if (reloaded) {
             uremote_load(&c);
             seen_gen = gen;
+            seen_secret = secret;
         }
         reconcile(&vnc, c.vnc.enabled ? c.vnc.port : 0, "vnc");
         if (c.vnc.enabled && c.vnc.encryption != UREMOTE_ENC_OFF) {
@@ -251,7 +254,7 @@ static int status(void) {
     static const char *const WHEN[] = { "ask", "ask unless trusted", "always allow" };
     static const char *const ENC[] = { "offered (VeNCrypt), plain accepted", "required", "off" };
     printf("VNC   %s, port %d, password %s\n", c.vnc.enabled ? "on" : "off", c.vnc.port,
-           c.vnc.password[0] ? "set" : "NOT SET (viewers are refused)");
+           c.vnc.password[0] || c.vnc.password_set ? "set" : "NOT SET (viewers are refused)");
     printf("      encryption %s%s%s\n", ENC[c.vnc.encryption],
            c.vnc.fingerprint[0] ? "; certificate " : "", c.vnc.fingerprint);
     printf("RDP   %s, port %d\n", c.rdp.enabled ? "on" : "off", c.rdp.port);

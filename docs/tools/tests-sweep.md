@@ -218,7 +218,9 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   pushes the early `display:` line out of the log ring. SKIPS (77)
   without OVMF. On demand, about four minutes.
 - **`smb_test.py`** -- network shares in a GUEST: `/bin/smb`, `mount -t
-  smb` and `smb login`, a saved share across a cold boot, a killed
+  smb` and `smb login`, a saved share across a cold boot (the share's
+  file written, and `smb -r login` run, AS the desktop's account: the
+  saved shares are the person's `~/.config/mounts.d`), a killed
   worker replaced, an unreachable server failing fast, and a forgotten
   share unmounted. The 3 MiB file is hashed through both paths; the
   file is also hashed straight off the mount (`sum`'s 8 KiB reads, what
@@ -230,7 +232,7 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
 - **`fm_network_test.py`** -- the File Manager's Network rows: a share
   row found by its icon's teal pixels, Sign in drawn (the window dims,
   the padlock shows) and answered, Add network share writing
-  `/etc/mounts.d` and opening the share, Properties on the share's row
+  the person's `~/.config/mounts.d` and opening the share, Properties on the share's row
   (the volume page: its address, Connected, the user it signed in as --
   the `properties: row` lines), Forget this share from the row's own
   menu (two Ups from nothing: Properties is the last row), a share
@@ -272,7 +274,8 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   `/etc/remote.conf`, the next connection then unasked -- the session
   listed live with the tray icon lit, the flyout's View only stopping the
   viewer's mouse and its Disconnect ending the session, and the Settings
-  page's VNC switch writing the file; then VeNCrypt, through Python's
+  page's VNC switch and Apply writing the file through privd (the
+  password is put in root's `/etc/remote.secret`, users D3b2a); then VeNCrypt, through Python's
   own `ssl` (sharing nothing with mbedTLS): X509Vnc in, plain listed
   first, the certificate's SHA-256 the fingerprint in
   `/etc/remote.conf`, a Raw frame over TLS against the screendump, a
@@ -1730,7 +1733,8 @@ report is ON only after `enter_gui()`").
   ROUND TRIP through four components that share no code** -- a row
   appears only while a client plays and carries the name `soundd` mixes
   it under (not the `snd.<pid>` its ring is called), a click a quarter
-  along the track moves that row, `/etc/sound.conf` gains the key so
+  along the track moves that row, `/etc/sound.conf` gains the key
+  (privd's `appvolume`, the file being root's) so
   the value outlives the widget, and the daemon reads it back and says
   so. That last one is counted as a DIFFERENCE from a baseline rather
   than as "is the line present": `soundd` reloads the moment the flyout

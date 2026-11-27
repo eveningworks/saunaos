@@ -13,6 +13,8 @@
 #include "base/uconf.h"
 #include "base/uhwids.h"
 #include "base/udevice.h"
+#include "base/upriv.h"   // the record is root's: anyone else asks privd
+#include <unistd.h>
 
 static const char *const TYPE_NAME[UDEV_T_COUNT] = {
     "Display adapters", "Monitors", "Network adapters", "Sound", "Storage controllers",
@@ -510,9 +512,18 @@ static int unbind(const struct udevice *d, int rebind) {
     return -ENOTSUP;
 }
 
+// THE RECORD IS ROOT'S (/etc/devices.conf, users D3b2a), so anyone else
+// asks privd's device action -- an administrator's right, asked -- which
+// does the whole of it as root. BLOCKS while the prompt is up.
+static int ask_privd(const char *verb, const struct udevice *d, int persist) {
+    const char *args[] = { verb, d->id, persist ? "1" : "0", 0 };
+    return upriv_action(UPRIV_ACT_DEVICE, args, 0) < 0 ? -(errno ? errno : EPERM) : 0;
+}
+
 int udevice_disable(const struct udevice *d, int persist) {
     if (d->holder_pid) return -EBUSY;
     if (!d->can_disable) return -ENOTSUP;
+    if (geteuid() != 0) return ask_privd("disable", d, persist);
     if (!d->disabled) {
         int r = unbind(d, 0);
         if (r < 0) return r;
@@ -524,6 +535,7 @@ int udevice_disable(const struct udevice *d, int persist) {
 }
 
 int udevice_enable(const struct udevice *d) {
+    if (geteuid() != 0) return ask_privd("enable", d, 0);
     int r = unbind(d, 1);
     if (r < 0) return r;
     char rp[96];

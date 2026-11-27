@@ -862,8 +862,19 @@ static int descriptor_path(const char *name, char *out, int cap) {
     return snprintf(out, (size_t)cap, "/etc/config.d/%s.conf", name) > 0;
 }
 
+// /etc/config.d is root's (users D3b2a): said before anything is touched,
+// as `sudo` would be needed for it.
+static int needs_root(const char *what) {
+    if (geteuid() == 0) return 0;
+    char line[160];
+    snprintf(line, sizeof line, "config: %s needs administrator rights -- run it with sudo", what);
+    putline(line);
+    return 1;
+}
+
 static int cmd_register(const char *name, const char *path, const char *desc) {
     char dpath[96];
+    if (needs_root("register")) return 1;
     if (!descriptor_path(name, dpath, sizeof dpath)) {
         putline("config: a name must be a plain word -- no '/', '.' or spaces");
         return 1;
@@ -902,6 +913,7 @@ static int cmd_register(const char *name, const char *path, const char *desc) {
 
 static int cmd_unregister(const char *name) {
     char dpath[96];
+    if (needs_root("unregister")) return 1;
     if (!descriptor_path(name, dpath, sizeof dpath)) {
         putline("config: a name must be a plain word");
         return 1;

@@ -44,10 +44,12 @@ HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
 import port_guard  # noqa: E402
 import samba_server  # noqa: E402
-from gui_debug import DebugConsole, enter_gui  # noqa: E402
+from gui_debug import DebugConsole, enter_gui, USER_CONFIG  # noqa: E402
 from harness import Results, copy_disk  # noqa: E402
 from qmp_test import QMPSession  # noqa: E402
 from PIL import Image  # noqa: E402
+
+SHARES = f"{USER_CONFIG}/mounts.d"   # the person's saved shares (net/unetmount.h)
 
 VM = toolpath.tool("vm.py")
 
@@ -165,9 +167,10 @@ def main():
                 q.screenshot(p)
                 return p
 
-            dc.send("sh mkdir /etc/mounts.d")
-            dc.send(f"sh write /etc/mounts.d/media Source={base}/media")
-            dc.send(f"sh append /etc/mounts.d/media User={srv.USER}")
+            # The person's own saved share (net/unetmount.h), made as them.
+            dc.as_user(f"mkdir {USER_CONFIG}")
+            dc.as_user(f"mkdir {SHARES}")
+            dc.write_lines(f"{SHARES}/media", [f"Source={base}/media", f"User={srv.USER}"])
             dc.logs("files:")
             dc.open_app("File Manager")
             win = dc.window_settled("File Manager") or dc.window("File Manager")
@@ -216,8 +219,8 @@ def main():
                 m = wait_log(r"netshare open /net/public items (\d+)")
                 res.check("an added share is saved, mounted and opened",
                           m is not None and int(m.group(1)) in (1, 2), m.group(0) if m else "never opened")
-                out = dc.send("sh cat /etc/mounts.d/public") or ""
-                res.check("...from a file in /etc/mounts.d", f"Source={base}/public" in out, out[-200:])
+                out = dc.send(f"sh cat {SHARES}/public") or ""
+                res.check("...from a file in the person's ~/.config/mounts.d", f"Source={base}/public" in out, out[-200:])
 
             print("Properties of a share")
             rows = share_rows(shot("tree2p"), tree)
@@ -277,7 +280,7 @@ def main():
                 dc.key("0x0d")
                 if True:
                     for _ in range(20):
-                        out = dc.send("sh ls /etc/mounts.d") or ""
+                        out = dc.send(f"sh ls {SHARES}") or ""
                         if "public" not in out:
                             forgot = True
                             break
@@ -306,11 +309,11 @@ def main():
                     ok = wait_log(r"netshare save /net/public\S* rc 0") is not None
             res.check("the session bar's Save to Network saves it", ok, f"bar {bar}")
             name = m.group(1).split("/")[2] if m else "public"
-            out = dc.send(f"sh cat /etc/mounts.d/{name}") or ""
-            res.check("...as a file in /etc/mounts.d", f"Source=//10.0.2.2:{srv.port}/public" in out, out[-200:])
+            out = dc.send(f"sh cat {SHARES}/{name}") or ""
+            res.check("...as a file in the person's ~/.config/mounts.d", f"Source=//10.0.2.2:{srv.port}/public" in out, out[-200:])
 
             print("a share that does not answer")
-            dc.send("sh write /etc/mounts.d/dead Source=//10.0.2.2:1/nothing")
+            dc.write_lines(f"{SHARES}/dead", ["Source=//10.0.2.2:1/nothing"])
             rows = []
             for _ in range(20):
                 rows = share_rows(shot("tree3"), tree)

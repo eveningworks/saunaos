@@ -11,13 +11,20 @@
 //
 // And First-boot setup, which is also about what this machine does when
 // it starts: run it now, or have the next boot show it (base/ufbs.h).
+// Both are the machine's -- its marker is in root's /var/lib, and setup
+// names the machine -- so anyone but root asks privd to run them
+// elevated (Windows: OOBE is an administrator's).
 #include "settings_internal.h"
 #include "base/ubootcfg.h"
 #include "base/ufbs.h"
+#include "base/upriv.h"
+#include <errno.h>
+#include <unistd.h>
 
 int g_show_startup;
 struct uui_setting_row g_su_row[4];
 static struct uui_button g_su_fbs_now, g_su_fbs_again;
+static int g_fbs_busy;   // privd's prompt is up for one of them
 static struct uui_item g_su_fbs_items[2];
 static struct uui_layout g_su_fbs_l;
 static char g_su_fbs_desc[128];
@@ -33,6 +40,7 @@ static char g_su_title[UBOOTMENU_MAX + 1][UBOOTMENU_TITLE];
 static const char *g_su_def_items[UBOOTMENU_MAX], *g_su_next_items[UBOOTMENU_MAX + 1];
 
 void startup_load(void) {
+    g_su_fbs_now.disabled = g_su_fbs_again.disabled = g_fbs_busy;
     g_su_ok = ubootcfg_load(&g_su_cfg, UBOOTMENU_CFG) == 0;
     ubootmenu_read(&g_su_menu, UBOOTMENU_CFG);
     int n = g_su_ok ? g_su_cfg.count : 0;
@@ -60,9 +68,54 @@ void startup_load(void) {
                  "The full-screen setup a new machine shows once. It shows at the next restart.");
 }
 
+#define FBS_PROGRAM "/bin/wm/system/firstboot"
+#define FBS_TOOL    "/bin/fbs"
+
+// Off the frame: privd's prompt is up until the person answers. "Again"
+// waits for `fbs again`'s exit; "now" only for setup to start.
+static int fbs_work(void *arg) {
+    int now = arg != 0;
+    char *argv_now[] = { FBS_PROGRAM, 0 };
+    char *argv_again[] = { FBS_TOOL, "again", 0 };
+    int pid = now ? upriv_spawn(FBS_PROGRAM, argv_now, 0, 0) : upriv_spawn(FBS_TOOL, argv_again, 0, 0);
+    if (pid < 0) return -errno;
+    if (now) return 0;
+    int code = 1;
+    sys_waitpid(pid, &code);
+    return code == 0 ? 0 : -EIO;
+}
+
+static void fbs_done(struct uapp *a, int rc, int err, void *arg) {
+    (void)err;
+    g_fbs_busy = 0;
+    if (rc == 0)
+        snprintf(g_status, sizeof g_status, arg ? "First-boot setup started"
+                                                : "First-boot setup shows at the next restart");
+    else if (rc == -ECANCELED)
+        snprintf(g_status, sizeof g_status, "Not changed -- administrator rights were not given");
+    else if (rc == -EIO)
+        snprintf(g_status, sizeof g_status, "Could not remove %s", UFBS_MARKER);
+    else
+        snprintf(g_status, sizeof g_status, "Not changed -- %s", upriv_strerror(-rc));
+    startup_load();
+    uapp_redraw(a);
+}
+
 void startup_fbs(int id) {
-    if (id == ID_SU_FBS_NOW) {
-        if (sys_spawn("/bin/wm/system/firstboot", 0, -1) < 0)
+    int now = id == ID_SU_FBS_NOW;
+    if (geteuid() != 0) {
+        if (g_fbs_busy) return;
+        if (!g_app || uapp_run_then(g_app, fbs_work, now ? (void *)1 : 0, fbs_done) != 0) {
+            snprintf(g_status, sizeof g_status, "Could not ask for administrator rights");
+            return;
+        }
+        g_fbs_busy = 1;
+        g_su_fbs_now.disabled = g_su_fbs_again.disabled = 1;
+        snprintf(g_status, sizeof g_status, "Asking for administrator rights...");
+        return;
+    }
+    if (now) {
+        if (sys_spawn(FBS_PROGRAM, 0, -1) < 0)
             snprintf(g_status, sizeof g_status, "Could not start First-boot setup");
     } else if (ufbs_rearm() == 0) {
         snprintf(g_status, sizeof g_status, "First-boot setup shows at the next restart");

@@ -64,8 +64,9 @@ const char *unetlink_mod_label(uint32_t mod);           // "Medium"
 int unetlink_load(const struct etc_config_buf *conf, const struct query_netdev *d,
                   struct net_linkcfg *out, int *bad);
 
-// Root's (SYS_NET_LINK): from another account BOTH of these go to privd and
-// BLOCK while the person is asked (base/upriv.h).
+// Root's (SYS_NET_LINK, and /etc/net.conf is root's): from another account
+// BOTH of these are ONE request to privd's netlink action, which applies
+// and saves, and they BLOCK while the person is asked (base/upriv.h).
 //
 // Apply `want`'s fields (want->which) to the card at once, then SAVE them
 // to its own [MAC] section, so netd applies them again at the next boot.
@@ -74,6 +75,11 @@ int unetlink_set(const struct query_netdev *d, const struct net_linkcfg *want);
 
 // The driver's own values back, and the card's keys out of its section.
 int unetlink_reset(const struct query_netdev *d);
+
+// The save alone, root's -- what privd does after applying: `want`'s
+// fields into the card's [MAC] section, or with NET_LINK_DEFAULTS in
+// `which` the card's keys out of it. 0, or -1.
+int unetlink_save(const struct query_netdev *d, const struct net_linkcfg *want);
 
 #ifdef __cplusplus
 }

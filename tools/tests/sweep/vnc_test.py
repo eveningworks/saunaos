@@ -41,6 +41,7 @@ RUNNER = {"covers": "remoted's VNC: auth, frames vs screendump, input"}
 import argparse
 import hashlib
 import os
+import re
 import socket
 import ssl
 import struct
@@ -585,8 +586,19 @@ password = {PASSWORD}
 
 
 def put_conf(args, path, text):
+    """remote.conf as `text` says, its password moved to root's
+    /etc/remote.secret (users D3b2a: remote.conf keeps only a marker).
+
+    THE SECRET FIRST: `vm put` is no atomic rename, and remoted rereads
+    when either file moves -- written second, a reload could catch it
+    half-written and refuse a viewer "no password" (seen once in two
+    runs). Written first, the remote.conf write's reload sees it whole."""
+    secret = re.findall(r"^password = (.*)$", text, re.M)
+    with open(path + ".secret", "w") as fh:
+        fh.write("[vnc]\n" + "".join(f"password = {p}\n" for p in secret[:1]))
+    vm(args, "put", path + ".secret", "/etc/remote.secret")
     with open(path, "w") as fh:
-        fh.write(text)
+        fh.write(re.sub(r"^password = .*$", "password_set = yes", text, flags=re.M))
     vm(args, "put", path, "/etc/remote.conf")
 
 
@@ -735,7 +747,9 @@ def stage2(args, r, tmp, conf):
     except (OSError, EOFError, RuntimeError, PermissionError) as e:
         r.check("a trusted viewer gets in without being asked", False, repr(e))
 
-    # The settings page: its VNC switch writes /etc/remote.conf.
+    # The settings page: its VNC switch, then Apply..., writes /etc/remote.conf
+    # through privd (users D3b2a) -- the prompt answered Allow unseen.
+    dc.send("gui prompt allow")
     dc.send("gui spawn /bin/wm/system/settings remotedesktop")
     w = {}
     end = time.time() + 30
@@ -746,10 +760,19 @@ def stage2(args, r, tmp, conf):
     r.check("the Remote Desktop page opens on its own name", sw is not None, str(list(w)[:20]))
     if sw:
         dc.click(sw["screen"]["x"] + sw["w"] // 2, sw["screen"]["y"] + sw["h"] // 2)
-        time.sleep(2)
+        dc.settle()
+        ap = dc.widgets("System Settings").get("apply")
+        if ap:
+            dc.click(ap["screen"]["x"] + ap["w"] // 2, ap["screen"]["y"] + ap["h"] // 2)
+        for _ in range(30):     # privd's write, after the prompt answered itself
+            conf = dc.send("sh cat /etc/remote.conf") or ""
+            if "enabled = no" in conf or "enabled=no" in conf:
+                break
+            time.sleep(0.5)  # sleep-ok: polls the file privd writes
+        print("  (settings said: " + "; ".join(dc.logs("settings: remote")[-3:]) + ")")
     dc.close()
     after = vm(args, "exec", "cat /etc/remote.conf").stdout
-    r.check("its VNC switch turns the server off in /etc/remote.conf",
+    r.check("its VNC switch and Apply turn the server off in /etc/remote.conf",
             "enabled = no" in after or "enabled=no" in after, after[-300:])
 
 
@@ -1021,9 +1044,7 @@ def main():
         return 1
     try:
         conf = os.path.join(tmp, "remote.conf")
-        with open(conf, "w") as fh:
-            fh.write(CONF)
-        vm(args, "put", conf, "/etc/remote.conf")
+        put_conf(args, conf, CONF)
         q = QMPSession(port=port_guard.instance_qmp(args.instance))
         dc = DebugConsole(port_guard.instance_sock(args.instance))
 

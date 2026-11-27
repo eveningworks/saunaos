@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "base/uconf.h"
+#include "base/upriv.h"   // the file is root's: the seat changes it through privd
 #include "media/usndfmt.h"
 #include "sound_abi.h"
 
@@ -48,22 +50,73 @@ void usndfmt_load(const char *card, struct usndfmt *f) {
     etc_config_buf_free(buf);
 }
 
-int usndfmt_save(const char *card, const struct usndfmt *f) {
-    if (!card || !card[0]) return 0;
-    char rate[16], bits[16], allowed[96];
+int usndfmt_card_ok(const char *card) {
+    size_t n = card ? strlen(card) : 0;
+    if (!n || n >= 64) return 0;
+    for (const char *p = card; *p; p++)
+        if ((unsigned char)*p < ' ' || *p == '=' || *p == '[' || *p == ']' || *p == '#') return 0;
+    return 1;
+}
+
+// The three values as the file spells them.
+static void words_of(const struct usndfmt *f, char rate[16], char allowed[96], char bits[16]) {
     if (f->match) strcpy(rate, "match");
-    else snprintf(rate, sizeof rate, "%u", (unsigned)f->fixed);
-    if (f->bits) snprintf(bits, sizeof bits, "%u", (unsigned)f->bits);
+    else snprintf(rate, 16, "%u", (unsigned)f->fixed);
+    if (f->bits) snprintf(bits, 16, "%u", (unsigned)f->bits);
     else strcpy(bits, "auto");
     size_t n = 0;
     allowed[0] = 0;
     for (int i = 0; i < SND_RATE_COUNT; i++)
         if (f->allowed & (1u << i))
-            n += (size_t)snprintf(allowed + n, sizeof allowed - n, "%s%u", n ? "," : "",
-                                  (unsigned)snd_rate_hz(i));
+            n += (size_t)snprintf(allowed + n, 96 - n, "%s%u", n ? "," : "", (unsigned)snd_rate_hz(i));
+}
+
+int usndfmt_from_words(const char *rate, const char *allowed, const char *bits, struct usndfmt *f) {
+    char *end;
+    memset(f, 0, sizeof *f);
+    if (!strcmp(rate, "match")) f->match = 1;
+    else {
+        unsigned long hz = strtoul(rate, &end, 10);
+        if (end == rate || *end || !snd_rate_mask((uint32_t)hz)) return 0;
+        f->fixed = (uint32_t)hz;
+    }
+    // Every word a rate the ABI knows -- a parser that skipped one would
+    // save less than was asked.
+    for (const char *s = allowed; *s; ) {
+        unsigned long hz = strtoul(s, &end, 10);
+        if (end == s || !snd_rate_mask((uint32_t)hz)) return 0;
+        f->allowed |= snd_rate_mask((uint32_t)hz);
+        s = end;
+        if (*s == ',') { s++; if (!*s) return 0; }
+        else if (*s) return 0;
+    }
+    if (!f->allowed) f->allowed = USNDFMT_DEFAULT_ALLOWED;   // "": the default, as a load reads it
+    if (strcmp(bits, "auto")) {
+        unsigned long b = strtoul(bits, &end, 10);
+        if (end == bits || *end || !snd_depth_mask((uint32_t)b)) return 0;
+        f->bits = (uint32_t)b;
+    }
+    return 1;
+}
+
+int usndfmt_write(const char *card, const struct usndfmt *f) {
+    if (!usndfmt_card_ok(card)) return 0;
+    char rate[16], bits[16], allowed[96];
+    words_of(f, rate, allowed, bits);
     return uconf_set_in(SND_CARDS_FILE, card, "rate", rate) &&
            uconf_set_in(SND_CARDS_FILE, card, "allowed", allowed) &&
            uconf_set_in(SND_CARDS_FILE, card, "bits", bits);
+}
+
+int usndfmt_save(const char *card, const struct usndfmt *f) {
+    if (!usndfmt_card_ok(card)) return 0;
+    if (geteuid() == 0) return usndfmt_write(card, f);
+    // The file is root's (users D3b2a): the seat's to change through privd,
+    // granted without asking.
+    char rate[16], bits[16], allowed[96];
+    words_of(f, rate, allowed, bits);
+    const char *args[] = { card, rate, allowed, bits, 0 };
+    return upriv_action(UPRIV_ACT_SOUNDFORMAT, args, 0) == 0;
 }
 
 static uint32_t lowest(uint32_t mask) {

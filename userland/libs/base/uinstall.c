@@ -58,7 +58,7 @@ static int is_skipped(const char *name) {
 // EVERY OTHER MOUNTED FILESYSTEM STAYS BEHIND, wherever it is mounted --
 // the copy is of the system, not of what is plugged into it (`cp -x`).
 // SKIP above names three places; a USB stick auto-mounts under /media
-// and an SMB share wherever /etc/mounts.d says, and the first install
+// and an SMB share under /net, and the first install
 // after automount copied a whole stick onto the target. Read fresh per
 // install: a stick plugged in between two runs is a mount the second
 // must see.

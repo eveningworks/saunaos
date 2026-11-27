@@ -1,13 +1,17 @@
 // System Settings: Network > Remote Desktop -- one card per protocol
 // (VNC, RDP), each its own switch, port and sign-in; who may connect,
 // shared below them; the trusted addresses; the sessions open now. A page
-// of its own, as Adapters is: the settings live in /etc/remote.conf
-// (net/uremote.h), read by /bin/remoted every few seconds, and a change
-// is written at once -- nothing waits for Apply.
+// of its own, as Adapters is: the settings live in root's /etc/remote.conf
+// and /etc/remote.secret (net/uremote.h), read by /bin/remoted every few
+// seconds. They are the MACHINE's (users D3b2a), so the page STAGES every
+// edit, and Apply... sends them as ONE privd request -- one administrator
+// prompt listing each change, D3b1's shield and Apply; root's are made at
+// once. The Connected rows are the seat's (privd's `remote`), at once.
 #include "apps/system/settings/settings_internal.h"
 #include "ui/uui_card.h"
 #include "ui/uui_actionlist.h"
 #include "net/uremote.h"
+#include "base/upriv.h"   // upriv_strerror()
 
 int g_show_remote;
 
@@ -17,9 +21,6 @@ static struct uremote_conf g_rc;
 static struct uui_switch g_vnc_sw;
 static struct uui_spinbox g_vnc_port;
 static struct uui_textbox g_vnc_pw;
-static struct uui_button g_vnc_pw_save;
-static struct uui_item g_pw_items[2];
-static struct uui_layout g_pw_row;
 static struct uui_setting_row g_vnc_port_row, g_vnc_pw_row;
 static const char *const ENC[] = { "When the viewer offers it", "Required", "Off" };
 static struct uui_dropdown g_enc_dd;
@@ -64,6 +65,19 @@ static struct uui_actionlist_row *g_sess_rows;
 static struct uui_actionlist g_conn;
 static uint64_t g_checked_ms;
 
+// WHAT APPLY WILL ASK FOR: the controls hold the staged values, and the
+// trusted list's edits are kept here until Apply -- adds with their label,
+// removals by address.
+static struct uremote_net g_add[UREMOTE_TRUSTED_MAX];
+static int g_nadd;
+static char g_del[UREMOTE_TRUSTED_MAX][24];
+static int g_ndel;
+static int g_busy;   // a request is with privd
+// The trusted rows on show: the file's less the removals, then the adds.
+static struct uremote_net g_shown[UREMOTE_TRUSTED_MAX];
+static int g_shown_add[UREMOTE_TRUSTED_MAX];   // 1: an add, not applied yet
+static int g_nshown;
+
 static const char *addr_text(void) {
     static char out[64];
     struct query_netdev d;
@@ -76,22 +90,35 @@ static const char *addr_text(void) {
     return out;
 }
 
+static int deleted(const char *addr) {
+    for (int i = 0; i < g_ndel; i++) if (!strcmp(g_del[i], addr)) return 1;
+    return 0;
+}
+
 static void build_trusted(void) {
-    for (int i = 0; i < g_rc.ntrusted; i++) {
+    g_nshown = 0;
+    for (int i = 0; i < g_rc.ntrusted && g_nshown < UREMOTE_TRUSTED_MAX; i++)
+        if (!deleted(g_rc.trusted[i].text)) { g_shown_add[g_nshown] = 0; g_shown[g_nshown++] = g_rc.trusted[i]; }
+    for (int i = 0; i < g_nadd && g_nshown < UREMOTE_TRUSTED_MAX; i++) {
+        g_shown_add[g_nshown] = 1;
+        g_shown[g_nshown++] = g_add[i];
+    }
+    for (int i = 0; i < g_nshown; i++) {
         struct uui_actionlist_row *r = &g_trusted_rows[i];
         memset(r, 0, sizeof *r);
-        if (g_rc.trusted[i].label[0])
-            snprintf(r->title, sizeof r->title, "%s - %s", g_rc.trusted[i].text, g_rc.trusted[i].label);
+        if (g_shown[i].label[0])
+            snprintf(r->title, sizeof r->title, "%s - %s", g_shown[i].text, g_shown[i].label);
         else
-            snprintf(r->title, sizeof r->title, "%s", g_rc.trusted[i].text);
+            snprintf(r->title, sizeof r->title, "%s", g_shown[i].text);
         int bits = 0;
-        for (uint32_t m = g_rc.trusted[i].mask; m; m <<= 1) bits++;
-        snprintf(r->sub, sizeof r->sub, bits == 32 ? "Allowed without asking"
+        for (uint32_t m = g_shown[i].mask; m; m <<= 1) bits++;
+        snprintf(r->sub, sizeof r->sub, g_shown_add[i] ? "Trusted once you apply"
+                 : bits == 32 ? "Allowed without asking"
                  : "Every address in this subnet is allowed without asking");
         r->btn[1] = "Remove";
         r->primary = -1;
     }
-    g_trusted.count = g_rc.ntrusted;
+    g_trusted.count = g_nshown;
 }
 
 // Rebuilds the Connected rows; 1 if what they say changed.
@@ -141,21 +168,18 @@ static void describe_cards(void) {
 void remote_init(void) {
     uui_switch_init(&g_vnc_sw, 0);
     uui_spinbox_init(&g_vnc_port, 5900, 1, 65535, 1, NULL);
+    // EMPTY, whatever is set: the password is root's to read (remote.secret);
+    // the placeholder says whether there is one, and typing is a change.
     uui_textbox_init(&g_vnc_pw, "");
     g_vnc_pw.masked = 1;
-    g_vnc_pw.placeholder = "Not set";
-    uui_button_init(&g_vnc_pw_save, 0, 0, 0, 0, "Save", UUI_ROLE(control_bg), UUI_ROLE(text), ID_RD_PW_SAVE);
-    g_pw_items[0] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &g_vnc_pw,
-                                       .id = ID_RD_PW, .flags = UUI_FILL_W, .name = "rd_vnc_pw" };
-    g_pw_items[1] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_vnc_pw_save,
-                                       .id = ID_RD_PW_SAVE, .name = "rd_vnc_pw_save" };
-    g_pw_row = (struct uui_layout){ .dir = UUI_ROW, .items = g_pw_items, .count = 2 };
+    g_vnc_pw.placeholder = "No password";
     uui_setting_row_init(&g_vnc_port_row, "Port", "5900 is VNC's own.",
                          (struct uui_item){ .ops = &uui_spinbox_ops, .widget = &g_vnc_port,
                                             .id = ID_RD_PORT, .name = "rd_vnc_port" });
-    uui_setting_row_init(&g_vnc_pw_row, "Password", "Required: with none, every viewer is refused.",
-                         (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_pw_row,
-                                            .flags = UUI_FILL_W, .name = "rd_vnc_pw_row" });
+    uui_setting_row_init(&g_vnc_pw_row, "Password", "Required: with none, every viewer is refused. "
+                         "Type a new one to change it.",
+                         (struct uui_item){ .ops = &uui_textbox_ops, .widget = &g_vnc_pw, .id = ID_RD_PW,
+                                            .flags = UUI_FILL_W, .name = "rd_vnc_pw" });
     g_vnc_port_row.flat = g_vnc_pw_row.flat = 1;
     g_vnc_pw_row.stacked = 1;
     uui_dropdown_init(&g_enc_dd, 0, 0, 0, 0, ENC, 3);
@@ -240,11 +264,21 @@ void remote_fonts(void) {
     g_conn_h.font = ugfx_font_session(UGFX_FONT_BOLD);
 }
 
+// Every row the machine's: a shield on each, unless this is root.
+static void shields(void) {
+    int adm = usetting_needs_admin_flags(0);
+    g_vnc_port_row.shield = g_vnc_pw_row.shield = g_enc_row.shield = adm;
+    g_when_row.shield = g_from_row.shield = g_add_row.shield = adm;
+}
+
 void remote_load(void) {
     uremote_load(&g_rc);
+    g_nadd = g_ndel = 0;
+    shields();
     g_vnc_sw.on = g_rc.vnc.enabled;
     uui_spinbox_set_value(&g_vnc_port, g_rc.vnc.port);
-    uui_textbox_set_text(&g_vnc_pw, g_rc.vnc.password);
+    uui_textbox_set_text(&g_vnc_pw, "");
+    g_vnc_pw.placeholder = g_rc.vnc.password_set ? "A password is set" : "No password";
     uui_dropdown_set_selected(&g_when_dd, (int)g_rc.when);
     uui_dropdown_set_selected(&g_enc_dd, (int)g_rc.vnc.encryption);
     // The fingerprint a viewer shows when it first meets this machine:
@@ -267,7 +301,6 @@ int remote_emit(struct uui_item *out, int n, struct uui_focusable *focus, int *n
     focus[(*nfocus)++] = (struct uui_focusable){ &g_vnc_sw, &uui_switch_ops };
     focus[(*nfocus)++] = (struct uui_focusable){ &g_vnc_port, &uui_spinbox_ops };
     focus[(*nfocus)++] = (struct uui_focusable){ &g_vnc_pw, &uui_textbox_focus_ops };
-    focus[(*nfocus)++] = (struct uui_focusable){ &g_vnc_pw_save, &uui_button_ops };
     focus[(*nfocus)++] = (struct uui_focusable){ &g_enc_dd, &uui_dropdown_ops };
     out[n++] = (struct uui_item){ .ops = &uui_setting_row_ops, .widget = &g_when_row,
                                   .flags = UUI_FILL_W, .name = "rd_when_row" };
@@ -302,42 +335,129 @@ int remote_fit(void) {
     return changed;
 }
 
-static void status(const char *what, int rc) {
-    snprintf(g_status, sizeof g_status, rc ? "Could not save %s to /etc/remote.conf." : "%s saved.",
-             what);
-    ulogf("settings: remote %s %s\n", what, rc ? "FAILED" : "saved");
+// --- staging and Apply ---------------------------------------------------------
+
+static const char *const ENC_W[] = { "prefer", "require", "off" };
+static const char *const WHEN_W[] = { "ask", "ask-unless-trusted", "always" };
+static const char *const FROM_W[] = { "network", "anywhere" };
+
+// The staged changes as key/value pairs (net/uremote.h's). TWO copies:
+// the footer counts into `g_count` on every frame, and Apply builds
+// `g_req` once -- what the worker thread sends, never rewritten while it
+// is out (g_busy), and wiped when privd has answered.
+#define UREMOTE_CHANGES_MAX (6 + 2 * UREMOTE_TRUSTED_MAX)
+struct kvset {
+    char buf[UREMOTE_CHANGES_MAX][2][UREMOTE_PASSWORD_MAX + 32];
+    const char *kv[2 * UREMOTE_CHANGES_MAX];
+};
+static struct kvset g_count, g_req;
+static struct kvset *g_into;   // where staged() writes
+
+static int add_kv(int n, const char *k, const char *fmt, const char *v) {
+    snprintf(g_into->buf[n][0], sizeof g_into->buf[n][0], "%s", k);
+    snprintf(g_into->buf[n][1], sizeof g_into->buf[n][1], fmt, v);
+    g_into->kv[2 * n] = g_into->buf[n][0];
+    g_into->kv[2 * n + 1] = g_into->buf[n][1];
+    return n + 1;
+}
+
+static int staged(struct kvset *into) {
+    g_into = into;
+    int n = 0;
+    char v[16];
+    if (g_vnc_sw.on != g_rc.vnc.enabled) n = add_kv(n, "vnc.enabled", "=%s", g_vnc_sw.on ? "yes" : "no");
+    if (uui_spinbox_value(&g_vnc_port) != g_rc.vnc.port) {
+        snprintf(v, sizeof v, "%ld", (long)uui_spinbox_value(&g_vnc_port));
+        n = add_kv(n, "vnc.port", "=%s", v);
+    }
+    int e = uui_dropdown_selected(&g_enc_dd), w = uui_dropdown_selected(&g_when_dd);
+    int f = uui_dropdown_selected(&g_from_dd);
+    if (e >= 0 && e < 3 && e != (int)g_rc.vnc.encryption) n = add_kv(n, "vnc.encryption", "=%s", ENC_W[e]);
+    const char *pw = uui_textbox_text(&g_vnc_pw);
+    if (pw[0]) n = add_kv(n, UREMOTE_CHANGE_PASSWORD, "=%s", pw);
+    if (w >= 0 && w < 3 && w != (int)g_rc.when) n = add_kv(n, "when", "=%s", WHEN_W[w]);
+    if (f >= 0 && f < 2 && f != (int)g_rc.from) n = add_kv(n, "from", "=%s", FROM_W[f]);
+    for (int i = 0; i < g_ndel; i++) {
+        char k[48];
+        snprintf(k, sizeof k, UREMOTE_CHANGE_TRUST "%s", g_del[i]);
+        n = add_kv(n, k, "%s", "-");
+    }
+    for (int i = 0; i < g_nadd; i++) {
+        char k[48];
+        snprintf(k, sizeof k, UREMOTE_CHANGE_TRUST "%s", g_add[i].text);
+        n = add_kv(n, k, "=%s", g_add[i].label);
+    }
+    return n;
+}
+
+int remote_changes(void) {
+    if (!g_show_remote) return 0;
+    int n = staged(&g_count);
+    memset(&g_count, 0, sizeof g_count);   // a password, perhaps
+    return n;
+}
+int remote_busy(void) { return g_busy; }
+
+static int apply_work(void *arg) {
+    return uremote_request(g_req.kv, (int)(intptr_t)arg) < 0 ? -errno : 0;
+}
+
+static void apply_done(struct uapp *a, int rc, int err, void *arg) {
+    (void)err;
+    int n = (int)(intptr_t)arg;
+    g_busy = 0;
+    memset(&g_req, 0, sizeof g_req);   // a password, perhaps
+    if (rc == 0) snprintf(g_status, sizeof g_status, "Saved %d remote desktop change(s)", n);
+    else if (rc == -ECANCELED) snprintf(g_status, sizeof g_status, "Not applied -- administrator rights were not given");
+    else if (rc == -EINVAL) snprintf(g_status, sizeof g_status, "Not applied -- a value was refused");
+    else snprintf(g_status, sizeof g_status, "Not applied -- %s", upriv_strerror(-rc));
+    ulogf("settings: remote changes %d result %d\n", n, rc);
+    // What is in effect after a save; the edits stay when nothing was made,
+    // so asking again needs no retyping.
+    if (rc == 0 && g_show_remote) remote_load();
+    if (g_show_remote) relayout_page();
+    uapp_redraw(a);
+}
+
+int remote_apply(void) {
+    if (g_busy) return 0;
+    int n = staged(&g_req);
+    if (!n) { strlcpy(g_status, "Nothing to apply", sizeof g_status); return 1; }
+    // ONE prompt per Apply, and it shows UPRIV_PROMPT_ROWS rows at most.
+    if (n > UPRIV_PROMPT_ROWS && usetting_needs_admin_flags(0)) {
+        memset(&g_req, 0, sizeof g_req);
+        snprintf(g_status, sizeof g_status, "More than %d changes at once -- apply some of them first",
+                 UPRIV_PROMPT_ROWS);
+        return 0;
+    }
+    if (!g_app || uapp_run_then(g_app, apply_work, (void *)(intptr_t)n, apply_done) != 0) {
+        strlcpy(g_status, "Could not ask for administrator rights", sizeof g_status);
+        return 0;
+    }
+    g_busy = 1;
+    strlcpy(g_status, usetting_needs_admin_flags(0) ? "Asking for administrator rights..." : "Saving...",
+            sizeof g_status);
+    return 0;
 }
 
 int remote_on_widget(int id) {
     if (!g_show_remote) return 0;
     switch (id) {
-    case ID_RD_VNC:
-        status(g_vnc_sw.on ? "VNC on" : "VNC off", uremote_set_enabled("vnc", g_vnc_sw.on));
-        break;
-    case ID_RD_PORT:
-        status("The port", uremote_set_port("vnc", uui_spinbox_value(&g_vnc_port)));
-        break;
-    case ID_RD_ENC: {
-        int sel = uui_dropdown_selected(&g_enc_dd);
-        if (sel >= 0 && sel < 3) status("Encryption", uremote_set_encryption("vnc", (enum uremote_enc)sel));
-        break;
-    }
-    case ID_RD_WHEN: {
-        int sel = uui_dropdown_selected(&g_when_dd);
-        if (sel >= 0 && sel < 3) status("When someone connects", uremote_set_when((enum uremote_when)sel));
-        break;
-    }
-    case ID_RD_FROM: {
-        int sel = uui_dropdown_selected(&g_from_dd);
-        if (sel >= 0 && sel < 2) status("Allow connections from", uremote_set_from((enum uremote_from)sel));
-        break;
-    }
+    case ID_RD_VNC: case ID_RD_PORT: case ID_RD_ENC: case ID_RD_WHEN: case ID_RD_FROM: case ID_RD_PW:
+        return 1;   // staged in the control itself; the footer counts it
     case ID_RD_TRUSTED: {
         int r = g_trusted.fired_row;
         g_trusted.fired_row = -1;
-        if (r < 0 || r >= g_rc.ntrusted) return 1;
-        status("The trusted list", uremote_untrust(g_rc.trusted[r].text));
-        break;
+        if (r < 0 || r >= g_nshown) return 1;
+        if (g_shown_add[r]) {
+            // An add not applied yet: forgotten.
+            for (int i = 0; i < g_nadd; i++)
+                if (!strcmp(g_add[i].text, g_shown[r].text)) { g_add[i] = g_add[--g_nadd]; break; }
+        } else if (g_ndel < UREMOTE_TRUSTED_MAX) {
+            strlcpy(g_del[g_ndel++], g_shown[r].text, sizeof g_del[0]);
+        }
+        build_trusted();
+        return 1;
     }
     case ID_RD_CONN: {
         int r = g_conn.fired_row, b = g_conn.fired_btn;
@@ -352,29 +472,39 @@ int remote_on_widget(int id) {
     default:
         return 0;
     }
-    remote_load();
-    return 1;
 }
 
 int remote_on_action(int code) {
     if (!g_show_remote) return 0;
-    if (code == ID_RD_PW_SAVE) {
-        status("The password", uremote_set_password("vnc", uui_textbox_text(&g_vnc_pw)));
-        remote_load();
-        return 1;
-    }
     if (code == ID_RD_ADD) {
         struct uremote_net n;
-        const char *a = uui_textbox_text(&g_add_addr);
+        const char *a = uui_textbox_text(&g_add_addr), *label = uui_textbox_text(&g_add_label);
+        char k[48];
+        snprintf(k, sizeof k, UREMOTE_CHANGE_TRUST "%s", a);
+        char v[UREMOTE_LABEL_MAX + 2];
+        snprintf(v, sizeof v, "=%s", label);
         if (!uremote_parse_net(a, &n)) {
             snprintf(g_status, sizeof g_status, "\"%s\" is not an address -- try 192.168.1.20 "
                      "or 192.168.1.0/24.", a);
             return 1;
         }
-        status("The trusted list", uremote_trust(a, uui_textbox_text(&g_add_label)));
+        if (!uremote_change_ok(k, v)) {
+            strlcpy(g_status, "A name is one line, without '#'", sizeof g_status);
+            return 1;
+        }
+        int have = 0;
+        for (int i = 0; i < g_nshown; i++) have |= !strcmp(g_shown[i].text, n.text);
+        if (!have && g_nshown < UREMOTE_TRUSTED_MAX && g_nadd < UREMOTE_TRUSTED_MAX) {
+            snprintf(n.label, sizeof n.label, "%s", label);
+            g_add[g_nadd++] = n;
+            snprintf(g_status, sizeof g_status, "%s is trusted once you apply", n.text);
+        } else {
+            snprintf(g_status, sizeof g_status, have ? "%s is in the list already" : "The list is full",
+                     n.text);
+        }
         uui_textbox_set_text(&g_add_addr, "");
         uui_textbox_set_text(&g_add_label, "");
-        remote_load();
+        build_trusted();
         return 1;
     }
     return 0;

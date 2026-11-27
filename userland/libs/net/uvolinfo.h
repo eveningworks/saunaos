@@ -2,7 +2,7 @@
 #define ULIB_UVOLINFO_H
 
 // What one mounted volume or network share IS, gathered in one place:
-// the kernel's QUERY_FSINFO record, the share's file in /etc/mounts.d
+// the kernel's QUERY_FSINFO record, the share's file in ~/.config/mounts.d
 // and its server's last word -- for Properties' volume page and the File
 // Manager's details pane, so the two show the same facts. The ring-3
 // counterpart of media/ufileinfo.h for a mount point rather than a file.
@@ -37,7 +37,7 @@ struct uvolinfo {
     char source[64];           // "//nas/media", "/home/Downloads/disc.iso"
     int state;                 // USERFS_ST_*
     char note[48];             // "SMB 3.1.1, signed", "No answer from nas"
-    int session;               // opened for the session: no file in /etc/mounts.d
+    int session;               // opened for the session: no file in ~/.config/mounts.d
     char user[64], domain[64]; // from that file; "" anonymous
     int remembered;            // a password hash is saved
 };

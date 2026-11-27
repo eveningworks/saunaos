@@ -145,6 +145,10 @@ int uschema_target(const struct uschema *s, char *out, uint32_t cap);
 #define USCHEMA_KEY_DEFAULT     "Default"
 #define USCHEMA_KEY_CHOICES     "Choices"
 #define USCHEMA_KEY_CHOICE_DIR  "ChoiceDir"
+// A ChoiceDir= entry starting with this is a folder in the PERSON's data
+// folder -- `$XDG_DATA_HOME/themes` is ~/.local/share/themes -- read for
+// anyone but root (users D3b2a).
+#define USCHEMA_DIR_DATA_HOME   "$XDG_DATA_HOME/"
 #define USCHEMA_KEY_DIR_MODE    "ChoiceDirMode"
 #define USCHEMA_KEY_MIN         "Min"
 #define USCHEMA_KEY_MAX         "Max"

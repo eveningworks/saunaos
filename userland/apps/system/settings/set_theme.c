@@ -87,7 +87,7 @@ int theme_emit_after(struct uui_item *out, int n, int i, struct uui_focusable *f
     uui_button_init(&g_import, 0, 0, 0, 0, "Import a theme file...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_TH_IMPORT);
     uui_button_init(&g_delete, 0, 0, 0, 0, "Delete", UUI_ROLE(control_bg), UUI_ROLE(text), ID_TH_DELETE);
     // A shipped theme is not this page's to delete.
-    g_delete.disabled = utheme_is_shipped(stem);
+    g_delete.disabled = !utheme_is_own(stem);
     struct uui_button *b[4] = { &g_customize, &g_saveas, &g_import, &g_delete };
     static const char *const NAMES[4] = { "theme_customize", "theme_saveas", "theme_import", "theme_delete" };
     for (int k = 0; k < 4; k++) {
@@ -112,13 +112,13 @@ int theme_apply_slot(const struct slot *sl, int *changed) {
     return 1;
 }
 
-// --- Save as new theme: a name, then a copy in /etc/themes --------------
+// --- Save as new theme: a name, then a copy in the person's themes ------
 
 static struct uui_nameask g_ask_name;
 
 static const char *saveas_check(void *ctx, const char *name) {
     (void)ctx;
-    char stem[UTHEME_STEM_MAX], path[96];
+    char stem[UTHEME_STEM_MAX], path[UTHEME_PATH_MAX];
     if (!utheme_stem_from_name(name, stem, sizeof stem)) return "Use letters and digits";
     if (utheme_path(stem, path, sizeof path)) return "A theme of that name exists";
     return 0;
@@ -126,15 +126,14 @@ static const char *saveas_check(void *ctx, const char *name) {
 
 static void saveas_done(void *ctx, const char *name) {
     (void)ctx;
-    char stem[UTHEME_STEM_MAX], path[96], from[UTHEME_STEM_MAX];
+    char stem[UTHEME_STEM_MAX], path[UTHEME_PATH_MAX], from[UTHEME_STEM_MAX];
     utheme_stem_from_name(name, stem, sizeof stem);
     picked(from, sizeof from);
     struct utheme t;
     struct utheme_bundle b;
     utheme_load(from, &t, &b);
     strlcpy(t.name, name, sizeof t.name);
-    snprintf(path, sizeof path, "%s/%s.theme", UTHEME_LOCAL_DIR, stem);
-    int ok = utheme_save(path, &t, &b, "Made on this computer");
+    int ok = utheme_own_path(stem, path, sizeof path) && utheme_save(path, &t, &b, "Made on this computer");
     ulogf("settings: theme saved as %s %s\n", path, ok ? "ok" : "FAILED");
     snprintf(g_status, sizeof g_status, ok ? "Saved as %s" : "Could not save %s", name);
     theme_tiles_reset();
@@ -167,12 +166,12 @@ static int keep_themes(void *ctx, const char *dir, const struct ulist_entry *e) 
 static void import_chosen(void *ctx, const char *path) {
     struct uapp *a = ctx;
     if (!path) return;
-    // Parsed, then WRITTEN by the writer: what lands in /etc/themes is a
+    // Parsed, then WRITTEN by the writer: what lands in the person's themes is a
     // complete, well-formed file whatever the source carried.
     struct utheme t;
     struct utheme_bundle b;
     int bad = 0;
-    char stem[UTHEME_STEM_MAX], dst[96];
+    char stem[UTHEME_STEM_MAX], dst[UTHEME_PATH_MAX];
     const char *base = strrchr(path, '/');
     base = base ? base + 1 : path;
     char name[64];
@@ -184,8 +183,7 @@ static void import_chosen(void *ctx, const char *path) {
     } else if (utheme_path(stem, dst, sizeof dst)) {
         snprintf(g_status, sizeof g_status, "A theme named %s is already here", stem);
     } else {
-        snprintf(dst, sizeof dst, "%s/%s.theme", UTHEME_LOCAL_DIR, stem);
-        int ok = utheme_save(dst, &t, &b, "Imported");
+        int ok = utheme_own_path(stem, dst, sizeof dst) && utheme_save(dst, &t, &b, "Imported");
         if (!ok) snprintf(g_status, sizeof g_status, "Could not write %s", dst);
         else if (bad) snprintf(g_status, sizeof g_status, "Imported %s -- %d colour(s) were not valid and use Light's", t.name, bad);
         else snprintf(g_status, sizeof g_status, "Imported %s", t.name);
@@ -216,10 +214,10 @@ static void import_open(struct uapp *a) {
 // --- Delete -------------------------------------------------------------
 
 static void delete_picked(void) {
-    char stem[UTHEME_STEM_MAX], path[96];
+    char stem[UTHEME_STEM_MAX], path[UTHEME_PATH_MAX];
     picked(stem, sizeof stem);
-    if (utheme_is_shipped(stem)) return;
-    snprintf(path, sizeof path, "%s/%s.theme", UTHEME_LOCAL_DIR, stem);
+    // Only the person's own: the machine's (/etc/themes) is an administrator's.
+    if (!utheme_is_own(stem) || !utheme_own_path(stem, path, sizeof path)) return;
     char live[UTHEME_STEM_MAX] = "";
     usetting_get(SET_THEME, live, sizeof live);
     int ok = unlink(path) == 0;

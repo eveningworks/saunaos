@@ -37,6 +37,7 @@
 #include "base/ulog.h"
 #include "ui/ucrt.h"
 #include "base/uconf.h"
+#include "base/udatadir.h"   // the person's saves
 #include "win_proto.h"  // WIN_CLIENT_MAX_W -- the scratch row's bound
 #include "third_party/doom/glue/dg_saunaos.h"
 #include "input_keys.h"   // INPUT_KEY_ENTER -- a key by position
@@ -54,11 +55,12 @@
 // without this Doom creates `/.savegame/` in the filesystem root, which
 // is where tools/checks/check_layout.py found it.
 //
-// `/var/games` is the FHS location for exactly this (mutable game
-// state), and it is what this repo's own `/var` row already describes.
-// Doom then makes `.savegame/<iwad>/` underneath, which is upstream's
-// structure and not ours to tidy -- docs/filesystem-layout.md documents
-// it as what it is.
+// THE SAVES ARE THE PERSON'S: $XDG_DATA_HOME/doom/saves, beside the
+// IWADs they download (ScummVM's saves sit the same way) -- /var is
+// root's (users D3b2a). Root, which has no data home, keeps FHS's
+// `/var/games/doom`. Doom then makes `.savegame/<iwad>/` underneath,
+// which is upstream's structure and not ours to tidy --
+// docs/filesystem-layout.md documents it as what it is.
 // Doom's argv cap. Three for `-iwad <path>` plus room for a handful of
 // switches; a longer command line is truncated rather than refused,
 // because the useful ones are one or two words.
@@ -66,7 +68,8 @@
 static int g_argc;
 static char **g_argv;
 
-#define SAVE_DIR "/var/games/doom"
+#define SAVE_DIR_MACHINE "/var/games/doom"   // root's
+#define SAVE_DIR_REL     "doom/saves"        // under the person's data home
 
 struct doom_state {
     struct uapp *app;
@@ -472,20 +475,24 @@ void doom_start_game(struct uapp *a, const struct udata_item *w) {
     uapp_poll_pause(a, 0);   // the game polls: it has its own 35 Hz
 
     // The savegame directory, made and entered before the game starts.
-    // Each level of the path in turn, because SYS_MKDIR creates ONE
-    // level (POSIX's mkdir, not `mkdir -p`), and every result is ignored
-    // on purpose: the interesting failure is the chdir below, and
-    // "already exists" is the normal case on every boot after the first.
-    mkdir("/var", 0755);
-    mkdir("/var/games", 0755);
-    mkdir(SAVE_DIR, 0755);
-    if (chdir(SAVE_DIR) != 0) {
+    // Every mkdir result is ignored on purpose: the interesting failure
+    // is the chdir below, and "already exists" is the normal case.
+    char *save = 0;
+    if (geteuid() == 0) {
+        mkdir("/var/games", 0755);   // SYS_MKDIR makes ONE level
+        save = strdup(SAVE_DIR_MACHINE);
+    } else {
+        save = udatadir_prepare(SAVE_DIR_REL);   // the folders above it
+    }
+    if (save) mkdir(save, 0755);
+    if (!save || chdir(save) != 0) {
         // Not fatal. Doom will write its saves relative to whatever the
         // cwd is instead, which is untidy rather than broken -- and
         // refusing to start a game because a savegame directory could
         // not be made would be the wrong trade.
-        ulogf("doom: could not enter %s -- saves will land in the cwd\n", SAVE_DIR);
+        ulogf("doom: could not enter %s -- saves will land in the cwd\n", save ? save : SAVE_DIR_REL);
     }
+    free(save);
 
     // argv, as Doom expects it. `-iwad <path>` rather than letting
     // d_iwad.c search: see DOOM_DATA.

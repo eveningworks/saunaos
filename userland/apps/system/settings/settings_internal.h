@@ -91,7 +91,7 @@ enum { ID_TREE = 1, ID_SIDE_SPLIT, ID_BODY, ID_PAGE, ID_ADVANCED, ID_TEST,
        ID_SU_DEFAULT, ID_SU_TIMEOUT, ID_SU_NEXT, ID_SU_OPEN, ID_SU_FBS_NOW, ID_SU_FBS_AGAIN,
        ID_KB_LIST, ID_KB_ADD, ID_KB_REMOVE, ID_KB_UP, ID_KB_DOWN, ID_KB_TRY,
        ID_NA_CARD, ID_NA_DEVMGR,
-       ID_RD_VNC, ID_RD_RDP, ID_RD_PORT, ID_RD_PW, ID_RD_PW_SAVE, ID_RD_WHEN, ID_RD_FROM,
+       ID_RD_VNC, ID_RD_RDP, ID_RD_PORT, ID_RD_PW, ID_RD_WHEN, ID_RD_FROM,
        ID_RD_TRUSTED, ID_RD_ADD_ADDR, ID_RD_ADD_LABEL, ID_RD_ADD, ID_RD_CONN, ID_RD_ENC,
        ID_TH_CUSTOMIZE, ID_TH_SAVEAS, ID_TH_IMPORT, ID_TH_DELETE,
        ID_BM_SIZE, ID_BM_RESTART, ID_NF_LIST, ID_NF_MODE,
@@ -448,7 +448,7 @@ int  adapters_on_widget(int id);
 int  adapters_on_action(int code);
 int  adapters_tick(void);
 
-// Network > Remote Desktop (set_remote.c): /etc/remote.conf, the trusted
+// Network > Remote Desktop (set_remote.c): root's /etc/remote.conf, the trusted
 // addresses, the sessions open now.
 // System > Users (set_users.c): login.autologin's slot drawn as the
 // account, password and automatic sign-in cards; changes saved at once.
@@ -470,5 +470,10 @@ int  remote_fit(void);
 int  remote_on_widget(int id);
 int  remote_on_action(int code);
 int  remote_tick(void);
+// The page's staged changes (all the machine's), Apply's one request for
+// them (0 while privd answers, as apply_page()), and whether it is out.
+int  remote_changes(void);
+int  remote_apply(void);
+int  remote_busy(void);
 
 #endif

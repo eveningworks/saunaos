@@ -108,12 +108,34 @@ void wm_priv_forget(void) {
 static int g_reopen;   // main thread only
 
 void wm_priv_reopen(void) { g_reopen = 1; }
+int wm_priv_busy(void) { return g_showing || g_queue; }
 
 static void lost(void) {
     upriv_agent_close(g_agent);
     g_agent = 0;
     while (g_queue) { struct queued *q = g_queue; g_queue = q->next; free(q); }
     if (g_showing) { g_showing = 0; g_showing_pw = 0; confirm_dialog_close(); }
+}
+
+int wm_priv_seat_action(const char *action, const char *const *args) {
+    if (!g_agent) return -1;
+    char rec[512];
+    uint32_t flags = 0;
+    memcpy(rec, &flags, sizeof flags);
+    size_t n = sizeof flags;
+    for (const char *const *a = (const char *const[]){ action, 0 }; *a; a++) {
+        size_t k = strlen(*a) + 1;
+        if (n + k > sizeof rec) return -1;
+        memcpy(rec + n, *a, k);
+        n += k;
+    }
+    for (int i = 0; args && args[i]; i++) {
+        size_t k = strlen(args[i]) + 1;
+        if (n + k > sizeof rec) return -1;
+        memcpy(rec + n, args[i], k);
+        n += k;
+    }
+    return ubulk_send(g_agent, UPRIV_T_ACTION, 0, rec, (uint32_t)n, 1000);
 }
 
 int wm_priv_kill(int pid, int sig) {

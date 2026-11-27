@@ -115,6 +115,8 @@ static void answer_signin(struct uui_netshare *n, int code) {
     if (!c) { explicit_bzero(pass, sizeof pass); reopen_with(n, "Out of memory.", 0); return; }
     snprintf(c->point, sizeof c->point, "%s", n->point);
     int len = snprintf((char *)c->data, sizeof c->data, "%s%c%c%s%c%d", user, 0, 0, pass, 0, keep ? 1 : 0);
+    n->keep = keep;
+    if (keep) snprintf(n->keep_user, sizeof n->keep_user, "%s", user);
     explicit_bzero(pass, sizeof pass);
     if (len < 0 || len + 1 > (int)sizeof c->data) { free(c); reopen_with(n, "Too long.", 0); return; }
     c->code = USERFS_CTL_LOGIN;
@@ -148,7 +150,7 @@ static void answer_add(struct uui_netshare *n, int code) {
         return;
     }
     if (!unetmount_save(&m)) {
-        reopen_with(n, "Could not save it in " UNETMOUNT_DIR ".", n->f_addr);
+        reopen_with(n, "Could not save it in your network shares (~/.config/mounts.d).", n->f_addr);
         return;
     }
     snprintf(n->name, sizeof n->name, "%s", m.name);
@@ -163,6 +165,27 @@ void uui_netshare_answer(struct uui_netshare *n, int code) {
     uui_dialog_set_body(n->dlg, NULL, 0, 0);
     if (n->kind == KIND_ADD) answer_add(n, code);
     else answer_signin(n, code);
+}
+
+// REMEMBER, once the sign-in worked: the user and the hash into the
+// person's own file for the share -- a saved one only; a share opened for
+// the session has none until it is saved.
+static void remember(struct uui_netshare *n) {
+    const struct userfs_ctl *c = n->ctl;
+    const char *base = strrchr(n->point, '/');
+    struct unetmount m;
+    // The worker's answer: the hash, when this account is the share's.
+    if (c->len != 33 || c->data[32] || strlen((const char *)c->data) != 32) return;
+    snprintf(n->keep_hash, sizeof n->keep_hash, "%s", (const char *)c->data);
+    if (!base || strncmp(n->point, UNETMOUNT_ROOT "/", strlen(UNETMOUNT_ROOT) + 1) ||
+        !unetmount_load(base + 1, &m))
+        return;
+    snprintf(m.user, sizeof m.user, "%s", n->keep_user);
+    m.domain[0] = 0;
+    snprintf(m.hash, sizeof m.hash, "%s", n->keep_hash);
+    int ok = unetmount_save(&m);
+    explicit_bzero(&m, sizeof m);
+    if (!ok) fprintf(stderr, "netshare: the password for %s was not saved\n", n->point);
 }
 
 static int mounted(const char *point) {
@@ -204,6 +227,10 @@ int uui_netshare_poll(struct uui_netshare *n, char *out, size_t cap) {
     }
     if (!__atomic_load_n(&n->done, __ATOMIC_ACQUIRE)) return UUI_NETSHARE_BUSY;
     pthread_join(g_thread, NULL);
+    int keep = n->keep;
+    n->keep = 0;
+    if (n->result == 0 && keep) remember(n);
+    explicit_bzero(n->keep_hash, sizeof n->keep_hash);
     memset(n->ctl, 0, sizeof(struct userfs_ctl));
     free(n->ctl);
     n->ctl = NULL;

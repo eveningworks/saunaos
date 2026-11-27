@@ -45,7 +45,7 @@ static void fill(struct uvolinfo *v, const struct query_fsinfo *fs) {
     while (h[n] && h[n] != '/' && h[n] != ':' && n < (int)sizeof v->server - 1) n++;
     memcpy(v->server, h, (size_t)n);
     v->server[n] = '\0';
-    // Saved is a file in /etc/mounts.d (unetmount_is_session(), without
+    // Saved is a file in ~/.config/mounts.d (unetmount_is_session(), without
     // its second walk of the mounts); one read gives the sign-in too.
     struct unetmount m;
     int saved = !strncmp(fs->point, UNETMOUNT_ROOT "/", strlen(UNETMOUNT_ROOT) + 1) &&

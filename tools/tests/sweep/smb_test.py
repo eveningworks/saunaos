@@ -57,6 +57,9 @@ from harness import Results, copy_disk  # noqa: E402
 
 VM = toolpath.tool("vm.py")
 GW = "10.0.2.2"
+ACCOUNT = "user"                       # the desktop's (tools/lib/gui_debug.py's DESKTOP_ACCOUNT)
+HOME = f"/home/{ACCOUNT}"
+SHARES = f"{HOME}/.config/mounts.d"    # the person's saved shares (net/unetmount.h)
 
 
 class Guest:
@@ -72,6 +75,17 @@ class Guest:
 
     def sh(self, *cmds, timeout=300):
         return self.vm("exec", *cmds, timeout=timeout)
+
+    def as_user(self, *lines, timeout=300):
+        """Each line through /bin/sh AS THE DESKTOP'S ACCOUNT (the debug
+        console's `as`): the saved shares are the person's own files
+        (users D3b2a), and `smb login -r` saves into the asker's."""
+        return self.vm("exec", "--raw", *[f"as {ACCOUNT} {ln}" for ln in lines], timeout=timeout)
+
+    def share_file(self, name, *lines):
+        """A saved share of the person's, written as them."""
+        self.as_user(f"mkdir {HOME}/.config", f"mkdir {SHARES}", f"rm -f {SHARES}/{name}",
+                     *[f"printf '%s\\n' '{ln}' >> {SHARES}/{name}" for ln in lines])
 
     def mount_state(self, point):
         out = self.sh("mount")
@@ -163,23 +177,33 @@ def main():
             g.sh(f"open smb://{GW}:{srv.port}/public")
             st = g.wait_state("/net/public", {"idle", "connected", "connecting", "sign-in needed"}, timeout_s=10)
             res.check("open smb://... mounts the share for the session", st is not None, st)
-            out = g.sh("ls /etc/mounts.d")
+            out = g.sh(f"ls {SHARES}")
             res.check("...and saves nothing", "public" not in out.split("---")[-1], out[-200:])
             g.sh("umount /net/public")
 
             print("phase 3: a saved share")
-            g.sh("mkdir /etc/mounts.d", f"write /etc/mounts.d/media Source={url}",
-                 f"append /etc/mounts.d/media User={srv.USER}")
+            g.share_file("media", f"Source={url}", f"User={srv.USER}")
             st = g.wait_state("/net/media", {"sign-in needed"})
             res.check("smbfsd mounts it, asking for a password", st == "sign-in needed", st)
-            out = g.sh(f"smb {cred} -r login media", "cat /etc/mounts.d/media")
+            # AT THE SEAT, as the desktop's account: a share is signed in to
+            # from the person's own session (SYS_USERFS is the seat's), and
+            # Remember saves into the asker's own file. `gui spawn` starts it
+            # from the compositor; a script, as the password has a space.
+            g.as_user(f"printf '%s\\n' \"smb {cred} -r login media\" > /tmp/smb_remember.sh")
+            g.vm("exec", "--raw", "gui spawn /bin/sh /tmp/smb_remember.sh")
+            out = ""
+            for _ in range(30):
+                out = g.sh(f"cat {SHARES}/media")
+                if "Hash=" in out:
+                    break
+                time.sleep(0.5)  # sleep-ok: polls the file the asker writes
+            g.sh("rm /tmp/smb_remember.sh")
             res.check("Remember saves a hash, never the password",
                       re.search(r"Hash=[0-9a-f]{32}", out) is not None and srv.PASSWORD not in out.split("login media")[-1],
                       out[-300:])
             if args.positive_control:
-                g.sh("rm /etc/mounts.d/media", f"write /etc/mounts.d/media Source={url}",
-                     f"append /etc/mounts.d/media User={srv.USER}",
-                     "append /etc/mounts.d/media Hash=00112233445566778899aabbccddeeff")
+                g.share_file("media", f"Source={url}", f"User={srv.USER}",
+                             "Hash=00112233445566778899aabbccddeeff")
                 time.sleep(3)
 
             print("  cold boot")
@@ -207,7 +231,7 @@ def main():
             else:
                 res.check("found the worker to kill", False, out[-400:])
 
-            g.sh(f"write /etc/mounts.d/dead Source=//{GW}:1/nothing")
+            g.share_file("dead", f"Source=//{GW}:1/nothing")
             g.wait_state("/net/dead", {"idle"})
             t0 = time.time()
             g.sh("ls /net/dead")
@@ -215,7 +239,7 @@ def main():
             st = g.mount_state("/net/dead")
             res.check("a server that refuses fails fast, as unreachable",
                       st == "unreachable" and took < 20, f"{st}, {took:.1f}s")
-            g.sh("rm /etc/mounts.d/dead")
+            g.sh(f"rm {SHARES}/dead")
             time.sleep(4)
             out = g.sh("mount", "ls /net")
             res.check("forgetting a share unmounts it and removes its folder",

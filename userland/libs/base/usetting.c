@@ -315,6 +315,26 @@ static int may_write(const struct uschema *s) {
     return s->scope == USCHEMA_SCOPE_SEAT && at_seat();
 }
 
+// A SEAT'S SETTING IS STORED AS THE MACHINE'S, in a file root owns (users
+// D3b2a), so the person at the machine changes it through privd, which
+// grants a request of seat settings alone without a prompt. `value` NULL
+// is an UNSET. The result is the registry's, as a write here would answer.
+static int seat_via_privd(const struct uschema *s) {
+    return s->scope == USCHEMA_SCOPE_SEAT && geteuid() != 0;
+}
+
+static int seat_write(struct setting_msg *m, const char *value) {
+    char v[SETTING_ABI_VALUE_MAX + 1];
+    if (value) snprintf(v, sizeof v, "=%s", value);
+    else snprintf(v, sizeof v, "-");
+    const char *args[] = { m->name, v, 0 };
+    int rc = upriv_action(UPRIV_ACT_SETTINGS, args, 0);
+    if (rc < 0 && errno != EINVAL && errno != EIO) return -1;   // refused: errno says
+    m->result = rc == 0 ? SETTING_SAVED : errno == EIO ? SETTING_UNSAVED : SETTING_INVALID;
+    kernel_count(&m->generation);   // privd's write moved it
+    return 0;
+}
+
 int usetting_dispatch(struct setting_msg *m) {
     if (!m) return -1;
 
@@ -395,6 +415,16 @@ int usetting_dispatch(struct setting_msg *m) {
                 kernel_count(&m->generation);
                 return 0;
             }
+            if (seat_via_privd(&s)) {
+                // Checked here first: a refused value is the registry's
+                // answer, not a refusal of the asker.
+                if (!uschema_validate(&s, m->value)) {
+                    m->result = SETTING_INVALID;
+                    kernel_count(&m->generation);
+                    return 0;
+                }
+                return seat_write(m, m->value);
+            }
             m->result = (uint32_t)uschema_write(&s, m->value, &changed);
             if (changed) touch(&m->generation);
             else kernel_count(&m->generation);
@@ -411,6 +441,7 @@ int usetting_dispatch(struct setting_msg *m) {
         case OWNER_KERNEL: return sys_setting(m);
         case OWNER_SCHEMA:
             if (!may_write(&s)) { errno = EACCES; return -1; }
+            if (seat_via_privd(&s)) return seat_write(m, NULL);
             m->result = (uint32_t)uschema_unset(&s);
             if (m->result != SETTING_INVALID) touch(&m->generation);
             else kernel_count(&m->generation);

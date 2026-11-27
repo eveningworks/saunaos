@@ -22,6 +22,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <unistd.h>
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "keyboard.h"
@@ -472,9 +473,11 @@ static void build_props(const struct udevice *d) {
     }
 }
 
+static int g_chg_busy;   // a disable/enable waiting on privd (change())
+
 static void update_controls(void) {
     const struct udevice *d = selected();
-    int can = d && d->can_disable && !d->holder_pid;
+    int can = d && d->can_disable && !d->holder_pid && !g_chg_busy;
     g_toggle.label = d && d->disabled ? "Enable device" : "Disable device";
     g_toggle.disabled = !can;
     g_keep.disabled = !can;
@@ -566,6 +569,47 @@ static void ask(struct uapp *a, const char *title, const char *button, int code)
     uui_dialog_open(&g_ask, title, g_ask_rows, 2, btns, 2, 1, ASK_CANCEL);
 }
 
+// DISABLE AND ENABLE ARE ROOT'S (base/udevice.h, users D3b2a): as `user`
+// each is a privd request that waits on the administrator prompt, so it
+// runs OFF THE FRAME on a copy of the device (the list is rebuilt under
+// it), and the note says how it ended once the person has answered.
+static struct udevice g_chg_dev;
+static int g_chg_disable, g_chg_persist;
+static char g_chg_verb[48];
+
+static int change_work(void *arg) {
+    (void)arg;
+    int r = g_chg_disable ? udevice_disable(&g_chg_dev, g_chg_persist) : udevice_enable(&g_chg_dev);
+    errno = r < 0 ? -r : 0;
+    return r;
+}
+
+static void change_done(struct uapp *a, int rc, int err, void *arg) {
+    (void)err; (void)arg;
+    g_chg_busy = 0;
+    if (rc == -ECANCELED) set_note("not changed -- administrator rights were not given");
+    else report(&g_chg_dev, rc, g_chg_verb);
+    relist();
+    g_sig = signature();
+    update_controls();
+    uapp_redraw(a);
+}
+
+static void change(struct uapp *a, const struct udevice *d, int disable, int persist, const char *verb) {
+    if (g_chg_busy) return;
+    g_chg_dev = *d;
+    g_chg_disable = disable;
+    g_chg_persist = persist;
+    strlcpy(g_chg_verb, verb, sizeof g_chg_verb);
+    if (uapp_run_then(a, change_work, 0, change_done) != 0) {
+        set_note("could not change the device -- no thread to ask from");
+        return;
+    }
+    g_chg_busy = 1;
+    update_controls();
+    if (geteuid() != 0) set_note("asking for administrator rights...");
+}
+
 static void ask_disable(struct uapp *a) {
     const struct udevice *d = selected();
     if (!d || !d->can_disable || uui_dialog_is_open(&g_ask)) return;
@@ -581,9 +625,7 @@ static void toggle(struct uapp *a) {
     const struct udevice *d = selected();
     if (!d || !d->can_disable) return;
     if (d->disabled) {
-        report(d, udevice_enable(d), "enabled");
-        relist();
-        g_sig = signature();
+        change(a, d, 0, 0, "enabled");
     } else {
         ask_disable(a);
     }
@@ -591,12 +633,11 @@ static void toggle(struct uapp *a) {
 
 // The keep box on a device ALREADY disabled changes only whether that
 // survives a restart; on a working one it is read when Disable commits.
-static void keep_changed(void) {
+static void keep_changed(struct uapp *a) {
     const struct udevice *d = selected();
     if (!d || !d->disabled) return;
-    report(d, udevice_disable(d, g_keep.checked),
+    change(a, d, 1, g_keep.checked,
            g_keep.checked ? "kept disabled across restarts:" : "disabled until restart:");
-    relist();
 }
 
 // LOADING A MODULE is `modload`: the kernel links it and offers it every
@@ -1044,11 +1085,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
             unload_driver(a);
         } else {
             const struct udevice *d = code == ASK_DISABLE ? find_id(g_ask_id) : 0;
-            if (d && d->can_disable) {
-                report(d, udevice_disable(d, g_keep.checked), "disabled");
-                relist();
-                g_sig = signature();
-            }
+            if (d && d->can_disable) change(a, d, 1, g_keep.checked, "disabled");
         }
         g_ask_id[0] = 0;
         update_controls();
@@ -1077,7 +1114,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         return;
     }
     switch (id) {
-    case ID_KEEP:    keep_changed(); break;
+    case ID_KEEP:    keep_changed(a); break;
     case ID_TREE:    break;
     case ID_MODS:    uapp_redraw(a); return;
     default: return;

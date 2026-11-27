@@ -13,13 +13,14 @@ What this asks, against PIXELS where the claim is "it is drawn":
   2. ...and reaches an open app: the Calculator's page goes dark.
   3. The THEME EDITOR's preview is drawn in the theme being edited:
      a colour typed into the picker changes the preview's title text.
-  4. Save as writes /etc/themes/<stem>.theme, and Apply makes it the
+  4. Save as writes the person's ~/.local/share/themes/<stem>.theme
+     (never root's /etc/themes, users D3b2a), and Apply makes it the
      desktop's: `desktop.theme` names it, the theme's bundled settings
      are written (Paper: round corners, the light taskbar), and the real
      title bars draw the new colour.
 
 Everything changed is put back: the theme, the bundle's settings, the
-file in /etc/themes, the layout log.
+file in ~/.local/share/themes, the layout log.
 
     python3 tools/lib/vm.py start
     python3 tools/tests/gui/theme_test.py
@@ -42,7 +43,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 HERE = toolpath.TOOLS
 
 from PIL import Image                                  # noqa: E402
-from gui_debug import DebugConsole, enter_gui          # noqa: E402
+from gui_debug import DebugConsole, enter_gui, DESKTOP_ACCOUNT   # noqa: E402
 from harness import Results                            # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard                                      # noqa: E402
@@ -51,6 +52,7 @@ LIGHT_BAR = (50, 90, 160)
 DARK_BAR = (31, 63, 112)
 HC_BAR = (255, 212, 0)
 STEM = "testred"
+USER_THEMES = f"/home/{DESKTOP_ACCOUNT}/.local/share/themes"   # the person's (ui/utheme_file.h)
 
 
 def sh(dbg, cmd):
@@ -116,7 +118,7 @@ def run(dbg, qmp, tmp, res):
         for k, v in keep.items():
             if v:
                 sh(dbg, f"config set {k} {v}")
-        sh(dbg, f"rm /etc/themes/{STEM}.theme")
+        sh(dbg, f"rm {USER_THEMES}/{STEM}.theme")
         for title in ("Calculator", "Theme Editor"):
             for w in reversed(dbg.windows() or []):
                 if title in w.get("title", ""):
@@ -225,8 +227,8 @@ def phase_editor(dbg, qmp, tmp, res):
         time.sleep(0.12)
     qmp.send_key("ret")
     time.sleep(1.5)
-    listing = dbg.send("sh ls /etc/themes") or ""
-    res.check("Save as wrote /etc/themes/" + STEM + ".theme", f"{STEM}.theme" in listing, listing.strip()[-120:])
+    listing = dbg.send(f"sh ls {USER_THEMES}") or ""
+    res.check(f"Save as wrote {USER_THEMES}/{STEM}.theme", f"{STEM}.theme" in listing, listing.strip()[-120:])
     dbg.warp_cursor(qmp, *greens[1])
     qmp.click()
     time.sleep(2.5)

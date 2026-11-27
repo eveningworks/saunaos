@@ -79,12 +79,19 @@ the layout has no key for is dropped.
 | `view_only` | `no` | the viewer's keys and mouse are ignored |
 | `[vnc] enabled` | `no` | listen for VNC viewers |
 | `[vnc] port` | `5900` | |
-| `[vnc] password` | (none) | **required**: with none, every viewer is refused |
+| `[vnc] password_set` | `no` | whether a password is set -- what Settings shows; the password itself is NOT here (below) |
 | `[vnc] encryption` | `prefer` | `prefer`: offer VeNCrypt (TLS) beside plain VNC; `require`: VeNCrypt only; `off`: plain only |
 | `[vnc] fingerprint` | (written) | the certificate's SHA-256, written by `remoted` for Settings to show; not read back |
 
 Trusted addresses may carry a name, kept under `[labels]` by address:
 `192.168.1.20 = my laptop`.
+
+**The password is in `/etc/remote.secret`** -- `[vnc]` then `password =
+...` -- root's and `0600`, so only `remoted` (root) reads it: **required**,
+with none every viewer is refused. Both files are root's (users D3b2a):
+System Settings' Remote Desktop page changes them through privd's
+`remotedesktop` action, which asks an administrator once per Apply and
+lists every change, never the password.
 
 ## Asking at the screen
 

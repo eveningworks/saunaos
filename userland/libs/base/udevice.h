@@ -80,7 +80,10 @@ struct udevice {
 int udevice_list(struct udevice **list);
 
 // 0, or a negative errno: -EBUSY a process holds it, -ENOTSUP its driver
-// cannot let go, -EPERM no scheduler slot (spawn, never `run`).
+// cannot let go, -EPERM no scheduler slot (spawn, never `run`). ROOT'S:
+// from another account each is ONE request to privd's UPRIV_ACT_DEVICE,
+// asked of an administrator, and BLOCKS while the prompt is up (-ECANCELED
+// when the person said no; base/upriv.h's other answers, negated).
 int udevice_disable(const struct udevice *d, int persist);
 int udevice_enable(const struct udevice *d);
 

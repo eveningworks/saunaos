@@ -164,7 +164,7 @@ static void navigate(int node_id) {
         g_slot_count = 0;
         strlcpy(g_page_title_text, "Remote Desktop", sizeof g_page_title_text);
         strlcpy(g_page_desc_text, "Let another computer see this screen and use its keyboard and "
-                "mouse. A change is saved at once.", sizeof g_page_desc_text);
+                "mouse -- for everyone on this computer.", sizeof g_page_desc_text);
         strlcpy(g_status, "Remote Desktop", sizeof g_status);
         remote_load();
         relayout_page();
@@ -394,7 +394,12 @@ static void on_action(struct uapp *a, int code) {
     if (users_on_action(code)) { relayout_page(); uapp_redraw(a); return; }
     switch (code) {
     case ID_RESET:
-        if (page_dirty() && g_page_group >= 0) {
+        if (page_dirty() && g_show_remote) {
+            remote_load();
+            relayout_page();
+            strlcpy(g_status, "Changes discarded", sizeof g_status);
+            ulogf("settings: reset\n");
+        } else if (page_dirty() && g_page_group >= 0) {
             open_group(g_page_group);
             strlcpy(g_status, "Changes discarded", sizeof g_status);
             ulogf("settings: reset\n");

@@ -2,6 +2,7 @@
 #include "ui/utheme_file.h"
 #include "base/uconf.h"
 #include "base/usetting.h"
+#include "base/udatadir.h"
 #include "knum.h"
 #include "rt/sys.h"
 #include <stddef.h>
@@ -9,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #define ROLE(k, l, g, f) { k, l, g, (uint16_t)offsetof(struct utheme, f) }
 const struct utheme_role utheme_roles[] = {
@@ -101,16 +103,63 @@ static int stem_path(const char *dir, const char *stem, char *out, size_t cap) {
     return n > 0 && (size_t)n < cap;
 }
 
+// The person's folder, or 0 for root (base/uconf.h's rule: a root
+// process never reads or writes a person's files).
+static int user_dir(char *out, size_t cap) {
+    if (geteuid() == 0) return 0;
+    char *p = udatadir_home(UTHEME_USER_DIR);
+    int ok = p && strlen(p) < cap;
+    if (ok) strlcpy(out, p, cap);
+    free(p);
+    return ok;
+}
+
+int utheme_dir(int i, char *out, size_t cap) {
+    if (i < 0) return 0;
+    if (user_dir(out, cap)) { if (i-- == 0) return 1; }
+    const char *fixed[] = { UTHEME_LOCAL_DIR, UTHEME_SHIPPED_DIR };
+    if (i >= 2) return 0;
+    strlcpy(out, fixed[i], cap);
+    return 1;
+}
+
 int utheme_path(const char *stem, char *out, size_t cap) {
     if (!utheme_stem_ok(stem)) return 0;
-    if (stem_path(UTHEME_LOCAL_DIR, stem, out, cap) && access(out, F_OK) == 0) return 1;
-    return stem_path(UTHEME_SHIPPED_DIR, stem, out, cap) && access(out, F_OK) == 0;
+    char dir[UTHEME_PATH_MAX];
+    for (int i = 0; utheme_dir(i, dir, sizeof dir); i++)
+        if (stem_path(dir, stem, out, cap) && access(out, F_OK) == 0) return 1;
+    return 0;
 }
 
 int utheme_is_shipped(const char *stem) {
-    char p[96];
+    char p[UTHEME_PATH_MAX];
     return utheme_stem_ok(stem) && stem_path(UTHEME_SHIPPED_DIR, stem, p, sizeof p) &&
            access(p, F_OK) == 0;
+}
+
+int utheme_own_path(const char *stem, char *out, size_t cap) {
+    char dir[UTHEME_PATH_MAX];
+    if (!utheme_stem_ok(stem)) return 0;
+    if (user_dir(dir, sizeof dir)) {
+        char *made = udatadir_prepare(UTHEME_USER_DIR "/x");   // its folders, the person's
+        free(made);
+        mkdir(dir, 0755);
+    } else if (geteuid() == 0) {
+        strlcpy(dir, UTHEME_LOCAL_DIR, sizeof dir);   // root's are the machine's
+    } else {
+        return 0;   // no folder of the person's: /etc/themes is not theirs
+    }
+    return stem_path(dir, stem, out, cap);
+}
+
+int utheme_is_own(const char *stem) {
+    char dir[UTHEME_PATH_MAX], p[UTHEME_PATH_MAX];
+    if (!utheme_stem_ok(stem)) return 0;
+    if (!user_dir(dir, sizeof dir)) {
+        if (geteuid() != 0) return 0;
+        strlcpy(dir, UTHEME_LOCAL_DIR, sizeof dir);
+    }
+    return stem_path(dir, stem, p, sizeof p) && access(p, F_OK) == 0;
 }
 
 static int word_of(const char *v, const char *const *words, int n, int *out) {
@@ -162,14 +211,14 @@ int utheme_load_path(const char *path, struct utheme *out, struct utheme_bundle 
 }
 
 int utheme_load(const char *stem, struct utheme *out, struct utheme_bundle *b) {
-    char path[96];
+    char path[UTHEME_PATH_MAX];
     if (!utheme_path(stem, path, sizeof path)) { utheme_default(out); return 0; }
     return utheme_load_path(path, out, b, 0);
 }
 
 int utheme_save(const char *path, const struct utheme *t, const struct utheme_bundle *b,
                 const char *description) {
-    char tmp[112];
+    char tmp[UTHEME_PATH_MAX + 8];
     if (snprintf(tmp, sizeof tmp, "%s.tmp", path) >= (int)sizeof tmp) return 0;
     FILE *f = fopen(tmp, "w");
     if (!f) return 0;

@@ -154,12 +154,12 @@ Private seams of a split module, not for apps: `ubinmap_internal.h`.
 | `udhcp.h` | THE DHCP CLIENT, AS A LIBRARY -- one implementation, two front ends. |
 | `unetctl.h` | The control protocol between /bin/netctl (and the desktop's network flyout) and /bin/netd, over uchan -- the initctl shape (base/uinitctl.h). |
 | `unetlink.h` | unetlink -- a network card's ADAPTER settings (the rates it offers, Energy Efficient Ethernet, pause frames, interrupt moderation): the words /etc/net.conf spells them in, the labels a person reads... |
-| `unetmount.h` | Saved network shares: one file per share in /etc/mounts.d, mounted at /net/<file name> by /bin/smbfsd. |
+| `unetmount.h` | Saved network shares: one file per share in the PERSON's own $XDG_CONFIG_HOME/mounts.d (~/.config/mounts.d, the folder 0700 and each file 0600), mounted at /net/<file name> by /bin/smbfsd for the a... |
 | `uremote.h` | The remote desktop, from any program: /etc/remote.conf (what /bin/remoted serves and who may connect), the sessions open now, and the two things anyone may do to one -- end it, or make it view only. |
 | `uresolv.h` | Turning a name into an address: DNS over UDP, in ring 3. |
 | `usiteperm.h` | usiteperm -- PER-SITE PERMISSIONS: for a host and a kind ("javascript"), Allow or Block, or nothing kept and the global setting decides -- Chrome's content-settings exceptions, Firefox's permission... |
 | `uvisits.h` | uvisits -- the pages a person browsed to (a browser's History; the shell's command history is base/uhistory.h): one entry per address, with when it was last visited, how often, and its title. |
-| `uvolinfo.h` | What one mounted volume or network share IS, gathered in one place: the kernel's QUERY_FSINFO record, the share's file in /etc/mounts.d and its server's last word -- for Properties' volume page and... |
+| `uvolinfo.h` | What one mounted volume or network share IS, gathered in one place: the kernel's QUERY_FSINFO record, the share's file in ~/.config/mounts.d and its server's last word -- for Properties' volume pag... |
 | `webnet_proto.h` | The contract between /bin/webnet -- the network process, one per Web Browser (docs/browser-design.md, stage 5) -- and its clients: each content process, which fetches through it, and the browser ap... |
 | `webview_proto.h` | The contract between ui/uui_webview.h (in the embedding app) and /bin/webcontent (the engine, one process per view) -- docs/browser-design.md, stage 5. |
 

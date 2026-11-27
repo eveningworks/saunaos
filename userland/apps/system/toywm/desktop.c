@@ -74,7 +74,10 @@ static int row_h(void) { return icon_px() + 4 + label_h() + 10; } // icon + gap 
 // never be truncated; anything longer (the "(ring 3)" launchers) is cut
 // with a ".." marker rather than widening every column to fit it.
 #define DESKTOP_ICON_LABEL_CHARS 13
-#define DESKTOP_CONF_PATH "/etc/desktop.conf"
+// Where each icon was put, and the undo card's one-time note: the PERSON's
+// (users D3b2a), so the bare name -- ~/.config/desktop.conf over /etc's,
+// base/uconf.h -- and never /etc, which is root's.
+#define DESKTOP_CONF_PATH "desktop.conf"
 // THE DESKTOP FOLDER IS THE DESKTOP. Every icon is an entry of this
 // directory, in name order with directories first -- KDE's Folder View
 // and the Windows desktop, a folder with the shortcuts in it. A
@@ -618,7 +621,7 @@ static void desktop_load_positions(void) {
 
 // --- the wallpaper ----------------------------------------------------
 //
-// A background image, read from DESKTOP_CONF_PATH's `Wallpaper` key and
+// A background image, read from the `desktop.wallpaper` setting and
 // placed according to `WallpaperMode` (fill / fit). Image Viewer writes
 // both; nothing else has to know about either.
 //
@@ -2877,7 +2880,9 @@ static void menu_sort(void *ctx) {
 static void resort(void) {
     for (int i = 0; i < item_count(); i++) {
         char *key = item_key(i);
-        if (key) wm_conf_set(DESKTOP_CONF_PATH, key, "");
+        // An unset, not "": an empty value of the person's is none, so the
+        // machine's old cell would show through; the unset's tombstone hides it.
+        if (key) wm_conf_unset(DESKTOP_CONF_PATH, key);
         free(key);
     }
     positions_loaded = 0;

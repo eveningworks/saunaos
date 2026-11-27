@@ -28,7 +28,8 @@ WHAT IT ASSERTS, AND THE ORACLE
 5. AN ICON SAVED OFF A SMALLER SCREEN IS PULLED IN, NOT MOVED: one
    dragged to the far-right column is on screen at SMALL (the old
    desktop drew it past the edge -- the ASUS at 800x600, 2026-11-23),
-   its line in /etc/desktop.conf is unchanged, and back at the boot mode
+   its line in the person's desktop.conf is unchanged (users D3b2a: the
+   cells are the person's, ~/.config/desktop.conf), and back at the boot mode
    it is where it was dragged. The drag is undone at the end.
 
 The setting is restored at the end, and its /etc value with it: a
@@ -53,7 +54,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
-from gui_debug import DebugConsole, enter_gui          # noqa: E402
+from gui_debug import DebugConsole, enter_gui, USER_CONFIG   # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results, poll  # noqa: E402
@@ -237,6 +238,7 @@ def run(dbg, qmp, shot, orig, TARGET):
 
 
 SMALL = (800, 600)
+DESKTOP_CONF = f"{USER_CONFIG}/desktop.conf"   # the icons' cells, the person's (users D3b2a)
 
 
 def desktop_icons(dbg):
@@ -244,7 +246,7 @@ def desktop_icons(dbg):
 
 
 def conf_line(dbg, key):
-    conf = dbg.send("sh cat /etc/desktop.conf") or ""
+    conf = dbg.send(f"sh cat {DESKTOP_CONF}") or ""
     return next((ln.strip() for ln in conf.splitlines() if ln.strip().startswith(key + "=")), None)
 
 
@@ -257,7 +259,7 @@ def offscreen_icons(dbg, orig):
     home = icons[name]
     # THE FILE PUT BACK AFTER, not just the icon: a drag saves a cell, and a
     # Notepad that had none would leave pinned for every later tool.
-    reply = (dbg.send("sh cp /etc/desktop.conf /tmp/modeset_desktop.conf") or "").lower()
+    reply = (dbg.as_user(f"cp {DESKTOP_CONF} /tmp/modeset_desktop.conf") or "").lower()
     had_conf = "no such" not in reply and "exit 1" not in reply
     far_x = orig[0] - home["w"] // 2 - 4          # the last column at the boot mode
     dbg.drag(home["x"] + home["w"] // 2, home["y"] + home["h"] // 3,
@@ -301,8 +303,8 @@ def offscreen_icons(dbg, orig):
             dbg.drag(cur["x"] + cur["w"] // 2, cur["y"] + cur["h"] // 3,
                      home["x"] + home["w"] // 2, home["y"] + home["h"] // 3, steps=16)
             poll(lambda: (desktop_icons(dbg).get(name) or {}).get("x") == home["x"], 5)
-        dbg.send("sh cp /tmp/modeset_desktop.conf /etc/desktop.conf" if had_conf
-                 else "sh rm /etc/desktop.conf")
+        dbg.as_user(f"cp /tmp/modeset_desktop.conf {DESKTOP_CONF}" if had_conf
+                    else f"rm {DESKTOP_CONF}")
 
 
 def report():

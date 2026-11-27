@@ -21,11 +21,11 @@
   may carry (1 MiB from a server that allows large MTU, 64 KiB
   otherwise), and the share's size and free space.
 - `login NAME` -- sign in to a MOUNTED share: `/net/NAME` for a saved
-  one (`/etc/mounts.d/NAME`), or any mount point given as a path. It
+  one (`~/.config/mounts.d/NAME`), or any mount point given as a path. It
   hands the user and password to the share's `smbfsd` worker -- the same
   message the File Manager's Sign-in dialog sends -- and says whether
   the server accepted them. With `-r` the password is saved, as a hash,
-  for the next boot.
+  for the next boot -- by `smb` itself, into your own share file.
 
 ## Options
 
@@ -40,10 +40,10 @@
 - `-t SECS`, `--timeout SECS` -- how long to wait for each answer
   (default 10).
 - `-r`, `--remember` -- with `login`: save the password in
-  `/etc/mounts.d/NAME` as the NT hash it is turned into, so the share
-  opens without asking after a reboot. Anyone who can read that file
-  can sign in to the share as you -- there are no user accounts here to
-  keep it from them.
+  `~/.config/mounts.d/NAME` as the NT hash it is turned into, so the
+  share opens without asking after a reboot. The file is yours alone
+  (0600), but whoever can read it -- you, and root -- can sign in to the
+  share as you.
 - `-h`, `--help` -- the commands and options.
 
 ## Description

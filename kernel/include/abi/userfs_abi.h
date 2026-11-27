@@ -28,7 +28,12 @@
 //                 its sidebar never causes a connection.
 //   USERFS_CTL    RSI = struct userfs_ctl *. ANY process asks the server
 //                 of `point` something (sign in, reconnect); blocks until
-//                 the server answers and returns its result.
+//                 the server answers and returns its result. What the
+//                 server sends back with it (at most USERFS_CTL_MAX) is
+//                 copied into the struct's `data`, `len` its length (0
+//                 for none) -- and the server is told WHO asked (the
+//                 request's `uid`), so it hands back only what that
+//                 account may have.
 //
 // THE SERVER MUST NOT TOUCH ITS OWN MOUNT: it would be waiting on a
 // request only it can answer. The kernel refuses such a call at once
@@ -63,7 +68,7 @@ struct userfs_req {
     uint32_t len;              // the most the reply may carry
     uint32_t ctl;              // USERFS_OP_CTL: the asker's code
     uint32_t data_len;
-    uint32_t reserved;
+    uint32_t uid;              // USERFS_OP_CTL: the asker's real uid
     char path[USERFS_PATH_MAX];  // "/" for the root
     uint8_t data[USERFS_CTL_MAX];
 };
@@ -112,6 +117,9 @@ struct userfs_state {
 };
 
 // USERFS_CTL codes, for smbfsd. A payload is NUL-separated fields.
+// LOGIN's answer, when remember is 1 and the asker is the account the
+// share is served for: the password's NT hash, 32 hex digits and a NUL,
+// for the ASKER to save in its own share file (net/unetmount.h).
 #define USERFS_CTL_LOGIN      1  // "user\0domain\0password\0remember(0|1)"
 #define USERFS_CTL_RECONNECT  2  // drop the connection; the next access makes a new one
 #define USERFS_CTL_SAVE       3  // "name": a share opened for the session becomes a saved one
@@ -119,7 +127,7 @@ struct userfs_state {
 struct userfs_ctl {
     char point[256];
     uint32_t code;             // USERFS_CTL_*
-    uint32_t len;
+    uint32_t len;              // in: the payload's; out: the answer's
     uint8_t data[USERFS_CTL_MAX];
 };
 

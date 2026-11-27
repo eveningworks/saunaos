@@ -15,7 +15,9 @@
 #include "kapi.h"
 #include "rt/sys.h"
 #include "base/usetting.h"
-#include "base/uconf.h"       // /etc/sound.conf, over the shared parser
+#include "base/upriv.h"       // /etc/sound.conf is root's: privd writes it
+#include "wm_priv.h"
+#include "wm_log.h"
 #include "ui/uui_scale.h"
 #include "sound_abi.h"       // the daemon's roster, in its beacon
 #include "syscall_abi.h"
@@ -63,8 +65,8 @@ static int g_hover;
 // THE GAIN IS NOT A SETTING, so none of tray_slider_popup.c's machinery
 // applies to these rows: the registry is a fixed catalogue of
 // build-time knobs with a System Settings row each, and these keys
-// appear one per program ever played. They live in /etc/sound.conf and
-// are written here with uconf_set().
+// appear one per program ever played. They live in /etc/sound.conf,
+// root's, and are written by privd's appvolume action (commit_app()).
 static volatile struct snd_roster *g_roster_page;
 static struct snd_roster g_roster;              // a SETTLED copy
 static struct uui_scale g_app_scale[SND_ROSTER_MAX];
@@ -166,7 +168,11 @@ static void commit_app(int i) {
     if (!g_roster.e[i].app[0]) return;   // nothing stable to key on
     char v[8];
     k_snprintf(v, sizeof v, "%ld", uui_scale_value(&g_app_scale[i]));
-    uconf_set(SND_CONFIG_FILE, (const char *)g_roster.e[i].app, v);
+    // SND_CONFIG_FILE is root's (users D3b2a): the seat's to change through
+    // privd, sent on the agent's own channel so the frame never waits.
+    const char *args[] = { (const char *)g_roster.e[i].app, v, 0 };
+    if (wm_priv_seat_action(UPRIV_ACT_APPVOLUME, args) < 0)
+        wm_logf("volume: %s's volume not saved -- privd is not running", (const char *)g_roster.e[i].app);
 }
 
 // --- the settings behind it -------------------------------------------

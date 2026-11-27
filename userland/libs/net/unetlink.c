@@ -2,6 +2,7 @@
 #include "base/upriv.h"   // a card's link settings from an account that is not root
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include "net/unetlink.h"
 #include "base/uconf.h"
 #include "rt/sys.h"
@@ -127,12 +128,9 @@ int unetlink_load(const struct etc_config_buf *conf, const struct query_netdev *
     return n;
 }
 
-// The kernel's SYS_NET_LINK, or -- for an account that is not root --
-// privd's netlink action, after the person allows it (base/upriv.h).
-// BLOCKS while the prompt is up.
-static int link_apply(const struct net_linkcfg *req) {
-    if (sys_net_link(req) == 0) return 0;
-    if (sys_errno() != EPERM) return -1;
+// privd's netlink action, which applies AND saves -- the file is root's
+// (users D3b2a). BLOCKS while the prompt is up.
+static int ask_privd(const struct net_linkcfg *req) {
     char f[5][16];
     snprintf(f[0], sizeof f[0], "%u", (unsigned)req->which);
     snprintf(f[1], sizeof f[1], "%u", (unsigned)req->rates);
@@ -143,14 +141,16 @@ static int link_apply(const struct net_linkcfg *req) {
     return upriv_action(UPRIV_ACT_NETLINK, args, 0);
 }
 
-int unetlink_set(const struct query_netdev *d, const struct net_linkcfg *want) {
-    struct net_linkcfg req = *want;
-    memset(req.name, 0, sizeof req.name);
-    strncpy(req.name, d->name, sizeof req.name - 1);
-    if (link_apply(&req) < 0) return -1;
-
+int unetlink_save(const struct query_netdev *d, const struct net_linkcfg *want) {
     char slot[18];
     const char *sec = unetlink_card_key(d, 0, slot);
+    if (want->which & NET_LINK_DEFAULTS) {
+        static const char *const keys[] = { "speed", "eee", "flow", "moderation" };
+        // A removal of a key that is not there "fails" in the rewriter; it
+        // is not a failure here.
+        for (unsigned i = 0; i < 4; i++) uconf_set_in(UNETLINK_CONF, sec, keys[i], 0);
+        return 0;
+    }
     int ok = 1;
     if (want->which & NET_LINK_RATES)
         ok &= uconf_set_in(UNETLINK_CONF, sec, "speed",
@@ -161,9 +161,18 @@ int unetlink_set(const struct query_netdev *d, const struct net_linkcfg *want) {
         ok &= uconf_set_in(UNETLINK_CONF, sec, "flow", unetlink_flow_word(want->flow));
     if (want->which & NET_LINK_MODERATION)
         ok &= uconf_set_in(UNETLINK_CONF, sec, "moderation", unetlink_mod_word(want->moderation));
+    return ok ? 0 : -1;
+}
+
+int unetlink_set(const struct query_netdev *d, const struct net_linkcfg *want) {
+    struct net_linkcfg req = *want;
+    memset(req.name, 0, sizeof req.name);
+    strncpy(req.name, d->name, sizeof req.name - 1);
+    if (geteuid() != 0) return ask_privd(&req);
+    if (sys_net_link(&req) < 0) return -1;
     // APPLIED BUT NOT SAVED is still applied: the card does what was asked
     // until the next boot, and the caller hears the save failed.
-    return ok ? 0 : -1;
+    return unetlink_save(d, want);
 }
 
 int unetlink_reset(const struct query_netdev *d) {
@@ -171,12 +180,7 @@ int unetlink_reset(const struct query_netdev *d) {
     memset(&req, 0, sizeof req);
     strncpy(req.name, d->name, sizeof req.name - 1);
     req.which = NET_LINK_DEFAULTS;
-    if (link_apply(&req) < 0) return -1;
-    char slot[18];
-    const char *sec = unetlink_card_key(d, 0, slot);
-    static const char *const keys[] = { "speed", "eee", "flow", "moderation" };
-    // A removal of a key that is not there "fails" in the rewriter; it is
-    // not a failure here.
-    for (unsigned i = 0; i < 4; i++) uconf_set_in(UNETLINK_CONF, sec, keys[i], 0);
-    return 0;
+    if (geteuid() != 0) return ask_privd(&req);
+    if (sys_net_link(&req) < 0) return -1;
+    return unetlink_save(d, &req);
 }

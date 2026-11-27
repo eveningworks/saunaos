@@ -28,6 +28,8 @@
 // what lets an unmount free the mount's state while callers still hold
 // requests that were queued on it.
 #include "privilege.h"  // priv_seat_point()
+#include "cred.h"       // a CTL's asker, for the server
+#include <stddef.h>     // offsetof
 #include "fs_ops.h"
 #include "fs.h"
 #include "mount.h"
@@ -653,7 +655,8 @@ static int64_t op_state(struct syscall_ctx *c) {
 static int64_t op_ctl(struct syscall_ctx *c) {
     struct userfs_ctl *u = kmalloc(sizeof *u);
     struct ufs_req *r = req_new(USERFS_OP_CTL, "/");
-    if (!u || !r) { kfree(u); kfree(r); return -ENOMEM; }
+    uint8_t *back = kzalloc(USERFS_CTL_MAX);   // what the server answers with
+    if (!u || !r || !back) { kfree(u); kfree(r); kfree(back); return -ENOMEM; }
     int64_t rc = -EFAULT;
     if (!vmm_copy_from_user(c->pml4, u, c->a1, sizeof *u)) goto out;
     u->point[sizeof u->point - 1] = '\0';
@@ -661,6 +664,10 @@ static int64_t op_ctl(struct syscall_ctx *c) {
     if (u->len > USERFS_CTL_MAX) goto out;
     r->msg.ctl = u->code;
     r->msg.data_len = u->len;
+    r->msg.uid = cred_ruid(cred_current());
+    r->msg.len = USERFS_CTL_MAX;
+    r->buf = back;
+    r->cap = USERFS_CTL_MAX;
     k_memcpy(r->msg.data, u->data, u->len);
 
     // Looked up and queued under ONE hold of g_lock, which an unmount
@@ -672,11 +679,21 @@ static int64_t op_ctl(struct syscall_ctx *c) {
     rc = um ? enqueue_locked(um, r) : -ENOENT;
     kmutex_unlock(&g_lock);
     if (!rc) rc = wait_for(NULL, r, NULL);
+    if (rc >= 0) {
+        // The answer back into the asker's struct: its bytes, then their length.
+        uint32_t n = r->got < USERFS_CTL_MAX ? r->got : USERFS_CTL_MAX;
+        uint64_t at = c->a1;
+        if ((n && !vmm_copy_to_user(c->pml4, at + offsetof(struct userfs_ctl, data), back, n)) ||
+            !vmm_copy_to_user(c->pml4, at + offsetof(struct userfs_ctl, len), &n, sizeof n))
+            rc = -EFAULT;
+    }
 out:
     k_memset(u, 0, sizeof *u);      // a password, often
     k_memset(&r->msg.data, 0, sizeof r->msg.data);
+    k_memset(back, 0, USERFS_CTL_MAX);   // a hash, perhaps
     kfree(u);
     kfree(r);
+    kfree(back);
     return rc;
 }
 

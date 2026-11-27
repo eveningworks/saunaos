@@ -5,9 +5,12 @@
 #include "base/uconf.h"
 #include "rt/sys.h"
 #include "signal_abi.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 void uremote_fmt_ip(uint32_t ip, char *out, size_t cap) {
     snprintf(out, cap, "%u.%u.%u.%u", (ip >> 24) & 0xFF, (ip >> 16) & 0xFF,
@@ -57,8 +60,7 @@ static void proto(const struct etc_config_buf *b, const char *sect, struct uremo
         int n = atoi(v);
         if (n > 0 && n < 65536) p->port = n;
     }
-    p->password[0] = 0;
-    etc_config_buf_get_in(b, sect, "password", p->password, sizeof p->password);
+    p->password_set = etc_config_buf_get_in(b, sect, "password_set", v, sizeof v) && yes(v);
     p->encryption = UREMOTE_ENC_PREFER;
     if (etc_config_buf_get_in(b, sect, "encryption", v, sizeof v)) {
         if (!strcmp(v, "require")) p->encryption = UREMOTE_ENC_REQUIRE;
@@ -80,6 +82,13 @@ void uremote_load(struct uremote_conf *c) {
     if (!uconf_load(UREMOTE_CONF, &b)) return;
     proto(&b, "vnc", &c->vnc, 5900);
     proto(&b, "rdp", &c->rdp, 3389);
+    // The passwords: root's file, so anyone else reads none.
+    struct etc_config_buf sec;
+    if (geteuid() == 0 && uconf_load(UREMOTE_SECRET, &sec)) {
+        etc_config_buf_get_in(&sec, "vnc", "password", c->vnc.password, sizeof c->vnc.password);
+        etc_config_buf_get_in(&sec, "rdp", "password", c->rdp.password, sizeof c->rdp.password);
+        etc_config_buf_free(&sec);
+    }
 
     char v[256];
     if (etc_config_buf_get(&b, "when", v, sizeof v)) {
@@ -121,8 +130,18 @@ int uremote_set_port(const char *p, int port) {
     return ok(uconf_set_in(UREMOTE_CONF, p, "port", v));
 }
 
+// THE SECRET IS WRITTEN 0600 FROM ITS FIRST BYTE: a new file's mode is
+// the umask's (open()'s mode never reaches the kernel), so the umask is
+// narrowed around the write, and the chmod covers a file made before.
 int uremote_set_password(const char *p, const char *pw) {
-    return ok(uconf_set_in(UREMOTE_CONF, p, "password", pw));
+    mode_t was = umask(077);
+    int r = pw[0] ? uconf_set_in(UREMOTE_SECRET, p, "password", pw)
+                  : (uconf_set_in(UREMOTE_SECRET, p, "password", NULL), 1);
+    umask(was);
+    chmod(UREMOTE_SECRET, 0600);
+    if (!r) return -1;
+    uconf_set_in(UREMOTE_CONF, p, "password", NULL);   // where one lived before D3b2a
+    return ok(uconf_set_in(UREMOTE_CONF, p, "password_set", pw[0] ? "yes" : "no"));
 }
 
 int uremote_set_encryption(const char *p, enum uremote_enc e) {
@@ -176,6 +195,127 @@ int uremote_untrust(const char *addr) {
     c.ntrusted = k;
     uconf_set_in(UREMOTE_CONF, "labels", addr, NULL);   // a removal (uconf.h)
     return write_list(&c);
+}
+
+// --- a change, through privd -------------------------------------------------
+
+// One line the file can hold, under `cap`: no control character, no '#'.
+static int line_ok(const char *v, size_t cap) {
+    if (strlen(v) >= cap) return 0;
+    for (const unsigned char *p = (const unsigned char *)v; *p; p++)
+        if (*p < ' ' || *p == 0x7f || *p == '#') return 0;
+    return 1;
+}
+
+static const char *const ENC_WORD[] = { "prefer", "require", "off" };
+static const char *const ENC_LABEL[] = { "When the viewer offers it", "Required", "Off" };
+static const char *const WHEN_WORD[] = { "ask", "ask-unless-trusted", "always" };
+static const char *const WHEN_LABEL[] = { "Ask every time", "Ask unless trusted", "Always allow" };
+static const char *const FROM_WORD[] = { "network", "anywhere" };
+static const char *const FROM_LABEL[] = { "This network only", "Anywhere" };
+
+static int word_index(const char *v, const char *const *w, int n) {
+    for (int i = 0; i < n; i++) if (!strcmp(v, w[i])) return i;
+    return -1;
+}
+
+static int port_of(const char *v) {
+    char *end;
+    long n = strtol(v, &end, 10);
+    return end != v && !*end && n > 0 && n < 65536 ? (int)n : -1;
+}
+
+int uremote_change_ok(const char *key, const char *value) {
+    if (!key || !value) return 0;
+    int set = value[0] == '=';
+    const char *v = value + 1;
+    if (!set && strcmp(value, "-")) return 0;
+    if (!strncmp(key, UREMOTE_CHANGE_TRUST, strlen(UREMOTE_CHANGE_TRUST))) {
+        struct uremote_net n;
+        const char *addr = key + strlen(UREMOTE_CHANGE_TRUST);
+        return uremote_parse_net(addr, &n) && !strcmp(n.text, addr) &&
+               (!set || line_ok(v, UREMOTE_LABEL_MAX));
+    }
+    if (!strcmp(key, UREMOTE_CHANGE_PASSWORD)) return !set || (v[0] && line_ok(v, UREMOTE_PASSWORD_MAX));
+    if (!set) return 0;   // only a password and a trust are taken away
+    if (!strcmp(key, "vnc.enabled")) return !strcmp(v, "yes") || !strcmp(v, "no");
+    if (!strcmp(key, "vnc.port")) return port_of(v) > 0;
+    if (!strcmp(key, "vnc.encryption")) return word_index(v, ENC_WORD, 3) >= 0;
+    if (!strcmp(key, "when")) return word_index(v, WHEN_WORD, 3) >= 0;
+    if (!strcmp(key, "from")) return word_index(v, FROM_WORD, 2) >= 0;
+    return 0;
+}
+
+void uremote_change_row(const struct uremote_conf *c, const char *key, const char *value,
+                        char *rk, size_t kcap, char *rv, size_t vcap) {
+    const char *v = value[0] == '=' ? value + 1 : "";
+    rk[0] = rv[0] = 0;
+    if (!strncmp(key, UREMOTE_CHANGE_TRUST, strlen(UREMOTE_CHANGE_TRUST))) {
+        const char *addr = key + strlen(UREMOTE_CHANGE_TRUST);
+        snprintf(rk, kcap, "Trusted");
+        if (value[0] != '=') snprintf(rv, vcap, "- %s", addr);
+        else if (v[0]) snprintf(rv, vcap, "+ %s (%s)", addr, v);
+        else snprintf(rv, vcap, "+ %s", addr);
+    } else if (!strcmp(key, UREMOTE_CHANGE_PASSWORD)) {
+        snprintf(rk, kcap, "Password");
+        snprintf(rv, vcap, value[0] == '=' ? (c->vnc.password_set ? "changed" : "set") : "removed");
+    } else if (!strcmp(key, "vnc.enabled")) {
+        snprintf(rk, kcap, "VNC");
+        snprintf(rv, vcap, "%s -> %s", c->vnc.enabled ? "On" : "Off", !strcmp(v, "yes") ? "On" : "Off");
+    } else if (!strcmp(key, "vnc.port")) {
+        snprintf(rk, kcap, "Port");
+        snprintf(rv, vcap, "%d -> %s", c->vnc.port, v);
+    } else if (!strcmp(key, "vnc.encryption")) {
+        int i = word_index(v, ENC_WORD, 3);
+        snprintf(rk, kcap, "Encryption");
+        snprintf(rv, vcap, "%s -> %s", ENC_LABEL[c->vnc.encryption], i >= 0 ? ENC_LABEL[i] : v);
+    } else if (!strcmp(key, "when")) {
+        int i = word_index(v, WHEN_WORD, 3);
+        snprintf(rk, kcap, "When someone connects");
+        snprintf(rv, vcap, "%s -> %s", WHEN_LABEL[c->when], i >= 0 ? WHEN_LABEL[i] : v);
+    } else if (!strcmp(key, "from")) {
+        int i = word_index(v, FROM_WORD, 2);
+        snprintf(rk, kcap, "Allow connections from");
+        snprintf(rv, vcap, "%s -> %s", FROM_LABEL[c->from], i >= 0 ? FROM_LABEL[i] : v);
+    }
+}
+
+int uremote_change_apply(const char *key, const char *value) {
+    if (!uremote_change_ok(key, value)) return -1;
+    int set = value[0] == '=';
+    const char *v = value + 1;
+    if (!strncmp(key, UREMOTE_CHANGE_TRUST, strlen(UREMOTE_CHANGE_TRUST))) {
+        const char *addr = key + strlen(UREMOTE_CHANGE_TRUST);
+        if (!set) return uremote_untrust(addr);
+        if (uremote_trust(addr, v)) return -1;
+        // An empty label takes a former one away (uremote_trust() keeps it).
+        if (!v[0]) uconf_set_in(UREMOTE_CONF, "labels", addr, NULL);
+        return 0;
+    }
+    if (!strcmp(key, UREMOTE_CHANGE_PASSWORD)) return uremote_set_password("vnc", set ? v : "");
+    if (!strcmp(key, "vnc.enabled")) return uremote_set_enabled("vnc", !strcmp(v, "yes"));
+    if (!strcmp(key, "vnc.port")) return uremote_set_port("vnc", port_of(v));
+    if (!strcmp(key, "vnc.encryption")) return uremote_set_encryption("vnc", (enum uremote_enc)word_index(v, ENC_WORD, 3));
+    if (!strcmp(key, "when")) return uremote_set_when((enum uremote_when)word_index(v, WHEN_WORD, 3));
+    if (!strcmp(key, "from")) return uremote_set_from((enum uremote_from)word_index(v, FROM_WORD, 2));
+    return -1;
+}
+
+int uremote_request(const char *const *kv, int n) {
+    if (!kv || n <= 0) { errno = EINVAL; return -1; }
+    for (int i = 0; i < n; i++)
+        if (!uremote_change_ok(kv[2 * i], kv[2 * i + 1])) { errno = EINVAL; return -1; }
+    if (geteuid() == 0) {
+        for (int i = 0; i < n; i++)
+            if (uremote_change_apply(kv[2 * i], kv[2 * i + 1])) { errno = EIO; return -1; }
+        return 0;
+    }
+    // ONE prompt, all or nothing: what one dialog shows whole.
+    if (n > UPRIV_PROMPT_ROWS) { errno = E2BIG; return -1; }
+    const char *args[2 * UPRIV_PROMPT_ROWS + 1];
+    for (int i = 0; i < 2 * n; i++) args[i] = kv[i];
+    args[2 * n] = 0;
+    return upriv_action(UPRIV_ACT_REMOTEDESKTOP, args, 0);
 }
 
 // --- who may connect -------------------------------------------------------

@@ -39,7 +39,7 @@ struct uui_place {
     // doing (USERFS_ST_*), and what it is a share of. Listed after the
     // local devices, under their own caption.
     int remote, state;
-    int session;                  // opened for the session: nothing in /etc/mounts.d keeps it
+    int session;                  // opened for the session: nothing in ~/.config/mounts.d keeps it
     char source[64];
     // On a disk a person can pull (QUERY_FS_REMOVABLE): listed after the
     // local devices, under their own caption, with an Eject.

@@ -29,6 +29,12 @@
 #include "accounts.h"
 #include "base/usetting.h"
 #include "base/uinitctl.h"
+#include "base/uconf.h"
+#include "base/udevice.h"
+#include "media/usndfmt.h"
+#include "net/uremote.h"
+#include "net/unetlink.h"
+#include "sound_abi.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -286,11 +292,129 @@ static int32_t boot_cfg(const char *path, const char *text) {
     return ubootcfg_save(&c, path, &why) < 0 ? -EIO : 0;
 }
 
+static int is_action(const struct req *r, const char *a) {
+    return r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], a);
+}
+
+// Every setting in a `settings` request is the SEAT's (display.scale):
+// stored as the machine's in a file root owns, and the person at the
+// machine's to change (users D3b2a). Checked after settings_ok().
+static int settings_all_seat(const struct req *r) {
+    for (int i = 1; i + 1 < r->nstrs; i += 2) {
+        static struct setting_msg m;
+        if (usetting_info(r->strs[i], &m) != 0 || !(m.sflags & SETTING_ABI_SF_SEAT)) return 0;
+    }
+    return 1;
+}
+
 // Granted to the person at the machine without asking (base/upriv.h).
 static int seat_action(const struct req *r) {
-    return r->type == UPRIV_T_ACTION &&
-           (!strcmp(r->strs[0], UPRIV_ACT_BOOTENV) || !strcmp(r->strs[0], UPRIV_ACT_BOOTMODE) ||
-            !strcmp(r->strs[0], UPRIV_ACT_REMOTE));
+    return is_action(r, UPRIV_ACT_BOOTENV) || is_action(r, UPRIV_ACT_BOOTMODE) ||
+           is_action(r, UPRIV_ACT_REMOTE) || is_action(r, UPRIV_ACT_APPVOLUME) ||
+           is_action(r, UPRIV_ACT_SOUNDFORMAT) ||
+           (is_action(r, UPRIV_ACT_SETTINGS) && settings_all_seat(r));
+}
+
+// --- the files the desktop changed in /etc (users D3b2a) --------------------
+//
+// privd is the boundary: every argument is checked here, before anyone is
+// asked, whatever the library on the asking side already checked.
+
+// A key one line of an /etc file can carry: a program's name in
+// sound.conf. No '=', '[', ']', '#' or control character, nothing empty.
+static int conf_key_ok(const char *k) {
+    size_t n = strlen(k);
+    if (!n || n >= 64) return 0;
+    for (const unsigned char *p = (const unsigned char *)k; *p; p++)
+        if (*p < ' ' || *p == 0x7f || *p == '=' || *p == '[' || *p == ']' || *p == '#') return 0;
+    return 1;
+}
+
+static int percent_ok(const char *v) {
+    char *end;
+    long n = strtol(v, &end, 10);
+    return v[0] >= '0' && v[0] <= '9' && !*end && n >= 0 && n <= 100 && strlen(v) <= 3;
+}
+
+static int appvolume_ok(const struct req *r) {
+    return r->nstrs == 3 && conf_key_ok(r->strs[1]) && percent_ok(r->strs[2]);
+}
+
+static int soundformat_ok(const struct req *r, struct usndfmt *f) {
+    struct usndfmt scratch;
+    return r->nstrs == 5 && usndfmt_card_ok(r->strs[1]) &&
+           usndfmt_from_words(r->strs[2], r->strs[3], r->strs[4], f ? f : &scratch);
+}
+
+// key, then "=value" or "-", per change -- each one uremote_change_ok()'s.
+static int remote_ok(const struct req *r) {
+    if (r->nstrs < 3 || (r->nstrs - 1) % 2) return 0;
+    if ((r->nstrs - 1) / 2 > UPRIV_PROMPT_ROWS) return 0;
+    for (int i = 1; i + 1 < r->nstrs; i += 2)
+        if (!uremote_change_ok(r->strs[i], r->strs[i + 1])) return 0;
+    return 1;
+}
+
+// The device a request names, looked up fresh: `*list` is the caller's
+// to free. NULL for none.
+static const struct udevice *device_of(const char *id, struct udevice **list) {
+    *list = NULL;
+    int n = udevice_list(list);
+    for (int i = 0; i < n; i++)
+        if (!strcmp((*list)[i].id, id)) return &(*list)[i];
+    return NULL;
+}
+
+static int device_ok(const struct req *r) {
+    if (r->nstrs != 4 || (strcmp(r->strs[1], "disable") && strcmp(r->strs[1], "enable")) ||
+        (strcmp(r->strs[3], "0") && strcmp(r->strs[3], "1")))
+        return 0;
+    struct udevice *list;
+    const struct udevice *d = device_of(r->strs[2], &list);
+    int ok = d && d->can_disable;
+    free(list);
+    return ok;
+}
+
+static int32_t do_device(const struct req *r) {
+    struct udevice *list;
+    const struct udevice *d = device_of(r->strs[2], &list);
+    int32_t rc = !d ? -ENODEV : !strcmp(r->strs[1], "disable") ? udevice_disable(d, r->strs[3][0] == '1')
+                                                                : udevice_enable(d);
+    free(list);
+    return rc;
+}
+
+// The card's QUERY_NETDEV record, by its name; 1 when found.
+static int netdev_of(const char *name, struct query_netdev *out) {
+    for (int i = 0; sys_query_record(QUERY_NETDEV, i, out, sizeof *out) > 0; i++)
+        if (!strcmp(out->name, name)) return 1;
+    return 0;
+}
+
+// netlink's six numbers, and a card that is there.
+static int netlink_ok(const struct req *r) {
+    if (r->nstrs != 7) return 0;
+    for (int i = 2; i < 7; i++) {
+        char *end;
+        strtoul(r->strs[i], &end, 10);
+        if (!r->strs[i][0] || *end) return 0;
+    }
+    struct query_netdev d;
+    return netdev_of(r->strs[1], &d);
+}
+
+// What an action's arguments must be before anyone is asked: 0 when
+// they are, else the answer (-EINVAL; -E2BIG for more rows than a prompt).
+static int32_t args_refused(const struct req *r) {
+    if (r->type != UPRIV_T_ACTION) return 0;
+    if (is_action(r, UPRIV_ACT_APPVOLUME)) return appvolume_ok(r) ? 0 : -EINVAL;
+    if (is_action(r, UPRIV_ACT_SOUNDFORMAT)) return soundformat_ok(r, 0) ? 0 : -EINVAL;
+    if (is_action(r, UPRIV_ACT_REMOTEDESKTOP))
+        return remote_ok(r) ? 0 : (r->nstrs - 1) / 2 > UPRIV_PROMPT_ROWS ? -E2BIG : -EINVAL;
+    if (is_action(r, UPRIV_ACT_DEVICE)) return device_ok(r) ? 0 : -EINVAL;
+    if (is_action(r, UPRIV_ACT_NETLINK)) return netlink_ok(r) ? 0 : -EINVAL;
+    return 0;
 }
 
 // A remote session's leader, and one of the three signals a session
@@ -365,8 +489,10 @@ static int32_t do_action(const struct req *r) {
         if (strcmp(y, "keep") && strcmp(y, "delete")) return -EINVAL;
         return acct_del(x, !strcmp(y, "delete"));
     } else if (!strcmp(a, UPRIV_ACT_USERMOD) && r->nstrs >= 4) return acct_mod(x, y, r->strs[3]);
-    else if (!strcmp(a, UPRIV_ACT_NETLINK) && r->nstrs >= 7) {
+    else if (!strcmp(a, UPRIV_ACT_NETLINK)) {
         struct net_linkcfg req;
+        struct query_netdev d;
+        if (!netlink_ok(r) || !netdev_of(x, &d)) return -EINVAL;
         memset(&req, 0, sizeof req);
         snprintf(req.name, sizeof req.name, "%s", x);
         req.which = (uint32_t)strtoul(r->strs[2], 0, 10);
@@ -374,7 +500,24 @@ static int32_t do_action(const struct req *r) {
         req.eee = (uint32_t)strtoul(r->strs[4], 0, 10);
         req.flow = (uint32_t)strtoul(r->strs[5], 0, 10);
         req.moderation = (uint32_t)strtoul(r->strs[6], 0, 10);
-        rc = sys_net_link(&req);
+        if (sys_net_link(&req) < 0) return -sys_errno();
+        // ...and kept for the next boot: /etc/net.conf is root's (users D3b2a).
+        return unetlink_save(&d, &req) < 0 ? -EIO : 0;
+    } else if (!strcmp(a, UPRIV_ACT_APPVOLUME)) {
+        if (!appvolume_ok(r)) return -EINVAL;
+        return uconf_set(SND_CONFIG_FILE, x, y) ? 0 : -EIO;
+    } else if (!strcmp(a, UPRIV_ACT_SOUNDFORMAT)) {
+        struct usndfmt f;
+        if (!soundformat_ok(r, &f)) return -EINVAL;
+        return usndfmt_write(x, &f) ? 0 : -EIO;
+    } else if (!strcmp(a, UPRIV_ACT_REMOTEDESKTOP)) {
+        if (!remote_ok(r)) return -EINVAL;
+        for (int i = 1; i + 1 < r->nstrs; i += 2)
+            if (uremote_change_apply(r->strs[i], r->strs[i + 1]) < 0) return -EIO;
+        return 0;
+    } else if (!strcmp(a, UPRIV_ACT_DEVICE)) {
+        if (!device_ok(r)) return -EINVAL;
+        return do_device(r);
     }
     else return -EINVAL;
     return rc < 0 ? -sys_errno() : 0;
@@ -444,8 +587,41 @@ static uint32_t words(const struct req *r, const struct who *w, char *out, uint3
     } else if (!strcmp(a, UPRIV_ACT_NETLINK) && r->nstrs > 1) {
         snprintf(head, sizeof head, "%s wants to change a network card's settings", name);
         snprintf(body, sizeof body, "Card: %s -- its speed, energy saving, flow control or "
-                 "interrupt moderation.", r->strs[1]);
+                 "interrupt moderation, kept for the next boot.", r->strs[1]);
         snprintf(act, sizeof act, "Change a network card");
+    } else if (!strcmp(a, UPRIV_ACT_REMOTEDESKTOP)) {
+        if (!remote_ok(r)) return 0;
+        static struct uremote_conf now;
+        uremote_load(&now);
+        snprintf(head, sizeof head, "%s wants to change remote desktop", name);
+        snprintf(body, sizeof body, "Who may see and control this computer from another one.");
+        snprintf(act, sizeof act, "Change remote desktop");
+        for (int i = 1; i + 1 < r->nstrs; i += 2, nrows++)
+            uremote_change_row(&now, r->strs[i], r->strs[i + 1], rows[nrows].key, sizeof rows[nrows].key,
+                               rows[nrows].val, sizeof rows[nrows].val);
+    } else if (!strcmp(a, UPRIV_ACT_DEVICE)) {
+        if (!device_ok(r)) return 0;
+        struct udevice *list;
+        // Looked up again: a device unplugged since device_ok() is gone.
+        const struct udevice *d = device_of(r->strs[2], &list);
+        if (!d) { free(list); return 0; }
+        int off = !strcmp(r->strs[1], "disable");
+        snprintf(head, sizeof head, "%s wants to %s a device", name, off ? "disable" : "enable");
+        if ((size_t)snprintf(body, sizeof body, "%s (%s)%s", d->name, d->location,
+                             !off ? " gets its driver back."
+                             : r->strs[3][0] == '1' ? " stops working, and stays off after a restart."
+                                                    : " stops working until it is enabled or the computer restarts.")
+            >= sizeof body) { free(list); return 0; }
+        snprintf(act, sizeof act, off ? "Disable a device" : "Enable a device");
+        free(list);
+    } else if (!strcmp(a, UPRIV_ACT_APPVOLUME) && appvolume_ok(r)) {
+        snprintf(head, sizeof head, "%s wants to change a program's volume", name);
+        snprintf(body, sizeof body, "%s plays at %s%% from now on.", r->strs[1], r->strs[2]);
+        snprintf(act, sizeof act, "Change the volume");
+    } else if (!strcmp(a, UPRIV_ACT_SOUNDFORMAT) && soundformat_ok(r, 0)) {
+        snprintf(head, sizeof head, "%s wants to change a sound card's format", name);
+        snprintf(body, sizeof body, "Card: %s -- the rate it plays at, and its width.", r->strs[1]);
+        snprintf(act, sizeof act, "Change a sound card");
     } else if (!strcmp(a, UPRIV_ACT_BOOTCFG)) {
         snprintf(head, sizeof head, "%s wants to change the boot menu", name);
         snprintf(body, sizeof body, "The file %s is rewritten; the old one is kept as .bak.",
@@ -701,6 +877,12 @@ static void handle_request(const struct ubulk_msg *m) {
     // A change the registry does not know is refused before anyone is asked.
     if (r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], UPRIV_ACT_SETTINGS) && !settings_ok(r)) {
         answer(r->pid, r->id, (r->nstrs - 1) / 2 > UPRIV_PROMPT_ROWS ? -E2BIG : -EINVAL);
+        req_free(r);
+        return;
+    }
+    int32_t bad = args_refused(r);
+    if (bad) {
+        answer(r->pid, r->id, bad);
         req_free(r);
         return;
     }

@@ -370,8 +370,19 @@ static void ring_init(void) {
     if (pid > 0) sys_kill(pid, SIGHUP);
 }
 
+// /etc/services.d is root's (users D3b2a): said before anything is
+// touched, as `sudo` would be needed for it.
+static int needs_root(const char *what) {
+    if (geteuid() == 0) return 0;
+    char msg[160];
+    snprintf(msg, sizeof msg, "service: %s needs administrator rights -- run it with sudo\n", what);
+    sys_print(msg);
+    return 1;
+}
+
 static int cmd_enable(const char *name) {
     char from[96], to[96], tmp[96], msg[192];
+    if (needs_root("enable")) return 1;
     snprintf(from, sizeof from, "%s%s", AVAIL_DIR, name);
     snprintf(to, sizeof to, "%s%s", ENABLED_DIR, name);
     // WRITTEN ELSEWHERE AND MOVED IN, because init rescans
@@ -407,6 +418,7 @@ static int cmd_enable(const char *name) {
 
 static int cmd_disable(const char *name) {
     char to[96], msg[192];
+    if (needs_root("disable")) return 1;
     snprintf(to, sizeof to, "%s%s", ENABLED_DIR, name);
     if (unlink(to) < 0) {
         snprintf(msg, sizeof msg, "service: %s is not enabled\n", name);

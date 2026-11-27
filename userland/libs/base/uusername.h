@@ -26,6 +26,14 @@ const char *uusername(unsigned uid, unsigned width);
 // is the account the running desktop has, else the first person's.
 int uusername_desktop(unsigned *uid, unsigned *gid);
 
+// THE SESSION AT THE SEAT, now: the account of a person's process holding
+// the seat (CRED_SEAT, uid 1000 and up) -- logind's active session. 1 and
+// its uid and primary group, or 0 while there is none: the login screen
+// (the greeter's account is no person's), a text boot nobody signed in to.
+// One session at a time (users D3a), so any such process names it. A walk
+// of the process table: call it every second or so, not per frame.
+int uusername_session(unsigned *uid, unsigned *gid);
+
 #ifdef __cplusplus
 }
 #endif

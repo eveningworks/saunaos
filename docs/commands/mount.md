@@ -33,7 +33,7 @@
   something opens it. `-o user=<name>` names who to sign in as; the
   password is then given with `smb login <mountpoint>`, since a command
   line is no place for one. Unmounting stops the worker. A share wanted
-  at every boot belongs in `/etc/mounts.d` instead (`doc smbfsd`).
+  at every boot belongs in `~/.config/mounts.d` instead (`doc smbfsd`).
 
 - `<image.iso>` (or `-t iso9660`) -- a DISC IMAGE: a source that is a
   FILE is mounted read-only straight from it, ISO 9660 with Joliet's long

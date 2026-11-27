@@ -5,9 +5,11 @@ Label=Theme
 Category=Appearance
 Group=Theme
 Default=light
-# The shipped themes, then the ones made on this machine (a local one of
-# the same stem wins when it loads -- ui/utheme_file.h).
-ChoiceDir=/usr/share/themes,/etc/themes
+# The shipped themes, the machine's (an administrator's), then the
+# person's own (~/.local/share/themes, where Save as writes); the person's
+# wins over the machine's, and the machine's over a shipped one of the same
+# stem, when it loads -- ui/utheme_file.h.
+ChoiceDir=/usr/share/themes,/etc/themes,$XDG_DATA_HOME/themes
 ChoiceDirMode=stem
 Description=The colours of every window, control and title bar, and the look of the frame
 Choice.light=Light

@@ -1,4 +1,5 @@
-# Saved network shares (/etc/mounts.d), served under /net. One worker
+# The signed-in person's saved network shares (~/.config/mounts.d),
+# served under /net for their session. One worker
 # per share; each mounts at once and connects the first time something
 # opens it, so nothing here waits for the network at boot.
 # See docs/commands/smbfsd.md.

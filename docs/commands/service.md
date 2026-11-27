@@ -58,6 +58,10 @@ counts up.
 
 ## `enable` and `disable` act on the DESCRIPTOR, `start` and `stop` on the process
 
+**Both are root's**: `/etc/services.d` is root's (users D3b2a), so from
+another account they refuse up front -- "needs administrator rights --
+run it with sudo" -- and touch nothing.
+
 `/usr/share/services` holds the service descriptors that EXIST;
 `/etc/services.d` holds the ones that are turned ON, and init only ever
 reads the second. So enabling is a copy and disabling is a delete, and

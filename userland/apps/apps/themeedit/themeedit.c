@@ -287,9 +287,14 @@ static void set_title(struct uapp *a) {
 
 static void list_themes(void) {
     g_ntheme = 0;
-    static const char *const DIRS[] = { UTHEME_SHIPPED_DIR, UTHEME_LOCAL_DIR };
-    for (int d = 0; d < 2; d++) {
-        DIR *dir = opendir(DIRS[d]);
+    // Every folder, the SHIPPED first: the list is capped, and a person's
+    // two dozen themes must not push Light out. A stem is listed once,
+    // and utheme_load() picks the file that wins.
+    char dirpath[UTHEME_PATH_MAX];
+    int ndirs = 0;
+    while (utheme_dir(ndirs, dirpath, sizeof dirpath)) ndirs++;
+    for (int d = ndirs - 1; d >= 0 && utheme_dir(d, dirpath, sizeof dirpath); d--) {
+        DIR *dir = opendir(dirpath);
         if (!dir) continue;
         struct dirent *e;
         while ((e = readdir(dir)) && g_ntheme < 24) {
@@ -334,9 +339,9 @@ static void load(struct uapp *a, const char *stem) {
 static struct uui_nameask g_ask;
 
 static int write_to(const char *stem) {
-    char path[96];
-    snprintf(path, sizeof path, "%s/%s.theme", UTHEME_LOCAL_DIR, stem);
-    int ok = utheme_save(path, &g_edit, &g_bundle, "Made on this computer");
+    char path[UTHEME_PATH_MAX];
+    int ok = utheme_own_path(stem, path, sizeof path) &&
+             utheme_save(path, &g_edit, &g_bundle, "Made on this computer");
     ulogf("themeedit: saved %s %s\n", path, ok ? "ok" : "FAILED");
     if (ok) {
         strlcpy(g_stem, stem, sizeof g_stem);
@@ -348,7 +353,7 @@ static int write_to(const char *stem) {
 
 static const char *saveas_check(void *ctx, const char *name) {
     (void)ctx;
-    char stem[UTHEME_STEM_MAX], path[96];
+    char stem[UTHEME_STEM_MAX], path[UTHEME_PATH_MAX];
     if (!utheme_stem_from_name(name, stem, sizeof stem)) return "Use letters and digits";
     if (utheme_path(stem, path, sizeof path)) return "A theme of that name exists";
     return 0;
@@ -383,14 +388,14 @@ static void saveas(struct uapp *a) {
 // Save: a shipped theme is never written over, so the first save of
 // one asks for a name.
 static void save(struct uapp *a) {
-    if (utheme_is_shipped(g_stem)) { saveas(a); return; }
+    if (!utheme_is_own(g_stem)) { saveas(a); return; }
     snprintf(g_status, sizeof g_status, write_to(g_stem) ? "Saved" : "Could not save");
     set_title(a);
 }
 
 static void apply(struct uapp *a) {
     if (dirty()) {
-        if (utheme_is_shipped(g_stem)) { g_apply_after_save = 1; saveas(a); return; }
+        if (!utheme_is_own(g_stem)) { g_apply_after_save = 1; saveas(a); return; }
         if (!write_to(g_stem)) { snprintf(g_status, sizeof g_status, "Could not save"); return; }
     }
     int n = utheme_apply(g_stem);

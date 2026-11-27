@@ -65,7 +65,15 @@ static int lock_on_resume(void) {
     char v[8] = "";
     if (uconf_get_layered(DESKTOP_CONF, "lock_on_resume", v, sizeof v) && !strcmp(v, "off")) return 0;
     struct passwd *pw = getpwuid(getuid());
-    return pw && upriv_has_password(pw->pw_name) == 1;
+    if (!pw) return 0;
+    // The probe replaces the agent's ring, and reopening drops a prompt
+    // that is up: with one up, lock -- the safe answer -- without asking.
+    if (wm_priv_busy()) return 1;
+    int has = upriv_has_password(pw->pw_name) == 1;
+    // That was a second privd channel from the agent's process, and it
+    // replaced the agent's ring (base/upriv.h): register again.
+    wm_priv_reopen();
+    return has;
 }
 
 static void stop_saver(void) {

@@ -65,7 +65,18 @@ extern "C" {
 #define UPRIV_ACT_MODUNLOAD "modunload"   // a module's name
 #define UPRIV_ACT_KILL      "kill"        // pid, signal number
 #define UPRIV_ACT_BOOTCFG   "bootcfg"     // grub.cfg's whole new text
-#define UPRIV_ACT_NETLINK   "netlink"     // card, which, rates, eee, flow, moderation
+// A card's link settings, APPLIED AND SAVED in /etc/net.conf (net/unetlink.h):
+// card, which, rates, eee, flow, moderation. `which` NET_LINK_DEFAULTS puts
+// the card back on its defaults and forgets what was saved.
+#define UPRIV_ACT_NETLINK   "netlink"
+// Remote desktop (net/uremote.h, users D3b2a): key, then "=value" or "-",
+// per change, over a FIXED set of keys -- uremote_change_ok() says which.
+// The prompt lists each as a row, never a password's value.
+#define UPRIV_ACT_REMOTEDESKTOP "remotedesktop"
+// Device Manager's disable (base/udevice.h): "disable" or "enable", the
+// device's id ("pci:00:1b.0"), and "1" to keep it disabled after a
+// restart (/etc/devices.conf), else "0".
+#define UPRIV_ACT_DEVICE    "device"
 // An account's password (docs/users-design.md, D2a): account, its current
 // password, the new one ("" removes it). Root may set any account's and
 // sends no current one; anyone else only their own, with the current one
@@ -90,12 +101,21 @@ extern "C" {
 // ...and who is on this machine remotely: end a remote session, or make it
 // view-only (SIGTERM, SIGUSR1, SIGUSR2 to a QUERY_REMOTESESS leader only).
 #define UPRIV_ACT_REMOTE    "remote"      // pid, signal number
+// ...and the sound the person at the machine hears (users D3b2a): one
+// program's volume in /etc/sound.conf, which soundd (root) applies -- the
+// program's name, and 0..100 -- and a card's output format in
+// /etc/sound-cards.conf (media/usndfmt.h): card, rate, allowed, bits, as
+// the file spells them.
+#define UPRIV_ACT_APPVOLUME   "appvolume"
+#define UPRIV_ACT_SOUNDFORMAT "soundformat"
 // The people's accounts (users D3a, base/uusers.h), an administrator's:
 #define UPRIV_ACT_USERADD   "useradd"     // name, full name, admin 0/1, password or ""
 #define UPRIV_ACT_USERDEL   "userdel"     // name, "keep" or "delete" (its home)
 #define UPRIV_ACT_USERMOD   "usermod"     // name, field (admin/real/password), value
 // The machine's settings (users D3b, base/usetting.h): name, then "=value"
 // to set it or "-" to put back its default, per setting, applied in order.
+// A request whose every setting is the SEAT's (display.scale) is granted
+// to the person at the machine without asking: the seat's file is root's.
 #define UPRIV_ACT_SETTINGS  "settings"
 // The most rows one prompt lists: what the dialog shows whole on an 800x600
 // screen. A request with more is refused (E2BIG), as any prompt that cannot

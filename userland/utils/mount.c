@@ -18,7 +18,7 @@
 //
 // A NETWORK SHARE is `-t smb //server/share`: there is no kernel SMB
 // client, so this starts the process that is one (`smbfsd --url`), which
-// mounts the point itself. Saved shares are /etc/mounts.d's, not this.
+// mounts the point itself. Saved shares are each person's ~/.config/mounts.d's, not this.
 //
 // WHAT IT DELIBERATELY DOES NOT DO: no /etc/fstab, no `-a`, no
 // remount-in-place, no per-filesystem option string. The first three

@@ -23,6 +23,14 @@ unsigned wm_priv_questions(void);   // questions received this boot
 // without asking -- the person chose Force Quit here. 0, or -1.
 int wm_priv_kill(int pid, int sig);
 
+// A SEAT ACTION from the desktop itself (base/upriv.h: one privd granted the
+// person at the machine without asking -- the per-app volume), sent over
+// the AGENT's own channel and its answer ignored: it never blocks the
+// frame, and no second channel replaces the agent's (no wm_priv_reopen()
+// needed). `args` NULL-terminated. 0 when sent, -1 when it could not be
+// (no agent: privd not running).
+int wm_priv_seat_action(const char *action, const char *const *args);
+
 // The screen locked, or came back from the saver or from off: privd
 // forgets the passwords `login.admin_prompt`'s remember choices keep.
 void wm_priv_forget(void);
@@ -30,4 +38,6 @@ void wm_priv_forget(void);
 // After any OTHER privd call this process made (base/upriv.h's one
 // channel per process): registers as the agent again at the next poll.
 void wm_priv_reopen(void);
+// A prompt is showing or waiting: reopening now would drop it unanswered.
+int wm_priv_busy(void);
 #endif

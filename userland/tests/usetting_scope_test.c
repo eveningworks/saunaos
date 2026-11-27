@@ -17,7 +17,8 @@
 // usetting_get(). The person's directory is a fresh one under /tmp that
 // does not exist yet, so the write must make it.
 //
-// Every value is put back before returning: /etc/desktop.conf's
+// The machine's value is ROOT's to write (users D3b2a): the parent sets it
+// before the child starts. Every value is put back before returning: /etc/desktop.conf's
 // clock_seconds as it was, the scratch directory removed.
 #include <errno.h>
 #include <unistd.h>
@@ -89,6 +90,9 @@ int main(int argc, char **argv) {
     sys_unlink(XDG "/update.conf");
     rmdir(XDG);
     utest_check(usetting_set(MACH_KEY, "on") == SETTING_SAVED, "root sets a machine key");
+    // The machine's value of the user key, written by root: /etc is root's
+    // (users D3b2a), so the child cannot make it.
+    utest_check(uconf_set(USER_FILE, "clock_seconds", "off"), "root writes the machine's value of a user key");
 
     int code = run_as_desktop();
     utest_checkf(code == 0, "as the desktop's account the layers behave (%d failed; its lines above)", code);
@@ -114,12 +118,15 @@ int main(int argc, char **argv) {
 static int child_main(void) {
     utest_begin("usetting_scope_child", "as the desktop's account", 0);
 
-    // The machine's value, written as a root service would: no layer.
+    // With no layer a write would go to /etc, which is root's (users
+    // D3b2a): the account cannot change the machine's value -- the parent
+    // wrote it ("off").
     unsetenv("XDG_CONFIG_HOME");
-    utest_check(usetting_set(USER_KEY, "off") == SETTING_SAVED, "with no XDG_CONFIG_HOME a user key is set");
+    utest_check(usetting_set(USER_KEY, "on") != SETTING_SAVED,
+                "with no XDG_CONFIG_HOME a user key's write is refused: /etc is root's");
     char v[64] = "", f[64] = "";
     utest_check(file_says(USER_FILE, "clock_seconds", f, sizeof f) && !strcmp(f, "off"),
-                "...in /etc, the machine's value");
+                "...and /etc keeps the machine's value");
 
     // A person, whose layer is still empty: the machine's value shows.
     setenv("XDG_CONFIG_HOME", XDG, 1);

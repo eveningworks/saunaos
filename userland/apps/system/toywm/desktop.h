@@ -23,7 +23,7 @@
 // layout (col 0, row = registry index) the first time it's ever
 // needed, and draggable to any other cell from there (desktop_handle_
 // click()/desktop_update_drag(), via ui_icon_grid.h's icon_drag
-// session). Positions persist across reboot in /etc/desktop.conf,
+// session). Positions persist across reboot in the person's desktop.conf,
 // keyed by app name so they survive gui_app_registry being reordered
 // -- see desktop.c's desktop_load_positions()/desktop_save_position().
 // A hand-drawn filled square with the app name's first letter stands

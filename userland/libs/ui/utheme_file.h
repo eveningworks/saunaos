@@ -4,11 +4,15 @@
 // Theme FILES: reading, writing and applying the `.theme` files a
 // `desktop.theme` setting names (docs/theme-design.md).
 //
-// Shipped themes live in UTHEME_SHIPPED_DIR, themes made on this
-// machine in UTHEME_LOCAL_DIR, and a local file WINS over a shipped one
-// of the same stem -- /etc over /usr, as everywhere. The format is
-// /etc's `name=value` (etc_config.h): the colour roles at top level,
-// the frame's style in `[frame]`, the settings it carries in `[apply]`.
+// THREE FOLDERS, the first holding a stem winning: the PERSON'S
+// ($XDG_DATA_HOME/themes, ~/.local/share/themes -- where Save as, Import
+// and the Theme Editor write; root has none, and writes the machine's),
+// the MACHINE'S (UTHEME_LOCAL_DIR, /etc/themes, an administrator's), and
+// the SHIPPED ones (UTHEME_SHIPPED_DIR) -- XDG's data-dir order, as
+// ~/.local/share/plasma/look-and-feel is read before /usr's (users D3b2a).
+// The format is /etc's `name=value` (etc_config.h): the colour roles at
+// top level, the frame's style in `[frame]`, the settings it carries in
+// `[apply]`.
 
 #include <stddef.h>
 #include <stdint.h>
@@ -21,7 +25,9 @@ extern "C" {
 
 #define UTHEME_SHIPPED_DIR "/usr/share/themes"
 #define UTHEME_LOCAL_DIR   "/etc/themes"
+#define UTHEME_USER_DIR    "themes"   // under $XDG_DATA_HOME (base/udatadir.h)
 #define UTHEME_STEM_MAX    32
+#define UTHEME_PATH_MAX    512
 
 // Every colour role a file may set, by its key: the parser's table, the
 // writer's and the Theme Editor's list. `group` is the editor's heading.
@@ -57,10 +63,17 @@ int utheme_stem_ok(const char *stem);
 // "My Paper 2" -> "my-paper-2"; 1 when the result is a stem.
 int utheme_stem_from_name(const char *name, char *out, size_t cap);
 
-// The file `stem` loads from: the local one if it exists, else the
-// shipped one. 0 when neither exists.
+// The folders a theme is looked up in, `i` from 0 in that order (the
+// person's only when there is one): 1 with `out` filled, 0 past the last.
+int utheme_dir(int i, char *out, size_t cap);
+// The file `stem` loads from: the first folder that has it. 0 when none.
 int utheme_path(const char *stem, char *out, size_t cap);
 int utheme_is_shipped(const char *stem);
+// Where a theme this process makes is written -- the person's folder, made
+// if missing, or /etc/themes for root. 0 for a bad stem or no folder.
+int utheme_own_path(const char *stem, char *out, size_t cap);
+// `stem` is in that folder: one this person may write over or delete.
+int utheme_is_own(const char *stem);
 
 // Loads `stem` over the default palette into `out`, and its bundle into
 // `b` (nullable). 1 when the file was found; a role whose value does not

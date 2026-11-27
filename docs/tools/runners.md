@@ -115,7 +115,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   run` left there reached every tool, and four failed that way on
   2026-09-30. `--disk PATH` uses an image as it is, `--no-fresh` uses
   `disk.img` as it is -- and both print what drifted onto it first.
-  `-k NAME` for a subset, `--logs DIR` to keep each tool's full output,
+  `-k NAME` for a subset, `--logs DIR` to keep each tool's full output (and its guest's whole kernel log, `<name>.klog`, for a grep across the run -- an `fsperm:` refusal no tool asserted on),
   `--list` to see what's in it. The per-tool fresh image and fresh VM
   are the parts that matter: several tools write files, and every one
   of them expects an empty desktop -- a tool inheriting the previous

@@ -3,6 +3,7 @@
 #include "base/uself.h"
 #include "proc_info.h"
 #include "query_abi.h"
+#include "cred_abi.h"   // CRED_SEAT
 #include "rt/sys.h"
 #include <pwd.h>
 #include <stdio.h>
@@ -69,4 +70,17 @@ int uusername_desktop(unsigned *uid, unsigned *gid) {
     *uid = (unsigned)pw->pw_uid;
     *gid = (unsigned)pw->pw_gid;
     return 1;
+}
+
+int uusername_session(unsigned *uid, unsigned *gid) {
+    struct proc_info pi;
+    for (int i = 0; sys_proc_info(i, &pi) == 0; i++) {
+        if (!pi.pid || pi.uid < 1000 || !(pi.cred_flags & CRED_SEAT)) continue;
+        struct passwd *pw = getpwuid(pi.uid);
+        if (!pw) continue;
+        *uid = (unsigned)pw->pw_uid;
+        *gid = (unsigned)pw->pw_gid;
+        return 1;
+    }
+    return 0;
 }

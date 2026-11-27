@@ -195,7 +195,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   contrast's yellow by PIXEL, with a desktop pixel beside it unchanged
   (the control), and darken an open app's page; then the editor: a colour
   typed into its picker changes the preview's title text, Save as writes
-  `/etc/themes/testred.theme`, and Apply makes it the desktop's -- the
+  the person's `~/.local/share/themes/testred.theme`, and Apply makes it the desktop's -- the
   setting, the bundled settings (Paper's round corners and light taskbar)
   and the REAL title bar drawn red. Its toolbar buttons are found by
   their Create-green icons: the toolbar's items are not in the layout
@@ -1053,6 +1053,24 @@ from the default (a sound card, a USB mouse, `--reboot`).
   setting (`system.mouse.speed`) set by `as user config` asks nothing.
   Positive control: skip `apply_page()`'s `usetting_needs_admin_flags()`
   branch -- "Apply opens the prompt" goes red. In `gui_regress.py`.
+- **`remote_apply_test.py`** -- remote desktop is asked for once per
+  Apply (users D3b2a): on System Settings' Remote Desktop page the port
+  one up, a password typed and a trusted address added leave
+  `/etc/remote.conf` alone; Apply opens ONE privd prompt, "System Settings
+  wants to change remote desktop", whose rows are `Port: 5900 -> 5901`,
+  `Password: set` and `Trusted: + 192.168.77.5` and never the password;
+  Cancel changes neither file; Apply and Allow make all three --
+  `password_set = yes` in remote.conf, the password itself only in root's
+  `/etc/remote.secret`. The page is taller than the window, so each
+  control is wheeled into view first. Puts both files back. Positive
+  control: drop the `uremote_change_row()` loop in privd's `words()` --
+  the rows check goes red. In `gui_regress.py`.
+- **`fbs_settings_test.py`** -- System Settings > Boot menu's First-boot
+  setup button asks privd (users D3b2a): as the desktop's account "At the
+  next restart" opens ONE prompt, "fbs wants to run as administrator", for
+  `fbs again`; Cancel leaves `/var/lib/fbs/done`, Allow removes it. Writes
+  the marker back. Positive control: drop `startup_fbs()`'s `geteuid()`
+  test -- no prompt opens. In `gui_regress.py`.
 - **`login_test.py`** -- users D2b end to end: System Settings > Users
   (as the desktop's account) sets a password -- Set greyed while the two
   fields differ, `passwd -S` saying P after, automatic sign-in turned

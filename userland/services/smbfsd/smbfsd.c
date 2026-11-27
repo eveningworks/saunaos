@@ -3,12 +3,16 @@
 // TWO ROLES IN ONE BINARY:
 //
 //   smbfsd                    the SUPERVISOR (the `smbfsd` service). Keeps
-//                             one worker per file in /etc/mounts.d,
-//                             starting, stopping and restarting them as
-//                             the files come and go.
-//   smbfsd --serve NAME       a WORKER: mounts /net/NAME (userfs) and
-//                             answers the kernel's requests for it from
-//                             the share in /etc/mounts.d/NAME.
+//                             one worker per saved share of the account
+//                             whose SESSION holds the seat (its
+//                             ~/.config/mounts.d), starting, stopping and
+//                             restarting them as the files come and go,
+//                             and every one stopped when the session
+//                             changes hands (users D3b2a).
+//   smbfsd --serve NAME --for ACCOUNT
+//                             a WORKER: mounts /net/NAME (userfs) for the
+//                             account and answers the kernel's requests
+//                             for it from that account's share NAME.
 //   smbfsd --url URL POINT    a worker for a share nothing saved -- what
 //                             `mount -t smb URL POINT` starts.
 //
@@ -22,7 +26,9 @@
 // remote_state) says what it is doing, for the File Manager.
 //
 // A worker MUST NOT touch its own mount (abi/userfs_abi.h); everything
-// it reads is under /etc and /run.
+// it reads is the share's file and /run. A ROOT worker WRITES NO ONE'S
+// FILES: what a person keeps (a remembered password) the person's own
+// program writes (net/unetmount.h).
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,7 +41,8 @@
 #include "signal_abi.h"
 #include "net/unetmount.h"
 #include "base/ugrow.h"
-#include "base/uusername.h"   // whom a root mount is for
+#include "base/uusername.h"   // whom a root mount is for: the session's
+#include <pwd.h>
 #include "base/ulistdir.h"
 #include "usmb.h"
 
@@ -61,7 +68,8 @@ struct cfg {
     char user[64], domain[64];
     uint8_t hash[16];
     int have_hash;              // a password is known (saved, or given this boot)
-    int saved;                  // from /etc/mounts.d (so Remember can write it)
+    int saved;                  // a saved share's (its file names it)
+    unsigned owner_uid, owner_gid;   // whom the mount is for (`--for`), when root
     int signed_in;              // credentials given THIS boot win over the file's
 };
 
@@ -422,11 +430,14 @@ static int64_t do_read(const char *path, uint64_t off, uint8_t *buf, uint32_t le
 }
 
 // USERFS_CTL_SAVE: a share opened for the session (`--url`) writes its
-// own /etc/mounts.d file and becomes a saved one, keeping its
-// connection. The password is not saved -- that is Remember's, asked for
-// in the Sign-in dialog. smbfsd's supervisor sees the file, finds the
-// point served, and takes over only if this worker ever exits.
-static int do_save(const uint8_t *data, uint32_t len) {
+// own file and becomes a saved one, keeping its connection. Such a worker
+// is the PERSON's own process (unetmount_open_address() starts it), so
+// the file lands in their ~/.config/mounts.d, theirs; a root worker
+// writes none. The password is not saved -- that is Remember's, asked
+// for in the Sign-in dialog. smbfsd's supervisor sees the file, finds
+// the point served, and takes over only if this worker ever exits.
+static int do_save(const uint8_t *data, uint32_t len, uint32_t asker) {
+    if (geteuid() == 0 || asker != geteuid()) return -EPERM;   // only for itself
     char name[UNETMOUNT_NAME_MAX];
     uint32_t n = 0;
     while (n < len && n + 1 < sizeof name && data[n]) { name[n] = (char)data[n]; n++; }
@@ -446,8 +457,14 @@ static int do_save(const uint8_t *data, uint32_t len) {
     return 0;
 }
 
-// USERFS_CTL_LOGIN: "user\0domain\0password\0remember".
-static int do_login(const uint8_t *data, uint32_t len) {
+// The account this worker serves the share for: the one it runs as, or
+// `--for`'s when it is root.
+static unsigned owner(void) { return geteuid() == 0 ? g_cfg.owner_uid : (unsigned)geteuid(); }
+
+// USERFS_CTL_LOGIN: "user\0domain\0password\0remember". With remember,
+// and asked by the share's own account, the answer carries the NT hash
+// (USERFS_CTL_LOGIN in abi/userfs_abi.h) for the asker to save.
+static int do_login(const uint8_t *data, uint32_t len, uint32_t asker, uint8_t *back, uint32_t *back_len) {
     const char *f[4] = { "", "", "", "0" };
     uint32_t at = 0;
     for (int i = 0; i < 4 && at < len; i++) {
@@ -472,14 +489,11 @@ static int do_login(const uint8_t *data, uint32_t len) {
         if (rc == USMB_E_LOGON) { g_cfg = old; g_cfg.have_hash = 0; publish(USERFS_ST_NEED_LOGIN, "Wrong user name or password", 0, 0); }
         return e;
     }
-    if (f[3][0] == '1' && g_cfg.saved) {
-        struct unetmount m;
-        if (unetmount_load(g_cfg.name, &m)) {
-            snprintf(m.user, sizeof m.user, "%s", g_cfg.user);
-            snprintf(m.domain, sizeof m.domain, "%s", g_cfg.domain);
-            for (int i = 0; i < 16; i++) snprintf(m.hash + 2 * i, 3, "%02x", g_cfg.hash[i]);
-            unetmount_save(&m);
-        }
+    // Remember is the ASKER's to act on: it writes the hash into its own
+    // share file (ui/uui_netshare.c), so no root worker writes in a home.
+    if (f[3][0] == '1' && g_cfg.saved && owner() && asker == owner()) {
+        for (int i = 0; i < 16; i++) snprintf((char *)back + 2 * i, 3, "%02x", g_cfg.hash[i]);
+        *back_len = 33;
     }
     return 0;
 }
@@ -522,8 +536,9 @@ static void serve(void) {
             rp.result = (int32_t)n;
             rp.len = n > 0 ? (uint32_t)n : 0;
         } else if (req->op == USERFS_OP_CTL) {
-            if (req->ctl == USERFS_CTL_LOGIN) rp.result = do_login(req->data, req->data_len);
-            else if (req->ctl == USERFS_CTL_SAVE) rp.result = do_save(req->data, req->data_len);
+            if (req->ctl == USERFS_CTL_LOGIN)
+                rp.result = do_login(req->data, req->data_len, req->uid, buf, &rp.len);
+            else if (req->ctl == USERFS_CTL_SAVE) rp.result = do_save(req->data, req->data_len, req->uid);
             else if (req->ctl == USERFS_CTL_RECONNECT) {
                 drop_session();
                 g_failed_at = 0;
@@ -535,6 +550,7 @@ static void serve(void) {
             rp.result = -EINVAL;
         }
         sys_userfs(USERFS_REPLY, (uint64_t)(uintptr_t)&rp, 0);
+        if (req->op == USERFS_OP_CTL) explicit_bzero(buf, rp.len);   // a hash, perhaps
     }
     drop_session();
     free(req);
@@ -580,10 +596,10 @@ static int worker(void) {
     }
     g_handle = (int)h;
     {
-        // A share mounted by root (a saved one, at boot) is the desktop's
-        // account's, as a stick is (base/udrive.c's hand_to_desktop()).
-        unsigned uid, gid;
-        if (geteuid() == 0 && uusername_desktop(&uid, &gid) && sys_chown(g_cfg.point, uid, gid) < 0)
+        // A share mounted by root (a saved one) is its account's, as a
+        // stick is the desktop's (base/udrive.c's hand_to_desktop()).
+        unsigned uid = g_cfg.owner_uid, gid = g_cfg.owner_gid;
+        if (geteuid() == 0 && uid && sys_chown(g_cfg.point, uid, gid) < 0)
             fprintf(stderr, "smbfsd: %s stays root's: %s\n", g_cfg.point, strerror(errno));
     }
     if (g_cfg.saved) {
@@ -603,10 +619,21 @@ static int worker(void) {
     return 0;
 }
 
-static int serve_saved(const char *name) {
+static int serve_saved(const char *name, const char *account) {
     struct unetmount m;
+    struct passwd *pw = account ? getpwnam(account) : NULL;
+    if (geteuid() == 0) {
+        if (!pw || pw->pw_uid < 1000 || !pw->pw_dir) {
+            fprintf(stderr, "smbfsd: --serve %s: no person's account '%s'\n", name, account ? account : "");
+            return 1;
+        }
+        unetmount_use_home(pw->pw_dir);
+        g_cfg.owner_uid = (unsigned)pw->pw_uid;
+        g_cfg.owner_gid = (unsigned)pw->pw_gid;
+    }
     if (!unetmount_load(name, &m)) {
-        fprintf(stderr, "smbfsd: no share named '%s' in %s\n", name, UNETMOUNT_DIR);
+        fprintf(stderr, "smbfsd: no saved share named '%s'%s%s\n", name, account ? " for " : "",
+                account ? account : "");
         return 1;
     }
     snprintf(g_cfg.name, sizeof g_cfg.name, "%s", m.name);
@@ -633,10 +660,11 @@ struct child {
     unsigned backoff_ms;
 };
 
-// One per descriptor in /etc/mounts.d, grown (base/ugrow.h); it held 16
-// and left the rest unserved. A `struct child *` lives for one pass.
+// One per descriptor in the session's mounts.d, grown (base/ugrow.h); it
+// held 16 and left the rest unserved. A `struct child *` lives for one pass.
 static struct child *g_kids;
 static int g_nkids, g_kids_cap;
+static char g_account[64];      // whose shares the workers serve; "" for no one
 
 // Only the SHARE makes a worker a different one: its credentials are
 // re-read at every connect (reload_credentials()), so the worker's own
@@ -646,8 +674,8 @@ static int same_share(const struct unetmount *a, const struct unetmount *b) {
 }
 
 static void start(struct child *k) {
-    char args[64];
-    snprintf(args, sizeof args, "--serve %s", k->name);
+    char args[160];
+    snprintf(args, sizeof args, "--serve %s --for %s", k->name, g_account);
     k->pid = sys_spawn("/bin/smbfsd", args, -1);
     if (k->pid < 0) {
         k->pid = 0;
@@ -672,7 +700,7 @@ static void stop(struct child *k) {
 static void reconcile(void) {
     static char (*names)[UNETMOUNT_NAME_MAX];
     static int names_cap;
-    int n = unetmount_list(&names, &names_cap);
+    int n = g_account[0] ? unetmount_list(&names, &names_cap) : 0;   // no session: none
     for (int i = 0; i < g_nkids; i++) g_kids[i].gone = 1;
     for (int j = 0; j < n; j++) {
         struct unetmount m;
@@ -728,13 +756,50 @@ static void stop_strays(void) {
     free(ents);
 }
 
+// THE SESSION'S ACCOUNT, as logind's active session is udisks2's: its
+// shares are served, and when it changes -- a sign-out, someone else
+// signing in -- every worker of the last one is stopped first, so no
+// person's share outlives their session.
+static int follow_session(void) {
+    unsigned uid = 0, gid = 0;
+    char now[64] = "";
+    struct passwd *pw = uusername_session(&uid, &gid) ? getpwuid(uid) : NULL;
+    if (pw && pw->pw_dir && strlen(pw->pw_name) < sizeof now) snprintf(now, sizeof now, "%s", pw->pw_name);
+    if (!strcmp(now, g_account)) return 0;
+    for (int i = 0; i < g_nkids; i++) { g_kids[i].gone = 1; stop(&g_kids[i]); }
+    g_nkids = 0;
+    snprintf(g_account, sizeof g_account, "%s", now);
+    unetmount_use_home(now[0] ? pw->pw_dir : NULL);
+    printf("smbfsd: serving %s%s\n", now[0] ? now : "no one", now[0] ? "'s shares" : " -- no session");
+    fflush(stdout);
+    return 1;
+}
+
 static __attribute__((noreturn)) void supervisor(void) {
     stop_strays();
-    long long seen = -2;
+    // /net HOLDS EVERY ACCOUNT'S MOUNT POINTS: a share a person opens by
+    // its address is mounted by their own worker, which makes its point
+    // here -- so the folder is /tmp's shape, 1777, the sticky bit keeping
+    // one account's point from another's rmdir. Made here, root's, at
+    // boot; a root worker making it first left it 0755 and every
+    // person's `smb://` refused (fsperm).
+    mkdir(UNETMOUNT_ROOT, 01777);
+    chmod(UNETMOUNT_ROOT, 01777);
+    long long seen = -2, seen_up = -2;
     for (;;) {
-        long long gen = sys_fs_generation_of(UNETMOUNT_DIR);
-        if (gen != seen) {
+        // The folder, and the one above it: a person's first share makes
+        // mounts.d itself.
+        static char dir[UNETMOUNT_PATH_MAX];   // one supervisor loop
+        dir[0] = 0;
+        int moved = follow_session();
+        unetmount_dir(dir, sizeof dir);
+        long long gen = dir[0] ? sys_fs_generation_of(dir) : -1;
+        char *slash = dir[0] ? strrchr(dir, '/') : NULL;
+        if (slash) *slash = 0;
+        long long up = dir[0] ? sys_fs_generation_of(dir) : -1;
+        if (moved || gen != seen || up != seen_up) {
             seen = gen;
+            seen_up = up;
             reconcile();
         }
         uint64_t t = now_ms();
@@ -760,15 +825,22 @@ static __attribute__((noreturn)) void supervisor(void) {
 }
 
 int main(int argc, char **argv) {
-    if (argc == 3 && !strcmp(argv[1], "--serve")) return serve_saved(argv[2]);
+    if (argc == 3 && !strcmp(argv[1], "--serve")) return serve_saved(argv[2], NULL);
+    if (argc == 5 && !strcmp(argv[1], "--serve") && !strcmp(argv[3], "--for"))
+        return serve_saved(argv[2], argv[4]);
     if ((argc == 4 || argc == 6) && !strcmp(argv[1], "--url")) {
         snprintf(g_cfg.name, sizeof g_cfg.name, "url");
         snprintf(g_cfg.url, sizeof g_cfg.url, "%s", argv[2]);
         snprintf(g_cfg.point, sizeof g_cfg.point, "%s", argv[3]);
         if (argc == 6 && !strcmp(argv[4], "--user")) snprintf(g_cfg.user, sizeof g_cfg.user, "%s", argv[5]);
+        // Mounted by root (`mount -t smb` at a `#` prompt): the session's
+        // account's, as a saved share is -- else the desktop's.
+        if (geteuid() == 0 && !uusername_session(&g_cfg.owner_uid, &g_cfg.owner_gid) &&
+            !uusername_desktop(&g_cfg.owner_uid, &g_cfg.owner_gid))
+            g_cfg.owner_uid = g_cfg.owner_gid = 0;
         return worker();
     }
     if (argc == 1) supervisor();
-    fprintf(stderr, "usage: smbfsd [--serve NAME | --url URL POINT [--user USER]]\n");
+    fprintf(stderr, "usage: smbfsd [--serve NAME [--for ACCOUNT] | --url URL POINT [--user USER]]\n");
     return 2;
 }

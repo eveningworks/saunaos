@@ -2,7 +2,7 @@
 // folder, copy a file out, print one, or say what the server agreed to.
 //
 // The protocol is /lib/libsmb.so (<usmb.h>); this is the front end. A
-// share you use often is better MOUNTED (/etc/mounts.d, smbfsd), where
+// share you use often is better MOUNTED (~/.config/mounts.d, smbfsd), where
 // every program sees its files; this is for a look, a one-off copy, and
 // for telling a sign-in problem from a mount problem.
 #include <stdio.h>
@@ -132,9 +132,27 @@ static __attribute__((noinline)) int login(const char *name) {
     c->len = (uint32_t)n + 1;
     int64_t rc = sys_userfs(USERFS_CTL, (uint64_t)(uintptr_t)c, 0);
     int e = rc < 0 ? sys_errno() : 0;
+    // REMEMBER is written HERE, as the person, into their own share file:
+    // the worker may be root, and writes nobody's files (net/unetmount.h).
+    // The worker answers with the hash when this account is the share's.
+    int kept = 0;
+    struct unetmount m;
+    const char *base = strrchr(name, '/');
+    if (!rc && f_remember && c->len == 33 && strlen((const char *)c->data) == 32 &&
+        unetmount_load(base ? base + 1 : name, &m)) {
+        snprintf(m.user, sizeof m.user, "%s", f_user);
+        snprintf(m.domain, sizeof m.domain, "%s", f_domain ? f_domain : "");
+        snprintf(m.hash, sizeof m.hash, "%s", (const char *)c->data);
+        kept = unetmount_save(&m);
+        memset(&m, 0, sizeof m);
+    }
     memset(c, 0, sizeof *c);
     free(c);
-    if (!rc) { printf("Signed in to %s%s\n", name, f_remember ? "; the password is saved" : ""); return 0; }
+    if (!rc) {
+        printf("Signed in to %s%s\n", name, !f_remember ? "" : kept ? "; the password is saved"
+               : "; the password was NOT saved (no saved share of yours by that name)");
+        return 0;
+    }
     fprintf(stderr, "smb: login %s: %s\n", name,
             e == ENOENT ? "no network share is mounted there"
             : e == EACCES ? "wrong user name or password"

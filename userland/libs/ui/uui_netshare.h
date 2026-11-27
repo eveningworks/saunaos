@@ -6,15 +6,17 @@
 // <server>" (a user, a password, Remember). The File Manager's Network
 // rows use both; System Settings or the desktop can open the same ones.
 //
-// What they DO is not the app's business either: Add writes
-// /etc/mounts.d/<name> (net/unetmount.h) and waits for smbfsd to mount
-// it; Sign in hands the password to the share's smbfsd worker through
-// the kernel (USERFS_CTL_LOGIN) on a THREAD -- a server that is slow to
-// answer must not freeze the window -- and the dialog says "Signing
-// in…" until it does. The password goes from the field to the worker
-// and is wiped here; only its hash is ever saved, and only by the
-// worker, and only when Remember is ticked. The Sign in form itself is
-// the toolkit's (ui/uui_signin.h); what is done with it is this file's.
+// What they DO is not the app's business either: Add writes the
+// person's ~/.config/mounts.d/<name> (net/unetmount.h) and waits for
+// smbfsd to mount it; Sign in hands the password to the share's smbfsd
+// worker through the kernel (USERFS_CTL_LOGIN) on a THREAD -- a server
+// that is slow to answer must not freeze the window -- and the dialog
+// says "Signing in…" until it does. The password goes from the field to
+// the worker and is wiped here; only its hash is ever saved -- by THIS
+// side, as the person, into their own share's file, from the worker's
+// answer once the sign-in worked and only when Remember is ticked
+// (smbfsd may be root, and writes nobody's files). The Sign in form itself is the toolkit's
+// (ui/uui_signin.h); what is done with it is this file's.
 //
 //     uui_netshare_add(&ns, &dlg);             // or _signin(&ns, &dlg, "/net/media", ...)
 //     ... the dialog's body item is uui_netshare_item(&ns) ...
@@ -58,6 +60,9 @@ struct uui_netshare {
     volatile int done;              // the sign-in thread's
     int result;                     // and its answer (0 or -errno)
     void *ctl;                      // the message the thread sends
+    int keep;                       // sign-in: Remember was ticked --
+    char keep_user[64];             //   whom, and the password's NT hash
+    char keep_hash[33];             //   (hex, the worker's answer), saved once it worked
 };
 
 void uui_netshare_add(struct uui_netshare *n, struct uui_dialog *d);

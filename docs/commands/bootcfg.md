@@ -37,7 +37,9 @@
 - `resolution [WxH|auto|keep|drop|forget]` -- the screen size GRUB sets,
   for a display SaunaOS cannot set itself; see "The screen size GRUB
   sets". Alone, it shows the size now, every boot's, a pending one and
-  the sizes this machine's firmware refused; `forget` offers those again.
+  the sizes this machine's firmware refused; `forget` offers those again
+  -- root's (`/etc/display.conf` is), so from another account it refuses
+  up front: run it with `sudo`.
 - `--force` -- save despite a RISKY problem the edit introduces.
 - `--file=<cfg>` -- another file than `/boot/grub/grub.cfg`.
 - `-h`, `--help` -- every command and option in one page, as GNU tools

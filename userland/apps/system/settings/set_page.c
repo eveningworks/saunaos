@@ -285,6 +285,7 @@ const char *staged_value(struct slot *sl) {
 
 // How many of the page's settings are staged but not yet applied.
 int page_changes(void) {
+    if (g_show_remote) return remote_changes();   // a page of its own, staged there
     int n = 0;
     for (int i = 0; i < g_slot_count; i++)
         if (g_slot[i].setting >= 0 && g_slot[i].staged != g_slot[i].baseline) n++;
@@ -293,6 +294,7 @@ int page_changes(void) {
 int page_dirty(void) { return page_changes() > 0; }
 // Of those, how many are the machine's -- Apply asks for administrator rights.
 int page_admin_changes(void) {
+    if (g_show_remote) return usetting_needs_admin_flags(0) ? remote_changes() : 0;
     int n = 0;
     for (int i = 0; i < g_slot_count; i++)
         if (g_slot[i].setting >= 0 && g_slot[i].staged != g_slot[i].baseline &&
@@ -424,7 +426,7 @@ static char (*g_adm_name)[SETTING_ABI_QUALIFIED_MAX], (*g_adm_val)[SETTING_ABI_V
 static int g_adm_n, g_adm_busy, g_adm_group, g_adm_reboot;
 static char g_adm_note[96];   // the person's own changes' outcome, said after
 
-int page_admin_pending(void) { return g_adm_busy; }
+int page_admin_pending(void) { return g_adm_busy || remote_busy(); }
 
 static void adm_free(void) {
     free(g_adm); free(g_adm_name); free(g_adm_val);
@@ -472,6 +474,7 @@ static void adm_done(struct uapp *a, int rc, int err, void *arg) {
 int apply_page(void) {
     int changed = 0, failed = 0, unsaved = 0, needs_reboot = 0;
     if (g_adm_busy) return 0;
+    if (g_show_remote) return remote_apply();
     adm_free();
     g_adm_reboot = 0;
     g_adm = calloc((size_t)g_slot_count + 1, sizeof *g_adm);
