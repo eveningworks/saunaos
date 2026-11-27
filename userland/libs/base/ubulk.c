@@ -163,7 +163,7 @@ int ubulk_client_recv(struct ubulk_client *c, struct ubulk_msg *m, void *buf, ui
     while (uchan_client_recv(&c->ch, drop, sizeof drop)) {}
     bell_clear(&c->pg->down);
     if (!ring_get(&c->pg->down, m, buf, cap)) return 0;
-    m->pid = c->pg->server_pid;
+    m->pid = m->conn = c->pg->server_pid;
     return 1;
 }
 
@@ -218,8 +218,8 @@ void ubulk_server_close(struct ubulk_server *s) {
     memset(s, 0, sizeof *s);
 }
 
-static int peer_index(struct ubulk_server *s, int pid) {
-    for (int i = 0; i < s->npeers; i++) if (s->peer[i].pid == pid) return i;
+static int peer_index(struct ubulk_server *s, int conn) {
+    for (int i = 0; i < s->npeers; i++) if (s->peer[i].conn == conn) return i;
     return -1;
 }
 
@@ -233,10 +233,11 @@ int ubulk_server_poll(struct ubulk_server *s, int *gone, int gone_cap) {
     // Every uchan client is a ubulk client: adopt the ones not yet
     // mapped, and drop the ones uchan no longer has.
     for (int k = 0; k < s->ch.count; k++) {
-        int pid = s->ch.pid[k];
-        if (peer_index(s, pid) >= 0 || s->npeers >= UBULK_PEERS) continue;
-        char nm[40];
-        snprintf(nm, sizeof nm, "%s.%db", s->ch.name, pid);
+        int conn = s->ch.conn[k], pid = s->ch.pid[k];
+        if (peer_index(s, conn) >= 0 || s->npeers >= UBULK_PEERS) continue;
+        char nm[SHM_NAME_MAX];
+        if (!uchan_server_ring_name(&s->ch, conn, nm, sizeof nm - 1)) continue;
+        strcat(nm, "b");
         // Only the client's OWN page, as uchan adopts only its own ring.
         int fd = sys_shm_open_from(nm, pid);
         struct ubulk_page *pg = 0;
@@ -250,11 +251,15 @@ int ubulk_server_poll(struct ubulk_server *s, int *gone, int gone_cap) {
             sys_munmap(pg, PAGE_BYTES);
             continue;
         }
-        s->peer[s->npeers++] = (struct ubulk_peer){ pid, pg };
+        struct ubulk_peer *np = &s->peer[s->npeers++];
+        np->conn = conn;
+        np->pid = pid;
+        np->pg = pg;
+        snprintf(np->name, sizeof np->name, "%s", nm);
     }
     for (int i = 0; i < s->npeers;) {
         int live = 0;
-        for (int k = 0; k < s->ch.count; k++) live |= s->ch.pid[k] == s->peer[i].pid;
+        for (int k = 0; k < s->ch.count; k++) live |= s->ch.conn[k] == s->peer[i].conn;
         if (live) { i++; continue; }
         sys_munmap(s->peer[i].pg, PAGE_BYTES);
         s->peer[i] = s->peer[--s->npeers];
@@ -271,6 +276,7 @@ int ubulk_server_recv(struct ubulk_server *s, struct ubulk_msg *m, void *buf, ui
     for (int i = 0; i < s->npeers && !got; i++) {
         if (ring_get(&s->peer[i].pg->up, m, buf, cap)) {
             m->pid = s->peer[i].pid;
+            m->conn = s->peer[i].conn;
             got = 1;
         }
     }
@@ -278,37 +284,37 @@ int ubulk_server_recv(struct ubulk_server *s, struct ubulk_msg *m, void *buf, ui
     return got;
 }
 
-struct send_ctx { struct ubulk_server *s; int pid; };
+struct send_ctx { struct ubulk_server *s; int conn; char name[SHM_NAME_MAX]; };
 
-// Called with the lock dropped: is `pid` still a client? Takes the lock
-// to look, and leaves it taken for the next try.
+// Called with the lock held: is `conn` still a client? Drops the lock to
+// look, and takes it again for the next try.
 static int server_peer_alive(void *ctx) {
     struct send_ctx *x = ctx;
     unlock(x->s);
-    char nm[40];
-    snprintf(nm, sizeof nm, "%s.%db", x->s->ch.name, x->pid);
-    int fd = sys_shm_open(nm, 0, 0);
+    int fd = sys_shm_open(x->name, 0, 0);
     if (fd >= 0) sys_close(fd);
     lock(x->s);
-    return fd >= 0 && peer_index(x->s, x->pid) >= 0;
+    return fd >= 0 && peer_index(x->s, x->conn) >= 0;
 }
 
-int ubulk_server_send(struct ubulk_server *s, int pid, uint32_t type, uint32_t id, const void *data,
+int ubulk_server_send(struct ubulk_server *s, int conn, uint32_t type, uint32_t id, const void *data,
                       uint32_t len, int timeout_ms) {
     if (!s->lock || len > UBULK_REC_MAX) return -1;
     lock(s);
     unsigned long long until = sys_monotonic_ns() + (unsigned long long)timeout_ms * 1000000ull;
-    struct send_ctx x = { s, pid };
+    struct send_ctx x = { s, conn, "" };
+    int at = peer_index(s, conn);
+    if (at >= 0) snprintf(x.name, sizeof x.name, "%s", s->peer[at].name);
     int r = -1;
     for (;;) {
         // Looked up afresh each time round: a poll may have dropped and
         // unmapped the page while the lock was down.
-        int i = peer_index(s, pid);
+        int i = peer_index(s, conn);
         if (i < 0) break;
         struct ubulk_ring *ring = &s->peer[i].pg->down;
         uint32_t seen = ring->space;
         if (ring_put(ring, type, id, data, len)) {
-            if (bell_needed(ring) && uchan_server_send(&s->ch, pid, "b", 1) != 0) ring->bell = 0;
+            if (bell_needed(ring) && uchan_server_send(&s->ch, conn, "b", 1) != 0) ring->bell = 0;
             r = 0;
             break;
         }

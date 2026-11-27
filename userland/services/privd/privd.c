@@ -63,6 +63,7 @@ struct who {
 struct req {
     struct req *next;
     int         pid;          // the asker
+    int         conn;         // where its answer goes (base/ubulk.h's `conn`)
     uint32_t    id;           // its request id
     uint32_t    type;         // UPRIV_T_SPAWN / UPRIV_T_ACTION
     uint32_t    prompt;       // the agent's prompt id, 0 when not asked
@@ -84,7 +85,7 @@ struct req {
 
 static struct ubulk_server g_srv;
 static struct req *g_reqs;
-static int g_agent;          // the agent's pid, 0 for none
+static int g_agent;          // the agent's connection (base/ubulk.h), 0 for none
 static int g_agent_ever;     // an agent registered this boot: a graphical one
 static uint32_t g_next_prompt = 1;
 
@@ -167,8 +168,10 @@ static int listed(const char *list, const char *name) {
     return 0;
 }
 
-static void answer(int pid, uint32_t id, int32_t rc) {
-    ubulk_server_send(&g_srv, pid, UPRIV_T_ANSWER, id, &rc, sizeof rc, 1000);
+// Every answer goes to the asking CONNECTION, never to a pid: the desktop
+// holds two (its agent and its own calls), and one asked must be answered.
+static void answer(int conn, uint32_t id, int32_t rc) {
+    ubulk_server_send(&g_srv, conn, UPRIV_T_ANSWER, id, &rc, sizeof rc, 1000);
 }
 
 // A wrong password's answer, sent UPRIV_FAIL_DELAY_MS later (pam_faildelay)
@@ -180,7 +183,7 @@ static void answer(int pid, uint32_t id, int32_t rc) {
 struct later {
     struct later *next;
     uint64_t at;            // sys_monotonic_ns()
-    int      pid;
+    int      conn;
     uint32_t type, id;
     int32_t  v;
     uint32_t uid;           // whose wrong password it answers
@@ -191,29 +194,29 @@ static struct later *g_later;
 // telnet connection), so root's is per asking PROCESS, as Linux's
 // pam_faildelay delays only the login that was wrong: one telnet guesser
 // must not lock the console out.
-static int penalized(uint32_t uid, int pid) {
+static int penalized(uint32_t uid, int conn) {
     for (struct later *l = g_later; l; l = l->next)
-        if (l->uid == uid && (uid != 0 || l->pid == pid)) return 1;
+        if (l->uid == uid && (uid != 0 || l->conn == conn)) return 1;
     return 0;
 }
 
-// Its answers go nowhere once `pid` has gone: its pid may be someone
+// Its answers go nowhere once `conn` has gone: its pid may be someone
 // else's by the time they are due.
-static void purge_later(int pid) {
+static void purge_later(int conn) {
     for (struct later **pp = &g_later; *pp; ) {
         struct later *l = *pp;
-        if (l->pid != pid) { pp = &l->next; continue; }
+        if (l->conn != conn) { pp = &l->next; continue; }
         *pp = l->next;
         free(l);
     }
 }
 
-static void send_later(int pid, uint32_t type, uint32_t id, int32_t v, uint32_t uid) {
+static void send_later(int conn, uint32_t type, uint32_t id, int32_t v, uint32_t uid) {
     struct later *l = malloc(sizeof *l);
-    if (!l) { ubulk_server_send(&g_srv, pid, type, id, &v, sizeof v, 1000); return; }
+    if (!l) { ubulk_server_send(&g_srv, conn, type, id, &v, sizeof v, 1000); return; }
     l->at = sys_monotonic_ns() + (uint64_t)UPRIV_FAIL_DELAY_MS * 1000000ull;
     l->uid = uid;
-    l->pid = pid;
+    l->conn = conn;
     l->type = type;
     l->id = id;
     l->v = v;
@@ -229,7 +232,7 @@ static int run_later(int cap) {
     while (g_later && g_later->at <= now) {
         struct later *l = g_later;
         g_later = l->next;
-        ubulk_server_send(&g_srv, l->pid, l->type, l->id, &l->v, sizeof l->v, 1000);
+        ubulk_server_send(&g_srv, l->conn, l->type, l->id, &l->v, sizeof l->v, 1000);
         free(l);
     }
     if (!g_later) return cap;
@@ -578,7 +581,7 @@ static void carry_out(struct req *r) {
     else
         rc = do_action(r);
     logf1("privd: %s for pid %d\n", rc ? "refused by the kernel" : "done", r->pid);
-    answer(r->pid, r->id, rc);
+    answer(r->conn, r->id, rc);
 }
 
 // --- the prompt's words -----------------------------------------------------
@@ -801,6 +804,7 @@ static struct req *parse(const struct ubulk_msg *m) {
     struct req *r = calloc(1, sizeof *r);
     if (!r) return 0;
     r->pid = m->pid;
+    r->conn = m->conn;
     r->id = m->id;
     r->type = m->type;
     uint32_t n = m->len - (uint32_t)sizeof(uint32_t);
@@ -833,32 +837,32 @@ static int own(const char *acct, const struct who *w) {
 }
 
 // A wrong password, answered UPRIV_FAIL_DELAY_MS later.
-static void wrong(int pid, uint32_t id, uint32_t uid, const char *acct) {
-    logf1("privd: a wrong password for %s (pid %d)\n", acct, pid);
-    send_later(pid, UPRIV_T_ANSWER, id, -EACCES, uid);
+static void wrong(int conn, uint32_t id, uint32_t uid, const char *acct) {
+    logf1("privd: a wrong password for %s (pid %d)\n", acct, uchan_server_peer_pid(&g_srv.ch, conn));
+    send_later(conn, UPRIV_T_ANSWER, id, -EACCES, uid);
 }
 
 // UPRIV_T_AUTH: root may ask about any account, anyone else about their
 // own (unix_chkpwd's rule).
 static void handle_auth(const struct ubulk_msg *m, uint32_t flags, struct req *r, const struct who *w) {
-    if (r->nstrs < 2) { answer(m->pid, m->id, -EINVAL); return; }
+    if (r->nstrs < 2) { answer(m->conn, m->id, -EINVAL); return; }
     const char *acct = r->strs[0], *pw = r->strs[1];
-    if (w->euid != 0 && !own(acct, w)) { answer(m->pid, m->id, -EPERM); return; }
-    if (flags & UPRIV_PROBE) { answer(m->pid, m->id, pass_has(acct) ? -EACCES : 0); return; }
-    if (penalized(w->uid, m->pid)) { answer(m->pid, m->id, -EAGAIN); return; }
-    if (pass_check(acct, pw)) answer(m->pid, m->id, 0);
-    else wrong(m->pid, m->id, w->uid, acct);
+    if (w->euid != 0 && !own(acct, w)) { answer(m->conn, m->id, -EPERM); return; }
+    if (flags & UPRIV_PROBE) { answer(m->conn, m->id, pass_has(acct) ? -EACCES : 0); return; }
+    if (penalized(w->uid, m->conn)) { answer(m->conn, m->id, -EAGAIN); return; }
+    if (pass_check(acct, pw)) answer(m->conn, m->id, 0);
+    else wrong(m->conn, m->id, w->uid, acct);
 }
 
 // UPRIV_ACT_PASSWD: account, current, new.
 static void handle_passwd(const struct ubulk_msg *m, struct req *r, const struct who *w) {
-    if (r->nstrs < 4) { answer(m->pid, m->id, -EINVAL); return; }
+    if (r->nstrs < 4) { answer(m->conn, m->id, -EINVAL); return; }
     const char *acct = r->strs[1], *cur = r->strs[2], *pw = r->strs[3];
-    if (!getpwnam(acct)) { answer(m->pid, m->id, -ENOENT); return; }
+    if (!getpwnam(acct)) { answer(m->conn, m->id, -ENOENT); return; }
     if (w->euid != 0) {
-        if (!own(acct, w)) { answer(m->pid, m->id, -EPERM); return; }
-        if (penalized(w->uid, m->pid)) { answer(m->pid, m->id, -EAGAIN); return; }
-        if (!pass_check(acct, cur)) { wrong(m->pid, m->id, w->uid, acct); return; }
+        if (!own(acct, w)) { answer(m->conn, m->id, -EPERM); return; }
+        if (penalized(w->uid, m->conn)) { answer(m->conn, m->id, -EAGAIN); return; }
+        if (!pass_check(acct, cur)) { wrong(m->conn, m->id, w->uid, acct); return; }
     }
     int32_t rc = pass_set(acct, pw);
     logf1(rc ? "privd: could not change %s's password (pid %d)\n"
@@ -873,24 +877,24 @@ static void handle_passwd(const struct ubulk_msg *m, struct req *r, const struct
             usetting_set(SET_AUTOLOGIN, "") == SETTING_SAVED)
             logf1("privd: %s signs in at the login screen from now on (pid %d)\n", acct, m->pid);
     }
-    answer(m->pid, m->id, rc);
+    answer(m->conn, m->id, rc);
 }
 
 // UPRIV_T_LOGIN: the greeter's sign-in. Believed from the compositor
 // running as the greeter account at the seat, and from nothing else.
 static void handle_login(const struct ubulk_msg *m, struct req *r, const struct who *w) {
-    if (r->nstrs < 2) { answer(m->pid, m->id, -EINVAL); return; }
+    if (r->nstrs < 2) { answer(m->conn, m->id, -EINVAL); return; }
     const char *acct = r->strs[0], *pw = r->strs[1];
     struct passwd *g = getpwnam(GREETER_ACCOUNT);
     if (!g || g->pw_uid != w->uid || !w->seat || strcmp(w->path, AGENT_PATH) != 0) {
         logf1("privd: %s is not the login screen -- no sign-in (pid %d)\n", w->path, m->pid);
-        answer(m->pid, m->id, -EPERM);
+        answer(m->conn, m->id, -EPERM);
         return;
     }
     struct passwd *who = getpwnam(acct);
-    if (!who || who->pw_uid < 1000) { answer(m->pid, m->id, -EPERM); return; }
-    if (penalized(w->uid, m->pid)) { answer(m->pid, m->id, -EAGAIN); return; }
-    if (!pass_check(acct, pw)) { wrong(m->pid, m->id, w->uid, acct); return; }
+    if (!who || who->pw_uid < 1000) { answer(m->conn, m->id, -EPERM); return; }
+    if (penalized(w->uid, m->conn)) { answer(m->conn, m->id, -EAGAIN); return; }
+    if (!pass_check(acct, pw)) { wrong(m->conn, m->id, w->uid, acct); return; }
     int rc = uinitctl_session(acct);
     logf1(rc == INITCTL_OK ? "privd: %s signed in (pid %d)\n" : "privd: init started no session for %s (pid %d)\n",
           acct, m->pid);
@@ -908,7 +912,7 @@ static void handle_login(const struct ubulk_msg *m, struct req *r, const struct 
             if (!ok || rename(LAST_SIGNIN ".new", LAST_SIGNIN) < 0) unlink(LAST_SIGNIN ".new");
         }
     }
-    answer(m->pid, m->id, rc == INITCTL_OK ? 0 : rc < 0 ? -EIO : -EBUSY);
+    answer(m->conn, m->id, rc == INITCTL_OK ? 0 : rc < 0 ? -EIO : -EBUSY);
 }
 
 static void handle_request(const struct ubulk_msg *m) {
@@ -924,7 +928,7 @@ static void handle_request(const struct ubulk_msg *m) {
     }
     if (!r || r->nstrs < 1 || (r->type == UPRIV_T_SPAWN && r->nstrs < 2)) {
         if (r) req_free(r);
-        answer(m->pid, m->id, -EINVAL);
+        answer(m->conn, m->id, -EINVAL);
         return;
     }
     struct who w;
@@ -933,13 +937,13 @@ static void handle_request(const struct ubulk_msg *m) {
     if (r->type == UPRIV_T_LOGIN) { handle_login(m, r, &w); req_free(r); return; }
     // A change the registry does not know is refused before anyone is asked.
     if (r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], UPRIV_ACT_SETTINGS) && !settings_ok(r)) {
-        answer(r->pid, r->id, (r->nstrs - 1) / 2 > UPRIV_PROMPT_ROWS ? -E2BIG : -EINVAL);
+        answer(r->conn, r->id, (r->nstrs - 1) / 2 > UPRIV_PROMPT_ROWS ? -E2BIG : -EINVAL);
         req_free(r);
         return;
     }
     int32_t bad = args_refused(r);
     if (bad) {
-        answer(r->pid, r->id, bad);
+        answer(r->conn, r->id, bad);
         req_free(r);
         return;
     }
@@ -950,7 +954,7 @@ static void handle_request(const struct ubulk_msg *m) {
     }
     // The desktop's own Force Quit of an elevated window: the person chose
     // it there, so it is not asked again.
-    if (r->pid == g_agent && r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], UPRIV_ACT_KILL)) {
+    if (r->conn == g_agent && r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], UPRIV_ACT_KILL)) {
         carry_out(r);
         req_free(r);
         return;
@@ -958,8 +962,8 @@ static void handle_request(const struct ubulk_msg *m) {
     // AUTOMATIC SIGN-IN names only the asker's own account; switching it
     // off is the seat's right, switching it on goes through the question.
     if (r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], UPRIV_ACT_AUTOLOGIN) && w.euid != 0) {
-        if (r->nstrs < 2) { answer(r->pid, r->id, -EINVAL); req_free(r); return; }
-        if (r->strs[1][0] && !own(r->strs[1], &w)) { answer(r->pid, r->id, -EPERM); req_free(r); return; }
+        if (r->nstrs < 2) { answer(r->conn, r->id, -EINVAL); req_free(r); return; }
+        if (r->strs[1][0] && !own(r->strs[1], &w)) { answer(r->conn, r->id, -EPERM); req_free(r); return; }
         if (!r->strs[1][0] && w.seat) { carry_out(r); req_free(r); return; }
     }
     // WHAT THE PROMPT ASKS is the seat's to make stricter; asking LESS is
@@ -968,7 +972,7 @@ static void handle_request(const struct ubulk_msg *m) {
     int force_pw = 0;
     if (r->type == UPRIV_T_ACTION && !strcmp(r->strs[0], UPRIV_ACT_ADMINPROMPT) && w.euid != 0) {
         int want = r->nstrs > 1 ? admin_prompt_index(r->strs[1]) : -1;
-        if (want < 0) { answer(r->pid, r->id, -EINVAL); req_free(r); return; }
+        if (want < 0) { answer(r->conn, r->id, -EINVAL); req_free(r); return; }
         if (want <= admin_prompt() && w.seat) { carry_out(r); req_free(r); return; }
         force_pw = 1;
     }
@@ -980,10 +984,10 @@ static void handle_request(const struct ubulk_msg *m) {
     // that has one: "" matching an account with none would be root for
     // the asking, at the machine or not.
     if (typed && needs_pw) {
-        if (!in_wheel(w.uid)) answer(r->pid, r->id, -EPERM);
-        else if (penalized(w.uid, r->pid)) answer(r->pid, r->id, -EAGAIN);
+        if (!in_wheel(w.uid)) answer(r->conn, r->id, -EPERM);
+        else if (penalized(w.uid, r->conn)) answer(r->conn, r->id, -EAGAIN);
         else if (pass_check(me, typed)) carry_out(r);
-        else wrong(r->pid, r->id, w.uid, me);
+        else wrong(r->conn, r->id, w.uid, me);
         free(me);
         req_free(r);
         return;
@@ -994,7 +998,7 @@ static void handle_request(const struct ubulk_msg *m) {
     int standard = w.seat && !in_wheel(w.uid);
     if (!w.seat || (standard && !g_agent)) {
         logf1("privd: refused %s -- not an administrator at the machine (pid %d)\n", w.path, r->pid);
-        answer(r->pid, r->id, -EPERM);
+        answer(r->conn, r->id, -EPERM);
         free(me);
         req_free(r);
         return;
@@ -1004,7 +1008,7 @@ static void handle_request(const struct ubulk_msg *m) {
         me = 0;
         needs_pw = 0;
         r->signers = signers_list();
-        if (!r->signers) { answer(r->pid, r->id, -ENOMEM); req_free(r); return; }
+        if (!r->signers) { answer(r->conn, r->id, -ENOMEM); req_free(r); return; }
         r->tries = strcmp(r->signers, UPRIV_NO_SIGNER) ? UPRIV_AUTH_TRIES : 0;
         size_t k = strlen(w.user);
         snprintf(w.user + k, sizeof w.user - k, ", Standard account");
@@ -1014,7 +1018,7 @@ static void handle_request(const struct ubulk_msg *m) {
         // set, a y/N; with one, sudo sends it (above). On a graphical boot
         // with the desktop gone there is no one to ask.
         if (!g_agent_ever && !needs_pw && (flags & UPRIV_SELF_CONSENT)) carry_out(r);
-        else answer(r->pid, r->id, -ENXIO);
+        else answer(r->conn, r->id, -ENXIO);
         free(me);
         req_free(r);
         return;
@@ -1037,12 +1041,12 @@ static void handle_request(const struct ubulk_msg *m) {
     free(me);
     static char rec[4096];   // privd is one thread; upriv_prompt's buf
     uint32_t n = words(r, &w, rec, sizeof rec);
-    if (!n) { answer(r->pid, r->id, -E2BIG); req_free(r); return; }   // cannot be shown whole
+    if (!n) { answer(r->conn, r->id, -E2BIG); req_free(r); return; }   // cannot be shown whole
     r->prompt = g_next_prompt++;
     r->uid = w.uid;
     snprintf(r->path, sizeof r->path, "%s", w.path);
     if (ubulk_server_send(&g_srv, g_agent, UPRIV_T_PROMPT, r->prompt, rec, n, 1000) < 0) {
-        answer(r->pid, r->id, -ENXIO);
+        answer(r->conn, r->id, -ENXIO);
         req_free(r);
         return;
     }
@@ -1050,19 +1054,19 @@ static void handle_request(const struct ubulk_msg *m) {
     g_reqs = r;
 }
 
-static void handle_agent(int pid) {
+static void handle_agent(const struct ubulk_msg *m) {
     struct who w;
-    if (!identify(pid, &w) || !w.seat || strcmp(w.path, AGENT_PATH) != 0) {
-        logf1("privd: %s is not the desktop -- not an agent (pid %d)\n", w.path, pid);
+    if (!identify(m->pid, &w) || !w.seat || strcmp(w.path, AGENT_PATH) != 0) {
+        logf1("privd: %s is not the desktop -- not an agent (pid %d)\n", w.path, m->pid);
         return;
     }
-    g_agent = pid;
+    g_agent = m->conn;
     g_agent_ever = 1;
-    logf1("privd: %s draws the prompt (pid %d)\n", w.path, pid);
+    logf1("privd: %s draws the prompt (pid %d)\n", w.path, m->pid);
 }
 
 static void handle_verdict(const struct ubulk_msg *m) {
-    if (m->pid != g_agent || m->len < sizeof(uint32_t)) return;
+    if (m->conn != g_agent || m->len < sizeof(uint32_t)) return;
     uint32_t allow;
     memcpy(&allow, m->data, sizeof allow);
     for (struct req *r = g_reqs; r; r = r->next) {
@@ -1096,7 +1100,7 @@ static void handle_verdict(const struct ubulk_msg *m) {
                 }
                 req_unlink(r);
                 send_later(g_agent, UPRIV_T_CANCEL, r->prompt, 0, key);
-                send_later(r->pid, UPRIV_T_ANSWER, r->id, -EACCES, key);
+                send_later(r->conn, UPRIV_T_ANSWER, r->id, -EACCES, key);
                 req_free(r);
                 return;
             }
@@ -1113,21 +1117,21 @@ static void handle_verdict(const struct ubulk_msg *m) {
         // pid gone to someone else: grant only the process that asked.
         int same = identify(r->pid, &now) && now.uid == r->uid && !strcmp(now.path, r->path);
         if (allow && same) carry_out(r);
-        else answer(r->pid, r->id, allow ? -ESRCH : no_signer ? -EPERM : -ECANCELED);
+        else answer(r->conn, r->id, allow ? -ESRCH : no_signer ? -EPERM : -ECANCELED);
         req_free(r);
         return;
     }
 }
 
-static void gone(int pid) {
-    purge_later(pid);
-    if (pid == g_agent) {
+static void gone(int conn) {
+    purge_later(conn);
+    if (conn == g_agent) {
         g_agent = 0;
         kept_forget();   // a sign-out, or the desktop gone
         // Whatever it was showing has no one to answer it.
         for (struct req *r = g_reqs; r; ) {
             struct req *n = r->next;
-            answer(r->pid, r->id, -ENXIO);
+            answer(r->conn, r->id, -ENXIO);
             req_free(r);
             r = n;
         }
@@ -1136,7 +1140,7 @@ static void gone(int pid) {
     }
     for (struct req **pp = &g_reqs; *pp; ) {
         struct req *r = *pp;
-        if (r->pid != pid) { pp = &r->next; continue; }
+        if (r->conn != conn) { pp = &r->next; continue; }
         *pp = r->next;
         if (g_agent) ubulk_server_send(&g_srv, g_agent, UPRIV_T_CANCEL, r->prompt, "", 0, 1000);
         req_free(r);
@@ -1160,9 +1164,9 @@ int main(void) {
             if (m.type == UPRIV_T_SPAWN || m.type == UPRIV_T_ACTION || m.type == UPRIV_T_AUTH ||
                 m.type == UPRIV_T_LOGIN)
                 handle_request(&m);
-            else if (m.type == UPRIV_T_AGENT) handle_agent(m.pid);
+            else if (m.type == UPRIV_T_AGENT) handle_agent(&m);
             else if (m.type == UPRIV_T_VERDICT) handle_verdict(&m);
-            else if (m.type == UPRIV_T_FORGET && m.pid == g_agent && g_agent) kept_forget();
+            else if (m.type == UPRIV_T_FORGET && m.conn == g_agent && g_agent) kept_forget();
             memset(buf, 0, m.len);   // a record may have carried a password
         }
         ubulk_server_wait_change(&g_srv, run_later(1000));

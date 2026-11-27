@@ -2119,14 +2119,15 @@ static int serve_channel(void) {
         g_publish = 1;
         int r = INITCTL_REFUSED;
         m.name[sizeof m.name - 1] = '\0';
+        int who = uchan_server_peer_pid(&g_chan, from);   // `from` is where the answer goes
         struct initctl_msg reply;
         k_memset(&reply, 0, sizeof reply);
         if (m.verb == INITCTL_START)      r = control_start(m.name);
-        else if (m.verb == INITCTL_REALTIME) r = control_realtime(from, &m, &reply);
+        else if (m.verb == INITCTL_REALTIME) r = control_realtime(who, &m, &reply);
         else if (m.verb == INITCTL_STOP)  r = control_stop(m.name);
         else if (m.verb == INITCTL_STATUS) { r = INITCTL_OK; g_hup = 1; }   // a reader: publish now
-        else if (m.verb == INITCTL_SESSION) r = sender_is_root(from) ? session_begin(m.name) : INITCTL_REFUSED;
-        else if (m.verb == INITCTL_LOCK) r = session_lock(from, m.name);
+        else if (m.verb == INITCTL_SESSION) r = sender_is_root(who) ? session_begin(m.name) : INITCTL_REFUSED;
+        else if (m.verb == INITCTL_LOCK) r = session_lock(who, m.name);
         else if (m.verb == INITCTL_REBOOT || m.verb == INITCTL_POWEROFF) {
             // ANSWERED FIRST, acted on by the loop: the caller is waiting
             // for this reply, and it is among what the shutdown stops.

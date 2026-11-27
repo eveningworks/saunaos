@@ -189,12 +189,12 @@ static void serve(void) {
             if (n > 0) free(v);
         } else if (m.verb == UDRIVE_MOUNT_IMAGE) {
             char point[64] = "";
-            reply.result = !path ? -EINVAL : !unsandboxed(from) ? -EPERM
+            reply.result = !path ? -EINVAL : !unsandboxed(uchan_server_peer_pid(&g_chan, from)) ? -EPERM
                          : udrive_mount_image(path, point, sizeof point) == 0 ? 0 : -errno;
             printf("automountd: disc image %s: %s%s\n", path ? path : "(no path sent)",
                    reply.result ? strerror(-reply.result) : "mounted at ", reply.result ? "" : point);
         } else if (m.verb == UDRIVE_EJECT_IMAGE) {
-            reply.result = !path ? -EINVAL : !unsandboxed(from) ? -EPERM
+            reply.result = !path ? -EINVAL : !unsandboxed(uchan_server_peer_pid(&g_chan, from)) ? -EPERM
                          : udrive_eject_image(path) == 0 ? 0 : -errno;
         } else {
             reply.result = -EINVAL;

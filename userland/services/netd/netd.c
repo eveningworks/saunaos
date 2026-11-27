@@ -222,10 +222,11 @@ static void restart_lease(struct card *c) {
 // (NetworkManager's allow_active) -- a remote shell's account asks sudo.
 static int control(int from, const struct netctl_msg *m) {
     if (m->verb == NETCTL_WATCH) { watch(from); return NETCTL_OK; }
-    if (!upeer_root_or_seat(from)) {
+    int who = uchan_server_peer_pid(&g_chan, from);   // `from` is the connection
+    if (!upeer_root_or_seat(who)) {
         static unsigned refused;   // the first 8 logged: a loop must not flood the log
         if (++refused <= 8)
-            printf("netd: refused verb %u from pid %d: not root or the seat%s\n", (unsigned)m->verb, from,
+            printf("netd: refused verb %u from pid %d: not root or the seat%s\n", (unsigned)m->verb, who,
                    refused == 8 ? " (no more of these logged)" : "");
         return NETCTL_DENIED;
     }

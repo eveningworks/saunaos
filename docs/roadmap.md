@@ -260,7 +260,7 @@ only expensive part of it.
 - [ ] An account's picture and language on the login screen -- `/var/lib/accounts/<name>`, decided in stage D
 - [ ] The login screen says when Caps Lock is on -- ring 3 cannot read the lock state yet
 - [ ] Lock in the Start menu's power row -- Super+L and lock-on-resume are built (users D2c)
-- [ ] Sign out ends the session's processes too -- today only its windows close (logind's KillUserProcesses)
+- [x] ~~Sign out ends the session's processes too~~ DONE 2026-11-27 -- a login session id in the cred (logind's KillUserProcesses)
 - [ ] Root windows on the person's desktop draw in the person's look -- First-boot setup, screen trial, elevated tools see the machine's
 - [ ] `open()`'s and `mkdir()`'s mode reach the kernel -- once every tool that writes a program sets its exec bit (stage C)
 - [x] ~~`ls -l` shows the mode and the owner~~ DONE 2026-11-27 -- GNU's columns less the link count
@@ -1886,7 +1886,7 @@ Things this OS does not do yet, or does in a way worth improving --
 `docs/bugs.md`; the test is "is something broken?", not "would I like
 this to be better?".
 
-- [ ] A process has one channel per service: a second client replaces the first (`base/uchan.h`)
+- [x] ~~A process has one channel per service (`base/uchan.h`)~~ DONE 2026-11-27 -- a ring per connection
 - [ ] A release's upstream GPL source kept once, in one shared source Release, not re-uploaded per release
 - [ ] The legacy ATA driver probes the PRIMARY channel only -- a disk QEMU places on `ide.1` (an `ide-hd` with no `bus=`) is not found
 - [ ] The kernel console's squeezed baked cell clips a capital's accent -- A-acute and A-diaeresis look alike there

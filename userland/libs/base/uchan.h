@@ -27,15 +27,27 @@ extern "C" {
 // queues a window or input event, so a compositor can serve clients and
 // draw without two waits it cannot combine.
 
+// A CONNECTION ID names one ring: what recv returns and reply, send and
+// room take. A process's FIRST ring ("<name>.<pid>") is its pid, so a
+// server that treats the id as a pid is right for every one-ring client;
+// a further ring ("<name>.<pid>.<n>") gets an id from UCHAN_CONN_EXTRA up,
+// past any pid (api/scheduler.h's SCHED_PID_MAX). WHO SENT IT is
+// uchan_server_peer_pid(), never the id itself -- D-Bus's unique name
+// beside its credentials.
+#define UCHAN_CONN_EXTRA 0x40000000
+
 struct uchan_server {
     struct uchan_beacon *beacon;
-    // One mapped ring per client, and the pid it belongs to. Sized to
-    // the process table: a channel a process cannot reach is a channel
-    // with a queue nobody drains.
+    // One mapped ring per connection: its id, the pid that made it and the
+    // ring's number under that pid (0: "<name>.<pid>"). 64, the old process
+    // table's size; a ring past it waits for a slot.
     struct uchan_ring *ring[64];
+    int                conn[64];
     int                pid[64];
+    uint32_t           sub[64];
     uint32_t           serial[64];   // the ring OBJECT's (QUERY_SHM); 0 unknown
     int                count;
+    int                next_extra;   // the next UCHAN_CONN_EXTRA id
     char               name[UCHAN_NAME_MAX];
     unsigned           next;   // round-robin, so one busy client cannot
                                 // starve the others
@@ -60,7 +72,7 @@ struct uchan_client {
 // wait. Returns 0, or -1 (the name is taken, or out of memory).
 //
 // **A NAME HAS NO DOT**, and both ends refuse one: a client's ring is
-// "<name>.<pid>", and the client finds its server again by the part
+// "<name>.<pid>[.<n>]", and the client finds its server again by the part
 // before the first dot (uchan_client_server_alive()) -- "wv.24" would
 // look for a beacon "wv" and find its live server dead.
 int uchan_server_open(struct uchan_server *s, const char *name);
@@ -68,8 +80,8 @@ int uchan_server_open(struct uchan_server *s, const char *name);
 // Adopts any client ring that has appeared and drops any whose client
 // has gone. Cheap enough to call once a frame; it walks QUERY_SHM.
 //
-// **RETURNS HOW MANY CLIENTS DEPARTED**, and writes their pids into
-// `gone` (at most `gone_cap`; pass NULL to ignore them). A server that
+// **RETURNS HOW MANY CLIENTS DEPARTED**, and writes their connection ids
+// into `gone` (at most `gone_cap`; pass NULL to ignore them). A server that
 // holds state per client needs this: a dead client's name stops
 // resolving, and if the slot is reclaimed silently, whatever that
 // client owned is left with nothing to retire it. The compositor's
@@ -77,8 +89,8 @@ int uchan_server_open(struct uchan_server *s, const char *name);
 int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap);
 
 // The next message from any client, round-robin. Returns the sending
-// pid and fills at most `cap` bytes of `out`, or 0 when every ring is
-// empty.
+// CONNECTION and fills at most `cap` bytes of `out`, or 0 when every ring
+// is empty.
 //
 // **`cap` IS NOT OPTIONAL AND IS NOT THE SLOT SIZE.** A slot is
 // UCHAN_SLOT_BYTES and a message struct is usually smaller; a version of
@@ -88,11 +100,19 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap);
 // whose messages are 40 bytes cannot be handed 64.
 int uchan_server_recv(struct uchan_server *s, void *out, unsigned long cap);
 
-// Answers the message just received from `pid`. Optional -- only the
+// The pid that made connection `conn`'s ring -- what a server checks a
+// sender's identity by (base/upeer.h). 0 for no such connection.
+int uchan_server_peer_pid(const struct uchan_server *s, int conn);
+
+// Connection `conn`'s ring name ("<name>.<pid>[.<n>]") into `out`: what a
+// layer above names its own objects after (base/ubulk.h). 0 if none.
+int uchan_server_ring_name(const struct uchan_server *s, int conn, char *out, unsigned long cap);
+
+// Answers the message just received from `conn`. Optional -- only the
 // messages that ask for one. `len` bytes are sent and the rest of the
 // slot is zeroed, so a reader asking for more sees zeros rather than
 // whatever the last message left.
-void uchan_server_reply(struct uchan_server *s, int pid, const void *msg,
+void uchan_server_reply(struct uchan_server *s, int conn, const void *msg,
                         unsigned long len);
 
 // Parks until a client sends, the kernel queues an event, or `timeout_ms`
@@ -108,20 +128,22 @@ void uchan_server_close(struct uchan_server *s);
 // ride this, which is the Wayland shape -- one connection per client,
 // carrying both ways, and the kernel in neither.
 
-// Queues one message (at most UCHAN_IN_BYTES) for `pid` and wakes it.
-// Returns 0, or -1 when `pid` has no ring or its inbox is FULL -- a
+// Queues one message (at most UCHAN_IN_BYTES) for `conn` and wakes it.
+// Returns 0, or -1 when `conn` has no ring or its inbox is FULL -- a
 // real outcome, since the server cannot evict what the client has not
 // read: drop the message, or keep it and try again next frame
 // (uchan_server_room() says which is coming).
-int uchan_server_send(struct uchan_server *s, int pid, const void *msg,
+int uchan_server_send(struct uchan_server *s, int conn, const void *msg,
                       unsigned long len);
 
-// Free inbox slots for `pid`; 0 for a pid with no ring.
-int uchan_server_room(struct uchan_server *s, int pid);
+// Free inbox slots for `conn`; 0 for one with no ring.
+int uchan_server_room(struct uchan_server *s, int conn);
 
 // --- client ----------------------------------------------------------
 
-// Finds `name`'s beacon and publishes this process's ring. Returns 0, or
+// Finds `name`'s beacon and publishes a NEW ring of this process's -- a
+// process may hold several to one server (the desktop's privd agent
+// beside its own privd calls), each its own connection. Returns 0, or
 // -1 when there is no server -- which a caller must report rather than
 // treat as success, the same rule media/uclip.h states.
 //

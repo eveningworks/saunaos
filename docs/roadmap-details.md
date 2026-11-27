@@ -9397,7 +9397,7 @@ picked).
   edits a value and reads it back through `config get` (an independent
   path), and the scroll checks for both panes (more rows than fit).
 
-## A process has one channel per service: a second client replaces the first (`base/uchan.h`)
+## A process has one channel per service (`base/uchan.h`)
 
 A uchan client's ring is named `<service>.<pid>`, and opening one unlinks
 any ring of that name first ("a previous holder of this pid"). So a
@@ -9406,11 +9406,17 @@ toywm's lock screen calling `upriv_auth()` beside its privd agent --
 replaces the first, and the server's next scan drops that client as gone.
 Found 2026-11-26: privd had no agent after every unlock, and each prompt
 answered ENXIO until toywm restarted. Worked around in toywm
-(`wm_priv_reopen()`: the agent registers again after its own calls).
-The shape that removes it is D-Bus's: a channel per CONNECTION, named by
-a counter beside the pid, the server keeping the pid as the identity --
-`ubulk`'s peer table and every server's `m.pid` would then name a
-process with several rings.
+(`wm_priv_reopen()`: the agent registers again after its own calls),
+which left a window where privd had no agent: a prompt asked straight
+after an unlock failed on every KVM run.
+**Built 2026-11-27, D-Bus's shape**: a ring per CONNECTION. A process's
+first ring keeps `<service>.<pid>` and its pid as the connection id; a
+further one is `<service>.<pid>.<n>`, each claimed with `SHM_EXCL`, its
+id from `UCHAN_CONN_EXTRA` up (past every pid). recv, reply, send and a
+scan's `gone` speak connections; `uchan_server_peer_pid()` is the
+identity. ubulk's peers and pages follow (`ubulk_msg.conn`), privd
+answers by connection, and init, netd, automountd and the compositor
+check the peer's pid. The workaround is gone.
 
 ## A release's upstream GPL source kept once, in one shared source Release, not re-uploaded per release
 

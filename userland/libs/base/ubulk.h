@@ -48,7 +48,8 @@ struct ubulk_ring {
     uint8_t data[UBULK_RING_BYTES];
 };
 
-// The object the CLIENT creates as "<service>.<pid>b" and grants to the
+// The object the CLIENT creates as its uchan ring's name and "b" --
+// "<service>.<pid>b", or "<service>.<pid>.<n>b" -- and grants to the
 // server. `up` is client to server, `down` the other way.
 struct ubulk_page {
     uint32_t magic;
@@ -61,7 +62,8 @@ struct ubulk_page {
 
 // A received record, pointing into the caller's buffer.
 struct ubulk_msg {
-    int      pid;        // the sender (server side); the server's pid on a client
+    int      pid;        // WHO sent it (server side); the server's pid on a client
+    int      conn;       // WHERE to answer: its connection (base/uchan.h)
     uint32_t type, id, len;
     const void *data;
 };
@@ -105,8 +107,9 @@ int  ubulk_client_server_alive(const struct ubulk_client *c);
 // --- server ----------------------------------------------------------
 
 struct ubulk_peer {
-    int pid;
+    int conn, pid;
     struct ubulk_page *pg;
+    char name[32];   // the page's (SHM_NAME_MAX)
 };
 
 struct ubulk_server {
@@ -121,14 +124,14 @@ int  ubulk_server_open(struct ubulk_server *s, const char *service);
 void ubulk_server_close(struct ubulk_server *s);
 
 // Adopts new clients and drops departed ones, writing up to `gone_cap`
-// departed pids into `gone`; returns how many departed. Then the caller
+// departed connections into `gone`; returns how many departed. Then the caller
 // drains with ubulk_server_recv() until it returns 0.
 int  ubulk_server_poll(struct ubulk_server *s, int *gone, int gone_cap);
 int  ubulk_server_recv(struct ubulk_server *s, struct ubulk_msg *m, void *buf, uint32_t cap);
 
-// Queues one record for `pid` and rings it. Any thread. Waits for room
+// Queues one record for connection `conn` (a message's `conn`) and rings it. Any thread. Waits for room
 // as ubulk_send() does. 0, or -1 (no such client, gone, or timed out).
-int  ubulk_server_send(struct ubulk_server *s, int pid, uint32_t type, uint32_t id,
+int  ubulk_server_send(struct ubulk_server *s, int conn, uint32_t type, uint32_t id,
                        const void *data, uint32_t len, int timeout_ms);
 
 // Parks until a client rings or `timeout_ms`, returning AT ONCE if one

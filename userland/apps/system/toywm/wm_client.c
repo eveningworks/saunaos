@@ -1601,7 +1601,7 @@ static void req_launch(int from, struct wmchan_msg *m) {
 // restart the machine would not need the person.
 static void req_leave(int from, struct wmchan_msg *m) {
     struct upeer p;
-    int root = upeer_of(from, &p) && p.euid == 0;
+    int root = upeer_of(uchan_server_peer_pid(&g_chan, from), &p) && p.euid == 0;
     struct wmchan_msg r;
     k_memset(&r, 0, sizeof r);
     r.type = WIN_REQ_LEAVE;

@@ -206,10 +206,6 @@ static void submit(void) {
 
 static void answered(void) {
     pthread_join(g_thr, 0);
-    // That check was a second privd channel from this process, and a
-    // process has ONE ring per service: it replaced the agent's, so privd
-    // forgot its agent. Register again, or no prompt shows after an unlock.
-    wm_priv_reopen();
     memset(g_try, 0, strlen(g_try));
     free(g_try);
     g_try = 0;

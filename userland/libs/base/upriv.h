@@ -11,10 +11,9 @@
 // **EVERY CALL BLOCKS UNTIL THE PERSON ANSWERS** (UPRIV_TIMEOUT_MS at
 // most): a GUI program asks through ui/uapp.h's uapp_run_then(), off its frame.
 //
-// **A PROCESS HAS ONE CHANNEL TO privd** (base/uchan.h names a ring by
-// pid): a call below opens one and closes it, and in the AGENT's process
-// that replaces the agent's ring -- privd then has no agent. The agent
-// registers again after its own calls (toywm's wm_priv_reopen()).
+// **EACH CALL BELOW IS A CONNECTION OF ITS OWN** (base/uchan.h: a ring
+// per connection), opened and closed around it -- in the agent's process
+// too, beside the agent's, which it leaves alone.
 #include <stdint.h>
 #include "rt/sys.h"
 #ifdef __cplusplus

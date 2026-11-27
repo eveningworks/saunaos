@@ -175,10 +175,6 @@ void wm_priv_forget(void) {
     upriv_agent_forget(g_agent);
 }
 
-static int g_reopen;   // main thread only
-
-void wm_priv_reopen(void) { g_reopen = 1; }
-int wm_priv_busy(void) { return g_showing || g_queue; }
 
 static void lost(void) {
     upriv_agent_close(g_agent);
@@ -223,11 +219,6 @@ int wm_priv_kill(int pid, int sig) {
 
 void wm_priv_poll(void) {
     uint64_t now = sys_ticks();
-    if (g_reopen) {
-        g_reopen = 0;
-        if (g_agent) lost();
-        g_next_try = 0;
-    }
     if (!g_agent) {
         if (now < g_next_try) return;
         g_next_try = now + 200;   // every 2 s while privd is not there

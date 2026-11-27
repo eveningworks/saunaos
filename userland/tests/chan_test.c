@@ -10,8 +10,11 @@
 // arrives at all; that ASYNC really is async (the sender does not wait);
 // that the server can be WOKEN OUT OF A PARK by a message rather than
 // finding it on a poll; that a round trip gets an answer back; and that
-// a full ring is reported rather than silently dropping; and that a
-// death the scan's `gone` array cannot hold is reported LATER, not lost.
+// a full ring is reported rather than silently dropping; that a
+// death the scan's `gone` array cannot hold is reported LATER, not lost;
+// and that ONE PROCESS'S TWO CLIENTS are two connections -- each answered
+// on its own ring, the first still working beside the second (a second
+// open used to replace the first, and privd lost the desktop's agent).
 #include <stdio.h>
 #include <string.h>
 #include "rt/sys.h"
@@ -64,6 +67,26 @@ static int child_main(void) {
     return 0;
 }
 
+// Two clients in one process: each asks once and must get its OWN
+// answer; then the second closes and the first must still be heard.
+static int two_main(void) {
+    struct uchan_client a, b;
+    for (int i = 0; i < 200 && uchan_client_open(&a, SERVICE) != 0; i++) sys_sleep_ms(10);
+    if (uchan_client_open(&b, SERVICE) != 0) return 2;
+    struct msg m, reply;
+    memset(&m, 0, sizeof m);
+    m.kind = KIND_ASK;
+    m.value = 100;
+    if (uchan_call(&a, &m, sizeof m, &reply, sizeof reply, 5000) < 0 || reply.value != 101) return 3;
+    m.value = 200;
+    if (uchan_call(&b, &m, sizeof m, &reply, sizeof reply, 5000) < 0 || reply.value != 201) return 4;
+    uchan_client_close(&b);
+    m.value = 300;
+    if (uchan_call(&a, &m, sizeof m, &reply, sizeof reply, 5000) < 0 || reply.value != 301) return 5;
+    uchan_client_close(&a);
+    return 0;
+}
+
 // Connects and waits to be killed -- a client for the deaths check.
 static int idle_main(void) {
     struct uchan_client c;
@@ -75,6 +98,7 @@ static int idle_main(void) {
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "child")) return child_main();
     if (argc > 1 && !strcmp(argv[1], "idle")) return idle_main();
+    if (argc > 1 && !strcmp(argv[1], "two")) return two_main();
 
     utest_begin("chan_test", "a message channel between two processes",
                 UTEST_VERDICT_FILE);
@@ -179,6 +203,34 @@ int main(int argc, char **argv) {
     }
     utest_checkf(all, "every death is reported, one a scan (%d of %d)", nrep, IDLERS);
     utest_checkf(s.count == 0, "...and every dead ring is reclaimed (%d left)", s.count);
+
+    // TWO RINGS FROM ONE PROCESS, two connections.
+    int two = sys_spawn("/tests/chan_test", "two", -1);
+    int conns[3] = {0}, peers[3] = {0}, nasked = 0, both_open = 0;
+    for (int t = 0; t < 400 && nasked < 3; t++) {
+        uchan_server_scan(&s, 0, 0);
+        if (s.count == 2) both_open = 1;
+        uchan_server_wait(&s, 50);
+        int from;
+        while ((from = uchan_server_recv(&s, &m, sizeof m)) != 0) {
+            if (m.kind != KIND_ASK || nasked >= 3) continue;
+            conns[nasked] = from;
+            peers[nasked++] = uchan_server_peer_pid(&s, from);
+            struct msg r;
+            memset(&r, 0, sizeof r);
+            r.kind = m.kind;
+            r.value = m.value + 1;
+            uchan_server_reply(&s, from, &r, sizeof r);
+        }
+    }
+    utest_checkf(nasked == 3 && both_open, "one process's two clients are both connected (%d asks)", nasked);
+    utest_checkf(conns[0] == two && conns[1] >= UCHAN_CONN_EXTRA && conns[2] == two,
+                 "...the first is its pid, the second an id past every pid (%d, %d, %d)",
+                 conns[0], conns[1], conns[2]);
+    utest_checkf(peers[0] == two && peers[1] == two, "...and both name it as the sender (%d, %d)",
+                 peers[0], peers[1]);
+    utest_check(two > 0 && sys_waitpid(two, &code) == two && code == 0,
+                "...each answered on its own ring, the first heard after the second closed");
 
     uchan_server_close(&s);
     return utest_end();

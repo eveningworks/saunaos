@@ -40,11 +40,10 @@ POSITIVE CONTROL: make wm_priv_poll() answer every question with 1
 before showing it -- "the prompt opens" and "Cancel keeps Disks away"
 go red. Make privd's pass_check() always 1 -- "a wrong password comes
 back" goes red. Drop wm_idle.c's wm_priv_forget() -- "coming back from
-the saver forgets it" goes red. "The lock forgets it" has two causes, both
-needed: wm_login_show()'s wm_priv_forget(), and the unlock's privd call
-replacing the agent's channel (privd's gone() forgets too); drop
-wm_login.c's wm_priv_reopen() and no prompt comes at all after the
-unlock. Make the adminprompt rule's `want <= admin_prompt()` always true
+the saver forgets it" goes red. "The lock forgets it" is wm_login_show()'s
+wm_priv_forget(): drop it -- that check goes red. Make uchan_client_open()
+reuse "<name>.<pid>" for a second ring (the old one ring per process) and
+the unlock's own privd call replaces the agent's: no prompt comes after it. Make the adminprompt rule's `want <= admin_prompt()` always true
 -- "choosing less asks for the password" goes red.
 """
 
