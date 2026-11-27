@@ -11,6 +11,7 @@
 #include "errno.h"
 #include "proc_info.h"
 #include "ktest.h"
+#include "kslots.h"
 
 // Enough to cover a whole flash (a few dozen commands and the transfers
 // between them) without the ring being the reason something is missed,
@@ -27,14 +28,30 @@ static int g_head;                // where the oldest one is
 // A pid rather than a count alone: a session that dies without a close
 // (the shell killed, the link dropped) must not leave the indicator up
 // forever, and scheduler_exit() names the leader it is retiring.
-#define REMOTE_SESSIONS_MAX 8
-static struct {
+//
+// GROWN ON DEMAND (kslots.h): a slot is taken at a spawn, which may
+// allocate, and freed at an exit, which only marks it; a reader walking
+// the table meanwhile sees a live slot or none, never freed memory.
+struct remote_session {
     int leader;
     uint32_t ip;
     uint64_t opened_utc;
     char comm[24];
     char status[QUERY_REMOTESESS_STATUS_MAX];
-} g_sessions[REMOTE_SESSIONS_MAX];
+};
+static struct kslots g_sessions = KSLOTS_INIT(sizeof(struct remote_session));
+
+// The live session led by `leader`, and its slot in *slot; NULL for none.
+static struct remote_session *session_of(int leader, int *slot) {
+    for (int i = 0; i < kslots_cap(&g_sessions); i++) {
+        struct remote_session *r = kslots_at(&g_sessions, i);
+        if (r && r->leader == leader) {
+            if (slot) *slot = i;
+            return r;
+        }
+    }
+    return 0;
+}
 
 void remote_log_record(int kind, uint32_t remote_ip, int pid,
                        const char *comm, const char *text) {
@@ -80,79 +97,77 @@ int remote_log_get(uint64_t seq, struct query_remotelog *out) {
     return 1;
 }
 
-int remote_log_sessions(void) {
-    int n = 0;
-    for (int i = 0; i < REMOTE_SESSIONS_MAX; i++)
-        if (g_sessions[i].leader) n++;
-    return n;
-}
+int remote_log_sessions(void) { return kslots_live(&g_sessions); }
 
 // IS THIS SESSION REMOTE, AND WHOSE? The spawn path asks per spawn, so
-// it is a walk of eight slots rather than anything cleverer.
+// it is a walk of the open sessions rather than anything cleverer.
 uint32_t remote_log_session_of(int leader_pid) {
     if (leader_pid <= 0) return 0;
-    for (int i = 0; i < REMOTE_SESSIONS_MAX; i++)
-        if (g_sessions[i].leader == leader_pid) return g_sessions[i].ip;
-    return 0;
+    struct remote_session *r = session_of(leader_pid, 0);
+    return r ? r->ip : 0;
 }
 
 uint32_t remote_log_session_ip(void) {
-    for (int i = REMOTE_SESSIONS_MAX - 1; i >= 0; i--)
-        if (g_sessions[i].leader) return g_sessions[i].ip;
+    for (int i = kslots_cap(&g_sessions) - 1; i >= 0; i--) {
+        struct remote_session *r = kslots_at(&g_sessions, i);
+        if (r) return r->ip;
+    }
     return 0;
 }
 
 void remote_log_session_opened(int leader_pid, uint32_t ip, const char *creator) {
     if (leader_pid <= 0) return;
     if (!creator || !creator[0]) creator = "?";
-    for (int i = 0; i < REMOTE_SESSIONS_MAX; i++) {
-        if (g_sessions[i].leader) continue;
-        g_sessions[i].leader = leader_pid;
-        g_sessions[i].ip = ip;
-        g_sessions[i].opened_utc = ktime_now_sec();
-        k_strlcpy(g_sessions[i].comm, creator, sizeof g_sessions[i].comm);
-        g_sessions[i].status[0] = 0;
+    int slot = kslots_alloc(&g_sessions);
+    struct remote_session *r = slot >= 0 ? kslots_at(&g_sessions, slot) : 0;
+    if (r) {
+        // Zeroed by kslots_alloc(); the leader LAST, so a walk that sees
+        // the slot live before this finishes sees no leader to match.
+        r->ip = ip;
+        r->opened_utc = ktime_now_sec();
+        k_strlcpy(r->comm, creator, sizeof r->comm);
+        r->leader = leader_pid;
         remote_log_record(QUERY_REMOTE_SESSION, ip, leader_pid, creator, "session opened");
         return;
     }
-    // FULL MEANS THE INDICATOR STILL GOES UP, because the alternative
-    // is a session nobody can see. The record is written; only the
-    // per-session slot is lost, which costs the close line.
+    // OUT OF MEMORY STILL WRITES THE RECORD, because the alternative is
+    // a session nobody can see; only the per-session slot is lost, which
+    // costs the close line.
     remote_log_record(QUERY_REMOTE_SESSION, ip, leader_pid, creator,
-                      "session opened (too many to track)");
+                      "session opened (no memory to track it)");
 }
 
 int remote_log_session_count(void) { return remote_log_sessions(); }
 
 int remote_log_session_get(int index, struct query_remotesess *out) {
-    for (int i = 0; i < REMOTE_SESSIONS_MAX; i++) {
-        if (!g_sessions[i].leader || index--) continue;
+    for (int i = 0; i < kslots_cap(&g_sessions); i++) {
+        struct remote_session *r = kslots_at(&g_sessions, i);
+        if (!r || !r->leader || index--) continue;
         k_memset(out, 0, sizeof *out);
-        out->pid = (uint64_t)g_sessions[i].leader;
-        out->remote_ip = g_sessions[i].ip;
-        out->opened_utc = g_sessions[i].opened_utc;
-        k_strlcpy(out->comm, g_sessions[i].comm, sizeof out->comm);
-        k_strlcpy(out->status, g_sessions[i].status, sizeof out->status);
+        out->pid = (uint64_t)r->leader;
+        out->remote_ip = r->ip;
+        out->opened_utc = r->opened_utc;
+        k_strlcpy(out->comm, r->comm, sizeof out->comm);
+        k_strlcpy(out->status, r->status, sizeof out->status);
         return 1;
     }
     return 0;
 }
 
 void remote_log_session_closed(int leader_pid) {
-    for (int i = 0; i < REMOTE_SESSIONS_MAX; i++) {
-        if (g_sessions[i].leader != leader_pid) continue;
-        // THE SLOT GOES FIRST, so the record this writes carries the
-        // count AFTER the close -- a reader takes the newest record's
-        // `sessions` as the current answer, and a close that still
-        // counted itself would leave the indicator up forever.
-        uint32_t ip = g_sessions[i].ip;
-        char comm[sizeof g_sessions[i].comm];
-        k_strlcpy(comm, g_sessions[i].comm, sizeof comm);
-        g_sessions[i].leader = 0;
-        g_sessions[i].ip = 0;
-        remote_log_record(QUERY_REMOTE_SESSION, ip, leader_pid, comm, "session closed");
-        return;
-    }
+    int slot;
+    struct remote_session *r = leader_pid > 0 ? session_of(leader_pid, &slot) : 0;
+    if (!r) return;
+    // THE SLOT GOES FIRST, so the record this writes carries the count
+    // AFTER the close -- a reader takes the newest record's `sessions`
+    // as the current answer, and a close that still counted itself would
+    // leave the indicator up forever.
+    uint32_t ip = r->ip;
+    char comm[sizeof r->comm];
+    k_strlcpy(comm, r->comm, sizeof comm);
+    r->leader = 0;
+    kslots_free(&g_sessions, slot);
+    remote_log_record(QUERY_REMOTE_SESSION, ip, leader_pid, comm, "session closed");
 }
 
 // --- the syscall ------------------------------------------------------
@@ -176,9 +191,9 @@ int sys_remote_log(struct syscall_ctx *c) {
     // only a leader of a live remote session has one to set -- anyone
     // else is told so, since there is nothing they could mean.
     if (kind == QUERY_REMOTE_STATUS) {
-        for (int i = 0; i < REMOTE_SESSIONS_MAX; i++) {
-            if (g_sessions[i].leader != pid) continue;
-            k_strlcpy(g_sessions[i].status, text, sizeof g_sessions[i].status);
+        struct remote_session *r = pid > 0 ? session_of(pid, 0) : 0;
+        if (r) {
+            k_strlcpy(r->status, text, sizeof r->status);
             c->regs[14] = 0;
             return 0;
         }
@@ -216,10 +231,8 @@ KTEST("remote", "a session is listed with its creator and status until it closes
     int found = 0;
     for (int i = 0; remote_log_session_get(i, &q); i++)
         if ((int)q.pid == pid) { found = 1; break; }
-    int k;
-    for (k = 0; k < REMOTE_SESSIONS_MAX && g_sessions[k].leader != pid; k++) {}
-    if (k < REMOTE_SESSIONS_MAX) k_strlcpy(g_sessions[k].status, "VNC, view only",
-                                           sizeof g_sessions[k].status);
+    struct remote_session *r = session_of(pid, 0);
+    if (r) k_strlcpy(r->status, "VNC, view only", sizeof r->status);
     struct query_remotesess q2;
     int status_ok = 0;
     for (int i = 0; remote_log_session_get(i, &q2); i++)
@@ -229,5 +242,29 @@ KTEST("remote", "a session is listed with its creator and status until it closes
     KTEST_ASSERT_EQ(q.remote_ip, 0xC0A80167);
     KTEST_ASSERT(!k_strcmp(q.comm, "remoted"));
     KTEST_ASSERT(status_ok);
+    KTEST_ASSERT_EQ(remote_log_session_count(), before);
+}
+
+// Past the eight the table once held: every session is listed and each
+// close takes its own row away.
+KTEST("remote", "twelve sessions at once are all listed, and all close") {
+    enum { N = 12 };
+    int base = 0x7fff00;   // no process has these
+    int before = remote_log_session_count();
+    for (int i = 0; i < N; i++) remote_log_session_opened(base + i, 0x0A000002u + (uint32_t)i, "remoted");
+    int during = remote_log_session_count();
+    int listed = 0, ip_ok = 1;
+    struct query_remotesess q;
+    for (int i = 0; remote_log_session_get(i, &q); i++) {
+        if ((int)q.pid < base || (int)q.pid >= base + N) continue;
+        listed++;
+        if (q.remote_ip != 0x0A000002u + (uint32_t)((int)q.pid - base)) ip_ok = 0;
+    }
+    uint32_t last_ip = remote_log_session_of(base + N - 1);
+    for (int i = 0; i < N; i++) remote_log_session_closed(base + i);
+    KTEST_ASSERT_EQ(during, before + N);
+    KTEST_ASSERT_EQ(listed, N);
+    KTEST_ASSERT(ip_ok);
+    KTEST_ASSERT_EQ(last_ip, 0x0A000002u + N - 1);
     KTEST_ASSERT_EQ(remote_log_session_count(), before);
 }
