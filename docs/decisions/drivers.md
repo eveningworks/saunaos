@@ -2882,12 +2882,15 @@ means `pci_device_driver()` and `dev_claim_holder_pid()` answer the
 same question from one place. The fd remains the exit if a
 claim ever has to be passed between processes.
 
-**The gate is the driver's `remove()`, because there is no uid to
+**The gate was the driver's `remove()`, because there was no uid to
 check.** A device whose bound driver cannot let go can never be
 claimed; among releasable devices it is first come, first served. That
 is a driver CAPABILITY standing in for a privilege check, and it is
 said plainly rather than dressed up as a permission model -- the same
-honesty `MKPART_CONFIRM` is written with.
+honesty `MKPART_CONFIRM` is written with. **Since 2026-11-27 a claim
+is also root's alone** (`SYS_DEV_CLAIM`, `SYS_USB_CLAIM`: -EPERM before
+the device is read), the uid having arrived with `docs/users-design.md`;
+`remove()` still decides what even root can take.
 
 **What it actually admits, measured rather than assumed:** `hda`, and
 the two NIC drivers -- a MODULE must have a `remove()` to be unloadable

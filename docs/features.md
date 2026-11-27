@@ -440,7 +440,10 @@ yours alone) are kept in your own home; a program's volume and a sound
 card's format go through `privd` without asking; remote desktop -- its
 password in a root-only file -- a network card's saved settings and
 Device Manager's Disable ask an administrator, Remote Desktop's page
-once per Apply with a row per change.
+once per Apply with a row per change (its password replaced, or removed
+with Remove beside the field). Only root takes a device off its driver,
+and only root or the person at the machine switches a network card on or
+off (`sudo netctl` from a remote shell).
 
 **A password, a login screen and a lock -- when you want them.** With no
 password the computer starts straight to the desktop. Set one (Settings >

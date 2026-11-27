@@ -758,6 +758,14 @@ Windows 11 puts the last one in the middle and the others bottom-left.
       enable`/`disable` and `bootcfg resolution forget` refuse a
       non-root caller up front -- "needs administrator rights -- run it
       with sudo".
+    - **Three gaps closed after it (2026-11-27)**: `SYS_DEV_CLAIM` and
+      `SYS_USB_CLAIM` are euid 0's, refused before the device is looked
+      at (a claim unbinds the driver; every other device call needs a
+      held claim); netd takes a card's `up`, `down` and `renew` from root
+      or the seat alone (`NETCTL_DENIED` otherwise, NetworkManager's
+      `allow_active`; `base/upeer.h` reads the sender); and the Remote
+      Desktop page's Remove beside the password field stages
+      `vnc.password -`, so the secret can be deleted, not only replaced.
     - privd checks every argument of these actions itself before anyone
       is asked: a volume's program name and 0..100, a card name and the
       format's three words strictly, the remote keys and their values,

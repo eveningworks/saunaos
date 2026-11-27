@@ -162,8 +162,9 @@ minus the sysfs.
 
 1. **Can a bound driver be asked to let go?** Yes, and that is the
    gate. A driver with no `remove()` can never be claimed -- a driver
-   CAPABILITY standing in for a privilege check this kernel has no uid
-   for. `hda` is the first BUILT-IN driver to gain one; `e1000` and
+   CAPABILITY, which stood in for a privilege check while this kernel
+   had no uid; since users D3b2a's follow-up (2026-11-27) a claim is
+   also euid 0's alone (`docs/users-design.md`). `hda` is the first BUILT-IN driver to gain one; `e1000` and
    `r8169` already had one, because a module cannot be unloaded
    without it. So the claimable set today is the sound card and the
    NICs, and NO STORAGE CONTROLLER -- which is what keeps the root
