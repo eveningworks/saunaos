@@ -438,3 +438,52 @@ KTEST("ramfs", "the node table grows past the 4096 it was fixed at, and the budg
     KTEST_ASSERT(small > 0 && small < N);
     KTEST_ASSERT(still);
 }
+
+struct long_seen { const char *want; int hit; };
+static void long_cb(void *ctx, const char *name, uint32_t size, int is_dir) {
+    struct long_seen *s = ctx;
+    (void)size; (void)is_dir;
+    if (!k_strcmp(name, s->want)) s->hit++;
+}
+
+// A NAME IS SIZED TO FIT, up to what a disk takes (FS_NAME_MAX).
+KTEST("ramfs", "a 200-byte name is created, listed, renamed and removed") {
+    KTEST_ASSERT(ramfs_test_mount(TEST_BUDGET));
+    static char name[201], name2[201], path[256], path2[256];
+    for (int i = 0; i < 200; i++) { name[i] = (char)('a' + i % 26); name2[i] = (char)('A' + i % 26); }
+    name[200] = name2[200] = '\0';
+    k_snprintf(path, sizeof path, "/%s", name);
+    k_snprintf(path2, sizeof path2, "/%s", name2);
+    uint64_t before = ramfs_test_used();
+
+    int made = R()->write(ST, path, "long", 0);
+    struct long_seen s = { name, 0 };
+    R()->list(ST, "/", long_cb, &s);
+    int renamed = R()->rename(ST, path, path2);
+    int old_gone = !R()->exists(ST, path);
+    struct long_seen s2 = { name2, 0 };
+    R()->list(ST, "/", long_cb, &s2);
+    uint64_t sz = R()->size(ST, path2);
+    int removed = R()->del(ST, path2);
+    int gone = !R()->exists(ST, path2);
+    uint64_t after = ramfs_test_used();
+
+    // One byte past the limit is refused, not cut.
+    static char over[FS_NAME_MAX + 3];
+    over[0] = '/';
+    for (int i = 1; i <= FS_NAME_MAX + 1; i++) over[i] = 'z';
+    over[FS_NAME_MAX + 2] = '\0';
+    int over_made = R()->write(ST, over, "x", 0);
+    ramfs_test_unmount();
+
+    KTEST_ASSERT(made);
+    KTEST_ASSERT_EQ(s.hit, 1);
+    KTEST_ASSERT(renamed);
+    KTEST_ASSERT(old_gone);
+    KTEST_ASSERT_EQ(s2.hit, 1);
+    KTEST_ASSERT_EQ((int)sz, 4);
+    KTEST_ASSERT(removed);
+    KTEST_ASSERT(gone);
+    KTEST_ASSERT_EQ((int)(after - before), 0);   // the name went back to the budget too
+    KTEST_ASSERT(!over_made);
+}

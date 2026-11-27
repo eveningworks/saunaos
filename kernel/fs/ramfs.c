@@ -71,11 +71,6 @@
 #include "tz.h"
 #include "storage_config.h" // storage.ramfs_size -- the budget's middle source
 
-// One path COMPONENT, not a path: FS_PATH_MAX (64) bounds the whole
-// thing, so a name longer than this could only appear in a path no
-// caller can express.
-#define RAMFS_NAME_MAX 48
-
 // One frame -- see decision 2 above.
 #define RAMFS_CHUNK 4096
 // THE LARGEST FILE, Linux's s_maxbytes: every chunk index fits 31 bits,
@@ -111,7 +106,10 @@ static void chunk_free(uint8_t *c) { pmm_free_frame((uint64_t)(uintptr_t)c); }
 #define RAMFS_CHUNKS_GROW 32
 
 struct rnode {
-    char name[RAMFS_NAME_MAX];
+    // kmalloc'd to fit, at most FS_NAME_MAX bytes (what a disk takes), and
+    // charged to the budget beside the node. Lock-free readers walk names
+    // under the mount's trylocked lock, so a rename never swaps one under them.
+    char *name;
     int32_t parent;         // index into sbi->nodes; -1 only for the root
     uint8_t is_dir;
     uint64_t size;          // bytes; a directory's stays 0
@@ -201,10 +199,14 @@ static void node_free(struct ramfs_state *sbi, int idx) {
     struct rnode *n = sbi->nodes[idx];
     if (!n) return;
     free_chunks(sbi, n);
+    budget_give(sbi, RAMFS_NODE_COST);
+    if (n->name) {   // the root has none
+        budget_give(sbi, k_strlen(n->name) + 1);
+        kfree(n->name);
+    }
     kfree(n);
     sbi->nodes[idx] = 0;
     if (idx < sbi->free_hint) sbi->free_hint = idx;
-    budget_give(sbi, RAMFS_NODE_COST);
 }
 
 // Doubles the node table. Every caller holds the mount's lock, and
@@ -223,15 +225,32 @@ static int nodes_grow(struct ramfs_state *sbi) {
     return 1;
 }
 
-static int node_alloc(struct ramfs_state *sbi, const char *name, int parent, int is_dir) {
-    if (!budget_take(sbi, RAMFS_NODE_COST)) return -1;
+// A copy of the `len` bytes at `name`, charged to the budget: what a
+// node's name costs, as its struct does. NULL out of budget or memory.
+static char *name_alloc(struct ramfs_state *sbi, const char *name, int len) {
+    if (len <= 0 || len > FS_NAME_MAX || !budget_take(sbi, (uint64_t)len + 1)) return 0;
+    char *c = kmalloc((size_t)len + 1);
+    if (!c) { budget_give(sbi, (uint64_t)len + 1); return 0; }
+    k_memcpy(c, name, (size_t)len);
+    c[len] = 0;
+    return c;
+}
+
+static void name_free(struct ramfs_state *sbi, char *name) {
+    budget_give(sbi, k_strlen(name) + 1);
+    kfree(name);
+}
+
+static int node_alloc(struct ramfs_state *sbi, const char *name, int len, int parent, int is_dir) {
+    char *nm = name_alloc(sbi, name, len);
+    if (!nm) return -1;
+    if (!budget_take(sbi, RAMFS_NODE_COST)) { name_free(sbi, nm); return -1; }
     int i = sbi->free_hint;
     while (i < sbi->cap && sbi->nodes[i]) i++;
-    if (i == sbi->cap && !nodes_grow(sbi)) { budget_give(sbi, RAMFS_NODE_COST); return -1; }
-    struct rnode *n = kmalloc(sizeof(struct rnode));
-    if (!n) { budget_give(sbi, RAMFS_NODE_COST); return -1; }
+    struct rnode *n = (i < sbi->cap || nodes_grow(sbi)) ? kmalloc(sizeof(struct rnode)) : 0;
+    if (!n) { budget_give(sbi, RAMFS_NODE_COST); name_free(sbi, nm); return -1; }
     k_memset(n, 0, sizeof *n);
-    k_strlcpy(n->name, name, RAMFS_NAME_MAX);
+    n->name = nm;
     n->parent = (int32_t)parent;
     n->is_dir = (uint8_t)(is_dir != 0);
     stamp(n);
@@ -262,7 +281,7 @@ static int node_alloc(struct ramfs_state *sbi, const char *name, int parent, int
 // directories.
 
 static int name_matches(const struct rnode *n, const char *seg, int len) {
-    if (len <= 0 || len >= RAMFS_NAME_MAX) return 0;
+    if (len <= 0 || len > FS_NAME_MAX || !n->name) return 0;
     if (k_strlen(n->name) != (size_t)len) return 0;
     return k_memcmp(n->name, seg, (size_t)len) == 0;
 }
@@ -303,7 +322,7 @@ static int walk(struct ramfs_state *sbi, const char *path, int stop_before_last,
         if (len == 0) return -1;                       // "//" or a trailing slash
         if (len == 1 && seg[0] == '.') return -1;      // not normalized
         if (len == 2 && seg[0] == '.' && seg[1] == '.') return -1;
-        if (len >= RAMFS_NAME_MAX) return -1;
+        if (len > FS_NAME_MAX) return -1;
 
         int last = (*p == 0);
         if (last && stop_before_last) {
@@ -526,10 +545,7 @@ static int ramfs_create_excl(void *st, const char *path) {
     if (find(sbi, path) >= 0) return -EEXIST;
     int parent; const char *leaf; int len;
     if (!resolve_new(sbi, path, &parent, &leaf, &len)) return 0;
-    char name[RAMFS_NAME_MAX];
-    k_memcpy(name, leaf, (size_t)len);
-    name[len] = 0;
-    return node_alloc(sbi, name, parent, 0) >= 0;
+    return node_alloc(sbi, leaf, len, parent, 0) >= 0;
 }
 
 static int ramfs_touch(void *st, const char *path) {
@@ -543,10 +559,7 @@ static int ramfs_touch(void *st, const char *path) {
     }
     int parent; const char *leaf; int len;
     if (!resolve_new(sbi, path, &parent, &leaf, &len)) return 0;
-    char name[RAMFS_NAME_MAX];
-    k_memcpy(name, leaf, (size_t)len);
-    name[len] = 0;
-    return node_alloc(sbi, name, parent, 0) >= 0;
+    return node_alloc(sbi, leaf, len, parent, 0) >= 0;
 }
 
 static int ramfs_mkdir(void *st, const char *path) {
@@ -555,10 +568,7 @@ static int ramfs_mkdir(void *st, const char *path) {
     if (find(sbi, path) >= 0) return 0;
     int parent; const char *leaf; int len;
     if (!resolve_new(sbi, path, &parent, &leaf, &len)) return 0;
-    char name[RAMFS_NAME_MAX];
-    k_memcpy(name, leaf, (size_t)len);
-    name[len] = 0;
-    return node_alloc(sbi, name, parent, 1) >= 0;
+    return node_alloc(sbi, leaf, len, parent, 1) >= 0;
 }
 
 static int ramfs_write(void *st, const char *path, const char *data, int append) {
@@ -706,9 +716,12 @@ static int ramfs_rename(void *st, const char *oldpath, const char *newpath) {
     for (int p = parent; p >= 0; p = sbi->nodes[p]->parent)
         if (p == idx) return 0;
 
+    // The new name first: out of budget leaves the node as it was.
+    char *nm = name_alloc(sbi, leaf, len);
+    if (!nm) return 0;
     struct rnode *n = sbi->nodes[idx];
-    k_memcpy(n->name, leaf, (size_t)len);
-    n->name[len] = 0;
+    name_free(sbi, n->name);
+    n->name = nm;
     n->parent = (int32_t)parent;
     stamp(n);
     return 1;
