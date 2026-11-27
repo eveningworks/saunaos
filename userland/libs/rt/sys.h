@@ -1178,7 +1178,7 @@ struct sys_spawn_opts {
     const uint32_t *groups;
     unsigned        ngroups;
     unsigned        cred_flags;   // CRED_* (abi/cred_abi.h), with SPAWN_CREDS
-    unsigned        session;      // the login session (abi/cred_abi.h), with SPAWN_CREDS
+    unsigned        session;      // with SPAWN_CREDS: the login session (abi/cred_abi.h); 0 keeps the caller's
 };
 
 // The -1s that a zeroed struct would get wrong. Call it, then override.

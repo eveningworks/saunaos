@@ -1978,6 +1978,17 @@ void wm_client_chan_pump(void) {
     for (int budget = WM_CHAN_DRAIN_MAX;
          budget > 0 && (from = uchan_server_recv(&g_chan, &m, sizeof m)) != 0; budget--) {
         m.text[sizeof m.text - 1] = '\0';
+        // ONE CONNECTION PER CLIENT PROCESS: windows, buffers ("buf.<pid>")
+        // and Force Quit name the client by pid, which is the id of a
+        // process's FIRST ring only (base/uchan.h). A further ring is
+        // refused, not served under an id that names no process.
+        if (from >= UCHAN_CONN_EXTRA) {
+            static int said;
+            if (!said++)
+                wm_logf("wm: a second compositor connection from pid %d -- ignored (one per process)\n",
+                      uchan_server_peer_pid(&g_chan, from));
+            continue;
+        }
         // A message this build does not know is dropped rather than
         // guessed at -- a client speaking a later protocol is not an
         // error the compositor can fix.

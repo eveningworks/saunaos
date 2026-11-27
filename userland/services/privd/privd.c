@@ -183,7 +183,8 @@ static void answer(int conn, uint32_t id, int32_t rc) {
 struct later {
     struct later *next;
     uint64_t at;            // sys_monotonic_ns()
-    int      conn;
+    int      conn;          // where the answer goes
+    int      pid;           // who asked: root's penalty is per PROCESS
     uint32_t type, id;
     int32_t  v;
     uint32_t uid;           // whose wrong password it answers
@@ -195,8 +196,9 @@ static struct later *g_later;
 // pam_faildelay delays only the login that was wrong: one telnet guesser
 // must not lock the console out.
 static int penalized(uint32_t uid, int conn) {
+    int pid = uchan_server_peer_pid(&g_srv.ch, conn);
     for (struct later *l = g_later; l; l = l->next)
-        if (l->uid == uid && (uid != 0 || l->conn == conn)) return 1;
+        if (l->uid == uid && (uid != 0 || l->pid == pid)) return 1;
     return 0;
 }
 
@@ -217,6 +219,7 @@ static void send_later(int conn, uint32_t type, uint32_t id, int32_t v, uint32_t
     l->at = sys_monotonic_ns() + (uint64_t)UPRIV_FAIL_DELAY_MS * 1000000ull;
     l->uid = uid;
     l->conn = conn;
+    l->pid = uchan_server_peer_pid(&g_srv.ch, conn);
     l->type = type;
     l->id = id;
     l->v = v;

@@ -984,8 +984,9 @@ struct spawn_msg {
     const uint32_t *groups;
     uint32_t ngroups;
     uint32_t cred_flags;   // CRED_* (abi/cred_abi.h); an unknown bit is -EPERM, never -EINVAL
-    // With SPAWN_CREDS: the LOGIN SESSION the child is in (abi/cred_abi.h),
-    // 0 for none. Without it the child is in its spawner's.
+    // With SPAWN_SESSION: the LOGIN SESSION the child is in (abi/cred_abi.h).
+    // Not read without the flag -- a caller built before the field has no
+    // such bytes -- and the child stays in its spawner's.
     uint32_t session;
 };
 
@@ -1094,11 +1095,17 @@ struct spawn_msg {
 // child.
 #define SPAWN_ELEVATED 2048
 
+// With SPAWN_CREDS: the child is in login session `session` (abi/cred_abi.h)
+// rather than its spawner's -- init's, as a session begins. Root's, as
+// SPAWN_CREDS is; without it a child is always in its spawner's session,
+// so `sudo runuser` from a desktop does not leave the desktop's.
+#define SPAWN_SESSION 4096
+
 // Every flag this kernel knows. Anything outside it is -EINVAL.
 #define SPAWN_FLAGS_ALL (SPAWN_TRACE | SPAWN_FOREGROUND | SPAWN_ARGV | SPAWN_SETSID | \
                          SPAWN_STDERR | SPAWN_DETACH | SPAWN_TRACE_RING | \
                          SPAWN_TRACE_FOLLOW | SPAWN_SANDBOX | SPAWN_STOPPED | \
-                         SPAWN_CREDS | SPAWN_ELEVATED)
+                         SPAWN_CREDS | SPAWN_ELEVATED | SPAWN_SESSION)
 
 #define SYS_WNOHANG 1
 

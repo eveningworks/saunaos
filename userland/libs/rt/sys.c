@@ -1382,6 +1382,7 @@ int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
     msg.ngroups = o->ngroups;
     msg.cred_flags = o->cred_flags;
     msg.session = o->session;
+    if (o->session && (flags & SPAWN_CREDS)) flags |= SPAWN_SESSION;
     msg.flags = flags;
     int64_t rc = syscall1(SYS_SPAWN, (uint64_t)(uintptr_t)&msg);
 

@@ -145,16 +145,29 @@ static int sum_slot_h(void) {
 // shape), then the boxes, the mode, and -- on a file this account may not
 // chmod -- why the boxes are greyed.
 // Read here, not in media/ufileinfo: SYS_STATX is a runtime symbol a
-// library may not need (check_lib_layers.py). 0 when unknown: the boxes
-// stay live and the kernel decides.
-static uint32_t g_uid, g_gid;
+// library may not need (check_lib_layers.py). Not known: "?", and the
+// boxes stay live for the kernel to decide. The names are resolved once:
+// getpwuid() reads /etc/passwd, and the slot is drawn every frame.
+static uint32_t g_uid;
 static int g_owner_known;
+static char g_owner[160], g_group[64];
 
+// The owner as a person reads it -- the account's full name, else its
+// login, else its number -- and "(you)" on this account's own file.
 static void load_owner(void) {
     struct sys_statx sx;
     g_owner_known = sys_statx(g_fi.path, &sx) == 0;
     g_uid = g_owner_known ? sx.uid : 0;
-    g_gid = g_owner_known ? sx.gid : 0;
+    snprintf(g_owner, sizeof g_owner, "?");
+    snprintf(g_group, sizeof g_group, "?");
+    if (!g_owner_known) return;
+    struct passwd *pw = getpwuid(sx.uid);
+    const char *n = pw ? (pw->pw_gecos && pw->pw_gecos[0] ? pw->pw_gecos : pw->pw_name) : 0;
+    if (n) snprintf(g_owner, sizeof g_owner, "%s%s", n, sx.uid == geteuid() ? " (you)" : "");
+    else snprintf(g_owner, sizeof g_owner, "%u", (unsigned)sx.uid);
+    struct group *gr = getgrgid(sx.gid);
+    if (gr) snprintf(g_group, sizeof g_group, "%s", gr->gr_name);
+    else snprintf(g_group, sizeof g_group, "%u", (unsigned)sx.gid);
 }
 
 static int may_chmod(void) {
@@ -167,24 +180,6 @@ static int perm_head(void) { return 2 * perm_step(); }
 
 static int perm_slot_h(void) {
     return perm_head() + 3 * perm_step() + line_h() + (may_chmod() ? 0 : line_h());
-}
-
-// The owner's name as a person reads it -- the account's full name, else
-// its login, else its number -- and "(you)" on this account's own file.
-static void owner_text(char *out, size_t cap) {
-    if (!g_owner_known) { snprintf(out, cap, "?"); return; }
-    struct passwd *pw = getpwuid(g_uid);
-    const char *n = pw ? (pw->pw_gecos && pw->pw_gecos[0] ? pw->pw_gecos : pw->pw_name) : 0;
-    char num[16];
-    if (!n) { snprintf(num, sizeof num, "%u", (unsigned)g_uid); n = num; }
-    snprintf(out, cap, "%s%s", n, g_uid == geteuid() ? " (you)" : "");
-}
-
-static void group_text(char *out, size_t cap) {
-    if (!g_owner_known) { snprintf(out, cap, "?"); return; }
-    struct group *gr = getgrgid(g_gid);
-    if (gr) snprintf(out, cap, "%s", gr->gr_name);
-    else snprintf(out, cap, "%u", (unsigned)g_gid);
 }
 
 static void slots(void) {
@@ -350,11 +345,8 @@ static void log_rows(void) {
     udate_format(t, sizeof t, &g_fi.st.modified, UDATE_DATE | UDATE_TIME | UDATE_SECONDS);
     ulogf("properties: row Modified=%s\n", t);
     ulogf("properties: row Mode=%04o\n", g_fi.st.mode & 07777);
-    char who[160];
-    owner_text(who, sizeof who);
-    ulogf("properties: row Owner=%s\n", who);
-    group_text(who, sizeof who);
-    ulogf("properties: row Group=%s\n", who);
+    ulogf("properties: row Owner=%s\n", g_owner);
+    ulogf("properties: row Group=%s\n", g_group);
     ulogf("properties: row Inode=%llu\n", (unsigned long long)g_fi.st.ino);
 }
 
@@ -468,13 +460,10 @@ static void draw_slots(struct ugfx_surface *s) {
     if (uui_fileinfo_slot_rect(&g_info, SLOT_PERM, &x, &y, &w, &h)) {
         static const char *const who[3] = { "Owner", "Group", "Others" };
         int mid = (ctl_h() - ugfx_char_h()) / 2, top = y + perm_head();
-        char name[160];
-        owner_text(name, sizeof name);
         ugfx_draw_string_clipped(s, x, y + mid, key_w() - p, "Owner", dim, bg);
-        ugfx_draw_string_clipped(s, x + key_w(), y + mid, w - key_w(), name, t->text, bg);
-        group_text(name, sizeof name);
+        ugfx_draw_string_clipped(s, x + key_w(), y + mid, w - key_w(), g_owner, t->text, bg);
         ugfx_draw_string_clipped(s, x, y + perm_step() + mid, key_w() - p, "Group", dim, bg);
-        ugfx_draw_string_clipped(s, x + key_w(), y + perm_step() + mid, w - key_w(), name, t->text, bg);
+        ugfx_draw_string_clipped(s, x + key_w(), y + perm_step() + mid, w - key_w(), g_group, t->text, bg);
         for (int r = 0; r < 3; r++)
             ugfx_draw_string_clipped(s, x, top + r * perm_step() + mid, key_w() - p, who[r], dim, bg);
         char m[48];
@@ -483,9 +472,8 @@ static void draw_slots(struct ugfx_surface *s) {
         ugfx_draw_string_clipped(s, x + key_w(), top + 3 * perm_step(), w - key_w(), m, dim, bg);
         ugfx_set_font(was);
         if (!may_chmod()) {
-            struct passwd *pw = getpwuid(g_uid);
-            char why[96];
-            snprintf(why, sizeof why, "Only %s can change these.", pw ? pw->pw_name : "its owner");
+            char why[200];
+            snprintf(why, sizeof why, "Only %s can change these.", g_owner);
             ugfx_draw_string_clipped(s, x + key_w(), top + 3 * perm_step() + line_h(), w - key_w(), why, dim, bg);
         }
     }

@@ -774,6 +774,10 @@ int sys_spawn(struct syscall_ctx *c) {
     // SPAWN_CREDS: only root names who a child is. -EPERM, never -EINVAL,
     // which libsys reads as a kernel from before a flag and retries.
     uint32_t *cr_groups = 0;
+    if ((msg.flags & SPAWN_SESSION) && !(msg.flags & SPAWN_CREDS)) {   // a session is named with an identity
+        c->regs[14] = (uint64_t)(int64_t)-EPERM;
+        return 0;
+    }
     if (msg.flags & SPAWN_CREDS) {
         if (cred_euid(cred_current()) != 0) {
             c->regs[14] = (uint64_t)(int64_t)-EPERM;
@@ -906,7 +910,8 @@ int sys_spawn(struct syscall_ctx *c) {
                    : (msg.flags & SPAWN_ELEVATED) ? cred_arm_root()
                    : !(msg.flags & SPAWN_CREDS) ? 0
                    : cred_arm_spawn(msg.uid, msg.gid, cr_groups, msg.ngroups, msg.cred_flags,
-                                    msg.session);
+                                    (msg.flags & SPAWN_SESSION) ? msg.session
+                                                                : cred_session(cred_current()));
         kfree(cr_groups);
         cr_groups = 0;
         // THE CHILD IS HELD UNTIL ITS SESSION, TERMINAL AND FOREGROUND
