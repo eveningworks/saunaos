@@ -121,14 +121,16 @@ writes in a median 0.85 s against 2.09 s. A client asking for more is
 answered with 8192, and the OACK says so; one asking for 1428 (RFC
 2348's tunnel-safe size) never fragments at all.
 
-**3 is the RECEIVER'S SOCKET QUEUE.** `kernel/net/socket.c` holds
-`SOCK_QUEUE` (4) datagrams per socket and leaves one slot unused, so
-three arrive and the rest of a window is discarded at the door —
-dropped on arrival, not lost in the network. A window bigger than that
-is *slower than no window at all*: measured, a window of 16 took 611
-seconds for 1 MiB against 21 for plain lockstep, because every round
-trip delivered three blocks and retransmitted thirteen. Raising it
-means raising `SOCK_QUEUE` first.
+**3 is bounded by the RECEIVER.** What a window sends past the
+receiver's queue is discarded at the door -- dropped on arrival, not
+lost in the network -- and a window bigger than that is *slower than no
+window at all*: measured when a socket held three datagrams, a window
+of 16 took 611 seconds for 1 MiB against 21 for plain lockstep, because
+every round trip delivered three blocks and retransmitted thirteen. A
+SaunaOS socket now holds `SOCK_RCVBUF` bytes (64 KiB, about seven 8 KiB
+blocks) and IPv4 reassembles four fragmented datagrams at once
+(`FRAG_SLOTS`); 3 fits both, and raising it wants the measurement
+again.
 
 **Writes are buffered to 64 KiB.** Every `write()` is one complete TFS3
 transaction ending in two barriers, so a block per write would put a

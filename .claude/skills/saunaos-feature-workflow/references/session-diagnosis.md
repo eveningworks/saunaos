@@ -1371,7 +1371,7 @@ the floor they share is the tick.
 And the correction worth keeping: **an optimisation that exceeds a
 downstream buffer is slower than none.** A 16-deep TFTP window took
 611 seconds for 1 MiB against 21 for plain lock-step, because
-`SOCK_QUEUE` is 4 and holds three datagrams -- thirteen of every sixteen
+`SOCK_QUEUE` was 4 and held three datagrams -- thirteen of every sixteen
 blocks were discarded on arrival. Ask what happens to N+1 before sending
 N of anything.
 

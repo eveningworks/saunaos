@@ -29,22 +29,25 @@
 #include "krandom.h"
 
 #define SOCK_MSG_MAX  SYS_NET_MSG_MAX
-#define SOCK_QUEUE    4      // datagrams held per socket, one slot unused
-// Payload bytes a socket may hold queued -- Linux's SO_RCVBUF, which
-// counts bytes because datagrams now range from 1 byte to 64 KiB. The
-// FIRST datagram into an empty queue is always taken, so one maximal
-// datagram fits whatever this says.
+// Bytes a socket may hold queued -- Linux's SO_RCVBUF, and the queue's
+// ONLY bound: each datagram is charged its payload plus its header, as
+// Linux charges an skb's truesize, so a flood of empty ones is bounded
+// too. The FIRST datagram into an empty queue is always taken, so one
+// maximal datagram fits whatever this says.
 #define SOCK_RCVBUF   (64u * 1024u)
 
 // ICMP identifiers start high enough to be recognisable in a packet
 // capture and low enough to stay clear of anything a real host uses.
 #define SOCK_ID_BASE  0x7001
 
+// One queued datagram: this header and its payload in ONE allocation,
+// freed when read or closed.
 struct sock_msg {
+    struct sock_msg *next;
     uint32_t src;
     uint16_t port;    // UDP: the sender's. Zero for ICMP.
     uint32_t len;
-    uint8_t *data;    // kmalloc'd, exactly `len`; freed when read or closed
+    uint8_t data[];
 };
 
 struct socket {
@@ -63,9 +66,8 @@ struct socket {
     uint32_t logged_ip;
     uint16_t logged_port;
     char dev[NET_NAME_MAX]; // bound device, empty for any
-    struct sock_msg q[SOCK_QUEUE];
-    int head, tail;   // tail == head means empty; one slot is left unused
-    uint32_t queued;  // payload bytes in q[], against SOCK_RCVBUF
+    struct sock_msg *head, *tail;   // oldest first; head NULL means empty
+    uint32_t queued;  // bytes charged for the queue, against SOCK_RCVBUF
 };
 
 // GROWN ON DEMAND (kslots.h). A closed socket's memory stays valid, so
@@ -84,33 +86,35 @@ static struct socket *sock_at(int sock) {
     return kslots_at(&g_socks, sock);
 }
 
+static uint32_t msg_charge(uint32_t len) { return len + (uint32_t)sizeof(struct sock_msg); }
+
 // One datagram onto a socket's queue. Full means the NEW one is
 // dropped, never the oldest: a queue that discards what it already
 // accepted turns a burst into a silent reorder.
 //
 // Under the preemption guard, as its reader is: net_poll() pushes while
-// a preempted recvfrom() may be half way through a pop, and `queued` is
-// shared between them.
+// a preempted recvfrom() may be half way through a pop, and the list and
+// `queued` are shared between them. The kmalloc under it is the heap's
+// own discipline (the guard is what kmalloc takes).
 static int queue_push(struct socket *s, uint32_t src, uint16_t port,
                       const uint8_t *data, uint32_t len) {
     if (len > SOCK_MSG_MAX) return 0;
     scheduler_preempt_disable();
-    int next = (s->tail + 1) % SOCK_QUEUE;
-    int full = next == s->head ||
-               (s->head != s->tail && s->queued + len > SOCK_RCVBUF);
-    uint8_t *copy = full ? 0 : kmalloc(len ? len : 1);
-    if (copy) {
-        struct sock_msg *m = &s->q[s->tail];
+    int full = s->head && s->queued + msg_charge(len) > SOCK_RCVBUF;
+    struct sock_msg *m = full ? 0 : kmalloc(sizeof *m + (len ? len : 1));
+    if (m) {
+        m->next = 0;
         m->src = src;
         m->port = port;
         m->len = len;
-        m->data = copy;
-        if (len) k_memcpy(copy, data, len);
-        s->queued += len;
-        s->tail = next;
+        if (len) k_memcpy(m->data, data, len);
+        if (s->tail) s->tail->next = m;
+        else s->head = m;
+        s->tail = m;
+        s->queued += msg_charge(len);
     }
     scheduler_preempt_enable();
-    return copy != 0;
+    return m != 0;
 }
 
 // The oldest datagram off the queue, copied out and freed: its length,
@@ -118,22 +122,22 @@ static int queue_push(struct socket *s, uint32_t src, uint16_t port,
 static int queue_pop(struct socket *s, void *buf, uint32_t cap,
                      uint32_t *out_src, uint16_t *out_port) {
     scheduler_preempt_disable();
-    if (s->head == s->tail) { scheduler_preempt_enable(); return -EAGAIN; }
-    struct sock_msg *m = &s->q[s->head];
+    struct sock_msg *m = s->head;
+    if (!m) { scheduler_preempt_enable(); return -EAGAIN; }
     uint32_t n = m->len < cap ? m->len : cap;
     if (buf && n) k_memcpy(buf, m->data, n);
     if (out_src) *out_src = m->src;
     if (out_port) *out_port = m->port;
-    s->queued -= m->len;
-    kfree(m->data);
-    m->data = 0;
-    s->head = (s->head + 1) % SOCK_QUEUE;
+    s->head = m->next;
+    if (!s->head) s->tail = 0;
+    s->queued -= msg_charge(m->len);
+    kfree(m);
     scheduler_preempt_enable();
     return (int)n;
 }
 
 static void queue_drain(struct socket *s) {
-    while (s->head != s->tail) queue_pop(s, 0, 0, 0, 0);
+    while (s->head) queue_pop(s, 0, 0, 0, 0);
 }
 
 // A port is taken per PROTOCOL: UDP 80 and TCP 80 are different ports,

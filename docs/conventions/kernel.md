@@ -4336,8 +4336,9 @@ one cause.
 
 ## A SEND WINDOW MAY NOT EXCEED THE RECEIVER'S SOCKET QUEUE, OR IT IS SLOWER THAN NO WINDOW
 
-`kernel/net/socket.c` holds `SOCK_QUEUE` datagrams per socket -- four,
-with one slot left unused, so **three**. Anything a sender puts on the
+`kernel/net/socket.c` holds `SOCK_RCVBUF` bytes per socket (each
+datagram charged its payload and its header), and IPv4 reassembles
+`FRAG_SLOTS` fragmented datagrams at once. Anything a sender puts on the
 wire beyond that is discarded AT THE DOOR: not lost in the network, not
 congestion, just dropped because there is nowhere to put it.
 
@@ -4352,8 +4353,8 @@ mistake.
 
 **Derive the window, or name the constant it depends on.**
 `userland/services/tftpd/tftpd.c`'s `WINDOW_MAX` is 3 with a comment naming
-`SOCK_QUEUE`, because a socket's depth is not something ring 3 can ask
-for. If that ever becomes queryable, the constant should be replaced by
+`SOCK_RCVBUF` and `FRAG_SLOTS`, because a socket's depth is not something
+ring 3 can ask for. If that ever becomes queryable, the constant should be replaced by
 the query rather than raised to match.
 
 **And the same bound applies to anything else that sends a burst** --

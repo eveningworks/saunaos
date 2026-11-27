@@ -2115,3 +2115,43 @@ KTEST("net", "more than eight sockets and eight TCP blocks, and ports stay exclu
     for (int i = 0; i < 12; i++) net_sock_close(tcp[i]);
     KTEST_ASSERT(rc < 0);
 }
+
+// A SOCKET'S QUEUE IS BOUNDED BY BYTES ALONE (Linux's SO_RCVBUF): it was
+// four slots, three usable, so a burst of small datagrams lost all but
+// three. Delivered straight to the socket layer -- no device needed.
+static uint8_t g_bigdgram[60000];
+
+KTEST("net", "twenty small datagrams queue and read back in order; bytes still bound it") {
+    int sock = net_sock_open(NET_AF_INET, NET_SOCK_DGRAM, IP_PROTO_UDP);
+    KTEST_ASSERT(sock >= 0);
+    KTEST_ASSERT_EQ(net_sock_bind(sock, 0, 7796, 0), 7796);
+    uint8_t d[8];
+    for (int i = 0; i < 20; i++) {
+        k_memset(d, (uint8_t)(0x40 + i), sizeof d);
+        net_sock_deliver_udp(0, 0x0A000002u, (uint16_t)(5000 + i), 7796, d, sizeof d);
+    }
+    int got = 0, in_order = 1;
+    for (;;) {
+        uint16_t port = 0;
+        int n = net_sock_recvfrom(sock, g_rxbuf, sizeof g_rxbuf, 0, &port);
+        if (n < 0) break;
+        if (n != (int)sizeof d || g_rxbuf[0] != (uint8_t)(0x40 + got) || port != 5000 + got)
+            in_order = 0;
+        got++;
+    }
+
+    // One near-maximal datagram into the EMPTY queue is taken; a second
+    // that would pass SOCK_RCVBUF is refused, and the first survives.
+    net_sock_deliver_udp(0, 0x0A000002u, 6000, 7796, g_bigdgram, sizeof g_bigdgram);
+    net_sock_deliver_udp(0, 0x0A000002u, 6001, 7796, g_bigdgram, 10000);
+    uint16_t p1 = 0;
+    int big = net_sock_recvfrom(sock, g_rxbuf, sizeof g_rxbuf, 0, &p1);
+    int after = net_sock_recvfrom(sock, g_rxbuf, sizeof g_rxbuf, 0, 0);
+    net_sock_close(sock);
+
+    KTEST_ASSERT_EQ(got, 20);
+    KTEST_ASSERT(in_order);
+    KTEST_ASSERT_EQ(big, (int)sizeof g_rxbuf);   // cut to the reader's buffer, as recvfrom() is
+    KTEST_ASSERT_EQ(p1, 6000);
+    KTEST_ASSERT_EQ(after, -EAGAIN);
+}

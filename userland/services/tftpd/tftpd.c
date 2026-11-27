@@ -103,19 +103,18 @@ static void logf(const char *fmt, ...) {
 // RFC 7440, AND THE CEILING IS THE RECEIVER'S SOCKET QUEUE, not a
 // number picked for speed.
 //
-// kernel/net/socket.c holds SOCK_QUEUE (4) datagrams per socket, and
-// SOCK_RCVBUF bytes, and leaves one slot unused, so three arrive and
-// the rest of a window is DROPPED ON ARRIVAL -- not lost in the
-// network, discarded at the door.
-// A window of 16 measured 611 seconds for 1 MiB against 66 for plain
-// lock-step, because every round trip delivered three blocks and
-// retransmitted thirteen. A window larger than the receiver can hold is
-// slower than no window at all.
+// What does not fit is DROPPED ON ARRIVAL -- not lost in the network,
+// discarded at the door. A window of 16 measured 611 seconds for 1 MiB
+// against 66 for plain lock-step, when a socket held three datagrams:
+// every round trip delivered three blocks and retransmitted thirteen. A
+// window larger than the receiver can hold is slower than no window.
 //
-// So this is 3, and raising it means raising SOCK_QUEUE first. The
-// number is here rather than derived because a socket's depth is not
-// something ring 3 can ask for; if that changes, these two must move
-// together.
+// A SaunaOS receiver now holds SOCK_RCVBUF BYTES (kernel/net/socket.c:
+// 64 KiB, about seven 8 KiB blocks), and IPv4 reassembles FRAG_SLOTS
+// (kernel/net/ipv4_frag.c: 4) fragmented datagrams at once, which an
+// 8 KiB block over Ethernet is. 3 fits both and is what was measured;
+// raising it wants the measurement again. Here rather than derived
+// because a socket's depth is not something ring 3 can ask for.
 #define WINDOW_DEFAULT  1
 #define WINDOW_MAX      3
 
