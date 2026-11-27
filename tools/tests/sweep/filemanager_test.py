@@ -1496,7 +1496,9 @@ def run(dbg, qmp, tmp, res):
         png = os.path.join(tmp, "fm_menu_over_pane.png")
         qmp.stable_pixels(png)
         accent = (70, 110, 160)  # utheme.c's accent, the outline's ink
-        inside = ink_count(png, (ox + mx + 2, oy + my + 2, mw - 4, mh - 4),
+        # Right of the gutter: a ticked row's tick is the accent too
+        # (gutter_ink() counts exactly that, in its icon column).
+        inside = ink_count(png, (ox + mx + 40, oy + my + 2, mw - 42, mh - 4),
                             accent, tol=8)
         outside = ink_count(png, (ox, oy, win["content"]["w"],
                                    win["content"]["h"]), accent, tol=8)
@@ -2044,12 +2046,15 @@ def run(dbg, qmp, tmp, res):
     res.check("a right-click inside a pane opens a context menu",
               lay.ctx == 1 and lay.ctxbox is not None,
               f"ctx={lay and lay.ctx} box={lay and lay.ctxbox} tail={tail}")
-    # The popup is placed AT the cursor, not at some fixed corner.
+    # The popup is placed AT the cursor, not at some fixed corner: its
+    # left edge on the pointer, and its top there too unless the menu is
+    # too tall for the room below and slid up to stay whole
+    # (uui_menubar's flip/slide/clamp) -- then it still spans the pointer.
     ok_place = False
     if lay.ctxbox:
         cbx, cby, cbw, cbh = lay.ctxbox
-        ok_place = (abs((ox + cbx) - target[0]) <= 6 and
-                    (oy + cby) >= target[1] - 2 and cbw > 0 and cbh > 0)
+        ok_place = (abs((ox + cbx) - target[0]) <= 6 and cbw > 0 and cbh > 0 and
+                    (oy + cby) - 2 <= target[1] <= (oy + cby) + cbh)
     res.check("the popup opens at the pointer",
               ok_place, f"box={lay and lay.ctxbox} click={target} origin={(ox, oy)}")
 
@@ -2071,15 +2076,14 @@ def run(dbg, qmp, tmp, res):
 
     # Properties: the LAST row of the popup, and it opens a WINDOW.
     sel_name = None
+    mark = ctx_mark(dbg)
     sure_rclick(dbg, qmp, *target)
     lay = wait_layout(dbg, win, lambda l: l.ctx == 1 and l.ctxbox) or lay
     sel_name = lay.selected
     dbg.logs("properties:", clear=True)
-    if lay.ctxbox:
-        cbx, cby, cbw, cbh = lay.ctxbox
-        # The bottom row of the popup. Two pixels in from the border, so
-        # a row height this test does not know cannot put it on the edge.
-        sure_click(dbg, qmp, ox + cbx + cbw // 2, oy + cby + cbh - 4)
+    # By label, at the rect the menu reports: the card has padding under
+    # its last row, so "a few pixels above the bottom edge" is no row.
+    ctx_pick(dbg, qmp, win, ctx_rows(dbg, mark), "Properties")
     deadline = time.time() + 8.0
     titles = []
     while time.time() < deadline:
@@ -2544,20 +2548,20 @@ def run(dbg, qmp, tmp, res):
                     oy + gy + (view // gcols) * gch, gcw, gch - 14)
 
         # Rows: ..(0) game.qoi(1) photo.jpg(2) readme.txt(3).
-        doom_red = (166, 42, 38)  # the doom icon's plate, its dominant ink
+        doom_ink = (236, 140, 48)  # the doom icon's flame (gen_icons.py), its dominant ink
         deadline = time.time() + 8.0
         red = 0
         png = os.path.join(tmp, "fm_thumbs.png")
         while time.time() < deadline:
             qmp.stable_pixels(png)
-            red = ink_count(png, cell_rect(1), doom_red, tol=12)
+            red = ink_count(png, cell_rect(1), doom_ink, tol=30)
             if red > 10:
                 break
             time.sleep(0.5)
         res.check("a .qoi cell shows the image's own pixels (lazily decoded)",
-                  red > 10, f"doom-red in game.qoi cell: {red}")
+                  red > 10, f"flame orange in game.qoi cell: {red}")
         res.check("control: the .txt cell has none of that ink",
-                  ink_count(png, cell_rect(3), doom_red, tol=12) == 0, "")
+                  ink_count(png, cell_rect(3), doom_ink, tol=30) == 0, "")
 
         # The JPEG: a photo has CHROMA, the generic grey/white glyph has
         # none -- count pixels whose channels spread more than 30.
@@ -2574,8 +2578,10 @@ def run(dbg, qmp, tmp, res):
                         n += 1
             return n
 
+        # The document glyph's text lines are faintly blue, so "grey" is
+        # "a fraction of the photo's", not zero.
         res.check("a .jpg cell shows the photo, and the .txt cell stays grey",
-                  chroma(cell_rect(2)) > 40 and chroma(cell_rect(3)) < 10,
+                  chroma(cell_rect(2)) > 40 and chroma(cell_rect(2)) > 3 * chroma(cell_rect(3)),
                   f"chroma jpg={chroma(cell_rect(2))} txt={chroma(cell_rect(3))} "
                   f"grid={lay.cellgrid[0]} origin={(ox, oy)} rects={cell_rect(2)} {cell_rect(3)}")
 
@@ -2614,6 +2620,11 @@ def run(dbg, qmp, tmp, res):
                   0 in lay.cellgrid and lay.cellgrid[0][1] > y_now,
                   f"cell y {y_now} -> {lay.cellgrid.get(0)}")
         dbg.send("sh config set scroll.dir normal")
+        # The inverted wheel took the view back to the top; scroll away
+        # again, or the refresh check below proves nothing.
+        qmp.wheel("down", 2)
+        lay = wait_layout(dbg, win, lambda l: l.scroll.get(0) is not None and
+                           l.scroll[0][0] > 0) or lay
 
         # **A REFRESH MUST NOT MOVE THE VIEW**, and this is the check
         # that says so. reload() restores the selection BY NAME, and
@@ -2843,6 +2854,14 @@ def run(dbg, qmp, tmp, res):
                   f"last={seen and (seen.dir, seen.rows, seen.pane, seen.rowy, seen.rowh)}")
         return
     lay = fresh
+    # IN DETAILS, established rather than inherited: section 16 left the
+    # pane in icons, the app saves its view, and everything below aims
+    # at rows.
+    if lay.view and lay.view[0] != 1:
+        view_pick(dbg, qmp, win, lay, "details", res)
+        lay = wait_layout(dbg, win, lambda l: l.view and l.view[0] == 1 and
+                           l.pane.get(0) is not None and
+                           l.rowy.get(0) is not None and bool(l.rowh)) or lay
     px, py, pw, ph = lay.pane[0]
     rh = lay.rowh or 16
 
@@ -2890,10 +2909,16 @@ def run(dbg, qmp, tmp, res):
 
     def mod_click(view_row, qcode=None):
         landed = aim(view_row)
+        # THE KEY IS DELIVERED BEFORE THE CLICK IS SENT, and the click
+        # before the release: keyboard and pointer are two devices, and
+        # sent back to back the click overtook Ctrl and arrived plain
+        # (measured: marked 0 fast, 2 with the round trips between).
         if qcode:
             qmp.key_down(qcode)
+            dbg.settle()
         qmp.click()
         if qcode:
+            dbg.settle()
             qmp.key_up(qcode)
         return landed
 
@@ -2911,10 +2936,14 @@ def run(dbg, qmp, tmp, res):
     # Ctrl ADDS TO THE SELECTION, and the plainly clicked row is in it:
     # two marked, not one (Explorer, Dolphin). The widget used to start
     # the set at the Ctrl-clicked row and drop the first.
-    mod_click(2, "ctrl")
+    aimed = mod_click(2, "ctrl")
+    if not aimed:
+        qmp.stable_pixels(os.path.join(tmp, "fm_ctrl_miss.png"))   # evidence for the line below
     lay = wait_layout(dbg, win, lambda l: l.marked[0] == 2) or lay
     res.check("Ctrl+click adds to the selection, the first row included",
-              lay is not None and lay.marked[0] == 2, f"marked={lay and lay.marked}")
+              lay is not None and lay.marked[0] == 2,
+              f"aimed={aimed} marked={lay and lay.marked} "
+              f"selected={lay and lay.selected} misses={aim_misses}")
     # NOT CHECKED HERE: a SECOND Ctrl+click and the Shift range, both of
     # which need the pointer aimed at a different row and confirmed. The
     # first aim in this section lands; later ones read no layout block at
@@ -2994,7 +3023,7 @@ def run(dbg, qmp, tmp, res):
     # until 2026-09-10.
     print("an empty-space click deselects, and the band works in Details")
     if aim2(2):
-        qmp.key_down("ctrl"); qmp.click(); qmp.key_up("ctrl")
+        qmp.key_down("ctrl"); dbg.settle(); qmp.click(); dbg.settle(); qmp.key_up("ctrl")
     lay = wait_layout(dbg, win, lambda l: l.marked[0] >= 1) or lay
     empty = (ox + px + pw // 2, oy + py + ph - 10)
     sure_click(dbg, qmp, *empty)
