@@ -837,10 +837,11 @@ def setup_fixture(dbg):
     # anything a previous run wrote is still there and a dirty fixture
     # fails in a way that reads exactly like a code regression
     # (CLAUDE.md).
-    dbg.send(f"sh rm -r {SRC}")
-    dbg.send(f"sh rm -r {DST}")
-    dbg.send(f"sh mkdir {SRC}")
-    dbg.send(f"sh mkdir {DST}")
+    # user_dir(): the app runs as the desktop's account and may not write
+    # in a folder root made at `/`; what `sh` makes inside is the
+    # account's too.
+    dbg.user_dir(SRC)
+    dbg.user_dir(DST)
     dbg.send(f"sh touch {SRC}/one.txt")
     dbg.send(f"sh touch {SRC}/two.txt")
     dbg.send(f"sh touch {SRC}/three.txt")
@@ -1174,8 +1175,7 @@ def run(dbg, qmp, tmp, res):
     # --- 11. the icons view, the rubber band, one pane, and the tree ----
     # A fresh, known fixture: the sections above deleted, created and
     # renamed things, and these checks want a listing they can count.
-    dbg.send(f"sh rm -r {SRC}")
-    dbg.send(f"sh mkdir {SRC}")
+    dbg.user_dir(SRC)
     for n in ("alpha.txt", "bravo.txt", "charlie.txt", "delta.txt", "echo.txt"):
         dbg.send(f"sh touch {SRC}/{n}")
     dbg.send(f"sh mkdir {SRC}/sub")
@@ -1659,6 +1659,14 @@ def run(dbg, qmp, tmp, res):
     # The proof the command bar works is that the commands do what their
     # keys do: New > Folder must do what F7 does, and Delete open the
     # same confirm F8 opens.
+    # In the fixture, not at the root where section 13 left the pane:
+    # the app runs as the desktop's account, which may not write in `/`.
+    act = lay.active or 0
+    for c in ("0x66", "0x6d", "0x74"):       # f, m, t seeks fmtest over fmdest
+        dbg.key(c)
+    lay = wait_layout(dbg, win, lambda l: l.selected == "fmtest") or lay
+    dbg.key(K_ENTER)
+    lay = wait_layout(dbg, win, lambda l: l.dir.get(act) == SRC) or lay
     lay = wait_layout(dbg, win, strips_complete) or lay
     dropdown_pick(dbg, qmp, win, lay, "new", NEW_ROW["folder"], res, "New > Folder")
     lay = wait_layout(dbg, win, lambda l: l.renaming and 1 in l.renaming[:2]) or lay
@@ -1666,14 +1674,16 @@ def run(dbg, qmp, tmp, res):
               lay.renaming is not None and lay.renaming[2] == "New folder",
               f"renaming={lay and lay.renaming}")
     dbg.key(K_ESC)
-    # It made a real folder, here at the root: delete it again (F8, and
-    # Enter takes the default, Delete).
+    # It made a real folder: delete it again (F8, and Enter takes the
+    # default, Delete), then back up to the root for the Delete button.
     lay = wait_layout(dbg, win, lambda l: l.selected == "New") or lay
     dbg.key(K_F8)
     lay = wait_layout(dbg, win, lambda l: l.dialog == 1) or lay
     dbg.key(K_ENTER)
-    gone = wait_listing(dbg, "/", lambda n: "New folder" not in n)
-    res.check("(...and it is deleted again)", "New folder" not in gone, f"/ holds {gone}")
+    gone = wait_listing(dbg, SRC, lambda n: "New folder" not in n)
+    res.check("(...and it is deleted again)", "New folder" not in gone, f"{SRC} holds {gone}")
+    dbg.key(K_BACKSPACE)
+    lay = wait_layout(dbg, win, lambda l: l.dir.get(act) == "/") or lay
 
     # Delete needs something selected. SEEKED, not clicked: the pane's
     # centre is below the last row in a short directory, so the click
@@ -1774,7 +1784,7 @@ def run(dbg, qmp, tmp, res):
     # widgets' buffers, which used to be refused as though it were
     # missing. Its own root, so no listing of the fixture changes.
     longp = "/fmlong/a-folder-name-of-some-length/and-another-one-below-it/leaf"
-    dbg.send("sh mkdir /fmlong")
+    dbg.user_dir("/fmlong")
     dbg.send("sh mkdir /fmlong/a-folder-name-of-some-length")
     dbg.send("sh mkdir /fmlong/a-folder-name-of-some-length/and-another-one-below-it")
     dbg.send(f"sh mkdir {longp}")
@@ -2150,8 +2160,7 @@ def run(dbg, qmp, tmp, res):
     dbg.key(K_ESC)
     lay = wait_layout(dbg, win, lambda l: l.ctx == 0) or lay
     EDIT = "/fmedit"
-    dbg.send(f"sh rm -r {EDIT}")
-    dbg.send(f"sh mkdir {EDIT}")
+    dbg.user_dir(EDIT)
     dbg.send(f"sh cp /lib/libc.so {EDIT}/prog")
     dbg.send(f"sh touch {EDIT}/t.txt")
     wait_listing(dbg, EDIT, lambda names: "t.txt" in names and "prog" in names)
@@ -2266,8 +2275,7 @@ def run(dbg, qmp, tmp, res):
     # paste, which is the half of Explorer's behaviour a naive
     # implementation gets wrong by moving on Ctrl+X.
     CLIP = "/cliptest"
-    dbg.send(f"sh rm -r {CLIP}")
-    dbg.send(f"sh mkdir {CLIP}")
+    dbg.user_dir(CLIP)
     dbg.send(f"sh mkdir {CLIP}/dst")
     dbg.send(f"sh cp /etc/timezones {CLIP}/one.conf")
     wait_listing(dbg, CLIP, lambda names: "one.conf" in names)
@@ -2358,8 +2366,7 @@ def run(dbg, qmp, tmp, res):
         # copies issued back to back can leave the second undone -- which
         # here meant no destination file, so no conflict, so no dialog,
         # and a check that read as "the app never asks".
-        dbg.send(f"sh rm -r {CLIP}")
-        dbg.send(f"sh mkdir {CLIP}")
+        dbg.user_dir(CLIP)
         dbg.send(f"sh mkdir {CLIP}/dst")
         wait_listing(dbg, CLIP, lambda n: "dst" in n)
         dbg.send(f"sh cp /etc/timezones {CLIP}/one.txt")
@@ -2507,8 +2514,7 @@ def run(dbg, qmp, tmp, res):
     # A QOI and a JPEG show their own pixels; a text file keeps the
     # generic glyph. Decoding is LAZY (a couple per tick), so the checks
     # POLL for the thumbnail's ink rather than expecting it in frame one.
-    dbg.send(f"sh rm -r {SRC}")
-    dbg.send(f"sh mkdir {SRC}")
+    dbg.user_dir(SRC)
     dbg.send(f"sh cp /usr/share/icons/doom.qoi {SRC}/game.qoi")
     dbg.send(f"sh cp /usr/share/wallpapers/dusk.jpg {SRC}/photo.jpg")
     dbg.send(f"sh touch {SRC}/readme.txt")
@@ -2805,8 +2811,7 @@ def run(dbg, qmp, tmp, res):
     # WIN_MOUSE_MODS_SHIFT. A test that sent the click alone would prove
     # the plumbing works when it does not.
     MS = "/mstest"
-    dbg.send(f"sh rm -r {MS}")
-    dbg.send(f"sh mkdir {MS}")
+    dbg.user_dir(MS)
     for n in range(6):
         dbg.send(f"sh cp /etc/saunaos.conf {MS}/f{n}.txt")
     wait_listing(dbg, MS, lambda names: "f5.txt" in names)
@@ -2934,8 +2939,7 @@ def run(dbg, qmp, tmp, res):
     # section 18's window shows one directory in both.
     DD, DDST = "/ddtest", "/dddest"
     for d in (DD, DDST):
-        dbg.send(f"sh rm -r {d}")
-        dbg.send(f"sh mkdir {d}")
+        dbg.user_dir(d)
     for n in range(3):
         dbg.send(f"sh cp /etc/saunaos.conf {DD}/g{n}.txt")
     dbg.send(f"sh mkdir {DD}/deep")
