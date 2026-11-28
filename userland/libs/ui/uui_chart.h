@@ -60,6 +60,7 @@ extern "C" {
 #define UUI_CHART_MAX 180
 #define UUI_CHART_MARKS 8
 #define UUI_CHART_SERIES 4
+#define UUI_CHART_REFS 4     // reference lines: a trip or two, a quota -- the caller's few
 #define UUI_CHART_GLIDE_MIN_Q16 (2 << 16)   // the narrowest column that glides, 16.16
 
 // One overlaid line. `name` and `value` are the caller's, uncopied, as
@@ -73,6 +74,10 @@ struct uui_chart_line {
     const char *name;        // the legend's "CPU 0", or NULL
     const char *value;       // its reading, "22%", or NULL
 };
+
+// A value the series is read against -- "Slows down 95 °C" -- drawn
+// dashed across the plot. `label` is the caller's, uncopied.
+struct uui_chart_ref { uint32_t value; uint32_t color; const char *label; };
 
 // A labelled moment on the time axis -- "SEQ read" starting here. Its
 // label sits in a strip ABOVE the plot, never under the trace.
@@ -142,6 +147,13 @@ struct uui_chart {
     const char *axis_unit;
     uint32_t axis_div;
 
+    // REFERENCE LINES (uui_chart_add_ref()): dashed across the plot at
+    // their value, the label above the right end. ONLY ON A FIXED SCALE
+    // (scale_max set): on an autoscaled one the line would move as the
+    // data does, and a line past the top is not drawn at all.
+    struct uui_chart_ref refs[UUI_CHART_REFS];
+    int nrefs;
+
     // OVERLAID LINES: `nlines` of them, or none (NULL, 0). Owned by the
     // chart once set -- uui_chart_set_lines(c, 0) frees them.
     struct uui_chart_line *lines;
@@ -204,6 +216,13 @@ void uui_chart_clear(struct uui_chart *c);
 // The value axis above: `unit` captions it ("MB/s"; not copied), a
 // sample / `div` is what a tick prints. NULL turns it off.
 void uui_chart_set_axis(struct uui_chart *c, const char *unit, uint32_t div);
+
+// A reference line at `value` in `color` (a colour, a UUI_ROLE, or
+// UUI_COLOR_UNSET for the text colour), `label` uncopied or NULL. 0 when
+// all UUI_CHART_REFS are in use. Cleared together, as a caller's set
+// changes together (a zone's trips on a Notify).
+int  uui_chart_add_ref(struct uui_chart *c, uint32_t value, uint32_t color, const char *label);
+void uui_chart_clear_refs(struct uui_chart *c);
 
 // One sample where `part` is a component of `total` -- kernel time
 // within CPU time. `part` is clamped to `total`: a component larger

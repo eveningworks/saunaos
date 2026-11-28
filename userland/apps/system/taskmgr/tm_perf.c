@@ -42,9 +42,11 @@
 
 enum { ID_DEVICES = TM_ID_PERF, ID_CHART, ID_CONNS, ID_OPS, ID_TOP };
 
-enum dev_kind { DEV_CPU, DEV_MEM, DEV_DISK, DEV_NET };
+// The list's ORDER is not this enum's: Temperature sits under CPU when
+// the machine has a sensor (dev_of() finds a kind).
+enum dev_kind { DEV_CPU, DEV_MEM, DEV_DISK, DEV_NET, DEV_TEMP };
 #define NET_MAX 4
-#define DEV_MAX (3 + NET_MAX)
+#define DEV_MAX (4 + NET_MAX)
 
 struct dev {
     enum dev_kind kind;
@@ -64,6 +66,12 @@ struct dev {
 static struct dev g_dev[DEV_MAX];
 static int g_ndev;
 static int g_sel;   // selected device index
+
+static struct dev *dev_of(enum dev_kind k) {
+    for (int i = 0; i < g_ndev; i++)
+        if (g_dev[i].kind == k) return &g_dev[i];
+    return 0;
+}
 
 // --- sampling -----------------------------------------------------------------
 
@@ -190,6 +198,86 @@ static void sample_cores(struct uui_chart *c) {
     }
 }
 
+// --- Temperature: QUERY_THERMAL's sensors, a line each ---------------------
+
+// The records, and the legend's words, grown with the sensors; the chart
+// holds pointers into g_therm_text, so they are set again after a grow
+// (sample_cores()'s order: the lines first, then their words).
+static struct query_thermal *g_therm;
+static int g_ntherm, g_therm_cap;
+static struct therm_text { char name[16], value[12]; } *g_therm_text;
+static int g_therm_text_cap;
+static int g_primary;              // the sensor the page leads with: a zone, else the package
+static char g_ref_text[2][32];
+
+static int read_therm(void) {
+    int n = 0;
+    struct query_thermal t;
+    QUERY_FOREACH(QUERY_THERMAL, t, i) {
+        if (!UGROW(g_therm, g_therm_cap, n + 1)) break;
+        t.name[sizeof t.name - 1] = 0;
+        t.path[sizeof t.path - 1] = 0;
+        t.why[sizeof t.why - 1] = 0;
+        g_therm[n++] = t;
+    }
+    g_ntherm = n;
+    g_primary = 0;
+    for (int i = 0; i < n; i++)
+        if (g_therm[i].kind == QUERY_THERMAL_ZONE) { g_primary = i; break; }
+    return n;
+}
+
+static int whole_c(int64_t mc) { return (int)((mc >= 0 ? mc + 500 : mc - 500) / 1000); }
+
+// A zone by its own name without ACPI's padding ("TZ0_" -> "TZ0").
+static void sensor_name(const struct query_thermal *t, char *out, int cap) {
+    strlcpy(out, t->name, (size_t)cap);
+    int n = (int)strlen(out);
+    while (t->kind == QUERY_THERMAL_ZONE && n > 1 && out[n - 1] == '_') out[--n] = 0;
+}
+
+static void sample_temp(struct dev *d) {
+    struct uui_chart *c = &d->chart;
+    int n = read_therm(), had = c->nlines;
+    if (!n) return;
+    if (n != c->nlines && !uui_chart_set_lines(c, n)) return;
+    if (!UGROW(g_therm_text, g_therm_text_cap, n)) {
+        uui_chart_set_lines(c, had < n ? had : n);
+        return;
+    }
+    int64_t top = 0;
+    for (int k = 0; k < n; k++) {
+        const struct query_thermal *t = &g_therm[k];
+        int deg = (t->flags & QUERY_THERMAL_VALID) ? whole_c(t->temp_mc) : 0;
+        sensor_name(t, g_therm_text[k].name, sizeof g_therm_text[k].name);
+        if (t->flags & QUERY_THERMAL_VALID) snprintf(g_therm_text[k].value, sizeof g_therm_text[k].value, "%d °C", deg);
+        else strlcpy(g_therm_text[k].value, "?", sizeof g_therm_text[k].value);
+        uui_chart_set_line_label(c, k, g_therm_text[k].name, g_therm_text[k].value);
+        uui_chart_push_line(c, k, deg > 0 ? (uint32_t)deg : 0);
+        if (t->critical_mc != QUERY_THERMAL_NONE && t->critical_mc > top) top = t->critical_mc;
+    }
+    // A fixed scale, so the trips are lines: ten degrees over the highest
+    // critical, rounded up to ten.
+    int scale = top ? (whole_c(top) + 10 + 9) / 10 * 10 : 110;
+    uui_chart_set_scale(c, (uint32_t)scale);
+    const struct query_thermal *p = &g_therm[g_primary];
+    uui_chart_clear_refs(c);
+    if (p->critical_mc != QUERY_THERMAL_NONE && p->kind == QUERY_THERMAL_ZONE) {
+        snprintf(g_ref_text[0], sizeof g_ref_text[0], "Shuts down %d °C", whole_c(p->critical_mc));
+        uui_chart_add_ref(c, (uint32_t)whole_c(p->critical_mc), UUI_ROLE(severity[UTHEME_SEV_ERROR]), g_ref_text[0]);
+    }
+    if (p->passive_mc != QUERY_THERMAL_NONE) {
+        snprintf(g_ref_text[1], sizeof g_ref_text[1], "Slows down %d °C", whole_c(p->passive_mc));
+        uui_chart_add_ref(c, (uint32_t)whole_c(p->passive_mc), UUI_ROLE(severity[UTHEME_SEV_WARNING]), g_ref_text[1]);
+    }
+    int deg = (p->flags & QUERY_THERMAL_VALID) ? whole_c(p->temp_mc) : 0;
+    uui_chart_push(c, deg > 0 ? (uint32_t)deg : 0);
+    snprintf(d->reading, sizeof d->reading, "%s", g_therm_text[g_primary].value);
+    snprintf(d->line1, sizeof d->line1, "%s", g_therm_text[g_primary].value);
+    if (p->max_mc != QUERY_THERMAL_NONE) snprintf(d->line2, sizeof d->line2, "highest %d °C", whole_c(p->max_mc));
+    else d->line2[0] = 0;
+}
+
 void tm_perf_sample(void) {
     char a[16], b[16];
     unsigned long long t = sys_monotonic_ns();
@@ -199,7 +287,7 @@ void tm_perf_sample(void) {
     }
     g_sample_ns = t;
 
-    struct dev *cpu = &g_dev[DEV_CPU];
+    struct dev *cpu = dev_of(DEV_CPU);
     // The machine's total in the main series -- the device list's trace
     // reads it -- and a line per core, which is what the page draws.
     uui_chart_push(&cpu->chart, g_cpu_pm / 10);
@@ -208,7 +296,10 @@ void tm_perf_sample(void) {
     snprintf(cpu->line1, sizeof cpu->line1, "%u%%", g_cpu_pm / 10);
     snprintf(cpu->line2, sizeof cpu->line2, "%d processes", g_nproc);
 
-    struct dev *mem = &g_dev[DEV_MEM];
+    struct dev *temp = dev_of(DEV_TEMP);
+    if (temp) sample_temp(temp);
+
+    struct dev *mem = dev_of(DEV_MEM);
     uui_chart_set_scale(&mem->chart, (uint32_t)(g_mem_total >> 10));
     uui_chart_push(&mem->chart, (uint32_t)(g_mem_used >> 10));
     human_size_iec(a, sizeof a, g_mem_used);
@@ -243,7 +334,7 @@ void tm_perf_sample(void) {
         ops_str(o, sizeof o, g_disk_rops_m + g_disk_wops_m);
         snprintf(g_ops_val, sizeof g_ops_val, "%s /s", o);
     }
-    struct dev *disk = &g_dev[DEV_DISK];
+    struct dev *disk = dev_of(DEV_DISK);
     uui_chart_push_split(&disk->chart, (uint32_t)(g_disk_rrate + g_disk_wrate),
                          (uint32_t)g_disk_wrate);
     rate_str(a, sizeof a, g_disk_rrate);
@@ -560,6 +651,28 @@ static void fill_stats(void) {
         add_stat("Running processes", "%d of %d", g_ncore_sched, ncpu);
         break;
     }
+    case DEV_TEMP: {
+        strlcpy(g_title_text, "Temperature", sizeof g_title_text);
+        if (!g_ntherm) break;
+        const struct query_thermal *p = &g_therm[g_primary];
+        if (p->kind == QUERY_THERMAL_ZONE)
+            snprintf(g_subtitle_text, sizeof g_subtitle_text, "%s, the firmware's thermal zone", p->path);
+        else
+            strlcpy(g_subtitle_text, "the processor's own sensors", sizeof g_subtitle_text);
+        add_stat("Temperature", "%s", g_therm_text[g_primary].value);
+        if (p->max_mc != QUERY_THERMAL_NONE) add_stat("Highest this boot", "%d °C", whole_c(p->max_mc));
+        if (p->passive_mc != QUERY_THERMAL_NONE) add_stat("Slows down at", "%d °C", whole_c(p->passive_mc));
+        if (p->critical_mc != QUERY_THERMAL_NONE)
+            add_stat(p->kind == QUERY_THERMAL_ZONE ? "Shuts down at" : "Its limit (TjMax)", "%d °C",
+                     whole_c(p->critical_mc));
+        if (p->kind == QUERY_THERMAL_ZONE) {
+            if (!(p->flags & QUERY_THERMAL_PASSIVE)) add_stat("Cooling", "not slowed");
+            else if (p->flags & QUERY_THERMAL_APPLIED) add_stat("Cooling", "slowed to %llu%%", (unsigned long long)p->perf_pct);
+            else add_stat("Cooling", "%llu%%, not applied: %s", (unsigned long long)p->perf_pct, p->why);
+        }
+        // Each sensor's reading is in the chart's legend, a line each.
+        break;
+    }
     case DEV_MEM: {
         strlcpy(g_title_text, "Memory", sizeof g_title_text);
         human_size_iec(a, sizeof a, g_mem_total);
@@ -736,7 +849,7 @@ static void select_dev(int i) {
     SIDE_ITEMS[2].hidden = g_dev[i].kind != DEV_MEM;
     // The CPU chart takes the height the page has: a line per core and
     // its legend need it more than another page's single trace does.
-    SIDE_ITEMS[1].flags = UUI_FILL_W | (g_dev[i].kind == DEV_CPU ? UUI_FILL_H : 0);
+    SIDE_ITEMS[1].flags = UUI_FILL_W | (g_dev[i].kind == DEV_CPU || g_dev[i].kind == DEV_TEMP ? UUI_FILL_H : 0);
     SIDE_ITEMS[4].hidden = g_dev[i].kind != DEV_NET;
     SIDE_ITEMS[5].hidden = SIDE_ITEMS[6].hidden = !disk;
     if (!SIDE_ITEMS[4].hidden) read_conns();
@@ -780,20 +893,29 @@ void tm_perf_init(struct tm_page *page) {
     if (sys_query_record(QUERY_CLOCK, 0, &c, sizeof c) >= (int)sizeof c)
         g_local_offset = (long long)time(0) - (long long)c.utc;
 
-    static const char *const NAMES[3] = { "CPU", "Memory", "Disk" };
-    for (int i = 0; i < 3; i++) {
-        struct dev *d = &g_dev[i];
+    // Temperature only where something measures it: a firmware zone
+    // (acpi=uacpi) or the CPU's own sensors -- never in a guest.
+    static const struct { enum dev_kind kind; const char *name, *chart; } DEVS[] = {
+        { DEV_CPU, "CPU", "Utilization, each logical CPU" },
+        { DEV_TEMP, "Temperature", "Temperature, each sensor" },
+        { DEV_MEM, "Memory", "In use" },
+        { DEV_DISK, "Disk", "Read + write (darker: write)" },
+    };
+    int sensors = read_therm();
+    g_ndev = 0;
+    for (unsigned i = 0; i < sizeof DEVS / sizeof DEVS[0]; i++) {
+        if (DEVS[i].kind == DEV_TEMP && !sensors) continue;
+        struct dev *d = &g_dev[g_ndev++];
         memset(d, 0, sizeof *d);
-        d->kind = (enum dev_kind)i;
-        strlcpy(d->name, NAMES[i], sizeof d->name);
-        uui_chart_init(&d->chart, i == DEV_CPU ? "Utilization, each logical CPU"
-                                : i == DEV_MEM ? "In use" : "Read + write (darker: write)");
+        d->kind = DEVS[i].kind;
+        strlcpy(d->name, DEVS[i].name, sizeof d->name);
+        uui_chart_init(&d->chart, DEVS[i].chart);
         uui_chart_set_interval(&d->chart, (int)tm_interval_ms());
     }
-    uui_chart_set_scale(&g_dev[DEV_CPU].chart, 100);
-    g_dev[DEV_CPU].chart.legend_widest = "100%";
-    uui_chart_set_scale(&g_dev[DEV_DISK].chart, 0);
-    g_ndev = 3;
+    uui_chart_set_scale(&dev_of(DEV_CPU)->chart, 100);
+    dev_of(DEV_CPU)->chart.legend_widest = "100%";
+    uui_chart_set_scale(&dev_of(DEV_DISK)->chart, 0);
+    if (dev_of(DEV_TEMP)) dev_of(DEV_TEMP)->chart.legend_widest = "100 °C";
 
     uui_label_init(&g_title, g_title_text);
     g_title.font = ugfx_font_session(UGFX_FONT_BOLD);

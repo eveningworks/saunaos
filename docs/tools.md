@@ -406,6 +406,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `terminal_probe.py` -- The GUI Terminal, asked what it actually does: keys, paging, scrolling
 - `tfs3_grow_test.py` -- `part resize` grows a FILLED tfs3 volume twice, then shrinks it
 - `tfs3_v1_test.py` -- Prove the kernel still mounts and uses a TFS3 **v1** image
+- `thermal_test.py` -- A thermal zone and the _PRW wake set, on a guest that has neither
 - `trash_test.py` -- lib/utrash through /bin/trash: the Recycle Bin, checked as text
 - `uefi_boot_test.py` -- A UEFI boot off the disk's own loader, and the screen size it can reach
 - `update_cut_test.py` -- /bin/update cut off by power at a random moment: every file is old or new

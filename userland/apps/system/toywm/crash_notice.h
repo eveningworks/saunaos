@@ -45,6 +45,18 @@ void crash_notice_action(const char *title, const char *sub, const char *icon,
 // dismissed, for news the person must not miss.
 void crash_notice_info(const char *title, const char *sub, const char *icon,
                        const char *button, int stays);
+// The same from another part of the desktop: `app` names it in the
+// history ("Power"); crash_notice_info() is the drives' own.
+void crash_notice_info_from(const char *app, const char *title, const char *sub, const char *icon,
+                            const char *button, int stays);
+// ...with a button that DOES something (`act`, on the compositor's
+// thread), but no Undo: it neither replaces an Undo card nor is replaced
+// by one -- "Running hot" with Task Manager on it.
+void crash_notice_info_act(const char *app, const char *title, const char *sub, const char *icon,
+                           const char *button, void (*act)(void));
+// Takes down an info card by its title -- news that stopped being true
+// (the machine cooled).
+void crash_notice_drop_info(const char *title);
 
 // A client's notification (WIN_REQ_NOTIFY, assembled by wm_notify.c):
 // its card, whose actions and click answer the sender (WIN_EV_NOTIFY).

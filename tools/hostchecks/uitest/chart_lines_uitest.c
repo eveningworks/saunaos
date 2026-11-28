@@ -10,7 +10,9 @@
 //     with a colour no default has;
 //   - a short line drawn from the LEFT edge, not ending at the newest
 //     column, puts ink where there is no sample yet;
-//   - a cap at UUI_CHART_SERIES' four fails the sixteen-line allocation.
+//   - a cap at UUI_CHART_SERIES' four fails the sixteen-line allocation;
+//   - a reference line drawn at the wrong height, solid, on an autoscaled
+//     chart, or past the top of the scale (check_refs()).
 //
 // Prints one line per check and exits with the number of failures.
 #include <stdio.h>
@@ -57,6 +59,49 @@ static int same_frame(struct uitest_win *w, const uint32_t *ref) {
     for (int i = 0; i < w->surface.w * w->surface.h; i++)
         if (w->pixels[i] != ref[i]) return 0;
     return 1;
+}
+
+// --- REFERENCE LINES (uui_chart_add_ref()): Task Manager's trips -----------
+static struct uui_chart g_r;
+
+static int row_count(struct uitest_win *w, int y, uint32_t color) {
+    int n = 0;
+    for (int x = CX + 1; x < CX + CW - 1; x++) n += uitest_pixel_at(w, x, y) == (color & 0xFFFFFFu);
+    return n;
+}
+
+static void check_refs(void) {
+    const uint32_t red = ugfx_rgb(200, 0, 0);
+    uui_chart_init(&g_r, "refs");
+    uui_chart_set_scale(&g_r, 100);
+    uui_chart_set_geometry(&g_r, CX, CY, CW, CH);
+    utest_check(uui_chart_add_ref(&g_r, 50, red, 0), "a reference line is taken");
+    struct uui_item items[1] = { { .ops = &uui_chart_ops, .widget = &g_r, .name = "refs" } };
+    struct uitest_win win;
+    uitest_window(&win, items, 1, NULL, CX * 2 + CW, CY * 2 + CH);
+    uitest_frame(&win);
+    int best = -1, most = 0;
+    for (int y = CY + 1; y < CY + CH - 1; y++) {
+        int n = row_count(&win, y, red);
+        if (n > most) { most = n; best = y; }
+    }
+    // Halfway up the plot (top + the caption row; the span row below).
+    int top = CY + ugfx_char_h() + 2, bot = CY + CH - 1;
+    int want = bot - 1 - (bot - top - 2) / 2;
+    utest_check(best >= want - 1 && best <= want + 1, "at 50 of 100 the line is halfway up the plot");
+    utest_check(most > CW / 3 && most < CW - CW / 4, "...dashed: about half its row inked");
+    uui_chart_clear_refs(&g_r);
+    uui_chart_add_ref(&g_r, 150, red, 0);
+    uitest_frame(&win);
+    utest_check(!row_count(&win, best, red), "a line past the top of the scale is not drawn");
+    uui_chart_set_scale(&g_r, 0);
+    uui_chart_clear_refs(&g_r);
+    uui_chart_add_ref(&g_r, 50, red, 0);
+    uitest_frame(&win);
+    utest_check(!row_count(&win, best, red), "an autoscaled chart draws none");
+    for (int k = 1; k < UUI_CHART_REFS; k++) uui_chart_add_ref(&g_r, (uint32_t)k, red, 0);
+    utest_check(!uui_chart_add_ref(&g_r, 1, red, 0), "past UUI_CHART_REFS it says no");
+    uitest_window_free(&win);
 }
 
 static void check_glide(void) {
@@ -301,5 +346,6 @@ int main(int argc, char **argv) {
 
     uitest_window_free(&win);
     check_glide();
+    check_refs();
     return uitest_end();
 }

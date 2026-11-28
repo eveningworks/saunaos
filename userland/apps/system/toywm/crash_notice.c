@@ -84,6 +84,7 @@ struct notice {
     int shown_left;               // the countdown's second as last drawn
     char action[24];              // an action card's one button ("Undo")
     void (*act)(void);            // ...and what it does
+    int own;                      // news with its own button: never replaced by an Undo, nor replaces one
     int live;                     // the live-session card: gone once the installer is open
     uint64_t until;
 };
@@ -260,12 +261,22 @@ void crash_notice_action(const char *title, const char *sub, const char *icon,
     c.urgency = WIN_NOTIFY_URGENCY_NORMAL;
     c.transient = 1;   // an Undo means nothing once its card is gone
     // A newer action replaces the old one's card: only the latest can be taken back.
-    for (int i = g_count - 1; i >= 0; i--) if (g_n[i].kind == KIND_ACTION && g_n[i].act) drop(i);
+    for (int i = g_count - 1; i >= 0; i--) if (g_n[i].kind == KIND_ACTION && g_n[i].act && !g_n[i].own) drop(i);
     push(&c);
 }
 
 void crash_notice_info(const char *title, const char *sub, const char *icon,
                        const char *button, int stays) {
+    crash_notice_info_from("Drives", title, sub, icon, button, stays);
+}
+
+void crash_notice_drop_info(const char *title) {
+    for (int i = g_count - 1; i >= 0; i--)
+        if (g_n[i].kind == KIND_ACTION && !g_n[i].act && !k_strcmp(g_n[i].title, title)) drop(i);
+}
+
+static void info_card(const char *app, const char *title, const char *sub, const char *icon,
+                      const char *button, int stays, void (*act)(void)) {
     struct notice c;
     k_memset(&c, 0, sizeof c);
     c.kind = KIND_ACTION;
@@ -273,10 +284,22 @@ void crash_notice_info(const char *title, const char *sub, const char *icon,
     k_strlcpy(c.sub, sub ? sub : "", sizeof c.sub);
     k_strlcpy(c.icon, icon ? icon : "tb-info", sizeof c.icon);
     k_strlcpy(c.action, button ? button : "", sizeof c.action);
-    k_strlcpy(c.app, "Drives", sizeof c.app);
+    k_strlcpy(c.app, app, sizeof c.app);
     // News that must not be missed stays, and gets through Do Not Disturb.
     c.urgency = stays ? WIN_NOTIFY_URGENCY_CRITICAL : WIN_NOTIFY_URGENCY_NORMAL;
+    c.act = act;
+    c.own = act != 0;
     push(&c);
+}
+
+void crash_notice_info_from(const char *app, const char *title, const char *sub, const char *icon,
+                            const char *button, int stays) {
+    info_card(app, title, sub, icon, button, stays, 0);
+}
+
+void crash_notice_info_act(const char *app, const char *title, const char *sub, const char *icon,
+                           const char *button, void (*act)(void)) {
+    info_card(app, title, sub, icon, button, 0, act);
 }
 
 // --- a client's notification (WIN_REQ_NOTIFY, wm_notify.c) ----------------

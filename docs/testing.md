@@ -742,6 +742,8 @@ gui remote [--json]      the remote-desktop tray item: sessions, and the page's
 gui battery [--json]     the battery tray item and its card: the charge, state,
                          time left, icon and ink, the low notice, the bar's rect;
                          and the lid -- open, closes acted on, the last action
+gui thermal [--json]     the hot notices: the zone nearest its critical trip (its
+                         reading and trips, mC), slowing, and which notice is up
 gui switcher [--json]    Alt+Tab and Snap Assist: the pick, whether the card has
                          drawn, each window's cell and thumbnail, the assist zone,
                          and the last switch's Alt hold (last_ms, last_drawn)

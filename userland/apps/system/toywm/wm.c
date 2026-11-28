@@ -56,6 +56,7 @@
 #include "drives_popup.h"
 #include "battery_popup.h"
 #include "wm_lid.h"
+#include "wm_thermal.h"
 #include "layout_popup.h"
 #include "wm_switcher.h"
 #include "wm_snap.h"
@@ -1943,6 +1944,7 @@ void wm_run(void) {
             drives_poll();        // USB sticks: arrived, ejected, pulled
             if (!wm_greeter) battery_poll();   // the charge, and the low notice
             wm_lid_poll();        // the lid shut or opened: desktop.lid
+            if (!wm_greeter) wm_thermal_poll();   // running hot, too hot
             layout_poll();        // the layout list, or the active one, changed
             // A CADENCE, not a generation compare, and network_popup.c
             // says why: there is no netdev generation in the ABI, and

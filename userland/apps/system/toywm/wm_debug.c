@@ -17,6 +17,7 @@
 #include "remote_popup.h"
 #include "battery_popup.h"
 #include "wm_lid.h"
+#include "wm_thermal.h"
 #include "drives_popup.h"
 #include "ui/uui_drive.h"
 #include "layout_popup.h"
@@ -2560,6 +2561,24 @@ static void cmd_battery(struct dbg_out *o, int json) {
                    g.tray_x, g.tray_y, g.tray_w, g.tray_h, g.tray_x + g.tray_w / 2, g.tray_y + g.tray_h / 2);
 }
 
+// The hot notices (wm_thermal.h): the zone nearest its critical trip.
+static void cmd_thermal(struct dbg_out *o, int json) {
+    struct wm_thermal_debug d;
+    wm_thermal_debug(&d);
+    if (!json) {
+        if (!d.zones) dbg_out_printf(o, "thermal: no zone\r\n");
+        else dbg_out_printf(o, "thermal: %lld mC, passive %lld, critical %lld%s%s%s\r\n", d.temp_mc, d.passive_mc,
+                            d.critical_mc, d.slowing ? "  slowing" : "", d.hot_notice ? "  running-hot up" : "",
+                            d.too_hot_notice ? "  too-hot up" : "");
+        return;
+    }
+    dbg_out_printf(o, "{\"zones\":%d,\"temp_mc\":%lld,\"passive_mc\":%lld,\"critical_mc\":%lld,"
+                      "\"slowing\":%s,\"near_critical\":%s,\"hot_notice\":%s,\"too_hot_notice\":%s}\r\n",
+                   d.zones, d.temp_mc, d.passive_mc, d.critical_mc, d.slowing ? "true" : "false",
+                   d.near_critical ? "true" : "false", d.hot_notice ? "true" : "false",
+                   d.too_hot_notice ? "true" : "false");
+}
+
 static void cmd_remote(struct dbg_out *o, int json) {
     struct remote_geom g;
     remote_geometry(&g);
@@ -3066,6 +3085,10 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
     }
     if (k_strcmp(sub, "battery") == 0) {
         cmd_battery(o, wants_json(p));
+        return 1;
+    }
+    if (k_strcmp(sub, "thermal") == 0) {
+        cmd_thermal(o, wants_json(p));
         return 1;
     }
     if (k_strcmp(sub, "drives") == 0) {

@@ -26,6 +26,7 @@ void uui_chart_init(struct uui_chart *c, const char *label) {
     for (int i = 0; i < UUI_CHART_SERIES; i++) c->series_col[i] = UUI_COLOR_UNSET;
     c->axis_unit = NULL;
     c->axis_div = 1;
+    c->nrefs = 0;
     c->lines = NULL;     // a chart being initialised owns none yet
     c->nlines = 0;
     c->legend_widest = NULL;
@@ -562,6 +563,36 @@ static void draw_axis(struct ugfx_surface *s, const struct uui_chart *c,
     }
 }
 
+int uui_chart_add_ref(struct uui_chart *c, uint32_t value, uint32_t color, const char *label) {
+    if (c->nrefs >= UUI_CHART_REFS) return 0;
+    c->refs[c->nrefs++] = (struct uui_chart_ref){ value, color, label };
+    return 1;
+}
+
+void uui_chart_clear_refs(struct uui_chart *c) { c->nrefs = 0; }
+
+// Dashes a font's half-cell long, the label right-aligned above the line
+// -- below it when the line is too near the top for a row of text.
+static void draw_refs(struct ugfx_surface *s, const struct uui_chart *c, const struct plot *p, uint32_t bg) {
+    if (!c->scale_max || c->compact) return;
+    int ch = ugfx_char_h(), dash = ch / 2 > 2 ? ch / 2 : 2, ph = p->bot - p->top;
+    int x0 = p->x0 + 1, x1 = c->x + c->w - 2;
+    for (int k = 0; k < c->nrefs; k++) {
+        const struct uui_chart_ref *r = &c->refs[k];
+        if (r->value > p->top_val) continue;
+        uint32_t col = UUI_COLOR(r->color, UTHEME_TEXT);
+        int y = p->bot - 1 - (int)((uint64_t)(ph - 2) * r->value / p->top_val);
+        for (int x = x0; x <= x1; x += dash * 2)
+            ugfx_draw_line(s, x, y, x + dash - 1 < x1 ? x + dash - 1 : x1, y, col, GEOM_ALIASED);
+        if (!r->label) continue;
+        int tw = ugfx_text_width(r->label), ty = y - ch - 1;
+        if (ty < p->top) ty = y + 2;
+        int tx = x1 - 2 - tw;
+        if (tx < x0) tx = x0;
+        ugfx_draw_string_clipped(s, tx, ty, x1 - tx, r->label, col, bg);
+    }
+}
+
 void uui_chart_draw(struct ugfx_surface *s, const struct uui_chart *c) {
     if (c->w <= 0 || c->h <= 0) return;
     uint32_t bg   = UUI_COLOR(c->bg, UTHEME_WHITE);
@@ -592,6 +623,8 @@ void uui_chart_draw(struct ugfx_surface *s, const struct uui_chart *c) {
             ugfx_draw_line(s, c->x, gy, c->x + c->w - 1, gy, grid, GEOM_ALIASED);
         }
     }
+
+    draw_refs(s, c, &p, bg);
 
     if (c->fit) {
         draw_fit(s, c, &p, bg, line);
@@ -803,6 +836,11 @@ static void chart_describe_op(const void *w, const struct uui_describe *d) {
     // last two samples -- once per sample, so the log is not a line a frame.
     if (c->sample_ms) uui_describe_int(d, "interval", c->sample_ms);
     if (c->smooth) uui_describe_int(d, "glides", c->glides_last);
+    for (int k = 0; k < c->nrefs; k++) {
+        char v[64];
+        snprintf(v, sizeof v, "%d %u %s", k, (unsigned)c->refs[k].value, c->refs[k].label ? c->refs[k].label : "");
+        uui_describe_str(d, "ref", v);
+    }
     if (!lines_on(c)) return;
     uui_describe_int(d, "lines", c->nlines);
     for (int k = 0; k < c->nlines; k++) {
