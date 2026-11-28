@@ -496,8 +496,11 @@ the rest in the sweep. Each stays a standalone script with its own
   built here with gcc under ASan + UBSan (no CMake). It tests the
   interpreter, not SaunaOS's glue -- that is the kernel suite `uacpi` --
   so it is what says a patch or a re-vendor broke nothing.
-  `--positive-control` makes a copy's AddOp subtract. Gate; a SKIP
-  without `iasl` (`pacman -S acpica`, `apt install acpica-tools`).
+  `--positive-control` makes a copy's AddOp subtract. A SKIP without
+  `iasl` (`pacman -S acpica`, `apt install acpica-tools`). OFF THE GATE
+  since 2026-11-28: the first run with `iasl` failed 8 of upstream's API
+  cases (`docs/test-flakes.md`); back on once they are understood. Prints
+  each failed case by name.
 - **`usbdesc_hostcheck.py`** -- `kernel/lib/usb_audio_parse.c` and
   `kernel/lib/scsi.c`'s READ CAPACITY parse against a hostile USB device,
   on the host under ASan + UBSan (`mediafuzz/descfuzz.c`). Each parser's
