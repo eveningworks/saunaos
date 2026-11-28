@@ -873,6 +873,16 @@ this the obvious way), not from how much history it accumulated.
   magic's top 16 bits are `0xC0DE`**, and because `prev` is the
   header's LAST field. Break either and the failure is silent, on the
   freeing path. See `docs/decisions.md`.
+- **A KTEST'S LEAK CHECK COUNTS ITS OWN CONTEXT'S ALLOCATIONS
+  (`kernel/heap_track.h`), NEVER `heap_used_bytes()` across a window.**
+  The used total is the whole machine's: with processes on every core,
+  another context's `kmalloc` inside the window reads as the test's
+  leak, and the preemption guard holds only this core.
+  `heap_track_begin()`/`heap_track_end()` give the net bytes
+  the calling context took (a scheduler slot, or this core's kernel
+  context); a free is charged to whoever frees, so assert "did not
+  grow", and anything the window does through the filesystem is charged
+  its caches too.
 - **The kernel RELOCATES ITSELF at boot -- it is not running where it
   was linked.** `kernel_relocate_boot()` (`kernel/arch/x86_64/reloc.c`)
   runs from `long_mode_start`, picks a random 2 MiB-aligned base, copies

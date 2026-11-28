@@ -15,6 +15,8 @@
 #include "klog.h"
 #include "fault_inject.h"
 #include "lockstat.h"   // heap_os_lock()
+#include "percpu.h"     // heap_os_charge(): who is running
+#include "heap_track.h"
 
 #define HEAP_PAGE_SIZE 4096
 
@@ -64,3 +66,39 @@ void heap_os_lock(void) {
     g_heap_flags = f;
 }
 void heap_os_unlock(void) { spin_unlock_irqrestore(&g_heap_lock, g_heap_flags); }
+
+// heap_track.h's one watched context. A slot index names a thread on
+// whichever core it runs; no slot (-1) is a core's own kernel context,
+// named by the core, as -2 - index. Read and written under the heap
+// lock, so the two per-core reads cannot straddle a migration; the
+// watch is checked first because the boot's first allocations come
+// before %gs names a core.
+static int g_track_on;
+static int64_t g_track_who, g_track_bytes;
+
+static int64_t running_context(void) {
+    int slot = this_cpu_read(sched_cur);
+    return slot >= 0 ? slot : -2 - (int64_t)this_cpu_read(index);
+}
+
+void heap_os_charge(int64_t bytes) {
+    if (g_track_on && running_context() == g_track_who) g_track_bytes += bytes;
+}
+
+void heap_track_begin(void) {
+    heap_os_lock();
+    int was_on = g_track_on;
+    g_track_who = running_context();
+    g_track_bytes = 0;
+    g_track_on = 1;
+    heap_os_unlock();
+    if (was_on) klog_write("heap_track: a second watch began; the first one's count is lost\n");
+}
+
+int64_t heap_track_end(void) {
+    heap_os_lock();
+    int64_t n = g_track_bytes;
+    g_track_on = 0;
+    heap_os_unlock();
+    return n;
+}

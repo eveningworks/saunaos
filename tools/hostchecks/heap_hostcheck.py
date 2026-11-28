@@ -82,6 +82,7 @@ HOOKS = r"""
 static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
 void heap_os_lock(void) { pthread_mutex_lock(&mu); }
 void heap_os_unlock(void) { pthread_mutex_unlock(&mu); }
+void heap_os_charge(int64_t bytes) { (void)bytes; }
 int heap_os_should_fail_alloc(void) { return 0; }
 void heap_os_report(const char *m) { fputs(m, stderr); }
 static uint64_t mapped;

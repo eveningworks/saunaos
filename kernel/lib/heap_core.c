@@ -510,6 +510,7 @@ static void *kmalloc_locked(size_t size) {
     split_block(b, need);
     b->free = HEAP_IN_USE;
     g_used_bytes += b->size;
+    heap_os_charge((int64_t)b->size);
     return kasan_open(b, rz ? rz_arm(b, span) : (void *)(b + 1), rz ? span : size);
 }
 
@@ -626,6 +627,7 @@ static void kfree_locked(void *ptr, uintptr_t ip) {
     if (b->free != HEAP_IN_USE) return; // double-free -- silently ignored, same "trust the caller, don't crash" contract as pmm_free_frame()
 
     g_used_bytes -= b->size;
+    heap_os_charge(-(int64_t)b->size);
     int state = HEAP_FREE;
     if (armed) {
         k_memset(ptr, HEAP_POISON, span);
@@ -728,6 +730,7 @@ static void *krealloc_locked(void *p, size_t n) {
                 release(rem);
             }
             g_used_bytes = g_used_bytes - old + b->size;
+            heap_os_charge((int64_t)b->size - (int64_t)old);
             return p;
         }
     }

@@ -82,3 +82,6 @@ void heap_os_lock(void) {
 void heap_os_unlock(void) {
     ulock_drop(&g_heap_lock);
 }
+
+// No per-thread heap accounting in ring 3 (the kernel's is for its tests).
+void heap_os_charge(int64_t bytes) { (void)bytes; }

@@ -168,6 +168,8 @@ whenever a headline here tells you something you did not already know.
   LIBRARIES IT CALLS; init, reboot AND `/tests` ARE STATIC; AND THE `#`
   SHELL'S BARE NAME SPAWNS**
 - **The kernel heap has a debug mode, and it is a RUNTIME toggle**
+- **A KTEST'S LEAK CHECK COUNTS ITS OWN CONTEXT'S ALLOCATIONS
+  (`kernel/heap_track.h`), NEVER `heap_used_bytes()` across a window.**
 - **The kernel RELOCATES ITSELF at boot -- it is not running where it
   was linked.**
 - **A BLOCKED PROCESS WAITS ON A CHANNEL, AND A CHANNEL IS AN ADDRESS.**

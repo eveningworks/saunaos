@@ -80,4 +80,10 @@ int heap_os_should_fail_alloc(void);
 void heap_os_lock(void);
 void heap_os_unlock(void);
 
+// A block of `bytes` was handed out (positive) or taken back (negative)
+// by whoever is running now. Called with heap_os_lock() held, at every
+// change to the used total. The kernel charges the one context a test
+// asked to watch (kernel/heap_track.h); ring 3 ignores it.
+void heap_os_charge(int64_t bytes);
+
 #endif

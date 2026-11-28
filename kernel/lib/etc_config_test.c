@@ -25,7 +25,8 @@
 #include "fs.h"
 #include "string.h"
 #include "mount.h"  // the mount-epoch test
-#include "heap.h"   // the leak check: heap_used_bytes()
+#include "heap.h"   // heap_used_bytes(), logged beside the leak check
+#include "heap_track.h"   // the leak check: this context's own allocations
 
 // Scratch, under /tmp -- deliberately NOT /etc/saunaos.conf, which holds
 // the live machine's real settings and which a test has no business
@@ -430,8 +431,10 @@ KTEST("etc_config", "the load cache's byte cap evicts, and logs ONCE") {
 
 // THE LEAK CHECK: a document is allocated per load now, so a load or a
 // per-key read that forgot its free costs the file's size every call.
-// N loads of a 5 KiB file must leave the heap where it was -- give or
-// take less than one document, since the kernel is not idle meanwhile.
+// Counted for THIS context only (heap_track.h): the machine-wide total
+// moves with every other core's allocations. One document of slack: a
+// desktop process can push this file out of the load cache mid-loop,
+// and the refill stays cached on our account. A leak costs one per call.
 KTEST("etc_config", "loads, per-key reads and rewrites of a big file free what they allocate") {
     const char *path = big_path("ktest_etc_leak.conf");
     uint32_t len = write_big(path, 5 * 1024);
@@ -440,24 +443,30 @@ KTEST("etc_config", "loads, per-key reads and rewrites of a big file free what t
     struct etc_config_buf buf;
     etc_config_get(path, "last", v, sizeof v);   // warm: the cache's own copy
     uint64_t before = heap_used_bytes();
+    heap_track_begin();
     for (int i = 0; i < 40; i++) {
         if (etc_config_load(path, &buf)) etc_config_buf_get(&buf, "pad7", v, sizeof v);
         etc_config_buf_free(&buf);
         etc_config_get(path, "last", v, sizeof v);
     }
+    int64_t own = heap_track_end();
     uint64_t after = heap_used_bytes();
     // A rewrite allocates its output too; one that leaked it would cost
     // the document again. The filesystem allocates beside it, so this
     // half asks only that 20 writes did not grow the heap by 20 files.
     uint64_t wbefore = heap_used_bytes();
+    heap_track_begin();
     for (int i = 0; i < 20; i++) etc_config_set(path, "pad7", (i & 1) ? "odd" : "even");
     etc_config_get(path, "last", v, sizeof v);
+    int64_t wown = heap_track_end();
     uint64_t wafter = heap_used_bytes();
     fs_delete(path);
-    if (after > before + len || wafter > wbefore + 10ull * len)
-        klog_printf("etc_config: heap %llu -> %llu over 40 loads, %llu -> %llu over 20 sets\n",
+    if (own > (int64_t)len || wown > 10ll * len)
+        klog_printf("etc_config: this context's heap grew %lld over 40 loads, %lld over 20 sets "
+                    "(the machine's %llu -> %llu, %llu -> %llu)\n",
+                    (long long)own, (long long)wown,
                     (unsigned long long)before, (unsigned long long)after,
                     (unsigned long long)wbefore, (unsigned long long)wafter);
-    KTEST_ASSERT(after <= before + len);
-    KTEST_ASSERT(wafter <= wbefore + 10ull * len);
+    KTEST_ASSERT(own <= (int64_t)len);
+    KTEST_ASSERT(wown <= 10ll * len);
 }
