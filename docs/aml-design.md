@@ -1,13 +1,14 @@
 # AML: a namespace this kernel can walk, staged
 
-**2026-11-28: STAGE 4a IS BUILT -- uACPI 7.0.0 VENDORED AND LOADED, BEHIND
-`acpi=uacpi`.** The power button needs ACPI mode, and on the ASUS a
-session in ACPI mode needs two presses to start again even with S5
-written the legacy way -- its embedded controller's events (`_Qxx`) and
-`_PTS` are Methods. The maintainer picked vendoring uACPI over writing
-stage 4 or carrying ACPICA (2026-11-10); "Stage 4" below is the plan,
-4a its first step, 4b (the embedded controller) the next. Everything up
-to it is history that still describes the code until stage 4d retires it.
+**2026-11-28: STAGES 4a AND 4b ARE BUILT -- uACPI 7.0.0 VENDORED AND
+LOADED, AND THE EMBEDDED CONTROLLER SERVED, BEHIND `acpi=uacpi`.** The
+power button needs ACPI mode, and on the ASUS a session in ACPI mode
+needs two presses to start again even with S5 written the legacy way --
+its embedded controller's events (`_Qxx`) and `_PTS` are Methods. The
+maintainer picked vendoring uACPI over writing stage 4 or carrying
+ACPICA (2026-11-10); "Stage 4" below is the plan, 4c (power through
+uACPI) the next. Everything up to it is history that still describes
+the code until stage 4d retires it.
 
 **Status: STAGES 0 AND 1 ARE BUILT (2026-08-31); STAGE 2 IS BUILT AS
 FAR AS `_PRT` NEEDS IT (2026-09-10: integers, strings, buffers,
@@ -244,7 +245,7 @@ re-fetched by a tool pinned to a commit and a hash
 | `get_nanoseconds_since_boot`, `stall`, `sleep` | `clocksource_now_ns()`; a busy wait; a timed `scheduler_block_kernel_until()`, a busy wait where nothing can park |
 | semaphores, `get_thread_id` | a count under a spinlock, waited on by address (park, or poll in the kernel context); the pid + 1 |
 | spinlocks, `disable`/`restore_interrupts` | `spinlock.h`'s ticket lock (`spin_lock_irqsave`) and `irqflags.h` |
-| `install_interrupt_handler` | **HELD, not installed, in 4a**: `acpi_sci.c` keeps the SCI and the power button on it until 4c, and calls the held handler after taking PWRBTN |
+| `install_interrupt_handler` | **HELD, not installed**: `acpi_sci.c` keeps the SCI and the power button on it until 4c, and calls the held handler after taking PWRBTN -- the global lock's release and, from 4b, the embedded controller's GPE |
 | `schedule_work`, `wait_for_work_completion` | `kacpid`'s queue -- an item queued at most once; a waiter with no kacpid drains it itself |
 | `log` | `klog`, the first 128 lines straight through and then one a second |
 | `memcpy`/`memmove`/`memset`/`memcmp` | `k_mem*`, through `glue/uacpi_libc.h` (`UACPI_OVERRIDE_LIBC`): GCC's builtins would call a `memcpy()` the kernel deliberately does not have |
@@ -252,8 +253,9 @@ re-fetched by a tool pinned to a commit and a hash
 **The embedded controller is the host's, as in Linux's `drivers/acpi/
 ec.c`**: an address-space handler for EmbeddedControl (read 0x80 /
 write 0x81 through the ECDT's or the `_CRS`'s two ports) and a GPE
-handler that issues QR_EC (0x84) and runs the `_Qxx` it names. Roughly
-300 lines.
+handler that issues QR_EC (0x84) and runs the `_Qxx` it names --
+`kernel/acpi/uacpi_ec.c` on uACPI, `ec_proto.c` the byte protocol alone
+(host-checked against a simulated EC, `tools/hostchecks/ec_hostcheck.py`).
 
 **The stages, each shippable and each with a boot word to step back:**
 
@@ -264,8 +266,9 @@ handler that issues QR_EC (0x84) and runs the `_Qxx` it names. Roughly
   `_STA`/`_INI`; `acpi` prints the interpreter's line; suite `uacpi`
   checks it against the byte scan and the walk. Measured: i440fx 354
   nodes / 54 devices in 20-34 ms, q35 and OVMF 267 / 37 in 27-28 ms, no
-  AML errors; the power button still powers the guest off. **The ASUS
-  is not yet run** -- it is 4b's first measurement. The decisions it made:
+  AML errors; the power button still powers the guest off. **The ASUS:
+  4339 nodes / 202 devices in 43 ms** (2026-11-28), no AML errors, and
+  `kacpid` did not stall on the global lock. The decisions it made:
   - **The interpreter starts in a kernel thread, `kacpid`, after the
     scheduler, and boot does not wait** (Linux: ACPICA's tables early,
     its interpreter at an initcall, deferred work on `kacpid`).
@@ -277,7 +280,8 @@ handler that issues QR_EC (0x84) and runs the `_Qxx` it names. Roughly
   - **`_OSI` is uACPI's default table**: yes to "Windows 2000" through
     "Windows 2022" (Windows 11 22H2), no to "Linux", the host-feature
     strings off -- Linux's answer.
-  - **No `uacpi_finalize_gpe_initialization()`**: no GPE is enabled.
+  - **No `uacpi_finalize_gpe_initialization()`**: no GPE is enabled
+    (from 4b, the embedded controller's alone).
   - **The suite's own instance runs only under a hypervisor**: on real
     firmware with `acpi=uacpi` off, `ktest` skips rather than run that
     machine's `_INI`/`_REG` the boot never asked for.
@@ -298,18 +302,54 @@ handler that issues QR_EC (0x84) and runs the `_Qxx` it names. Roughly
     (PCI0.PRES)` inside `Scope (\_SB)` is recorded as `\_SB.PRES` --
     where uACPI rightly has `\_SB.PCI0.PRES`. The walk is being retired
     (4d), so the KTEST looks such a device up beneath its scope.
-  - **PCI config access has no lock** (`pci.c`'s address/data pair), so
-    an AML access from `kacpid` can interleave with a driver's on another
-    core. Harmless while nothing runs AML after boot; 4b's `_Qxx` will.
+  - **PCI config access had no lock** (`pci.c`'s address/data pair), so
+    an AML access from `kacpid` could interleave with a driver's on
+    another core -- harmless until 4b's `_Qxx` ran AML after boot. It has
+    one now, Linux's `pci_lock`, a read-modify-write held for its span.
   - **A kernel thread runs on core 0 with interrupts off**, never
     preempted (which suits uACPI's wish for GPE work on CPU 0), so each
     step holds that core: `kacpid` yields between steps, but an AML busy
     loop inside one holds it up to uACPI's 30-second loop timeout, and
     with one core the rest of boot waits for each step. 4b's, where work
     first runs after boot.
-- **4b -- the embedded controller.** The address-space and query
-  handlers above. On the ASUS: `_Qxx` events logged by number, the
-  machine still responsive, nothing re-raised in a storm.
+- **4b -- the embedded controller. BUILT 2026-11-28.** The address-space
+  and query handlers above, in `uacpi_ec.c`. Measured on the ASUS: the
+  ECDT's EC (`\_SB.PCI0.LPCB.EC0`, ports 0x66/0x62, GPE 0x0A); its
+  `_REG` sets `ECAV`, which 46 of its methods test; the lid, the
+  brightness keys (`_Q0E`/`_Q0F`) and others arrive -- 67 events of 6
+  kinds in one run, 32 of 5 in another, no timeout, no storm, the
+  machine responsive. The decisions it made:
+  - **`acpi=uacpi` enters ACPI mode on an EC machine.** The exception in
+    `acpi_sci.c` existed because nothing could run the EC's methods; with
+    the interpreter serving them it is lifted (Linux's shape). In legacy
+    mode the EC's GPE is the firmware's SMI handler's, and no SCI arrives
+    anyway, so events are off there. **And it is handed back** when the
+    promise fails -- the interpreter fails or cannot start, or the EC's
+    events cannot be turned on: `acpi_sci_ec_unserved()` leaves ACPI mode
+    (the line left unmasked, as it may be shared) and the machine is as
+    if the word were absent.
+  - **Each wait spins 1 ms, then parks 1 ms between polls, failing at 500
+    ms** -- Linux's polling mode (a 550 us spin, then sleeps). The first
+    build's 1 ms bound measured a 934 us byte on the ASUS, then a 2027 us
+    one, which the nap path took. The EC's lock is a `kmutex`: held
+    across a nap, and `kacpid` is the only thing running AML.
+  - **The handler goes on the ROOT when the ECDT names the EC**, before
+    `_INI` runs, so AML outside the EC device reaches it early (Linux's
+    `acpi_ec_ecdt_probe()`); found by PNP0C09 instead, on the device.
+  - **`_Qxx` runs on `kacpid`**; the GPE handler only reads the status
+    port and queues the work, and a pass that ends with SCI_EVT still set
+    queues the next itself (the edge was taken at dispatch). Over 100
+    GPEs in a second -- counted per GPE, so one firing with no event
+    behind it counts -- leaves it off for the boot (`acpi` says so).
+- **What building 4b found:**
+  - **The brightness keys' `_Q0E`/`_Q0F` run, and the screen does not
+    change**: they end in a `Notify()` nothing listens to yet -- the
+    roadmap's item, beside 4e.
+  - **uACPI's `<uacpi/acpi.h>` names its structs as `kernel/acpi.h`
+    does** (`struct acpi_gas`), so glue that needs a table reads it
+    through the kernel's `acpi_find_table()`.
+  - **The ASUS raises `_QB2` at boot, which its DSDT has no method
+    for** -- logged and skipped, as Linux does.
 - **4c -- power through uACPI.** `uacpi_prepare_for_sleep_state(S5)`
   (`_PTS`) then `uacpi_enter_sleep_state(S5)` replace `acpi_poweroff()`'s
   ladder; the fixed power button through uACPI's fixed-event handler

@@ -7156,6 +7156,42 @@ evaluated by uACPI cannot route their interrupts at probe time --
 namespace is ready. That is 4d's question, recorded here so the
 placement is not reversed to answer it without weighing the stall.
 
+## The embedded controller is polled -- a 1 ms spin, then parks -- and `acpi=uacpi` enters ACPI mode for it
+
+**Decided 2026-11-28 (aml-design.md stage 4b, the maintainer's picks).**
+The embedded controller is SaunaOS's own code on uACPI
+(`kernel/acpi/uacpi_ec.c`, the byte protocol in `ec_proto.c`), as
+Linux's `drivers/acpi/ec.c` is on ACPICA. Two choices a later session
+would otherwise reopen:
+
+**Each wait for IBF/OBF spins up to 1 ms, then parks 1 ms between polls,
+and fails at 500 ms.** Linux has two modes: GPE-driven, where each byte
+sleeps until the EC's GPE reports the buffer changed (its default), and
+polling, a ~550 us spin and then sleeps, 500 ms in all. SaunaOS polls:
+every transaction then depends on nothing but the two ports, where a
+GPE-driven byte also depends on GPE delivery that is unproven on most of
+the machines it runs on. The first build spun for 1 ms and gave up -- and
+the ASUS measured a 934 us byte, then a 2027 us one, which would have
+failed a firmware access; the nap path took it. So the lock is a
+`kmutex`, held across a nap; `kacpid` is the only thing running AML.
+
+**`acpi=uacpi` lifts the "legacy-mode firmware with an EC stays in legacy
+mode" exception (`acpi_sci.c`).** The exception was there because nothing
+could run the EC's `_Qxx`; with the interpreter serving them, ACPI mode
+is Linux's answer too. Without ACPI mode no SCI arrives and the EC's GPE
+belongs to the firmware's SMI handler, so events are off in legacy mode.
+When that promise fails -- the interpreter fails or cannot start, or the
+EC's events cannot be turned on -- ACPI mode is handed back
+(`acpi_sci_ec_unserved()`), so a broken interpreter leaves the machine as
+it was without the word. The cost until stage 4c runs `_PTS`: under
+`acpi=uacpi` the ASUS may
+again need two presses to start after a session -- acceptable behind a
+word that is off by default, and 4c's acceptance test is exactly that.
+
+**Rejected:** a 20 ms busy bound (the smallest change, but a slow EC then
+holds core 0 with interrupts off for 20 ms a byte); burst mode (Linux
+uses it only around multi-byte accesses, and nothing here has needed it).
+
 ## ACPI stops at the tables, and `_S5_` is the one deliberate exception
 
 `kernel/acpi/` finds the RSDP, walks the RSDT or XSDT, and decodes the

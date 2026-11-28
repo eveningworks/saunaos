@@ -33,8 +33,18 @@ One line says whether the AML interpreter ran: `AML interpreter: off`
 on a default boot, or with the boot word `acpi=uacpi` -- uACPI, the
 vendored interpreter (`docs/aml-design.md`, stage 4) -- how many
 namespace nodes and devices it loaded and how long it took, or which
-step failed with uACPI's status code. Nothing acts on that namespace
-yet; the line is how a machine's firmware is first tried with it.
+step failed with uACPI's status code. Under it, when the interpreter
+found one, the embedded controller (stage 4b): its path, where it was
+found (`ECDT` or `_CRS`), its ports and GPE, whether its events are on,
+then its accesses, how many timed out, the longest wait and how many
+waits parked past the 1 ms spin, and the events answered:
+
+    Embedded ctrl:   \_SB_.PCI0.LPCB.EC0_ (ECDT), ports 0x66/0x62, GPE 0x0a, events on
+                     64 access(es), 0 timed out, longest wait 2027 us, 1 nap(s); 32 event(s) of 5 kind(s), last 0xd4
+
+`events OFF after a storm` means its GPE fired over 100 times in one
+second and was left off for the boot; `dmesg | grep ec:` names each event's
+`_Qxx`.
 
 The other half is the processor list, which comes from the MADT rather
 than from CPUID: CPUID describes the core running the instruction and
@@ -90,8 +100,8 @@ is no `acpi enable` verb. The kernel enters ACPI mode at boot, for the
 power button, unless booted with `acpimode=legacy`; `(firmware booted in
 legacy mode)` after it means power-off hands ACPI mode back first.
 `power button: no -- left to the firmware` is a legacy-mode machine with
-an embedded controller, kept in legacy mode until SaunaOS can run the
-controller's AML (`docs/aml-design.md`).
+an embedded controller, kept in legacy mode unless booted with
+`acpi=uacpi`, which runs the controller's AML (`docs/aml-design.md`).
 
 ## Output
 

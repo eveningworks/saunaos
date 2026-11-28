@@ -1594,6 +1594,7 @@ run on, not by order.
 - [ ] Battery + AC adapter status
 - [ ] Thermal zone reporting
 - [ ] **NEXT** An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI
+- [ ] The brightness keys change the panel's brightness
 - [ ] Deeper CPU idle than `hlt`: MWAIT C-states from a per-model table, Linux's `intel_idle` -- judged by RAPL's package energy
 - [ ] CPU frequency scaling without HWP: ratios from `MSR_PLATFORM_INFO` into `IA32_PERF_CTL`, `intel_pstate`'s legacy mode -- power only
 - [ ] S3 suspend/resume

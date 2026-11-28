@@ -1104,8 +1104,22 @@ its power button armed is the acceptance test.
 (`kernel/third_party/uacpi/`), loaded by the `kacpid` thread behind
 `acpi=uacpi`, off by default -- clean on QEMU's i440fx, q35 and OVMF,
 the power button still armed, the kernel suite `uacpi` running it on
-every `make test`. Next is 4b, the embedded controller, whose first
-measurement is the ASUS booted with `acpi=uacpi` (not yet run there).
+every `make test`; on the ASUS 4339 nodes in 43 ms. **Stage 4b BUILT
+2026-11-28**: the embedded controller served (`uacpi_ec.c`) -- on the
+ASUS `acpi=uacpi` now enters ACPI mode, and the lid and brightness keys
+arrive as `_Qxx` events. Next is 4c, power through uACPI (`_PTS`), whose
+acceptance is the ASUS starting again on one press.
+
+### The brightness keys change the panel's brightness
+
+Found 2026-11-28 by stage 4b: on the ASUS with `acpi=uacpi`, Fn+F5/F6
+raise the EC's `_Q0E`/`_Q0F`, which run and end in a `Notify()` on the
+display device (ACPI's 0x86/0x87, "brightness down/up"). Nothing in
+SaunaOS installs a notify handler, so the screen stays as it was. Linux's
+`acpi_video` turns those into key events the desktop answers;
+SaunaOS's Quick Settings already sets the panel's brightness, so this is
+a handler on the display device (uACPI's `uacpi_install_notify_handler`)
+that steps it -- after 4c, beside 4e's lid and AC adapter.
 
 ### A hardware watchdog that RESETS a hung machine
 
