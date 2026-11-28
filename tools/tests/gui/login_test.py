@@ -29,6 +29,11 @@ WHAT IT CHECKS (users D2b, docs/users-design.md)
     last frame ("handed over") and never gives it to the console between;
     the password field's eye is drawn once something is typed, and a click
     shows the letters and a second the stars again.
+  * (2026-11-28, mockup N2) the login screen's network button, left of
+    Restart, shows the network's icon and opens a read-only card above it
+    (dark glass, the address in it); a click on the card keeps it open, a
+    click outside only closes it -- the Keyboard button beneath that click
+    opens nothing.
   * (users D3c) the person's own font size and pointer speed (in
     ~/.config/saunaos.conf) and scale (~/.config/desktop.conf): the login
     screen has the MACHINE's -- the kernel's values, fontd running as
@@ -51,7 +56,10 @@ session_end() -- "signing out puts the machine's back" goes red.
 make privd's pass_check() always 1 -- "a wrong password
 is refused" goes red. Drop leave_page.c's wm_compositor_handover(1) --
 "a sign-out hands the screen over" goes red; drop the "loginlayout" row
-from wm_overlay.c -- "the list draws over the login screen" goes red.
+from wm_overlay.c -- "the list draws over the login screen" goes red;
+make wm_login.c's press-outside branch fall through -- "a click outside
+only closes the card" goes red; give network_icon() a name with no icon --
+"...showing the network's icon" goes red.
 """
 
 RUNNER = {
@@ -160,6 +168,69 @@ def keyboard_round(dbg, qmp, tmp):
                                   ok=lambda v: v == "us", timeout=5)
         j = dbg.json("gui layout --json") or {}
         check("...and closes the list", not j.get("open"), str(j)[:120])
+
+
+def network_round(dbg, qmp, tmp):
+    """The login screen's network button and its card (mockup N2)."""
+    def ctls():
+        return {c["name"]: c for c in login_state(dbg).get("controls", [])}
+    c = ctls()
+    nb, kb = c.get("network"), c.get("keyboard")
+    check("the login screen has a network button", bool(nb and nb.get("w")), str(c)[:200])
+    if not (nb and nb.get("w")):
+        return
+    rs = c.get("restart", {})
+    check("...left of Restart, on its row", nb["x"] + nb["w"] <= rs.get("x", 0) and nb["y"] == rs.get("y"),
+          f"network {nb}, restart {rs}")
+    check("...its card closed at first", not c.get("netcard", {}).get("w"), str(c.get("netcard")))
+    scr = dbg.json("gui state --json")["screen"]
+    dbg.warp_cursor(qmp, 5, scr["h"] // 2, settle=False)
+    dbg.settle()
+    p = os.path.join(tmp, "login-net-closed.png")
+    qmp.screenshot(p)
+    before = Image.open(p).convert("RGB")
+    # THE ICON IS DRAWN: white ink in the button's top half, where a
+    # missing icon leaves the dimmed wallpaper -- the label below it is
+    # white too, so the band stops above the label.
+    ink = sum(1 for x in range(nb["x"], nb["x"] + nb["w"]) for y in range(nb["y"], nb["y"] + nb["h"] * 45 // 100)
+              if min(before.getpixel((x, y))) > 235)
+    check("...showing the network's icon", ink > 20, f"{ink} white pixels above the label")
+
+    dbg.click(nb["cx"], nb["cy"])
+    card = poll(lambda: (lambda k: k if k.get("w") else None)(ctls().get("netcard", {})), 5, 0.2)
+    check("a click on it opens the network card", bool(card), str(ctls().get("netcard")))
+    if not card:
+        return
+    check("...above the button", card["y"] + card["h"] <= nb["y"], f"card {card}, button {nb}")
+    dbg.warp_cursor(qmp, 5, scr["h"] // 2, settle=False)
+    dbg.settle()
+    p = os.path.join(tmp, "login-net-open.png")
+    qmp.screenshot(p)
+    img = Image.open(p).convert("RGB")
+    box = [(x, y) for x in range(card["x"] + 4, card["x"] + card["w"] - 4, 3)
+           for y in range(card["y"] + 4, card["y"] + card["h"] - 4, 3)]
+    changed = sum(1 for xy in box if img.getpixel(xy) != before.getpixel(xy))
+    dark = sum(1 for xy in box if max(img.getpixel(xy)) < 70)
+    white = sum(1 for xy in box if min(img.getpixel(xy)) > 235)
+    check("...drawn: dark glass where it was not, with white text on it",
+          changed > len(box) // 2 and dark > len(box) // 2 and white > 3,
+          f"{changed} changed, {dark} dark, {white} white of {len(box)} sampled")
+
+    dbg.click(card["x"] + card["w"] // 2, card["y"] + card["h"] // 2)
+    dbg.settle()
+    check("a click on the card keeps it open", bool(ctls().get("netcard", {}).get("w")), str(ctls().get("netcard")))
+    if kb and kb.get("w"):
+        dbg.click(kb["cx"], kb["cy"])
+        dbg.settle()
+        lay = dbg.json("gui layout --json") or {}
+        check("a click outside only closes the card: the Keyboard button beneath opens nothing",
+              not ctls().get("netcard", {}).get("w") and not lay.get("open"),
+              f"card {ctls().get('netcard')}, layout open {lay.get('open')}")
+    else:
+        dbg.click(nb["cx"], nb["cy"])
+        dbg.settle()
+        check("a second click on the button closes the card", not ctls().get("netcard", {}).get("w"),
+              str(ctls().get("netcard")))
 
 
 def reveal_round(dbg, qmp, tmp):
@@ -431,6 +502,7 @@ def main():
             dbg.send("sh config --machine set system.keyboard.layouts fi,us")
             dbg.send("sh config --machine set system.keyboard.layout fi")
             keyboard_round(dbg, qmp, args.tmp)
+            network_round(dbg, qmp, args.tmp)
             type_text(dbg, "not-it")
             reveal_round(dbg, qmp, args.tmp)
             dbg.key("0x0a")

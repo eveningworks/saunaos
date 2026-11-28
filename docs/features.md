@@ -460,7 +460,9 @@ desktop and the screen saver locks it when it ends, and Sign out on the
 Leave page goes back to the login screen. The text terminals and telnet
 ask too -- `/bin/login` -- whenever no session is on or it is locked
 (`docs/users-design.md`, stage D2). The login screen switches keyboard
-layout from its bottom-left Keyboard button, every password field has an
+layout from its bottom-left Keyboard button, shows the network -- a
+Network button beside Restart opens its state and address -- every
+password field has an
 eye that shows what was typed, and signing in or out goes straight from
 one screen to the next without the text console flashing between.
 

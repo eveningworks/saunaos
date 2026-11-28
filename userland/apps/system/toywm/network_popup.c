@@ -18,6 +18,7 @@
 #include "rt/sys.h"
 #include "apps/system/toywm/wm_conf.h"   // wm_setting_generation()
 #include "wm_anim.h"        // wm_anim_enabled()
+#include "wm_login.h"       // wm_login_damage()
 
 int network_open = 0;
 
@@ -335,6 +336,7 @@ void network_poll(void) {
         g_icon = icon_for(&g_view);
         tray_set_icon(g_tray_id, g_icon);
         if (g_view.connecting) tray_set_anim(g_tray_id, &CONNECTING);
+        wm_login_damage();   // its network button and card say the same
     }
     // The graph moves every second while the card is up.
     if (network_open) network_damage();
@@ -662,6 +664,50 @@ static void draw_graph(const struct network_geom *g) {
                              wm_flyout_dim(), wm_flyout_ink());
 }
 
+// The state in a word, then how -- the card's header, and the login
+// screen's (wm_login.c), which must not say it differently.
+void network_headline(char *title, unsigned tcap, char *sub, unsigned scap, uint32_t *badge) {
+    char speed[24];
+    uint32_t b = UTHEME_ACCENT;
+    int down = shown_down();
+    fmt_speed(speed, sizeof speed, &g_view);
+    if (!g_view.have_device) {
+        k_strlcpy(title, "No network device", tcap);
+        k_strlcpy(sub, "Nothing to connect with", scap);
+        b = ugfx_blend(utheme_current()->text_muted, UTHEME_WHITE, 80);   // nothing to report
+    } else if (down) {
+        k_strlcpy(title, "Switched off", tcap);
+        k_snprintf(sub, scap, "Wired, %s", g_view.name);
+        b = ugfx_blend(utheme_current()->text_muted, UTHEME_WHITE, 80);   // nothing to report
+    } else if (g_view.connected) {
+        k_strlcpy(title, "Connected", tcap);
+        k_snprintf(sub, scap, "Wired, %s%s%s", g_view.name, speed[0] ? ", " : "", speed);
+    } else if (g_view.negotiating) {
+        k_strlcpy(title, "Connecting...", tcap);
+        k_snprintf(sub, scap, "Waiting for the link, %s", g_view.name);
+    } else if (g_view.connecting) {
+        k_strlcpy(title, "Connecting...", tcap);
+        k_snprintf(sub, scap, "Asking for an address, %s%s%s",
+                   g_view.name, speed[0] ? ", " : "", speed);
+    } else if (g_view.cable_out) {
+        k_strlcpy(title, "Cable unplugged", tcap);
+        k_snprintf(sub, scap, "Wired, %s", g_view.name);
+        b = utheme_severity(UTHEME_SEV_WARNING);
+    } else {
+        k_strlcpy(title, "No address", tcap);
+        k_snprintf(sub, scap, "%s, %s%s%s",
+                   g_view.asking ? "Nobody answered" : "Waiting for one",
+                   g_view.name, speed[0] ? ", " : "", speed);
+        b = utheme_severity(UTHEME_SEV_WARNING);
+    }
+    if (badge) *badge = b;
+}
+
+const char *network_icon(void) {
+    if (!g_view.connecting) return icon_for(&g_view);
+    return g_tray_id >= 0 ? tray_icon_now(g_tray_id) : CONNECTING.still;
+}
+
 void network_draw(int mx, int my) {
     (void)mx; (void)my;
     if (!network_open) return;
@@ -673,39 +719,9 @@ void network_draw(int mx, int my) {
 
     wm_flyout_card(g.x, g.y, g.w, g.h, g.foot_h);
 
-    // THE HEADER: the state in a word, then how.
-    char title[32], sub[64], speed[24];
-    uint32_t badge = UTHEME_ACCENT;
-    fmt_speed(speed, sizeof speed, &g_view);
-    if (!g_view.have_device) {
-        k_strlcpy(title, "No network device", sizeof title);
-        k_strlcpy(sub, "Nothing to connect with", sizeof sub);
-        badge = ugfx_blend(utheme_current()->text_muted, UTHEME_WHITE, 80);   // nothing to report
-    } else if (down) {
-        k_strlcpy(title, "Switched off", sizeof title);
-        k_snprintf(sub, sizeof sub, "Wired, %s", g_view.name);
-        badge = ugfx_blend(utheme_current()->text_muted, UTHEME_WHITE, 80);   // nothing to report
-    } else if (g_view.connected) {
-        k_strlcpy(title, "Connected", sizeof title);
-        k_snprintf(sub, sizeof sub, "Wired, %s%s%s", g_view.name, speed[0] ? ", " : "", speed);
-    } else if (g_view.negotiating) {
-        k_strlcpy(title, "Connecting...", sizeof title);
-        k_snprintf(sub, sizeof sub, "Waiting for the link, %s", g_view.name);
-    } else if (g_view.connecting) {
-        k_strlcpy(title, "Connecting...", sizeof title);
-        k_snprintf(sub, sizeof sub, "Asking for an address, %s%s%s",
-                   g_view.name, speed[0] ? ", " : "", speed);
-    } else if (g_view.cable_out) {
-        k_strlcpy(title, "Cable unplugged", sizeof title);
-        k_snprintf(sub, sizeof sub, "Wired, %s", g_view.name);
-        badge = utheme_severity(UTHEME_SEV_WARNING);
-    } else {
-        k_strlcpy(title, "No address", sizeof title);
-        k_snprintf(sub, sizeof sub, "%s, %s%s%s",
-                   g_view.asking ? "Nobody answered" : "Waiting for one",
-                   g_view.name, speed[0] ? ", " : "", speed);
-        badge = utheme_severity(UTHEME_SEV_WARNING);
-    }
+    char title[32], sub[64];
+    uint32_t badge;
+    network_headline(title, sizeof title, sub, sizeof sub, &badge);
     wm_flyout_hero(g.x, g.y, g.w - (g.sw_w ? g.sw_w + g.pad + 8 : g.pad), badge,
                    g_view.connecting ? tray_icon_now(g_tray_id) : icon_for(&g_view), title, sub);
     if (g.sw_w) wm_flyout_switch(g.sw_x, g.sw_y, !down, g_hover == HOVER_SWITCH);

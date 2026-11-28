@@ -602,7 +602,11 @@ As built (2026-11-25), and where it differs from the plan:
 - **The login screen (2026-11-26)**: with more than one keyboard layout,
   the bottom-left "Keyboard: FI" is a button opening the tray's own layout
   list above it (no "Keyboard settings..." footer there), and Super+Space
-  switches as on the desktop. Every password field -- the login and lock
+  switches as on the desktop. **(2026-11-28, mockup N2)** a Network button
+  left of Restart -- the tray's icon, Restart's shape -- opens a read-only
+  card above it (state, address, adapter; no switch, as nobody is signed
+  in): Windows 11's sign-in network button. The greeter has no tray, but
+  `network_poll()` runs there too. Every password field -- the login and lock
   screens, the administrator prompt, Settings' and first-boot setup's --
   has an EYE inside its right edge once it holds text: a click shows the
   letters, a second the stars, and new text starts hidden (`uui_textbox`'s

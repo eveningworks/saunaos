@@ -1,6 +1,8 @@
 #ifndef NETWORK_POPUP_H
 #define NETWORK_POPUP_H
 
+#include <stdint.h>
+
 // The taskbar's network item: a state-shaped icon left of the speaker,
 // opening a card (wm_flyout.h) that says which interface is up, what
 // address it has, how fast the link is and what it is carrying. Same peer-file pattern as
@@ -111,5 +113,10 @@ void network_open_page(void);
 int  network_tile_on(void);
 void network_toggle(void);
 void network_summary(char *out, unsigned cap);
+// The card's header in words -- the state, then how -- and the icon it
+// shows, for the login screen's network button (wm_login.c). Kept fresh
+// by network_poll(), which the greeter runs too, with no tray item.
+void network_headline(char *title, unsigned tcap, char *sub, unsigned scap, uint32_t *badge);
+const char *network_icon(void);
 
 #endif

@@ -9,6 +9,10 @@
 // /var/lib/greeter/last, which privd writes at a sign-in (GDM's is
 // AccountsService's).
 //
+// THE NETWORK, bottom right (mockup N2, Windows 11's sign-in shape): an
+// icon button left of Restart, opening a read-only card -- no switch, as
+// nobody is signed in. network_poll() keeps the state on the greeter too.
+//
 // THE PASSWORD IS CHECKED OFF THE FRAME: privd answers a wrong one two
 // seconds later, so the call runs on its own thread and the screen goes
 // BUSY until wm_login_poll() sees the answer.
@@ -19,6 +23,7 @@
 #include "wm_log.h"
 #include "desktop.h"
 #include "layout_popup.h"
+#include "network_popup.h"
 #include "media/icon_cache.h"
 #include "confirm_dialog.h"
 #include "base/udate.h"
@@ -59,11 +64,15 @@ static int g_snap_w, g_snap_h, g_snap_ok;
 static uint32_t g_snap_gen;
 static int g_minute = -1;
 
-enum { C_FIELD, C_GO, C_RESTART, C_SHUTDOWN, C_KEYBOARD, CTLS };
-static const char *const CTL_NAME[CTLS] = { "field", "go", "restart", "shutdown", "keyboard" };
+// C_NETCARD is the open card: hit-tested FIRST, so it lights and clicks
+// nothing beneath it.
+enum { C_FIELD, C_GO, C_RESTART, C_SHUTDOWN, C_KEYBOARD, C_NET, C_NETCARD, CTLS };
+static const char *const CTL_NAME[CTLS] = { "field", "go", "restart", "shutdown", "keyboard",
+                                            "network", "netcard" };
 struct rect { int x, y, w, h; };
 static struct rect g_r[CTLS];
 static int g_hot = -1, g_pressed = -1;
+static int g_net_open;
 
 #define WHITE ugfx_rgb(255, 255, 255)
 #define SOFT  ugfx_rgb(223, 230, 238)
@@ -159,6 +168,7 @@ void wm_login_show(int mode) {
     uui_caret_reset();
     g_err[0] = '\0';
     g_busy = g_signed_in = 0;
+    g_net_open = 0;
     g_snap_ok = 0;
     wm_overlay_close_others(0);
     wm_login_open = 1;
@@ -324,6 +334,30 @@ static void keyboard_label(char *out, size_t cap) {
     for (char *p = out + 10; *p; p++) if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
 }
 
+// The network card's words, read by its size and its drawing alike.
+struct net_card {
+    char title[32], sub[64];
+    int rows;
+    char key[2][16], val[2][48];
+};
+
+static void net_card(struct net_card *c) {
+    struct network_view v;
+    network_view(&v);
+    network_headline(c->title, sizeof c->title, c->sub, sizeof c->sub, 0);
+    c->rows = 0;
+    if (!v.have_device) return;
+    snprintf(c->key[0], sizeof c->key[0], "IPv4 address");
+    if (v.ip[0] && strcmp(v.ip, "none")) snprintf(c->val[0], sizeof c->val[0], "%s/%d", v.ip, v.prefix);
+    else snprintf(c->val[0], sizeof c->val[0], "none");
+    snprintf(c->key[1], sizeof c->key[1], "Adapter");
+    snprintf(c->val[1], sizeof c->val[1], "%s%s%s", v.driver, v.location[0] ? " at " : "", v.location);
+    c->rows = 2;
+}
+
+static int net_icon_px(void) { return ugfx_char_h() * 2; }
+static int net_row_h(void) { return ugfx_char_h() + u() / 2; }
+
 static void layout(void) {
     int ch = ugfx_char_h();
     int cx = screen_w / 2;
@@ -338,6 +372,33 @@ static void layout(void) {
     int by = screen_h - bh - u() * 2;
     g_r[C_SHUTDOWN] = (struct rect){ screen_w - bw - u() * 3, by, bw, bh };
     g_r[C_RESTART] = (struct rect){ g_r[C_SHUTDOWN].x - bw - u(), by, bw, bh };
+    g_r[C_NET] = (struct rect){ g_r[C_RESTART].x - bw - u(), by, bw, bh };
+    g_r[C_NETCARD] = (struct rect){ 0, 0, 0, 0 };
+    if (g_net_open) {
+        // Sized to its words, its right edge on the button's.
+        struct net_card c;
+        net_card(&c);
+        int pad = u() * 2, icon = net_icon_px(), kw = 0, vw = 0;
+        const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+        int tw = ugfx_text_width(c.title);
+        ugfx_set_font(was);
+        int sw = ugfx_text_width(c.sub);
+        for (int i = 0; i < c.rows; i++) {
+            int k = ugfx_text_width(c.key[i]), v = ugfx_text_width(c.val[i]);
+            if (k > kw) kw = k;
+            if (v > vw) vw = v;
+        }
+        int inner = icon + u() + (tw > sw ? tw : sw);
+        if (c.rows && kw + u() * 2 + vw > inner) inner = kw + u() * 2 + vw;
+        int w = pad * 2 + inner;
+        if (w < ch * 16) w = ch * 16;
+        if (w > screen_w - u() * 6) w = screen_w - u() * 6;
+        int head = icon > ch * 2 + ugfx_px(2) ? icon : ch * 2 + ugfx_px(2);
+        int h = pad + head + (c.rows ? u() * 2 + 1 + c.rows * net_row_h() : 0) + pad;
+        int x = g_r[C_NET].x + g_r[C_NET].w - w;
+        if (x < u() * 3) x = u() * 3;
+        g_r[C_NETCARD] = (struct rect){ x, by - u() - h, w, h };
+    }
     // The keyboard layout, bottom left: a button opening the tray's list
     // when there is a choice (layout_popup.h), none when there is not.
     g_r[C_KEYBOARD] = (struct rect){ 0, 0, 0, 0 };
@@ -482,6 +543,55 @@ void wm_login_draw(int mx, int my) {
         power_glyph(s, k == C_RESTART, r->x + r->w / 2, r->y + ch / 2 + ugfx_px(6), ch + ugfx_px(4));
         text_c(s, r->x + r->w / 2, r->y + r->h - ch - ugfx_px(2), k == C_RESTART ? "Restart" : "Shut down", WHITE);
     }
+
+    // The network button -- Restart's shape, lit while its card is open --
+    // then the card.
+    const struct rect *nb = &g_r[C_NET];
+    if (g_hot == C_NET || g_net_open)
+        for (int y = nb->y; y < nb->y + nb->h; y++)
+            ugfx_blend_hspan(s, nb->x, y, nb->w, WHITE, 0, g_net_open ? 56 : 40);
+    const struct uimg *ni = icon_get(network_icon(), ch + ugfx_px(4));
+    if (ni) ugfx_blit_tinted(s, nb->x + (nb->w - ni->w) / 2, nb->y + ch / 2 + ugfx_px(6) - ni->h / 2, ni->w, ni->h,
+                             ni->px, ni->w, WHITE);
+    text_c(s, nb->x + nb->w / 2, nb->y + nb->h - ch - ugfx_px(2), "Network", WHITE);
+    const struct rect *cr = &g_r[C_NETCARD];
+    if (cr->w > 0) {
+        // The keyboard list's dark glass (layout_popup.c's login_draw).
+        // NOT SELECTABLE, unlike text elsewhere (userland/CLAUDE.md): a
+        // login screen copies nothing out -- the greeter's clipboard is
+        // its own and wiped -- as Windows' sign-in flyouts do not.
+        struct net_card c;
+        net_card(&c);
+        int pad = u() * 2, icon = net_icon_px(), rad = ugfx_px(8);
+        uui_glass_round_rect(s, cr->x, cr->y, cr->w, cr->h, rad, ugfx_rgb(30, 34, 46), 235, 0);
+        uui_glass_round_rect(s, cr->x, cr->y, cr->w, cr->h, rad, WHITE, 0, 46);
+        int head = icon > ch * 2 + ugfx_px(2) ? icon : ch * 2 + ugfx_px(2);
+        int hy = cr->y + pad;
+        const struct uimg *ci = icon_get(network_icon(), icon);
+        if (ci) ugfx_blit_tinted(s, cr->x + pad, hy + (head - ci->h) / 2, ci->w, ci->h, ci->px, ci->w, WHITE);
+        int tx = cr->x + pad + icon + u(), tw = cr->x + cr->w - pad - tx;
+        int ty = hy + (head - (ch * 2 + ugfx_px(2))) / 2;
+        const struct ugfx_font *bold = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+        ugfx_draw_string_clipped(s, tx, ty, tw, c.title, WHITE, UGFX_TRANSPARENT);
+        ugfx_set_font(bold);
+        ugfx_draw_string_clipped(s, tx, ty + ch + ugfx_px(2), tw, c.sub, SOFT, UGFX_TRANSPARENT);
+        if (c.rows) {
+            int ry = hy + head + u();
+            ugfx_blend_hspan(s, cr->x + pad, ry, cr->w - 2 * pad, WHITE, 0, 56);
+            ry += 1 + u();
+            int kw = 0;
+            for (int i = 0; i < c.rows; i++) {
+                int k = ugfx_text_width(c.key[i]);
+                if (k > kw) kw = k;
+            }
+            int vx = cr->x + pad + kw + u() * 2;
+            for (int i = 0; i < c.rows; i++, ry += net_row_h()) {
+                int y = ry + (net_row_h() - ch) / 2;
+                ugfx_draw_string_clipped(s, cr->x + pad, y, kw, c.key[i], SOFT, UGFX_TRANSPARENT);
+                ugfx_draw_string_clipped(s, vx, y, cr->x + cr->w - pad - vx, c.val[i], WHITE, UGFX_TRANSPARENT);
+            }
+        }
+    }
 }
 
 // --- input -----------------------------------------------------------------
@@ -494,8 +604,9 @@ static int person_at(int x, int y) {
     return -1;
 }
 
+// From the last: the open card (C_NETCARD) before anything beneath it.
 static int ctl_at(int x, int y) {
-    for (int i = 0; i < CTLS; i++) {
+    for (int i = CTLS - 1; i >= 0; i--) {
         const struct rect *r = &g_r[i];
         if (r->w > 0 && x >= r->x && x < r->x + r->w && y >= r->y && y < r->y + r->h) return i;
     }
@@ -506,9 +617,17 @@ static void activate(int id) {
     switch (id) {
     case C_GO: submit(); break;
     case C_KEYBOARD:
+        g_net_open = 0;
         if (layout_open) layout_close();
         else layout_open_page();
         WM_REDRAW();
+        break;
+    case C_NET:
+        g_net_open = !g_net_open;
+        wm_logf("login: network card %s\n", g_net_open ? "opened" : "closed");
+        WM_REDRAW();
+        break;
+    case C_NETCARD:   // read-only: a click on it keeps it open
         break;
     case C_RESTART:
     case C_SHUTDOWN:
@@ -530,7 +649,15 @@ void wm_login_update_press(int mx, int my, uint8_t buttons) {
     if (buttons & 1) {
         // The field hears the press EDGE once: its eye toggles on a press,
         // and this runs every tick the button is held.
-        if (g_pressed < 0) {
+        if (g_pressed < 0 && g_pressed != -3) {
+            // A press outside the open network card only closes it, as
+            // a click outside any flyout does.
+            if (g_net_open && at != C_NET && at != C_NETCARD) {
+                g_net_open = 0;
+                g_pressed = -3;
+                WM_REDRAW();
+                return;
+            }
             g_pressed = at < 0 ? -2 : at;
             g_pressed_person = person;
             if (g_pressed == C_FIELD) { uui_textbox_ops.press(&g_pw, mx, my, 0); WM_REDRAW(); }
