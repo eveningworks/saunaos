@@ -29,9 +29,10 @@ learned order graph, irq-safety, BUILT 2026-11-21 -- before a new lock,
 a lock inside a struct, or nesting two of one kind),
 `modules-design.md`, `aml-design.md` (the ACPI namespace walk, stages
 0-2 BUILT; stage 4 -- method execution by a vendored uACPI -- 4a BUILT
-2026-11-28 (vendored 7.0.0, loaded by `kacpid` behind `acpi=uacpi`), 4b the
-embedded controller next -- before any AML, embedded-controller or
-`kernel/third_party/` work), `update-design.md`, `software-design.md` (optional components + the Software app, stages 1-5 BUILT, and the installer's Software step -- before upd.c component work, `base/ucomponent.h`, the app, or what `base/uinstall.h` copies), `rootfs-design.md`,
+2026-11-28 (vendored 7.0.0, loaded by `kacpid` behind `acpi=uacpi`), 4b (the
+embedded controller) and 4c (the power button and S5 after `_PTS`) BUILT the
+same day, 4d retiring the old paths next -- before any AML, embedded-controller,
+power-off or `kernel/third_party/` work), `update-design.md`, `software-design.md` (optional components + the Software app, stages 1-5 BUILT, and the installer's Software step -- before upd.c component work, `base/ucomponent.h`, the app, or what `base/uinstall.h` copies), `rootfs-design.md`,
 `winserver-ring3-design.md` (stages 0-1 BUILT -- before
 `kernel/proc/win_*.c`), `kdebug-design.md` (the GDB stub: serial BUILT,
 the network BUILT, on QEMU's e1000 and on real r8169s -- the Lenovo,

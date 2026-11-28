@@ -94,10 +94,12 @@ void system_poweroff(void) {
     klog_write("power: poweroff requested\n");
     splash_shutdown_set(0, "Powering off...", "");
 
-    // The real thing: the sleep type from this machine's own `_S5_`,
-    // written to the port its own FADT names. Returns only when there
-    // was nothing to try -- no ACPI, no FADT, or a `_S5_` this kernel
-    // would not decode.
+    // The real thing: with `acpi=uacpi`, the firmware's `_PTS(5)` and
+    // uACPI's S5 (it may park, on the embedded controller); else, or
+    // when that returns, the sleep type from this machine's own `_S5_`,
+    // written to the port its own FADT names. Returns only when the
+    // machine stayed up -- acpi_poweroff_known() says whether a named
+    // path was tried.
     acpi_poweroff();
 
     // QEMU/Bochs's well-known shortcut, and ONLY for a machine whose

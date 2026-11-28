@@ -33,6 +33,8 @@
 #define ACPI_F_PWRBTN     (1u << 8)
 #define ACPI_F_PWRBTN_CM  (1u << 9)
 #define ACPI_F_EC_LEGACY  (1u << 10)
+#define ACPI_F_PWRBTN_UACPI (1u << 11)
+#define ACPI_F_S5_UACPI   (1u << 12)
 
 
 static void put(const char *s) { sys_print(s); }
@@ -235,9 +237,11 @@ int main(int argc, char **argv) {
 
     put("\nPower:\n");
     snprintf(line, sizeof line, "  poweroff:      %s",
-             yesno(a.flags & ACPI_F_S5));
+             yesno(a.flags & (ACPI_F_S5 | ACPI_F_S5_UACPI)));
     put(line);
-    if (a.flags & ACPI_F_S5) {
+    if (a.flags & ACPI_F_S5_UACPI) {
+        put("  -- through uACPI, after the firmware's _PTS(5)\n");
+    } else if (a.flags & ACPI_F_S5) {
         if (a.flags & ACPI_F_HW_REDUCED)
             snprintf(line, sizeof line, "  -- S5 type %llu to SLEEP_CONTROL_REG 0x%llx\n",
                      (unsigned long long)a.slp_typ_a,
@@ -265,8 +269,10 @@ int main(int argc, char **argv) {
     snprintf(line, sizeof line, "  power button:  %s", yesno(a.flags & ACPI_F_PWRBTN));
     put(line);
     if (a.flags & ACPI_F_PWRBTN)
-        snprintf(line, sizeof line, "  -- SCI %llu, %llu press(es) since boot\n",
-                 (unsigned long long)a.sci_int, (unsigned long long)a.pwrbtn_presses);
+        snprintf(line, sizeof line, "  -- SCI %llu%s, %llu press(es) since boot\n",
+                 (unsigned long long)a.sci_int,
+                 (a.flags & ACPI_F_PWRBTN_UACPI) ? ", uACPI's fixed event" : "",
+                 (unsigned long long)a.pwrbtn_presses);
     else if (a.flags & ACPI_F_EC_LEGACY)
         snprintf(line, sizeof line, "  -- left to the firmware: its embedded controller needs AML\n");
     else if (a.flags & ACPI_F_PWRBTN_CM)

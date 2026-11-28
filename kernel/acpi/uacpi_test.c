@@ -14,6 +14,7 @@
 #include <uacpi/types.h>
 
 #include "acpi.h"
+#include "acpi_internal.h"   // the power button's owner
 #include "aml.h"
 #include "cpuinfo.h"   // cpu_info_get(), the hypervisor bit
 #include "kfmt.h"   // klog_printf
@@ -181,4 +182,41 @@ KTEST("uacpi", "every Device's and Processor's _STA runs and returns an integer"
 
     if (r.evaluated == 0) KTEST_SKIP("this firmware declares no _STA");
     KTEST_ASSERT_EQ(r.failed, 0);
+}
+
+// Stage 4c's hand-over: with the namespace up, uACPI's fixed event owns
+// the power button and the button stays ENABLED (an enabled event with no
+// handler is what uACPI's dispatch disables for good); after the KTEST's
+// own teardown, acpi_sci.c owns it again, still enabled.
+KTEST("uacpi", "the power button moves to uACPI's fixed event, enabled, and back") {
+    const struct acpi_state *s = acpi_get_state();
+    if (!(s->flags & ACPI_F_PWRBTN)) KTEST_SKIP("no fixed power button armed on this boot");
+    struct uacpi_use u;
+    USE_BEGIN(&u);
+    int owned = acpi_sci_button_is_uacpi(), enabled = acpi_sci_button_enabled();
+    int mine = u.mine;
+    use_end(&u);
+
+    KTEST_ASSERT_EQ(owned, 1);
+    KTEST_ASSERT_EQ(enabled, 1);
+    if (mine) {
+        KTEST_ASSERT_EQ(acpi_sci_button_is_uacpi(), 0);
+        KTEST_ASSERT_EQ(acpi_sci_button_enabled(), 1);
+    }
+}
+
+// A namespace with `\_S5` and no acpimode= experiment chooses uACPI's S5
+// (what `acpi` reports); the KTEST's own teardown forgets it, so a
+// default boot's power-off is the ladder's again.
+KTEST("uacpi", "a namespace with \\_S5 chooses uACPI's S5, and a teardown forgets it") {
+    if (!(acpi_get_state()->flags & ACPI_F_S5)) KTEST_SKIP("the byte scan found no _S5_ either");
+    if (acpi_mode_word("poweroff") || acpi_mode_word("never")) KTEST_SKIP("an acpimode= experiment");
+    struct uacpi_use u;
+    USE_BEGIN(&u);
+    int chosen = (acpi_get_state()->flags & ACPI_F_S5_UACPI) != 0;
+    int mine = u.mine;
+    use_end(&u);
+
+    KTEST_ASSERT_EQ(chosen, 1);
+    if (mine) KTEST_ASSERT_EQ((acpi_get_state()->flags & ACPI_F_S5_UACPI) != 0, 0);
 }

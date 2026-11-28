@@ -29,4 +29,23 @@ void acpi_gpe_block_off(uint32_t base, uint8_t len);
 // Is `acpimode=<want>` on the command line?
 int acpi_mode_word(const char *want);
 
+// acpi_sci.c: a press of the fixed power button, from whichever handler
+// owns it -- counted, and SIGPWR to init. Interrupt-safe.
+void acpi_power_button_pressed(const char *via);
+// uACPI's fixed-event handler, under g_sci_lock: a press to hand to
+// acpi_power_button_pressed() once the SCI's dispatch has returned.
+void acpi_power_button_note(void);
+// 1: uACPI's fixed-event handler owns the button and acpi_sci.c's SCI
+// handler stops acking it; 0: acpi_sci.c's again (uacpi_power.c).
+void acpi_sci_button_to_uacpi(int to_uacpi);
+// For the KTEST: who owns the button, and is PM1a's PWRBTN_EN set?
+int acpi_sci_button_is_uacpi(void);
+int acpi_sci_button_enabled(void);
+
+// uacpi_power.c: S5 after the firmware's _PTS(5), when kacpid's
+// namespace is READY and acpi_uacpi_decide_s5() chose it (ACPI_F_S5_UACPI).
+// Returns only when the machine stayed up; the ladder in acpi_poweroff()
+// follows. Hardware-reduced firmware gets _PTS here and the write there.
+void acpi_uacpi_poweroff(void);
+
 #endif

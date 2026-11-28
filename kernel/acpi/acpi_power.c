@@ -503,6 +503,7 @@ static void pm1_sleep_write(uint16_t port, uint8_t typ) {
 
 int acpi_poweroff_known(void) {
     const struct acpi_state *s = acpi_get_state();
+    if (s->flags & ACPI_F_S5_UACPI) return 1;   // uACPI's own \_S5: named, even unscanned
     if (!(s->flags & ACPI_F_S5)) return 0;
     return (s->flags & ACPI_F_HW_REDUCED) ? (s->sleep_control.address != 0)
                                           : (s->pm1a_cnt != 0);
@@ -570,13 +571,15 @@ static void s5_grace(uint32_t n) {
 // in ACPI mode, and starting again took two presses of the power button;
 // in legacy mode, one (docs/decisions.md). So ACPI mode, entered at boot
 // for the power button, is LEFT again first (acpi_leave_mode()). Linux
-// and Windows stay in ACPI mode and do run `_PTS`; until uACPI runs it
-// (stage 4c), the firmware's own path is the honest substitute. ACPI mode remains the
-// FALLBACK, for firmware whose legacy write does nothing.
+// and Windows stay in ACPI mode and do run `_PTS`, and so does
+// acpi_uacpi_poweroff() (uacpi_power.c, stage 4c), tried FIRST with
+// `acpi=uacpi`; this ladder is what follows when it cannot. ACPI mode
+// remains the ladder's FALLBACK, for firmware whose legacy write does nothing.
 // `acpimode=poweroff` writes S5 in ACPI mode, for an A/B; `acpimode=never`
 // is the legacy write with no fallback.
 int acpi_poweroff(void) {
     struct acpi_state *s = acpi_state_mut();
+    acpi_uacpi_poweroff();
     if (!(s->flags & ACPI_F_S5)) return 0;
 
     if (s->flags & ACPI_F_HW_REDUCED) {

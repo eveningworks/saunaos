@@ -86,11 +86,14 @@ usually cheaper to make the kernel answer it.
 
 ## What it does not do
 
-**Its power line does not come from the interpreter.** Power-off still
-reads the sleep types from a byte scan of the DSDT for the `_S5_`
-object, which accepts one encoding and **refuses** everything else
-rather than guessing -- a refusal shows up here as `poweroff: no`. uACPI
-takes that over at stage 4c (`docs/aml-design.md`).
+**Without the interpreter, its power line is a byte scan.** With
+`acpi=uacpi` and the namespace loaded, power-off runs the firmware's
+`_PTS(5)` and uACPI writes S5 (`poweroff: yes -- through uACPI, after
+the firmware's _PTS(5)`), and the power button is uACPI's fixed event
+(`SCI 9, uACPI's fixed event`). Otherwise it reads the sleep types from
+a byte scan of the DSDT for the `_S5_` object, which accepts one
+encoding and **refuses** everything else rather than guessing -- a
+refusal shows up here as `poweroff: no` (`docs/aml-design.md`, stage 4c).
 
 **It does not dump table bodies** in the summary; `--dump` is the way to
 the bytes.

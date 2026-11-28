@@ -2,6 +2,8 @@
 // FIXED power button (PM1's PWRBTN_STS). A press sends SIGPWR to init,
 // which shuts the machine down in order -- logind's
 // `HandlePowerKey=poweroff`, reached without an input layer between.
+// With `acpi=uacpi`, uACPI's fixed event takes the button once the
+// namespace is up (uacpi_power.c); this handler keeps the LINE.
 //
 // THE OTHER EVENTS ARE MASKED, NOT IGNORED. The SCI is a level-triggered
 // line: a status bit set behind a set enable holds it asserted, and a
@@ -63,24 +65,58 @@ static void pm1_enable(const struct acpi_state *s, uint16_t bits) {
     if (s->pm1b_evt) outw((uint16_t)(s->pm1b_evt + pm1_half(s)), bits);
 }
 
+void acpi_power_button_pressed(const char *via) {
+    struct acpi_state *s = acpi_state_mut();
+    s->pwrbtn_presses++;
+    int init = scheduler_init_pid();
+    klog_printf("acpi: power button pressed (%s) -- SIGPWR to init (pid %d)\n", via, init);
+    if (init <= 0 || !signal_send(init, SIGPWR))
+        klog_write("acpi: no init to tell -- the press is dropped\n");
+}
+
+static volatile int g_press_noted;   // by uACPI's handler, under g_sci_lock
+
+void acpi_power_button_note(void) {
+    __atomic_store_n(&g_press_noted, 1, __ATOMIC_RELEASE);
+}
+
+// Set once uACPI's fixed-event handler owns the button (uacpi_power.c).
+static volatile int g_button_uacpi;
+
+void acpi_sci_button_to_uacpi(int to_uacpi) {
+    struct acpi_state *s = acpi_state_mut();
+    __atomic_store_n(&g_button_uacpi, to_uacpi, __ATOMIC_RELEASE);
+    if (to_uacpi) __atomic_or_fetch(&s->flags, ACPI_F_PWRBTN_UACPI, __ATOMIC_RELEASE);
+    else __atomic_and_fetch(&s->flags, ~(uint32_t)ACPI_F_PWRBTN_UACPI, __ATOMIC_RELEASE);
+}
+
+int acpi_sci_button_is_uacpi(void) {
+    return __atomic_load_n(&g_button_uacpi, __ATOMIC_ACQUIRE);
+}
+
+int acpi_sci_button_enabled(void) {
+    const struct acpi_state *s = acpi_get_state();
+    if (!s->pm1a_evt) return 0;
+    return (inw((uint16_t)(s->pm1a_evt + pm1_half(s))) & PM1_PWRBTN) != 0;
+}
+
 // A SHARED line, so a call with no PWRBTN_STS is somebody else's -- and
 // with uACPI loaded, what is left is passed to its SCI handler, held in
 // uacpi_glue.c: uACPI enables the global lock's fixed event at load, and
 // a GBL_STS nobody clears holds this level-triggered line asserted. Its
-// handler acts only on events uACPI itself enabled, so PWRBTN, acked
-// first, is never seen there.
+// handler acts only on events uACPI itself enabled: PWRBTN once its
+// fixed event owns the button, and until then never, because this acks
+// it first.
 static void sci_irq(uint64_t *regs) {
     (void)regs;
     struct acpi_state *s = acpi_state_mut();
-    if (pm1_sts(s) & PM1_PWRBTN) {
+    if (!__atomic_load_n(&g_button_uacpi, __ATOMIC_ACQUIRE) && (pm1_sts(s) & PM1_PWRBTN)) {
         pm1_ack(s, PM1_PWRBTN);
-        s->pwrbtn_presses++;
-        int init = scheduler_init_pid();
-        klog_printf("acpi: power button pressed -- SIGPWR to init (pid %d)\n", init);
-        if (init <= 0 || !signal_send(init, SIGPWR))
-            klog_write("acpi: no init to tell -- the press is dropped\n");
+        acpi_power_button_pressed("the SCI");
     }
     uacpi_host_sci_dispatch();
+    if (__atomic_exchange_n(&g_press_noted, 0, __ATOMIC_ACQ_REL))
+        acpi_power_button_pressed("uACPI's fixed event");
 }
 
 // Set when `acpi=uacpi` lifted the exception above: ACPI mode was entered
@@ -104,6 +140,7 @@ void acpi_sci_ec_unserved(const char *why) {
         return;
     }
     if (s->sci_int < IRQ_MAX) irq_unregister_handler((uint8_t)s->sci_int, sci_irq);
+    acpi_sci_button_to_uacpi(0);   // no button left for either handler to own
     s->flags &= ~(uint32_t)ACPI_F_PWRBTN;
     s->flags |= ACPI_F_EC_LEGACY;
     klog_printf("acpi: %s -- back in legacy mode for the embedded controller, no power button\n", why);

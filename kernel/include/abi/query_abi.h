@@ -321,7 +321,8 @@ _Static_assert(sizeof(struct query_fontglyph) <= 256,
 //
 // The fields worth knowing about are the ones a failed shutdown needs:
 // `pm1a_cnt` (the port the S5 write goes to), `slp_typ_a` (the value
-// the DSDT's `_S5_` object named), and `flags` -- ACPI_F_S5 absent
+// the DSDT's `_S5_` object named), and `flags` -- ACPI_F_S5 and
+// ACPI_F_S5_UACPI (uACPI's S5 after `_PTS`, `acpi=uacpi`) both absent
 // means the machine cannot be powered off through ACPI at all and the
 // legacy path is what will run.
 #define QUERY_ACPI 23

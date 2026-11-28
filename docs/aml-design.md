@@ -6,9 +6,9 @@ power button needs ACPI mode, and on the ASUS a session in ACPI mode
 needs two presses to start again even with S5 written the legacy way --
 its embedded controller's events (`_Qxx`) and `_PTS` are Methods. The
 maintainer picked vendoring uACPI over writing stage 4 or carrying
-ACPICA (2026-11-10); "Stage 4" below is the plan, 4c (power through
-uACPI) the next. Everything up to it is history that still describes
-the code until stage 4d retires it.
+ACPICA (2026-11-10); "Stage 4" below is the plan, 4a-4c built and 4d
+(retiring the old paths) the next. Everything up to it is history that
+still describes the code until stage 4d retires it.
 
 **Status: STAGES 0 AND 1 ARE BUILT (2026-08-31); STAGE 2 IS BUILT AS
 FAR AS `_PRT` NEEDS IT (2026-09-10: integers, strings, buffers,
@@ -245,7 +245,7 @@ re-fetched by a tool pinned to a commit and a hash
 | `get_nanoseconds_since_boot`, `stall`, `sleep` | `clocksource_now_ns()`; a busy wait; a timed `scheduler_block_kernel_until()`, a busy wait where nothing can park |
 | semaphores, `get_thread_id` | a count under a spinlock, waited on by address (park, or poll in the kernel context); the pid + 1 |
 | spinlocks, `disable`/`restore_interrupts` | `spinlock.h`'s ticket lock (`spin_lock_irqsave`) and `irqflags.h` |
-| `install_interrupt_handler` | **HELD, not installed**: `acpi_sci.c` keeps the SCI and the power button on it until 4c, and calls the held handler after taking PWRBTN -- the global lock's release and, from 4b, the embedded controller's GPE |
+| `install_interrupt_handler` | **HELD, not installed**: `acpi_sci.c` keeps the SCI line and calls the held handler -- the global lock's release, from 4b the embedded controller's GPE, and from 4c the power button as uACPI's fixed event (whose press is sent on after the dispatch returns) |
 | `schedule_work`, `wait_for_work_completion` | `kacpid`'s queue -- an item queued at most once; a waiter with no kacpid drains it itself |
 | `log` | `klog`, the first 128 lines straight through and then one a second |
 | `memcpy`/`memmove`/`memset`/`memcmp` | `k_mem*`, through `glue/uacpi_libc.h` (`UACPI_OVERRIDE_LIBC`): GCC's builtins would call a `memcpy()` the kernel deliberately does not have |

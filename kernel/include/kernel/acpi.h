@@ -97,6 +97,8 @@ const struct acpi_sdt_header *acpi_find_table(const char *sig);
 #define ACPI_F_PWRBTN     (1u << 8) // the fixed power button is armed and its SCI routed
 #define ACPI_F_PWRBTN_CM  (1u << 9) // FADT: the button is a control-method DEVICE, which needs AML
 #define ACPI_F_EC_LEGACY  (1u << 10) // kept in legacy mode: an embedded controller needs AML (acpi_sci.c)
+#define ACPI_F_PWRBTN_UACPI (1u << 11) // the power button is uACPI's fixed event (uacpi_power.c)
+#define ACPI_F_S5_UACPI   (1u << 12) // power-off runs _PTS(5) and uACPI's S5 first (uacpi_power.c)
 
 struct acpi_state {
     uint32_t flags;        // ACPI_F_*
@@ -185,12 +187,17 @@ int acpi_cpu_count(void);
 const struct acpi_cpu *acpi_cpu_at(int index);
 
 // Turns the machine off through ACPI. Does not return on success.
-// Returns 0 when it could not even try -- no FADT, no `_S5_`, or a
-// register in an address space this kernel does not drive -- which is
+// Returns 0 when the machine stayed up; acpi_poweroff_known() then says
+// whether a named path was tried -- no FADT, no `_S5_` (and no uACPI
+// S5), or a register in an address space this kernel does not drive is
 // what makes system_poweroff()'s legacy fallback reachable.
 //
-// It writes SLP_TYP|SLP_EN into PM1a_CNT (and PM1b_CNT when the FADT
-// names one), or into SLEEP_CONTROL_REG on a hardware-reduced platform.
+// With uACPI's namespace ready it runs the firmware's `_PTS(5)` and lets
+// uACPI write S5 (uacpi_power.c); otherwise, or when that returns, it
+// writes SLP_TYP|SLP_EN into PM1a_CNT (and PM1b_CNT when the FADT names
+// one), or into SLEEP_CONTROL_REG on a hardware-reduced platform. May
+// park (AML reaches the embedded controller): a syscall's context, with
+// interrupts on.
 int acpi_poweroff(void);
 
 // Resets the machine through the FADT's RESET_REG. Same contract:
@@ -206,8 +213,8 @@ int acpi_reset(void);
 void acpi_sci_init(void);
 
 // Arm PWRBTN_EN again, if acpi_sci_init() armed it. uACPI's event set-up
-// disables every fixed event, the power button's among them, while
-// acpi_sci.c still owns the SCI (stage 4a); its start and its teardown
+// disables every fixed event, the power button's among them, before its
+// own fixed event takes the button (stage 4c); its start and its teardown
 // call this. A press in the gap is lost.
 void acpi_sci_rearm(void);
 // `acpi=uacpi` entered ACPI mode on a legacy-mode EC machine for
@@ -221,8 +228,9 @@ void acpi_sci_ec_unserved(const char *why);
 //
 // Behind `acpi=uacpi`, off by default. acpi_uacpi_start() runs once
 // kernel threads exist (after the scheduler, beside fs_threads_start())
-// and starts `kacpid`, which loads the namespace, runs _STA/_INI, and
-// then serves uACPI's deferred work. Boot does not wait for it -- but it
+// and starts `kacpid`, which loads the namespace, runs _STA/_INI, takes
+// the power button and the embedded controller, and then serves uACPI's
+// deferred work. Boot does not wait for it -- but it
 // runs on core 0 with interrupts off, giving the core up only between
 // steps (uacpi_boot.c's top comment).
 enum acpi_uacpi_state {

@@ -1,5 +1,6 @@
 // Bringing uACPI up: `kacpid`, behind `acpi=uacpi` (docs/aml-design.md,
-// stage 4a -- loaded, nothing acting on it yet).
+// stage 4: the namespace, the embedded controller, the power button and
+// S5).
 //
 // WHY A THREAD AND NOT acpi_init(). acpi_init() runs before the frame
 // allocator and the heap, and the kernel context cannot park -- while
@@ -66,8 +67,9 @@ static int fail(const char *step, uacpi_status st) {
 
 // initialize -> load (every DSDT/SSDT's top-level code; installs the
 // GPE blocks, holds the SCI) -> the ECDT's embedded controller -> namespace
-// init (_STA, _INI, _REG) -> the EC device and its GPE (uacpi_ec.c). No
-// uacpi_finalize_gpe_initialization(): the EC's is the one GPE enabled.
+// init (_STA, _INI, _REG) -> the EC device and its GPE (uacpi_ec.c) ->
+// the power button (uacpi_power.c). No uacpi_finalize_gpe_initialization():
+// the EC's is the one GPE enabled.
 static int bring_up(void) {
     uint64_t t0 = clocksource_now_ns();
     uacpi_status st = uacpi_initialize(UACPI_FLAG_NO_ACPI_MODE);
@@ -81,6 +83,8 @@ static int bring_up(void) {
     st = uacpi_namespace_initialize();
     if (uacpi_unlikely_error(st)) return fail("namespace init", st);
     acpi_ec_probe_namespace();
+    acpi_uacpi_take_power_button();
+    acpi_uacpi_decide_s5();
 
     uint32_t nodes = 0, devices = 0;
     uacpi_namespace_for_each_child(uacpi_namespace_root(), count_node, UACPI_NULL,
@@ -128,6 +132,10 @@ void acpi_uacpi_start(void) {
 
 static int g_inline;
 
+int acpi_uacpi_is_inline(void) {
+    return g_inline;
+}
+
 int acpi_uacpi_bring_up_inline(void) {
     uint32_t off = ACPI_UACPI_OFF;
     if (!__atomic_compare_exchange_n(&g_info.state, &off, ACPI_UACPI_LOADING, 0,
@@ -139,6 +147,10 @@ int acpi_uacpi_bring_up_inline(void) {
 
 void acpi_uacpi_tear_down_inline(void) {
     if (!g_inline) return;
+    // Forgotten BEFORE g_inline drops, so a power-off in between never
+    // picks a namespace uacpi_state_reset() is freeing.
+    acpi_uacpi_give_back_power_button();
+    acpi_uacpi_forget_s5();
     g_inline = 0;
     uacpi_state_reset();
     acpi_ec_reset();

@@ -7,10 +7,10 @@
 // every wait here tries to park and, told there is nowhere to
 // (scheduler_block_kernel*() returning 0), polls instead.
 //
-// THE SCI IS HELD, NOT INSTALLED, until stage 4c: acpi_sci.c owns the
-// line and the power button on it, and calls uACPI's handler after it --
-// for the global lock's release, the one event uACPI enables itself, and
-// for the GPEs. Only the embedded controller's is enabled (uacpi_ec.c);
+// THE SCI IS HELD, NOT INSTALLED: acpi_sci.c owns the line and calls
+// uACPI's handler after it -- for the global lock's release, the one
+// event uACPI enables itself, for the GPEs, and for the power button once
+// uACPI's fixed event has it (uacpi_power.c, stage 4c). Only the embedded controller's is enabled (uacpi_ec.c);
 // there is no uacpi_finalize_gpe_initialization(), so no _Lxx/_Exx runs.
 #include <uacpi/kernel_api.h>
 #include <uacpi/status.h>
@@ -324,8 +324,9 @@ uacpi_status uacpi_kernel_handle_firmware_request(uacpi_firmware_request *r) {
 
 // --- the SCI: held, not installed (the top of this file) ---------------
 //
-// acpi_sci.c's handler takes the power button and then calls the held
-// one (uacpi_host_sci_dispatch()), under g_sci_lock -- which the
+// acpi_sci.c's handler takes the power button (until uACPI's fixed event
+// has it) and then calls the held one (uacpi_host_sci_dispatch()), under
+// g_sci_lock -- which the
 // uninstall takes too, so a teardown never frees a context an interrupt
 // on another core is still in.
 
