@@ -1096,7 +1096,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   accent), a wrong password is refused with the field emptied, and the
   right one starts the session again as `user`. Puts the machine back
   (no password, automatic sign-in on). Clicks in the dialog wait for a
-  settled frame: keys typed in the same moment were lost (`docs/bugs.md`).
+  settled frame: keys typed in the same moment were lost (`docs/test-flakes.md`).
   Positive control: make privd's `pass_check()` always 1 -- the wrong
   password's two checks go red.
 - **`netheal_session_test.py`** -- netheal with a person at the machine

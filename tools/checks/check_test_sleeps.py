@@ -3,8 +3,8 @@
 
 A GUI test that sleeps a guessed interval and then looks is the commonest
 flake here: under load the guess is short, and the tool goes red one run
-in five on a build that is fine (docs/bugs.md, "THE FULL GUI SUITE FAILS
-2-4 TOOLS A RUN"). The waits that do not guess exist: DebugConsole.settle()
+in five on a build that is fine (docs/test-flakes.md, "THE FULL GUI SUITE
+FAILS 2-4 TOOLS A RUN"). The waits that do not guess exist: DebugConsole.settle()
 (input delivered, handled AND drawn -- `gui sync`), harness.poll() on the
 condition the test then asserts, tools/dev/wait_for.sh on a pid or a file.
 

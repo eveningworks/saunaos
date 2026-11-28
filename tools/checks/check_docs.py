@@ -194,7 +194,8 @@ def check_roadmap_items_are_one_line(problems):
 
 def check_roadmap_details_headings_resolve(problems):
     """Every `###` in roadmap-details.md must name something that still
-    exists: a roadmap SECTION, a roadmap ITEM, or a bugs.md entry.
+    exists: a roadmap SECTION, a roadmap ITEM, or a bugs.md or
+    test-flakes.md entry.
 
     The pairing by TITLE is the whole mechanism -- CLAUDE.md sends a
     reader from an item to its long form by name, so a heading nobody
@@ -216,7 +217,7 @@ def check_roadmap_details_headings_resolve(problems):
         return _re.sub(r"\s*--\s*done\b.*$", "", t)
 
     targets = set()
-    for rel in ("docs/roadmap.md", "docs/bugs.md"):
+    for rel in ("docs/roadmap.md", "docs/bugs.md", "docs/test-flakes.md"):
         for line in read(rel).split("\n"):
             if line.startswith("## ") or line.startswith("### "):
                 targets.add(norm(line.lstrip("# ")))
@@ -235,7 +236,7 @@ def check_roadmap_details_headings_resolve(problems):
                for t in targets):
             continue
         problems.append(f"docs/roadmap-details.md:{i}: heading matches no "
-                        f"roadmap section, roadmap item or bugs.md entry -- "
+                        f"roadmap section, roadmap item, bugs.md or test-flakes.md entry -- "
                         f"rename it to match, or delete it\n      {line[:90]}")
 
 

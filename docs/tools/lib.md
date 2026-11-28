@@ -450,7 +450,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `--kvm`, AHCI/NVMe, a second disk, sound, `--uefi`, a CD boot. Under
   record the UART runs at its baud rate, so `vm.py` waits for `startup
   finished` in the relay's file. GUI tests do not run under record yet:
-  a `gui ... --json` reply stops after 16 bytes (`docs/bugs.md`). A boot
+  a `gui ... --json` reply stops after 16 bytes (`docs/test-flakes.md`). A boot
   plus two commands: 18 s recorded, 26 s replayed.
   `tools/tests/sweep/replay_test.py`.
 - **`vm.py --kdebug`** -- a THIRD port, COM3, as the unix socket

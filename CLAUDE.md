@@ -230,7 +230,8 @@ no tracked source or a program directory without its `component.mk`.
   MESSAGE (`git log` is the record). How it works and its trap -> a
   comment by the code. Why this way -> `docs/decisions.md`, IN FULL.
   What is BROKEN -> `docs/bugs.md`, one line each, repro in
-  `docs/roadmap-details.md`; a fixed bug is DELETED, an intermittent one
+  `docs/roadmap-details.md` -- and a TEST going red with no established
+  cause -> `docs/test-flakes.md`, same rules; a fixed bug is DELETED, an intermittent one
   gives its RATE, an unestablished cause is said plainly, and
   PRE-EXISTING means MEASURED. What is NOT BUILT -> `docs/roadmap.md`
   (its "Known limitations" is for things working as designed).

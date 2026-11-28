@@ -24,6 +24,7 @@ Moved verbatim from the root CLAUDE.md (2026-10-23); it loads only when a matchi
 | `docs/settings-and-queries.md` | facts vs settings vs tunables |
 | `docs/commands.md` | the INDEX over `docs/commands/` |
 | `docs/bugs.md` / `docs/roadmap.md` / `docs/roadmap-details.md` | what is broken, what is not built yet, and the long form of both |
+| `docs/test-flakes.md` | tests that go red with the cause not established -- test or OS; an entry moves to `bugs.md` once a cause is the OS's |
 
 **Rules for editing docs/:**
 
