@@ -1338,8 +1338,8 @@ whenever a headline here tells you something you did not already know.
   `-Bsymbolic` WHEN ANOTHER LIBRARY MAY EXPORT THE SAME NAMES** --
   SDL3 under sdl2-compat failed video init with no error without it
 - **A VENDORED PORT IS NEVER EDITED IN PLACE: OUR CHANGE TO IT IS A
-  PATCH FILE** -- `userland/third_party/<port>/patches/`, applied before
-  the host build
+  PATCH FILE** -- `userland/third_party/<port>/patches/` (a kernel port's
+  in `kernel/third_party/<port>/patches/`), applied before the host build
 - **A `.d` FILE MUST NEVER BE REMAKEABLE, OR make BUILDS THE WRONG FILE
   AND STILL EXITS 0**
 - **mtools DOES NOT READ stdin -- IT OPENS `/dev/tty`, so a CAPTURED

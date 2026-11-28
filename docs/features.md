@@ -140,7 +140,7 @@ authenticate against; `service enable telnetd` turns one on, and
 `tools/dev/remote.py` uses the pair to drive a bare-metal machine — commands,
 file transfer, and replacing the kernel on its own boot partition.
 
-**ACPI, as far as the tables and no further.** The RSDP comes from the
+**ACPI: the tables, and an interpreter behind a boot word.** The RSDP comes from the
 multiboot2 tag (with a BIOS-area scan behind it), the RSDT or XSDT is
 walked and every table checksummed, and the FADT and MADT are decoded —
 so **the machine powers off through its own firmware's numbers**: the
@@ -162,12 +162,16 @@ power-button event on the SCI and sends init `SIGPWR`, and power-off
 hands ACPI mode back to firmware that booted without it, so S5 takes the
 firmware's own path. Both power ladders have a halt at the
 bottom, and each rung logs which one ran — the machine stops either way,
-so the log is the only thing that can tell you. There is **no AML
-interpreter**, and `_S5_` is the one deliberate exception: a `Name`
-holding a `Package` of constants is data with a fixed grammar, and the
-scan refuses any shape it does not recognise rather than guessing at a
-sleep type. `/bin/acpi` prints the lot, the MADT's processor list with
-which cores the kernel started.
+so the log is the only thing that can tell you. The sleep type comes
+from a byte scan of `_S5_`: a `Name` holding a `Package` of constants
+is data with a fixed grammar, and the scan refuses any shape it does
+not recognise rather than guessing. **The firmware's AML can be run**
+by uACPI, vendored into the kernel, with the boot word `acpi=uacpi`: it
+loads the namespace and runs its `_STA`/`_INI` methods, and nothing
+acts on it yet -- the embedded controller, `_PTS` and the power button
+through it come next (`docs/aml-design.md`, stage 4). `/bin/acpi`
+prints the lot, the interpreter's line, and the MADT's processor list
+with which cores the kernel started.
 
 **Multi-core.** Every core the firmware enables is brought up at boot
 (INIT-SIPI-SIPI), given its own GDT, TSS and stacks reached through

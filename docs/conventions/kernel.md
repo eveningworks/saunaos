@@ -3071,7 +3071,8 @@ Compatible Port Offset and Count say "USB 2.0 is ports 1..11" and "USB
 3.0 is 12..15"; nothing in xHCI says port 3 and port 14 are one socket.
 The authority is ACPI `_PLD`, which is what Linux matches on
 (`match_location()` in `usb/core/port.c`); this kernel's AML layer is a
-declaration walk with no interpreter, so `_PLD` is out of reach.
+declaration walk with no interpreter (uACPI, stage 4a, now loads
+behind `acpi=uacpi`, but nothing asks it for `_PLD` yet), so `_PLD` is out of reach.
 
 So the pairing is Linux's own fallback -- **the Nth port of one range is
 the Nth of the other** -- and three things follow:
@@ -4243,14 +4244,14 @@ it and it costs two `outw`s.
 the clear changes nothing in QEMU. What `poweroff_test.py` can assert,
 and does, is that the EVENT block was parsed and written.
 
-**THERE IS NO AML INTERPRETER, AND THE LINE IS EXECUTION.** The `_S5_`
-byte scan is allowed because a `Name` holding a `Package` of constants
-is data with a fixed grammar. Anything needing AML *evaluated* --
-battery, thermal zones, S3, GPE dispatch -- is not here and is not
-nearly here. A namespace WALK (declarations parsed, Method bodies
-skipped by their length) is planned and not built: `docs/aml-design.md`
-stages it, and `docs/decisions.md` records why that boundary moved and
-where the old wording was imprecise.
+**AML IS EVALUATED BY uACPI, AND BY NOTHING ELSE.** The `_S5_` byte
+scan and `aml.c`'s namespace walk read DECLARATIONS -- a `Name` holding
+a `Package` of constants is data with a fixed grammar -- and execute
+nothing. Anything needing AML *evaluated* -- battery, thermal zones,
+S3, GPE dispatch, the embedded controller -- goes through the vendored
+uACPI (`kernel/acpi/uacpi_*.c`, `acpi=uacpi`), never a third hand-rolled
+reader: `docs/aml-design.md`, stage 4, which also retires the scan and
+the walk (4d).
 
 **The scan REFUSES rather than guesses**, and a refusal is a supported
 outcome: `ACPI_F_S5` stays clear, `/bin/acpi` says `poweroff: no`, and

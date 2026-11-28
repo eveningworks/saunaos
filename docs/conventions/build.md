@@ -780,7 +780,13 @@ this the obvious way), not from how much history it accumulated.
   answer where a whole function is replaced from outside; a patch is for
   a change INSIDE one (`html_redraw_box()` calls itself, which no wrap
   reaches). A hand-vendored port (dash, mbedTLS, cJSON, DOOM) takes the
-  same directory the day it first needs a change. **The FETCHED toolchain
+  same directory the day it first needs a change. **A KERNEL port follows
+  it too** (`kernel/third_party/<port>/upstream/`, uACPI first,
+  `tools/fetch/uacpi_vendor.py`): its configuration lives in `glue/`
+  beside it, its callbacks in the subsystem that owns them
+  (`kernel/acpi/uacpi_*.c`), its flags in the Makefile's `UACPI_FLAGS`,
+  and its own test suite stays out of the kernel build -- the recursive
+  source discovery would compile it otherwise. **The FETCHED toolchain
   follows the same rule from `toolchain/patches/<pkg>/`** (GCC,
   binutils; `tools/build/build_toolchain.sh` applies them to a fresh
   unpack every build, so there is no tree to edit in place), with one

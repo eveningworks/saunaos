@@ -1088,7 +1088,7 @@ skipped, the machine needed two presses of the power button to start
 after a SaunaOS shutdown. The fix (b8913e60) lets the firmware do its own
 tidy-up instead: when it left ACPI mode off, SaunaOS powers off through
 its legacy path, which takes the firmware's own preparation. That is the
-right substitute while there is no interpreter, and it is why this item
+right substitute while nothing runs `_PTS`, and it is why this item
 is not urgent.
 
 **What changed the answer (2026-11-10).** The power button needs ACPI
@@ -1099,6 +1099,13 @@ such a machine stays in legacy mode with no button, and the maintainer
 picked VENDORING uACPI over writing stage 4 or carrying ACPICA. The plan
 is `docs/aml-design.md`'s stage 4; the ASUS starting on one press with
 its power button armed is the acceptance test.
+
+**Stage 4a BUILT 2026-11-28**: uACPI 7.0.0 vendored
+(`kernel/third_party/uacpi/`), loaded by the `kacpid` thread behind
+`acpi=uacpi`, off by default -- clean on QEMU's i440fx, q35 and OVMF,
+the power button still armed, the kernel suite `uacpi` running it on
+every `make test`. Next is 4b, the embedded controller, whose first
+measurement is the ASUS booted with `acpi=uacpi` (not yet run there).
 
 ### A hardware watchdog that RESETS a hung machine
 

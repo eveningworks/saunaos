@@ -82,9 +82,10 @@ indexed by headline in the next section.
   timer/RTC, filesystem, graphics). Never `#include` a driver header from
   `kernel/shell/`, never call `inb`/`outb` from shell code. A missing capability belongs behind a new function in
   `kernel/core` or `kernel/drivers`, exposed through `kapi.h`.
-- **`userland/third_party/<port>/upstream/` IS NEVER EDITED IN PLACE** -- the vendoring tool
-  deletes and recopies it; a change to a port is a patch in
-  `userland/third_party/<port>/patches/` (`docs/conventions/build.md`).
+- **`userland/third_party/<port>/upstream/` (and `kernel/third_party/`'s)
+  IS NEVER EDITED IN PLACE** -- the vendoring tool deletes and recopies
+  it; a change to a port is a patch in `<port>/patches/`
+  (`docs/conventions/build.md`).
 - **`kernel/include/` is split by audience and the build enforces it** --
   `api/` (what `kernel/shell/` may use), `abi/` (the kernel<->userland contract
   `userland/` shares), `kernel/` (internal, NOT on `kernel/shell/`'s include

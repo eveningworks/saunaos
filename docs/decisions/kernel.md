@@ -7130,6 +7130,32 @@ AND RUNNING firmware in ring 0 (as Linux does), under userland's
 never-edited-upstream rule. Staged behind `acpi=uacpi` until the ASUS
 starts on one press with its button armed: `docs/aml-design.md`, stage 4.
 
+## uACPI comes up in a kernel thread after the scheduler, not in `acpi_init()`
+
+**Decided 2026-11-28 (stage 4a, `docs/aml-design.md`).** The obvious
+place for an AML interpreter is beside the tables, in `acpi_init()`.
+That runs before the frame allocator and the heap, in the kernel
+context, which can park on nothing -- while uACPI allocates on every
+step, waits on semaphores, and runs firmware that may `Sleep()` or spin.
+So the tables stay early and the interpreter starts in `kacpid`, a
+kernel thread started beside `fs_threads_start()`, which then serves
+uACPI's deferred work. **Linux has the same split**: ACPICA's table
+manager in `acpi_table_init()` early, the interpreter at
+`acpi_bus_init()` from a `subsys_initcall`, and GPE and Notify work on
+the `kacpid` workqueue.
+
+**Boot does not wait for it** (the maintainer's pick over "boot waits",
+which would make every later step free to assume the namespace but
+lets a firmware `_INI` that sleeps or loops stall the whole boot). A
+consumer waits on `ACPI_UACPI_READY`. Not waiting is not free: a kernel
+thread runs on core 0 with interrupts off, so each step holds that core
+(`kacpid` yields between them), and with one core boot waits anyway. **The cost lands in 4d**: PCI
+drivers probe at `INIT_BUS`, before the scheduler exists, so a `_PRT`
+evaluated by uACPI cannot route their interrupts at probe time --
+`acpi_prt.c`'s reader stays for those, or routing is redone once the
+namespace is ready. That is 4d's question, recorded here so the
+placement is not reversed to answer it without weighing the stall.
+
 ## ACPI stops at the tables, and `_S5_` is the one deliberate exception
 
 `kernel/acpi/` finds the RSDP, walks the RSDT or XSDT, and decodes the
