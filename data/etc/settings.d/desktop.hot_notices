@@ -6,6 +6,6 @@ Category=Power
 Group=Temperature
 Default=on
 Choices=on,off
-Description=A notice when the processor is slowed down to cool it, and a warning near the temperature it shuts down at. Turn it off if a sensor reads wrongly high; the cooling and the shutdown still happen.
+Description=Warns when the processor is slowed to cool it, and near shutdown. Turn off if a sensor reads wrongly high.
 Choice.on=On
 Choice.off=Off
