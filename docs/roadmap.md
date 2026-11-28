@@ -1304,7 +1304,7 @@ run on, not by order.
 - [x] ~~An Intel display driver: fastboot readout, cursor plane, backlight, power well~~ DONE 2026-09-02 -- gen8; modesets since 09-03
 - [x] ~~A page flip on vblank: three scanouts and a buffer age over the framebuffer grant~~ DONE 2026-09-02 -- Intel and virtio-gpu
 - [x] ~~Screen blanking: the backlight off on idle or lid, never persisted, and any key or motion brings it back~~ DONE 2026-11-10 for idle
-- [ ] The screen off when the lid closes -- the lid is an ACPI device (PNP0C0D), so it waits for the AML interpreter
+- [x] ~~The screen off when the lid closes~~ DONE 2026-11-28 -- `desktop.lid`: lock and screen off by default (`acpi=uacpi`)
 - [ ] The calendar, context menu and confirm dialog should declare their own damage, as the Start menu already does
 - [ ] Intel modesetting: external outputs on DDI B-D, a second EDID and hotplug -- waits for a laptop with a usable port
 - [ ] Intel gen9: the panel's size past a smaller firmware buffer -- gen8 grows its scanouts; gen9 needs PLANE_STRIDE/PLANE_SIZE
@@ -1591,7 +1591,7 @@ run on, not by order.
 - [ ] A one-shot PIT, so a machine without a LAPIC (or booted `nomsi`) can go tickless too
 - [ ] Nanosecond timeouts in `SYS_SLEEP`/futex waits -- every wait is still asked for in whole milliseconds
 - [ ] A kvmclock clocksource -- under KVM without `+invtsc` every PM-timer read is a VM exit
-- [ ] Battery + AC adapter status
+- [x] ~~Battery + AC adapter status~~ DONE 2026-11-28 -- `QUERY_POWER`, a tray item and Battery page, shutdown at 3% (`acpi=uacpi`)
 - [ ] Thermal zone reporting
 - [ ] **NEXT** An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI
 - [ ] The brightness keys change the panel's brightness

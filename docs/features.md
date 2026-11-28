@@ -171,7 +171,10 @@ loads the namespace and runs its `_STA`/`_INI` methods, serves the
 embedded controller (its address space and its `_Qxx` events: the lid
 and brightness keys on the ASUS), takes the power button as its fixed
 event, and powers off after the firmware's `_PTS(5)`, the old path kept
-as the fallback (`docs/aml-design.md`, stage 4). `/bin/acpi`
+as the fallback, and reads the BATTERIES, the AC ADAPTER and the LID --
+their charge, energy, design and cycles as kernel facts, re-read on the
+firmware's Notify and every 30 s, the machine shutting itself down
+cleanly at 3% on battery (`docs/aml-design.md`, stage 4). `/bin/acpi`
 prints the lot, the interpreter's line, and the MADT's processor list
 with which cores the kernel started.
 
@@ -362,7 +365,14 @@ the keyboard layout (a click takes the next one), remote desktop, the
 on-screen keyboard, transparency -- with the volume and brightness
 sliders and All settings. A tile's chevron (and a slider's) opens that
 flyout as a page in the same place, under a header with Back. Settings > Desktop >
-Tray > Quick Settings off gives each its own icon again.
+Tray > Quick Settings off gives each its own icon again. On a laptop
+(`acpi=uacpi`) the BATTERY joins the group: its fill is the charge, a
+bolt while charging, amber under 15% and red under 5%; the card's footer
+says "78% · 4 h 53 min left" and opens a Battery page (the charge bar,
+power draw, energy, health, the pack); "Battery low" goes up once at 10%.
+**The lid**: closing it locks and turns the screen off -- Settings >
+Power > Lid and battery offers turning the screen off only, shutting
+down or nothing -- and opening it turns the screen back on.
 
 **Display scale**: Settings > Display > Screen > Scale makes the whole
 desktop 100%, 125%, 150%, 175% or 200% -- text, title bars, the

@@ -6,8 +6,9 @@ power button needs ACPI mode, and on the ASUS a session in ACPI mode
 needs two presses to start again even with S5 written the legacy way --
 its embedded controller's events (`_Qxx`) and `_PTS` are Methods. The
 maintainer picked vendoring uACPI over writing stage 4 or carrying
-ACPICA (2026-11-10); "Stage 4" below is the plan, 4a-4c built and 4d
-(retiring the old paths) the next. Everything up to it is history that
+ACPICA (2026-11-10); "Stage 4" below is the plan, 4a-4c built, 4e's
+batteries, AC adapter and lid built (2026-11-28), and 4d (retiring the old
+paths) next. Everything up to it is history that
 still describes the code until stage 4d retires it.
 
 **Status: STAGES 0 AND 1 ARE BUILT (2026-08-31); STAGE 2 IS BUILT AS
@@ -382,7 +383,25 @@ TCO watchdog driver (`docs/decisions/kernel.md`,
 - **4e -- what a laptop wants.** Lid (PNP0C0D), AC adapter (ACPI0003),
   battery (PNP0C0A, `_BIF`/`_BST`) as kernel facts the panel can read,
   thermal zones, and the GPE wake set from `_PRW` (stage 3, finally).
-  Each its own roadmap item.
+  Each its own roadmap item. **The first three BUILT 2026-11-28**
+  (`uacpi_supply.c`, Linux's `battery.c`/`ac.c`/`button.c` in one file):
+  found by HID once the namespace is up, read on kacpid -- `_BIX`, else
+  `_BIF` (`battery_parse.c`, its KTEST suite `battery`), then `_BST`,
+  `_PSR`, `_LID` -- re-read on each device's Notify(0x80/0x81) and every
+  30 s while a battery is present (firmware rarely notifies a falling
+  percentage, which is why UPower polls), `_BTP` armed at 3%. Energy is
+  mWh whatever the firmware counts in, converted through the DESIGN
+  voltage. Readers get copies under one spinlock (`QUERY_POWER`, its
+  `generation`, and `QUERY_POWER_SUPPLY`). **An info package with every
+  number unknown is NOT information**: the ASUS answers its default
+  `NBIX` while its EC's battery-type byte (`EB0T`, an index-window field
+  at ports 0x25A/0x25B, not the EC protocol) reads 0xFF, so it is asked
+  again every 10 s for the first minute, then at the 30 s reading. The
+  critical charge (3% on battery for 20 s, or the firmware's own critical
+  bit) sends init SIGPWR from the kernel; `battery=noshutdown` turns that
+  off. The desktop's half -- the tray item, the Battery page, the low
+  notice, the lid's action (`desktop.lid`) -- is toywm's
+  (`battery_popup.c`, `wm_lid.c`). Thermal zones and `_PRW` remain.
 
 **Testing.** uACPI's own suite (`tests/run_tests.py`, AML test cases
 against a host runner) as a host check, `tools/hostchecks/uacpi_hostcheck.py`
@@ -394,6 +413,16 @@ reads fail; QEMU's three DSDTs for boot;
 the ASUS for 4b and 4c, by hand, because the property is about a power
 button and a firmware's memory. The positive control for 4c: the same
 build with `_PTS` skipped must bring the second press back.
+
+**Testing 4e.** QEMU has no battery, AC adapter or lid, so
+`tools/tests/fixtures/acpi/power.asl` -- compiled by `iasl`, appended with
+`vm.py --acpi-table` -- gives it all three, and its `T*` methods move them
+and Notify() as an EC query would, run through `acpi --eval` on a boot with
+`acpieval` (`SYS_ACPI_EVAL`, Linux's `acpi_call`, closed by default).
+`tools/tests/sweep/power_test.py` drives it end to end, critical shutdown
+included; booted without the table every check after the boot goes red.
+The parser has its own KTESTs (`battery`), red with the mAh conversion
+removed.
 
 ## Testing
 

@@ -1112,7 +1112,13 @@ power-off runs `_PTS(5)` and uACPI's S5, the power button is uACPI's
 fixed event; the ASUS starts on one press -- but so it did with `_PTS`
 skipped and without the interpreter, so the old two-press start did not
 reproduce (`docs/aml-design.md`). The ASUS runs `acpi=uacpi` daily; next
-is flipping the default after a few clean days, then 4d.
+is flipping the default after a few clean days, then 4d. **Stage 4e's
+batteries, AC adapter and lid BUILT 2026-11-28** (0f22e301, 7a33df65):
+kernel facts (`QUERY_POWER`), a clean shutdown at 3% on battery, the
+tray item and Battery page, the lid's action (`desktop.lid`). On the ASUS
+the adapter and lid read right but the battery answers its default
+package -- its EC's battery-type byte reads 0xFF, cause not established
+(a dead pack is the first suspect). Thermal zones and `_PRW` remain.
 
 ### The brightness keys change the panel's brightness
 

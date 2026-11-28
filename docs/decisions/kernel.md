@@ -7211,6 +7211,44 @@ here.
 holds core 0 with interrupts off for 20 ms a byte); burst mode (Linux
 uses it only around multi-byte accesses, and nothing here has needed it).
 
+## The battery's critical shutdown is the kernel's, the lid's action the compositor's
+
+*2026-11-28, uACPI stage 4e (`docs/aml-design.md`).*
+
+On Linux neither is the kernel's: `battery.c` and `button.c` publish
+facts (a `power_supply`, an `SW_LID` input switch), and UPower's
+`CriticalPowerAction` and logind's `HandleLidSwitch` act on them in user
+space. Windows' power manager, in the kernel, does both. SaunaOS splits
+them, each where its consequence lives:
+
+- **The critical charge is the kernel's** (3% on battery for 20 s, or
+  the firmware's own critical bit: SIGPWR to init, the power button's
+  clean shutdown). A text-mode boot has no desktop and no UPower, and
+  running out of charge mid-write is the one outcome that costs data
+  whatever is running -- so the rule must hold with nothing in ring 3
+  watching. Two readings 20 s apart, so one bad sample cannot do it;
+  `battery=noshutdown` turns it off, so a firmware that reads 0% for ever
+  cannot make the machine unbootable.
+- **The lid's action is the compositor's** (`desktop.lid`: lock and
+  screen off by default, screen off, shut down, nothing). Each choice is
+  something only the desktop can do -- lock the session, ask apps to
+  close -- and it is a person's setting, as Windows' "When I close the
+  lid" is per plan. With no S3 there is no sleep among them, and the
+  kernel only publishes the lid as a fact with a change count.
+
+**What was not done.** An input event for the lid (Linux's `SW_LID`):
+the compositor reads `QUERY_POWER` once a second, as it does the drives
+and the network, and a second is within what Windows takes to react; a
+switch event is worth it only once something other than the desktop
+wants the lid. A "Battery low" notice from the kernel: the desktop owns
+notices, and a shell has nowhere to show one.
+
+**An info package with every number unknown is not information.** The
+ASUS answers its default `NBIX` until its EC has read the pack, and a
+parser that took it would have cached "unknown" for the boot; it is asked
+again at each reading instead (every 10 s for the first minute), as a
+`_BST` that does not parse leaves the last good reading standing.
+
 ## ACPI stops at the tables, and `_S5_` is the one deliberate exception
 
 `kernel/acpi/` finds the RSDP, walks the RSDT or XSDT, and decodes the
