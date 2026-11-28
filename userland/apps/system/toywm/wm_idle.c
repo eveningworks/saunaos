@@ -240,6 +240,19 @@ int wm_idle_force_screen_off(void) {
     return g_screen_off || screen_off_now();
 }
 
+// THE LID (wm_lid.c): closed, the screen goes off whatever the timer says
+// -- nobody can see it; opened is input, so the screen comes back and the
+// idle clock restarts as for a key.
+void wm_idle_lid(int closed) {
+    adopt_settings();
+    if (!closed) {
+        wm_idle_poll(1);
+        return;
+    }
+    stop_saver();
+    if (!g_screen_off) screen_off_now();
+}
+
 int wm_idle_saver_pid(void) { return g_saver_pid; }
 
 uint32_t wm_idle_seconds(void) {

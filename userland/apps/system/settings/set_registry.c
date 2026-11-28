@@ -95,6 +95,7 @@ const char *category_icon(const char *cat) {
         { "Display",       "cat-display" },
         { "Storage",       "cat-storage" },
         { "Sound",         "cat-sound" },
+        { "Power",         "cat-power" },
     };
     for (unsigned i = 0; i < sizeof MAP / sizeof MAP[0]; i++)
         if (strcmp(cat, MAP[i].cat) == 0) return MAP[i].icon;

@@ -1131,6 +1131,21 @@ report is ON only after `enter_gui()`").
   `ondemand_sweep.py`. Positive controls: no hatching fails "hatched"; a
   label row wider than the box fails the inside-the-box check (a body
   merely NARROWER does not: the dialog's own text keeps the box wide).
+- **`power_test.py`** -- batteries, the AC adapter and the lid, on a guest
+  of its own (QEMU emulates none of them): compiles
+  `tools/tests/fixtures/acpi/power.asl` with `iasl` (SKIP without it), boots
+  a disk copy with `acpi=uacpi acpieval` and the table appended
+  (`vm.py --acpi-table`), and moves the fixture's state through its `T*`
+  methods (`acpi --eval`), which Notify() as a laptop's EC query does. Checks
+  the kernel's facts (`acpi`: charge, energy, design, cycles, model, lid,
+  `_BTP` armed at 3%), the tray item (charging bolt, the unplugged time
+  left), Quick Settings' footer opening the Battery page and its bar drawn
+  to the charge (pixels: accent inside, trough past), the 9% amber icon
+  and ONE low notice, the lid (`desktop.lid=screen` turns the screen off,
+  the default locks), and last the critical charge: 3% on battery, 20 s,
+  SIGPWR, the guest powers itself off. Some 3 minutes. Positive control
+  (`--positive-control`): booted without the table, every check after the
+  boot goes red.
 - **`disks_test.py`** -- Disks on a guest of its own: the system disk
   pinned as the root and a BLANK 256 MiB virtio disk beside it, in
   `ondemand_sweep.py` (it boots its own hardware). On the system disk

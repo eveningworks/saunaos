@@ -385,6 +385,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `part_test.py` -- `part delete` against a table a FOREIGN tool wrote
 - `partition_test.py` -- Boot SaunaOS with its filesystem INSIDE an MBR or GPT partition
 - `ping_rtt.py` -- the compositor <-> client round trip, in microseconds
+- `power_test.py` -- A battery, an AC adapter and a lid, on a guest that has none of its own
 - `poweroff_test.py` -- Prove the machine stops through ITS OWN ACPI tables, not a hardcoded port
 - `remote_test.py` -- telnetd, tftpd and tools/dev/remote.py, end to end against a QEMU guest
 - `rename_migrate_test.py` -- A machine installed as toy-os keeps its settings and log when it boots

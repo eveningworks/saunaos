@@ -1,0 +1,14 @@
+Type=enum
+File=/etc/desktop.conf
+Scope=user
+Label=When the lid is closed
+Category=Power
+Group=Lid
+Default=lock
+Choices=lock,screen,shutdown,nothing
+Widget=radio
+Description=What a laptop does when its lid is closed. Opening it turns the screen back on.
+Choice.lock=Lock and turn off the screen
+Choice.screen=Turn off the screen
+Choice.shutdown=Shut down
+Choice.nothing=Do nothing

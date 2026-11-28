@@ -84,6 +84,9 @@ int tray_wait_ms(void);
 // Lights an icon item -- an accent square behind it -- or puts it out.
 // A no-op when unchanged.
 void tray_set_accent(int tray_id, int on);
+// Draws an icon item in its own ink instead of the panel's (0: the
+// panel's again) -- a low battery's amber. A no-op when unchanged.
+void tray_set_ink(int tray_id, uint32_t ink);
 // A count over an icon item's top-right corner (0: none) -- the bell's
 // unread notifications, as a Windows or KDE tray badge.
 void tray_set_badge(int tray_id, int count);

@@ -58,6 +58,7 @@ struct wm_quick_info {
     struct wm_quick_tile_info tile[WM_QUICK_TILES];
     struct wm_quick_slider_info slider[2];
     int set_x, set_y, set_w, set_h;   // All settings
+    int bat_x, bat_y, bat_w, bat_h;   // the footer's charge (0 wide: no battery)
 };
 void wm_quick_state(struct wm_quick_info *out);
 

@@ -10,6 +10,7 @@
 #include "brightness_popup.h"
 #include "layout_popup.h"
 #include "remote_popup.h"
+#include "battery_popup.h"
 #include "tray_slider_popup.h"
 #include "osk.h"
 #include "media/icon_cache.h"
@@ -24,7 +25,7 @@
 #define SET_QUICK "desktop.tray.quick"   // off: the members are their own icons again
 
 // The pages: today's flyouts, shown over the group with Back.
-enum { PAGE_NONE, PAGE_NETWORK, PAGE_VOLUME, PAGE_BRIGHTNESS, PAGE_LAYOUT, PAGE_REMOTE };
+enum { PAGE_NONE, PAGE_NETWORK, PAGE_VOLUME, PAGE_BRIGHTNESS, PAGE_LAYOUT, PAGE_REMOTE, PAGE_BATTERY };
 static const struct {
     const char *name;
     void (*open)(void);
@@ -38,6 +39,7 @@ static const struct {
     { "brightness", brightness_open_now,  brightness_close, &brightness_open, brightness_rect },
     { "layout",     layout_open_page,     layout_close,     &layout_open,     layout_rect },
     { "remote",     remote_open_page,     remote_close,     &remote_open,     remote_rect },
+    { "battery",    battery_open_page,    battery_close,    &battery_open,    battery_rect },
 };
 
 enum { T_NETWORK, T_DND, T_LAYOUT, T_REMOTE, T_OSK, T_GLASS };
@@ -51,7 +53,7 @@ static int g_page;              // a page is up in its place
 static int g_switching;         // opening a page: its close_others() must not end us
 static int g_hover;             // HOVER_*; tiles 1..6 main, 11..16 chevron
 static int g_drag;              // 1 volume, 2 brightness: a slider is held
-enum { HOVER_BACK = 100, HOVER_SETTINGS, HOVER_SL0 = 200, HOVER_SLC0 = 210 };
+enum { HOVER_BACK = 100, HOVER_SETTINGS, HOVER_BATTERY, HOVER_SL0 = 200, HOVER_SLC0 = 210 };
 
 // --- the tiles' and sliders' state -----------------------------------------
 
@@ -108,6 +110,8 @@ struct qs_geom {
     int tile_w, tile_h, label_h, tiles_y;
     int sl_y, row_h, nsl;
     int foot_y, foot_h, btn_y, btn_h, set_x, set_w;
+    int bat_x, bat_w;           // the footer's charge, a button to the Battery page; 0 wide: none
+    char bat_label[64];
     int gx, gy, gw, gh;
 };
 
@@ -136,6 +140,21 @@ static void geometry(struct qs_geom *g) {
     g->btn_y = g->foot_y + (g->foot_h - m.btn_h) / 2;
     g->set_w = wm_flyout_button_w("All settings", "tb-gear");
     g->set_x = g->x + g->w - g->pad - g->set_w;
+    if (battery_present()) {
+        // Windows 11's footer: the charge at the left, opening its page.
+        // The whole line, or the charge alone where it would reach
+        // All settings -- a narrow font scale, a long "to full".
+        g->bat_x = g->x + g->pad - 6;
+        battery_summary(g->bat_label, sizeof g->bat_label);
+        g->bat_w = wm_flyout_button_w(g->bat_label, battery_icon());
+        if (g->bat_x + g->bat_w > g->set_x - 6) {
+            char *dot = k_strstr(g->bat_label, " \xC2\xB7");
+            if (dot) *dot = 0;
+            g->bat_w = wm_flyout_button_w(g->bat_label, battery_icon());
+        }
+        // Not even the charge fits: the footer keeps the network line.
+        if (g->bat_x + g->bat_w > g->set_x - 6) g->bat_w = 0;
+    }
 }
 
 static void tile_rect(const struct qs_geom *g, int t, int *x, int *y, int *w, int *cx, int *cw) {
@@ -243,10 +262,11 @@ void wm_quick_poll(void) {
 }
 
 void wm_quick_init(void) {
-    int shown[3], n = 0, silent[2], ns = 0;
+    int shown[4], n = 0, silent[2], ns = 0;
     shown[n++] = network_tray_id();
     shown[n++] = volume_slider()->tray_id;
     shown[n++] = brightness_slider()->tray_id;
+    shown[n++] = battery_tray_id();   // last, as Windows 11's cluster ends on it
     silent[ns++] = layout_tray_id();
     silent[ns++] = osk_tray_id();
     g_tray = tray_register_group(shown, n, silent, ns);
@@ -284,6 +304,7 @@ static int hit_at(const struct qs_geom *g, int mx, int my) {
         if (uui_hit(tx - 6, ry, tw + 12, g->row_h, mx, my)) return HOVER_SL0 + k;
     }
     if (uui_hit(g->set_x, g->btn_y, g->set_w, g->btn_h, mx, my)) return HOVER_SETTINGS;
+    if (g->bat_w > 0 && uui_hit(g->bat_x, g->btn_y, g->bat_w, g->btn_h, mx, my)) return HOVER_BATTERY;
     return 0;
 }
 
@@ -351,6 +372,10 @@ int wm_quick_click(int mx, int my) {
     }
     if (h == HOVER_SLC0 || h == HOVER_SLC0 + 1) {
         open_page(h == HOVER_SLC0 ? PAGE_VOLUME : PAGE_BRIGHTNESS);
+        return 1;
+    }
+    if (h == HOVER_BATTERY) {
+        open_page(PAGE_BATTERY);
         return 1;
     }
     if (h == HOVER_SETTINGS) {
@@ -512,10 +537,14 @@ void wm_quick_draw(int mx, int my) {
     wm_flyout_card(g.x, g.y, g.w, g.h, g.foot_h);
     for (int t = 0; t < WM_QUICK_TILES; t++) draw_tile(s, &g, t);
     for (int k = 0; k < 2; k++) draw_slider(s, &g, k);
-    char sum[48];
-    network_summary(sum, sizeof sum);
-    ugfx_draw_string_clipped(s, g.x + g.pad, g.foot_y + (g.foot_h - ugfx_char_h()) / 2,
-                             g.set_x - g.x - 2 * g.pad, sum, wm_flyout_dim(), UGFX_TRANSPARENT);
+    char sum[64];
+    if (g.bat_w > 0) {
+        wm_flyout_button(g.bat_x, g.btn_y, g.bat_label, battery_icon(), 0, g_hover == HOVER_BATTERY, 0);
+    } else {
+        network_summary(sum, sizeof sum);
+        ugfx_draw_string_clipped(s, g.x + g.pad, g.foot_y + (g.foot_h - ugfx_char_h()) / 2,
+                                 g.set_x - g.x - 2 * g.pad, sum, wm_flyout_dim(), UGFX_TRANSPARENT);
+    }
     wm_flyout_button(g.set_x, g.btn_y, "All settings", "tb-gear", 0, g_hover == HOVER_SETTINGS, 0);
 }
 
@@ -551,4 +580,5 @@ void wm_quick_state(struct wm_quick_info *o) {
         }
     }
     if (g_main) { o->set_x = g.set_x; o->set_y = g.btn_y; o->set_w = g.set_w; o->set_h = g.btn_h; }
+    if (g_main && g.bat_w > 0) { o->bat_x = g.bat_x; o->bat_y = g.btn_y; o->bat_w = g.bat_w; o->bat_h = g.btn_h; }
 }

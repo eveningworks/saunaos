@@ -1,0 +1,8 @@
+Type=enum
+File=/etc/desktop.conf
+Scope=user
+Label=Battery
+Category=Desktop
+Group=Tray
+Default=auto
+Choices=auto,always,never

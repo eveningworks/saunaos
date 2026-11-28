@@ -739,6 +739,9 @@ gui layout [--json]      the keyboard-layout tray item: the list, the active one
                          `top`, which Back must end above)
 gui remote [--json]      the remote-desktop tray item: sessions, and the page's
                          rect and `list_y` (its first row)
+gui battery [--json]     the battery tray item and its card: the charge, state,
+                         time left, icon and ink, the low notice, the bar's rect;
+                         and the lid -- open, closes acted on, the last action
 gui switcher [--json]    Alt+Tab and Snap Assist: the pick, whether the card has
                          drawn, each window's cell and thumbnail, the assist zone,
                          and the last switch's Alt hold (last_ms, last_drawn)

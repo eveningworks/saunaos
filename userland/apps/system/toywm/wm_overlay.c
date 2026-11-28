@@ -19,6 +19,7 @@
 #include "network_popup.h"
 #include "remote_popup.h"
 #include "drives_popup.h"
+#include "battery_popup.h"
 #include "layout_popup.h"
 #include "confirm_dialog.h"
 #include "leave_page.h"
@@ -42,6 +43,7 @@ static int open_brightness(void) { return brightness_open; }
 static int open_network(void) { return network_open; }
 static int open_remote(void)  { return remote_open; }
 static int open_drives(void)  { return drives_open; }
+static int open_battery(void) { return battery_open; }
 static int open_layout(void)  { return layout_open && !wm_login_open; }
 // THE SAME LIST OVER THE LOGIN SCREEN (its Keyboard button, Super+Space),
 // in a row above "login" so it draws over it and hears its keys first.
@@ -142,6 +144,8 @@ static const struct wm_overlay g_overlays[] = {
       remote_hover_at,           remote_damage,           remote_rect, 0, 0, 0, remote_close, 0, 0, 0, 0, 0, 0 },
     { "drives",   open_drives,   drives_draw,      drives_handle_click,
       drives_hover_at,           drives_damage,           drives_rect, 0, 0, 0, drives_close, 0, 0, 0, 0, 0, 0 },
+    { "battery",  open_battery,  battery_draw,     battery_handle_click,
+      battery_hover_at,          battery_damage,          battery_rect, 0, 0, 0, battery_close, 0, 0, 0, 0, 0, 0 },
     { "notify",   open_notify,   wm_notify_draw,   wm_notify_click,
       wm_notify_hover_at,        wm_notify_damage,        wm_notify_rect, 0, 0, wm_notify_key, wm_notify_close, 0, 0, 0, 0, 0, 0 },
     { "layout",   open_layout,   layout_draw,      layout_handle_click,

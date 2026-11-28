@@ -54,6 +54,8 @@
 #include "network_popup.h"
 #include "remote_popup.h"
 #include "drives_popup.h"
+#include "battery_popup.h"
+#include "wm_lid.h"
 #include "layout_popup.h"
 #include "wm_switcher.h"
 #include "wm_snap.h"
@@ -1463,6 +1465,7 @@ void wm_run(void) {
         network_tray_init();  // furthest right of the non-clock items
         remote_tray_init();   // hidden unless somebody is connected
         drives_tray_init();   // hidden unless a USB stick is plugged in
+        battery_tray_init();  // hidden unless a battery is in
         wm_quick_init();      // LAST: it groups network, volume and brightness
     }
 
@@ -1938,6 +1941,8 @@ void wm_run(void) {
             volume_tray_update(); // the speaker icon follows the level
             remote_poll();        // who is on this machine, and what they did
             drives_poll();        // USB sticks: arrived, ejected, pulled
+            if (!wm_greeter) battery_poll();   // the charge, and the low notice
+            wm_lid_poll();        // the lid shut or opened: desktop.lid
             layout_poll();        // the layout list, or the active one, changed
             // A CADENCE, not a generation compare, and network_popup.c
             // says why: there is no netdev generation in the ABI, and

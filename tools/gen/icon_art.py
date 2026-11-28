@@ -1121,6 +1121,14 @@ def cat_sound():
     return disc((255, 150, 80), (230, 90, 40), g)
 
 
+def cat_power():
+    def g(d):
+        d.rounded_rectangle((14, 22, 46, 42), 4, outline=WHITE, width=3.5)
+        d.rectangle((47, 28, 50, 36), fill=WHITE)
+        d.polygon([(32, 23), (24, 33), (30, 33), (27, 41), (36, 30), (30, 30), (33, 23)], fill=WHITE)
+    return disc((120, 200, 110), (60, 150, 70), g)
+
+
 # The names gen_icons.py ships each one under (data/icons/<name>.qoi).
 ART = {
     "notepad": notepad, "files": files, "terminal": terminal, "calculator": calculator,
@@ -1138,7 +1146,7 @@ ART = {
     "cat-recent": cat_recent, "cat-all": cat_all, "cat-utility": cat_utility,
     "cat-graphics": cat_graphics, "cat-multimedia": cat_multimedia, "cat-games": cat_games,
     "cat-development": cat_development, "cat-desktop": cat_desktop, "cat-network": cat_network,
-    "cat-sound": cat_sound,
+    "cat-sound": cat_sound, "cat-power": cat_power,
 }
 for _name, _draw in FILE_TYPES.items():
     ART[_name] = (lambda dr=_draw: typed_file(dr))

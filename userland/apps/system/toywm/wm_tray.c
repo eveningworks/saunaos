@@ -49,6 +49,9 @@ struct tray_item {
     // A COUNT in a small accent disc at the icon's top-right corner -- the
     // bell's unread notifications. 0 draws none.
     int badge;
+    // ITS OWN INK, 0 for the panel's: a low battery's amber and red. The
+    // panel's drawing, like `accent`, so colour may carry it.
+    uint32_t ink;
     // GROUPED (tray_register_group()): `absorbed` is the group's id + 1 on
     // a member -- it is not drawn on its own, and its rect is the group's,
     // so a flyout anchored to it opens over the group. A GROUP draws its
@@ -185,6 +188,13 @@ void tray_set_accent(int tray_id, int on) {
     if (tray_id < 0 || tray_id >= tray_cap || !tray_items[tray_id].active) return;
     if (tray_items[tray_id].accent == !!on) return;
     tray_items[tray_id].accent = !!on;
+    tray_damage();
+}
+
+void tray_set_ink(int tray_id, uint32_t ink) {
+    if (tray_id < 0 || tray_id >= tray_cap || !tray_items[tray_id].active) return;
+    if (tray_items[tray_id].ink == ink) return;
+    tray_items[tray_id].ink = ink;
     tray_damage();
 }
 
@@ -549,7 +559,8 @@ static void tray_draw_item(int id, int x, int w, void *vctx) {
             if (m < 0 || m >= tray_cap || !tray_items[m].active || tray_items[m].hidden) continue;
             const struct uimg *ico = icon_get(tray_icon_now(m), sz);
             if (ico) ugfx_blit_tinted(wm_surface(), ix, g->btn_y + (g->btn_h - ico->h) / 2,
-                                      ico->w, ico->h, ico->px, ico->w, p->text);
+                                      ico->w, ico->h, ico->px, ico->w,
+                                      tray_items[m].ink ? tray_items[m].ink : p->text);
             ix += sz + TRAY_PAD;
         }
         return;
@@ -564,7 +575,7 @@ static void tray_draw_item(int id, int x, int w, void *vctx) {
         // than in its own, so it follows the panel instead of assuming
         // one. Every tray item today is the shell's own indicator; an
         // app-registered icon would have to say it is not symbolic.
-        uint32_t ink = p->text;
+        uint32_t ink = tray_items[id].ink ? tray_items[id].ink : p->text;
         if (tray_items[id].accent) {
             int sq = g->btn_h * 3 / 4;
             uui_fill_round_rect(wm_surface(), x + (w - sq) / 2, g->btn_y + (g->btn_h - sq) / 2,

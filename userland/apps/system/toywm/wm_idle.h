@@ -67,6 +67,9 @@ int wm_idle_force_start(void);
 int wm_idle_screen_minutes(void);
 int wm_idle_screen_off(void);
 int wm_idle_force_screen_off(void);
+// The lid closed (1) or opened (0) -- wm_lid.c: closed turns the screen
+// off whatever `desktop.screen_off` says; opened counts as input.
+void wm_idle_lid(int closed);
 void wm_idle_force_stop(void);
 
 #endif

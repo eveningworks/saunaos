@@ -15,6 +15,8 @@
 #include "brightness_popup.h"
 #include "network_popup.h"
 #include "remote_popup.h"
+#include "battery_popup.h"
+#include "wm_lid.h"
 #include "drives_popup.h"
 #include "ui/uui_drive.h"
 #include "layout_popup.h"
@@ -1017,9 +1019,11 @@ static void cmd_quick(struct dbg_out *o, int json) {
         return;
     }
     dbg_out_printf(o, "{\"open\":%s,\"page\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
-                      "\"button\":[%d,%d,%d,%d],\"back\":[%d,%d,%d],\"settings\":[%d,%d,%d,%d],\"tiles\":[",
+                      "\"button\":[%d,%d,%d,%d],\"back\":[%d,%d,%d],\"settings\":[%d,%d,%d,%d],"
+                      "\"battery\":[%d,%d,%d,%d],\"tiles\":[",
                    q.open ? "true" : "false", q.page_name, q.x, q.y, q.w, q.h, q.bx, q.by, q.bw, q.bh,
-                   q.back_x, q.back_y, q.back_s, q.set_x, q.set_y, q.set_w, q.set_h);
+                   q.back_x, q.back_y, q.back_s, q.set_x, q.set_y, q.set_w, q.set_h,
+                   q.bat_x, q.bat_y, q.bat_w, q.bat_h);
     for (int t = 0; t < WM_QUICK_TILES; t++) {
         const struct wm_quick_tile_info *ti = &q.tile[t];
         dbg_out_printf(o, "%s{\"name\":\"%s\",\"on\":%s,\"disabled\":%s,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
@@ -2521,6 +2525,41 @@ static void cmd_layout(struct dbg_out *o, int json) {
                      i == layout_pick() ? "  picked" : "");
 }
 
+// The battery item and its card, and the lid (battery_popup.h, wm_lid.h).
+static void cmd_battery(struct dbg_out *o, int json) {
+    struct battery_debug d;
+    battery_debug(&d);
+    struct battery_geom g;
+    battery_geometry(&g);
+    char sum[64];
+    battery_summary(sum, sizeof sum);
+    int lid_present, lid_open, lid_acted;
+    const char *lid_last;
+    wm_lid_state(&lid_present, &lid_open, &lid_acted, &lid_last);
+    if (!json) {
+        dbg_out_printf(o, "battery: %s  %s  %s\r\n", battery_open ? "open" : "closed",
+                       battery_tray_hidden() ? "hidden" : "shown", sum[0] ? sum : "no battery");
+        if (lid_present)
+            dbg_out_printf(o, "lid: %s, %d close(s) acted on, last %s\r\n", lid_open ? "open" : "closed",
+                           lid_acted, lid_last[0] ? lid_last : "none");
+        return;
+    }
+    dbg_out_printf(o, "{\"open\":%s,\"tray_hidden\":%s,\"batteries\":%d,\"percent\":%d,"
+                      "\"charging\":%s,\"discharging\":%s,\"plugged\":%s,\"seconds\":%lld,"
+                      "\"warned\":%s,\"ink\":%u,\"icon\":\"%s\",\"summary\":\"%s\",",
+                   battery_open ? "true" : "false", battery_tray_hidden() ? "true" : "false", d.batteries,
+                   d.percent, d.charging ? "true" : "false", d.discharging ? "true" : "false",
+                   d.plugged ? "true" : "false", d.seconds, d.warned ? "true" : "false", d.ink,
+                   battery_icon(), sum);
+    dbg_out_printf(o, "\"lid\":{\"present\":%s,\"open\":%s,\"acted\":%d,\"last\":\"%s\"},",
+                   lid_present ? "true" : "false", lid_open ? "true" : "false", lid_acted, lid_last);
+    dbg_out_printf(o, "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"bar\":[%d,%d,%d,%d],"
+                      "\"settings\":[%d,%d,%d,%d],",
+                   g.x, g.y, g.w, g.h, g.bar_x, g.bar_y, g.bar_w, g.bar_h, g.set_x, g.btn_y, g.set_w, g.btn_h);
+    dbg_out_printf(o, "\"tray\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d}}\r\n",
+                   g.tray_x, g.tray_y, g.tray_w, g.tray_h, g.tray_x + g.tray_w / 2, g.tray_y + g.tray_h / 2);
+}
+
 static void cmd_remote(struct dbg_out *o, int json) {
     struct remote_geom g;
     remote_geometry(&g);
@@ -2665,6 +2704,7 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  latency [reset] [--json]  frame work, wake overshoot and ping, as distributions\r\n");
     dbg_out_write(o, "  network [--json]      the tray's network item: state, address, panel rect\r\n");
     dbg_out_write(o, "  remote [--json]       the tray's remote-activity item: sessions and what they did\r\n");
+    dbg_out_write(o, "  battery [--json]      the tray's battery item, its card, and the lid\r\n");
     dbg_out_write(o, "  drives [--json]       the tray's USB drives item: each volume, its buttons\r\n");
     dbg_out_write(o, "  layout [--json]       the keyboard-layout item: the list, the active one, the switcher\r\n");
     dbg_out_write(o, "  pingtimeout [<ticks>] not-responding timeout (a TEST lever)\r\n");
@@ -3022,6 +3062,10 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
 
     if (k_strcmp(sub, "remote") == 0) {
         cmd_remote(o, wants_json(p));
+        return 1;
+    }
+    if (k_strcmp(sub, "battery") == 0) {
+        cmd_battery(o, wants_json(p));
         return 1;
     }
     if (k_strcmp(sub, "drives") == 0) {

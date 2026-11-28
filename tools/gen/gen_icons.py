@@ -1093,6 +1093,26 @@ def icon_tray_keyboard():
     return im
 
 
+# The tray's battery item: the charge as the FILL, in tenths, and a bolt
+# when it charges. Shape only, like every tray glyph (they are blitted
+# tinted); the amber and red of a low charge are the panel's ink for the
+# item (tray_set_ink()), not the file's.
+def _icon_tray_battery(tenths, charging):
+    def draw():
+        im, d = _tb()
+        d.rounded_rectangle([3, 17, 53, 47], radius=6, outline=TB_INK, width=5)
+        d.rounded_rectangle([55, 25, 61, 39], radius=2, fill=TB_INK)
+        if tenths:
+            d.rectangle([10, 24, 10 + 36 * tenths // 10, 40], fill=TB_INK)
+        if charging:
+            bolt = [(33, 11), (21, 34), (30, 34), (26, 53), (40, 28), (31, 28), (35, 11)]
+            # A clear margin round the bolt, so it reads over the fill.
+            d.line(bolt + [bolt[0]], fill=(0, 0, 0, 0), width=7)
+            d.polygon(bolt, fill=TB_INK)
+        return im
+    return draw
+
+
 # The tray's network item, in three states. They differ by SHAPE only:
 # a tray icon is blitted TINTED to the panel's own ink (wm_tray.c), so
 # colour cannot carry state and a red "disconnected" is not available.
@@ -1925,6 +1945,8 @@ ICONS = {
     **{f"tray-network-connecting-{k}": _icon_tray_network_growing(k) for k in range(1, 5)},
     "tray-remote": icon_tray_remote,
     "tray-usb": icon_tray_usb,
+    **{f"tray-battery-{t * 10}": _icon_tray_battery(t, False) for t in range(11)},
+    **{f"tray-battery-charging-{t * 10}": _icon_tray_battery(t, True) for t in range(11)},
     "tray-bell": icon_tray_bell,
     "tray-bell-dnd": icon_tray_bell_dnd,
 }
