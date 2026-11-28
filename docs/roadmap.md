@@ -747,7 +747,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Paths sized to fit in Notepad, Paint, Image Viewer, Music Player and Video Player -- fixed tables round 4, A2~~ DONE 2026-11-27
 - [x] ~~App lists that stop without saying so -- round 4, B~~ DONE 2026-11-26 -- and a menu taller than the screen scrolls
 - [x] ~~Kernel and IPC caps: uchan peers, backlog, datagrams, unveil, mounts, completion, ramfs names -- round 4, C~~ DONE 2026-11-27
-- [ ] The clipboard past one 64 KiB page, data handed over as Wayland does -- round 4, D (designed: `clipboard-design.md`)
+- [x] ~~The clipboard past one 64 KiB page, data handed over as Wayland does -- round 4, D~~ DONE 2026-11-28 -- large ones in objects
 - [x] ~~The kernel's resource tables, grown to a ceiling sized from RAM~~ DONE 2026-10-28
 - [x] ~~Config files read at their own size, past 4 KiB~~ DONE 2026-10-29
 - [ ] mmap regions in a tree, so the fixed 1024 can move
@@ -1019,6 +1019,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] The edit menu in the WM's own fields (Start search, desktop rename), which have the keys only
 - [ ] Drag to select in a read-only text view (its menu has Select All only)
 - [ ] A clipboard that survives `clipboardd` restarting
+- [ ] A clipboard per session, not per machine: clipboardd per login, as fontd
 - [ ] Typed clipboard formats beyond files, text and a picture (the picture kind BUILT 2026-10-15: a file the page names)
 - [ ] A clipboard history ring
 

@@ -7497,6 +7497,43 @@ What is not built: a drag INTO Notepad or another app that has no
 drop target (the router will offer it; nobody accepts), a drag cursor
 shape, and offering the drag to a client's popup surfaces.
 
+
+## A copy too large for the clipboard page goes in an object clipboardd makes
+
+The clipboard page held 64 KiB, which a path sized to fit (4096 bytes)
+filled sixteen times over. Four shapes were on the table
+(`docs/clipboard-design.md`, 2026-11-27); the maintainer took B1 on
+2026-11-28.
+
+**A bigger page** is a cap again. **Wayland's whole shape** -- the
+source serves the bytes over a pipe -- throws away the one property the
+service exists for (the copy outlives the copier) only to rebuild it
+with a clipboard manager, and touches every one of the ~40 callers.
+**A file under `/tmp/clipboard`**, what a picture does, moves the cap to
+a RAM disk's size, costs a paster two copies, and with several accounts
+asks who may read the directory.
+
+So a copy that fits stays in the page, a memcpy under its lock, and one
+that does not goes in a shared-memory object sized to it. **The daemon
+makes the object, not the copier**, because `shm_unlink` is the
+creator's alone and a dead copier's names go with it: made by
+clipboardd, the object outlives the copier and the daemon can unlink it
+when no page names it. The other way (B2: the copier makes it, the
+daemon adopts it) needed a kernel exception to that rule. The cost is
+one round trip, on `clipboard/ctl`, for a large copy only.
+
+**The names are a namespace**: the kernel's shm names take '/' between
+segments since this change, and the page, the channel and every object
+are under `clipboard`, so a sandbox's `unveil("shm:clipboard")` reaches
+all of it -- a process allowed the clipboard is allowed the clipboard --
+and nothing else. A grant per paste was the alternative: no unveil, but
+a round trip every time.
+
+No ceiling but memory, as on Windows; clipboardd logs an object past
+64 MiB. The kernel's 32 MiB per-object cap went with it. A picture
+stays a file (the entry above): it is decoded from QOI by the paster
+either way, so an object would only move where the file lives.
+
 ## The desktop shows its folder and nothing else, and the application database is a separate directory
 
 Until 2026-09-10 `/usr/wm/desktop` did two jobs: it was the list of

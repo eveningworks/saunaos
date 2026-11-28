@@ -556,6 +556,8 @@ whenever a headline here tells you something you did not already know.
   PASTE COSTS NO SYSCALL**
 - **A CUT MOVES NOTHING UNTIL THE PASTE, AND IS SPENT BY IT; THE
   CLIPBOARD KEYS ARE THE APP'S, NOT THE WM'S**
+- **EVERY `uclip_load()` IS PAIRED WITH `uclip_free()`, AND A `struct
+  uclip` STARTS ZEROED** -- a kept snapshot keeps a large copy's memory
 - **EVERY EDITABLE TEXT GETS THE CLIPBOARD KEYS AND A RIGHT-CLICK EDIT
   MENU FROM THE TOOLKIT; A WIDGET FILLS `edit_target` AND NOTHING ELSE**
 - **A WIDGET'S OWN RIGHT-CLICK MENU IS `uui_widget_ops.context_menu`,

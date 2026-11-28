@@ -1,9 +1,20 @@
 # The clipboard past one page
 
-**Status: PLANNED, nothing built.** Written 2026-11-27 as fixed tables
-round 4, track D (`docs/roadmap.md`, "The clipboard past one 64 KiB
-page"). It ends in choices for the maintainer; the recommendation is
-option B, in three stages.
+**Status: BUILT 2026-11-28, option B1, all three stages** (94dbc5862,
+d83ae8c53, aee3d0d07). Written 2026-11-27 as fixed tables round 4, track
+D (`docs/roadmap.md`, "The clipboard past one 64 KiB page"). The
+maintainer's answers to the open questions, all as recommended: B1, the
+inline area stays 64 KiB, a sandboxed paster reaches objects through
+`unveil("shm:clipboard")`, a clipboard per session is a later roadmap
+item, and no ceiling (clipboardd logs an object past 64 MiB).
+
+**Two things below were wrong about the kernel, and the build fixed
+them:** a shm name could not contain '/' (`name_ok()` refused it), so
+`clip/<serial>` would have been refused -- names now take '/' between
+segments, and the objects are `clipboard/<n>`, under the page's own
+name, which also makes the page's unveil the objects' (question 3 needs
+no second unveil); and the kernel capped an object at 32 MiB
+(`SHM_BYTES_MAX`), a ceiling under "no ceiling", which went too.
 
 ## What is wrong today
 

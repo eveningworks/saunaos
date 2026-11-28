@@ -1224,7 +1224,7 @@ this the obvious way), not from how much history it accumulated.
   payload differently do not interoperate -- which is the one thing a
   clipboard exists to do -- and because the page is under a seqlock.
 
-  Seven things to know. **IT IS NOT IN THE KERNEL, and it used to be**
+  Eight things to know. **IT IS NOT IN THE KERNEL, and it used to be**
   (`SYS_WIN_CLIP`, now a dead number): the daemon creates a named
   shared-memory page and owns its LIFETIME, and clients read and write
   it directly, so a paste is a memcpy rather than a syscall
@@ -1238,10 +1238,16 @@ this the obvious way), not from how much history it accumulated.
   line. **A CUT MOVES NOTHING UNTIL THE PASTE** (`UCLIP_CUT`), as in
   Explorer and Dolphin, and **it is SPENT by that paste**; a cut of TEXT
   is refused outright, so an editor's Cut copies and deletes its own
-  selection. **A COPY THAT DOES NOT FIT IS REFUSED**, never truncated:
-  half a cut set pasted is files silently left behind, and half a
-  paragraph is worse than none -- say so to the person, since silence is
-  the one outcome a Copy must never have. **THERE IS NO BROADCAST any
+  selection. **A COPY THAT CANNOT BE MADE IS REFUSED**, never truncated
+  -- there is no size limit since 2026-11-28 (a large copy goes in an
+  object clipboardd makes), so that means no memory or no service: half
+  a cut set pasted is files silently left behind, and half a paragraph
+  is worse than none -- say so to the person, since silence is the one
+  outcome a Copy must never have. **EVERY LOAD IS PAIRED WITH
+  `uclip_free()`**: a snapshot holds its payload out of line, a copy or
+  a mapping of the object, and a mapping kept keeps the object's memory
+  alive after clipboardd lets it go. A `struct uclip` starts zeroed
+  (static or `= {0}`), since `uclip_load()` releases what it held. **THERE IS NO BROADCAST any
   more** -- `WIN_EV_CLIPBOARD` is gone, because a client can read the
   serial out of shared memory for free; `uapp` polls it and
   `uapp_desc.on_clipboard` still fires. And **the keys are the APP's,
