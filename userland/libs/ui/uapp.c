@@ -1051,16 +1051,28 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         // the directory they are in and the count come from it, so the
         // fileview's own refusal ("their own directory") still works.
         if (!a->top.router.count) break;
+        // READ ONCE PER DRAG, not per motion: a large drag's slot is a
+        // mapping, and DRAG_OVER comes with every pointer move.
         static struct uclip c;
         static char dir[80], label[80];
-        uclip_drag_load(&c);
-        int n = uclip_count(&c);
-        if (n <= 0 || uclip_kind(&c) != UCLIP_KIND_FILES) { uclip_free(&c); break; }
-        const char *first = uclip_path(&c, 0);
-        k_path_dirname(first, dir, sizeof dir);
-        if (n == 1) snprintf(label, sizeof label, "%s", k_path_basename(first));
-        else snprintf(label, sizeof label, "%d items", n);
-        uclip_free(&c);   // `first` is spent: dir and label are copies
+        static unsigned seen_serial;
+        static int seen_valid, n;
+        unsigned serial = uclip_peek_drag_serial();
+        if (!seen_valid || serial != seen_serial) {
+            uclip_drag_load(&c);
+            n = uclip_kind(&c) == UCLIP_KIND_FILES ? uclip_count(&c) : 0;
+            const char *first = n > 0 ? uclip_path(&c, 0) : 0;
+            if (!first) n = 0;
+            if (n > 0) {
+                k_path_dirname(first, dir, sizeof dir);
+                if (n == 1) snprintf(label, sizeof label, "%s", k_path_basename(first));
+                else snprintf(label, sizeof label, "%d items", n);
+            }
+            uclip_free(&c);   // `first` is spent: dir and label are copies
+            seen_serial = serial;
+            seen_valid = 1;
+        }
+        if (n <= 0) break;
         unsigned mods = WIN_MOUSE_MODS(ev->mods);
         if (ev->type == WIN_EV_DRAG_OVER) {
             uui_router_extern_over(&a->top.router, ev->a, ev->b, mods, dir, n, label);

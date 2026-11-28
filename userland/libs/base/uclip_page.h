@@ -51,12 +51,11 @@
 
 // The one request: make an object of `len` bytes. The copier fills it,
 // then commits the page naming it; clipboardd unlinks it once no page
-// names it, or CLIP_OBJECT_GRACE_MS after it was made if none ever did
-// (a copier that died between the two).
+// names it. One not named yet is kept until its copier asks again or its
+// channel goes -- one in flight per process.
 #define CLIP_REQ_OBJECT 1
 struct clip_req   { uint32_t what; uint32_t pad; uint64_t len; };
 struct clip_reply { int32_t status; uint32_t object; };   // status: 0 or -errno
-#define CLIP_OBJECT_GRACE_MS 60000
 
 // No ceiling but memory -- Windows has none either -- and clipboardd
 // logs every object past this, so a copy holding a lot of RAM is seen.

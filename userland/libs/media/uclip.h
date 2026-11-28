@@ -102,6 +102,16 @@ int uclip_kind(const struct uclip *c);
 // since copying the payload to answer it would be absurd.
 unsigned uclip_peek_serial(void);
 
+// The drag slot's serial, as uclip_peek_serial(): what a window under a
+// drag compares to load the slot once per drag, not once per motion.
+unsigned uclip_peek_drag_serial(void);
+
+// How long a LARGE copy waits for clipboardd to make its object, in ms;
+// 0 (the default) scales it to the copy. A process that must not stall
+// -- the compositor -- sets a short one, and a copy it outlasts is
+// refused, never sent twice.
+void uclip_set_wait_ms(int ms);
+
 // The current op, read from the shared page without loading the payload.
 // UCLIP_NONE when the clipboard is empty or unreachable.
 int uclip_peek_op(void);

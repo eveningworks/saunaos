@@ -12,6 +12,7 @@
 #include "rt/sys.h"
 #include "syscall_abi.h"
 #include "media/uclip.h"
+#include "base/uchan.h"
 #include "base/utest.h"
 
 #define SELF "/tests/clipobj_test"
@@ -199,6 +200,21 @@ int main(int argc, char **argv) {
     utest_check(uclip_add(&g_c, "/tmp/one") && uclip_drag_commit(&g_c), "a small drag");
     utest_check(g_pg->drag_where == CLIP_INLINE, "...goes in the slot itself");
     utest_check(object_goes(drag_obj), "...and the large drag's object goes");
+
+    // --- objects in flight: one per process, gone with its channel --------
+    struct uchan_client ch;
+    utest_check(uchan_client_open(&ch, CLIP_SERVER_NAME) == 0, "a channel to clipboardd");
+    struct clip_req req = { CLIP_REQ_OBJECT, 0, 256 * 1024 };
+    struct clip_reply r1 = { -1, 0 }, r2 = { -1, 0 };
+    utest_check(uchan_call(&ch, &req, sizeof req, &r1, sizeof r1, 10000) == 0 && r1.status == 0 &&
+                r1.object, "an object is made on request");
+    sys_sleep_ms(1500);   // two sweeps: no timer may take an object still in flight
+    utest_check(object_exists(r1.object), "...and kept, never named, while its copier may commit it");
+    utest_check(uchan_call(&ch, &req, sizeof req, &r2, sizeof r2, 10000) == 0 && r2.status == 0 &&
+                r2.object && r2.object != r1.object, "the same process asks again");
+    utest_check(!object_exists(r1.object), "...and the one it abandoned goes at once");
+    uchan_client_close(&ch);
+    utest_check(object_goes(r2.object), "a copier whose channel closed loses what it had in flight");
 
     return utest_end();
 }

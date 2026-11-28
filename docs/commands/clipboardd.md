@@ -63,9 +63,10 @@ serial for nothing. This daemon:
   over its channel `clipboard/ctl`, sized to the copy: the copier fills
   it and commits the page naming it, and a paste maps it rather than
   copying it. Made by the daemon, the object outlives the copier, and
-  the daemon unlinks it once no page names it -- at once after a newer
-  copy replaces it, or a minute after it was made if no commit ever
-  named it (a copier that died between the two);
+  the daemon unlinks it once no page names it. One not named yet is a
+  copy in flight and is kept -- one per program -- until that program
+  asks for another or its channel closes. The memory is the daemon's,
+  so a copy is not charged to the program that made it;
 - **breaks a lock whose owner died**, and says so in the log. If the
   page was mid-update when that happened the clipboard is emptied
   rather than left as half of something.

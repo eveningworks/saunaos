@@ -32,7 +32,8 @@
 // commits the page naming it. The daemon MAKES the object so it owns the
 // name (shm_unlink is the creator's alone) and the memory outlives the
 // copier, and unlinks it once no page names it -- docs/clipboard-design.md,
-// option B1. Otherwise the loop notices a stuck lock and deletes the
+// option B1. Its memory is charged to this daemon, not the copier, which
+// one object in flight per process bounds. Otherwise the loop notices a stuck lock and deletes the
 // files of pictures no clipboard names any more (CLIP_IMAGE_DIR).
 #include <stdint.h>
 #include <stdio.h>
@@ -82,6 +83,7 @@ static void break_stale_lock(void) {
         g_page->drag_len = 0;
         g_page->drag_where = CLIP_INLINE;
         g_page->drag_object = 0;
+        g_page->drag_pid = 0;
         g_page->drag_serial++;
         __atomic_store_n(&g_page->seq, seq + 1u, __ATOMIC_RELEASE);
         printf("clipboardd: pid %u died mid-copy; clipboard emptied\n",
@@ -148,12 +150,20 @@ static void sweep_images(void) {
 
 // --- the objects of large copies ------------------------------------
 
+// AN OBJECT NO PAGE HAS NAMED YET is a copy in flight, and is kept for
+// as long as its copier may still commit it: until that process asks for
+// another (ONE in flight per process, so no client can pin memory by
+// asking and never committing) or its channel goes -- and even then only
+// once the page does not name it. Never on a timer: a slow fill of a
+// large copy outlasted one.
 struct object {
     uint32_t n;          // its number: the name is CLIP_OBJECT_FMT
     int      fd;         // held, or the object's last reference goes
     uint64_t len;
-    uint64_t born_ms;
+    int      pid;        // who asked
+    int      conn;       // ...on which channel
     int      named;      // a page has named it: unnamed again, it goes at once
+    int      spent;      // its copier asked again or went: it goes unless a page names it
 };
 
 static struct object *g_obj;
@@ -162,15 +172,19 @@ static uint32_t g_next_obj;
 static struct uchan_server g_chan;
 static int g_chan_up;
 
-static uint64_t now_ms(void) { return sys_monotonic_ns() / 1000000ull; }
-
 static void object_name(uint32_t n, char *out, size_t cap) {
     snprintf(out, cap, CLIP_OBJECT_FMT, (unsigned)n);
 }
 
+static void sweep_objects(void);
+
 // The object `len` bytes long a copier asked for: its number, or -errno.
-static int64_t make_object(uint64_t len, int pid) {
+static int64_t make_object(uint64_t len, int pid, int conn) {
     if (!len) return -EINVAL;
+    // ITS LAST COPY IS SPENT, committed or abandoned -- and the sweep,
+    // which reads the page, is what tells the two apart.
+    for (int i = 0; i < g_nobj; i++) if (g_obj[i].pid == pid) g_obj[i].spent = 1;
+    sweep_objects();
     if (!UGROW(g_obj, g_capobj, g_nobj + 1)) return -ENOMEM;
     uint32_t n = ++g_next_obj ? g_next_obj : ++g_next_obj;   // never 0
     char name[SHM_NAME_MAX];
@@ -186,7 +200,7 @@ static int64_t make_object(uint64_t len, int pid) {
     if (len > CLIP_OBJECT_LOG_BYTES)
         printf("clipboardd: pid %d copies %llu MiB\n", pid,
                (unsigned long long)(len >> 20));
-    g_obj[g_nobj++] = (struct object){ n, fd, len, now_ms(), 0 };
+    g_obj[g_nobj++] = (struct object){ n, fd, len, pid, conn, 0, 0 };
     return n;
 }
 
@@ -211,32 +225,43 @@ static int named_objects(uint32_t *clip, uint32_t *drag) {
     return -1;
 }
 
-// EVERY OBJECT BUT THE PAGE'S TWO GOES: at once when a page named it before,
-// after the grace when none ever did -- a copier fills its object before
-// the commit names it, and one that died in between leaves it unnamed.
+// THE PAGE DECIDES: an object it names now is kept, whatever else is
+// true of it; one it named before, or whose copier is spent, goes. One in
+// flight stays (struct object). Nothing goes when the page never settled.
 static void sweep_objects(void) {
     if (!g_nobj) return;
     uint32_t clip, drag;
     if (named_objects(&clip, &drag) < 0) return;
-    uint64_t now = now_ms();
     for (int i = g_nobj - 1; i >= 0; i--) {
         if (g_obj[i].n == clip || g_obj[i].n == drag) { g_obj[i].named = 1; continue; }
-        if (g_obj[i].named || now - g_obj[i].born_ms >= CLIP_OBJECT_GRACE_MS) retire(i);
+        if (g_obj[i].named || g_obj[i].spent) retire(i);
     }
 }
 
+// A copier whose channel went cannot commit any more: its objects are
+// spent -- kept by the sweep only while a page names one (a copier that
+// committed and exited at once).
+static void forget_departed(void) {
+    int gone[16];
+    int n;
+    while ((n = uchan_server_scan(&g_chan, gone, 16)) > 0) {
+        for (int k = 0; k < n && k < 16; k++)
+            for (int i = 0; i < g_nobj; i++)
+                if (g_obj[i].conn == gone[k]) g_obj[i].spent = 1;
+        if (n < 16) break;
+    }
+    sweep_objects();
+}
+
 static void serve(void) {
-    uchan_server_scan(&g_chan, 0, 0);
+    forget_departed();
     struct clip_req req;
     int from;
     memset(&req, 0, sizeof req);
     while ((from = uchan_server_recv(&g_chan, &req, sizeof req)) != 0) {
         struct clip_reply rep = { -EINVAL, 0 };
         if (req.what == CLIP_REQ_OBJECT) {
-            // What the page named a moment ago may be gone already: a
-            // copy in flight is the one moment two objects matter.
-            sweep_objects();
-            int64_t r = make_object(req.len, uchan_server_peer_pid(&g_chan, from));
+            int64_t r = make_object(req.len, uchan_server_peer_pid(&g_chan, from), from);
             if (r > 0) { rep.status = 0; rep.object = (uint32_t)r; }
             else rep.status = (int32_t)r;
         }

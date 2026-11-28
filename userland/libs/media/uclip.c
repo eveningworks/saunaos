@@ -170,6 +170,11 @@ unsigned uclip_peek_serial(void) {
     return pg ? __atomic_load_n(&pg->serial, __ATOMIC_ACQUIRE) : 0;
 }
 
+unsigned uclip_peek_drag_serial(void) {
+    volatile struct clip_page *pg = page();
+    return pg ? __atomic_load_n(&pg->drag_serial, __ATOMIC_ACQUIRE) : 0;
+}
+
 // The op WITHOUT the payload. uclip_load() takes the whole payload,
 // which is far too much to spend telling an app that a cut it is drawing
 // has been replaced by somebody else's copy.
@@ -281,35 +286,47 @@ static void unlock_page(volatile struct clip_page *pg) {
 // clipboardd's channel, opened at the first large copy and kept.
 static struct uchan_client g_srv;
 static int g_srv_open;
+static int g_wait_ms;   // uclip_set_wait_ms(); 0: scaled to the copy
+
+void uclip_set_wait_ms(int ms) { g_wait_ms = ms > 0 ? ms : 0; }
 
 // Asks clipboardd for an object of `len` bytes. Its number, or 0.
 static uint32_t ask_object(uint64_t len) {
     struct clip_req req = { CLIP_REQ_OBJECT, 0, len };
-    for (int attempt = 0; attempt < 2; attempt++) {
-        // A daemon restarted since the channel opened is a new server:
-        // the old ring is read by nobody, so it is opened again.
-        if (g_srv_open && !uchan_client_server_alive(&g_srv)) {
-            uchan_client_close(&g_srv);
-            g_srv_open = 0;
-        }
-        if (!g_srv_open) {
-            if (uchan_client_open(&g_srv, CLIP_SERVER_NAME) != 0) return 0;
-            g_srv_open = 1;
-        }
-        struct clip_reply rep = { -1, 0 };
-        if (uchan_call(&g_srv, &req, sizeof req, &rep, sizeof rep, 5000) == 0) {
-            if (rep.status != 0 || !rep.object)
-                ulogf("uclip: clipboardd refused %llu bytes (%d)\n",
-                      (unsigned long long)len, (int)rep.status);
-            return rep.status == 0 ? rep.object : 0;
-        }
+    // A daemon restarted since the channel opened is a new server: the
+    // old ring is read by nobody, so it is opened again.
+    if (g_srv_open && !uchan_client_server_alive(&g_srv)) {
+        uchan_client_close(&g_srv);
+        g_srv_open = 0;
     }
-    return 0;
+    if (!g_srv_open) {
+        if (uchan_client_open(&g_srv, CLIP_SERVER_NAME) != 0) return 0;
+        g_srv_open = 1;
+    }
+    // THE DAEMON ZEROES EVERY FRAME before it answers, so the wait grows
+    // with the copy: 10 s, and a second per 32 MiB past that.
+    int wait = g_wait_ms ? g_wait_ms : 10000 + (int)(len / (32u << 20)) * 1000;
+    struct clip_reply rep = { -1, 0 };
+    if (uchan_call(&g_srv, &req, sizeof req, &rep, sizeof rep, wait) != 0) {
+        // ASKED ONCE, NEVER AGAIN: a second request would make a second
+        // object. The channel is closed instead, so the late answer is
+        // read by nobody -- and clipboardd, seeing it go, lets that
+        // object go too.
+        ulogf("uclip: clipboardd did not answer for %llu bytes in %d ms\n",
+              (unsigned long long)len, wait);
+        uchan_client_close(&g_srv);
+        g_srv_open = 0;
+        return 0;
+    }
+    if (rep.status != 0 || !rep.object)
+        ulogf("uclip: clipboardd refused %llu bytes (%d)\n",
+              (unsigned long long)len, (int)rep.status);
+    return rep.status == 0 ? rep.object : 0;
 }
 
 // Publishes what is staged in g_out to the clipboard, or with `drag` to
 // the drag slot. Returns 1 on success.
-static int commit_slot(int drag) {
+static int publish(int drag) {
     volatile struct clip_page *pg = page();
     if (!pg) return 0;
 
@@ -356,6 +373,20 @@ static int commit_slot(int drag) {
 
     unlock_page(pg);
     return 1;
+}
+
+// publish(), then the staging goes if it was large: an app that copied
+// once does not keep the copy's size for as long as it runs.
+static int commit_slot(int drag) {
+    int ok = publish(drag);
+    if (g_out.cap > CLIP_BYTES) {
+        free(g_out.data);
+        g_out.data = 0;
+        g_out.cap = 0;
+        g_out.len = 0;
+        g_out.count = 0;
+    }
+    return ok;
 }
 
 static int commit(void) { return commit_slot(0); }
@@ -413,8 +444,16 @@ int uclip_set_text(const char *s, int n) {
     g_out.count = 1;
     // Copied a CHARACTER at a time: a valid sequence as it is, a stray
     // byte re-encoded as its Latin-1 letter (uclip.h) -- which may grow
-    // a byte to two, so the room asked is the worst case.
-    if (!out_room((size_t)n * 2 + 1)) return 0;
+    // a byte to two, so the length is counted first and asked for exactly.
+    size_t need = 1;
+    for (int i = 0; i < n;) {
+        int k;
+        uint32_t cp = uutf8_decode(s + i, n - i, &k);
+        char u[4];
+        need += k > 1 ? (size_t)k : (size_t)uutf8_encode(cp, u);
+        i += k > 1 ? k : 1;
+    }
+    if (!out_room(need)) return 0;
     uint32_t o = 0;
     for (int i = 0; i < n;) {
         int k;
