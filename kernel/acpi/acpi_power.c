@@ -330,11 +330,13 @@ int acpi_enter_mode(struct acpi_state *s) {
 // many chipsets an SMI trap of SLP_EN, where the firmware does the
 // preparation `_PTS` would. Only for firmware that handed over in legacy
 // mode; one that booted in ACPI mode may have no legacy path to return to.
-int acpi_leave_mode(struct acpi_state *s) {
+int acpi_leave_mode(struct acpi_state *s) { return acpi_leave_mode_line(s, 1); }
+
+int acpi_leave_mode_line(struct acpi_state *s, int mask_line) {
     if (!(s->flags & ACPI_F_ENABLED)) return 1;
     if (!(s->flags & ACPI_F_FW_LEGACY) || !s->smi_cmd || !s->acpi_disable) return 0;
 
-    if (s->sci_int < IRQ_MAX) irq_mask((uint8_t)s->sci_int);
+    if (mask_line && s->sci_int < IRQ_MAX) irq_mask((uint8_t)s->sci_int);
     outb((uint16_t)s->smi_cmd, s->acpi_disable);
     for (int i = 0; i < 100000; i++) {
         if (!(inw((uint16_t)s->pm1a_cnt) & PM1_CNT_SCI_EN)) {

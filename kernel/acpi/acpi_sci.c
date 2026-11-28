@@ -7,8 +7,8 @@
 // line: a status bit set behind a set enable holds it asserted, and a
 // handler that does not clear it is an interrupt storm. Every GPE needs
 // AML (`_Lxx`/`_Exx`, the embedded controller's `_Qxx`) to service, and
-// nothing runs one yet (uACPI loads behind `acpi=uacpi` with no GPE
-// enabled until stage 4b), so every GPE stays masked -- what
+// only uACPI runs one (behind `acpi=uacpi`, which enables the embedded
+// controller's alone, uacpi_ec.c), so every GPE starts masked -- what
 // Linux's acpi_hw_disable_all_gpes() does before it enables the ones it
 // has handlers for -- and PM1_EN carries PWRBTN_EN alone.
 //
@@ -20,9 +20,10 @@
 // nobody here can run, and MEASURED on the ASUS UX305FA: a session spent
 // in ACPI mode needs two presses to start the machine again, even with
 // S5 written the legacy way, where legacy mode throughout needs one
-// (docs/decisions.md). Linux runs the EC's methods; this kernel cannot
-// until it has an interpreter (docs/aml-design.md), so such a machine
-// keeps the firmware in charge and has no power button.
+// (docs/decisions.md). Linux runs the EC's methods, and so does this
+// kernel with `acpi=uacpi` (uacpi_ec.c, docs/aml-design.md stage 4b), which
+// lifts the exception; without it such a machine keeps the firmware in
+// charge and has no power button.
 #include "acpi.h"
 #include "acpi_internal.h"
 #include "aml.h"
@@ -32,6 +33,7 @@
 #include "kfmt.h"
 #include "signal.h"       // signal_send() -- safe from an interrupt for SIGPWR
 #include "signal_abi.h"
+#include "multiboot.h"    // multiboot_cmdline_has()
 #include "scheduler.h"    // scheduler_init_pid()
 #include "uacpi_host.h"   // uacpi_host_sci_dispatch()
 
@@ -81,6 +83,32 @@ static void sci_irq(uint64_t *regs) {
     uacpi_host_sci_dispatch();
 }
 
+// Set when `acpi=uacpi` lifted the exception above: ACPI mode was entered
+// on the promise that uacpi_ec.c would serve the embedded controller.
+static int g_for_ec;
+
+void acpi_sci_ec_unserved(const char *why) {
+    struct acpi_state *s = acpi_state_mut();
+    if (!g_for_ec) return;
+    g_for_ec = 0;
+    // Quiet first -- no fixed event, no GPE -- then back to the firmware.
+    // The line is left unmasked: it may be shared, and with SCI_EN down
+    // nothing raises it.
+    pm1_enable(s, 0);
+    pm1_ack(s, 0xFFFF);
+    acpi_gpe_block_off(s->gpe0_blk, s->gpe0_len);
+    acpi_gpe_block_off(s->gpe1_blk, s->gpe1_len);
+    if (!acpi_leave_mode_line(s, 0)) {
+        klog_printf("acpi: %s, and ACPI mode could not be handed back -- the embedded "
+                    "controller's events are unserved this boot\n", why);
+        return;
+    }
+    if (s->sci_int < IRQ_MAX) irq_unregister_handler((uint8_t)s->sci_int, sci_irq);
+    s->flags &= ~(uint32_t)ACPI_F_PWRBTN;
+    s->flags |= ACPI_F_EC_LEGACY;
+    klog_printf("acpi: %s -- back in legacy mode for the embedded controller, no power button\n", why);
+}
+
 void acpi_sci_rearm(void) {
     struct acpi_state *s = acpi_state_mut();
     if (!(s->flags & ACPI_F_PWRBTN)) return;
@@ -100,7 +128,8 @@ void acpi_sci_init(void) {
         klog_write("acpi: staying in legacy mode (acpimode=legacy) -- no power button\n");
         return;
     }
-    if ((s->flags & ACPI_F_FW_LEGACY) && has_ec() && !acpi_mode_word("boot")) {
+    if ((s->flags & ACPI_F_FW_LEGACY) && has_ec() && !acpi_mode_word("boot") &&
+        !multiboot_cmdline_has("acpi=uacpi")) {
         klog_write("acpi: legacy-mode firmware with an embedded controller -- staying in "
                    "legacy mode, no power button (acpimode=boot overrides)\n");
         s->flags |= ACPI_F_EC_LEGACY;
@@ -143,6 +172,7 @@ void acpi_sci_init(void) {
         return;
     }
     s->flags |= ACPI_F_PWRBTN;
+    g_for_ec = (s->flags & ACPI_F_FW_LEGACY) && has_ec() && !acpi_mode_word("boot");
     klog_printf("acpi: ACPI mode on, power button armed on SCI %u%s\n", (unsigned)line,
                 (s->flags & ACPI_F_FW_LEGACY) ? " (firmware handed over in legacy mode)" : "");
 }

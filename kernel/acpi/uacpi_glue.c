@@ -9,9 +9,9 @@
 //
 // THE SCI IS HELD, NOT INSTALLED, until stage 4c: acpi_sci.c owns the
 // line and the power button on it, and calls uACPI's handler after it --
-// for the global lock's release, the one event uACPI enables itself. Its
-// GPE handling stays dark (no uacpi_finalize_gpe_initialization(), so no
-// GPE is enabled).
+// for the global lock's release, the one event uACPI enables itself, and
+// for the GPEs. Only the embedded controller's is enabled (uacpi_ec.c);
+// there is no uacpi_finalize_gpe_initialization(), so no _Lxx/_Exx runs.
 #include <uacpi/kernel_api.h>
 #include <uacpi/status.h>
 
@@ -152,15 +152,9 @@ uacpi_status uacpi_kernel_pci_read32(uacpi_handle h, uacpi_size off, uacpi_u32 *
     return UACPI_STATUS_OK;
 }
 
-// CONFIG_DATA takes a whole dword, so a byte write is a read-modify-write
-// of the dword it sits in -- pci.c's config_write16() shape.
 uacpi_status uacpi_kernel_pci_write8(uacpi_handle h, uacpi_size off, uacpi_u8 v) {
     if (!PCI_OFF_OK(off, 1)) return UACPI_STATUS_INVALID_ARGUMENT;
-    uint8_t at = (uint8_t)(off & ~3u);
-    unsigned shift = (unsigned)(off & 3) * 8;
-    uint32_t dw = pci_config_read32(h, at);
-    dw = (dw & ~(0xFFu << shift)) | ((uint32_t)v << shift);
-    pci_config_write32(h, at, dw);
+    pci_config_write8(h, (uint8_t)off, v);
     return UACPI_STATUS_OK;
 }
 
@@ -405,7 +399,7 @@ void uacpi_kernel_free_work_item(uacpi_handle h) { kfree(h); }
 
 void uacpi_kernel_schedule_work(uacpi_work_type type, uacpi_handle item,
                                 uacpi_work_handler fn, uacpi_handle ctx) {
-    (void)type;   // GPE work wants CPU 0; kacpid is not pinned yet (stage 4b)
+    (void)type;   // GPE work wants CPU 0: kacpid, a kernel thread, runs there (uacpi_boot.c)
     struct uacpi_work *w = item;
     uint64_t f = spin_lock_irqsave(&g_wq_lock);
     if (!w->queued) {

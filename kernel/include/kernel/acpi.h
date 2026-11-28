@@ -210,6 +210,12 @@ void acpi_sci_init(void);
 // acpi_sci.c still owns the SCI (stage 4a); its start and its teardown
 // call this. A press in the gap is lost.
 void acpi_sci_rearm(void);
+// `acpi=uacpi` entered ACPI mode on a legacy-mode EC machine for
+// uacpi_ec.c to serve the controller; when it cannot -- the interpreter
+// failed, or the EC's events could not be turned on -- this hands the
+// machine back to the firmware, as if the word were absent. A no-op
+// anywhere else. Logs `why`.
+void acpi_sci_ec_unserved(const char *why);
 
 // --- uACPI, the AML interpreter (docs/aml-design.md, stage 4) --------
 //
@@ -237,6 +243,23 @@ struct acpi_uacpi_info {
 
 void acpi_uacpi_start(void);
 void acpi_uacpi_info(struct acpi_uacpi_info *out);
+
+// The embedded controller on uACPI (uacpi_ec.c, stage 4b). `via` 0 is
+// none found, or no interpreter.
+enum { ACPI_EC_VIA_NONE = 0, ACPI_EC_VIA_ECDT, ACPI_EC_VIA_CRS };
+enum { ACPI_EC_EVENTS_OFF = 0, ACPI_EC_EVENTS_ON, ACPI_EC_EVENTS_STORM };
+struct acpi_ec_info {
+    uint32_t via;              // ACPI_EC_VIA_*
+    uint32_t events;           // ACPI_EC_EVENTS_*
+    uint16_t cmd, data;        // the command/status port and the data port
+    int32_t  gpe;              // -1: none known
+    uint64_t transactions, timeouts, flushed, naps;
+    uint64_t longest_wait_ns;  // the longest wait for IBF/OBF that came back in time
+    uint64_t gpes, queries;    // GPEs taken, events answered
+    uint32_t last_query, distinct;   // the last event's number; how many numbers seen
+    char     path[48];         // the EC device, e.g. \_SB.PCI0.LPCB.EC0
+};
+void acpi_ec_info(struct acpi_ec_info *out);
 
 // For the KTEST: bring uACPI up in THIS context when it is OFF (it then
 // owns that instance) -- 1 on success -- and take that instance down

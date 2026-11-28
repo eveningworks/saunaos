@@ -16,7 +16,8 @@
 // one core, the rest of boot waits for each step.
 //
 // SaunaOS keeps the machine's mode: UACPI_FLAG_NO_ACPI_MODE, because
-// acpi_sci.c decides ACPI vs legacy mode (the ASUS stays legacy).
+// acpi_sci.c decides ACPI vs legacy mode -- and with `acpi=uacpi` it
+// enters ACPI mode on an EC machine too, since uacpi_ec.c serves the EC.
 #include <uacpi/uacpi.h>
 #include <uacpi/namespace.h>
 #include <uacpi/status.h>
@@ -57,13 +58,16 @@ static int fail(const char *step, uacpi_status st) {
     __atomic_store_n(&g_info.state, ACPI_UACPI_FAILED, __ATOMIC_RELEASE);
     klog_printf("uacpi: %s failed: %s -- the interpreter is off for this boot\n",
                 step, uacpi_status_to_string(st));
+    acpi_ec_reset();   // an ECDT handler may be in; nothing serves it now
     acpi_sci_rearm();
+    acpi_sci_ec_unserved("the AML interpreter failed");
     return 0;
 }
 
 // initialize -> load (every DSDT/SSDT's top-level code; installs the
-// GPE blocks, holds the SCI) -> namespace init (_STA, _INI, _REG). No
-// uacpi_finalize_gpe_initialization(): no GPE is enabled in stage 4a.
+// GPE blocks, holds the SCI) -> the ECDT's embedded controller -> namespace
+// init (_STA, _INI, _REG) -> the EC device and its GPE (uacpi_ec.c). No
+// uacpi_finalize_gpe_initialization(): the EC's is the one GPE enabled.
 static int bring_up(void) {
     uint64_t t0 = clocksource_now_ns();
     uacpi_status st = uacpi_initialize(UACPI_FLAG_NO_ACPI_MODE);
@@ -72,9 +76,11 @@ static int bring_up(void) {
     core_yield();
     st = uacpi_namespace_load();
     if (uacpi_unlikely_error(st)) return fail("load", st);
+    acpi_ec_probe_ecdt();
     core_yield();
     st = uacpi_namespace_initialize();
     if (uacpi_unlikely_error(st)) return fail("namespace init", st);
+    acpi_ec_probe_namespace();
 
     uint32_t nodes = 0, devices = 0;
     uacpi_namespace_for_each_child(uacpi_namespace_root(), count_node, UACPI_NULL,
@@ -114,6 +120,7 @@ void acpi_uacpi_start(void) {
     if (kthread_start("kacpid", kacpid, 0) <= 0) {
         g_info.state = ACPI_UACPI_OFF;
         klog_write("uacpi: no slot for kacpid -- the interpreter is off for this boot\n");
+        acpi_sci_ec_unserved("the AML interpreter could not start");
     }
 }
 
@@ -134,6 +141,7 @@ void acpi_uacpi_tear_down_inline(void) {
     if (!g_inline) return;
     g_inline = 0;
     uacpi_state_reset();
+    acpi_ec_reset();
     uacpi_host_reset();
     k_memset(&g_info, 0, sizeof g_info);   // state back to OFF
     acpi_sci_rearm();

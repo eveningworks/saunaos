@@ -748,6 +748,10 @@ struct query_firmware {
 // hint: "has anyone touched this machine?" -- netheal asks it before
 // restarting. SCALAR (struct query_input); `config get input.events`.
 #define QUERY_INPUT 69
+// THE EMBEDDED CONTROLLER the AML interpreter serves (`acpi=uacpi`,
+// kernel/acpi/uacpi_ec.c). SCALAR (struct query_acpi_ec); `via` 0 means
+// none -- no EC, or no interpreter. Read by /bin/acpi.
+#define QUERY_ACPI_EC 70
 
 struct query_input {
     uint64_t events;    // key presses, moves, button changes, wheel notches
@@ -1994,6 +1998,26 @@ struct query_acpi {
 };
 
 _Static_assert(sizeof(struct query_acpi) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
+
+struct query_acpi_ec {
+    uint64_t via;            // 0 none, 1 the ECDT, 2 the device's _CRS
+    uint64_t events;         // 0 off, 1 on, 2 turned off by a storm
+    uint64_t cmd, data;      // the command/status port, the data port
+    int64_t  gpe;            // -1: none known
+    uint64_t transactions;   // RD_EC/WR_EC/QR_EC started
+    uint64_t timeouts;       // waits that ran out (each fails its access)
+    uint64_t flushed;        // stale output bytes read away
+    uint64_t naps;           // waits past the 1 ms spin that parked
+    uint64_t longest_wait_ns;
+    uint64_t gpes;           // the EC's GPE taken
+    uint64_t queries;        // events answered with a _Qxx
+    uint64_t last_query;     // the last event's number
+    uint64_t distinct;       // how many different numbers were seen
+    char     path[48];       // the EC device's namespace path, NUL-terminated
+};
+
+_Static_assert(sizeof(struct query_acpi_ec) <= 256,
                "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
 
 struct query_acpi_table {

@@ -480,6 +480,15 @@ the rest in the sweep. Each stays a standalone script with its own
   hand; its first 10 minutes found nothing the reviewers had not. Use
   `-jobs`, never `-fork` (it crashed inside libFuzzer). Needs
   `host_mkfs`; in `preflight.sh`.
+- **`ec_hostcheck.py`** -- `kernel/acpi/ec_proto.c`, the embedded
+  controller's RD_EC/WR_EC/QR_EC, against a simulated EC that takes each
+  byte some status reads later and counts PROTOCOL VIOLATIONS (a byte
+  written over one not yet taken, a data read with nothing there): all
+  256 bytes round-tripped, events in order then 0, a stale output byte
+  read away, an EC slower than the 1 ms spin answered through naps, a
+  hung one failing within the bound. QEMU has no EC, so this and the ASUS
+  are what run it. `--positive-control` drops the wait before each data
+  byte and the stale-byte flush. Gate, ~2 s.
 - **`uacpi_hostcheck.py`** -- the vendored uACPI
   (`kernel/third_party/uacpi/upstream/`) against upstream's own test
   suite: its `tests/run_tests.py`, every ASL case compiled with `iasl`

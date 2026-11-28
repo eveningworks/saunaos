@@ -446,6 +446,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `cxx_headers_hostcheck.py` -- Every header the SDK ships outside libc -- the toolkit's base/ net/
 - `des_hostcheck.py` -- Check userland/libs/base/udes.c against OpenSSL's DES, on the HOST
 - `divti3_hostcheck.py` -- Check tolibc's 128-bit division helpers against Python bignums, on the HOST
+- `ec_hostcheck.py` -- The embedded controller's byte protocol against a simulated EC, on the host
 - `emoji_hostcheck.py` -- Colour emoji (COLR v0 over CPAL) against FreeType's, and the emoji table, on the HOST
 - `exfat_hostcheck.py` -- SaunaOS's exFAT, judged by the host: fsck.exfat and an independent reader
 - `failure_bundle_hostcheck.py` -- A failed check takes the guest's state once, bounded, and never waits

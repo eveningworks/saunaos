@@ -21,6 +21,9 @@ void acpi_madt_init(void);
 // Each returns 1 when the machine ends in the mode asked for.
 int acpi_enter_mode(struct acpi_state *s);
 int acpi_leave_mode(struct acpi_state *s);
+// The same, leaving the SCI's line unmasked -- for a running machine,
+// where the line may be shared (acpi_sci_ec_unserved()).
+int acpi_leave_mode_line(struct acpi_state *s, int mask_line);
 // Every GPE in a block masked and its status cleared (acpi_power.c).
 void acpi_gpe_block_off(uint32_t base, uint8_t len);
 // Is `acpimode=<want>` on the command line?

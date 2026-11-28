@@ -25,6 +25,13 @@ int uacpi_host_sci_held(uint32_t *irq);
 // interrupt-safe. Returns uACPI's UACPI_INTERRUPT_HANDLED bit, 0 if none.
 uint32_t uacpi_host_sci_dispatch(void);
 
+// The embedded controller (uacpi_ec.c), in bring_up()'s order: the ECDT's
+// after the namespace is loaded and before _INI runs, the device's (and
+// the events) after; the reset after uacpi_state_reset().
+void acpi_ec_probe_ecdt(void);
+void acpi_ec_probe_namespace(void);
+void acpi_ec_reset(void);
+
 // Forget every handler and queued item -- after uacpi_state_reset(),
 // which has already freed what they pointed at.
 void uacpi_host_reset(void);

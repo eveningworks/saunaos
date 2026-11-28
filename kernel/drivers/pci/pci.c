@@ -9,6 +9,7 @@
 #include "knum.h"
 #include "heap.h"
 #include "string.h"
+#include "spinlock.h"
 
 // driver-none: the bus a driver scans, not a driver
 
@@ -40,14 +41,42 @@ static uint32_t config_address(uint8_t bus, uint8_t device, uint8_t function, ui
          | ((uint32_t)offset & 0xFC);
 }
 
-static uint32_t config_read32(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset) {
+// AN ACCESS IS TWO PORT WRITES -- the address, then the data -- so two
+// in flight at once read or write the wrong register: Linux's pci_lock.
+// Since the AML interpreter (kacpid) reads config space while drivers
+// do, every access below takes it.
+static struct spinlock g_cfg_lock;
+
+static uint32_t cfg_rd(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset) {
     outl(PCI_CONFIG_ADDRESS, config_address(bus, device, function, offset));
     return inl(PCI_CONFIG_DATA);
 }
 
-// 16-/8-bit reads just pull the right slice out of the 32-bit dword
-// CONFIG_DATA always hands back -- there's no narrower config-space
-// access mechanism to ask for less.
+static uint32_t config_read32(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset) {
+    uint64_t f = spin_lock_irqsave(&g_cfg_lock);
+    uint32_t v = cfg_rd(bus, device, function, offset);
+    spin_unlock_irqrestore(&g_cfg_lock, f);
+    return v;
+}
+
+// A write of `width` bytes at `offset`: CONFIG_DATA's byte lanes take a
+// byte or a word at CONFIG_DATA + (offset & 3), as Linux's pci_conf1_write()
+// does -- never a read-modify-write of the dword, which would write back
+// the neighbours' write-1-to-clear bits (Status's error bits beside
+// Command, PME_Status beside PowerState) and clear them.
+static void config_write(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset,
+                         int width, uint32_t value) {
+    uint64_t f = spin_lock_irqsave(&g_cfg_lock);
+    outl(PCI_CONFIG_ADDRESS, config_address(bus, device, function, offset));
+    uint16_t port = (uint16_t)(PCI_CONFIG_DATA + (offset & 3));
+    if (width == 1) outb(port, (uint8_t)value);
+    else if (width == 2) outw(port, (uint16_t)value);
+    else outl(PCI_CONFIG_DATA, value);
+    spin_unlock_irqrestore(&g_cfg_lock, f);
+}
+
+// 16-/8-bit reads pull their slice out of the whole dword: a read has no
+// side effect on the neighbours, unlike a write (config_write()).
 static uint16_t config_read16(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset) {
     uint32_t v = config_read32(bus, device, function, offset);
     return (uint16_t)((v >> ((offset & 2) * 8)) & 0xFFFF);
@@ -59,17 +88,7 @@ static uint8_t config_read8(uint8_t bus, uint8_t device, uint8_t function, uint8
 }
 
 static void config_write16(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset, uint16_t value) {
-    // CONFIG_DATA only ever accepts a full 32-bit dword write, so a
-    // narrower write (this is the only width any caller needs so far --
-    // see pci_enable_bus_master() below) has to read-modify-write the
-    // dword the target 16 bits live in, same shape config_read16()
-    // already uses to pull a narrower READ back out of one.
-    uint32_t old = config_read32(bus, device, function, offset);
-    uint32_t shift = (offset & 2) * 8;
-    uint32_t mask = 0xFFFFu << shift;
-    uint32_t updated = (old & ~mask) | ((uint32_t)value << shift);
-    outl(PCI_CONFIG_ADDRESS, config_address(bus, device, function, offset));
-    outl(PCI_CONFIG_DATA, updated);
+    config_write(bus, device, function, offset, 2, value);
 }
 
 // Fixed-width hex, no "0x" prefix, no leading-zero trim -- so
@@ -350,13 +369,14 @@ void pci_config_write16(const struct pci_device *dev, uint8_t offset, uint16_t v
     config_write16(dev->bus, dev->device, dev->function, offset, value);
 }
 
+void pci_config_write8(const struct pci_device *dev, uint8_t offset, uint8_t value) {
+    if (!dev) return;
+    config_write(dev->bus, dev->device, dev->function, offset, 1, value);
+}
+
 void pci_config_write32(const struct pci_device *dev, uint8_t offset, uint32_t value) {
     if (!dev) return;
-    // The native width of the mechanism -- no read-modify-write needed,
-    // unlike the 16-bit form above.
-    outl(PCI_CONFIG_ADDRESS,
-         config_address(dev->bus, dev->device, dev->function, offset));
-    outl(PCI_CONFIG_DATA, value);
+    config_write(dev->bus, dev->device, dev->function, offset, 4, value);
 }
 
 // A device with no capability list reports so in Status (offset 0x06)

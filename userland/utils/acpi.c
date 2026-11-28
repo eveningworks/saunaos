@@ -150,6 +150,34 @@ static void put_interpreter(const struct query_acpi *a) {
     put(line);
 }
 
+// The embedded controller the interpreter serves (uacpi_ec.c, stage 4b):
+// nothing when there is none.
+static void put_ec(void) {
+    struct query_acpi_ec e;
+    char line[200];
+    if (sys_query_record(QUERY_ACPI_EC, 0, &e, sizeof e) < (int)sizeof e || !e.via) return;
+    e.path[sizeof e.path - 1] = 0;
+    const char *ev = e.events == 1 ? "events on" : e.events == 2 ? "events OFF after a storm"
+                                                                 : "events off";
+    if (e.gpe >= 0)
+        snprintf(line, sizeof line, "Embedded ctrl:   %s (%s), ports 0x%llx/0x%llx, GPE 0x%02llx, %s\n",
+                 e.path[0] ? e.path : "?", e.via == 1 ? "ECDT" : "_CRS", (unsigned long long)e.cmd,
+                 (unsigned long long)e.data, (unsigned long long)e.gpe, ev);
+    else
+        snprintf(line, sizeof line, "Embedded ctrl:   %s (%s), ports 0x%llx/0x%llx, no GPE\n",
+                 e.path[0] ? e.path : "?", e.via == 1 ? "ECDT" : "_CRS", (unsigned long long)e.cmd,
+                 (unsigned long long)e.data);
+    put(line);
+    snprintf(line, sizeof line,
+             "                 %llu access(es), %llu timed out, longest wait %llu us, %llu nap(s); "
+             "%llu event(s) of %llu kind(s), last 0x%02llx\n",
+             (unsigned long long)e.transactions, (unsigned long long)e.timeouts,
+             (unsigned long long)(e.longest_wait_ns / 1000), (unsigned long long)e.naps,
+             (unsigned long long)e.queries,
+             (unsigned long long)e.distinct, (unsigned long long)e.last_query);
+    put(line);
+}
+
 int main(int argc, char **argv) {
     char line[160];
     struct query_acpi a;
@@ -203,6 +231,7 @@ int main(int argc, char **argv) {
              (a.flags & ACPI_F_FW_LEGACY) ? "  (firmware booted in legacy mode)" : "");
     put(line);
     put_interpreter(&a);
+    put_ec();
 
     put("\nPower:\n");
     snprintf(line, sizeof line, "  poweroff:      %s",

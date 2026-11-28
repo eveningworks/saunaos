@@ -219,8 +219,54 @@ static const struct query_provider cpu_provider = {
     .field_count = 0,
 };
 
+// --- QUERY_ACPI_EC: the embedded controller (uacpi_ec.c) ---------------
+
+static int ec_fill(int index, void *out) {
+    if (index != 0) return 0;
+    struct query_acpi_ec *q = out;
+    struct acpi_ec_info e;
+    acpi_ec_info(&e);
+    k_memset(q, 0, sizeof *q);
+    q->via = e.via;
+    q->events = e.events;
+    q->cmd = e.cmd;
+    q->data = e.data;
+    q->gpe = e.gpe;
+    q->transactions = e.transactions;
+    q->timeouts = e.timeouts;
+    q->flushed = e.flushed;
+    q->naps = e.naps;
+    q->longest_wait_ns = e.longest_wait_ns;
+    q->gpes = e.gpes;
+    q->queries = e.queries;
+    q->last_query = e.last_query;
+    q->distinct = e.distinct;
+    k_strlcpy(q->path, e.path, sizeof q->path);
+    return 1;
+}
+
+static const struct query_field ec_fields[] = {
+    QUERY_FIELD(struct query_acpi_ec, via, QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_acpi_ec, events, QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_acpi_ec, timeouts, QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_acpi_ec, queries, QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi_ec, longest_wait_ns, "longest_wait_ns", QUERY_TYPE_U64),
+};
+
+static const struct query_provider ec_provider = {
+    .cls = QUERY_ACPI_EC,
+    .name = "acpi_ec",
+    .record_size = sizeof(struct query_acpi_ec),
+    .flags = 0,
+    .count = acpi_count,
+    .fill = ec_fill,
+    .fields = ec_fields,
+    .field_count = sizeof ec_fields / sizeof ec_fields[0],
+};
+
 void acpi_query_init(void) {
     query_register(&acpi_provider);
+    query_register(&ec_provider);
     query_register(&table_provider);
     query_register(&dump_provider);
     query_register(&cpu_provider);

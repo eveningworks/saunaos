@@ -34,15 +34,15 @@
 // offset) are both three small integers and the compiler cannot tell
 // them apart. So the exported form takes the device and one offset.
 
-// Config-space reads. CONFIG_DATA only ever transfers a whole 32-bit
-// dword, so the narrower two pull their slice out of one -- there is no
-// narrower access mechanism to ask the hardware for.
+// Config-space reads. The narrower two pull their slice out of the whole
+// dword, which a read leaves undisturbed.
 uint8_t  pci_config_read8 (const struct pci_device *dev, uint8_t offset);
 uint16_t pci_config_read16(const struct pci_device *dev, uint8_t offset);
 uint32_t pci_config_read32(const struct pci_device *dev, uint8_t offset);
 
-// The only config-space WRITE width anything here needs. Read-modify-
-// writes the containing dword, so neighbouring registers are undisturbed.
+// The narrow writes go through CONFIG_DATA's byte lanes, so a
+// neighbouring register's write-1-to-clear bits are never written back.
+void pci_config_write8(const struct pci_device *dev, uint8_t offset, uint8_t value);
 void pci_config_write16(const struct pci_device *dev, uint8_t offset, uint16_t value);
 
 // The mechanism's NATIVE width, needed by MSI: a message address is a
