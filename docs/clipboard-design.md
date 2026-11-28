@@ -8,6 +8,22 @@ inline area stays 64 KiB, a sandboxed paster reaches objects through
 `unveil("shm:clipboard")`, a clipboard per session is a later roadmap
 item, and no ceiling (clipboardd logs an object past 64 MiB).
 
+**A clipboard per session BUILT 2026-11-28** (question 4, its own
+item): clipboardd runs per session as fontd does (`User=@session`,
+`NoSessionUser=greeter`), the page and its objects are `SHM_USER` -- the
+account's processes and root's may open them, no other account's --
+clipboardd refuses another account's request for an object, wipes the
+page, its objects and the pictures as it stops, and a copied picture
+goes in the account's own `/tmp/clipboard-<uid>`, mode 0700. A client
+whose page lost its magic (clipboardd ended), or whose name is no longer
+its daemon's (killed outright: checked once a second), maps the next
+one, which keeps root's remoted from holding one person's clipboard into
+the next session. A non-root client opens the page with `SHM_USER` (the
+kernel refuses one that is not its own account's) and root checks that
+init's `/bin/clipboardd` made it, so a name another account took first
+in the restart's gap is refused. `docs/decisions/kernel.md`, "An account's shared memory is
+a third mode".
+
 **Two things below were wrong about the kernel, and the build fixed
 them:** a shm name could not contain '/' (`name_ok()` refused it), so
 `clip/<serial>` would have been refused -- names now take '/' between
@@ -239,7 +255,7 @@ at `CLIP_BYTES`, and `uclip_add()` fails only when memory does.
    A clipboard per session (the daemon started per login, as fontd is
    since D3c) is its own item, but B1's "the daemon makes the object"
    is the place a per-session rule would be enforced, so decide the
-   direction before stage 2.
+   direction before stage 2. *(BUILT 2026-11-28 -- see the status.)*
 5. **A ceiling.** No cap is the rule, but a 2 GiB copy takes 2 GiB of
    RAM until replaced. Windows has none either; the OOM killer is the
    backstop here. Recommended: none, and the daemon logs any object

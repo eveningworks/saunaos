@@ -11,9 +11,20 @@
 # the window between those is exactly when a client would map a page
 # whose magic is unset.
 #
+# ONE PER SESSION, as fontd: the session's account while one is on, and
+# `greeter` for the login screen -- init restarts it at each sign-in and
+# sign-out, and it wipes the clipboard as it stops, so one person's copy
+# never reaches the next. Only the account's processes (and root's) may
+# open it.
+#
 # See docs/commands/clipboardd.md.
 Name=clipboardd
-Description=Hold the system clipboard for every program
+Description=Hold the session's clipboard for its programs
 Exec=/bin/clipboardd
+User=@session
+NoSessionUser=greeter
 Restart=always
 Ready=notify
+# The pictures' folder is in the RAM /tmp: made before it is mounted, it
+# would be on the disk's, where an account may not create.
+After=tmpfs

@@ -18,10 +18,22 @@ It is a **service**, not something to type: `data/etc/services.d/clipboardd`
 starts it at boot and init restarts it if it crashes. Run it by hand
 only to see what it says.
 
+**One per session.** init runs it as the account whose session is on,
+and as `greeter` on the login screen, restarting it at each sign-in and
+sign-out -- Windows keeps a clipboard per session the same way. The page
+and its objects open only to that account's programs and to root's
+(`SHM_USER`; `lsshm` shows `uid N`), so another account's process --
+a telnet login, say -- has no clipboard to read. As it stops it wipes
+the page, unlinks its objects and deletes the account's pictures, and
+says `clipboardd: the session's clipboard cleared`: what one person
+copied is never there for the next.
+
 It takes no options.
 
 A copied picture is a file, not bytes in the page: the program that
-copies writes it as QOI under `/tmp/clipboard/` and the page names it.
+copies writes it as QOI under `/tmp/clipboard-<uid>/` -- the account's
+own folder, mode 0700, which `clipboardd` makes and refuses (as each
+copier does) when someone else owns that name -- and the page names it.
 Once a second, `clipboardd` deletes the files there that the page no
 longer names and that are more than ten seconds old (a `.part` left by a
 copier that died, after a minute).

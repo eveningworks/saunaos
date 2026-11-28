@@ -68,16 +68,19 @@ struct clip_reply { int32_t status; uint32_t object; };   // status: 0 or -errno
 
 #define CLIP_KIND_FILES 0
 #define CLIP_KIND_TEXT  1
-#define CLIP_KIND_IMAGE 2   // one entry: a QOI file under CLIP_IMAGE_DIR
+#define CLIP_KIND_IMAGE 2   // one entry: a QOI file under CLIP_IMAGE_DIR_FMT
 
 // Where a copied picture's file lives: the copier writes it, the page
-// names it, and clipboardd deletes the ones no page names any more.
-#define CLIP_IMAGE_DIR "/tmp/clipboard"   // in RAM: a clipboard does not outlive a boot
+// names it, and clipboardd deletes the ones no page names any more. ONE
+// FOLDER PER ACCOUNT, the page's `uid`, mode 0700 and that account's --
+// clipboardd makes it, and a copier refuses one anybody else owns. In
+// RAM: a clipboard does not outlive a boot.
+#define CLIP_IMAGE_DIR_FMT "/tmp/clipboard-%u"
 
 // Written LAST when the daemon initialises the page, and checked by
 // every client: a mapping whose magic is unset is one whose other
 // fields have not been written yet.
-#define CLIP_MAGIC 0x33504C43u // 'CLP3': `where` for both slots (CLIP, CLP2 are older)
+#define CLIP_MAGIC 0x34504C43u // 'CLP4': `uid` (CLIP, CLP2, CLP3 are older)
 
 // A writer that cannot take the lock this many spins gives up and
 // REFUSES the copy. Contention is a memcpy wide, so reaching this at
@@ -90,6 +93,14 @@ struct clip_reply { int32_t status; uint32_t object; };   // status: 0 or -errno
 
 struct clip_page {
     uint32_t magic;
+    // THE ACCOUNT WHOSE CLIPBOARD THIS IS: clipboardd's, one per session
+    // (services.d/clipboardd's User=@session), and only its processes
+    // and root's may open the page (SHM_USER). Names the picture folder.
+    uint32_t uid;
+    // clipboardd's pid: a client checks now and then that the name is
+    // still this daemon's (SHM_FROM), since a daemon killed outright
+    // never clears the magic.
+    uint32_t daemon_pid;
 
     // SEQLOCK. Odd while a writer is mid-update; a reader takes it
     // before and after its copy and retries if the two differ. That is

@@ -5,9 +5,12 @@
 #include "media/uimg.h"
 #include "base/uchan.h"   // a large copy asks clipboardd for its object
 #include "base/ulog.h"
+#include "base/uself.h"   // uproc_path(): root checks who made the page
 #include "base/uutf8.h"   // the clipboard is UTF-8: stray bytes become their Latin-1 letter
 #include "rt/sys.h"
 #include "syscall_abi.h"
+#include "query_abi.h"
+#include "proc_info.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,15 +18,78 @@
 #include <unistd.h>
 
 static volatile struct clip_page *g_page;
+static volatile struct clip_page *g_stale;   // the page before, unmapped at the next drop
 static int g_fd = -1;
+static uint64_t g_checked_ms;
+#define RECHECK_MS 1000   // how often the name is asked whether it is still this daemon's
 
-// Maps the clipboard, once. Returns NULL when the service is not
-// running, which is an ordinary answer and not an error: a machine can
-// boot with clipboardd disabled, and every caller here degrades to
+// ROOT'S CHECK of the page it is about to trust: made by /bin/clipboardd,
+// started by init, running as the account the page names. A root client
+// (remoted) serves whichever session is on, so SHM_USER's "my account"
+// cannot be its test. Needs PROMISE_PROC and PROMISE_QUERY, which only an
+// unsandboxed root process keeps -- every root client today.
+static int root_trusted_creator(void) {
+    struct query_shm r;
+    QUERY_FOREACH(QUERY_SHM, r, i) {
+        if (strcmp(r.name, CLIP_SHM_NAME) || (r.flags & QUERY_SHM_UNLINKED)) continue;
+        if (!(r.flags & QUERY_SHM_ACCOUNT)) return 0;
+        struct proc_info pi;
+        for (int s = 0; sys_proc_info(s, &pi) == 0; s++) {
+            if (pi.pid != r.creator_pid || pi.tgid != pi.pid) continue;
+            char exe[64];
+            if (pi.ppid != 1 || pi.euid != r.uid || uproc_path(pi.pid, exe, sizeof exe) < 0 ||
+                strcmp(exe, "/bin/clipboardd"))
+                return 0;
+            return r.creator_pid;
+        }
+        return 0;
+    }
+    return 0;
+}
+
+// Is the page we hold still the live one? Its magic goes when clipboardd
+// stops cleanly; its name goes when it is killed outright, which the
+// magic never shows -- so that is asked too, once a RECHECK_MS.
+static int page_live(volatile struct clip_page *pg) {
+    if (pg->magic != CLIP_MAGIC) return 0;
+    uint64_t now = sys_monotonic_ns() / 1000000ull;
+    if (now - g_checked_ms < RECHECK_MS) return 1;
+    g_checked_ms = now;
+    int fd = sys_shm_open_from(CLIP_SHM_NAME, (int)pg->daemon_pid);
+    if (fd < 0) return 0;
+    sys_close(fd);
+    return 1;
+}
+
+// Maps the clipboard, once per clipboardd. Returns NULL when the service
+// is not running, or the name is not this account's clipboard, which is
+// an ordinary answer and not an error: every caller here degrades to
 // "the clipboard is empty" or "the copy did not happen".
+//
+// THE NAME IS CHECKED, NOT TRUSTED: between one session's clipboardd and
+// the next, another account could take it first. A non-root client opens
+// with SHM_USER, which the kernel refuses unless the page is its own
+// account's; root checks who made it (root_trusted_creator()).
+//
+// A PAGE THAT ENDED is let go of (page_live()), so a process that outlives
+// the session (root's remoted) maps the next one rather than keep the last
+// person's. Its mapping is unmapped one page LATER: another thread of this
+// process may be reading it this moment, and its bytes are wiped.
 static volatile struct clip_page *page(void) {
-    if (g_page) return g_page;
-    g_fd = sys_shm_open(CLIP_SHM_NAME, 0, 0);
+    if (g_page && page_live(g_page)) return g_page;
+    if (g_page) {
+        if (g_stale) sys_munmap((void *)g_stale, sizeof(struct clip_page));
+        g_stale = g_page;
+        g_page = 0;
+        sys_close(g_fd);
+        g_fd = -1;
+    }
+    if (geteuid() == 0) {
+        int pid = root_trusted_creator();
+        g_fd = pid > 0 ? sys_shm_open_from(CLIP_SHM_NAME, pid) : -1;
+    } else {
+        g_fd = sys_shm_open(CLIP_SHM_NAME, 0, SHM_USER);
+    }
     if (g_fd < 0) return 0;
     void *p = sys_mmap(0, sizeof(struct clip_page),
                         SYS_PROT_READ | SYS_PROT_WRITE, SYS_MAP_SHARED, g_fd, 0);
@@ -39,6 +105,7 @@ static volatile struct clip_page *page(void) {
         return 0;
     }
     g_page = pg;
+    g_checked_ms = sys_monotonic_ns() / 1000000ull;
     return g_page;
 }
 
@@ -265,6 +332,11 @@ static int lock_page(volatile struct clip_page *pg) {
         uint32_t free_ = 0;
         if (__atomic_compare_exchange_n(&pg->lock, &free_, want, 0,
                                          __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            // A page clipboardd wiped as it stopped: no copy lands in it.
+            if (pg->magic != CLIP_MAGIC) {
+                __atomic_store_n(&pg->lock, 0u, __ATOMIC_RELEASE);
+                return 0;
+            }
             pg->lock_pid = want;
             pg->lock_ms = sys_monotonic_ns() / 1000000ull;
             return 1;
@@ -478,10 +550,23 @@ int uclip_set_image(const struct uimg *im) {
     // A NAME NOTHING ELSE USES: this process and a count, so two apps
     // copying at once cannot write the same file.
     static unsigned n;
-    char part[96], path[96];
-    snprintf(path, sizeof path, "%s/%d-%u.qoi", CLIP_IMAGE_DIR, (int)getpid(), ++n);
+    volatile struct clip_page *pg = page();
+    if (!pg) return 0;
+    char dir[48], part[96], path[96];
+    snprintf(dir, sizeof dir, CLIP_IMAGE_DIR_FMT, (unsigned)pg->uid);
+    // THE ACCOUNT'S OWN FOLDER, OR NO PICTURE: one somebody else made
+    // first under that name would be theirs to read. Made here only by the
+    // account itself -- a root copier's would be root's, and refused for
+    // the rest of the boot (/tmp is sticky).
+    if (geteuid() == pg->uid) mkdir(dir, 0700);
+    struct stat st;
+    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != pg->uid ||
+        (st.st_mode & 077)) {
+        ulogf("uclip: %s is not this account's own folder -- picture not copied\n", dir);
+        return 0;
+    }
+    snprintf(path, sizeof path, "%s/%d-%u.qoi", dir, (int)getpid(), ++n);
     snprintf(part, sizeof part, "%s.part", path);
-    mkdir(CLIP_IMAGE_DIR, 0777);
     // WRITTEN, THEN RENAMED, THEN NAMED: a paster never opens a file
     // half written, and clipboardd's sweep leaves a .part alone.
     if (uimg_save(part, im, "qoi") != 0) { unlink(part); return 0; }

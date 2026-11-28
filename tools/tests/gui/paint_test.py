@@ -1121,7 +1121,9 @@ def check_paste(dbg, qmp, res, tmp):
     drag(100, 100, 300, 100)                    # black, 3 px, across an 800 x 600 picture
     dbg.key(CTRL["c"], mods="ctrl")
     dbg.settle()
-    files = dbg.send("sh ls /tmp/clipboard") or ""
+    # The session account's own folder, /tmp/clipboard-<uid> (uclip_page.h).
+    folders = [w for w in (dbg.send("sh ls /tmp") or "").split() if w.startswith("clipboard-")]
+    files = "".join(dbg.send("sh ls /tmp/" + d) or "" for d in folders)
     res.check("Copy picture puts a picture file on the clipboard", ".qoi" in files, files.strip()[-120:])
     # A new 256 x 256 picture (Icon), not saving this one.
     dbg.key("0x0e", mods="ctrl")

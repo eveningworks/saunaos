@@ -641,7 +641,9 @@ As built (2026-11-25), and where it differs from the plan:
 D2 were: **D3a** adding and removing people and the login screen listing
 them (BUILT 2026-11-26); **D3b** the machine's settings an
 administrator's right; **D3c** the kernel registry's per-person settings
-applied at sign-in, and `fontd` per session.
+applied at sign-in, and `fontd` per session. **`clipboardd` per session**
+followed on 2026-11-28 in fontd's shape, its page `SHM_USER` (the
+account's and root's) and wiped as it stops (`docs/clipboard-design.md`).
 
 **What real systems do.** Windows keeps every signed-in session running
 and switches between them (Fast User Switching); GNOME and KDE under

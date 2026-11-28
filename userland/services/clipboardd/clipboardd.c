@@ -27,6 +27,14 @@
 // your clipboard there, and why every desktop ships a clipboard manager
 // to paper over it.
 //
+// ONE PER SESSION: init runs it as the account whose session is on, and
+// as `greeter` on the login screen (services.d/clipboardd), restarting it
+// at each sign-in and sign-out, as Windows keeps a clipboard per
+// session's window station. The page and its objects are SHM_USER, so
+// another account's processes cannot open them; root's can (remoted's
+// VNC clipboard). As it stops it wipes the page, its objects and the
+// account's pictures, so nothing of one person's reaches the next.
+//
 // ONE REQUEST, AND IT CARRIES NO BYTES: a copy too large for the page
 // asks for an object of its size on CLIP_SERVER_NAME, fills it itself and
 // commits the page naming it. The daemon MAKES the object so it owns the
@@ -34,12 +42,13 @@
 // copier, and unlinks it once no page names it -- docs/clipboard-design.md,
 // option B1. Its memory is charged to this daemon, not the copier, which
 // one object in flight per process bounds. Otherwise the loop notices a stuck lock and deletes the
-// files of pictures no clipboard names any more (CLIP_IMAGE_DIR).
+// files of pictures no clipboard names any more (CLIP_IMAGE_DIR_FMT).
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <dirent.h>
 #include <errno.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -48,10 +57,16 @@
 #include "base/uclip_page.h"
 #include "base/ugrow.h"
 #include "syscall_abi.h"
+#include "proc_info.h"   // who asks: an object is the account's to ask for
 
 #define TICK_MS 1000
 
 static volatile struct clip_page *g_page;
+static uint32_t g_uid;             // the account this clipboard is
+static char g_imgdir[48];          // CLIP_IMAGE_DIR_FMT, for g_uid
+static volatile sig_atomic_t g_stop;   // SIGTERM: a session's end
+
+static void image_dir_ready(int fresh);
 
 // One place, so a machine with a stuck clipboard says so in the log
 // rather than simply not copying.
@@ -127,15 +142,15 @@ static void sweep_images(void) {
     if (g_page->serial == swept_serial && now - swept_at < IMAGE_GRACE_S * 2) return;
     char keep[256];
     if (page_image(keep, sizeof keep) < 0) return;
-    DIR *d = opendir(CLIP_IMAGE_DIR);
-    if (!d) return;
+    DIR *d = opendir(g_imgdir);
+    if (!d) { image_dir_ready(0); return; }   // deleted under it: made again
     struct dirent *e;
     char path[320];
     while ((e = readdir(d)) != NULL) {
         size_t n = strlen(e->d_name);
         int part = n > 5 && !strcmp(e->d_name + n - 5, ".part");
         if (!part && (n < 5 || strcmp(e->d_name + n - 4, ".qoi") != 0)) continue;
-        snprintf(path, sizeof path, "%s/%s", CLIP_IMAGE_DIR, e->d_name);
+        snprintf(path, sizeof path, "%s/%s", g_imgdir, e->d_name);
         struct stat st;
         // A .part is a copy still being written -- or one whose writer
         // died, which a minute tells apart.
@@ -189,9 +204,9 @@ static int64_t make_object(uint64_t len, int pid, int conn) {
     uint32_t n = ++g_next_obj ? g_next_obj : ++g_next_obj;   // never 0
     char name[SHM_NAME_MAX];
     object_name(n, name, sizeof name);
-    // PUBLIC like the page: whoever may paste may map it, and a sandbox
-    // reaches it through its unveil of "shm:clipboard".
-    int fd = sys_shm_open(name, len, SHM_CREATE | SHM_EXCL | SHM_PUBLIC);
+    // THE ACCOUNT'S like the page: whoever may paste may map it, and a
+    // sandbox reaches it through its unveil of "shm:clipboard".
+    int fd = sys_shm_open(name, len, SHM_CREATE | SHM_EXCL | SHM_USER);
     if (fd < 0) {
         printf("clipboardd: no object of %llu bytes for pid %d (%d)\n",
                (unsigned long long)len, pid, fd);
@@ -253,6 +268,16 @@ static void forget_departed(void) {
     sweep_objects();
 }
 
+// THE ACCOUNT'S, OR ROOT'S, to ask for: an object is memory charged to
+// this daemon, and one another account's process asked for is one it
+// could not open anyway (SHM_USER).
+static int same_account(int pid) {
+    struct proc_info pi;
+    for (int i = 0; sys_proc_info(i, &pi) == 0; i++)
+        if (pi.pid == pid && pi.tgid == pid) return pi.euid == g_uid || pi.euid == 0;
+    return 0;
+}
+
 static void serve(void) {
     forget_departed();
     struct clip_req req;
@@ -260,8 +285,10 @@ static void serve(void) {
     memset(&req, 0, sizeof req);
     while ((from = uchan_server_recv(&g_chan, &req, sizeof req)) != 0) {
         struct clip_reply rep = { -EINVAL, 0 };
-        if (req.what == CLIP_REQ_OBJECT) {
-            int64_t r = make_object(req.len, uchan_server_peer_pid(&g_chan, from), from);
+        int pid = uchan_server_peer_pid(&g_chan, from);
+        if (!same_account(pid)) rep.status = -EPERM;
+        else if (req.what == CLIP_REQ_OBJECT) {
+            int64_t r = make_object(req.len, pid, from);
             if (r > 0) { rep.status = 0; rep.object = (uint32_t)r; }
             else rep.status = (int32_t)r;
         }
@@ -270,15 +297,88 @@ static void serve(void) {
     }
 }
 
+static void on_term(int sig) { (void)sig; g_stop = 1; }
+
+// Every picture in the account's folder, whatever its age: at start
+// (a crashed run's) and at the end of the session.
+static void empty_images(void) {
+    DIR *d = opendir(g_imgdir);
+    if (!d) return;
+    struct dirent *e;
+    char path[320];
+    while ((e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.') continue;
+        snprintf(path, sizeof path, "%s/%s", g_imgdir, e->d_name);
+        unlink(path);
+    }
+    closedir(d);
+}
+
+// THE ACCOUNT'S OWN FOLDER, 0700: /tmp is everyone's, so a name someone
+// else took first is refused -- said here, and each copier refuses it too.
+// `fresh`: at start, when what is in it is a crashed run's. Said once.
+static void image_dir_ready(int fresh) {
+    static int said;
+    mkdir(g_imgdir, 0700);
+    struct stat st;
+    if (stat(g_imgdir, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != g_uid) {
+        if (!said++)
+            printf("clipboardd: %s is not this account's -- pictures will not be copied\n", g_imgdir);
+        return;
+    }
+    if (st.st_mode & 077) chmod(g_imgdir, 0700);
+    if (fresh) empty_images();
+}
+
+// THE SESSION ENDS: nothing of this clipboard may reach the next one. The
+// magic goes FIRST, so a process that outlives the session (remoted, as
+// root) maps the next page instead of reading this one, then the payload,
+// the objects and the pictures.
+// UNDER THE PAGE'S LOCK, so a copy either landed before it or sees the
+// magic gone and is refused (uclip's lock_page()); a holder stuck past
+// the spins is a dead one, and the wipe goes ahead.
+static void wipe(void) {
+    uint32_t me = (uint32_t)sys_getpid();
+    int locked = 0;
+    for (long i = 0; i < CLIP_LOCK_SPINS && !locked; i++) {
+        uint32_t free_ = 0;
+        locked = __atomic_compare_exchange_n(&g_page->lock, &free_, me, 0,
+                                             __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+    }
+    __atomic_store_n(&g_page->magic, 0, __ATOMIC_RELEASE);
+    __atomic_add_fetch(&g_page->seq, 1, __ATOMIC_ACQ_REL);   // odd: mid-update
+    g_page->op = CLIP_OP_NONE;
+    g_page->kind = CLIP_KIND_FILES;
+    g_page->count = g_page->len = 0;
+    g_page->where = CLIP_INLINE;
+    g_page->object = 0;
+    g_page->serial++;
+    g_page->drag_count = g_page->drag_len = 0;
+    g_page->drag_where = CLIP_INLINE;
+    g_page->drag_object = 0;
+    g_page->drag_serial++;
+    memset((void *)g_page->data, 0, sizeof g_page->data);
+    memset((void *)g_page->drag_data, 0, sizeof g_page->drag_data);
+    __atomic_add_fetch(&g_page->seq, 1, __ATOMIC_ACQ_REL);   // even again
+    __atomic_store_n(&g_page->lock, 0u, __ATOMIC_RELEASE);
+    while (g_nobj) retire(0);   // unlinked: only a paste under way still holds one
+    empty_images();
+    sys_shm_unlink(CLIP_SHM_NAME);
+    printf("clipboardd: the session's clipboard cleared\n");
+}
+
 int main(void) {
     // SHM_EXCL is the whole "is one already running" check: a second
     // daemon would hand out a second, empty clipboard to whoever
     // happened to map it, which reads as the first one losing data.
+    g_uid = (uint32_t)geteuid();
+    snprintf(g_imgdir, sizeof g_imgdir, CLIP_IMAGE_DIR_FMT, (unsigned)g_uid);
+    signal(SIGTERM, on_term);
     sys_shm_unlink(CLIP_SHM_NAME);
-    // PUBLIC: every app reads the clipboard, which is what a
-    // clipboard IS -- shared by design rather than by omission.
+    // THE ACCOUNT'S: every one of its programs reads the clipboard,
+    // which is what a clipboard IS, and no other account's does.
     int fd = sys_shm_open(CLIP_SHM_NAME, sizeof(struct clip_page),
-                           SHM_CREATE | SHM_EXCL | SHM_PUBLIC);
+                           SHM_CREATE | SHM_EXCL | SHM_USER);
     if (fd < 0) {
         printf("clipboardd: cannot create \"%s\" -- another instance?\n",
                 CLIP_SHM_NAME);
@@ -294,6 +394,8 @@ int main(void) {
     }
 
     g_page = (volatile struct clip_page *)p;
+    g_page->uid = g_uid;
+    g_page->daemon_pid = (uint32_t)sys_getpid();
     g_page->seq = 0;
     g_page->lock = 0;
     g_page->lock_pid = 0;
@@ -317,11 +419,13 @@ int main(void) {
         printf("clipboardd: cannot open \"%s\" -- large copies will be refused\n",
                CLIP_SERVER_NAME);
 
+    image_dir_ready(1);
+
     printf("clipboardd: clipboard ready (%u KB in the page, larger in objects)\n",
             (unsigned)(CLIP_BYTES / 1024));
     sys_notify_ready();
 
-    for (;;) {
+    while (!g_stop) {
         if (g_chan_up) {
             uchan_server_wait(&g_chan, TICK_MS);
             serve();
@@ -332,4 +436,6 @@ int main(void) {
         sweep_images();
         sweep_objects();
     }
+    wipe();
+    return 0;
 }

@@ -429,6 +429,12 @@ TESTS = [
     # unveiled only shm:clipboard, and a replaced object unlinked.
     # Spawned: it spawns itself as the copier and the sandboxed paster.
     ("clipobj_test", None, None, None),
+    # The clipboard is the session account's (SHM_USER): that account
+    # pastes, another opens nothing and copies nothing, a picture lands
+    # in its 0700 folder, and stopping clipboardd clears the page for a
+    # root process still holding it. Spawned: it starts children as other
+    # accounts and stops and starts clipboardd.
+    ("clipacct_test", None, None, None),
     # base/ugrow.h, the growable-array macro every ring-3 list uses: it
     # grows, and a request it cannot meet leaves the array as it was.
     ("ugrow_test", 0, None, None),

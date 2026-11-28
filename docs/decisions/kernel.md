@@ -741,9 +741,10 @@ every existing caller had to declare itself, and the one that was missed
 -- broke every app's clipboard AND the terminal's copy, which is one
 regression wearing two symptoms.
 
-**WHEN THIS SYSTEM GAINS USERS none of it is wasted.** `pub` is the
-degenerate case of a MODE (public 0666, private 0600) and the creator
-pid gains a uid beside it. The GRANT is the part POSIX has no equivalent
+**WHEN THIS SYSTEM GAINED USERS none of it was wasted.** `pub` was the
+degenerate case of a MODE (public 0666, private 0600), and the creator
+gained a uid beside its pid: "An account's shared memory is a third
+mode", below. The GRANT is the part POSIX has no equivalent
 for: it is a capability naming ONE process, and it coexists with a mode
 the way Linux has both file permissions and fd passing -- the mode is
 the coarse policy, the grant the fine one.
@@ -752,6 +753,54 @@ The grant is by PID and a pid can be REUSED. The window is small -- a
 grant lives only as long as the object, and an object dies with its
 creator -- but a capability outliving its holder is what to look for if
 this ever misbehaves.
+
+## An account's shared memory is a third mode, not a public name behind a restart
+
+Since users stage D one person's clipboard was the next person's: the
+page was `SHM_PUBLIC`, made once per boot. Restarting clipboardd per
+session, as fontd is, clears it between people -- but while a session
+is on, ANY account's process (a telnet login) could still open the page
+by name and read it live, because public means anyone. Every real
+system keeps that out: Windows puts the clipboard in the session's
+window station, X11 gates the display with an Xauthority cookie, and
+Wayland's socket sits in the user's 0700 `XDG_RUNTIME_DIR`.
+
+So shm has three modes now: the creator's (with grants), anyone's
+(`SHM_PUBLIC`, a beacon), and the creator's ACCOUNT's (`SHM_USER`):
+every process whose effective uid is the creator's, and root's. Root is
+in because a root service serves the session -- remoted's VNC clipboard
+-- the way root reads any file. A sandboxed process still needs the
+name in its unveil list, as for a public object, and making one is the
+sandbox's PUBLISH.
+
+**Not grants per paster.** clipboardd could `SYS_SHM_GRANT` each pid that
+asks, and nothing would be opened by name at all; but a paste would
+gain a round trip, every process that ever pasted would sit in a grant
+table, and the page's whole point is that reading it costs no syscall.
+The coarse rule (the account) is the right policy; the grant stays the
+fine one.
+
+**The page ends with its session.** clipboardd clears the page's magic
+first, then the payload, then unlinks its objects and deletes the
+pictures, as it stops -- and a client whose page lost its magic maps
+the next one. A process that outlives the session is root's (remoted),
+so without the wipe it would keep reading the last person's clipboard.
+The stale mapping is left rather than unmapped: another thread of that
+process may be reading it.
+
+**The name is checked, not trusted.** Each sign-in and sign-out leaves
+the name free for a moment, and another account could take it first. So
+`SHM_USER` on an OPEN is a demand -- the object must be the caller's own
+account's, or `EPERM` -- and every non-root client opens the page that
+way. A root client cannot use "my account", so it checks who made the
+page: `/bin/clipboardd`, started by init, as the account the page names.
+And a daemon killed outright never clears the magic, so a client also
+asks once a second, with `SHM_FROM` the pid the page records, whether the
+name is still that daemon's: the kernel drops a dead creator's names.
+
+**One name, for now.** Only one session holds the seat at a time, so the
+page stays `clipboard`; concurrent sessions need a name per session
+(Windows' `\Sessions\N`), which is on the roadmap.
 
 ## A futex is keyed on the FRAME, not on the caller's pointer
 

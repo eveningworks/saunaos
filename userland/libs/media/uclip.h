@@ -30,7 +30,7 @@ extern "C" {
 // half-written clipboard.
 //
 // **THREE KINDS: FILES, TEXT AND A PICTURE.** A picture is the path of
-// a file the copier wrote under CLIP_IMAGE_DIR -- the page holds no
+// a file the copier wrote under CLIP_IMAGE_DIR_FMT -- the page holds no
 // pixels (docs/decisions.md, "A copied picture is a file the clipboard
 // names"). Files are absolute paths, the shape
 // `text/uri-list` has on a real desktop; text is one run of characters.
@@ -169,8 +169,9 @@ const char *uclip_text(const struct uclip *c, int *out_len);
 struct uimg;
 
 // Puts `im` on the clipboard as a PICTURE: written as QOI under
-// CLIP_IMAGE_DIR, then named. 0 when it could not be written (no room)
-// or the server refused -- say so, as for text.
+// CLIP_IMAGE_DIR_FMT (the account's own folder), then named. 0 when it
+// could not be written (no room, a folder someone else owns) or the
+// server refused -- say so, as for text.
 int uclip_set_image(const struct uimg *im);
 
 // The picture's file, or NULL when the clipboard holds something else.
