@@ -40,10 +40,11 @@
 #include "ktest.h"
 #include <stddef.h>
 
-// One object must admit a 1920x1080 window's two buffers (~16 MiB), and
-// `frames` is allocated to the size actually asked for.
-#define SHM_BYTES_MAX (32ULL * 1024 * 1024)
-#define SHM_PAGES_MAX (SHM_BYTES_MAX / 4096)
+// NO SIZE CAP BUT MEMORY: the creator's data limit (mm_data_allows())
+// and the frames user space may have (pmm_user_room()) bound an object,
+// and `npages` is the width of the field that holds it. `frames` is
+// allocated to the size actually asked for.
+static int npages_ok(uint64_t npages) { return npages && npages <= 0xFFFFFFFFull; }
 #define SHM_GRANTS_MAX 4  // a private object is a channel between two
                            // processes; four is slack, not a design
 
@@ -186,7 +187,7 @@ int shm_lookup(const char *name) {
 // caller.
 int shm_create_named(const char *name, uint64_t npages, int owner_pid) {
     if (!name || !name[0] || !name_ok(name)) return -EINVAL;
-    if (!npages || npages > SHM_PAGES_MAX) return -EINVAL;
+    if (!npages_ok(npages)) return -EINVAL;
     return obj_create(name, npages, owner_pid, 0, 0, 0, 0);
 }
 
@@ -205,7 +206,7 @@ void shm_unlink_named(const char *name) {
 // itself and needs the frames refcounted rather than owned by one
 // caller. The reference returned is the caller's to shm_put().
 int shm_create_anon(uint64_t npages) {
-    if (!npages || npages > SHM_PAGES_MAX) return -EINVAL;
+    if (!npages_ok(npages)) return -EINVAL;
     return obj_create("", npages, 0, 0, 1, 0, 0);
 }
 
@@ -358,17 +359,25 @@ void shm_process_gone(uint64_t pml4) {
 
 // --- the syscalls ----------------------------------------------------
 
-// A name is one path segment: no '/', no '.' run that could climb, and
-// not empty. It never reaches the filesystem, so this is about keeping
-// the namespace flat and printable rather than about traversal.
+// A name is printable segments joined by '/': none empty (no leading,
+// trailing or doubled '/'), none "." or "..". It never reaches the
+// filesystem; the '/' is a NAMESPACE, which an unveil of "shm:<a>"
+// covers whole ("clipboard" covers "clipboard/7", sandbox.c's covers()).
 static int name_ok(const char *n) {
-    if (!n[0]) return 0;
-    for (const char *p = n; *p; p++)
-        if (*p == '/' || *p < 0x20 || (unsigned char)*p > 0x7E) return 0;
-    return !(n[0] == '.' && (!n[1] || (n[1] == '.' && !n[2])));
+    const char *seg = n;
+    for (const char *p = n;; p++) {
+        if (*p && *p != '/') {
+            if (*p < 0x20 || (unsigned char)*p > 0x7E) return 0;
+            continue;
+        }
+        size_t len = (size_t)(p - seg);
+        if (!len || (seg[0] == '.' && (len == 1 || (len == 2 && seg[1] == '.')))) return 0;
+        if (!*p) return 1;
+        seg = p + 1;
+    }
 }
 
-// ALLOCATED OUTSIDE THE LOCK, PUBLISHED UNDER IT. Zeroing 32 MiB of
+// ALLOCATED OUTSIDE THE LOCK, PUBLISHED UNDER IT. Zeroing megabytes of
 // frames is far too long to hold the guard, and an object half made must
 // be invisible -- so the frames come first, and only then, guarded, the
 // name is checked again (a second creator may have finished meanwhile:
@@ -378,6 +387,9 @@ static int name_ok(const char *n) {
 // its region table.
 static int obj_create(const char *name, uint64_t npages, int pid, uint64_t pml4,
                       int anon, int pub, struct sched_mm *charge) {
+    // Asked before a frame is taken, so a request past what is free fails
+    // at once rather than draining the pool and handing it back.
+    if (npages > pmm_user_room()) return -ENOMEM;
     uint64_t *frames = kmalloc(npages * sizeof *frames);
     if (!frames) return -ENOMEM;
     k_memset(frames, 0, npages * sizeof *frames);
@@ -462,8 +474,8 @@ int sys_shm_open(struct syscall_ctx *c) {
         if ((m.flags & SHM_PUBLIC) &&
             sandbox_require(PROMISE_PUBLISH, "shm_open of a public object", c->regs))
             return 0;
-        uint64_t npages = (m.length + 4095) / 4096;
-        if (!npages || npages > SHM_PAGES_MAX) { ret = -EINVAL; goto out; }
+        uint64_t npages = m.length / 4096 + (m.length % 4096 != 0);   // no wrap near 2^64
+        if (!npages_ok(npages)) { ret = -EINVAL; goto out; }
         // **THE CREATOR'S DATA LIMIT PAYS** -- Linux's memory cgroup, which
         // charges the allocating task. A limit nobody set charges nothing,
         // so a window buffer is free as before; a limited process (a web
@@ -683,9 +695,16 @@ KTEST("shm", "an object can be bigger than one allocation of frames") {
 
 KTEST("shm", "a name is refused before a slot is spent on it") {
     KTEST_ASSERT_EQ(name_ok(""), 0);
-    KTEST_ASSERT_EQ(name_ok("a/b"), 0);
     KTEST_ASSERT_EQ(name_ok(".."), 0);
     KTEST_ASSERT_EQ(name_ok("snd.3"), 1);
+    KTEST_ASSERT_EQ(name_ok("clipboard/7"), 1);   // a namespace
+    KTEST_ASSERT_EQ(name_ok("a/b.c/d"), 1);
+    KTEST_ASSERT_EQ(name_ok("/a"), 0);
+    KTEST_ASSERT_EQ(name_ok("a/"), 0);
+    KTEST_ASSERT_EQ(name_ok("a//b"), 0);
+    KTEST_ASSERT_EQ(name_ok("a/.."), 0);
+    KTEST_ASSERT_EQ(name_ok("./a"), 0);
+    KTEST_ASSERT_EQ(name_ok("a/..b"), 1);          // only a whole "." or ".." segment
 }
 
 KTEST("shm", "a dead creator's NAME goes, so a server notices") {

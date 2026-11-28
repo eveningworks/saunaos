@@ -425,11 +425,11 @@ from the default (a sound card, a USB mouse, `--reboot`).
   requiring the phrase TWICE. Then the cross-app paste, asserted as a
   BAND -- the change must be contiguous and near the top, where a shell
   prompt is, so a paste that scattered ink down the grid fails while
-  "something changed" would pass. Then an oversized copy: Select All in
-  `pci.ids` (1.6 MB) asks for far more than `WIN_CLIP_BYTES`, and the
-  clipboard must still hold what the round trip put there -- a
-  truncating clipboard would replace it with the first 64 KB of
-  pci.ids, which is the failure the refusal exists to prevent.
+  "something changed" would pass. Then a copy past the page: Select All
+  in `pci.ids` (1.6 MB) asks for far more than the page's 64 KiB, so
+  `lsshm` must list the object clipboardd made for it, and the text
+  pasted into a new document must save with pci.ids' own SHA-256. A
+  small copy after it must let the object go.
 
   **A trap it encodes: counting dark pixels is backwards over the
   Terminal**, whose grid is white on black -- there every pixel is

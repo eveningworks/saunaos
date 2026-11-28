@@ -60,13 +60,14 @@ int w16_clip_put_text(const char *ansi, int n) {
 }
 
 char *w16_clip_get_text(int *n) {
-    static struct uclip c;                       // 64 KiB: not on the task's stack
+    static struct uclip c;
     int len;
-    if (!uclip_load(&c)) return 0;
+    uclip_load(&c);
     const char *s = uclip_text(&c, &len);
-    if (!s) return 0;
+    if (!s) { uclip_free(&c); return 0; }
     char *ansi = malloc((size_t)len + 1), *out = malloc((size_t)len * 2 + 1);
     long a = ansi && out ? ucharset_utf8_to_cp1252(ansi, (size_t)len + 1, s, (size_t)len, '?') : -1;
+    uclip_free(&c);
     if (a < 0) { free(ansi); free(out); return 0; }
     int m = 0;
     for (long i = 0; i < a; i++) {
@@ -142,13 +143,16 @@ static void imported(struct w16 *w) {
         if (f) f->ours = 1;
         if ((f = add(CF_DIB))) f->ours = 1;
     }
+    uclip_free(&c);
 }
 
 // The picture on SaunaOS's clipboard, decoded; 0 when it holds none.
 static int clip_image(struct uimg *im) {
     static struct uclip c;
-    if (!uclip_load(&c) || uclip_kind(&c) != UCLIP_KIND_IMAGE || !uclip_image(&c)) return 0;
-    return uimg_load(uclip_image(&c), im) == 0;
+    int ok = uclip_load(&c) && uclip_kind(&c) == UCLIP_KIND_IMAGE && uclip_image(&c) &&
+             uimg_load(uclip_image(&c), im) == 0;
+    uclip_free(&c);
+    return ok;
 }
 
 // An imported format made into the block (or bitmap) a program reads.

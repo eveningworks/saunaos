@@ -953,7 +953,6 @@ static void update_indicators(void) {
 // Ctrl+C is INTR in a terminal, so a compositor that grabbed it would
 // take interrupt away from the GUI Terminal.
 
-// STATIC: struct uclip embeds the whole 64 KiB payload (media/uclip.h).
 static struct uclip g_clip;
 // Kept current by on_clipboard(), because menu_item_flags() runs every
 // draw and a syscall per row per frame to grey one item is absurd.
@@ -962,6 +961,7 @@ static int g_clip_has_text;
 static void clip_refresh(void) {
     uclip_load(&g_clip);
     g_clip_has_text = uclip_text(&g_clip, NULL) != 0;
+    uclip_free(&g_clip);
 }
 
 // 1 if the selection reached the clipboard -- what Cut must know before
@@ -969,18 +969,12 @@ static void clip_refresh(void) {
 static int do_copy(void) {
     if (!utext_sel_present(T)) { set_status("nothing selected"); return 0; }
     int n = utext_sel_text(T, 0, 0);   // the TRUE length first
-    if (n > UCLIP_TEXT_MAX) {
-        // A REFUSAL SAID OUT LOUD: a silent one pastes an hour-old copy.
-        snprintf(g_status, sizeof g_status,
-                  "selection too large to copy: %d KB, limit %d KB",
-                  n / 1024, (UCLIP_TEXT_MAX + 1) / 1024);
-        return 0;
-    }
     char *tmp = (char *)malloc((size_t)n + 1);
     if (!tmp) { set_status("out of memory"); return 0; }
     utext_sel_text(T, tmp, n + 1);
     int ok = uclip_set_text(tmp, n);
     free(tmp);
+    // A REFUSAL SAID OUT LOUD: a silent one pastes an hour-old copy.
     if (!ok) { set_status("copy refused"); return 0; }
     snprintf(g_status, sizeof g_status, "copied %d character%s", n, n == 1 ? "" : "s");
     g_clip_has_text = 1;   // the broadcast confirms it; this is for THIS frame
@@ -1008,13 +1002,17 @@ static void make_room(int more) {
 }
 
 static void do_paste(void) {
-    clip_refresh();
+    uclip_load(&g_clip);
+    g_clip_has_text = uclip_text(&g_clip, NULL) != 0;
     int n = 0;
     const char *txt = uclip_text(&g_clip, &n);
-    if (!txt || n == 0) { set_status("clipboard holds no text"); return; }
+    if (!txt || n == 0) { uclip_free(&g_clip); set_status("clipboard holds no text"); return; }
     make_room(n);
     int put = utext_insert_text(T, txt, n);
-    for (int i = 0; i < n; i++) if (txt[i] == '\r') n--;   // dropped, not refused
+    int crs = 0;
+    for (int i = 0; i < n; i++) crs += txt[i] == '\r';   // dropped, not refused
+    n -= crs;
+    uclip_free(&g_clip);
     if (put < n)
         snprintf(g_status, sizeof g_status, "pasted %d of %d -- document full", put, n);
     else

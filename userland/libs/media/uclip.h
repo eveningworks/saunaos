@@ -30,7 +30,7 @@ extern "C" {
 // half-written clipboard.
 //
 // **THREE KINDS: FILES, TEXT AND A PICTURE.** A picture is the path of
-// a file the copier wrote under CLIP_IMAGE_DIR -- 64 KiB holds no
+// a file the copier wrote under CLIP_IMAGE_DIR -- the page holds no
 // pixels (docs/decisions.md, "A copied picture is a file the clipboard
 // names"). Files are absolute paths, the shape
 // `text/uri-list` has on a real desktop; text is one run of characters.
@@ -48,9 +48,13 @@ extern "C" {
 // move it from once the page holds a copy: an app cutting text deletes
 // its own selection and COPIES, which is what every editor does.
 //
-// **HOLD A `struct uclip` STATICALLY, NEVER ON THE STACK.** It is a
-// SNAPSHOT of the page, payload included, which is far past the ring-3
-// frame budget -- the compiler says so rather than the machine.
+// **A LOAD IS PAIRED WITH `uclip_free()`.** A snapshot holds the payload
+// OUT of line -- a copy of an inline one, or a read-only mapping of a
+// large one's object -- and a mapping kept keeps the object's memory
+// alive after clipboardd lets it go. A `struct uclip` starts ZEROED
+// (static, or `= {0}`): uclip_load() releases what it held before, so a
+// reused one cannot leak, but only uclip_free() hands the memory back
+// before the next load.
 
 // A snapshot, taken under the page's seqlock. Not the page itself: the
 // pointers uclip_path() and uclip_text() hand back have to stay still
@@ -62,7 +66,13 @@ struct uclip {
     uint32_t count;
     uint32_t len;
     uint32_t serial;
-    char data[CLIP_BYTES];
+    const char *data;   // `len` bytes; never NULL once loaded
+    void *own;          // what uclip_free() releases: a malloc'd copy, or a mapping
+    unsigned long own_map;   // the mapping's length; 0 for a copy
+    // uclip_path()'s place, so a walk in order is linear: entry `at_i`
+    // starts at byte `at_off`. The library's, not the caller's.
+    int at_i;
+    uint32_t at_off;
 };
 
 #define UCLIP_NONE CLIP_OP_NONE
@@ -73,13 +83,14 @@ struct uclip {
 #define UCLIP_KIND_TEXT  CLIP_KIND_TEXT
 #define UCLIP_KIND_IMAGE CLIP_KIND_IMAGE
 
-// The largest text a copy can carry. A selection past it is REFUSED --
-// see uclip_set_text() -- so an app can say so rather than paste short.
-#define UCLIP_TEXT_MAX (CLIP_BYTES - 1)
-
-// Reads the clipboard into `c`. Returns 1; an EMPTY clipboard is not a
-// failure, it is `uclip_op() == UCLIP_NONE`.
+// Reads the clipboard into `c`, releasing what `c` held. Returns 1; an
+// EMPTY clipboard is not a failure, it is `uclip_op() == UCLIP_NONE` --
+// and nor is one too large to take into memory, which reads as empty
+// and logs.
 int uclip_load(struct uclip *c);
+
+// Releases a load's payload and empties `c`. Safe on an empty one.
+void uclip_free(struct uclip *c);
 
 int uclip_op(const struct uclip *c);
 int uclip_count(const struct uclip *c);
@@ -88,7 +99,7 @@ int uclip_kind(const struct uclip *c);
 
 // The page's serial WITHOUT taking a snapshot -- one shared-memory
 // read. What a per-frame "has the clipboard changed?" poll should use,
-// since copying 64 KiB to answer it would be absurd.
+// since copying the payload to answer it would be absurd.
 unsigned uclip_peek_serial(void);
 
 // The current op, read from the shared page without loading the payload.
@@ -101,10 +112,11 @@ const char *uclip_path(const struct uclip *c, int i);
 
 // --- putting something on it -----------------------------------------
 //
-// Built up, then committed: an app marks N files and cannot know it has
-// run out of room until it tries. `uclip_add` returns 0 the moment one
-// does not fit, and `uclip_commit` then puts NOTHING on the clipboard --
-// a partial cut set is files silently left behind.
+// Built up, then committed. There is no room to run out of but memory:
+// `uclip_add` returns 0 only when that is out (or the path is empty), and
+// `uclip_commit` then puts NOTHING on the clipboard -- a partial cut set
+// is files silently left behind. A large set costs one round trip to
+// clipboardd at the commit, for its object.
 
 // The `struct uclip *` is ignored and kept only so existing call sites
 // read the same; the staging buffer is this library's, because it must
@@ -124,10 +136,9 @@ int  uclip_clear(void);
 // there is exactly one entry and the app already holds it.
 
 // Puts `n` bytes of text on the clipboard. Returns 0 without touching
-// the clipboard if they do not fit (`n > UCLIP_TEXT_MAX`, or more once
-// converted) or the server refused -- a caller should say which to the
-// person, since "nothing happened" is the one outcome a Copy must never
-// have.
+// the clipboard if memory ran out or the server refused -- a caller
+// should say so to the person, since "nothing happened" is the one
+// outcome a Copy must never have.
 //
 // **THE CLIPBOARD IS UTF-8, ALWAYS** (docs/utf8-design.md, "Decided
 // here", 8). A byte that does not start a valid sequence is taken as its
@@ -136,8 +147,6 @@ int  uclip_clear(void);
 // terminal's Latin-1 cells, pastes as itself everywhere. A paster reads
 // UTF-8 and converts at its own edge if it must (w16, VNC, the terminal).
 //
-// It takes its own buffer, so nothing the CALLER holds has to be
-// clipboard-sized.
 int uclip_set_text(const char *s, int n);
 
 // The clipboard's text, or NULL when it holds something else (ALWAYS

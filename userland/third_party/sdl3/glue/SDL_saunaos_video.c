@@ -24,7 +24,7 @@ static struct uapp_desc g_desc;
  * picture); SDL hears only its text, as SDL's Windows driver hears only
  * CF_UNICODETEXT. No primary selection: SaunaOS has none. */
 
-static struct uclip g_clip;   /* 64 KiB: never on the stack (uclip.h) */
+static struct uclip g_clip;
 static unsigned g_clip_serial;
 
 static bool SAUNAOS_SetClipboardText(SDL_VideoDevice *_this, const char *text)
@@ -34,8 +34,8 @@ static bool SAUNAOS_SetClipboardText(SDL_VideoDevice *_this, const char *text)
     if (n == 0) {
         return uclip_clear() ? true : SDL_SetError("The clipboard service refused");
     }
-    if (n > UCLIP_TEXT_MAX || !uclip_set_text(text, (int)n)) {
-        return SDL_SetError("The clipboard holds at most %d bytes of text", UCLIP_TEXT_MAX);
+    if (n > 0x7FFFFFFF || !uclip_set_text(text, (int)n)) {
+        return SDL_SetError("The clipboard could not take %u bytes of text", (unsigned)n);
     }
     g_clip_serial = uclip_peek_serial();   /* our own change is not an update */
     return true;
@@ -56,6 +56,7 @@ static char *SAUNAOS_GetClipboardText(SDL_VideoDevice *_this)
         }
         out[len] = '\0';
     }
+    uclip_free(&g_clip);
     return out;
 }
 
@@ -63,8 +64,10 @@ static bool SAUNAOS_HasClipboardText(SDL_VideoDevice *_this)
 {
     (void)_this;
     int len = 0;
-    return uclip_load(&g_clip) && uclip_op(&g_clip) != UCLIP_NONE &&
-           uclip_text(&g_clip, &len) && len > 0;
+    bool has = uclip_load(&g_clip) && uclip_op(&g_clip) != UCLIP_NONE &&
+               uclip_text(&g_clip, &len) && len > 0;
+    uclip_free(&g_clip);
+    return has;
 }
 
 /* Another program's copy is SDL_EVENT_CLIPBOARD_UPDATE: one shared-memory

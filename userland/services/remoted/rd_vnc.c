@@ -729,11 +729,19 @@ static int skip(uint32_t n) {
 // A viewer that lists the EXTENDED CLIPBOARD (below) gets UTF-8 instead;
 // Debian's libvncclient, Remmina's, does not, so the plain form stays.
 // Text only, as every VNC server sends.
+//
+// RD_CLIP_MAX IS A REMOTE LIMIT, NOT THE CLIPBOARD'S, which has none: the
+// most text taken from or sent to a viewer, the size the Extended
+// Clipboard's caps must advertise. TigerVNC's MaxCutText, at its default.
+// Past it a copy stays on its own side, and says so in the log.
+#define RD_CLIP_MAX (256 * 1024)
 
 // ClientCutText: the viewer copied `n` bytes. A view-only viewer's are
 // read and dropped, as TigerVNC and x11vnc drop them.
 static int cut_text_in(struct vnc *v, uint32_t n) {
-    static char raw[UCLIP_TEXT_MAX], u8[UCLIP_TEXT_MAX + 1];
+    static char raw[RD_CLIP_MAX], u8[RD_CLIP_MAX + 1];
+    if (n > sizeof raw && !v->view_only)
+        rd_log("remoted: vnc: the viewer's clipboard is past RD_CLIP_MAX -- not taken\n");
     if (v->view_only || n > sizeof raw) return skip(n);
     if (!read_full(raw, n)) return 0;
     long len = ucharset_latin1_to_utf8(u8, sizeof u8, raw, n);
@@ -749,13 +757,17 @@ static int cut_text_in(struct vnc *v, uint32_t n) {
 // failure (the viewer has gone).
 static int cut_text_out(struct vnc *v) {
     static struct uclip c;
-    static uint8_t msg[8 + UCLIP_TEXT_MAX + 1];
+    static uint8_t msg[8 + RD_CLIP_MAX + 1];
     v->clip_seen = uclip_peek_serial();
     int n;
     const char *t = uclip_load(&c) ? uclip_text(&c, &n) : 0;
-    if (!t) return 1;   // files, or empty: nothing a viewer can take
+    if (!t) { uclip_free(&c); return 1; }   // files, or empty: nothing a viewer can take
     long len = ucharset_utf8_to_latin1((char *)msg + 8, sizeof msg - 8, t, (size_t)n, '?');
-    if (len < 0) return 1;
+    uclip_free(&c);
+    if (len < 0) {
+        rd_log("remoted: vnc: this clipboard is past RD_CLIP_MAX -- not sent\n");
+        return 1;
+    }
     msg[0] = 3;                                      // ServerCutText
     msg[1] = msg[2] = msg[3] = 0;
     msg[4] = (uint8_t)(len >> 24); msg[5] = (uint8_t)(len >> 16);
@@ -791,7 +803,7 @@ static int ext_out(uint32_t flags, const void *data, uint32_t n) {
 
 static int ext_caps_out(void) {
     uint8_t max[4];
-    put_be32(max, UCLIP_TEXT_MAX);                   // the most text this side holds
+    put_be32(max, RD_CLIP_MAX);                      // the most text this side takes
     return ext_out(XC_ACTIONS | XC_TEXT, max, sizeof max);
 }
 
@@ -802,7 +814,11 @@ static int ext_provide_out(struct vnc *v) {
     v->clip_seen = uclip_peek_serial();
     int n = 0;
     const char *t = uclip_load(&c) ? uclip_text(&c, &n) : 0;
-    if (!t) return ext_out(XC_PROVIDE, 0, 0);
+    if (t && n > RD_CLIP_MAX) {
+        rd_log("remoted: vnc: this clipboard is past RD_CLIP_MAX -- not sent\n");
+        t = 0;
+    }
+    if (!t) { uclip_free(&c); return ext_out(XC_PROVIDE, 0, 0); }
     size_t lines = 0;
     for (int i = 0; i < n; i++) lines += t[i] == '\n';
     size_t raw_n = 4 + (size_t)n + lines + 1, cap = udeflate_bound(raw_n);
@@ -819,6 +835,7 @@ static int ext_provide_out(struct vnc *v) {
         put_be32(raw, (uint32_t)(k - 4));
         if (udeflate_into(raw, k, UINFLATE_ZLIB, z, cap, &zn) == 0) ok = ext_out(XC_PROVIDE | XC_TEXT, z, (uint32_t)zn);
     }
+    uclip_free(&c);
     free(raw);
     free(z);
     return ok;
@@ -828,7 +845,9 @@ static int ext_notify_out(struct vnc *v) {
     static struct uclip c;
     v->clip_seen = uclip_peek_serial();
     int n = 0;
-    return ext_out(XC_NOTIFY | (uclip_load(&c) && uclip_text(&c, &n) ? XC_TEXT : 0), 0, 0);
+    int has = uclip_load(&c) && uclip_text(&c, &n);
+    uclip_free(&c);
+    return ext_out(XC_NOTIFY | (has ? XC_TEXT : 0), 0, 0);
 }
 
 struct ext_text { char *buf; size_t n, cap; };
@@ -844,8 +863,8 @@ static int ext_take(void *ctx, const uint8_t *p, size_t n) {
 // A viewer's Provide: its text onto this machine's clipboard, CRLF as LF.
 static void ext_provide_in(struct vnc *v, const uint8_t *z, uint32_t n) {
     static struct uinflate_scratch scratch;
-    static char u8[UCLIP_TEXT_MAX + 1];
-    struct ext_text t = { malloc(4 + 2 * (size_t)UCLIP_TEXT_MAX + 1), 0, 4 + 2 * (size_t)UCLIP_TEXT_MAX + 1 };
+    static char u8[RD_CLIP_MAX + 1];
+    struct ext_text t = { malloc(4 + 2 * (size_t)RD_CLIP_MAX + 1), 0, 4 + 2 * (size_t)RD_CLIP_MAX + 1 };
     if (!t.buf) return;
     int rc = uinflate(z, n, UINFLATE_ZLIB_OPEN, &scratch, ext_take, &t, 0);
     uint32_t size = t.n >= 4 ? (uint32_t)t.buf[0] << 24 | (uint32_t)(uint8_t)t.buf[1] << 16 |
@@ -859,7 +878,7 @@ static void ext_provide_in(struct vnc *v, const uint8_t *z, uint32_t n) {
     for (uint32_t i = 0; i < size && t.buf[4 + i]; i++) {
         char ch = t.buf[4 + i];
         if (ch == '\r' && i + 1 < size && t.buf[5 + i] == '\n') continue;
-        if (k >= UCLIP_TEXT_MAX) { k = (size_t)-1; break; }
+        if (k >= RD_CLIP_MAX) { k = (size_t)-1; break; }
         u8[k++] = ch;
     }
     free(t.buf);

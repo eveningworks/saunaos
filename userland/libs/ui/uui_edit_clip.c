@@ -6,12 +6,13 @@
 #include <stdlib.h>
 
 int uui_edit_clip_has_text(void) {
-    // STATIC: the snapshot embeds the whole payload (media/uclip.h).
     static struct uclip c;
     if (uclip_peek_op() == UCLIP_NONE) return 0;
     uclip_load(&c);
     int n = 0;
-    return uclip_text(&c, &n) != 0 && n > 0;
+    int has = uclip_text(&c, &n) != 0 && n > 0;
+    uclip_free(&c);
+    return has;
 }
 
 int uui_edit_copy(struct uui_edit *e, const struct uui_edit_ops *ops, void *text) {
@@ -19,7 +20,6 @@ int uui_edit_copy(struct uui_edit *e, const struct uui_edit_ops *ops, void *text
     int start, end;
     uui_edit_range(e, &start, &end);
     int n = end - start;
-    if (n > UCLIP_TEXT_MAX) return 0;   // uclip_set_text() would refuse it anyway
     char *tmp = (char *)malloc((size_t)n + 1);
     if (!tmp) return 0;
     for (int i = 0; i < n; i++) tmp[i] = ops->at(text, start + i);
@@ -44,7 +44,7 @@ int uui_edit_paste(struct uui_edit *e, const struct uui_edit_ops *ops, void *tex
     uclip_load(&c);
     int n = 0;
     const char *s = uclip_text(&c, &n);
-    if (!s || n <= 0) return 0;
+    if (!s || n <= 0) { uclip_free(&c); return 0; }
     int one_line = ops->line_start == 0;
 
     if (e->undo) { uui_undo_break(e->undo); uui_undo_begin(e->undo); }
@@ -63,6 +63,7 @@ int uui_edit_paste(struct uui_edit *e, const struct uui_edit_ops *ops, void *tex
         if (got < j - i) break;   // full: what fitted went in
         i = j;
     }
+    uclip_free(&c);
     uui_edit_clear_selection(e);
     if (e->undo) { uui_undo_end(e->undo); uui_undo_break(e->undo); }
     return put;

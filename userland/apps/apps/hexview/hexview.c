@@ -452,18 +452,17 @@ static uint8_t *selection_bytes(size_t *n, size_t limit) {
 static void copy_as(int how) {
     uint64_t lo, len;
     if (!uui_hexview_selection(&g_grid, &lo, &len)) return;
-    // The clipboard holds UCLIP_TEXT_MAX: a selection whose text would not
-    // fit is REFUSED with a sentence, never copied short.
+    // uclip_set_text() takes an int: a selection whose text would not fit
+    // one is REFUSED with a sentence, never copied short.
     size_t need = how == CMD_COPY_HEX ? ubyteval_hex_size((size_t)len)
                 : how == CMD_COPY_C ? ubyteval_c_size((size_t)len) : (size_t)len + 1;
-    if (len > UCLIP_TEXT_MAX || need > UCLIP_TEXT_MAX + 1) {
-        snprintf(g_note, sizeof g_note, "Too much to copy as text: the clipboard holds %d KiB",
-                 UCLIP_TEXT_MAX / 1024);
+    if (len > 0x7FFFFFFF || need > 0x7FFFFFFF) {
+        snprintf(g_note, sizeof g_note, "Too much to copy as text");
         ulogf("hexview: copy refused, %llu bytes\n", (unsigned long long)len);
         return;
     }
     size_t n = 0;
-    uint8_t *b = selection_bytes(&n, UCLIP_TEXT_MAX);
+    uint8_t *b = selection_bytes(&n, (size_t)len);
     char *t = b ? malloc(need) : 0;
     int w = -1;
     if (t) {

@@ -31,17 +31,19 @@ one needs:
      is a supervised ring-3 service now, so that claim needs a check
      rather than a sentence: kill toywm, let init restart it, and the
      text must still be there.
-  5. **An oversized copy is REFUSED, and does not disturb what is
-     already there.** Opening pci.ids (1.6 MB) and pressing Ctrl-A
-     Ctrl-C asks for far more than WIN_CLIP_BYTES. The clipboard must
-     still hold what check 2 put there -- a truncating clipboard would
-     replace it with the first 64 KB of pci.ids, which is exactly the
-     failure the refusal exists to prevent.
+  5. **A copy past the page goes whole, through an object.** Opening
+     pci.ids (1.6 MB) and pressing Ctrl-A Ctrl-C asks for far more than
+     the page's 64 KiB inline area. `lsshm` must list the object
+     clipboardd made for it (`clipboard/<n>`), and the text pasted into
+     a new document and saved must hash the same as pci.ids -- a
+     clipboard that cut the copy at the page fails the hash.
   6. **The clipboard is UTF-8, always** (docs/utf8-design.md, step 1).
      A LATIN-1 file copied whole and pasted into an empty one saves as
      that text's UTF-8 -- each stray byte re-encoded as its letter -- read
      back by `sum -a sha256` against Python's own encoding. Before step 1
      the paste wrote the Latin-1 bytes back unchanged.
+     That small copy also replaces check 5's large one, so clipboardd
+     must then let the object go: `lsshm` lists no `clipboard/` row.
 
 Usage (the VM must already be up):
 
@@ -63,6 +65,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui          # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard                                      # noqa: E402
+from harness import poll                               # noqa: E402
 
 NOTEPAD = "/bin/wm/apps/notepad"
 PCI_IDS = "/usr/share/hwdata/pci.ids"
@@ -152,6 +155,25 @@ def content_rect(dbg, title_starts):
         if len(right) >= 4:
             return tuple(int(v) for v in right[:4])
     return None
+
+
+def clip_objects(dbg):
+    """The clipboard's large-copy objects lsshm lists now: `clipboard/<n>`
+    rows (the page itself is `clipboard`, its channel `clipboard/ctl`)."""
+    rows = []
+    for line in (dbg.send("sh lsshm") or "").splitlines():
+        name = line.split()[0] if line.split() else ""
+        if name.startswith("clipboard/") and name[len("clipboard/"):].isdigit():
+            rows.append(name)
+    return rows
+
+
+def sha256_of(dbg, path):
+    """`sum -a sha256` of a guest file: its digest, or "" when unreadable."""
+    for word in (dbg.send("sh sum -a sha256 " + path) or "").split():
+        if len(word) == 64 and all(c in "0123456789abcdef" for c in word):
+            return word
+    return ""
 
 
 def run(dbg, qmp, tmp, res):
@@ -281,7 +303,7 @@ def run(dbg, qmp, tmp, res):
             res.check(PHRASE in out3,
                       "the clipboard survived the compositor being killed")
 
-    # --- check 5: an oversized copy is refused, and changes nothing ---
+    # --- check 5: a copy past the page goes whole, through an object ---
     dbg.send("gui spawn %s %s" % (NOTEPAD, PCI_IDS))
     time.sleep(3.0)
     dbg.settle()
@@ -293,11 +315,11 @@ def run(dbg, qmp, tmp, res):
     qmp.click_at(px + pw // 2, py + ph // 2)
     dbg.settle()
     key(dbg, CTRL_A)
-    key(dbg, CTRL_C)          # 1.6 MB -- far past WIN_CLIP_BYTES
+    key(dbg, CTRL_C)          # 1.6 MB -- far past the page's 64 KiB
     dbg.settle()
+    res.check(bool(poll(lambda: clip_objects(dbg), 10)),
+              "a 1.6 MB copy went into an object of its own (lsshm: %s)" % clip_objects(dbg))
 
-    # The clipboard must be untouched: paste into a NEW document and
-    # require the phrase back, not a slice of pci.ids.
     dbg.send("gui spawn " + NOTEPAD)
     time.sleep(2.0)
     dbg.settle()
@@ -315,11 +337,12 @@ def run(dbg, qmp, tmp, res):
     dbg.settle()
     type_text(dbg, SAVE_PATH + "2")
     key(dbg, ENTER)
-    time.sleep(1.5)
     dbg.settle()
-    out2 = dbg.send("sh cat " + SAVE_PATH + "2") or ""
-    res.check(PHRASE in out2 and "PCI" not in out2,
-              "an oversized copy was refused and left the clipboard alone")
+    want5 = sha256_of(dbg, PCI_IDS)
+    got5 = poll(lambda: sha256_of(dbg, SAVE_PATH + "2") == want5 and want5, 30)
+    res.check(bool(want5) and bool(got5),
+              "...and pasted into a new document saves byte-exact (%s vs %s)"
+              % (want5, sha256_of(dbg, SAVE_PATH + "2")))
 
     # --- check 6: the clipboard is UTF-8, always -----------------------
     import hashlib
@@ -347,6 +370,8 @@ def run(dbg, qmp, tmp, res):
     out6 = dbg.send("sh sum -a sha256 " + u8_path) or ""
     res.check(want in out6,
               "a Latin-1 file copied and pasted saves as UTF-8 (%s)" % out6.strip()[:80])
+    res.check(poll(lambda: not clip_objects(dbg), 10),
+              "the small copy let check 5's object go (lsshm: %s)" % clip_objects(dbg))
 
 
 def main():

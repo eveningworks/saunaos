@@ -71,11 +71,9 @@ int wm_dnd_active(void) { return g_active; }
 int wm_dnd_took_drop(void) { return g_took_drop; }
 
 // The first item's icon from the drag slot the source just filled.
-static void load_icon(void) {
-    static struct uclip c;   // 64 KiB, media/uclip.h says why static
-    g_icon_w = g_icon_h = 0;
-    if (!uclip_drag_load(&c) || uclip_count(&c) <= 0) return;
-    const char *first = uclip_path(&c, 0);
+static void icon_from(const struct uclip *c) {
+    if (uclip_count(c) <= 0) return;
+    const char *first = uclip_path(c, 0);
     struct sys_stat st;
     int is_dir = sys_stat(first, &st) == 0 && st.is_dir;
     const struct uimg *ico = icon_get(ufiletype_icon(k_path_basename(first), is_dir), ICON_PX);
@@ -86,6 +84,13 @@ static void load_icon(void) {
     }
     g_icon_w = ico->w;
     g_icon_h = ico->h;
+}
+
+static void load_icon(void) {
+    static struct uclip c;
+    g_icon_w = g_icon_h = 0;
+    if (uclip_drag_load(&c)) icon_from(&c);
+    uclip_free(&c);
 }
 
 static void begin(int pid, int count) {

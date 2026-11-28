@@ -59,6 +59,13 @@ serial for nothing. This daemon:
 
 - **creates the page and owns its lifetime**, which is the whole reason
   the clipboard survives every program exiting;
+- **makes an object for a copy too large for the page**, on request
+  over its channel `clipboard/ctl`, sized to the copy: the copier fills
+  it and commits the page naming it, and a paste maps it rather than
+  copying it. Made by the daemon, the object outlives the copier, and
+  the daemon unlinks it once no page names it -- at once after a newer
+  copy replaces it, or a minute after it was made if no commit ever
+  named it (a copier that died between the two);
 - **breaks a lock whose owner died**, and says so in the log. If the
   page was mid-update when that happened the clipboard is emptied
   rather than left as half of something.
@@ -72,7 +79,11 @@ every desktop ships a clipboard manager to work around it.
 
 There are no unix sockets here, so the rendezvous is a **name**: the
 shared-memory object `clipboard`. There is no separate beacon -- opening
-it either works, or the service is not running.
+it either works, or the service is not running. Everything else it
+names is under `clipboard/`: the channel `clipboard/ctl` and each large
+copy's object `clipboard/<n>`, which `lsshm` lists. So one
+`unveil("shm:clipboard", ...)` gives a sandboxed program the whole
+clipboard and nothing else.
 
 A program calling `uclip_load()` with no service running gets an **empty
 clipboard, not an error**, and `uclip_set_text()` returns 0. That is a
@@ -100,10 +111,16 @@ its own selection and copies.
 
 ## Limits
 
-The payload is capped at 64 KiB, which holds any list of paths and
-roughly eight hundred lines of text. A copy larger than that is
-**refused with a message**, never truncated -- half a cut set pasted is
-files silently left behind, and half a paragraph is worse than none.
+None but memory, as on Windows. A copy up to 64 KiB is written into
+the page itself; a larger one goes into its object, and the daemon logs
+any object over 64 MiB (`clipboardd: pid N copies M MiB`), since the
+memory stays taken until something replaces it. A copy that cannot be
+made -- no memory, or the daemon gone -- is **refused with a message**,
+never truncated: half a cut set pasted is files silently left behind,
+and half a paragraph is worse than none.
+
+The drag slot, which carries a drag's files beside the clipboard, is
+8 KiB in the page.
 
 ## See also
 

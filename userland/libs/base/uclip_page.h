@@ -35,7 +35,32 @@
 
 #define CLIP_SHM_NAME "clipboard"
 
-#define CLIP_BYTES 65536 // the packed payload's cap
+// THE INLINE AREA: a payload this size or smaller is copied into the page
+// itself, a memcpy under its lock. A larger one goes in an OBJECT of its
+// own, "clipboard/<n>", made to its size by clipboardd on request over
+// CLIP_SERVER_NAME (docs/clipboard-design.md, option B1). Every name is
+// under "clipboard/", so one unveil("shm:clipboard") reaches the page,
+// the server and every object (sandbox.c's covers()).
+#define CLIP_BYTES 65536
+
+#define CLIP_INLINE 0   // `where`: the payload is in `data`
+#define CLIP_OBJECT 1   // `where`: the payload is object `object`
+
+#define CLIP_SERVER_NAME "clipboard/ctl"   // a uchan (base/uchan.h)
+#define CLIP_OBJECT_FMT  "clipboard/%u"    // an object's name, from its number
+
+// The one request: make an object of `len` bytes. The copier fills it,
+// then commits the page naming it; clipboardd unlinks it once no page
+// names it, or CLIP_OBJECT_GRACE_MS after it was made if none ever did
+// (a copier that died between the two).
+#define CLIP_REQ_OBJECT 1
+struct clip_req   { uint32_t what; uint32_t pad; uint64_t len; };
+struct clip_reply { int32_t status; uint32_t object; };   // status: 0 or -errno
+#define CLIP_OBJECT_GRACE_MS 60000
+
+// No ceiling but memory -- Windows has none either -- and clipboardd
+// logs every object past this, so a copy holding a lot of RAM is seen.
+#define CLIP_OBJECT_LOG_BYTES (64ull * 1024 * 1024)
 #define CLIP_DRAG_BYTES 8192 // the drag slot's payload cap -- paths, not text
 
 #define CLIP_OP_NONE 0
@@ -53,7 +78,7 @@
 // Written LAST when the daemon initialises the page, and checked by
 // every client: a mapping whose magic is unset is one whose other
 // fields have not been written yet.
-#define CLIP_MAGIC 0x50494C43u // 'CLIP'
+#define CLIP_MAGIC 0x32504C43u // 'CLP2': the page with `where` (a 'CLIP' page is older)
 
 // A writer that cannot take the lock this many spins gives up and
 // REFUSES the copy. Contention is a memcpy wide, so reaching this at
@@ -94,9 +119,16 @@ struct clip_page {
     // cut/copy mode.
     uint32_t serial;
 
+    // WHERE THE PAYLOAD IS: CLIP_INLINE, in `data`, or CLIP_OBJECT, in
+    // object number `object`, `len` bytes of it. An object is FILLED
+    // BEFORE the page names it and never written after, so a reader that
+    // mapped it holds a whole clipboard however the page moves on.
+    uint32_t where;
+    uint32_t object;
+
     // `count` NUL-terminated strings packed end to end: absolute paths
     // when the kind is FILES, one run of text (count 1, its NUL
-    // included in `len`) when it is TEXT.
+    // included in `len`) when it is TEXT. Inline only.
     char data[CLIP_BYTES];
 
     // THE DRAG SLOT: what a drag in flight is carrying, beside the

@@ -299,16 +299,14 @@ static int queue_from_paths(int op, const char *what, const struct uclip *c,
     return stage_take() == STAGE_RUN;
 }
 
-void do_drop_extern(const char *dest, int copy) {
-    static struct uclip c;
-    uclip_drag_load(&c);
+static void drop_extern(const struct uclip *c, const char *dest, int copy) {
     // Dropped on the Recycle Bin: deleted, the way a drop on Explorer's
     // bin is -- copy or not.
     if (strcmp(dest, FM_BIN) == 0) {
-        if (queue_from_paths(CMD_TRASH, "Delete", &c, "")) start_job();
+        if (queue_from_paths(CMD_TRASH, "Delete", c, "")) start_job();
         return;
     }
-    if (!queue_from_paths(copy ? CMD_COPY : CMD_MOVE, copy ? "Copy" : "Move", &c, dest))
+    if (!queue_from_paths(copy ? CMD_COPY : CMD_MOVE, copy ? "Copy" : "Move", c, dest))
         return;
     for (int i = 0; i < g_job_count; i++) {
         size_t n = strlen(g_job_path[i]);
@@ -320,6 +318,13 @@ void do_drop_extern(const char *dest, int copy) {
         }
     }
     start_job();
+}
+
+void do_drop_extern(const char *dest, int copy) {
+    static struct uclip c;
+    uclip_drag_load(&c);
+    drop_extern(&c, dest, copy);
+    uclip_free(&c);
 }
 
 void do_drop(struct uui_fileview *src, const char *dest, int copy) {
@@ -355,8 +360,6 @@ void do_drop(struct uui_fileview *src, const char *dest, int copy) {
 // do.
 static int clip_put(int op, const char *what) {
     struct uui_fileview *fv = active();
-    // STATIC: struct uclip embeds the whole 64 KiB payload, which is
-    // thirty times the ring-3 frame budget (media/uclip.h).
     static struct uclip c;
     uclip_begin(&c, op);
 
@@ -387,10 +390,8 @@ void clip_cut(void)  { clip_put(UCLIP_CUT, "Cut"); }
 
 // The paste. The destination is the ACTIVE pane's directory -- where you
 // are -- which is both Explorer's rule and the commander's.
-void clip_paste(void) {
-    static struct uclip c;   // see clip_put() on why it is static
-    uclip_load(&c);
-    int op = uclip_op(&c), n = uclip_count(&c);
+static void paste_from(const struct uclip *c) {
+    int op = uclip_op(c), n = uclip_count(c);
     ulogf("files: paste op=%d n=%d jobs=%d into %s\n", op, n, g_job_count,
           uui_fileview_dir(active()));
     if (op == UCLIP_NONE || n == 0) { set_note("clipboard is empty"); return; }
@@ -398,7 +399,7 @@ void clip_paste(void) {
     stage_begin(op == UCLIP_CUT ? CMD_MOVE : CMD_COPY, op == UCLIP_CUT ? "Move" : "Copy",
                 uui_fileview_dir(active()));
     for (int i = 0; i < n; i++) {
-        const char *src = uclip_path(&c, i);
+        const char *src = uclip_path(c, i);
         if (!src) break;
         // PASTING INTO THE DIRECTORY A FILE IS ALREADY IN would ask
         // /bin/cp to copy a file onto itself. Skipped rather than
@@ -427,6 +428,13 @@ void clip_paste(void) {
     // on every one of them.
     if (op == UCLIP_CUT) { (void)uclip_clear(); refresh_dim(); }
     if (took == STAGE_RUN) start_job();
+}
+
+void clip_paste(void) {
+    static struct uclip c;
+    uclip_load(&c);
+    paste_from(&c);
+    uclip_free(&c);
 }
 
 // --- the worker -------------------------------------------------------

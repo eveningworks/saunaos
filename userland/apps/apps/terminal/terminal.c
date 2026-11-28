@@ -1426,11 +1426,6 @@ static void do_copy(void) {
     if (!s || !s->t.sel_on) return;
     int n = uvterm_sel_text(&s->t, 0, 0);
     if (n <= 0) return;
-    if (n > UCLIP_TEXT_MAX) {
-        ulogf("uterm: selection is %d bytes, over the clipboard's %d -- not copied\n",
-              n, UCLIP_TEXT_MAX);
-        return;
-    }
     char *buf = malloc((size_t)n + 1);
     if (!buf) { ulog("uterm: out of memory copying the selection\n"); return; }
     uvterm_sel_text(&s->t, buf, n + 1);
@@ -1518,23 +1513,23 @@ static void send_byte(char b) {
 // bytes, so the shell's line editor sees them exactly as it would a
 // very fast typist -- there is nothing terminal-specific to do, and
 // nothing to interpret on this side.
-//
-// STATIC: struct uclip embeds the whole 64 KiB payload (media/uclip.h).
 static struct uclip g_clip;
 static int g_clip_has_text;
 
 static void clip_refresh(void) {
     uclip_load(&g_clip);
     g_clip_has_text = uclip_text(&g_clip, NULL) != 0;
+    uclip_free(&g_clip);
 }
 
 static void do_paste(void) {
     struct session *s = active();
     if (!s || s->t.master < 0) return;
-    clip_refresh();
+    uclip_load(&g_clip);
+    g_clip_has_text = uclip_text(&g_clip, NULL) != 0;
     int n = 0;
     const char *txt = uclip_text(&g_clip, &n);
-    if (!txt || n == 0) return;
+    if (!txt || n == 0) { uclip_free(&g_clip); return; }
     // THE CLIPBOARD IS UTF-8 AND SO IS THE TERMINAL (docs/utf8-design.md,
     // step 2): the bytes go to the program as they are, and its line
     // editor reads each sequence as one character.
@@ -1543,6 +1538,7 @@ static void do_paste(void) {
     // paragraph is thousands of kernel entries, and the pty takes the
     // run happily.
     pty_send(s, txt, n);
+    uclip_free(&g_clip);
 }
 
 static unsigned menu_item_flags(int code) {

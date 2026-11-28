@@ -1928,7 +1928,7 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
                 // compositor can offer to a window: its files go in
                 // the drag slot now (the selection, if it is in it).
                 {
-                    static struct uclip c;
+                    static struct uclip c;   // ignored by the staging calls
                     int n = add_selection(&c, drag.index, uclip_drag_begin);
                     if (n > 0 && uclip_drag_commit(&c)) wm_dnd_start_desktop(n);
                     else if (n < 0) wm_logf("desktop: the drag slot refused the selection");
@@ -2213,8 +2213,9 @@ static void menu_paste(void *ctx) {
     static struct uclip c;
     uclip_load(&c);
     int op = uclip_op(&c);
-    if (op == UCLIP_NONE || uclip_kind(&c) != UCLIP_KIND_FILES) return;
+    if (op == UCLIP_NONE || uclip_kind(&c) != UCLIP_KIND_FILES) { uclip_free(&c); return; }
     paste_from(&c, op);
+    uclip_free(&c);
     // A CUT IS SPENT BY THE PASTE, the File Manager's rule (fm_jobs.c).
     if (op == UCLIP_CUT) (void)uclip_clear();
 }
@@ -2223,27 +2224,33 @@ static void menu_paste(void *ctx) {
 // the drag slot move here, or copy with Ctrl (the toolkit's rule).
 static int drop_onto_target(desk_path *paths, int n);
 
-int desktop_drop_here(int mx, int my) {
-    (void)mx; (void)my;
-    static struct uclip c;
-    uclip_drag_load(&c);
-    if (uclip_count(&c) <= 0 || uclip_kind(&c) != UCLIP_KIND_FILES) return 0;
+static int drop_here(const struct uclip *c) {
+    if (uclip_count(c) <= 0 || uclip_kind(c) != UCLIP_KIND_FILES) return 0;
     if (g_drop_on >= 0) {
-        desk_path *paths = malloc((size_t)uclip_count(&c) * sizeof *paths);
+        desk_path *paths = malloc((size_t)uclip_count(c) * sizeof *paths);
         if (!paths) {
-            wm_logf("desktop: no memory for a drop of %d item(s)", uclip_count(&c));
+            wm_logf("desktop: no memory for a drop of %d item(s)", uclip_count(c));
             return 1;
         }
         int n = 0;
-        for (int i = 0; i < uclip_count(&c); i++)
-            if (uclip_path(&c, i) && (paths[n] = strdup(uclip_path(&c, i)))) n++;
+        for (int i = 0; i < uclip_count(c); i++)
+            if (uclip_path(c, i) && (paths[n] = strdup(uclip_path(c, i)))) n++;
         int r = drop_onto_target(paths, n);
         paths_free(paths, n);
         return r;
     }
     int copy = (wm_rawin_pointer_mods() & KEY_MOD_CTRL) != 0;
-    paste_from(&c, copy ? UCLIP_COPY : UCLIP_CUT);
+    paste_from(c, copy ? UCLIP_COPY : UCLIP_CUT);
     return 1;
+}
+
+int desktop_drop_here(int mx, int my) {
+    (void)mx; (void)my;
+    static struct uclip c;
+    uclip_drag_load(&c);
+    int r = drop_here(&c);
+    uclip_free(&c);
+    return r;
 }
 
 // --- Undo: the desktop's last file operation --------------------------------
@@ -2418,6 +2425,7 @@ static int drag_paths(desk_path *paths, int cap) {
     int n = 0;
     for (int i = 0; i < uclip_count(&c) && n < cap; i++)
         if (uclip_path(&c, i) && (paths[n] = strdup(uclip_path(&c, i)))) n++;
+    uclip_free(&c);
     return n;
 }
 
@@ -2952,7 +2960,9 @@ static int build_open_menu(struct context_menu_item *cats, struct context_menu_i
 static int can_paste(void) {
     static struct uclip c;
     uclip_load(&c);
-    return uclip_op(&c) != UCLIP_NONE && uclip_kind(&c) == UCLIP_KIND_FILES;
+    int can = uclip_op(&c) != UCLIP_NONE && uclip_kind(&c) == UCLIP_KIND_FILES;
+    uclip_free(&c);
+    return can;
 }
 
 void desktop_handle_right_click(int mx, int my) {

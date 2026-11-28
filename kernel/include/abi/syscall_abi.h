@@ -2541,7 +2541,7 @@ struct sys_flock {
                         // name answers -EPERM (base/uchan.h).
 
 struct shm_open_msg {
-    const char *name;   // no '/' and no '..'; SHM_NAME_MAX bytes
+    const char *name;   // segments joined by '/', none empty, "." or ".."; SHM_NAME_MAX bytes
     uint64_t    length; // bytes, rounded up to whole pages. Ignored
                         // when opening an object that already exists --
                         // its size was fixed at creation, which is why

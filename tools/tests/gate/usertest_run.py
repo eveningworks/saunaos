@@ -424,6 +424,11 @@ TESTS = [
     # bin: a path past 255 bytes and a 250-byte name binned and restored
     # whole, and 520 items all listed and counted. Spawned: it spawns rm.
     ("listcaps_test", None, None, None),
+    # The clipboard past its 64 KiB page: 2,000 paths and 1 MiB of text in
+    # clipboardd's objects, a copier gone before the paste, a sandbox that
+    # unveiled only shm:clipboard, and a replaced object unlinked.
+    # Spawned: it spawns itself as the copier and the sandboxed paster.
+    ("clipobj_test", None, None, None),
     # base/ugrow.h, the growable-array macro every ring-3 list uses: it
     # grows, and a request it cannot meet leaves the array as it was.
     ("ugrow_test", 0, None, None),

@@ -2113,7 +2113,7 @@ static int fv_ops_drag_start(void *w, int cx, int cy, struct uui_drag *d) {
 
     // THE DRAG SLOT, for a drop in ANOTHER window: the paths, as the
     // clipboard would carry them. Local targets never read it.
-    static struct uclip c;   // 64 KiB, media/uclip.h says why static
+    static struct uclip c;   // ignored by the staging calls
     uclip_drag_begin(&c);
     for (int i = 0; i < (fv->mark_count ? fv->mark_count : 1); i++) {
         char *path = fv->mark_count ? uui_fileview_marked_path(fv, i) : uui_fileview_selected_path(fv);

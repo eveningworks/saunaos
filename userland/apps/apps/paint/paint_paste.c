@@ -127,29 +127,34 @@ void paste_from_file(const char *path, int new_layer) {
     start();
 }
 
-void paste_from_clipboard(int new_layer) {
-    static struct uclip c;   // a 64 KiB snapshot: never on the stack (media/uclip.h)
-    if (g_open) paste_commit();
-    g_new_layer = new_layer;
-    uclip_load(&c);
-    const char *img = uclip_image(&c);
+static void paste_from(const struct uclip *c) {
+    const char *img = uclip_image(c);
     if (img) {
         if (!load(img)) { paint_note("The copied picture could not be read"); return; }
         snprintf(g_name, sizeof g_name, "the copied picture");
         start();
         return;
     }
-    if (uclip_op(&c) != UCLIP_NONE && uclip_kind(&c) == UCLIP_KIND_FILES) {
+    if (uclip_op(c) != UCLIP_NONE && uclip_kind(c) == UCLIP_KIND_FILES) {
         // COPIED FILES: the first one that is a picture -- what
         // Screenshot's Copy and the File Manager's put there.
-        for (int i = 0; i < uclip_count(&c); i++) {
-            if (load(uclip_path(&c, i))) { start(); return; }
+        for (int i = 0; i < uclip_count(c); i++) {
+            if (load(uclip_path(c, i))) { start(); return; }
         }
         paint_note("None of the copied files is a picture");
         return;
     }
-    paint_note(uclip_op(&c) == UCLIP_NONE ? "There is nothing on the clipboard to paste"
+    paint_note(uclip_op(c) == UCLIP_NONE ? "There is nothing on the clipboard to paste"
                                           : "The clipboard holds text, not a picture");
+}
+
+void paste_from_clipboard(int new_layer) {
+    static struct uclip c;
+    if (g_open) paste_commit();
+    g_new_layer = new_layer;
+    uclip_load(&c);
+    paste_from(&c);
+    uclip_free(&c);
 }
 
 // A LIFTED SELECTION floats as a paste does, from where it was: the step

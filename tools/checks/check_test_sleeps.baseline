@@ -20,7 +20,7 @@
 2 tools/tests/gui/caption_corner_test.py
 7 tools/tests/gui/caret_blink_test.py
 3 tools/tests/gui/charmap_test.py
-15 tools/tests/gui/clipboard_test.py
+14 tools/tests/gui/clipboard_test.py
 10 tools/tests/gui/clock_settings_test.py
 10 tools/tests/gui/compositor_death_test.py
 13 tools/tests/gui/compositor_test.py

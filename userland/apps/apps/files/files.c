@@ -2581,11 +2581,9 @@ void refresh_dim(void) {
     for (int i = 0; i < 2; i++) uui_fileview_clear_dimmed(&g_pane[i]);
     if (g_clip_op != UCLIP_CUT) return;
 
-    // STATIC: struct uclip embeds the whole 64 KiB payload, which is
-    // thirty times the ring-3 frame budget (media/uclip.h).
     static struct uclip c;
     uclip_load(&c);
-    if (uclip_op(&c) != UCLIP_CUT) return;
+    if (uclip_op(&c) != UCLIP_CUT) { uclip_free(&c); return; }
 
     for (int n = 0; n < uclip_count(&c); n++) {
         const char *path = uclip_path(&c, n);
@@ -2598,6 +2596,7 @@ void refresh_dim(void) {
         }
         free(dir);
     }
+    uclip_free(&c);
 }
 
 void pane_listed(int pane) {
@@ -2824,11 +2823,7 @@ int main(int argc, char **argv) {
     // ASKED ONCE AT STARTUP: the broadcast only fires on a CHANGE, so an
     // app that opens after somebody else copied would show Paste greyed
     // until the next one.
-    {
-        static struct uclip c;   // see refresh_dim() on why it is static
-        uclip_load(&c);
-        g_clip_op = uclip_op(&c);
-    }
+    g_clip_op = uclip_peek_op();
     set_note("");
 
     // One line, once: which directories this instance opened with and
