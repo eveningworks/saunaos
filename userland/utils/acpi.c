@@ -18,6 +18,9 @@
 #include <string.h>
 #include <stdlib.h>         // the command line, sized to its records
 #include "base/ubootcfg.h"  // ubootcfg_cmdline()
+#include <errno.h>          // EPERM
+
+#define USAGE "acpi [--dump <SIG> [--at N] [--len N]] [--eval <PATH> [INT...]]"
 
 // Mirrors of the kernel-side flags. They cross the boundary as a number
 // in the record rather than as a header apps could include: kernel/
@@ -180,6 +183,91 @@ static void put_ec(void) {
     put(line);
 }
 
+// Wh with one decimal, from mWh; "?" for unknown.
+static void wh(uint64_t mwh, char *out, unsigned cap) {
+    if (mwh == QUERY_POWER_UNKNOWN) snprintf(out, cap, "?");
+    else snprintf(out, cap, "%llu.%llu", (unsigned long long)(mwh / 1000), (unsigned long long)(mwh % 1000 / 100));
+}
+
+// The batteries, the adapter and the lid (uacpi_supply.c, stage 4e).
+static void put_supplies(void) {
+    struct query_power pw;
+    char line[200], a[16], b[16], c[16], r[16];
+    if (sys_query_record(QUERY_POWER, 0, &pw, sizeof pw) < (int)sizeof pw) return;
+    struct query_power_supply s;
+    QUERY_FOREACH(QUERY_POWER_SUPPLY, s, i) {
+        s.name[sizeof s.name - 1] = 0;
+        if (s.type == QUERY_SUPPLY_MAINS) {
+            snprintf(line, sizeof line, "  AC adapter:    %s  (%s)\n",
+                     s.flags & QUERY_SUPPLY_ONLINE ? "plugged in" : "unplugged", s.name);
+            put(line);
+            continue;
+        }
+        if (!(s.flags & QUERY_SUPPLY_PRESENT)) {
+            snprintf(line, sizeof line, "  battery %-5s  the bay is empty\n", s.name);
+            put(line);
+            continue;
+        }
+        wh(s.now_mwh, a, sizeof a);
+        wh(s.full_mwh, b, sizeof b);
+        wh(s.design_mwh, c, sizeof c);
+        wh(s.rate_mw, r, sizeof r);
+        const char *st = s.flags & QUERY_SUPPLY_CHARGING ? "charging at" : s.flags & QUERY_SUPPLY_DISCHARGING
+                       ? "discharging at" : "idle,";
+        char pct[8] = "?";
+        if (s.percent >= 0) snprintf(pct, sizeof pct, "%lld%%", (long long)s.percent);
+        snprintf(line, sizeof line, "  battery %-5s  %s, %s %s W, %s of %s Wh (design %s Wh)%s\n", s.name, pct, st,
+                 r, a, b, c, s.flags & QUERY_SUPPLY_CRITICAL ? ", CRITICAL" : "");
+        put(line);
+        char cyc[24] = "";
+        if (s.cycles != QUERY_POWER_UNKNOWN) snprintf(cyc, sizeof cyc, ", %llu cycles", (unsigned long long)s.cycles);
+        snprintf(line, sizeof line, "                 %s %s, serial %s, %s%s%s\n", s.maker, s.model,
+                 s.serial[0] ? s.serial : "?", s.kind[0] ? s.kind : "?", cyc,
+                 s.flags & QUERY_SUPPLY_MAH ? ", counted in mAh" : "");
+        put(line);
+    }
+    if (pw.flags & QUERY_POWER_LID_PRESENT) {
+        snprintf(line, sizeof line, "  lid:           %s, %llu change(s) since boot\n",
+                 pw.flags & QUERY_POWER_LID_OPEN ? "open" : "closed", (unsigned long long)pw.lid_changes);
+        put(line);
+    }
+    if (pw.flags & QUERY_POWER_BATTERY) {
+        snprintf(line, sizeof line, "  on battery:    %s; shuts down at %llu%%%s\n",
+                 yesno(pw.flags & QUERY_POWER_ON_BATTERY), (unsigned long long)pw.critical_pct,
+                 pw.flags & QUERY_POWER_SHUTDOWN_SENT ? " (sent)" : "");
+        put(line);
+    }
+}
+
+// --eval PATH [INT...]: one AML object (SYS_ACPI_EVAL, `acpieval` boots).
+static int eval_cmd(int argc, char **argv) {
+    struct acpi_eval_msg m;
+    memset(&m, 0, sizeof m);
+    if (argc < 3 || strlen(argv[2]) >= sizeof m.path || argc - 3 > ACPI_EVAL_ARGS_MAX) {
+        cmd_usage(USAGE);
+        return 1;
+    }
+    snprintf(m.path, sizeof m.path, "%s", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        char *end = 0;
+        m.args[m.nargs++] = strtoull(argv[i], &end, 0);
+        if (!end || *end || end == argv[i]) { cmd_usage(USAGE); return 1; }
+    }
+    if (sys_acpi_eval(&m) != 0) {
+        int e = sys_errno();
+        if (e == EPERM) cmd_fail_msg("acpi", m.path, "refused -- the kernel was not booted with acpieval");
+        else cmd_fail_err("acpi", m.path, e);
+        return 1;
+    }
+    char line[96];
+    if (m.type == ACPI_EVAL_INTEGER)
+        snprintf(line, sizeof line, "%llu (0x%llx)\n", (unsigned long long)m.value, (unsigned long long)m.value);
+    else
+        snprintf(line, sizeof line, "%s\n", m.type == ACPI_EVAL_NONE ? "(no value)" : "(not an Integer)");
+    put(line);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     char line[160];
     struct query_acpi a;
@@ -188,20 +276,21 @@ int main(int argc, char **argv) {
     // summary, and mixing them would make the output unpasteable.
     if (argc > 1 && !strcmp(argv[1], "--dump")) {
         long at = 0, want = 0;
-        if (argc < 3) { cmd_usage("acpi [--dump <SIG> [--at N] [--len N]]"); return 1; }
+        if (argc < 3) { cmd_usage(USAGE); return 1; }
         for (int i = 3; i < argc; i++) {
             if (!strcmp(argv[i], "--at") && i + 1 < argc) {
-                if (!hex_arg(argv[++i], &at)) { cmd_usage("acpi [--dump <SIG> [--at N] [--len N]]"); return 1; }
+                if (!hex_arg(argv[++i], &at)) { cmd_usage(USAGE); return 1; }
             } else if (!strcmp(argv[i], "--len") && i + 1 < argc) {
-                if (!hex_arg(argv[++i], &want)) { cmd_usage("acpi [--dump <SIG> [--at N] [--len N]]"); return 1; }
+                if (!hex_arg(argv[++i], &want)) { cmd_usage(USAGE); return 1; }
             } else {
-                cmd_usage("acpi [--dump <SIG> [--at N] [--len N]]");
+                cmd_usage(USAGE);
                 return 1;
             }
         }
         return dump_table(argv[2], at, want);
     }
-    if (argc > 1) { cmd_usage("acpi [--dump <SIG> [--at N] [--len N]]"); return 1; }
+    if (argc > 1 && !strcmp(argv[1], "--eval")) return eval_cmd(argc, argv);
+    if (argc > 1) { cmd_usage(USAGE); return 1; }
 
     if (sys_query_record(QUERY_ACPI, 0, &a, sizeof a) < (int)sizeof a) {
         cmd_fail("acpi", 0);
@@ -285,6 +374,7 @@ int main(int argc, char **argv) {
                  (unsigned long long)a.smi_cmd, (unsigned long long)a.acpi_enable);
         put(line);
     }
+    put_supplies();
 
     put("\nTables:\n");
     struct query_acpi_table t;

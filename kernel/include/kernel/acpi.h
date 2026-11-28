@@ -269,6 +269,44 @@ struct acpi_ec_info {
 };
 void acpi_ec_info(struct acpi_ec_info *out);
 
+// Batteries, the AC adapter and the lid (uacpi_supply.c, stage 4e), Linux's
+// power_supply shape: one record per supply, energy in mWh whatever unit
+// the firmware counts in. ACPI_SUPPLY_UNKNOWN for a number nobody knows.
+#define ACPI_SUPPLY_UNKNOWN  UINT64_MAX
+#define ACPI_SUPPLY_PATH_MAX 48
+enum { ACPI_SUPPLY_MAINS = 1, ACPI_SUPPLY_BATTERY = 2 };
+#define ACPI_SUPPLY_PRESENT     (1u << 0)  // a battery in its bay; an adapter device exists
+#define ACPI_SUPPLY_ONLINE      (1u << 1)  // mains: plugged in
+#define ACPI_SUPPLY_DISCHARGING (1u << 2)
+#define ACPI_SUPPLY_CHARGING    (1u << 3)
+#define ACPI_SUPPLY_CRITICAL    (1u << 4)  // _BST's own critical bit
+#define ACPI_SUPPLY_MAH         (1u << 5)  // the firmware counts mAh; converted
+
+struct acpi_supply {
+    uint32_t type;             // ACPI_SUPPLY_MAINS / _BATTERY
+    uint32_t flags;            // ACPI_SUPPLY_*
+    int32_t  percent;          // of the last full charge; -1 unknown
+    uint64_t design_mwh, full_mwh, now_mwh, rate_mw, mv, cycles;
+    char     name[8];          // the device's own name, e.g. BAT0
+    char     model[32], serial[32], kind[32], maker[32];
+};
+
+#define ACPI_POWER_AC_PRESENT    (1u << 0)
+#define ACPI_POWER_AC_ONLINE     (1u << 1)
+#define ACPI_POWER_BATTERY       (1u << 2)  // a battery is in
+#define ACPI_POWER_ON_BATTERY    (1u << 3)
+#define ACPI_POWER_LID_PRESENT   (1u << 4)
+#define ACPI_POWER_LID_OPEN      (1u << 5)
+#define ACPI_POWER_SHUTDOWN_SENT (1u << 6)  // the critical charge sent SIGPWR
+#define ACPI_POWER_CRITICAL_PCT  3          // on battery at or below this, a clean shutdown
+struct acpi_power {
+    uint64_t generation;       // moves with every change below or in a supply
+    uint32_t flags;            // ACPI_POWER_*
+    uint64_t lid_changes, notifies, polls;
+};
+void acpi_power_info(struct acpi_power *out);
+int  acpi_supply_get(int index, struct acpi_supply *out);   // 0 past the last
+
 // For the KTEST: bring uACPI up in THIS context when it is OFF (it then
 // owns that instance) -- 1 on success -- and take that instance down
 // again. Waits never park here, they poll. It RUNS THE FIRMWARE'S

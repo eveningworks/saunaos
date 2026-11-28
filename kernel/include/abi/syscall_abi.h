@@ -2227,6 +2227,28 @@ struct sys_statx {
                            // the owner, which their 48-byte record has no
                            // room for (Linux grew statx(2) for the same
                            // reason). 0, -ENOENT, -EBADF or -EFAULT.
+#define SYS_ACPI_EVAL 177  // RDI = a `struct acpi_eval_msg *`. Runs one AML
+                           // method or reads one object, with Integer
+                           // arguments, and returns an Integer result --
+                           // Linux's acpi_call, for a test fixture's
+                           // battery and lid and for looking at firmware by
+                           // hand. A HOLE, closed unless the kernel was
+                           // booted with `acpieval`: -EPERM then; -ENODEV
+                           // with no AML interpreter; -ENOENT for no such
+                           // object; -EIO when the method failed.
+
+#define ACPI_EVAL_PATH_MAX 64
+#define ACPI_EVAL_ARGS_MAX 7     // ACPI's own limit on a method's arguments
+#define ACPI_EVAL_INTEGER  1     // `type`: the result was an Integer, in `value`
+#define ACPI_EVAL_OTHER    2     // ...something else (a String, a Package)
+#define ACPI_EVAL_NONE     0     // ...no value
+struct acpi_eval_msg {
+    char     path[ACPI_EVAL_PATH_MAX];   // from the root, e.g. \_SB.TSAC; NUL-terminated
+    uint32_t nargs;
+    uint32_t type;                       // out: ACPI_EVAL_*
+    uint64_t args[ACPI_EVAL_ARGS_MAX];
+    uint64_t value;                      // out
+};
 
 #define SYS_SHM_OPEN 99   // RDI = pointer to a `struct shm_open_msg`.
                           // Returns a descriptor naming a SHARED

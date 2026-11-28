@@ -1071,6 +1071,10 @@ int sys_display_power(int op);
 // line is what opens the hole.
 int sys_crashtest(struct crash_msg *msg);
 
+// Evaluates one AML object -- abi/syscall_abi.h's SYS_ACPI_EVAL. Refused
+// (-1, errno EPERM) unless the kernel was booted with `acpieval`.
+int sys_acpi_eval(struct acpi_eval_msg *msg);
+
 // Sets the console colours this process writes in. Both are
 // `enum vga_color` values; out-of-range is refused, not clamped.
 int sys_set_color(int fg, int bg);

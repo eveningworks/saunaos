@@ -218,7 +218,7 @@ def _wait_startup(timeout, log_file=None):
 # (FILE.disk.img) and the flags it ran with (FILE.json): a replay against
 # an image that changed since -- a rebuild -- diverges at the first read.
 RR_KEYS = ("iso", "boot", "mem", "machine", "net", "vga", "balloon", "virtio_input",
-           "hostfwd", "cpu", "pci_fill", "usb", "reboot", "kdebug", "kdebug_net")
+           "hostfwd", "cpu", "pci_fill", "usb", "reboot", "kdebug", "kdebug_net", "acpi_table")
 
 
 def _rr_prepare(args):
@@ -446,6 +446,10 @@ def cmd_start(args):
         cmd += ["-device", f"pci-bridge,id=fillbr{b},chassis_nr={b + 1}"]
     for i in range(fill):
         cmd += ["-device", f"pci-testdev,bus=fillbr{i // 31},addr={i % 31 + 1:#x}"]
+    # Extra ACPI tables appended to QEMU's own: a fixture SSDT (a fake
+    # battery, AC adapter and lid -- tools/tests/fixtures/acpi/).
+    for t in getattr(args, "acpi_table", None) or []:
+        cmd += ["-acpitable", f"file={t}"]
     if getattr(args, "virtio_input", False):
         cmd += ["-device", "virtio-keyboard-pci",
                 "-device", "virtio-mouse-pci",
@@ -1331,6 +1335,9 @@ def main():
                          "is the multi-NIC case; none means no card at all")
     ap.add_argument("--balloon", action="store_true",
                     help="attach virtio-balloon with free page reporting, as make run does")
+    ap.add_argument("--acpi-table", action="append", default=[], metavar="AML",
+                    help="append a compiled ACPI table (an SSDT) to QEMU's own -- the "
+                         "fake battery and lid of tools/tests/fixtures/acpi/")
     ap.add_argument("--virtio-input", action="store_true",
                     help="attach virtio keyboard/mouse/tablet devices. Off by "
                          "default; with it the guest has BOTH these and the PS/2 "

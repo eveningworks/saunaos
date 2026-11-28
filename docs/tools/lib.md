@@ -63,6 +63,9 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   counts them);
   `--pci-fill N` adds N inert `pci-testdev`s behind PCI-to-PCI bridges,
   for a guest with more devices than the default machine's handful;
+  `--acpi-table AML` (repeatable) appends a compiled ACPI table to QEMU's
+  own (`-acpitable`) -- the fake battery, AC adapter and lid of
+  `tools/tests/fixtures/acpi/power.asl`, compiled by `iasl`;
   `--usb-stick IMAGE[@PORT][,4k]` attaches an emulated USB stick (QEMU
   `usb-storage`, bulk-only; `,4k` for 4096-byte blocks; QMP ids
   `ustick0`, `ustick1`, ... for `device_del`); `--usb-host VID:PID` (or

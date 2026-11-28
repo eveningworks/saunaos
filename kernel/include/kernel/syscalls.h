@@ -566,6 +566,7 @@ int sys_shutdown_status(struct syscall_ctx *c);
 int sys_display_power(struct syscall_ctx *c);
 int sys_getdents(struct syscall_ctx *c);     // kernel/fs/fs_syscalls.c
 int sys_crashtest(struct syscall_ctx *c);
+int sys_acpi_eval(struct syscall_ctx *c);   // kernel/acpi/uacpi_eval.c
 
 // kernel/core/module.c -- loadable modules
 int sys_modload(struct syscall_ctx *c);

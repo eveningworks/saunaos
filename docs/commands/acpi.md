@@ -6,7 +6,7 @@
 
 ## Synopsis
 
-    acpi [--dump <SIG> [--at N] [--len N]]
+    acpi [--dump <SIG> [--at N] [--len N]] [--eval <PATH> [INT...]]
 
 ## Options
 
@@ -16,6 +16,12 @@
   only with `--dump`.
 - `--len N` -- dump `N` bytes rather than the rest of the table, decimal
   or `0x` hex; only with `--dump`.
+- `--eval <PATH> [INT...]` -- run one AML method (or read one object) with
+  up to seven Integer arguments, decimal or `0x` hex, and print its Integer
+  result; `PATH` is from the root, with or without its `\` (a shell eats
+  it). Root only, and refused unless the kernel was booted with
+  `acpieval` (`SYS_ACPI_EVAL`, Linux's `acpi_call`): it can run anything
+  the firmware has.
 
 ## Description
 
@@ -42,6 +48,24 @@ waits parked past the 1 ms spin, and the events answered:
     Embedded ctrl:   \_SB_.PCI0.LPCB.EC0_ (ECDT), ports 0x66/0x62, GPE 0x0a, events on
                      64 access(es), 0 timed out, longest wait 2027 us, 1 nap(s); 32 event(s) of 5 kind(s), last 0xd4
 
+With the interpreter, the Power section adds the batteries, the AC
+adapter and the lid (stage 4e, `QUERY_POWER`/`QUERY_POWER_SUPPLY`):
+each battery's charge, what it is drawn or charged at, its energy against
+its last full charge and its design, then its maker, model, serial, type
+and cycle count; `the bay is empty` for a slot with no battery; then the
+lid, and whether the machine runs on battery and the charge it shuts
+down at:
+
+      AC adapter:    plugged in  (AC0_)
+      battery BAT0   78%, charging at 15.0 W, 29.8 of 38.2 Wh (design 45.0 Wh)
+                     SaunaOS fixture SAUNA-BAT, serial 0001, LION, 212 cycles
+      lid:           open, 0 change(s) since boot
+      on battery:    no; shuts down at 3%
+
+`?` is a number the firmware did not give -- on the ASUS the battery
+answers its default package, every number unknown, until its EC has
+read the pack (`dmesg | grep power:` says "not ready yet").
+
 `events OFF after a storm` means its GPE fired over 100 times in one
 second and was left off for the boot; `dmesg | grep ec:` names each event's
 `_Qxx`.
@@ -54,6 +78,17 @@ the boot said `smp=park` (the LAST `smp=` on the line wins) or the
 kernel could not start a core scheduling, when a line says how many do
 and which of the two it was. `nosmp` or `maxcpus=N` on the kernel
 command line starts fewer.
+
+## `--eval`: one firmware method by hand
+
+    acpi --eval _SB.PCI0.LPCB.EC0.GBTT 0      -> 255 (0xff)
+    acpi --eval _TZ.RTMP                      -> 49 (0x31)
+
+On a boot with `acpi=uacpi acpieval` only. An Integer result prints in
+decimal and hex; anything else says `(not an Integer)` -- a Field read by
+name is one, so ask a method that returns it. The QEMU fixture's battery
+and lid are moved this way (`tools/tests/fixtures/acpi/power.asl`'s `T*`
+methods). Every call is logged (`acpi: pid N evaluated ...`).
 
 ## `--dump`: the raw bytes of one table
 

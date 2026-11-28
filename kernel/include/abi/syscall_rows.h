@@ -241,6 +241,8 @@ SYSCALL_ROW(SYS_UMASK, "umask", sys_umask, A_HEX, A_END, A_END, R_HEX, PROMISE_S
 // fstat's does (stdio), and the PATH form asks rpath inside the call, as
 // SYS_STAT's row does -- a program pledged to stdio alone calls fstat.
 SYSCALL_ROW(SYS_STATX, "statx", sys_statx, A_PATH, A_FD, A_HEX, R_DEC, PROMISE_STDIO)
+// Firmware methods by hand (`acpieval` boots only): the machine's.
+SYSCALL_ROW(SYS_ACPI_EVAL, "acpi_eval", sys_acpi_eval, A_HEX, A_END, A_END, R_DEC, PROMISE_ADMIN)
 
 #ifdef SYSCALL_ROW_MPSAFE_DEFAULTED
 #undef SYSCALL_ROW_MPSAFE

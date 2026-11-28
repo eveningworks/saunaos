@@ -85,8 +85,11 @@ def main():
                             "--parallelism", str(args.jobs)],
                            cwd=tmp, capture_output=True, text=True)
         out = r.stdout + r.stderr
-        tail = [ln for ln in out.splitlines() if ln.strip()][-12:]
-        print("\n".join(tail))
+        lines = [ln for ln in out.splitlines() if ln.strip()]
+        # The failures by name, wherever they fell -- the tail alone is the
+        # summary and iasl's chatter, which names none of them.
+        failed = [ln for ln in lines if "FAIL" in ln and "SUMMARY" not in ln]
+        print("\n".join(failed[:40] + lines[-12:]))
         if r.returncode != 0:
             print(f"{TOOL}: FAIL -- upstream's suite went red (exit {r.returncode})")
             return 1

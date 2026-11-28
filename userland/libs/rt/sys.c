@@ -1125,6 +1125,10 @@ int sys_crashtest(struct crash_msg *msg) {
     return (int)err(syscall1(SYS_CRASHTEST, (uint64_t)(uintptr_t)msg));
 }
 
+int sys_acpi_eval(struct acpi_eval_msg *msg) {
+    return (int)err(syscall1(SYS_ACPI_EVAL, (uint64_t)(uintptr_t)msg));
+}
+
 unsigned long long sys_fs_generation(void) {
     return (unsigned long long)syscall0(SYS_FS_GENERATION);
 }

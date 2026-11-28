@@ -443,13 +443,13 @@ void uacpi_host_drain_work(void) {
     scheduler_wake(&g_wq_idle_chan, 0);
 }
 
-void uacpi_host_wait_for_work(void) {
+void uacpi_host_wait_for_work(uint64_t deadline_ns) {
     scheduler_wait_arm(&g_wq_chan);
     uint64_t f = spin_lock_irqsave(&g_wq_lock);
     int any = g_wq_head != 0;
     spin_unlock_irqrestore(&g_wq_lock, f);
     if (any) scheduler_wait_disarm();
-    else scheduler_block_kernel(&g_wq_chan, SCHED_WAIT_EVENT);
+    else scheduler_block_kernel_until(&g_wq_chan, SCHED_WAIT_EVENT, deadline_ns);
 }
 
 // From kacpid itself, or with no kacpid to wait for, the caller drains.

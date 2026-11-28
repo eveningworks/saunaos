@@ -85,6 +85,7 @@ static int bring_up(void) {
     acpi_ec_probe_namespace();
     acpi_uacpi_take_power_button();
     acpi_uacpi_decide_s5();
+    acpi_supply_probe();
 
     uint32_t nodes = 0, devices = 0;
     uacpi_namespace_for_each_child(uacpi_namespace_root(), count_node, UACPI_NULL,
@@ -109,8 +110,9 @@ static void kacpid(void *arg) {
         return;   // the thread ends; nothing queued work on a failed load
     }
     for (;;) {
-        uacpi_host_wait_for_work();
+        uacpi_host_wait_for_work(acpi_supply_deadline());
         uacpi_host_drain_work();
+        acpi_supply_poll();
     }
 }
 
@@ -153,6 +155,7 @@ void acpi_uacpi_tear_down_inline(void) {
     acpi_uacpi_forget_s5();
     g_inline = 0;
     uacpi_state_reset();
+    acpi_supply_reset();
     acpi_ec_reset();
     uacpi_host_reset();
     k_memset(&g_info, 0, sizeof g_info);   // state back to OFF

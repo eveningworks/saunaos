@@ -12,8 +12,9 @@ extern volatile int g_uacpi_kacpid_pid;
 // Run every queued work item, in this context, until none is left.
 void uacpi_host_drain_work(void);
 
-// Park kacpid until work is queued (it returns at once if some is).
-void uacpi_host_wait_for_work(void);
+// Park kacpid until work is queued (it returns at once if some is) or
+// `deadline_ns` (clocksource_now_ns(); 0 = none) passes.
+void uacpi_host_wait_for_work(uint64_t deadline_ns);
 
 // The SCI handler uACPI asked for, HELD rather than installed:
 // acpi_sci.c owns the line (docs/aml-design.md, stage 4a) until 4d, and
@@ -42,6 +43,14 @@ void acpi_uacpi_give_back_power_button(void);
 // namespace is up, forgotten at a teardown (uacpi_power.c).
 void acpi_uacpi_decide_s5(void);
 void acpi_uacpi_forget_s5(void);
+
+// Batteries, the adapter and the lid (uacpi_supply.c): found once the
+// namespace is up, polled when kacpid's wait reaches the deadline
+// (0: none), forgotten after a teardown.
+void acpi_supply_probe(void);
+uint64_t acpi_supply_deadline(void);
+void acpi_supply_poll(void);
+void acpi_supply_reset(void);
 
 // 1 while the KTEST's inline instance is the one up (uacpi_boot.c).
 int acpi_uacpi_is_inline(void);

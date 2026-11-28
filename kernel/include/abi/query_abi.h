@@ -753,6 +753,16 @@ struct query_firmware {
 // kernel/acpi/uacpi_ec.c). SCALAR (struct query_acpi_ec); `via` 0 means
 // none -- no EC, or no interpreter. Read by /bin/acpi.
 #define QUERY_ACPI_EC 70
+// POWER: batteries, the AC adapter and the lid (`acpi=uacpi`,
+// kernel/acpi/uacpi_supply.c). SCALAR (struct query_power): the summary
+// and a `generation` that moves with every change, so a reader polls one
+// small record and reads QUERY_POWER_SUPPLY only when it moved -- what
+// the taskbar does. All zero with no interpreter or no such devices.
+#define QUERY_POWER 71
+// One record per AC adapter and battery bay, Linux's power_supply shape:
+// energy in mWh and power in mW whatever the firmware counts in.
+// LIST (struct query_power_supply); `acpi` prints them.
+#define QUERY_POWER_SUPPLY 72
 
 struct query_input {
     uint64_t events;    // key presses, moves, button changes, wheel notches
@@ -2019,6 +2029,48 @@ struct query_acpi_ec {
 };
 
 _Static_assert(sizeof(struct query_acpi_ec) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
+
+#define QUERY_POWER_AC_PRESENT    (1u << 0)
+#define QUERY_POWER_AC_ONLINE     (1u << 1)
+#define QUERY_POWER_BATTERY       (1u << 2) // a battery is in
+#define QUERY_POWER_ON_BATTERY    (1u << 3) // running from it
+#define QUERY_POWER_LID_PRESENT   (1u << 4)
+#define QUERY_POWER_LID_OPEN      (1u << 5)
+#define QUERY_POWER_SHUTDOWN_SENT (1u << 6) // the critical charge asked init to shut down
+
+struct query_power {
+    uint64_t generation;
+    uint64_t flags;          // QUERY_POWER_*
+    uint64_t lid_changes;    // open/close changes since boot
+    uint64_t notifies;       // Notify()s the supplies took
+    uint64_t polls;          // readings the timer took
+    uint64_t critical_pct;   // the charge the kernel shuts down at
+};
+
+#define QUERY_POWER_UNKNOWN UINT64_MAX
+#define QUERY_SUPPLY_MAINS   1
+#define QUERY_SUPPLY_BATTERY 2
+#define QUERY_SUPPLY_PRESENT     (1u << 0)
+#define QUERY_SUPPLY_ONLINE      (1u << 1) // mains: plugged in
+#define QUERY_SUPPLY_DISCHARGING (1u << 2)
+#define QUERY_SUPPLY_CHARGING    (1u << 3)
+#define QUERY_SUPPLY_CRITICAL    (1u << 4) // the firmware's own critical bit
+#define QUERY_SUPPLY_MAH         (1u << 5) // counted in mAh by the firmware, converted
+
+struct query_power_supply {
+    uint64_t type;           // QUERY_SUPPLY_MAINS / _BATTERY
+    uint64_t flags;          // QUERY_SUPPLY_*
+    int64_t  percent;        // of the last full charge, 0..100; -1 unknown
+    // QUERY_POWER_UNKNOWN where the firmware does not say:
+    uint64_t design_mwh, full_mwh, now_mwh;
+    uint64_t rate_mw;        // drawn or charged at, by the state bits
+    uint64_t mv, cycles;
+    char     name[8];        // the device's own, e.g. "BAT0"; NUL-terminated
+    char     model[32], serial[32], kind[32], maker[32];
+};
+
+_Static_assert(sizeof(struct query_power_supply) <= 256,
                "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
 
 struct query_acpi_table {

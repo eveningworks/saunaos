@@ -264,10 +264,92 @@ static const struct query_provider ec_provider = {
     .field_count = sizeof ec_fields / sizeof ec_fields[0],
 };
 
+// --- QUERY_POWER / QUERY_POWER_SUPPLY (uacpi_supply.c) -------------------
+
+_Static_assert(ACPI_POWER_AC_PRESENT == QUERY_POWER_AC_PRESENT && ACPI_POWER_LID_OPEN == QUERY_POWER_LID_OPEN &&
+               ACPI_POWER_SHUTDOWN_SENT == QUERY_POWER_SHUTDOWN_SENT &&
+               ACPI_SUPPLY_ONLINE == QUERY_SUPPLY_ONLINE && ACPI_SUPPLY_MAH == QUERY_SUPPLY_MAH &&
+               ACPI_SUPPLY_UNKNOWN == QUERY_POWER_UNKNOWN,
+               "QUERY_POWER hands the kernel's flags through unchanged");
+
+static int power_fill(int index, void *out) {
+    if (index != 0) return 0;
+    struct query_power *q = out;
+    struct acpi_power p;
+    acpi_power_info(&p);
+    k_memset(q, 0, sizeof *q);
+    q->generation = p.generation;
+    q->flags = p.flags;
+    q->lid_changes = p.lid_changes;
+    q->notifies = p.notifies;
+    q->polls = p.polls;
+    q->critical_pct = ACPI_POWER_CRITICAL_PCT;
+    return 1;
+}
+
+static const struct query_field power_fields[] = {
+    QUERY_FIELD(struct query_power, generation, QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_power, flags, QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_power, lid_changes, "lid.changes", QUERY_TYPE_U64),
+};
+
+static const struct query_provider power_provider = {
+    .cls = QUERY_POWER,
+    .name = "power",
+    .record_size = sizeof(struct query_power),
+    .flags = 0,
+    .count = acpi_count,
+    .fill = power_fill,
+    .fields = power_fields,
+    .field_count = sizeof power_fields / sizeof power_fields[0],
+};
+
+static int supply_count(void) {
+    int n = 0;
+    struct acpi_supply s;
+    while (acpi_supply_get(n, &s)) n++;
+    return n;
+}
+
+static int supply_fill(int index, void *out) {
+    struct acpi_supply s;
+    if (!acpi_supply_get(index, &s)) return 0;
+    struct query_power_supply *q = out;
+    k_memset(q, 0, sizeof *q);
+    q->type = s.type;
+    q->flags = s.flags;
+    q->percent = s.percent;
+    q->design_mwh = s.design_mwh;
+    q->full_mwh = s.full_mwh;
+    q->now_mwh = s.now_mwh;
+    q->rate_mw = s.rate_mw;
+    q->mv = s.mv;
+    q->cycles = s.cycles;
+    k_strlcpy(q->name, s.name, sizeof q->name);
+    k_strlcpy(q->model, s.model, sizeof q->model);
+    k_strlcpy(q->serial, s.serial, sizeof q->serial);
+    k_strlcpy(q->kind, s.kind, sizeof q->kind);
+    k_strlcpy(q->maker, s.maker, sizeof q->maker);
+    return 1;
+}
+
+static const struct query_provider supply_provider = {
+    .cls = QUERY_POWER_SUPPLY,
+    .name = "power_supply",
+    .record_size = sizeof(struct query_power_supply),
+    .flags = QUERY_F_LIST,
+    .count = supply_count,
+    .fill = supply_fill,
+    .fields = 0,
+    .field_count = 0,
+};
+
 void acpi_query_init(void) {
     query_register(&acpi_provider);
     query_register(&ec_provider);
     query_register(&table_provider);
     query_register(&dump_provider);
     query_register(&cpu_provider);
+    query_register(&power_provider);
+    query_register(&supply_provider);
 }
