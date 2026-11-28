@@ -169,3 +169,13 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   are applied to the COPY, so the cached tree stays pristine. Run it to
   move a pin or to add a driver directory. Reaches github.com (redirected
   to release-assets.githubusercontent.com).
+- **`uacpi_vendor.py`** -- vendors uACPI, the kernel's AML interpreter,
+  into `kernel/third_party/uacpi/upstream/` from the release tarball
+  pinned in its `PIN`, by SHA-256 (`docs/aml-design.md`, stage 4). The
+  WHOLE release, its test suite included, byte for byte -- the
+  configuration is `kernel/third_party/uacpi/glue/`, the callbacks
+  `kernel/acpi/uacpi_*.c` -- then `kernel/third_party/uacpi/patches/*.patch`
+  in name order, to the copy. Caches the tarball in `~/.cache/saunaos/uacpi`
+  (`--work DIR`). Run it to move the pin; `git status` afterwards shows
+  whether `upstream/` had drifted. Reaches github.com (redirected to
+  codeload.github.com).

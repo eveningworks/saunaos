@@ -8,9 +8,9 @@
 // object named. A `poweroff: no` line here is the answer to "why did it
 // just halt instead of turning off".
 //
-// It is deliberately not a debug dump of every table's body -- there is
-// no AML interpreter in this OS and printing bytes nobody can decode
-// would suggest otherwise. See kernel/include/kernel/acpi.h.
+// It is deliberately not a debug dump of every table's body; `--dump`
+// gives the bytes. The AML interpreter (uACPI, behind `acpi=uacpi`)
+// reports one line: whether it loaded the namespace, and how big it is.
 #include <stdint.h>
 #include "rt/sys.h"
 #include "base/cmd.h"
@@ -126,6 +126,30 @@ static int booted_parked(void) {
     return parked;
 }
 
+// uACPI, the AML interpreter: off unless the boot asked (acpi=uacpi).
+static void put_interpreter(const struct query_acpi *a) {
+    char line[160];
+    switch (a->uacpi_state) {
+        case 1:
+            put("AML interpreter: loading (kacpid)\n");
+            return;
+        case 2:
+            snprintf(line, sizeof line,
+                     "AML interpreter: uACPI, %llu namespace nodes, %llu devices, loaded in %llu ms\n",
+                     (unsigned long long)a->uacpi_nodes, (unsigned long long)a->uacpi_devices,
+                     (unsigned long long)(a->uacpi_load_us / 1000));
+            break;
+        case 3:
+            snprintf(line, sizeof line, "AML interpreter: uACPI failed at %s (status %lld)\n",
+                     a->uacpi_failed_at[0] ? a->uacpi_failed_at : "?", (long long)a->uacpi_status);
+            break;
+        default:
+            put("AML interpreter: off  (the boot word acpi=uacpi starts it)\n");
+            return;
+    }
+    put(line);
+}
+
 int main(int argc, char **argv) {
     char line[160];
     struct query_acpi a;
@@ -178,6 +202,7 @@ int main(int argc, char **argv) {
              (a.flags & ACPI_F_HW_REDUCED) ? "  (hardware-reduced platform)" : "",
              (a.flags & ACPI_F_FW_LEGACY) ? "  (firmware booted in legacy mode)" : "");
     put(line);
+    put_interpreter(&a);
 
     put("\nPower:\n");
     snprintf(line, sizeof line, "  poweroff:      %s",

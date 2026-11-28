@@ -43,6 +43,15 @@ static int acpi_fill(int index, void *out) {
     q->cpu_count     = s->cpu_count;
     q->sci_int       = s->sci_int;
     q->pwrbtn_presses = s->pwrbtn_presses;
+
+    struct acpi_uacpi_info u;
+    acpi_uacpi_info(&u);
+    q->uacpi_state   = u.state;
+    q->uacpi_nodes   = u.nodes;
+    q->uacpi_devices = u.devices;
+    q->uacpi_load_us = u.load_us;
+    q->uacpi_status  = u.status;
+    if (u.failed_at) k_strlcpy(q->uacpi_failed_at, u.failed_at, sizeof q->uacpi_failed_at);
     return 1;
 }
 
@@ -65,6 +74,11 @@ static const struct query_field acpi_fields[] = {
     QUERY_FIELD_AS(struct query_acpi, cpu_count, "cpu.count", QUERY_TYPE_U64),
     QUERY_FIELD_AS(struct query_acpi, sci_int, "sci", QUERY_TYPE_U64),
     QUERY_FIELD_AS(struct query_acpi, pwrbtn_presses, "pwrbtn.presses", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, uacpi_state, "uacpi.state", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, uacpi_nodes, "uacpi.nodes", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, uacpi_devices, "uacpi.devices", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, uacpi_load_us, "uacpi.load_us", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, uacpi_status, "uacpi.status", QUERY_TYPE_U64),   // uACPI's codes are >= 0
 };
 
 static const struct query_provider acpi_provider = {

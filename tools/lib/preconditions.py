@@ -114,6 +114,11 @@ def precondition_met(kind):
         # its test drives both: the seed tree must carry the pair.
         sync = os.path.join(REPO, "seed", "sync", "usr", "bin")
         return all(os.access(os.path.join(sync, b), os.X_OK) for b in ("cc", "make")), why
+    if key == "iasl":
+        # ACPICA's ASL compiler, which uACPI's own test suite compiles
+        # its cases with (tools/hostchecks/uacpi_hostcheck.py). A package
+        # on every distribution (acpica, acpica-tools), on no clean box.
+        return all(shutil.which(t) for t in ("gcc", "iasl")), why
     if key == "openssl":
         # The test certificates are made with `openssl req -x509`.
         # Missing it is a skip for the same reason lame and ffmpeg are:

@@ -511,6 +511,10 @@ PORT_LICENSE_libwapcaplet   = MIT
 PORT_LICENSE_indeo3         = LGPL-2.1-or-later
 PORT_LICENSE_sdl3           = Zlib
 PORT_LICENSE_sdl2compat     = Zlib
+# A KERNEL port (kernel/third_party/<port>/upstream/) is linked into the
+# kernel, which NOGPL=1 cannot leave out -- so check_licenses.py refuses
+# a GPL-only one outright.
+PORT_LICENSE_uacpi          = MIT
 
 # ...and the programs built from it, under userland/ without the .c.
 # DECLARED, not read off EXTRA_OBJS_<program>: those are defined further
@@ -529,6 +533,7 @@ PORT_PROGRAMS_doom    = apps/apps/doom/doom
 # tools/runners/preflight.sh builds it and fails if ANYTHING was compiled from a
 # GPL-only port, which is what catches a program missing from the list.
 PORTS          = $(patsubst userland/third_party/%/upstream,%,$(wildcard userland/third_party/*/upstream))
+KERNEL_PORTS   = $(patsubst kernel/third_party/%/upstream,%,$(wildcard kernel/third_party/*/upstream))
 GPL_ONLY_PORTS = $(foreach p,$(PORTS),$(if $(filter-out GPL-% AGPL-% OR,$(PORT_LICENSE_$(p))),,$(p)))
 # A GUI program declares its port in its component.mk (NEEDS_PORT): the
 # ones built from it (DOOM) and the ones that are MIT but show nothing
@@ -644,7 +649,20 @@ MODULE_ALIAS   := $(BUILD)/modules/modules.alias
 MODULE_CFLAGS = $(subst -mcmodel=kernel,-mcmodel=large,$(CFLAGS)) \
                 $(if $(filter 1,$(KASAN)),--param asan-globals=0)
 
-C_SOURCES   = $(filter-out $(MODULE_SOURCES),$(shell find kernel -name '*.c' | sort))
+# uACPI, the vendored AML interpreter (docs/aml-design.md, stage 4):
+# upstream/ is the release byte for byte (tools/fetch/uacpi_vendor.py),
+# glue/ our configuration headers, and kernel/acpi/uacpi_*.c the
+# callbacks. Its own test suite runs on the HOST
+# (tools/hostchecks/uacpi_hostcheck.py), never in the kernel. The
+# loop-distribution flag keeps GCC from turning a copy loop into a call
+# to the memcpy() the kernel does not have (glue/uacpi_libc.h).
+UACPI_DIR   = kernel/third_party/uacpi
+UACPI_FLAGS = -I$(UACPI_DIR)/upstream/include -I$(UACPI_DIR)/glue \
+              -DUACPI_OVERRIDE_LIBC -DUACPI_NATIVE_ALLOC_ZEROED -DUACPI_PLAIN_LOG_BUFFER_SIZE=256
+$(BUILD)/$(UACPI_DIR)/upstream/%.o: CFLAGS += $(UACPI_FLAGS) -fno-tree-loop-distribute-patterns
+$(BUILD)/kernel/acpi/uacpi_%.o: CFLAGS += $(UACPI_FLAGS)
+
+C_SOURCES   = $(filter-out $(MODULE_SOURCES) $(UACPI_DIR)/upstream/tests/%,$(shell find kernel -name '*.c' | sort))
 ASM_SOURCES = $(shell find kernel -name '*.asm' | sort)
 
 C_OBJECTS   = $(patsubst %.c,   $(BUILD)/%.o, $(C_SOURCES))
@@ -2929,6 +2947,9 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	    cp $(firstword $(wildcard $(addprefix userland/third_party/$(p)/upstream/,LICENSE LICENSE.txt LICENSE.md COPYING COPYING.txt))) \
 	       $(SEED_DIR)/sync/usr/share/licenses/$(p).txt;)
 	$(if $(filter 1,$(NOGPL)),rm -f $(foreach p,$(GPL_ONLY_PORTS),$(SEED_DIR)/sync/usr/share/licenses/$(p).txt))
+	$(foreach p,$(KERNEL_PORTS),\
+	    cp $(firstword $(wildcard $(addprefix kernel/third_party/$(p)/upstream/,LICENSE LICENSE.txt LICENSE.md COPYING COPYING.txt))) \
+	       $(SEED_DIR)/sync/usr/share/licenses/$(p).txt;)
 	# Duktape (MIT) sits INSIDE NetSurf's tree and NetSurf's COPYING does not
 	# carry it; its licence is the comment that opens duktape.h, cut out
 	# here so it cannot drift from the code it covers. Goes with NetSurf.

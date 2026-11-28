@@ -7,7 +7,8 @@
 // line: a status bit set behind a set enable holds it asserted, and a
 // handler that does not clear it is an interrupt storm. Every GPE needs
 // AML (`_Lxx`/`_Exx`, the embedded controller's `_Qxx`) to service, and
-// there is no interpreter here, so every GPE stays masked -- what
+// nothing runs one yet (uACPI loads behind `acpi=uacpi` with no GPE
+// enabled until stage 4b), so every GPE stays masked -- what
 // Linux's acpi_hw_disable_all_gpes() does before it enables the ones it
 // has handlers for -- and PM1_EN carries PWRBTN_EN alone.
 //
@@ -32,6 +33,7 @@
 #include "signal.h"       // signal_send() -- safe from an interrupt for SIGPWR
 #include "signal_abi.h"
 #include "scheduler.h"    // scheduler_init_pid()
+#include "uacpi_host.h"   // uacpi_host_sci_dispatch()
 
 // PM1 status/enable bits (ACPI 6.4 tables 4.11 and 4.12). The status
 // half is write-1-to-clear.
@@ -59,19 +61,31 @@ static void pm1_enable(const struct acpi_state *s, uint16_t bits) {
     if (s->pm1b_evt) outw((uint16_t)(s->pm1b_evt + pm1_half(s)), bits);
 }
 
-// A SHARED line, so a call with no PWRBTN_STS is somebody else's and
-// returns without touching anything.
+// A SHARED line, so a call with no PWRBTN_STS is somebody else's -- and
+// with uACPI loaded, what is left is passed to its SCI handler, held in
+// uacpi_glue.c: uACPI enables the global lock's fixed event at load, and
+// a GBL_STS nobody clears holds this level-triggered line asserted. Its
+// handler acts only on events uACPI itself enabled, so PWRBTN, acked
+// first, is never seen there.
 static void sci_irq(uint64_t *regs) {
     (void)regs;
     struct acpi_state *s = acpi_state_mut();
-    if (!(pm1_sts(s) & PM1_PWRBTN)) return;
-    pm1_ack(s, PM1_PWRBTN);
-    s->pwrbtn_presses++;
+    if (pm1_sts(s) & PM1_PWRBTN) {
+        pm1_ack(s, PM1_PWRBTN);
+        s->pwrbtn_presses++;
+        int init = scheduler_init_pid();
+        klog_printf("acpi: power button pressed -- SIGPWR to init (pid %d)\n", init);
+        if (init <= 0 || !signal_send(init, SIGPWR))
+            klog_write("acpi: no init to tell -- the press is dropped\n");
+    }
+    uacpi_host_sci_dispatch();
+}
 
-    int init = scheduler_init_pid();
-    klog_printf("acpi: power button pressed -- SIGPWR to init (pid %d)\n", init);
-    if (init <= 0 || !signal_send(init, SIGPWR))
-        klog_write("acpi: no init to tell -- the press is dropped\n");
+void acpi_sci_rearm(void) {
+    struct acpi_state *s = acpi_state_mut();
+    if (!(s->flags & ACPI_F_PWRBTN)) return;
+    pm1_ack(s, PM1_PWRBTN);
+    pm1_enable(s, PM1_PWRBTN);
 }
 
 // An EC by its own table (ECDT) or its device (PNP0C09 in the namespace).

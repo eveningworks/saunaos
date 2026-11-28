@@ -20,7 +20,8 @@ require. What was wrong is that a reader of LICENSE could not learn
 that GPL code is in the tree. This makes that a build property.
 
 WHAT IT CHECKS
-  1. Every userland/third_party/<port>/upstream/ has a license file.
+  1. Every userland/third_party/<port>/upstream/ -- and kernel/third_party/
+     <port>/upstream/, a port linked into the kernel -- has a license file.
   2. ...and is named in LICENSE.
   3. Every font under data/fonts/ has a license file beside it.
   4. ...and is named in LICENSE.
@@ -33,7 +34,8 @@ WHAT IT CHECKS
      alone would need to know which those are.
   7. Every notice file under data/licenses/ is named in LICENSE by path,
      and every data/licenses/ path LICENSE names exists.
-  8. Every port declares its licence in the Makefile (PORT_LICENSE_<name>,
+  8. Every port declares its licence in the Makefile (PORT_LICENSE_<name>; a
+     kernel port may not be GPL-only, since NOGPL=1 cannot drop the kernel;
      SPDX ids joined by OR -- what NOGPL=1 decides by), each family it
      names is the one its licence file is written in, a file carrying
      the GPL's preamble is not declared as something else, and a
@@ -65,6 +67,7 @@ HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
 
 THIRD_PARTY = os.path.join(REPO, "userland", "third_party")
+KERNEL_THIRD_PARTY = os.path.join(REPO, "kernel", "third_party")
 TOOLCHAIN_PATCHES = os.path.join(REPO, "toolchain", "patches")
 FONTS = os.path.join(REPO, "data", "fonts")
 SCHEMES = os.path.join(REPO, "data", "usr", "share", "terminal")
@@ -119,10 +122,10 @@ def port_declarations():
     return lic, progs
 
 
-def check_declaration(name, d, expr, programs):
+def check_declaration(name, d, expr, programs, root="userland/third_party"):
     """Problems with one port's PORT_LICENSE_ line, as strings."""
     if expr is None:
-        return [f"userland/third_party/{name}/upstream/ declares no licence -- add PORT_LICENSE_{name} "
+        return [f"{root}/{name}/upstream/ declares no licence -- add PORT_LICENSE_{name} "
                 f"to the Makefile's NOGPL=1 block"]
     words = expr.split()
     ids = words[0::2]
@@ -142,10 +145,13 @@ def check_declaration(name, d, expr, programs):
                             f"\"{marker}\"")
     gpl_text = "GNU GENERAL PUBLIC LICENSE" in text or "GNU AFFERO" in text
     if gpl_text and not any(i.startswith(("GPL-", "AGPL-")) for i in ids):
-        problems.append(f"userland/third_party/{name}/upstream/'s licence file is the GPL, and "
+        problems.append(f"{root}/{name}/upstream/'s licence file is the GPL, and "
                         f"PORT_LICENSE_{name} does not say so -- NOGPL=1 would ship it")
     gpl_only = all(i.startswith(("GPL-", "AGPL-")) for i in ids)
-    if gpl_only and not programs:
+    if gpl_only and root == "kernel/third_party":
+        problems.append(f"{root}/{name}/upstream/ is GPL-only and is linked into the kernel, "
+                        f"which NOGPL=1 cannot leave out")
+    elif gpl_only and not programs:
         problems.append(f"userland/third_party/{name}/upstream/ is GPL-only and no program "
                         f"names it (PORT_PROGRAMS_{name}, or NEEDS_PORT in a component.mk) -- NOGPL=1 cannot leave its programs out")
     for prog in programs:
@@ -178,6 +184,11 @@ def main():
     if seeded != LICENSE_FILENAMES:
         problems.append(f"the Makefile seeds port licences named {seeded or 'nothing'}, "
                         f"and this check accepts {LICENSE_FILENAMES} -- they must be one list")
+    m = re.search(r"addprefix kernel/third_party/\$\(p\)/upstream/,([^)]*)\)", mk)
+    kseeded = tuple(m.group(1).split()) if m else ()
+    if os.path.isdir(KERNEL_THIRD_PARTY) and kseeded != LICENSE_FILENAMES:
+        problems.append(f"the Makefile seeds kernel port licences named {kseeded or 'nothing'}, "
+                        f"and this check accepts {LICENSE_FILENAMES} -- they must be one list")
 
     # --- vendored ports ------------------------------------------------
     if os.path.isdir(THIRD_PARTY):
@@ -199,6 +210,24 @@ def main():
                                 f"in LICENSE -- a reader cannot learn what it is under")
             elif args.verbose:
                 print(f"  ok    userland/third_party/{name}/upstream/")
+
+    # --- vendored KERNEL ports: checks 1, 2 and 8 ------------------------
+    if os.path.isdir(KERNEL_THIRD_PARTY):
+        for name in sorted(os.listdir(KERNEL_THIRD_PARTY)):
+            d = os.path.join(KERNEL_THIRD_PARTY, name, "upstream")
+            if not os.path.isdir(d):
+                continue
+            checked += 1
+            rel = f"kernel/third_party/{name}/upstream/"
+            problems += check_declaration(name, d, decl_lic.get(name), [], root="kernel/third_party")
+            if not any(os.path.exists(os.path.join(d, f)) for f in LICENSE_FILENAMES):
+                problems.append(f"{rel} has no license file -- a vendored port must keep the "
+                                f"terms it arrived under")
+            if rel not in lic:
+                problems.append(f"{rel} is vendored but is not named in LICENSE -- a reader "
+                                f"cannot learn what it is under")
+            elif args.verbose:
+                print(f"  ok    {rel}")
 
     # --- a licence buried inside a GPL-only port -------------------------
     # A GPL port can carry code under ANOTHER licence in its own tree --

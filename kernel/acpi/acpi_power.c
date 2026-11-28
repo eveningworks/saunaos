@@ -568,8 +568,8 @@ static void s5_grace(uint32_t n) {
 // in ACPI mode, and starting again took two presses of the power button;
 // in legacy mode, one (docs/decisions.md). So ACPI mode, entered at boot
 // for the power button, is LEFT again first (acpi_leave_mode()). Linux
-// and Windows stay in ACPI mode and do run `_PTS`; with no interpreter,
-// the firmware's own path is the honest substitute. ACPI mode remains the
+// and Windows stay in ACPI mode and do run `_PTS`; until uACPI runs it
+// (stage 4c), the firmware's own path is the honest substitute. ACPI mode remains the
 // FALLBACK, for firmware whose legacy write does nothing.
 // `acpimode=poweroff` writes S5 in ACPI mode, for an A/B; `acpimode=never`
 // is the legacy write with no fallback.

@@ -1983,7 +1983,18 @@ struct query_acpi {
     uint64_t cpu_count;
     uint64_t sci_int;        // the SCI's line, from the FADT
     uint64_t pwrbtn_presses; // power-button presses taken since boot
+    // The AML interpreter (uACPI, `acpi=uacpi`): kernel/acpi.h's
+    // enum acpi_uacpi_state -- 0 off, 1 loading, 2 ready, 3 failed.
+    uint64_t uacpi_state;
+    uint64_t uacpi_nodes;    // namespace nodes once ready
+    uint64_t uacpi_devices;  // of which Devices
+    uint64_t uacpi_load_us;  // initialize + load + namespace init
+    int64_t  uacpi_status;   // uACPI's status code for a failed step
+    char     uacpi_failed_at[16]; // the step that failed, NUL-terminated
 };
+
+_Static_assert(sizeof(struct query_acpi) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
 
 struct query_acpi_table {
     uint64_t address;

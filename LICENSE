@@ -280,6 +280,19 @@ with the binaries as their licenses require.
         README.md, and its own SDL code is in
         userland/third_party/sdl3/glue/, under the MIT License above.
 
+  kernel/third_party/uacpi/upstream/   uACPI, the AML interpreter
+                          linked into the KERNEL (docs/aml-design.md,
+                          stage 4), Copyright (c) 2022-2026 Daniil
+                          Tatianin, under the MIT License. Full text:
+                          kernel/third_party/uacpi/upstream/LICENSE.
+
+        The release, byte for byte (tools/fetch/uacpi_vendor.py), with
+        any change a patch in kernel/third_party/uacpi/patches/; the
+        configuration headers in kernel/third_party/uacpi/glue/ and the
+        callbacks in kernel/acpi/uacpi_*.c are SaunaOS's, under the
+        MIT License above. The image carries the text as
+        /usr/share/licenses/uacpi.txt.
+
   Duktape, the JavaScript engine NetSurf carries INSIDE its own tree,
   in duktape.c and duktape.h under
   userland/third_party/netsurf/upstream/content/handlers/javascript/duktape/

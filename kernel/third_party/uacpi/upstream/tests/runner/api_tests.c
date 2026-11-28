@@ -1,0 +1,907 @@
+#include "helpers.h"
+#include "tests.h"
+#include <inttypes.h>
+#include <string.h>
+#include <uacpi/opregion.h>
+#include <uacpi/resources.h>
+#include <uacpi/types.h>
+
+static void check_ok(uacpi_object **objects, uacpi_object_array *arr)
+{
+    uacpi_u64 ret;
+    uacpi_status st = uacpi_eval_integer(UACPI_NULL, "CHEK", arr, &ret);
+
+    ensure_ok_status(st);
+    if (!ret)
+        error("integer check failed");
+    uacpi_object_unref(objects[1]);
+}
+
+void test_object_api(void)
+{
+    uacpi_status st;
+    uacpi_object_array arr;
+    uacpi_object *objects[2];
+    uacpi_data_view view;
+    uacpi_object *tmp;
+    uint8_t buffer[4] = { 0xDE, 0xAD, 0xBE, 0xEF };
+    uacpi_object *pkg[3];
+    uacpi_object_array arr1;
+
+    arr.objects = objects;
+    objects[0] = uacpi_object_create_integer(1);
+
+    // Calling with a wrong number of arguments must fail cleanly
+    arr.count = 1;
+    st = uacpi_eval(UACPI_NULL, "CHEK", &arr, UACPI_NULL);
+    if (st != UACPI_STATUS_INVALID_ARGUMENT)
+        error("expected call with a bad arg count to fail");
+    arr.count = UACPI_ARRAY_SIZE(objects);
+
+    st = uacpi_object_create_integer_safe(
+        0xDEADBEEFDEADBEEF, UACPI_OVERFLOW_DISALLOW, &objects[1]
+    );
+    if (st != UACPI_STATUS_INVALID_ARGUMENT)
+        error("expected integer creation to fail");
+
+    objects[1] = uacpi_object_create_integer(0xDEADBEEF);
+    check_ok(objects, &arr);
+
+    st = uacpi_object_assign_integer(objects[0], 2);
+    ensure_ok_status(st);
+
+    objects[1] = uacpi_object_create_cstring("Hello World");
+    uacpi_object_ref(objects[1]);
+    check_ok(objects, &arr);
+
+    view.const_text = "Hello World";
+    // Don't include the null byte to check if this is accounted for
+    view.length = 11;
+
+    uacpi_object_assign_string(objects[1], view);
+    check_ok(objects, &arr);
+
+    st = uacpi_object_assign_integer(objects[0], 3);
+    ensure_ok_status(st);
+    tmp = uacpi_object_create_cstring("XXXX");
+    objects[1] = uacpi_object_create_reference(tmp);
+    uacpi_object_unref(tmp);
+    check_ok(objects, &arr);
+
+    st = uacpi_object_assign_integer(objects[0], 4);
+    ensure_ok_status(st);
+    view.const_bytes = buffer;
+    view.length = sizeof(buffer);
+    objects[1] = uacpi_object_create_buffer(view);
+    check_ok(objects, &arr);
+
+    st = uacpi_object_assign_integer(objects[0], 5);
+    ensure_ok_status(st);
+
+    pkg[0] = uacpi_object_create_uninitialized();
+    view.const_text = "First Element";
+    view.length = strlen(view.const_text);
+    uacpi_object_assign_string(pkg[0], view);
+
+    pkg[1] = uacpi_object_create_cstring("test");
+    st = uacpi_object_assign_integer(pkg[1], 2);
+    ensure_ok_status(st);
+
+    buffer[0] = 1;
+    buffer[1] = 2;
+    buffer[2] = 3;
+    view.const_bytes = buffer;
+    view.length = 3;
+    pkg[2] = uacpi_object_create_buffer(view);
+    st = uacpi_object_assign_buffer(pkg[2], view);
+
+    arr1.objects = pkg;
+    arr1.count = 3;
+    objects[1] = uacpi_object_create_package(arr1);
+    uacpi_object_assign_package(objects[1], arr1);
+    check_ok(objects, &arr);
+    uacpi_object_unref(pkg[0]);
+    uacpi_object_unref(pkg[1]);
+    uacpi_object_unref(pkg[2]);
+
+    uacpi_object_unref(objects[0]);
+}
+
+#define CHECK_VALUE(x, y) \
+    if ((x) != (y))       \
+        error("check at %d failed", __LINE__);
+#define CHECK_STRING(x, y) \
+    if (strcmp((x), (y)))  \
+        error("check at %d failed", __LINE__);
+
+static void eval_one(uacpi_object *arg, uacpi_address_space type)
+{
+    uacpi_object_array arr = { 0 };
+    uacpi_u64 out_value;
+    uacpi_status st;
+
+    arr.objects = &arg;
+    arr.count = 1;
+
+    st = uacpi_object_assign_integer(arg, type);
+    ensure_ok_status(st);
+    st = uacpi_eval_integer(NULL, "CHEK", &arr, &out_value);
+    ensure_ok_status(st);
+
+    if (!out_value)
+        error("%s test failed", uacpi_address_space_to_string(type));
+}
+
+static uacpi_status ipmi_handler(uacpi_region_op op, uacpi_handle op_data)
+{
+    uacpi_region_ipmi_rw_data *ipmi = op_data;
+    uint64_t response;
+    const char *command;
+
+    if (op == UACPI_REGION_OP_ATTACH || op == UACPI_REGION_OP_DETACH)
+        return UACPI_STATUS_OK;
+    CHECK_VALUE(op, UACPI_REGION_OP_IPMI_COMMAND);
+
+    CHECK_VALUE(ipmi->in_out_message.length, 66);
+
+    command = ipmi->in_out_message.const_text;
+    if (!strcmp(command, "IPMICommandDEADBEE0"))
+        response = 0xDEADBEE0;
+    else if (!strcmp(command, "IPMICommandDEADBEEF"))
+        response = 0xDEADBEEF;
+    else
+        error("invalid IPMI command %s", command);
+
+    CHECK_VALUE(ipmi->command, response);
+
+    memcpy(ipmi->in_out_message.data, &response, sizeof(response));
+    return UACPI_STATUS_OK;
+}
+
+static uacpi_status gpio_handler(uacpi_region_op op, uacpi_handle op_data)
+{
+    uacpi_region_gpio_rw_data *rw_data = op_data;
+    uacpi_resource *res;
+    uacpi_status ret;
+    uacpi_resource_gpio_connection *gpio;
+    uacpi_namespace_node *gpio_node;
+    uacpi_u64 bit_offset;
+    uacpi_u64 *state;
+    uacpi_u64 i;
+
+    switch (op) {
+    case UACPI_REGION_OP_ATTACH: {
+        uacpi_region_attach_data *att_data = op_data;
+
+        CHECK_VALUE(att_data->gpio_info.num_pins, 6);
+        att_data->out_region_context = do_calloc(1, sizeof(uint64_t));
+        return UACPI_STATUS_OK;
+    }
+    case UACPI_REGION_OP_DETACH: {
+        uacpi_region_detach_data *det_data = op_data;
+
+        free(det_data->region_context);
+        return UACPI_STATUS_OK;
+    }
+    default:
+        break;
+    }
+
+    ret = uacpi_get_resource_from_buffer(rw_data->connection, &res);
+    ensure_ok_status(ret);
+
+    CHECK_VALUE(res->type, UACPI_RESOURCE_TYPE_GPIO_CONNECTION);
+    gpio = &res->gpio_connection;
+
+    ret = uacpi_namespace_node_find(NULL, gpio->source.string, &gpio_node);
+    ensure_ok_status(ret);
+
+    ret = uacpi_eval_simple_integer(gpio_node, "_UID", &bit_offset);
+    ensure_ok_status(ret);
+
+    bit_offset *= 16;
+    state = rw_data->region_context;
+
+    if (rw_data->num_pins == 0 || rw_data->num_pins > 3)
+        error("bogus number of pins %d", rw_data->num_pins);
+
+    if (op == UACPI_REGION_OP_GPIO_READ)
+        rw_data->value = 0;
+
+    for (i = 0; i < rw_data->num_pins; ++i) {
+        uint64_t abs_pin = i + rw_data->pin_offset;
+        bool value;
+
+        if (op == UACPI_REGION_OP_GPIO_READ) {
+            value = (*state >> bit_offset) & (1ull << abs_pin);
+
+            if (value)
+                rw_data->value |= (1ull << i);
+        } else {
+            unsigned long long mask = 1ull << abs_pin;
+
+            CHECK_VALUE(op, UACPI_REGION_OP_GPIO_WRITE);
+            value = rw_data->value & (1ull << i);
+
+            if (value)
+                *state |= mask;
+            else
+                *state &= ~mask;
+        }
+    }
+
+    uacpi_free_resource(res);
+    return UACPI_STATUS_OK;
+}
+
+static uacpi_status pcc_handler(uacpi_region_op op, uacpi_handle op_data)
+{
+    uacpi_region_pcc_send_data *rw_data = op_data;
+    uint32_t x;
+
+    if (op == UACPI_REGION_OP_ATTACH) {
+        uacpi_region_attach_data *att_data = op_data;
+
+        CHECK_VALUE(att_data->pcc_info.buffer.length, 0xFF);
+        CHECK_VALUE(att_data->pcc_info.subspace_id, 0xCA)
+
+        att_data->out_region_context = att_data->pcc_info.buffer.data;
+        return UACPI_STATUS_OK;
+    }
+
+    if (op == UACPI_REGION_OP_DETACH)
+        return UACPI_STATUS_OK;
+    CHECK_VALUE(op, UACPI_REGION_OP_PCC_SEND);
+
+    CHECK_VALUE(rw_data->buffer.data, rw_data->region_context);
+    CHECK_STRING(rw_data->buffer.const_text, "HELLO");
+
+    memcpy(&x, rw_data->buffer.bytes + 8, sizeof(x));
+
+    /*
+     * The second one is what the response to the first one turns into once
+     * the first byte of it is overwritten with that of the command.
+     */
+    if (x == 0xDEADBEEF) {
+        x = 0xBEEFDEAD;
+    } else {
+        CHECK_VALUE(x, 0xBEEFDEEF);
+        x = 0xFEEDFACE;
+    }
+
+    memcpy(rw_data->buffer.bytes + 8, &x, sizeof(x));
+
+    // The number of commands sent so far, which is right past the command
+    rw_data->buffer.bytes[12]++;
+
+    return UACPI_STATUS_OK;
+}
+
+static uacpi_status prm_handler(uacpi_region_op op, uacpi_handle op_data)
+{
+    static const char response[] = "goodbyeworld";
+    uacpi_region_prm_rw_data *rw_data = op_data;
+
+    if (op == UACPI_REGION_OP_ATTACH || op == UACPI_REGION_OP_DETACH)
+        return UACPI_STATUS_OK;
+    CHECK_VALUE(op, UACPI_REGION_OP_PRM_COMMAND);
+
+    CHECK_VALUE(rw_data->in_out_message.length, 26);
+    CHECK_STRING(rw_data->in_out_message.const_text, "helloworld");
+
+    memcpy(rw_data->in_out_message.text, response, sizeof(response));
+
+    return UACPI_STATUS_OK;
+}
+
+static uacpi_status ffixedhw_handler(uacpi_region_op op, uacpi_handle op_data)
+{
+    static const char response[] = "ok";
+    uacpi_region_ffixedhw_rw_data *rw_data = op_data;
+
+    if (op == UACPI_REGION_OP_ATTACH) {
+        uacpi_region_attach_data *att_data = op_data;
+
+        CHECK_VALUE(att_data->generic_info.base, 0xCAFEBABE);
+        CHECK_VALUE(att_data->generic_info.length, 0xFEFECACA)
+        return UACPI_STATUS_OK;
+    }
+
+    if (op == UACPI_REGION_OP_DETACH)
+        return UACPI_STATUS_OK;
+    CHECK_VALUE(op, UACPI_REGION_OP_FFIXEDHW_COMMAND);
+
+    CHECK_VALUE(rw_data->in_out_message.length, 256);
+    CHECK_STRING(rw_data->in_out_message.const_text, "someguidandstuff");
+
+    memcpy(rw_data->in_out_message.text, "ok", sizeof(response));
+
+    return UACPI_STATUS_OK;
+}
+
+static uacpi_status generic_serial_bus_handler(
+    uacpi_region_op op, uacpi_handle op_data
+)
+{
+    uacpi_region_serial_rw_data *rw_data = op_data;
+    uacpi_resource *res;
+    uacpi_status ret;
+    uacpi_resource_i2c_connection *gpio;
+    uacpi_namespace_node *i2c_node;
+    uacpi_u64 i2c_offset;
+    uacpi_u16 response;
+
+    if (op == UACPI_REGION_OP_ATTACH || op == UACPI_REGION_OP_DETACH)
+        return UACPI_STATUS_OK;
+    CHECK_VALUE(
+        true, (op == UACPI_REGION_OP_SERIAL_READ ||
+               op == UACPI_REGION_OP_SERIAL_WRITE)
+    );
+
+    ret = uacpi_get_resource_from_buffer(rw_data->connection, &res);
+    ensure_ok_status(ret);
+
+    CHECK_VALUE(res->type, UACPI_RESOURCE_TYPE_SERIAL_I2C_CONNECTION);
+    gpio = &res->i2c_connection;
+
+    ret = uacpi_namespace_node_find(
+        NULL, gpio->common.source.string, &i2c_node
+    );
+    ensure_ok_status(ret);
+
+    ret = uacpi_eval_simple_integer(i2c_node, "_UID", &i2c_offset);
+    ensure_ok_status(ret);
+
+    switch ((int)rw_data->command) {
+    case 0x111:
+        CHECK_VALUE(op, UACPI_REGION_OP_SERIAL_WRITE);
+        CHECK_VALUE(i2c_offset, 0);
+        CHECK_VALUE(rw_data->in_out_buffer.length, 2);
+        CHECK_VALUE(rw_data->access_attribute, UACPI_ACCESS_ATTRIBUTE_QUICK);
+        break;
+    case 0x121:
+        CHECK_VALUE(op, UACPI_REGION_OP_SERIAL_WRITE);
+        CHECK_VALUE(i2c_offset, 0);
+        CHECK_VALUE(rw_data->in_out_buffer.length, 3);
+        CHECK_VALUE(
+            rw_data->access_attribute, UACPI_ACCESS_ATTRIBUTE_SEND_RECEIVE
+        );
+        break;
+    case 0x122:
+        CHECK_VALUE(op, UACPI_REGION_OP_SERIAL_WRITE);
+        CHECK_VALUE(i2c_offset, 0);
+        CHECK_VALUE(rw_data->in_out_buffer.length, 3);
+        CHECK_VALUE(rw_data->access_attribute, UACPI_ACCESS_ATTRIBUTE_BYTE);
+        break;
+    case 0x124:
+        CHECK_VALUE(op, UACPI_REGION_OP_SERIAL_READ);
+        CHECK_VALUE(i2c_offset, 0);
+        CHECK_VALUE(rw_data->in_out_buffer.length, 4);
+        CHECK_VALUE(rw_data->access_attribute, UACPI_ACCESS_ATTRIBUTE_WORD);
+        break;
+    case 0x128:
+        CHECK_VALUE(op, UACPI_REGION_OP_SERIAL_READ);
+        CHECK_VALUE(i2c_offset, 0);
+        CHECK_VALUE(rw_data->in_out_buffer.length, 257);
+        CHECK_VALUE(rw_data->access_attribute, UACPI_ACCESS_ATTRIBUTE_BLOCK);
+        break;
+    case 0x228:
+        CHECK_VALUE(op, UACPI_REGION_OP_SERIAL_WRITE);
+        CHECK_VALUE(i2c_offset, 0);
+        CHECK_VALUE(rw_data->in_out_buffer.length, 4);
+        CHECK_VALUE(
+            rw_data->access_attribute, UACPI_ACCESS_ATTRIBUTE_PROCESS_CALL
+        );
+        break;
+    case 0x229:
+        CHECK_VALUE(op, UACPI_REGION_OP_SERIAL_READ);
+        CHECK_VALUE(i2c_offset, 0);
+        CHECK_VALUE(rw_data->in_out_buffer.length, 257);
+        CHECK_VALUE(
+            rw_data->access_attribute, UACPI_ACCESS_ATTRIBUTE_BLOCK_PROCESS_CALL
+        );
+        break;
+    case 0x23B:
+        CHECK_VALUE(op, UACPI_REGION_OP_SERIAL_WRITE);
+        CHECK_VALUE(i2c_offset, 1);
+        CHECK_VALUE(rw_data->in_out_buffer.length, 17);
+        CHECK_VALUE(rw_data->access_attribute, UACPI_ACCESS_ATTRIBUTE_BYTES);
+        CHECK_VALUE(rw_data->access_length, 15);
+        break;
+    case 0x23C:
+        CHECK_VALUE(op, UACPI_REGION_OP_SERIAL_READ);
+        CHECK_VALUE(i2c_offset, 1);
+        CHECK_VALUE(rw_data->in_out_buffer.length, 257);
+        CHECK_VALUE(
+            rw_data->access_attribute, UACPI_ACCESS_ATTRIBUTE_RAW_BYTES
+        );
+        CHECK_VALUE(rw_data->access_length, 255);
+        break;
+    case 0x23D:
+        CHECK_VALUE(op, UACPI_REGION_OP_SERIAL_READ);
+        CHECK_VALUE(i2c_offset, 1);
+        CHECK_VALUE(rw_data->in_out_buffer.length, 257);
+        CHECK_VALUE(
+            rw_data->access_attribute, UACPI_ACCESS_ATTRIBUTE_RAW_PROCESS_BYTES
+        );
+        CHECK_VALUE(rw_data->access_length, 123);
+        break;
+    default:
+        error("bad serial command %" PRIu64, rw_data->command);
+    }
+
+    if (op == UACPI_REGION_OP_SERIAL_WRITE) {
+        uacpi_u16 value;
+
+        memcpy(&value, rw_data->in_out_buffer.const_bytes, sizeof(value));
+        CHECK_VALUE(value, rw_data->command);
+    }
+
+    response = rw_data->command + 1;
+    memcpy(rw_data->in_out_buffer.bytes, &response, sizeof(response));
+
+    uacpi_free_resource(res);
+    return UACPI_STATUS_OK;
+}
+
+static void check_connected(
+    uacpi_object *arg, const char *method, bool connected
+)
+{
+    uacpi_object_array arr = { 0 };
+    uacpi_u64 out_value;
+    uacpi_status st;
+
+    arr.objects = &arg;
+    arr.count = 1;
+
+    st = uacpi_object_assign_integer(arg, connected);
+    ensure_ok_status(st);
+    st = uacpi_eval_integer(NULL, method, &arr, &out_value);
+    ensure_ok_status(st);
+
+    if (!out_value)
+        error("%s test failed", method);
+}
+
+#define OEM_ADDRESS_SPACE ((uacpi_address_space)0x80)
+
+/*
+ * Lets AML know that a region was attached or detached, which is not something
+ * that it's able to tell by itself, by evaluating the ATCH and DTCH methods of
+ * the device that the region belongs to.
+ */
+static uacpi_status oem_handler(uacpi_region_op op, uacpi_handle op_data)
+{
+    switch (op) {
+    case UACPI_REGION_OP_ATTACH: {
+        uacpi_region_attach_data *attach_data = op_data;
+        uacpi_namespace_node *device;
+        uacpi_status st;
+
+        device = uacpi_namespace_node_parent(attach_data->region_node);
+
+        st = uacpi_eval(device, "ATCH", NULL, NULL);
+        if (st != UACPI_STATUS_NOT_FOUND)
+            ensure_ok_status(st);
+
+        return UACPI_STATUS_OK;
+    }
+    case UACPI_REGION_OP_DETACH: {
+        uacpi_region_detach_data *detach_data = op_data;
+        uacpi_namespace_node *device;
+        uacpi_status st;
+
+        device = uacpi_namespace_node_parent(detach_data->region_node);
+
+        st = uacpi_eval(device, "DTCH", NULL, NULL);
+        if (st != UACPI_STATUS_NOT_FOUND)
+            ensure_ok_status(st);
+
+        return UACPI_STATUS_OK;
+    }
+    case UACPI_REGION_OP_READ: {
+        uacpi_region_rw_data *rw_data = op_data;
+
+        rw_data->value = 0x5A;
+        return UACPI_STATUS_OK;
+    }
+    case UACPI_REGION_OP_WRITE:
+        return UACPI_STATUS_OK;
+    default:
+        return UACPI_STATUS_INVALID_ARGUMENT;
+    }
+}
+
+#define UNINSTALLER_ADDRESS_SPACE ((uacpi_address_space)0x81)
+
+struct uninstaller_ctx {
+    // The device to uninstall the handler of, if any
+    uacpi_namespace_node *device;
+
+    // How that went
+    uacpi_status st;
+};
+
+/*
+ * Uninstalls the handler of the device that it was given as soon as it's told
+ * to detach a region, and reports how that went via its context.
+ */
+static uacpi_status uninstaller_handler(
+    uacpi_region_op op, uacpi_handle op_data
+)
+{
+    switch (op) {
+    case UACPI_REGION_OP_DETACH: {
+        uacpi_region_detach_data *detach_data = op_data;
+        struct uninstaller_ctx *ctx = detach_data->handler_context;
+
+        if (ctx->device == NULL)
+            return UACPI_STATUS_OK;
+
+        ctx->st = uacpi_uninstall_address_space_handler(
+            ctx->device, UNINSTALLER_ADDRESS_SPACE, uninstaller_handler
+        );
+        return UACPI_STATUS_OK;
+    }
+    case UACPI_REGION_OP_READ: {
+        uacpi_region_rw_data *rw_data = op_data;
+
+        rw_data->value = 0;
+        return UACPI_STATUS_OK;
+    }
+    case UACPI_REGION_OP_ATTACH:
+    case UACPI_REGION_OP_WRITE:
+        return UACPI_STATUS_OK;
+    default:
+        return UACPI_STATUS_INVALID_ARGUMENT;
+    }
+}
+
+void test_address_spaces(void)
+{
+    uacpi_status st;
+    uacpi_object *arg;
+    struct uninstaller_ctx self_ctx = { 0 };
+    struct uninstaller_ctx old_ctx = { 0 }, new_ctx = { 0 };
+    uacpi_namespace_node *oem_device, *ipmi_device, *taken_device;
+    uacpi_namespace_node *gpio_device;
+    uacpi_u64 out_value;
+
+    arg = uacpi_object_create_integer(0);
+
+    st = uacpi_install_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_IPMI, ipmi_handler, NULL
+    );
+    ensure_ok_status(st);
+    eval_one(arg, UACPI_ADDRESS_SPACE_IPMI);
+    check_connected(arg, "CREG", true);
+
+    st = uacpi_install_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_GENERAL_PURPOSE_IO,
+        gpio_handler, NULL
+    );
+    ensure_ok_status(st);
+    eval_one(arg, UACPI_ADDRESS_SPACE_GENERAL_PURPOSE_IO);
+
+    st = uacpi_install_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_PCC, pcc_handler, NULL
+    );
+    ensure_ok_status(st);
+    eval_one(arg, UACPI_ADDRESS_SPACE_PCC);
+
+    st = uacpi_install_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_PRM, prm_handler, NULL
+    );
+    ensure_ok_status(st);
+    eval_one(arg, UACPI_ADDRESS_SPACE_PRM);
+
+    /*
+     * A handler is only uninstalled by whoever is able to tell which one it
+     * is, as it might not be the handler that they think it is.
+     */
+    st = uacpi_uninstall_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_PRM, pcc_handler
+    );
+    if (st != UACPI_STATUS_INVALID_ARGUMENT) {
+        error(
+            "unexpected status for a handler that is not the one installed: %s",
+            uacpi_status_to_string(st)
+        );
+    }
+
+    // It's still there as a result
+    st = uacpi_install_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_PRM, prm_handler, NULL
+    );
+    if (st != UACPI_STATUS_ALREADY_EXISTS)
+        error("a handler was uninstalled by someone that it doesn't belong to");
+
+    st = uacpi_uninstall_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_PRM, prm_handler
+    );
+    ensure_ok_status(st);
+
+    st = uacpi_uninstall_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_PRM, prm_handler
+    );
+    if (st != UACPI_STATUS_NO_HANDLER)
+        error("a handler was uninstalled more than once");
+
+    st = uacpi_install_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_FFIXEDHW, ffixedhw_handler,
+        NULL
+    );
+    ensure_ok_status(st);
+    eval_one(arg, UACPI_ADDRESS_SPACE_FFIXEDHW);
+
+    st = uacpi_install_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_GENERIC_SERIAL_BUS,
+        generic_serial_bus_handler, NULL
+    );
+    ensure_ok_status(st);
+    eval_one(arg, UACPI_ADDRESS_SPACE_GENERIC_SERIAL_BUS);
+
+    st = uacpi_install_address_space_handler(
+        uacpi_namespace_root(), OEM_ADDRESS_SPACE, oem_handler, NULL
+    );
+    ensure_ok_status(st);
+    eval_one(arg, OEM_ADDRESS_SPACE);
+
+    /*
+     * A handler that is being uninstalled is told to detach its regions, and
+     * is free to do whatever it wants in response, which includes trying to
+     * uninstall itself. There's nothing left to uninstall by then.
+     */
+    self_ctx.device = uacpi_namespace_root();
+
+    st = uacpi_install_address_space_handler(
+        uacpi_namespace_root(), UNINSTALLER_ADDRESS_SPACE,
+        uninstaller_handler, &self_ctx
+    );
+    ensure_ok_status(st);
+
+    st = uacpi_eval_simple_integer(NULL, "\\OEM4.READ", &out_value);
+    ensure_ok_status(st);
+
+    st = uacpi_uninstall_address_space_handler(
+        uacpi_namespace_root(), UNINSTALLER_ADDRESS_SPACE, uninstaller_handler
+    );
+    ensure_ok_status(st);
+
+    if (self_ctx.st != UACPI_STATUS_NO_HANDLER) {
+        error(
+            "unexpected status for a handler that uninstalls itself: %s",
+            uacpi_status_to_string(self_ctx.st)
+        );
+    }
+
+    /*
+     * Same thing, but for a handler that is yet to be installed. The region
+     * that it's about to take over is detached from the handler that it had
+     * before, which uninstalls the new one in response.
+     */
+    st = uacpi_namespace_node_find(NULL, "\\OEM5", &taken_device);
+    ensure_ok_status(st);
+    old_ctx.device = taken_device;
+
+    st = uacpi_install_address_space_handler(
+        uacpi_namespace_root(), UNINSTALLER_ADDRESS_SPACE,
+        uninstaller_handler, &old_ctx
+    );
+    ensure_ok_status(st);
+
+    st = uacpi_eval_simple_integer(NULL, "\\OEM5.READ", &out_value);
+    ensure_ok_status(st);
+
+    st = uacpi_install_address_space_handler(
+        taken_device, UNINSTALLER_ADDRESS_SPACE, uninstaller_handler, &new_ctx
+    );
+    if (st != UACPI_STATUS_NO_HANDLER) {
+        error(
+            "unexpected status for a handler that was uninstalled early: %s",
+            uacpi_status_to_string(st)
+        );
+    }
+    ensure_ok_status(old_ctx.st);
+
+    // It's gone for real
+    st = uacpi_uninstall_address_space_handler(
+        taken_device, UNINSTALLER_ADDRESS_SPACE, uninstaller_handler
+    );
+    if (st != UACPI_STATUS_NO_HANDLER)
+        error("a handler that was uninstalled early is still there");
+
+    old_ctx.device = NULL;
+    st = uacpi_uninstall_address_space_handler(
+        uacpi_namespace_root(), UNINSTALLER_ADDRESS_SPACE, uninstaller_handler
+    );
+    ensure_ok_status(st);
+
+    /*
+     * A region is also detached when a handler that is closer to it comes
+     * along, which is the case for the only region that this device has.
+     */
+    st = uacpi_namespace_node_find(NULL, "\\OEM1", &oem_device);
+    ensure_ok_status(st);
+
+    st = uacpi_install_address_space_handler(
+        oem_device, OEM_ADDRESS_SPACE, oem_handler, NULL
+    );
+    ensure_ok_status(st);
+
+    st = uacpi_eval_simple_integer(NULL, "COEM", &out_value);
+    ensure_ok_status(st);
+    if (!out_value)
+        error("OEM address space test failed");
+
+    /*
+     * This one is overwritten by the time it's attached, so there's nothing
+     * left to access. AML has no way of handling that, so do it for it.
+     */
+    st = uacpi_eval(NULL, "\\OEM2.READ", NULL, NULL);
+    if (st != UACPI_STATUS_NO_HANDLER) {
+        error(
+            "unexpected status for a region that is gone: %s",
+            uacpi_status_to_string(st)
+        );
+    }
+
+    st = uacpi_eval_simple_integer(NULL, "COE2", &out_value);
+    ensure_ok_status(st);
+    if (!out_value)
+        error("OEM address space attach test failed");
+
+    /*
+     * A region that is accessed by its handler while it's still being
+     * attached ends up attached twice, out of which only one is kept.
+     */
+    st = uacpi_eval_simple_integer(NULL, "\\OEM6.READ", &out_value);
+    ensure_ok_status(st);
+    if (out_value != 0x5A)
+        error("unexpected value of a region that was attached twice");
+
+    st = uacpi_eval_simple_integer(NULL, "COE6", &out_value);
+    ensure_ok_status(st);
+    if (!out_value)
+        error("OEM address space double attach test failed");
+
+    // Give one of the IPMI regions a handler that is closer to it
+    st = uacpi_namespace_node_find(NULL, "\\IPM2", &ipmi_device);
+    ensure_ok_status(st);
+
+    st = uacpi_install_address_space_handler(
+        ipmi_device, UACPI_ADDRESS_SPACE_IPMI, ipmi_handler, NULL
+    );
+    ensure_ok_status(st);
+    check_connected(arg, "CRG2", true);
+
+    /*
+     * The regions of an address space are disconnected once its handler is
+     * gone, no matter how many other handlers were installed after it.
+     */
+    st = uacpi_uninstall_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_IPMI, ipmi_handler
+    );
+    ensure_ok_status(st);
+    check_connected(arg, "CREG", false);
+
+    // This only applies to the regions that the handler was actually serving
+    check_connected(arg, "CRG2", true);
+
+    st = uacpi_uninstall_address_space_handler(
+        ipmi_device, UACPI_ADDRESS_SPACE_IPMI, ipmi_handler
+    );
+    ensure_ok_status(st);
+    check_connected(arg, "CRG2", false);
+
+    /*
+     * A region is disconnected while it still has its handler, which is only
+     * told to detach it once _REG is done making use of it.
+     */
+    st = uacpi_uninstall_address_space_handler(
+        uacpi_namespace_root(), OEM_ADDRESS_SPACE, oem_handler
+    );
+    ensure_ok_status(st);
+
+    st = uacpi_eval_simple_integer(NULL, "COE3", &out_value);
+    ensure_ok_status(st);
+    if (!out_value)
+        error("OEM address space disconnect test failed");
+
+    /*
+     * A region is left with no handler once the one that was closer to it is
+     * uninstalled, even if there's another one further up. There's nothing
+     * for it to be connected to in that case, no matter who asks for it.
+     */
+    st = uacpi_install_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_IPMI, ipmi_handler, NULL
+    );
+    ensure_ok_status(st);
+    check_connected(arg, "CREG", true);
+    check_connected(arg, "CRG2", true);
+
+    st = uacpi_install_address_space_handler(
+        ipmi_device, UACPI_ADDRESS_SPACE_IPMI, ipmi_handler, NULL
+    );
+    ensure_ok_status(st);
+
+    st = uacpi_uninstall_address_space_handler(
+        ipmi_device, UACPI_ADDRESS_SPACE_IPMI, ipmi_handler
+    );
+    ensure_ok_status(st);
+    check_connected(arg, "CRG2", false);
+
+    st = uacpi_reg_all_opregions(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_IPMI
+    );
+    ensure_ok_status(st);
+    check_connected(arg, "CREG", true);
+    check_connected(arg, "CRG2", false);
+
+    st = uacpi_uninstall_address_space_handler(
+        uacpi_namespace_root(), UACPI_ADDRESS_SPACE_IPMI, ipmi_handler
+    );
+    ensure_ok_status(st);
+    check_connected(arg, "CREG", false);
+
+    /*
+     * The _REG of a GPIO controller that has no GeneralPurposeIo regions is
+     * only executed for a handler that is installed to the controller itself,
+     * not for the one at the root.
+     */
+    st = uacpi_eval_simple_integer(NULL, "\\GPO2.AVBL", &out_value);
+    ensure_ok_status(st);
+    if (out_value != 0)
+        error("GPIO _REG was executed for a handler of another device");
+
+    st = uacpi_namespace_node_find(NULL, "\\GPO2", &gpio_device);
+    ensure_ok_status(st);
+
+    st = uacpi_install_address_space_handler(
+        gpio_device, UACPI_ADDRESS_SPACE_GENERAL_PURPOSE_IO, gpio_handler, NULL
+    );
+    ensure_ok_status(st);
+
+    st = uacpi_eval_simple_integer(NULL, "\\GPO2.AVBL", &out_value);
+    ensure_ok_status(st);
+    if (out_value != 1)
+        error("GPIO _REG was not executed for a controller with no regions");
+
+    st = uacpi_uninstall_address_space_handler(
+        gpio_device, UACPI_ADDRESS_SPACE_GENERAL_PURPOSE_IO, gpio_handler
+    );
+    ensure_ok_status(st);
+
+    uacpi_object_unref(arg);
+}
+
+void test_global_lock(void)
+{
+    uacpi_status st;
+    uacpi_u32 seq, next_seq;
+
+    st = uacpi_acquire_global_lock(0xFFFF, &seq);
+    ensure_ok_status(st);
+
+    // Only the sequence number of this very acquire is good for a release
+    st = uacpi_release_global_lock(seq + 1);
+    if (st != UACPI_STATUS_INVALID_ARGUMENT)
+        error("released the global lock with a bogus sequence number");
+
+    st = uacpi_release_global_lock(seq);
+    ensure_ok_status(st);
+
+    // ...and only once
+    st = uacpi_release_global_lock(seq);
+    if (st != UACPI_STATUS_INVALID_ARGUMENT)
+        error("released the global lock twice");
+
+    st = uacpi_acquire_global_lock(0xFFFF, &next_seq);
+    ensure_ok_status(st);
+    if (next_seq == seq)
+        error("the sequence number of the global lock was reused");
+
+    st = uacpi_release_global_lock(next_seq);
+    ensure_ok_status(st);
+}

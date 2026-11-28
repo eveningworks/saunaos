@@ -219,6 +219,7 @@ void acpi_init(void) {
     }
 
     g_state.rsdp_revision = rsdp->revision;
+    g_state.rsdp_phys = (uint64_t)(uintptr_t)rsdp;   // identity-mapped: the address is physical
     walk_root(rsdp);
     if (g_state.table_count) g_state.flags |= ACPI_F_TABLES;
 

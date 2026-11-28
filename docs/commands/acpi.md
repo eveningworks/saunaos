@@ -29,6 +29,13 @@ that matters is `poweroff:` — `yes` names the sleep type and the port
 the write will go to, `no` says the machine will fall back to the legacy
 port write and then halt.
 
+One line says whether the AML interpreter ran: `AML interpreter: off`
+on a default boot, or with the boot word `acpi=uacpi` -- uACPI, the
+vendored interpreter (`docs/aml-design.md`, stage 4) -- how many
+namespace nodes and devices it loaded and how long it took, or which
+step failed with uACPI's status code. Nothing acts on that namespace
+yet; the line is how a machine's firmware is first tried with it.
+
 The other half is the processor list, which comes from the MADT rather
 than from CPUID: CPUID describes the core running the instruction and
 cannot count the others. `online: yes` marks a core the kernel started,
@@ -69,15 +76,14 @@ usually cheaper to make the kernel answer it.
 
 ## What it does not do
 
-**It does not interpret AML.** There is no AML interpreter in this OS
-and none is wanted. The one exception is a byte scan of the DSDT for the
-`_S5_` object, because the sleep-type values a poweroff has to write
-live in AML and nowhere else — and that scan accepts one encoding and
-**refuses** everything else rather than guessing. A refusal shows up
-here as `poweroff: no`.
+**Its power line does not come from the interpreter.** Power-off still
+reads the sleep types from a byte scan of the DSDT for the `_S5_`
+object, which accepts one encoding and **refuses** everything else
+rather than guessing -- a refusal shows up here as `poweroff: no`. uACPI
+takes that over at stage 4c (`docs/aml-design.md`).
 
-**It does not dump table bodies.** Printing bytes nobody in this system
-can decode would imply an interpreter that is not there.
+**It does not dump table bodies** in the summary; `--dump` is the way to
+the bytes.
 
 **It changes nothing.** Every number is read through `SYS_QUERY`; there
 is no `acpi enable` verb. The kernel enters ACPI mode at boot, for the

@@ -480,6 +480,15 @@ the rest in the sweep. Each stays a standalone script with its own
   hand; its first 10 minutes found nothing the reviewers had not. Use
   `-jobs`, never `-fork` (it crashed inside libFuzzer). Needs
   `host_mkfs`; in `preflight.sh`.
+- **`uacpi_hostcheck.py`** -- the vendored uACPI
+  (`kernel/third_party/uacpi/upstream/`) against upstream's own test
+  suite: its `tests/run_tests.py`, every ASL case compiled with `iasl`
+  and run by upstream's host runner, then its API tests. The runner is
+  built here with gcc under ASan + UBSan (no CMake). It tests the
+  interpreter, not SaunaOS's glue -- that is the kernel suite `uacpi` --
+  so it is what says a patch or a re-vendor broke nothing.
+  `--positive-control` makes a copy's AddOp subtract. Gate; a SKIP
+  without `iasl` (`pacman -S acpica`, `apt install acpica-tools`).
 - **`usbdesc_hostcheck.py`** -- `kernel/lib/usb_audio_parse.c` and
   `kernel/lib/scsi.c`'s READ CAPACITY parse against a hostile USB device,
   on the host under ASan + UBSan (`mediafuzz/descfuzz.c`). Each parser's

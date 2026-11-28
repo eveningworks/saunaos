@@ -6,10 +6,11 @@
 // ACPI tables, READ-ONLY, plus the three things this kernel acts on:
 // turning the machine off, resetting it, and the fixed power button.
 //
-// **THIS IS NOT AN ACPI SUBSYSTEM AND MUST NOT BECOME ONE.** There is
-// no AML interpreter here and none is wanted (docs/smp-design.md says
-// why). What exists is a fixed-layout table walk -- RSDP, RSDT/XSDT,
-// FADT, MADT -- and one deliberate exception: a BYTE SCAN of the DSDT
+// **THE AML INTERPRETER IS uACPI, VENDORED, AND NOT THIS FILE'S**
+// (docs/aml-design.md, stage 4; its interface is the uACPI section
+// below). What this file owns is a fixed-layout table walk -- RSDP,
+// RSDT/XSDT, FADT, MADT -- that runs before the heap, and one
+// exception kept until stage 4d moves it onto uACPI: a BYTE SCAN of the DSDT
 // for the `_S5_` object, because the sleep-type values a poweroff must
 // write live in AML and nowhere else. Linux and Windows both evaluate
 // `\_S5` with a real interpreter; this decodes the one encoding that
@@ -105,6 +106,9 @@ struct acpi_state {
 
     uint64_t rsdt_phys;    // whichever of the two was used
     uint64_t dsdt_phys;
+    // Where the RSDP was found -- GRUB's copy inside the multiboot info
+    // (which pmm_init() reserves) or the firmware's own. uACPI starts here.
+    uint64_t rsdp_phys;
 
     uint32_t pm1a_cnt;     // I/O ports, 0 when hardware-reduced
     uint32_t pm1b_cnt;
@@ -200,6 +204,46 @@ int acpi_reset(void);
 // After ioapic_init(), so the line is routed on the controller that
 // will deliver it. `acpimode=legacy` skips it. kernel/acpi/acpi_sci.c.
 void acpi_sci_init(void);
+
+// Arm PWRBTN_EN again, if acpi_sci_init() armed it. uACPI's event set-up
+// disables every fixed event, the power button's among them, while
+// acpi_sci.c still owns the SCI (stage 4a); its start and its teardown
+// call this. A press in the gap is lost.
+void acpi_sci_rearm(void);
+
+// --- uACPI, the AML interpreter (docs/aml-design.md, stage 4) --------
+//
+// Behind `acpi=uacpi`, off by default. acpi_uacpi_start() runs once
+// kernel threads exist (after the scheduler, beside fs_threads_start())
+// and starts `kacpid`, which loads the namespace, runs _STA/_INI, and
+// then serves uACPI's deferred work. Boot does not wait for it -- but it
+// runs on core 0 with interrupts off, giving the core up only between
+// steps (uacpi_boot.c's top comment).
+enum acpi_uacpi_state {
+    ACPI_UACPI_OFF = 0,     // not asked for (or torn down)
+    ACPI_UACPI_LOADING,     // kacpid is loading the namespace
+    ACPI_UACPI_READY,       // loaded and initialised
+    ACPI_UACPI_FAILED,      // a step refused; `failed_at` says which
+};
+
+struct acpi_uacpi_info {
+    uint32_t state;          // enum acpi_uacpi_state
+    int32_t  status;         // uACPI's status for a FAILED step, else 0
+    const char *failed_at;   // "initialize", "load", "namespace init", or 0
+    uint32_t nodes;          // namespace nodes, root excluded
+    uint32_t devices;        // of which Devices
+    uint64_t load_us;        // initialize + load + namespace init
+};
+
+void acpi_uacpi_start(void);
+void acpi_uacpi_info(struct acpi_uacpi_info *out);
+
+// For the KTEST: bring uACPI up in THIS context when it is OFF (it then
+// owns that instance) -- 1 on success -- and take that instance down
+// again. Waits never park here, they poll. It RUNS THE FIRMWARE'S
+// _STA/_INI/_REG, so the KTEST does it only under a hypervisor.
+int acpi_uacpi_bring_up_inline(void);
+void acpi_uacpi_tear_down_inline(void);
 
 // The query providers. Called from acpi_init(), not from kernel_main().
 void acpi_query_init(void);
