@@ -24,7 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
+- [ ] `acpi=uacpi` the default, after a few clean days on the ASUS -- then stage 4d retires the paths it replaces  *(ACPI + real power/timer)*
 <!-- END next-up -->
 
 
@@ -1595,7 +1595,8 @@ run on, not by order.
 - [x] ~~Thermal zone reporting~~ DONE 2026-11-28 -- zones + coretemp, passive cooling, critical shutdown, Task Manager
 - [x] ~~The `_PRW` wake set and the runtime GPEs~~ DONE 2026-11-28 -- `acpi --wake`, S5 buttons/lid armed, `_Lxx` run
 - [ ] A zone's fans (`_ACx`/`_ALx`), and a `_HOT` that hibernates -- no machine here has the one, nor S4 for the other
-- [ ] **NEXT** An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI
+- [x] ~~An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- uACPI~~ DONE 2026-11-28
+- [ ] **NEXT** `acpi=uacpi` the default, after a few clean days on the ASUS -- then stage 4d retires the paths it replaces
 - [ ] The brightness keys change the panel's brightness
 - [ ] Deeper CPU idle than `hlt`: MWAIT C-states from a per-model table, Linux's `intel_idle` -- judged by RAPL's package energy
 - [ ] CPU frequency scaling without HWP: ratios from `MSR_PLATFORM_INFO` into `IA32_PERF_CTL`, `intel_pstate`'s legacy mode -- power only

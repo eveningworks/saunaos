@@ -489,7 +489,7 @@ the rest in the sweep. Each stays a standalone script with its own
   hung one failing within the bound. QEMU has no EC, so this and the ASUS
   are what run it. `--positive-control` drops the wait before each data
   byte and the stale-byte flush. Gate, ~2 s.
-- **`uacpi_hostcheck.py`** -- the vendored uACPI
+- **`uacpi_hostcheck.py`** (gate) -- the vendored uACPI
   (`kernel/third_party/uacpi/upstream/`) against upstream's own test
   suite: its `tests/run_tests.py`, every ASL case compiled with `iasl`
   and run by upstream's host runner, then its API tests. The runner is
@@ -497,9 +497,9 @@ the rest in the sweep. Each stays a standalone script with its own
   interpreter, not SaunaOS's glue -- that is the kernel suite `uacpi` --
   so it is what says a patch or a re-vendor broke nothing.
   `--positive-control` makes a copy's AddOp subtract. A SKIP without
-  `iasl` (`pacman -S acpica`, `apt install acpica-tools`). OFF THE GATE
-  since 2026-11-28: the first run with `iasl` failed 8 of upstream's API
-  cases (`docs/test-flakes.md`); back on once they are understood. Prints
+  `iasl` (`pacman -S acpica`, `apt install acpica-tools`). ~30 s.
+  Builds with upstream's CMake defaults, `UACPI_KERNEL_INITIALIZATION`
+  among them: the runner's fake I/O space is allocated in that hook. Prints
   each failed case by name.
 - **`usbdesc_hostcheck.py`** -- `kernel/lib/usb_audio_parse.c` and
   `kernel/lib/scsi.c`'s READ CAPACITY parse against a hostile USB device,

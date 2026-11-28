@@ -1068,7 +1068,7 @@ TCG and KVM with a positive control; on the ASUS the hung-task report
 and the NMI's arming are measured, a soft lockup's report is not (its
 restart beat the TCO at `watchdog=40`).
 
-### An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI
+### An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- uACPI
 
 Put on the roadmap 2026-10-09 (not scheduled). Firmware describes its
 own housekeeping as small programs -- AML Methods in the DSDT -- that an
@@ -1120,6 +1120,15 @@ the adapter and lid read right but the battery answers its default
 package -- its EC's battery-type byte reads 0xFF, cause not established
 (a dead pack is the first suspect). Thermal zones and `_PRW` built the
 same day (`uacpi_thermal.c`, `uacpi_wake.c`; `docs/aml-design.md`, 4e).
+
+### `acpi=uacpi` the default, after a few clean days on the ASUS -- then stage 4d retires the paths it replaces
+
+Put on the roadmap 2026-11-28, once stages 4a-4c and 4e were built. The
+ASUS runs `acpi=uacpi` daily, the runtime GPEs on since the thermal and
+`_PRW` stage; the flip waits on its kept boot logs showing no GPE storm,
+EC timeout or failed power-off over several days, as `fileperm=`'s flip
+waited on its refusals. Stage 4d (`docs/aml-design.md`) then retires
+what the interpreter replaces -- `_PRT` routing in `acpi_prt.c` first.
 
 ### A zone's fans (`_ACx`/`_ALx`), and a `_HOT` that hibernates -- no machine here has the one, nor S4 for the other
 

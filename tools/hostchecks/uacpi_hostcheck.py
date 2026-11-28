@@ -6,9 +6,10 @@ plus whatever patches/ applied -- run by upstream's own tests/run_tests.py:
 every ASL case in tests/test-cases/ (and the generated ones) compiled with
 iasl and executed by upstream's host test runner, then its API tests.
 The runner is built here with the host gcc (no CMake), under ASan and
-UBSan, in upstream's test CONFIGURATION (UACPI_SIZED_FREES, its own libc
-helpers) -- not the kernel's (UACPI_FLAGS: OVERRIDE_LIBC,
-NATIVE_ALLOC_ZEROED, no sized frees), whose callbacks only a kernel can
+UBSan, in upstream's test CONFIGURATION (UACPI_SIZED_FREES,
+UACPI_KERNEL_INITIALIZATION, its own libc helpers) -- not the kernel's
+(UACPI_FLAGS: OVERRIDE_LIBC, NATIVE_ALLOC_ZEROED, no sized frees, no
+kernel-initialization hook), whose callbacks only a kernel can
 supply. So SaunaOS's glue and its options are the kernel's KTESTs' to
 test, suite `uacpi`; this one tests the interpreter's own source.
 
@@ -23,9 +24,8 @@ AddOp subtracts. The AML suite must go red.
 """
 
 # uACPI's upstream AML + API tests against the vendored copy. ~30 s.
-# OFF THE GATE until its 8 red API cases are understood (docs/test-flakes.md,
-# 2026-11-28): they went red the first time iasl let it run at all.
 RUNNER = {"covers": "the vendored uACPI interpreter against upstream's own test suite",
+          "gate": True,
           "needs": ["iasl", "needs gcc and iasl (ACPICA's ASL compiler: pacman -S acpica, apt install acpica-tools)"]}
 
 import argparse
@@ -45,9 +45,12 @@ TOOL = "uacpi_hostcheck"
 UPSTREAM = os.path.join(ROOT, "kernel", "third_party", "uacpi", "upstream")
 RUNNER_SRCS = ["test_runner.c", "helpers.c", "interface_impl.c", "resource_tests.c",
                "api_tests.c", "aml_threads.c", "event_tests.c"]
-# What upstream's tests/runner/CMakeLists.txt passes for a GCC build.
+# What upstream's tests/runner/CMakeLists.txt passes for a GCC build, its
+# defaults included. KERNEL_INITIALIZATION is not optional: the runner
+# allocates its fake I/O space in that hook, and without it every port
+# reads 0xFF -- each GPE enabled with its status set, 8 API cases red.
 FLAGS = ["-std=gnu17", "-O1", "-g", "-Wall", "-Wextra", "-D_GNU_SOURCE", "-DUACPI_SIZED_FREES",
-         "-fsanitize=address,undefined", "-pthread"]
+         "-DUACPI_KERNEL_INITIALIZATION", "-fsanitize=address,undefined", "-pthread"]
 CONTROL = ("        res = lhs + rhs;\n", "        res = lhs - rhs;\n")
 
 
