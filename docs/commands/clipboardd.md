@@ -119,8 +119,9 @@ made -- no memory, or the daemon gone -- is **refused with a message**,
 never truncated: half a cut set pasted is files silently left behind,
 and half a paragraph is worse than none.
 
-The drag slot, which carries a drag's files beside the clipboard, is
-8 KiB in the page.
+The drag slot, which carries a drag's files beside the clipboard, works
+the same way: 8 KiB in the page, a larger drag in an object of its own,
+kept while the slot names it.
 
 ## See also
 

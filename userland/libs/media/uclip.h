@@ -175,7 +175,8 @@ const char *uclip_image(const struct uclip *c);
 // offers the drag to reads it with `uclip_drag_load`, and
 // `uclip_drag_clear` empties it when the drag ends. Loaded into an
 // ordinary `struct uclip` with `op` UCLIP_COPY, so `uclip_path()` and
-// `uclip_count()` read it. Capped at CLIP_DRAG_BYTES.
+// `uclip_count()` read it. No cap but memory: a drag past the slot's
+// CLIP_DRAG_BYTES goes in an object, as a large copy does.
 //
 // IT IS NOT CLEARED WHEN THE DRAG ENDS. The drop reaches its target as
 // an event, after the source's release, so a source that cleared on

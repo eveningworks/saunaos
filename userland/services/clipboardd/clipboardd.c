@@ -77,6 +77,12 @@ static void break_stale_lock(void) {
         g_page->where = CLIP_INLINE;
         g_page->object = 0;
         g_page->serial++;
+        // Which slot it was writing is not known: the drag goes too.
+        g_page->drag_count = 0;
+        g_page->drag_len = 0;
+        g_page->drag_where = CLIP_INLINE;
+        g_page->drag_object = 0;
+        g_page->drag_serial++;
         __atomic_store_n(&g_page->seq, seq + 1u, __ATOMIC_RELEASE);
         printf("clipboardd: pid %u died mid-copy; clipboard emptied\n",
                 (unsigned)g_page->lock_pid);
@@ -192,27 +198,29 @@ static void retire(int i) {
     g_obj[i] = g_obj[--g_nobj];
 }
 
-// The objects the page names now; 0 for none. -1 when it never settled.
-static int named_objects(uint32_t *clip) {
+// The objects the page names now, the clipboard's and the drag slot's;
+// 0 for none. -1 when it never settled.
+static int named_objects(uint32_t *clip, uint32_t *drag) {
     for (int tries = 0; tries < 8; tries++) {
         uint32_t seq = __atomic_load_n(&g_page->seq, __ATOMIC_ACQUIRE);
         if (seq & 1u) continue;
         *clip = g_page->op != CLIP_OP_NONE && g_page->where == CLIP_OBJECT ? g_page->object : 0;
+        *drag = g_page->drag_count && g_page->drag_where == CLIP_OBJECT ? g_page->drag_object : 0;
         if (__atomic_load_n(&g_page->seq, __ATOMIC_ACQUIRE) == seq) return 0;
     }
     return -1;
 }
 
-// EVERY OBJECT BUT THE PAGE'S GOES: at once when a page named it before,
+// EVERY OBJECT BUT THE PAGE'S TWO GOES: at once when a page named it before,
 // after the grace when none ever did -- a copier fills its object before
 // the commit names it, and one that died in between leaves it unnamed.
 static void sweep_objects(void) {
     if (!g_nobj) return;
-    uint32_t clip;
-    if (named_objects(&clip) < 0) return;
+    uint32_t clip, drag;
+    if (named_objects(&clip, &drag) < 0) return;
     uint64_t now = now_ms();
     for (int i = g_nobj - 1; i >= 0; i--) {
-        if (g_obj[i].n == clip) { g_obj[i].named = 1; continue; }
+        if (g_obj[i].n == clip || g_obj[i].n == drag) { g_obj[i].named = 1; continue; }
         if (g_obj[i].named || now - g_obj[i].born_ms >= CLIP_OBJECT_GRACE_MS) retire(i);
     }
 }

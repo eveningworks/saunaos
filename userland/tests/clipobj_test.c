@@ -171,5 +171,34 @@ int main(int argc, char **argv) {
     uclip_free(&g_c);
     utest_check(object_goes(child_obj), "...and the last object goes with the copy it held");
 
+    // --- the drag slot: 2,000 files, beside the clipboard ------------------
+    uclip_drag_begin(&g_c);
+    added = 0;
+    for (int i = 0; i < FILES; i++) { path_of(i, p, sizeof p); added += uclip_add(&g_c, p); }
+    utest_check(added == FILES && uclip_drag_commit(&g_c), "a drag of 2000 paths is committed");
+    uint32_t drag_obj = g_pg->drag_object;
+    utest_check(g_pg->drag_where == CLIP_OBJECT && g_pg->drag_len > CLIP_DRAG_BYTES,
+                "...into an object, past the slot's inline area");
+    uclip_drag_load(&g_c);
+    same = uclip_count(&g_c) == FILES && g_c.own_map != 0;
+    for (int i = 0; same && i < FILES; i++) {
+        path_of(i, p, sizeof p);
+        const char *got = uclip_path(&g_c, i);
+        same = got && !strcmp(got, p);
+    }
+    utest_check(same, "...and the drop reads every path back");
+    uclip_free(&g_c);
+    uclip_load(&g_c);
+    s = uclip_text(&g_c, &n);
+    utest_check(s && n == 5 && !memcmp(s, "small", 5), "the drag left the clipboard alone");
+    uclip_free(&g_c);
+    sys_sleep_ms(1500);   // two of the daemon's sweeps: a named drag object must survive them
+    utest_check(object_exists(drag_obj), "...and its object is kept while the slot names it");
+
+    uclip_drag_begin(&g_c);
+    utest_check(uclip_add(&g_c, "/tmp/one") && uclip_drag_commit(&g_c), "a small drag");
+    utest_check(g_pg->drag_where == CLIP_INLINE, "...goes in the slot itself");
+    utest_check(object_goes(drag_obj), "...and the large drag's object goes");
+
     return utest_end();
 }

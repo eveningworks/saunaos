@@ -61,7 +61,7 @@ struct clip_reply { int32_t status; uint32_t object; };   // status: 0 or -errno
 // No ceiling but memory -- Windows has none either -- and clipboardd
 // logs every object past this, so a copy holding a lot of RAM is seen.
 #define CLIP_OBJECT_LOG_BYTES (64ull * 1024 * 1024)
-#define CLIP_DRAG_BYTES 8192 // the drag slot's payload cap -- paths, not text
+#define CLIP_DRAG_BYTES 8192 // the drag slot's inline area; a larger drag goes in an object too
 
 #define CLIP_OP_NONE 0
 #define CLIP_OP_COPY 1
@@ -78,7 +78,7 @@ struct clip_reply { int32_t status; uint32_t object; };   // status: 0 or -errno
 // Written LAST when the daemon initialises the page, and checked by
 // every client: a mapping whose magic is unset is one whose other
 // fields have not been written yet.
-#define CLIP_MAGIC 0x32504C43u // 'CLP2': the page with `where` (a 'CLIP' page is older)
+#define CLIP_MAGIC 0x33504C43u // 'CLP3': `where` for both slots (CLIP, CLP2 are older)
 
 // A writer that cannot take the lock this many spins gives up and
 // REFUSES the copy. Contention is a memcpy wide, so reaching this at
@@ -143,6 +143,8 @@ struct clip_page {
     uint32_t drag_len;
     uint32_t drag_serial;
     uint32_t drag_pid;     // who is dragging; 0 for nobody
+    uint32_t drag_where;   // CLIP_INLINE | CLIP_OBJECT, as `where`
+    uint32_t drag_object;
     char drag_data[CLIP_DRAG_BYTES];
 };
 
