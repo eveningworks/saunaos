@@ -8,7 +8,7 @@
 // The "Battery low" notice comes from here too, once per discharge.
 //
 // The facts are the kernel's (QUERY_POWER, base/upower.h); `auto` shows
-// the item only where a battery is in, as the brightness sun shows only
+// the item only where a battery is in and says its charge, as the brightness sun shows only
 // where there is a backlight. Read-only: nothing here changes the battery.
 
 struct battery_geom {

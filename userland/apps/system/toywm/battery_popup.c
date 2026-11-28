@@ -86,7 +86,9 @@ void battery_poll(void) {
     // The time left moves with no generation change (nothing in the kernel
     // moved), so an open card re-reads every poll; a closed one on a change.
     if (upower_generation() != g_seen_power || battery_open) refresh();
-    int present = g_p.batteries > 0;
+    // A battery with no charge to show (the ASUS's, whose EC reads nothing)
+    // is not shown: a full glyph and "?" would be a claim nobody made.
+    int present = g_p.batteries > 0 && g_p.percent >= 0;
     uint32_t sg = wm_setting_generation();
     if (sg != g_seen_setting || present != g_last_present) {
         g_seen_setting = sg;
@@ -101,13 +103,13 @@ void battery_tray_init(void) {
     refresh();
     g_warned = g_p.percent >= 0 && g_p.percent <= UPOWER_WARN_PCT;   // not news at sign-in
     g_seen_setting = wm_setting_generation();
-    g_last_present = g_p.batteries > 0;
+    g_last_present = g_p.batteries > 0 && g_p.percent >= 0;
     tray_set_hidden(g_tray_id, !tray_want_shown("battery", g_last_present));
 }
 
 int battery_tray_id(void) { return g_tray_id; }
 int battery_tray_hidden(void) { return tray_is_hidden(g_tray_id); }
-int battery_present(void) { return g_p.batteries > 0 && !tray_is_hidden(g_tray_id); }
+int battery_present(void) { return g_p.batteries > 0 && g_p.percent >= 0 && !tray_is_hidden(g_tray_id); }
 void battery_summary(char *out, unsigned cap) { upower_summary(&g_p, out, cap); }
 const char *battery_icon(void) { return g_icon; }
 
