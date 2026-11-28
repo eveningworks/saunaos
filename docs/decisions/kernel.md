@@ -7249,6 +7249,54 @@ parser that took it would have cached "unknown" for the boot; it is asked
 again at each reading instead (every 10 s for the first minute), as a
 `_BST` that does not parse leaves the last good reading standing.
 
+## A thermal zone is read on a timer, its passive cooling caps at base with turbo off, and the runtime GPEs run
+
+*2026-11-28, uACPI's thermal zones and `_PRW` (`docs/aml-design.md`, 4e).*
+
+**Read on a timer, not on demand.** Linux evaluates `_TMP` on every read
+of `/sys/class/thermal/thermal_zoneN/temp`. Here a reader copies a
+published record under a spinlock and never touches the namespace -- the
+supplies' rule, so a syscall never waits on an embedded controller -- so
+kacpid reads each zone on its `Notify(0x80)`, every `_TZP` when the
+firmware asks, and otherwise every 5 s (`thermal.tzp=` moves it) so Task
+Manager's chart moves. A zone with no `_TZP` that notifies only at its
+trips would otherwise show one number for minutes.
+
+**Passive cooling is the ACPI formula on a frequency ceiling.** `_PSV`,
+`_TC1`, `_TC2` and `_TSP` drive the spec's integral controller (Linux's
+old `acpi_thermal_passive()`; `thermal_policy.c`), and its percentage is
+a ceiling on every core: `IA32_HWP_REQUEST`'s maximum on an HWP CPU,
+else `IA32_PERF_CTL` between the lowest ratio and BASE with turbo
+disengaged (bit 32). **Not up to the turbo ratio**: any ratio over base
+is a turbo request, which the CPU answers with its highest turbo ratio --
+measured on the ASUS, 16 asked, 20 run, until the ceiling went to base
+with turbo off (63% gave ratio 8, a busy clock of 798 MHz). The first
+limit saves each core's register and 100% writes it back, because
+nothing else in SaunaOS writes either. Linux uses cpufreq's policy max
+or T-states (`_PTC`); SaunaOS has no governor, so the thermal ceiling is
+the only writer -- the power-saving governor on the roadmap ("CPU
+frequency scaling without HWP") will have to take the lower of the two.
+
+**The critical trip is the kernel's**, as the critical battery is (the
+entry above): SIGPWR to init on two readings a second apart;
+`thermal.crt=-1` turns it off, Linux's word. The desktop only tells
+(`wm_thermal.c`: "Running hot" once a spell, "too hot" within 5 C).
+
+**The runtime GPEs run, on every machine with `acpi=uacpi`.** Every
+`_PRW`'s GPE is marked for wake, then `uacpi_finalize_gpe_initialization()`
+enables every other GPE with an `_Lxx`/`_Exx` method -- what Linux does at
+the end of its namespace scan. The alternative, leaving them off, keeps
+eight ASUS firmware methods from ever running and keeps the machine's
+behaviour unlike every other OS's on it; the price is firmware code on
+every event, which `acpi_mask_gpe=` (Linux's word) and `nogpe` answer.
+Wake at power-off: only a power button, sleep button or lid that wakes
+from S5 is armed, Linux's default -- a network card's `_PRW` armed by
+default would turn the machine on with traffic.
+
+**coretemp sits beside the zones in one list** (`QUERY_THERMAL`), not as
+another class: a person asks "how hot is it" once, and a desktop without
+`_TZ` (the X99) has only the CPU's own sensors.
+
 ## ACPI stops at the tables, and `_S5_` is the one deliberate exception
 
 `kernel/acpi/` finds the RSDP, walks the RSDT or XSDT, and decodes the

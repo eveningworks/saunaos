@@ -1592,7 +1592,9 @@ run on, not by order.
 - [ ] Nanosecond timeouts in `SYS_SLEEP`/futex waits -- every wait is still asked for in whole milliseconds
 - [ ] A kvmclock clocksource -- under KVM without `+invtsc` every PM-timer read is a VM exit
 - [x] ~~Battery + AC adapter status~~ DONE 2026-11-28 -- `QUERY_POWER`, a tray item and Battery page, shutdown at 3% (`acpi=uacpi`)
-- [ ] Thermal zone reporting
+- [x] ~~Thermal zone reporting~~ DONE 2026-11-28 -- zones + coretemp, passive cooling, critical shutdown, Task Manager
+- [x] ~~The `_PRW` wake set and the runtime GPEs~~ DONE 2026-11-28 -- `acpi --wake`, S5 buttons/lid armed, `_Lxx` run
+- [ ] A zone's fans (`_ACx`/`_ALx`), and a `_HOT` that hibernates -- no machine here has the one, nor S4 for the other
 - [ ] **NEXT** An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI
 - [ ] The brightness keys change the panel's brightness
 - [ ] Deeper CPU idle than `hlt`: MWAIT C-states from a per-model table, Linux's `intel_idle` -- judged by RAPL's package energy

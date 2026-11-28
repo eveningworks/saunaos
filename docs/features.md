@@ -174,7 +174,16 @@ event, and powers off after the firmware's `_PTS(5)`, the old path kept
 as the fallback, and reads the BATTERIES, the AC ADAPTER and the LID --
 their charge, energy, design and cycles as kernel facts, re-read on the
 firmware's Notify and every 30 s, the machine shutting itself down
-cleanly at 3% on battery (`docs/aml-design.md`, stage 4). `/bin/acpi`
+cleanly at 3% on battery -- and the THERMAL ZONES: each read on its
+Notify and every 5 s, a clean shutdown at its critical trip, and passive
+cooling that caps every core's frequency (turbo off) by the ACPI formula
+while a zone is over its passive trip; the CPU's own sensors (coretemp)
+beside them; every `_PRW` device listed (`acpi --wake`), the buttons and
+lid that wake from soft off armed, and the firmware's runtime GPE methods
+running (`docs/aml-design.md`, stage 4). Task Manager shows a Temperature
+device under CPU, a line per sensor with the trips drawn across it, and
+the desktop says "Running hot" when passive cooling starts and "The
+computer is too hot" near the critical trip. `/bin/acpi`
 prints the lot, the interpreter's line, and the MADT's processor list
 with which cores the kernel started.
 

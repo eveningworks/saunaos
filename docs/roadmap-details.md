@@ -1118,7 +1118,18 @@ kernel facts (`QUERY_POWER`), a clean shutdown at 3% on battery, the
 tray item and Battery page, the lid's action (`desktop.lid`). On the ASUS
 the adapter and lid read right but the battery answers its default
 package -- its EC's battery-type byte reads 0xFF, cause not established
-(a dead pack is the first suspect). Thermal zones and `_PRW` remain.
+(a dead pack is the first suspect). Thermal zones and `_PRW` built the
+same day (`uacpi_thermal.c`, `uacpi_wake.c`; `docs/aml-design.md`, 4e).
+
+### A zone's fans (`_ACx`/`_ALx`), and a `_HOT` that hibernates -- no machine here has the one, nor S4 for the other
+
+Found 2026-11-28 by the thermal stage (`kernel/acpi/uacpi_thermal.c`). A
+zone may list fans by temperature: `_AC0`..`_AC9` trips and `_AL0`..`_AL9`
+packages of fan devices, each switched on through its power resources --
+Linux's active cooling. None of the ASUS's three zones has one (it has no
+fan), so nothing here could be tested, and the zone's `_ACx` is not read.
+`_HOT` asks for S4; with no hibernation it is logged once a crossing. Both
+need a machine that has them first.
 
 ### The brightness keys change the panel's brightness
 

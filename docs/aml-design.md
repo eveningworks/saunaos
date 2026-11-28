@@ -401,7 +401,20 @@ TCO watchdog driver (`docs/decisions/kernel.md`,
   bit) sends init SIGPWR from the kernel; `battery=noshutdown` turns that
   off. The desktop's half -- the tray item, the Battery page, the low
   notice, the lid's action (`desktop.lid`) -- is toywm's
-  (`battery_popup.c`, `wm_lid.c`). Thermal zones and `_PRW` remain.
+  (`battery_popup.c`, `wm_lid.c`). **Thermal zones and `_PRW` BUILT the
+  same day.** `uacpi_thermal.c` (Linux's `thermal.c`): every
+  `ThermalZone`'s `_TMP`, `_CRT`, `_HOT`, `_PSV` read on its Notify and
+  every `_TZP` or 5 s; the critical trip, read twice a second apart, sends
+  init SIGPWR; `_PSV` with `_PSL`/`_TC1`/`_TC2` runs passive cooling
+  (`thermal_policy.c`, KTEST suite `thermal`), a frequency ceiling on every
+  core (`kernel/arch/x86_64/cputherm.c`, which also reads the CPU's own
+  sensors, Linux's coretemp, KTEST `cputherm`). `uacpi_wake.c`: every
+  `_PRW`'s GPE marked for wake (`acpi --wake`), the buttons and lid that
+  wake from S5 armed, then `uacpi_finalize_gpe_initialization()` -- the
+  firmware's `_Lxx`/`_Exx` run. Neither runs in the KTEST's inline
+  instance. The desktop's half: Task Manager's Temperature device and the
+  hot notices (`wm_thermal.c`). Why each is shaped so:
+  `docs/decisions/kernel.md`, "A thermal zone is read on a timer...".
 
 **Testing.** uACPI's own suite (`tests/run_tests.py`, AML test cases
 against a host runner) as a host check, `tools/hostchecks/uacpi_hostcheck.py`
@@ -423,6 +436,17 @@ and Notify() as an EC query would, run through `acpi --eval` on a boot with
 included; booted without the table every check after the boot goes red.
 The parser has its own KTESTs (`battery`), red with the mAh conversion
 removed.
+
+**Testing the thermal zone and `_PRW`.** The same fixture carries
+`\_TZ.TZ0` (passive 80 C, critical 100 C, `_TSP` one second; `_SB.TSTZ`
+moves it and Notify()s), a lid whose `_PRW` wakes from S5 and an S3-only
+device; `tools/tests/sweep/thermal_test.py` drives the kernel's reading,
+`acpi --wake`, Task Manager, passive cooling, both notices and the
+critical shutdown, and goes red without the table. In a guest the
+frequency ceiling is never written (`cputherm.c` refuses under a
+hypervisor), so the throttle was proven on the ASUS with `thermal.psv=50`
+on a trial entry: ratio 8 and a 798 MHz busy clock at 63%, the firmware's
+ratio back once the zone cooled.
 
 ## Testing
 
