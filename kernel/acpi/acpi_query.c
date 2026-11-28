@@ -3,6 +3,7 @@
 // the MADT names (a list). The provider lives here, in the subsystem
 // that owns the numbers, the same rule kernel/mm/mem_query.c follows.
 #include "acpi.h"
+#include "cputherm.h"
 #include "smp.h"
 #include "acpi_internal.h"
 #include "query.h"
@@ -344,7 +345,59 @@ static const struct query_provider supply_provider = {
     .field_count = 0,
 };
 
+
+// --- QUERY_THERMAL: the zones (uacpi_thermal.c), then the CPU's sensors
+// (cputherm.c), which need no interpreter -- one list, as a person asks
+// "how hot is it" once.
+
+static int zone_count(void) {
+    int n = 0;
+    struct query_thermal t;
+    while (acpi_thermal_get(n, &t)) n++;
+    return n;
+}
+
+static int thermal_count(void) { return zone_count() + cputherm_count(); }
+
+static int thermal_fill(int index, void *out) {
+    if (acpi_thermal_get(index, out)) return 1;
+    return cputherm_read(index - zone_count(), out);
+}
+
+static const struct query_provider thermal_provider = {
+    .cls = QUERY_THERMAL,
+    .name = "thermal",
+    .record_size = sizeof(struct query_thermal),
+    .flags = QUERY_F_LIST,
+    .count = thermal_count,
+    .fill = thermal_fill,
+    .fields = 0,
+    .field_count = 0,
+};
+
+static int wake_count(void) {
+    int n = 0;
+    struct query_acpi_wake w;
+    while (acpi_wake_get(n, &w)) n++;
+    return n;
+}
+
+static int wake_fill(int index, void *out) { return acpi_wake_get(index, out); }
+
+static const struct query_provider wake_provider = {
+    .cls = QUERY_ACPI_WAKE,
+    .name = "acpi_wake",
+    .record_size = sizeof(struct query_acpi_wake),
+    .flags = QUERY_F_LIST,
+    .count = wake_count,
+    .fill = wake_fill,
+    .fields = 0,
+    .field_count = 0,
+};
+
 void acpi_query_init(void) {
+    query_register(&thermal_provider);
+    query_register(&wake_provider);
     query_register(&acpi_provider);
     query_register(&ec_provider);
     query_register(&table_provider);

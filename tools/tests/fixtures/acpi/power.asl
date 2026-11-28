@@ -1,7 +1,8 @@
 /*
- * A battery, an AC adapter and a lid for QEMU, which emulates none of them
- * (docs/aml-design.md, stage 4e). Compiled with iasl by the test that uses
- * it and appended to QEMU's tables with `vm.py --acpi-table`.
+ * A battery, an AC adapter, a lid, a thermal zone and two wake devices for
+ * QEMU, which emulates none of them (docs/aml-design.md, stage 4e).
+ * Compiled with iasl by the tests that use it (power_test, thermal_test)
+ * and appended to QEMU's tables with `vm.py --acpi-table`.
  *
  * The numbers start as the ASUS UX305FA's battery reads: 45 Wh design,
  * 38.2 Wh last full, charging at 78%. A test moves them through the T*
@@ -73,7 +74,18 @@ DefinitionBlock ("", "SSDT", 2, "SAUNA", "TESTPWR", 1)
         {
             Name (_HID, EisaId ("PNP0C0D"))
             Method (_LID, 0) { Return (TLID) }
+            Name (_PRW, Package () { 0x0D, 5 })   // wakes from soft off: armed
         }
+
+        // A device that can wake from S3 only, as the ASUS's USB and
+        // network devices can: listed, not armed.
+        Device (WAK0)
+        {
+            Name (_HID, EisaId ("PNP0C02"))
+            Method (_PRW, 0) { Return (Package () { 0x0E, 3 }) }
+        }
+
+        Name (TTMP, 3232)     // the zone, tenths of a kelvin: 50 C
 
         // The test's knobs.
         Method (TSAC, 1)      // the charger: 1 in, 0 out
@@ -104,5 +116,27 @@ DefinitionBlock ("", "SSDT", 2, "SAUNA", "TESTPWR", 1)
             Return (Arg0)
         }
         Method (TGBP, 0) { Return (TBTP) }
+        Method (TSTZ, 1)      // the zone's temperature, whole degrees C
+        {
+            TTMP = (Arg0 * 10) + 2732
+            Notify (\_TZ.TZ0, 0x80)
+            Return (Arg0)
+        }
+    }
+
+    // The ASUS's zone shape, its trips moved down to where a test can
+    // reach them: passive at 80 C, critical at 100 C, sampled every second.
+    Scope (\_TZ)
+    {
+        ThermalZone (TZ0)
+        {
+            Method (_TMP, 0) { Return (\_SB.TTMP) }
+            Method (_CRT, 0) { Return (3732) }
+            Method (_PSV, 0) { Return (3532) }
+            Name (_PSL, Package () { \_SB })
+            Name (_TC1, 2)
+            Name (_TC2, 10)
+            Name (_TSP, 10)
+        }
     }
 }

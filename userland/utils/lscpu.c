@@ -111,7 +111,9 @@ static void put_frequency(void) {
         put_label("Ratio requested");
         if (asked) put_ratio(asked);
         else put("none written");
-        put("  (IA32_PERF_CTL, as the firmware left it)\n");
+        // The firmware's, unless passive cooling has limited it
+        // (kernel/arch/x86_64/cputherm.c), which also disengages turbo.
+        put(g_ci.perf_ctl & (1ull << 32) ? "  (IA32_PERF_CTL, turbo off)\n" : "  (IA32_PERF_CTL)\n");
     }
 
     // Busy clock: TSC rate * dAPERF/dMPERF over a spin of ~100 ms --

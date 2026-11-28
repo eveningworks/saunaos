@@ -763,6 +763,16 @@ struct query_firmware {
 // energy in mWh and power in mW whatever the firmware counts in.
 // LIST (struct query_power_supply); `acpi` prints them.
 #define QUERY_POWER_SUPPLY 72
+// Temperatures: the firmware's thermal zones (`acpi=uacpi`,
+// uacpi_thermal.c) and the CPU's own sensors (coretemp, cputherm.c) --
+// Linux's thermal_zone and coretemp in one list, THE ZONES FIRST: a CPU
+// row is an IPI to its core, so a reader wanting only zones stops at the
+// first other kind. LIST (struct query_thermal); `acpi` and Task Manager
+// print them.
+#define QUERY_THERMAL 73
+// Every device whose `_PRW` names a wake event (`acpi=uacpi`,
+// uacpi_wake.c): /proc/acpi/wakeup's rows. LIST (struct query_acpi_wake).
+#define QUERY_ACPI_WAKE 74
 
 struct query_input {
     uint64_t events;    // key presses, moves, button changes, wheel notches
@@ -2071,6 +2081,59 @@ struct query_power_supply {
 };
 
 _Static_assert(sizeof(struct query_power_supply) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
+
+// --- QUERY_THERMAL --------------------------------------------------------
+// Millidegrees Celsius, Linux's sysfs unit; QUERY_THERMAL_NONE where the
+// sensor or the firmware gives no such number.
+#define QUERY_THERMAL_NONE INT64_MIN
+#define QUERY_THERMAL_ZONE        1   // an ACPI thermal zone
+#define QUERY_THERMAL_CPU_PACKAGE 2   // the package sensor (coretemp's "Package id")
+#define QUERY_THERMAL_CPU_CORE    3   // one core's sensor
+#define QUERY_THERMAL_VALID     (1u << 0)  // temp_mc is a reading, not NONE
+#define QUERY_THERMAL_PASSIVE   (1u << 1)  // passive cooling is slowing the CPUs (perf_pct < 100)
+#define QUERY_THERMAL_APPLIED   (1u << 2)  // ...and the limit reached the hardware
+#define QUERY_THERMAL_CRITICAL  (1u << 3)  // at or over its critical trip
+#define QUERY_THERMAL_SHUTDOWN  (1u << 4)  // the critical trip asked init to shut down
+#define QUERY_THERMAL_HOT_SOON  (1u << 5)  // within QUERY_THERMAL_WARN_MC of critical
+
+#define QUERY_THERMAL_WARN_MC 5000         // the desktop's "too hot" margin
+
+struct query_thermal {
+    uint64_t kind;           // QUERY_THERMAL_ZONE / _CPU_PACKAGE / _CPU_CORE
+    uint64_t flags;          // QUERY_THERMAL_*
+    int64_t  temp_mc;
+    int64_t  max_mc;         // the highest reading since boot
+    int64_t  critical_mc;    // _CRT, or the CPU's TjMax for a CPU sensor
+    int64_t  hot_mc;         // _HOT
+    int64_t  passive_mc;     // _PSV: where passive cooling starts
+    uint64_t perf_pct;       // passive cooling's limit on the CPUs, 1..100 (100: not slowed)
+    uint64_t cpu;            // _CPU_CORE: the core's number in its package
+    uint64_t readings;       // how many times it was read
+    uint64_t notifies;       // the firmware's Notify()s (a zone)
+    uint64_t generation;     // moves with every change to this record
+    char     name[16];       // "THRM", "Package", "Core 0"
+    char     path[48];       // a zone's full path, e.g. \_TZ_.THRM; "" for a CPU sensor
+    char     why[48];        // why passive cooling cannot reach the hardware, or ""
+};
+
+_Static_assert(sizeof(struct query_thermal) <= 256,
+               "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
+
+// --- QUERY_ACPI_WAKE ------------------------------------------------------
+#define QUERY_WAKE_ARMED_S5  (1u << 0) // enabled for wake: armed at power-off when it wakes from S5
+#define QUERY_WAKE_GPE_BLOCK (1u << 1) // the GPE is a block device's (ACPI0006), not \_GPE's
+#define QUERY_WAKE_UNREAD    (1u << 2) // _PRW did not evaluate to a usable package
+
+struct query_acpi_wake {
+    uint64_t flags;          // QUERY_WAKE_*
+    uint64_t gpe;            // the event's index in its block
+    uint64_t sleep_state;    // the deepest state it wakes from: 3 = S3, 5 = soft off
+    char     hid[16];        // its _HID, "" when it has none
+    char     path[64];       // e.g. \_SB_.PCI0.XHC_
+};
+
+_Static_assert(sizeof(struct query_acpi_wake) <= 256,
                "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
 
 struct query_acpi_table {

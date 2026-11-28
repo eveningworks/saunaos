@@ -25,6 +25,7 @@
 
 #include "acpi.h"
 #include "clocksource.h"
+#include "heap.h"
 #include "klog.h"
 #include "kfmt.h"
 #include "kthread.h"
@@ -44,6 +45,34 @@ static uacpi_iteration_decision count_node(void *user, uacpi_namespace_node *nod
     (void)depth;
     (*(uint32_t *)user)++;
     return UACPI_ITERATION_DECISION_CONTINUE;
+}
+
+static int g_inline;   // the KTEST's instance is the one up
+
+struct node_list { void **nodes; int n, cap; };
+
+static uacpi_iteration_decision collect_node(void *user, uacpi_namespace_node *node, uacpi_u32 depth) {
+    (void)depth;
+    struct node_list *l = user;
+    if (l->n == l->cap) {
+        int cap = l->cap ? l->cap * 2 : 8;
+        void **grown = kmalloc(sizeof *grown * (unsigned)cap);
+        if (!grown) return UACPI_ITERATION_DECISION_BREAK;
+        if (l->n) k_memcpy(grown, l->nodes, sizeof *grown * (unsigned)l->n);
+        kfree(l->nodes);
+        l->nodes = grown;
+        l->cap = cap;
+    }
+    l->nodes[l->n++] = node;
+    return UACPI_ITERATION_DECISION_CONTINUE;
+}
+
+void **acpi_uacpi_nodes(uint32_t type_mask, int *n) {
+    struct node_list l = { 0, 0, 0 };
+    uacpi_namespace_for_each_child(uacpi_namespace_root(), collect_node, UACPI_NULL,
+                                   (uacpi_object_type_bits)type_mask, UACPI_MAX_DEPTH_ANY, &l);
+    *n = l.n;
+    return l.nodes;
 }
 
 // Let whatever else is ready on this core run. A no-op where nothing
@@ -68,8 +97,9 @@ static int fail(const char *step, uacpi_status st) {
 // initialize -> load (every DSDT/SSDT's top-level code; installs the
 // GPE blocks, holds the SCI) -> the ECDT's embedded controller -> namespace
 // init (_STA, _INI, _REG) -> the EC device and its GPE (uacpi_ec.c) ->
-// the power button (uacpi_power.c). No uacpi_finalize_gpe_initialization():
-// the EC's is the one GPE enabled.
+// the power button (uacpi_power.c) -> the supplies, and (not for the
+// KTEST's instance) the thermal zones and the wake set, whose end enables
+// the runtime GPEs (uacpi_wake.c).
 static int bring_up(void) {
     uint64_t t0 = clocksource_now_ns();
     uacpi_status st = uacpi_initialize(UACPI_FLAG_NO_ACPI_MODE);
@@ -86,6 +116,13 @@ static int bring_up(void) {
     acpi_uacpi_take_power_button();
     acpi_uacpi_decide_s5();
     acpi_supply_probe();
+    if (!g_inline) {
+        // Not for the KTEST's instance: it has no kacpid to run a GPE's
+        // method, and a passive limit or a critical trip there would act
+        // on the machine running the suite.
+        acpi_thermal_probe();
+        acpi_wake_probe();
+    }
 
     uint32_t nodes = 0, devices = 0;
     uacpi_namespace_for_each_child(uacpi_namespace_root(), count_node, UACPI_NULL,
@@ -110,9 +147,11 @@ static void kacpid(void *arg) {
         return;   // the thread ends; nothing queued work on a failed load
     }
     for (;;) {
-        uacpi_host_wait_for_work(acpi_supply_deadline());
+        uint64_t a = acpi_supply_deadline(), b = acpi_thermal_deadline();
+        uacpi_host_wait_for_work(!a ? b : !b ? a : a < b ? a : b);
         uacpi_host_drain_work();
         acpi_supply_poll();
+        acpi_thermal_poll();
     }
 }
 
@@ -132,7 +171,6 @@ void acpi_uacpi_start(void) {
 
 // --- the KTEST's own instance ------------------------------------------
 
-static int g_inline;
 
 int acpi_uacpi_is_inline(void) {
     return g_inline;
@@ -156,6 +194,8 @@ void acpi_uacpi_tear_down_inline(void) {
     g_inline = 0;
     uacpi_state_reset();
     acpi_supply_reset();
+    acpi_thermal_reset();
+    acpi_wake_reset();
     acpi_ec_reset();
     uacpi_host_reset();
     k_memset(&g_info, 0, sizeof g_info);   // state back to OFF

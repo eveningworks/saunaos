@@ -307,6 +307,13 @@ struct acpi_power {
 void acpi_power_info(struct acpi_power *out);
 int  acpi_supply_get(int index, struct acpi_supply *out);   // 0 past the last
 
+// Thermal zones (uacpi_thermal.c) and the _PRW wake set (uacpi_wake.c),
+// as QUERY_THERMAL's and QUERY_ACPI_WAKE's records: 0 past the last.
+struct query_thermal;
+struct query_acpi_wake;
+int acpi_thermal_get(int index, struct query_thermal *out);
+int acpi_wake_get(int index, struct query_acpi_wake *out);
+
 // For the KTEST: bring uACPI up in THIS context when it is OFF (it then
 // owns that instance) -- 1 on success -- and take that instance down
 // again. Waits never park here, they poll. It RUNS THE FIRMWARE'S

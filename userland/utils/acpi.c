@@ -20,7 +20,7 @@
 #include "base/ubootcfg.h"  // ubootcfg_cmdline()
 #include <errno.h>          // EPERM
 
-#define USAGE "acpi [--dump <SIG> [--at N] [--len N]] [--eval <PATH> [INT...]]"
+#define USAGE "acpi [--dump <SIG> [--at N] [--len N]] [--eval <PATH> [INT...]] [--wake]"
 
 // Mirrors of the kernel-side flags. They cross the boundary as a number
 // in the record rather than as a header apps could include: kernel/
@@ -239,6 +239,68 @@ static void put_supplies(void) {
     }
 }
 
+// Whole degrees C, or "?" for none.
+static void deg(int64_t mc, char *out, unsigned cap) {
+    if (mc == QUERY_THERMAL_NONE) snprintf(out, cap, "?");
+    else snprintf(out, cap, "%lld", (long long)(mc >= 0 ? mc + 500 : mc - 500) / 1000);
+}
+
+// The thermal zones (uacpi_thermal.c) and the CPU's sensors (cputherm.c).
+static void put_thermal(void) {
+    struct query_thermal t;
+    char line[220], now[12], hi[12], crit[12], psv[12];
+    int any = 0;
+    QUERY_FOREACH(QUERY_THERMAL, t, i) {
+        if (!any++) put("\nThermal:\n");
+        t.name[sizeof t.name - 1] = 0;
+        t.path[sizeof t.path - 1] = 0;
+        t.why[sizeof t.why - 1] = 0;
+        deg(t.temp_mc, now, sizeof now);
+        deg(t.max_mc, hi, sizeof hi);
+        deg(t.critical_mc, crit, sizeof crit);
+        deg(t.passive_mc, psv, sizeof psv);
+        if (t.kind == QUERY_THERMAL_ZONE) {
+            snprintf(line, sizeof line, "  %-12s %4s C  highest %s C  critical %s C  passive %s C\n",
+                     t.path, now, hi, crit, psv);
+            put(line);
+            if (t.flags & QUERY_THERMAL_PASSIVE) {
+                snprintf(line, sizeof line, "               slowing the CPUs to %llu%%%s%s\n",
+                         (unsigned long long)t.perf_pct, t.flags & QUERY_THERMAL_APPLIED ? "" : " -- not applied: ",
+                         t.flags & QUERY_THERMAL_APPLIED ? "" : t.why);
+                put(line);
+            }
+            if (t.flags & QUERY_THERMAL_SHUTDOWN) put("               at its critical trip: shutdown sent\n");
+        } else {
+            snprintf(line, sizeof line, "  %-12s %4s C  highest %s C  TjMax %s C\n", t.name, now, hi, crit);
+            put(line);
+        }
+    }
+}
+
+// --wake: every device whose _PRW names a wake event (/proc/acpi/wakeup).
+static int wake_cmd(void) {
+    struct query_acpi_wake w;
+    char line[160];
+    int n = 0;
+    QUERY_FOREACH(QUERY_ACPI_WAKE, w, i) {
+        if (!n++) put("Device                          HID       GPE   wakes from  at power-off\n");
+        w.path[sizeof w.path - 1] = 0;
+        w.hid[sizeof w.hid - 1] = 0;
+        char gpe[8] = "-";
+        if (!(w.flags & (QUERY_WAKE_UNREAD | QUERY_WAKE_GPE_BLOCK)))
+            snprintf(gpe, sizeof gpe, "0x%02llx", (unsigned long long)w.gpe);
+        else if (w.flags & QUERY_WAKE_GPE_BLOCK)
+            snprintf(gpe, sizeof gpe, "block");
+        char st[8] = "?";
+        if (!(w.flags & QUERY_WAKE_UNREAD)) snprintf(st, sizeof st, "S%llu", (unsigned long long)w.sleep_state);
+        snprintf(line, sizeof line, "%-31s %-9s %-5s %-11s %s\n", w.path, w.hid[0] ? w.hid : "-", gpe, st,
+                 w.flags & QUERY_WAKE_ARMED_S5 ? "armed" : "-");
+        put(line);
+    }
+    if (!n) put("no device names a wake event (or no AML interpreter: acpi=uacpi)\n");
+    return 0;
+}
+
 // --eval PATH [INT...]: one AML object (SYS_ACPI_EVAL, `acpieval` boots).
 static int eval_cmd(int argc, char **argv) {
     struct acpi_eval_msg m;
@@ -290,6 +352,7 @@ int main(int argc, char **argv) {
         return dump_table(argv[2], at, want);
     }
     if (argc > 1 && !strcmp(argv[1], "--eval")) return eval_cmd(argc, argv);
+    if (argc == 2 && !strcmp(argv[1], "--wake")) return wake_cmd();
     if (argc > 1) { cmd_usage(USAGE); return 1; }
 
     if (sys_query_record(QUERY_ACPI, 0, &a, sizeof a) < (int)sizeof a) {
@@ -375,6 +438,7 @@ int main(int argc, char **argv) {
         put(line);
     }
     put_supplies();
+    put_thermal();
 
     put("\nTables:\n");
     struct query_acpi_table t;

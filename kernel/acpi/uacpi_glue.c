@@ -10,8 +10,10 @@
 // THE SCI IS HELD, NOT INSTALLED: acpi_sci.c owns the line and calls
 // uACPI's handler after it -- for the global lock's release, the one
 // event uACPI enables itself, for the GPEs, and for the power button once
-// uACPI's fixed event has it (uacpi_power.c, stage 4c). Only the embedded controller's is enabled (uacpi_ec.c);
-// there is no uacpi_finalize_gpe_initialization(), so no _Lxx/_Exx runs.
+// uACPI's fixed event has it (uacpi_power.c, stage 4c). The embedded
+// controller's GPE is enabled by uacpi_ec.c, the rest with an _Lxx/_Exx
+// by uacpi_wake.c's uacpi_finalize_gpe_initialization() once every _PRW's
+// is marked for wake.
 #include <uacpi/kernel_api.h>
 #include <uacpi/status.h>
 

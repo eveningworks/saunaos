@@ -6,7 +6,7 @@
 
 ## Synopsis
 
-    acpi [--dump <SIG> [--at N] [--len N]] [--eval <PATH> [INT...]]
+    acpi [--dump <SIG> [--at N] [--len N]] [--eval <PATH> [INT...]] [--wake]
 
 ## Options
 
@@ -22,6 +22,9 @@
   it). Root only, and refused unless the kernel was booted with
   `acpieval` (`SYS_ACPI_EVAL`, Linux's `acpi_call`): it can run anything
   the firmware has.
+- `--wake` -- list every device whose `_PRW` names a wake event, instead
+  of the summary: its `_HID`, the GPE, the deepest sleep state it wakes
+  from, and whether it is armed at power-off (`acpi=uacpi`).
 
 ## Description
 
@@ -66,6 +69,23 @@ down at:
 answers its default package, every number unknown, until its EC has
 read the pack (`dmesg | grep power:` says "not ready yet").
 
+Then the temperatures (`QUERY_THERMAL`): each firmware thermal zone
+with its reading, the highest since boot and its critical and passive
+trips (`acpi=uacpi`, `kernel/acpi/uacpi_thermal.c`), and the CPU's own
+sensors -- the package and each core against TjMax -- on an Intel CPU
+outside a virtual machine (`kernel/arch/x86_64/cputherm.c`). While a
+zone's passive cooling is limiting the CPUs a line under it says how
+far, and why the limit did not reach the hardware when it did not:
+
+    Thermal:
+      \_TZ_.THRM     48 C  highest 55 C  critical 98 C  passive 105 C
+      \_TZ_.TZ01     30 C  highest 30 C  critical 105 C  passive 95 C
+      Package        48 C  highest 48 C  TjMax 95 C
+      Core 0         48 C  highest 48 C  TjMax 95 C
+
+(the ASUS: its own `_PSV` is over its `_CRT`, so the firmware never asks
+for passive cooling before the shutdown; `thermal.psv=` moves it).
+
 `events OFF after a storm` means its GPE fired over 100 times in one
 second and was left off for the boot; `dmesg | grep ec:` names each event's
 `_Qxx`.
@@ -78,6 +98,18 @@ the boot said `smp=park` (the LAST `smp=` on the line wins) or the
 kernel could not start a core scheduling, when a line says how many do
 and which of the two it was. `nosmp` or `maxcpus=N` on the kernel
 command line starts fewer.
+
+## `--wake`: the devices that can wake the machine
+
+    Device                          HID       GPE   wakes from  at power-off
+    \_SB_.PCI0.XHC_                 -         0x6d  S3          -
+    \_SB_.SLPB                      PNP0C0E   0x0b  S4          -
+
+Linux's `/proc/acpi/wakeup`. Every listed GPE is marked for wake, so it is
+not one of the runtime GPEs whose `_Lxx`/`_Exx` the firmware runs; a
+power button, sleep button or lid that wakes from S5 is armed at power-off,
+the rest are listed only. `block` is a GPE block device's event, listed and
+not set up.
 
 ## `--eval`: one firmware method by hand
 

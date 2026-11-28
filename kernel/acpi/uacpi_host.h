@@ -52,6 +52,23 @@ uint64_t acpi_supply_deadline(void);
 void acpi_supply_poll(void);
 void acpi_supply_reset(void);
 
+// Thermal zones (uacpi_thermal.c): as the supplies, and kacpid waits for
+// the earlier of the two deadlines. Not probed in the KTEST's instance.
+void acpi_thermal_probe(void);
+uint64_t acpi_thermal_deadline(void);
+void acpi_thermal_poll(void);
+void acpi_thermal_reset(void);
+
+// The _PRW wake set and the runtime GPEs (uacpi_wake.c): once, at the end
+// of bring_up(); forgotten after a teardown. Not in the KTEST's instance.
+void acpi_wake_probe(void);
+void acpi_wake_reset(void);
+
+// Every node whose type is in `type_mask` (UACPI_OBJECT_*_BIT), in
+// namespace order: uacpi_namespace_node pointers, in an array the caller
+// kfree()s; *n its length (0 and a null array for none, or no memory).
+void **acpi_uacpi_nodes(uint32_t type_mask, int *n);
+
 // 1 while the KTEST's inline instance is the one up (uacpi_boot.c).
 int acpi_uacpi_is_inline(void);
 
