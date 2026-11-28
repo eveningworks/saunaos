@@ -866,6 +866,8 @@ _Static_assert(sizeof(struct query_applog) <= 256,
                "a query record must fit QUERY_RECORD_MAX -- see api/query.h");
 
 #define QUERY_SHM_UNLINKED (1u << 0) // no new openers; still alive
+#define QUERY_SHM_PUBLIC   (1u << 1) // SHM_PUBLIC: anyone may open it
+#define QUERY_SHM_ACCOUNT  (1u << 2) // SHM_USER: `uid`'s processes and root
 
 #define QUERY_SHM_NAME_MAX 32 // SHM_NAME_MAX (abi/syscall_abi.h)
 
@@ -880,6 +882,7 @@ struct query_shm {
     // channel again), and a reader holding the first tells them apart by
     // this. Never 0 from a kernel that sets it; 0 from one that does not.
     uint32_t serial;
+    uint32_t uid;         // the creator's effective uid
 };
 
 // WHO THIS MACHINE HAS TALKED TO: one record per connection, newest

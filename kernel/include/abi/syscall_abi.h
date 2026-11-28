@@ -2534,6 +2534,19 @@ struct sys_flock {
                         // every name, so before this any process could
                         // open another's audio ring or window buffer.
 
+#define SHM_USER  0x10 // with CREATE: every process of the creator's
+                        // ACCOUNT (its effective uid) may open it, and
+                        // root's. For something an account shares among
+                        // its own programs -- the session's clipboard --
+                        // as Wayland's socket sits in a 0700 runtime dir.
+                        // Not with SHM_PUBLIC (-EINVAL). A sandbox
+                        // reaches one through its unveil list, as a
+                        // public one, and needs PUBLISH to make one.
+                        // ON AN OPEN it is a demand: the object must be
+                        // an SHM_USER one of the CALLER's account, or
+                        // -EPERM -- a name somebody else took first is
+                        // refused rather than trusted.
+
 #define SHM_FROM   0x8 // open it only if `from_pid` created it: the
                         // KERNEL says who made a beacon, not the beacon.
                         // A client that knows its server's pid asks for

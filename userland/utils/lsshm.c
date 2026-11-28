@@ -18,9 +18,14 @@ int main(void) {
 
     QUERY_FOREACH(QUERY_SHM, r, i) {
         if (!n++)
-            printf("NAME                            BYTES  REFS  CREATOR\n");
-        printf("%-28s %8llu  %4u  %d%s\n", r.name,
-               (unsigned long long)r.bytes, r.refs, r.creator_pid,
+            printf("NAME                            BYTES  REFS  CREATOR  OPEN\n");
+        // WHO MAY OPEN IT: what a refused shm_open asks first.
+        char open[24];
+        if (r.flags & QUERY_SHM_PUBLIC) snprintf(open, sizeof open, "anyone");
+        else if (r.flags & QUERY_SHM_ACCOUNT) snprintf(open, sizeof open, "uid %u", (unsigned)r.uid);
+        else snprintf(open, sizeof open, "creator");
+        printf("%-28s %8llu  %4u  %7d  %s%s\n", r.name,
+               (unsigned long long)r.bytes, r.refs, r.creator_pid, open,
                (r.flags & QUERY_SHM_UNLINKED) ? "  (unlinked)" : "");
     }
     if (!n) printf("no shared-memory objects\n");

@@ -3159,6 +3159,20 @@ returns immediately, and every test here exercises the no-BIOS case
 only. `usbtrace` on the boot line prints a line per bring-up step, which
 is how the machine that does have one was diagnosed.
 
+## A NAMED SHM OBJECT PICKS ITS MODE: PRIVATE BY DEFAULT, `SHM_USER` FOR WHAT AN ACCOUNT'S PROGRAMS SHARE, `SHM_PUBLIC` ONLY FOR A BEACON
+
+`SYS_SHM_OPEN`'s three modes (`abi/syscall_abi.h`): with no flag an
+object is its creator's, plus the pids it grants; `SHM_USER` opens it to
+every process with the creator's effective uid, and root's; `SHM_PUBLIC`
+to anyone. **Public is for a rendezvous carrying nothing private** -- a
+server's beacon, the font atlas. Anything holding a person's data that
+their other programs must reach by name (the clipboard page and its
+objects) is `SHM_USER`: public would let another account's telnet login
+read it. A sandboxed process reaches either kind only through its unveil
+list. `lsshm`'s OPEN column says which an object is, and a refused open
+is `EPERM` (`docs/decisions/kernel.md`, "An account's shared memory is a
+third mode").
+
 ## THERE IS A SOUND CLASS, ITS STREAM IS EXCLUSIVE, AND THE RING IS SHARED MEMORY.
 
 `kernel/drivers/sound/` -- the registry shape `display_driver` and

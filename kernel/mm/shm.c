@@ -28,6 +28,7 @@
 #include "syscall_abi.h"
 #include "errno.h"
 #include "shm.h"
+#include "cred.h"      // an account's object: the opener's euid
 #include "query.h"
 #include "query_abi.h"
 #include "scheduler.h"
@@ -56,37 +57,27 @@ struct shm_object {
     int      refs;      // descriptors + mappings; 0 = the slot is free
     int      unlinked;  // no new openers; the frames still live
     // WHO MAY OPEN IT. A named object is the CREATOR's unless it says
-    // otherwise: `public` is asked for at creation (SHM_PUBLIC) and is
-    // what a beacon wants -- a rendezvous point every client must be
-    // able to find. Everything else is a private channel between two
-    // processes, and a name anyone could open makes it a private channel
-    // in name only. `lsshm` lists every name, so guessing is not even
-    // required.
-    //
-    // WHEN THIS SYSTEM GAINS USERS, none of it is wasted: `pub` is the
-    // degenerate case of a MODE (public is 0666, private 0600) and the
-    // creator pid gains a uid beside it. The GRANT is the part POSIX has
-    // no equivalent for -- it is a capability, and it coexists with a
-    // mode the way Linux has both file permissions and fd passing: the
-    // mode is the coarse policy and the grant is the fine one. What
-    // would have aged badly is defaulting to PUBLIC, because a
-    // permission model added afterwards cannot retroactively make
-    // existing callers private -- which is why every beacon has to ask.
+    // otherwise at creation: SHM_PUBLIC is anyone (a beacon -- a
+    // rendezvous every client must be able to find), SHM_USER the
+    // creator's ACCOUNT -- every process whose effective uid is `uid`,
+    // and root's (a mode 0600 by uid where the default is 0600 by pid).
+    // `lsshm` lists every name, so a private channel needs the check, not
+    // an unguessable name. A GRANT (SYS_SHM_GRANT) is a capability on top
+    // of the mode, as fd passing sits beside Linux's file permissions.
     //
     // THE GRANT IS BY PID, and a pid can be REUSED. The window is small
     // -- a grant lives only as long as the object, and an object dies
     // with its creator -- but it is real, and a capability that survived
     // its holder is the thing to look for if this ever misbehaves.
-    int      pub;
+    int      share;     // SHARE_*
+    uint32_t uid;       // the creator's effective uid, for SHARE_ACCOUNT
     int      granted[SHM_GRANTS_MAX];
     int      ngrants;
 
     int      anon;      // not in the NAMESPACE at all: shm_lookup()
                          // refuses it, so no process can name its way to
                          // one. Window buffers are anonymous for exactly
-                         // that reason -- this namespace has no
-                         // permissions, and a name would be a way to map
-                         // somebody else's window.
+                         // that reason: no name, nothing to ask for.
     int      creator;   // pid, for QUERY_SHM
     uint32_t serial;    // QUERY_SHM's object identity: never reused, never 0
     uint64_t creator_mm; // its address space, so death can be noticed
@@ -140,20 +131,32 @@ uint64_t shm_created_bytes(int pid) {
 
 static int name_ok(const char *n);
 static int obj_create(const char *name, uint64_t npages, int pid, uint64_t pml4,
-                      int anon, int pub, struct sched_mm *charge);
+                      int anon, int share, struct sched_mm *charge);
 
 
-// May `pid` open object `i`? The creator always may; a public object is
-// open to everyone; otherwise the creator must have said so.
+// May `pid`, running as `euid`, open object `i`? The creator always may;
+// a public object is open to everyone, an account's to the account and
+// root (a root service, remoted, serves the session); otherwise the
+// creator must have granted it.
+enum { SHARE_CREATOR, SHARE_ANYONE, SHARE_ACCOUNT };
+
 static int granted_to(int i, int pid) {
     struct shm_object *o = obj(i);
     for (int g = 0; g < o->ngrants; g++) if (o->granted[g] == pid) return 1;
     return 0;
 }
 
-static int may_open(int i, int pid) {
+static int may_open(int i, int pid, uint32_t euid) {
     struct shm_object *o = obj(i);
-    return o->pub || o->creator == pid || granted_to(i, pid);
+    if (o->share == SHARE_ANYONE || o->creator == pid || granted_to(i, pid)) return 1;
+    return o->share == SHARE_ACCOUNT && (euid == o->uid || euid == 0);
+}
+
+// SHM_USER ON AN OPEN: the object must be an account's, and the caller's
+// own -- so a name another account took first is refused, not trusted.
+static int is_mine(int i, uint32_t euid) {
+    struct shm_object *o = obj(i);
+    return o->share == SHARE_ACCOUNT && o->uid == euid;
 }
 
 static int lookup_locked(const char *name) {
@@ -386,7 +389,7 @@ static int name_ok(const char *n) {
 // `charge`'s address-space lock is the caller's (mmap.c): the limit reads
 // its region table.
 static int obj_create(const char *name, uint64_t npages, int pid, uint64_t pml4,
-                      int anon, int pub, struct sched_mm *charge) {
+                      int anon, int share, struct sched_mm *charge) {
     // Asked before a frame is taken, so a request past what is free fails
     // at once rather than draining the pool and handing it back.
     if (npages > pmm_user_room()) return -ENOMEM;
@@ -417,7 +420,8 @@ static int obj_create(const char *name, uint64_t npages, int pid, uint64_t pml4,
         o->serial = ++g_serial ? g_serial : ++g_serial;   // under tlock(); 0 means "unknown"
         o->creator_mm = pml4;
         o->anon = anon;
-        o->pub = pub;
+        o->share = share;
+        o->uid = cred_euid(cred_current());
         o->refs = 1; // the caller's: the descriptor about to be installed
     }
     tunlock();
@@ -434,13 +438,15 @@ int sys_shm_open(struct syscall_ctx *c) {
     if (!vmm_copy_string_from_user(c->pml4, name, (uint64_t)(uintptr_t)m.name,
                                    sizeof name)) { ret = -EFAULT; goto out; }
     if (!name_ok(name)) { ret = -EINVAL; goto out; }
-    if (m.flags & ~(SHM_CREATE | SHM_EXCL | SHM_PUBLIC | SHM_FROM)) { ret = -EINVAL; goto out; }
+    if (m.flags & ~(SHM_CREATE | SHM_EXCL | SHM_PUBLIC | SHM_USER | SHM_FROM)) { ret = -EINVAL; goto out; }
+    if ((m.flags & SHM_PUBLIC) && (m.flags & SHM_USER)) { ret = -EINVAL; goto out; }
     // FROM names who must ALREADY have made it; creating is the opposite.
     if ((m.flags & SHM_FROM) && ((m.flags & SHM_CREATE) || m.from_pid < 1)) {
         ret = -EINVAL; goto out;
     }
 
     int pid = scheduler_current_tgid();   // the PROCESS: a thread opens what its process may
+    uint32_t euid = cred_euid(cred_current());
     int idx;
     // THE CHECKS AND THE REFERENCE ARE ONE GUARDED STEP: an index found
     // and used later could be a slot freed and reused by then.
@@ -455,12 +461,15 @@ int sys_shm_open(struct syscall_ctx *c) {
         // mixing the wrong client's ring. EPERM because that is this
         // errno table's "not allowed to ask"; there is no EACCES here
         // and one caller does not earn one.
-        else if (!may_open(idx, pid)) ret = -EPERM;
+        else if (!may_open(idx, pid, euid)) ret = -EPERM;
+        else if ((m.flags & SHM_USER) && !is_mine(idx, euid)) ret = -EPERM;
         else if ((m.flags & SHM_FROM) && obj(idx)->creator != m.from_pid) ret = -EPERM;
-        // A SANDBOXED process reaches a public object -- a service's
-        // beacon -- only through its unveil list; its own objects and
-        // ones granted to it are capabilities already (sandbox_abi.h).
-        else if (obj(idx)->pub && obj(idx)->creator != pid && !granted_to(idx, pid) &&
+        // A SANDBOXED process reaches a public or an account's object --
+        // a service's beacon, the clipboard -- only through its unveil
+        // list; its own objects and ones granted to it are capabilities
+        // already (sandbox_abi.h).
+        else if (obj(idx)->share != SHARE_CREATOR && obj(idx)->creator != pid &&
+                 !granted_to(idx, pid) &&
                  !sandbox_shm_public(name))
             ret = -ENOENT;
         if (!ret) obj(idx)->refs++;
@@ -471,8 +480,9 @@ int sys_shm_open(struct syscall_ctx *c) {
         if (!(m.flags & SHM_CREATE)) { ret = -ENOENT; goto out; }
         // A beacon is a NAME others will trust, so making one is the
         // sandbox's PUBLISH: a sandboxed page must not squat a service.
-        if ((m.flags & SHM_PUBLIC) &&
-            sandbox_require(PROMISE_PUBLISH, "shm_open of a public object", c->regs))
+        if ((m.flags & (SHM_PUBLIC | SHM_USER)) &&
+            sandbox_require(PROMISE_PUBLISH, (m.flags & SHM_USER) ? "shm_open of an account's object"
+                                                                  : "shm_open of a public object", c->regs))
             return 0;
         uint64_t npages = m.length / 4096 + (m.length % 4096 != 0);   // no wrap near 2^64
         if (!npages_ok(npages)) { ret = -EINVAL; goto out; }
@@ -484,7 +494,9 @@ int sys_shm_open(struct syscall_ctx *c) {
         // O_CREAT|O_EXCL; without EXCL the caller asks again and opens it.
         struct sched_mm *mm = scheduler_current_mm();
         if (mm) mm_lock(mm);
-        idx = obj_create(name, npages, pid, c->pml4, 0, (m.flags & SHM_PUBLIC) ? 1 : 0, mm);
+        int share = (m.flags & SHM_PUBLIC) ? SHARE_ANYONE :
+                    (m.flags & SHM_USER) ? SHARE_ACCOUNT : SHARE_CREATOR;
+        idx = obj_create(name, npages, pid, c->pml4, 0, share, mm);
         if (mm) mm_unlock(mm);
         if (idx < 0) { ret = idx; goto out; }
     }
@@ -585,7 +597,10 @@ static int shm_q_fill(int index, void *out) {
         r->bytes = (uint64_t)o->npages * 4096ULL;
         r->refs = (uint32_t)o->refs;
         r->creator_pid = (int32_t)o->creator;
-        r->flags = o->unlinked ? QUERY_SHM_UNLINKED : 0;
+        r->flags = (o->unlinked ? QUERY_SHM_UNLINKED : 0) |
+                   (o->share == SHARE_ANYONE ? QUERY_SHM_PUBLIC : 0) |
+                   (o->share == SHARE_ACCOUNT ? QUERY_SHM_ACCOUNT : 0);
+        r->uid = o->uid;
         r->serial = o->serial;
         tunlock();
         return 1;
@@ -732,6 +747,29 @@ KTEST("shm", "a dead creator's NAME goes, so a server notices") {
     shm_put(idx);                       // the server lets go
     KTEST_ASSERT_EQ((int)shm_npages(idx), 0);
     shm_put(second);
+}
+
+KTEST("shm", "an account's object opens to its uid and root, and to nobody else") {
+    // Creator pid 42 running as uid 1000 (the KTEST's own cred is root's).
+    int acct = obj_create("ktest-shm-acct", 1, 42, 0, 0, SHARE_ACCOUNT, 0);
+    int priv = obj_create("ktest-shm-priv", 1, 42, 0, 0, SHARE_CREATOR, 0);
+    int pub  = obj_create("ktest-shm-pub", 1, 42, 0, 0, SHARE_ANYONE, 0);
+    KTEST_ASSERT(acct >= 0 && priv >= 0 && pub >= 0);
+    obj(acct)->uid = obj(priv)->uid = obj(pub)->uid = 1000;
+
+    KTEST_ASSERT_EQ(may_open(acct, 43, 1000), 1);   // the account's other process
+    KTEST_ASSERT_EQ(may_open(acct, 43, 0), 1);      // root's
+    KTEST_ASSERT_EQ(may_open(acct, 43, 1001), 0);   // another account's
+    KTEST_ASSERT_EQ(may_open(acct, 42, 1001), 1);   // the creator, whatever it runs as now
+    KTEST_ASSERT_EQ(may_open(priv, 43, 1000), 0);   // private stays the creator's...
+    KTEST_ASSERT_EQ(may_open(priv, 43, 0), 0);      // ...even for root
+    KTEST_ASSERT_EQ(may_open(pub, 43, 1001), 1);    // public is anyone's
+    KTEST_ASSERT_EQ(is_mine(acct, 1000), 1);        // SHM_USER on an open: the account's own...
+    KTEST_ASSERT_EQ(is_mine(acct, 0), 0);           // ...not root's, who opens without it
+    KTEST_ASSERT_EQ(is_mine(pub, 1000), 0);         // ...and never a public squatter's
+    shm_put(acct);
+    shm_put(priv);
+    shm_put(pub);
 }
 
 KTEST("shm", "a dead address space drops its mappings") {

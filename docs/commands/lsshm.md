@@ -11,11 +11,13 @@
 ## Description
 
 Every shared-memory object that exists right now: its name, its size,
-how many references it has, and the pid that created it.
+how many references it has, the pid that created it, and who may open
+it.
 
-    NAME                            BYTES  REFS  CREATOR
-    snd.server                       4096     1  11
-    snd.14                          69632     4  14
+    NAME                            BYTES  REFS  CREATOR  OPEN
+    snd.server                       4096     1       11  anyone
+    snd.14                          69632     4       14  creator
+    clipboard                       77824     6       23  uid 1000
 
 **A namespace nothing can list is a namespace you reason about instead
 of reading**, which is the whole reason this exists. Shared memory here
@@ -28,9 +30,8 @@ inference from a log.
 **A row named `(anon)` is a NAMELESS object** — one a kernel subsystem
 made for itself, which nothing can reach through `SYS_SHM_OPEN` because
 it has no name to pass. Every open window's pixels are one of these
-(two per window, one per buffer), and they are nameless on purpose: this
-namespace has no permissions, so a name would be a way for any process
-to map somebody else's window.
+(two per window, one per buffer), and they are nameless on purpose: no
+name, nothing for another process to ask for.
 
 It earned its place immediately: a stalled audio client was diagnosed
 from two rows carrying the SAME name, one of them `(unlinked)`, which
@@ -43,6 +44,12 @@ has mapped its own ring and had it mapped by a server reads 4. An
 object with `(unlinked)` has been removed from the namespace and is
 kept alive only by whoever still holds it; nothing new can open that
 name, and the frames go at the last reference.
+
+`OPEN` is who may open it by name (`SHM_*` in `abi/syscall_abi.h`):
+`creator` -- the creator and the pids it granted (`SYS_SHM_GRANT`);
+`anyone` -- a public beacon; `uid N` -- every process of that account,
+and root's, as the session's clipboard is. Anyone else is refused with
+`EPERM`; a sandboxed process also needs the name in its unveil list.
 
 `CREATOR` is the pid that made it. **When that process dies the name is
 released at once**, even though the frames may live on, so a row whose
