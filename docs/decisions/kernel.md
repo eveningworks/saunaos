@@ -7280,7 +7280,10 @@ frequency scaling without HWP") will have to take the lower of the two.
 **The critical trip is the kernel's**, as the critical battery is (the
 entry above): SIGPWR to init on two readings a second apart;
 `thermal.crt=-1` turns it off, Linux's word. The desktop only tells
-(`wm_thermal.c`: "Running hot" once a spell, "too hot" within 5 C).
+(`wm_thermal.c`: "Running hot" once a spell, "too hot" within 5 C), and
+`desktop.hot_notices` turns both off for a sensor that reads wrongly
+high -- the cooling and the shutdown stay, as `thermal.crt=` is the
+kernel's word for those.
 
 **The runtime GPEs run, on every machine with `acpi=uacpi`.** Every
 `_PRW`'s GPE is marked for wake, then `uacpi_finalize_gpe_initialization()`

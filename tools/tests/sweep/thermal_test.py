@@ -17,7 +17,8 @@ the ASUS's EC query does, so the kernel's Notify path is what runs.
    in a guest, and says why), "Running hot" goes up once; under it again
    the spell ends.
 5. **Too hot** -- within 5 C of critical the critical notice goes up, and
-   comes down when it cools.
+   comes down when it cools. With `desktop.hot_notices=off` neither notice
+   goes up while the kernel still slows the CPUs.
 6. **Critical** -- at 100 C, two readings a second apart, the kernel sends
    init SIGPWR: the guest powers itself off.
 
@@ -152,6 +153,35 @@ def passive_and_notices(dbg, res):
     chk(res, t.get("zones") and not t.get("slowing"), f"...and the passive spell ends ({t})")
 
 
+def notices_off(dbg, res):
+    """The setting off: the trips crossed again and no card raised; back on
+    while still near critical, "too hot" -- a state, not news -- goes up."""
+    def raised():
+        log = dbg.send("sh dmesg") or ""
+        return log.count("wm: running hot"), log.count("wm: too hot")
+    dbg.send("gui spawn /bin/config set desktop.hot_notices off")
+    t = wait(lambda t: t.get("enabled") is False, lambda: thermal(dbg))
+    if not chk(res, t.get("zones") and t.get("enabled") is False,
+               f"desktop.hot_notices=off reaches the desktop ({t.get('enabled')})"):
+        return
+    before = raised()
+    evaluate(dbg, "_SB.TSTZ", 97)
+    t = wait(lambda t: t.get("slowing") and t.get("near_critical"), lambda: thermal(dbg))
+    time.sleep(2)  # sleep-ok: two of the WM's once-a-second polls, for a card that must NOT come
+    after = raised()
+    t = thermal(dbg)
+    chk(res, t.get("slowing") and t.get("near_critical") and before[0] > 0 and after == before
+        and not t.get("hot_notice") and not t.get("too_hot_notice"),
+        f"off: the kernel still slows the CPUs near critical, and neither notice goes up ({before} -> {after})")
+    dbg.send("gui spawn /bin/config set desktop.hot_notices on")
+    t = wait(lambda t: t.get("too_hot_notice"), lambda: thermal(dbg))
+    state = dbg.json("gui state --json") or {}
+    chk(res, t.get("too_hot_notice") and state.get("notice", {}).get("title") == "The computer is too hot",
+        "back on while still near critical, 'too hot' goes up at once")
+    evaluate(dbg, "_SB.TSTZ", 60)
+    wait(lambda t: not t.get("slowing") and not t.get("too_hot_notice"), lambda: thermal(dbg), 30)
+
+
 def critical(vm, dbg, res):
     evaluate(dbg, "_SB.TSTZ", 101)
     end = time.time() + 30
@@ -219,6 +249,7 @@ def run_in(args, tmp):
             kernel_facts(dbg, res)
             task_manager(dbg, qmp, res, tmp)
             passive_and_notices(dbg, res)
+            notices_off(dbg, res)
             critical(vm, dbg, res)
         finally:
             dbg.close()

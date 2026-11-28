@@ -54,8 +54,8 @@ void crash_notice_info_from(const char *app, const char *title, const char *sub,
 // by one -- "Running hot" with Task Manager on it.
 void crash_notice_info_act(const char *app, const char *title, const char *sub, const char *icon,
                            const char *button, void (*act)(void));
-// Takes down an info card by its title -- news that stopped being true
-// (the machine cooled).
+// Takes down an info card (crash_notice_info_from/_act's) by its title --
+// news that stopped being true, or that the person turned off.
 void crash_notice_drop_info(const char *title);
 
 // A client's notification (WIN_REQ_NOTIFY, assembled by wm_notify.c):

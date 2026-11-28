@@ -1,0 +1,11 @@
+Type=enum
+File=/etc/desktop.conf
+Scope=user
+Label=Warn when the computer runs hot
+Category=Power
+Group=Temperature
+Default=on
+Choices=on,off
+Description=A notice when the processor is slowed down to cool it, and a warning near the temperature it shuts down at. Turn it off if a sensor reads wrongly high; the cooling and the shutdown still happen.
+Choice.on=On
+Choice.off=Off

@@ -413,7 +413,7 @@ TCO watchdog driver (`docs/decisions/kernel.md`,
   wake from S5 armed, then `uacpi_finalize_gpe_initialization()` -- the
   firmware's `_Lxx`/`_Exx` run. Neither runs in the KTEST's inline
   instance. The desktop's half: Task Manager's Temperature device and the
-  hot notices (`wm_thermal.c`). Why each is shaped so:
+  hot notices (`wm_thermal.c`, `desktop.hot_notices`, on by default). Why each is shaped so:
   `docs/decisions/kernel.md`, "A thermal zone is read on a timer...".
 
 **Testing.** uACPI's own suite (`tests/run_tests.py`, AML test cases

@@ -2573,10 +2573,11 @@ static void cmd_thermal(struct dbg_out *o, int json) {
         return;
     }
     dbg_out_printf(o, "{\"zones\":%d,\"temp_mc\":%lld,\"passive_mc\":%lld,\"critical_mc\":%lld,"
-                      "\"slowing\":%s,\"near_critical\":%s,\"hot_notice\":%s,\"too_hot_notice\":%s}\r\n",
+                      "\"slowing\":%s,\"near_critical\":%s,\"hot_notice\":%s,\"too_hot_notice\":%s,"
+                      "\"enabled\":%s}\r\n",
                    d.zones, d.temp_mc, d.passive_mc, d.critical_mc, d.slowing ? "true" : "false",
                    d.near_critical ? "true" : "false", d.hot_notice ? "true" : "false",
-                   d.too_hot_notice ? "true" : "false");
+                   d.too_hot_notice ? "true" : "false", d.enabled ? "true" : "false");
 }
 
 static void cmd_remote(struct dbg_out *o, int json) {

@@ -272,7 +272,7 @@ void crash_notice_info(const char *title, const char *sub, const char *icon,
 
 void crash_notice_drop_info(const char *title) {
     for (int i = g_count - 1; i >= 0; i--)
-        if (g_n[i].kind == KIND_ACTION && !g_n[i].act && !k_strcmp(g_n[i].title, title)) drop(i);
+        if (g_n[i].kind == KIND_ACTION && (!g_n[i].act || g_n[i].own) && !k_strcmp(g_n[i].title, title)) drop(i);
 }
 
 static void info_card(const char *app, const char *title, const char *sub, const char *icon,

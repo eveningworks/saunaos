@@ -183,7 +183,8 @@ lid that wake from soft off armed, and the firmware's runtime GPE methods
 running (`docs/aml-design.md`, stage 4). Task Manager shows a Temperature
 device under CPU, a line per sensor with the trips drawn across it, and
 the desktop says "Running hot" when passive cooling starts and "The
-computer is too hot" near the critical trip. `/bin/acpi`
+computer is too hot" near the critical trip -- both on by default, and off
+with one switch on System Settings' Power page (`desktop.hot_notices`). `/bin/acpi`
 prints the lot, the interpreter's line, and the MADT's processor list
 with which cores the kernel started.
 

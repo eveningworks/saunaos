@@ -1,0 +1,2 @@
+Label=Temperature
+Description=The firmware's thermal zones slow the processor down when it is hot and shut the machine down at their critical temperature.

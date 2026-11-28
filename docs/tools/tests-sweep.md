@@ -1156,7 +1156,9 @@ report is ON only after `enter_gui()`").
   as reference lines (the describe op's `ref`) and the zone's legend
   reading; passive cooling over 80 C (not applied in a guest, and `acpi`
   says why), "Running hot" up once, "The computer is too hot" within 5 C of
-  critical and down again once cooled; and last the critical trip, read
+  critical and down again once cooled; with `desktop.hot_notices=off`
+  neither notice while the kernel still slows the CPUs, and back on while
+  still near critical "too hot" at once; and last the critical trip, read
   twice a second apart, powering the guest off. Some 2 minutes. Positive
   control (`--positive-control`): booted without the table, every check
   after the boot goes red but the runtime GPEs (QEMU's own `_GPE`) and Task
