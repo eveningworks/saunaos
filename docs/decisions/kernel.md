@@ -7188,6 +7188,25 @@ it was without the word. The cost until stage 4c runs `_PTS`: under
 again need two presses to start after a session -- acceptable behind a
 word that is off by default, and 4c's acceptance test is exactly that.
 
+**MEASURED 2026-11-28 ON THE ASUS, AT 36792c5a (stage 4c built): ONE PRESS
+EVERY WAY, SO THE CONTROL DID NOT DISCRIMINATE.** Shut down and started
+again, one shutdown each after a session of minutes: `acpi=uacpi` (`_PTS`
+run, uACPI's S5 in ACPI mode) from the Start menu and from the power
+button -- one press; `acpi=uacpi acpimode=poweroff` (no `_PTS`, the
+ladder's S5 in ACPI mode, the EC served) -- one press; `acpimode=boot`
+WITHOUT the interpreter (a session in ACPI mode, the EC unserved, handed
+back for a legacy S5 -- what measured two presses on 2026-10-09) -- one
+press; and that last one again with the TCO watchdog driver skipped
+(a temporary `noitco`, reverted -- the driver landed 2026-11-15, after
+the two-press measurement, and clears the chipset's latched TCO status
+at every boot) -- one press, so it is not the watchdog. So the
+two-press start did not reproduce on this build at all, and what
+changed since is NOT established; a long session with EC events (lid,
+battery, the charger) left pending at shutdown is the untested
+candidate. `_PTS` stays
+because Linux and Windows run it, not because it was shown necessary
+here.
+
 **Rejected:** a 20 ms busy bound (the smallest change, but a slow EC then
 holds core 0 with interrupts off for 20 ms a byte); burst mode (Linux
 uses it only around multi-byte accesses, and nothing here has needed it).

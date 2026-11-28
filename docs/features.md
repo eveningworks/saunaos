@@ -167,9 +167,11 @@ from a byte scan of `_S5_`: a `Name` holding a `Package` of constants
 is data with a fixed grammar, and the scan refuses any shape it does
 not recognise rather than guessing. **The firmware's AML can be run**
 by uACPI, vendored into the kernel, with the boot word `acpi=uacpi`: it
-loads the namespace and runs its `_STA`/`_INI` methods, and nothing
-acts on it yet -- the embedded controller, `_PTS` and the power button
-through it come next (`docs/aml-design.md`, stage 4). `/bin/acpi`
+loads the namespace and runs its `_STA`/`_INI` methods, serves the
+embedded controller (its address space and its `_Qxx` events: the lid
+and brightness keys on the ASUS), takes the power button as its fixed
+event, and powers off after the firmware's `_PTS(5)`, the old path kept
+as the fallback (`docs/aml-design.md`, stage 4). `/bin/acpi`
 prints the lot, the interpreter's line, and the MADT's processor list
 with which cores the kernel started.
 

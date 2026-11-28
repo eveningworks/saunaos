@@ -1107,8 +1107,12 @@ the power button still armed, the kernel suite `uacpi` running it on
 every `make test`; on the ASUS 4339 nodes in 43 ms. **Stage 4b BUILT
 2026-11-28**: the embedded controller served (`uacpi_ec.c`) -- on the
 ASUS `acpi=uacpi` now enters ACPI mode, and the lid and brightness keys
-arrive as `_Qxx` events. Next is 4c, power through uACPI (`_PTS`), whose
-acceptance is the ASUS starting again on one press.
+arrive as `_Qxx` events. **Stage 4c BUILT 2026-11-28** (36792c5a):
+power-off runs `_PTS(5)` and uACPI's S5, the power button is uACPI's
+fixed event; the ASUS starts on one press -- but so it did with `_PTS`
+skipped and without the interpreter, so the old two-press start did not
+reproduce (`docs/aml-design.md`). The ASUS runs `acpi=uacpi` daily; next
+is flipping the default after a few clean days, then 4d.
 
 ### The brightness keys change the panel's brightness
 

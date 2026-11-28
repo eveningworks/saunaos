@@ -358,6 +358,21 @@ handler that issues QR_EC (0x84) and runs the `_Qxx` it names --
   again on ONE press** -- after a Start-menu shutdown and after a button
   press. Then `acpi=uacpi` becomes the default and the EC-legacy
   exception goes.
+- **What building 4c found (BUILT 2026-11-28, 36792c5a):**
+  - **The acceptance passed and the control did not discriminate**: the
+    ASUS started on one press after both shutdowns, and ALSO with `_PTS`
+    skipped, with no interpreter at all, and with no interpreter and no
+TCO watchdog driver (`docs/decisions/kernel.md`,
+    the embedded-controller entry) -- the two-press start did not
+    reproduce on this build. The ASUS boots `acpi=uacpi` by default for
+    daily use; the project default flips after a few clean days.
+  - **The ladder stays the fallback** for a namespace not READY, no
+    `\_S5`, an `acpimode=` experiment, a sleep write that returned, a
+    failed `_PTS` when the byte scan has `_S5_` -- and for the WRITE on
+    hardware-reduced firmware, whose uACPI path polls `WAK_STS` with no
+    bound and interrupts off.
+  - **uACPI's fixed-event handler runs under the SCI's lock**, so the
+    press is noted there and SIGPWR sent after the dispatch returns.
 - **4d -- retire what it replaces.** `_PRT` routing (`acpi_prt.c`) and
   the `_S5_` scan move onto uACPI -- but PCI drivers probe at `INIT_BUS`,
   before `kacpid` can exist, so boot-time routing needs `acpi_prt.c`'s
