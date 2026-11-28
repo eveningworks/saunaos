@@ -36,7 +36,6 @@
 #define CLIP_SHM_NAME "clipboard"
 
 #define CLIP_BYTES 65536 // the packed payload's cap
-#define CLIP_MAX   64    // and how many entries it may name
 #define CLIP_DRAG_BYTES 8192 // the drag slot's payload cap -- paths, not text
 
 #define CLIP_OP_NONE 0

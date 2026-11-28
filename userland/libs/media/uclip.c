@@ -13,6 +13,7 @@
 
 static volatile struct clip_page *g_page;
 static int g_out_is_drag;   // uclip_add() stages for the drag slot
+static int g_out_failed;    // an add was refused: the commit refuses the whole set
 static int g_fd = -1;
 
 // Maps the clipboard, once. Returns NULL when the service is not
@@ -153,7 +154,7 @@ static void unlock_page(volatile struct clip_page *pg) {
 static int commit(void) {
     volatile struct clip_page *pg = page();
     if (!pg) return 0;
-    if (g_out.len > CLIP_BYTES || g_out.count > CLIP_MAX) return 0;
+    if (g_out.len > CLIP_BYTES) return 0;
     if (!lock_page(pg)) return 0;
 
     // ODD while the update is in flight -- the reader's whole signal.
@@ -177,14 +178,15 @@ void uclip_begin(struct uclip *c, int op) {
     memset(&g_out, 0, sizeof g_out);
     g_out.op = (uint32_t)op;
     g_out.kind = UCLIP_KIND_FILES;
+    g_out_is_drag = 0;
+    g_out_failed = 0;
 }
 
 int uclip_add(struct uclip *c, const char *path) {
     (void)c;
-    if (!path || !*path) return 0;
+    if (!path || !*path) { g_out_failed = 1; return 0; }
     uint32_t n = (uint32_t)strlen(path) + 1;      // the NUL is payload
-    if (g_out.count >= CLIP_MAX) return 0;
-    if (g_out.len + n > (g_out_is_drag ? CLIP_DRAG_BYTES : CLIP_BYTES)) return 0;
+    if (g_out.len + n > (g_out_is_drag ? CLIP_DRAG_BYTES : CLIP_BYTES)) { g_out_failed = 1; return 0; }
     memcpy(g_out.data + g_out.len, path, n);
     g_out.len += n;
     g_out.count++;
@@ -193,7 +195,7 @@ int uclip_add(struct uclip *c, const char *path) {
 
 int uclip_commit(struct uclip *c) {
     (void)c;
-    if (g_out.count == 0) return 0;
+    if (g_out.count == 0 || g_out_failed) return 0;
     return commit();
 }
 
@@ -207,7 +209,7 @@ void uclip_drag_begin(struct uclip *c) {
 static int commit_drag(void) {
     volatile struct clip_page *pg = page();
     if (!pg) return 0;
-    if (g_out.len > CLIP_DRAG_BYTES || g_out.count > CLIP_MAX) return 0;
+    if (g_out.len > CLIP_DRAG_BYTES) return 0;
     if (!lock_page(pg)) return 0;
     __atomic_store_n(&pg->seq, pg->seq + 1u, __ATOMIC_RELEASE);
     pg->drag_kind = g_out.kind;
@@ -224,7 +226,7 @@ static int commit_drag(void) {
 int uclip_drag_commit(struct uclip *c) {
     (void)c;
     g_out_is_drag = 0;
-    if (g_out.count == 0) return 0;
+    if (g_out.count == 0 || g_out_failed) return 0;
     return commit_drag();
 }
 

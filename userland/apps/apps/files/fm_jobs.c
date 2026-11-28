@@ -373,7 +373,7 @@ static int clip_put(int op, const char *what) {
     // A REFUSAL IS SAID OUT LOUD and puts nothing on the clipboard: a
     // partial cut set pasted is files silently left behind.
     if (refused || !uclip_commit(&c)) {
-        set_note("too many to copy at once");
+        set_note("the clipboard could not take them");
         ulogf("files: clipboard refused %d entries\n", n);
         return 0;
     }

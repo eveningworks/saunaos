@@ -1930,7 +1930,8 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
                 {
                     static struct uclip c;
                     int n = add_selection(&c, drag.index, uclip_drag_begin);
-                    if (uclip_drag_commit(&c)) wm_dnd_start_desktop(n);
+                    if (n > 0 && uclip_drag_commit(&c)) wm_dnd_start_desktop(n);
+                    else if (n < 0) wm_logf("desktop: the drag slot refused the selection");
                 }
             }
         }
@@ -2166,7 +2167,8 @@ static void clip_begin_cut(struct uclip *c)  { uclip_begin(c, UCLIP_CUT); }
 
 // Starts `c` with `begin`, then adds the selection's paths -- or, when it
 // is empty, or `icon` (>= 0) is not in it, that one icon's. Returns how
-// many went in.
+// many went in, or -1 when one could not (its path, or the clipboard's
+// room): the set is then refused whole, never committed short.
 static int add_selection(struct uclip *c, int icon, void (*begin)(struct uclip *)) {
     int n = 0;
     begin(c);
@@ -2174,22 +2176,30 @@ static int add_selection(struct uclip *c, int icon, void (*begin)(struct uclip *
         for (int i = 0; i < item_count(); i++) {
             if (!rb_is_selected(&sel, i)) continue;
             char *path = item_path(i);
-            if (path) { uclip_add(c, path); n++; }
+            int ok = path && uclip_add(c, path);
             free(path);
+            if (!ok) return -1;
+            n++;
         }
     if (n == 0 && icon >= 0) {
         char *path = item_path(icon);
-        if (path) { uclip_add(c, path); n = 1; }
+        int ok = path && uclip_add(c, path);
         free(path);
+        if (!ok) return -1;
+        n = 1;
     }
     return n;
 }
 
 static void clip_put(int op) {
-    static struct uclip c;   // 64 KiB: media/uclip.h says why static
+    static struct uclip c;
     int n = add_selection(&c, -1, op == UCLIP_CUT ? clip_begin_cut : clip_begin_copy);
     if (n == 0) return;
-    if (!uclip_commit(&c)) wm_logf("desktop: clipboard refused %d item(s)", n);
+    if (n < 0 || !uclip_commit(&c)) {
+        wm_logf("desktop: clipboard refused %d item(s)", rb_selected_count(&sel));
+        crash_notice_info(op == UCLIP_CUT ? "Nothing was cut" : "Nothing was copied",
+                          "The clipboard could not take the selected items.", "tb-copy", 0, 0);
+    }
 }
 static void menu_copy(void *ctx) { (void)ctx; clip_put(UCLIP_COPY); }
 static void menu_cut(void *ctx)  { (void)ctx; clip_put(UCLIP_CUT); }
